@@ -50,6 +50,8 @@ private:
     _Sent __last_ = _Sent();
 };
 
+_LIBCPP_CTAD_SUPPORTED_FOR_TYPE(move_sentinel);
+
 #endif // _LIBCPP_STD_VER > 17
 
 _LIBCPP_END_NAMESPACE_STD

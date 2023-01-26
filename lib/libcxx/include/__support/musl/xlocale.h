@@ -14,8 +14,8 @@
 // in Musl.
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP_SUPPORT_MUSL_XLOCALE_H
-#define _LIBCPP_SUPPORT_MUSL_XLOCALE_H
+#ifndef _LIBCPP___SUPPORT_MUSL_XLOCALE_H
+#define _LIBCPP___SUPPORT_MUSL_XLOCALE_H
 
 #include <cstdlib>
 #include <cwchar>
@@ -39,7 +39,7 @@ wcstoll_l(const wchar_t *__nptr, wchar_t **__endptr, int __base, locale_t) {
   return ::wcstoll(__nptr, __endptr, __base);
 }
 
-inline _LIBCPP_HIDE_FROM_ABI long long
+inline _LIBCPP_HIDE_FROM_ABI unsigned long long
 wcstoull_l(const wchar_t *__nptr, wchar_t **__endptr, int __base, locale_t) {
   return ::wcstoull(__nptr, __endptr, __base);
 }
@@ -53,4 +53,4 @@ wcstold_l(const wchar_t *__nptr, wchar_t **__endptr, locale_t) {
 }
 #endif
 
-#endif // _LIBCPP_SUPPORT_MUSL_XLOCALE_H
+#endif // _LIBCPP___SUPPORT_MUSL_XLOCALE_H

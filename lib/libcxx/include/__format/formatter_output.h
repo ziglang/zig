@@ -10,16 +10,23 @@
 #ifndef _LIBCPP___FORMAT_FORMATTER_OUTPUT_H
 #define _LIBCPP___FORMAT_FORMATTER_OUTPUT_H
 
-#include <__algorithm/copy.h>
-#include <__algorithm/copy_n.h>
-#include <__algorithm/fill_n.h>
-#include <__algorithm/transform.h>
+#include <__algorithm/ranges_copy.h>
+#include <__algorithm/ranges_fill_n.h>
+#include <__algorithm/ranges_transform.h>
+#include <__chrono/statically_widen.h>
+#include <__concepts/same_as.h>
 #include <__config>
+#include <__format/buffer.h>
+#include <__format/concepts.h>
+#include <__format/escaped_output_table.h>
 #include <__format/formatter.h>
 #include <__format/parser_std_format_spec.h>
 #include <__format/unicode.h>
+#include <__iterator/back_insert_iterator.h>
+#include <__type_traits/make_unsigned.h>
 #include <__utility/move.h>
 #include <__utility/unreachable.h>
+#include <charconv>
 #include <cstddef>
 #include <string>
 #include <string_view>
@@ -86,6 +93,74 @@ __padding_size(size_t __size, size_t __width, __format_spec::__alignment __align
   __libcpp_unreachable();
 }
 
+/// Copy wrapper.
+///
+/// This uses a "mass output function" of __format::__output_buffer when possible.
+template <__fmt_char_type _CharT, __fmt_char_type _OutCharT = _CharT>
+_LIBCPP_HIDE_FROM_ABI auto __copy(basic_string_view<_CharT> __str, output_iterator<const _OutCharT&> auto __out_it)
+    -> decltype(__out_it) {
+  if constexpr (_VSTD::same_as<decltype(__out_it), _VSTD::back_insert_iterator<__format::__output_buffer<_OutCharT>>>) {
+    __out_it.__get_container()->__copy(__str);
+    return __out_it;
+  } else if constexpr (_VSTD::same_as<decltype(__out_it),
+                                      typename __format::__retarget_buffer<_OutCharT>::__iterator>) {
+    __out_it.__buffer_->__copy(__str);
+    return __out_it;
+  } else {
+    return std::ranges::copy(__str, _VSTD::move(__out_it)).out;
+  }
+}
+
+template <__fmt_char_type _CharT, __fmt_char_type _OutCharT = _CharT>
+_LIBCPP_HIDE_FROM_ABI auto
+__copy(const _CharT* __first, const _CharT* __last, output_iterator<const _OutCharT&> auto __out_it)
+    -> decltype(__out_it) {
+  return __formatter::__copy(basic_string_view{__first, __last}, _VSTD::move(__out_it));
+}
+
+template <__fmt_char_type _CharT, __fmt_char_type _OutCharT = _CharT>
+_LIBCPP_HIDE_FROM_ABI auto __copy(const _CharT* __first, size_t __n, output_iterator<const _OutCharT&> auto __out_it)
+    -> decltype(__out_it) {
+  return __formatter::__copy(basic_string_view{__first, __n}, _VSTD::move(__out_it));
+}
+
+/// Transform wrapper.
+///
+/// This uses a "mass output function" of __format::__output_buffer when possible.
+template <__fmt_char_type _CharT, __fmt_char_type _OutCharT = _CharT, class _UnaryOperation>
+_LIBCPP_HIDE_FROM_ABI auto
+__transform(const _CharT* __first,
+            const _CharT* __last,
+            output_iterator<const _OutCharT&> auto __out_it,
+            _UnaryOperation __operation) -> decltype(__out_it) {
+  if constexpr (_VSTD::same_as<decltype(__out_it), _VSTD::back_insert_iterator<__format::__output_buffer<_OutCharT>>>) {
+    __out_it.__get_container()->__transform(__first, __last, _VSTD::move(__operation));
+    return __out_it;
+  } else if constexpr (_VSTD::same_as<decltype(__out_it),
+                                      typename __format::__retarget_buffer<_OutCharT>::__iterator>) {
+    __out_it.__buffer_->__transform(__first, __last, _VSTD::move(__operation));
+    return __out_it;
+  } else {
+    return std::ranges::transform(__first, __last, _VSTD::move(__out_it), __operation).out;
+  }
+}
+
+/// Fill wrapper.
+///
+/// This uses a "mass output function" of __format::__output_buffer when possible.
+template <__fmt_char_type _CharT, output_iterator<const _CharT&> _OutIt>
+_LIBCPP_HIDE_FROM_ABI _OutIt __fill(_OutIt __out_it, size_t __n, _CharT __value) {
+  if constexpr (_VSTD::same_as<decltype(__out_it), _VSTD::back_insert_iterator<__format::__output_buffer<_CharT>>>) {
+    __out_it.__get_container()->__fill(__n, __value);
+    return __out_it;
+  } else if constexpr (_VSTD::same_as<decltype(__out_it), typename __format::__retarget_buffer<_CharT>::__iterator>) {
+    __out_it.__buffer_->__fill(__n, __value);
+    return __out_it;
+  } else {
+    return std::ranges::fill_n(_VSTD::move(__out_it), __n, __value);
+  }
+}
+
 template <class _OutIt, class _CharT>
 _LIBCPP_HIDE_FROM_ABI _OutIt __write_using_decimal_separators(_OutIt __out_it, const char* __begin, const char* __first,
                                                               const char* __last, string&& __grouping, _CharT __sep,
@@ -97,22 +172,22 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __write_using_decimal_separators(_OutIt __out_it, c
   __padding_size_result __padding = {0, 0};
   if (__specs.__alignment_ == __format_spec::__alignment::__zero_padding) {
     // Write [sign][prefix].
-    __out_it = _VSTD::copy(__begin, __first, _VSTD::move(__out_it));
+    __out_it = __formatter::__copy(__begin, __first, _VSTD::move(__out_it));
 
     if (__specs.__width_ > __size) {
       // Write zero padding.
       __padding.__before_ = __specs.__width_ - __size;
-      __out_it = _VSTD::fill_n(_VSTD::move(__out_it), __specs.__width_ - __size, _CharT('0'));
+      __out_it            = __formatter::__fill(_VSTD::move(__out_it), __specs.__width_ - __size, _CharT('0'));
     }
   } else {
     if (__specs.__width_ > __size) {
       // Determine padding and write padding.
-      __padding = __padding_size(__size, __specs.__width_, __specs.__alignment_);
+      __padding = __formatter::__padding_size(__size, __specs.__width_, __specs.__alignment_);
 
-      __out_it = _VSTD::fill_n(_VSTD::move(__out_it), __padding.__before_, __specs.__fill_);
+      __out_it = __formatter::__fill(_VSTD::move(__out_it), __padding.__before_, __specs.__fill_);
     }
     // Write [sign][prefix].
-    __out_it = _VSTD::copy(__begin, __first, _VSTD::move(__out_it));
+    __out_it = __formatter::__copy(__begin, __first, _VSTD::move(__out_it));
   }
 
   auto __r = __grouping.rbegin();
@@ -133,10 +208,10 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __write_using_decimal_separators(_OutIt __out_it, c
   while (true) {
     if (__specs.__std_.__type_ == __format_spec::__type::__hexadecimal_upper_case) {
       __last = __first + *__r;
-      __out_it = _VSTD::transform(__first, __last, _VSTD::move(__out_it), __hex_to_upper);
+      __out_it = __formatter::__transform(__first, __last, _VSTD::move(__out_it), __hex_to_upper);
       __first = __last;
     } else {
-      __out_it = _VSTD::copy_n(__first, *__r, _VSTD::move(__out_it));
+      __out_it = __formatter::__copy(__first, *__r, _VSTD::move(__out_it));
       __first += *__r;
     }
 
@@ -147,7 +222,7 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __write_using_decimal_separators(_OutIt __out_it, c
     *__out_it++ = __sep;
   }
 
-  return _VSTD::fill_n(_VSTD::move(__out_it), __padding.__after_, __specs.__fill_);
+  return __formatter::__fill(_VSTD::move(__out_it), __padding.__after_, __specs.__fill_);
 }
 
 /// Writes the input to the output with the required padding.
@@ -155,12 +230,10 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __write_using_decimal_separators(_OutIt __out_it, c
 /// Since the output column width is specified the function can be used for
 /// ASCII and Unicode output.
 ///
-/// \pre [\a __first, \a __last) is a valid range.
 /// \pre \a __size <= \a __width. Using this function when this pre-condition
 ///      doesn't hold incurs an unwanted overhead.
 ///
-/// \param __first     Pointer to the first element to write.
-/// \param __last      Pointer beyond the last element to write.
+/// \param __str       The string to write.
 /// \param __out_it    The output iterator to write to.
 /// \param __specs     The parsed formatting specifications.
 /// \param __size      The (estimated) output column width. When the elements
@@ -174,31 +247,42 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __write_using_decimal_separators(_OutIt __out_it, c
 /// conversion, which means the [\a __first, \a __last) always contains elements
 /// of the type \c char.
 template <class _CharT, class _ParserCharT>
-_LIBCPP_HIDE_FROM_ABI auto __write(
-    const _CharT* __first,
-    const _CharT* __last,
-    output_iterator<const _CharT&> auto __out_it,
-    __format_spec::__parsed_specifications<_ParserCharT> __specs,
-    ptrdiff_t __size) -> decltype(__out_it) {
-  _LIBCPP_ASSERT(__first <= __last, "Not a valid range");
-
+_LIBCPP_HIDE_FROM_ABI auto
+__write(basic_string_view<_CharT> __str,
+        output_iterator<const _CharT&> auto __out_it,
+        __format_spec::__parsed_specifications<_ParserCharT> __specs,
+        ptrdiff_t __size) -> decltype(__out_it) {
   if (__size >= __specs.__width_)
-    return _VSTD::copy(__first, __last, _VSTD::move(__out_it));
+    return __formatter::__copy(__str, _VSTD::move(__out_it));
 
   __padding_size_result __padding = __formatter::__padding_size(__size, __specs.__width_, __specs.__std_.__alignment_);
-  __out_it = _VSTD::fill_n(_VSTD::move(__out_it), __padding.__before_, __specs.__fill_);
-  __out_it = _VSTD::copy(__first, __last, _VSTD::move(__out_it));
-  return _VSTD::fill_n(_VSTD::move(__out_it), __padding.__after_, __specs.__fill_);
+  __out_it                        = __formatter::__fill(_VSTD::move(__out_it), __padding.__before_, __specs.__fill_);
+  __out_it                        = __formatter::__copy(__str, _VSTD::move(__out_it));
+  return __formatter::__fill(_VSTD::move(__out_it), __padding.__after_, __specs.__fill_);
+}
+
+template <class _CharT, class _ParserCharT>
+_LIBCPP_HIDE_FROM_ABI auto
+__write(const _CharT* __first,
+        const _CharT* __last,
+        output_iterator<const _CharT&> auto __out_it,
+        __format_spec::__parsed_specifications<_ParserCharT> __specs,
+        ptrdiff_t __size) -> decltype(__out_it) {
+  _LIBCPP_ASSERT(__first <= __last, "Not a valid range");
+  return __formatter::__write(basic_string_view{__first, __last}, _VSTD::move(__out_it), __specs, __size);
 }
 
 /// \overload
 ///
 /// Calls the function above where \a __size = \a __last - \a __first.
 template <class _CharT, class _ParserCharT>
-_LIBCPP_HIDE_FROM_ABI auto __write(const _CharT* __first, const _CharT* __last,
-                                   output_iterator<const _CharT&> auto __out_it,
-                                   __format_spec::__parsed_specifications<_ParserCharT> __specs) -> decltype(__out_it) {
-  return __write(__first, __last, _VSTD::move(__out_it), __specs, __last - __first);
+_LIBCPP_HIDE_FROM_ABI auto
+__write(const _CharT* __first,
+        const _CharT* __last,
+        output_iterator<const _CharT&> auto __out_it,
+        __format_spec::__parsed_specifications<_ParserCharT> __specs) -> decltype(__out_it) {
+  _LIBCPP_ASSERT(__first <= __last, "Not a valid range");
+  return __formatter::__write(__first, __last, _VSTD::move(__out_it), __specs, __last - __first);
 }
 
 template <class _CharT, class _ParserCharT, class _UnaryOperation>
@@ -210,12 +294,12 @@ _LIBCPP_HIDE_FROM_ABI auto __write_transformed(const _CharT* __first, const _Cha
 
   ptrdiff_t __size = __last - __first;
   if (__size >= __specs.__width_)
-    return _VSTD::transform(__first, __last, _VSTD::move(__out_it), __op);
+    return __formatter::__transform(__first, __last, _VSTD::move(__out_it), __op);
 
-  __padding_size_result __padding = __padding_size(__size, __specs.__width_, __specs.__alignment_);
-  __out_it = _VSTD::fill_n(_VSTD::move(__out_it), __padding.__before_, __specs.__fill_);
-  __out_it = _VSTD::transform(__first, __last, _VSTD::move(__out_it), __op);
-  return _VSTD::fill_n(_VSTD::move(__out_it), __padding.__after_, __specs.__fill_);
+  __padding_size_result __padding = __formatter::__padding_size(__size, __specs.__width_, __specs.__alignment_);
+  __out_it                        = __formatter::__fill(_VSTD::move(__out_it), __padding.__before_, __specs.__fill_);
+  __out_it                        = __formatter::__transform(__first, __last, _VSTD::move(__out_it), __op);
+  return __formatter::__fill(_VSTD::move(__out_it), __padding.__after_, __specs.__fill_);
 }
 
 /// Writes additional zero's for the precision before the exponent.
@@ -239,12 +323,12 @@ _LIBCPP_HIDE_FROM_ABI auto __write_using_trailing_zeros(
   _LIBCPP_ASSERT(__num_trailing_zeros > 0, "The overload not writing trailing zeros should have been used");
 
   __padding_size_result __padding =
-      __padding_size(__size + __num_trailing_zeros, __specs.__width_, __specs.__alignment_);
-  __out_it = _VSTD::fill_n(_VSTD::move(__out_it), __padding.__before_, __specs.__fill_);
-  __out_it = _VSTD::copy(__first, __exponent, _VSTD::move(__out_it));
-  __out_it = _VSTD::fill_n(_VSTD::move(__out_it), __num_trailing_zeros, _CharT('0'));
-  __out_it = _VSTD::copy(__exponent, __last, _VSTD::move(__out_it));
-  return _VSTD::fill_n(_VSTD::move(__out_it), __padding.__after_, __specs.__fill_);
+      __formatter::__padding_size(__size + __num_trailing_zeros, __specs.__width_, __specs.__alignment_);
+  __out_it = __formatter::__fill(_VSTD::move(__out_it), __padding.__before_, __specs.__fill_);
+  __out_it = __formatter::__copy(__first, __exponent, _VSTD::move(__out_it));
+  __out_it = __formatter::__fill(_VSTD::move(__out_it), __num_trailing_zeros, _CharT('0'));
+  __out_it = __formatter::__copy(__exponent, __last, _VSTD::move(__out_it));
+  return __formatter::__fill(_VSTD::move(__out_it), __padding.__after_, __specs.__fill_);
 }
 
 /// Writes a string using format's width estimation algorithm.
@@ -262,7 +346,7 @@ _LIBCPP_HIDE_FROM_ABI auto __write_string_no_precision(
 
   // No padding -> copy the string
   if (!__specs.__has_width())
-    return _VSTD::copy(__str.begin(), __str.end(), _VSTD::move(__out_it));
+    return __formatter::__copy(__str, _VSTD::move(__out_it));
 
   // Note when the estimated width is larger than size there's no padding. So
   // there's no reason to get the real size when the estimate is larger than or
@@ -270,8 +354,7 @@ _LIBCPP_HIDE_FROM_ABI auto __write_string_no_precision(
   size_t __size =
       __format_spec::__estimate_column_width(__str, __specs.__width_, __format_spec::__column_width_rounding::__up)
           .__width_;
-
-  return __formatter::__write(__str.begin(), __str.end(), _VSTD::move(__out_it), __specs, __size);
+  return __formatter::__write(__str, _VSTD::move(__out_it), __specs, __size);
 }
 
 template <class _CharT>
@@ -296,8 +379,187 @@ _LIBCPP_HIDE_FROM_ABI auto __write_string(
 
   int __size = __formatter::__truncate(__str, __specs.__precision_);
 
-  return __write(__str.begin(), __str.end(), _VSTD::move(__out_it), __specs, __size);
+  return __formatter::__write(__str.begin(), __str.end(), _VSTD::move(__out_it), __specs, __size);
 }
+
+#  if _LIBCPP_STD_VER > 20
+
+struct __nul_terminator {};
+
+template <class _CharT>
+_LIBCPP_HIDE_FROM_ABI bool operator==(const _CharT* __cstr, __nul_terminator) {
+  return *__cstr == _CharT('\0');
+}
+
+template <class _CharT>
+_LIBCPP_HIDE_FROM_ABI void
+__write_escaped_code_unit(basic_string<_CharT>& __str, char32_t __value, const _CharT* __prefix) {
+  back_insert_iterator __out_it{__str};
+  std::ranges::copy(__prefix, __nul_terminator{}, __out_it);
+
+  char __buffer[8];
+  to_chars_result __r = std::to_chars(std::begin(__buffer), std::end(__buffer), __value, 16);
+  _LIBCPP_ASSERT(__r.ec == errc(0), "Internal buffer too small");
+  std::ranges::copy(std::begin(__buffer), __r.ptr, __out_it);
+
+  __str += _CharT('}');
+}
+
+// [format.string.escaped]/2.2.1.2
+// ...
+// then the sequence \u{hex-digit-sequence} is appended to E, where
+// hex-digit-sequence is the shortest hexadecimal representation of C using
+// lower-case hexadecimal digits.
+template <class _CharT>
+_LIBCPP_HIDE_FROM_ABI void __write_well_formed_escaped_code_unit(basic_string<_CharT>& __str, char32_t __value) {
+  __formatter::__write_escaped_code_unit(__str, __value, _LIBCPP_STATICALLY_WIDEN(_CharT, "\\u{"));
+}
+
+// [format.string.escaped]/2.2.3
+// Otherwise (X is a sequence of ill-formed code units), each code unit U is
+// appended to E in order as the sequence \x{hex-digit-sequence}, where
+// hex-digit-sequence is the shortest hexadecimal representation of U using
+// lower-case hexadecimal digits.
+template <class _CharT>
+_LIBCPP_HIDE_FROM_ABI void __write_escape_ill_formed_code_unit(basic_string<_CharT>& __str, char32_t __value) {
+  __formatter::__write_escaped_code_unit(__str, __value, _LIBCPP_STATICALLY_WIDEN(_CharT, "\\x{"));
+}
+
+template <class _CharT>
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI bool __is_escaped_sequence_written(basic_string<_CharT>& __str, char32_t __value) {
+#    ifdef _LIBCPP_HAS_NO_UNICODE
+  // For ASCII assume everything above 127 is printable.
+  if (__value > 127)
+    return false;
+#    endif
+
+  if (!__escaped_output_table::__needs_escape(__value))
+    return false;
+
+  __formatter::__write_well_formed_escaped_code_unit(__str, __value);
+  return true;
+}
+
+template <class _CharT>
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr char32_t __to_char32(_CharT __value) {
+  return static_cast<make_unsigned_t<_CharT>>(__value);
+}
+
+enum class _LIBCPP_ENUM_VIS __escape_quotation_mark { __apostrophe, __double_quote };
+
+// [format.string.escaped]/2
+template <class _CharT>
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI bool
+__is_escaped_sequence_written(basic_string<_CharT>& __str, char32_t __value, __escape_quotation_mark __mark) {
+  // 2.2.1.1 - Mapped character in [tab:format.escape.sequences]
+  switch (__value) {
+  case _CharT('\t'):
+    __str += _LIBCPP_STATICALLY_WIDEN(_CharT, "\\t");
+    return true;
+  case _CharT('\n'):
+    __str += _LIBCPP_STATICALLY_WIDEN(_CharT, "\\n");
+    return true;
+  case _CharT('\r'):
+    __str += _LIBCPP_STATICALLY_WIDEN(_CharT, "\\r");
+    return true;
+  case _CharT('\''):
+    if (__mark == __escape_quotation_mark::__apostrophe)
+      __str += _LIBCPP_STATICALLY_WIDEN(_CharT, R"(\')");
+    else
+      __str += __value;
+    return true;
+  case _CharT('"'):
+    if (__mark == __escape_quotation_mark::__double_quote)
+      __str += _LIBCPP_STATICALLY_WIDEN(_CharT, R"(\")");
+    else
+      __str += __value;
+    return true;
+  case _CharT('\\'):
+    __str += _LIBCPP_STATICALLY_WIDEN(_CharT, R"(\\)");
+    return true;
+
+  // 2.2.1.2 - Space
+  case _CharT(' '):
+    __str += __value;
+    return true;
+  }
+
+  // 2.2.2
+  //   Otherwise, if X is a shift sequence, the effect on E and further
+  //   decoding of S is unspecified.
+  // For now shift sequences are ignored and treated as Unicode. Other parts
+  // of the format library do the same. It's unknown how ostream treats them.
+  // TODO FMT determine what to do with shift sequences.
+
+  // 2.2.1.2.1 and 2.2.1.2.2 - Escape
+  return __formatter::__is_escaped_sequence_written(__str, __formatter::__to_char32(__value));
+}
+
+template <class _CharT>
+_LIBCPP_HIDE_FROM_ABI void
+__escape(basic_string<_CharT>& __str, basic_string_view<_CharT> __values, __escape_quotation_mark __mark) {
+  __unicode::__code_point_view<_CharT> __view{__values.begin(), __values.end()};
+
+  while (!__view.__at_end()) {
+    const _CharT* __first                               = __view.__position();
+    typename __unicode::__consume_p2286_result __result = __view.__consume_p2286();
+    if (__result.__ill_formed_size == 0) {
+      if (!__formatter::__is_escaped_sequence_written(__str, __result.__value, __mark))
+        // 2.2.1.3 - Add the character
+        ranges::copy(__first, __view.__position(), std::back_insert_iterator(__str));
+
+    } else {
+      // 2.2.3 sequence of ill-formed code units
+      // The number of code-units in __result.__value depends on the character type being used.
+      if constexpr (sizeof(_CharT) == 1) {
+        _LIBCPP_ASSERT(__result.__ill_formed_size == 1 || __result.__ill_formed_size == 4,
+                       "illegal number of invalid code units.");
+        if (__result.__ill_formed_size == 1) // ill-formed, one code unit
+          __formatter::__write_escape_ill_formed_code_unit(__str, __result.__value & 0xff);
+        else { // out of valid range, four code units
+               // The code point was properly encoded, decode the value.
+          __formatter::__write_escape_ill_formed_code_unit(__str, __result.__value >> 18 | 0xf0);
+          __formatter::__write_escape_ill_formed_code_unit(__str, (__result.__value >> 12 & 0x3f) | 0x80);
+          __formatter::__write_escape_ill_formed_code_unit(__str, (__result.__value >> 6 & 0x3f) | 0x80);
+          __formatter::__write_escape_ill_formed_code_unit(__str, (__result.__value & 0x3f) | 0x80);
+        }
+      } else if constexpr (sizeof(_CharT) == 2) {
+        _LIBCPP_ASSERT(__result.__ill_formed_size == 1, "for UTF-16 at most one invalid code unit");
+        __formatter::__write_escape_ill_formed_code_unit(__str, __result.__value & 0xffff);
+      } else {
+        static_assert(sizeof(_CharT) == 4, "unsupported character width");
+        _LIBCPP_ASSERT(__result.__ill_formed_size == 1, "for UTF-32 one code unit is one code point");
+        __formatter::__write_escape_ill_formed_code_unit(__str, __result.__value);
+      }
+    }
+  }
+}
+
+template <class _CharT>
+_LIBCPP_HIDE_FROM_ABI auto
+__format_escaped_char(_CharT __value,
+                      output_iterator<const _CharT&> auto __out_it,
+                      __format_spec::__parsed_specifications<_CharT> __specs) -> decltype(__out_it) {
+  basic_string<_CharT> __str;
+  __str += _CharT('\'');
+  __formatter::__escape(__str, basic_string_view{std::addressof(__value), 1}, __escape_quotation_mark::__apostrophe);
+  __str += _CharT('\'');
+  return __formatter::__write(__str.data(), __str.data() + __str.size(), _VSTD::move(__out_it), __specs, __str.size());
+}
+
+template <class _CharT>
+_LIBCPP_HIDE_FROM_ABI auto
+__format_escaped_string(basic_string_view<_CharT> __values,
+                        output_iterator<const _CharT&> auto __out_it,
+                        __format_spec::__parsed_specifications<_CharT> __specs) -> decltype(__out_it) {
+  basic_string<_CharT> __str;
+  __str += _CharT('"');
+  __formatter::__escape(__str, __values, __escape_quotation_mark::__double_quote);
+  __str += _CharT('"');
+  return __formatter::__write_string(basic_string_view{__str}, _VSTD::move(__out_it), __specs);
+}
+
+#  endif // _LIBCPP_STD_VER > 20
 
 } // namespace __formatter
 

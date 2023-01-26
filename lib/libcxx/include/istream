@@ -192,7 +192,7 @@ public:
     inline _LIBCPP_HIDE_FROM_ABI_AFTER_V1
     explicit basic_istream(basic_streambuf<char_type, traits_type>* __sb) : __gc_(0)
     { this->init(__sb); }
-    virtual ~basic_istream();
+    ~basic_istream() override;
 protected:
     inline _LIBCPP_INLINE_VISIBILITY
     basic_istream(basic_istream&& __rhs);
@@ -316,7 +316,7 @@ basic_istream<_CharT, _Traits>::sentry::sentry(basic_istream<_CharT, _Traits>& _
         if (!__noskipws && (__is.flags() & ios_base::skipws))
         {
             typedef istreambuf_iterator<_CharT, _Traits> _Ip;
-            const ctype<_CharT>& __ct = use_facet<ctype<_CharT> >(__is.getloc());
+            const ctype<_CharT>& __ct = std::use_facet<ctype<_CharT> >(__is.getloc());
             _Ip __i(__is);
             _Ip __eof;
             for (; __i != __eof; ++__i)
@@ -366,7 +366,7 @@ __input_arithmetic(basic_istream<_CharT, _Traits>& __is, _Tp& __n) {
 #endif // _LIBCPP_NO_EXCEPTIONS
             typedef istreambuf_iterator<_CharT, _Traits> _Ip;
             typedef num_get<_CharT, _Ip> _Fp;
-            use_facet<_Fp>(__is.getloc()).get(_Ip(__is), _Ip(), __is, __state, __n);
+            std::use_facet<_Fp>(__is.getloc()).get(_Ip(__is), _Ip(), __is, __state, __n);
 #ifndef _LIBCPP_NO_EXCEPTIONS
         }
         catch (...)
@@ -476,7 +476,7 @@ __input_arithmetic_with_numeric_limits(basic_istream<_CharT, _Traits>& __is, _Tp
             typedef istreambuf_iterator<_CharT, _Traits> _Ip;
             typedef num_get<_CharT, _Ip> _Fp;
             long __temp;
-            use_facet<_Fp>(__is.getloc()).get(_Ip(__is), _Ip(), __is, __state, __temp);
+            std::use_facet<_Fp>(__is.getloc()).get(_Ip(__is), _Ip(), __is, __state, __temp);
             if (__temp < numeric_limits<_Tp>::min())
             {
                 __state |= ios_base::failbit;
@@ -536,7 +536,7 @@ __input_c_string(basic_istream<_CharT, _Traits>& __is, _CharT* __p, size_t __n)
         {
 #endif
             _CharT* __s = __p;
-            const ctype<_CharT>& __ct = use_facet<ctype<_CharT> >(__is.getloc());
+            const ctype<_CharT>& __ct = std::use_facet<ctype<_CharT> >(__is.getloc());
             while (__s != __p + (__n-1))
             {
                 typename _Traits::int_type __i = __is.rdbuf()->sgetc();
@@ -633,7 +633,7 @@ operator>>(basic_istream<char, _Traits>& __is, signed char* __s)
 #endif // _LIBCPP_STD_VER > 17
 
 template<class _CharT, class _Traits>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is, _CharT& __c)
 {
     ios_base::iostate __state = ios_base::goodbit;
@@ -1329,7 +1329,7 @@ basic_istream<_CharT, _Traits>::seekg(off_type __off, ios_base::seekdir __dir)
 }
 
 template <class _CharT, class _Traits>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 ws(basic_istream<_CharT, _Traits>& __is)
 {
     ios_base::iostate __state = ios_base::goodbit;
@@ -1340,7 +1340,7 @@ ws(basic_istream<_CharT, _Traits>& __is)
         try
         {
 #endif // _LIBCPP_NO_EXCEPTIONS
-            const ctype<_CharT>& __ct = use_facet<ctype<_CharT> >(__is.getloc());
+            const ctype<_CharT>& __ct = std::use_facet<ctype<_CharT> >(__is.getloc());
             while (true)
             {
                 typename _Traits::int_type __i = __is.rdbuf()->sgetc();
@@ -1375,7 +1375,7 @@ struct __is_istreamable : false_type { };
 
 template <class _Stream, class _Tp>
 struct __is_istreamable<_Stream, _Tp, decltype(
-    declval<_Stream>() >> declval<_Tp>(), void()
+    std::declval<_Stream>() >> std::declval<_Tp>(), void()
 )> : true_type { };
 
 template <class _Stream, class _Tp, class = typename enable_if<
@@ -1408,7 +1408,7 @@ public:
       : basic_istream<_CharT, _Traits>(__sb)
     {}
 
-    virtual ~basic_iostream();
+    ~basic_iostream() override;
 protected:
     inline _LIBCPP_INLINE_VISIBILITY
     basic_iostream(basic_iostream&& __rhs);
@@ -1442,7 +1442,7 @@ basic_iostream<_CharT, _Traits>::~basic_iostream()
 }
 
 template<class _CharT, class _Traits, class _Allocator>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is,
            basic_string<_CharT, _Traits, _Allocator>& __str)
 {
@@ -1461,7 +1461,7 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
             if (__n <= 0)
                 __n = numeric_limits<streamsize>::max();
             streamsize __c = 0;
-            const ctype<_CharT>& __ct = use_facet<ctype<_CharT> >(__is.getloc());
+            const ctype<_CharT>& __ct = std::use_facet<ctype<_CharT> >(__is.getloc());
             while (__c < __n)
             {
                 typename _Traits::int_type __i = __is.rdbuf()->sgetc();
@@ -1498,7 +1498,7 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
 }
 
 template<class _CharT, class _Traits, class _Allocator>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 getline(basic_istream<_CharT, _Traits>& __is,
         basic_string<_CharT, _Traits, _Allocator>& __str, _CharT __dlm)
 {
@@ -1556,7 +1556,7 @@ basic_istream<_CharT, _Traits>&
 getline(basic_istream<_CharT, _Traits>& __is,
         basic_string<_CharT, _Traits, _Allocator>& __str)
 {
-    return getline(__is, __str, __is.widen('\n'));
+    return std::getline(__is, __str, __is.widen('\n'));
 }
 
 template<class _CharT, class _Traits, class _Allocator>
@@ -1565,7 +1565,7 @@ basic_istream<_CharT, _Traits>&
 getline(basic_istream<_CharT, _Traits>&& __is,
         basic_string<_CharT, _Traits, _Allocator>& __str, _CharT __dlm)
 {
-    return getline(__is, __str, __dlm);
+    return std::getline(__is, __str, __dlm);
 }
 
 template<class _CharT, class _Traits, class _Allocator>
@@ -1574,11 +1574,11 @@ basic_istream<_CharT, _Traits>&
 getline(basic_istream<_CharT, _Traits>&& __is,
         basic_string<_CharT, _Traits, _Allocator>& __str)
 {
-    return getline(__is, __str, __is.widen('\n'));
+    return std::getline(__is, __str, __is.widen('\n'));
 }
 
 template <class _CharT, class _Traits, size_t _Size>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is, bitset<_Size>& __x)
 {
     ios_base::iostate __state = ios_base::goodbit;
@@ -1590,7 +1590,7 @@ operator>>(basic_istream<_CharT, _Traits>& __is, bitset<_Size>& __x)
         {
 #endif
             basic_string<_CharT, _Traits> __str;
-            const ctype<_CharT>& __ct = use_facet<ctype<_CharT> >(__is.getloc());
+            const ctype<_CharT>& __ct = std::use_facet<ctype<_CharT> >(__is.getloc());
             size_t __c = 0;
             _CharT __zero = __ct.widen('0');
             _CharT __one = __ct.widen('1');
@@ -1636,6 +1636,11 @@ extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_istream<wchar_t>;
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_iostream<char>;
 
 _LIBCPP_END_NAMESPACE_STD
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <concepts>
+#  include <type_traits>
+#endif
 
 _LIBCPP_POP_MACROS
 

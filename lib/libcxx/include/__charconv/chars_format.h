@@ -19,7 +19,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#ifndef _LIBCPP_CXX03_LANG
+#if _LIBCPP_STD_VER > 14
 
 enum class _LIBCPP_ENUM_VIS chars_format
 {
@@ -52,25 +52,25 @@ operator^(chars_format __x, chars_format __y) {
                       _VSTD::__to_underlying(__y));
 }
 
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 chars_format&
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14 chars_format&
 operator&=(chars_format& __x, chars_format __y) {
   __x = __x & __y;
   return __x;
 }
 
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 chars_format&
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14 chars_format&
 operator|=(chars_format& __x, chars_format __y) {
   __x = __x | __y;
   return __x;
 }
 
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 chars_format&
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14 chars_format&
 operator^=(chars_format& __x, chars_format __y) {
   __x = __x ^ __y;
   return __x;
 }
 
-#endif // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_STD_VER > 14
 
 _LIBCPP_END_NAMESPACE_STD
 

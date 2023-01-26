@@ -34,7 +34,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -45,7 +45,7 @@ struct __fn {
 
   template <class _Iter, class _Sent, class _Proj, class _Pred>
   _LIBCPP_HIDE_FROM_ABI static
-  subrange<__uncvref_t<_Iter>> __stable_partition_fn_impl(
+  subrange<__remove_cvref_t<_Iter>> __stable_partition_fn_impl(
       _Iter&& __first, _Sent&& __last, _Pred&& __pred, _Proj&& __proj) {
     auto __last_iter = ranges::next(__first, __last);
 
@@ -83,6 +83,6 @@ inline namespace __cpo {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 #endif // _LIBCPP___ALGORITHM_RANGES_STABLE_PARTITION_H

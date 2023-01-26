@@ -10,12 +10,12 @@
 #define _LIBCPP___ALGORITHM_RANGES_MOVE_BACKWARD_H
 
 #include <__algorithm/in_out_result.h>
-#include <__algorithm/ranges_move.h>
+#include <__algorithm/iterator_operations.h>
+#include <__algorithm/move_backward.h>
 #include <__config>
 #include <__iterator/concepts.h>
 #include <__iterator/iter_move.h>
 #include <__iterator/next.h>
-#include <__iterator/reverse_iterator.h>
 #include <__ranges/access.h>
 #include <__ranges/concepts.h>
 #include <__ranges/dangling.h>
@@ -25,7 +25,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -40,11 +40,8 @@ struct __fn {
   template <class _InIter, class _Sent, class _OutIter>
   _LIBCPP_HIDE_FROM_ABI constexpr static
   move_backward_result<_InIter, _OutIter> __move_backward_impl(_InIter __first, _Sent __last, _OutIter __result) {
-    auto __last_iter = ranges::next(__first, std::move(__last));
-    auto __ret = ranges::move(std::make_reverse_iterator(__last_iter),
-                              std::make_reverse_iterator(__first),
-                              std::make_reverse_iterator(__result));
-    return {std::move(__last_iter), std::move(__ret.out.base())};
+    auto __ret = std::__move_backward<_RangeAlgPolicy>(std::move(__first), std::move(__last), std::move(__result));
+    return {std::move(__ret.first), std::move(__ret.second)};
   }
 
   template <bidirectional_iterator _InIter, sentinel_for<_InIter> _Sent, bidirectional_iterator _OutIter>
@@ -71,6 +68,6 @@ inline namespace __cpo {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 #endif // _LIBCPP___ALGORITHM_RANGES_MOVE_BACKWARD_H

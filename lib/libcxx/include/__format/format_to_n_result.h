@@ -26,6 +26,7 @@ struct _LIBCPP_TEMPLATE_VIS format_to_n_result {
   _OutIt out;
   iter_difference_t<_OutIt> size;
 };
+_LIBCPP_CTAD_SUPPORTED_FOR_TYPE(format_to_n_result);
 
 #endif //_LIBCPP_STD_VER > 17
 

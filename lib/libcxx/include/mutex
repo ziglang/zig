@@ -188,19 +188,15 @@ template<class Callable, class ...Args>
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+#include <__memory/shared_ptr.h>
 #include <__mutex_base>
 #include <__threading_support>
 #include <__utility/forward.h>
 #include <cstdint>
-#include <memory>
 #ifndef _LIBCPP_CXX03_LANG
 # include <tuple>
 #endif
 #include <version>
-
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <functional>
-#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -329,7 +325,7 @@ recursive_timed_mutex::try_lock_until(const chrono::time_point<_Clock, _Duration
 }
 
 template <class _L0, class _L1>
-int
+_LIBCPP_HIDE_FROM_ABI int
 try_lock(_L0& __l0, _L1& __l1)
 {
     unique_lock<_L0> __u0(__l0, try_to_lock);
@@ -349,14 +345,14 @@ try_lock(_L0& __l0, _L1& __l1)
 #ifndef _LIBCPP_CXX03_LANG
 
 template <class _L0, class _L1, class _L2, class... _L3>
-int
+_LIBCPP_HIDE_FROM_ABI int
 try_lock(_L0& __l0, _L1& __l1, _L2& __l2, _L3&... __l3)
 {
     int __r = 0;
     unique_lock<_L0> __u0(__l0, try_to_lock);
     if (__u0.owns_lock())
     {
-        __r = try_lock(__l1, __l2, __l3...);
+        __r = std::try_lock(__l1, __l2, __l3...);
         if (__r == -1)
             __u0.release();
         else
@@ -368,7 +364,7 @@ try_lock(_L0& __l0, _L1& __l1, _L2& __l2, _L3&... __l3)
 #endif // _LIBCPP_CXX03_LANG
 
 template <class _L0, class _L1>
-void
+_LIBCPP_HIDE_FROM_ABI void
 lock(_L0& __l0, _L1& __l1)
 {
     while (true)
@@ -407,7 +403,7 @@ __lock_first(int __i, _L0& __l0, _L1& __l1, _L2& __l2, _L3& ...__l3)
         case 0:
             {
                 unique_lock<_L0> __u0(__l0);
-                __i = try_lock(__l1, __l2, __l3...);
+                __i = std::try_lock(__l1, __l2, __l3...);
                 if (__i == -1)
                 {
                     __u0.release();
@@ -420,7 +416,7 @@ __lock_first(int __i, _L0& __l0, _L1& __l1, _L2& __l2, _L3& ...__l3)
         case 1:
             {
                 unique_lock<_L1> __u1(__l1);
-                __i = try_lock(__l2, __l3..., __l0);
+                __i = std::try_lock(__l2, __l3..., __l0);
                 if (__i == -1)
                 {
                     __u1.release();
@@ -434,7 +430,7 @@ __lock_first(int __i, _L0& __l0, _L1& __l1, _L2& __l2, _L3& ...__l3)
             __libcpp_thread_yield();
             break;
         default:
-            __lock_first(__i - 2, __l2, __l3..., __l0, __l1);
+            std::__lock_first(__i - 2, __l2, __l3..., __l0, __l1);
             return;
         }
     }
@@ -445,7 +441,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 void
 lock(_L0& __l0, _L1& __l1, _L2& __l2, _L3& ...__l3)
 {
-    __lock_first(0, __l0, __l1, __l2, __l3...);
+    std::__lock_first(0, __l0, __l1, __l2, __l3...);
 }
 
 template <class _L0>
@@ -546,6 +542,7 @@ private:
 
     _MutexTuple __t_;
 };
+_LIBCPP_CTAD_SUPPORTED_FOR_TYPE(scoped_lock);
 
 #endif // _LIBCPP_STD_VER > 14
 #endif // !_LIBCPP_HAS_NO_THREADS
@@ -670,7 +667,7 @@ call_once(once_flag& __flag, _Callable&& __func, _Args&&... __args)
         typedef tuple<_Callable&&, _Args&&...> _Gp;
         _Gp __f(_VSTD::forward<_Callable>(__func), _VSTD::forward<_Args>(__args)...);
         __call_once_param<_Gp> __p(__f);
-        __call_once(__flag.__state_, &__p, &__call_once_proxy<_Gp>);
+        std::__call_once(__flag.__state_, &__p, &__call_once_proxy<_Gp>);
     }
 }
 
@@ -684,7 +681,7 @@ call_once(once_flag& __flag, _Callable& __func)
     if (__libcpp_acquire_load(&__flag.__state_) != ~once_flag::_State_type(0))
     {
         __call_once_param<_Callable> __p(__func);
-        __call_once(__flag.__state_, &__p, &__call_once_proxy<_Callable>);
+        std::__call_once(__flag.__state_, &__p, &__call_once_proxy<_Callable>);
     }
 }
 
@@ -696,7 +693,7 @@ call_once(once_flag& __flag, const _Callable& __func)
     if (__libcpp_acquire_load(&__flag.__state_) != ~once_flag::_State_type(0))
     {
         __call_once_param<const _Callable> __p(__func);
-        __call_once(__flag.__state_, &__p, &__call_once_proxy<const _Callable>);
+        std::__call_once(__flag.__state_, &__p, &__call_once_proxy<const _Callable>);
     }
 }
 
@@ -705,5 +702,11 @@ call_once(once_flag& __flag, const _Callable& __func)
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <concepts>
+#  include <functional>
+#  include <type_traits>
+#endif
 
 #endif // _LIBCPP_MUTEX

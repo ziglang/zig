@@ -10,7 +10,8 @@
 #define _LIBCPP___CONCEPTS_DERIVED_FROM_H
 
 #include <__config>
-#include <type_traits>
+#include <__type_traits/is_base_of.h>
+#include <__type_traits/is_convertible.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

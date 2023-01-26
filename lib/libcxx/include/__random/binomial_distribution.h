@@ -133,9 +133,9 @@ binomial_distribution<_IntType>::param_type::param_type(result_type __t, double 
     if (0 < __p_ && __p_ < 1)
     {
         __r0_ = static_cast<result_type>((__t_ + 1) * __p_);
-        __pr_ = _VSTD::exp(__libcpp_lgamma(__t_ + 1.) -
-                           __libcpp_lgamma(__r0_ + 1.) -
-                           __libcpp_lgamma(__t_ - __r0_ + 1.) + __r0_ * _VSTD::log(__p_) +
+        __pr_ = _VSTD::exp(std::__libcpp_lgamma(__t_ + 1.) -
+                           std::__libcpp_lgamma(__r0_ + 1.) -
+                           std::__libcpp_lgamma(__t_ - __r0_ + 1.) + __r0_ * _VSTD::log(__p_) +
                            (__t_ - __r0_) * _VSTD::log(1 - __p_));
         __odds_ratio_ = __p_ / (1 - __p_);
     }
@@ -189,7 +189,7 @@ binomial_distribution<_IntType>::operator()(_URNG& __g, const param_type& __pr)
 }
 
 template <class _CharT, class _Traits, class _IntType>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os,
            const binomial_distribution<_IntType>& __x)
 {
@@ -203,7 +203,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
 }
 
 template <class _CharT, class _Traits, class _IntType>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is,
            binomial_distribution<_IntType>& __x)
 {

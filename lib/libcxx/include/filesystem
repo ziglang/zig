@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+
 #ifndef _LIBCPP_FILESYSTEM
 #define _LIBCPP_FILESYSTEM
 
@@ -14,28 +15,149 @@
 
     namespace std::filesystem {
 
-    class path;
+    // `class path` from http://eel.is/c++draft/fs.class.path.general#6
+    class path {
+      public:
+        using value_type  = see below;
+        using string_type = basic_string<value_type>;
+        static constexpr value_type preferred_separator = see below;
+
+        enum format;
+
+        path() noexcept;
+        path(const path& p);
+        path(path&& p) noexcept;
+        path(string_type&& source, format fmt = auto_format);
+        template<class Source>
+          path(const Source& source, format fmt = auto_format);
+        template<class InputIterator>
+          path(InputIterator first, InputIterator last, format fmt = auto_format);
+        template<class Source>
+          path(const Source& source, const locale& loc, format fmt = auto_format);
+        template<class InputIterator>
+          path(InputIterator first, InputIterator last, const locale& loc, format fmt = auto_format);
+        ~path();
+
+        path& operator=(const path& p);
+        path& operator=(path&& p) noexcept;
+        path& operator=(string_type&& source);
+        path& assign(string_type&& source);
+        template<class Source>
+          path& operator=(const Source& source);
+        template<class Source>
+          path& assign(const Source& source);
+        template<class InputIterator>
+          path& assign(InputIterator first, InputIterator last);
+
+        path& operator/=(const path& p);
+        template<class Source>
+          path& operator/=(const Source& source);
+        template<class Source>
+          path& append(const Source& source);
+        template<class InputIterator>
+          path& append(InputIterator first, InputIterator last);
+
+        path& operator+=(const path& x);
+        path& operator+=(const string_type& x);
+        path& operator+=(basic_string_view<value_type> x);
+        path& operator+=(const value_type* x);
+        path& operator+=(value_type x);
+        template<class Source>
+          path& operator+=(const Source& x);
+        template<class EcharT>
+          path& operator+=(EcharT x);
+        template<class Source>
+          path& concat(const Source& x);
+        template<class InputIterator>
+          path& concat(InputIterator first, InputIterator last);
+
+        void  clear() noexcept;
+        path& make_preferred();
+        path& remove_filename();
+        path& replace_filename(const path& replacement);
+        path& replace_extension(const path& replacement = path());
+        void  swap(path& rhs) noexcept;
+
+        friend bool operator==(const path& lhs, const path& rhs) noexcept;
+        friend bool operator!=(const path& lhs, const path& rhs) noexcept;             // removed in C++20
+        friend bool operator< (const path& lhs, const path& rhs) noexcept;             // removed in C++20
+        friend bool operator<=(const path& lhs, const path& rhs) noexcept;             // removed in C++20
+        friend bool operator> (const path& lhs, const path& rhs) noexcept;             // removed in C++20
+        friend bool operator>=(const path& lhs, const path& rhs) noexcept;             // removed in C++20
+        friend strong_ordering operator<=>(const path& lhs, const path& rhs) noexcept; // C++20
+
+        friend path operator/(const path& lhs, const path& rhs);
+
+        const string_type& native() const noexcept;
+        const value_type*  c_str() const noexcept;
+        operator string_type() const;
+
+        template<class EcharT, class traits = char_traits<EcharT>,
+                 class Allocator = allocator<EcharT>>
+          basic_string<EcharT, traits, Allocator>
+            string(const Allocator& a = Allocator()) const;
+        std::string    string() const;
+        std::wstring   wstring() const;
+        std::u8string  u8string() const;
+        std::u16string u16string() const;
+        std::u32string u32string() const;
+
+        template<class EcharT, class traits = char_traits<EcharT>,
+                 class Allocator = allocator<EcharT>>
+          basic_string<EcharT, traits, Allocator>
+            generic_string(const Allocator& a = Allocator()) const;
+        std::string    generic_string() const;
+        std::wstring   generic_wstring() const;
+        std::u8string  generic_u8string() const;
+        std::u16string generic_u16string() const;
+        std::u32string generic_u32string() const;
+
+        int compare(const path& p) const noexcept;
+        int compare(const string_type& s) const;
+        int compare(basic_string_view<value_type> s) const;
+        int compare(const value_type* s) const;
+
+        path root_name() const;
+        path root_directory() const;
+        path root_path() const;
+        path relative_path() const;
+        path parent_path() const;
+        path filename() const;
+        path stem() const;
+        path extension() const;
+
+        [[nodiscard]] bool empty() const noexcept;
+        bool has_root_name() const;
+        bool has_root_directory() const;
+        bool has_root_path() const;
+        bool has_relative_path() const;
+        bool has_parent_path() const;
+        bool has_filename() const;
+        bool has_stem() const;
+        bool has_extension() const;
+        bool is_absolute() const;
+        bool is_relative() const;
+
+        path lexically_normal() const;
+        path lexically_relative(const path& base) const;
+        path lexically_proximate(const path& base) const;
+
+        class iterator;
+        using const_iterator = iterator;
+
+        iterator begin() const;
+        iterator end() const;
+
+        template<class charT, class traits>
+          friend basic_ostream<charT, traits>&
+            operator<<(basic_ostream<charT, traits>& os, const path& p);
+        template<class charT, class traits>
+          friend basic_istream<charT, traits>&
+            operator>>(basic_istream<charT, traits>& is, path& p);
+    };
 
     void swap(path& lhs, path& rhs) noexcept;
     size_t hash_value(const path& p) noexcept;
-
-    bool operator==(const path& lhs, const path& rhs) noexcept;
-    bool operator!=(const path& lhs, const path& rhs) noexcept;
-    bool operator< (const path& lhs, const path& rhs) noexcept;
-    bool operator<=(const path& lhs, const path& rhs) noexcept;
-    bool operator> (const path& lhs, const path& rhs) noexcept;
-    bool operator>=(const path& lhs, const path& rhs) noexcept;
-
-    path operator/ (const path& lhs, const path& rhs);
-
-    // fs.path.io operators are friends of path.
-    template <class charT, class traits>
-    friend basic_ostream<charT, traits>&
-    operator<<(basic_ostream<charT, traits>& os, const path& p);
-
-    template <class charT, class traits>
-    friend basic_istream<charT, traits>&
-    operator>>(basic_istream<charT, traits>& is, path& p);
 
     template <class Source>
       path u8path(const Source& source);
@@ -43,7 +165,73 @@
       path u8path(InputIterator first, InputIterator last);
 
     class filesystem_error;
-    class directory_entry;
+
+    class directory_entry {
+    public:
+      directory_entry() noexcept = default;
+      directory_entry(const directory_entry&) = default;
+      directory_entry(directory_entry&&) noexcept = default;
+      explicit directory_entry(const filesystem::path& p);
+      directory_entry(const filesystem::path& p, error_code& ec);
+      ~directory_entry();
+
+      directory_entry& operator=(const directory_entry&) = default;
+      directory_entry& operator=(directory_entry&&) noexcept = default;
+
+      void assign(const filesystem::path& p);
+      void assign(const filesystem::path& p, error_code& ec);
+      void replace_filename(const filesystem::path& p);
+      void replace_filename(const filesystem::path& p, error_code& ec);
+      void refresh();
+      void refresh(error_code& ec) noexcept;
+
+      const filesystem::path& path() const noexcept;
+      operator const filesystem::path&() const noexcept;
+      bool exists() const;
+      bool exists(error_code& ec) const noexcept;
+      bool is_block_file() const;
+      bool is_block_file(error_code& ec) const noexcept;
+      bool is_character_file() const;
+      bool is_character_file(error_code& ec) const noexcept;
+      bool is_directory() const;
+      bool is_directory(error_code& ec) const noexcept;
+      bool is_fifo() const;
+      bool is_fifo(error_code& ec) const noexcept;
+      bool is_other() const;
+      bool is_other(error_code& ec) const noexcept;
+      bool is_regular_file() const;
+      bool is_regular_file(error_code& ec) const noexcept;
+      bool is_socket() const;
+      bool is_socket(error_code& ec) const noexcept;
+      bool is_symlink() const;
+      bool is_symlink(error_code& ec) const noexcept;
+      uintmax_t file_size() const;
+      uintmax_t file_size(error_code& ec) const noexcept;
+      uintmax_t hard_link_count() const;
+      uintmax_t hard_link_count(error_code& ec) const noexcept;
+      file_time_type last_write_time() const;
+      file_time_type last_write_time(error_code& ec) const noexcept;
+      file_status status() const;
+      file_status status(error_code& ec) const noexcept;
+      file_status symlink_status() const;
+      file_status symlink_status(error_code& ec) const noexcept;
+
+      bool operator==(const directory_entry& rhs) const noexcept;
+      bool operator!=(const directory_entry& rhs) const noexcept;             // removed  in C++20
+      bool operator< (const directory_entry& rhs) const noexcept;             // removed  in C++20
+      bool operator<=(const directory_entry& rhs) const noexcept;             // removed  in C++20
+      bool operator> (const directory_entry& rhs) const noexcept;             // removed  in C++20
+      bool operator>=(const directory_entry& rhs) const noexcept;             // removed  in C++20
+      strong_ordering operator<=>(const directory_entry& rhs) const noexcept; // since C++20
+
+      template<class charT, class traits>
+        friend basic_ostream<charT, traits>&
+          operator<<(basic_ostream<charT, traits>& os, const directory_entry& d);
+
+    private:
+      filesystem::path pathobject;        // exposition only
+      friend class directory_iterator;    // exposition only
+    };
 
     class directory_iterator;
 
@@ -64,6 +252,8 @@
       uintmax_t capacity;
       uintmax_t free;
       uintmax_t available;
+
+      friend bool operator==(const space_info&, const space_info&) = default; // C++20
     };
 
     enum class file_type;
@@ -260,6 +450,8 @@ inline constexpr bool std::ranges::enable_view<std::filesystem::recursive_direct
 #include <version>
 
 // standard-mandated includes
+
+// [fs.filesystem.syn]
 #include <compare>
 
 #if defined(_LIBCPP_HAS_NO_FILESYSTEM_LIBRARY)
@@ -268,6 +460,10 @@ inline constexpr bool std::ranges::enable_view<std::filesystem::recursive_direct
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <concepts>
 #endif
 
 #endif // _LIBCPP_FILESYSTEM

@@ -28,6 +28,10 @@ struct _LIBCPP_TYPE_VIS space_info {
   uintmax_t capacity;
   uintmax_t free;
   uintmax_t available;
+
+#  if _LIBCPP_STD_VER > 17
+  friend _LIBCPP_HIDE_FROM_ABI bool operator==(const space_info&, const space_info&) = default;
+#  endif
 };
 
 _LIBCPP_AVAILABILITY_FILESYSTEM_POP

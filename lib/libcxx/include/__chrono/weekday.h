@@ -32,25 +32,25 @@ class weekday_last;
 
 class weekday {
 private:
-    unsigned char __wd;
+    unsigned char __wd_;
     _LIBCPP_HIDE_FROM_ABI static constexpr unsigned char __weekday_from_days(int __days) noexcept;
 public:
   _LIBCPP_HIDE_FROM_ABI weekday() = default;
-  _LIBCPP_HIDE_FROM_ABI inline explicit constexpr weekday(unsigned __val) noexcept : __wd(static_cast<unsigned char>(__val == 7 ? 0 : __val)) {}
+  _LIBCPP_HIDE_FROM_ABI inline explicit constexpr weekday(unsigned __val) noexcept : __wd_(static_cast<unsigned char>(__val == 7 ? 0 : __val)) {}
   _LIBCPP_HIDE_FROM_ABI inline constexpr          weekday(const sys_days& __sysd) noexcept
-          : __wd(__weekday_from_days(__sysd.time_since_epoch().count())) {}
+          : __wd_(__weekday_from_days(__sysd.time_since_epoch().count())) {}
   _LIBCPP_HIDE_FROM_ABI inline explicit constexpr weekday(const local_days& __locd) noexcept
-          : __wd(__weekday_from_days(__locd.time_since_epoch().count())) {}
+          : __wd_(__weekday_from_days(__locd.time_since_epoch().count())) {}
 
-  _LIBCPP_HIDE_FROM_ABI inline constexpr weekday& operator++()    noexcept { __wd = (__wd == 6 ? 0 : __wd + 1); return *this; }
+  _LIBCPP_HIDE_FROM_ABI inline constexpr weekday& operator++()    noexcept { __wd_ = (__wd_ == 6 ? 0 : __wd_ + 1); return *this; }
   _LIBCPP_HIDE_FROM_ABI inline constexpr weekday  operator++(int) noexcept { weekday __tmp = *this; ++(*this); return __tmp; }
-  _LIBCPP_HIDE_FROM_ABI inline constexpr weekday& operator--()    noexcept { __wd = (__wd == 0 ? 6 : __wd - 1); return *this; }
+  _LIBCPP_HIDE_FROM_ABI inline constexpr weekday& operator--()    noexcept { __wd_ = (__wd_ == 0 ? 6 : __wd_ - 1); return *this; }
   _LIBCPP_HIDE_FROM_ABI inline constexpr weekday  operator--(int) noexcept { weekday __tmp = *this; --(*this); return __tmp; }
   _LIBCPP_HIDE_FROM_ABI        constexpr weekday& operator+=(const days& __dd) noexcept;
   _LIBCPP_HIDE_FROM_ABI        constexpr weekday& operator-=(const days& __dd) noexcept;
-  _LIBCPP_HIDE_FROM_ABI inline constexpr unsigned c_encoding()   const noexcept { return __wd; }
-  _LIBCPP_HIDE_FROM_ABI inline constexpr unsigned iso_encoding() const noexcept { return __wd == 0u ? 7 : __wd; }
-  _LIBCPP_HIDE_FROM_ABI inline constexpr bool ok() const noexcept { return __wd <= 6; }
+  _LIBCPP_HIDE_FROM_ABI inline constexpr unsigned c_encoding()   const noexcept { return __wd_; }
+  _LIBCPP_HIDE_FROM_ABI inline constexpr unsigned iso_encoding() const noexcept { return __wd_ == 0u ? 7 : __wd_; }
+  _LIBCPP_HIDE_FROM_ABI inline constexpr bool ok() const noexcept { return __wd_ <= 6; }
   _LIBCPP_HIDE_FROM_ABI        constexpr weekday_indexed operator[](unsigned __index) const noexcept;
   _LIBCPP_HIDE_FROM_ABI        constexpr weekday_last    operator[](last_spec) const noexcept;
 };
@@ -123,15 +123,15 @@ weekday& weekday::operator-=(const days& __dd) noexcept
 
 class weekday_indexed {
 private:
-    chrono::weekday __wd;
-    unsigned char   __idx;
+    chrono::weekday __wd_;
+    unsigned char   __idx_;
 public:
     _LIBCPP_HIDE_FROM_ABI weekday_indexed() = default;
     _LIBCPP_HIDE_FROM_ABI inline constexpr weekday_indexed(const chrono::weekday& __wdval, unsigned __idxval) noexcept
-        : __wd{__wdval}, __idx(__idxval) {}
-    _LIBCPP_HIDE_FROM_ABI inline constexpr chrono::weekday weekday() const noexcept { return __wd; }
-    _LIBCPP_HIDE_FROM_ABI inline constexpr unsigned                 index() const noexcept { return __idx; }
-    _LIBCPP_HIDE_FROM_ABI inline constexpr bool ok() const noexcept { return __wd.ok() && __idx >= 1 && __idx <= 5; }
+        : __wd_{__wdval}, __idx_(__idxval) {}
+    _LIBCPP_HIDE_FROM_ABI inline constexpr chrono::weekday weekday() const noexcept { return __wd_; }
+    _LIBCPP_HIDE_FROM_ABI inline constexpr unsigned                 index() const noexcept { return __idx_; }
+    _LIBCPP_HIDE_FROM_ABI inline constexpr bool ok() const noexcept { return __wd_.ok() && __idx_ >= 1 && __idx_ <= 5; }
 };
 
 _LIBCPP_HIDE_FROM_ABI inline constexpr
@@ -145,12 +145,12 @@ bool operator!=(const weekday_indexed& __lhs, const weekday_indexed& __rhs) noex
 
 class weekday_last {
 private:
-    chrono::weekday __wd;
+    chrono::weekday __wd_;
 public:
     _LIBCPP_HIDE_FROM_ABI explicit constexpr weekday_last(const chrono::weekday& __val) noexcept
-        : __wd{__val} {}
-    _LIBCPP_HIDE_FROM_ABI constexpr chrono::weekday weekday() const noexcept { return __wd; }
-    _LIBCPP_HIDE_FROM_ABI constexpr bool ok() const noexcept { return __wd.ok(); }
+        : __wd_{__val} {}
+    _LIBCPP_HIDE_FROM_ABI constexpr chrono::weekday weekday() const noexcept { return __wd_; }
+    _LIBCPP_HIDE_FROM_ABI constexpr bool ok() const noexcept { return __wd_.ok(); }
 };
 
 _LIBCPP_HIDE_FROM_ABI inline constexpr

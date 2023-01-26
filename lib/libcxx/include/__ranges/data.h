@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+
 #ifndef _LIBCPP___RANGES_DATA_H
 #define _LIBCPP___RANGES_DATA_H
 
@@ -15,8 +16,13 @@
 #include <__iterator/iterator_traits.h>
 #include <__memory/pointer_traits.h>
 #include <__ranges/access.h>
+#include <__type_traits/decay.h>
+#include <__type_traits/is_object.h>
+#include <__type_traits/is_pointer.h>
+#include <__type_traits/is_reference.h>
+#include <__type_traits/remove_pointer.h>
+#include <__type_traits/remove_reference.h>
 #include <__utility/auto_cast.h>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

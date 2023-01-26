@@ -110,7 +110,7 @@ bernoulli_distribution::operator()(_URNG& __g, const param_type& __p)
 }
 
 template <class _CharT, class _Traits>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const bernoulli_distribution& __x)
 {
     __save_flags<_CharT, _Traits> __lx(__os);
@@ -123,7 +123,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const bernoulli_distribution& _
 }
 
 template <class _CharT, class _Traits>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is, bernoulli_distribution& __x)
 {
     typedef bernoulli_distribution _Eng;

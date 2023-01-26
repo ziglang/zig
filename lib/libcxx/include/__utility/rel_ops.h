@@ -10,9 +10,6 @@
 #define _LIBCPP___UTILITY_REL_OPS_H
 
 #include <__config>
-#include <__utility/forward.h>
-#include <__utility/move.h>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

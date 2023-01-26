@@ -10,7 +10,6 @@
 #define _LIBCPP___TYPE_TRAITS_IS_NOTHROW_DESTRUCTIBLE_H
 
 #include <__config>
-#include <__type_traits/add_const.h>
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/is_destructible.h>
 #include <__type_traits/is_reference.h>
@@ -37,7 +36,7 @@ struct __libcpp_is_nothrow_destructible<false, _Tp>
 
 template <class _Tp>
 struct __libcpp_is_nothrow_destructible<true, _Tp>
-    : public integral_constant<bool, noexcept(declval<_Tp>().~_Tp()) >
+    : public integral_constant<bool, noexcept(std::declval<_Tp>().~_Tp()) >
 {
 };
 
@@ -72,7 +71,7 @@ template <class _Tp> struct __libcpp_nothrow_destructor
                                      is_reference<_Tp>::value> {};
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_nothrow_destructible
-    : public __libcpp_nothrow_destructor<typename remove_all_extents<_Tp>::type> {};
+    : public __libcpp_nothrow_destructor<__remove_all_extents_t<_Tp> > {};
 
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_nothrow_destructible<_Tp[]>

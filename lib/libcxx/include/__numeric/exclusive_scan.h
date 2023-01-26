@@ -23,7 +23,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER > 14
 
 template <class _InputIterator, class _OutputIterator, class _Tp, class _BinaryOp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 _OutputIterator
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
 exclusive_scan(_InputIterator __first, _InputIterator __last, _OutputIterator __result, _Tp __init, _BinaryOp __b) {
   if (__first != __last) {
     _Tp __tmp(__b(__init, *__first));
@@ -41,7 +41,7 @@ exclusive_scan(_InputIterator __first, _InputIterator __last, _OutputIterator __
 }
 
 template <class _InputIterator, class _OutputIterator, class _Tp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 _OutputIterator
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
 exclusive_scan(_InputIterator __first, _InputIterator __last, _OutputIterator __result, _Tp __init) {
   return _VSTD::exclusive_scan(__first, __last, __result, __init, _VSTD::plus<>());
 }

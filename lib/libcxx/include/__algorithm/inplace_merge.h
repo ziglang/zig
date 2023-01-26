@@ -23,7 +23,11 @@
 #include <__iterator/distance.h>
 #include <__iterator/iterator_traits.h>
 #include <__iterator/reverse_iterator.h>
-#include <memory>
+#include <__memory/destruct_n.h>
+#include <__memory/temporary_buffer.h>
+#include <__memory/unique_ptr.h>
+#include <__utility/pair.h>
+#include <new>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -56,6 +60,7 @@ public:
 
 template <class _AlgPolicy, class _Compare, class _InputIterator1, class _Sent1,
           class _InputIterator2, class _Sent2, class _OutputIterator>
+_LIBCPP_HIDE_FROM_ABI
 void __half_inplace_merge(_InputIterator1 __first1, _Sent1 __last1,
                           _InputIterator2 __first2, _Sent2 __last2,
                           _OutputIterator __result, _Compare&& __comp)
@@ -83,6 +88,7 @@ void __half_inplace_merge(_InputIterator1 __first1, _Sent1 __last1,
 }
 
 template <class _AlgPolicy, class _Compare, class _BidirectionalIterator>
+_LIBCPP_HIDE_FROM_ABI
 void __buffered_inplace_merge(
     _BidirectionalIterator __first,
     _BidirectionalIterator __middle,
@@ -231,9 +237,8 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
 template <class _BidirectionalIterator, class _Compare>
 inline _LIBCPP_HIDE_FROM_ABI void inplace_merge(
     _BidirectionalIterator __first, _BidirectionalIterator __middle, _BidirectionalIterator __last, _Compare __comp) {
-  typedef typename __comp_ref_type<_Compare>::type _Comp_ref;
   std::__inplace_merge<_ClassicAlgPolicy>(
-      std::move(__first), std::move(__middle), std::move(__last), static_cast<_Comp_ref>(__comp));
+      std::move(__first), std::move(__middle), std::move(__last), static_cast<__comp_ref_type<_Compare> >(__comp));
 }
 
 template <class _BidirectionalIterator>

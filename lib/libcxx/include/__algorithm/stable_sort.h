@@ -16,8 +16,12 @@
 #include <__algorithm/sort.h>
 #include <__config>
 #include <__iterator/iterator_traits.h>
+#include <__memory/destruct_n.h>
+#include <__memory/temporary_buffer.h>
+#include <__memory/unique_ptr.h>
 #include <__utility/move.h>
-#include <memory>
+#include <__utility/pair.h>
+#include <new>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -27,7 +31,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _AlgPolicy, class _Compare, class _InputIterator1, class _InputIterator2>
-void
+_LIBCPP_HIDE_FROM_ABI void
 __merge_move_construct(_InputIterator1 __first1, _InputIterator1 __last1,
         _InputIterator2 __first2, _InputIterator2 __last2,
         typename iterator_traits<_InputIterator1>::value_type* __result, _Compare __comp)
@@ -69,7 +73,7 @@ __merge_move_construct(_InputIterator1 __first1, _InputIterator1 __last1,
 }
 
 template <class _AlgPolicy, class _Compare, class _InputIterator1, class _InputIterator2, class _OutputIterator>
-void
+_LIBCPP_HIDE_FROM_ABI void
 __merge_move_assign(_InputIterator1 __first1, _InputIterator1 __last1,
         _InputIterator2 __first2, _InputIterator2 __last2,
         _OutputIterator __result, _Compare __comp)
@@ -223,8 +227,7 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
       __h.reset(__buf.first);
   }
 
-  using _Comp_ref = typename __comp_ref_type<_Compare>::type;
-  std::__stable_sort<_AlgPolicy, _Comp_ref>(__first, __last, __comp, __len, __buf.first, __buf.second);
+  std::__stable_sort<_AlgPolicy, __comp_ref_type<_Compare> >(__first, __last, __comp, __len, __buf.first, __buf.second);
 }
 
 template <class _RandomAccessIterator, class _Compare>

@@ -23,17 +23,16 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _ForwardIterator, class _Compare>
 _LIBCPP_NODISCARD_EXT inline
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
 bool
 is_sorted(_ForwardIterator __first, _ForwardIterator __last, _Compare __comp)
 {
-    typedef typename __comp_ref_type<_Compare>::type _Comp_ref;
-    return _VSTD::__is_sorted_until<_Comp_ref>(__first, __last, __comp) == __last;
+    return _VSTD::__is_sorted_until<__comp_ref_type<_Compare> >(__first, __last, __comp) == __last;
 }
 
 template<class _ForwardIterator>
 _LIBCPP_NODISCARD_EXT inline
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
 bool
 is_sorted(_ForwardIterator __first, _ForwardIterator __last)
 {

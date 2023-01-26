@@ -13,11 +13,12 @@
 #include <__concepts/arithmetic.h>
 #include <__concepts/same_as.h>
 #include <__config>
+#include <__format/concepts.h>
 #include <__format/format_error.h>
-#include <__format/formatter.h> // for __char_type TODO FMT Move the concept?
 #include <__format/formatter_output.h>
 #include <__format/parser_std_format_spec.h>
 #include <__utility/unreachable.h>
+#include <array>
 #include <charconv>
 #include <limits>
 #include <string>
@@ -112,7 +113,7 @@ _LIBCPP_HIDE_FROM_ABI inline string __determine_grouping(ptrdiff_t __size, const
 // Char
 //
 
-template <__formatter::__char_type _CharT>
+template <__fmt_char_type _CharT>
 _LIBCPP_HIDE_FROM_ABI auto __format_char(
     integral auto __value,
     output_iterator<const _CharT&> auto __out_it,
@@ -216,7 +217,7 @@ _LIBCPP_HIDE_FROM_ABI auto __format_integer(
 
 #  ifndef _LIBCPP_HAS_NO_LOCALIZATION
   if (__specs.__std_.__locale_specific_form_) {
-    const auto& __np  = use_facet<numpunct<_CharT>>(__ctx.locale());
+    const auto& __np  = std::use_facet<numpunct<_CharT>>(__ctx.locale());
     string __grouping = __np.grouping();
     ptrdiff_t __size  = __last - __first;
     // Writing the grouped form has more overhead than the normal output
@@ -243,7 +244,7 @@ _LIBCPP_HIDE_FROM_ABI auto __format_integer(
     // The zero padding is done like:
     // - Write [sign][prefix]
     // - Write data right aligned with '0' as fill character.
-    __out_it             = _VSTD::copy(__begin, __first, _VSTD::move(__out_it));
+    __out_it             = __formatter::__copy(__begin, __first, _VSTD::move(__out_it));
     __specs.__alignment_ = __format_spec::__alignment::__right;
     __specs.__fill_      = _CharT('0');
     int32_t __size       = __first - __begin;
@@ -309,7 +310,7 @@ __format_integer(_Tp __value, auto& __ctx, __format_spec::__parsed_specification
   auto __r        = std::__to_unsigned_like(__value);
   bool __negative = __value < 0;
   if (__negative)
-    __r = __complement(__r);
+    __r = std::__complement(__r);
 
   return __formatter::__format_integer(__r, __ctx, __specs, __negative);
 }
@@ -341,7 +342,7 @@ __format_bool(bool __value, auto& __ctx, __format_spec::__parsed_specifications<
     -> decltype(__ctx.out()) {
 #  ifndef _LIBCPP_HAS_NO_LOCALIZATION
   if (__specs.__std_.__locale_specific_form_) {
-    const auto& __np           = use_facet<numpunct<_CharT>>(__ctx.locale());
+    const auto& __np           = std::use_facet<numpunct<_CharT>>(__ctx.locale());
     basic_string<_CharT> __str = __value ? __np.truename() : __np.falsename();
     return __formatter::__write_string_no_precision(basic_string_view<_CharT>{__str}, __ctx.out(), __specs);
   }

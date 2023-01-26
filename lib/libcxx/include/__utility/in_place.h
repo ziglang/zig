@@ -10,7 +10,8 @@
 #define _LIBCPP___UTILITY_IN_PLACE_H
 
 #include <__config>
-#include <type_traits>
+#include <__type_traits/remove_cvref.h>
+#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -43,13 +44,13 @@ template <class _Tp> struct __is_inplace_type_imp : false_type {};
 template <class _Tp> struct __is_inplace_type_imp<in_place_type_t<_Tp>> : true_type {};
 
 template <class _Tp>
-using __is_inplace_type = __is_inplace_type_imp<__uncvref_t<_Tp>>;
+using __is_inplace_type = __is_inplace_type_imp<__remove_cvref_t<_Tp>>;
 
 template <class _Tp> struct __is_inplace_index_imp : false_type {};
 template <size_t _Idx> struct __is_inplace_index_imp<in_place_index_t<_Idx>> : true_type {};
 
 template <class _Tp>
-using __is_inplace_index = __is_inplace_index_imp<__uncvref_t<_Tp>>;
+using __is_inplace_index = __is_inplace_index_imp<__remove_cvref_t<_Tp>>;
 
 #endif // _LIBCPP_STD_VER > 14
 

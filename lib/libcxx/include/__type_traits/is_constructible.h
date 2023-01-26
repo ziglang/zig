@@ -25,7 +25,7 @@ struct _LIBCPP_TEMPLATE_VIS is_constructible
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp, class ..._Args>
-inline constexpr bool is_constructible_v = is_constructible<_Tp, _Args...>::value;
+inline constexpr bool is_constructible_v = __is_constructible(_Tp, _Args...);
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

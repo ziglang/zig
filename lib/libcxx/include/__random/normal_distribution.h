@@ -58,8 +58,8 @@ public:
 
 private:
     param_type __p_;
-    result_type _V_;
-    bool _V_hot_;
+    result_type __v_;
+    bool __v_hot_;
 
 public:
     // constructors and reset functions
@@ -68,18 +68,18 @@ public:
     normal_distribution() : normal_distribution(0) {}
     _LIBCPP_INLINE_VISIBILITY
     explicit normal_distribution(result_type __mean, result_type __stddev = 1)
-        : __p_(param_type(__mean, __stddev)), _V_hot_(false) {}
+        : __p_(param_type(__mean, __stddev)), __v_hot_(false) {}
 #else
     _LIBCPP_INLINE_VISIBILITY
     explicit normal_distribution(result_type __mean = 0,
                                  result_type __stddev = 1)
-        : __p_(param_type(__mean, __stddev)), _V_hot_(false) {}
+        : __p_(param_type(__mean, __stddev)), __v_hot_(false) {}
 #endif
     _LIBCPP_INLINE_VISIBILITY
     explicit normal_distribution(const param_type& __p)
-        : __p_(__p), _V_hot_(false) {}
+        : __p_(__p), __v_hot_(false) {}
     _LIBCPP_INLINE_VISIBILITY
-    void reset() {_V_hot_ = false;}
+    void reset() {__v_hot_ = false;}
 
     // generating functions
     template<class _URNG>
@@ -107,8 +107,8 @@ public:
     friend _LIBCPP_INLINE_VISIBILITY
         bool operator==(const normal_distribution& __x,
                         const normal_distribution& __y)
-        {return __x.__p_ == __y.__p_ && __x._V_hot_ == __y._V_hot_ &&
-                (!__x._V_hot_ || __x._V_ == __y._V_);}
+        {return __x.__p_ == __y.__p_ && __x.__v_hot_ == __y.__v_hot_ &&
+                (!__x.__v_hot_ || __x.__v_ == __y.__v_);}
     friend _LIBCPP_INLINE_VISIBILITY
         bool operator!=(const normal_distribution& __x,
                         const normal_distribution& __y)
@@ -134,10 +134,10 @@ normal_distribution<_RealType>::operator()(_URNG& __g, const param_type& __p)
 {
     static_assert(__libcpp_random_is_valid_urng<_URNG>::value, "");
     result_type _Up;
-    if (_V_hot_)
+    if (__v_hot_)
     {
-        _V_hot_ = false;
-        _Up = _V_;
+        __v_hot_ = false;
+        _Up = __v_;
     }
     else
     {
@@ -152,15 +152,15 @@ normal_distribution<_RealType>::operator()(_URNG& __g, const param_type& __p)
             __s = __u * __u + __v * __v;
         } while (__s > 1 || __s == 0);
         result_type _Fp = _VSTD::sqrt(-2 * _VSTD::log(__s) / __s);
-        _V_ = __v * _Fp;
-        _V_hot_ = true;
+        __v_ = __v * _Fp;
+        __v_hot_ = true;
         _Up = __u * _Fp;
     }
     return _Up * __p.stddev() + __p.mean();
 }
 
 template <class _CharT, class _Traits, class _RT>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os,
            const normal_distribution<_RT>& __x)
 {
@@ -170,14 +170,14 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
                _OStream::scientific);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
-    __os << __x.mean() << __sp << __x.stddev() << __sp << __x._V_hot_;
-    if (__x._V_hot_)
-        __os << __sp << __x._V_;
+    __os << __x.mean() << __sp << __x.stddev() << __sp << __x.__v_hot_;
+    if (__x.__v_hot_)
+        __os << __sp << __x.__v_;
     return __os;
 }
 
 template <class _CharT, class _Traits, class _RT>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is,
            normal_distribution<_RT>& __x)
 {
@@ -197,8 +197,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     if (!__is.fail())
     {
         __x.param(param_type(__mean, __stddev));
-        __x._V_hot_ = _V_hot;
-        __x._V_ = _Vp;
+        __x.__v_hot_ = _V_hot;
+        __x.__v_ = _Vp;
     }
     return __is;
 }

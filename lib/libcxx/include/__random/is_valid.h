@@ -53,7 +53,7 @@ template<> struct __libcpp_random_is_valid_inttype<__uint128_t> : true_type {}; 
 template<class, class = void> struct __libcpp_random_is_valid_urng : false_type {};
 template<class _Gp> struct __libcpp_random_is_valid_urng<_Gp, __enable_if_t<
     is_unsigned<typename _Gp::result_type>::value &&
-    _IsSame<decltype(declval<_Gp&>()()), typename _Gp::result_type>::value
+    _IsSame<decltype(std::declval<_Gp&>()()), typename _Gp::result_type>::value
 > > : true_type {};
 
 _LIBCPP_END_NAMESPACE_STD

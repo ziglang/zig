@@ -85,9 +85,9 @@ _LIBCPP_BEGIN_NAMESPACE_LFTS
 #  define _LIBCPP_DEPRECATED_BOYER_MOORE_SEARCHER
 #  define _LIBCPP_DEPRECATED_BOYER_MOORE_HORSPOOL_SEARCHER
 #else
-#  define _LIBCPP_DEPRECATED_DEFAULT_SEARCHER _LIBCPP_DEPRECATED_("std::exprerimental::default_searcher will be removed in LLVM 17. Use std::default_searcher instead")
-#  define _LIBCPP_DEPRECATED_BOYER_MOORE_SEARCHER _LIBCPP_DEPRECATED_("std::exprerimental::boyer_moore_searcher will be removed in LLVM 17. Use std::boyer_moore_searcher instead")
-#  define _LIBCPP_DEPRECATED_BOYER_MOORE_HORSPOOL_SEARCHER _LIBCPP_DEPRECATED_("std::exprerimental::boyer_moore_horspool_searcher will be removed in LLVM 17. Use std::boyer_moore_horspool_searcher instead")
+#  define _LIBCPP_DEPRECATED_DEFAULT_SEARCHER _LIBCPP_DEPRECATED_("std::experimental::default_searcher will be removed in LLVM 17. Use std::default_searcher instead")
+#  define _LIBCPP_DEPRECATED_BOYER_MOORE_SEARCHER _LIBCPP_DEPRECATED_("std::experimental::boyer_moore_searcher will be removed in LLVM 17. Use std::boyer_moore_searcher instead")
+#  define _LIBCPP_DEPRECATED_BOYER_MOORE_HORSPOOL_SEARCHER _LIBCPP_DEPRECATED_("std::experimental::boyer_moore_horspool_searcher will be removed in LLVM 17. Use std::boyer_moore_horspool_searcher instead")
 #endif
 
 #if _LIBCPP_STD_VER > 11
@@ -132,24 +132,24 @@ class _BMSkipTable<_Key, _Value, _Hash, _BinaryPredicate, false> {
     typedef _Key   key_type;
 
     const _Value __default_value_;
-    std::unordered_map<_Key, _Value, _Hash, _BinaryPredicate> __table;
+    std::unordered_map<_Key, _Value, _Hash, _BinaryPredicate> __table_;
 
 public:
     _LIBCPP_INLINE_VISIBILITY
     _BMSkipTable(size_t __sz, _Value __default, _Hash __hf, _BinaryPredicate __pred)
-        : __default_value_(__default), __table(__sz, __hf, __pred) {}
+        : __default_value_(__default), __table_(__sz, __hf, __pred) {}
 
     _LIBCPP_INLINE_VISIBILITY
     void insert(const key_type &__key, value_type __val)
     {
-        __table [__key] = __val;    // Would skip_.insert (val) be better here?
+        __table_ [__key] = __val;    // Would skip_.insert (val) be better here?
     }
 
     _LIBCPP_INLINE_VISIBILITY
     value_type operator [](const key_type & __key) const
     {
-        auto __it = __table.find (__key);
-        return __it == __table.end() ? __default_value_ : __it->second;
+        auto __it = __table_.find (__key);
+        return __it == __table_.end() ? __default_value_ : __it->second;
     }
 };
 
@@ -161,27 +161,27 @@ private:
     typedef _Value value_type;
     typedef _Key   key_type;
 
-    typedef typename make_unsigned<key_type>::type unsigned_key_type;
+    typedef __make_unsigned_t<key_type> unsigned_key_type;
     typedef std::array<value_type, 256> skip_map;
-    skip_map __table;
+    skip_map __table_;
 
 public:
     _LIBCPP_INLINE_VISIBILITY
     _BMSkipTable(size_t /*__sz*/, _Value __default, _Hash /*__hf*/, _BinaryPredicate /*__pred*/)
     {
-        std::fill_n(__table.begin(), __table.size(), __default);
+        std::fill_n(__table_.begin(), __table_.size(), __default);
     }
 
     _LIBCPP_INLINE_VISIBILITY
     void insert(key_type __key, value_type __val)
     {
-        __table[static_cast<unsigned_key_type>(__key)] = __val;
+        __table_[static_cast<unsigned_key_type>(__key)] = __val;
     }
 
     _LIBCPP_INLINE_VISIBILITY
     value_type operator [](key_type __key) const
     {
-        return __table[static_cast<unsigned_key_type>(__key)];
+        return __table_[static_cast<unsigned_key_type>(__key)];
     }
 };
 
@@ -205,8 +205,8 @@ public:
                 _Hash __hf = _Hash(), _BinaryPredicate __pred = _BinaryPredicate())
             : __first_(__f), __last_(__l), __pred_(__pred),
               __pattern_length_(_VSTD::distance(__first_, __last_)),
-              __skip_{make_shared<skip_table_type>(__pattern_length_, -1, __hf, __pred_)},
-              __suffix_{make_shared<vector<difference_type>>(__pattern_length_ + 1)}
+              __skip_{std::make_shared<skip_table_type>(__pattern_length_, -1, __hf, __pred_)},
+              __suffix_{std::make_shared<vector<difference_type>>(__pattern_length_ + 1)}
         {
     //  build the skip table
         for ( difference_type __i = 0; __f != __l; ++__f, (void) ++__i )
@@ -223,12 +223,12 @@ public:
                                         typename iterator_traits<_RandomAccessIterator2>::value_type>::value,
                       "Corpus and Pattern iterators must point to the same type");
 
-        if (__f      == __l )    return make_pair(__l, __l); // empty corpus
-        if (__first_ == __last_) return make_pair(__f, __f); // empty pattern
+        if (__f      == __l )    return std::make_pair(__l, __l); // empty corpus
+        if (__first_ == __last_) return std::make_pair(__f, __f); // empty pattern
 
     //  If the pattern is larger than the corpus, we can't find it!
         if ( __pattern_length_ > _VSTD::distance(__f, __l))
-            return make_pair(__l, __l);
+            return std::make_pair(__l, __l);
 
     //  Do the search
         return this->__search(__f, __l);
@@ -260,7 +260,7 @@ private:
                 __j--;
             //  We matched - we're done!
                 if ( __j == 0 )
-                    return make_pair(__cur, __cur + __pattern_length_);
+                    return std::make_pair(__cur, __cur + __pattern_length_);
                 }
 
         //  Since we didn't match, figure out how far to skip forward
@@ -272,7 +272,7 @@ private:
                 __cur += __suffix[ __j ];
         }
 
-        return make_pair(__l, __l);     // We didn't find anything
+        return std::make_pair(__l, __l);     // We didn't find anything
     }
 
 
@@ -373,12 +373,12 @@ public:
                                         typename std::iterator_traits<_RandomAccessIterator2>::value_type>::value,
                       "Corpus and Pattern iterators must point to the same type");
 
-        if (__f      == __l )    return make_pair(__l, __l); // empty corpus
-        if (__first_ == __last_) return make_pair(__f, __f); // empty pattern
+        if (__f      == __l )    return std::make_pair(__l, __l); // empty corpus
+        if (__first_ == __last_) return std::make_pair(__f, __f); // empty pattern
 
     //  If the pattern is larger than the corpus, we can't find it!
         if ( __pattern_length_ > _VSTD::distance(__f, __l))
-            return make_pair(__l, __l);
+            return std::make_pair(__l, __l);
 
     //  Do the search
         return this->__search(__f, __l);
@@ -407,12 +407,12 @@ private:
                 __j--;
             //  We matched - we're done!
                 if ( __j == 0 )
-                    return make_pair(__cur, __cur + __pattern_length_);
+                    return std::make_pair(__cur, __cur + __pattern_length_);
             }
             __cur += __skip[__cur[__pattern_length_-1]];
         }
 
-        return make_pair(__l, __l);
+        return std::make_pair(__l, __l);
     }
 };
 

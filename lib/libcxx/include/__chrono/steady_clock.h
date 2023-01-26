@@ -31,7 +31,7 @@ public:
     typedef duration::rep                                 rep;
     typedef duration::period                              period;
     typedef chrono::time_point<steady_clock, duration>    time_point;
-    static _LIBCPP_CONSTEXPR_AFTER_CXX11 const bool is_steady = true;
+    static _LIBCPP_CONSTEXPR_SINCE_CXX14 const bool is_steady = true;
 
     static time_point now() _NOEXCEPT;
 };

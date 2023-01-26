@@ -33,7 +33,7 @@ template<class _UIntType, size_t __w, size_t __s, size_t __r>
 class _LIBCPP_TEMPLATE_VIS subtract_with_carry_engine;
 
 template<class _UInt, size_t _Wp, size_t _Sp, size_t _Rp>
-bool
+_LIBCPP_HIDE_FROM_ABI bool
 operator==(
     const subtract_with_carry_engine<_UInt, _Wp, _Sp, _Rp>& __x,
     const subtract_with_carry_engine<_UInt, _Wp, _Sp, _Rp>& __y);
@@ -47,13 +47,13 @@ operator!=(
 
 template <class _CharT, class _Traits,
           class _UInt, size_t _Wp, size_t _Sp, size_t _Rp>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os,
            const subtract_with_carry_engine<_UInt, _Wp, _Sp, _Rp>& __x);
 
 template <class _CharT, class _Traits,
           class _UInt, size_t _Wp, size_t _Sp, size_t _Rp>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is,
            subtract_with_carry_engine<_UInt, _Wp, _Sp, _Rp>& __x);
 
@@ -251,7 +251,7 @@ subtract_with_carry_engine<_UIntType, __w, __s, __r>::operator()()
 }
 
 template<class _UInt, size_t _Wp, size_t _Sp, size_t _Rp>
-bool
+_LIBCPP_HIDE_FROM_ABI bool
 operator==(
     const subtract_with_carry_engine<_UInt, _Wp, _Sp, _Rp>& __x,
     const subtract_with_carry_engine<_UInt, _Wp, _Sp, _Rp>& __y)
@@ -305,7 +305,7 @@ operator!=(
 
 template <class _CharT, class _Traits,
           class _UInt, size_t _Wp, size_t _Sp, size_t _Rp>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os,
            const subtract_with_carry_engine<_UInt, _Wp, _Sp, _Rp>& __x)
 {
@@ -325,7 +325,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
 
 template <class _CharT, class _Traits,
           class _UInt, size_t _Wp, size_t _Sp, size_t _Rp>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is,
            subtract_with_carry_engine<_UInt, _Wp, _Sp, _Rp>& __x)
 {

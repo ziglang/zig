@@ -25,7 +25,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Iter1, class _Sent1, class _Iter2, class _Sent2, class _Comp, class _Proj1, class _Proj2>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17 bool
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
 __includes(_Iter1 __first1, _Sent1 __last1, _Iter2 __first2, _Sent2 __last2,
            _Comp&& __comp, _Proj1&& __proj1, _Proj2&& __proj2) {
   for (; __first2 != __last2; ++__first1) {
@@ -39,7 +39,7 @@ __includes(_Iter1 __first1, _Sent1 __last1, _Iter2 __first2, _Sent2 __last2,
 }
 
 template <class _InputIterator1, class _InputIterator2, class _Compare>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17 bool includes(
+_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool includes(
     _InputIterator1 __first1,
     _InputIterator1 __last1,
     _InputIterator2 __first2,
@@ -48,14 +48,18 @@ _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
   static_assert(__is_callable<_Compare, decltype(*__first1), decltype(*__first2)>::value,
       "Comparator has to be callable");
 
-  typedef typename __comp_ref_type<_Compare>::type _Comp_ref;
   return std::__includes(
-      std::move(__first1), std::move(__last1), std::move(__first2), std::move(__last2),
-      static_cast<_Comp_ref>(__comp), __identity(), __identity());
+      std::move(__first1),
+      std::move(__last1),
+      std::move(__first2),
+      std::move(__last2),
+      static_cast<__comp_ref_type<_Compare> >(__comp),
+      __identity(),
+      __identity());
 }
 
 template <class _InputIterator1, class _InputIterator2>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17 bool
+_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
 includes(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2, _InputIterator2 __last2) {
   return std::includes(
       std::move(__first1),

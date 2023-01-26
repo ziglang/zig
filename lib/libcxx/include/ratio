@@ -79,9 +79,9 @@ typedef ratio<1000000000000000000000000, 1> yotta;  // not supported
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+#include <__type_traits/integral_constant.h>
 #include <climits>
 #include <cstdint>
-#include <type_traits>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -524,5 +524,9 @@ inline constexpr bool ratio_greater_equal_v = ratio_greater_equal<_R1, _R2>::val
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <type_traits>
+#endif
 
 #endif // _LIBCPP_RATIO

@@ -54,6 +54,7 @@ namespace std {
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__memory/addressof.h>
+#include <__type_traits/decay.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
 #include <experimental/__config>
@@ -82,19 +83,19 @@ public:
     typedef void                                 reference;
 
     ostream_joiner(ostream_type& __os, _Delim&& __d)
-        : __output_iter(_VSTD::addressof(__os)), __delim(_VSTD::move(__d)), __first(true) {}
+        : __output_iter_(_VSTD::addressof(__os)), __delim_(_VSTD::move(__d)), __first_(true) {}
 
     ostream_joiner(ostream_type& __os, const _Delim& __d)
-        : __output_iter(_VSTD::addressof(__os)), __delim(__d), __first(true) {}
+        : __output_iter_(_VSTD::addressof(__os)), __delim_(__d), __first_(true) {}
 
 
     template<typename _Tp>
     ostream_joiner& operator=(const _Tp& __v)
     {
-        if (!__first)
-            *__output_iter << __delim;
-        __first = false;
-        *__output_iter << __v;
+        if (!__first_)
+            *__output_iter_ << __delim_;
+        __first_ = false;
+        *__output_iter_ << __v;
         return *this;
     }
 
@@ -103,19 +104,23 @@ public:
     ostream_joiner& operator++(int) _NOEXCEPT { return *this; }
 
 private:
-    ostream_type*   __output_iter;
-    _Delim          __delim;
-    bool            __first;
+    ostream_type*   __output_iter_;
+    _Delim          __delim_;
+    bool            __first_;
 };
 
 
 template <class _CharT, class _Traits, class _Delim>
-ostream_joiner<typename decay<_Delim>::type, _CharT, _Traits>
+_LIBCPP_HIDE_FROM_ABI ostream_joiner<typename decay<_Delim>::type, _CharT, _Traits>
 make_ostream_joiner(basic_ostream<_CharT, _Traits>& __os, _Delim && __d)
 { return ostream_joiner<typename decay<_Delim>::type, _CharT, _Traits>(__os, _VSTD::forward<_Delim>(__d)); }
 
 _LIBCPP_END_NAMESPACE_LFTS
 
 #endif // _LIBCPP_STD_VER > 11
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <type_traits>
+#endif
 
 #endif // _LIBCPP_EXPERIMENTAL_ITERATOR

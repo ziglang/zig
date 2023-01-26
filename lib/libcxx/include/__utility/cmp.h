@@ -10,10 +10,14 @@
 #define _LIBCPP___UTILITY_CMP_H
 
 #include <__config>
+#include <__type_traits/disjunction.h>
+#include <__type_traits/is_integral.h>
+#include <__type_traits/is_same.h>
+#include <__type_traits/is_signed.h>
+#include <__type_traits/make_unsigned.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
 #include <limits>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

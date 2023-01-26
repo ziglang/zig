@@ -24,7 +24,7 @@ template <class _Tp> class _LIBCPP_TEMPLATE_VIS reference_wrapper;
 template <class _Tp> struct __is_reference_wrapper_impl : public false_type {};
 template <class _Tp> struct __is_reference_wrapper_impl<reference_wrapper<_Tp> > : public true_type {};
 template <class _Tp> struct __is_reference_wrapper
-    : public __is_reference_wrapper_impl<typename remove_cv<_Tp>::type> {};
+    : public __is_reference_wrapper_impl<__remove_cv_t<_Tp> > {};
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -27,7 +27,7 @@ _Tp __declval(long);
 _LIBCPP_SUPPRESS_DEPRECATED_POP
 
 template <class _Tp>
-decltype(__declval<_Tp>(0)) declval() _NOEXCEPT;
+decltype(std::__declval<_Tp>(0)) declval() _NOEXCEPT;
 
 _LIBCPP_END_NAMESPACE_STD
 

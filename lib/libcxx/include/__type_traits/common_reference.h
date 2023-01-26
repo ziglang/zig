@@ -31,7 +31,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // Let COND_RES(X, Y) be:
 template <class _Xp, class _Yp>
 using __cond_res =
-    decltype(false ? declval<_Xp(&)()>()() : declval<_Yp(&)()>()());
+    decltype(false ? std::declval<_Xp(&)()>()() : std::declval<_Yp(&)()>()());
 
 // Let `XREF(A)` denote a unary alias template `T` such that `T<U>` denotes the same type as `U`
 // with the addition of `A`'s cv and reference qualifiers, for a non-reference cv-unqualified type

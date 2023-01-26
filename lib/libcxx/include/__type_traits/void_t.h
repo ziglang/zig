@@ -21,8 +21,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class...> using void_t = void;
 #endif
 
-template <class>
-struct __void_t { typedef void type; };
+template <class...>
+using __void_t = void;
 
 _LIBCPP_END_NAMESPACE_STD
 

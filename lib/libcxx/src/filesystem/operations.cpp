@@ -1348,7 +1348,7 @@ bool __remove(const path& p, error_code* ec) {
 //
 // The second implementation is used on platforms where `openat()` & friends are available,
 // and it threads file descriptors through recursive calls to avoid such race conditions.
-#if defined(_LIBCPP_WIN32API)
+#if defined(_LIBCPP_WIN32API) || defined (__MVS__)
 # define REMOVE_ALL_USE_DIRECTORY_ITERATOR
 #endif
 
@@ -1408,6 +1408,7 @@ struct scope_exit {
 private:
   Cleanup cleanup_;
 };
+_LIBCPP_CTAD_SUPPORTED_FOR_TYPE(scope_exit);
 
 uintmax_t remove_all_impl(int parent_directory, const path& p, error_code& ec) {
   // First, try to open the path as a directory.

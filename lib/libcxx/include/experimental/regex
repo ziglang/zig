@@ -48,17 +48,21 @@ namespace pmr {
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS_PMR
 
+#ifndef _LIBCPP_CXX03_LANG
+
 template <class _BiDirIter>
 using match_results =
     _VSTD::match_results<_BiDirIter,
         polymorphic_allocator<_VSTD::sub_match<_BiDirIter>>>;
 
-typedef match_results<const char*> cmatch;
-typedef match_results<_VSTD_LFTS_PMR::string::const_iterator> smatch;
+_LIBCPP_DEPCREATED_MEMORY_RESOURCE("cmatch") typedef match_results<const char*> cmatch;
+_LIBCPP_DEPCREATED_MEMORY_RESOURCE("smatch") typedef match_results<_VSTD_LFTS_PMR::string::const_iterator> smatch;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-typedef match_results<const wchar_t*> wcmatch;
-typedef match_results<_VSTD_LFTS_PMR::wstring::const_iterator> wsmatch;
+_LIBCPP_DEPCREATED_MEMORY_RESOURCE("wcmatch") typedef match_results<const wchar_t*> wcmatch;
+_LIBCPP_DEPCREATED_MEMORY_RESOURCE("wsmatch") typedef match_results<_VSTD_LFTS_PMR::wstring::const_iterator> wsmatch;
 #endif
+
+#endif // _LIBCPP_CXX03_LANG
 
 _LIBCPP_END_NAMESPACE_LFTS_PMR
 

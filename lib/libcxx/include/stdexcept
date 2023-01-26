@@ -87,9 +87,9 @@ public:
     logic_error(const logic_error&) _NOEXCEPT;
     logic_error& operator=(const logic_error&) _NOEXCEPT;
 
-    virtual ~logic_error() _NOEXCEPT;
+    ~logic_error() _NOEXCEPT override;
 
-    virtual const char* what() const _NOEXCEPT;
+    const char* what() const _NOEXCEPT override;
 #else
 public:
     explicit logic_error(const _VSTD::string&); // Symbol uses versioned std::string
@@ -110,9 +110,9 @@ public:
     runtime_error(const runtime_error&) _NOEXCEPT;
     runtime_error& operator=(const runtime_error&) _NOEXCEPT;
 
-    virtual ~runtime_error() _NOEXCEPT;
+    ~runtime_error() _NOEXCEPT override;
 
-    virtual const char* what() const _NOEXCEPT;
+    const char* what() const _NOEXCEPT override;
 #else
 public:
    explicit runtime_error(const _VSTD::string&); // Symbol uses versioned std::string
@@ -129,7 +129,7 @@ public:
 
 #ifndef _LIBCPP_ABI_VCRUNTIME
     domain_error(const domain_error&) _NOEXCEPT = default;
-    virtual ~domain_error() _NOEXCEPT;
+    ~domain_error() _NOEXCEPT override;
 #endif
 };
 
@@ -142,7 +142,7 @@ public:
 
 #ifndef _LIBCPP_ABI_VCRUNTIME
     invalid_argument(const invalid_argument&) _NOEXCEPT = default;
-    virtual ~invalid_argument() _NOEXCEPT;
+    ~invalid_argument() _NOEXCEPT override;
 #endif
 };
 
@@ -154,7 +154,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY explicit length_error(const char* __s)   : logic_error(__s) {}
 #ifndef _LIBCPP_ABI_VCRUNTIME
     length_error(const length_error&) _NOEXCEPT = default;
-    virtual ~length_error() _NOEXCEPT;
+    ~length_error() _NOEXCEPT override;
 #endif
 };
 
@@ -167,7 +167,7 @@ public:
 
 #ifndef _LIBCPP_ABI_VCRUNTIME
     out_of_range(const out_of_range&) _NOEXCEPT = default;
-    virtual ~out_of_range() _NOEXCEPT;
+    ~out_of_range() _NOEXCEPT override;
 #endif
 };
 
@@ -180,7 +180,7 @@ public:
 
 #ifndef _LIBCPP_ABI_VCRUNTIME
     range_error(const range_error&) _NOEXCEPT = default;
-    virtual ~range_error() _NOEXCEPT;
+    ~range_error() _NOEXCEPT override;
 #endif
 };
 
@@ -193,7 +193,7 @@ public:
 
 #ifndef _LIBCPP_ABI_VCRUNTIME
     overflow_error(const overflow_error&) _NOEXCEPT = default;
-    virtual ~overflow_error() _NOEXCEPT;
+    ~overflow_error() _NOEXCEPT override;
 #endif
 };
 
@@ -206,7 +206,7 @@ public:
 
 #ifndef _LIBCPP_ABI_VCRUNTIME
     underflow_error(const underflow_error&) _NOEXCEPT = default;
-    virtual ~underflow_error() _NOEXCEPT;
+    ~underflow_error() _NOEXCEPT override;
 #endif
 };
 

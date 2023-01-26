@@ -23,8 +23,9 @@
 #include <__ranges/access.h>
 #include <__ranges/concepts.h>
 #include <__ranges/dangling.h>
+#include <__type_traits/remove_reference.h>
 #include <__utility/move.h>
-#include <type_traits>
+#include <new>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -32,7 +33,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 namespace ranges {
 
@@ -255,7 +256,7 @@ struct __fn {
             sentinel_for<_InputIterator> _Sentinel1,
             __nothrow_forward_iterator _OutputIterator,
             __nothrow_sentinel_for<_OutputIterator> _Sentinel2>
-    requires constructible_from<iter_value_t<_OutputIterator>, iter_reference_t<_InputIterator>>
+    requires constructible_from<iter_value_t<_OutputIterator>, iter_rvalue_reference_t<_InputIterator>>
   uninitialized_move_result<_InputIterator, _OutputIterator>
   operator()(_InputIterator __ifirst, _Sentinel1 __ilast, _OutputIterator __ofirst, _Sentinel2 __olast) const {
     using _ValueType = remove_reference_t<iter_reference_t<_OutputIterator>>;
@@ -266,7 +267,7 @@ struct __fn {
   }
 
   template <input_range _InputRange, __nothrow_forward_range _OutputRange>
-    requires constructible_from<range_value_t<_OutputRange>, range_reference_t<_InputRange>>
+    requires constructible_from<range_value_t<_OutputRange>, range_rvalue_reference_t<_InputRange>>
   uninitialized_move_result<borrowed_iterator_t<_InputRange>, borrowed_iterator_t<_OutputRange>>
   operator()(_InputRange&& __in_range, _OutputRange&& __out_range) const {
     return (*this)(ranges::begin(__in_range), ranges::end(__in_range),
@@ -291,7 +292,7 @@ struct __fn {
   template <input_iterator _InputIterator,
            __nothrow_forward_iterator _OutputIterator,
            __nothrow_sentinel_for<_OutputIterator> _Sentinel>
-    requires constructible_from<iter_value_t<_OutputIterator>, iter_reference_t<_InputIterator>>
+    requires constructible_from<iter_value_t<_OutputIterator>, iter_rvalue_reference_t<_InputIterator>>
   uninitialized_move_n_result<_InputIterator, _OutputIterator>
   operator()(_InputIterator __ifirst, iter_difference_t<_InputIterator> __n,
              _OutputIterator __ofirst, _Sentinel __olast) const {
@@ -311,7 +312,7 @@ inline namespace __cpo {
 
 } // namespace ranges
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -12,7 +12,6 @@
 #include <__config>
 #include <__type_traits/add_rvalue_reference.h>
 #include <__type_traits/integral_constant.h>
-#include <__type_traits/is_trivially_constructible.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -20,9 +19,9 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_trivially_move_constructible
-    : public is_trivially_constructible<_Tp, typename add_rvalue_reference<_Tp>::type>
-    {};
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_trivially_move_constructible
+    : public integral_constant<bool, __is_trivially_constructible(_Tp, __add_rvalue_reference_t<_Tp>)> {};
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>

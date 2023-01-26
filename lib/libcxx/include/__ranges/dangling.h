@@ -13,7 +13,7 @@
 #include <__config>
 #include <__ranges/access.h>
 #include <__ranges/concepts.h>
-#include <type_traits>
+#include <__type_traits/conditional.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

@@ -50,7 +50,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // In order to minimize the diff in the Ryu code between MSVC STL and libc++
 // the code uses the name __DIGIT_TABLE. In order to avoid code duplication it
 // reuses the table already available in libc++.
-inline constexpr auto& __DIGIT_TABLE = __itoa::__table<>::__digits_base_10;
+inline constexpr auto& __DIGIT_TABLE = __itoa::__digits_base_10;
 
 _LIBCPP_END_NAMESPACE_STD
 

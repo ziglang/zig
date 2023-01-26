@@ -207,7 +207,11 @@ template <class ToDuration, class Rep, class Period>
 template <class ToDuration, class Rep, class Period>
     constexpr ToDuration round(const duration<Rep, Period>& d);    // C++17
 
-// duration I/O is elsewhere
+// duration I/O
+template<class charT, class traits, class Rep, class Period>       // C++20
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os,
+               const duration<Rep, Period>& d);
 
 // time_point arithmetic (all constexpr in C++14)
 template <class Clock, class Duration1, class Rep2, class Period2>
@@ -332,32 +336,35 @@ constexpr day  operator+(const day&  x, const days& y) noexcept;
 constexpr day  operator+(const days& x, const day&  y) noexcept;
 constexpr day  operator-(const day&  x, const days& y) noexcept;
 constexpr days operator-(const day&  x, const day&  y) noexcept;
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const day& d);
 
 // 25.8.4, class month    // C++20
 class month;
 constexpr bool operator==(const month& x, const month& y) noexcept;
-constexpr bool operator!=(const month& x, const month& y) noexcept;
-constexpr bool operator< (const month& x, const month& y) noexcept;
-constexpr bool operator> (const month& x, const month& y) noexcept;
-constexpr bool operator<=(const month& x, const month& y) noexcept;
-constexpr bool operator>=(const month& x, const month& y) noexcept;
+constexpr strong_ordering operator<=>(const month& x, const month& y) noexcept;
+
 constexpr month  operator+(const month&  x, const months& y) noexcept;
 constexpr month  operator+(const months& x,  const month& y) noexcept;
 constexpr month  operator-(const month&  x, const months& y) noexcept;
 constexpr months operator-(const month&  x,  const month& y) noexcept;
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const month& m);
 
 // 25.8.5, class year    // C++20
 class year;
 constexpr bool operator==(const year& x, const year& y) noexcept;
-constexpr bool operator!=(const year& x, const year& y) noexcept;
-constexpr bool operator< (const year& x, const year& y) noexcept;
-constexpr bool operator> (const year& x, const year& y) noexcept;
-constexpr bool operator<=(const year& x, const year& y) noexcept;
-constexpr bool operator>=(const year& x, const year& y) noexcept;
+constexpr strong_ordering operator<=>(const year& x, const year& y) noexcept;
+
 constexpr year  operator+(const year&  x, const years& y) noexcept;
 constexpr year  operator+(const years& x, const year&  y) noexcept;
 constexpr year  operator-(const year&  x, const years& y) noexcept;
 constexpr years operator-(const year&  x, const year&  y) noexcept;
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const year& y);
 
 // 25.8.6, class weekday    // C++20
 class weekday;
@@ -368,6 +375,9 @@ constexpr weekday operator+(const weekday& x, const days&    y) noexcept;
 constexpr weekday operator+(const days&    x, const weekday& y) noexcept;
 constexpr weekday operator-(const weekday& x, const days&    y) noexcept;
 constexpr days    operator-(const weekday& x, const weekday& y) noexcept;
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const weekday& wd);
 
 // 25.8.7, class weekday_indexed    // C++20
 
@@ -375,32 +385,39 @@ class weekday_indexed;
 constexpr bool operator==(const weekday_indexed& x, const weekday_indexed& y) noexcept;
 constexpr bool operator!=(const weekday_indexed& x, const weekday_indexed& y) noexcept;
 
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const weekday_indexed& wdi);
+
 // 25.8.8, class weekday_last    // C++20
 class weekday_last;
 
 constexpr bool operator==(const weekday_last& x, const weekday_last& y) noexcept;
 constexpr bool operator!=(const weekday_last& x, const weekday_last& y) noexcept;
 
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const weekday_last& wdl);
+
 // 25.8.9, class month_day    // C++20
 class month_day;
 
 constexpr bool operator==(const month_day& x, const month_day& y) noexcept;
-constexpr bool operator!=(const month_day& x, const month_day& y) noexcept;
-constexpr bool operator< (const month_day& x, const month_day& y) noexcept;
-constexpr bool operator> (const month_day& x, const month_day& y) noexcept;
-constexpr bool operator<=(const month_day& x, const month_day& y) noexcept;
-constexpr bool operator>=(const month_day& x, const month_day& y) noexcept;
+constexpr strong_ordering operator<=>(const month_day& x, const month_day& y) noexcept;
 
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const month_day& md);
 
 // 25.8.10, class month_day_last    // C++20
 class month_day_last;
 
 constexpr bool operator==(const month_day_last& x, const month_day_last& y) noexcept;
-constexpr bool operator!=(const month_day_last& x, const month_day_last& y) noexcept;
-constexpr bool operator< (const month_day_last& x, const month_day_last& y) noexcept;
-constexpr bool operator> (const month_day_last& x, const month_day_last& y) noexcept;
-constexpr bool operator<=(const month_day_last& x, const month_day_last& y) noexcept;
-constexpr bool operator>=(const month_day_last& x, const month_day_last& y) noexcept;
+constexpr strong_ordering operator<=>(const month_day_last& x, const month_day_last& y) noexcept;
+
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const month_day_last& mdl);
 
 // 25.8.11, class month_weekday    // C++20
 class month_weekday;
@@ -408,22 +425,26 @@ class month_weekday;
 constexpr bool operator==(const month_weekday& x, const month_weekday& y) noexcept;
 constexpr bool operator!=(const month_weekday& x, const month_weekday& y) noexcept;
 
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const month_weekday& mwd);
+
 // 25.8.12, class month_weekday_last    // C++20
 class month_weekday_last;
 
 constexpr bool operator==(const month_weekday_last& x, const month_weekday_last& y) noexcept;
 constexpr bool operator!=(const month_weekday_last& x, const month_weekday_last& y) noexcept;
 
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const month_weekday_last& mwdl);
+
 
 // 25.8.13, class year_month    // C++20
 class year_month;
 
 constexpr bool operator==(const year_month& x, const year_month& y) noexcept;
-constexpr bool operator!=(const year_month& x, const year_month& y) noexcept;
-constexpr bool operator< (const year_month& x, const year_month& y) noexcept;
-constexpr bool operator> (const year_month& x, const year_month& y) noexcept;
-constexpr bool operator<=(const year_month& x, const year_month& y) noexcept;
-constexpr bool operator>=(const year_month& x, const year_month& y) noexcept;
+constexpr strong_ordering operator<=>(const year_month& x, const year_month& y) noexcept;
 
 constexpr year_month operator+(const year_month& ym, const months& dm) noexcept;
 constexpr year_month operator+(const months& dm, const year_month& ym) noexcept;
@@ -433,15 +454,15 @@ constexpr year_month operator+(const year_month& ym, const years& dy) noexcept;
 constexpr year_month operator+(const years& dy, const year_month& ym) noexcept;
 constexpr year_month operator-(const year_month& ym, const years& dy) noexcept;
 
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const year_month& ym);
+
 // 25.8.14, class year_month_day class    // C++20
 year_month_day;
 
 constexpr bool operator==(const year_month_day& x, const year_month_day& y) noexcept;
-constexpr bool operator!=(const year_month_day& x, const year_month_day& y) noexcept;
-constexpr bool operator< (const year_month_day& x, const year_month_day& y) noexcept;
-constexpr bool operator> (const year_month_day& x, const year_month_day& y) noexcept;
-constexpr bool operator<=(const year_month_day& x, const year_month_day& y) noexcept;
-constexpr bool operator>=(const year_month_day& x, const year_month_day& y) noexcept;
+constexpr strong_ordering operator<=>(const year_month_day& x, const year_month_day& y) noexcept;
 
 constexpr year_month_day operator+(const year_month_day& ymd, const months& dm) noexcept;
 constexpr year_month_day operator+(const months& dm, const year_month_day& ymd) noexcept;
@@ -450,22 +471,15 @@ constexpr year_month_day operator+(const years& dy, const year_month_day& ymd) n
 constexpr year_month_day operator-(const year_month_day& ymd, const months& dm) noexcept;
 constexpr year_month_day operator-(const year_month_day& ymd, const years& dy) noexcept;
 
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const year_month_day& ymd);
 
 // 25.8.15, class year_month_day_last    // C++20
 class year_month_day_last;
 
-constexpr bool operator==(const year_month_day_last& x,
-                          const year_month_day_last& y) noexcept;
-constexpr bool operator!=(const year_month_day_last& x,
-                          const year_month_day_last& y) noexcept;
-constexpr bool operator< (const year_month_day_last& x,
-                          const year_month_day_last& y) noexcept;
-constexpr bool operator> (const year_month_day_last& x,
-                          const year_month_day_last& y) noexcept;
-constexpr bool operator<=(const year_month_day_last& x,
-                          const year_month_day_last& y) noexcept;
-constexpr bool operator>=(const year_month_day_last& x,
-                          const year_month_day_last& y) noexcept;
+constexpr bool operator==(const year_month_day_last& x, const year_month_day_last& y) noexcept;
+constexpr strong_ordering operator<=>(const year_month_day_last_day& x, const year_month_day_last_day& y) noexcept;
 
 constexpr year_month_day_last
   operator+(const year_month_day_last& ymdl, const months& dm) noexcept;
@@ -479,6 +493,10 @@ constexpr year_month_day_last
   operator-(const year_month_day_last& ymdl, const months& dm) noexcept;
 constexpr year_month_day_last
   operator-(const year_month_day_last& ymdl, const years& dy) noexcept;
+
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const year_month_day_last& ymdl);
 
 // 25.8.16, class year_month_weekday    // C++20
 class year_month_weekday;
@@ -501,6 +519,10 @@ constexpr year_month_weekday
 constexpr year_month_weekday
   operator-(const year_month_weekday& ymwd, const years& dy) noexcept;
 
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const year_month_weekday& ymwd);
+
 // 25.8.17, class year_month_weekday_last    // C++20
 class year_month_weekday_last;
 
@@ -520,6 +542,10 @@ constexpr year_month_weekday_last
   operator-(const year_month_weekday_last& ymwdl, const months& dm) noexcept;
 constexpr year_month_weekday_last
   operator-(const year_month_weekday_last& ymwdl, const years& dy) noexcept;
+
+template<class charT, class traits>
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const year_month_weekday_last& ymwdl);
 
 // 25.8.18, civil calendar conventional syntax operators    // C++20
 constexpr year_month
@@ -645,7 +671,29 @@ bool operator<(const time_zone& x, const time_zone& y) noexcept;
 bool operator>(const time_zone& x, const time_zone& y) noexcept;
 bool operator<=(const time_zone& x, const time_zone& y) noexcept;
 bool operator>=(const time_zone& x, const time_zone& y) noexcept;
+}  // chrono
 
+namespace std {
+  template<class Rep, class Period, class charT>
+    struct formatter<chrono::duration<Rep, Period>, charT>;                       // C++20
+  template<class charT> struct formatter<chrono::day, charT>;                     // C++20
+  template<class charT> struct formatter<chrono::month, charT>;                   // C++20
+  template<class charT> struct formatter<chrono::year, charT>;                    // C++20
+  template<class charT> struct formatter<chrono::weekday, charT>;                 // C++20
+  template<class charT> struct formatter<chrono::weekday_indexed, charT>;         // C++20
+  template<class charT> struct formatter<chrono::weekday_last, charT>;            // C++20
+  template<class charT> struct formatter<chrono::month_day, charT>;               // C++20
+  template<class charT> struct formatter<chrono::month_day_last, charT>;          // C++20
+  template<class charT> struct formatter<chrono::month_weekday, charT>;           // C++20
+  template<class charT> struct formatter<chrono::month_weekday_last, charT>;      // C++20
+  template<class charT> struct formatter<chrono::year_month, charT>;              // C++20
+  template<class charT> struct formatter<chrono::year_month_day, charT>;          // C++20
+  template<class charT> struct formatter<chrono::year_month_day_last, charT>;     // C++20
+  template<class charT> struct formatter<chrono::year_month_weekday, charT>;      // C++20
+  template<class charT> struct formatter<chrono::year_month_weekday_last, charT>; // C++20
+} // namespace std
+
+namespace chrono {
 // calendrical constants
 inline constexpr last_spec                              last{};       // C++20
 inline constexpr chrono::weekday                        Sunday{0};    // C++20
@@ -695,6 +743,7 @@ constexpr chrono::year                                  operator ""y(unsigned lo
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__chrono/calendar.h>
 #include <__chrono/convert_to_timespec.h>
+#include <__chrono/convert_to_tm.h>
 #include <__chrono/day.h>
 #include <__chrono/duration.h>
 #include <__chrono/file_clock.h>
@@ -716,10 +765,24 @@ constexpr chrono::year                                  operator ""y(unsigned lo
 #include <version>
 
 // standard-mandated includes
+
+// [time.syn]
 #include <compare>
+
+#if !defined(_LIBCPP_HAS_NO_LOCALIZATION) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_FORMAT) && _LIBCPP_STD_VER > 17
+#  include <__chrono/formatter.h>
+#  include <__chrono/ostream.h>
+#  include <__chrono/parser_std_format_spec.h>
+#  include <__chrono/statically_widen.h>
+#endif
+
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <concepts>
 #endif
 
 #endif // _LIBCPP_CHRONO

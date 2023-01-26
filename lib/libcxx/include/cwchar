@@ -104,8 +104,18 @@ size_t wcsrtombs(char* restrict dst, const wchar_t** restrict src, size_t len,
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+#include <__type_traits/is_constant_evaluated.h>
 #include <cwctype>
+
 #include <wchar.h>
+
+#ifndef _LIBCPP_WCHAR_H
+#   error <cwchar> tried including <wchar.h> but didn't find libc++'s <wchar.h> header. \
+          This usually means that your header search paths are not configured properly. \
+          The header search paths should contain the C++ Standard Library headers before \
+          any C Standard Library, and you are probably using compiler flags that make that \
+          not be the case.
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -179,6 +189,55 @@ using ::wscanf _LIBCPP_USING_IF_EXISTS;
 using ::putwchar _LIBCPP_USING_IF_EXISTS;
 using ::vwprintf _LIBCPP_USING_IF_EXISTS;
 using ::wprintf _LIBCPP_USING_IF_EXISTS;
+
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 size_t __constexpr_wcslen(const wchar_t* __str) {
+#if __has_builtin(__builtin_wcslen)
+  return __builtin_wcslen(__str);
+#else
+  if (!__libcpp_is_constant_evaluated())
+    return std::wcslen(__str);
+
+  size_t __len = 0;
+  for (; *__str != L'\0'; ++__str)
+    ++__len;
+  return __len;
+#endif
+}
+
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 int
+__constexpr_wmemcmp(const wchar_t* __lhs, const wchar_t* __rhs, size_t __count) {
+#if __has_builtin(__builtin_wmemcmp)
+  return __builtin_wmemcmp(__lhs, __rhs, __count);
+#else
+  if (!__libcpp_is_constant_evaluated())
+    return std::wmemcmp(__lhs, __rhs, __count);
+
+  for (; __count; --__count, ++__lhs, ++__rhs) {
+    if (*__lhs < *__rhs)
+      return -1;
+    if (*__rhs < *__lhs)
+      return 1;
+  }
+  return 0;
+#endif
+}
+
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 const wchar_t*
+__constexpr_wmemchr(const wchar_t* __str, wchar_t __char, size_t __count) {
+#if __has_feature(cxx_constexpr_string_builtins)
+  return __builtin_wmemchr(__str, __char, __count);
+#else
+  if (!__libcpp_is_constant_evaluated())
+    return std::wmemchr(__str, __char, __count);
+
+  for (; __count; --__count) {
+    if (*__str == __char)
+      return __str;
+    ++__str;
+  }
+  return nullptr;
+#endif
+}
 
 _LIBCPP_END_NAMESPACE_STD
 

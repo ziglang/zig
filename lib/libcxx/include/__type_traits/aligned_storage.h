@@ -54,21 +54,13 @@ template <class _TL, size_t _Align> struct __find_pod;
 template <class _Hp, size_t _Align>
 struct __find_pod<__type_list<_Hp, __nat>, _Align>
 {
-    typedef typename conditional<
-                             _Align == _Hp::value,
-                             typename _Hp::type,
-                             __fallback_overaligned<_Align>
-                         >::type type;
+    typedef __conditional_t<_Align == _Hp::value, typename _Hp::type, __fallback_overaligned<_Align> > type;
 };
 
 template <class _Hp, class _Tp, size_t _Align>
 struct __find_pod<__type_list<_Hp, _Tp>, _Align>
 {
-    typedef typename conditional<
-                             _Align == _Hp::value,
-                             typename _Hp::type,
-                             typename __find_pod<_Tp, _Align>::type
-                         >::type type;
+    typedef __conditional_t<_Align == _Hp::value, typename _Hp::type, typename __find_pod<_Tp, _Align>::type> type;
 };
 
 template <class _TL, size_t _Len> struct __find_max_align;
@@ -91,7 +83,7 @@ struct __find_max_align<__type_list<_Hp, _Tp>, _Len>
     : public integral_constant<size_t, __select_align<_Len, _Hp::value, __find_max_align<_Tp, _Len>::value>::value> {};
 
 template <size_t _Len, size_t _Align = __find_max_align<__all_types, _Len>::value>
-struct _LIBCPP_TEMPLATE_VIS aligned_storage
+struct _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_TEMPLATE_VIS aligned_storage
 {
     typedef typename __find_pod<__all_types, _Align>::type _Aligner;
     union type
@@ -102,13 +94,17 @@ struct _LIBCPP_TEMPLATE_VIS aligned_storage
 };
 
 #if _LIBCPP_STD_VER > 11
+
+  _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <size_t _Len, size_t _Align = __find_max_align<__all_types, _Len>::value>
-    using aligned_storage_t = typename aligned_storage<_Len, _Align>::type;
+    using aligned_storage_t _LIBCPP_DEPRECATED_IN_CXX23 = typename aligned_storage<_Len, _Align>::type;
+  _LIBCPP_SUPPRESS_DEPRECATED_POP
+
 #endif
 
 #define _CREATE_ALIGNED_STORAGE_SPECIALIZATION(n) \
 template <size_t _Len>\
-struct _LIBCPP_TEMPLATE_VIS aligned_storage<_Len, n>\
+struct _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_TEMPLATE_VIS aligned_storage<_Len, n>\
 {\
     struct _ALIGNAS(n) type\
     {\

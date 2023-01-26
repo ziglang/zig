@@ -8,6 +8,8 @@
 
 #include <experimental/memory_resource>
 
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
+
 #ifndef _LIBCPP_HAS_NO_ATOMIC_HEADER
 #  include <atomic>
 #elif !defined(_LIBCPP_HAS_NO_THREADS)
@@ -72,7 +74,7 @@ union ResourceInitHelper {
     __null_memory_resource_imp       null_res;
   } resources;
   char dummy;
-  _LIBCPP_CONSTEXPR_AFTER_CXX11 ResourceInitHelper() : resources() {}
+  _LIBCPP_CONSTEXPR_SINCE_CXX14 ResourceInitHelper() : resources() {}
   ~ResourceInitHelper() {}
 };
 

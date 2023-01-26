@@ -21,13 +21,13 @@ namespace __itoa
 _LIBCPP_FUNC_VIS char*
 __u32toa(uint32_t value, char* buffer) noexcept
 {
-	return __base_10_u32(buffer, value);
+  return __base_10_u32(buffer, value);
 }
 
 _LIBCPP_FUNC_VIS char*
 __u64toa(uint64_t value, char* buffer) noexcept
 {
-	return __base_10_u64(buffer, value);
+  return __base_10_u64(buffer, value);
 }
 
 }  // namespace __itoa

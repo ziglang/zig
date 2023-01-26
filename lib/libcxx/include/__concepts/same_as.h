@@ -10,7 +10,7 @@
 #define _LIBCPP___CONCEPTS_SAME_AS_H
 
 #include <__config>
-#include <type_traits>
+#include <__type_traits/is_same.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

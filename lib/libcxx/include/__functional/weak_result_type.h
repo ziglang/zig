@@ -12,8 +12,11 @@
 
 #include <__config>
 #include <__functional/binary_function.h>
+#include <__functional/invoke.h>
 #include <__functional/unary_function.h>
-#include <type_traits>
+#include <__type_traits/integral_constant.h>
+#include <__type_traits/is_same.h>
+#include <__utility/declval.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -283,7 +286,7 @@ struct __weak_result_type<_Rp (_Cp::*)(_A1, _A2, _A3...) const volatile>
 template <class _Tp, class ..._Args>
 struct __invoke_return
 {
-    typedef decltype(_VSTD::__invoke(declval<_Tp>(), declval<_Args>()...)) type;
+    typedef decltype(_VSTD::__invoke(std::declval<_Tp>(), std::declval<_Args>()...)) type;
 };
 
 _LIBCPP_END_NAMESPACE_STD

@@ -16,7 +16,7 @@ bad_optional_access::~bad_optional_access() noexcept = default;
 
 const char* bad_optional_access::what() const noexcept {
   return "bad_optional_access";
-  }
+}
 
 } // std
 
@@ -28,13 +28,13 @@ const char* bad_optional_access::what() const noexcept {
 _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL
 
 class _LIBCPP_EXCEPTION_ABI _LIBCPP_AVAILABILITY_BAD_OPTIONAL_ACCESS bad_optional_access
-    : public std::logic_error
+  : public std::logic_error
 {
 public:
-	bad_optional_access() : std::logic_error("Bad optional Access") {}
+  bad_optional_access() : std::logic_error("Bad optional Access") {}
 
-//	Get the key function ~bad_optional_access() into the dylib
-    virtual ~bad_optional_access() noexcept;
+  // Get the key function ~bad_optional_access() into the dylib
+  virtual ~bad_optional_access() noexcept;
 };
 
 bad_optional_access::~bad_optional_access() noexcept = default;

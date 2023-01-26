@@ -43,7 +43,7 @@ strtol_l(const char *__nptr, char **__endptr, int __base, locale_t __loc) {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI unsigned long long
-strtoull_l(const char *__nptr, char **__endptr, int __base, locale_t __loc) 
+strtoull_l(const char *__nptr, char **__endptr, int __base, locale_t __loc)
   return ::strtoull(__nptr, __endptr, __base);
 }
 

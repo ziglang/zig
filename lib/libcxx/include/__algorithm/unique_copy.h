@@ -34,7 +34,7 @@ struct __read_from_tmp_value_tag {};
 } // namespace __unique_copy_tags
 
 template <class _AlgPolicy, class _BinaryPredicate, class _InputIterator, class _Sent, class _OutputIterator>
-_LIBCPP_CONSTEXPR_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI pair<_InputIterator, _OutputIterator>
+_LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI pair<_InputIterator, _OutputIterator>
 __unique_copy(_InputIterator __first,
               _Sent __last,
               _OutputIterator __result,
@@ -56,7 +56,7 @@ __unique_copy(_InputIterator __first,
 }
 
 template <class _AlgPolicy, class _BinaryPredicate, class _ForwardIterator, class _Sent, class _OutputIterator>
-_LIBCPP_CONSTEXPR_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI pair<_ForwardIterator, _OutputIterator>
+_LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI pair<_ForwardIterator, _OutputIterator>
 __unique_copy(_ForwardIterator __first,
               _Sent __last,
               _OutputIterator __result,
@@ -78,7 +78,7 @@ __unique_copy(_ForwardIterator __first,
 }
 
 template <class _AlgPolicy, class _BinaryPredicate, class _InputIterator, class _Sent, class _InputAndOutputIterator>
-_LIBCPP_CONSTEXPR_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI pair<_InputIterator, _InputAndOutputIterator>
+_LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI pair<_InputIterator, _InputAndOutputIterator>
 __unique_copy(_InputIterator __first,
               _Sent __last,
               _InputAndOutputIterator __result,
@@ -95,27 +95,26 @@ __unique_copy(_InputIterator __first,
 }
 
 template <class _InputIterator, class _OutputIterator, class _BinaryPredicate>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17 _OutputIterator
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
 unique_copy(_InputIterator __first, _InputIterator __last, _OutputIterator __result, _BinaryPredicate __pred) {
-  using __algo_tag = typename conditional<
+  using __algo_tag = __conditional_t<
       is_base_of<forward_iterator_tag, typename iterator_traits<_InputIterator>::iterator_category>::value,
       __unique_copy_tags::__reread_from_input_tag,
-      typename conditional<
+      __conditional_t<
           is_base_of<forward_iterator_tag, typename iterator_traits<_OutputIterator>::iterator_category>::value &&
               is_same< typename iterator_traits<_InputIterator>::value_type,
                        typename iterator_traits<_OutputIterator>::value_type>::value,
           __unique_copy_tags::__reread_from_output_tag,
-          __unique_copy_tags::__read_from_tmp_value_tag>::type >::type;
+          __unique_copy_tags::__read_from_tmp_value_tag> >;
   return std::__unique_copy<_ClassicAlgPolicy>(
              std::move(__first), std::move(__last), std::move(__result), __pred, __algo_tag())
       .second;
 }
 
 template <class _InputIterator, class _OutputIterator>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17 _OutputIterator
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
 unique_copy(_InputIterator __first, _InputIterator __last, _OutputIterator __result) {
-  typedef typename iterator_traits<_InputIterator>::value_type __v;
-  return std::unique_copy(std::move(__first), std::move(__last), std::move(__result), __equal_to<__v>());
+  return std::unique_copy(std::move(__first), std::move(__last), std::move(__result), __equal_to());
 }
 
 _LIBCPP_END_NAMESPACE_STD

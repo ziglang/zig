@@ -21,9 +21,22 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+// TODO: remove this implementation once https://gcc.gnu.org/bugzilla/show_bug.cgi?id=106611 is fixed
+#ifdef _LIBCPP_COMPILER_GCC
+
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_nothrow_copy_constructible
     : public is_nothrow_constructible<_Tp,
-                  typename add_lvalue_reference<typename add_const<_Tp>::type>::type> {};
+                  __add_lvalue_reference_t<typename add_const<_Tp>::type> > {};
+
+#else // _LIBCPP_COMPILER_GCC
+
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_nothrow_copy_constructible
+    : public integral_constant<
+          bool,
+          __is_nothrow_constructible(_Tp, typename add_lvalue_reference<typename add_const<_Tp>::type>::type)> {};
+
+#endif // _LIBCPP_COMPILER_GCC
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>

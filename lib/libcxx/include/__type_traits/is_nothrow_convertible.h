@@ -30,7 +30,7 @@ template <typename _Tp>
 static void __test_noexcept(_Tp) noexcept;
 
 template<typename _Fm, typename _To>
-static bool_constant<noexcept(_VSTD::__test_noexcept<_To>(declval<_Fm>()))>
+static bool_constant<noexcept(_VSTD::__test_noexcept<_To>(std::declval<_Fm>()))>
 __is_nothrow_convertible_test();
 
 template <typename _Fm, typename _To>

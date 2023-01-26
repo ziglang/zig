@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP_SUPPORT_IBM_LOCALE_MGMT_ZOS_H
-#define _LIBCPP_SUPPORT_IBM_LOCALE_MGMT_ZOS_H
+#ifndef _LIBCPP___SUPPORT_IBM_LOCALE_MGMT_ZOS_H
+#define _LIBCPP___SUPPORT_IBM_LOCALE_MGMT_ZOS_H
 
 #if defined(__MVS__)
 #include <locale.h>
@@ -50,4 +50,4 @@ locale_t uselocale(locale_t newloc);
 }
 #endif
 #endif // defined(__MVS__)
-#endif // _LIBCPP_SUPPORT_IBM_LOCALE_MGMT_ZOS_H
+#endif // _LIBCPP___SUPPORT_IBM_LOCALE_MGMT_ZOS_H

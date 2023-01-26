@@ -1704,12 +1704,9 @@ template <class BidirectionalIterator, class Compare>
 */
 
 #include <__assert> // all public C++ headers provide the assertion handler
-#include <__bits>
 #include <__config>
 #include <__debug>
 #include <cstddef>
-#include <cstring>
-#include <memory>
 #include <type_traits>
 #include <version>
 
@@ -1899,13 +1896,9 @@ template <class BidirectionalIterator, class Compare>
 #include <__algorithm/unwrap_iter.h>
 #include <__algorithm/upper_bound.h>
 
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <chrono>
-#  include <iterator>
-#  include <utility>
-#endif
-
 // standard-mandated includes
+
+// [algorithm.syn]
 #include <initializer_list>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -1913,7 +1906,21 @@ template <class BidirectionalIterator, class Compare>
 #endif
 
 #if defined(_LIBCPP_HAS_PARALLEL_ALGORITHMS) && _LIBCPP_STD_VER >= 17
-#   include <__pstl_algorithm>
+#  include <__pstl_algorithm>
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 17
+#  include <chrono>
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <atomic>
+#  include <concepts>
+#  include <cstring>
+#  include <iterator>
+#  include <memory>
+#  include <stdexcept>
+#  include <utility>
 #endif
 
 #endif // _LIBCPP_ALGORITHM

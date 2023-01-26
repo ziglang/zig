@@ -531,20 +531,20 @@ POLICY:  For non-variadic implementations, the number of arguments is limited
 #include <__functional/unary_negate.h>
 #include <__functional/unwrap_ref.h>
 #include <__utility/forward.h>
-#include <concepts>
 #include <exception>
-#include <memory>
-#include <tuple>
+#include <memory> // TODO: find out why removing this breaks the modules build
 #include <type_traits>
 #include <typeinfo>
 #include <version>
 
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <utility>
-#endif
-
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <concepts>
+#  include <tuple>
+#  include <utility>
 #endif
 
 #endif // _LIBCPP_FUNCTIONAL

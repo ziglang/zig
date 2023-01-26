@@ -769,19 +769,16 @@ typedef regex_token_iterator<wstring::const_iterator> wsregex_token_iterator;
 #include <__iterator/back_insert_iterator.h>
 #include <__iterator/wrap_iter.h>
 #include <__locale>
+#include <__memory_resource/polymorphic_allocator.h>
 #include <__utility/move.h>
+#include <__utility/pair.h>
 #include <__utility/swap.h>
+#include <cstring>
 #include <deque>
-#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
 #include <version>
-
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <iterator>
-#  include <utility>
-#endif
 
 // standard-mandated includes
 
@@ -833,7 +830,7 @@ enum syntax_option_type
     multiline  = 1 << 10
 };
 
-inline _LIBCPP_CONSTEXPR
+_LIBCPP_HIDE_FROM_ABI inline _LIBCPP_CONSTEXPR
 syntax_option_type __get_grammar(syntax_option_type __g)
 {
 #ifdef _LIBCPP_ABI_REGEX_CONSTANTS_NONZERO
@@ -1006,8 +1003,8 @@ class _LIBCPP_EXCEPTION_ABI regex_error
 public:
     explicit regex_error(regex_constants::error_type __ecode);
     regex_error(const regex_error&) _NOEXCEPT = default;
-    virtual ~regex_error() _NOEXCEPT;
-     _LIBCPP_INLINE_VISIBILITY
+    ~regex_error() _NOEXCEPT override;
+    _LIBCPP_INLINE_VISIBILITY
     regex_constants::error_type code() const {return __code_;}
 };
 
@@ -1029,7 +1026,7 @@ public:
     typedef _CharT                  char_type;
     typedef basic_string<char_type> string_type;
     typedef locale                  locale_type;
-#ifdef __BIONIC__
+#if defined(__BIONIC__) || defined(_NEWLIB_VERSION)
     // Originally bionic's ctype_base used its own ctype masks because the
     // builtin ctype implementation wasn't in libc++ yet. Bionic's ctype mask
     // was only 8 bits wide and already saturated, so it used a wider type here
@@ -1038,6 +1035,11 @@ public:
     // implementation, but this was not updated to match. Since then Android has
     // needed to maintain a stable libc++ ABI, and this can't be changed without
     // an ABI break.
+    // We also need this workaround for newlib since _NEWLIB_VERSION is not
+    // defined yet inside __config, so we can't set the
+    // _LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE macro. Additionally, newlib is
+    // often used for space constrained environments, so it makes sense not to
+    // duplicate the ctype table.
     typedef uint16_t char_class_type;
 #else
     typedef ctype_base::mask        char_class_type;
@@ -1155,8 +1157,8 @@ template <class _CharT>
 void
 regex_traits<_CharT>::__init()
 {
-    __ct_ = &use_facet<ctype<char_type> >(__loc_);
-    __col_ = &use_facet<collate<char_type> >(__loc_);
+    __ct_ = &std::use_facet<ctype<char_type> >(__loc_);
+    __col_ = &std::use_facet<collate<char_type> >(__loc_);
 }
 
 template <class _CharT>
@@ -1231,7 +1233,7 @@ regex_traits<_CharT>::__lookup_collatename(_ForwardIterator __f,
     string_type __r;
     if (!__s.empty())
     {
-        __r = __get_collation_name(__s.c_str());
+        __r = std::__get_collation_name(__s.c_str());
         if (__r.empty() && __s.size() <= 2)
         {
             __r = __col_->transform(__s.data(), __s.data() + __s.size());
@@ -1294,7 +1296,7 @@ regex_traits<_CharT>::__lookup_classname(_ForwardIterator __f,
 {
     string_type __s(__f, __l);
     __ct_->tolower(&__s[0], &__s[0] + __s.size());
-    return __get_classname(__s.c_str(), __icase);
+    return std::__get_classname(__s.c_str(), __icase);
 }
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
@@ -1444,12 +1446,12 @@ public:
 
     _LIBCPP_INLINE_VISIBILITY
     __node() {}
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL
     virtual ~__node() {}
 
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL
     virtual void __exec(__state&) const {}
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_HIDE_FROM_ABI_VIRTUAL
     virtual void __exec_split(bool, __state&) const {}
 };
 
@@ -1507,7 +1509,7 @@ public:
     explicit __owns_one_state(__node<_CharT>* __s)
         : base(__s) {}
 
-    virtual ~__owns_one_state();
+    ~__owns_one_state() override;
 };
 
 template <class _CharT>
@@ -2092,7 +2094,7 @@ __l_anchor_multiline<_CharT>::__exec(__state& __s) const
     }
     else if (__multiline_ &&
              !__s.__at_first_ &&
-             __is_eol(*_VSTD::prev(__s.__current_)))
+             std::__is_eol(*_VSTD::prev(__s.__current_)))
     {
         __s.__do_ = __state::__accept_but_not_consume;
         __s.__node_ = this->first();
@@ -2134,7 +2136,7 @@ __r_anchor_multiline<_CharT>::__exec(__state& __s) const
         __s.__do_ = __state::__accept_but_not_consume;
         __s.__node_ = this->first();
     }
-    else if (__multiline_ && __is_eol(*__s.__current_))
+    else if (__multiline_ && std::__is_eol(*__s.__current_))
     {
         __s.__do_ = __state::__accept_but_not_consume;
         __s.__node_ = this->first();
@@ -2196,7 +2198,7 @@ public:
     __match_any_but_newline(__node<_CharT>* __s)
         : base(__s) {}
 
-    virtual void __exec(__state&) const;
+    void __exec(__state&) const override;
 };
 
 template <> _LIBCPP_FUNC_VIS void __match_any_but_newline<char>::__exec(__state&) const;
@@ -2403,7 +2405,7 @@ public:
                     for (size_t __i = 0; __i < __e.size(); ++__i)
                         __e[__i] = __traits_.translate(__e[__i]);
                 }
-                __ranges_.push_back(make_pair(
+                __ranges_.push_back(std::make_pair(
                                   __traits_.transform(__b.begin(), __b.end()),
                                   __traits_.transform(__e.begin(), __e.end())));
             }
@@ -2416,20 +2418,20 @@ public:
                     __b[0] = __traits_.translate_nocase(__b[0]);
                     __e[0] = __traits_.translate_nocase(__e[0]);
                 }
-                __ranges_.push_back(make_pair(_VSTD::move(__b), _VSTD::move(__e)));
+                __ranges_.push_back(std::make_pair(_VSTD::move(__b), _VSTD::move(__e)));
             }
         }
     _LIBCPP_INLINE_VISIBILITY
     void __add_digraph(_CharT __c1, _CharT __c2)
         {
             if (__icase_)
-                __digraphs_.push_back(make_pair(__traits_.translate_nocase(__c1),
-                                                __traits_.translate_nocase(__c2)));
+                __digraphs_.push_back(std::make_pair(__traits_.translate_nocase(__c1),
+                                                     __traits_.translate_nocase(__c2)));
             else if (__collate_)
-                __digraphs_.push_back(make_pair(__traits_.translate(__c1),
-                                                __traits_.translate(__c2)));
+                __digraphs_.push_back(std::make_pair(__traits_.translate(__c1),
+                                                     __traits_.translate(__c2)));
             else
-                __digraphs_.push_back(make_pair(__c1, __c2));
+                __digraphs_.push_back(std::make_pair(__c1, __c2));
         }
     _LIBCPP_INLINE_VISIBILITY
     void __add_equivalence(const string_type& __s)
@@ -5521,7 +5523,7 @@ public:
                regex_constants::match_flag_type __flags = regex_constants::format_default) const
         {
             basic_string<char_type, _ST, _SA> __r;
-            format(back_inserter(__r), __fmt.data(), __fmt.data() + __fmt.size(),
+            format(std::back_inserter(__r), __fmt.data(), __fmt.data() + __fmt.size(),
                    __flags);
             return __r;
         }
@@ -5531,7 +5533,7 @@ public:
                regex_constants::match_flag_type __flags = regex_constants::format_default) const
         {
             string_type __r;
-            format(back_inserter(__r), __fmt,
+            format(std::back_inserter(__r), __fmt,
                    __fmt + char_traits<char_type>::length(__fmt), __flags);
             return __r;
         }
@@ -5732,7 +5734,7 @@ match_results<_BidirectionalIterator, _Allocator>::swap(match_results& __m)
 }
 
 template <class _BidirectionalIterator, class _Allocator>
-bool
+_LIBCPP_HIDE_FROM_ABI bool
 operator==(const match_results<_BidirectionalIterator, _Allocator>& __x,
            const match_results<_BidirectionalIterator, _Allocator>& __y)
 {
@@ -6224,7 +6226,7 @@ regex_search(const basic_string<_Cp, _ST, _SA>&& __s,
 // regex_match
 
 template <class _BidirectionalIterator, class _Allocator, class _CharT, class _Traits>
-bool
+_LIBCPP_HIDE_FROM_ABI bool
 regex_match(_BidirectionalIterator __first, _BidirectionalIterator __last,
             match_results<_BidirectionalIterator, _Allocator>& __m,
             const basic_regex<_CharT, _Traits>& __e,
@@ -6737,7 +6739,7 @@ regex_token_iterator<_BidirectionalIterator, _CharT, _Traits>::operator++()
 
 template <class _OutputIterator, class _BidirectionalIterator,
           class _Traits, class _CharT>
-_OutputIterator
+_LIBCPP_HIDE_FROM_ABI _OutputIterator
 regex_replace(_OutputIterator __output_iter,
               _BidirectionalIterator __first, _BidirectionalIterator __last,
               const basic_regex<_CharT, _Traits>& __e, const _CharT* __fmt,
@@ -6792,7 +6794,7 @@ regex_replace(const basic_string<_CharT, _ST, _SA>& __s,
               regex_constants::match_flag_type __flags = regex_constants::match_default)
 {
     basic_string<_CharT, _ST, _SA> __r;
-    _VSTD::regex_replace(back_inserter(__r), __s.begin(), __s.end(), __e,
+    _VSTD::regex_replace(std::back_inserter(__r), __s.begin(), __s.end(), __e,
                         __fmt.c_str(), __flags);
     return __r;
 }
@@ -6805,7 +6807,7 @@ regex_replace(const basic_string<_CharT, _ST, _SA>& __s,
               regex_constants::match_flag_type __flags = regex_constants::match_default)
 {
     basic_string<_CharT, _ST, _SA> __r;
-    _VSTD::regex_replace(back_inserter(__r), __s.begin(), __s.end(), __e,
+    _VSTD::regex_replace(std::back_inserter(__r), __s.begin(), __s.end(), __e,
                         __fmt, __flags);
     return __r;
 }
@@ -6819,7 +6821,7 @@ regex_replace(const _CharT* __s,
               regex_constants::match_flag_type __flags = regex_constants::match_default)
 {
     basic_string<_CharT> __r;
-    _VSTD::regex_replace(back_inserter(__r), __s,
+    _VSTD::regex_replace(std::back_inserter(__r), __s,
                         __s + char_traits<_CharT>::length(__s), __e,
                         __fmt.c_str(), __flags);
     return __r;
@@ -6834,7 +6836,7 @@ regex_replace(const _CharT* __s,
               regex_constants::match_flag_type __flags = regex_constants::match_default)
 {
     basic_string<_CharT> __r;
-    _VSTD::regex_replace(back_inserter(__r), __s,
+    _VSTD::regex_replace(std::back_inserter(__r), __s,
                         __s + char_traits<_CharT>::length(__s), __e,
                         __fmt, __flags);
     return __r;
@@ -6842,6 +6844,33 @@ regex_replace(const _CharT* __s,
 
 _LIBCPP_END_NAMESPACE_STD
 
+#if _LIBCPP_STD_VER > 14
+_LIBCPP_BEGIN_NAMESPACE_STD
+namespace pmr {
+template <class _BidirT>
+using match_results = std::match_results<_BidirT, polymorphic_allocator<std::sub_match<_BidirT>>>;
+
+using cmatch  = match_results<const char*>;
+using smatch  = match_results<std::pmr::string::const_iterator>;
+
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+using wcmatch = match_results<const wchar_t*>;
+using wsmatch = match_results<std::pmr::wstring::const_iterator>;
+#endif
+} // namespace pmr
+_LIBCPP_END_NAMESPACE_STD
+#endif
+
 _LIBCPP_POP_MACROS
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <atomic>
+#  include <concepts>
+#  include <iosfwd>
+#  include <iterator>
+#  include <new>
+#  include <typeinfo>
+#  include <utility>
+#endif
 
 #endif // _LIBCPP_REGEX

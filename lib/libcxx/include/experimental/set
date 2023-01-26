@@ -45,6 +45,8 @@ namespace pmr {
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS_PMR
 
+#ifndef _LIBCPP_CXX03_LANG
+
 template <class _Value, class  _Compare = less<_Value>>
 using set = _VSTD::set<_Value, _Compare,
                         polymorphic_allocator<_Value>>;
@@ -52,6 +54,8 @@ using set = _VSTD::set<_Value, _Compare,
 template <class _Value, class  _Compare = less<_Value>>
 using multiset = _VSTD::multiset<_Value, _Compare,
                         polymorphic_allocator<_Value>>;
+
+#endif // _LIBCPP_CXX03_LANG
 
 _LIBCPP_END_NAMESPACE_LFTS_PMR
 

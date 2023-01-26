@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+
 #ifndef _LIBCPP___RANGES_VIEW_INTERFACE_H
 #define _LIBCPP___RANGES_VIEW_INTERFACE_H
 
@@ -20,7 +21,9 @@
 #include <__ranges/access.h>
 #include <__ranges/concepts.h>
 #include <__ranges/empty.h>
-#include <type_traits>
+#include <__type_traits/is_class.h>
+#include <__type_traits/make_unsigned.h>
+#include <__type_traits/remove_cv.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -28,7 +31,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 namespace ranges {
 
@@ -99,7 +102,7 @@ public:
   constexpr auto size()
     requires forward_range<_D2> && sized_sentinel_for<sentinel_t<_D2>, iterator_t<_D2>>
   {
-    return ranges::end(__derived()) - ranges::begin(__derived());
+    return std::__to_unsigned_like(ranges::end(__derived()) - ranges::begin(__derived()));
   }
 
   template<class _D2 = _Derived>
@@ -107,7 +110,7 @@ public:
   constexpr auto size() const
     requires forward_range<const _D2> && sized_sentinel_for<sentinel_t<const _D2>, iterator_t<const _D2>>
   {
-    return ranges::end(__derived()) - ranges::begin(__derived());
+    return std::__to_unsigned_like(ranges::end(__derived()) - ranges::begin(__derived()));
   }
 
   template<class _D2 = _Derived>
@@ -167,7 +170,7 @@ public:
 
 } // namespace ranges
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 _LIBCPP_END_NAMESPACE_STD
 

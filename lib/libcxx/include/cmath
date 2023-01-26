@@ -306,9 +306,23 @@ constexpr long double lerp(long double a, long double b, long double t) noexcept
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <math.h>
-#include <type_traits>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/is_arithmetic.h>
+#include <__type_traits/is_constant_evaluated.h>
+#include <__type_traits/is_floating_point.h>
+#include <__type_traits/is_same.h>
+#include <__type_traits/remove_cv.h>
 #include <version>
+
+#include <math.h>
+
+#ifndef _LIBCPP_MATH_H
+#   error <cmath> tried including <math.h> but didn't find libc++'s <math.h> header. \
+          This usually means that your header search paths are not configured properly. \
+          The header search paths should contain the C++ Standard Library headers before \
+          any C Standard Library, and you are probably using compiler flags that make that \
+          not be the case.
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -549,14 +563,14 @@ hypot(_A1 __lcpp_x, _A2 __lcpp_y, _A3 __lcpp_z) _NOEXCEPT
     static_assert((!(is_same<_A1, __result_type>::value &&
                      is_same<_A2, __result_type>::value &&
                      is_same<_A3, __result_type>::value)), "");
-    return hypot((__result_type)__lcpp_x, (__result_type)__lcpp_y, (__result_type)__lcpp_z);
+    return std::hypot((__result_type)__lcpp_x, (__result_type)__lcpp_y, (__result_type)__lcpp_z);
 }
 #endif
 
 template <class _A1>
 _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR typename enable_if<is_floating_point<_A1>::value, bool>::type
-__libcpp_isnan_or_builtin(_A1 __lcpp_x) _NOEXCEPT
+__constexpr_isnan(_A1 __lcpp_x) _NOEXCEPT
 {
 #if __has_builtin(__builtin_isnan)
     return __builtin_isnan(__lcpp_x);
@@ -568,15 +582,15 @@ __libcpp_isnan_or_builtin(_A1 __lcpp_x) _NOEXCEPT
 template <class _A1>
 _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR typename enable_if<!is_floating_point<_A1>::value, bool>::type
-__libcpp_isnan_or_builtin(_A1 __lcpp_x) _NOEXCEPT
+__constexpr_isnan(_A1 __lcpp_x) _NOEXCEPT
 {
-    return isnan(__lcpp_x);
+    return std::isnan(__lcpp_x);
 }
 
 template <class _A1>
 _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR typename enable_if<is_floating_point<_A1>::value, bool>::type
-__libcpp_isinf_or_builtin(_A1 __lcpp_x) _NOEXCEPT
+__constexpr_isinf(_A1 __lcpp_x) _NOEXCEPT
 {
 #if __has_builtin(__builtin_isinf)
     return __builtin_isinf(__lcpp_x);
@@ -588,15 +602,15 @@ __libcpp_isinf_or_builtin(_A1 __lcpp_x) _NOEXCEPT
 template <class _A1>
 _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR typename enable_if<!is_floating_point<_A1>::value, bool>::type
-__libcpp_isinf_or_builtin(_A1 __lcpp_x) _NOEXCEPT
+__constexpr_isinf(_A1 __lcpp_x) _NOEXCEPT
 {
-    return isinf(__lcpp_x);
+    return std::isinf(__lcpp_x);
 }
 
 template <class _A1>
 _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR typename enable_if<is_floating_point<_A1>::value, bool>::type
-__libcpp_isfinite_or_builtin(_A1 __lcpp_x) _NOEXCEPT
+__constexpr_isfinite(_A1 __lcpp_x) _NOEXCEPT
 {
 #if __has_builtin(__builtin_isfinite)
     return __builtin_isfinite(__lcpp_x);
@@ -608,14 +622,169 @@ __libcpp_isfinite_or_builtin(_A1 __lcpp_x) _NOEXCEPT
 template <class _A1>
 _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR typename enable_if<!is_floating_point<_A1>::value, bool>::type
-__libcpp_isfinite_or_builtin(_A1 __lcpp_x) _NOEXCEPT
+__constexpr_isfinite(_A1 __lcpp_x) _NOEXCEPT
 {
-    return isfinite(__lcpp_x);
+    return __builtin_isfinite(__lcpp_x);
+}
+
+_LIBCPP_CONSTEXPR inline _LIBCPP_HIDE_FROM_ABI float __constexpr_copysign(float __x, float __y) _NOEXCEPT {
+    return __builtin_copysignf(__x, __y);
+}
+
+_LIBCPP_CONSTEXPR inline _LIBCPP_HIDE_FROM_ABI double __constexpr_copysign(double __x, double __y) _NOEXCEPT {
+    return __builtin_copysign(__x, __y);
+}
+
+_LIBCPP_CONSTEXPR inline _LIBCPP_HIDE_FROM_ABI long double
+__constexpr_copysign(long double __x, long double __y) _NOEXCEPT {
+    return __builtin_copysignl(__x, __y);
+}
+
+template <class _A1, class _A2>
+_LIBCPP_CONSTEXPR inline _LIBCPP_HIDE_FROM_ABI
+    typename std::__enable_if_t<std::is_arithmetic<_A1>::value && std::is_arithmetic<_A2>::value,
+                                std::__promote<_A1, _A2> >::type
+    __constexpr_copysign(_A1 __x, _A2 __y) _NOEXCEPT {
+    typedef typename std::__promote<_A1, _A2>::type __result_type;
+    static_assert((!(std::_IsSame<_A1, __result_type>::value && std::_IsSame<_A2, __result_type>::value)), "");
+    return __builtin_copysign((__result_type)__x, (__result_type)__y);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR float __constexpr_fabs(float __x) _NOEXCEPT {
+    return __builtin_fabsf(__x);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR double __constexpr_fabs(double __x) _NOEXCEPT {
+    return __builtin_fabs(__x);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR long double __constexpr_fabs(long double __x) _NOEXCEPT {
+    return __builtin_fabsl(__x);
+}
+
+template <class _Tp, __enable_if_t<is_integral<_Tp>::value, int> = 0>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR double __constexpr_fabs(_Tp __x) _NOEXCEPT {
+    return __builtin_fabs(static_cast<double>(__x));
+}
+
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 float __constexpr_fmax(float __x, float __y) _NOEXCEPT {
+#if !__has_constexpr_builtin(__builtin_fmaxf)
+  if (__libcpp_is_constant_evaluated()) {
+    if (std::__constexpr_isnan(__x))
+      return __y;
+    if (std::__constexpr_isnan(__y))
+      return __x;
+    return __x < __y ? __y : __x;
+  }
+#endif
+  return __builtin_fmaxf(__x, __y);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 double __constexpr_fmax(double __x, double __y) _NOEXCEPT {
+#if !__has_constexpr_builtin(__builtin_fmax)
+  if (__libcpp_is_constant_evaluated()) {
+    if (std::__constexpr_isnan(__x))
+      return __y;
+    if (std::__constexpr_isnan(__y))
+      return __x;
+    return __x < __y ? __y : __x;
+  }
+#endif
+  return __builtin_fmax(__x, __y);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 long double
+__constexpr_fmax(long double __x, long double __y) _NOEXCEPT {
+#if !__has_constexpr_builtin(__builtin_fmaxl)
+  if (__libcpp_is_constant_evaluated()) {
+    if (std::__constexpr_isnan(__x))
+      return __y;
+    if (std::__constexpr_isnan(__y))
+      return __x;
+    return __x < __y ? __y : __x;
+  }
+#endif
+  return __builtin_fmaxl(__x, __y);
+}
+
+template <class _Tp, class _Up, __enable_if_t<is_arithmetic<_Tp>::value && is_arithmetic<_Up>::value, int> = 0>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 typename __promote<_Tp, _Up>::type
+__constexpr_fmax(_Tp __x, _Up __y) _NOEXCEPT {
+  using __result_type = typename __promote<_Tp, _Up>::type;
+  return std::__constexpr_fmax(static_cast<__result_type>(__x), static_cast<__result_type>(__y));
+}
+
+template <class _Tp>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp __constexpr_logb(_Tp __x) {
+#if !__has_constexpr_builtin(__builtin_logb)
+  if (__libcpp_is_constant_evaluated()) {
+    if (__x == _Tp(0)) {
+      // raise FE_DIVBYZERO
+      return -numeric_limits<_Tp>::infinity();
+    }
+
+    if (std::__constexpr_isinf(__x))
+      return numeric_limits<_Tp>::infinity();
+
+    if (std::__constexpr_isnan(__x))
+      return numeric_limits<_Tp>::quiet_NaN();
+
+    __x = std::__constexpr_fabs(__x);
+    unsigned long long __exp = 0;
+    while (__x >= numeric_limits<_Tp>::radix) {
+      __x /= numeric_limits<_Tp>::radix;
+      __exp += 1;
+    }
+    return _Tp(__exp);
+  }
+#endif // !__has_constexpr_builtin(__builtin_logb)
+  return __builtin_logb(__x);
+}
+
+template <class _Tp>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _Tp __constexpr_scalbn(_Tp __x, int __exp) {
+#if !__has_constexpr_builtin(__builtin_scalbln)
+  if (__libcpp_is_constant_evaluated()) {
+    if (__x == _Tp(0))
+      return __x;
+
+    if (std::__constexpr_isinf(__x))
+      return __x;
+
+    if (__exp == _Tp(0))
+      return __x;
+
+    if (std::__constexpr_isnan(__x))
+      return numeric_limits<_Tp>::quiet_NaN();
+
+    _Tp __mult(1);
+    if (__exp > 0) {
+      __mult = numeric_limits<_Tp>::radix;
+      --__exp;
+    } else {
+      ++__exp;
+      __exp = -__exp;
+      __mult /= numeric_limits<_Tp>::radix;
+    }
+
+    while (__exp > 0) {
+      if (!(__exp & 1)) {
+        __mult *= __mult;
+        __exp >>= 1;
+      } else {
+        __x *= __mult;
+        --__exp;
+      }
+    }
+    return __x;
+  }
+#endif // !__has_constexpr_builtin(__builtin_scalbln)
+  return __builtin_scalbn(__x, __exp);
 }
 
 #if _LIBCPP_STD_VER > 17
 template <typename _Fp>
-constexpr
+_LIBCPP_HIDE_FROM_ABI constexpr
 _Fp __lerp(_Fp __a, _Fp __b, _Fp __t) noexcept {
     if ((__a <= 0 && __b >= 0) || (__a >= 0 && __b <= 0))
         return __t * __b + (1 - __t) * __a;
@@ -628,13 +797,13 @@ _Fp __lerp(_Fp __a, _Fp __b, _Fp __t) noexcept {
         return __x < __b ? __x : __b;
 }
 
-constexpr float
+_LIBCPP_HIDE_FROM_ABI constexpr float
 lerp(float __a, float __b, float __t)                   _NOEXCEPT { return __lerp(__a, __b, __t); }
 
-constexpr double
+_LIBCPP_HIDE_FROM_ABI constexpr double
 lerp(double __a, double __b, double __t)                _NOEXCEPT { return __lerp(__a, __b, __t); }
 
-constexpr long double
+_LIBCPP_HIDE_FROM_ABI constexpr long double
 lerp(long double __a, long double __b, long double __t) _NOEXCEPT { return __lerp(__a, __b, __t); }
 
 template <class _A1, class _A2, class _A3>
@@ -652,12 +821,16 @@ lerp(_A1 __a, _A2 __b, _A3 __t) noexcept
     static_assert(!(_IsSame<_A1, __result_type>::value &&
                     _IsSame<_A2, __result_type>::value &&
                     _IsSame<_A3, __result_type>::value));
-    return __lerp((__result_type)__a, (__result_type)__b, (__result_type)__t);
+    return std::__lerp((__result_type)__a, (__result_type)__b, (__result_type)__t);
 }
 #endif // _LIBCPP_STD_VER > 17
 
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <type_traits>
+#endif
 
 #endif // _LIBCPP_CMATH

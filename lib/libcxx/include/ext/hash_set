@@ -199,10 +199,6 @@ template <class Value, class Hash, class Pred, class Alloc>
 #include <ext/__hash>
 #include <functional>
 
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <iterator>
-#endif
-
 #if defined(__DEPRECATED) && __DEPRECATED
 #if defined(_LIBCPP_WARNING)
     _LIBCPP_WARNING("Use of the header <ext/hash_set> is deprecated.  Migrate to <unordered_set>")
@@ -412,7 +408,7 @@ swap(hash_set<_Value, _Hash, _Pred, _Alloc>& __x,
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
-bool
+_LIBCPP_HIDE_FROM_ABI bool
 operator==(const hash_set<_Value, _Hash, _Pred, _Alloc>& __x,
            const hash_set<_Value, _Hash, _Pred, _Alloc>& __y)
 {
@@ -633,7 +629,7 @@ swap(hash_multiset<_Value, _Hash, _Pred, _Alloc>& __x,
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
-bool
+_LIBCPP_HIDE_FROM_ABI bool
 operator==(const hash_multiset<_Value, _Hash, _Pred, _Alloc>& __x,
            const hash_multiset<_Value, _Hash, _Pred, _Alloc>& __y)
 {
@@ -665,5 +661,10 @@ operator!=(const hash_multiset<_Value, _Hash, _Pred, _Alloc>& __x,
 }
 
 } // namespace __gnu_cxx
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <concepts>
+#  include <iterator>
+#endif
 
 #endif // _LIBCPP_HASH_SET

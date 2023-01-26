@@ -1718,25 +1718,28 @@ class piecewise_linear_distribution
 #include <__random/weibull_distribution.h>
 #include <version>
 
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <algorithm>
-#endif
-
 // standard-mandated includes
-#include <initializer_list>
 
-#include <cmath>       // for backward compatibility; TODO remove it
-#include <cstddef>     // for backward compatibility; TODO remove it
-#include <cstdint>     // for backward compatibility; TODO remove it
-#include <iosfwd>      // for backward compatibility; TODO remove it
-#include <limits>      // for backward compatibility; TODO remove it
-#include <numeric>     // for backward compatibility; TODO remove it
-#include <string>      // for backward compatibility; TODO remove it
-#include <type_traits> // for backward compatibility; TODO remove it
-#include <vector>      // for backward compatibility; TODO remove it
+// [rand.synopsis]
+#include <initializer_list>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <algorithm>
+#  include <climits>
+#  include <cmath>
+#  include <concepts>
+#  include <cstddef>
+#  include <cstdint>
+#  include <iosfwd>
+#  include <limits>
+#  include <numeric>
+#  include <string>
+#  include <type_traits>
+#  include <vector>
 #endif
 
 #endif // _LIBCPP_RANDOM

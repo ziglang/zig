@@ -22,7 +22,7 @@ public:
     virtual ~type_info();
 
     bool operator==(const type_info& rhs) const noexcept;
-    bool operator!=(const type_info& rhs) const noexcept;
+    bool operator!=(const type_info& rhs) const noexcept; // removed in C++20
 
     bool before(const type_info& rhs) const noexcept;
     size_t hash_code() const noexcept;
@@ -61,12 +61,9 @@ public:
 #include <__config>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <type_traits>
-
-#ifdef _LIBCPP_NO_EXCEPTIONS
-#include <cstdlib>
-#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -112,9 +109,11 @@ public:
       return __compare(__arg) == 0;
     }
 
+#if _LIBCPP_STD_VER <= 17
     _LIBCPP_INLINE_VISIBILITY
     bool operator!=(const type_info& __arg) const _NOEXCEPT
     { return !operator==(__arg); }
+#endif
 };
 
 #else // !defined(_LIBCPP_ABI_MICROSOFT)
@@ -174,8 +173,8 @@ public:
 // we pick a default implementation based on the platform here.
 #ifndef _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION
 
-  // Windows binaries can't merge typeinfos, so use the NonUnique implementation.
-# ifdef _LIBCPP_OBJECT_FORMAT_COFF
+  // Windows and AIX binaries can't merge typeinfos, so use the NonUnique implementation.
+# if defined(_LIBCPP_OBJECT_FORMAT_COFF) || defined(_LIBCPP_OBJECT_FORMAT_XCOFF)
 #   define _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION 2
 
   // On arm64 on Apple platforms, use the special NonUniqueARMRTTIBit implementation.
@@ -337,9 +336,11 @@ public:
       return __impl::__eq(__type_name, __arg.__type_name);
     }
 
+#if _LIBCPP_STD_VER <= 17
     _LIBCPP_INLINE_VISIBILITY
     bool operator!=(const type_info& __arg) const _NOEXCEPT
     { return !operator==(__arg); }
+#endif
 };
 #endif // defined(_LIBCPP_ABI_MICROSOFT)
 
@@ -349,8 +350,8 @@ class _LIBCPP_EXCEPTION_ABI bad_cast
  public:
   bad_cast() _NOEXCEPT;
   bad_cast(const bad_cast&) _NOEXCEPT = default;
-  virtual ~bad_cast() _NOEXCEPT;
-  virtual const char* what() const _NOEXCEPT;
+  ~bad_cast() _NOEXCEPT override;
+  const char* what() const _NOEXCEPT override;
 };
 
 class _LIBCPP_EXCEPTION_ABI bad_typeid
@@ -358,13 +359,37 @@ class _LIBCPP_EXCEPTION_ABI bad_typeid
 {
  public:
   bad_typeid() _NOEXCEPT;
-  virtual ~bad_typeid() _NOEXCEPT;
-  virtual const char* what() const _NOEXCEPT;
+  ~bad_typeid() _NOEXCEPT override;
+  const char* what() const _NOEXCEPT override;
 };
 
 } // namespace std
 
 #endif // defined(_LIBCPP_ABI_VCRUNTIME)
+
+#if defined(_LIBCPP_ABI_VCRUNTIME) && _HAS_EXCEPTIONS == 0
+
+namespace std {
+
+class bad_cast : public exception {
+public:
+  bad_cast() _NOEXCEPT : exception("bad cast") {}
+
+private:
+  bad_cast(const char* const __message) _NOEXCEPT : exception(__message) {}
+};
+
+class bad_typeid : public exception {
+public:
+  bad_typeid() _NOEXCEPT : exception("bad typeid") {}
+
+private:
+  bad_typeid(const char* const __message) _NOEXCEPT : exception(__message) {}
+};
+
+} // namespace std
+
+#endif // defined(_LIBCPP_ABI_VCRUNTIME) && _HAS_EXCEPTIONS == 0
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 _LIBCPP_NORETURN inline _LIBCPP_INLINE_VISIBILITY

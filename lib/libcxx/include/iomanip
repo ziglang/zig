@@ -278,7 +278,7 @@ setw(int __n)
 template <class _MoneyT> class __iom_t7;
 
 template <class _CharT, class _Traits, class _MoneyT>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is, const __iom_t7<_MoneyT>& __x);
 
 template <class _MoneyT>
@@ -298,7 +298,7 @@ public:
 };
 
 template <class _CharT, class _Traits, class _MoneyT>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is, const __iom_t7<_MoneyT>& __x)
 {
 #ifndef _LIBCPP_NO_EXCEPTIONS
@@ -311,7 +311,7 @@ operator>>(basic_istream<_CharT, _Traits>& __is, const __iom_t7<_MoneyT>& __x)
             typedef istreambuf_iterator<_CharT, _Traits> _Ip;
             typedef money_get<_CharT, _Ip> _Fp;
             ios_base::iostate __err = ios_base::goodbit;
-            const _Fp& __mf = use_facet<_Fp>(__is.getloc());
+            const _Fp& __mf = std::use_facet<_Fp>(__is.getloc());
             __mf.get(_Ip(__is), _Ip(), __x.__intl_, __is, __err, __x.__mon_);
             __is.setstate(__err);
         }
@@ -338,7 +338,7 @@ get_money(_MoneyT& __mon, bool __intl = false)
 template <class _MoneyT> class __iom_t8;
 
 template <class _CharT, class _Traits, class _MoneyT>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const __iom_t8<_MoneyT>& __x);
 
 template <class _MoneyT>
@@ -358,7 +358,7 @@ public:
 };
 
 template <class _CharT, class _Traits, class _MoneyT>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const __iom_t8<_MoneyT>& __x)
 {
 #ifndef _LIBCPP_NO_EXCEPTIONS
@@ -370,7 +370,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const __iom_t8<_MoneyT>& __x)
         {
             typedef ostreambuf_iterator<_CharT, _Traits> _Op;
             typedef money_put<_CharT, _Op> _Fp;
-            const _Fp& __mf = use_facet<_Fp>(__os.getloc());
+            const _Fp& __mf = std::use_facet<_Fp>(__os.getloc());
             if (__mf.put(_Op(__os), __x.__intl_, __os, __os.fill(), __x.__mon_).failed())
                 __os.setstate(ios_base::badbit);
         }
@@ -397,7 +397,7 @@ put_money(const _MoneyT& __mon, bool __intl = false)
 template <class _CharT> class __iom_t9;
 
 template <class _CharT, class _Traits>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is, const __iom_t9<_CharT>& __x);
 
 template <class _CharT>
@@ -417,7 +417,7 @@ public:
 };
 
 template <class _CharT, class _Traits>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is, const __iom_t9<_CharT>& __x)
 {
 #ifndef _LIBCPP_NO_EXCEPTIONS
@@ -430,7 +430,7 @@ operator>>(basic_istream<_CharT, _Traits>& __is, const __iom_t9<_CharT>& __x)
             typedef istreambuf_iterator<_CharT, _Traits> _Ip;
             typedef time_get<_CharT, _Ip> _Fp;
             ios_base::iostate __err = ios_base::goodbit;
-            const _Fp& __tf = use_facet<_Fp>(__is.getloc());
+            const _Fp& __tf = std::use_facet<_Fp>(__is.getloc());
             __tf.get(_Ip(__is), _Ip(), __is, __err, __x.__tm_,
                      __x.__fmt_, __x.__fmt_ + _Traits::length(__x.__fmt_));
             __is.setstate(__err);
@@ -458,7 +458,7 @@ get_time(tm* __tm, const _CharT* __fmt)
 template <class _CharT> class __iom_t10;
 
 template <class _CharT, class _Traits>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const __iom_t10<_CharT>& __x);
 
 template <class _CharT>
@@ -478,7 +478,7 @@ public:
 };
 
 template <class _CharT, class _Traits>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const __iom_t10<_CharT>& __x)
 {
 #ifndef _LIBCPP_NO_EXCEPTIONS
@@ -490,7 +490,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const __iom_t10<_CharT>& __x)
         {
             typedef ostreambuf_iterator<_CharT, _Traits> _Op;
             typedef time_put<_CharT, _Op> _Fp;
-            const _Fp& __tf = use_facet<_Fp>(__os.getloc());
+            const _Fp& __tf = std::use_facet<_Fp>(__os.getloc());
             if (__tf.put(_Op(__os), __os, __os.fill(), __x.__tm_,
                          __x.__fmt_, __x.__fmt_ + _Traits::length(__x.__fmt_)).failed())
                 __os.setstate(ios_base::badbit);

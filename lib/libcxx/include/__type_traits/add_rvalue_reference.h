@@ -18,14 +18,35 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Tp, bool = __is_referenceable<_Tp>::value> struct __add_rvalue_reference_impl            { typedef _LIBCPP_NODEBUG _Tp   type; };
-template <class _Tp                                       > struct __add_rvalue_reference_impl<_Tp, true> { typedef _LIBCPP_NODEBUG _Tp&& type; };
+#if __has_builtin(__add_rvalue_reference)
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS add_rvalue_reference
-{typedef _LIBCPP_NODEBUG typename __add_rvalue_reference_impl<_Tp>::type type;};
+template <class _Tp>
+using __add_rvalue_reference_t = __add_rvalue_reference(_Tp);
+
+#else
+
+template <class _Tp, bool = __libcpp_is_referenceable<_Tp>::value>
+struct __add_rvalue_reference_impl {
+  typedef _LIBCPP_NODEBUG _Tp type;
+};
+template <class _Tp >
+struct __add_rvalue_reference_impl<_Tp, true> {
+  typedef _LIBCPP_NODEBUG _Tp&& type;
+};
+
+template <class _Tp>
+using __add_rvalue_reference_t = typename __add_rvalue_reference_impl<_Tp>::type;
+
+#endif // __has_builtin(__add_rvalue_reference)
+
+template <class _Tp>
+struct add_rvalue_reference {
+  using type = __add_rvalue_reference_t<_Tp>;
+};
 
 #if _LIBCPP_STD_VER > 11
-template <class _Tp> using add_rvalue_reference_t = typename add_rvalue_reference<_Tp>::type;
+template <class _Tp>
+using add_rvalue_reference_t = __add_rvalue_reference_t<_Tp>;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

@@ -20,26 +20,6 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 14
-
-template <class _Arg, class... _Args>
-struct __conjunction_impl {
-  using type = conditional_t<!bool(_Arg::value), _Arg, typename __conjunction_impl<_Args...>::type>;
-};
-
-template <class _Arg>
-struct __conjunction_impl<_Arg> {
-  using type = _Arg;
-};
-
-template <class... _Args>
-struct conjunction : __conjunction_impl<true_type, _Args...>::type {};
-
-template<class... _Args>
-inline constexpr bool conjunction_v = conjunction<_Args...>::value;
-
-#endif // _LIBCPP_STD_VER > 14
-
 template <class...>
 using __expand_to_true = true_type;
 
@@ -49,8 +29,29 @@ __expand_to_true<__enable_if_t<_Pred::value>...> __and_helper(int);
 template <class...>
 false_type __and_helper(...);
 
+// _And always performs lazy evaluation of its arguments.
+//
+// However, `_And<_Pred...>` itself will evaluate its result immediately (without having to
+// be instantiated) since it is an alias, unlike `conjunction<_Pred...>`, which is a struct.
+// If you want to defer the evaluation of `_And<_Pred...>` itself, use `_Lazy<_And, _Pred...>`.
 template <class... _Pred>
-using _And _LIBCPP_NODEBUG = decltype(__and_helper<_Pred...>(0));
+using _And _LIBCPP_NODEBUG = decltype(std::__and_helper<_Pred...>(0));
+
+#if _LIBCPP_STD_VER > 14
+
+template <class...>
+struct conjunction : true_type {};
+
+template <class _Arg>
+struct conjunction<_Arg> : _Arg {};
+
+template <class _Arg, class... _Args>
+struct conjunction<_Arg, _Args...> : conditional_t<!bool(_Arg::value), _Arg, conjunction<_Args...>> {};
+
+template <class... _Args>
+inline constexpr bool conjunction_v = conjunction<_Args...>::value;
+
+#endif // _LIBCPP_STD_VER > 14
 
 _LIBCPP_END_NAMESPACE_STD
 

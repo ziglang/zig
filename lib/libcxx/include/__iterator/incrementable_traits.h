@@ -10,11 +10,15 @@
 #ifndef _LIBCPP___ITERATOR_INCREMENTABLE_TRAITS_H
 #define _LIBCPP___ITERATOR_INCREMENTABLE_TRAITS_H
 
+#include <__concepts/arithmetic.h>
 #include <__config>
+#include <__type_traits/conditional.h>
+#include <__type_traits/is_object.h>
 #include <__type_traits/is_primary_template.h>
-#include <concepts>
+#include <__type_traits/make_signed.h>
+#include <__type_traits/remove_cvref.h>
+#include <__utility/declval.h>
 #include <cstddef>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -53,7 +57,7 @@ concept __has_integral_minus =
 template<__has_integral_minus _Tp>
 requires (!__has_member_difference_type<_Tp>)
 struct incrementable_traits<_Tp> {
-  using difference_type = make_signed_t<decltype(declval<_Tp>() - declval<_Tp>())>;
+  using difference_type = make_signed_t<decltype(std::declval<_Tp>() - std::declval<_Tp>())>;
 };
 
 template <class>

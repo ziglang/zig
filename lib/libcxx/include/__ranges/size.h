@@ -6,18 +6,23 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+
 #ifndef _LIBCPP___RANGES_SIZE_H
 #define _LIBCPP___RANGES_SIZE_H
 
+#include <__concepts/arithmetic.h>
 #include <__concepts/class_or_enum.h>
 #include <__config>
 #include <__iterator/concepts.h>
 #include <__iterator/iterator_traits.h>
 #include <__ranges/access.h>
+#include <__type_traits/decay.h>
+#include <__type_traits/make_signed.h>
+#include <__type_traits/make_unsigned.h>
+#include <__type_traits/remove_cvref.h>
 #include <__utility/auto_cast.h>
-#include <concepts>
+#include <__utility/declval.h>
 #include <cstddef>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -66,7 +71,7 @@ concept __difference =
   __class_or_enum<remove_cvref_t<_Tp>> &&
   requires(_Tp&& __t) {
     { ranges::begin(__t) } -> forward_iterator;
-    { ranges::end(__t) } -> sized_sentinel_for<decltype(ranges::begin(declval<_Tp>()))>;
+    { ranges::end(__t) } -> sized_sentinel_for<decltype(ranges::begin(std::declval<_Tp>()))>;
   };
 
 struct __fn {

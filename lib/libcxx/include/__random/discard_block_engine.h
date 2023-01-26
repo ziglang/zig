@@ -12,8 +12,8 @@
 #include <__config>
 #include <__random/is_seed_sequence.h>
 #include <__utility/move.h>
-#include <climits>
 #include <iosfwd>
+#include <limits>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -33,7 +33,9 @@ class _LIBCPP_TEMPLATE_VIS discard_block_engine
 
     static_assert(  0 <  __r, "discard_block_engine invalid parameters");
     static_assert(__r <= __p, "discard_block_engine invalid parameters");
-    static_assert(__r <= INT_MAX, "discard_block_engine invalid parameters");
+#ifndef _LIBCPP_CXX03_LANG // numeric_limits::max() is not constexpr in C++03
+    static_assert(__r <= numeric_limits<int>::max(), "discard_block_engine invalid parameters");
+#endif
 public:
     // types
     typedef typename _Engine::result_type result_type;
@@ -164,7 +166,7 @@ operator!=(const discard_block_engine<_Eng, _Pp, _Rp>& __x,
 
 template <class _CharT, class _Traits,
           class _Eng, size_t _Pp, size_t _Rp>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os,
            const discard_block_engine<_Eng, _Pp, _Rp>& __x)
 {
@@ -178,7 +180,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
 
 template <class _CharT, class _Traits,
           class _Eng, size_t _Pp, size_t _Rp>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is,
            discard_block_engine<_Eng, _Pp, _Rp>& __x)
 {

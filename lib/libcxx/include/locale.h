@@ -43,6 +43,8 @@ Functions:
 #  pragma GCC system_header
 #endif
 
-#include_next <locale.h>
+#if __has_include_next(<locale.h>)
+#  include_next <locale.h>
+#endif
 
 #endif // _LIBCPP_LOCALE_H

@@ -13,7 +13,7 @@
 #include <__concepts/constructible.h>
 #include <__concepts/swappable.h>
 #include <__config>
-#include <type_traits>
+#include <__type_traits/is_object.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

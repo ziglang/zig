@@ -10,6 +10,7 @@
 #define _LIBCPP___ALGORITHM_RANGES_SET_SYMMETRIC_DIFFERENCE_H
 
 #include <__algorithm/in_in_out_result.h>
+#include <__algorithm/iterator_operations.h>
 #include <__algorithm/make_projected.h>
 #include <__algorithm/set_symmetric_difference.h>
 #include <__config>
@@ -27,7 +28,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -58,7 +59,7 @@ struct __fn {
       _Comp __comp   = {},
       _Proj1 __proj1 = {},
       _Proj2 __proj2 = {}) const {
-    auto __ret = std::__set_symmetric_difference(
+    auto __ret = std::__set_symmetric_difference<_RangeAlgPolicy>(
         std::move(__first1),
         std::move(__last1),
         std::move(__first2),
@@ -81,7 +82,7 @@ struct __fn {
         _OutIter,
         _Comp,
         _Proj1,
-        _Proj2> 
+        _Proj2>
   _LIBCPP_HIDE_FROM_ABI constexpr set_symmetric_difference_result<borrowed_iterator_t<_Range1>,
                                                                   borrowed_iterator_t<_Range2>,
                                                                   _OutIter>
@@ -92,7 +93,7 @@ struct __fn {
         _Comp __comp   = {},
         _Proj1 __proj1 = {},
         _Proj2 __proj2 = {}) const {
-    auto __ret = std::__set_symmetric_difference(
+    auto __ret = std::__set_symmetric_difference<_RangeAlgPolicy>(
         ranges::begin(__range1),
         ranges::end(__range1),
         ranges::begin(__range2),
@@ -112,5 +113,5 @@ inline namespace __cpo {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 #endif // _LIBCPP___ALGORITHM_RANGES_SET_SYMMETRIC_DIFFERENCE_H

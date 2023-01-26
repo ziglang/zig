@@ -17,14 +17,27 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+#if __has_builtin(__remove_pointer)
+template <class _Tp>
+struct remove_pointer {
+  using type _LIBCPP_NODEBUG = __remove_pointer(_Tp);
+};
+
+template <class _Tp>
+using __remove_pointer_t = __remove_pointer(_Tp);
+#else
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer                      {typedef _LIBCPP_NODEBUG _Tp type;};
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer<_Tp*>                {typedef _LIBCPP_NODEBUG _Tp type;};
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer<_Tp* const>          {typedef _LIBCPP_NODEBUG _Tp type;};
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer<_Tp* volatile>       {typedef _LIBCPP_NODEBUG _Tp type;};
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_pointer<_Tp* const volatile> {typedef _LIBCPP_NODEBUG _Tp type;};
 
+template <class _Tp>
+using __remove_pointer_t = typename remove_pointer<_Tp>::type;
+#endif // __has_builtin(__remove_pointer)
+
 #if _LIBCPP_STD_VER > 11
-template <class _Tp> using remove_pointer_t = typename remove_pointer<_Tp>::type;
+template <class _Tp> using remove_pointer_t = __remove_pointer_t<_Tp>;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

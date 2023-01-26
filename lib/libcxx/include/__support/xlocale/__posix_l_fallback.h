@@ -12,8 +12,16 @@
 // Android's bionic and Newlib).
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP_SUPPORT_XLOCALE_POSIX_L_FALLBACK_H
-#define _LIBCPP_SUPPORT_XLOCALE_POSIX_L_FALLBACK_H
+#ifndef _LIBCPP___SUPPORT_XLOCALE_POSIX_L_FALLBACK_H
+#define _LIBCPP___SUPPORT_XLOCALE_POSIX_L_FALLBACK_H
+
+#include <__config>
+#include <ctype.h>
+#include <time.h>
+
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  include <wctype.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -67,6 +75,15 @@ inline _LIBCPP_HIDE_FROM_ABI int isxdigit_l(int __c, locale_t) {
   return ::isxdigit(__c);
 }
 
+inline _LIBCPP_HIDE_FROM_ABI int toupper_l(int __c, locale_t) {
+  return ::toupper(__c);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI int tolower_l(int __c, locale_t) {
+  return ::tolower(__c);
+}
+
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 inline _LIBCPP_HIDE_FROM_ABI int iswalnum_l(wint_t __c, locale_t) {
   return ::iswalnum(__c);
 }
@@ -115,14 +132,6 @@ inline _LIBCPP_HIDE_FROM_ABI int iswxdigit_l(wint_t __c, locale_t) {
   return ::iswxdigit(__c);
 }
 
-inline _LIBCPP_HIDE_FROM_ABI int toupper_l(int __c, locale_t) {
-  return ::toupper(__c);
-}
-
-inline _LIBCPP_HIDE_FROM_ABI int tolower_l(int __c, locale_t) {
-  return ::tolower(__c);
-}
-
 inline _LIBCPP_HIDE_FROM_ABI wint_t towupper_l(wint_t __c, locale_t) {
   return ::towupper(__c);
 }
@@ -130,6 +139,7 @@ inline _LIBCPP_HIDE_FROM_ABI wint_t towupper_l(wint_t __c, locale_t) {
 inline _LIBCPP_HIDE_FROM_ABI wint_t towlower_l(wint_t __c, locale_t) {
   return ::towlower(__c);
 }
+#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 inline _LIBCPP_HIDE_FROM_ABI int
 strcoll_l(const char *__s1, const char *__s2, locale_t) {
@@ -147,6 +157,7 @@ strftime_l(char *__s, size_t __max, const char *__format, const struct tm *__tm,
   return ::strftime(__s, __max, __format, __tm);
 }
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 inline _LIBCPP_HIDE_FROM_ABI int
 wcscoll_l(const wchar_t *__ws1, const wchar_t *__ws2, locale_t) {
   return ::wcscoll(__ws1, __ws2);
@@ -156,9 +167,10 @@ inline _LIBCPP_HIDE_FROM_ABI size_t
 wcsxfrm_l(wchar_t *__dest, const wchar_t *__src, size_t __n, locale_t) {
   return ::wcsxfrm(__dest, __src, __n);
 }
+#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // _LIBCPP_SUPPORT_XLOCALE_POSIX_L_FALLBACK_H
+#endif // _LIBCPP___SUPPORT_XLOCALE_POSIX_L_FALLBACK_H

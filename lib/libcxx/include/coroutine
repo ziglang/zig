@@ -46,15 +46,18 @@ struct suspend_always;
 #include <__coroutine/trivial_awaitables.h>
 #include <version>
 
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <iosfwd>
-#endif
-
 // standard-mandated includes
+
+// [coroutine.syn]
 #include <compare>
 
 #ifndef _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER
 #  pragma GCC system_header
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <iosfwd>
+#  include <type_traits>
 #endif
 
 #endif // _LIBCPP_COROUTINE

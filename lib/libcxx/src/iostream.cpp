@@ -109,8 +109,8 @@ static void force_locale_initialization() {
 
 class DoIOSInit {
 public:
-	DoIOSInit();
-	~DoIOSInit();
+    DoIOSInit();
+    ~DoIOSInit();
 };
 
 DoIOSInit::DoIOSInit()

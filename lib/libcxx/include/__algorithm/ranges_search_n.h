@@ -25,12 +25,13 @@
 #include <__ranges/size.h>
 #include <__ranges/subrange.h>
 #include <__utility/move.h>
+#include <__utility/pair.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -52,12 +53,8 @@ struct __fn {
       }
 
       if constexpr (random_access_iterator<_Iter1>) {
-        auto __ret = __search_n_random_access_impl<_RangeAlgPolicy>(__first, __last,
-                                                                    __count,
-                                                                    __value,
-                                                                    __pred,
-                                                                    __proj,
-                                                                    __size);
+        auto __ret = std::__search_n_random_access_impl<_RangeAlgPolicy>(
+            __first, __last, __count, __value, __pred, __proj, __size);
         return {std::move(__ret.first), std::move(__ret.second)};
       }
     }
@@ -75,7 +72,7 @@ struct __fn {
             class _Pred = ranges::equal_to,
             class _Proj = identity>
     requires indirectly_comparable<_Iter, const _Type*, _Pred, _Proj>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   subrange<_Iter> operator()(_Iter __first, _Sent __last,
                              iter_difference_t<_Iter> __count,
                              const _Type& __value,
@@ -86,7 +83,7 @@ struct __fn {
 
   template <forward_range _Range, class _Type, class _Pred = ranges::equal_to, class _Proj = identity>
     requires indirectly_comparable<iterator_t<_Range>, const _Type*, _Pred, _Proj>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   borrowed_subrange_t<_Range> operator()(_Range&& __range,
                                          range_difference_t<_Range> __count,
                                          const _Type& __value,
@@ -115,6 +112,6 @@ inline namespace __cpo {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 #endif // _LIBCPP___ALGORITHM_RANGES_SEARCH_N_H

@@ -48,7 +48,7 @@ template <typename _Tp>
 struct __is_destructor_wellformed {
     template <typename _Tp1>
     static true_type  __test (
-        typename __is_destructible_apply<decltype(declval<_Tp1&>().~_Tp1())>::type
+        typename __is_destructible_apply<decltype(std::declval<_Tp1&>().~_Tp1())>::type
     );
 
     template <typename _Tp1>
@@ -63,7 +63,7 @@ struct __destructible_imp;
 template <class _Tp>
 struct __destructible_imp<_Tp, false>
    : public integral_constant<bool,
-        __is_destructor_wellformed<typename remove_all_extents<_Tp>::type>::value> {};
+        __is_destructor_wellformed<__remove_all_extents_t<_Tp> >::value> {};
 
 template <class _Tp>
 struct __destructible_imp<_Tp, true>

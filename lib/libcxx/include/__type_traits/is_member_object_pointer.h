@@ -32,7 +32,7 @@ inline constexpr bool is_member_object_pointer_v = __is_member_object_pointer(_T
 #else // __has_builtin(__is_member_object_pointer)
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_member_object_pointer
-    : public _BoolConstant< __libcpp_is_member_pointer<typename remove_cv<_Tp>::type>::__is_obj >  {};
+    : public _BoolConstant< __libcpp_is_member_pointer<__remove_cv_t<_Tp> >::__is_obj >  {};
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>

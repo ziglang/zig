@@ -58,7 +58,7 @@ inline constexpr bool is_integral_v = __is_integral(_Tp);
 #else
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_integral
-    : public _BoolConstant<__libcpp_is_integral<typename remove_cv<_Tp>::type>::value> {};
+    : public _BoolConstant<__libcpp_is_integral<__remove_cv_t<_Tp> >::value> {};
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>

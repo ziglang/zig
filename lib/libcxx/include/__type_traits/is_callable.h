@@ -25,7 +25,7 @@ template<class...>
 false_type __is_callable_helper(...);
 
 template<class _Func, class... _Args>
-struct __is_callable : decltype(__is_callable_helper<_Func, _Args...>(0)) {};
+struct __is_callable : decltype(std::__is_callable_helper<_Func, _Args...>(0)) {};
 
 _LIBCPP_END_NAMESPACE_STD
 

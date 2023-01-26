@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP_SUPPORT_ANDROID_LOCALE_BIONIC_H
-#define _LIBCPP_SUPPORT_ANDROID_LOCALE_BIONIC_H
+#ifndef _LIBCPP___SUPPORT_ANDROID_LOCALE_BIONIC_H
+#define _LIBCPP___SUPPORT_ANDROID_LOCALE_BIONIC_H
 
 #if defined(__BIONIC__)
 
@@ -72,4 +72,4 @@ strtol_l(const char* __nptr, char** __endptr, int __base, locale_t) {
 #endif // defined(__ANDROID__)
 
 #endif // defined(__BIONIC__)
-#endif // _LIBCPP_SUPPORT_ANDROID_LOCALE_BIONIC_H
+#endif // _LIBCPP___SUPPORT_ANDROID_LOCALE_BIONIC_H

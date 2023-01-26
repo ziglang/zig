@@ -12,9 +12,10 @@
 #include <__compare/ordering.h>
 #include <__compare/partial_order.h>
 #include <__config>
+#include <__type_traits/decay.h>
+#include <__type_traits/is_same.h>
 #include <__utility/forward.h>
 #include <__utility/priority_tag.h>
-#include <type_traits>
 
 #ifndef _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER
 #  pragma GCC system_header
