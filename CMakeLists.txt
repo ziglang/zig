@@ -656,9 +656,9 @@ include_directories(
 
 # These have to go before the -Wno- flags
 if(MSVC)
-  set(EXE_CXX_FLAGS "/std:c++14")
+  set(EXE_CXX_FLAGS "/std:c++17")
 else(MSVC)
-  set(EXE_CXX_FLAGS "-std=c++14")
+  set(EXE_CXX_FLAGS "-std=c++17")
 endif(MSVC)
 
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
