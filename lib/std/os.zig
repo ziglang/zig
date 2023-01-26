@@ -550,7 +550,6 @@ pub fn abort() noreturn {
         exit(0); // TODO choose appropriate exit code
     }
     if (builtin.os.tag == .wasi) {
-        @breakpoint();
         exit(1);
     }
     if (builtin.os.tag == .cuda) {
