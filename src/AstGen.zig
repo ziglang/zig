@@ -4278,7 +4278,34 @@ fn testDecl(
             var num_namespaces_out: u32 = 0;
             var capturing_namespace: ?*Scope.Namespace = null;
             while (true) switch (s.tag) {
-                .local_val, .local_ptr => unreachable, // a test cannot be in a local scope
+                .local_val => {
+                    const local_val = s.cast(Scope.LocalVal).?;
+                    if (local_val.name == name_str_index) {
+                        local_val.used = test_name_token;
+                        return astgen.failTokNotes(test_name_token, "cannot test a {s}", .{
+                            @tagName(local_val.id_cat),
+                        }, &[_]u32{
+                            try astgen.errNoteTok(local_val.token_src, "{s} declared here", .{
+                                @tagName(local_val.id_cat),
+                            }),
+                        });
+                    }
+                    s = local_val.parent;
+                },
+                .local_ptr => {
+                    const local_ptr = s.cast(Scope.LocalPtr).?;
+                    if (local_ptr.name == name_str_index) {
+                        local_ptr.used = test_name_token;
+                        return astgen.failTokNotes(test_name_token, "cannot test a {s}", .{
+                            @tagName(local_ptr.id_cat),
+                        }, &[_]u32{
+                            try astgen.errNoteTok(local_ptr.token_src, "{s} declared here", .{
+                                @tagName(local_ptr.id_cat),
+                            }),
+                        });
+                    }
+                    s = local_ptr.parent;
+                },
                 .gen_zir => s = s.cast(GenZir).?.parent,
                 .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
                 .namespace, .enum_namespace => {
