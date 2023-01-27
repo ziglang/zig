@@ -986,31 +986,23 @@ pub fn deinit(wasm: *Wasm) void {
     }
 }
 
-pub fn allocateDeclIndexes(wasm: *Wasm, decl_index: Module.Decl.Index) !void {
-    if (wasm.llvm_object) |_| return;
-    const decl = wasm.base.options.module.?.declPtr(decl_index);
-    if (decl.link.wasm.sym_index != 0) return;
-
+/// Allocates a new symbol and returns its index.
+/// Will re-use slots when a symbol was freed at an earlier stage.
+pub fn allocateSymbol(wasm: *Wasm) !u32 {
     try wasm.symbols.ensureUnusedCapacity(wasm.base.allocator, 1);
-    try wasm.decls.putNoClobber(wasm.base.allocator, decl_index, {});
-
-    const atom = &decl.link.wasm;
-
     var symbol: Symbol = .{
         .name = undefined, // will be set after updateDecl
         .flags = @enumToInt(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
         .tag = undefined, // will be set after updateDecl
         .index = undefined, // will be set after updateDecl
     };
-
     if (wasm.symbols_free_list.popOrNull()) |index| {
-        atom.sym_index = index;
         wasm.symbols.items[index] = symbol;
-    } else {
-        atom.sym_index = @intCast(u32, wasm.symbols.items.len);
-        wasm.symbols.appendAssumeCapacity(symbol);
+        return index;
     }
-    try wasm.symbol_atom.putNoClobber(wasm.base.allocator, atom.symbolLoc(), atom);
+    const index = @intCast(u32, wasm.symbols.items.len);
+    wasm.symbols.appendAssumeCapacity(symbol);
+    return index;
 }
 
 pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
@@ -1026,9 +1018,12 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
 
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
-    assert(decl.link.wasm.sym_index != 0); // Must call allocateDeclIndexes()
-
-    decl.link.wasm.clear();
+    const atom = &decl.link.wasm;
+    try atom.ensureInitialized(wasm);
+    const gop = try wasm.decls.getOrPut(wasm.base.allocator, decl_index);
+    if (gop.found_existing) {
+        atom.clear();
+    } else gop.value_ptr.* = {};
 
     var decl_state: ?Dwarf.DeclState = if (wasm.dwarf) |*dwarf| try dwarf.initDeclState(mod, decl_index) else null;
     defer if (decl_state) |*ds| ds.deinit();
@@ -1083,15 +1078,18 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     defer tracy.end();
 
     const decl = mod.declPtr(decl_index);
-    assert(decl.link.wasm.sym_index != 0); // Must call allocateDeclIndexes()
-
-    decl.link.wasm.clear();
-
     if (decl.val.castTag(.function)) |_| {
         return;
     } else if (decl.val.castTag(.extern_fn)) |_| {
         return;
     }
+
+    const atom = &decl.link.wasm;
+    try atom.ensureInitialized(wasm);
+    const gop = try wasm.decls.getOrPut(wasm.base.allocator, decl_index);
+    if (gop.found_existing) {
+        atom.clear();
+    } else gop.value_ptr.* = {};
 
     if (decl.isExtern()) {
         const variable = decl.getVariable().?;
@@ -1148,8 +1146,8 @@ fn finishUpdateDecl(wasm: *Wasm, decl: *Module.Decl, code: []const u8) !void {
     try atom.code.appendSlice(wasm.base.allocator, code);
     try wasm.resolved_symbols.put(wasm.base.allocator, atom.symbolLoc(), {});
 
-    if (code.len == 0) return;
     atom.size = @intCast(u32, code.len);
+    if (code.len == 0) return;
     atom.alignment = decl.ty.abiAlignment(wasm.base.options.target);
 }
 
@@ -1211,28 +1209,19 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
     defer wasm.base.allocator.free(fqdn);
     const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__unnamed_{s}_{d}", .{ fqdn, local_index });
     defer wasm.base.allocator.free(name);
-    var symbol: Symbol = .{
-        .name = try wasm.string_table.put(wasm.base.allocator, name),
-        .flags = 0,
-        .tag = .data,
-        .index = undefined,
-    };
-    symbol.setFlag(.WASM_SYM_BINDING_LOCAL);
 
     const atom = try decl.link.wasm.locals.addOne(wasm.base.allocator);
     atom.* = Atom.empty;
+    try atom.ensureInitialized(wasm);
     atom.alignment = tv.ty.abiAlignment(wasm.base.options.target);
-    try wasm.symbols.ensureUnusedCapacity(wasm.base.allocator, 1);
+    wasm.symbols.items[atom.sym_index] = .{
+        .name = try wasm.string_table.put(wasm.base.allocator, name),
+        .flags = @enumToInt(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
+        .tag = .data,
+        .index = undefined,
+    };
 
-    if (wasm.symbols_free_list.popOrNull()) |index| {
-        atom.sym_index = index;
-        wasm.symbols.items[index] = symbol;
-    } else {
-        atom.sym_index = @intCast(u32, wasm.symbols.items.len);
-        wasm.symbols.appendAssumeCapacity(symbol);
-    }
     try wasm.resolved_symbols.putNoClobber(wasm.base.allocator, atom.symbolLoc(), {});
-    try wasm.symbol_atom.putNoClobber(wasm.base.allocator, atom.symbolLoc(), atom);
 
     var value_bytes = std.ArrayList(u8).init(wasm.base.allocator);
     defer value_bytes.deinit();
@@ -1304,8 +1293,8 @@ pub fn getDeclVAddr(
 ) !u64 {
     const mod = wasm.base.options.module.?;
     const decl = mod.declPtr(decl_index);
+    try decl.link.wasm.ensureInitialized(wasm);
     const target_symbol_index = decl.link.wasm.sym_index;
-    assert(target_symbol_index != 0);
     assert(reloc_info.parent_atom_index != 0);
     const atom = wasm.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
     const is_wasm32 = wasm.base.options.target.cpu.arch == .wasm32;
@@ -1363,6 +1352,7 @@ pub fn updateDeclExports(
     }
 
     const decl = mod.declPtr(decl_index);
+    if (decl.link.wasm.getSymbolIndex() == null) return; // unititialized
 
     for (exports) |exp| {
         if (exp.options.section) |section| {

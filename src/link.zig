@@ -615,7 +615,6 @@ pub const File = struct {
             return;
         }
         switch (base.tag) {
-            .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl_index),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl_index),
 
             .coff,
@@ -624,6 +623,7 @@ pub const File = struct {
             .c,
             .spirv,
             .nvptx,
+            .wasm,
             => {},
         }
     }

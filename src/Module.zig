@@ -5328,6 +5328,7 @@ pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
         .elf,
         .macho,
         .c,
+        .wasm,
         => {}, // this linker backend has already migrated to the new API
 
         else => if (decl.has_tv) {

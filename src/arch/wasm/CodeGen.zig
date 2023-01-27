@@ -2120,22 +2120,28 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         const module = func.bin_file.base.options.module.?;
 
         if (func_val.castTag(.function)) |function| {
-            break :blk module.declPtr(function.data.owner_decl);
+            const decl = module.declPtr(function.data.owner_decl);
+            try decl.link.wasm.ensureInitialized(func.bin_file);
+            break :blk decl;
         } else if (func_val.castTag(.extern_fn)) |extern_fn| {
             const ext_decl = module.declPtr(extern_fn.data.owner_decl);
             const ext_info = ext_decl.ty.fnInfo();
             var func_type = try genFunctype(func.gpa, ext_info.cc, ext_info.param_types, ext_info.return_type, func.target);
             defer func_type.deinit(func.gpa);
+            const atom = &ext_decl.link.wasm;
+            try atom.ensureInitialized(func.bin_file);
             ext_decl.fn_link.wasm.type_index = try func.bin_file.putOrGetFuncType(func_type);
             try func.bin_file.addOrUpdateImport(
                 mem.sliceTo(ext_decl.name, 0),
-                ext_decl.link.wasm.sym_index,
+                atom.getSymbolIndex().?,
                 ext_decl.getExternFn().?.lib_name,
                 ext_decl.fn_link.wasm.type_index,
             );
             break :blk ext_decl;
         } else if (func_val.castTag(.decl_ref)) |decl_ref| {
-            break :blk module.declPtr(decl_ref.data);
+            const decl = module.declPtr(decl_ref.data);
+            try decl.link.wasm.ensureInitialized(func.bin_file);
+            break :blk decl;
         }
         return func.fail("Expected a function, but instead found type '{}'", .{func_val.tag()});
     };
@@ -2752,6 +2758,7 @@ fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: Module.Decl.Ind
     }
 
     module.markDeclAlive(decl);
+    try decl.link.wasm.ensureInitialized(func.bin_file);
 
     const target_sym_index = decl.link.wasm.sym_index;
     if (decl.ty.zigTypeTag() == .Fn) {
