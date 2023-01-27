@@ -871,6 +871,13 @@ pub fn main() void {
       However, it is possible to embed non-UTF-8 bytes into a string literal using <code>\xNN</code> notation.
       </p>
       <p>
+      Indexing into a string containing non-ASCII bytes will return individual bytes, whether valid
+      UTF-8 or not.
+      The {#link|Zig Standard Library#} provides routines for checking the validity of UTF-8 encoded
+      strings, accessing their code points and other encoding/decoding related tasks in
+      {#syntax#}std.unicode{#endsyntax#}.
+      </p>
+      <p>
       Unicode code point literals have type {#syntax#}comptime_int{#endsyntax#}, the same as
       {#link|Integer Literals#}. All {#link|Escape Sequences#} are valid in both string literals
       and Unicode code point literals.
@@ -894,9 +901,12 @@ pub fn main() void {
     print("{}\n", .{'e' == '\x65'});                    // true
     print("{d}\n", .{'\u{1f4a9}'});                     // 128169
     print("{d}\n", .{'💯'});                            // 128175
-    print("{}\n", .{mem.eql(u8, "hello", "h\x65llo")}); // true
-    print("0x{x}\n", .{"\xff"[0]}); // non-UTF-8 strings are possible with \xNN notation.
     print("{u}\n", .{'⚡'});
+    print("{}\n", .{mem.eql(u8, "hello", "h\x65llo")});      // true
+    print("{}\n", .{mem.eql(u8, "💯", "\xf0\x9f\x92\xaf")}); // also true
+    const invalid_utf8 = "\xff\xfe";      // non-UTF-8 strings are possible with \xNN notation.
+    print("0x{x}\n", .{invalid_utf8[1]}); // indexing them returns individual bytes...
+    print("0x{x}\n", .{"💯"[1]});    // ...as does indexing part-way through non-ASCII characters
 }
       {#code_end#}
       {#see_also|Arrays|Source Encoding#}
