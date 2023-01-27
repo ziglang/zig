@@ -7510,7 +7510,6 @@ fn resolveGenericInstantiationType(
     // Queue up a `codegen_func` work item for the new Fn. The `comptime_args` field
     // will be populated, ensuring it will have `analyzeBody` called with the ZIR
     // parameters mapped appropriately.
-    try mod.comp.bin_file.allocateDeclIndexes(new_decl_index);
     try mod.comp.work_queue.writeItem(.{ .codegen_func = new_func });
     return new_func;
 }

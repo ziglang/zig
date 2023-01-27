@@ -533,8 +533,7 @@ pub const File = struct {
         }
     }
 
-    /// May be called before or after updateDeclExports but must be called
-    /// after allocateDeclIndexes for any given Decl.
+    /// May be called before or after updateDeclExports for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
         log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty.fmtDebug() });
@@ -557,8 +556,7 @@ pub const File = struct {
         }
     }
 
-    /// May be called before or after updateDeclExports but must be called
-    /// after allocateDeclIndexes for any given Decl.
+    /// May be called before or after updateDeclExports for any given Decl.
     pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) UpdateDeclError!void {
         const owner_decl = module.declPtr(func.owner_decl);
         log.debug("updateFunc {*} ({s}), type={}", .{
@@ -599,32 +597,6 @@ pub const File = struct {
             .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclLineNumber(module, decl),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDeclLineNumber(module, decl),
             .spirv, .nvptx => {},
-        }
-    }
-
-    /// Must be called before any call to updateDecl or updateDeclExports for
-    /// any given Decl.
-    /// TODO we're transitioning to deleting this function and instead having
-    /// each linker backend notice the first time updateDecl or updateFunc is called, or
-    /// a callee referenced from AIR.
-    pub fn allocateDeclIndexes(base: *File, decl_index: Module.Decl.Index) error{OutOfMemory}!void {
-        const decl = base.options.module.?.declPtr(decl_index);
-        log.debug("allocateDeclIndexes {*} ({s})", .{ decl, decl.name });
-        if (build_options.only_c) {
-            assert(base.tag == .c);
-            return;
-        }
-        switch (base.tag) {
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl_index),
-
-            .coff,
-            .elf,
-            .macho,
-            .c,
-            .spirv,
-            .nvptx,
-            .wasm,
-            => {},
         }
     }
 
@@ -878,8 +850,7 @@ pub const File = struct {
         AnalysisFail,
     };
 
-    /// May be called before or after updateDecl, but must be called after
-    /// allocateDeclIndexes for any given Decl.
+    /// May be called before or after updateDecl for any given Decl.
     pub fn updateDeclExports(
         base: *File,
         module: *Module,
