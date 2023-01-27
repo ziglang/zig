@@ -8803,10 +8803,10 @@ pub const PrefetchOptions = struct {
       {#syntax#}@ptrCast{#endsyntax#} cannot be used for:
       </p>
       <ul>
-          <li>Removing {#syntax#}const{#endsyntax#} or {#syntax#}volatile{#endsyntax#} qualifier. TODO add a {#syntax#}@qualCast{#endsyntax#} builtin.</li>
-          <li>Changing pointer address space, use {#link|@addrSpaceCast#}</li>
-          <li>Increasing pointer alignment, use {#link|@alignCast#}</li>
-          <li>Casting a non-slice pointer to a slice, use slicing syntax {#syntax#}ptr[start..end]{#endsyntax#}</li>
+          <li>Removing {#syntax#}const{#endsyntax#} or {#syntax#}volatile{#endsyntax#} qualifier, use {#link|@qualCast#}.</li>
+          <li>Changing pointer address space, use {#link|@addrSpaceCast#}.</li>
+          <li>Increasing pointer alignment, use {#link|@alignCast#}.</li>
+          <li>Casting a non-slice pointer to a slice, use slicing syntax {#syntax#}ptr[start..end]{#endsyntax#}.</li>
       </ul>
       {#header_close#}
 
@@ -8818,6 +8818,13 @@ pub const PrefetchOptions = struct {
       </p>
       <p>To convert the other way, use {#link|@intToPtr#}</p>
 
+      {#header_close#}
+
+      {#header_open|@qualCast#}
+      <pre>{#syntax#}@qualCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
+      <p>
+      Remove {#syntax#}const{#endsyntax#} or {#syntax#}volatile{#endsyntax#} qualifier from a pointer.
+      </p>
       {#header_close#}
 
       {#header_open|@rem#}
