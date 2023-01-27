@@ -1680,8 +1680,8 @@ fn parseInternal(
                             const output = try allocator.alloc(u8, len + @boolToInt(ptrInfo.sentinel != null));
                             errdefer allocator.free(output);
                             switch (stringToken.escapes) {
-                                .None => if (output.len == source_slice.len) mem.copy(u8, output, source_slice) else return error.LengthMismatch,
-                                .Some => if (output.len == len) try unescapeValidString(output, source_slice) else return error.LengthMismatch,
+                                .None => mem.copy(u8, output, source_slice),
+                                .Some => try unescapeValidString(output, source_slice),
                             }
 
                             if (ptrInfo.sentinel) |some| {
@@ -1990,7 +1990,7 @@ pub const Parser = struct {
             .Some => {
                 const output = try allocator.alloc(u8, s.decodedLength());
                 errdefer allocator.free(output);
-                if (output.len == s.decodedLength()) try unescapeValidString(output, slice) else return error.LengthMismatch;
+                try unescapeValidString(output, slice);
                 return Value{ .String = output };
             },
         }
