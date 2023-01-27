@@ -26,7 +26,7 @@ export fn quux() u32 {
 // :11:15: error: expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(tmp.bar)).Fn.return_type.?).ErrorUnion.error_set!u32'
 // :10:17: note: function cannot return an error
 // :11:15: note: cannot convert error union to payload type
-// :11:15: note: consider using `try`, `catch`, or `if`
+// :11:15: note: consider using 'try', 'catch', or 'if'
 // :15:14: error: expected type 'u32', found '@typeInfo(@typeInfo(@TypeOf(tmp.bar)).Fn.return_type.?).ErrorUnion.error_set!u32'
 // :15:14: note: cannot convert error union to payload type
-// :15:14: note: consider using `try`, `catch`, or `if`
+// :15:14: note: consider using 'try', 'catch', or 'if'

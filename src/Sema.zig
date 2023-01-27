@@ -3294,7 +3294,7 @@ fn ensureResultUsed(
             const msg = msg: {
                 const msg = try sema.errMsg(block, src, "error is ignored", .{});
                 errdefer msg.destroy(sema.gpa);
-                try sema.errNote(block, src, msg, "consider using `try`, `catch`, or `if`", .{});
+                try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(msg);
@@ -3325,7 +3325,7 @@ fn zirEnsureResultNonError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             const msg = msg: {
                 const msg = try sema.errMsg(block, src, "error is discarded", .{});
                 errdefer msg.destroy(sema.gpa);
-                try sema.errNote(block, src, msg, "consider using `try`, `catch`, or `if`", .{});
+                try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(msg);
@@ -8477,7 +8477,7 @@ fn handleExternLibName(
             return sema.fail(
                 block,
                 src_loc,
-                "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by `-l{s}` or `-fPIC`.",
+                "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by '-l{s}' or '-fPIC'.",
                 .{ lib_name, lib_name },
             );
         }
@@ -25150,7 +25150,7 @@ fn coerceExtra(
             (try sema.coerceInMemoryAllowed(block, inst_ty.errorUnionPayload(), dest_ty, false, target, dest_ty_src, inst_src)) == .ok)
         {
             try sema.errNote(block, inst_src, msg, "cannot convert error union to payload type", .{});
-            try sema.errNote(block, inst_src, msg, "consider using `try`, `catch`, or `if`", .{});
+            try sema.errNote(block, inst_src, msg, "consider using 'try', 'catch', or 'if'", .{});
         }
 
         // ?T to T
@@ -25159,7 +25159,7 @@ fn coerceExtra(
             (try sema.coerceInMemoryAllowed(block, inst_ty.optionalChild(&buf), dest_ty, false, target, dest_ty_src, inst_src)) == .ok)
         {
             try sema.errNote(block, inst_src, msg, "cannot convert optional to payload type", .{});
-            try sema.errNote(block, inst_src, msg, "consider using `.?`, `orelse`, or `if`", .{});
+            try sema.errNote(block, inst_src, msg, "consider using '.?', 'orelse', or 'if'", .{});
         }
 
         try in_memory_result.report(sema, block, inst_src, msg);
