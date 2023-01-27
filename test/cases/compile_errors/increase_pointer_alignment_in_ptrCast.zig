@@ -11,3 +11,4 @@ export fn entry() u32 {
 // :3:17: error: cast increases pointer alignment
 // :3:32: note: '*u8' has alignment '1'
 // :3:26: note: '*u32' has alignment '4'
+// :3:17: note: consider using '@alignCast'

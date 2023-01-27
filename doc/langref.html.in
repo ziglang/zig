@@ -8799,6 +8799,15 @@ pub const PrefetchOptions = struct {
       {#link|Optional Pointers#} are allowed. Casting an optional pointer which is {#link|null#}
       to a non-optional pointer invokes safety-checked {#link|Undefined Behavior#}.
       </p>
+      <p>
+      {#syntax#}@ptrCast{#endsyntax#} cannot be used for:
+      </p>
+      <ul>
+          <li>Removing {#syntax#}const{#endsyntax#} or {#syntax#}volatile{#endsyntax#} qualifier. TODO add a {#syntax#}@qualCast{#endsyntax#} builtin.</li>
+          <li>Changing pointer address space, use {#link|@addrSpaceCast#}</li>
+          <li>Increasing pointer alignment, use {#link|@alignCast#}</li>
+          <li>Casting a non-slice pointer to a slice, use slicing syntax {#syntax#}ptr[start..end]{#endsyntax#}</li>
+      </ul>
       {#header_close#}
 
       {#header_open|@ptrToInt#}

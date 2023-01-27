@@ -19535,7 +19535,14 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         return sema.fail(block, src, "cast discards volatile qualifier", .{});
     }
     if (operand_info.@"addrspace" != dest_info.@"addrspace") {
-        return sema.fail(block, src, "cast changes pointer address space", .{});
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "cast changes pointer address space", .{});
+            errdefer msg.destroy(sema.gpa);
+
+            try sema.errNote(block, src, msg, "consider using '@addrSpaceCast'", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     const dest_is_slice = dest_ty.isSlice();
@@ -19590,6 +19597,8 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             try sema.errNote(block, dest_ty_src, msg, "'{}' has alignment '{d}'", .{
                 dest_ty.fmt(sema.mod), dest_align,
             });
+
+            try sema.errNote(block, src, msg, "consider using '@alignCast'", .{});
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
