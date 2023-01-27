@@ -1395,7 +1395,7 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
                     return errors || ParseInternalErrorImpl(ptrInfo.child, inferred_types ++ [_]type{T});
                 },
                 .Slice => {
-                    return errors || error{ UnexpectedEndOfJson, UnexpectedToken, LengthMismatch } ||
+                    return errors || error{ UnexpectedEndOfJson, UnexpectedToken } ||
                         ParseInternalErrorImpl(ptrInfo.child, inferred_types ++ [_]type{T}) ||
                         UnescapeValidStringError || TokenStream.Error;
                 },
