@@ -1625,9 +1625,10 @@ fn parseInternal(
                     if (arrayInfo.child != u8) return error.UnexpectedToken;
                     var r: T = undefined;
                     const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
+                    if (r.len != stringToken.decodedLength()) return error.LengthMismatch;
                     switch (stringToken.escapes) {
-                        .None => if (r.len == source_slice.len) mem.copy(u8, &r, source_slice) else return error.LengthMismatch,
-                        .Some => if (r.len == stringToken.decodedLength()) try unescapeValidString(&r, source_slice) else return error.LengthMismatch,
+                        .None => mem.copy(u8, &r, source_slice),
+                        .Some => try unescapeValidString(&r, source_slice),
                     }
                     return r;
                 },
