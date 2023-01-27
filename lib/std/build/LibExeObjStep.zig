@@ -617,6 +617,7 @@ pub fn isStaticLibrary(self: *LibExeObjStep) bool {
 
 pub fn producesPdbFile(self: *LibExeObjStep) bool {
     if (!self.target.isWindows() and !self.target.isUefi()) return false;
+    if (self.target.getObjectFormat() == .c) return false;
     if (self.strip == true) return false;
     return self.isDynamicLibrary() or self.kind == .exe or self.kind == .test_exe;
 }
