@@ -218,6 +218,14 @@
           display: none;
       }
 
+      .external-link {
+        background-image: url(data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMiIgaGVpZ2h0PSIxMiIgdmlld0JveD0iMCAwIDEyIDEyIj4KICA8cGF0aCBmaWxsPSIjMDAwMGVlIiBkPSJNNiAxaDV2NUw4Ljg2IDMuODUgNC43IDggNCA3LjNsNC4xNS00LjE2TDYgMVogTTIgM2gydjFIMnY2aDZWOGgxdjJhMSAxIDAgMCAxLTEgMUgyYTEgMSAwIDAgMS0xLTFWNGExIDEgMCAwIDEgMS0xWiIvPgo8L3N2Zz4K);
+        background-position: center right;
+        background-repeat: no-repeat;
+        background-size: 0.857em;
+        padding-right: 1em;
+      }
+
       @media (prefers-color-scheme: dark) {
         body{
             background:#121212;
@@ -7686,6 +7694,7 @@ test "global assembly" {
       legal, then the resulting pointer points to the same memory location as the pointer operand.
       It is always valid to cast a pointer between the same address spaces.
       </p>
+      <p>See {#std_builtin|AddressSpace#}.</p>
       {#header_close#}
       {#header_open|@addWithOverflow#}
       <pre>{#syntax#}@addWithOverflow(a: anytype, b: anytype) struct { @TypeOf(a, b), u1 }{#endsyntax#}</pre>
@@ -7738,6 +7747,7 @@ comptime {
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
+      <p>See {#std_builtin|AtomicOrder#}.</p>
       {#see_also|@atomicStore|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
@@ -7766,6 +7776,7 @@ comptime {
         <li>{#syntax#}.Max{#endsyntax#} - stores the operand if it is larger. Supports integers and floats.</li>
         <li>{#syntax#}.Min{#endsyntax#} - stores the operand if it is smaller. Supports integers and floats.</li>
       </ul>
+      <p>See {#std_builtin|AtomicRmwOp#}, {#std_builtin|AtomicOrder#}.</p>
       {#see_also|@atomicStore|@atomicLoad|@fence|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
@@ -7778,6 +7789,7 @@ comptime {
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
+      <p>See {#std_builtin|AtomicOrder#}.</p>
       {#see_also|@atomicLoad|@atomicRmw|@fence|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
@@ -8064,6 +8076,7 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       an integer or an enum.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).Pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
+      <p>See {#std_builtin|AtomicOrder#}.</p>
       {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@fence|@cmpxchgWeak#}
       {#header_close#}
 
@@ -8094,6 +8107,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       an integer or an enum.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).Pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
+      <p>See {#std_builtin|AtomicOrder#}.</p>
       {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@fence|@cmpxchgStrong#}
       {#header_close#}
 
@@ -8205,6 +8219,7 @@ test "main" {
       <p>
       Implements the C macro {#syntax#}va_arg{#endsyntax#}.
       </p>
+      <p>See {#std_builtin|VaList#}.</p>
       {#see_also|@cVaCopy|@cVaEnd|@cVaStart#}
       {#header_close#}
       {#header_open|@cVaCopy#}
@@ -8212,6 +8227,7 @@ test "main" {
       <p>
       Implements the C macro {#syntax#}va_copy{#endsyntax#}.
       </p>
+      <p>See {#std_builtin|VaList#}.</p>
       {#see_also|@cVaArg|@cVaEnd|@cVaStart#}
       {#header_close#}
       {#header_open|@cVaEnd#}
@@ -8219,6 +8235,7 @@ test "main" {
       <p>
       Implements the C macro {#syntax#}va_end{#endsyntax#}.
       </p>
+      <p>See {#std_builtin|VaList#}.</p>
       {#see_also|@cVaArg|@cVaCopy|@cVaStart#}
       {#header_close#}
       {#header_open|@cVaStart#}
@@ -8226,6 +8243,7 @@ test "main" {
       <p>
       Implements the C macro {#syntax#}va_start{#endsyntax#}. Only valid inside a variadic function.
       </p>
+      <p>See {#std_builtin|VaList#}.</p>
       {#see_also|@cVaArg|@cVaCopy|@cVaEnd#}
       {#header_close#}
 
@@ -8318,6 +8336,7 @@ test "main" {
       function that calls a function with an error or error union return type, returns a
       stack trace object. Otherwise returns {#link|null#}.
       </p>
+      <p>See {#std_builtin|StackTrace#}.</p>
       {#header_close#}
 
       {#header_open|@errorToInt#}
@@ -8388,6 +8407,7 @@ export fn @"A function name that is a complete sentence."() void {}
       When looking at the resulting object, you can see the symbol is used verbatim:
       </p>
       <pre><code>00000000000001f0 T A function name that is a complete sentence.</code></pre>
+      <p>See {#std_builtin|ExportOptions#}.</p>
       {#see_also|Exporting a C Library#}
       {#header_close#}
 
@@ -8407,6 +8427,7 @@ export fn @"A function name that is a complete sentence."() void {}
       <p>
       {#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.
       </p>
+      <p>See {#std_builtin|AtomicOrder#}.</p>
       {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
@@ -9207,6 +9228,7 @@ test "vector @reduce" {
     try expect(is_all_true == false);
 }
       {#code_end#}
+      <p>See {#std_builtin|ReduceOp#}.</p>
       {#see_also|Vectors|@setFloatMode#}
       {#header_close#}
 
@@ -9232,6 +9254,7 @@ fn doTheTest() !void {
     try expect(std.mem.endsWith(u8, src.file, "test_src_builtin.zig"));
 }
       {#code_end#}
+      <p>See {#std_builtin|SourceLocation#}.</p>
       {#header_close#}
       {#header_open|@sqrt#}
       <pre>{#syntax#}@sqrt(value: anytype) @TypeOf(value){#endsyntax#}</pre>
@@ -9500,6 +9523,7 @@ test "integer truncation" {
           <li>{#link|union#}</li>
           <li>{#link|Functions#}</li>
       </ul>
+      <p>See {#std_builtin|Type#}.</p>
       {#header_close#}
       {#header_open|@typeInfo#}
       <pre>{#syntax#}@typeInfo(comptime T: type) std.builtin.Type{#endsyntax#}</pre>
@@ -9516,6 +9540,7 @@ test "integer truncation" {
       {#link|opaques|opaque#} has declarations, which are also guaranteed to be in the same
       order as appearance in the source file.
       </p>
+      <p>See {#std_builtin|Type#}.</p>
       {#header_close#}
 
       {#header_open|@typeName#}

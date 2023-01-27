@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const introspect = @import("../src/introspect.zig");
 const io = std.io;
 const fs = std.fs;
 const process = std.process;
@@ -11,6 +12,7 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
 const max_doc_file_size = 10 * 1024 * 1024;
+const max_src_file_size = std.math.maxInt(u32);
 
 const exe_ext = @as(std.zig.CrossTarget, .{}).exeFileExt();
 const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
@@ -363,6 +365,7 @@ const Node = union(enum) {
     Content: []const u8,
     Nav,
     Builtin: Token,
+    StdBuiltin: Token,
     HeaderOpen: HeaderOpen,
     SeeAlso: []const SeeAlsoItem,
     Code: Code,
@@ -425,6 +428,12 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                 } else if (mem.eql(u8, tag_name, "builtin")) {
                     _ = try eatToken(tokenizer, Token.Id.BracketClose);
                     try nodes.append(Node{ .Builtin = tag_token });
+                } else if (mem.eql(u8, tag_name, "std_builtin")) {
+                    _ = try eatToken(tokenizer, Token.Id.Separator);
+                    const name_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+
+                    try nodes.append(Node{ .StdBuiltin = name_tok });
                 } else if (mem.eql(u8, tag_name, "header_open")) {
                     _ = try eatToken(tokenizer, Token.Id.Separator);
                     const content_token = try eatToken(tokenizer, Token.Id.TagContent);
@@ -1286,6 +1295,7 @@ fn genHtml(
 
     const host = try std.zig.system.NativeTargetInfo.detect(.{});
     const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe, opt_zig_lib_dir);
+    const std_builtin_types = try getStdBuiltinTypes(allocator, zig_exe, opt_zig_lib_dir);
 
     for (toc.nodes) |node| {
         defer root_node.completeOne();
@@ -1306,6 +1316,25 @@ fn genHtml(
                 try out.writeAll("<figure><figcaption class=\"zig-cap\"><cite>@import(\"builtin\")</cite></figcaption><pre>");
                 try tokenizeAndPrintRaw(allocator, tokenizer, out, tok, builtin_code);
                 try out.writeAll("</pre></figure>");
+            },
+            .StdBuiltin => |name_tok| {
+                const name = tokenizer.buffer[name_tok.start..name_tok.end];
+                const lineno = std_builtin_types.get(name) orelse {
+                    return parseError(tokenizer, name_tok, "type {s} not found", .{name});
+                };
+                const revision = try getZigRevision(allocator, &env_map, zig_exe);
+
+                // Use the rejected EXTERNAL LINK to emphasize the external link.
+                // See https://www.unicode.org/L2/L2018/18303-external-link.pdf.
+                // The SVG code has been adapted from
+                // https://en.wikipedia.org/w/skins/Vector/resources/common/images/link-external-small-ltr-progressive.svg
+                // replacing the fill color from #36c to #0000ee.
+                //
+                // Use a span so that the EXTERNAL LINK is visible with a::hover and a::focus.
+                try out.print(
+                    "<span class=\"external-link\"><a href=\"https://github.com/ziglang/zig/blob/{s}/lib/std/builtin.zig#L{d}\">std.builtin.{s}</a></span>",
+                    .{ revision, lineno, name },
+                );
             },
             .HeaderOpen => |info| {
                 try out.print(
@@ -1866,6 +1895,66 @@ fn getBuiltinCode(
             zig_exe, "build-obj", "--show-builtin",
         });
         return result.stdout;
+    }
+}
+
+fn getStdBuiltinTypes(
+    allocator: Allocator,
+    zig_exe: []const u8,
+    opt_zig_lib_dir: ?[]const u8,
+) !std.StringHashMap(usize) {
+    const lib_dir = try getZigLibDir(allocator, zig_exe, opt_zig_lib_dir);
+    const std_dir = try fs.path.join(allocator, &[_][]const u8{ lib_dir, "std" });
+    const path = try fs.path.join(allocator, &[_][]const u8{ std_dir, "builtin.zig" });
+
+    var file = try fs.cwd().openFile(path, .{ .mode = .read_only });
+    defer file.close();
+    var r = file.reader();
+
+    var types = std.StringHashMap(usize).init(allocator);
+    var buf: [1024]u8 = undefined;
+    var lineno: usize = 0;
+    while (try r.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+        lineno += 1;
+        if (!mem.startsWith(u8, line, "pub const ")) {
+            continue;
+        }
+
+        // The following code will also find incorrect names, but it is not a
+        // problem.
+        const decl = line[10..];
+        if (mem.indexOfScalar(u8, decl, ' ')) |idx| {
+            const name = try allocator.dupe(u8, decl[0..idx]);
+            try types.put(name, lineno);
+        }
+    }
+
+    return types;
+}
+
+fn getZigRevision(allocator: Allocator, env_map: *process.EnvMap, zig_exe: []const u8) ![]const u8 {
+    const result = try exec(allocator, env_map, &[_][]const u8{ zig_exe, "version" });
+    const data = mem.trimRight(u8, result.stdout, " \n");
+    const version = try std.SemanticVersion.parse(data);
+
+    if (version.build) |build| {
+        return build;
+    }
+
+    return try std.fmt.allocPrint(allocator, "{}", .{version});
+}
+
+fn getZigLibDir(
+    allocator: Allocator,
+    zig_exe: []const u8,
+    opt_zig_lib_dir: ?[]const u8,
+) ![]const u8 {
+    // TODO: use `zig env lib_dir` when implemented?
+    if (opt_zig_lib_dir) |zig_lib_dir| {
+        return zig_lib_dir;
+    } else {
+        const zig_lib_directory = try introspect.findZigLibDirFromSelfExe(allocator, zig_exe);
+        return zig_lib_directory.path.?;
     }
 }
 

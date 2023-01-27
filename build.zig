@@ -43,6 +43,7 @@ pub fn build(b: *std.Build) !void {
         .target = .{},
         .optimize = .Debug,
     });
+    docgen_exe.main_pkg_path = ".";
     docgen_exe.single_threaded = single_threaded;
 
     const docgen_cmd = b.addRunArtifact(docgen_exe);
