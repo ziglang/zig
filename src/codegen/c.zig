@@ -3726,16 +3726,15 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const ptr_val = try f.resolveInst(bin_op.lhs);
     const src_ty = f.air.typeOf(bin_op.rhs);
-    const src_val = try f.resolveInst(bin_op.rhs);
-
-    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
 
     // TODO Sema should emit a different instruction when the store should
     // possibly do the safety 0xaa bytes for undefined.
     const src_val_is_undefined =
         if (f.air.value(bin_op.rhs)) |v| v.isUndefDeep() else false;
-    if (src_val_is_undefined)
+    if (src_val_is_undefined) {
+        try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
         return try storeUndefined(f, ptr_info.pointee_type, ptr_val);
+    }
 
     const target = f.object.dg.module.getTarget();
     const is_aligned = ptr_info.@"align" == 0 or
@@ -3743,6 +3742,9 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
     const is_array = lowersToArray(ptr_info.pointee_type, target);
     const need_memcpy = !is_aligned or is_array;
     const writer = f.object.writer();
+
+    const src_val = try f.resolveInst(bin_op.rhs);
+    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
 
     if (need_memcpy) {
         // For this memcpy to safely work we need the rhs to have the same
@@ -4344,8 +4346,9 @@ fn airDbgInline(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
     const pl_op = f.air.instructions.items(.data)[inst].pl_op;
     const name = f.air.nullTerminatedString(pl_op.payload);
-    const operand = try f.resolveInst(pl_op.operand);
-    _ = operand;
+    const operand_is_undef = if (f.air.value(pl_op.operand)) |v| v.isUndefDeep() else false;
+    if (!operand_is_undef) _ = try f.resolveInst(pl_op.operand);
+
     try reap(f, inst, &.{pl_op.operand});
     const writer = f.object.writer();
     try writer.print("/* var:{s} */\n", .{name});
