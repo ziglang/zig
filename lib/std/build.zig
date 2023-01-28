@@ -73,8 +73,6 @@ pub const Builder = struct {
     build_root: []const u8,
     cache_root: []const u8,
     global_cache_root: []const u8,
-    release_mode: ?std.builtin.Mode,
-    is_release: bool,
     /// zig lib dir
     override_lib_dir: ?[]const u8,
     vcpkg_root: VcpkgRoot = .unattempted,
@@ -150,6 +148,7 @@ pub const Builder = struct {
         flag: void,
         scalar: []const u8,
         list: ArrayList([]const u8),
+        map: StringHashMap(*const UserValue),
     };
 
     const TypeId = enum {
@@ -223,8 +222,6 @@ pub const Builder = struct {
                 .step = Step.init(.top_level, "uninstall", allocator, makeUninstall),
                 .description = "Remove build artifacts from prefix path",
             },
-            .release_mode = null,
-            .is_release = false,
             .override_lib_dir = null,
             .install_path = undefined,
             .args = null,
@@ -291,8 +288,6 @@ pub const Builder = struct {
             .build_root = build_root,
             .cache_root = parent.cache_root,
             .global_cache_root = parent.global_cache_root,
-            .release_mode = parent.release_mode,
-            .is_release = parent.is_release,
             .override_lib_dir = parent.override_lib_dir,
             .debug_log_scopes = parent.debug_log_scopes,
             .debug_compile_errors = parent.debug_compile_errors,
@@ -312,10 +307,55 @@ pub const Builder = struct {
     }
 
     fn applyArgs(b: *Builder, args: anytype) !void {
-        // TODO this function is the way that a build.zig file communicates
-        // options to its dependencies. It is the programmatic way to give
-        // command line arguments to a build.zig script.
-        _ = args;
+        inline for (@typeInfo(@TypeOf(args)).Struct.fields) |field| {
+            const v = @field(args, field.name);
+            const T = @TypeOf(v);
+            switch (T) {
+                CrossTarget => {
+                    try b.user_input_options.put(field.name, .{
+                        .name = field.name,
+                        .value = .{ .scalar = try v.zigTriple(b.allocator) },
+                        .used = false,
+                    });
+                    try b.user_input_options.put("cpu", .{
+                        .name = "cpu",
+                        .value = .{ .scalar = try serializeCpu(b.allocator, v.getCpu()) },
+                        .used = false,
+                    });
+                },
+                []const u8 => {
+                    try b.user_input_options.put(field.name, .{
+                        .name = field.name,
+                        .value = .{ .scalar = v },
+                        .used = false,
+                    });
+                },
+                else => switch (@typeInfo(T)) {
+                    .Bool => {
+                        try b.user_input_options.put(field.name, .{
+                            .name = field.name,
+                            .value = .{ .scalar = if (v) "true" else "false" },
+                            .used = false,
+                        });
+                    },
+                    .Enum => {
+                        try b.user_input_options.put(field.name, .{
+                            .name = field.name,
+                            .value = .{ .scalar = @tagName(v) },
+                            .used = false,
+                        });
+                    },
+                    .Int => {
+                        try b.user_input_options.put(field.name, .{
+                            .name = field.name,
+                            .value = .{ .scalar = try std.fmt.allocPrint(b.allocator, "{d}", .{v}) },
+                            .used = false,
+                        });
+                    },
+                    else => @compileError("option '" ++ field.name ++ "' has unsupported type: " ++ @typeName(T)),
+                },
+            }
+        }
         const Hasher = std.crypto.auth.siphash.SipHash128(1, 3);
         // Random bytes to make unique. Refresh this with new random bytes when
         // implementation is modified in a non-backwards-compatible way.
@@ -679,15 +719,19 @@ pub const Builder = struct {
                         return null;
                     }
                 },
-                .list => {
-                    log.err("Expected -D{s} to be a boolean, but received a list.\n", .{name});
+                .list, .map => {
+                    log.err("Expected -D{s} to be a boolean, but received a {s}.\n", .{
+                        name, @tagName(option_ptr.value),
+                    });
                     self.markInvalidUserInput();
                     return null;
                 },
             },
             .int => switch (option_ptr.value) {
-                .flag => {
-                    log.err("Expected -D{s} to be an integer, but received a boolean.\n", .{name});
+                .flag, .list, .map => {
+                    log.err("Expected -D{s} to be an integer, but received a {s}.\n", .{
+                        name, @tagName(option_ptr.value),
+                    });
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -706,15 +750,12 @@ pub const Builder = struct {
                     };
                     return n;
                 },
-                .list => {
-                    log.err("Expected -D{s} to be an integer, but received a list.\n", .{name});
-                    self.markInvalidUserInput();
-                    return null;
-                },
             },
             .float => switch (option_ptr.value) {
-                .flag => {
-                    log.err("Expected -D{s} to be a float, but received a boolean.\n", .{name});
+                .flag, .map, .list => {
+                    log.err("Expected -D{s} to be a float, but received a {s}.\n", .{
+                        name, @tagName(option_ptr.value),
+                    });
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -726,15 +767,12 @@ pub const Builder = struct {
                     };
                     return n;
                 },
-                .list => {
-                    log.err("Expected -D{s} to be a float, but received a list.\n", .{name});
-                    self.markInvalidUserInput();
-                    return null;
-                },
             },
             .@"enum" => switch (option_ptr.value) {
-                .flag => {
-                    log.err("Expected -D{s} to be a string, but received a boolean.\n", .{name});
+                .flag, .map, .list => {
+                    log.err("Expected -D{s} to be an enum, but received a {s}.\n", .{
+                        name, @tagName(option_ptr.value),
+                    });
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -747,28 +785,22 @@ pub const Builder = struct {
                         return null;
                     }
                 },
-                .list => {
-                    log.err("Expected -D{s} to be a string, but received a list.\n", .{name});
-                    self.markInvalidUserInput();
-                    return null;
-                },
             },
             .string => switch (option_ptr.value) {
-                .flag => {
-                    log.err("Expected -D{s} to be a string, but received a boolean.\n", .{name});
-                    self.markInvalidUserInput();
-                    return null;
-                },
-                .list => {
-                    log.err("Expected -D{s} to be a string, but received a list.\n", .{name});
+                .flag, .list, .map => {
+                    log.err("Expected -D{s} to be a string, but received a {s}.\n", .{
+                        name, @tagName(option_ptr.value),
+                    });
                     self.markInvalidUserInput();
                     return null;
                 },
                 .scalar => |s| return s,
             },
             .list => switch (option_ptr.value) {
-                .flag => {
-                    log.err("Expected -D{s} to be a list, but received a boolean.\n", .{name});
+                .flag, .map => {
+                    log.err("Expected -D{s} to be a list, but received a {s}.\n", .{
+                        name, @tagName(option_ptr.value),
+                    });
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -790,41 +822,24 @@ pub const Builder = struct {
         return &step_info.step;
     }
 
-    /// This provides the -Drelease option to the build user and does not give them the choice.
-    pub fn setPreferredReleaseMode(self: *Builder, mode: std.builtin.Mode) void {
-        if (self.release_mode != null) {
-            @panic("setPreferredReleaseMode must be called before standardReleaseOptions and may not be called twice");
+    pub const StandardOptimizeOptionOptions = struct {
+        preferred_optimize_mode: ?std.builtin.Mode = null,
+    };
+
+    pub fn standardOptimizeOption(self: *Builder, options: StandardOptimizeOptionOptions) std.builtin.Mode {
+        if (options.preferred_optimize_mode) |mode| {
+            if (self.option(bool, "release", "optimize for end users") orelse false) {
+                return mode;
+            } else {
+                return .Debug;
+            }
+        } else {
+            return self.option(
+                std.builtin.Mode,
+                "optimize",
+                "prioritize performance, safety, or binary size (-O flag)",
+            ) orelse .Debug;
         }
-        const description = self.fmt("Create a release build ({s})", .{@tagName(mode)});
-        self.is_release = self.option(bool, "release", description) orelse false;
-        self.release_mode = if (self.is_release) mode else std.builtin.Mode.Debug;
-    }
-
-    /// If you call this without first calling `setPreferredReleaseMode` then it gives the build user
-    /// the choice of what kind of release.
-    pub fn standardReleaseOptions(self: *Builder) std.builtin.Mode {
-        if (self.release_mode) |mode| return mode;
-
-        const release_safe = self.option(bool, "release-safe", "Optimizations on and safety on") orelse false;
-        const release_fast = self.option(bool, "release-fast", "Optimizations on and safety off") orelse false;
-        const release_small = self.option(bool, "release-small", "Size optimizations on and safety off") orelse false;
-
-        const mode = if (release_safe and !release_fast and !release_small)
-            std.builtin.Mode.ReleaseSafe
-        else if (release_fast and !release_safe and !release_small)
-            std.builtin.Mode.ReleaseFast
-        else if (release_small and !release_fast and !release_safe)
-            std.builtin.Mode.ReleaseSmall
-        else if (!release_fast and !release_safe and !release_small)
-            std.builtin.Mode.Debug
-        else x: {
-            log.err("Multiple release modes (of -Drelease-safe, -Drelease-fast and -Drelease-small)\n", .{});
-            self.markInvalidUserInput();
-            break :x std.builtin.Mode.Debug;
-        };
-        self.is_release = mode != .Debug;
-        self.release_mode = mode;
-        return mode;
     }
 
     pub const StandardTargetOptionsArgs = struct {
@@ -1004,6 +1019,11 @@ pub const Builder = struct {
                 log.warn("Option '-D{s}={s}' conflicts with flag '-D{s}'.", .{ name, value, name });
                 return true;
             },
+            .map => |*map| {
+                _ = map;
+                log.warn("TODO maps as command line arguments is not implemented yet.", .{});
+                return true;
+            },
         }
         return false;
     }
@@ -1026,7 +1046,7 @@ pub const Builder = struct {
                 log.err("Flag '-D{s}' conflicts with option '-D{s}={s}'.", .{ name, name, s });
                 return true;
             },
-            .list => {
+            .list, .map => {
                 log.err("Flag '-D{s}' conflicts with multiple options of the same name.", .{name});
                 return true;
             },
@@ -1058,7 +1078,7 @@ pub const Builder = struct {
         var it = self.user_input_options.iterator();
         while (it.next()) |entry| {
             if (!entry.value_ptr.used) {
-                log.err("Invalid option: -D{s}\n", .{entry.key_ptr.*});
+                log.err("Invalid option: -D{s}", .{entry.key_ptr.*});
                 self.markInvalidUserInput();
             }
         }
@@ -1456,6 +1476,11 @@ pub const Builder = struct {
     ) *Dependency {
         const sub_builder = b.createChild(name, build_root, args) catch unreachable;
         sub_builder.runBuild(build_zig) catch unreachable;
+
+        if (sub_builder.validateUserInputDidItFail()) {
+            std.debug.dumpCurrentStackTrace(@returnAddress());
+        }
+
         const dep = b.allocator.create(Dependency) catch unreachable;
         dep.* = .{ .builder = sub_builder };
         return dep;
@@ -1717,6 +1742,34 @@ pub const InstalledFile = struct {
         };
     }
 };
+
+pub fn serializeCpu(allocator: Allocator, cpu: std.Target.Cpu) ![]const u8 {
+    // TODO this logic can disappear if cpu model + features becomes part of the target triple
+    const all_features = cpu.arch.allFeaturesList();
+    var populated_cpu_features = cpu.model.features;
+    populated_cpu_features.populateDependencies(all_features);
+
+    if (populated_cpu_features.eql(cpu.features)) {
+        // The CPU name alone is sufficient.
+        return cpu.model.name;
+    } else {
+        var mcpu_buffer = ArrayList(u8).init(allocator);
+        try mcpu_buffer.appendSlice(cpu.model.name);
+
+        for (all_features) |feature, i_usize| {
+            const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
+            const in_cpu_set = populated_cpu_features.isEnabled(i);
+            const in_actual_set = cpu.features.isEnabled(i);
+            if (in_cpu_set and !in_actual_set) {
+                try mcpu_buffer.writer().print("-{s}", .{feature.name});
+            } else if (!in_cpu_set and in_actual_set) {
+                try mcpu_buffer.writer().print("+{s}", .{feature.name});
+            }
+        }
+
+        return try mcpu_buffer.toOwnedSlice();
+    }
+}
 
 test "dupePkg()" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;

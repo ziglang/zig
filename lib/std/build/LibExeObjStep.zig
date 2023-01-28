@@ -1495,37 +1495,10 @@ fn make(step: *Step) !void {
     }
 
     if (!self.target.isNative()) {
-        try zig_args.append("-target");
-        try zig_args.append(try self.target.zigTriple(builder.allocator));
-
-        // TODO this logic can disappear if cpu model + features becomes part of the target triple
-        const cross = self.target.toTarget();
-        const all_features = cross.cpu.arch.allFeaturesList();
-        var populated_cpu_features = cross.cpu.model.features;
-        populated_cpu_features.populateDependencies(all_features);
-
-        if (populated_cpu_features.eql(cross.cpu.features)) {
-            // The CPU name alone is sufficient.
-            try zig_args.append("-mcpu");
-            try zig_args.append(cross.cpu.model.name);
-        } else {
-            var mcpu_buffer = ArrayList(u8).init(builder.allocator);
-
-            try mcpu_buffer.writer().print("-mcpu={s}", .{cross.cpu.model.name});
-
-            for (all_features) |feature, i_usize| {
-                const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
-                const in_cpu_set = populated_cpu_features.isEnabled(i);
-                const in_actual_set = cross.cpu.features.isEnabled(i);
-                if (in_cpu_set and !in_actual_set) {
-                    try mcpu_buffer.writer().print("-{s}", .{feature.name});
-                } else if (!in_cpu_set and in_actual_set) {
-                    try mcpu_buffer.writer().print("+{s}", .{feature.name});
-                }
-            }
-
-            try zig_args.append(try mcpu_buffer.toOwnedSlice());
-        }
+        try zig_args.appendSlice(&.{
+            "-target", try self.target.zigTriple(builder.allocator),
+            "-mcpu",   try build.serializeCpu(builder.allocator, self.target.getCpu()),
+        });
 
         if (self.target.dynamic_linker.get()) |dynamic_linker| {
             try zig_args.append("--dynamic-linker");
