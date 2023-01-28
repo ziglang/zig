@@ -4585,7 +4585,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
                 // We don't fully codegen the decl until later, but we do need to reserve a global
                 // offset table index for it. This allows us to codegen decls out of dependency
                 // order, increasing how many computations can be done in parallel.
-                try mod.comp.bin_file.allocateDeclIndexes(decl_index);
                 try mod.comp.work_queue.writeItem(.{ .codegen_func = func });
                 if (type_changed and mod.emit_h != null) {
                     try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
@@ -4697,7 +4696,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         // codegen backend wants full access to the Decl Type.
         try sema.resolveTypeFully(decl.ty);
 
-        try mod.comp.bin_file.allocateDeclIndexes(decl_index);
         try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
 
         if (type_changed and mod.emit_h != null) {
@@ -5315,23 +5313,6 @@ pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
     const decl = mod.declPtr(decl_index);
     log.debug("deleteUnusedDecl {d} ({s})", .{ decl_index, decl.name });
 
-    // TODO: remove `allocateDeclIndexes` and make the API that the linker backends
-    // are required to notice the first time `updateDecl` happens and keep track
-    // of it themselves. However they can rely on getting a `freeDecl` call if any
-    // `updateDecl` or `updateFunc` calls happen. This will allow us to avoid any call
-    // into the linker backend here, since the linker backend will never have been told
-    // about the Decl in the first place.
-    // Until then, we did call `allocateDeclIndexes` on this anonymous Decl and so we
-    // must call `freeDecl` in the linker backend now.
-    switch (mod.comp.bin_file.tag) {
-        .c => {}, // this linker backend has already migrated to the new API
-        else => if (decl.has_tv) {
-            if (decl.ty.isFnOrHasRuntimeBits()) {
-                mod.comp.bin_file.freeDecl(decl_index);
-            }
-        },
-    }
-
     assert(!mod.declIsRoot(decl_index));
     assert(decl.src_namespace.anon_decls.swapRemove(decl_index));
 
@@ -5816,7 +5797,6 @@ pub fn initNewAnonDecl(
     // the Decl will be garbage collected by the `codegen_decl` task instead of sent
     // to the linker.
     if (typed_value.ty.isFnOrHasRuntimeBits()) {
-        try mod.comp.bin_file.allocateDeclIndexes(new_decl_index);
         try mod.comp.anon_work_queue.writeItem(.{ .codegen_decl = new_decl_index });
     }
 }

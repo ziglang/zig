@@ -533,8 +533,7 @@ pub const File = struct {
         }
     }
 
-    /// May be called before or after updateDeclExports but must be called
-    /// after allocateDeclIndexes for any given Decl.
+    /// May be called before or after updateDeclExports for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
         log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty.fmtDebug() });
@@ -557,8 +556,7 @@ pub const File = struct {
         }
     }
 
-    /// May be called before or after updateDeclExports but must be called
-    /// after allocateDeclIndexes for any given Decl.
+    /// May be called before or after updateDeclExports for any given Decl.
     pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) UpdateDeclError!void {
         const owner_decl = module.declPtr(func.owner_decl);
         log.debug("updateFunc {*} ({s}), type={}", .{
@@ -599,28 +597,6 @@ pub const File = struct {
             .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclLineNumber(module, decl),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDeclLineNumber(module, decl),
             .spirv, .nvptx => {},
-        }
-    }
-
-    /// Must be called before any call to updateDecl or updateDeclExports for
-    /// any given Decl.
-    /// TODO we're transitioning to deleting this function and instead having
-    /// each linker backend notice the first time updateDecl or updateFunc is called, or
-    /// a callee referenced from AIR.
-    pub fn allocateDeclIndexes(base: *File, decl_index: Module.Decl.Index) error{OutOfMemory}!void {
-        const decl = base.options.module.?.declPtr(decl_index);
-        log.debug("allocateDeclIndexes {*} ({s})", .{ decl, decl.name });
-        if (build_options.only_c) {
-            assert(base.tag == .c);
-            return;
-        }
-        switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl_index),
-            .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl_index),
-            .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl_index),
-            .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl_index),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl_index),
-            .c, .spirv, .nvptx => {},
         }
     }
 
@@ -874,8 +850,7 @@ pub const File = struct {
         AnalysisFail,
     };
 
-    /// May be called before or after updateDecl, but must be called after
-    /// allocateDeclIndexes for any given Decl.
+    /// May be called before or after updateDecl for any given Decl.
     pub fn updateDeclExports(
         base: *File,
         module: *Module,
@@ -911,6 +886,8 @@ pub const File = struct {
     /// The linker is passed information about the containing atom, `parent_atom_index`, and offset within it's
     /// memory buffer, `offset`, so that it can make a note of potential relocation sites, should the
     /// `Decl`'s address was not yet resolved, or the containing atom gets moved in virtual memory.
+    /// May be called before or after updateFunc/updateDecl therefore it is up to the linker to allocate
+    /// the block/atom.
     pub fn getDeclVAddr(base: *File, decl_index: Module.Decl.Index, reloc_info: RelocInfo) !u64 {
         if (build_options.only_c) unreachable;
         switch (base.tag) {

@@ -64,6 +64,17 @@ pub const empty = Atom{
     .dbg_info_atom = undefined,
 };
 
+pub fn ensureInitialized(self: *Atom, macho_file: *MachO) !void {
+    if (self.getSymbolIndex() != null) return; // Already initialized
+    self.sym_index = try macho_file.allocateSymbol();
+    try macho_file.atom_by_index_table.putNoClobber(macho_file.base.allocator, self.sym_index, self);
+}
+
+pub fn getSymbolIndex(self: Atom) ?u32 {
+    if (self.sym_index == 0) return null;
+    return self.sym_index;
+}
+
 /// Returns symbol referencing this atom.
 pub fn getSymbol(self: Atom, macho_file: *MachO) macho.nlist_64 {
     return self.getSymbolPtr(macho_file).*;
@@ -71,20 +82,23 @@ pub fn getSymbol(self: Atom, macho_file: *MachO) macho.nlist_64 {
 
 /// Returns pointer-to-symbol referencing this atom.
 pub fn getSymbolPtr(self: Atom, macho_file: *MachO) *macho.nlist_64 {
+    const sym_index = self.getSymbolIndex().?;
     return macho_file.getSymbolPtr(.{
-        .sym_index = self.sym_index,
+        .sym_index = sym_index,
         .file = self.file,
     });
 }
 
 pub fn getSymbolWithLoc(self: Atom) SymbolWithLoc {
-    return .{ .sym_index = self.sym_index, .file = self.file };
+    const sym_index = self.getSymbolIndex().?;
+    return .{ .sym_index = sym_index, .file = self.file };
 }
 
 /// Returns the name of this atom.
 pub fn getName(self: Atom, macho_file: *MachO) []const u8 {
+    const sym_index = self.getSymbolIndex().?;
     return macho_file.getSymbolName(.{
-        .sym_index = self.sym_index,
+        .sym_index = sym_index,
         .file = self.file,
     });
 }
@@ -144,7 +158,7 @@ pub fn addRelocations(
 
 pub fn addRebase(self: *Atom, macho_file: *MachO, offset: u32) !void {
     const gpa = macho_file.base.allocator;
-    log.debug("  (adding rebase at offset 0x{x} in %{d})", .{ offset, self.sym_index });
+    log.debug("  (adding rebase at offset 0x{x} in %{?d})", .{ offset, self.getSymbolIndex() });
     const gop = try macho_file.rebases.getOrPut(gpa, self);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
@@ -154,10 +168,10 @@ pub fn addRebase(self: *Atom, macho_file: *MachO, offset: u32) !void {
 
 pub fn addBinding(self: *Atom, macho_file: *MachO, binding: Binding) !void {
     const gpa = macho_file.base.allocator;
-    log.debug("  (adding binding to symbol {s} at offset 0x{x} in %{d})", .{
+    log.debug("  (adding binding to symbol {s} at offset 0x{x} in %{?d})", .{
         macho_file.getSymbolName(binding.target),
         binding.offset,
-        self.sym_index,
+        self.getSymbolIndex(),
     });
     const gop = try macho_file.bindings.getOrPut(gpa, self);
     if (!gop.found_existing) {
@@ -168,10 +182,10 @@ pub fn addBinding(self: *Atom, macho_file: *MachO, binding: Binding) !void {
 
 pub fn addLazyBinding(self: *Atom, macho_file: *MachO, binding: Binding) !void {
     const gpa = macho_file.base.allocator;
-    log.debug("  (adding lazy binding to symbol {s} at offset 0x{x} in %{d})", .{
+    log.debug("  (adding lazy binding to symbol {s} at offset 0x{x} in %{?d})", .{
         macho_file.getSymbolName(binding.target),
         binding.offset,
-        self.sym_index,
+        self.getSymbolIndex(),
     });
     const gop = try macho_file.lazy_bindings.getOrPut(gpa, self);
     if (!gop.found_existing) {

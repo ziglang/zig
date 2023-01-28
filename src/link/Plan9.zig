@@ -424,7 +424,7 @@ fn updateFinish(self: *Plan9, decl: *Module.Decl) !void {
     // write the internal linker metadata
     decl.link.plan9.type = sym_t;
     // write the symbol
-    // we already have the got index because that got allocated in allocateDeclIndexes
+    // we already have the got index
     const sym: aout.Sym = .{
         .value = undefined, // the value of stuff gets filled in in flushModule
         .type = decl.link.plan9.type,
@@ -737,7 +737,7 @@ fn addDeclExports(
 
 pub fn freeDecl(self: *Plan9, decl_index: Module.Decl.Index) void {
     // TODO audit the lifetimes of decls table entries. It's possible to get
-    // allocateDeclIndexes and then freeDecl without any updateDecl in between.
+    // freeDecl without any updateDecl in between.
     // However that is planned to change, see the TODO comment in Module.zig
     // in the deleteUnusedDecl function.
     const mod = self.base.options.module.?;
@@ -959,11 +959,6 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
     }
 }
 
-/// this will be removed, moved to updateFinish
-pub fn allocateDeclIndexes(self: *Plan9, decl_index: Module.Decl.Index) !void {
-    _ = self;
-    _ = decl_index;
-}
 /// Must be called only after a successful call to `updateDecl`.
 pub fn updateDeclLineNumber(self: *Plan9, mod: *Module, decl: *const Module.Decl) !void {
     _ = self;

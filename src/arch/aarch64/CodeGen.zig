@@ -3999,8 +3999,8 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 const mod = self.bin_file.options.module.?;
                                 const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
                                 const atom_index = switch (self.bin_file.tag) {
-                                    .macho => owner_decl.link.macho.sym_index,
-                                    .coff => owner_decl.link.coff.sym_index,
+                                    .macho => owner_decl.link.macho.getSymbolIndex().?,
+                                    .coff => owner_decl.link.coff.getSymbolIndex().?,
                                     else => unreachable, // unsupported target format
                                 };
                                 _ = try self.addInst(.{
@@ -4302,90 +4302,66 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     // on linking.
     const mod = self.bin_file.options.module.?;
     if (self.air.value(callee)) |func_value| {
-        if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-            if (func_value.castTag(.function)) |func_payload| {
-                const func = func_payload.data;
-                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-                const fn_owner_decl = mod.declPtr(func.owner_decl);
-                const got_addr = blk: {
-                    const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
-                    break :blk @intCast(u32, got.p_vaddr + fn_owner_decl.link.elf.offset_table_index * ptr_bytes);
-                };
+        if (func_value.castTag(.function)) |func_payload| {
+            const func = func_payload.data;
+            const fn_owner_decl = mod.declPtr(func.owner_decl);
 
+            if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+                try fn_owner_decl.link.elf.ensureInitialized(elf_file);
+                const got_addr = @intCast(u32, fn_owner_decl.link.elf.getOffsetTableAddress(elf_file));
                 try self.genSetReg(Type.initTag(.usize), .x30, .{ .memory = got_addr });
-
-                _ = try self.addInst(.{
-                    .tag = .blr,
-                    .data = .{ .reg = .x30 },
-                });
-            } else if (func_value.castTag(.extern_fn)) |_| {
-                return self.fail("TODO implement calling extern functions", .{});
-            } else {
-                return self.fail("TODO implement calling bitcasted functions", .{});
-            }
-        } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-            if (func_value.castTag(.function)) |func_payload| {
-                const func = func_payload.data;
-                const fn_owner_decl = mod.declPtr(func.owner_decl);
+            } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                try fn_owner_decl.link.macho.ensureInitialized(macho_file);
                 try self.genSetReg(Type.initTag(.u64), .x30, .{
                     .linker_load = .{
                         .type = .got,
-                        .sym_index = fn_owner_decl.link.macho.sym_index,
+                        .sym_index = fn_owner_decl.link.macho.getSymbolIndex().?,
                     },
                 });
-                // blr x30
-                _ = try self.addInst(.{
-                    .tag = .blr,
-                    .data = .{ .reg = .x30 },
+            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+                try fn_owner_decl.link.coff.ensureInitialized(coff_file);
+                try self.genSetReg(Type.initTag(.u64), .x30, .{
+                    .linker_load = .{
+                        .type = .got,
+                        .sym_index = fn_owner_decl.link.coff.getSymbolIndex().?,
+                    },
                 });
-            } else if (func_value.castTag(.extern_fn)) |func_payload| {
-                const extern_fn = func_payload.data;
-                const decl_name = mod.declPtr(extern_fn.owner_decl).name;
-                if (extern_fn.lib_name) |lib_name| {
-                    log.debug("TODO enforce that '{s}' is expected in '{s}' library", .{
-                        decl_name,
-                        lib_name,
-                    });
-                }
-                const sym_index = try macho_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
+            } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
+                try p9.seeDecl(func.owner_decl);
+                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+                const got_addr = p9.bases.data;
+                const got_index = fn_owner_decl.link.plan9.got_index.?;
+                const fn_got_addr = got_addr + got_index * ptr_bytes;
+                try self.genSetReg(Type.initTag(.usize), .x30, .{ .memory = fn_got_addr });
+            } else unreachable;
 
+            _ = try self.addInst(.{
+                .tag = .blr,
+                .data = .{ .reg = .x30 },
+            });
+        } else if (func_value.castTag(.extern_fn)) |func_payload| {
+            const extern_fn = func_payload.data;
+            const decl_name = mod.declPtr(extern_fn.owner_decl).name;
+            if (extern_fn.lib_name) |lib_name| {
+                log.debug("TODO enforce that '{s}' is expected in '{s}' library", .{
+                    decl_name,
+                    lib_name,
+                });
+            }
+
+            if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                const sym_index = try macho_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
                 _ = try self.addInst(.{
                     .tag = .call_extern,
                     .data = .{
                         .relocation = .{
-                            .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.sym_index,
+                            .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.getSymbolIndex().?,
                             .sym_index = sym_index,
                         },
                     },
                 });
-            } else {
-                return self.fail("TODO implement calling bitcasted functions", .{});
-            }
-        } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-            if (func_value.castTag(.function)) |func_payload| {
-                const func = func_payload.data;
-                const fn_owner_decl = mod.declPtr(func.owner_decl);
-                try self.genSetReg(Type.initTag(.u64), .x30, .{
-                    .linker_load = .{
-                        .type = .got,
-                        .sym_index = fn_owner_decl.link.coff.sym_index,
-                    },
-                });
-                // blr x30
-                _ = try self.addInst(.{
-                    .tag = .blr,
-                    .data = .{ .reg = .x30 },
-                });
-            } else if (func_value.castTag(.extern_fn)) |func_payload| {
-                const extern_fn = func_payload.data;
-                const decl_name = mod.declPtr(extern_fn.owner_decl).name;
-                if (extern_fn.lib_name) |lib_name| {
-                    log.debug("TODO enforce that '{s}' is expected in '{s}' library", .{
-                        decl_name,
-                        lib_name,
-                    });
-                }
+            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const sym_index = try coff_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
                 try self.genSetReg(Type.initTag(.u64), .x30, .{
                     .linker_load = .{
@@ -4393,35 +4369,16 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                         .sym_index = sym_index,
                     },
                 });
-                // blr x30
                 _ = try self.addInst(.{
                     .tag = .blr,
                     .data = .{ .reg = .x30 },
                 });
             } else {
-                return self.fail("TODO implement calling bitcasted functions", .{});
-            }
-        } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-            if (func_value.castTag(.function)) |func_payload| {
-                try p9.seeDecl(func_payload.data.owner_decl);
-                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-                const got_addr = p9.bases.data;
-                const got_index = mod.declPtr(func_payload.data.owner_decl).link.plan9.got_index.?;
-                const fn_got_addr = got_addr + got_index * ptr_bytes;
-
-                try self.genSetReg(Type.initTag(.usize), .x30, .{ .memory = fn_got_addr });
-
-                _ = try self.addInst(.{
-                    .tag = .blr,
-                    .data = .{ .reg = .x30 },
-                });
-            } else if (func_value.castTag(.extern_fn)) |_| {
                 return self.fail("TODO implement calling extern functions", .{});
-            } else {
-                return self.fail("TODO implement calling bitcasted functions", .{});
             }
-        } else unreachable;
+        } else {
+            return self.fail("TODO implement calling bitcasted functions", .{});
+        }
     } else {
         assert(ty.zigTypeTag() == .Pointer);
         const mcv = try self.resolveInst(callee);
@@ -5537,8 +5494,8 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                         const mod = self.bin_file.options.module.?;
                         const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
                         const atom_index = switch (self.bin_file.tag) {
-                            .macho => owner_decl.link.macho.sym_index,
-                            .coff => owner_decl.link.coff.sym_index,
+                            .macho => owner_decl.link.macho.getSymbolIndex().?,
+                            .coff => owner_decl.link.coff.getSymbolIndex().?,
                             else => unreachable, // unsupported target format
                         };
                         _ = try self.addInst(.{
@@ -5651,8 +5608,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             const mod = self.bin_file.options.module.?;
             const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
             const atom_index = switch (self.bin_file.tag) {
-                .macho => owner_decl.link.macho.sym_index,
-                .coff => owner_decl.link.coff.sym_index,
+                .macho => owner_decl.link.macho.getSymbolIndex().?,
+                .coff => owner_decl.link.coff.getSymbolIndex().?,
                 else => unreachable, // unsupported target format
             };
             _ = try self.addInst(.{
@@ -5845,8 +5802,8 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                         const mod = self.bin_file.options.module.?;
                         const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
                         const atom_index = switch (self.bin_file.tag) {
-                            .macho => owner_decl.link.macho.sym_index,
-                            .coff => owner_decl.link.coff.sym_index,
+                            .macho => owner_decl.link.macho.getSymbolIndex().?,
+                            .coff => owner_decl.link.coff.getSymbolIndex().?,
                             else => unreachable, // unsupported target format
                         };
                         _ = try self.addInst(.{
@@ -6165,24 +6122,19 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
     mod.markDeclAlive(decl);
 
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
-        const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
-        return MCValue{ .memory = got_addr };
-    } else if (self.bin_file.cast(link.File.MachO)) |_| {
-        // Because MachO is PIE-always-on, we defer memory address resolution until
-        // the linker has enough info to perform relocations.
-        assert(decl.link.macho.sym_index != 0);
+        try decl.link.elf.ensureInitialized(elf_file);
+        return MCValue{ .memory = decl.link.elf.getOffsetTableAddress(elf_file) };
+    } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+        try decl.link.macho.ensureInitialized(macho_file);
         return MCValue{ .linker_load = .{
             .type = .got,
-            .sym_index = decl.link.macho.sym_index,
+            .sym_index = decl.link.macho.getSymbolIndex().?,
         } };
-    } else if (self.bin_file.cast(link.File.Coff)) |_| {
-        // Because COFF is PIE-always-on, we defer memory address resolution until
-        // the linker has enough info to perform relocations.
-        assert(decl.link.coff.sym_index != 0);
+    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+        try decl.link.coff.ensureInitialized(coff_file);
         return MCValue{ .linker_load = .{
             .type = .got,
-            .sym_index = decl.link.coff.sym_index,
+            .sym_index = decl.link.coff.getSymbolIndex().?,
         } };
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
         try p9.seeDecl(decl_index);

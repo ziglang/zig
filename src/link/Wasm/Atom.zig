@@ -95,6 +95,17 @@ pub fn symbolLoc(atom: Atom) Wasm.SymbolLoc {
     return .{ .file = atom.file, .index = atom.sym_index };
 }
 
+pub fn ensureInitialized(atom: *Atom, wasm_bin: *Wasm) !void {
+    if (atom.getSymbolIndex() != null) return; // already initialized
+    atom.sym_index = try wasm_bin.allocateSymbol();
+    try wasm_bin.symbol_atom.putNoClobber(wasm_bin.base.allocator, atom.symbolLoc(), atom);
+}
+
+pub fn getSymbolIndex(atom: Atom) ?u32 {
+    if (atom.sym_index == 0) return null;
+    return atom.sym_index;
+}
+
 /// Returns the virtual address of the `Atom`. This is the address starting
 /// from the first entry within a section.
 pub fn getVA(atom: Atom, wasm: *const Wasm, symbol: *const Symbol) u32 {

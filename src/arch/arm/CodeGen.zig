@@ -4253,59 +4253,57 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
-    switch (self.bin_file.tag) {
-        .elf => {
-            if (self.air.value(callee)) |func_value| {
-                if (func_value.castTag(.function)) |func_payload| {
-                    const func = func_payload.data;
-                    const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-                    const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-                    const mod = self.bin_file.options.module.?;
-                    const fn_owner_decl = mod.declPtr(func.owner_decl);
-                    const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
-                        const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
-                        break :blk @intCast(u32, got.p_vaddr + fn_owner_decl.link.elf.offset_table_index * ptr_bytes);
-                    } else unreachable;
-                    try self.genSetReg(Type.initTag(.usize), .lr, .{ .memory = got_addr });
-                } else if (func_value.castTag(.extern_fn)) |_| {
-                    return self.fail("TODO implement calling extern functions", .{});
-                } else {
-                    return self.fail("TODO implement calling bitcasted functions", .{});
-                }
+    if (self.air.value(callee)) |func_value| {
+        if (func_value.castTag(.function)) |func_payload| {
+            const func = func_payload.data;
+            const mod = self.bin_file.options.module.?;
+            const fn_owner_decl = mod.declPtr(func.owner_decl);
+
+            if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+                try fn_owner_decl.link.elf.ensureInitialized(elf_file);
+                const got_addr = @intCast(u32, fn_owner_decl.link.elf.getOffsetTableAddress(elf_file));
+                try self.genSetReg(Type.initTag(.usize), .lr, .{ .memory = got_addr });
+            } else if (self.bin_file.cast(link.File.MachO)) |_| {
+                unreachable; // unsupported architecture for MachO
             } else {
-                assert(ty.zigTypeTag() == .Pointer);
-                const mcv = try self.resolveInst(callee);
-
-                try self.genSetReg(Type.initTag(.usize), .lr, mcv);
-            }
-
-            // TODO: add Instruction.supportedOn
-            // function for ARM
-            if (Target.arm.featureSetHas(self.target.cpu.features, .has_v5t)) {
-                _ = try self.addInst(.{
-                    .tag = .blx,
-                    .data = .{ .reg = .lr },
+                return self.fail("TODO implement call on {s} for {s}", .{
+                    @tagName(self.bin_file.tag),
+                    @tagName(self.target.cpu.arch),
                 });
-            } else {
-                return self.fail("TODO fix blx emulation for ARM <v5", .{});
-                // _ = try self.addInst(.{
-                //     .tag = .mov,
-                //     .data = .{ .rr_op = .{
-                //         .rd = .lr,
-                //         .rn = .r0,
-                //         .op = Instruction.Operand.reg(.pc, Instruction.Operand.Shift.none),
-                //     } },
-                // });
-                // _ = try self.addInst(.{
-                //     .tag = .bx,
-                //     .data = .{ .reg = .lr },
-                // });
             }
-        },
-        .macho => unreachable, // unsupported architecture for MachO
-        .coff => return self.fail("TODO implement call in COFF for {}", .{self.target.cpu.arch}),
-        .plan9 => return self.fail("TODO implement call on plan9 for {}", .{self.target.cpu.arch}),
-        else => unreachable,
+        } else if (func_value.castTag(.extern_fn)) |_| {
+            return self.fail("TODO implement calling extern functions", .{});
+        } else {
+            return self.fail("TODO implement calling bitcasted functions", .{});
+        }
+    } else {
+        assert(ty.zigTypeTag() == .Pointer);
+        const mcv = try self.resolveInst(callee);
+
+        try self.genSetReg(Type.initTag(.usize), .lr, mcv);
+    }
+
+    // TODO: add Instruction.supportedOn
+    // function for ARM
+    if (Target.arm.featureSetHas(self.target.cpu.features, .has_v5t)) {
+        _ = try self.addInst(.{
+            .tag = .blx,
+            .data = .{ .reg = .lr },
+        });
+    } else {
+        return self.fail("TODO fix blx emulation for ARM <v5", .{});
+        // _ = try self.addInst(.{
+        //     .tag = .mov,
+        //     .data = .{ .rr_op = .{
+        //         .rd = .lr,
+        //         .rn = .r0,
+        //         .op = Instruction.Operand.reg(.pc, Instruction.Operand.Shift.none),
+        //     } },
+        // });
+        // _ = try self.addInst(.{
+        //     .tag = .bx,
+        //     .data = .{ .reg = .lr },
+        // });
     }
 
     const result: MCValue = result: {
@@ -6086,9 +6084,8 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
     mod.markDeclAlive(decl);
 
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
-        const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
-        return MCValue{ .memory = got_addr };
+        try decl.link.elf.ensureInitialized(elf_file);
+        return MCValue{ .memory = decl.link.elf.getOffsetTableAddress(elf_file) };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         unreachable; // unsupported architecture for MachO
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
