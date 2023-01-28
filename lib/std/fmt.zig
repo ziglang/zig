@@ -1035,18 +1035,20 @@ pub fn formatBuf(
 }
 
 pub fn formatBufEnclosed(
-    prefix: ?[]const u8,
+    prefix: ?u8,
     buf: []const u8,
-    postfix: ?[]const u8,
+    suffix: ?u8,
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    if (prefix) |p| try writer.writeAll(p);
+    if (prefix) |pre| {
+        try writer.writeByte(pre);
+    }
     if (options.width) |min_width| blk: {
         // In case of error assume the buffer content is ASCII-encoded
         var width = unicode.utf8CountCodepoints(buf) catch buf.len;
-        if (prefix) |p| width += unicode.utf8CountCodepoints(p) catch p.len;
-        if (postfix) |p| width += unicode.utf8CountCodepoints(p) catch p.len;
+        if (prefix) |_| width += 1;
+        if (suffix) |_| width += 1;
         const padding = if (width < min_width) min_width - width else 0;
 
         if (padding == 0) {
@@ -1075,7 +1077,9 @@ pub fn formatBufEnclosed(
         // Fast path, avoid counting the number of codepoints
         try writer.writeAll(buf);
     }
-    if (postfix) |p| try writer.writeAll(p);
+    if (suffix) |suf| {
+        try writer.writeByte(suf);
+    }
 }
 
 /// Print a float in scientific notation to the specified precision. Null uses full precision.
@@ -1544,9 +1548,9 @@ fn formatNumber(
 
     if (options.fill == '0') {
         if (negative) {
-            return formatBufEnclosed("-", buf[index..end], null, options, writer);
+            return formatBufEnclosed('-', buf[index..end], null, options, writer);
         } else if (options.signed) {
-            return formatBufEnclosed("+", buf[index..end], null, options, writer);
+            return formatBufEnclosed('+', buf[index..end], null, options, writer);
         }
     } else {
         if (negative) {
