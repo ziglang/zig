@@ -92,7 +92,7 @@ pub const compressed_block = struct {
                 index: usize,
             };
 
-            pub fn query(self: HuffmanTree, index: usize, prefix: u16) !Result {
+            pub fn query(self: HuffmanTree, index: usize, prefix: u16) error{PrefixNotFound}!Result {
                 var node = self.nodes[index];
                 const weight = node.weight;
                 var i: usize = index;
