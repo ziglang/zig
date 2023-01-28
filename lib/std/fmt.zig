@@ -24,6 +24,7 @@ pub const FormatOptions = struct {
     width: ?usize = null,
     alignment: Alignment = .Right,
     fill: u8 = ' ',
+    signed: bool = false,
 };
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
@@ -32,7 +33,7 @@ pub const FormatOptions = struct {
 ///
 /// The format string must be comptime-known and may contain placeholders following
 /// this format:
-/// `{[argument][specifier]:[fill][alignment][width].[precision]}`
+/// `{[argument][specifier]:[+][fill][alignment][width].[precision]}`
 ///
 /// Above, each word including its surrounding [ and ] is a parameter which you have to replace with something:
 ///
@@ -40,6 +41,7 @@ pub const FormatOptions = struct {
 ///   - when using a field name, you are required to enclose the field name (an identifier) in square
 ///     brackets, e.g. {[score]...} as opposed to the numeric index form which can be written e.g. {2...}
 /// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
+/// - *`+`* forces a number to always begin with its sign (`+` or `-`)
 /// - *fill* is a single character which is used to pad the formatted text
 /// - *alignment* is one of the three characters `<`, `^` or `>`. they define if the text is *left*, *center*, or *right* aligned
 /// - *width* is the total width of the field in characters
@@ -185,6 +187,7 @@ pub fn format(
             @field(args, fields_info[arg_to_print].name),
             placeholder.specifier_arg,
             FormatOptions{
+                .signed = placeholder.signed,
                 .fill = placeholder.fill,
                 .alignment = placeholder.alignment,
                 .width = width,
@@ -221,6 +224,16 @@ fn parsePlaceholder(comptime str: anytype) Placeholder {
             @compileError("expected : or }, found '" ++ [1]u8{ch} ++ "'");
         }
     }
+
+    const signed = comptime init: {
+        if (parser.peek(0)) |ch| {
+            if (ch == '+') {
+                _ = parser.char();
+                break :init true;
+            }
+        }
+        break :init false;
+    };
 
     // Parse the fill character
     // The fill parameter requires the alignment parameter to be specified
@@ -267,6 +280,7 @@ fn parsePlaceholder(comptime str: anytype) Placeholder {
 
     return Placeholder{
         .specifier_arg = cacheString(specifier_arg[0..specifier_arg.len].*),
+        .signed = signed,
         .fill = fill,
         .alignment = alignment,
         .arg = arg,
@@ -281,6 +295,7 @@ fn cacheString(str: anytype) []const u8 {
 
 const Placeholder = struct {
     specifier_arg: []const u8,
+    signed: bool,
     fill: u8,
     alignment: Alignment,
     arg: Specifier,
@@ -799,27 +814,15 @@ fn formatFloatValue(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    // this buffer should be enough to display all decimal places of a decimal f64 number.
-    var buf: [512]u8 = undefined;
-    var buf_stream = std.io.fixedBufferStream(&buf);
-
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
-        formatFloatScientific(value, options, buf_stream.writer()) catch |err| switch (err) {
-            error.NoSpaceLeft => unreachable,
-        };
+        return formatFloatScientific(value, options, writer);
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        formatFloatDecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
-            error.NoSpaceLeft => unreachable,
-        };
+        return formatFloatDecimal(value, options, writer);
     } else if (comptime std.mem.eql(u8, fmt, "x")) {
-        formatFloatHexadecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
-            error.NoSpaceLeft => unreachable,
-        };
+        return formatFloatHexadecimal(value, options, writer);
     } else {
         invalidFmtError(fmt, value);
     }
-
-    return formatBuf(buf_stream.getWritten(), options, writer);
 }
 
 pub const Case = enum { lower, upper };
@@ -941,7 +944,7 @@ fn formatSizeImpl(comptime radix: comptime_int) type {
                 else => unreachable,
             };
 
-            formatFloatDecimal(new_value, options, bufstream.writer()) catch |err| switch (err) {
+            formatFloatDecimalPositive(new_value, options, bufstream.writer()) catch |err| switch (err) {
                 error.NoSpaceLeft => unreachable, // 35 bytes should be enough
             };
 
@@ -1028,13 +1031,28 @@ pub fn formatBuf(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    if (options.width) |min_width| {
+    return formatBufEnclosed(null, buf, null, options, writer);
+}
+
+pub fn formatBufEnclosed(
+    prefix: ?[]const u8,
+    buf: []const u8,
+    postfix: ?[]const u8,
+    options: FormatOptions,
+    writer: anytype,
+) !void {
+    if (prefix) |p| try writer.writeAll(p);
+    if (options.width) |min_width| blk: {
         // In case of error assume the buffer content is ASCII-encoded
-        const width = unicode.utf8CountCodepoints(buf) catch buf.len;
+        var width = unicode.utf8CountCodepoints(buf) catch buf.len;
+        if (prefix) |p| width += unicode.utf8CountCodepoints(p) catch p.len;
+        if (postfix) |p| width += unicode.utf8CountCodepoints(p) catch p.len;
         const padding = if (width < min_width) min_width - width else 0;
 
-        if (padding == 0)
-            return writer.writeAll(buf);
+        if (padding == 0) {
+            try writer.writeAll(buf);
+            break :blk;
+        }
 
         switch (options.alignment) {
             .Left => {
@@ -1057,6 +1075,7 @@ pub fn formatBuf(
         // Fast path, avoid counting the number of codepoints
         try writer.writeAll(buf);
     }
+    if (postfix) |p| try writer.writeAll(p);
 }
 
 /// Print a float in scientific notation to the specified precision. Null uses full precision.
@@ -1067,14 +1086,33 @@ pub fn formatFloatScientific(
     options: FormatOptions,
     writer: anytype,
 ) !void {
+    // this buffer should be enough to display all decimal places of a decimal f64 number.
+    var buf: [512]u8 = undefined;
+    const start = 1;
+    var buf_stream = std.io.fixedBufferStream(buf[start..]);
+
     var x = @floatCast(f64, value);
+    const negative = math.signbit(x);
 
     // Errol doesn't handle these special cases.
-    if (math.signbit(x)) {
-        try writer.writeAll("-");
+    if (negative) {
         x = -x;
     }
 
+    formatFloatScientificPositive(@TypeOf(value), x, options, buf_stream.writer()) catch |err| switch (err) {
+        error.NoSpaceLeft => unreachable,
+    };
+
+    const end = start + buf_stream.pos;
+    return formatNumber(&buf, start, end, negative, options, writer);
+}
+
+fn formatFloatScientificPositive(
+    comptime T: type,
+    x: anytype,
+    options: FormatOptions,
+    writer: anytype,
+) !void {
     if (math.isNan(x)) {
         return writer.writeAll("nan");
     }
@@ -1127,7 +1165,7 @@ pub fn formatFloatScientific(
         try writer.writeAll(float_decimal.digits[0..1]);
         try writer.writeAll(".");
         if (float_decimal.digits.len > 1) {
-            const num_digits = if (@TypeOf(value) == f32) math.min(@as(usize, 9), float_decimal.digits.len) else float_decimal.digits.len;
+            const num_digits = if (T == f32) math.min(@as(usize, 9), float_decimal.digits.len) else float_decimal.digits.len;
 
             try writer.writeAll(float_decimal.digits[1..num_digits]);
         } else {
@@ -1158,9 +1196,25 @@ pub fn formatFloatHexadecimal(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    if (math.signbit(value)) {
-        try writer.writeByte('-');
-    }
+    // this buffer should be enough to display all decimal places of a decimal f64 number.
+    var buf: [512]u8 = undefined;
+    const start = 1;
+    var buf_stream = std.io.fixedBufferStream(buf[start..]);
+
+    formatFloatHexadecimalUnsigned(value, options, buf_stream.writer()) catch |err| switch (err) {
+        error.NoSpaceLeft => unreachable,
+    };
+
+    const end = start + buf_stream.pos;
+    const negative = math.signbit(value);
+    return formatNumber(&buf, start, end, negative, options, writer);
+}
+
+fn formatFloatHexadecimalUnsigned(
+    value: anytype,
+    options: FormatOptions,
+    writer: anytype,
+) !void {
     if (math.isNan(value)) {
         return writer.writeAll("nan");
     }
@@ -1269,14 +1323,32 @@ pub fn formatFloatDecimal(
     options: FormatOptions,
     writer: anytype,
 ) !void {
+    // this buffer should be enough to display all decimal places of a decimal f64 number.
+    var buf: [512]u8 = undefined;
+    const start = 1;
+    var buf_stream = std.io.fixedBufferStream(buf[start..]);
+
     var x = @as(f64, value);
+    const negative = math.signbit(x);
 
     // Errol doesn't handle these special cases.
-    if (math.signbit(x)) {
-        try writer.writeAll("-");
+    if (negative) {
         x = -x;
     }
 
+    formatFloatDecimalPositive(x, options, buf_stream.writer()) catch |err| switch (err) {
+        error.NoSpaceLeft => unreachable,
+    };
+
+    const end = start + buf_stream.pos;
+    return formatNumber(&buf, start, end, negative, options, writer);
+}
+
+fn formatFloatDecimalPositive(
+    x: anytype,
+    options: FormatOptions,
+    writer: anytype,
+) !void {
     if (math.isNan(x)) {
         return writer.writeAll("nan");
     }
@@ -1455,21 +1527,38 @@ pub fn formatInt(
         }
     }
 
-    if (value_info.signedness == .signed) {
-        if (value < 0) {
-            // Negative integer
+    const negative = value_info.signedness == .signed and value < 0;
+    return formatNumber(&buf, index, buf.len, negative, options, writer);
+}
+
+fn formatNumber(
+    buf: []u8,
+    start: usize,
+    end: usize,
+    negative: bool,
+    options: FormatOptions,
+    writer: anytype,
+) !void {
+    assert(start >= 1);
+    var index = start;
+
+    if (options.fill == '0') {
+        if (negative) {
+            return formatBufEnclosed("-", buf[index..end], null, options, writer);
+        } else if (options.signed) {
+            return formatBufEnclosed("+", buf[index..end], null, options, writer);
+        }
+    } else {
+        if (negative) {
             index -= 1;
             buf[index] = '-';
-        } else if (options.width == null or options.width.? == 0) {
-            // Positive integer, omit the plus sign
-        } else {
-            // Positive integer
+        } else if (options.signed) {
             index -= 1;
             buf[index] = '+';
         }
     }
 
-    return formatBuf(buf[index..], options, writer);
+    return formatBuf(buf[index..end], options, writer);
 }
 
 // TODO: Remove once https://github.com/ziglang/zig/issues/868 is resolved.
@@ -2000,8 +2089,8 @@ test "bufPrintInt" {
     try std.testing.expectEqualSlices(u8, "  1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, .lower, FormatOptions{ .width = 6 }));
     try std.testing.expectEqualSlices(u8, "1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, .lower, FormatOptions{ .width = 1 }));
 
-    try std.testing.expectEqualSlices(u8, "+42", bufPrintIntToSlice(buf, @as(i32, 42), 10, .lower, FormatOptions{ .width = 3 }));
-    try std.testing.expectEqualSlices(u8, "-42", bufPrintIntToSlice(buf, @as(i32, -42), 10, .lower, FormatOptions{ .width = 3 }));
+    try std.testing.expectEqualSlices(u8, "+42", bufPrintIntToSlice(buf, @as(i32, 42), 10, .lower, FormatOptions{ .width = 3, .signed = true }));
+    try std.testing.expectEqualSlices(u8, "-42", bufPrintIntToSlice(buf, @as(i32, -42), 10, .lower, FormatOptions{ .width = 3, .signed = true }));
 }
 
 pub fn bufPrintIntToSlice(buf: []u8, value: anytype, base: u8, case: Case, options: FormatOptions) []u8 {
@@ -2126,15 +2215,20 @@ test "int.padded" {
     try expectFmt("i8: '-1  '", "i8: '{:<4}'", .{@as(i8, -1)});
     try expectFmt("i8: '  -1'", "i8: '{:>4}'", .{@as(i8, -1)});
     try expectFmt("i8: ' -1 '", "i8: '{:^4}'", .{@as(i8, -1)});
-    try expectFmt("i16: '-1234'", "i16: '{:4}'", .{@as(i16, -1234)});
-    try expectFmt("i16: '+1234'", "i16: '{:4}'", .{@as(i16, 1234)});
-    try expectFmt("i16: '-12345'", "i16: '{:4}'", .{@as(i16, -12345)});
-    try expectFmt("i16: '+12345'", "i16: '{:4}'", .{@as(i16, 12345)});
+    try expectFmt("i16: '-1234'", "i16: '{:+4}'", .{@as(i16, -1234)});
+    try expectFmt("i16: '+1234'", "i16: '{:+4}'", .{@as(i16, 1234)});
+    try expectFmt("i16: '-12345'", "i16: '{:+4}'", .{@as(i16, -12345)});
+    try expectFmt("i16: '+12345'", "i16: '{:+4}'", .{@as(i16, 12345)});
     try expectFmt("u16: '12345'", "u16: '{:4}'", .{@as(u16, 12345)});
 
     try expectFmt("UTF-8: 'ü   '", "UTF-8: '{u:<4}'", .{'ü'});
     try expectFmt("UTF-8: '   ü'", "UTF-8: '{u:>4}'", .{'ü'});
     try expectFmt("UTF-8: ' ü  '", "UTF-8: '{u:^4}'", .{'ü'});
+
+    try expectFmt("0003", "{:0>4}", .{@as(i64, 3)});
+    try expectFmt("0003", "{:0>4}", .{@as(u64, 3)});
+    try expectFmt("+003", "{:+0>4}", .{@as(i64, 3)});
+    try expectFmt("+003", "{:+0>4}", .{@as(u64, 3)});
 }
 
 test "buffer" {
@@ -2700,7 +2794,7 @@ test "vector" {
 
     try expectFmt("{ true, false, true, false }", "{}", .{vbool});
     try expectFmt("{ -2, -1, 0, 1 }", "{}", .{vi64});
-    try expectFmt("{    -2,    -1,    +0,    +1 }", "{d:5}", .{vi64});
+    try expectFmt("{    -2,    -1,    +0,    +1 }", "{d:+5}", .{vi64});
     try expectFmt("{ 1000, 2000, 3000, 4000 }", "{}", .{vu64});
     try expectFmt("{ 3e8, 7d0, bb8, fa0 }", "{x}", .{vu64});
 }
