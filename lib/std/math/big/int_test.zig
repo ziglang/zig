@@ -1,4 +1,5 @@
 const std = @import("../../std.zig");
+const builtin = @import("builtin");
 const mem = std.mem;
 const testing = std.testing;
 const Managed = std.math.big.int.Managed;
@@ -2123,6 +2124,33 @@ test "big.int bitNotWrap signed multi" {
     try testing.expect((try a.to(SignedDoubleLimb)) == -1);
 }
 
+test "big.int bitNotWrap more than two limbs" {
+    // This test requires int sizes greater than 128 bits.
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    // LLVM: unexpected runtime library name: __umodei4
+    if (builtin.zig_backend == .stage2_llvm and comptime builtin.target.isWasm()) return error.SkipZigTest; // TODO
+
+    var a = try Managed.initSet(testing.allocator, maxInt(Limb));
+    defer a.deinit();
+
+    var res = try Managed.init(testing.allocator);
+    defer res.deinit();
+
+    const bits = @bitSizeOf(Limb) * 4 + 2;
+
+    try res.bitNotWrap(&a, .unsigned, bits);
+    const Unsigned = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = bits } });
+    try testing.expectEqual((try res.to(Unsigned)), ~@as(Unsigned, maxInt(Limb)));
+
+    try res.bitNotWrap(&a, .signed, bits);
+    const Signed = @Type(.{ .Int = .{ .signedness = .signed, .bits = bits } });
+    try testing.expectEqual((try res.to(Signed)), ~@as(Signed, maxInt(Limb)));
+}
+
 test "big.int bitwise and simple" {
     var a = try Managed.initSet(testing.allocator, 0xffffffff11111111);
     defer a.deinit();
@@ -2655,11 +2683,10 @@ test "big int popcount" {
     try popCountTest(&a, limb_size * 2 - 1, limb_size);
     try popCountTest(&a, limb_size * 2, limb_size + 1);
     try popCountTest(&a, limb_size * 2 + 1, limb_size + 2);
-    // TODO: These produce incorrect pop count for Mutable
-    // https://github.com/ziglang/zig/issues/13571
-    // try popCountTest(&a, limb_size * 2 + 2, limb_size + 3);
-    // try popCountTest(&a, limb_size * 2 + 3, limb_size + 4);
-    // try popCountTest(&a, limb_size * 2 + 4, limb_size + 5);
+    try popCountTest(&a, limb_size * 2 + 2, limb_size + 3);
+    try popCountTest(&a, limb_size * 2 + 3, limb_size + 4);
+    try popCountTest(&a, limb_size * 2 + 4, limb_size + 5);
+    try popCountTest(&a, limb_size * 4 + 2, limb_size * 3 + 3);
 }
 
 fn popCountTest(val: *const Managed, bit_count: usize, expected: usize) !void {
