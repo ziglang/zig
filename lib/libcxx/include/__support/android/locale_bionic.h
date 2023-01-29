@@ -46,18 +46,15 @@ extern "C" {
 extern "C" {
 #endif
 
-inline _LIBCPP_HIDE_FROM_ABI float
-strtof_l(const char* __nptr, char** __endptr, locale_t) {
+inline _LIBCPP_HIDE_FROM_ABI_C float strtof_l(const char* __nptr, char** __endptr, locale_t) {
   return ::strtof(__nptr, __endptr);
 }
 
-inline _LIBCPP_HIDE_FROM_ABI double
-strtod_l(const char* __nptr, char** __endptr, locale_t) {
+inline _LIBCPP_HIDE_FROM_ABI_C double strtod_l(const char* __nptr, char** __endptr, locale_t) {
   return ::strtod(__nptr, __endptr);
 }
 
-inline _LIBCPP_HIDE_FROM_ABI long
-strtol_l(const char* __nptr, char** __endptr, int __base, locale_t) {
+inline _LIBCPP_HIDE_FROM_ABI_C long strtol_l(const char* __nptr, char** __endptr, int __base, locale_t) {
   return ::strtol(__nptr, __endptr, __base);
 }
 

@@ -20,17 +20,13 @@
 extern "C" {
 #endif
 
-
-inline _LIBCPP_HIDE_FROM_ABI long
-strtol_l(const char *__nptr, char **__endptr, int __base, locale_t) {
+inline _LIBCPP_HIDE_FROM_ABI_C long strtol_l(const char* __nptr, char** __endptr, int __base, locale_t) {
   return ::strtol(__nptr, __endptr, __base);
 }
 
-inline _LIBCPP_HIDE_FROM_ABI unsigned long
-strtoul_l(const char *__nptr, char **__endptr, int __base, locale_t) {
+inline _LIBCPP_HIDE_FROM_ABI_C unsigned long strtoul_l(const char* __nptr, char** __endptr, int __base, locale_t) {
   return ::strtoul(__nptr, __endptr, __base);
 }
-
 
 #ifdef __cplusplus
 }
