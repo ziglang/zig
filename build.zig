@@ -524,7 +524,7 @@ fn addCompilerStep(b: *Builder) *std.build.LibExeObjStep {
 }
 
 const exe_cflags = [_][]const u8{
-    "-std=c++14",
+    "-std=c++17",
     "-D__STDC_CONSTANT_MACROS",
     "-D__STDC_FORMAT_MACROS",
     "-D__STDC_LIMIT_MACROS",
