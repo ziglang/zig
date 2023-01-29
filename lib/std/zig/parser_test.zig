@@ -186,6 +186,15 @@ test "zig fmt: file ends in comment" {
     );
 }
 
+test "zig fmt: file ends in multi line comment" {
+    try testTransform(
+        \\     \\foobar
+    ,
+        \\\\foobar
+        \\
+    );
+}
+
 test "zig fmt: file ends in comment after var decl" {
     try testTransform(
         \\const x = 42;
