@@ -36,14 +36,14 @@ pub const base_id = .lib_exe_obj;
 step: Step,
 builder: *Builder,
 name: []const u8,
-target: CrossTarget = CrossTarget{},
+target: CrossTarget,
 target_info: NativeTargetInfo,
+optimize: std.builtin.Mode,
 linker_script: ?FileSource = null,
 version_script: ?[]const u8 = null,
 out_filename: []const u8,
 linkage: ?Linkage = null,
 version: ?std.builtin.Version,
-build_mode: std.builtin.Mode,
 kind: Kind,
 major_only_filename: ?[]const u8,
 name_only_filename: ?[]const u8,
@@ -271,17 +271,22 @@ pub const IncludeDir = union(enum) {
     config_header_step: *ConfigHeaderStep,
 };
 
+pub const Options = struct {
+    name: []const u8,
+    root_source_file: ?FileSource = null,
+    target: CrossTarget,
+    optimize: std.builtin.Mode,
+    kind: Kind,
+    linkage: ?Linkage = null,
+    version: ?std.builtin.Version = null,
+};
+
 pub const Kind = enum {
     exe,
     lib,
     obj,
     @"test",
     test_exe,
-};
-
-pub const SharedLibKind = union(enum) {
-    versioned: std.builtin.Version,
-    unversioned: void,
 };
 
 pub const Linkage = enum { dynamic, static };
@@ -302,43 +307,9 @@ pub const EmitOption = union(enum) {
     }
 };
 
-pub fn createSharedLibrary(builder: *Builder, name: []const u8, root_src: ?FileSource, kind: SharedLibKind) *LibExeObjStep {
-    return initExtraArgs(builder, name, root_src, .lib, .dynamic, switch (kind) {
-        .versioned => |ver| ver,
-        .unversioned => null,
-    });
-}
-
-pub fn createStaticLibrary(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
-    return initExtraArgs(builder, name, root_src, .lib, .static, null);
-}
-
-pub fn createObject(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
-    return initExtraArgs(builder, name, root_src, .obj, null, null);
-}
-
-pub fn createExecutable(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
-    return initExtraArgs(builder, name, root_src, .exe, null, null);
-}
-
-pub fn createTest(builder: *Builder, name: []const u8, root_src: FileSource) *LibExeObjStep {
-    return initExtraArgs(builder, name, root_src, .@"test", null, null);
-}
-
-pub fn createTestExe(builder: *Builder, name: []const u8, root_src: FileSource) *LibExeObjStep {
-    return initExtraArgs(builder, name, root_src, .test_exe, null, null);
-}
-
-fn initExtraArgs(
-    builder: *Builder,
-    name_raw: []const u8,
-    root_src_raw: ?FileSource,
-    kind: Kind,
-    linkage: ?Linkage,
-    ver: ?std.builtin.Version,
-) *LibExeObjStep {
-    const name = builder.dupe(name_raw);
-    const root_src: ?FileSource = if (root_src_raw) |rsrc| rsrc.dupe(builder) else null;
+pub fn create(builder: *Builder, options: Options) *LibExeObjStep {
+    const name = builder.dupe(options.name);
+    const root_src: ?FileSource = if (options.root_source_file) |rsrc| rsrc.dupe(builder) else null;
     if (mem.indexOf(u8, name, "/") != null or mem.indexOf(u8, name, "\\") != null) {
         panic("invalid name: '{s}'. It looks like a file path, but it is supposed to be the library or application name.", .{name});
     }
@@ -350,14 +321,15 @@ fn initExtraArgs(
         .builder = builder,
         .verbose_link = false,
         .verbose_cc = false,
-        .build_mode = std.builtin.Mode.Debug,
-        .linkage = linkage,
-        .kind = kind,
+        .optimize = options.optimize,
+        .target = options.target,
+        .linkage = options.linkage,
+        .kind = options.kind,
         .root_src = root_src,
         .name = name,
         .frameworks = StringHashMap(FrameworkLinkInfo).init(builder.allocator),
         .step = Step.init(base_id, name, builder.allocator, make),
-        .version = ver,
+        .version = options.version,
         .out_filename = undefined,
         .out_h_filename = builder.fmt("{s}.h", .{name}),
         .out_lib_filename = undefined,
@@ -455,11 +427,6 @@ fn computeOutFileNames(self: *LibExeObjStep) void {
             );
         }
     }
-}
-
-pub fn setTarget(self: *LibExeObjStep, target: CrossTarget) void {
-    self.target = target;
-    self.computeOutFileNames();
 }
 
 pub fn setOutputDir(self: *LibExeObjStep, dir: []const u8) void {
@@ -887,10 +854,6 @@ pub fn setVerboseLink(self: *LibExeObjStep, value: bool) void {
 
 pub fn setVerboseCC(self: *LibExeObjStep, value: bool) void {
     self.verbose_cc = value;
-}
-
-pub fn setBuildMode(self: *LibExeObjStep, mode: std.builtin.Mode) void {
-    self.build_mode = mode;
 }
 
 pub fn overrideZigLibDir(self: *LibExeObjStep, dir_path: []const u8) void {
@@ -1376,9 +1339,9 @@ fn make(step: *Step) !void {
         try zig_args.append(libc_file);
     }
 
-    switch (self.build_mode) {
+    switch (self.optimize) {
         .Debug => {}, // Skip since it's the default.
-        else => zig_args.append(builder.fmt("-O{s}", .{@tagName(self.build_mode)})) catch unreachable,
+        else => zig_args.append(builder.fmt("-O{s}", .{@tagName(self.optimize)})) catch unreachable,
     }
 
     try zig_args.append("--cache-dir");

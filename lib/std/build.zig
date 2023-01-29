@@ -414,82 +414,123 @@ pub const Builder = struct {
         self.h_dir = self.pathJoin(&h_list);
     }
 
-    fn convertOptionalPathToFileSource(path: ?[]const u8) ?FileSource {
-        return if (path) |p|
-            FileSource{ .path = p }
-        else
-            null;
-    }
-
-    pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
-        return addExecutableSource(self, name, convertOptionalPathToFileSource(root_src));
-    }
-
-    pub fn addExecutableSource(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
-        return LibExeObjStep.createExecutable(builder, name, root_src);
-    }
-
     pub fn addOptions(self: *Builder) *OptionsStep {
         return OptionsStep.create(self);
     }
 
-    pub fn addObject(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
-        return addObjectSource(self, name, convertOptionalPathToFileSource(root_src));
-    }
-
-    pub fn addObjectSource(builder: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
-        return LibExeObjStep.createObject(builder, name, root_src);
-    }
-
-    pub fn addSharedLibrary(
-        self: *Builder,
+    pub const ExecutableOptions = struct {
         name: []const u8,
-        root_src: ?[]const u8,
-        kind: LibExeObjStep.SharedLibKind,
-    ) *LibExeObjStep {
-        return addSharedLibrarySource(self, name, convertOptionalPathToFileSource(root_src), kind);
+        root_source_file: ?FileSource,
+        version: ?std.builtin.Version = null,
+        target: CrossTarget,
+        optimize: std.builtin.Mode,
+        linkage: ?LibExeObjStep.Linkage = null,
+    };
+
+    pub fn addExecutable(b: *Builder, options: ExecutableOptions) *LibExeObjStep {
+        return LibExeObjStep.create(b, .{
+            .name = options.name,
+            .root_source_file = options.root_source_file,
+            .version = options.version,
+            .target = options.target,
+            .optimize = options.optimize,
+            .kind = .exe,
+            .linkage = options.linkage,
+            .version = options.version,
+        });
     }
 
-    pub fn addSharedLibrarySource(
-        self: *Builder,
+    pub const ObjectOptions = struct {
         name: []const u8,
-        root_src: ?FileSource,
-        kind: LibExeObjStep.SharedLibKind,
-    ) *LibExeObjStep {
-        return LibExeObjStep.createSharedLibrary(self, name, root_src, kind);
+        root_source_file: ?FileSource,
+        target: CrossTarget,
+        optimize: std.builtin.Mode,
+    };
+
+    pub fn addObject(b: *Builder, options: ObjectOptions) *LibExeObjStep {
+        return LibExeObjStep.create(b, .{
+            .name = options.name,
+            .root_source_file = options.root_source_file,
+            .target = options.target,
+            .optimize = options.optimize,
+            .kind = .obj,
+        });
     }
 
-    pub fn addStaticLibrary(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
-        return addStaticLibrarySource(self, name, convertOptionalPathToFileSource(root_src));
+    pub const SharedLibraryOptions = struct {
+        name: []const u8,
+        root_source_file: ?FileSource,
+        version: ?std.builtin.Version = null,
+        target: CrossTarget,
+        optimize: std.builtin.Mode,
+    };
+
+    pub fn addSharedLibrary(b: *Builder, options: SharedLibraryOptions) *LibExeObjStep {
+        return LibExeObjStep.create(b, .{
+            .name = options.name,
+            .root_source_file = options.root_source_file,
+            .kind = .lib,
+            .linkage = .dynamic,
+            .version = options.version,
+            .target = options.target,
+            .optimize = options.optimize,
+        });
     }
 
-    pub fn addStaticLibrarySource(self: *Builder, name: []const u8, root_src: ?FileSource) *LibExeObjStep {
-        return LibExeObjStep.createStaticLibrary(self, name, root_src);
+    pub const StaticLibraryOptions = struct {
+        name: []const u8,
+        root_source_file: ?FileSource = null,
+        target: CrossTarget,
+        optimize: std.builtin.Mode,
+        version: ?std.builtin.Version = null,
+    };
+
+    pub fn addStaticLibrary(b: *Builder, options: StaticLibraryOptions) *LibExeObjStep {
+        return LibExeObjStep.create(b, .{
+            .name = options.name,
+            .root_source_file = options.root_source_file,
+            .kind = .lib,
+            .linkage = .static,
+            .version = options.version,
+            .target = options.target,
+            .optimize = options.optimize,
+        });
     }
 
-    pub fn addTest(self: *Builder, root_src: []const u8) *LibExeObjStep {
-        return LibExeObjStep.createTest(self, "test", .{ .path = root_src });
+    pub const TestOptions = struct {
+        name: []const u8 = "test",
+        kind: LibExeObjStep.Kind = .@"test",
+        root_source_file: FileSource,
+        target: CrossTarget,
+        optimize: std.builtin.Mode,
+        version: ?std.builtin.Version = null,
+    };
+
+    pub fn addTest(b: *Builder, options: TestOptions) *LibExeObjStep {
+        return LibExeObjStep.create(b, .{
+            .name = options.name,
+            .kind = options.kind,
+            .root_source_file = options.root_source_file,
+            .target = options.target,
+            .optimize = options.optimize,
+        });
     }
 
-    pub fn addTestSource(self: *Builder, root_src: FileSource) *LibExeObjStep {
-        return LibExeObjStep.createTest(self, "test", root_src.dupe(self));
-    }
+    pub const AssemblyOptions = struct {
+        name: []const u8,
+        source_file: FileSource,
+        target: CrossTarget,
+        optimize: std.builtin.Mode,
+    };
 
-    pub fn addTestExe(self: *Builder, name: []const u8, root_src: []const u8) *LibExeObjStep {
-        return LibExeObjStep.createTestExe(self, name, .{ .path = root_src });
-    }
-
-    pub fn addTestExeSource(self: *Builder, name: []const u8, root_src: FileSource) *LibExeObjStep {
-        return LibExeObjStep.createTestExe(self, name, root_src.dupe(self));
-    }
-
-    pub fn addAssemble(self: *Builder, name: []const u8, src: []const u8) *LibExeObjStep {
-        return addAssembleSource(self, name, .{ .path = src });
-    }
-
-    pub fn addAssembleSource(self: *Builder, name: []const u8, src: FileSource) *LibExeObjStep {
-        const obj_step = LibExeObjStep.createObject(self, name, null);
-        obj_step.addAssemblyFileSource(src.dupe(self));
+    pub fn addAssembly(b: *Builder, options: AssemblyOptions) *LibExeObjStep {
+        const obj_step = LibExeObjStep.create(b, .{
+            .name = options.name,
+            .root_source_file = null,
+            .target = options.target,
+            .optimize = options.optimize,
+        });
+        obj_step.addAssemblyFileSource(options.source_file.dupe(b));
         return obj_step;
     }
 
@@ -591,17 +632,6 @@ pub const Builder = struct {
 
     pub fn addTranslateC(self: *Builder, source: FileSource) *TranslateCStep {
         return TranslateCStep.create(self, source.dupe(self));
-    }
-
-    pub fn version(self: *const Builder, major: u32, minor: u32, patch: u32) LibExeObjStep.SharedLibKind {
-        _ = self;
-        return .{
-            .versioned = .{
-                .major = major,
-                .minor = minor,
-                .patch = patch,
-            },
-        };
     }
 
     pub fn make(self: *Builder, step_names: []const []const u8) !void {
