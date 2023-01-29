@@ -6446,7 +6446,12 @@ fn analyzeCall(
             .extern_fn => return sema.fail(block, call_src, "{s} call of extern function", .{
                 @as([]const u8, if (is_comptime_call) "comptime" else "inline"),
             }),
-            else => unreachable,
+            else => {
+                assert(callee_ty.isPtrAtRuntime());
+                return sema.fail(block, call_src, "{s} call of function pointer", .{
+                    @as([]const u8, if (is_comptime_call) "comptime" else "inline"),
+                });
+            },
         };
         if (func_ty_info.is_var_args) {
             return sema.fail(block, call_src, "{s} call of variadic function", .{
