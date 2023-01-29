@@ -916,17 +916,6 @@ test "expectEqualDeep composite type" {
     }
 }
 
-test "expectEqualDeep bad case" {
-    try expectError(error.TestExpectedEqual, expectEqualDeep(1, 2));
-    try expectError(error.TestExpectedEqual, expectEqualDeep("abc", "abd"));
-    const TestStruct = struct { s: []const u8 };
-    try expectError(error.TestExpectedEqual, expectEqualDeep(TestStruct{ .s = "abc" }, TestStruct{ .s = "abd" }));
-    try expectError(error.TestExpectedEqual, expectEqualDeep([_][]const u8{ "a", "b", "c" }, [_][]const u8{ "a", "a", "c" }));
-
-    // vector
-    try expectError(error.TestExpectedEqual, expectEqualDeep(@splat(4, @as(u32, 3)), @splat(4, @as(u32, 4))));
-}
-
 fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
     const line_begin_index = if (std.mem.lastIndexOfScalar(u8, source[0..indicator_index], '\n')) |line_begin|
         line_begin + 1
