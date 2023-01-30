@@ -3457,11 +3457,11 @@ test "zig fmt: for" {
         \\    for (a) |*v|
         \\        continue;
         \\
-        \\    for (a) |v, i| {
+        \\    for (a, 0..) |v, i| {
         \\        continue;
         \\    }
         \\
-        \\    for (a) |v, i|
+        \\    for (a, 0..) |v, i|
         \\        continue;
         \\
         \\    for (a) |b| switch (b) {
@@ -3469,16 +3469,23 @@ test "zig fmt: for" {
         \\        d => {},
         \\    };
         \\
-        \\    const res = for (a) |v, i| {
+        \\    const res = for (a, 0..) |v, i| {
         \\        break v;
         \\    } else {
         \\        unreachable;
         \\    };
         \\
         \\    var num: usize = 0;
-        \\    inline for (a) |v, i| {
+        \\    inline for (a, 0..1) |v, i| {
         \\        num += v;
         \\        num += i;
+        \\    }
+        \\
+        \\    for (a, b) |
+        \\        long_name,
+        \\        another_long_name,
+        \\    | {
+        \\        continue;
         \\    }
         \\}
         \\
@@ -3496,6 +3503,26 @@ test "zig fmt: for" {
         \\        f(x)
         \\    else
         \\        continue;
+        \\}
+        \\
+    );
+
+    try testTransform(
+        \\test "fix for" {
+        \\    for (a, b, c,) |long, another, third,| {}
+        \\}
+        \\
+    ,
+        \\test "fix for" {
+        \\    for (
+        \\        a,
+        \\        b,
+        \\        c,
+        \\    ) |
+        \\        long,
+        \\        another,
+        \\        third,
+        \\    | {}
         \\}
         \\
     );
@@ -4358,7 +4385,7 @@ test "zig fmt: hex literals with underscore separators" {
     try testTransform(
         \\pub fn orMask(a: [ 1_000 ]u64, b: [  1_000]  u64) [1_000]u64 {
         \\    var c: [1_000]u64 =  [1]u64{ 0xFFFF_FFFF_FFFF_FFFF}**1_000;
-        \\    for (c [ 1_0 .. ]) |_, i| {
+        \\    for (c [ 1_0 .. ], 0..) |_, i| {
         \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
         \\    }
         \\    return c;
@@ -4368,7 +4395,7 @@ test "zig fmt: hex literals with underscore separators" {
     ,
         \\pub fn orMask(a: [1_000]u64, b: [1_000]u64) [1_000]u64 {
         \\    var c: [1_000]u64 = [1]u64{0xFFFF_FFFF_FFFF_FFFF} ** 1_000;
-        \\    for (c[1_0..]) |_, i| {
+        \\    for (c[1_0..], 0..) |_, i| {
         \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
         \\    }
         \\    return c;
@@ -4880,10 +4907,10 @@ test "zig fmt: remove trailing whitespace after doc comment" {
 test "zig fmt: for loop with ptr payload and index" {
     try testCanonical(
         \\test {
-        \\    for (self.entries.items) |*item, i| {}
-        \\    for (self.entries.items) |*item, i|
+        \\    for (self.entries.items, 0..) |*item, i| {}
+        \\    for (self.entries.items, 0..) |*item, i|
         \\        a = b;
-        \\    for (self.entries.items) |*item, i| a = b;
+        \\    for (self.entries.items, 0..) |*item, i| a = b;
         \\}
         \\
     );
@@ -5471,7 +5498,7 @@ test "zig fmt: canonicalize symbols (primitive types)" {
         \\    _ = @"void": {
         \\        break :@"void";
         \\    };
-        \\    for ("hi") |@"u3", @"i4"| {
+        \\    for ("hi", 0..) |@"u3", @"i4"| {
         \\        _ = @"u3";
         \\        _ = @"i4";
         \\    }
@@ -5523,7 +5550,7 @@ test "zig fmt: canonicalize symbols (primitive types)" {
         \\    _ = void: {
         \\        break :void;
         \\    };
-        \\    for ("hi") |@"u3", @"i4"| {
+        \\    for ("hi", 0..) |@"u3", @"i4"| {
         \\        _ = @"u3";
         \\        _ = @"i4";
         \\    }
