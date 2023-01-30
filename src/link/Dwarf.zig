@@ -2639,7 +2639,7 @@ fn getDbgInfoAtom(tag: File.Tag, mod: *Module, decl_index: Module.Decl.Index) *A
     const decl = mod.declPtr(decl_index);
     return switch (tag) {
         .elf => &decl.link.elf.dbg_info_atom,
-        .macho => &decl.link.macho.dbg_info_atom,
+        .macho => unreachable,
         .wasm => &decl.link.wasm.dbg_info_atom,
         else => unreachable,
     };

@@ -2556,9 +2556,7 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
         try decl.link.elf.ensureInitialized(elf_file);
         return MCValue{ .memory = decl.link.elf.getOffsetTableAddress(elf_file) };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
-        // TODO I'm hacking my way through here by repurposing .memory for storing
-        // index to the GOT target symbol index.
-        return MCValue{ .memory = decl.link.macho.sym_index };
+        unreachable;
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
         return self.fail("TODO codegen COFF const Decl pointer", .{});
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {

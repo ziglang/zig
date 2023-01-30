@@ -4098,7 +4098,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
 
             // The exports this Decl performs will be re-discovered, so we remove them here
             // prior to re-analysis.
-            mod.deleteDeclExports(decl_index);
+            try mod.deleteDeclExports(decl_index);
 
             // Similarly, `@setAlignStack` invocations will be re-discovered.
             if (decl.getFunction()) |func| {
@@ -5265,7 +5265,7 @@ pub fn clearDecl(
         assert(emit_h.decl_table.swapRemove(decl_index));
     }
     _ = mod.compile_log_decls.swapRemove(decl_index);
-    mod.deleteDeclExports(decl_index);
+    try mod.deleteDeclExports(decl_index);
 
     if (decl.has_tv) {
         if (decl.ty.isFnOrHasRuntimeBits()) {
@@ -5276,7 +5276,7 @@ pub fn clearDecl(
             decl.link = switch (mod.comp.bin_file.tag) {
                 .coff => .{ .coff = link.File.Coff.Atom.empty },
                 .elf => .{ .elf = link.File.Elf.TextBlock.empty },
-                .macho => .{ .macho = link.File.MachO.Atom.empty },
+                .macho => .{ .macho = {} },
                 .plan9 => .{ .plan9 = link.File.Plan9.DeclBlock.empty },
                 .c => .{ .c = {} },
                 .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
@@ -5358,7 +5358,7 @@ pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
 
 /// Delete all the Export objects that are caused by this Decl. Re-analysis of
 /// this Decl will cause them to be re-created (or not).
-fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) void {
+fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
     var export_owners = (mod.export_owners.fetchSwapRemove(decl_index) orelse return).value;
 
     for (export_owners.items) |exp| {
@@ -5384,7 +5384,7 @@ fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) void {
             elf.deleteExport(exp.link.elf);
         }
         if (mod.comp.bin_file.cast(link.File.MachO)) |macho| {
-            macho.deleteExport(exp.link.macho);
+            try macho.deleteDeclExport(decl_index, exp.options.name);
         }
         if (mod.comp.bin_file.cast(link.File.Wasm)) |wasm| {
             wasm.deleteExport(exp.link.wasm);
@@ -5696,7 +5696,7 @@ pub fn allocateNewDecl(
         .link = switch (mod.comp.bin_file.tag) {
             .coff => .{ .coff = link.File.Coff.Atom.empty },
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
-            .macho => .{ .macho = link.File.MachO.Atom.empty },
+            .macho => .{ .macho = {} },
             .plan9 => .{ .plan9 = link.File.Plan9.DeclBlock.empty },
             .c => .{ .c = {} },
             .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
