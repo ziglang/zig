@@ -61,39 +61,51 @@ pub fn addValues(self: *ConfigHeaderStep, values: anytype) void {
 
 fn addValuesInner(self: *ConfigHeaderStep, values: anytype) !void {
     inline for (@typeInfo(@TypeOf(values)).Struct.fields) |field| {
-        switch (@typeInfo(field.type)) {
-            .Null => {
-                try self.values.put(field.name, .undef);
-            },
-            .Void => {
-                try self.values.put(field.name, .defined);
-            },
-            .Bool => {
-                try self.values.put(field.name, .{ .boolean = @field(values, field.name) });
-            },
-            .ComptimeInt => {
-                try self.values.put(field.name, .{ .int = @field(values, field.name) });
-            },
-            .EnumLiteral => {
-                try self.values.put(field.name, .{ .ident = @tagName(@field(values, field.name)) });
-            },
-            .Pointer => |ptr| {
-                switch (@typeInfo(ptr.child)) {
-                    .Array => |array| {
-                        if (ptr.size == .One and array.child == u8) {
-                            try self.values.put(field.name, .{ .string = @field(values, field.name) });
-                            continue;
-                        }
-                    },
-                    else => {},
-                }
+        try putValue(self, field.name, field.type, @field(values, field.name));
+    }
+}
 
-                @compileError("unsupported ConfigHeaderStep value type: " ++
-                    @typeName(field.type));
-            },
-            else => @compileError("unsupported ConfigHeaderStep value type: " ++
-                @typeName(field.type)),
-        }
+fn putValue(self: *ConfigHeaderStep, field_name: []const u8, comptime T: type, v: T) !void {
+    switch (@typeInfo(T)) {
+        .Null => {
+            try self.values.put(field_name, .undef);
+        },
+        .Void => {
+            try self.values.put(field_name, .defined);
+        },
+        .Bool => {
+            try self.values.put(field_name, .{ .boolean = v });
+        },
+        .Int => {
+            try self.values.put(field_name, .{ .int = v });
+        },
+        .ComptimeInt => {
+            try self.values.put(field_name, .{ .int = v });
+        },
+        .EnumLiteral => {
+            try self.values.put(field_name, .{ .ident = @tagName(v) });
+        },
+        .Optional => {
+            if (v) |x| {
+                return putValue(self, field_name, @TypeOf(x), x);
+            } else {
+                try self.values.put(field_name, .undef);
+            }
+        },
+        .Pointer => |ptr| {
+            switch (@typeInfo(ptr.child)) {
+                .Array => |array| {
+                    if (ptr.size == .One and array.child == u8) {
+                        try self.values.put(field_name, .{ .string = v });
+                        return;
+                    }
+                },
+                else => {},
+            }
+
+            @compileError("unsupported ConfigHeaderStep value type: " ++ @typeName(T));
+        },
+        else => @compileError("unsupported ConfigHeaderStep value type: " ++ @typeName(T)),
     }
 }
 
