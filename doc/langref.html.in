@@ -10560,8 +10560,9 @@ pub fn build(b: *std.Build) void {
     // for restricting supported target set are available.
     const target = b.standardTargetOptions(.{});
 
-    // Standard release options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
+    // Standard optimization options allow the person running `zig build` to select
+    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
+    // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
     const exe = b.addExecutable(.{
@@ -10964,8 +10965,11 @@ int main(int argc, char **argv) {
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const lib = b.addSharedLibrary("mathtest", "mathtest.zig", b.version(1, 0, 0));
-
+    const lib = b.addSharedLibrary(.{
+        .name = "mathtest",
+        .root_source_file = .{ .path = "mathtest.zig" },
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
+    });
     const exe = b.addExecutable(.{
         .name = "test",
     });
@@ -11028,7 +11032,10 @@ int main(int argc, char **argv) {
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const obj = b.addObject("base64", "base64.zig");
+    const obj = b.addObject(.{
+        .name = "base64",
+        .root_source_file = .{ .path = "base64.zig" },
+    });
 
     const exe = b.addExecutable(.{
         .name = "test",
