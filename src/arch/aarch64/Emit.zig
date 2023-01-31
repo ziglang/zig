@@ -919,7 +919,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             },
         });
     } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
-        const atom = coff_file.getAtomForSymbol(.{ .sym_index = data.atom_index, .file = null }).?;
+        const atom_index = coff_file.getAtomIndexForSymbol(.{ .sym_index = data.atom_index, .file = null }).?;
         const target = switch (tag) {
             .load_memory_got,
             .load_memory_ptr_got,
@@ -929,7 +929,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             .load_memory_import => coff_file.getGlobalByIndex(data.sym_index),
             else => unreachable,
         };
-        try atom.addRelocation(coff_file, .{
+        try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
             .target = target,
             .offset = offset,
             .addend = 0,
@@ -946,7 +946,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
                 else => unreachable,
             },
         });
-        try atom.addRelocation(coff_file, .{
+        try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
             .target = target,
             .offset = offset + 4,
             .addend = 0,

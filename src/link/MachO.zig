@@ -3015,6 +3015,11 @@ fn allocateAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignm
     if (header.@"align" < align_pow) {
         header.@"align" = align_pow;
     }
+    {
+        const atom_ptr = self.getAtomPtr(atom_index);
+        atom_ptr.size = new_atom_size;
+        atom_ptr.alignment = @intCast(u32, alignment);
+    }
 
     if (atom.prev_index) |prev_index| {
         const prev = self.getAtomPtr(prev_index);

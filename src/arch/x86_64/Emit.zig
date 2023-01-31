@@ -1011,8 +1011,8 @@ fn mirLeaPic(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             .length = 2,
         });
     } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
-        const atom = coff_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
-        try atom.addRelocation(coff_file, .{
+        const atom_index = coff_file.getAtomIndexForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
+        try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
             .type = switch (ops.flags) {
                 0b00 => .got,
                 0b01 => .direct,
@@ -1152,9 +1152,9 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         });
     } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
         // Add relocation to the decl.
-        const atom = coff_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
+        const atom_index = coff_file.getAtomIndexForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
         const target = coff_file.getGlobalByIndex(relocation.sym_index);
-        try atom.addRelocation(coff_file, .{
+        try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
             .type = .direct,
             .target = target,
             .offset = offset,

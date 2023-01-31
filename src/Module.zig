@@ -5274,7 +5274,7 @@ pub fn clearDecl(
             // TODO instead of a union, put this memory trailing Decl objects,
             // and allow it to be variably sized.
             decl.link = switch (mod.comp.bin_file.tag) {
-                .coff => .{ .coff = link.File.Coff.Atom.empty },
+                .coff => .{ .coff = {} },
                 .elf => .{ .elf = {} },
                 .macho => .{ .macho = {} },
                 .plan9 => .{ .plan9 = link.File.Plan9.DeclBlock.empty },
@@ -5390,7 +5390,7 @@ fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) Allocator.Error!void 
             wasm.deleteExport(exp.link.wasm);
         }
         if (mod.comp.bin_file.cast(link.File.Coff)) |coff| {
-            coff.deleteExport(exp.link.coff);
+            coff.deleteDeclExport(decl_index, exp.options.name);
         }
         if (mod.failed_exports.fetchSwapRemove(exp)) |failed_kv| {
             failed_kv.value.destroy(mod.gpa);
@@ -5694,7 +5694,7 @@ pub fn allocateNewDecl(
         .zir_decl_index = 0,
         .src_scope = src_scope,
         .link = switch (mod.comp.bin_file.tag) {
-            .coff => .{ .coff = link.File.Coff.Atom.empty },
+            .coff => .{ .coff = {} },
             .elf => .{ .elf = {} },
             .macho => .{ .macho = {} },
             .plan9 => .{ .plan9 = link.File.Plan9.DeclBlock.empty },

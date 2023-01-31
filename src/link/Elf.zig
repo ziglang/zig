@@ -71,14 +71,14 @@ const DeclMetadata = struct {
 
     fn getExport(m: DeclMetadata, elf_file: *const Elf, name: []const u8) ?u32 {
         for (m.exports.items) |exp| {
-            if (mem.eql(u8, name, elf_file.getSymbolName(exp))) return exp;
+            if (mem.eql(u8, name, elf_file.getGlobalName(exp))) return exp;
         }
         return null;
     }
 
     fn getExportPtr(m: *DeclMetadata, elf_file: *Elf, name: []const u8) ?*u32 {
         for (m.exports.items) |*exp| {
-            if (mem.eql(u8, name, elf_file.getSymbolName(exp.*))) return exp;
+            if (mem.eql(u8, name, elf_file.getGlobalName(exp.*))) return exp;
         }
         return null;
     }
@@ -3273,6 +3273,12 @@ pub fn getSymbol(self: *const Elf, sym_index: u32) elf.Elf64_Sym {
 /// Returns name of the symbol at sym_index.
 pub fn getSymbolName(self: *const Elf, sym_index: u32) []const u8 {
     const sym = self.local_symbols.items[sym_index];
+    return self.shstrtab.get(sym.st_name).?;
+}
+
+/// Returns name of the global symbol at index.
+pub fn getGlobalName(self: *const Elf, index: u32) []const u8 {
+    const sym = self.global_symbols.items[index];
     return self.shstrtab.get(sym.st_name).?;
 }
 

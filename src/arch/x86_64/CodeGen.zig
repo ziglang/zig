@@ -2668,13 +2668,12 @@ fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue
     switch (ptr) {
         .linker_load => |load_struct| {
             const abi_size = @intCast(u32, ptr_ty.abiSize(self.target.*));
-            const mod = self.bin_file.options.module.?;
-            const fn_owner_decl = mod.declPtr(self.mod_fn.owner_decl);
             const atom_index = if (self.bin_file.cast(link.File.MachO)) |macho_file| blk: {
                 const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
                 break :blk macho_file.getAtom(atom).getSymbolIndex().?;
-            } else if (self.bin_file.cast(link.File.Coff)) |_| blk: {
-                break :blk fn_owner_decl.link.coff.getSymbolIndex().?;
+            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| blk: {
+                const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                break :blk coff_file.getAtom(atom).getSymbolIndex().?;
             } else unreachable;
             const flags: u2 = switch (load_struct.type) {
                 .got => 0b00,
@@ -4009,8 +4008,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     .data = .{ .imm = got_addr },
                 });
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-                try fn_owner_decl.link.coff.ensureInitialized(coff_file);
-                const sym_index = fn_owner_decl.link.coff.getSymbolIndex().?;
+                const atom_index = try coff_file.getOrCreateAtomForDecl(func.owner_decl);
+                const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
                 try self.genSetReg(Type.initTag(.usize), .rax, .{
                     .linker_load = .{
                         .type = .got,
@@ -6733,10 +6732,11 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
             .sym_index = sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-        try decl.link.coff.ensureInitialized(coff_file);
+        const atom_index = try coff_file.getOrCreateAtomForDecl(decl_index);
+        const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
         return MCValue{ .linker_load = .{
             .type = .got,
-            .sym_index = decl.link.coff.getSymbolIndex().?,
+            .sym_index = sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
         try p9.seeDecl(decl_index);
