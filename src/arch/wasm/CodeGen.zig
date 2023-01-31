@@ -1706,9 +1706,11 @@ fn isByRef(ty: Type, target: std.Target) bool {
             return true;
         },
         .Optional => {
-            if (ty.optionalReprIsPayload()) return false;
+            if (ty.isPtrLikeOptional()) return false;
             var buf: Type.Payload.ElemType = undefined;
-            return ty.optionalChild(&buf).hasRuntimeBitsIgnoreComptime();
+            const pl_type = ty.optionalChild(&buf);
+            if (pl_type.zigTypeTag() == .ErrorSet) return false;
+            return pl_type.hasRuntimeBitsIgnoreComptime();
         },
         .Pointer => {
             // Slices act like struct and will be passed by reference
@@ -3869,13 +3871,19 @@ fn airIsNull(func: *CodeGen, inst: Air.Inst.Index, opcode: wasm.Opcode, op_kind:
 /// NOTE: Leaves the result on the stack
 fn isNull(func: *CodeGen, operand: WValue, optional_ty: Type, opcode: wasm.Opcode) InnerError!WValue {
     try func.emitWValue(operand);
+    var buf: Type.Payload.ElemType = undefined;
+    const payload_ty = optional_ty.optionalChild(&buf);
     if (!optional_ty.optionalReprIsPayload()) {
-        var buf: Type.Payload.ElemType = undefined;
-        const payload_ty = optional_ty.optionalChild(&buf);
         // When payload is zero-bits, we can treat operand as a value, rather than
         // a pointer to the stack value
         if (payload_ty.hasRuntimeBitsIgnoreComptime()) {
             try func.addMemArg(.i32_load8_u, .{ .offset = operand.offset(), .alignment = 1 });
+        }
+    } else if (payload_ty.isSlice()) {
+        switch (func.arch()) {
+            .wasm32 => try func.addMemArg(.i32_load, .{ .offset = operand.offset(), .alignment = 4 }),
+            .wasm64 => try func.addMemArg(.i64_load, .{ .offset = operand.offset(), .alignment = 8 }),
+            else => unreachable,
         }
     }
 
