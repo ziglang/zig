@@ -96,13 +96,8 @@ pub const wasm = @import("wasm.zig");
 pub const zig = @import("zig.zig");
 pub const start = @import("start.zig");
 
-///// Deprecated. Use `std.Build` instead.
-///// TODO: remove this after releasing 0.11.0
-//pub const build = struct {
-//    /// Deprecated. Use `std.Build` instead.
-//    /// TODO: remove this after releasing 0.11.0
-//    pub const Builder = Build;
-//};
+/// deprecated: use `Build`.
+pub const build = Build;
 
 const root = @import("root");
 const options_override = if (@hasDecl(root, "std_options")) root.std_options else struct {};

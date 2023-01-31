@@ -19,8 +19,12 @@ const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Build = @This();
 
-///// deprecated: use `CompileStep` instead.
-//pub const LibExeObjStep = CompileStep;
+/// deprecated: use `CompileStep`.
+pub const LibExeObjStep = CompileStep;
+/// deprecated: use `Build`.
+pub const Builder = Build;
+/// deprecated: use `InstallDirStep.Options`
+pub const InstallDirectoryOptions = InstallDirStep.Options;
 
 pub const Step = @import("Build/Step.zig");
 pub const CheckFileStep = @import("Build/CheckFileStep.zig");
@@ -1636,9 +1640,6 @@ pub fn constructCMacro(allocator: Allocator, name: []const u8, value: ?[]const u
     }
     return macro;
 }
-
-/// deprecated: use `InstallDirStep.Options`
-pub const InstallDirectoryOptions = InstallDirStep.Options;
 
 pub const VcpkgRoot = union(VcpkgRootStatus) {
     unattempted: void,
