@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const LibExeObjectStep = std.Build.LibExeObjStep;
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
@@ -51,7 +50,11 @@ fn testUnwindInfo(
     test_step.dependOn(&run_cmd.step);
 }
 
-fn createScenario(b: *std.Build, optimize: std.builtin.OptimizeMode, target: std.zig.CrossTarget) *LibExeObjectStep {
+fn createScenario(
+    b: *std.Build,
+    optimize: std.builtin.OptimizeMode,
+    target: std.zig.CrossTarget,
+) *std.Build.CompileStep {
     const exe = b.addExecutable(.{
         .name = "test",
         .optimize = optimize,

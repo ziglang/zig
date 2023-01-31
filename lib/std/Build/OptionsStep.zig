@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const fs = std.fs;
 const Step = std.Build.Step;
 const GeneratedFile = std.Build.GeneratedFile;
-const LibExeObjStep = std.Build.LibExeObjStep;
+const CompileStep = std.Build.CompileStep;
 const FileSource = std.Build.FileSource;
 
 const OptionsStep = @This();
@@ -195,7 +195,7 @@ pub fn addOptionFileSource(
 
 /// The value is the path in the cache dir.
 /// Adds a dependency automatically.
-pub fn addOptionArtifact(self: *OptionsStep, name: []const u8, artifact: *LibExeObjStep) void {
+pub fn addOptionArtifact(self: *OptionsStep, name: []const u8, artifact: *CompileStep) void {
     self.artifact_args.append(.{ .name = self.builder.dupe(name), .artifact = artifact }) catch unreachable;
     self.step.dependOn(&artifact.step);
 }
@@ -266,7 +266,7 @@ fn hashContentsToFileName(self: *OptionsStep) [64]u8 {
 
 const OptionArtifactArg = struct {
     name: []const u8,
-    artifact: *LibExeObjStep,
+    artifact: *CompileStep,
 };
 
 const OptionFileSourceArg = struct {

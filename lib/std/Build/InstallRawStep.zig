@@ -9,7 +9,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const File = std.fs.File;
 const InstallDir = std.Build.InstallDir;
-const LibExeObjStep = std.Build.LibExeObjStep;
+const CompileStep = std.Build.CompileStep;
 const Step = std.Build.Step;
 const elf = std.elf;
 const fs = std.fs;
@@ -25,7 +25,7 @@ pub const RawFormat = enum {
 
 step: Step,
 builder: *std.Build,
-artifact: *LibExeObjStep,
+artifact: *CompileStep,
 dest_dir: InstallDir,
 dest_filename: []const u8,
 options: CreateOptions,
@@ -40,7 +40,7 @@ pub const CreateOptions = struct {
 
 pub fn create(
     builder: *std.Build,
-    artifact: *LibExeObjStep,
+    artifact: *CompileStep,
     dest_filename: []const u8,
     options: CreateOptions,
 ) *InstallRawStep {

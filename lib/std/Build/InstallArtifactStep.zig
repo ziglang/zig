@@ -1,6 +1,6 @@
 const std = @import("../std.zig");
 const Step = std.Build.Step;
-const LibExeObjStep = std.Build.LibExeObjStep;
+const CompileStep = std.Build.CompileStep;
 const InstallDir = std.Build.InstallDir;
 const InstallArtifactStep = @This();
 
@@ -8,12 +8,12 @@ pub const base_id = .install_artifact;
 
 step: Step,
 builder: *std.Build,
-artifact: *LibExeObjStep,
+artifact: *CompileStep,
 dest_dir: InstallDir,
 pdb_dir: ?InstallDir,
 h_dir: ?InstallDir,
 
-pub fn create(builder: *std.Build, artifact: *LibExeObjStep) *InstallArtifactStep {
+pub fn create(builder: *std.Build, artifact: *CompileStep) *InstallArtifactStep {
     if (artifact.install_step) |s| return s;
 
     const self = builder.allocator.create(InstallArtifactStep) catch unreachable;
@@ -67,7 +67,7 @@ fn make(step: *Step) !void {
     const full_dest_path = builder.getInstallPath(self.dest_dir, self.artifact.out_filename);
     try builder.updateFile(self.artifact.getOutputSource().getPath(builder), full_dest_path);
     if (self.artifact.isDynamicLibrary() and self.artifact.version != null and self.artifact.target.wantSharedLibSymLinks()) {
-        try LibExeObjStep.doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename.?, self.artifact.name_only_filename.?);
+        try CompileStep.doAtomicSymLinks(builder.allocator, full_dest_path, self.artifact.major_only_filename.?, self.artifact.name_only_filename.?);
     }
     if (self.artifact.isDynamicLibrary() and self.artifact.target.isWindows() and self.artifact.emit_implib != .no_emit) {
         const full_implib_path = builder.getInstallPath(self.dest_dir, self.artifact.out_lib_filename);

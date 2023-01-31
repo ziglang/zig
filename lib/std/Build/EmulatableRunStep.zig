@@ -6,7 +6,7 @@
 
 const std = @import("../std.zig");
 const Step = std.Build.Step;
-const LibExeObjStep = std.Build.LibExeObjStep;
+const CompileStep = std.Build.CompileStep;
 const RunStep = std.Build.RunStep;
 
 const fs = std.fs;
@@ -23,7 +23,7 @@ step: Step,
 builder: *std.Build,
 
 /// The artifact (executable) to be run by this step
-exe: *LibExeObjStep,
+exe: *CompileStep,
 
 /// Set this to `null` to ignore the exit code for the purpose of determining a successful execution
 expected_exit_code: ?u8 = 0,
@@ -45,7 +45,7 @@ hide_foreign_binaries_warning: bool,
 /// binary through emulation when any of the emulation options such as `enable_rosetta` are set to true.
 /// When set to false, and the binary is foreign, running the executable is skipped.
 /// Asserts given artifact is an executable.
-pub fn create(builder: *std.Build, name: []const u8, artifact: *LibExeObjStep) *EmulatableRunStep {
+pub fn create(builder: *std.Build, name: []const u8, artifact: *CompileStep) *EmulatableRunStep {
     std.debug.assert(artifact.kind == .exe or artifact.kind == .test_exe);
     const self = builder.allocator.create(EmulatableRunStep) catch unreachable;
 

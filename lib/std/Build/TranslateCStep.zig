@@ -1,6 +1,6 @@
 const std = @import("../std.zig");
 const Step = std.Build.Step;
-const LibExeObjStep = std.Build.LibExeObjStep;
+const CompileStep = std.Build.CompileStep;
 const CheckFileStep = std.Build.CheckFileStep;
 const fs = std.fs;
 const mem = std.mem;
@@ -51,11 +51,11 @@ pub const AddExecutableOptions = struct {
     version: ?std.builtin.Version = null,
     target: ?CrossTarget = null,
     optimize: ?std.builtin.Mode = null,
-    linkage: ?LibExeObjStep.Linkage = null,
+    linkage: ?CompileStep.Linkage = null,
 };
 
 /// Creates a step to build an executable from the translated source.
-pub fn addExecutable(self: *TranslateCStep, options: AddExecutableOptions) *LibExeObjStep {
+pub fn addExecutable(self: *TranslateCStep, options: AddExecutableOptions) *CompileStep {
     return self.builder.addExecutable(.{
         .root_source_file = .{ .generated = &self.output_file },
         .name = options.name orelse "translated_c",

@@ -97,8 +97,10 @@ pub const zig = @import("zig.zig");
 pub const start = @import("start.zig");
 
 ///// Deprecated. Use `std.Build` instead.
+///// TODO: remove this after releasing 0.11.0
 //pub const build = struct {
 //    /// Deprecated. Use `std.Build` instead.
+//    /// TODO: remove this after releasing 0.11.0
 //    pub const Builder = Build;
 //};
 

@@ -1,7 +1,7 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const Step = std.Build.Step;
-const LibExeObjStep = std.Build.LibExeObjStep;
+const CompileStep = std.Build.CompileStep;
 const WriteFileStep = std.Build.WriteFileStep;
 const fs = std.fs;
 const mem = std.mem;
@@ -48,7 +48,7 @@ pub const StdIoAction = union(enum) {
 };
 
 pub const Arg = union(enum) {
-    artifact: *LibExeObjStep,
+    artifact: *CompileStep,
     file_source: std.Build.FileSource,
     bytes: []u8,
 };
@@ -66,7 +66,7 @@ pub fn create(builder: *std.Build, name: []const u8) *RunStep {
     return self;
 }
 
-pub fn addArtifactArg(self: *RunStep, artifact: *LibExeObjStep) void {
+pub fn addArtifactArg(self: *RunStep, artifact: *CompileStep) void {
     self.argv.append(Arg{ .artifact = artifact }) catch unreachable;
     self.step.dependOn(&artifact.step);
 }
@@ -355,13 +355,13 @@ fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
     std.debug.print("\n", .{});
 }
 
-fn addPathForDynLibs(self: *RunStep, artifact: *LibExeObjStep) void {
+fn addPathForDynLibs(self: *RunStep, artifact: *CompileStep) void {
     addPathForDynLibsInternal(&self.step, self.builder, artifact);
 }
 
 /// This should only be used for internal usage, this is called automatically
 /// for the user.
-pub fn addPathForDynLibsInternal(step: *Step, builder: *std.Build, artifact: *LibExeObjStep) void {
+pub fn addPathForDynLibsInternal(step: *Step, builder: *std.Build, artifact: *CompileStep) void {
     for (artifact.link_objects.items) |link_object| {
         switch (link_object) {
             .other_step => |other| {

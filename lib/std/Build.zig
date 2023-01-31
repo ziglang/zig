@@ -19,6 +19,9 @@ const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Build = @This();
 
+///// deprecated: use `CompileStep` instead.
+//pub const LibExeObjStep = CompileStep;
+
 pub const Step = @import("Build/Step.zig");
 pub const CheckFileStep = @import("Build/CheckFileStep.zig");
 pub const CheckObjectStep = @import("Build/CheckObjectStep.zig");
@@ -29,7 +32,7 @@ pub const InstallArtifactStep = @import("Build/InstallArtifactStep.zig");
 pub const InstallDirStep = @import("Build/InstallDirStep.zig");
 pub const InstallFileStep = @import("Build/InstallFileStep.zig");
 pub const InstallRawStep = @import("Build/InstallRawStep.zig");
-pub const LibExeObjStep = @import("Build/LibExeObjStep.zig");
+pub const CompileStep = @import("Build/CompileStep.zig");
 pub const LogStep = @import("Build/LogStep.zig");
 pub const OptionsStep = @import("Build/OptionsStep.zig");
 pub const RemoveDirStep = @import("Build/RemoveDirStep.zig");
@@ -423,11 +426,11 @@ pub const ExecutableOptions = struct {
     version: ?std.builtin.Version = null,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
-    linkage: ?LibExeObjStep.Linkage = null,
+    linkage: ?CompileStep.Linkage = null,
 };
 
-pub fn addExecutable(b: *Build, options: ExecutableOptions) *LibExeObjStep {
-    return LibExeObjStep.create(b, .{
+pub fn addExecutable(b: *Build, options: ExecutableOptions) *CompileStep {
+    return CompileStep.create(b, .{
         .name = options.name,
         .root_source_file = options.root_source_file,
         .version = options.version,
@@ -445,8 +448,8 @@ pub const ObjectOptions = struct {
     optimize: std.builtin.Mode,
 };
 
-pub fn addObject(b: *Build, options: ObjectOptions) *LibExeObjStep {
-    return LibExeObjStep.create(b, .{
+pub fn addObject(b: *Build, options: ObjectOptions) *CompileStep {
+    return CompileStep.create(b, .{
         .name = options.name,
         .root_source_file = options.root_source_file,
         .target = options.target,
@@ -463,8 +466,8 @@ pub const SharedLibraryOptions = struct {
     optimize: std.builtin.Mode,
 };
 
-pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *LibExeObjStep {
-    return LibExeObjStep.create(b, .{
+pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *CompileStep {
+    return CompileStep.create(b, .{
         .name = options.name,
         .root_source_file = options.root_source_file,
         .kind = .lib,
@@ -483,8 +486,8 @@ pub const StaticLibraryOptions = struct {
     version: ?std.builtin.Version = null,
 };
 
-pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *LibExeObjStep {
-    return LibExeObjStep.create(b, .{
+pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *CompileStep {
+    return CompileStep.create(b, .{
         .name = options.name,
         .root_source_file = options.root_source_file,
         .kind = .lib,
@@ -497,15 +500,15 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *LibExeObjStep
 
 pub const TestOptions = struct {
     name: []const u8 = "test",
-    kind: LibExeObjStep.Kind = .@"test",
+    kind: CompileStep.Kind = .@"test",
     root_source_file: FileSource,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
     version: ?std.builtin.Version = null,
 };
 
-pub fn addTest(b: *Build, options: TestOptions) *LibExeObjStep {
-    return LibExeObjStep.create(b, .{
+pub fn addTest(b: *Build, options: TestOptions) *CompileStep {
+    return CompileStep.create(b, .{
         .name = options.name,
         .kind = options.kind,
         .root_source_file = options.root_source_file,
@@ -521,8 +524,8 @@ pub const AssemblyOptions = struct {
     optimize: std.builtin.Mode,
 };
 
-pub fn addAssembly(b: *Build, options: AssemblyOptions) *LibExeObjStep {
-    const obj_step = LibExeObjStep.create(b, .{
+pub fn addAssembly(b: *Build, options: AssemblyOptions) *CompileStep {
+    const obj_step = CompileStep.create(b, .{
         .name = options.name,
         .root_source_file = null,
         .target = options.target,
@@ -536,7 +539,7 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *LibExeObjStep {
 /// executable. More command line arguments can be added with `addArg`,
 /// `addArgs`, and `addArtifactArg`.
 /// Be careful using this function, as it introduces a system dependency.
-/// To run an executable built with zig build, see `LibExeObjStep.run`.
+/// To run an executable built with zig build, see `CompileStep.run`.
 pub fn addSystemCommand(self: *Build, argv: []const []const u8) *RunStep {
     assert(argv.len >= 1);
     const run_step = RunStep.create(self, self.fmt("run {s}", .{argv[0]}));
@@ -1167,11 +1170,11 @@ pub fn makePath(self: *Build, path: []const u8) !void {
     };
 }
 
-pub fn installArtifact(self: *Build, artifact: *LibExeObjStep) void {
+pub fn installArtifact(self: *Build, artifact: *CompileStep) void {
     self.getInstallStep().dependOn(&self.addInstallArtifact(artifact).step);
 }
 
-pub fn addInstallArtifact(self: *Build, artifact: *LibExeObjStep) *InstallArtifactStep {
+pub fn addInstallArtifact(self: *Build, artifact: *CompileStep) *InstallArtifactStep {
     return InstallArtifactStep.create(self, artifact);
 }
 
@@ -1195,7 +1198,7 @@ pub fn installLibFile(self: *Build, src_path: []const u8, dest_rel_path: []const
 }
 
 /// Output format (BIN vs Intel HEX) determined by filename
-pub fn installRaw(self: *Build, artifact: *LibExeObjStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) *InstallRawStep {
+pub fn installRaw(self: *Build, artifact: *CompileStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) *InstallRawStep {
     const raw = self.addInstallRaw(artifact, dest_filename, options);
     self.getInstallStep().dependOn(&raw.step);
     return raw;
@@ -1220,7 +1223,7 @@ pub fn addInstallHeaderFile(b: *Build, src_path: []const u8, dest_rel_path: []co
     return b.addInstallFileWithDir(.{ .path = src_path }, .header, dest_rel_path);
 }
 
-pub fn addInstallRaw(self: *Build, artifact: *LibExeObjStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) *InstallRawStep {
+pub fn addInstallRaw(self: *Build, artifact: *CompileStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) *InstallRawStep {
     return InstallRawStep.create(self, artifact, dest_filename, options);
 }
 
@@ -1456,8 +1459,8 @@ pub fn getInstallPath(self: *Build, dir: InstallDir, dest_rel_path: []const u8) 
 pub const Dependency = struct {
     builder: *Build,
 
-    pub fn artifact(d: *Dependency, name: []const u8) *LibExeObjStep {
-        var found: ?*LibExeObjStep = null;
+    pub fn artifact(d: *Dependency, name: []const u8) *CompileStep {
+        var found: ?*CompileStep = null;
         for (d.builder.install_tls.step.dependencies.items) |dep_step| {
             const inst = dep_step.cast(InstallArtifactStep) orelse continue;
             if (mem.eql(u8, inst.artifact.name, name)) {
@@ -1767,7 +1770,7 @@ test {
     _ = InstallDirStep;
     _ = InstallFileStep;
     _ = InstallRawStep;
-    _ = LibExeObjStep;
+    _ = CompileStep;
     _ = LogStep;
     _ = OptionsStep;
     _ = RemoveDirStep;

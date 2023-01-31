@@ -8,7 +8,7 @@ const mem = std.mem;
 const fmt = std.fmt;
 const ArrayList = std.ArrayList;
 const OptimizeMode = std.builtin.OptimizeMode;
-const LibExeObjStep = std.Build.LibExeObjStep;
+const CompileStep = std.Build.CompileStep;
 const Allocator = mem.Allocator;
 const ExecError = std.Build.ExecError;
 const Step = std.Build.Step;
@@ -842,7 +842,7 @@ pub const StackTracesContext = struct {
 
         step: Step,
         context: *StackTracesContext,
-        exe: *LibExeObjStep,
+        exe: *CompileStep,
         name: []const u8,
         optimize_mode: OptimizeMode,
         expect_output: []const u8,
@@ -850,7 +850,7 @@ pub const StackTracesContext = struct {
 
         pub fn create(
             context: *StackTracesContext,
-            exe: *LibExeObjStep,
+            exe: *CompileStep,
             name: []const u8,
             optimize_mode: OptimizeMode,
             expect_output: []const u8,
@@ -1180,14 +1180,14 @@ pub const GenHContext = struct {
     const GenHCmpOutputStep = struct {
         step: Step,
         context: *GenHContext,
-        obj: *LibExeObjStep,
+        obj: *CompileStep,
         name: []const u8,
         test_index: usize,
         case: *const TestCase,
 
         pub fn create(
             context: *GenHContext,
-            obj: *LibExeObjStep,
+            obj: *CompileStep,
             name: []const u8,
             case: *const TestCase,
         ) *GenHCmpOutputStep {

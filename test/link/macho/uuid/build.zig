@@ -1,5 +1,4 @@
 const std = @import("std");
-const LibExeObjectStep = std.Build.LibExeObjStep;
 
 pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test");
@@ -51,7 +50,11 @@ fn testUuid(
     }
 }
 
-fn simpleDylib(b: *std.Build, optimize: std.builtin.OptimizeMode, target: std.zig.CrossTarget) *LibExeObjectStep {
+fn simpleDylib(
+    b: *std.Build,
+    optimize: std.builtin.OptimizeMode,
+    target: std.zig.CrossTarget,
+) *std.Build.CompileStep {
     const dylib = b.addSharedLibrary(.{
         .name = "test",
         .version = .{ .major = 1, .minor = 0 },

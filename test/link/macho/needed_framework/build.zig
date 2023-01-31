@@ -1,5 +1,4 @@
 const std = @import("std");
-const LibExeObjectStep = std.Build.LibExeObjStep;
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});

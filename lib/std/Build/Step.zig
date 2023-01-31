@@ -7,7 +7,7 @@ done_flag: bool,
 
 pub const Id = enum {
     top_level,
-    lib_exe_obj,
+    compile,
     install_artifact,
     install_file,
     install_dir,
@@ -28,7 +28,7 @@ pub const Id = enum {
     pub fn Type(comptime id: Id) type {
         return switch (id) {
             .top_level => Build.TopLevelStep,
-            .lib_exe_obj => Build.LibExeObjStep,
+            .compile => Build.CompileStep,
             .install_artifact => Build.InstallArtifactStep,
             .install_file => Build.InstallFileStep,
             .install_dir => Build.InstallDirStep,
