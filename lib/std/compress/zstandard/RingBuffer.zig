@@ -4,6 +4,7 @@
 //! if full or empty can be distinguised by looking at the different between the read and write
 //! indices without adding an extra boolean flag or having to reserve a slot in the buffer.
 
+const Allocator = @import("std").mem.Allocator;
 const assert = @import("std").debug.assert;
 
 const RingBuffer = @This();
@@ -11,6 +12,22 @@ const RingBuffer = @This();
 data: []u8,
 read_index: usize,
 write_index: usize,
+
+/// Allocate a new `RingBuffer`
+pub fn init(allocator: Allocator, capacity: usize) Allocator.Error!RingBuffer {
+    const bytes = try allocator.alloc(u8, capacity);
+    return RingBuffer{
+        .data = bytes,
+        .write_index = 0,
+        .read_index = 0,
+    };
+}
+
+/// Free a `RingBuffer`
+pub fn deinit(self: *RingBuffer, allocator: Allocator) void {
+    allocator.free(self.data);
+    self.* = undefined;
+}
 
 /// Returns `index` modulo the length of the backing slice.
 pub fn mask(self: RingBuffer, index: usize) usize {
@@ -70,7 +87,7 @@ pub fn isFull(self: RingBuffer) bool {
 
 /// Returns the length
 pub fn len(self: RingBuffer) usize {
-    const adjusted_write_index = self.write_index + @boolToInt(self.write_index < self.read_index) * 2 * self.data.len;
+    const adjusted_write_index = self.write_index + @as(usize, @boolToInt(self.write_index < self.read_index)) * 2 * self.data.len;
     return adjusted_write_index - self.read_index;
 }
 
