@@ -3880,8 +3880,11 @@ fn isNull(func: *CodeGen, operand: WValue, optional_ty: Type, opcode: wasm.Opcod
             try func.addMemArg(.i32_load8_u, .{ .offset = operand.offset(), .alignment = 1 });
         }
     } else if (payload_ty.isSlice()) {
-        // move the ptr on top of the stack
-        _ = try func.load(operand, Type.usize, 0);
+        switch (func.arch()) {
+            .wasm32 => try func.addMemArg(.i32_load, .{ .offset = operand.offset(), .alignment = 4 }),
+            .wasm64 => try func.addMemArg(.i64_load, .{ .offset = operand.offset(), .alignment = 8 }),
+            else => unreachable,
+        }
     }
 
     // Compare the null value with '0'
