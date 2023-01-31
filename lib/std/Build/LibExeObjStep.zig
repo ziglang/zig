@@ -364,7 +364,7 @@ pub fn create(builder: *std.Build, options: Options) *LibExeObjStep {
         .output_h_path_source = GeneratedFile{ .step = &self.step },
         .output_pdb_path_source = GeneratedFile{ .step = &self.step },
 
-        .target_info = undefined, // populated in computeOutFileNames
+        .target_info = NativeTargetInfo.detect(self.target) catch unreachable,
     };
     self.computeOutFileNames();
     if (root_src) |rs| rs.addStepDependencies(&self.step);
@@ -372,9 +372,6 @@ pub fn create(builder: *std.Build, options: Options) *LibExeObjStep {
 }
 
 fn computeOutFileNames(self: *LibExeObjStep) void {
-    self.target_info = NativeTargetInfo.detect(self.target) catch
-        unreachable;
-
     const target = self.target_info.target;
 
     self.out_filename = std.zig.binNameAlloc(self.builder.allocator, .{
@@ -1946,12 +1943,15 @@ test "addPackage" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
+    const host = try NativeTargetInfo.detect(.{});
+
     var builder = try std.Build.create(
         arena.allocator(),
         "test",
         "test",
         "test",
         "test",
+        host,
     );
     defer builder.destroy();
 

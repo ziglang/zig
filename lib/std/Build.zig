@@ -179,11 +179,10 @@ pub fn create(
     build_root: []const u8,
     cache_root: []const u8,
     global_cache_root: []const u8,
+    host: NativeTargetInfo,
 ) !*Build {
     const env_map = try allocator.create(EnvMap);
     env_map.* = try process.getEnvMap(allocator);
-
-    const host = try NativeTargetInfo.detect(.{});
 
     const self = try allocator.create(Build);
     self.* = Build{
@@ -1529,12 +1528,15 @@ test "builder.findProgram compiles" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
+    const host = try NativeTargetInfo.detect(.{});
+
     const builder = try Build.create(
         arena.allocator(),
         "zig",
         "zig-cache",
         "zig-cache",
         "zig-cache",
+        host,
     );
     defer builder.destroy();
     _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
@@ -1713,12 +1715,16 @@ test "dupePkg()" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
+
+    const host = try NativeTargetInfo.detect(.{});
+
     var builder = try Build.create(
         arena.allocator(),
         "test",
         "test",
         "test",
         "test",
+        host,
     );
     defer builder.destroy();
 

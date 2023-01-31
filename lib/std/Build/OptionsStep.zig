@@ -279,12 +279,16 @@ test "OptionsStep" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
+
+    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+
     var builder = try std.Build.create(
         arena.allocator(),
         "test",
         "test",
         "test",
         "test",
+        host,
     );
     defer builder.destroy();
 

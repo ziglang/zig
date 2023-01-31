@@ -41,12 +41,15 @@ pub fn main() !void {
         return error.InvalidArgs;
     };
 
+    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+
     const builder = try std.Build.create(
         allocator,
         zig_exe,
         build_root,
         cache_root,
         global_cache_root,
+        host,
     );
     defer builder.destroy();
 
