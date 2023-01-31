@@ -57,7 +57,7 @@ pub fn init(
 ) Step {
     return Step{
         .id = id,
-        .name = allocator.dupe(u8, name) catch unreachable,
+        .name = allocator.dupe(u8, name) catch @panic("OOM"),
         .makeFn = makeFn,
         .dependencies = std.ArrayList(*Step).init(allocator),
         .loop_flag = false,
@@ -77,7 +77,7 @@ pub fn make(self: *Step) !void {
 }
 
 pub fn dependOn(self: *Step, other: *Step) void {
-    self.dependencies.append(other) catch unreachable;
+    self.dependencies.append(other) catch @panic("OOM");
 }
 
 fn makeNoOp(self: *Step) anyerror!void {

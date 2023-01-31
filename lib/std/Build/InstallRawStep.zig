@@ -44,7 +44,7 @@ pub fn create(
     dest_filename: []const u8,
     options: CreateOptions,
 ) *InstallRawStep {
-    const self = builder.allocator.create(InstallRawStep) catch unreachable;
+    const self = builder.allocator.create(InstallRawStep) catch @panic("OOM");
     self.* = InstallRawStep{
         .step = Step.init(.install_raw, builder.fmt("install raw binary {s}", .{artifact.step.name}), builder.allocator, make),
         .builder = builder,
@@ -82,7 +82,7 @@ fn make(step: *Step) !void {
     const full_dest_path = b.getInstallPath(self.dest_dir, self.dest_filename);
     self.output_file.path = full_dest_path;
 
-    fs.cwd().makePath(b.getInstallPath(self.dest_dir, "")) catch unreachable;
+    try fs.cwd().makePath(b.getInstallPath(self.dest_dir, ""));
 
     var argv_list = std.ArrayList([]const u8).init(b.allocator);
     try argv_list.appendSlice(&.{ b.zig_exe, "objcopy" });

@@ -24,7 +24,7 @@ obj_format: std.Target.ObjectFormat,
 
 pub fn create(builder: *std.Build, source: std.Build.FileSource, obj_format: std.Target.ObjectFormat) *CheckObjectStep {
     const gpa = builder.allocator;
-    const self = gpa.create(CheckObjectStep) catch unreachable;
+    const self = gpa.create(CheckObjectStep) catch @panic("OOM");
     self.* = .{
         .builder = builder,
         .step = Step.init(.check_file, "CheckObject", gpa, make),
@@ -228,14 +228,14 @@ const Check = struct {
         self.actions.append(.{
             .tag = .match,
             .phrase = self.builder.dupe(phrase),
-        }) catch unreachable;
+        }) catch @panic("OOM");
     }
 
     fn notPresent(self: *Check, phrase: []const u8) void {
         self.actions.append(.{
             .tag = .not_present,
             .phrase = self.builder.dupe(phrase),
-        }) catch unreachable;
+        }) catch @panic("OOM");
     }
 
     fn computeCmp(self: *Check, phrase: []const u8, expected: ComputeCompareExpected) void {
@@ -243,7 +243,7 @@ const Check = struct {
             .tag = .compute_cmp,
             .phrase = self.builder.dupe(phrase),
             .expected = expected,
-        }) catch unreachable;
+        }) catch @panic("OOM");
     }
 };
 
@@ -251,7 +251,7 @@ const Check = struct {
 pub fn checkStart(self: *CheckObjectStep, phrase: []const u8) void {
     var new_check = Check.create(self.builder);
     new_check.match(phrase);
-    self.checks.append(new_check) catch unreachable;
+    self.checks.append(new_check) catch @panic("OOM");
 }
 
 /// Adds another searched phrase to the latest created Check with `CheckObjectStep.checkStart(...)`.
@@ -293,7 +293,7 @@ pub fn checkComputeCompare(
 ) void {
     var new_check = Check.create(self.builder);
     new_check.computeCmp(program, expected);
-    self.checks.append(new_check) catch unreachable;
+    self.checks.append(new_check) catch @panic("OOM");
 }
 
 fn make(step: *Step) !void {

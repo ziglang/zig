@@ -28,7 +28,7 @@ pub const Options = struct {
 };
 
 pub fn create(builder: *std.Build, options: Options) *TranslateCStep {
-    const self = builder.allocator.create(TranslateCStep) catch unreachable;
+    const self = builder.allocator.create(TranslateCStep) catch @panic("OOM");
     const source = options.source_file.dupe(builder);
     self.* = TranslateCStep{
         .step = Step.init(.translate_c, "translate-c", builder.allocator, make),
@@ -67,7 +67,7 @@ pub fn addExecutable(self: *TranslateCStep, options: AddExecutableOptions) *Comp
 }
 
 pub fn addIncludeDir(self: *TranslateCStep, include_dir: []const u8) void {
-    self.include_dirs.append(self.builder.dupePath(include_dir)) catch unreachable;
+    self.include_dirs.append(self.builder.dupePath(include_dir)) catch @panic("OOM");
 }
 
 pub fn addCheckFile(self: *TranslateCStep, expected_matches: []const []const u8) *CheckFileStep {
@@ -78,12 +78,12 @@ pub fn addCheckFile(self: *TranslateCStep, expected_matches: []const []const u8)
 /// `name` and `value` need not live longer than the function call.
 pub fn defineCMacro(self: *TranslateCStep, name: []const u8, value: ?[]const u8) void {
     const macro = std.Build.constructCMacro(self.builder.allocator, name, value);
-    self.c_macros.append(macro) catch unreachable;
+    self.c_macros.append(macro) catch @panic("OOM");
 }
 
 /// name_and_value looks like [name]=[value]. If the value is omitted, it is set to 1.
 pub fn defineCMacroRaw(self: *TranslateCStep, name_and_value: []const u8) void {
-    self.c_macros.append(self.builder.dupe(name_and_value)) catch unreachable;
+    self.c_macros.append(self.builder.dupe(name_and_value)) catch @panic("OOM");
 }
 
 fn make(step: *Step) !void {
@@ -129,8 +129,8 @@ fn make(step: *Step) !void {
         self.output_dir = fs.path.dirname(output_path).?;
     }
 
-    self.output_file.path = fs.path.join(
+    self.output_file.path = try fs.path.join(
         self.builder.allocator,
         &[_][]const u8{ self.output_dir.?, self.out_basename },
-    ) catch unreachable;
+    );
 }

@@ -16,7 +16,7 @@ h_dir: ?InstallDir,
 pub fn create(builder: *std.Build, artifact: *CompileStep) *InstallArtifactStep {
     if (artifact.install_step) |s| return s;
 
-    const self = builder.allocator.create(InstallArtifactStep) catch unreachable;
+    const self = builder.allocator.create(InstallArtifactStep) catch @panic("OOM");
     self.* = InstallArtifactStep{
         .builder = builder,
         .step = Step.init(.install_artifact, builder.fmt("install {s}", .{artifact.step.name}), builder.allocator, make),

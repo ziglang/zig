@@ -18,7 +18,7 @@ pub fn create(
     source: std.Build.FileSource,
     expected_matches: []const []const u8,
 ) *CheckFileStep {
-    const self = builder.allocator.create(CheckFileStep) catch unreachable;
+    const self = builder.allocator.create(CheckFileStep) catch @panic("OOM");
     self.* = CheckFileStep{
         .builder = builder,
         .step = Step.init(.check_file, "CheckFile", builder.allocator, make),

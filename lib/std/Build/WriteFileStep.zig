@@ -28,7 +28,7 @@ pub fn init(builder: *std.Build) WriteFileStep {
 }
 
 pub fn add(self: *WriteFileStep, basename: []const u8, bytes: []const u8) void {
-    const node = self.builder.allocator.create(std.TailQueue(File).Node) catch unreachable;
+    const node = self.builder.allocator.create(std.TailQueue(File).Node) catch @panic("unhandled error");
     node.* = .{
         .data = .{
             .source = std.Build.GeneratedFile{ .step = &self.step },
@@ -106,10 +106,10 @@ fn make(step: *Step) !void {
                 });
                 return err;
             };
-            node.data.source.path = fs.path.join(
+            node.data.source.path = try fs.path.join(
                 self.builder.allocator,
                 &[_][]const u8{ self.output_dir, node.data.basename },
-            ) catch unreachable;
+            );
         }
     }
 }

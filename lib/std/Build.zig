@@ -564,12 +564,12 @@ pub fn addConfigHeader(
 
 /// Allocator.dupe without the need to handle out of memory.
 pub fn dupe(self: *Build, bytes: []const u8) []u8 {
-    return self.allocator.dupe(u8, bytes) catch unreachable;
+    return self.allocator.dupe(u8, bytes) catch @panic("OOM");
 }
 
 /// Duplicates an array of strings without the need to handle out of memory.
 pub fn dupeStrings(self: *Build, strings: []const []const u8) [][]u8 {
-    const array = self.allocator.alloc([]u8, strings.len) catch unreachable;
+    const array = self.allocator.alloc([]u8, strings.len) catch @panic("OOM");
     for (strings) |s, i| {
         array[i] = self.dupe(s);
     }
@@ -596,7 +596,7 @@ pub fn dupePkg(self: *Build, package: Pkg) Pkg {
     };
 
     if (package.dependencies) |dependencies| {
-        const new_dependencies = self.allocator.alloc(Pkg, dependencies.len) catch unreachable;
+        const new_dependencies = self.allocator.alloc(Pkg, dependencies.len) catch @panic("OOM");
         the_copy.dependencies = new_dependencies;
 
         for (dependencies) |dep_package, i| {
@@ -613,20 +613,20 @@ pub fn addWriteFile(self: *Build, file_path: []const u8, data: []const u8) *Writ
 }
 
 pub fn addWriteFiles(self: *Build) *WriteFileStep {
-    const write_file_step = self.allocator.create(WriteFileStep) catch unreachable;
+    const write_file_step = self.allocator.create(WriteFileStep) catch @panic("OOM");
     write_file_step.* = WriteFileStep.init(self);
     return write_file_step;
 }
 
 pub fn addLog(self: *Build, comptime format: []const u8, args: anytype) *LogStep {
     const data = self.fmt(format, args);
-    const log_step = self.allocator.create(LogStep) catch unreachable;
+    const log_step = self.allocator.create(LogStep) catch @panic("OOM");
     log_step.* = LogStep.init(self, data);
     return log_step;
 }
 
 pub fn addRemoveDirTree(self: *Build, dir_path: []const u8) *RemoveDirStep {
-    const remove_dir_step = self.allocator.create(RemoveDirStep) catch unreachable;
+    const remove_dir_step = self.allocator.create(RemoveDirStep) catch @panic("OOM");
     remove_dir_step.* = RemoveDirStep.init(self, dir_path);
     return remove_dir_step;
 }
@@ -719,13 +719,13 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
     const type_id = comptime typeToEnum(T);
     const enum_options = if (type_id == .@"enum") blk: {
         const fields = comptime std.meta.fields(T);
-        var options = ArrayList([]const u8).initCapacity(self.allocator, fields.len) catch unreachable;
+        var options = ArrayList([]const u8).initCapacity(self.allocator, fields.len) catch @panic("OOM");
 
         inline for (fields) |field| {
             options.appendAssumeCapacity(field.name);
         }
 
-        break :blk options.toOwnedSlice() catch unreachable;
+        break :blk options.toOwnedSlice() catch @panic("OOM");
     } else null;
     const available_option = AvailableOption{
         .name = name,
@@ -733,10 +733,10 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
         .description = description,
         .enum_options = enum_options,
     };
-    if ((self.available_options_map.fetchPut(name, available_option) catch unreachable) != null) {
+    if ((self.available_options_map.fetchPut(name, available_option) catch @panic("OOM")) != null) {
         panic("Option '{s}' declared twice", .{name});
     }
-    self.available_options_list.append(available_option) catch unreachable;
+    self.available_options_list.append(available_option) catch @panic("OOM");
 
     const option_ptr = self.user_input_options.getPtr(name) orelse return null;
     option_ptr.used = true;
@@ -840,7 +840,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
                 return null;
             },
             .scalar => |s| {
-                return self.allocator.dupe([]const u8, &[_][]const u8{s}) catch unreachable;
+                return self.allocator.dupe([]const u8, &[_][]const u8{s}) catch @panic("OOM");
             },
             .list => |lst| return lst.items,
         },
@@ -848,12 +848,12 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
 }
 
 pub fn step(self: *Build, name: []const u8, description: []const u8) *Step {
-    const step_info = self.allocator.create(TopLevelStep) catch unreachable;
+    const step_info = self.allocator.create(TopLevelStep) catch @panic("OOM");
     step_info.* = TopLevelStep{
         .step = Step.initNoOp(.top_level, name, self.allocator),
         .description = self.dupe(description),
     };
-    self.top_level_steps.append(step_info) catch unreachable;
+    self.top_level_steps.append(step_info) catch @panic("OOM");
     return &step_info.step;
 }
 
@@ -949,7 +949,7 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
         },
     };
 
-    const selected_canonicalized_triple = selected_target.zigTriple(self.allocator) catch unreachable;
+    const selected_canonicalized_triple = selected_target.zigTriple(self.allocator) catch @panic("OOM");
 
     if (args.whitelist) |list| whitelist_check: {
         // Make sure it's a match of one of the list.
@@ -960,7 +960,7 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
             mismatch_cpu_features = true;
             mismatch_triple = true;
 
-            const t_triple = t.zigTriple(self.allocator) catch unreachable;
+            const t_triple = t.zigTriple(self.allocator) catch @panic("OOM");
             if (mem.eql(u8, t_triple, selected_canonicalized_triple)) {
                 mismatch_triple = false;
                 whitelist_item = t;
@@ -977,7 +977,7 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
                 selected_canonicalized_triple,
             });
             for (list) |t| {
-                const t_triple = t.zigTriple(self.allocator) catch unreachable;
+                const t_triple = t.zigTriple(self.allocator) catch @panic("OOM");
                 log.err(" {s}", .{t_triple});
             }
         } else {
@@ -1033,22 +1033,22 @@ pub fn addUserInputOption(self: *Build, name_raw: []const u8, value_raw: []const
         .scalar => |s| {
             // turn it into a list
             var list = ArrayList([]const u8).init(self.allocator);
-            list.append(s) catch unreachable;
-            list.append(value) catch unreachable;
-            self.user_input_options.put(name, .{
+            try list.append(s);
+            try list.append(value);
+            try self.user_input_options.put(name, .{
                 .name = name,
                 .value = .{ .list = list },
                 .used = false,
-            }) catch unreachable;
+            });
         },
         .list => |*list| {
             // append to the list
-            list.append(value) catch unreachable;
-            self.user_input_options.put(name, .{
+            try list.append(value);
+            try self.user_input_options.put(name, .{
                 .name = name,
                 .value = .{ .list = list.* },
                 .used = false,
-            }) catch unreachable;
+            });
         },
         .flag => {
             log.warn("Option '-D{s}={s}' conflicts with flag '-D{s}'.", .{ name, value, name });
@@ -1240,13 +1240,13 @@ pub fn addInstallFileWithDir(
     if (dest_rel_path.len == 0) {
         panic("dest_rel_path must be non-empty", .{});
     }
-    const install_step = self.allocator.create(InstallFileStep) catch unreachable;
+    const install_step = self.allocator.create(InstallFileStep) catch @panic("OOM");
     install_step.* = InstallFileStep.init(self, source.dupe(self), install_dir, dest_rel_path);
     return install_step;
 }
 
 pub fn addInstallDirectory(self: *Build, options: InstallDirectoryOptions) *InstallDirStep {
-    const install_step = self.allocator.create(InstallDirStep) catch unreachable;
+    const install_step = self.allocator.create(InstallDirStep) catch @panic("OOM");
     install_step.* = InstallDirStep.init(self, options);
     return install_step;
 }
@@ -1256,7 +1256,7 @@ pub fn pushInstalledFile(self: *Build, dir: InstallDir, dest_rel_path: []const u
         .dir = dir,
         .path = dest_rel_path,
     };
-    self.installed_files.append(file.dupe(self)) catch unreachable;
+    self.installed_files.append(file.dupe(self)) catch @panic("OOM");
 }
 
 pub fn updateFile(self: *Build, source_path: []const u8, dest_path: []const u8) !void {
@@ -1289,16 +1289,15 @@ pub fn truncateFile(self: *Build, dest_path: []const u8) !void {
 }
 
 pub fn pathFromRoot(self: *Build, rel_path: []const u8) []u8 {
-    return fs.path.resolve(self.allocator, &[_][]const u8{ self.build_root, rel_path }) catch unreachable;
+    return fs.path.resolve(self.allocator, &[_][]const u8{ self.build_root, rel_path }) catch @panic("OOM");
 }
 
-/// Shorthand for `std.fs.path.join(Build.allocator, paths) catch unreachable`
 pub fn pathJoin(self: *Build, paths: []const []const u8) []u8 {
-    return fs.path.join(self.allocator, paths) catch unreachable;
+    return fs.path.join(self.allocator, paths) catch @panic("OOM");
 }
 
 pub fn fmt(self: *Build, comptime format: []const u8, args: anytype) []u8 {
-    return fmt_lib.allocPrint(self.allocator, format, args) catch unreachable;
+    return fmt_lib.allocPrint(self.allocator, format, args) catch @panic("OOM");
 }
 
 pub fn findProgram(self: *Build, names: []const []const u8, paths: []const []const u8) ![]const u8 {
@@ -1442,7 +1441,7 @@ pub fn exec(self: *Build, argv: []const []const u8) ![]u8 {
 }
 
 pub fn addSearchPrefix(self: *Build, search_prefix: []const u8) void {
-    self.search_prefixes.append(self.dupePath(search_prefix)) catch unreachable;
+    self.search_prefixes.append(self.dupePath(search_prefix)) catch @panic("OOM");
 }
 
 pub fn getInstallPath(self: *Build, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
@@ -1457,7 +1456,7 @@ pub fn getInstallPath(self: *Build, dir: InstallDir, dest_rel_path: []const u8) 
     return fs.path.resolve(
         self.allocator,
         &[_][]const u8{ base_dir, dest_rel_path },
-    ) catch unreachable;
+    ) catch @panic("OOM");
 }
 
 pub const Dependency = struct {
@@ -1509,14 +1508,14 @@ fn dependencyInner(
     comptime build_zig: type,
     args: anytype,
 ) *Dependency {
-    const sub_builder = b.createChild(name, build_root, args) catch unreachable;
-    sub_builder.runBuild(build_zig) catch unreachable;
+    const sub_builder = b.createChild(name, build_root, args) catch @panic("unhandled error");
+    sub_builder.runBuild(build_zig) catch @panic("unhandled error");
 
     if (sub_builder.validateUserInputDidItFail()) {
         std.debug.dumpCurrentStackTrace(@returnAddress());
     }
 
-    const dep = b.allocator.create(Dependency) catch unreachable;
+    const dep = b.allocator.create(Dependency) catch @panic("OOM");
     dep.* = .{ .builder = sub_builder };
     return dep;
 }

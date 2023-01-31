@@ -47,7 +47,7 @@ hide_foreign_binaries_warning: bool,
 /// Asserts given artifact is an executable.
 pub fn create(builder: *std.Build, name: []const u8, artifact: *CompileStep) *EmulatableRunStep {
     std.debug.assert(artifact.kind == .exe or artifact.kind == .test_exe);
-    const self = builder.allocator.create(EmulatableRunStep) catch unreachable;
+    const self = builder.allocator.create(EmulatableRunStep) catch @panic("OOM");
 
     const option_name = "hide-foreign-warnings";
     const hide_warnings = if (builder.available_options_map.get(option_name) == null) warn: {
@@ -154,9 +154,9 @@ fn warnAboutForeignBinaries(step: *EmulatableRunStep) void {
     const builder = step.builder;
     const artifact = step.exe;
 
-    const host_name = builder.host.target.zigTriple(builder.allocator) catch unreachable;
-    const foreign_name = artifact.target.zigTriple(builder.allocator) catch unreachable;
-    const target_info = std.zig.system.NativeTargetInfo.detect(artifact.target) catch unreachable;
+    const host_name = builder.host.target.zigTriple(builder.allocator) catch @panic("unhandled error");
+    const foreign_name = artifact.target.zigTriple(builder.allocator) catch @panic("unhandled error");
+    const target_info = std.zig.system.NativeTargetInfo.detect(artifact.target) catch @panic("unhandled error");
     const need_cross_glibc = artifact.target.isGnuLibC() and artifact.is_linking_libc;
     switch (builder.host.getExternalExecutor(target_info, .{
         .qemu_fixes_dl = need_cross_glibc and builder.glibc_runtimes_dir != null,
