@@ -1360,6 +1360,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
         const test_step = b.addTest(.{
             .root_source_file = .{ .path = "test/c_abi/main.zig" },
             .optimize = optimize_mode,
+            .target = c_abi_target,
         });
         if (c_abi_target.abi != null and c_abi_target.abi.?.isMusl()) {
             // TODO NativeTargetInfo insists on dynamically linking musl
