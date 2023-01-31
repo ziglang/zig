@@ -262,7 +262,7 @@ pub const File = struct {
     lock: ?Cache.Lock = null,
 
     pub const LinkBlock = union {
-        elf: Elf.TextBlock,
+        elf: void,
         coff: Coff.Atom,
         macho: void,
         plan9: Plan9.DeclBlock,
@@ -284,7 +284,7 @@ pub const File = struct {
     };
 
     pub const Export = union {
-        elf: Elf.Export,
+        elf: void,
         coff: Coff.Export,
         macho: void,
         plan9: Plan9.Export,

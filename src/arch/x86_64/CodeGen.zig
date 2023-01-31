@@ -4000,8 +4000,9 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             const fn_owner_decl = mod.declPtr(func.owner_decl);
 
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                try fn_owner_decl.link.elf.ensureInitialized(elf_file);
-                const got_addr = @intCast(u32, fn_owner_decl.link.elf.getOffsetTableAddress(elf_file));
+                const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
+                const atom = elf_file.getAtom(atom_index);
+                const got_addr = @intCast(u32, atom.getOffsetTableAddress(elf_file));
                 _ = try self.addInst(.{
                     .tag = .call,
                     .ops = Mir.Inst.Ops.encode(.{ .flags = 0b01 }),
@@ -6721,8 +6722,9 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
     module.markDeclAlive(decl);
 
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        try decl.link.elf.ensureInitialized(elf_file);
-        return MCValue{ .memory = decl.link.elf.getOffsetTableAddress(elf_file) };
+        const atom_index = try elf_file.getOrCreateAtomForDecl(decl_index);
+        const atom = elf_file.getAtom(atom_index);
+        return MCValue{ .memory = atom.getOffsetTableAddress(elf_file) };
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
         const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
@@ -6751,8 +6753,7 @@ fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
         return self.fail("lowering unnamed constant failed: {s}", .{@errorName(err)});
     };
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const vaddr = elf_file.local_symbols.items[local_sym_index].st_value;
-        return MCValue{ .memory = vaddr };
+        return MCValue{ .memory = elf_file.getSymbol(local_sym_index).st_value };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         return MCValue{ .linker_load = .{
             .type = .direct,

@@ -5275,7 +5275,7 @@ pub fn clearDecl(
             // and allow it to be variably sized.
             decl.link = switch (mod.comp.bin_file.tag) {
                 .coff => .{ .coff = link.File.Coff.Atom.empty },
-                .elf => .{ .elf = link.File.Elf.TextBlock.empty },
+                .elf => .{ .elf = {} },
                 .macho => .{ .macho = {} },
                 .plan9 => .{ .plan9 = link.File.Plan9.DeclBlock.empty },
                 .c => .{ .c = {} },
@@ -5381,7 +5381,7 @@ fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) Allocator.Error!void 
             }
         }
         if (mod.comp.bin_file.cast(link.File.Elf)) |elf| {
-            elf.deleteExport(exp.link.elf);
+            elf.deleteDeclExport(decl_index, exp.options.name);
         }
         if (mod.comp.bin_file.cast(link.File.MachO)) |macho| {
             try macho.deleteDeclExport(decl_index, exp.options.name);
@@ -5695,7 +5695,7 @@ pub fn allocateNewDecl(
         .src_scope = src_scope,
         .link = switch (mod.comp.bin_file.tag) {
             .coff => .{ .coff = link.File.Coff.Atom.empty },
-            .elf => .{ .elf = link.File.Elf.TextBlock.empty },
+            .elf => .{ .elf = {} },
             .macho => .{ .macho = {} },
             .plan9 => .{ .plan9 = link.File.Plan9.DeclBlock.empty },
             .c => .{ .c = {} },

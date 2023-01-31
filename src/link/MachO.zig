@@ -2604,9 +2604,11 @@ pub fn freeDecl(self: *MachO, decl_index: Module.Decl.Index) void {
 
     log.debug("freeDecl {*}", .{decl});
 
-    if (self.decls.fetchSwapRemove(decl_index)) |kv| {
+    if (self.decls.fetchSwapRemove(decl_index)) |const_kv| {
+        var kv = const_kv;
         self.freeAtom(kv.value.atom);
         self.freeUnnamedConsts(decl_index);
+        kv.value.exports.deinit(self.base.allocator);
     }
 
     // if (self.d_sym) |*d_sym| {
