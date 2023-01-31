@@ -697,9 +697,6 @@ pub const Target = struct {
                 pub const ShiftInt = std.math.Log2Int(usize);
 
                 pub const empty = Set{ .ints = [1]usize{0} ** usize_count };
-                pub fn empty_workaround() Set {
-                    return Set{ .ints = [1]usize{0} ** usize_count };
-                }
 
                 pub fn isEmpty(set: Set) bool {
                     return for (set.ints) |x| {
@@ -782,7 +779,7 @@ pub const Target = struct {
                 return struct {
                     /// Populates only the feature bits specified.
                     pub fn featureSet(features: []const F) Set {
-                        var x = Set.empty_workaround(); // TODO remove empty_workaround
+                        var x = Set.empty;
                         for (features) |feature| {
                             x.addFeature(@enumToInt(feature));
                         }
