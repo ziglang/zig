@@ -9,6 +9,7 @@ pub const AutoArrayHashMapUnmanaged = array_hash_map.AutoArrayHashMapUnmanaged;
 pub const AutoHashMap = hash_map.AutoHashMap;
 pub const AutoHashMapUnmanaged = hash_map.AutoHashMapUnmanaged;
 pub const BoundedArray = @import("bounded_array.zig").BoundedArray;
+pub const Build = @import("Build.zig");
 pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
@@ -49,7 +50,6 @@ pub const array_hash_map = @import("array_hash_map.zig");
 pub const atomic = @import("atomic.zig");
 pub const base64 = @import("base64.zig");
 pub const bit_set = @import("bit_set.zig");
-pub const build = @import("build.zig");
 pub const builtin = @import("builtin.zig");
 pub const c = @import("c.zig");
 pub const coff = @import("coff.zig");
@@ -95,6 +95,12 @@ pub const valgrind = @import("valgrind.zig");
 pub const wasm = @import("wasm.zig");
 pub const zig = @import("zig.zig");
 pub const start = @import("start.zig");
+
+///// Deprecated. Use `std.Build` instead.
+//pub const build = struct {
+//    /// Deprecated. Use `std.Build` instead.
+//    pub const Builder = Build;
+//};
 
 const root = @import("root");
 const options_override = if (@hasDecl(root, "std_options")) root.std_options else struct {};

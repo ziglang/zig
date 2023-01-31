@@ -1,15 +1,14 @@
 // This is the implementation of the test harness for running translated
 // C code. For the actual test cases, see test/run_translated_c.zig.
 const std = @import("std");
-const build = std.build;
 const ArrayList = std.ArrayList;
 const fmt = std.fmt;
 const mem = std.mem;
 const fs = std.fs;
 
 pub const RunTranslatedCContext = struct {
-    b: *build.Builder,
-    step: *build.Step,
+    b: *std.Build,
+    step: *std.Build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
     target: std.zig.CrossTarget,

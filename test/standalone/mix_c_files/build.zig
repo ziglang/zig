@@ -1,9 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Builder = std.build.Builder;
 const CrossTarget = std.zig.CrossTarget;
 
-// TODO integrate this with the std.build executor API
+// TODO integrate this with the std.Build executor API
 fn isRunnableTarget(t: CrossTarget) bool {
     if (t.isNative()) return true;
 
@@ -11,7 +10,7 @@ fn isRunnableTarget(t: CrossTarget) bool {
         t.getCpuArch() == builtin.cpu.arch);
 }
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 

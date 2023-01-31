@@ -1,8 +1,7 @@
 const std = @import("std");
-const Builder = std.build.Builder;
-const LibExeObjectStep = std.build.LibExeObjStep;
+const LibExeObjectStep = std.Build.LibExeObjStep;
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const test_step = b.step("test", "Test the program");
@@ -36,7 +35,7 @@ pub fn build(b: *Builder) void {
     }
 }
 
-fn createScenario(b: *Builder, optimize: std.builtin.OptimizeMode) *LibExeObjectStep {
+fn createScenario(b: *std.Build, optimize: std.builtin.OptimizeMode) *LibExeObjectStep {
     const exe = b.addExecutable(.{
         .name = "test",
         .optimize = optimize,

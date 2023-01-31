@@ -1,7 +1,6 @@
 const std = @import("../std.zig");
 const ConfigHeaderStep = @This();
-const Step = std.build.Step;
-const Builder = std.build.Builder;
+const Step = std.Build.Step;
 
 pub const base_id: Step.Id = .config_header;
 
@@ -24,15 +23,15 @@ pub const Value = union(enum) {
 };
 
 step: Step,
-builder: *Builder,
-source: std.build.FileSource,
+builder: *std.Build,
+source: std.Build.FileSource,
 style: Style,
 values: std.StringHashMap(Value),
 max_bytes: usize = 2 * 1024 * 1024,
 output_dir: []const u8,
 output_basename: []const u8,
 
-pub fn create(builder: *Builder, source: std.build.FileSource, style: Style) *ConfigHeaderStep {
+pub fn create(builder: *std.Build, source: std.Build.FileSource, style: Style) *ConfigHeaderStep {
     const self = builder.allocator.create(ConfigHeaderStep) catch @panic("OOM");
     const name = builder.fmt("configure header {s}", .{source.getDisplayName()});
     self.* = .{

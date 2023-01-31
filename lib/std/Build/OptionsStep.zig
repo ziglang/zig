@@ -1,12 +1,10 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
-const build = std.build;
 const fs = std.fs;
-const Step = build.Step;
-const Builder = build.Builder;
-const GeneratedFile = build.GeneratedFile;
-const LibExeObjStep = build.LibExeObjStep;
-const FileSource = build.FileSource;
+const Step = std.Build.Step;
+const GeneratedFile = std.Build.GeneratedFile;
+const LibExeObjStep = std.Build.LibExeObjStep;
+const FileSource = std.Build.FileSource;
 
 const OptionsStep = @This();
 
@@ -14,13 +12,13 @@ pub const base_id = .options;
 
 step: Step,
 generated_file: GeneratedFile,
-builder: *Builder,
+builder: *std.Build,
 
 contents: std.ArrayList(u8),
 artifact_args: std.ArrayList(OptionArtifactArg),
 file_source_args: std.ArrayList(OptionFileSourceArg),
 
-pub fn create(builder: *Builder) *OptionsStep {
+pub fn create(builder: *std.Build) *OptionsStep {
     const self = builder.allocator.create(OptionsStep) catch unreachable;
     self.* = .{
         .builder = builder,
@@ -202,7 +200,7 @@ pub fn addOptionArtifact(self: *OptionsStep, name: []const u8, artifact: *LibExe
     self.step.dependOn(&artifact.step);
 }
 
-pub fn getPackage(self: *OptionsStep, package_name: []const u8) build.Pkg {
+pub fn getPackage(self: *OptionsStep, package_name: []const u8) std.Build.Pkg {
     return .{ .name = package_name, .source = self.getSource() };
 }
 
@@ -281,7 +279,7 @@ test "OptionsStep" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    var builder = try Builder.create(
+    var builder = try std.Build.create(
         arena.allocator(),
         "test",
         "test",

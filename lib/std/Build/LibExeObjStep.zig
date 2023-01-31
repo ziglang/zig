@@ -9,32 +9,30 @@ const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Allocator = mem.Allocator;
-const build = @import("../build.zig");
-const Step = build.Step;
-const Builder = build.Builder;
+const Step = std.Build.Step;
 const CrossTarget = std.zig.CrossTarget;
 const NativeTargetInfo = std.zig.system.NativeTargetInfo;
-const FileSource = std.build.FileSource;
-const PkgConfigPkg = Builder.PkgConfigPkg;
-const PkgConfigError = Builder.PkgConfigError;
-const ExecError = Builder.ExecError;
-const Pkg = std.build.Pkg;
-const VcpkgRoot = std.build.VcpkgRoot;
-const InstallDir = std.build.InstallDir;
-const InstallArtifactStep = std.build.InstallArtifactStep;
-const GeneratedFile = std.build.GeneratedFile;
-const InstallRawStep = std.build.InstallRawStep;
-const EmulatableRunStep = std.build.EmulatableRunStep;
-const CheckObjectStep = std.build.CheckObjectStep;
-const RunStep = std.build.RunStep;
-const OptionsStep = std.build.OptionsStep;
-const ConfigHeaderStep = std.build.ConfigHeaderStep;
+const FileSource = std.Build.FileSource;
+const PkgConfigPkg = std.Build.PkgConfigPkg;
+const PkgConfigError = std.Build.PkgConfigError;
+const ExecError = std.Build.ExecError;
+const Pkg = std.Build.Pkg;
+const VcpkgRoot = std.Build.VcpkgRoot;
+const InstallDir = std.Build.InstallDir;
+const InstallArtifactStep = std.Build.InstallArtifactStep;
+const GeneratedFile = std.Build.GeneratedFile;
+const InstallRawStep = std.Build.InstallRawStep;
+const EmulatableRunStep = std.Build.EmulatableRunStep;
+const CheckObjectStep = std.Build.CheckObjectStep;
+const RunStep = std.Build.RunStep;
+const OptionsStep = std.Build.OptionsStep;
+const ConfigHeaderStep = std.Build.ConfigHeaderStep;
 const LibExeObjStep = @This();
 
 pub const base_id = .lib_exe_obj;
 
 step: Step,
-builder: *Builder,
+builder: *std.Build,
 name: []const u8,
 target: CrossTarget,
 target_info: NativeTargetInfo,
@@ -84,7 +82,7 @@ initial_memory: ?u64 = null,
 max_memory: ?u64 = null,
 shared_memory: bool = false,
 global_base: ?u64 = null,
-c_std: Builder.CStd,
+c_std: std.Build.CStd,
 override_lib_dir: ?[]const u8,
 main_pkg_path: ?[]const u8,
 exec_cmd_args: ?[]const ?[]const u8,
@@ -108,7 +106,7 @@ object_src: []const u8,
 link_objects: ArrayList(LinkObject),
 include_dirs: ArrayList(IncludeDir),
 c_macros: ArrayList([]const u8),
-installed_headers: ArrayList(*std.build.Step),
+installed_headers: ArrayList(*Step),
 output_dir: ?[]const u8,
 is_linking_libc: bool = false,
 is_linking_libcpp: bool = false,
@@ -226,7 +224,7 @@ pub const CSourceFile = struct {
     source: FileSource,
     args: []const []const u8,
 
-    pub fn dupe(self: CSourceFile, b: *Builder) CSourceFile {
+    pub fn dupe(self: CSourceFile, b: *std.Build) CSourceFile {
         return .{
             .source = self.source.dupe(b),
             .args = b.dupeStrings(self.args),
@@ -297,7 +295,7 @@ pub const EmitOption = union(enum) {
     emit: void,
     emit_to: []const u8,
 
-    fn getArg(self: @This(), b: *Builder, arg_name: []const u8) ?[]const u8 {
+    fn getArg(self: @This(), b: *std.Build, arg_name: []const u8) ?[]const u8 {
         return switch (self) {
             .no_emit => b.fmt("-fno-{s}", .{arg_name}),
             .default => null,
@@ -307,7 +305,7 @@ pub const EmitOption = union(enum) {
     }
 };
 
-pub fn create(builder: *Builder, options: Options) *LibExeObjStep {
+pub fn create(builder: *std.Build, options: Options) *LibExeObjStep {
     const name = builder.dupe(options.name);
     const root_src: ?FileSource = if (options.root_source_file) |rsrc| rsrc.dupe(builder) else null;
     if (mem.indexOf(u8, name, "/") != null or mem.indexOf(u8, name, "\\") != null) {
@@ -343,9 +341,9 @@ pub fn create(builder: *Builder, options: Options) *LibExeObjStep {
         .lib_paths = ArrayList([]const u8).init(builder.allocator),
         .rpaths = ArrayList([]const u8).init(builder.allocator),
         .framework_dirs = ArrayList([]const u8).init(builder.allocator),
-        .installed_headers = ArrayList(*std.build.Step).init(builder.allocator),
+        .installed_headers = ArrayList(*Step).init(builder.allocator),
         .object_src = undefined,
-        .c_std = Builder.CStd.C99,
+        .c_std = std.Build.CStd.C99,
         .override_lib_dir = null,
         .main_pkg_path = null,
         .exec_cmd_args = null,
@@ -461,7 +459,7 @@ pub fn installHeadersDirectory(
 
 pub fn installHeadersDirectoryOptions(
     a: *LibExeObjStep,
-    options: std.build.InstallDirStep.Options,
+    options: std.Build.InstallDirStep.Options,
 ) void {
     const install_dir = a.builder.addInstallDirectory(options);
     a.builder.getInstallStep().dependOn(&install_dir.step);
@@ -600,7 +598,7 @@ pub fn linkLibCpp(self: *LibExeObjStep) void {
 /// If the value is omitted, it is set to 1.
 /// `name` and `value` need not live longer than the function call.
 pub fn defineCMacro(self: *LibExeObjStep, name: []const u8, value: ?[]const u8) void {
-    const macro = std.build.constructCMacro(self.builder.allocator, name, value);
+    const macro = std.Build.constructCMacro(self.builder.allocator, name, value);
     self.c_macros.append(macro) catch unreachable;
 }
 
@@ -1460,7 +1458,7 @@ fn make(step: *Step) !void {
     if (!self.target.isNative()) {
         try zig_args.appendSlice(&.{
             "-target", try self.target.zigTriple(builder.allocator),
-            "-mcpu",   try build.serializeCpu(builder.allocator, self.target.getCpu()),
+            "-mcpu",   try std.Build.serializeCpu(builder.allocator, self.target.getCpu()),
         });
 
         if (self.target.dynamic_linker.get()) |dynamic_linker| {
@@ -1902,7 +1900,7 @@ pub fn doAtomicSymLinks(allocator: Allocator, output_path: []const u8, filename_
     };
 }
 
-fn execPkgConfigList(self: *Builder, out_code: *u8) (PkgConfigError || ExecError)![]const PkgConfigPkg {
+fn execPkgConfigList(self: *std.Build, out_code: *u8) (PkgConfigError || ExecError)![]const PkgConfigPkg {
     const stdout = try self.execAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
     var list = ArrayList(PkgConfigPkg).init(self.allocator);
     errdefer list.deinit();
@@ -1918,7 +1916,7 @@ fn execPkgConfigList(self: *Builder, out_code: *u8) (PkgConfigError || ExecError
     return list.toOwnedSlice();
 }
 
-fn getPkgConfigList(self: *Builder) ![]const PkgConfigPkg {
+fn getPkgConfigList(self: *std.Build) ![]const PkgConfigPkg {
     if (self.pkg_config_pkg_list) |res| {
         return res;
     }
@@ -1948,7 +1946,7 @@ test "addPackage" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    var builder = try Builder.create(
+    var builder = try std.Build.create(
         arena.allocator(),
         "test",
         "test",

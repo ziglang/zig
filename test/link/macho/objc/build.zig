@@ -1,7 +1,6 @@
 const std = @import("std");
-const Builder = std.build.Builder;
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const test_step = b.step("test", "Test the program");
@@ -18,6 +17,6 @@ pub fn build(b: *Builder) void {
     // populate paths to the sysroot here.
     exe.linkFramework("Foundation");
 
-    const run_cmd = std.build.EmulatableRunStep.create(b, "run", exe);
+    const run_cmd = std.Build.EmulatableRunStep.create(b, "run", exe);
     test_step.dependOn(&run_cmd.step);
 }

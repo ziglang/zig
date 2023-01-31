@@ -1,9 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Builder = std.build.Builder;
-const LibExeObjectStep = std.build.LibExeObjStep;
+const LibExeObjectStep = std.Build.LibExeObjStep;
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 

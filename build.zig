@@ -1,19 +1,18 @@
 const std = @import("std");
 const builtin = std.builtin;
-const Builder = std.build.Builder;
 const tests = @import("test/tests.zig");
 const BufMap = std.BufMap;
 const mem = std.mem;
 const ArrayList = std.ArrayList;
 const io = std.io;
 const fs = std.fs;
-const InstallDirectoryOptions = std.build.InstallDirectoryOptions;
+const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
 
 const zig_version = std.builtin.Version{ .major = 0, .minor = 11, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
 
-pub fn build(b: *Builder) !void {
+pub fn build(b: *std.Build) !void {
     const release = b.option(bool, "release", "Build in release mode") orelse false;
     const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse false;
     const target = t: {
@@ -477,7 +476,7 @@ pub fn build(b: *Builder) !void {
     try addWasiUpdateStep(b, version);
 }
 
-fn addWasiUpdateStep(b: *Builder, version: [:0]const u8) !void {
+fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     const semver = try std.SemanticVersion.parse(version);
 
     var target: std.zig.CrossTarget = .{
@@ -514,10 +513,10 @@ fn addWasiUpdateStep(b: *Builder, version: [:0]const u8) !void {
 }
 
 fn addCompilerStep(
-    b: *Builder,
+    b: *std.Build,
     optimize: std.builtin.OptimizeMode,
     target: std.zig.CrossTarget,
-) *std.build.LibExeObjStep {
+) *std.Build.LibExeObjStep {
     const exe = b.addExecutable(.{
         .name = "zig",
         .root_source_file = .{ .path = "src/main.zig" },
@@ -543,9 +542,9 @@ const exe_cflags = [_][]const u8{
 };
 
 fn addCmakeCfgOptionsToExe(
-    b: *Builder,
+    b: *std.Build,
     cfg: CMakeConfig,
-    exe: *std.build.LibExeObjStep,
+    exe: *std.Build.LibExeObjStep,
     use_zig_libcxx: bool,
 ) !void {
     if (exe.target.isDarwin()) {
@@ -624,7 +623,7 @@ fn addCmakeCfgOptionsToExe(
     }
 }
 
-fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep) !void {
+fn addStaticLlvmOptionsToExe(exe: *std.Build.LibExeObjStep) !void {
     // Adds the Zig C++ sources which both stage1 and stage2 need.
     //
     // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
@@ -661,9 +660,9 @@ fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep) !void {
 }
 
 fn addCxxKnownPath(
-    b: *Builder,
+    b: *std.Build,
     ctx: CMakeConfig,
-    exe: *std.build.LibExeObjStep,
+    exe: *std.Build.LibExeObjStep,
     objname: []const u8,
     errtxt: ?[]const u8,
     need_cpp_includes: bool,
@@ -696,7 +695,7 @@ fn addCxxKnownPath(
     }
 }
 
-fn addCMakeLibraryList(exe: *std.build.LibExeObjStep, list: []const u8) void {
+fn addCMakeLibraryList(exe: *std.Build.LibExeObjStep, list: []const u8) void {
     var it = mem.tokenize(u8, list, ";");
     while (it.next()) |lib| {
         if (mem.startsWith(u8, lib, "-l")) {
@@ -710,7 +709,7 @@ fn addCMakeLibraryList(exe: *std.build.LibExeObjStep, list: []const u8) void {
 }
 
 const CMakeConfig = struct {
-    llvm_linkage: std.build.LibExeObjStep.Linkage,
+    llvm_linkage: std.Build.LibExeObjStep.Linkage,
     cmake_binary_dir: []const u8,
     cmake_prefix_path: []const u8,
     cmake_static_library_prefix: []const u8,
@@ -727,7 +726,7 @@ const CMakeConfig = struct {
 
 const max_config_h_bytes = 1 * 1024 * 1024;
 
-fn findConfigH(b: *Builder, config_h_path_option: ?[]const u8) ?[]const u8 {
+fn findConfigH(b: *std.Build, config_h_path_option: ?[]const u8) ?[]const u8 {
     if (config_h_path_option) |path| {
         var config_h_or_err = fs.cwd().openFile(path, .{});
         if (config_h_or_err) |*file| {
@@ -773,7 +772,7 @@ fn findConfigH(b: *Builder, config_h_path_option: ?[]const u8) ?[]const u8 {
     } else unreachable; // TODO should not need `else unreachable`.
 }
 
-fn parseConfigH(b: *Builder, config_h_text: []const u8) ?CMakeConfig {
+fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
     var ctx: CMakeConfig = .{
         .llvm_linkage = undefined,
         .cmake_binary_dir = undefined,
@@ -862,7 +861,7 @@ fn parseConfigH(b: *Builder, config_h_text: []const u8) ?CMakeConfig {
     return ctx;
 }
 
-fn toNativePathSep(b: *Builder, s: []const u8) []u8 {
+fn toNativePathSep(b: *std.Build, s: []const u8) []u8 {
     const duplicated = b.allocator.dupe(u8, s) catch unreachable;
     for (duplicated) |*byte| switch (byte.*) {
         '/' => byte.* = fs.path.sep,

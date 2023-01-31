@@ -1,9 +1,7 @@
 const std = @import("../std.zig");
-const build = std.build;
-const Step = build.Step;
-const Builder = build.Builder;
-const LibExeObjStep = build.LibExeObjStep;
-const CheckFileStep = build.CheckFileStep;
+const Step = std.Build.Step;
+const LibExeObjStep = std.Build.LibExeObjStep;
+const CheckFileStep = std.Build.CheckFileStep;
 const fs = std.fs;
 const mem = std.mem;
 const CrossTarget = std.zig.CrossTarget;
@@ -13,23 +11,23 @@ const TranslateCStep = @This();
 pub const base_id = .translate_c;
 
 step: Step,
-builder: *Builder,
-source: build.FileSource,
+builder: *std.Build,
+source: std.Build.FileSource,
 include_dirs: std.ArrayList([]const u8),
 c_macros: std.ArrayList([]const u8),
 output_dir: ?[]const u8,
 out_basename: []const u8,
 target: CrossTarget,
 optimize: std.builtin.OptimizeMode,
-output_file: build.GeneratedFile,
+output_file: std.Build.GeneratedFile,
 
 pub const Options = struct {
-    source_file: build.FileSource,
+    source_file: std.Build.FileSource,
     target: CrossTarget,
     optimize: std.builtin.OptimizeMode,
 };
 
-pub fn create(builder: *Builder, options: Options) *TranslateCStep {
+pub fn create(builder: *std.Build, options: Options) *TranslateCStep {
     const self = builder.allocator.create(TranslateCStep) catch unreachable;
     const source = options.source_file.dupe(builder);
     self.* = TranslateCStep{
@@ -42,7 +40,7 @@ pub fn create(builder: *Builder, options: Options) *TranslateCStep {
         .out_basename = undefined,
         .target = options.target,
         .optimize = options.optimize,
-        .output_file = build.GeneratedFile{ .step = &self.step },
+        .output_file = std.Build.GeneratedFile{ .step = &self.step },
     };
     source.addStepDependencies(&self.step);
     return self;
@@ -79,7 +77,7 @@ pub fn addCheckFile(self: *TranslateCStep, expected_matches: []const []const u8)
 /// If the value is omitted, it is set to 1.
 /// `name` and `value` need not live longer than the function call.
 pub fn defineCMacro(self: *TranslateCStep, name: []const u8, value: ?[]const u8) void {
-    const macro = build.constructCMacro(self.builder.allocator, name, value);
+    const macro = std.Build.constructCMacro(self.builder.allocator, name, value);
     self.c_macros.append(macro) catch unreachable;
 }
 

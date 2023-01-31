@@ -1,9 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Builder = std.build.Builder;
-const LibExeObjectStep = std.build.LibExeObjStep;
+const LibExeObjectStep = std.Build.LibExeObjStep;
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
@@ -14,8 +13,8 @@ pub fn build(b: *Builder) void {
 }
 
 fn testUnwindInfo(
-    b: *Builder,
-    test_step: *std.build.Step,
+    b: *std.Build,
+    test_step: *std.Build.Step,
     optimize: std.builtin.OptimizeMode,
     target: std.zig.CrossTarget,
     dead_strip: bool,
@@ -52,7 +51,7 @@ fn testUnwindInfo(
     test_step.dependOn(&run_cmd.step);
 }
 
-fn createScenario(b: *Builder, optimize: std.builtin.OptimizeMode, target: std.zig.CrossTarget) *LibExeObjectStep {
+fn createScenario(b: *std.Build, optimize: std.builtin.OptimizeMode, target: std.zig.CrossTarget) *LibExeObjectStep {
     const exe = b.addExecutable(.{
         .name = "test",
         .optimize = optimize,

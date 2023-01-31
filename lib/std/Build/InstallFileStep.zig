@@ -1,24 +1,22 @@
 const std = @import("../std.zig");
-const build = @import("../build.zig");
-const Step = build.Step;
-const Builder = build.Builder;
-const FileSource = std.build.FileSource;
-const InstallDir = std.build.InstallDir;
+const Step = std.Build.Step;
+const FileSource = std.Build.FileSource;
+const InstallDir = std.Build.InstallDir;
 const InstallFileStep = @This();
 
 pub const base_id = .install_file;
 
 step: Step,
-builder: *Builder,
+builder: *std.Build,
 source: FileSource,
 dir: InstallDir,
 dest_rel_path: []const u8,
 /// This is used by the build system when a file being installed comes from one
 /// package but is being installed by another.
-override_source_builder: ?*Builder = null,
+override_source_builder: ?*std.Build = null,
 
 pub fn init(
-    builder: *Builder,
+    builder: *std.Build,
     source: FileSource,
     dir: InstallDir,
     dest_rel_path: []const u8,

@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const debug = std.debug;
-const build = std.build;
 const CrossTarget = std.zig.CrossTarget;
 const io = std.io;
 const fs = std.fs;
@@ -9,9 +8,10 @@ const mem = std.mem;
 const fmt = std.fmt;
 const ArrayList = std.ArrayList;
 const OptimizeMode = std.builtin.OptimizeMode;
-const LibExeObjStep = build.LibExeObjStep;
+const LibExeObjStep = std.Build.LibExeObjStep;
 const Allocator = mem.Allocator;
-const ExecError = build.Builder.ExecError;
+const ExecError = std.Build.ExecError;
+const Step = std.Build.Step;
 
 // Cases
 const compare_output = @import("compare_output.zig");
@@ -462,7 +462,7 @@ const test_targets = blk: {
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MB
 
-pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *build.Step {
+pub fn addCompareOutputTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *Step {
     const cases = b.allocator.create(CompareOutputContext) catch unreachable;
     cases.* = CompareOutputContext{
         .b = b,
@@ -477,7 +477,7 @@ pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, optimi
     return cases.step;
 }
 
-pub fn addStackTraceTests(b: *build.Builder, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *build.Step {
+pub fn addStackTraceTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *Step {
     const cases = b.allocator.create(StackTracesContext) catch unreachable;
     cases.* = StackTracesContext{
         .b = b,
@@ -493,7 +493,7 @@ pub fn addStackTraceTests(b: *build.Builder, test_filter: ?[]const u8, optimize_
 }
 
 pub fn addStandaloneTests(
-    b: *build.Builder,
+    b: *std.Build,
     test_filter: ?[]const u8,
     optimize_modes: []const OptimizeMode,
     skip_non_native: bool,
@@ -506,7 +506,7 @@ pub fn addStandaloneTests(
     enable_wasmtime: bool,
     enable_wine: bool,
     enable_symlinks_windows: bool,
-) *build.Step {
+) *Step {
     const cases = b.allocator.create(StandaloneContext) catch unreachable;
     cases.* = StandaloneContext{
         .b = b,
@@ -532,13 +532,13 @@ pub fn addStandaloneTests(
 }
 
 pub fn addLinkTests(
-    b: *build.Builder,
+    b: *std.Build,
     test_filter: ?[]const u8,
     optimize_modes: []const OptimizeMode,
     enable_macos_sdk: bool,
     omit_stage2: bool,
     enable_symlinks_windows: bool,
-) *build.Step {
+) *Step {
     const cases = b.allocator.create(StandaloneContext) catch unreachable;
     cases.* = StandaloneContext{
         .b = b,
@@ -556,7 +556,7 @@ pub fn addLinkTests(
     return cases.step;
 }
 
-pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *build.Step {
+pub fn addCliTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *Step {
     _ = test_filter;
     _ = optimize_modes;
     const step = b.step("test-cli", "Test the command line interface");
@@ -577,7 +577,7 @@ pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, optimize_modes: 
     return step;
 }
 
-pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *build.Step {
+pub fn addAssembleAndLinkTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *Step {
     const cases = b.allocator.create(CompareOutputContext) catch unreachable;
     cases.* = CompareOutputContext{
         .b = b,
@@ -592,7 +592,7 @@ pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8, opti
     return cases.step;
 }
 
-pub fn addTranslateCTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+pub fn addTranslateCTests(b: *std.Build, test_filter: ?[]const u8) *Step {
     const cases = b.allocator.create(TranslateCContext) catch unreachable;
     cases.* = TranslateCContext{
         .b = b,
@@ -607,10 +607,10 @@ pub fn addTranslateCTests(b: *build.Builder, test_filter: ?[]const u8) *build.St
 }
 
 pub fn addRunTranslatedCTests(
-    b: *build.Builder,
+    b: *std.Build,
     test_filter: ?[]const u8,
     target: std.zig.CrossTarget,
-) *build.Step {
+) *Step {
     const cases = b.allocator.create(RunTranslatedCContext) catch unreachable;
     cases.* = .{
         .b = b,
@@ -625,7 +625,7 @@ pub fn addRunTranslatedCTests(
     return cases.step;
 }
 
-pub fn addGenHTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+pub fn addGenHTests(b: *std.Build, test_filter: ?[]const u8) *Step {
     const cases = b.allocator.create(GenHContext) catch unreachable;
     cases.* = GenHContext{
         .b = b,
@@ -640,7 +640,7 @@ pub fn addGenHTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
 }
 
 pub fn addPkgTests(
-    b: *build.Builder,
+    b: *std.Build,
     test_filter: ?[]const u8,
     root_src: []const u8,
     name: []const u8,
@@ -651,7 +651,7 @@ pub fn addPkgTests(
     skip_libc: bool,
     skip_stage1: bool,
     skip_stage2: bool,
-) *build.Step {
+) *Step {
     const step = b.step(b.fmt("test-{s}", .{name}), desc);
 
     for (test_targets) |test_target| {
@@ -742,8 +742,8 @@ pub fn addPkgTests(
 }
 
 pub const StackTracesContext = struct {
-    b: *build.Builder,
-    step: *build.Step,
+    b: *std.Build,
+    step: *Step,
     test_index: usize,
     test_filter: ?[]const u8,
     optimize_modes: []const OptimizeMode,
@@ -840,7 +840,7 @@ pub const StackTracesContext = struct {
     const RunAndCompareStep = struct {
         pub const base_id = .custom;
 
-        step: build.Step,
+        step: Step,
         context: *StackTracesContext,
         exe: *LibExeObjStep,
         name: []const u8,
@@ -858,7 +858,7 @@ pub const StackTracesContext = struct {
             const allocator = context.b.allocator;
             const ptr = allocator.create(RunAndCompareStep) catch unreachable;
             ptr.* = RunAndCompareStep{
-                .step = build.Step.init(.custom, "StackTraceCompareOutputStep", allocator, make),
+                .step = Step.init(.custom, "StackTraceCompareOutputStep", allocator, make),
                 .context = context,
                 .exe = exe,
                 .name = name,
@@ -871,7 +871,7 @@ pub const StackTracesContext = struct {
             return ptr;
         }
 
-        fn make(step: *build.Step) !void {
+        fn make(step: *Step) !void {
             const self = @fieldParentPtr(RunAndCompareStep, "step", step);
             const b = self.context.b;
 
@@ -1014,8 +1014,8 @@ pub const StackTracesContext = struct {
 };
 
 pub const StandaloneContext = struct {
-    b: *build.Builder,
-    step: *build.Step,
+    b: *std.Build,
+    step: *Step,
     test_index: usize,
     test_filter: ?[]const u8,
     optimize_modes: []const OptimizeMode,
@@ -1150,8 +1150,8 @@ pub const StandaloneContext = struct {
 };
 
 pub const GenHContext = struct {
-    b: *build.Builder,
-    step: *build.Step,
+    b: *std.Build,
+    step: *Step,
     test_index: usize,
     test_filter: ?[]const u8,
 
@@ -1178,7 +1178,7 @@ pub const GenHContext = struct {
     };
 
     const GenHCmpOutputStep = struct {
-        step: build.Step,
+        step: Step,
         context: *GenHContext,
         obj: *LibExeObjStep,
         name: []const u8,
@@ -1194,7 +1194,7 @@ pub const GenHContext = struct {
             const allocator = context.b.allocator;
             const ptr = allocator.create(GenHCmpOutputStep) catch unreachable;
             ptr.* = GenHCmpOutputStep{
-                .step = build.Step.init(.Custom, "ParseCCmpOutput", allocator, make),
+                .step = Step.init(.Custom, "ParseCCmpOutput", allocator, make),
                 .context = context,
                 .obj = obj,
                 .name = name,
@@ -1206,7 +1206,7 @@ pub const GenHContext = struct {
             return ptr;
         }
 
-        fn make(step: *build.Step) !void {
+        fn make(step: *Step) !void {
             const self = @fieldParentPtr(GenHCmpOutputStep, "step", step);
             const b = self.context.b;
 
@@ -1348,7 +1348,7 @@ const c_abi_targets = [_]CrossTarget{
     },
 };
 
-pub fn addCAbiTests(b: *build.Builder, skip_non_native: bool, skip_release: bool) *build.Step {
+pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *Step {
     const step = b.step("test-c-abi", "Run the C ABI tests");
 
     const optimize_modes: [2]OptimizeMode = .{ .Debug, .ReleaseFast };

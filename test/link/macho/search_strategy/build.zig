@@ -1,8 +1,7 @@
 const std = @import("std");
-const Builder = std.build.Builder;
-const LibExeObjectStep = std.build.LibExeObjStep;
+const LibExeObjectStep = std.Build.LibExeObjStep;
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
@@ -29,14 +28,14 @@ pub fn build(b: *Builder) void {
         const exe = createScenario(b, optimize, target);
         exe.search_strategy = .paths_first;
 
-        const run = std.build.EmulatableRunStep.create(b, "run", exe);
+        const run = std.Build.EmulatableRunStep.create(b, "run", exe);
         run.cwd = b.pathFromRoot(".");
         run.expectStdOutEqual("Hello world");
         test_step.dependOn(&run.step);
     }
 }
 
-fn createScenario(b: *Builder, optimize: std.builtin.OptimizeMode, target: std.zig.CrossTarget) *LibExeObjectStep {
+fn createScenario(b: *std.Build, optimize: std.builtin.OptimizeMode, target: std.zig.CrossTarget) *LibExeObjectStep {
     const static = b.addStaticLibrary(.{
         .name = "a",
         .optimize = optimize,
@@ -44,7 +43,7 @@ fn createScenario(b: *Builder, optimize: std.builtin.OptimizeMode, target: std.z
     });
     static.addCSourceFile("a.c", &.{});
     static.linkLibC();
-    static.override_dest_dir = std.build.InstallDir{
+    static.override_dest_dir = std.Build.InstallDir{
         .custom = "static",
     };
     static.install();
@@ -57,7 +56,7 @@ fn createScenario(b: *Builder, optimize: std.builtin.OptimizeMode, target: std.z
     });
     dylib.addCSourceFile("a.c", &.{});
     dylib.linkLibC();
-    dylib.override_dest_dir = std.build.InstallDir{
+    dylib.override_dest_dir = std.Build.InstallDir{
         .custom = "dynamic",
     };
     dylib.install();

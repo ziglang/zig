@@ -1,7 +1,6 @@
 // This is the implementation of the test harness.
 // For the actual test cases, see test/compare_output.zig.
 const std = @import("std");
-const build = std.build;
 const ArrayList = std.ArrayList;
 const fmt = std.fmt;
 const mem = std.mem;
@@ -9,8 +8,8 @@ const fs = std.fs;
 const OptimizeMode = std.builtin.OptimizeMode;
 
 pub const CompareOutputContext = struct {
-    b: *build.Builder,
-    step: *build.Step,
+    b: *std.Build,
+    step: *std.Build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
     optimize_modes: []const OptimizeMode,

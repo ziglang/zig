@@ -1,17 +1,15 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
-const build = std.build;
-const Step = build.Step;
-const Builder = build.Builder;
-const LibExeObjStep = build.LibExeObjStep;
-const WriteFileStep = build.WriteFileStep;
+const Step = std.Build.Step;
+const LibExeObjStep = std.Build.LibExeObjStep;
+const WriteFileStep = std.Build.WriteFileStep;
 const fs = std.fs;
 const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
 const EnvMap = process.EnvMap;
 const Allocator = mem.Allocator;
-const ExecError = build.Builder.ExecError;
+const ExecError = std.Build.ExecError;
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MiB
 
@@ -20,7 +18,7 @@ const RunStep = @This();
 pub const base_id: Step.Id = .run;
 
 step: Step,
-builder: *Builder,
+builder: *std.Build,
 
 /// See also addArg and addArgs to modifying this directly
 argv: ArrayList(Arg),
@@ -51,11 +49,11 @@ pub const StdIoAction = union(enum) {
 
 pub const Arg = union(enum) {
     artifact: *LibExeObjStep,
-    file_source: build.FileSource,
+    file_source: std.Build.FileSource,
     bytes: []u8,
 };
 
-pub fn create(builder: *Builder, name: []const u8) *RunStep {
+pub fn create(builder: *std.Build, name: []const u8) *RunStep {
     const self = builder.allocator.create(RunStep) catch unreachable;
     self.* = RunStep{
         .builder = builder,
@@ -73,7 +71,7 @@ pub fn addArtifactArg(self: *RunStep, artifact: *LibExeObjStep) void {
     self.step.dependOn(&artifact.step);
 }
 
-pub fn addFileSourceArg(self: *RunStep, file_source: build.FileSource) void {
+pub fn addFileSourceArg(self: *RunStep, file_source: std.Build.FileSource) void {
     self.argv.append(Arg{
         .file_source = file_source.dupe(self.builder),
     }) catch unreachable;
@@ -101,7 +99,7 @@ pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
 }
 
 /// For internal use only, users of `RunStep` should use `addPathDir` directly.
-pub fn addPathDirInternal(step: *Step, builder: *Builder, search_path: []const u8) void {
+pub fn addPathDirInternal(step: *Step, builder: *std.Build, search_path: []const u8) void {
     const env_map = getEnvMapInternal(step, builder.allocator);
 
     const key = "PATH";
@@ -122,7 +120,7 @@ pub fn getEnvMap(self: *RunStep) *EnvMap {
 fn getEnvMapInternal(step: *Step, allocator: Allocator) *EnvMap {
     const maybe_env_map = switch (step.id) {
         .run => step.cast(RunStep).?.env_map,
-        .emulatable_run => step.cast(build.EmulatableRunStep).?.env_map,
+        .emulatable_run => step.cast(std.Build.EmulatableRunStep).?.env_map,
         else => unreachable,
     };
     return maybe_env_map orelse {
@@ -195,7 +193,7 @@ fn make(step: *Step) !void {
 
 pub fn runCommand(
     argv: []const []const u8,
-    builder: *Builder,
+    builder: *std.Build,
     expected_exit_code: ?u8,
     stdout_action: StdIoAction,
     stderr_action: StdIoAction,
@@ -363,7 +361,7 @@ fn addPathForDynLibs(self: *RunStep, artifact: *LibExeObjStep) void {
 
 /// This should only be used for internal usage, this is called automatically
 /// for the user.
-pub fn addPathForDynLibsInternal(step: *Step, builder: *Builder, artifact: *LibExeObjStep) void {
+pub fn addPathForDynLibsInternal(step: *Step, builder: *std.Build, artifact: *LibExeObjStep) void {
     for (artifact.link_objects.items) |link_object| {
         switch (link_object) {
             .other_step => |other| {

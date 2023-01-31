@@ -1,9 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Builder = std.build.Builder;
-const LibExeObjectStep = std.build.LibExeObjStep;
+const LibExeObjectStep = std.Build.LibExeObjStep;
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const test_step = b.step("test", "Test");
@@ -94,7 +93,7 @@ pub fn build(b: *Builder) void {
     }
 }
 
-fn simpleExe(b: *Builder, optimize: std.builtin.OptimizeMode) *LibExeObjectStep {
+fn simpleExe(b: *std.Build, optimize: std.builtin.OptimizeMode) *LibExeObjectStep {
     const exe = b.addExecutable(.{
         .name = "main",
         .optimize = optimize,

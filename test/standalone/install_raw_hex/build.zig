@@ -1,8 +1,8 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const CheckFileStep = std.build.CheckFileStep;
+const CheckFileStep = std.Build.CheckFileStep;
 
-pub fn build(b: *std.build.Builder) void {
+pub fn build(b: *std.Build) void {
     const target = .{
         .cpu_arch = .thumb,
         .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_m4 },

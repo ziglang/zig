@@ -7,11 +7,10 @@ const InstallRawStep = @This();
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
-const Builder = std.build.Builder;
 const File = std.fs.File;
-const InstallDir = std.build.InstallDir;
-const LibExeObjStep = std.build.LibExeObjStep;
-const Step = std.build.Step;
+const InstallDir = std.Build.InstallDir;
+const LibExeObjStep = std.Build.LibExeObjStep;
+const Step = std.Build.Step;
 const elf = std.elf;
 const fs = std.fs;
 const io = std.io;
@@ -25,12 +24,12 @@ pub const RawFormat = enum {
 };
 
 step: Step,
-builder: *Builder,
+builder: *std.Build,
 artifact: *LibExeObjStep,
 dest_dir: InstallDir,
 dest_filename: []const u8,
 options: CreateOptions,
-output_file: std.build.GeneratedFile,
+output_file: std.Build.GeneratedFile,
 
 pub const CreateOptions = struct {
     format: ?RawFormat = null,
@@ -39,7 +38,12 @@ pub const CreateOptions = struct {
     pad_to: ?u64 = null,
 };
 
-pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []const u8, options: CreateOptions) *InstallRawStep {
+pub fn create(
+    builder: *std.Build,
+    artifact: *LibExeObjStep,
+    dest_filename: []const u8,
+    options: CreateOptions,
+) *InstallRawStep {
     const self = builder.allocator.create(InstallRawStep) catch unreachable;
     self.* = InstallRawStep{
         .step = Step.init(.install_raw, builder.fmt("install raw binary {s}", .{artifact.step.name}), builder.allocator, make),
@@ -53,7 +57,7 @@ pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []cons
         },
         .dest_filename = dest_filename,
         .options = options,
-        .output_file = std.build.GeneratedFile{ .step = &self.step },
+        .output_file = std.Build.GeneratedFile{ .step = &self.step },
     };
     self.step.dependOn(&artifact.step);
 
@@ -61,8 +65,8 @@ pub fn create(builder: *Builder, artifact: *LibExeObjStep, dest_filename: []cons
     return self;
 }
 
-pub fn getOutputSource(self: *const InstallRawStep) std.build.FileSource {
-    return std.build.FileSource{ .generated = &self.output_file };
+pub fn getOutputSource(self: *const InstallRawStep) std.Build.FileSource {
+    return std.Build.FileSource{ .generated = &self.output_file };
 }
 
 fn make(step: *Step) !void {

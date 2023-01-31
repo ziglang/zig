@@ -9528,9 +9528,9 @@ fn foo(comptime T: type, ptr: *T) T {
       To add standard build options to a <code class="file">build.zig</code> file:
       </p>
       {#code_begin|syntax|build#}
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const exe = b.addExecutable(.{
         .name = "example",
@@ -10551,9 +10551,9 @@ const separator = if (builtin.os.tag == .windows) '\\' else '/';
       <p>This <code class="file">build.zig</code> file is automatically generated
         by <kbd>zig init-exe</kbd>.</p>
       {#code_begin|syntax|build_executable#}
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -10588,9 +10588,9 @@ pub fn build(b: *Builder) void {
       <p>This <code class="file">build.zig</code> file is automatically generated
         by <kbd>zig init-lib</kbd>.</p>
       {#code_begin|syntax|build_library#}
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const lib = b.addStaticLibrary(.{
         .name = "example",
@@ -10961,9 +10961,9 @@ int main(int argc, char **argv) {
 }
       {#end_syntax_block#}
       {#code_begin|syntax|build_c#}
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     const lib = b.addSharedLibrary("mathtest", "mathtest.zig", b.version(1, 0, 0));
 
     const exe = b.addExecutable(.{
@@ -11025,9 +11025,9 @@ int main(int argc, char **argv) {
 }
       {#end_syntax_block#}
       {#code_begin|syntax|build_object#}
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     const obj = b.addObject("base64", "base64.zig");
 
     const exe = b.addExecutable(.{

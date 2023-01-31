@@ -1,19 +1,14 @@
 const std = @import("../std.zig");
-const build = @import("../build.zig");
-const Step = build.Step;
-const Builder = build.Builder;
-const BufMap = std.BufMap;
-const mem = std.mem;
-
+const Step = std.Build.Step;
 const FmtStep = @This();
 
 pub const base_id = .fmt;
 
 step: Step,
-builder: *Builder,
+builder: *std.Build,
 argv: [][]const u8,
 
-pub fn create(builder: *Builder, paths: []const []const u8) *FmtStep {
+pub fn create(builder: *std.Build, paths: []const []const u8) *FmtStep {
     const self = builder.allocator.create(FmtStep) catch unreachable;
     const name = "zig fmt";
     self.* = FmtStep{

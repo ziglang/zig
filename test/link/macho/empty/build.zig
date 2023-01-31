@@ -1,7 +1,6 @@
 const std = @import("std");
-const Builder = std.build.Builder;
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
@@ -17,7 +16,7 @@ pub fn build(b: *Builder) void {
     exe.addCSourceFile("empty.c", &[0][]const u8{});
     exe.linkLibC();
 
-    const run_cmd = std.build.EmulatableRunStep.create(b, "run", exe);
+    const run_cmd = std.Build.EmulatableRunStep.create(b, "run", exe);
     run_cmd.expectStdOutEqual("Hello!\n");
     test_step.dependOn(&run_cmd.step);
 }

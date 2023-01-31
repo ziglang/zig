@@ -1,26 +1,23 @@
 const std = @import("../std.zig");
-const build = @import("../build.zig");
-const Step = build.Step;
-const Builder = build.Builder;
-const LibExeObjStep = std.build.LibExeObjStep;
-const InstallDir = std.build.InstallDir;
+const Step = std.Build.Step;
+const LibExeObjStep = std.Build.LibExeObjStep;
+const InstallDir = std.Build.InstallDir;
+const InstallArtifactStep = @This();
 
 pub const base_id = .install_artifact;
 
 step: Step,
-builder: *Builder,
+builder: *std.Build,
 artifact: *LibExeObjStep,
 dest_dir: InstallDir,
 pdb_dir: ?InstallDir,
 h_dir: ?InstallDir,
 
-const Self = @This();
-
-pub fn create(builder: *Builder, artifact: *LibExeObjStep) *Self {
+pub fn create(builder: *std.Build, artifact: *LibExeObjStep) *InstallArtifactStep {
     if (artifact.install_step) |s| return s;
 
-    const self = builder.allocator.create(Self) catch unreachable;
-    self.* = Self{
+    const self = builder.allocator.create(InstallArtifactStep) catch unreachable;
+    self.* = InstallArtifactStep{
         .builder = builder,
         .step = Step.init(.install_artifact, builder.fmt("install {s}", .{artifact.step.name}), builder.allocator, make),
         .artifact = artifact,
@@ -64,7 +61,7 @@ pub fn create(builder: *Builder, artifact: *LibExeObjStep) *Self {
 }
 
 fn make(step: *Step) !void {
-    const self = @fieldParentPtr(Self, "step", step);
+    const self = @fieldParentPtr(InstallArtifactStep, "step", step);
     const builder = self.builder;
 
     const full_dest_path = builder.getInstallPath(self.dest_dir, self.artifact.out_filename);

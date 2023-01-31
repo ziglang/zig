@@ -1,8 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Builder = std.build.Builder;
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
 

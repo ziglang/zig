@@ -1,6 +1,6 @@
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     const test_artifact = b.addTest(.{
         .root_source_file = .{ .path = "main.zig" },
     });
