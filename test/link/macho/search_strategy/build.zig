@@ -3,7 +3,7 @@ const Builder = std.build.Builder;
 const LibExeObjectStep = std.build.LibExeObjStep;
 
 pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+    const optimize = b.standardOptimizeOption(.{});
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     const test_step = b.step("test", "Test");
@@ -11,7 +11,7 @@ pub fn build(b: *Builder) void {
 
     {
         // -search_dylibs_first
-        const exe = createScenario(b, mode, target);
+        const exe = createScenario(b, optimize, target);
         exe.search_strategy = .dylibs_first;
 
         const check = exe.checkObject(.macho);
@@ -26,7 +26,7 @@ pub fn build(b: *Builder) void {
 
     {
         // -search_paths_first
-        const exe = createScenario(b, mode, target);
+        const exe = createScenario(b, optimize, target);
         exe.search_strategy = .paths_first;
 
         const run = std.build.EmulatableRunStep.create(b, "run", exe);
@@ -36,10 +36,12 @@ pub fn build(b: *Builder) void {
     }
 }
 
-fn createScenario(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) *LibExeObjectStep {
-    const static = b.addStaticLibrary("a", null);
-    static.setTarget(target);
-    static.setBuildMode(mode);
+fn createScenario(b: *Builder, optimize: std.builtin.OptimizeMode, target: std.zig.CrossTarget) *LibExeObjectStep {
+    const static = b.addStaticLibrary(.{
+        .name = "a",
+        .optimize = optimize,
+        .target = target,
+    });
     static.addCSourceFile("a.c", &.{});
     static.linkLibC();
     static.override_dest_dir = std.build.InstallDir{
@@ -47,9 +49,12 @@ fn createScenario(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarg
     };
     static.install();
 
-    const dylib = b.addSharedLibrary("a", null, b.version(1, 0, 0));
-    dylib.setTarget(target);
-    dylib.setBuildMode(mode);
+    const dylib = b.addSharedLibrary(.{
+        .name = "a",
+        .version = .{ .major = 1, .minor = 0 },
+        .optimize = optimize,
+        .target = target,
+    });
     dylib.addCSourceFile("a.c", &.{});
     dylib.linkLibC();
     dylib.override_dest_dir = std.build.InstallDir{
@@ -57,9 +62,11 @@ fn createScenario(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarg
     };
     dylib.install();
 
-    const exe = b.addExecutable("main", null);
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
+    const exe = b.addExecutable(.{
+        .name = "main",
+        .optimize = optimize,
+        .target = target,
+    });
     exe.addCSourceFile("main.c", &.{});
     exe.linkSystemLibraryName("a");
     exe.linkLibC();

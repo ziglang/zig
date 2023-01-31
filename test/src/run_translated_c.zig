@@ -85,11 +85,14 @@ pub const RunTranslatedCContext = struct {
         for (case.sources.items) |src_file| {
             write_src.add(src_file.filename, src_file.source);
         }
-        const translate_c = b.addTranslateC(write_src.getFileSource(case.sources.items[0].filename).?);
+        const translate_c = b.addTranslateC(.{
+            .source_file = write_src.getFileSource(case.sources.items[0].filename).?,
+            .target = .{},
+            .optimize = .Debug,
+        });
 
         translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
-        const exe = translate_c.addExecutable();
-        exe.setTarget(self.target);
+        const exe = translate_c.addExecutable(.{});
         exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
         exe.linkLibC();
         const run = exe.run();

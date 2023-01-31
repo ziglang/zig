@@ -8,7 +8,7 @@ const fs = std.fs;
 const mem = std.mem;
 const fmt = std.fmt;
 const ArrayList = std.ArrayList;
-const Mode = std.builtin.Mode;
+const OptimizeMode = std.builtin.OptimizeMode;
 const LibExeObjStep = build.LibExeObjStep;
 const Allocator = mem.Allocator;
 const ExecError = build.Builder.ExecError;
@@ -30,7 +30,7 @@ pub const CompareOutputContext = @import("src/compare_output.zig").CompareOutput
 
 const TestTarget = struct {
     target: CrossTarget = @as(CrossTarget, .{}),
-    mode: std.builtin.Mode = .Debug,
+    optimize_mode: std.builtin.OptimizeMode = .Debug,
     link_libc: bool = false,
     single_threaded: bool = false,
     disable_native: bool = false,
@@ -423,38 +423,38 @@ const test_targets = blk: {
 
         // Do the release tests last because they take a long time
         .{
-            .mode = .ReleaseFast,
+            .optimize_mode = .ReleaseFast,
         },
         .{
             .link_libc = true,
-            .mode = .ReleaseFast,
+            .optimize_mode = .ReleaseFast,
         },
         .{
-            .mode = .ReleaseFast,
+            .optimize_mode = .ReleaseFast,
             .single_threaded = true,
         },
 
         .{
-            .mode = .ReleaseSafe,
+            .optimize_mode = .ReleaseSafe,
         },
         .{
             .link_libc = true,
-            .mode = .ReleaseSafe,
+            .optimize_mode = .ReleaseSafe,
         },
         .{
-            .mode = .ReleaseSafe,
+            .optimize_mode = .ReleaseSafe,
             .single_threaded = true,
         },
 
         .{
-            .mode = .ReleaseSmall,
+            .optimize_mode = .ReleaseSmall,
         },
         .{
             .link_libc = true,
-            .mode = .ReleaseSmall,
+            .optimize_mode = .ReleaseSmall,
         },
         .{
-            .mode = .ReleaseSmall,
+            .optimize_mode = .ReleaseSmall,
             .single_threaded = true,
         },
     };
@@ -462,14 +462,14 @@ const test_targets = blk: {
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MB
 
-pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *build.Step {
     const cases = b.allocator.create(CompareOutputContext) catch unreachable;
     cases.* = CompareOutputContext{
         .b = b,
         .step = b.step("test-compare-output", "Run the compare output tests"),
         .test_index = 0,
         .test_filter = test_filter,
-        .modes = modes,
+        .optimize_modes = optimize_modes,
     };
 
     compare_output.addCases(cases);
@@ -477,14 +477,14 @@ pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, modes:
     return cases.step;
 }
 
-pub fn addStackTraceTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addStackTraceTests(b: *build.Builder, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *build.Step {
     const cases = b.allocator.create(StackTracesContext) catch unreachable;
     cases.* = StackTracesContext{
         .b = b,
         .step = b.step("test-stack-traces", "Run the stack trace tests"),
         .test_index = 0,
         .test_filter = test_filter,
-        .modes = modes,
+        .optimize_modes = optimize_modes,
     };
 
     stack_traces.addCases(cases);
@@ -495,7 +495,7 @@ pub fn addStackTraceTests(b: *build.Builder, test_filter: ?[]const u8, modes: []
 pub fn addStandaloneTests(
     b: *build.Builder,
     test_filter: ?[]const u8,
-    modes: []const Mode,
+    optimize_modes: []const OptimizeMode,
     skip_non_native: bool,
     enable_macos_sdk: bool,
     target: std.zig.CrossTarget,
@@ -513,7 +513,7 @@ pub fn addStandaloneTests(
         .step = b.step("test-standalone", "Run the standalone tests"),
         .test_index = 0,
         .test_filter = test_filter,
-        .modes = modes,
+        .optimize_modes = optimize_modes,
         .skip_non_native = skip_non_native,
         .enable_macos_sdk = enable_macos_sdk,
         .target = target,
@@ -534,7 +534,7 @@ pub fn addStandaloneTests(
 pub fn addLinkTests(
     b: *build.Builder,
     test_filter: ?[]const u8,
-    modes: []const Mode,
+    optimize_modes: []const OptimizeMode,
     enable_macos_sdk: bool,
     omit_stage2: bool,
     enable_symlinks_windows: bool,
@@ -545,7 +545,7 @@ pub fn addLinkTests(
         .step = b.step("test-link", "Run the linker tests"),
         .test_index = 0,
         .test_filter = test_filter,
-        .modes = modes,
+        .optimize_modes = optimize_modes,
         .skip_non_native = true,
         .enable_macos_sdk = enable_macos_sdk,
         .target = .{},
@@ -556,12 +556,17 @@ pub fn addLinkTests(
     return cases.step;
 }
 
-pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *build.Step {
     _ = test_filter;
-    _ = modes;
+    _ = optimize_modes;
     const step = b.step("test-cli", "Test the command line interface");
 
-    const exe = b.addExecutable("test-cli", "test/cli.zig");
+    const exe = b.addExecutable(.{
+        .name = "test-cli",
+        .root_source_file = .{ .path = "test/cli.zig" },
+        .target = .{},
+        .optimize = .Debug,
+    });
     const run_cmd = exe.run();
     run_cmd.addArgs(&[_][]const u8{
         fs.realpathAlloc(b.allocator, b.zig_exe) catch unreachable,
@@ -572,14 +577,14 @@ pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const M
     return step;
 }
 
-pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *build.Step {
     const cases = b.allocator.create(CompareOutputContext) catch unreachable;
     cases.* = CompareOutputContext{
         .b = b,
         .step = b.step("test-asm-link", "Run the assemble and link tests"),
         .test_index = 0,
         .test_filter = test_filter,
-        .modes = modes,
+        .optimize_modes = optimize_modes,
     };
 
     assemble_and_link.addCases(cases);
@@ -640,7 +645,7 @@ pub fn addPkgTests(
     root_src: []const u8,
     name: []const u8,
     desc: []const u8,
-    modes: []const Mode,
+    optimize_modes: []const OptimizeMode,
     skip_single_threaded: bool,
     skip_non_native: bool,
     skip_libc: bool,
@@ -677,8 +682,8 @@ pub fn addPkgTests(
             else => if (skip_stage2) continue,
         };
 
-        const want_this_mode = for (modes) |m| {
-            if (m == test_target.mode) break true;
+        const want_this_mode = for (optimize_modes) |m| {
+            if (m == test_target.optimize_mode) break true;
         } else false;
         if (!want_this_mode) continue;
 
@@ -691,21 +696,23 @@ pub fn addPkgTests(
 
         const triple_prefix = test_target.target.zigTriple(b.allocator) catch unreachable;
 
-        const these_tests = b.addTest(root_src);
+        const these_tests = b.addTest(.{
+            .root_source_file = .{ .path = root_src },
+            .optimize = test_target.optimize_mode,
+            .target = test_target.target,
+        });
         const single_threaded_txt = if (test_target.single_threaded) "single" else "multi";
         const backend_txt = if (test_target.backend) |backend| @tagName(backend) else "default";
         these_tests.setNamePrefix(b.fmt("{s}-{s}-{s}-{s}-{s}-{s} ", .{
             name,
             triple_prefix,
-            @tagName(test_target.mode),
+            @tagName(test_target.optimize_mode),
             libc_prefix,
             single_threaded_txt,
             backend_txt,
         }));
         these_tests.single_threaded = test_target.single_threaded;
         these_tests.setFilter(test_filter);
-        these_tests.setBuildMode(test_target.mode);
-        these_tests.setTarget(test_target.target);
         if (test_target.link_libc) {
             these_tests.linkSystemLibrary("c");
         }
@@ -739,9 +746,9 @@ pub const StackTracesContext = struct {
     step: *build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
-    modes: []const Mode,
+    optimize_modes: []const OptimizeMode,
 
-    const Expect = [@typeInfo(Mode).Enum.fields.len][]const u8;
+    const Expect = [@typeInfo(OptimizeMode).Enum.fields.len][]const u8;
 
     pub fn addCase(self: *StackTracesContext, config: anytype) void {
         if (@hasField(@TypeOf(config), "exclude")) {
@@ -755,26 +762,26 @@ pub const StackTracesContext = struct {
             const exclude_os: []const std.Target.Os.Tag = &config.exclude_os;
             for (exclude_os) |os| if (os == builtin.os.tag) return;
         }
-        for (self.modes) |mode| {
-            switch (mode) {
+        for (self.optimize_modes) |optimize_mode| {
+            switch (optimize_mode) {
                 .Debug => {
                     if (@hasField(@TypeOf(config), "Debug")) {
-                        self.addExpect(config.name, config.source, mode, config.Debug);
+                        self.addExpect(config.name, config.source, optimize_mode, config.Debug);
                     }
                 },
                 .ReleaseSafe => {
                     if (@hasField(@TypeOf(config), "ReleaseSafe")) {
-                        self.addExpect(config.name, config.source, mode, config.ReleaseSafe);
+                        self.addExpect(config.name, config.source, optimize_mode, config.ReleaseSafe);
                     }
                 },
                 .ReleaseFast => {
                     if (@hasField(@TypeOf(config), "ReleaseFast")) {
-                        self.addExpect(config.name, config.source, mode, config.ReleaseFast);
+                        self.addExpect(config.name, config.source, optimize_mode, config.ReleaseFast);
                     }
                 },
                 .ReleaseSmall => {
                     if (@hasField(@TypeOf(config), "ReleaseSmall")) {
-                        self.addExpect(config.name, config.source, mode, config.ReleaseSmall);
+                        self.addExpect(config.name, config.source, optimize_mode, config.ReleaseSmall);
                     }
                 },
             }
@@ -785,7 +792,7 @@ pub const StackTracesContext = struct {
         self: *StackTracesContext,
         name: []const u8,
         source: []const u8,
-        mode: Mode,
+        optimize_mode: OptimizeMode,
         mode_config: anytype,
     ) void {
         if (@hasField(@TypeOf(mode_config), "exclude")) {
@@ -803,7 +810,7 @@ pub const StackTracesContext = struct {
         const annotated_case_name = fmt.allocPrint(self.b.allocator, "{s} {s} ({s})", .{
             "stack-trace",
             name,
-            @tagName(mode),
+            @tagName(optimize_mode),
         }) catch unreachable;
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
@@ -812,14 +819,18 @@ pub const StackTracesContext = struct {
         const b = self.b;
         const src_basename = "source.zig";
         const write_src = b.addWriteFile(src_basename, source);
-        const exe = b.addExecutableSource("test", write_src.getFileSource(src_basename).?);
-        exe.setBuildMode(mode);
+        const exe = b.addExecutable(.{
+            .name = "test",
+            .root_source_file = write_src.getFileSource(src_basename).?,
+            .optimize = optimize_mode,
+            .target = .{},
+        });
 
         const run_and_compare = RunAndCompareStep.create(
             self,
             exe,
             annotated_case_name,
-            mode,
+            optimize_mode,
             mode_config.expect,
         );
 
@@ -833,7 +844,7 @@ pub const StackTracesContext = struct {
         context: *StackTracesContext,
         exe: *LibExeObjStep,
         name: []const u8,
-        mode: Mode,
+        optimize_mode: OptimizeMode,
         expect_output: []const u8,
         test_index: usize,
 
@@ -841,7 +852,7 @@ pub const StackTracesContext = struct {
             context: *StackTracesContext,
             exe: *LibExeObjStep,
             name: []const u8,
-            mode: Mode,
+            optimize_mode: OptimizeMode,
             expect_output: []const u8,
         ) *RunAndCompareStep {
             const allocator = context.b.allocator;
@@ -851,7 +862,7 @@ pub const StackTracesContext = struct {
                 .context = context,
                 .exe = exe,
                 .name = name,
-                .mode = mode,
+                .optimize_mode = optimize_mode,
                 .expect_output = expect_output,
                 .test_index = context.test_index,
             };
@@ -932,7 +943,7 @@ pub const StackTracesContext = struct {
             // process result
             // - keep only basename of source file path
             // - replace address with symbolic string
-            // - replace function name with symbolic string when mode != .Debug
+            // - replace function name with symbolic string when optimize_mode != .Debug
             // - skip empty lines
             const got: []const u8 = got_result: {
                 var buf = ArrayList(u8).init(b.allocator);
@@ -968,7 +979,7 @@ pub const StackTracesContext = struct {
                     // emit substituted line
                     try buf.appendSlice(line[pos + 1 .. marks[2] + delims[2].len]);
                     try buf.appendSlice(" [address]");
-                    if (self.mode == .Debug) {
+                    if (self.optimize_mode == .Debug) {
                         // On certain platforms (windows) or possibly depending on how we choose to link main
                         // the object file extension may be present so we simply strip any extension.
                         if (mem.indexOfScalar(u8, line[marks[4]..marks[5]], '.')) |idot| {
@@ -1007,7 +1018,7 @@ pub const StandaloneContext = struct {
     step: *build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
-    modes: []const Mode,
+    optimize_modes: []const OptimizeMode,
     skip_non_native: bool,
     enable_macos_sdk: bool,
     target: std.zig.CrossTarget,
@@ -1087,13 +1098,13 @@ pub const StandaloneContext = struct {
             }
         }
 
-        const modes = if (features.build_modes) self.modes else &[1]Mode{.Debug};
-        for (modes) |mode| {
-            const arg = switch (mode) {
+        const optimize_modes = if (features.build_modes) self.optimize_modes else &[1]OptimizeMode{.Debug};
+        for (optimize_modes) |optimize_mode| {
+            const arg = switch (optimize_mode) {
                 .Debug => "",
-                .ReleaseFast => "-Drelease-fast",
-                .ReleaseSafe => "-Drelease-safe",
-                .ReleaseSmall => "-Drelease-small",
+                .ReleaseFast => "-Doptimize=ReleaseFast",
+                .ReleaseSafe => "-Doptimize=ReleaseSafe",
+                .ReleaseSmall => "-Doptimize=ReleaseSmall",
             };
             const zig_args_base_len = zig_args.items.len;
             if (arg.len > 0)
@@ -1101,7 +1112,7 @@ pub const StandaloneContext = struct {
             defer zig_args.resize(zig_args_base_len) catch unreachable;
 
             const run_cmd = b.addSystemCommand(zig_args.items);
-            const log_step = b.addLog("PASS {s} ({s})", .{ annotated_case_name, @tagName(mode) });
+            const log_step = b.addLog("PASS {s} ({s})", .{ annotated_case_name, @tagName(optimize_mode) });
             log_step.step.dependOn(&run_cmd.step);
 
             self.step.dependOn(&log_step.step);
@@ -1111,17 +1122,21 @@ pub const StandaloneContext = struct {
     pub fn addAllArgs(self: *StandaloneContext, root_src: []const u8, link_libc: bool) void {
         const b = self.b;
 
-        for (self.modes) |mode| {
+        for (self.optimize_modes) |optimize| {
             const annotated_case_name = fmt.allocPrint(self.b.allocator, "build {s} ({s})", .{
                 root_src,
-                @tagName(mode),
+                @tagName(optimize),
             }) catch unreachable;
             if (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
             }
 
-            const exe = b.addExecutable("test", root_src);
-            exe.setBuildMode(mode);
+            const exe = b.addExecutable(.{
+                .name = "test",
+                .root_source_file = .{ .path = root_src },
+                .optimize = optimize,
+                .target = .{},
+            });
             if (link_libc) {
                 exe.linkSystemLibrary("c");
             }
@@ -1247,8 +1262,8 @@ pub const GenHContext = struct {
     pub fn addCase(self: *GenHContext, case: *const TestCase) void {
         const b = self.b;
 
-        const mode = std.builtin.Mode.Debug;
-        const annotated_case_name = fmt.allocPrint(self.b.allocator, "gen-h {s} ({s})", .{ case.name, @tagName(mode) }) catch unreachable;
+        const optimize_mode = std.builtin.OptimizeMode.Debug;
+        const annotated_case_name = fmt.allocPrint(self.b.allocator, "gen-h {s} ({s})", .{ case.name, @tagName(optimize_mode) }) catch unreachable;
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }
@@ -1259,7 +1274,7 @@ pub const GenHContext = struct {
         }
 
         const obj = b.addObjectFromWriteFileStep("test", write_src, case.sources.items[0].filename);
-        obj.setBuildMode(mode);
+        obj.setBuildMode(optimize_mode);
 
         const cmp_h = GenHCmpOutputStep.create(self, obj, annotated_case_name, case);
 
@@ -1336,14 +1351,16 @@ const c_abi_targets = [_]CrossTarget{
 pub fn addCAbiTests(b: *build.Builder, skip_non_native: bool, skip_release: bool) *build.Step {
     const step = b.step("test-c-abi", "Run the C ABI tests");
 
-    const modes: [2]Mode = .{ .Debug, .ReleaseFast };
+    const optimize_modes: [2]OptimizeMode = .{ .Debug, .ReleaseFast };
 
-    for (modes[0 .. @as(u8, 1) + @boolToInt(!skip_release)]) |mode| for (c_abi_targets) |c_abi_target| {
+    for (optimize_modes[0 .. @as(u8, 1) + @boolToInt(!skip_release)]) |optimize_mode| for (c_abi_targets) |c_abi_target| {
         if (skip_non_native and !c_abi_target.isNative())
             continue;
 
-        const test_step = b.addTest("test/c_abi/main.zig");
-        test_step.setTarget(c_abi_target);
+        const test_step = b.addTest(.{
+            .root_source_file = .{ .path = "test/c_abi/main.zig" },
+            .optimize = optimize_mode,
+        });
         if (c_abi_target.abi != null and c_abi_target.abi.?.isMusl()) {
             // TODO NativeTargetInfo insists on dynamically linking musl
             // for some reason?
@@ -1351,7 +1368,6 @@ pub fn addCAbiTests(b: *build.Builder, skip_non_native: bool, skip_release: bool
         }
         test_step.linkLibC();
         test_step.addCSourceFile("test/c_abi/cfuncs.c", &.{"-std=c99"});
-        test_step.setBuildMode(mode);
 
         if (c_abi_target.isWindows() and (c_abi_target.getCpuArch() == .x86 or builtin.target.os.tag == .linux)) {
             // LTO currently incorrectly strips stdcall name-mangled functions
@@ -1363,7 +1379,7 @@ pub fn addCAbiTests(b: *build.Builder, skip_non_native: bool, skip_release: bool
         test_step.setNamePrefix(b.fmt("{s}-{s}-{s} ", .{
             "test-c-abi",
             triple_prefix,
-            @tagName(mode),
+            @tagName(optimize_mode),
         }));
 
         step.dependOn(&test_step.step);

@@ -1,8 +1,11 @@
 const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
-    const main = b.addExecutable("main", "main.zig");
-    main.setBuildMode(b.standardReleaseOptions());
+    const main = b.addExecutable(.{
+        .name = "main",
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = b.standardOptimizeOption(.{}),
+    });
 
     const run = main.run();
     run.clearEnvironment();

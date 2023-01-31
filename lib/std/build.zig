@@ -420,10 +420,10 @@ pub const Builder = struct {
 
     pub const ExecutableOptions = struct {
         name: []const u8,
-        root_source_file: ?FileSource,
+        root_source_file: ?FileSource = null,
         version: ?std.builtin.Version = null,
-        target: CrossTarget,
-        optimize: std.builtin.Mode,
+        target: CrossTarget = .{},
+        optimize: std.builtin.Mode = .Debug,
         linkage: ?LibExeObjStep.Linkage = null,
     };
 
@@ -436,13 +436,12 @@ pub const Builder = struct {
             .optimize = options.optimize,
             .kind = .exe,
             .linkage = options.linkage,
-            .version = options.version,
         });
     }
 
     pub const ObjectOptions = struct {
         name: []const u8,
-        root_source_file: ?FileSource,
+        root_source_file: ?FileSource = null,
         target: CrossTarget,
         optimize: std.builtin.Mode,
     };
@@ -459,7 +458,7 @@ pub const Builder = struct {
 
     pub const SharedLibraryOptions = struct {
         name: []const u8,
-        root_source_file: ?FileSource,
+        root_source_file: ?FileSource = null,
         version: ?std.builtin.Version = null,
         target: CrossTarget,
         optimize: std.builtin.Mode,
@@ -501,8 +500,8 @@ pub const Builder = struct {
         name: []const u8 = "test",
         kind: LibExeObjStep.Kind = .@"test",
         root_source_file: FileSource,
-        target: CrossTarget,
-        optimize: std.builtin.Mode,
+        target: CrossTarget = .{},
+        optimize: std.builtin.Mode = .Debug,
         version: ?std.builtin.Version = null,
     };
 
@@ -630,8 +629,8 @@ pub const Builder = struct {
         return FmtStep.create(self, paths);
     }
 
-    pub fn addTranslateC(self: *Builder, source: FileSource) *TranslateCStep {
-        return TranslateCStep.create(self, source.dupe(self));
+    pub fn addTranslateC(self: *Builder, options: TranslateCStep.Options) *TranslateCStep {
+        return TranslateCStep.create(self, options);
     }
 
     pub fn make(self: *Builder, step_names: []const []const u8) !void {

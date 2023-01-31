@@ -19,11 +19,19 @@ include_dirs: std.ArrayList([]const u8),
 c_macros: std.ArrayList([]const u8),
 output_dir: ?[]const u8,
 out_basename: []const u8,
-target: CrossTarget = CrossTarget{},
+target: CrossTarget,
+optimize: std.builtin.OptimizeMode,
 output_file: build.GeneratedFile,
 
-pub fn create(builder: *Builder, source: build.FileSource) *TranslateCStep {
+pub const Options = struct {
+    source_file: build.FileSource,
+    target: CrossTarget,
+    optimize: std.builtin.OptimizeMode,
+};
+
+pub fn create(builder: *Builder, options: Options) *TranslateCStep {
     const self = builder.allocator.create(TranslateCStep) catch unreachable;
+    const source = options.source_file.dupe(builder);
     self.* = TranslateCStep{
         .step = Step.init(.translate_c, "translate-c", builder.allocator, make),
         .builder = builder,
@@ -32,19 +40,32 @@ pub fn create(builder: *Builder, source: build.FileSource) *TranslateCStep {
         .c_macros = std.ArrayList([]const u8).init(builder.allocator),
         .output_dir = null,
         .out_basename = undefined,
+        .target = options.target,
+        .optimize = options.optimize,
         .output_file = build.GeneratedFile{ .step = &self.step },
     };
     source.addStepDependencies(&self.step);
     return self;
 }
 
-pub fn setTarget(self: *TranslateCStep, target: CrossTarget) void {
-    self.target = target;
-}
+pub const AddExecutableOptions = struct {
+    name: ?[]const u8 = null,
+    version: ?std.builtin.Version = null,
+    target: ?CrossTarget = null,
+    optimize: ?std.builtin.Mode = null,
+    linkage: ?LibExeObjStep.Linkage = null,
+};
 
 /// Creates a step to build an executable from the translated source.
-pub fn addExecutable(self: *TranslateCStep) *LibExeObjStep {
-    return self.builder.addExecutableSource("translated_c", build.FileSource{ .generated = &self.output_file });
+pub fn addExecutable(self: *TranslateCStep, options: AddExecutableOptions) *LibExeObjStep {
+    return self.builder.addExecutable(.{
+        .root_source_file = .{ .generated = &self.output_file },
+        .name = options.name orelse "translated_c",
+        .version = options.version,
+        .target = options.target orelse self.target,
+        .optimize = options.optimize orelse self.optimize,
+        .linkage = options.linkage,
+    });
 }
 
 pub fn addIncludeDir(self: *TranslateCStep, include_dir: []const u8) void {
@@ -80,6 +101,11 @@ fn make(step: *Step) !void {
     if (!self.target.isNative()) {
         try argv_list.append("-target");
         try argv_list.append(try self.target.zigTriple(self.builder.allocator));
+    }
+
+    switch (self.optimize) {
+        .Debug => {}, // Skip since it's the default.
+        else => try argv_list.append(self.builder.fmt("-O{s}", .{@tagName(self.optimize)})),
     }
 
     for (self.include_dirs.items) |include_dir| {

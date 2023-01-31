@@ -23,7 +23,7 @@ pub fn build(b: *Builder) !void {
         }
         break :t b.standardTargetOptions(.{ .default_target = default_target });
     };
-    const mode: std.builtin.Mode = if (release) switch (target.getCpuArch()) {
+    const optimize: std.builtin.OptimizeMode = if (release) switch (target.getCpuArch()) {
         .wasm32 => .ReleaseSmall,
         else => .ReleaseFast,
     } else .Debug;
@@ -33,7 +33,12 @@ pub fn build(b: *Builder) !void {
 
     const test_step = b.step("test", "Run all the tests");
 
-    const docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
+    const docgen_exe = b.addExecutable(.{
+        .name = "docgen",
+        .root_source_file = .{ .path = "doc/docgen.zig" },
+        .target = .{},
+        .optimize = .Debug,
+    });
     docgen_exe.single_threaded = single_threaded;
 
     const rel_zig_exe = try fs.path.relative(b.allocator, b.build_root, b.zig_exe);
@@ -53,10 +58,12 @@ pub fn build(b: *Builder) !void {
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
 
-    const test_cases = b.addTest("src/test.zig");
+    const test_cases = b.addTest(.{
+        .root_source_file = .{ .path = "src/test.zig" },
+        .optimize = optimize,
+    });
     test_cases.main_pkg_path = ".";
     test_cases.stack_size = stack_size;
-    test_cases.setBuildMode(mode);
     test_cases.single_threaded = single_threaded;
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
@@ -149,17 +156,15 @@ pub fn build(b: *Builder) !void {
 
     const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
         if (strip == true) break :blk @as(u32, 0);
-        if (mode != .Debug) break :blk 0;
+        if (optimize != .Debug) break :blk 0;
         break :blk 4;
     };
 
-    const exe = addCompilerStep(b);
+    const exe = addCompilerStep(b, optimize, target);
     exe.strip = strip;
     exe.sanitize_thread = sanitize_thread;
     exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
     exe.install();
-    exe.setBuildMode(mode);
-    exe.setTarget(target);
 
     const compile_step = b.step("compile", "Build the self-hosted compiler");
     compile_step.dependOn(&exe.step);
@@ -195,7 +200,7 @@ pub fn build(b: *Builder) !void {
         test_cases.linkLibC();
     }
 
-    const is_debug = mode == .Debug;
+    const is_debug = optimize == .Debug;
     const enable_logging = b.option(bool, "log", "Enable debug logging with --debug-log") orelse is_debug;
     const enable_link_snapshots = b.option(bool, "link-snapshot", "Whether to enable linker state snapshots") orelse false;
 
@@ -360,25 +365,25 @@ pub fn build(b: *Builder) !void {
         test_step.dependOn(test_cases_step);
     }
 
-    var chosen_modes: [4]builtin.Mode = undefined;
+    var chosen_opt_modes_buf: [4]builtin.Mode = undefined;
     var chosen_mode_index: usize = 0;
     if (!skip_debug) {
-        chosen_modes[chosen_mode_index] = builtin.Mode.Debug;
+        chosen_opt_modes_buf[chosen_mode_index] = builtin.Mode.Debug;
         chosen_mode_index += 1;
     }
     if (!skip_release_safe) {
-        chosen_modes[chosen_mode_index] = builtin.Mode.ReleaseSafe;
+        chosen_opt_modes_buf[chosen_mode_index] = builtin.Mode.ReleaseSafe;
         chosen_mode_index += 1;
     }
     if (!skip_release_fast) {
-        chosen_modes[chosen_mode_index] = builtin.Mode.ReleaseFast;
+        chosen_opt_modes_buf[chosen_mode_index] = builtin.Mode.ReleaseFast;
         chosen_mode_index += 1;
     }
     if (!skip_release_small) {
-        chosen_modes[chosen_mode_index] = builtin.Mode.ReleaseSmall;
+        chosen_opt_modes_buf[chosen_mode_index] = builtin.Mode.ReleaseSmall;
         chosen_mode_index += 1;
     }
-    const modes = chosen_modes[0..chosen_mode_index];
+    const optimization_modes = chosen_opt_modes_buf[0..chosen_mode_index];
 
     // run stage1 `zig fmt` on this build.zig file just to make sure it works
     test_step.dependOn(&fmt_build_zig.step);
@@ -391,7 +396,7 @@ pub fn build(b: *Builder) !void {
         "test/behavior.zig",
         "behavior",
         "Run the behavior tests",
-        modes,
+        optimization_modes,
         skip_single_threaded,
         skip_non_native,
         skip_libc,
@@ -405,7 +410,7 @@ pub fn build(b: *Builder) !void {
         "lib/compiler_rt.zig",
         "compiler-rt",
         "Run the compiler_rt tests",
-        modes,
+        optimization_modes,
         true, // skip_single_threaded
         skip_non_native,
         true, // skip_libc
@@ -419,7 +424,7 @@ pub fn build(b: *Builder) !void {
         "lib/c.zig",
         "universal-libc",
         "Run the universal libc tests",
-        modes,
+        optimization_modes,
         true, // skip_single_threaded
         skip_non_native,
         true, // skip_libc
@@ -427,11 +432,11 @@ pub fn build(b: *Builder) !void {
         skip_stage2_tests or true, // TODO get these all passing
     ));
 
-    test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
+    test_step.dependOn(tests.addCompareOutputTests(b, test_filter, optimization_modes));
     test_step.dependOn(tests.addStandaloneTests(
         b,
         test_filter,
-        modes,
+        optimization_modes,
         skip_non_native,
         enable_macos_sdk,
         target,
@@ -444,10 +449,10 @@ pub fn build(b: *Builder) !void {
         enable_symlinks_windows,
     ));
     test_step.dependOn(tests.addCAbiTests(b, skip_non_native, skip_release));
-    test_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk, skip_stage2_tests, enable_symlinks_windows));
-    test_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
-    test_step.dependOn(tests.addCliTests(b, test_filter, modes));
-    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
+    test_step.dependOn(tests.addLinkTests(b, test_filter, optimization_modes, enable_macos_sdk, skip_stage2_tests, enable_symlinks_windows));
+    test_step.dependOn(tests.addStackTraceTests(b, test_filter, optimization_modes));
+    test_step.dependOn(tests.addCliTests(b, test_filter, optimization_modes));
+    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, optimization_modes));
     test_step.dependOn(tests.addTranslateCTests(b, test_filter));
     if (!skip_run_translated_c) {
         test_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
@@ -461,7 +466,7 @@ pub fn build(b: *Builder) !void {
         "lib/std/std.zig",
         "std",
         "Run the standard library tests",
-        modes,
+        optimization_modes,
         skip_single_threaded,
         skip_non_native,
         skip_libc,
@@ -481,9 +486,7 @@ fn addWasiUpdateStep(b: *Builder, version: [:0]const u8) !void {
     };
     target.cpu_features_add.addFeature(@enumToInt(std.Target.wasm.Feature.bulk_memory));
 
-    const exe = addCompilerStep(b);
-    exe.setBuildMode(.ReleaseSmall);
-    exe.setTarget(target);
+    const exe = addCompilerStep(b, .ReleaseSmall, target);
 
     const exe_options = b.addOptions();
     exe.addOptions("build_options", exe_options);
@@ -510,8 +513,17 @@ fn addWasiUpdateStep(b: *Builder, version: [:0]const u8) !void {
     update_zig1_step.dependOn(&run_opt.step);
 }
 
-fn addCompilerStep(b: *Builder) *std.build.LibExeObjStep {
-    const exe = b.addExecutable("zig", "src/main.zig");
+fn addCompilerStep(
+    b: *Builder,
+    optimize: std.builtin.OptimizeMode,
+    target: std.zig.CrossTarget,
+) *std.build.LibExeObjStep {
+    const exe = b.addExecutable(.{
+        .name = "zig",
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
     exe.stack_size = stack_size;
     return exe;
 }

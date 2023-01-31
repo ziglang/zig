@@ -3596,7 +3596,8 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         man.hash.addOptionalBytes(options.sysroot);
         try man.addOptionalFile(options.entitlements);
 
-        // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
+        // We don't actually care whether it's a cache hit or miss; we just
+        // need the digest and the lock.
         _ = try man.hit();
         digest = man.final();
 
@@ -4177,9 +4178,11 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             log.debug("failed to save linking hash digest file: {s}", .{@errorName(err)});
         };
         // Again failure here only means an unnecessary cache miss.
-        man.writeManifest() catch |err| {
-            log.debug("failed to write cache manifest when linking: {s}", .{@errorName(err)});
-        };
+        if (man.have_exclusive_lock) {
+            man.writeManifest() catch |err| {
+                log.debug("failed to write cache manifest when linking: {s}", .{@errorName(err)});
+            };
+        }
         // We hang on to this lock so that the output file path can be used without
         // other processes clobbering it.
         macho_file.base.lock = man.toOwnedLock();

@@ -29,21 +29,21 @@ pub fn build(b: *Builder) void {
 fn testUuid(
     b: *Builder,
     test_step: *std.build.Step,
-    mode: std.builtin.Mode,
+    optimize: std.builtin.OptimizeMode,
     target: std.zig.CrossTarget,
     comptime exp: []const u8,
 ) void {
     // The calculated UUID value is independent of debug info and so it should
     // stay the same across builds.
     {
-        const dylib = simpleDylib(b, mode, target);
+        const dylib = simpleDylib(b, optimize, target);
         const check_dylib = dylib.checkObject(.macho);
         check_dylib.checkStart("cmd UUID");
         check_dylib.checkNext("uuid " ++ exp);
         test_step.dependOn(&check_dylib.step);
     }
     {
-        const dylib = simpleDylib(b, mode, target);
+        const dylib = simpleDylib(b, optimize, target);
         dylib.strip = true;
         const check_dylib = dylib.checkObject(.macho);
         check_dylib.checkStart("cmd UUID");
@@ -52,10 +52,13 @@ fn testUuid(
     }
 }
 
-fn simpleDylib(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) *LibExeObjectStep {
-    const dylib = b.addSharedLibrary("test", null, b.version(1, 0, 0));
-    dylib.setTarget(target);
-    dylib.setBuildMode(mode);
+fn simpleDylib(b: *Builder, optimize: std.builtin.OptimizeMode, target: std.zig.CrossTarget) *LibExeObjectStep {
+    const dylib = b.addSharedLibrary(.{
+        .name = "test",
+        .version = .{ .major = 1, .minor = 0 },
+        .optimize = optimize,
+        .target = target,
+    });
     dylib.addCSourceFile("test.c", &.{});
     dylib.linkLibC();
     return dylib;

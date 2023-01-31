@@ -1,7 +1,10 @@
 const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
-    const test_exe = b.addTestExe("test", "test.zig");
+    const test_exe = b.addTest(.{
+        .root_source_file = .{ .path = "test.zig" },
+        .kind = .test_exe,
+    });
     test_exe.test_runner = "test_runner.zig";
 
     const test_run = test_exe.run();

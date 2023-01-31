@@ -9531,8 +9531,12 @@ fn foo(comptime T: type, ptr: *T) T {
 const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
-    const exe = b.addExecutable("example", "example.zig");
-    exe.setBuildMode(b.standardReleaseOptions());
+    const optimize = b.standardOptimizeOption(.{});
+    const exe = b.addExecutable(.{
+        .name = "example",
+        .root_source_file = .{ .path = "example.zig" },
+        .optimize = optimize,
+    });
     b.default_step.dependOn(&exe.step);
 }
       {#code_end#}
@@ -10558,11 +10562,14 @@ pub fn build(b: *Builder) void {
 
     // Standard release options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
-    const mode = b.standardReleaseOptions();
+    const optimize = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable("example", "src/main.zig");
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
+    const exe = b.addExecutable(.{
+        .name = "example",
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
     exe.install();
 
     const run_cmd = exe.run();
@@ -10584,13 +10591,18 @@ pub fn build(b: *Builder) void {
 const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
-    const lib = b.addStaticLibrary("example", "src/main.zig");
-    lib.setBuildMode(mode);
+    const optimize = b.standardOptimizeOption(.{});
+    const lib = b.addStaticLibrary(.{
+        .name = "example",
+        .root_source_file = .{ .path = "src/main.zig" },
+        .optimize = optimize,
+    });
     lib.install();
 
-    var main_tests = b.addTest("src/main.zig");
-    main_tests.setBuildMode(mode);
+    const main_tests = b.addTest(.{
+        .root_source_file = .{ .path = "src/main.zig" },
+        .optimize = optimize,
+    });
 
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
@@ -10954,7 +10966,9 @@ const Builder = @import("std").build.Builder;
 pub fn build(b: *Builder) void {
     const lib = b.addSharedLibrary("mathtest", "mathtest.zig", b.version(1, 0, 0));
 
-    const exe = b.addExecutable("test", null);
+    const exe = b.addExecutable(.{
+        .name = "test",
+    });
     exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
     exe.linkLibrary(lib);
     exe.linkSystemLibrary("c");
@@ -11016,7 +11030,9 @@ const Builder = @import("std").build.Builder;
 pub fn build(b: *Builder) void {
     const obj = b.addObject("base64", "base64.zig");
 
-    const exe = b.addExecutable("test", null);
+    const exe = b.addExecutable(.{
+        .name = "test",
+    });
     exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
     exe.addObject(obj);
     exe.linkSystemLibrary("c");

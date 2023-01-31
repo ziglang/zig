@@ -1,13 +1,14 @@
 const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
-    const exe = b.addExecutable("test", "test.zig");
-    exe.addPackagePath("my_pkg", "pkg.zig");
+    const optimize = b.standardOptimizeOption(.{});
 
-    // This is duplicated to test that you are allowed to call
-    // b.standardReleaseOptions() twice.
-    exe.setBuildMode(b.standardReleaseOptions());
-    exe.setBuildMode(b.standardReleaseOptions());
+    const exe = b.addExecutable(.{
+        .name = "test",
+        .root_source_file = .{ .path = "test.zig" },
+        .optimize = optimize,
+    });
+    exe.addPackagePath("my_pkg", "pkg.zig");
 
     const run = exe.run();
 

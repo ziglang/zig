@@ -108,10 +108,13 @@ pub const TranslateCContext = struct {
             write_src.add(src_file.filename, src_file.source);
         }
 
-        const translate_c = b.addTranslateC(write_src.getFileSource(case.sources.items[0].filename).?);
+        const translate_c = b.addTranslateC(.{
+            .source_file = write_src.getFileSource(case.sources.items[0].filename).?,
+            .target = case.target,
+            .optimize = .Debug,
+        });
 
         translate_c.step.name = annotated_case_name;
-        translate_c.setTarget(case.target);
 
         const check_file = translate_c.addCheckFile(case.expected_lines.items);
 

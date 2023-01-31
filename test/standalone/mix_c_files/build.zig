@@ -12,14 +12,17 @@ fn isRunnableTarget(t: CrossTarget) bool {
 }
 
 pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+    const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
-    const exe = b.addExecutable("test", "main.zig");
+    const exe = b.addExecutable(.{
+        .name = "test",
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = optimize,
+        .target = target,
+    });
     exe.addCSourceFile("test.c", &[_][]const u8{"-std=c11"});
-    exe.setBuildMode(mode);
     exe.linkLibC();
-    exe.setTarget(target);
     b.default_step.dependOn(&exe.step);
 
     const test_step = b.step("test", "Test the program");

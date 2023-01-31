@@ -4,15 +4,18 @@ const Builder = std.build.Builder;
 const LibExeObjectStep = std.build.LibExeObjStep;
 
 pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+    const optimize = b.standardOptimizeOption(.{});
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
 
-    const exe = b.addExecutable("main", "main.zig");
-    exe.setBuildMode(mode);
-    exe.setTarget(target);
+    const exe = b.addExecutable(.{
+        .name = "main",
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = optimize,
+        .target = target,
+    });
     exe.linkLibC();
 
     const check_exe = exe.checkObject(.macho);

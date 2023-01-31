@@ -1,15 +1,20 @@
 const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+    const optimize = b.standardOptimizeOption(.{});
 
-    const foo = b.addStaticLibrary("foo", null);
+    const foo = b.addStaticLibrary(.{
+        .name = "foo",
+        .optimize = optimize,
+        .target = .{},
+    });
     foo.addCSourceFile("foo.c", &[_][]const u8{});
-    foo.setBuildMode(mode);
     foo.addIncludePath(".");
 
-    const test_exe = b.addTest("foo.zig");
-    test_exe.setBuildMode(mode);
+    const test_exe = b.addTest(.{
+        .root_source_file = .{ .path = "foo.zig" },
+        .optimize = optimize,
+    });
     test_exe.linkLibrary(foo);
     test_exe.addIncludePath(".");
 
