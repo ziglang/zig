@@ -106,6 +106,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
         .msvcrt_os_lib => {
             const extra_flags = try arena.dupe([]const u8, &[_][]const u8{
                 "-DHAVE_CONFIG_H",
+                "-D__LIBMSVCRT__",
                 "-D__LIBMSVCRT_OS__",
 
                 "-I",
