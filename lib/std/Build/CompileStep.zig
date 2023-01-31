@@ -1970,7 +1970,10 @@ test "addPackage" {
         .dependencies = &[_]Pkg{pkg_dep},
     };
 
-    var exe = builder.addExecutable("not_an_executable", "/not/an/executable.zig");
+    var exe = builder.addExecutable(.{
+        .name = "not_an_executable",
+        .root_source_file = .{ .path = "/not/an/executable.zig" },
+    });
     exe.addPackage(pkg_top);
 
     try std.testing.expectEqual(@as(usize, 1), exe.packages.items.len);
