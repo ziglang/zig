@@ -23,7 +23,7 @@ pub fn create(builder: *std.Build, artifact: *CompileStep) *InstallArtifactStep 
         .artifact = artifact,
         .dest_dir = artifact.override_dest_dir orelse switch (artifact.kind) {
             .obj => @panic("Cannot install a .obj build artifact."),
-            .@"test" => @panic("Cannot install a test build artifact, use addTestExe instead."),
+            .@"test" => @panic("Cannot install a .test build artifact, use .test_exe instead."),
             .exe, .test_exe => InstallDir{ .bin = {} },
             .lib => InstallDir{ .lib = {} },
         },
