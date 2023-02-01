@@ -1,26 +1,24 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Builder = std.build.Builder;
-const LibExeObjectStep = std.build.LibExeObjStep;
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     const test_step = b.step("test", "Test the program");
 
-    testUnwindInfo(b, test_step, mode, target, false);
-    testUnwindInfo(b, test_step, mode, target, true);
+    testUnwindInfo(b, test_step, optimize, target, false);
+    testUnwindInfo(b, test_step, optimize, target, true);
 }
 
 fn testUnwindInfo(
-    b: *Builder,
-    test_step: *std.build.Step,
-    mode: std.builtin.Mode,
+    b: *std.Build,
+    test_step: *std.Build.Step,
+    optimize: std.builtin.OptimizeMode,
     target: std.zig.CrossTarget,
     dead_strip: bool,
 ) void {
-    const exe = createScenario(b, mode, target);
+    const exe = createScenario(b, optimize, target);
     exe.link_gc_sections = dead_strip;
 
     const check = exe.checkObject(.macho);
@@ -52,8 +50,16 @@ fn testUnwindInfo(
     test_step.dependOn(&run_cmd.step);
 }
 
-fn createScenario(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) *LibExeObjectStep {
-    const exe = b.addExecutable("test", null);
+fn createScenario(
+    b: *std.Build,
+    optimize: std.builtin.OptimizeMode,
+    target: std.zig.CrossTarget,
+) *std.Build.CompileStep {
+    const exe = b.addExecutable(.{
+        .name = "test",
+        .optimize = optimize,
+        .target = target,
+    });
     b.default_step.dependOn(&exe.step);
     exe.addIncludePath(".");
     exe.addCSourceFiles(&[_][]const u8{
@@ -61,8 +67,6 @@ fn createScenario(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarg
         "simple_string.cpp",
         "simple_string_owner.cpp",
     }, &[0][]const u8{});
-    exe.setBuildMode(mode);
-    exe.setTarget(target);
     exe.linkLibCpp();
     return exe;
 }

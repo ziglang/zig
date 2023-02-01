@@ -1,10 +1,12 @@
 const std = @import("std");
 
-pub fn build(b: *std.build.Builder) void {
-    const mode = b.standardReleaseOptions();
-    const exe = b.addExecutable("extern", "main.zig");
-    exe.setTarget(.{ .cpu_arch = .wasm32, .os_tag = .wasi });
-    exe.setBuildMode(mode);
+pub fn build(b: *std.Build) void {
+    const exe = b.addExecutable(.{
+        .name = "extern",
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = b.standardOptimizeOption(.{}),
+        .target = .{ .cpu_arch = .wasm32, .os_tag = .wasi },
+    });
     exe.addCSourceFile("foo.c", &.{});
     exe.use_llvm = false;
     exe.use_lld = false;

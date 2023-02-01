@@ -16,7 +16,6 @@ const trace = @import("../tracy.zig").trace;
 const LazySrcLoc = Module.LazySrcLoc;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
-const CType = @import("../type.zig").CType;
 
 const target_util = @import("../target.zig");
 const libcFloatPrefix = target_util.libcFloatPrefix;

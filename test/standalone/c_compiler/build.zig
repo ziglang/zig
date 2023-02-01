@@ -1,9 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Builder = std.build.Builder;
 const CrossTarget = std.zig.CrossTarget;
 
-// TODO integrate this with the std.build executor API
+// TODO integrate this with the std.Build executor API
 fn isRunnableTarget(t: CrossTarget) bool {
     if (t.isNative()) return true;
 
@@ -11,24 +10,28 @@ fn isRunnableTarget(t: CrossTarget) bool {
         t.getCpuArch() == builtin.cpu.arch);
 }
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
     const test_step = b.step("test", "Test the program");
 
-    const exe_c = b.addExecutable("test_c", null);
+    const exe_c = b.addExecutable(.{
+        .name = "test_c",
+        .optimize = optimize,
+        .target = target,
+    });
     b.default_step.dependOn(&exe_c.step);
     exe_c.addCSourceFile("test.c", &[0][]const u8{});
-    exe_c.setBuildMode(mode);
-    exe_c.setTarget(target);
     exe_c.linkLibC();
 
-    const exe_cpp = b.addExecutable("test_cpp", null);
+    const exe_cpp = b.addExecutable(.{
+        .name = "test_cpp",
+        .optimize = optimize,
+        .target = target,
+    });
     b.default_step.dependOn(&exe_cpp.step);
     exe_cpp.addCSourceFile("test.cpp", &[0][]const u8{});
-    exe_cpp.setBuildMode(mode);
-    exe_cpp.setTarget(target);
     exe_cpp.linkLibCpp();
 
     switch (target.getOsTag()) {

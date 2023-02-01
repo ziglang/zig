@@ -1,7 +1,9 @@
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
-    const test_artifact = b.addTest("main.zig");
+pub fn build(b: *std.Build) void {
+    const test_artifact = b.addTest(.{
+        .root_source_file = .{ .path = "main.zig" },
+    });
     test_artifact.addIncludePath("a_directory");
 
     b.default_step.dependOn(&test_artifact.step);

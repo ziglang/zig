@@ -1,7 +1,5 @@
 const std = @import("../std.zig");
-const build = std.build;
-const Step = build.Step;
-const Builder = build.Builder;
+const Step = std.Build.Step;
 const fs = std.fs;
 const mem = std.mem;
 
@@ -10,17 +8,17 @@ const CheckFileStep = @This();
 pub const base_id = .check_file;
 
 step: Step,
-builder: *Builder,
+builder: *std.Build,
 expected_matches: []const []const u8,
-source: build.FileSource,
+source: std.Build.FileSource,
 max_bytes: usize = 20 * 1024 * 1024,
 
 pub fn create(
-    builder: *Builder,
-    source: build.FileSource,
+    builder: *std.Build,
+    source: std.Build.FileSource,
     expected_matches: []const []const u8,
 ) *CheckFileStep {
-    const self = builder.allocator.create(CheckFileStep) catch unreachable;
+    const self = builder.allocator.create(CheckFileStep) catch @panic("OOM");
     self.* = CheckFileStep{
         .builder = builder,
         .step = Step.init(.check_file, "CheckFile", builder.allocator, make),

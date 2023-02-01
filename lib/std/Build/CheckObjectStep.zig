@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
-const build = std.build;
 const fs = std.fs;
 const macho = std.macho;
 const math = std.math;
@@ -10,23 +9,22 @@ const testing = std.testing;
 const CheckObjectStep = @This();
 
 const Allocator = mem.Allocator;
-const Builder = build.Builder;
-const Step = build.Step;
-const EmulatableRunStep = build.EmulatableRunStep;
+const Step = std.Build.Step;
+const EmulatableRunStep = std.Build.EmulatableRunStep;
 
 pub const base_id = .check_object;
 
 step: Step,
-builder: *Builder,
-source: build.FileSource,
+builder: *std.Build,
+source: std.Build.FileSource,
 max_bytes: usize = 20 * 1024 * 1024,
 checks: std.ArrayList(Check),
 dump_symtab: bool = false,
 obj_format: std.Target.ObjectFormat,
 
-pub fn create(builder: *Builder, source: build.FileSource, obj_format: std.Target.ObjectFormat) *CheckObjectStep {
+pub fn create(builder: *std.Build, source: std.Build.FileSource, obj_format: std.Target.ObjectFormat) *CheckObjectStep {
     const gpa = builder.allocator;
-    const self = gpa.create(CheckObjectStep) catch unreachable;
+    const self = gpa.create(CheckObjectStep) catch @panic("OOM");
     self.* = .{
         .builder = builder,
         .step = Step.init(.check_file, "CheckObject", gpa, make),
@@ -44,7 +42,7 @@ pub fn runAndCompare(self: *CheckObjectStep) *EmulatableRunStep {
     const dependencies_len = self.step.dependencies.items.len;
     assert(dependencies_len > 0);
     const exe_step = self.step.dependencies.items[dependencies_len - 1];
-    const exe = exe_step.cast(std.build.LibExeObjStep).?;
+    const exe = exe_step.cast(std.Build.CompileStep).?;
     const emulatable_step = EmulatableRunStep.create(self.builder, "EmulatableRun", exe);
     emulatable_step.step.dependOn(&self.step);
     return emulatable_step;
@@ -216,10 +214,10 @@ const ComputeCompareExpected = struct {
 };
 
 const Check = struct {
-    builder: *Builder,
+    builder: *std.Build,
     actions: std.ArrayList(Action),
 
-    fn create(b: *Builder) Check {
+    fn create(b: *std.Build) Check {
         return .{
             .builder = b,
             .actions = std.ArrayList(Action).init(b.allocator),
@@ -230,14 +228,14 @@ const Check = struct {
         self.actions.append(.{
             .tag = .match,
             .phrase = self.builder.dupe(phrase),
-        }) catch unreachable;
+        }) catch @panic("OOM");
     }
 
     fn notPresent(self: *Check, phrase: []const u8) void {
         self.actions.append(.{
             .tag = .not_present,
             .phrase = self.builder.dupe(phrase),
-        }) catch unreachable;
+        }) catch @panic("OOM");
     }
 
     fn computeCmp(self: *Check, phrase: []const u8, expected: ComputeCompareExpected) void {
@@ -245,7 +243,7 @@ const Check = struct {
             .tag = .compute_cmp,
             .phrase = self.builder.dupe(phrase),
             .expected = expected,
-        }) catch unreachable;
+        }) catch @panic("OOM");
     }
 };
 
@@ -253,7 +251,7 @@ const Check = struct {
 pub fn checkStart(self: *CheckObjectStep, phrase: []const u8) void {
     var new_check = Check.create(self.builder);
     new_check.match(phrase);
-    self.checks.append(new_check) catch unreachable;
+    self.checks.append(new_check) catch @panic("OOM");
 }
 
 /// Adds another searched phrase to the latest created Check with `CheckObjectStep.checkStart(...)`.
@@ -295,7 +293,7 @@ pub fn checkComputeCompare(
 ) void {
     var new_check = Check.create(self.builder);
     new_check.computeCmp(program, expected);
-    self.checks.append(new_check) catch unreachable;
+    self.checks.append(new_check) catch @panic("OOM");
 }
 
 fn make(step: *Step) !void {

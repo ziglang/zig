@@ -1,12 +1,10 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
-const build = std.build;
 const fs = std.fs;
-const Step = build.Step;
-const Builder = build.Builder;
-const GeneratedFile = build.GeneratedFile;
-const LibExeObjStep = build.LibExeObjStep;
-const FileSource = build.FileSource;
+const Step = std.Build.Step;
+const GeneratedFile = std.Build.GeneratedFile;
+const CompileStep = std.Build.CompileStep;
+const FileSource = std.Build.FileSource;
 
 const OptionsStep = @This();
 
@@ -14,14 +12,14 @@ pub const base_id = .options;
 
 step: Step,
 generated_file: GeneratedFile,
-builder: *Builder,
+builder: *std.Build,
 
 contents: std.ArrayList(u8),
 artifact_args: std.ArrayList(OptionArtifactArg),
 file_source_args: std.ArrayList(OptionFileSourceArg),
 
-pub fn create(builder: *Builder) *OptionsStep {
-    const self = builder.allocator.create(OptionsStep) catch unreachable;
+pub fn create(builder: *std.Build) *OptionsStep {
+    const self = builder.allocator.create(OptionsStep) catch @panic("OOM");
     self.* = .{
         .builder = builder,
         .step = Step.init(.options, "options", builder.allocator, make),
@@ -36,44 +34,48 @@ pub fn create(builder: *Builder) *OptionsStep {
 }
 
 pub fn addOption(self: *OptionsStep, comptime T: type, name: []const u8, value: T) void {
+    return addOptionFallible(self, T, name, value) catch @panic("unhandled error");
+}
+
+fn addOptionFallible(self: *OptionsStep, comptime T: type, name: []const u8, value: T) !void {
     const out = self.contents.writer();
     switch (T) {
         []const []const u8 => {
-            out.print("pub const {}: []const []const u8 = &[_][]const u8{{\n", .{std.zig.fmtId(name)}) catch unreachable;
+            try out.print("pub const {}: []const []const u8 = &[_][]const u8{{\n", .{std.zig.fmtId(name)});
             for (value) |slice| {
-                out.print("    \"{}\",\n", .{std.zig.fmtEscapes(slice)}) catch unreachable;
+                try out.print("    \"{}\",\n", .{std.zig.fmtEscapes(slice)});
             }
-            out.writeAll("};\n") catch unreachable;
+            try out.writeAll("};\n");
             return;
         },
         [:0]const u8 => {
-            out.print("pub const {}: [:0]const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) }) catch unreachable;
+            try out.print("pub const {}: [:0]const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) });
             return;
         },
         []const u8 => {
-            out.print("pub const {}: []const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) }) catch unreachable;
+            try out.print("pub const {}: []const u8 = \"{}\";\n", .{ std.zig.fmtId(name), std.zig.fmtEscapes(value) });
             return;
         },
         ?[:0]const u8 => {
-            out.print("pub const {}: ?[:0]const u8 = ", .{std.zig.fmtId(name)}) catch unreachable;
+            try out.print("pub const {}: ?[:0]const u8 = ", .{std.zig.fmtId(name)});
             if (value) |payload| {
-                out.print("\"{}\";\n", .{std.zig.fmtEscapes(payload)}) catch unreachable;
+                try out.print("\"{}\";\n", .{std.zig.fmtEscapes(payload)});
             } else {
-                out.writeAll("null;\n") catch unreachable;
+                try out.writeAll("null;\n");
             }
             return;
         },
         ?[]const u8 => {
-            out.print("pub const {}: ?[]const u8 = ", .{std.zig.fmtId(name)}) catch unreachable;
+            try out.print("pub const {}: ?[]const u8 = ", .{std.zig.fmtId(name)});
             if (value) |payload| {
-                out.print("\"{}\";\n", .{std.zig.fmtEscapes(payload)}) catch unreachable;
+                try out.print("\"{}\";\n", .{std.zig.fmtEscapes(payload)});
             } else {
-                out.writeAll("null;\n") catch unreachable;
+                try out.writeAll("null;\n");
             }
             return;
         },
         std.builtin.Version => {
-            out.print(
+            try out.print(
                 \\pub const {}: @import("std").builtin.Version = .{{
                 \\    .major = {d},
                 \\    .minor = {d},
@@ -86,11 +88,11 @@ pub fn addOption(self: *OptionsStep, comptime T: type, name: []const u8, value: 
                 value.major,
                 value.minor,
                 value.patch,
-            }) catch unreachable;
+            });
             return;
         },
         std.SemanticVersion => {
-            out.print(
+            try out.print(
                 \\pub const {}: @import("std").SemanticVersion = .{{
                 \\    .major = {d},
                 \\    .minor = {d},
@@ -102,38 +104,38 @@ pub fn addOption(self: *OptionsStep, comptime T: type, name: []const u8, value: 
                 value.major,
                 value.minor,
                 value.patch,
-            }) catch unreachable;
+            });
             if (value.pre) |some| {
-                out.print("    .pre = \"{}\",\n", .{std.zig.fmtEscapes(some)}) catch unreachable;
+                try out.print("    .pre = \"{}\",\n", .{std.zig.fmtEscapes(some)});
             }
             if (value.build) |some| {
-                out.print("    .build = \"{}\",\n", .{std.zig.fmtEscapes(some)}) catch unreachable;
+                try out.print("    .build = \"{}\",\n", .{std.zig.fmtEscapes(some)});
             }
-            out.writeAll("};\n") catch unreachable;
+            try out.writeAll("};\n");
             return;
         },
         else => {},
     }
     switch (@typeInfo(T)) {
         .Enum => |enum_info| {
-            out.print("pub const {} = enum {{\n", .{std.zig.fmtId(@typeName(T))}) catch unreachable;
+            try out.print("pub const {} = enum {{\n", .{std.zig.fmtId(@typeName(T))});
             inline for (enum_info.fields) |field| {
-                out.print("    {},\n", .{std.zig.fmtId(field.name)}) catch unreachable;
+                try out.print("    {},\n", .{std.zig.fmtId(field.name)});
             }
-            out.writeAll("};\n") catch unreachable;
-            out.print("pub const {}: {s} = {s}.{s};\n", .{
+            try out.writeAll("};\n");
+            try out.print("pub const {}: {s} = {s}.{s};\n", .{
                 std.zig.fmtId(name),
                 std.zig.fmtId(@typeName(T)),
                 std.zig.fmtId(@typeName(T)),
                 std.zig.fmtId(@tagName(value)),
-            }) catch unreachable;
+            });
             return;
         },
         else => {},
     }
-    out.print("pub const {}: {s} = ", .{ std.zig.fmtId(name), @typeName(T) }) catch unreachable;
-    printLiteral(out, value, 0) catch unreachable;
-    out.writeAll(";\n") catch unreachable;
+    try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(name), @typeName(T) });
+    try printLiteral(out, value, 0);
+    try out.writeAll(";\n");
 }
 
 // TODO: non-recursive?
@@ -191,18 +193,18 @@ pub fn addOptionFileSource(
     self.file_source_args.append(.{
         .name = name,
         .source = source.dupe(self.builder),
-    }) catch unreachable;
+    }) catch @panic("OOM");
     source.addStepDependencies(&self.step);
 }
 
 /// The value is the path in the cache dir.
 /// Adds a dependency automatically.
-pub fn addOptionArtifact(self: *OptionsStep, name: []const u8, artifact: *LibExeObjStep) void {
-    self.artifact_args.append(.{ .name = self.builder.dupe(name), .artifact = artifact }) catch unreachable;
+pub fn addOptionArtifact(self: *OptionsStep, name: []const u8, artifact: *CompileStep) void {
+    self.artifact_args.append(.{ .name = self.builder.dupe(name), .artifact = artifact }) catch @panic("OOM");
     self.step.dependOn(&artifact.step);
 }
 
-pub fn getPackage(self: *OptionsStep, package_name: []const u8) build.Pkg {
+pub fn getPackage(self: *OptionsStep, package_name: []const u8) std.Build.Pkg {
     return .{ .name = package_name, .source = self.getSource() };
 }
 
@@ -268,7 +270,7 @@ fn hashContentsToFileName(self: *OptionsStep) [64]u8 {
 
 const OptionArtifactArg = struct {
     name: []const u8,
-    artifact: *LibExeObjStep,
+    artifact: *CompileStep,
 };
 
 const OptionFileSourceArg = struct {
@@ -281,12 +283,16 @@ test "OptionsStep" {
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    var builder = try Builder.create(
+
+    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+
+    var builder = try std.Build.create(
         arena.allocator(),
         "test",
         "test",
         "test",
         "test",
+        host,
     );
     defer builder.destroy();
 

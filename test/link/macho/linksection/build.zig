@@ -1,15 +1,18 @@
 const std = @import("std");
 
-pub fn build(b: *std.build.Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
     const target = std.zig.CrossTarget{ .os_tag = .macos };
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
 
-    const obj = b.addObject("test", "main.zig");
-    obj.setBuildMode(mode);
-    obj.setTarget(target);
+    const obj = b.addObject(.{
+        .name = "test",
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = optimize,
+        .target = target,
+    });
 
     const check = obj.checkObject(.macho);
 
@@ -19,7 +22,7 @@ pub fn build(b: *std.build.Builder) void {
     check.checkInSymtab();
     check.checkNext("{*} (__TEXT,__TestFn) external _testFn");
 
-    if (mode == .Debug) {
+    if (optimize == .Debug) {
         check.checkInSymtab();
         check.checkNext("{*} (__TEXT,__TestGenFnA) _main.testGenericFn__anon_{*}");
     }

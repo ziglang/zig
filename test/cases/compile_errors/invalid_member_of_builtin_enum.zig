@@ -1,6 +1,6 @@
 const builtin = @import("std").builtin;
 export fn entry() void {
-    const foo = builtin.Mode.x86;
+    const foo = builtin.OptimizeMode.x86;
     _ = foo;
 }
 
@@ -8,5 +8,5 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :3:30: error: enum 'builtin.Mode' has no member named 'x86'
+// :3:38: error: enum 'builtin.OptimizeMode' has no member named 'x86'
 // :?:18: note: enum declared here

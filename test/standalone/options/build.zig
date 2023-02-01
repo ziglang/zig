@@ -1,12 +1,14 @@
 const std = @import("std");
 
-pub fn build(b: *std.build.Builder) void {
+pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const mode = b.standardReleaseOptions();
+    const optimize = b.standardOptimizeOption(.{});
 
-    const main = b.addTest("src/main.zig");
-    main.setTarget(target);
-    main.setBuildMode(mode);
+    const main = b.addTest(.{
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
 
     const options = b.addOptions();
     main.addOptions("build_options", options);

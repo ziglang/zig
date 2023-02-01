@@ -26076,7 +26076,7 @@ fn coerceVarArgParam(
         .Array => return sema.fail(block, inst_src, "arrays must be passed by reference to variadic function", .{}),
         .Float => float: {
             const target = sema.mod.getTarget();
-            const double_bits = @import("type.zig").CType.sizeInBits(.double, target);
+            const double_bits = target.c_type_bit_size(.double);
             const inst_bits = uncasted_ty.floatBits(sema.mod.getTarget());
             if (inst_bits >= double_bits) break :float inst;
             switch (double_bits) {

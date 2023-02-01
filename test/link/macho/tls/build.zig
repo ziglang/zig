@@ -1,19 +1,23 @@
 const std = @import("std");
-const Builder = std.build.Builder;
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
-    const lib = b.addSharedLibrary("a", null, b.version(1, 0, 0));
-    lib.setBuildMode(mode);
-    lib.setTarget(target);
+    const lib = b.addSharedLibrary(.{
+        .name = "a",
+        .version = .{ .major = 1, .minor = 0 },
+        .optimize = optimize,
+        .target = target,
+    });
     lib.addCSourceFile("a.c", &.{});
     lib.linkLibC();
 
-    const test_exe = b.addTest("main.zig");
-    test_exe.setBuildMode(mode);
-    test_exe.setTarget(target);
+    const test_exe = b.addTest(.{
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = optimize,
+        .target = target,
+    });
     test_exe.linkLibrary(lib);
     test_exe.linkLibC();
 
