@@ -1035,7 +1035,6 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
     const unnamed_consts = gop.value_ptr;
 
     const atom_index = try self.createAtom();
-    const atom = self.getAtomPtr(atom_index);
 
     const sym_name = blk: {
         const decl_name = try decl.getFullyQualifiedName(mod);
@@ -1045,11 +1044,15 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
         break :blk try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
     };
     defer gpa.free(sym_name);
-    try self.setSymbolName(atom.getSymbolPtr(self), sym_name);
-    atom.getSymbolPtr(self).section_number = @intToEnum(coff.SectionNumber, self.rdata_section_index.? + 1);
+    {
+        const atom = self.getAtom(atom_index);
+        const sym = atom.getSymbolPtr(self);
+        try self.setSymbolName(sym, sym_name);
+        sym.section_number = @intToEnum(coff.SectionNumber, self.rdata_section_index.? + 1);
+    }
 
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), tv, &code_buffer, .none, .{
-        .parent_atom_index = atom.getSymbolIndex().?,
+        .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -1062,6 +1065,7 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
     };
 
     const required_alignment = tv.ty.abiAlignment(self.base.options.target);
+    const atom = self.getAtomPtr(atom_index);
     atom.alignment = required_alignment;
     atom.size = @intCast(u32, code.len);
     atom.getSymbolPtr(self).value = try self.allocateAtom(atom_index, atom.size, atom.alignment);

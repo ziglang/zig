@@ -2600,12 +2600,11 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const name = self.shstrtab.get(name_str_index).?;
 
     const atom_index = try self.createAtom();
-    const atom = self.getAtomPtr(atom_index);
 
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
         .none = {},
     }, .{
-        .parent_atom_index = atom.getSymbolIndex().?,
+        .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -2620,7 +2619,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
     const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
     const shdr_index = self.rodata_section_index.?;
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
-    const local_sym = atom.getSymbolPtr(self);
+    const local_sym = self.getAtom(atom_index).getSymbolPtr(self);
     local_sym.st_name = name_str_index;
     local_sym.st_info = (elf.STB_LOCAL << 4) | elf.STT_OBJECT;
     local_sym.st_other = 0;
@@ -2631,14 +2630,14 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
 
     log.debug("allocated text block for {s} at 0x{x}", .{ name, local_sym.st_value });
 
-    try self.writeSymbol(atom.getSymbolIndex().?);
+    try self.writeSymbol(self.getAtom(atom_index).getSymbolIndex().?);
     try unnamed_consts.append(gpa, atom_index);
 
     const section_offset = local_sym.st_value - self.program_headers.items[phdr_index].p_vaddr;
     const file_offset = self.sections.items(.shdr)[shdr_index].sh_offset + section_offset;
     try self.base.file.?.pwriteAll(code, file_offset);
 
-    return atom.getSymbolIndex().?;
+    return self.getAtom(atom_index).getSymbolIndex().?;
 }
 
 pub fn updateDeclExports(

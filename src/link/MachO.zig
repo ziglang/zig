@@ -2079,10 +2079,9 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     log.debug("allocating symbol indexes for {?s}", .{name});
 
     const atom_index = try self.createAtom();
-    const atom = self.getAtomPtr(atom_index);
 
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .none, .{
-        .parent_atom_index = atom.getSymbolIndex().?,
+        .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -2095,6 +2094,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     };
 
     const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    const atom = self.getAtomPtr(atom_index);
     atom.size = code.len;
     atom.alignment = required_alignment;
     // TODO: work out logic for disambiguating functions from function pointers
