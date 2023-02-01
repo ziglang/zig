@@ -33,10 +33,7 @@
 #define valid(n, b)	((n) >= 0 && (n) < (b))
 
 uintmax_t
-wcstoumax(nptr, endptr, base)
-	register const wchar_t * __restrict__	nptr;
-	wchar_t ** __restrict__				endptr;
-	register int					base;
+wcstoumax(const wchar_t * __restrict__ nptr, wchar_t ** __restrict__ endptr, int base)
 	{
 	register uintmax_t	accum;	/* accumulates converted value */
 	register uintmax_t	next;	/* for computing next value of accum */
