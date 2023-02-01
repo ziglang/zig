@@ -279,7 +279,7 @@ pub const File = struct {
         plan9: void,
         c: void,
         wasm: Wasm.FnData,
-        spirv: SpirV.FnData,
+        spirv: void,
         nvptx: void,
     };
 

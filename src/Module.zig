@@ -5183,20 +5183,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     decl.zir_decl_index = @intCast(u32, decl_sub_index);
     if (decl.getFunction()) |_| {
         switch (comp.bin_file.tag) {
-            .coff => {
-                // TODO Implement for COFF
-            },
-            .elf => {
-                // TODO Look into detecting when this would be unnecessary by storing enough state
-                // in `Decl` to notice that the line number did not change.
-                comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
-            },
-            .macho => {
-                // TODO Look into detecting when this would be unnecessary by storing enough state
-                // in `Decl` to notice that the line number did not change.
-                comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
-            },
-            .plan9 => {
+            .coff, .elf, .macho, .plan9 => {
                 // TODO Look into detecting when this would be unnecessary by storing enough state
                 // in `Decl` to notice that the line number did not change.
                 comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
@@ -5290,7 +5277,7 @@ pub fn clearDecl(
                 .plan9 => .{ .plan9 = {} },
                 .c => .{ .c = {} },
                 .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
-                .spirv => .{ .spirv = .{} },
+                .spirv => .{ .spirv = {} },
                 .nvptx => .{ .nvptx = {} },
             };
         }
@@ -5710,7 +5697,7 @@ pub fn allocateNewDecl(
             .plan9 => .{ .plan9 = {} },
             .c => .{ .c = {} },
             .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
-            .spirv => .{ .spirv = .{} },
+            .spirv => .{ .spirv = {} },
             .nvptx => .{ .nvptx = {} },
         },
         .generation = 0,
