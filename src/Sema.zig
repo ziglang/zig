@@ -9015,7 +9015,18 @@ fn zirParam(
         if (is_comptime and sema.preallocated_new_func != null) {
             // We have a comptime value for this parameter so it should be elided from the
             // function type of the function instruction in this block.
-            const coerced_arg = try sema.coerce(block, param_ty, arg, src);
+            const coerced_arg = sema.coerce(block, param_ty, arg, .unneeded) catch |err| switch (err) {
+                error.NeededSourceLocation => {
+                    // We are instantiating a generic function and a comptime arg
+                    // cannot be coerced to the param type, but since we don't
+                    // have the callee source location return `GenericPoison`
+                    // so that the instantiation is failed and the coercion
+                    // is handled by comptime call logic instead.
+                    assert(sema.is_generic_instantiation);
+                    return error.GenericPoison;
+                },
+                else => return err,
+            };
             sema.inst_map.putAssumeCapacity(inst, coerced_arg);
             return;
         }
