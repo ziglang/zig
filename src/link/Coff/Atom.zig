@@ -119,7 +119,7 @@ pub fn addBaseRelocation(coff_file: *Coff, atom_index: Index, offset: u32) !void
     try gop.value_ptr.append(gpa, offset);
 }
 
-pub fn freeRelocations(coff_file: *Coff, atom_index: Atom.Index) void {
+pub fn freeRelocations(coff_file: *Coff, atom_index: Index) void {
     const gpa = coff_file.base.allocator;
     var removed_relocs = coff_file.relocs.fetchRemove(atom_index);
     if (removed_relocs) |*relocs| relocs.value.deinit(gpa);

@@ -20,8 +20,8 @@ offset_table_index: u32,
 
 /// Points to the previous and next neighbors, based on the `text_offset`.
 /// This can be used to find, for example, the capacity of this `TextBlock`.
-prev_index: ?Atom.Index,
-next_index: ?Atom.Index,
+prev_index: ?Index,
+next_index: ?Index,
 
 dbg_info_atom: Dwarf.Atom,
 

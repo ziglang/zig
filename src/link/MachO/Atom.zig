@@ -40,8 +40,8 @@ alignment: u32,
 
 /// Points to the previous and next neighbours
 /// TODO use the same trick as with symbols: reserve index 0 as null atom
-next_index: ?Atom.Index,
-prev_index: ?Atom.Index,
+next_index: ?Index,
+prev_index: ?Index,
 
 dbg_info_atom: Dwarf.Atom,
 
@@ -119,13 +119,13 @@ pub fn freeListEligible(self: Atom, macho_file: *MachO) bool {
     return surplus >= MachO.min_text_capacity;
 }
 
-pub fn addRelocation(macho_file: *MachO, atom_index: Atom.Index, reloc: Relocation) !void {
+pub fn addRelocation(macho_file: *MachO, atom_index: Index, reloc: Relocation) !void {
     return addRelocations(macho_file, atom_index, 1, .{reloc});
 }
 
 pub fn addRelocations(
     macho_file: *MachO,
-    atom_index: Atom.Index,
+    atom_index: Index,
     comptime count: comptime_int,
     relocs: [count]Relocation,
 ) !void {
@@ -145,7 +145,7 @@ pub fn addRelocations(
     }
 }
 
-pub fn addRebase(macho_file: *MachO, atom_index: Atom.Index, offset: u32) !void {
+pub fn addRebase(macho_file: *MachO, atom_index: Index, offset: u32) !void {
     const gpa = macho_file.base.allocator;
     const atom = macho_file.getAtom(atom_index);
     log.debug("  (adding rebase at offset 0x{x} in %{?d})", .{ offset, atom.getSymbolIndex() });
@@ -156,7 +156,7 @@ pub fn addRebase(macho_file: *MachO, atom_index: Atom.Index, offset: u32) !void 
     try gop.value_ptr.append(gpa, offset);
 }
 
-pub fn addBinding(macho_file: *MachO, atom_index: Atom.Index, binding: Binding) !void {
+pub fn addBinding(macho_file: *MachO, atom_index: Index, binding: Binding) !void {
     const gpa = macho_file.base.allocator;
     const atom = macho_file.getAtom(atom_index);
     log.debug("  (adding binding to symbol {s} at offset 0x{x} in %{?d})", .{
@@ -171,7 +171,7 @@ pub fn addBinding(macho_file: *MachO, atom_index: Atom.Index, binding: Binding) 
     try gop.value_ptr.append(gpa, binding);
 }
 
-pub fn addLazyBinding(macho_file: *MachO, atom_index: Atom.Index, binding: Binding) !void {
+pub fn addLazyBinding(macho_file: *MachO, atom_index: Index, binding: Binding) !void {
     const gpa = macho_file.base.allocator;
     const atom = macho_file.getAtom(atom_index);
     log.debug("  (adding lazy binding to symbol {s} at offset 0x{x} in %{?d})", .{
@@ -186,7 +186,7 @@ pub fn addLazyBinding(macho_file: *MachO, atom_index: Atom.Index, binding: Bindi
     try gop.value_ptr.append(gpa, binding);
 }
 
-pub fn resolveRelocations(macho_file: *MachO, atom_index: Atom.Index) !void {
+pub fn resolveRelocations(macho_file: *MachO, atom_index: Index) !void {
     const atom = macho_file.getAtom(atom_index);
     const relocs = macho_file.relocs.get(atom_index) orelse return;
     const source_sym = atom.getSymbol(macho_file);
@@ -203,7 +203,7 @@ pub fn resolveRelocations(macho_file: *MachO, atom_index: Atom.Index) !void {
     }
 }
 
-pub fn freeRelocations(macho_file: *MachO, atom_index: Atom.Index) void {
+pub fn freeRelocations(macho_file: *MachO, atom_index: Index) void {
     const gpa = macho_file.base.allocator;
     var removed_relocs = macho_file.relocs.fetchOrderedRemove(atom_index);
     if (removed_relocs) |*relocs| relocs.value.deinit(gpa);
