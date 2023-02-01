@@ -3996,7 +3996,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     if (self.air.value(callee)) |func_value| {
         if (func_value.castTag(.function)) |func_payload| {
             const func = func_payload.data;
-            const fn_owner_decl = mod.declPtr(func.owner_decl);
 
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                 const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
@@ -4042,11 +4041,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     .data = undefined,
                 });
             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-                try p9.seeDecl(func.owner_decl);
+                const decl_block_index = try p9.seeDecl(func.owner_decl);
+                const decl_block = p9.getDeclBlock(decl_block_index);
                 const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 const got_addr = p9.bases.data;
-                const got_index = fn_owner_decl.link.plan9.got_index.?;
+                const got_index = decl_block.got_index.?;
                 const fn_got_addr = got_addr + got_index * ptr_bytes;
                 _ = try self.addInst(.{
                     .tag = .call,
@@ -6739,8 +6739,9 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
             .sym_index = sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-        try p9.seeDecl(decl_index);
-        const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
+        const decl_block_index = try p9.seeDecl(decl_index);
+        const decl_block = p9.getDeclBlock(decl_block_index);
+        const got_addr = p9.bases.data + decl_block.got_index.? * ptr_bytes;
         return MCValue{ .memory = got_addr };
     } else {
         return self.fail("TODO codegen non-ELF const Decl pointer", .{});

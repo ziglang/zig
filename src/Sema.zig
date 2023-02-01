@@ -5568,7 +5568,7 @@ pub fn analyzeExport(
             .coff => .{ .coff = {} },
             .elf => .{ .elf = {} },
             .macho => .{ .macho = {} },
-            .plan9 => .{ .plan9 = null },
+            .plan9 => .{ .plan9 = {} },
             .c => .{ .c = {} },
             .wasm => .{ .wasm = .{} },
             .spirv => .{ .spirv = {} },
