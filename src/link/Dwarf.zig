@@ -27,17 +27,21 @@ bin_file: *File,
 ptr_width: PtrWidth,
 target: std.Target,
 
-/// A list of `File.LinkFn` whose Line Number Programs have surplus capacity.
-/// This is the same concept as `text_block_free_list`; see those doc comments.
-dbg_line_fn_free_list: std.AutoHashMapUnmanaged(*SrcFn, void) = .{},
-dbg_line_fn_first: ?*SrcFn = null,
-dbg_line_fn_last: ?*SrcFn = null,
+/// A list of `Atom`s whose Line Number Programs have surplus capacity.
+/// This is the same concept as `Section.free_list` in Elf; see those doc comments.
+src_fn_free_list: std.AutoHashMapUnmanaged(Atom.Index, void) = .{},
+src_fn_first_index: ?Atom.Index = null,
+src_fn_last_index: ?Atom.Index = null,
+src_fns: std.ArrayListUnmanaged(Atom) = .{},
+src_fn_decls: AtomTable = .{},
 
 /// A list of `Atom`s whose corresponding .debug_info tags have surplus capacity.
 /// This is the same concept as `text_block_free_list`; see those doc comments.
-atom_free_list: std.AutoHashMapUnmanaged(*Atom, void) = .{},
-atom_first: ?*Atom = null,
-atom_last: ?*Atom = null,
+di_atom_free_list: std.AutoHashMapUnmanaged(Atom.Index, void) = .{},
+di_atom_first_index: ?Atom.Index = null,
+di_atom_last_index: ?Atom.Index = null,
+di_atoms: std.ArrayListUnmanaged(Atom) = .{},
+di_atom_decls: AtomTable = .{},
 
 abbrev_table_offset: ?u64 = null,
 
@@ -51,22 +55,23 @@ strtab: StringTable(.strtab) = .{},
 /// * []file_names
 di_files: std.AutoArrayHashMapUnmanaged(*const Module.File, void) = .{},
 
-/// List of atoms that are owned directly by the DWARF module.
-/// TODO convert links in DebugInfoAtom into indices and make
-/// sure every atom is owned by this module.
-managed_atoms: std.ArrayListUnmanaged(*Atom) = .{},
-
 global_abbrev_relocs: std.ArrayListUnmanaged(AbbrevRelocation) = .{},
 
-pub const Atom = struct {
-    /// Previous/next linked list pointers.
-    /// This is the linked list node for this Decl's corresponding .debug_info tag.
-    prev: ?*Atom,
-    next: ?*Atom,
-    /// Offset into .debug_info pointing to the tag for this Decl.
+const AtomTable = std.AutoHashMapUnmanaged(Module.Decl.Index, Atom.Index);
+
+const Atom = struct {
+    /// Offset into .debug_info pointing to the tag for this Decl, or
+    /// offset from the beginning of the Debug Line Program header that contains this function.
     off: u32,
-    /// Size of the .debug_info tag for this Decl, not including padding.
+    /// Size of the .debug_info tag for this Decl, not including padding, or
+    /// size of the line number program component belonging to this function, not
+    /// including padding.
     len: u32,
+
+    prev_index: ?Index,
+    next_index: ?Index,
+
+    pub const Index = u32;
 };
 
 /// Represents state of the analysed Decl.
@@ -76,6 +81,7 @@ pub const Atom = struct {
 pub const DeclState = struct {
     gpa: Allocator,
     mod: *Module,
+    di_atom_decls: *const AtomTable,
     dbg_line: std.ArrayList(u8),
     dbg_info: std.ArrayList(u8),
     abbrev_type_arena: std.heap.ArenaAllocator,
@@ -89,10 +95,11 @@ pub const DeclState = struct {
     abbrev_relocs: std.ArrayListUnmanaged(AbbrevRelocation) = .{},
     exprloc_relocs: std.ArrayListUnmanaged(ExprlocRelocation) = .{},
 
-    fn init(gpa: Allocator, mod: *Module) DeclState {
+    fn init(gpa: Allocator, mod: *Module, di_atom_decls: *const AtomTable) DeclState {
         return .{
             .gpa = gpa,
             .mod = mod,
+            .di_atom_decls = di_atom_decls,
             .dbg_line = std.ArrayList(u8).init(gpa),
             .dbg_info = std.ArrayList(u8).init(gpa),
             .abbrev_type_arena = std.heap.ArenaAllocator.init(gpa),
@@ -120,11 +127,11 @@ pub const DeclState = struct {
 
     /// Adds local type relocation of the form: @offset => @this + addend
     /// @this signifies the offset within the .debug_abbrev section of the containing atom.
-    fn addTypeRelocLocal(self: *DeclState, atom: *const Atom, offset: u32, addend: u32) !void {
+    fn addTypeRelocLocal(self: *DeclState, atom_index: Atom.Index, offset: u32, addend: u32) !void {
         log.debug("{x}: @this + {x}", .{ offset, addend });
         try self.abbrev_relocs.append(self.gpa, .{
             .target = null,
-            .atom = atom,
+            .atom_index = atom_index,
             .offset = offset,
             .addend = addend,
         });
@@ -133,13 +140,13 @@ pub const DeclState = struct {
     /// Adds global type relocation of the form: @offset => @symbol + 0
     /// @symbol signifies a type abbreviation posititioned somewhere in the .debug_abbrev section
     /// which we use as our target of the relocation.
-    fn addTypeRelocGlobal(self: *DeclState, atom: *const Atom, ty: Type, offset: u32) !void {
+    fn addTypeRelocGlobal(self: *DeclState, atom_index: Atom.Index, ty: Type, offset: u32) !void {
         const resolv = self.abbrev_resolver.getContext(ty, .{
             .mod = self.mod,
         }) orelse blk: {
             const sym_index = @intCast(u32, self.abbrev_table.items.len);
             try self.abbrev_table.append(self.gpa, .{
-                .atom = atom,
+                .atom_index = atom_index,
                 .type = ty,
                 .offset = undefined,
             });
@@ -154,7 +161,7 @@ pub const DeclState = struct {
         log.debug("{x}: %{d} + 0", .{ offset, resolv });
         try self.abbrev_relocs.append(self.gpa, .{
             .target = resolv,
-            .atom = atom,
+            .atom_index = atom_index,
             .offset = offset,
             .addend = 0,
         });
@@ -163,7 +170,7 @@ pub const DeclState = struct {
     fn addDbgInfoType(
         self: *DeclState,
         module: *Module,
-        atom: *Atom,
+        atom_index: Atom.Index,
         ty: Type,
     ) error{OutOfMemory}!void {
         const arena = self.abbrev_type_arena.allocator();
@@ -228,7 +235,7 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     var index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    try self.addTypeRelocGlobal(atom, Type.bool, @intCast(u32, index));
+                    try self.addTypeRelocGlobal(atom_index, Type.bool, @intCast(u32, index));
                     // DW.AT.data_member_location, DW.FORM.sdata
                     try dbg_info_buffer.ensureUnusedCapacity(6);
                     dbg_info_buffer.appendAssumeCapacity(0);
@@ -240,7 +247,7 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    try self.addTypeRelocGlobal(atom, payload_ty, @intCast(u32, index));
+                    try self.addTypeRelocGlobal(atom_index, payload_ty, @intCast(u32, index));
                     // DW.AT.data_member_location, DW.FORM.sdata
                     const offset = abi_size - payload_ty.abiSize(target);
                     try leb128.writeULEB128(dbg_info_buffer.writer(), offset);
@@ -271,7 +278,7 @@ pub const DeclState = struct {
                     try dbg_info_buffer.resize(index + 4);
                     var buf = try arena.create(Type.SlicePtrFieldTypeBuffer);
                     const ptr_ty = ty.slicePtrFieldType(buf);
-                    try self.addTypeRelocGlobal(atom, ptr_ty, @intCast(u32, index));
+                    try self.addTypeRelocGlobal(atom_index, ptr_ty, @intCast(u32, index));
                     // DW.AT.data_member_location, DW.FORM.sdata
                     try dbg_info_buffer.ensureUnusedCapacity(6);
                     dbg_info_buffer.appendAssumeCapacity(0);
@@ -283,7 +290,7 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    try self.addTypeRelocGlobal(atom, Type.usize, @intCast(u32, index));
+                    try self.addTypeRelocGlobal(atom_index, Type.usize, @intCast(u32, index));
                     // DW.AT.data_member_location, DW.FORM.sdata
                     try dbg_info_buffer.ensureUnusedCapacity(2);
                     dbg_info_buffer.appendAssumeCapacity(ptr_bytes);
@@ -295,7 +302,7 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    try self.addTypeRelocGlobal(atom, ty.childType(), @intCast(u32, index));
+                    try self.addTypeRelocGlobal(atom_index, ty.childType(), @intCast(u32, index));
                 }
             },
             .Array => {
@@ -306,13 +313,13 @@ pub const DeclState = struct {
                 // DW.AT.type, DW.FORM.ref4
                 var index = dbg_info_buffer.items.len;
                 try dbg_info_buffer.resize(index + 4);
-                try self.addTypeRelocGlobal(atom, ty.childType(), @intCast(u32, index));
+                try self.addTypeRelocGlobal(atom_index, ty.childType(), @intCast(u32, index));
                 // DW.AT.subrange_type
                 try dbg_info_buffer.append(@enumToInt(AbbrevKind.array_dim));
                 // DW.AT.type, DW.FORM.ref4
                 index = dbg_info_buffer.items.len;
                 try dbg_info_buffer.resize(index + 4);
-                try self.addTypeRelocGlobal(atom, Type.usize, @intCast(u32, index));
+                try self.addTypeRelocGlobal(atom_index, Type.usize, @intCast(u32, index));
                 // DW.AT.count, DW.FORM.udata
                 const len = ty.arrayLenIncludingSentinel();
                 try leb128.writeULEB128(dbg_info_buffer.writer(), len);
@@ -340,7 +347,7 @@ pub const DeclState = struct {
                             // DW.AT.type, DW.FORM.ref4
                             var index = dbg_info_buffer.items.len;
                             try dbg_info_buffer.resize(index + 4);
-                            try self.addTypeRelocGlobal(atom, field, @intCast(u32, index));
+                            try self.addTypeRelocGlobal(atom_index, field, @intCast(u32, index));
                             // DW.AT.data_member_location, DW.FORM.sdata
                             const field_off = ty.structFieldOffset(field_index, target);
                             try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
@@ -372,7 +379,7 @@ pub const DeclState = struct {
                             // DW.AT.type, DW.FORM.ref4
                             var index = dbg_info_buffer.items.len;
                             try dbg_info_buffer.resize(index + 4);
-                            try self.addTypeRelocGlobal(atom, field.ty, @intCast(u32, index));
+                            try self.addTypeRelocGlobal(atom_index, field.ty, @intCast(u32, index));
                             // DW.AT.data_member_location, DW.FORM.sdata
                             const field_off = ty.structFieldOffset(field_index, target);
                             try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
@@ -455,7 +462,7 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     const inner_union_index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(inner_union_index + 4);
-                    try self.addTypeRelocLocal(atom, @intCast(u32, inner_union_index), 5);
+                    try self.addTypeRelocLocal(atom_index, @intCast(u32, inner_union_index), 5);
                     // DW.AT.data_member_location, DW.FORM.sdata
                     try leb128.writeULEB128(dbg_info_buffer.writer(), payload_offset);
                 }
@@ -482,7 +489,7 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    try self.addTypeRelocGlobal(atom, field.ty, @intCast(u32, index));
+                    try self.addTypeRelocGlobal(atom_index, field.ty, @intCast(u32, index));
                     // DW.AT.data_member_location, DW.FORM.sdata
                     try dbg_info_buffer.append(0);
                 }
@@ -499,7 +506,7 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    try self.addTypeRelocGlobal(atom, union_obj.tag_ty, @intCast(u32, index));
+                    try self.addTypeRelocGlobal(atom_index, union_obj.tag_ty, @intCast(u32, index));
                     // DW.AT.data_member_location, DW.FORM.sdata
                     try leb128.writeULEB128(dbg_info_buffer.writer(), tag_offset);
 
@@ -542,7 +549,7 @@ pub const DeclState = struct {
                 // DW.AT.type, DW.FORM.ref4
                 var index = dbg_info_buffer.items.len;
                 try dbg_info_buffer.resize(index + 4);
-                try self.addTypeRelocGlobal(atom, payload_ty, @intCast(u32, index));
+                try self.addTypeRelocGlobal(atom_index, payload_ty, @intCast(u32, index));
                 // DW.AT.data_member_location, DW.FORM.sdata
                 try leb128.writeULEB128(dbg_info_buffer.writer(), payload_off);
 
@@ -555,7 +562,7 @@ pub const DeclState = struct {
                 // DW.AT.type, DW.FORM.ref4
                 index = dbg_info_buffer.items.len;
                 try dbg_info_buffer.resize(index + 4);
-                try self.addTypeRelocGlobal(atom, error_ty, @intCast(u32, index));
+                try self.addTypeRelocGlobal(atom_index, error_ty, @intCast(u32, index));
                 // DW.AT.data_member_location, DW.FORM.sdata
                 try leb128.writeULEB128(dbg_info_buffer.writer(), error_off);
 
@@ -588,12 +595,11 @@ pub const DeclState = struct {
         self: *DeclState,
         name: [:0]const u8,
         ty: Type,
-        tag: File.Tag,
         owner_decl: Module.Decl.Index,
         loc: DbgInfoLoc,
     ) error{OutOfMemory}!void {
         const dbg_info = &self.dbg_info;
-        const atom = getDbgInfoAtom(tag, self.mod, owner_decl);
+        const atom_index = self.di_atom_decls.get(owner_decl).?;
         const name_with_null = name.ptr[0 .. name.len + 1];
 
         switch (loc) {
@@ -638,7 +644,7 @@ pub const DeclState = struct {
         try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
         const index = dbg_info.items.len;
         try dbg_info.resize(index + 4); // dw.at.type,  dw.form.ref4
-        try self.addTypeRelocGlobal(atom, ty, @intCast(u32, index)); // DW.AT.type,  DW.FORM.ref4
+        try self.addTypeRelocGlobal(atom_index, ty, @intCast(u32, index)); // DW.AT.type,  DW.FORM.ref4
         dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
     }
 
@@ -646,13 +652,12 @@ pub const DeclState = struct {
         self: *DeclState,
         name: [:0]const u8,
         ty: Type,
-        tag: File.Tag,
         owner_decl: Module.Decl.Index,
         is_ptr: bool,
         loc: DbgInfoLoc,
     ) error{OutOfMemory}!void {
         const dbg_info = &self.dbg_info;
-        const atom = getDbgInfoAtom(tag, self.mod, owner_decl);
+        const atom_index = self.di_atom_decls.get(owner_decl).?;
         const name_with_null = name.ptr[0 .. name.len + 1];
         try dbg_info.append(@enumToInt(AbbrevKind.variable));
         const target = self.mod.getTarget();
@@ -782,7 +787,7 @@ pub const DeclState = struct {
         try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
         const index = dbg_info.items.len;
         try dbg_info.resize(index + 4); // dw.at.type,  dw.form.ref4
-        try self.addTypeRelocGlobal(atom, child_ty, @intCast(u32, index));
+        try self.addTypeRelocGlobal(atom_index, child_ty, @intCast(u32, index));
         dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
     }
 
@@ -815,7 +820,7 @@ pub const DeclState = struct {
 };
 
 pub const AbbrevEntry = struct {
-    atom: *const Atom,
+    atom_index: Atom.Index,
     type: Type,
     offset: u32,
 };
@@ -824,7 +829,7 @@ pub const AbbrevRelocation = struct {
     /// If target is null, we deal with a local relocation that is based on simple offset + addend
     /// only.
     target: ?u32,
-    atom: *const Atom,
+    atom_index: Atom.Index,
     offset: u32,
     addend: u32,
 };
@@ -839,26 +844,6 @@ pub const ExprlocRelocation = struct {
     target: u32,
     /// Offset within the debug info buffer where to patch up the address value.
     offset: u32,
-};
-
-pub const SrcFn = struct {
-    /// Offset from the beginning of the Debug Line Program header that contains this function.
-    off: u32,
-    /// Size of the line number program component belonging to this function, not
-    /// including padding.
-    len: u32,
-
-    /// Points to the previous and next neighbors, based on the offset from .debug_line.
-    /// This can be used to find, for example, the capacity of this `SrcFn`.
-    prev: ?*SrcFn,
-    next: ?*SrcFn,
-
-    pub const empty: SrcFn = .{
-        .off = 0,
-        .len = 0,
-        .prev = null,
-        .next = null,
-    };
 };
 
 pub const PtrWidth = enum { p32, p64 };
@@ -910,16 +895,18 @@ pub fn init(allocator: Allocator, bin_file: *File, target: std.Target) Dwarf {
 
 pub fn deinit(self: *Dwarf) void {
     const gpa = self.allocator;
-    self.dbg_line_fn_free_list.deinit(gpa);
-    self.atom_free_list.deinit(gpa);
+
+    self.src_fn_free_list.deinit(gpa);
+    self.src_fns.deinit(gpa);
+    self.src_fn_decls.deinit(gpa);
+
+    self.di_atom_free_list.deinit(gpa);
+    self.di_atoms.deinit(gpa);
+    self.di_atom_decls.deinit(gpa);
+
     self.strtab.deinit(gpa);
     self.di_files.deinit(gpa);
     self.global_abbrev_relocs.deinit(gpa);
-
-    for (self.managed_atoms.items) |atom| {
-        gpa.destroy(atom);
-    }
-    self.managed_atoms.deinit(gpa);
 }
 
 /// Initializes Decl's state and its matching output buffers.
@@ -935,15 +922,19 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) 
     log.debug("initDeclState {s}{*}", .{ decl_name, decl });
 
     const gpa = self.allocator;
-    var decl_state = DeclState.init(gpa, mod);
+    var decl_state = DeclState.init(gpa, mod, &self.di_atom_decls);
     errdefer decl_state.deinit();
     const dbg_line_buffer = &decl_state.dbg_line;
     const dbg_info_buffer = &decl_state.dbg_info;
+
+    const di_atom_index = try self.getOrCreateAtomForDecl(.di_atom, decl_index);
 
     assert(decl.has_tv);
 
     switch (decl.ty.zigTypeTag()) {
         .Fn => {
+            _ = try self.getOrCreateAtomForDecl(.src_fn, decl_index);
+
             // For functions we need to add a prologue to the debug line program.
             try dbg_line_buffer.ensureTotalCapacity(26);
 
@@ -1003,8 +994,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) 
             dbg_info_buffer.items.len += 4; // DW.AT.high_pc,  DW.FORM.data4
             //
             if (fn_ret_has_bits) {
-                const atom = getDbgInfoAtom(self.bin_file.tag, mod, decl_index);
-                try decl_state.addTypeRelocGlobal(atom, fn_ret_type, @intCast(u32, dbg_info_buffer.items.len));
+                try decl_state.addTypeRelocGlobal(di_atom_index, fn_ret_type, @intCast(u32, dbg_info_buffer.items.len));
                 dbg_info_buffer.items.len += 4; // DW.AT.type,  DW.FORM.ref4
             }
 
@@ -1076,26 +1066,23 @@ pub fn commitDeclState(
             // This logic is nearly identical to the logic below in `updateDeclDebugInfo` for
             // `TextBlock` and the .debug_info. If you are editing this logic, you
             // probably need to edit that logic too.
-            const src_fn = switch (self.bin_file.tag) {
-                .elf => &decl.fn_link.elf,
-                .macho => &decl.fn_link.macho,
-                .wasm => &decl.fn_link.wasm.src_fn,
-                else => unreachable, // TODO
-            };
+            const src_fn_index = self.src_fn_decls.get(decl_index).?;
+            const src_fn = self.getAtomPtr(.src_fn, src_fn_index);
             src_fn.len = @intCast(u32, dbg_line_buffer.items.len);
 
-            if (self.dbg_line_fn_last) |last| blk: {
-                if (src_fn == last) break :blk;
-                if (src_fn.next) |next| {
+            if (self.src_fn_last_index) |last_index| blk: {
+                if (src_fn_index == last_index) break :blk;
+                if (src_fn.next_index) |next_index| {
+                    const next = self.getAtomPtr(.src_fn, next_index);
                     // Update existing function - non-last item.
                     if (src_fn.off + src_fn.len + min_nop_size > next.off) {
                         // It grew too big, so we move it to a new location.
-                        if (src_fn.prev) |prev| {
-                            self.dbg_line_fn_free_list.put(gpa, prev, {}) catch {};
-                            prev.next = src_fn.next;
+                        if (src_fn.prev_index) |prev_index| {
+                            self.src_fn_free_list.put(gpa, prev_index, {}) catch {};
+                            self.getAtomPtr(.src_fn, prev_index).next_index = src_fn.next_index;
                         }
-                        next.prev = src_fn.prev;
-                        src_fn.next = null;
+                        next.prev_index = src_fn.prev_index;
+                        src_fn.next_index = null;
                         // Populate where it used to be with NOPs.
                         switch (self.bin_file.tag) {
                             .elf => {
@@ -1118,33 +1105,42 @@ pub fn commitDeclState(
                             else => unreachable,
                         }
                         // TODO Look at the free list before appending at the end.
-                        src_fn.prev = last;
-                        last.next = src_fn;
-                        self.dbg_line_fn_last = src_fn;
+                        src_fn.prev_index = last_index;
+                        const last = self.getAtomPtr(.src_fn, last_index);
+                        last.next_index = src_fn_index;
+                        self.src_fn_last_index = src_fn_index;
 
                         src_fn.off = last.off + padToIdeal(last.len);
                     }
-                } else if (src_fn.prev == null) {
+                } else if (src_fn.prev_index == null) {
                     // Append new function.
                     // TODO Look at the free list before appending at the end.
-                    src_fn.prev = last;
-                    last.next = src_fn;
-                    self.dbg_line_fn_last = src_fn;
+                    src_fn.prev_index = last_index;
+                    const last = self.getAtomPtr(.src_fn, last_index);
+                    last.next_index = src_fn_index;
+                    self.src_fn_last_index = src_fn_index;
 
                     src_fn.off = last.off + padToIdeal(last.len);
                 }
             } else {
                 // This is the first function of the Line Number Program.
-                self.dbg_line_fn_first = src_fn;
-                self.dbg_line_fn_last = src_fn;
+                self.src_fn_first_index = src_fn_index;
+                self.src_fn_last_index = src_fn_index;
 
                 src_fn.off = padToIdeal(self.dbgLineNeededHeaderBytes(&[0][]u8{}, &[0][]u8{}));
             }
 
-            const last_src_fn = self.dbg_line_fn_last.?;
+            const last_src_fn_index = self.src_fn_last_index.?;
+            const last_src_fn = self.getAtom(.src_fn, last_src_fn_index);
             const needed_size = last_src_fn.off + last_src_fn.len;
-            const prev_padding_size: u32 = if (src_fn.prev) |prev| src_fn.off - (prev.off + prev.len) else 0;
-            const next_padding_size: u32 = if (src_fn.next) |next| next.off - (src_fn.off + src_fn.len) else 0;
+            const prev_padding_size: u32 = if (src_fn.prev_index) |prev_index| blk: {
+                const prev = self.getAtom(.src_fn, prev_index);
+                break :blk src_fn.off - (prev.off + prev.len);
+            } else 0;
+            const next_padding_size: u32 = if (src_fn.next_index) |next_index| blk: {
+                const next = self.getAtom(.src_fn, next_index);
+                break :blk next.off - (src_fn.off + src_fn.len);
+            } else 0;
 
             // We only have support for one compilation unit so far, so the offsets are directly
             // from the .debug_line section.
@@ -1213,7 +1209,7 @@ pub fn commitDeclState(
     if (dbg_info_buffer.items.len == 0)
         return;
 
-    const atom = getDbgInfoAtom(self.bin_file.tag, module, decl_index);
+    const di_atom_index = self.di_atom_decls.get(decl_index).?;
     if (decl_state.abbrev_table.items.len > 0) {
         // Now we emit the .debug_info types of the Decl. These will count towards the size of
         // the buffer, so we have to do it before computing the offset, and we can't perform the actual
@@ -1235,12 +1231,12 @@ pub fn commitDeclState(
             if (deferred) continue;
 
             symbol.offset = @intCast(u32, dbg_info_buffer.items.len);
-            try decl_state.addDbgInfoType(module, atom, ty);
+            try decl_state.addDbgInfoType(module, di_atom_index, ty);
         }
     }
 
     log.debug("updateDeclDebugInfoAllocation for '{s}'", .{decl.name});
-    try self.updateDeclDebugInfoAllocation(atom, @intCast(u32, dbg_info_buffer.items.len));
+    try self.updateDeclDebugInfoAllocation(di_atom_index, @intCast(u32, dbg_info_buffer.items.len));
 
     while (decl_state.abbrev_relocs.popOrNull()) |reloc| {
         if (reloc.target) |target| {
@@ -1261,11 +1257,12 @@ pub fn commitDeclState(
                 try self.global_abbrev_relocs.append(gpa, .{
                     .target = null,
                     .offset = reloc.offset,
-                    .atom = reloc.atom,
+                    .atom_index = reloc.atom_index,
                     .addend = reloc.addend,
                 });
             } else {
-                const value = symbol.atom.off + symbol.offset + reloc.addend;
+                const atom = self.getAtom(.di_atom, symbol.atom_index);
+                const value = atom.off + symbol.offset + reloc.addend;
                 log.debug("{x}: [() => {x}] (%{d}, '{}')", .{ reloc.offset, value, target, ty.fmtDebug() });
                 mem.writeInt(
                     u32,
@@ -1275,10 +1272,11 @@ pub fn commitDeclState(
                 );
             }
         } else {
+            const atom = self.getAtom(.di_atom, reloc.atom_index);
             mem.writeInt(
                 u32,
                 dbg_info_buffer.items[reloc.offset..][0..@sizeOf(u32)],
-                reloc.atom.off + reloc.offset + reloc.addend,
+                atom.off + reloc.offset + reloc.addend,
                 target_endian,
             );
         }
@@ -1294,7 +1292,7 @@ pub fn commitDeclState(
                         .got_load => .got_load,
                     },
                     .target = reloc.target,
-                    .offset = reloc.offset + atom.off,
+                    .offset = reloc.offset + self.getAtom(.di_atom, di_atom_index).off,
                     .addend = 0,
                     .prev_vaddr = 0,
                 });
@@ -1304,10 +1302,10 @@ pub fn commitDeclState(
     }
 
     log.debug("writeDeclDebugInfo for '{s}", .{decl.name});
-    try self.writeDeclDebugInfo(atom, dbg_info_buffer.items);
+    try self.writeDeclDebugInfo(di_atom_index, dbg_info_buffer.items);
 }
 
-fn updateDeclDebugInfoAllocation(self: *Dwarf, atom: *Atom, len: u32) !void {
+fn updateDeclDebugInfoAllocation(self: *Dwarf, atom_index: Atom.Index, len: u32) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1316,19 +1314,21 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, atom: *Atom, len: u32) !void {
     // probably need to edit that logic too.
     const gpa = self.allocator;
 
+    const atom = self.getAtomPtr(.di_atom, atom_index);
     atom.len = len;
-    if (self.atom_last) |last| blk: {
-        if (atom == last) break :blk;
-        if (atom.next) |next| {
+    if (self.di_atom_last_index) |last_index| blk: {
+        if (atom_index == last_index) break :blk;
+        if (atom.next_index) |next_index| {
+            const next = self.getAtomPtr(.di_atom, next_index);
             // Update existing Decl - non-last item.
             if (atom.off + atom.len + min_nop_size > next.off) {
                 // It grew too big, so we move it to a new location.
-                if (atom.prev) |prev| {
-                    self.atom_free_list.put(gpa, prev, {}) catch {};
-                    prev.next = atom.next;
+                if (atom.prev_index) |prev_index| {
+                    self.di_atom_free_list.put(gpa, prev_index, {}) catch {};
+                    self.getAtomPtr(.di_atom, prev_index).next_index = atom.next_index;
                 }
-                next.prev = atom.prev;
-                atom.next = null;
+                next.prev_index = atom.prev_index;
+                atom.next_index = null;
                 // Populate where it used to be with NOPs.
                 switch (self.bin_file.tag) {
                     .elf => {
@@ -1351,31 +1351,33 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, atom: *Atom, len: u32) !void {
                     else => unreachable,
                 }
                 // TODO Look at the free list before appending at the end.
-                atom.prev = last;
-                last.next = atom;
-                self.atom_last = atom;
+                atom.prev_index = last_index;
+                const last = self.getAtomPtr(.di_atom, last_index);
+                last.next_index = atom_index;
+                self.di_atom_last_index = atom_index;
 
                 atom.off = last.off + padToIdeal(last.len);
             }
-        } else if (atom.prev == null) {
+        } else if (atom.prev_index == null) {
             // Append new Decl.
             // TODO Look at the free list before appending at the end.
-            atom.prev = last;
-            last.next = atom;
-            self.atom_last = atom;
+            atom.prev_index = last_index;
+            const last = self.getAtomPtr(.di_atom, last_index);
+            last.next_index = atom_index;
+            self.di_atom_last_index = atom_index;
 
             atom.off = last.off + padToIdeal(last.len);
         }
     } else {
         // This is the first Decl of the .debug_info
-        self.atom_first = atom;
-        self.atom_last = atom;
+        self.di_atom_first_index = atom_index;
+        self.di_atom_last_index = atom_index;
 
         atom.off = @intCast(u32, padToIdeal(self.dbgInfoHeaderBytes()));
     }
 }
 
-fn writeDeclDebugInfo(self: *Dwarf, atom: *Atom, dbg_info_buf: []const u8) !void {
+fn writeDeclDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []const u8) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1384,14 +1386,22 @@ fn writeDeclDebugInfo(self: *Dwarf, atom: *Atom, dbg_info_buf: []const u8) !void
     // probably need to edit that logic too.
     const gpa = self.allocator;
 
-    const last_decl = self.atom_last.?;
+    const atom = self.getAtom(.di_atom, atom_index);
+    const last_decl_index = self.di_atom_last_index.?;
+    const last_decl = self.getAtom(.di_atom, last_decl_index);
     // +1 for a trailing zero to end the children of the decl tag.
     const needed_size = last_decl.off + last_decl.len + 1;
-    const prev_padding_size: u32 = if (atom.prev) |prev| atom.off - (prev.off + prev.len) else 0;
-    const next_padding_size: u32 = if (atom.next) |next| next.off - (atom.off + atom.len) else 0;
+    const prev_padding_size: u32 = if (atom.prev_index) |prev_index| blk: {
+        const prev = self.getAtom(.di_atom, prev_index);
+        break :blk atom.off - (prev.off + prev.len);
+    } else 0;
+    const next_padding_size: u32 = if (atom.next_index) |next_index| blk: {
+        const next = self.getAtom(.di_atom, next_index);
+        break :blk next.off - (atom.off + atom.len);
+    } else 0;
 
     // To end the children of the decl tag.
-    const trailing_zero = atom.next == null;
+    const trailing_zero = atom.next_index == null;
 
     // We only have support for one compilation unit so far, so the offsets are directly
     // from the .debug_info section.
@@ -1459,10 +1469,15 @@ fn writeDeclDebugInfo(self: *Dwarf, atom: *Atom, dbg_info_buf: []const u8) !void
     }
 }
 
-pub fn updateDeclLineNumber(self: *Dwarf, decl: *const Module.Decl) !void {
+pub fn updateDeclLineNumber(self: *Dwarf, module: *Module, decl_index: Module.Decl.Index) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const atom_index = try self.getOrCreateAtomForDecl(.src_fn, decl_index);
+    const atom = self.getAtom(.src_fn, atom_index);
+    if (atom.len == 0) return;
+
+    const decl = module.declPtr(decl_index);
     const func = decl.val.castTag(.function).?.data;
     log.debug("decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
         decl.src_line,
@@ -1477,78 +1492,80 @@ pub fn updateDeclLineNumber(self: *Dwarf, decl: *const Module.Decl) !void {
         .elf => {
             const elf_file = self.bin_file.cast(File.Elf).?;
             const shdr = elf_file.sections.items(.shdr)[elf_file.debug_line_section_index.?];
-            const file_pos = shdr.sh_offset + decl.fn_link.elf.off + self.getRelocDbgLineOff();
+            const file_pos = shdr.sh_offset + atom.off + self.getRelocDbgLineOff();
             try elf_file.base.file.?.pwriteAll(&data, file_pos);
         },
         .macho => {
             const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
             const sect = d_sym.getSection(d_sym.debug_line_section_index.?);
-            const file_pos = sect.offset + decl.fn_link.macho.off + self.getRelocDbgLineOff();
+            const file_pos = sect.offset + atom.off + self.getRelocDbgLineOff();
             try d_sym.file.pwriteAll(&data, file_pos);
         },
         .wasm => {
             const wasm_file = self.bin_file.cast(File.Wasm).?;
-            const offset = decl.fn_link.wasm.src_fn.off + self.getRelocDbgLineOff();
-            const atom = wasm_file.debug_line_atom.?;
-            mem.copy(u8, atom.code.items[offset..], &data);
+            const offset = atom.off + self.getRelocDbgLineOff();
+            const atom_ = wasm_file.debug_line_atom.?;
+            mem.copy(u8, atom_.code.items[offset..], &data);
         },
         else => unreachable,
     }
 }
 
-pub fn freeAtom(self: *Dwarf, atom: *Atom) void {
-    if (self.atom_first == atom) {
-        self.atom_first = atom.next;
-    }
-    if (self.atom_last == atom) {
-        // TODO shrink the .debug_info section size here
-        self.atom_last = atom.prev;
-    }
-
-    if (atom.prev) |prev| {
-        prev.next = atom.next;
-
-        // TODO the free list logic like we do for text blocks above
-    } else {
-        atom.prev = null;
-    }
-
-    if (atom.next) |next| {
-        next.prev = atom.prev;
-    } else {
-        atom.next = null;
-    }
-}
-
-pub fn freeDecl(self: *Dwarf, decl: *Module.Decl) void {
-    // TODO make this logic match freeTextBlock. Maybe abstract the logic out since the same thing
-    // is desired for both.
+pub fn freeDecl(self: *Dwarf, decl_index: Module.Decl.Index) void {
     const gpa = self.allocator;
-    const fn_link = switch (self.bin_file.tag) {
-        .elf => &decl.fn_link.elf,
-        .macho => &decl.fn_link.macho,
-        .wasm => &decl.fn_link.wasm.src_fn,
-        else => unreachable,
-    };
-    _ = self.dbg_line_fn_free_list.remove(fn_link);
 
-    if (fn_link.prev) |prev| {
-        self.dbg_line_fn_free_list.put(gpa, prev, {}) catch {};
-        prev.next = fn_link.next;
-        if (fn_link.next) |next| {
-            next.prev = prev;
-        } else {
-            self.dbg_line_fn_last = prev;
+    // Free SrcFn atom
+    if (self.src_fn_decls.fetchRemove(decl_index)) |kv| {
+        const src_fn_index = kv.value;
+        const src_fn = self.getAtom(.src_fn, src_fn_index);
+        _ = self.src_fn_free_list.remove(src_fn_index);
+
+        if (src_fn.prev_index) |prev_index| {
+            self.src_fn_free_list.put(gpa, prev_index, {}) catch {};
+            const prev = self.getAtomPtr(.src_fn, prev_index);
+            prev.next_index = src_fn.next_index;
+            if (src_fn.next_index) |next_index| {
+                self.getAtomPtr(.src_fn, next_index).prev_index = prev_index;
+            } else {
+                self.src_fn_last_index = prev_index;
+            }
+        } else if (src_fn.next_index) |next_index| {
+            self.src_fn_first_index = next_index;
+            self.getAtomPtr(.src_fn, next_index).prev_index = null;
         }
-    } else if (fn_link.next) |next| {
-        self.dbg_line_fn_first = next;
-        next.prev = null;
+        if (self.src_fn_first_index == src_fn_index) {
+            self.src_fn_first_index = src_fn.next_index;
+        }
+        if (self.src_fn_last_index == src_fn_index) {
+            self.src_fn_last_index = src_fn.prev_index;
+        }
     }
-    if (self.dbg_line_fn_first == fn_link) {
-        self.dbg_line_fn_first = fn_link.next;
-    }
-    if (self.dbg_line_fn_last == fn_link) {
-        self.dbg_line_fn_last = fn_link.prev;
+
+    // Free DI atom
+    if (self.di_atom_decls.fetchRemove(decl_index)) |kv| {
+        const di_atom_index = kv.value;
+        const di_atom = self.getAtomPtr(.di_atom, di_atom_index);
+
+        if (self.di_atom_first_index == di_atom_index) {
+            self.di_atom_first_index = di_atom.next_index;
+        }
+        if (self.di_atom_last_index == di_atom_index) {
+            // TODO shrink the .debug_info section size here
+            self.di_atom_last_index = di_atom.prev_index;
+        }
+
+        if (di_atom.prev_index) |prev_index| {
+            self.getAtomPtr(.di_atom, prev_index).next_index = di_atom.next_index;
+            // TODO the free list logic like we do for SrcFn above
+        } else {
+            di_atom.prev_index = null;
+        }
+
+        if (di_atom.next_index) |next_index| {
+            self.getAtomPtr(.di_atom, next_index).prev_index = di_atom.prev_index;
+        } else {
+            di_atom.next_index = null;
+        }
     }
 }
 
@@ -2276,10 +2293,14 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
         const needed_with_padding = padToIdeal(needed_bytes);
         const delta = needed_with_padding - dbg_line_prg_off;
 
-        var src_fn = self.dbg_line_fn_first.?;
-        const last_fn = self.dbg_line_fn_last.?;
+        const first_fn_index = self.src_fn_first_index.?;
+        const first_fn = self.getAtom(.src_fn, first_fn_index);
+        const last_fn_index = self.src_fn_last_index.?;
+        const last_fn = self.getAtom(.src_fn, last_fn_index);
 
-        var buffer = try gpa.alloc(u8, last_fn.off + last_fn.len - src_fn.off);
+        var src_fn_index = first_fn_index;
+
+        var buffer = try gpa.alloc(u8, last_fn.off + last_fn.len - first_fn.off);
         defer gpa.free(buffer);
 
         switch (self.bin_file.tag) {
@@ -2288,7 +2309,7 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
                 const shdr_index = elf_file.debug_line_section_index.?;
                 const needed_size = elf_file.sections.items(.shdr)[shdr_index].sh_size + delta;
                 try elf_file.growNonAllocSection(shdr_index, needed_size, 1, true);
-                const file_pos = elf_file.sections.items(.shdr)[shdr_index].sh_offset + src_fn.off;
+                const file_pos = elf_file.sections.items(.shdr)[shdr_index].sh_offset + first_fn.off;
 
                 const amt = try elf_file.base.file.?.preadAll(buffer, file_pos);
                 if (amt != buffer.len) return error.InputOutput;
@@ -2300,7 +2321,7 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
                 const sect_index = d_sym.debug_line_section_index.?;
                 const needed_size = @intCast(u32, d_sym.getSection(sect_index).size + delta);
                 try d_sym.growSection(sect_index, needed_size, true);
-                const file_pos = d_sym.getSection(sect_index).offset + src_fn.off;
+                const file_pos = d_sym.getSection(sect_index).offset + first_fn.off;
 
                 const amt = try d_sym.file.preadAll(buffer, file_pos);
                 if (amt != buffer.len) return error.InputOutput;
@@ -2310,18 +2331,19 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
             .wasm => {
                 const wasm_file = self.bin_file.cast(File.Wasm).?;
                 const debug_line = &wasm_file.debug_line_atom.?.code;
-                mem.copy(u8, buffer, debug_line.items[src_fn.off..]);
+                mem.copy(u8, buffer, debug_line.items[first_fn.off..]);
                 try debug_line.resize(self.allocator, debug_line.items.len + delta);
-                mem.copy(u8, debug_line.items[src_fn.off + delta ..], buffer);
+                mem.copy(u8, debug_line.items[first_fn.off + delta ..], buffer);
             },
             else => unreachable,
         }
 
         while (true) {
+            const src_fn = self.getAtomPtr(.src_fn, src_fn_index);
             src_fn.off += delta;
 
-            if (src_fn.next) |next| {
-                src_fn = next;
+            if (src_fn.next_index) |next_index| {
+                src_fn_index = next_index;
             } else break;
         }
     }
@@ -2367,22 +2389,26 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
 }
 
 fn getDebugInfoOff(self: Dwarf) ?u32 {
-    const first = self.atom_first orelse return null;
+    const first_index = self.di_atom_first_index orelse return null;
+    const first = self.getAtom(.di_atom, first_index);
     return first.off;
 }
 
 fn getDebugInfoEnd(self: Dwarf) ?u32 {
-    const last = self.atom_last orelse return null;
+    const last_index = self.di_atom_last_index orelse return null;
+    const last = self.getAtom(.di_atom, last_index);
     return last.off + last.len;
 }
 
 fn getDebugLineProgramOff(self: Dwarf) ?u32 {
-    const first = self.dbg_line_fn_first orelse return null;
+    const first_index = self.src_fn_first_index orelse return null;
+    const first = self.getAtom(.src_fn, first_index);
     return first.off;
 }
 
 fn getDebugLineProgramEnd(self: Dwarf) ?u32 {
-    const last = self.dbg_line_fn_last orelse return null;
+    const last_index = self.src_fn_last_index orelse return null;
+    const last = self.getAtom(.src_fn, last_index);
     return last.off + last.len;
 }
 
@@ -2457,23 +2483,14 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
         }
         error_set.names = names;
 
-        const atom = try gpa.create(Atom);
-        errdefer gpa.destroy(atom);
-        atom.* = .{
-            .prev = null,
-            .next = null,
-            .off = 0,
-            .len = 0,
-        };
-
         var dbg_info_buffer = std.ArrayList(u8).init(arena);
         try addDbgInfoErrorSet(arena, module, error_ty, self.target, &dbg_info_buffer);
 
-        try self.managed_atoms.append(gpa, atom);
+        const di_atom_index = try self.createAtom(.di_atom);
         log.debug("updateDeclDebugInfoAllocation in flushModule", .{});
-        try self.updateDeclDebugInfoAllocation(atom, @intCast(u32, dbg_info_buffer.items.len));
+        try self.updateDeclDebugInfoAllocation(di_atom_index, @intCast(u32, dbg_info_buffer.items.len));
         log.debug("writeDeclDebugInfo in flushModule", .{});
-        try self.writeDeclDebugInfo(atom, dbg_info_buffer.items);
+        try self.writeDeclDebugInfo(di_atom_index, dbg_info_buffer.items);
 
         const file_pos = blk: {
             switch (self.bin_file.tag) {
@@ -2494,22 +2511,23 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
         };
 
         var buf: [@sizeOf(u32)]u8 = undefined;
-        mem.writeInt(u32, &buf, atom.off, self.target.cpu.arch.endian());
+        mem.writeInt(u32, &buf, self.getAtom(.di_atom, di_atom_index).off, self.target.cpu.arch.endian());
 
         while (self.global_abbrev_relocs.popOrNull()) |reloc| {
+            const atom = self.getAtom(.di_atom, reloc.atom_index);
             switch (self.bin_file.tag) {
                 .elf => {
                     const elf_file = self.bin_file.cast(File.Elf).?;
-                    try elf_file.base.file.?.pwriteAll(&buf, file_pos + reloc.atom.off + reloc.offset);
+                    try elf_file.base.file.?.pwriteAll(&buf, file_pos + atom.off + reloc.offset);
                 },
                 .macho => {
                     const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
-                    try d_sym.file.pwriteAll(&buf, file_pos + reloc.atom.off + reloc.offset);
+                    try d_sym.file.pwriteAll(&buf, file_pos + atom.off + reloc.offset);
                 },
                 .wasm => {
                     const wasm_file = self.bin_file.cast(File.Wasm).?;
                     const debug_info = wasm_file.debug_info_atom.?.code;
-                    mem.copy(u8, debug_info.items[reloc.atom.off + reloc.offset ..], &buf);
+                    mem.copy(u8, debug_info.items[atom.off + reloc.offset ..], &buf);
                 },
                 else => unreachable,
             }
@@ -2627,12 +2645,62 @@ fn addDbgInfoErrorSet(
     try dbg_info_buffer.append(0);
 }
 
-fn getDbgInfoAtom(tag: File.Tag, mod: *Module, decl_index: Module.Decl.Index) *Atom {
-    const decl = mod.declPtr(decl_index);
-    return switch (tag) {
-        .elf => unreachable,
-        .macho => unreachable,
-        .wasm => &decl.link.wasm.dbg_info_atom,
-        else => unreachable,
+const Kind = enum { src_fn, di_atom };
+
+fn createAtom(self: *Dwarf, comptime kind: Kind) !Atom.Index {
+    const index = blk: {
+        switch (kind) {
+            .src_fn => {
+                const index = @intCast(Atom.Index, self.src_fns.items.len);
+                _ = try self.src_fns.addOne(self.allocator);
+                break :blk index;
+            },
+            .di_atom => {
+                const index = @intCast(Atom.Index, self.di_atoms.items.len);
+                _ = try self.di_atoms.addOne(self.allocator);
+                break :blk index;
+            },
+        }
+    };
+    const atom = self.getAtomPtr(kind, index);
+    atom.* = .{
+        .off = 0,
+        .len = 0,
+        .prev_index = null,
+        .next_index = null,
+    };
+    return index;
+}
+
+fn getOrCreateAtomForDecl(self: *Dwarf, comptime kind: Kind, decl_index: Module.Decl.Index) !Atom.Index {
+    switch (kind) {
+        .src_fn => {
+            const gop = try self.src_fn_decls.getOrPut(self.allocator, decl_index);
+            if (!gop.found_existing) {
+                gop.value_ptr.* = try self.createAtom(kind);
+            }
+            return gop.value_ptr.*;
+        },
+        .di_atom => {
+            const gop = try self.di_atom_decls.getOrPut(self.allocator, decl_index);
+            if (!gop.found_existing) {
+                gop.value_ptr.* = try self.createAtom(kind);
+            }
+            return gop.value_ptr.*;
+        },
+    }
+}
+
+fn getAtom(self: *const Dwarf, comptime kind: Kind, index: Atom.Index) Atom {
+    return switch (kind) {
+        .src_fn => self.src_fns.items[index],
+        .di_atom => self.di_atoms.items[index],
+    };
+}
+
+fn getAtomPtr(self: *Dwarf, comptime kind: Kind, index: Atom.Index) *Atom {
+    return switch (kind) {
+        .src_fn => &self.src_fns.items[index],
+        .di_atom => &self.di_atoms.items[index],
     };
 }

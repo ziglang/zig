@@ -1018,10 +1018,10 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
 }
 
 /// Must be called only after a successful call to `updateDecl`.
-pub fn updateDeclLineNumber(self: *Plan9, mod: *Module, decl: *const Module.Decl) !void {
+pub fn updateDeclLineNumber(self: *Plan9, mod: *Module, decl_index: Module.Decl.Index) !void {
     _ = self;
     _ = mod;
-    _ = decl;
+    _ = decl_index;
 }
 
 pub fn getDeclVAddr(

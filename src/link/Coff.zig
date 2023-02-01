@@ -195,7 +195,6 @@ pub const PtrWidth = enum {
         };
     }
 };
-pub const SrcFn = void;
 
 pub const SymbolWithLoc = struct {
     // Index into the respective symbol table.
@@ -1545,10 +1544,10 @@ pub fn getGlobalSymbol(self: *Coff, name: []const u8) !u32 {
     return global_index;
 }
 
-pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !void {
+pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !void {
     _ = self;
     _ = module;
-    _ = decl;
+    _ = decl_index;
     log.debug("TODO implement updateDeclLineNumber", .{});
 }
 

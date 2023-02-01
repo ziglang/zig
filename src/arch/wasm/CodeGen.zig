@@ -2475,7 +2475,7 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .dwarf => |dwarf| {
             const src_index = func.air.instructions.items(.data)[inst].arg.src_index;
             const name = func.mod_fn.getParamName(func.bin_file.base.options.module.?, src_index);
-            try dwarf.genArgDbgInfo(name, arg_ty, .wasm, func.mod_fn.owner_decl, .{
+            try dwarf.genArgDbgInfo(name, arg_ty, func.mod_fn.owner_decl, .{
                 .wasm_local = arg.local.value,
             });
         },
@@ -5539,7 +5539,7 @@ fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) !void {
             break :blk .nop;
         },
     };
-    try func.debug_output.dwarf.genVarDbgInfo(name, ty, .wasm, func.mod_fn.owner_decl, is_ptr, loc);
+    try func.debug_output.dwarf.genVarDbgInfo(name, ty, func.mod_fn.owner_decl, is_ptr, loc);
 
     func.finishAir(inst, .none, &.{});
 }

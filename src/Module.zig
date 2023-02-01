@@ -5186,12 +5186,12 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
             .coff => {
                 // TODO Implement for COFF
             },
-            .elf => if (decl.fn_link.elf.len != 0) {
+            .elf => {
                 // TODO Look into detecting when this would be unnecessary by storing enough state
                 // in `Decl` to notice that the line number did not change.
                 comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
             },
-            .macho => if (decl.fn_link.macho.len != 0) {
+            .macho => {
                 // TODO Look into detecting when this would be unnecessary by storing enough state
                 // in `Decl` to notice that the line number did not change.
                 comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
@@ -5285,8 +5285,8 @@ pub fn clearDecl(
             };
             decl.fn_link = switch (mod.comp.bin_file.tag) {
                 .coff => .{ .coff = {} },
-                .elf => .{ .elf = link.File.Dwarf.SrcFn.empty },
-                .macho => .{ .macho = link.File.Dwarf.SrcFn.empty },
+                .elf => .{ .elf = {} },
+                .macho => .{ .macho = {} },
                 .plan9 => .{ .plan9 = {} },
                 .c => .{ .c = {} },
                 .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
@@ -5705,8 +5705,8 @@ pub fn allocateNewDecl(
         },
         .fn_link = switch (mod.comp.bin_file.tag) {
             .coff => .{ .coff = {} },
-            .elf => .{ .elf = link.File.Dwarf.SrcFn.empty },
-            .macho => .{ .macho = link.File.Dwarf.SrcFn.empty },
+            .elf => .{ .elf = {} },
+            .macho => .{ .macho = {} },
             .plan9 => .{ .plan9 = {} },
             .c => .{ .c = {} },
             .wasm => .{ .wasm = link.File.Wasm.FnData.empty },

@@ -4,7 +4,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const elf = std.elf;
 
-const Dwarf = @import("../Dwarf.zig");
 const Elf = @import("../Elf.zig");
 
 /// Each decl always gets a local symbol with the fully qualified name.
@@ -22,8 +21,6 @@ offset_table_index: u32,
 /// This can be used to find, for example, the capacity of this `TextBlock`.
 prev_index: ?Index,
 next_index: ?Index,
-
-dbg_info_atom: Dwarf.Atom,
 
 pub const Index = u32;
 

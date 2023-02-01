@@ -4,7 +4,6 @@ const std = @import("std");
 const types = @import("types.zig");
 const Wasm = @import("../Wasm.zig");
 const Symbol = @import("Symbol.zig");
-const Dwarf = @import("../Dwarf.zig");
 
 const leb = std.leb;
 const log = std.log.scoped(.link);
@@ -39,9 +38,6 @@ prev: ?*Atom,
 /// When the parent atom is being freed, it will also do so for all local atoms.
 locals: std.ArrayListUnmanaged(Atom) = .{},
 
-/// Represents the debug Atom that holds all debug information of this Atom.
-dbg_info_atom: Dwarf.Atom,
-
 /// Represents a default empty wasm `Atom`
 pub const empty: Atom = .{
     .alignment = 0,
@@ -51,7 +47,6 @@ pub const empty: Atom = .{
     .prev = null,
     .size = 0,
     .sym_index = 0,
-    .dbg_info_atom = undefined,
 };
 
 /// Frees all resources owned by this `Atom`.

@@ -472,9 +472,9 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
-    // if (self.d_sym) |*d_sym| {
-    //     try d_sym.dwarf.flushModule(module);
-    // }
+    if (self.d_sym) |*d_sym| {
+        try d_sym.dwarf.flushModule(module);
+    }
 
     var libs = std.StringArrayHashMap(link.SystemLib).init(arena);
     try resolveLibSystem(
@@ -664,10 +664,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         try self.writeCodeSignature(comp, csig); // code signing always comes last
     }
 
-    // if (self.d_sym) |*d_sym| {
-    //     // Flush debug symbols bundle.
-    //     try d_sym.flushModule(self);
-    // }
+    if (self.d_sym) |*d_sym| {
+        // Flush debug symbols bundle.
+        try d_sym.flushModule(self);
+    }
 
     // if (build_options.enable_link_snapshots) {
     //     if (self.base.options.enable_link_snapshots)
@@ -1089,7 +1089,6 @@ pub fn createAtom(self: *MachO) !Atom.Index {
         .alignment = 0,
         .prev_index = null,
         .next_index = null,
-        .dbg_info_atom = undefined,
     };
     log.debug("creating ATOM(%{d}) at index {d}", .{ sym_index, atom_index });
     return atom_index;
@@ -1724,9 +1723,9 @@ pub fn deinit(self: *MachO) void {
         if (self.llvm_object) |llvm_object| llvm_object.destroy(gpa);
     }
 
-    // if (self.d_sym) |*d_sym| {
-    //     d_sym.deinit();
-    // }
+    if (self.d_sym) |*d_sym| {
+        d_sym.deinit();
+    }
 
     self.got_entries.deinit(gpa);
     self.got_entries_free_list.deinit(gpa);
@@ -1804,9 +1803,8 @@ pub fn deinit(self: *MachO) void {
 }
 
 fn freeAtom(self: *MachO, atom_index: Atom.Index) void {
-    log.debug("freeAtom {d}", .{atom_index});
-
     const gpa = self.base.allocator;
+    log.debug("freeAtom {d}", .{atom_index});
 
     // Remove any relocs and base relocs associated with this Atom
     Atom.freeRelocations(self, atom_index);
@@ -1876,9 +1874,9 @@ fn freeAtom(self: *MachO, atom_index: Atom.Index) void {
         };
         _ = self.got_entries_table.remove(got_target);
 
-        // if (self.d_sym) |*d_sym| {
-        //     d_sym.swapRemoveRelocs(sym_index);
-        // }
+        if (self.d_sym) |*d_sym| {
+            d_sym.swapRemoveRelocs(sym_index);
+        }
 
         log.debug("  adding GOT index {d} to free list (target local@{d})", .{ got_index, sym_index });
     }
@@ -1887,10 +1885,6 @@ fn freeAtom(self: *MachO, atom_index: Atom.Index) void {
     _ = self.atom_by_index_table.remove(sym_index);
     log.debug("  adding local symbol index {d} to free list", .{sym_index});
     self.getAtomPtr(atom_index).sym_index = 0;
-
-    // if (self.d_sym) |*d_sym| {
-    //     d_sym.dwarf.freeAtom(&atom.dbg_info_atom);
-    // }
 }
 
 fn shrinkAtom(self: *MachO, atom_index: Atom.Index, new_block_size: u64) void {
@@ -2020,23 +2014,22 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     Atom.freeRelocations(self, atom_index);
 
     const atom = self.getAtom(atom_index);
-    _ = atom;
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    // var decl_state = if (self.d_sym) |*d_sym|
-    //     try d_sym.dwarf.initDeclState(module, decl_index)
-    // else
-    //     null;
-    // defer if (decl_state) |*ds| ds.deinit();
+    var decl_state = if (self.d_sym) |*d_sym|
+        try d_sym.dwarf.initDeclState(module, decl_index)
+    else
+        null;
+    defer if (decl_state) |*ds| ds.deinit();
 
-    // const res = if (decl_state) |*ds|
-    // try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{
-    //     .dwarf = ds,
-    // })
-    // else
-    const res = try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
+    const res = if (decl_state) |*ds|
+        try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{
+            .dwarf = ds,
+        })
+    else
+        try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
 
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -2048,11 +2041,10 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     };
 
     const addr = try self.updateDeclCode(decl_index, code);
-    _ = addr;
 
-    // if (decl_state) |*ds| {
-    //     try self.d_sym.?.dwarf.commitDeclState(module, decl_index, addr, atom.size, ds);
-    // }
+    if (decl_state) |*ds| {
+        try self.d_sym.?.dwarf.commitDeclState(module, decl_index, addr, atom.size, ds);
+    }
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
     // needs to be updated.
@@ -2154,29 +2146,29 @@ pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    // var decl_state: ?Dwarf.DeclState = if (self.d_sym) |*d_sym|
-    //     try d_sym.dwarf.initDeclState(module, decl_index)
-    // else
-    //     null;
-    // defer if (decl_state) |*ds| ds.deinit();
+    var decl_state: ?Dwarf.DeclState = if (self.d_sym) |*d_sym|
+        try d_sym.dwarf.initDeclState(module, decl_index)
+    else
+        null;
+    defer if (decl_state) |*ds| ds.deinit();
 
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
-    // const res = if (decl_state) |*ds|
-    //     try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
-    //         .ty = decl.ty,
-    //         .val = decl_val,
-    //     }, &code_buffer, .{
-    //         .dwarf = ds,
-    //     }, .{
-    //         .parent_atom_index = atom.getSymbolIndex().?,
-    //     })
-    // else
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
-        .ty = decl.ty,
-        .val = decl_val,
-    }, &code_buffer, .none, .{
-        .parent_atom_index = atom.getSymbolIndex().?,
-    });
+    const res = if (decl_state) |*ds|
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+            .ty = decl.ty,
+            .val = decl_val,
+        }, &code_buffer, .{
+            .dwarf = ds,
+        }, .{
+            .parent_atom_index = atom.getSymbolIndex().?,
+        })
+    else
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+            .ty = decl.ty,
+            .val = decl_val,
+        }, &code_buffer, .none, .{
+            .parent_atom_index = atom.getSymbolIndex().?,
+        });
 
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -2187,11 +2179,10 @@ pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) 
         },
     };
     const addr = try self.updateDeclCode(decl_index, code);
-    _ = addr;
 
-    // if (decl_state) |*ds| {
-    //     try self.d_sym.?.dwarf.commitDeclState(module, decl_index, addr, atom.size, ds);
-    // }
+    if (decl_state) |*ds| {
+        try self.d_sym.?.dwarf.commitDeclState(module, decl_index, addr, atom.size, ds);
+    }
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
     // needs to be updated.
@@ -2432,13 +2423,10 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []const u8)
     return atom.getSymbol(self).n_value;
 }
 
-pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.Decl) !void {
-    _ = decl;
-    _ = self;
-    _ = module;
-    // if (self.d_sym) |*d_sym| {
-    //     try d_sym.dwarf.updateDeclLineNumber(decl);
-    // }
+pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: Module.Decl.Index) !void {
+    if (self.d_sym) |*d_sym| {
+        try d_sym.dwarf.updateDeclLineNumber(module, decl_index);
+    }
 }
 
 pub fn updateDeclExports(
@@ -2611,9 +2599,9 @@ pub fn freeDecl(self: *MachO, decl_index: Module.Decl.Index) void {
         kv.value.exports.deinit(self.base.allocator);
     }
 
-    // if (self.d_sym) |*d_sym| {
-    //     d_sym.dwarf.freeDecl(decl);
-    // }
+    if (self.d_sym) |*d_sym| {
+        d_sym.dwarf.freeDecl(decl_index);
+    }
 }
 
 pub fn getDeclVAddr(self: *MachO, decl_index: Module.Decl.Index, reloc_info: File.RelocInfo) !u64 {

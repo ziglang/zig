@@ -3836,7 +3836,7 @@ fn genArgDbgInfo(self: Self, ty: Type, name: [:0]const u8, mcv: MCValue) !void {
                 },
                 else => unreachable, // not a valid function parameter
             };
-            try dw.genArgDbgInfo(name, ty, self.bin_file.tag, self.mod_fn.owner_decl, loc);
+            try dw.genArgDbgInfo(name, ty, self.mod_fn.owner_decl, loc);
         },
         .plan9 => {},
         .none => {},
@@ -3876,7 +3876,7 @@ fn genVarDbgInfo(
                     break :blk .nop;
                 },
             };
-            try dw.genVarDbgInfo(name, ty, self.bin_file.tag, self.mod_fn.owner_decl, is_ptr, loc);
+            try dw.genVarDbgInfo(name, ty, self.mod_fn.owner_decl, is_ptr, loc);
         },
         .plan9 => {},
         .none => {},

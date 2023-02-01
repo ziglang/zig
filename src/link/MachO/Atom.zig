@@ -13,7 +13,6 @@ const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
-const Dwarf = @import("../Dwarf.zig");
 const MachO = @import("../MachO.zig");
 const Relocation = @import("Relocation.zig");
 const SymbolWithLoc = MachO.SymbolWithLoc;
@@ -42,8 +41,6 @@ alignment: u32,
 /// TODO use the same trick as with symbols: reserve index 0 as null atom
 next_index: ?Index,
 prev_index: ?Index,
-
-dbg_info_atom: Dwarf.Atom,
 
 pub const Index = u32;
 

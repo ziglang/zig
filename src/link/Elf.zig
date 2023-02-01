@@ -344,9 +344,9 @@ pub fn deinit(self: *Elf) void {
         self.relocs.deinit(gpa);
     }
 
-    // if (self.dwarf) |*dw| {
-    //     dw.deinit();
-    // }
+    if (self.dwarf) |*dw| {
+        dw.deinit();
+    }
 }
 
 pub fn getDeclVAddr(self: *Elf, decl_index: Module.Decl.Index, reloc_info: File.RelocInfo) !u64 {
@@ -685,146 +685,146 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         try self.writeSymbol(0);
     }
 
-    // if (self.dwarf) |*dw| {
-    //     if (self.debug_str_section_index == null) {
-    //         self.debug_str_section_index = @intCast(u16, self.sections.slice().len);
-    //         assert(dw.strtab.buffer.items.len == 0);
-    //         try dw.strtab.buffer.append(gpa, 0);
-    //         try self.sections.append(gpa, .{
-    //             .shdr = .{
-    //                 .sh_name = try self.shstrtab.insert(gpa, ".debug_str"),
-    //                 .sh_type = elf.SHT_PROGBITS,
-    //                 .sh_flags = elf.SHF_MERGE | elf.SHF_STRINGS,
-    //                 .sh_addr = 0,
-    //                 .sh_offset = 0,
-    //                 .sh_size = 0,
-    //                 .sh_link = 0,
-    //                 .sh_info = 0,
-    //                 .sh_addralign = 1,
-    //                 .sh_entsize = 1,
-    //             },
-    //             .phdr_index = undefined,
-    //         });
-    //         self.debug_strtab_dirty = true;
-    //         self.shdr_table_dirty = true;
-    //     }
+    if (self.dwarf) |*dw| {
+        if (self.debug_str_section_index == null) {
+            self.debug_str_section_index = @intCast(u16, self.sections.slice().len);
+            assert(dw.strtab.buffer.items.len == 0);
+            try dw.strtab.buffer.append(gpa, 0);
+            try self.sections.append(gpa, .{
+                .shdr = .{
+                    .sh_name = try self.shstrtab.insert(gpa, ".debug_str"),
+                    .sh_type = elf.SHT_PROGBITS,
+                    .sh_flags = elf.SHF_MERGE | elf.SHF_STRINGS,
+                    .sh_addr = 0,
+                    .sh_offset = 0,
+                    .sh_size = 0,
+                    .sh_link = 0,
+                    .sh_info = 0,
+                    .sh_addralign = 1,
+                    .sh_entsize = 1,
+                },
+                .phdr_index = undefined,
+            });
+            self.debug_strtab_dirty = true;
+            self.shdr_table_dirty = true;
+        }
 
-    //     if (self.debug_info_section_index == null) {
-    //         self.debug_info_section_index = @intCast(u16, self.sections.slice().len);
+        if (self.debug_info_section_index == null) {
+            self.debug_info_section_index = @intCast(u16, self.sections.slice().len);
 
-    //         const file_size_hint = 200;
-    //         const p_align = 1;
-    //         const off = self.findFreeSpace(file_size_hint, p_align);
-    //         log.debug("found .debug_info free space 0x{x} to 0x{x}", .{
-    //             off,
-    //             off + file_size_hint,
-    //         });
-    //         try self.sections.append(gpa, .{
-    //             .shdr = .{
-    //                 .sh_name = try self.shstrtab.insert(gpa, ".debug_info"),
-    //                 .sh_type = elf.SHT_PROGBITS,
-    //                 .sh_flags = 0,
-    //                 .sh_addr = 0,
-    //                 .sh_offset = off,
-    //                 .sh_size = file_size_hint,
-    //                 .sh_link = 0,
-    //                 .sh_info = 0,
-    //                 .sh_addralign = p_align,
-    //                 .sh_entsize = 0,
-    //             },
-    //             .phdr_index = undefined,
-    //         });
-    //         self.shdr_table_dirty = true;
-    //         self.debug_info_header_dirty = true;
-    //     }
+            const file_size_hint = 200;
+            const p_align = 1;
+            const off = self.findFreeSpace(file_size_hint, p_align);
+            log.debug("found .debug_info free space 0x{x} to 0x{x}", .{
+                off,
+                off + file_size_hint,
+            });
+            try self.sections.append(gpa, .{
+                .shdr = .{
+                    .sh_name = try self.shstrtab.insert(gpa, ".debug_info"),
+                    .sh_type = elf.SHT_PROGBITS,
+                    .sh_flags = 0,
+                    .sh_addr = 0,
+                    .sh_offset = off,
+                    .sh_size = file_size_hint,
+                    .sh_link = 0,
+                    .sh_info = 0,
+                    .sh_addralign = p_align,
+                    .sh_entsize = 0,
+                },
+                .phdr_index = undefined,
+            });
+            self.shdr_table_dirty = true;
+            self.debug_info_header_dirty = true;
+        }
 
-    //     if (self.debug_abbrev_section_index == null) {
-    //         self.debug_abbrev_section_index = @intCast(u16, self.sections.slice().len);
+        if (self.debug_abbrev_section_index == null) {
+            self.debug_abbrev_section_index = @intCast(u16, self.sections.slice().len);
 
-    //         const file_size_hint = 128;
-    //         const p_align = 1;
-    //         const off = self.findFreeSpace(file_size_hint, p_align);
-    //         log.debug("found .debug_abbrev free space 0x{x} to 0x{x}", .{
-    //             off,
-    //             off + file_size_hint,
-    //         });
-    //         try self.sections.append(gpa, .{
-    //             .shdr = .{
-    //                 .sh_name = try self.shstrtab.insert(gpa, ".debug_abbrev"),
-    //                 .sh_type = elf.SHT_PROGBITS,
-    //                 .sh_flags = 0,
-    //                 .sh_addr = 0,
-    //                 .sh_offset = off,
-    //                 .sh_size = file_size_hint,
-    //                 .sh_link = 0,
-    //                 .sh_info = 0,
-    //                 .sh_addralign = p_align,
-    //                 .sh_entsize = 0,
-    //             },
-    //             .phdr_index = undefined,
-    //         });
-    //         self.shdr_table_dirty = true;
-    //         self.debug_abbrev_section_dirty = true;
-    //     }
+            const file_size_hint = 128;
+            const p_align = 1;
+            const off = self.findFreeSpace(file_size_hint, p_align);
+            log.debug("found .debug_abbrev free space 0x{x} to 0x{x}", .{
+                off,
+                off + file_size_hint,
+            });
+            try self.sections.append(gpa, .{
+                .shdr = .{
+                    .sh_name = try self.shstrtab.insert(gpa, ".debug_abbrev"),
+                    .sh_type = elf.SHT_PROGBITS,
+                    .sh_flags = 0,
+                    .sh_addr = 0,
+                    .sh_offset = off,
+                    .sh_size = file_size_hint,
+                    .sh_link = 0,
+                    .sh_info = 0,
+                    .sh_addralign = p_align,
+                    .sh_entsize = 0,
+                },
+                .phdr_index = undefined,
+            });
+            self.shdr_table_dirty = true;
+            self.debug_abbrev_section_dirty = true;
+        }
 
-    //     if (self.debug_aranges_section_index == null) {
-    //         self.debug_aranges_section_index = @intCast(u16, self.sections.slice().len);
+        if (self.debug_aranges_section_index == null) {
+            self.debug_aranges_section_index = @intCast(u16, self.sections.slice().len);
 
-    //         const file_size_hint = 160;
-    //         const p_align = 16;
-    //         const off = self.findFreeSpace(file_size_hint, p_align);
-    //         log.debug("found .debug_aranges free space 0x{x} to 0x{x}", .{
-    //             off,
-    //             off + file_size_hint,
-    //         });
-    //         try self.sections.append(gpa, .{
-    //             .shdr = .{
-    //                 .sh_name = try self.shstrtab.insert(gpa, ".debug_aranges"),
-    //                 .sh_type = elf.SHT_PROGBITS,
-    //                 .sh_flags = 0,
-    //                 .sh_addr = 0,
-    //                 .sh_offset = off,
-    //                 .sh_size = file_size_hint,
-    //                 .sh_link = 0,
-    //                 .sh_info = 0,
-    //                 .sh_addralign = p_align,
-    //                 .sh_entsize = 0,
-    //             },
-    //             .phdr_index = undefined,
-    //         });
-    //         self.shdr_table_dirty = true;
-    //         self.debug_aranges_section_dirty = true;
-    //     }
+            const file_size_hint = 160;
+            const p_align = 16;
+            const off = self.findFreeSpace(file_size_hint, p_align);
+            log.debug("found .debug_aranges free space 0x{x} to 0x{x}", .{
+                off,
+                off + file_size_hint,
+            });
+            try self.sections.append(gpa, .{
+                .shdr = .{
+                    .sh_name = try self.shstrtab.insert(gpa, ".debug_aranges"),
+                    .sh_type = elf.SHT_PROGBITS,
+                    .sh_flags = 0,
+                    .sh_addr = 0,
+                    .sh_offset = off,
+                    .sh_size = file_size_hint,
+                    .sh_link = 0,
+                    .sh_info = 0,
+                    .sh_addralign = p_align,
+                    .sh_entsize = 0,
+                },
+                .phdr_index = undefined,
+            });
+            self.shdr_table_dirty = true;
+            self.debug_aranges_section_dirty = true;
+        }
 
-    //     if (self.debug_line_section_index == null) {
-    //         self.debug_line_section_index = @intCast(u16, self.sections.slice().len);
+        if (self.debug_line_section_index == null) {
+            self.debug_line_section_index = @intCast(u16, self.sections.slice().len);
 
-    //         const file_size_hint = 250;
-    //         const p_align = 1;
-    //         const off = self.findFreeSpace(file_size_hint, p_align);
-    //         log.debug("found .debug_line free space 0x{x} to 0x{x}", .{
-    //             off,
-    //             off + file_size_hint,
-    //         });
-    //         try self.sections.append(gpa, .{
-    //             .shdr = .{
-    //                 .sh_name = try self.shstrtab.insert(gpa, ".debug_line"),
-    //                 .sh_type = elf.SHT_PROGBITS,
-    //                 .sh_flags = 0,
-    //                 .sh_addr = 0,
-    //                 .sh_offset = off,
-    //                 .sh_size = file_size_hint,
-    //                 .sh_link = 0,
-    //                 .sh_info = 0,
-    //                 .sh_addralign = p_align,
-    //                 .sh_entsize = 0,
-    //             },
-    //             .phdr_index = undefined,
-    //         });
-    //         self.shdr_table_dirty = true;
-    //         self.debug_line_header_dirty = true;
-    //     }
-    // }
+            const file_size_hint = 250;
+            const p_align = 1;
+            const off = self.findFreeSpace(file_size_hint, p_align);
+            log.debug("found .debug_line free space 0x{x} to 0x{x}", .{
+                off,
+                off + file_size_hint,
+            });
+            try self.sections.append(gpa, .{
+                .shdr = .{
+                    .sh_name = try self.shstrtab.insert(gpa, ".debug_line"),
+                    .sh_type = elf.SHT_PROGBITS,
+                    .sh_flags = 0,
+                    .sh_addr = 0,
+                    .sh_offset = off,
+                    .sh_size = file_size_hint,
+                    .sh_link = 0,
+                    .sh_info = 0,
+                    .sh_addralign = p_align,
+                    .sh_entsize = 0,
+                },
+                .phdr_index = undefined,
+            });
+            self.shdr_table_dirty = true;
+            self.debug_line_header_dirty = true;
+        }
+    }
 
     const shsize: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Shdr),
@@ -956,26 +956,25 @@ pub fn growNonAllocSection(
 }
 
 pub fn markDirty(self: *Elf, shdr_index: u16, phdr_index: ?u16) void {
-    _ = shdr_index;
     self.shdr_table_dirty = true; // TODO look into only writing one section
 
     if (phdr_index) |_| {
         self.phdr_table_dirty = true; // TODO look into making only the one program header dirty
     }
 
-    // if (self.dwarf) |_| {
-    //     if (self.debug_info_section_index.? == shdr_index) {
-    //         self.debug_info_header_dirty = true;
-    //     } else if (self.debug_line_section_index.? == shdr_index) {
-    //         self.debug_line_header_dirty = true;
-    //     } else if (self.debug_abbrev_section_index.? == shdr_index) {
-    //         self.debug_abbrev_section_dirty = true;
-    //     } else if (self.debug_str_section_index.? == shdr_index) {
-    //         self.debug_strtab_dirty = true;
-    //     } else if (self.debug_aranges_section_index.? == shdr_index) {
-    //         self.debug_aranges_section_dirty = true;
-    //     }
-    // }
+    if (self.dwarf) |_| {
+        if (self.debug_info_section_index.? == shdr_index) {
+            self.debug_info_header_dirty = true;
+        } else if (self.debug_line_section_index.? == shdr_index) {
+            self.debug_line_header_dirty = true;
+        } else if (self.debug_abbrev_section_index.? == shdr_index) {
+            self.debug_abbrev_section_dirty = true;
+        } else if (self.debug_str_section_index.? == shdr_index) {
+            self.debug_strtab_dirty = true;
+        } else if (self.debug_aranges_section_index.? == shdr_index) {
+            self.debug_aranges_section_dirty = true;
+        }
+    }
 }
 
 pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
@@ -1015,14 +1014,13 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // TODO This linker code currently assumes there is only 1 compilation unit and it
     // corresponds to the Zig source code.
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
-    _ = module;
 
     const target_endian = self.base.options.target.cpu.arch.endian();
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
 
-    // if (self.dwarf) |*dw| {
-    //     try dw.flushModule(module);
-    // }
+    if (self.dwarf) |*dw| {
+        try dw.flushModule(module);
+    }
 
     {
         var it = self.relocs.iterator();
@@ -1068,43 +1066,43 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         self.logSymtab();
     }
 
-    // if (self.dwarf) |*dw| {
-    //     if (self.debug_abbrev_section_dirty) {
-    //         try dw.writeDbgAbbrev();
-    //         if (!self.shdr_table_dirty) {
-    //             // Then it won't get written with the others and we need to do it.
-    //             try self.writeSectHeader(self.debug_abbrev_section_index.?);
-    //         }
-    //         self.debug_abbrev_section_dirty = false;
-    //     }
+    if (self.dwarf) |*dw| {
+        if (self.debug_abbrev_section_dirty) {
+            try dw.writeDbgAbbrev();
+            if (!self.shdr_table_dirty) {
+                // Then it won't get written with the others and we need to do it.
+                try self.writeSectHeader(self.debug_abbrev_section_index.?);
+            }
+            self.debug_abbrev_section_dirty = false;
+        }
 
-    //     if (self.debug_info_header_dirty) {
-    //         // Currently only one compilation unit is supported, so the address range is simply
-    //         // identical to the main program header virtual address and memory size.
-    //         const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
-    //         const low_pc = text_phdr.p_vaddr;
-    //         const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
-    //         try dw.writeDbgInfoHeader(module, low_pc, high_pc);
-    //         self.debug_info_header_dirty = false;
-    //     }
+        if (self.debug_info_header_dirty) {
+            // Currently only one compilation unit is supported, so the address range is simply
+            // identical to the main program header virtual address and memory size.
+            const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+            const low_pc = text_phdr.p_vaddr;
+            const high_pc = text_phdr.p_vaddr + text_phdr.p_memsz;
+            try dw.writeDbgInfoHeader(module, low_pc, high_pc);
+            self.debug_info_header_dirty = false;
+        }
 
-    //     if (self.debug_aranges_section_dirty) {
-    //         // Currently only one compilation unit is supported, so the address range is simply
-    //         // identical to the main program header virtual address and memory size.
-    //         const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
-    //         try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
-    //         if (!self.shdr_table_dirty) {
-    //             // Then it won't get written with the others and we need to do it.
-    //             try self.writeSectHeader(self.debug_aranges_section_index.?);
-    //         }
-    //         self.debug_aranges_section_dirty = false;
-    //     }
+        if (self.debug_aranges_section_dirty) {
+            // Currently only one compilation unit is supported, so the address range is simply
+            // identical to the main program header virtual address and memory size.
+            const text_phdr = &self.program_headers.items[self.phdr_load_re_index.?];
+            try dw.writeDbgAranges(text_phdr.p_vaddr, text_phdr.p_memsz);
+            if (!self.shdr_table_dirty) {
+                // Then it won't get written with the others and we need to do it.
+                try self.writeSectHeader(self.debug_aranges_section_index.?);
+            }
+            self.debug_aranges_section_dirty = false;
+        }
 
-    //     if (self.debug_line_header_dirty) {
-    //         try dw.writeDbgLineHeader();
-    //         self.debug_line_header_dirty = false;
-    //     }
-    // }
+        if (self.debug_line_header_dirty) {
+            try dw.writeDbgLineHeader();
+            self.debug_line_header_dirty = false;
+        }
+    }
 
     if (self.phdr_table_dirty) {
         const phsize: u64 = switch (self.ptr_width) {
@@ -1162,15 +1160,15 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
         }
     }
 
-    // if (self.dwarf) |dwarf| {
-    //     const shdr_index = self.debug_str_section_index.?;
-    //     if (self.debug_strtab_dirty or dwarf.strtab.buffer.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
-    //         try self.growNonAllocSection(shdr_index, dwarf.strtab.buffer.items.len, 1, false);
-    //         const debug_strtab_sect = self.sections.items(.shdr)[shdr_index];
-    //         try self.base.file.?.pwriteAll(dwarf.strtab.buffer.items, debug_strtab_sect.sh_offset);
-    //         self.debug_strtab_dirty = false;
-    //     }
-    // }
+    if (self.dwarf) |dwarf| {
+        const shdr_index = self.debug_str_section_index.?;
+        if (self.debug_strtab_dirty or dwarf.strtab.buffer.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
+            try self.growNonAllocSection(shdr_index, dwarf.strtab.buffer.items.len, 1, false);
+            const debug_strtab_sect = self.sections.items(.shdr)[shdr_index];
+            try self.base.file.?.pwriteAll(dwarf.strtab.buffer.items, debug_strtab_sect.sh_offset);
+            self.debug_strtab_dirty = false;
+        }
+    }
 
     if (self.shdr_table_dirty) {
         const shsize: u64 = switch (self.ptr_width) {
@@ -2100,10 +2098,6 @@ fn freeAtom(self: *Elf, atom_index: Atom.Index) void {
     self.getAtomPtr(atom_index).local_sym_index = 0;
 
     self.offset_table_free_list.append(self.base.allocator, atom.offset_table_index) catch {};
-
-    // if (self.dwarf) |*dw| {
-    //     dw.freeAtom(&atom.dbg_info_atom);
-    // }
 }
 
 fn shrinkAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64) void {
@@ -2133,7 +2127,6 @@ pub fn createAtom(self: *Elf) !Atom.Index {
         .offset_table_index = offset_table_index,
         .prev_index = null,
         .next_index = null,
-        .dbg_info_atom = undefined,
     };
     log.debug("creating ATOM(%{d}) at index {d}", .{ local_sym_index, atom_index });
     return atom_index;
@@ -2219,16 +2212,16 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
         try self.growAllocSection(sym.st_shndx, needed_size);
         maybe_last_atom_index.* = atom_index;
 
-        // if (self.dwarf) |_| {
-        //     // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
-        //     // range of the compilation unit. When we expand the text section, this range changes,
-        //     // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
-        //     self.debug_info_header_dirty = true;
-        //     // This becomes dirty for the same reason. We could potentially make this more
-        //     // fine-grained with the addition of support for more compilation units. It is planned to
-        //     // model each package as a different compilation unit.
-        //     self.debug_aranges_section_dirty = true;
-        // }
+        if (self.dwarf) |_| {
+            // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
+            // range of the compilation unit. When we expand the text section, this range changes,
+            // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
+            self.debug_info_header_dirty = true;
+            // This becomes dirty for the same reason. We could potentially make this more
+            // fine-grained with the addition of support for more compilation units. It is planned to
+            // model each package as a different compilation unit.
+            self.debug_aranges_section_dirty = true;
+        }
     }
     shdr.sh_addralign = math.max(shdr.sh_addralign, alignment);
 
@@ -2333,9 +2326,9 @@ pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
         kv.value.exports.deinit(self.base.allocator);
     }
 
-    // if (self.dwarf) |*dw| {
-    //     dw.freeDecl(decl);
-    // }
+    if (self.dwarf) |*dw| {
+        dw.freeDecl(decl_index);
+    }
 }
 
 pub fn getOrCreateAtomForDecl(self: *Elf, decl_index: Module.Decl.Index) !Atom.Index {
@@ -2471,15 +2464,15 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    // var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl_index) else null;
-    // defer if (decl_state) |*ds| ds.deinit();
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl_index) else null;
+    defer if (decl_state) |*ds| ds.deinit();
 
-    // const res = if (decl_state) |*ds|
-    //     try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{
-    //         .dwarf = ds,
-    //     })
-    // else
-    const res = try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
+    const res = if (decl_state) |*ds|
+        try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{
+            .dwarf = ds,
+        })
+    else
+        try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
 
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -2490,16 +2483,15 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
         },
     };
     const local_sym = try self.updateDeclCode(decl_index, code, elf.STT_FUNC);
-    _ = local_sym;
-    // if (decl_state) |*ds| {
-    //     try self.dwarf.?.commitDeclState(
-    //         module,
-    //         decl_index,
-    //         local_sym.st_value,
-    //         local_sym.st_size,
-    //         ds,
-    //     );
-    // }
+    if (decl_state) |*ds| {
+        try self.dwarf.?.commitDeclState(
+            module,
+            decl_index,
+            local_sym.st_value,
+            local_sym.st_size,
+            ds,
+        );
+    }
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
@@ -2536,27 +2528,27 @@ pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !v
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    // var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl_index) else null;
-    // defer if (decl_state) |*ds| ds.deinit();
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl_index) else null;
+    defer if (decl_state) |*ds| ds.deinit();
 
     // TODO implement .debug_info for global variables
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
-    // const res = if (decl_state) |*ds|
-    //     try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
-    //         .ty = decl.ty,
-    //         .val = decl_val,
-    //     }, &code_buffer, .{
-    //         .dwarf = ds,
-    //     }, .{
-    //         .parent_atom_index = atom.getSymbolIndex().?,
-    //     })
-    // else
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
-        .ty = decl.ty,
-        .val = decl_val,
-    }, &code_buffer, .none, .{
-        .parent_atom_index = atom.getSymbolIndex().?,
-    });
+    const res = if (decl_state) |*ds|
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+            .ty = decl.ty,
+            .val = decl_val,
+        }, &code_buffer, .{
+            .dwarf = ds,
+        }, .{
+            .parent_atom_index = atom.getSymbolIndex().?,
+        })
+    else
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+            .ty = decl.ty,
+            .val = decl_val,
+        }, &code_buffer, .none, .{
+            .parent_atom_index = atom.getSymbolIndex().?,
+        });
 
     const code = switch (res) {
         .ok => code_buffer.items,
@@ -2568,16 +2560,15 @@ pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !v
     };
 
     const local_sym = try self.updateDeclCode(decl_index, code, elf.STT_OBJECT);
-    _ = local_sym;
-    // if (decl_state) |*ds| {
-    //     try self.dwarf.?.commitDeclState(
-    //         module,
-    //         decl_index,
-    //         local_sym.st_value,
-    //         local_sym.st_size,
-    //         ds,
-    //     );
-    // }
+    if (decl_state) |*ds| {
+        try self.dwarf.?.commitDeclState(
+            module,
+            decl_index,
+            local_sym.st_value,
+            local_sym.st_size,
+            ds,
+        );
+    }
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
@@ -2737,19 +2728,20 @@ pub fn updateDeclExports(
 }
 
 /// Must be called only after a successful call to `updateDecl`.
-pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl: *const Module.Decl) !void {
+pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl_index: Module.Decl.Index) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const decl = mod.declPtr(decl_index);
     const decl_name = try decl.getFullyQualifiedName(mod);
     defer self.base.allocator.free(decl_name);
 
     log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
 
     if (self.llvm_object) |_| return;
-    // if (self.dwarf) |*dw| {
-    //     try dw.updateDeclLineNumber(decl);
-    // }
+    if (self.dwarf) |*dw| {
+        try dw.updateDeclLineNumber(mod, decl_index);
+    }
 }
 
 pub fn deleteDeclExport(self: *Elf, decl_index: Module.Decl.Index, name: []const u8) void {

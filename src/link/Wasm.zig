@@ -183,13 +183,9 @@ pub const Segment = struct {
 pub const FnData = struct {
     /// Reference to the wasm type that represents this function.
     type_index: u32,
-    /// Contains debug information related to this function.
-    /// For Wasm, the offset is relative to the code-section.
-    src_fn: Dwarf.SrcFn,
 
     pub const empty: FnData = .{
         .type_index = undefined,
-        .src_fn = Dwarf.SrcFn.empty,
     };
 };
 
@@ -1122,17 +1118,18 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     return wasm.finishUpdateDecl(decl, code);
 }
 
-pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl: *const Module.Decl) !void {
+pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !void {
     if (wasm.llvm_object) |_| return;
     if (wasm.dwarf) |*dw| {
         const tracy = trace(@src());
         defer tracy.end();
 
+        const decl = mod.declPtr(decl_index);
         const decl_name = try decl.getFullyQualifiedName(mod);
         defer wasm.base.allocator.free(decl_name);
 
         log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
-        try dw.updateDeclLineNumber(decl);
+        try dw.updateDeclLineNumber(mod, decl_index);
     }
 }
 
@@ -1460,10 +1457,9 @@ pub fn freeDecl(wasm: *Wasm, decl_index: Module.Decl.Index) void {
     _ = wasm.resolved_symbols.swapRemove(atom.symbolLoc());
     _ = wasm.symbol_atom.remove(atom.symbolLoc());
 
-    if (wasm.dwarf) |*dwarf| {
-        dwarf.freeDecl(decl);
-        dwarf.freeAtom(&atom.dbg_info_atom);
-    }
+    // if (wasm.dwarf) |*dwarf| {
+    //     dwarf.freeDecl(decl_index);
+    // }
 
     atom.deinit(wasm.base.allocator);
 }
@@ -1882,7 +1878,6 @@ fn initializeCallCtorsFunction(wasm: *Wasm) !void {
         .next = null,
         .prev = null,
         .code = function_body.moveToUnmanaged(),
-        .dbg_info_atom = undefined,
     };
     try wasm.managed_atoms.append(wasm.base.allocator, atom);
     try wasm.appendAtomAtIndex(wasm.code_section_index.?, atom);
