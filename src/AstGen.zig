@@ -518,6 +518,7 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .error_union,
         .merge_error_sets,
         .switch_range,
+        .for_range,
         .@"await",
         .bit_not,
         .negation,
@@ -645,6 +646,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .asm_output => unreachable, // Handled in `asmExpr`.
         .asm_input => unreachable, // Handled in `asmExpr`.
+
+        .for_range => unreachable, // Handled in `forExpr`.
 
         .assign => {
             try assign(gz, scope, node);
@@ -834,7 +837,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .@"while",
         => return whileExpr(gz, scope, ri.br(), node, tree.fullWhile(node).?, false),
 
-        .for_simple, .@"for" => return forExpr(gz, scope, ri.br(), node, tree.fullWhile(node).?, false),
+        .for_simple, .@"for" => return forExpr(gz, scope, ri.br(), node, tree.fullFor(node).?, false),
 
         .slice_open => {
             const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
@@ -2342,7 +2345,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
             .@"while", => _ = try whileExpr(gz, scope, .{ .rl = .discard }, inner_node, tree.fullWhile(inner_node).?, true),
 
             .for_simple,
-            .@"for", => _ = try forExpr(gz, scope, .{ .rl = .discard }, inner_node, tree.fullWhile(inner_node).?, true),
+            .@"for", => _ = try forExpr(gz, scope, .{ .rl = .discard }, inner_node, tree.fullFor(inner_node).?, true),
 
             else => noreturn_src_node = try unusedResultExpr(gz, scope, inner_node),
             // zig fmt: on
@@ -6282,7 +6285,7 @@ fn forExpr(
     scope: *Scope,
     ri: ResultInfo,
     node: Ast.Node.Index,
-    for_full: Ast.full.While,
+    for_full: Ast.full.For,
     is_statement: bool,
 ) InnerError!Zir.Inst.Ref {
     const astgen = parent_gz.astgen;
@@ -6295,23 +6298,79 @@ fn forExpr(
     const is_inline = parent_gz.force_comptime or for_full.inline_token != null;
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
+    const node_tags = tree.nodes.items(.tag);
+    const node_data = tree.nodes.items(.data);
 
-    const payload_is_ref = if (for_full.payload_token) |payload_token|
-        token_tags[payload_token] == .asterisk
-    else
-        false;
+    // Check for unterminated ranges.
+    {
+        var unterminated: ?Ast.Node.Index = null;
+        for (for_full.ast.inputs) |input| {
+            if (node_tags[input] != .for_range) break;
+            if (node_data[input].rhs != 0) break;
+            unterminated = unterminated orelse input;
+        } else {
+            return astgen.failNode(unterminated.?, "unterminated for range", .{});
+        }
+    }
 
-    try emitDbgNode(parent_gz, for_full.ast.cond_expr);
+    var lens = astgen.gpa.alloc(Zir.Inst.Ref, for_full.ast.inputs.len);
+    defer astgen.gpa.free(lens);
+    var indexables = astgen.gpa.alloc(Zir.Inst.Ref, for_full.ast.inputs.len);
+    defer astgen.gpa.free(indexables);
+    var counters = std.ArrayList(Zir.Inst.Ref).init(astgen.gpa);
+    defer counters.deinit();
 
-    const cond_ri: ResultInfo = .{ .rl = if (payload_is_ref) .ref else .none };
-    const array_ptr = try expr(parent_gz, scope, cond_ri, for_full.ast.cond_expr);
-    const len = try parent_gz.addUnNode(.indexable_ptr_len, array_ptr, for_full.ast.cond_expr);
+    const counter_alloc_tag: Zir.Inst.Tag = if (is_inline) .alloc_comptime_mut else .alloc;
+
+    {
+        var payload = for_full.payload_token;
+        for (for_full.ast.inputs) |input, i| {
+            const payload_is_ref = token_tags[payload] == .asterisk;
+            const ident_tok = payload + @boolToInt(payload_is_ref);
+
+            if (mem.eql(u8, tree.tokenSlice(ident_tok), "_") and payload_is_ref) {
+                return astgen.failTok(payload, "pointer modifier invalid on discard", .{});
+            }
+            payload = ident_tok + @as(u32, 2);
+
+            try emitDbgNode(parent_gz, input);
+            if (node_tags[input] == .for_range) {
+                if (payload_is_ref) {
+                    return astgen.failTok(ident_tok, "cannot capture reference to range", .{});
+                }
+                const counter_ptr = try parent_gz.addUnNode(counter_alloc_tag, .usize_type, node);
+                const start_val = try expr(parent_gz, scope, node_data[input].lhs, input);
+                _ = try parent_gz.addBin(.store, counter_ptr, start_val);
+                indexables[i] = counter_ptr;
+                try counters.append(counter_ptr);
+
+                const end_node = node_data[input].rhs;
+                const end_val = if (end_node != 0) try expr(parent_gz, scope, node_data[input].rhs, input) else .none;
+                const range_len = try parent_gz.addPlNode(.for_range_len, input, Zir.Inst.Bin{
+                    .lhs = start_val,
+                    .rhs = end_val,
+                });
+                lens[i] = range_len;
+            } else {
+                const cond_ri: ResultInfo = .{ .rl = if (payload_is_ref) .ref else .none };
+                const indexable = try expr(parent_gz, scope, cond_ri, input);
+                indexables[i] = indexable;
+
+                const indexable_len = try parent_gz.addUnNode(.indexable_ptr_len, indexable, input);
+                lens[i] = indexable_len;
+            }
+        }
+    }
+
+    const len = "check_for_lens";
 
     const index_ptr = blk: {
-        const alloc_tag: Zir.Inst.Tag = if (is_inline) .alloc_comptime_mut else .alloc;
-        const index_ptr = try parent_gz.addUnNode(alloc_tag, .usize_type, node);
+        // Future optimization:
+        // for loops with only ranges don't need a separate index variable.
+        const index_ptr = try parent_gz.addUnNode(counter_alloc_tag, .usize_type, node);
         // initialize to zero
         _ = try parent_gz.addBin(.store, index_ptr, .zero_usize);
+        try counters.append(index_ptr);
         break :blk index_ptr;
     };
 
@@ -6343,13 +6402,15 @@ fn forExpr(
     // cond_block unstacked now, can add new instructions to loop_scope
     try loop_scope.instructions.append(astgen.gpa, cond_block);
 
-    // Increment the index variable.
-    const index_2 = try loop_scope.addUnNode(.load, index_ptr, for_full.ast.cond_expr);
-    const index_plus_one = try loop_scope.addPlNode(.add, node, Zir.Inst.Bin{
-        .lhs = index_2,
-        .rhs = .one_usize,
-    });
-    _ = try loop_scope.addBin(.store, index_ptr, index_plus_one);
+    // Increment the index variable and ranges.
+    for (counters) |counter_ptr| {
+        const counter = try loop_scope.addUnNode(.load, counter_ptr, for_full.ast.cond_expr);
+        const counter_plus_one = try loop_scope.addPlNode(.add, node, Zir.Inst.Bin{
+            .lhs = counter,
+            .rhs = .one_usize,
+        });
+        _ = try loop_scope.addBin(.store, counter_ptr, counter_plus_one);
+    }
     const repeat_tag: Zir.Inst.Tag = if (is_inline) .repeat_inline else .repeat;
     _ = try loop_scope.addNode(repeat_tag, node);
 
@@ -6366,64 +6427,62 @@ fn forExpr(
     var then_scope = parent_gz.makeSubBlock(&cond_scope.base);
     defer then_scope.unstack();
 
-    try then_scope.addDbgBlockBegin();
-    var payload_val_scope: Scope.LocalVal = undefined;
-    var index_scope: Scope.LocalPtr = undefined;
-    const then_sub_scope = blk: {
-        const payload_token = for_full.payload_token.?;
-        const ident = if (token_tags[payload_token] == .asterisk)
-            payload_token + 1
-        else
-            payload_token;
-        const is_ptr = ident != payload_token;
-        const value_name = tree.tokenSlice(ident);
-        var payload_sub_scope: *Scope = undefined;
-        if (!mem.eql(u8, value_name, "_")) {
-            const name_str_index = try astgen.identAsString(ident);
-            const tag: Zir.Inst.Tag = if (is_ptr) .elem_ptr else .elem_val;
-            const payload_inst = try then_scope.addPlNode(tag, for_full.ast.cond_expr, Zir.Inst.Bin{
-                .lhs = array_ptr,
-                .rhs = index,
-            });
-            try astgen.detectLocalShadowing(&then_scope.base, name_str_index, ident, value_name, .capture);
-            payload_val_scope = .{
-                .parent = &then_scope.base,
-                .gen_zir = &then_scope,
-                .name = name_str_index,
-                .inst = payload_inst,
-                .token_src = ident,
-                .id_cat = .capture,
-            };
-            try then_scope.addDbgVar(.dbg_var_val, name_str_index, payload_inst);
-            payload_sub_scope = &payload_val_scope.base;
-        } else if (is_ptr) {
-            return astgen.failTok(payload_token, "pointer modifier invalid on discard", .{});
-        } else {
-            payload_sub_scope = &then_scope.base;
-        }
+    const then_sub_scope = &then_scope.base;
 
-        const index_token = if (token_tags[ident + 1] == .comma)
-            ident + 2
-        else
-            break :blk payload_sub_scope;
-        const token_bytes = tree.tokenSlice(index_token);
-        if (mem.eql(u8, token_bytes, "_")) {
-            return astgen.failTok(index_token, "discard of index capture; omit it instead", .{});
-        }
-        const index_name = try astgen.identAsString(index_token);
-        try astgen.detectLocalShadowing(payload_sub_scope, index_name, index_token, token_bytes, .@"loop index capture");
-        index_scope = .{
-            .parent = payload_sub_scope,
-            .gen_zir = &then_scope,
-            .name = index_name,
-            .ptr = index_ptr,
-            .token_src = index_token,
-            .maybe_comptime = is_inline,
-            .id_cat = .@"loop index capture",
-        };
-        try then_scope.addDbgVar(.dbg_var_val, index_name, index_ptr);
-        break :blk &index_scope.base;
-    };
+    // try then_scope.addDbgBlockBegin();
+    // var payload_val_scope: Scope.LocalVal = undefined;
+    // var index_scope: Scope.LocalPtr = undefined;
+    // const then_sub_scope = blk: {
+    //     const payload_token = for_full.payload_token.?;
+    //     const ident = if (token_tags[payload_token] == .asterisk)
+    //         payload_token + 1
+    //     else
+    //         payload_token;
+    //     const is_ptr = ident != payload_token;
+    //     const value_name = tree.tokenSlice(ident);
+    //     var payload_sub_scope: *Scope = undefined;
+    //     if (!mem.eql(u8, value_name, "_")) {
+    //         const name_str_index = try astgen.identAsString(ident);
+    //         const tag: Zir.Inst.Tag = if (is_ptr) .elem_ptr else .elem_val;
+    //         const payload_inst = try then_scope.addPlNode(tag, for_full.ast.cond_expr, Zir.Inst.Bin{
+    //             .lhs = array_ptr,
+    //             .rhs = index,
+    //         });
+    //         try astgen.detectLocalShadowing(&then_scope.base, name_str_index, ident, value_name, .capture);
+    //         payload_val_scope = .{
+    //             .parent = &then_scope.base,
+    //             .gen_zir = &then_scope,
+    //             .name = name_str_index,
+    //             .inst = payload_inst,
+    //             .token_src = ident,
+    //             .id_cat = .capture,
+    //         };
+    //         try then_scope.addDbgVar(.dbg_var_val, name_str_index, payload_inst);
+    //         payload_sub_scope = &payload_val_scope.base;
+    //     } else if (is_ptr) {
+    //     } else {
+    //         payload_sub_scope = &then_scope.base;
+    //     }
+
+    //     const index_token = if (token_tags[ident + 1] == .comma)
+    //         ident + 2
+    //     else
+    //         break :blk payload_sub_scope;
+    //     const token_bytes = tree.tokenSlice(index_token);
+    //     const index_name = try astgen.identAsString(index_token);
+    //     try astgen.detectLocalShadowing(payload_sub_scope, index_name, index_token, token_bytes, .@"loop index capture");
+    //     index_scope = .{
+    //         .parent = payload_sub_scope,
+    //         .gen_zir = &then_scope,
+    //         .name = index_name,
+    //         .ptr = index_ptr,
+    //         .token_src = index_token,
+    //         .maybe_comptime = is_inline,
+    //         .id_cat = .@"loop index capture",
+    //     };
+    //     try then_scope.addDbgVar(.dbg_var_val, index_name, index_ptr);
+    //     break :blk &index_scope.base;
+    // };
 
     const then_result = try expr(&then_scope, then_sub_scope, .{ .rl = .none }, for_full.ast.then_expr);
     _ = try addEnsureResult(&then_scope, then_result, for_full.ast.then_expr);
@@ -9021,6 +9080,7 @@ fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index, have_
             .mul_wrap,
             .mul_sat,
             .switch_range,
+            .for_range,
             .field_access,
             .sub,
             .sub_wrap,
@@ -9310,6 +9370,7 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
             .mul_wrap,
             .mul_sat,
             .switch_range,
+            .for_range,
             .sub,
             .sub_wrap,
             .sub_sat,
@@ -9487,6 +9548,7 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             .mul_wrap,
             .mul_sat,
             .switch_range,
+            .for_range,
             .field_access,
             .sub,
             .sub_wrap,
@@ -9731,6 +9793,7 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .mul_wrap,
             .mul_sat,
             .switch_range,
+            .for_range,
             .field_access,
             .sub,
             .sub_wrap,
