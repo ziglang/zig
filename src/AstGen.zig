@@ -8721,6 +8721,7 @@ fn callExpr(
         defer arg_block.unstack();
 
         // `call_inst` is reused to provide the param type.
+        arg_block.rl_ty_inst = call_inst;
         const arg_ref = try expr(&arg_block, &arg_block.base, .{ .rl = .{ .coerced_ty = call_inst }, .ctx = .fn_arg }, param_node);
         _ = try arg_block.addBreak(.break_inline, call_index, arg_ref);
 
@@ -10869,7 +10870,12 @@ const GenZir = struct {
         // we emit ZIR for the block break instructions to have the result values,
         // and then rvalue() on that to pass the value to the result location.
         switch (parent_ri.rl) {
-            .ty, .coerced_ty => |ty_inst| {
+            .coerced_ty => |ty_inst| {
+                // Type coercion needs to happend before breaks.
+                gz.rl_ty_inst = ty_inst;
+                gz.break_result_info = .{ .rl = .{ .ty = ty_inst } };
+            },
+            .ty => |ty_inst| {
                 gz.rl_ty_inst = ty_inst;
                 gz.break_result_info = parent_ri;
             },
