@@ -261,39 +261,6 @@ pub const File = struct {
     /// of this linking operation.
     lock: ?Cache.Lock = null,
 
-    pub const LinkBlock = union {
-        elf: void,
-        coff: void,
-        macho: void,
-        plan9: void,
-        c: void,
-        wasm: void,
-        spirv: void,
-        nvptx: void,
-    };
-
-    pub const LinkFn = union {
-        elf: void,
-        coff: void,
-        macho: void,
-        plan9: void,
-        c: void,
-        wasm: Wasm.FnData,
-        spirv: void,
-        nvptx: void,
-    };
-
-    pub const Export = union {
-        elf: void,
-        coff: void,
-        macho: void,
-        plan9: void,
-        c: void,
-        wasm: void,
-        spirv: void,
-        nvptx: void,
-    };
-
     /// Attempts incremental linking, if the file already exists. If
     /// incremental linking fails, falls back to truncating the file and
     /// rewriting it. A malicious file is detected as incremental link failure

@@ -2829,7 +2829,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             if (decl.isExtern()) continue;
             const atom_index = entry.value_ptr.*;
             if (decl.ty.zigTypeTag() == .Fn) {
-                try wasm.parseAtom(atom_index, .{ .function = decl.fn_link.wasm });
+                try wasm.parseAtom(atom_index, .{ .function = decl.fn_link.? });
             } else if (decl.getVariable()) |variable| {
                 if (!variable.is_mutable) {
                     try wasm.parseAtom(atom_index, .{ .data = .read_only });

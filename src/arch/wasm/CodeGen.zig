@@ -1194,7 +1194,7 @@ fn genFunc(func: *CodeGen) InnerError!void {
     const fn_info = func.decl.ty.fnInfo();
     var func_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types, fn_info.return_type, func.target);
     defer func_type.deinit(func.gpa);
-    func.decl.fn_link.wasm.type_index = try func.bin_file.putOrGetFuncType(func_type);
+    func.decl.fn_link.?.type_index = try func.bin_file.putOrGetFuncType(func_type);
 
     var cc_result = try func.resolveCallingConventionValues(func.decl.ty);
     defer cc_result.deinit(func.gpa);
@@ -2129,12 +2129,12 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
             defer func_type.deinit(func.gpa);
             const atom_index = try func.bin_file.getOrCreateAtomForDecl(extern_fn.data.owner_decl);
             const atom = func.bin_file.getAtomPtr(atom_index);
-            ext_decl.fn_link.wasm.type_index = try func.bin_file.putOrGetFuncType(func_type);
+            ext_decl.fn_link.?.type_index = try func.bin_file.putOrGetFuncType(func_type);
             try func.bin_file.addOrUpdateImport(
                 mem.sliceTo(ext_decl.name, 0),
                 atom.getSymbolIndex().?,
                 ext_decl.getExternFn().?.lib_name,
-                ext_decl.fn_link.wasm.type_index,
+                ext_decl.fn_link.?.type_index,
             );
             break :blk extern_fn.data.owner_decl;
         } else if (func_val.castTag(.decl_ref)) |decl_ref| {

@@ -328,8 +328,6 @@ pub const ErrorInt = u32;
 pub const Export = struct {
     options: std.builtin.ExportOptions,
     src: LazySrcLoc,
-    /// Represents the position of the export, if any, in the output file.
-    link: link.File.Export,
     /// The Decl that performs the export. Note that this is *not* the Decl being exported.
     owner_decl: Decl.Index,
     /// The Decl containing the export statement.  Inline function calls
@@ -533,16 +531,8 @@ pub const Decl = struct {
     /// What kind of a declaration is this.
     kind: Kind,
 
-    /// Represents the position of the code in the output file.
-    /// This is populated regardless of semantic analysis and code generation.
-    link: link.File.LinkBlock,
-
-    /// Represents the function in the linked output file, if the `Decl` is a function.
-    /// This is stored here and not in `Fn` because `Decl` survives across updates but
-    /// `Fn` does not.
-    /// TODO Look into making `Fn` a longer lived structure and moving this field there
-    /// to save on memory usage.
-    fn_link: link.File.LinkFn,
+    /// TODO remove this once Wasm backend catches up
+    fn_link: ?link.File.Wasm.FnData = null,
 
     /// The shallow set of other decls whose typed_value could possibly change if this Decl's
     /// typed_value is modified.
@@ -5258,27 +5248,9 @@ pub fn clearDecl(
         if (decl.ty.isFnOrHasRuntimeBits()) {
             mod.comp.bin_file.freeDecl(decl_index);
 
-            // TODO instead of a union, put this memory trailing Decl objects,
-            // and allow it to be variably sized.
-            decl.link = switch (mod.comp.bin_file.tag) {
-                .coff => .{ .coff = {} },
-                .elf => .{ .elf = {} },
-                .macho => .{ .macho = {} },
-                .plan9 => .{ .plan9 = {} },
-                .c => .{ .c = {} },
-                .wasm => .{ .wasm = {} },
-                .spirv => .{ .spirv = {} },
-                .nvptx => .{ .nvptx = {} },
-            };
             decl.fn_link = switch (mod.comp.bin_file.tag) {
-                .coff => .{ .coff = {} },
-                .elf => .{ .elf = {} },
-                .macho => .{ .macho = {} },
-                .plan9 => .{ .plan9 = {} },
-                .c => .{ .c = {} },
-                .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
-                .spirv => .{ .spirv = {} },
-                .nvptx => .{ .nvptx = {} },
+                .wasm => link.File.Wasm.FnData.empty,
+                else => null,
             };
         }
         if (decl.getInnerNamespace()) |namespace| {
@@ -5680,25 +5652,9 @@ pub fn allocateNewDecl(
         .deletion_flag = false,
         .zir_decl_index = 0,
         .src_scope = src_scope,
-        .link = switch (mod.comp.bin_file.tag) {
-            .coff => .{ .coff = {} },
-            .elf => .{ .elf = {} },
-            .macho => .{ .macho = {} },
-            .plan9 => .{ .plan9 = {} },
-            .c => .{ .c = {} },
-            .wasm => .{ .wasm = {} },
-            .spirv => .{ .spirv = {} },
-            .nvptx => .{ .nvptx = {} },
-        },
         .fn_link = switch (mod.comp.bin_file.tag) {
-            .coff => .{ .coff = {} },
-            .elf => .{ .elf = {} },
-            .macho => .{ .macho = {} },
-            .plan9 => .{ .plan9 = {} },
-            .c => .{ .c = {} },
-            .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
-            .spirv => .{ .spirv = {} },
-            .nvptx => .{ .nvptx = {} },
+            .wasm => link.File.Wasm.FnData.empty,
+            else => null,
         },
         .generation = 0,
         .is_pub = false,
