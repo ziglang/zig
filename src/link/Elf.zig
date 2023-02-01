@@ -688,8 +688,8 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     // if (self.dwarf) |*dw| {
     //     if (self.debug_str_section_index == null) {
     //         self.debug_str_section_index = @intCast(u16, self.sections.slice().len);
-    //         assert(dw.strtab.items.len == 0);
-    //         try dw.strtab.append(gpa, 0);
+    //         assert(dw.strtab.buffer.items.len == 0);
+    //         try dw.strtab.buffer.append(gpa, 0);
     //         try self.sections.append(gpa, .{
     //             .shdr = .{
     //                 .sh_name = try self.shstrtab.insert(gpa, ".debug_str"),
@@ -1164,10 +1164,10 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
     // if (self.dwarf) |dwarf| {
     //     const shdr_index = self.debug_str_section_index.?;
-    //     if (self.debug_strtab_dirty or dwarf.strtab.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
-    //         try self.growNonAllocSection(shdr_index, dwarf.strtab.items.len, 1, false);
+    //     if (self.debug_strtab_dirty or dwarf.strtab.buffer.items.len != self.sections.items(.shdr)[shdr_index].sh_size) {
+    //         try self.growNonAllocSection(shdr_index, dwarf.strtab.buffer.items.len, 1, false);
     //         const debug_strtab_sect = self.sections.items(.shdr)[shdr_index];
-    //         try self.base.file.?.pwriteAll(dwarf.strtab.items, debug_strtab_sect.sh_offset);
+    //         try self.base.file.?.pwriteAll(dwarf.strtab.buffer.items, debug_strtab_sect.sh_offset);
     //         self.debug_strtab_dirty = false;
     //     }
     // }

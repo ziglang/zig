@@ -18,8 +18,9 @@ const LinkBlock = File.LinkBlock;
 const LinkFn = File.LinkFn;
 const LinkerLoad = @import("../codegen.zig").LinkerLoad;
 const Module = @import("../Module.zig");
-const Value = @import("../value.zig").Value;
+const StringTable = @import("strtab.zig").StringTable;
 const Type = @import("../type.zig").Type;
+const Value = @import("../value.zig").Value;
 
 allocator: Allocator,
 bin_file: *File,
@@ -42,7 +43,7 @@ abbrev_table_offset: ?u64 = null,
 
 /// TODO replace with InternPool
 /// Table of debug symbol names.
-strtab: std.ArrayListUnmanaged(u8) = .{},
+strtab: StringTable(.strtab) = .{},
 
 /// Quick lookup array of all defined source files referenced by at least one Decl.
 /// They will end up in the DWARF debug_line header as two lists:
@@ -1770,11 +1771,11 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
         },
     }
     // Write the form for the compile unit, which must match the abbrev table above.
-    const name_strp = try self.makeString(module.root_pkg.root_src_path);
+    const name_strp = try self.strtab.insert(self.allocator, module.root_pkg.root_src_path);
     var compile_unit_dir_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     const compile_unit_dir = resolveCompilationDir(module, &compile_unit_dir_buffer);
-    const comp_dir_strp = try self.makeString(compile_unit_dir);
-    const producer_strp = try self.makeString(link.producer_string);
+    const comp_dir_strp = try self.strtab.insert(self.allocator, compile_unit_dir);
+    const producer_strp = try self.strtab.insert(self.allocator, link.producer_string);
 
     di_buf.appendAssumeCapacity(@enumToInt(AbbrevKind.compile_unit));
     if (self.bin_file.tag == .macho) {
@@ -2433,15 +2434,6 @@ fn getRelocDbgFileIndex(self: Dwarf) usize {
 
 fn getRelocDbgInfoSubprogramHighPC(self: Dwarf) u32 {
     return dbg_info_low_pc_reloc_index + self.ptrWidthBytes();
-}
-
-/// TODO Improve this to use a table.
-fn makeString(self: *Dwarf, bytes: []const u8) !u32 {
-    try self.strtab.ensureUnusedCapacity(self.allocator, bytes.len + 1);
-    const result = self.strtab.items.len;
-    self.strtab.appendSliceAssumeCapacity(bytes);
-    self.strtab.appendAssumeCapacity(0);
-    return @intCast(u32, result);
 }
 
 fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
