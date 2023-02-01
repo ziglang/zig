@@ -267,7 +267,7 @@ pub const File = struct {
         macho: void,
         plan9: void,
         c: void,
-        wasm: Wasm.DeclBlock,
+        wasm: void,
         spirv: void,
         nvptx: void,
     };
@@ -289,7 +289,7 @@ pub const File = struct {
         macho: void,
         plan9: void,
         c: void,
-        wasm: Wasm.Export,
+        wasm: void,
         spirv: void,
         nvptx: void,
     };

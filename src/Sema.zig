@@ -5570,7 +5570,7 @@ pub fn analyzeExport(
             .macho => .{ .macho = {} },
             .plan9 => .{ .plan9 = {} },
             .c => .{ .c = {} },
-            .wasm => .{ .wasm = .{} },
+            .wasm => .{ .wasm = {} },
             .spirv => .{ .spirv = {} },
             .nvptx => .{ .nvptx = {} },
         },

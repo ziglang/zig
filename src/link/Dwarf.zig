@@ -1099,7 +1099,7 @@ pub fn commitDeclState(
                             },
                             .wasm => {
                                 const wasm_file = self.bin_file.cast(File.Wasm).?;
-                                const debug_line = wasm_file.debug_line_atom.?.code;
+                                const debug_line = wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
                                 writeDbgLineNopsBuffered(debug_line.items, src_fn.off, 0, &.{}, src_fn.len);
                             },
                             else => unreachable,
@@ -1177,7 +1177,7 @@ pub fn commitDeclState(
 
                 .wasm => {
                     const wasm_file = self.bin_file.cast(File.Wasm).?;
-                    const atom = wasm_file.debug_line_atom.?;
+                    const atom = wasm_file.getAtomPtr(wasm_file.debug_line_atom.?);
                     const debug_line = &atom.code;
                     const segment_size = debug_line.items.len;
                     if (needed_size != segment_size) {
@@ -1345,7 +1345,8 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, atom_index: Atom.Index, len: u32)
                     },
                     .wasm => {
                         const wasm_file = self.bin_file.cast(File.Wasm).?;
-                        const debug_info = &wasm_file.debug_info_atom.?.code;
+                        const debug_info_index = wasm_file.debug_info_atom.?;
+                        const debug_info = &wasm_file.getAtomPtr(debug_info_index).code;
                         try writeDbgInfoNopsToArrayList(gpa, debug_info, atom.off, 0, &.{0}, atom.len, false);
                     },
                     else => unreachable,
@@ -1441,7 +1442,7 @@ fn writeDeclDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []cons
         .wasm => {
             const wasm_file = self.bin_file.cast(File.Wasm).?;
             const info_atom = wasm_file.debug_info_atom.?;
-            const debug_info = &info_atom.code;
+            const debug_info = &wasm_file.getAtomPtr(info_atom).code;
             const segment_size = debug_info.items.len;
             if (needed_size != segment_size) {
                 log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
@@ -1504,8 +1505,8 @@ pub fn updateDeclLineNumber(self: *Dwarf, module: *Module, decl_index: Module.De
         .wasm => {
             const wasm_file = self.bin_file.cast(File.Wasm).?;
             const offset = atom.off + self.getRelocDbgLineOff();
-            const atom_ = wasm_file.debug_line_atom.?;
-            mem.copy(u8, atom_.code.items[offset..], &data);
+            const line_atom_index = wasm_file.debug_line_atom.?;
+            mem.copy(u8, wasm_file.getAtomPtr(line_atom_index).code.items[offset..], &data);
         },
         else => unreachable,
     }
@@ -1722,7 +1723,7 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
         },
         .wasm => {
             const wasm_file = self.bin_file.cast(File.Wasm).?;
-            const debug_abbrev = &wasm_file.debug_abbrev_atom.?.code;
+            const debug_abbrev = &wasm_file.getAtomPtr(wasm_file.debug_abbrev_atom.?).code;
             try debug_abbrev.resize(wasm_file.base.allocator, needed_size);
             mem.copy(u8, debug_abbrev.items, &abbrev_buf);
         },
@@ -1835,7 +1836,7 @@ pub fn writeDbgInfoHeader(self: *Dwarf, module: *Module, low_pc: u64, high_pc: u
         },
         .wasm => {
             const wasm_file = self.bin_file.cast(File.Wasm).?;
-            const debug_info = &wasm_file.debug_info_atom.?.code;
+            const debug_info = &wasm_file.getAtomPtr(wasm_file.debug_info_atom.?).code;
             try writeDbgInfoNopsToArrayList(self.allocator, debug_info, 0, 0, di_buf.items, jmp_amt, false);
         },
         else => unreachable,
@@ -2156,7 +2157,7 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
         },
         .wasm => {
             const wasm_file = self.bin_file.cast(File.Wasm).?;
-            const debug_ranges = &wasm_file.debug_ranges_atom.?.code;
+            const debug_ranges = &wasm_file.getAtomPtr(wasm_file.debug_ranges_atom.?).code;
             try debug_ranges.resize(wasm_file.base.allocator, needed_size);
             mem.copy(u8, debug_ranges.items, di_buf.items);
         },
@@ -2330,7 +2331,7 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
             },
             .wasm => {
                 const wasm_file = self.bin_file.cast(File.Wasm).?;
-                const debug_line = &wasm_file.debug_line_atom.?.code;
+                const debug_line = &wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
                 mem.copy(u8, buffer, debug_line.items[first_fn.off..]);
                 try debug_line.resize(self.allocator, debug_line.items.len + delta);
                 mem.copy(u8, debug_line.items[first_fn.off + delta ..], buffer);
@@ -2381,7 +2382,7 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
         },
         .wasm => {
             const wasm_file = self.bin_file.cast(File.Wasm).?;
-            const debug_line = wasm_file.debug_line_atom.?.code;
+            const debug_line = &wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
             writeDbgLineNopsBuffered(debug_line.items, 0, 0, di_buf.items, jmp_amt);
         },
         else => unreachable,
@@ -2526,7 +2527,7 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
                 },
                 .wasm => {
                     const wasm_file = self.bin_file.cast(File.Wasm).?;
-                    const debug_info = wasm_file.debug_info_atom.?.code;
+                    const debug_info = wasm_file.getAtomPtr(wasm_file.debug_info_atom.?).code;
                     mem.copy(u8, debug_info.items[atom.off + reloc.offset ..], &buf);
                 },
                 else => unreachable,

@@ -5266,7 +5266,7 @@ pub fn clearDecl(
                 .macho => .{ .macho = {} },
                 .plan9 => .{ .plan9 = {} },
                 .c => .{ .c = {} },
-                .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
+                .wasm => .{ .wasm = {} },
                 .spirv => .{ .spirv = {} },
                 .nvptx => .{ .nvptx = {} },
             };
@@ -5374,7 +5374,7 @@ fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) Allocator.Error!void 
             try macho.deleteDeclExport(decl_index, exp.options.name);
         }
         if (mod.comp.bin_file.cast(link.File.Wasm)) |wasm| {
-            wasm.deleteExport(exp.link.wasm);
+            wasm.deleteDeclExport(decl_index);
         }
         if (mod.comp.bin_file.cast(link.File.Coff)) |coff| {
             coff.deleteDeclExport(decl_index, exp.options.name);
@@ -5686,7 +5686,7 @@ pub fn allocateNewDecl(
             .macho => .{ .macho = {} },
             .plan9 => .{ .plan9 = {} },
             .c => .{ .c = {} },
-            .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
+            .wasm => .{ .wasm = {} },
             .spirv => .{ .spirv = {} },
             .nvptx => .{ .nvptx = {} },
         },
