@@ -1541,3 +1541,15 @@ test "single item pointer to pointer to array to slice" {
     const z1 = @as([]const i32, @as(*[1]i32, &x));
     try expect(z1[0] == 1234);
 }
+
+test "peer type resolution forms error union" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    var foo: i32 = 123;
+    const result = if (foo < 0) switch (-foo) {
+        0 => unreachable,
+        42 => error.AccessDenied,
+        else => unreachable,
+    } else @intCast(u32, foo);
+    try expect(try result == 123);
+}
