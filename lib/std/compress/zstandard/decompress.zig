@@ -266,6 +266,7 @@ pub fn decodeZstandardFrameAlloc(
     window_size_max: usize,
 ) (error{OutOfMemory} || FrameContext.Error || FrameError)!DecodeResult {
     var result = std.ArrayList(u8).init(allocator);
+    errdefer result.deinit();
     assert(readInt(u32, src[0..4]) == frame.Zstandard.magic_number);
     var consumed_count: usize = 4;
 
