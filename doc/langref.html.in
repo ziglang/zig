@@ -9206,8 +9206,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@sin#}
@@ -9217,8 +9216,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
 
@@ -9229,8 +9227,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
 
@@ -9241,8 +9238,7 @@ fn doTheTest() !void {
       Uses a dedicated hardware instruction when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
 
@@ -9253,8 +9249,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@exp2#}
@@ -9264,8 +9259,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@log#}
@@ -9275,8 +9269,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@log2#}
@@ -9286,8 +9279,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@log10#}
@@ -9297,8 +9289,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@fabs#}
@@ -9308,8 +9299,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@floor#}
@@ -9319,8 +9309,7 @@ fn doTheTest() !void {
       Uses a dedicated hardware instruction when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@ceil#}
@@ -9330,8 +9319,7 @@ fn doTheTest() !void {
       Uses a dedicated hardware instruction when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@trunc#}
@@ -9341,8 +9329,7 @@ fn doTheTest() !void {
       Uses a dedicated hardware instruction when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@round#}
@@ -9352,8 +9339,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
 
