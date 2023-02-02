@@ -7669,17 +7669,21 @@ fn zirErrorUnionType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
             error_set.fmt(sema.mod),
         });
     }
-    if (payload.zigTypeTag() == .Opaque) {
-        return sema.fail(block, rhs_src, "error union with payload of opaque type '{}' not allowed", .{
-            payload.fmt(sema.mod),
-        });
-    } else if (payload.zigTypeTag() == .ErrorSet) {
-        return sema.fail(block, rhs_src, "error union with payload of error set type '{}' not allowed", .{
-            payload.fmt(sema.mod),
-        });
-    }
+    try sema.validateErrorUnionPayloadType(block, payload, rhs_src);
     const err_union_ty = try Type.errorUnion(sema.arena, error_set, payload, sema.mod);
     return sema.addType(err_union_ty);
+}
+
+fn validateErrorUnionPayloadType(sema: *Sema, block: *Block, payload_ty: Type, payload_src: LazySrcLoc) !void {
+    if (payload_ty.zigTypeTag() == .Opaque) {
+        return sema.fail(block, payload_src, "error union with payload of opaque type '{}' not allowed", .{
+            payload_ty.fmt(sema.mod),
+        });
+    } else if (payload_ty.zigTypeTag() == .ErrorSet) {
+        return sema.fail(block, payload_src, "error union with payload of error set type '{}' not allowed", .{
+            payload_ty.fmt(sema.mod),
+        });
+    }
 }
 
 fn zirErrorValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -8639,6 +8643,7 @@ fn funcCommon(
         const return_type = if (!inferred_error_set or ret_poison)
             bare_return_type
         else blk: {
+            try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
             const node = try sema.gpa.create(Module.Fn.InferredErrorSetListNode);
             node.data = .{ .func = new_func };
             maybe_inferred_error_set_node = node;
@@ -8650,15 +8655,15 @@ fn funcCommon(
             });
         };
 
-        if (!bare_return_type.isValidReturnType()) {
-            const opaque_str = if (bare_return_type.zigTypeTag() == .Opaque) "opaque " else "";
+        if (!return_type.isValidReturnType()) {
+            const opaque_str = if (return_type.zigTypeTag() == .Opaque) "opaque " else "";
             const msg = msg: {
                 const msg = try sema.errMsg(block, ret_ty_src, "{s}return type '{}' not allowed", .{
-                    opaque_str, bare_return_type.fmt(sema.mod),
+                    opaque_str, return_type.fmt(sema.mod),
                 });
                 errdefer msg.destroy(sema.gpa);
 
-                try sema.addDeclaredHereNote(msg, bare_return_type);
+                try sema.addDeclaredHereNote(msg, return_type);
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(msg);
