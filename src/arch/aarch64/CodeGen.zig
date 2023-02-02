@@ -203,13 +203,7 @@ const DbgInfoReloc = struct {
                     else => unreachable, // not a possible argument
 
                 };
-                try dw.genArgDbgInfo(
-                    reloc.name,
-                    reloc.ty,
-                    function.bin_file.tag,
-                    function.mod_fn.owner_decl,
-                    loc,
-                );
+                try dw.genArgDbgInfo(reloc.name, reloc.ty, function.mod_fn.owner_decl, loc);
             },
             .plan9 => {},
             .none => {},
@@ -255,14 +249,7 @@ const DbgInfoReloc = struct {
                         break :blk .nop;
                     },
                 };
-                try dw.genVarDbgInfo(
-                    reloc.name,
-                    reloc.ty,
-                    function.bin_file.tag,
-                    function.mod_fn.owner_decl,
-                    is_ptr,
-                    loc,
-                );
+                try dw.genVarDbgInfo(reloc.name, reloc.ty, function.mod_fn.owner_decl, is_ptr, loc);
             },
             .plan9 => {},
             .none => {},
@@ -4019,11 +4006,17 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                     .direct => .load_memory_ptr_direct,
                                     .import => unreachable,
                                 };
-                                const mod = self.bin_file.options.module.?;
-                                const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
                                 const atom_index = switch (self.bin_file.tag) {
-                                    .macho => owner_decl.link.macho.getSymbolIndex().?,
-                                    .coff => owner_decl.link.coff.getSymbolIndex().?,
+                                    .macho => blk: {
+                                        const macho_file = self.bin_file.cast(link.File.MachO).?;
+                                        const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                        break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                                    },
+                                    .coff => blk: {
+                                        const coff_file = self.bin_file.cast(link.File.Coff).?;
+                                        const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                        break :blk coff_file.getAtom(atom).getSymbolIndex().?;
+                                    },
                                     else => unreachable, // unsupported target format
                                 };
                                 _ = try self.addInst(.{
@@ -4301,34 +4294,37 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     if (self.air.value(callee)) |func_value| {
         if (func_value.castTag(.function)) |func_payload| {
             const func = func_payload.data;
-            const fn_owner_decl = mod.declPtr(func.owner_decl);
 
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                try fn_owner_decl.link.elf.ensureInitialized(elf_file);
-                const got_addr = @intCast(u32, fn_owner_decl.link.elf.getOffsetTableAddress(elf_file));
+                const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
+                const atom = elf_file.getAtom(atom_index);
+                const got_addr = @intCast(u32, atom.getOffsetTableAddress(elf_file));
                 try self.genSetReg(Type.initTag(.usize), .x30, .{ .memory = got_addr });
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                try fn_owner_decl.link.macho.ensureInitialized(macho_file);
+                const atom = try macho_file.getOrCreateAtomForDecl(func.owner_decl);
+                const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
                 try self.genSetReg(Type.initTag(.u64), .x30, .{
                     .linker_load = .{
                         .type = .got,
-                        .sym_index = fn_owner_decl.link.macho.getSymbolIndex().?,
+                        .sym_index = sym_index,
                     },
                 });
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-                try fn_owner_decl.link.coff.ensureInitialized(coff_file);
+                const atom = try coff_file.getOrCreateAtomForDecl(func.owner_decl);
+                const sym_index = coff_file.getAtom(atom).getSymbolIndex().?;
                 try self.genSetReg(Type.initTag(.u64), .x30, .{
                     .linker_load = .{
                         .type = .got,
-                        .sym_index = fn_owner_decl.link.coff.getSymbolIndex().?,
+                        .sym_index = sym_index,
                     },
                 });
             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-                try p9.seeDecl(func.owner_decl);
+                const decl_block_index = try p9.seeDecl(func.owner_decl);
+                const decl_block = p9.getDeclBlock(decl_block_index);
                 const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 const got_addr = p9.bases.data;
-                const got_index = fn_owner_decl.link.plan9.got_index.?;
+                const got_index = decl_block.got_index.?;
                 const fn_got_addr = got_addr + got_index * ptr_bytes;
                 try self.genSetReg(Type.initTag(.usize), .x30, .{ .memory = fn_got_addr });
             } else unreachable;
@@ -4349,11 +4345,13 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
                 const sym_index = try macho_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
+                const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                const atom_index = macho_file.getAtom(atom).getSymbolIndex().?;
                 _ = try self.addInst(.{
                     .tag = .call_extern,
                     .data = .{
                         .relocation = .{
-                            .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.getSymbolIndex().?,
+                            .atom_index = atom_index,
                             .sym_index = sym_index,
                         },
                     },
@@ -5488,11 +5486,17 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                             .direct => .load_memory_ptr_direct,
                             .import => unreachable,
                         };
-                        const mod = self.bin_file.options.module.?;
-                        const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
                         const atom_index = switch (self.bin_file.tag) {
-                            .macho => owner_decl.link.macho.getSymbolIndex().?,
-                            .coff => owner_decl.link.coff.getSymbolIndex().?,
+                            .macho => blk: {
+                                const macho_file = self.bin_file.cast(link.File.MachO).?;
+                                const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                            },
+                            .coff => blk: {
+                                const coff_file = self.bin_file.cast(link.File.Coff).?;
+                                const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                break :blk coff_file.getAtom(atom).getSymbolIndex().?;
+                            },
                             else => unreachable, // unsupported target format
                         };
                         _ = try self.addInst(.{
@@ -5602,11 +5606,17 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .direct => .load_memory_direct,
                 .import => .load_memory_import,
             };
-            const mod = self.bin_file.options.module.?;
-            const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
             const atom_index = switch (self.bin_file.tag) {
-                .macho => owner_decl.link.macho.getSymbolIndex().?,
-                .coff => owner_decl.link.coff.getSymbolIndex().?,
+                .macho => blk: {
+                    const macho_file = self.bin_file.cast(link.File.MachO).?;
+                    const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                    break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                },
+                .coff => blk: {
+                    const coff_file = self.bin_file.cast(link.File.Coff).?;
+                    const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                    break :blk coff_file.getAtom(atom).getSymbolIndex().?;
+                },
                 else => unreachable, // unsupported target format
             };
             _ = try self.addInst(.{
@@ -5796,11 +5806,17 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                             .direct => .load_memory_ptr_direct,
                             .import => unreachable,
                         };
-                        const mod = self.bin_file.options.module.?;
-                        const owner_decl = mod.declPtr(self.mod_fn.owner_decl);
                         const atom_index = switch (self.bin_file.tag) {
-                            .macho => owner_decl.link.macho.getSymbolIndex().?,
-                            .coff => owner_decl.link.coff.getSymbolIndex().?,
+                            .macho => blk: {
+                                const macho_file = self.bin_file.cast(link.File.MachO).?;
+                                const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                            },
+                            .coff => blk: {
+                                const coff_file = self.bin_file.cast(link.File.Coff).?;
+                                const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                break :blk coff_file.getAtom(atom).getSymbolIndex().?;
+                            },
                             else => unreachable, // unsupported target format
                         };
                         _ = try self.addInst(.{
@@ -6119,23 +6135,27 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
     mod.markDeclAlive(decl);
 
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        try decl.link.elf.ensureInitialized(elf_file);
-        return MCValue{ .memory = decl.link.elf.getOffsetTableAddress(elf_file) };
+        const atom_index = try elf_file.getOrCreateAtomForDecl(decl_index);
+        const atom = elf_file.getAtom(atom_index);
+        return MCValue{ .memory = atom.getOffsetTableAddress(elf_file) };
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-        try decl.link.macho.ensureInitialized(macho_file);
+        const atom = try macho_file.getOrCreateAtomForDecl(decl_index);
+        const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
         return MCValue{ .linker_load = .{
             .type = .got,
-            .sym_index = decl.link.macho.getSymbolIndex().?,
+            .sym_index = sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-        try decl.link.coff.ensureInitialized(coff_file);
+        const atom_index = try coff_file.getOrCreateAtomForDecl(decl_index);
+        const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
         return MCValue{ .linker_load = .{
             .type = .got,
-            .sym_index = decl.link.coff.getSymbolIndex().?,
+            .sym_index = sym_index,
         } };
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-        try p9.seeDecl(decl_index);
-        const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
+        const decl_block_index = try p9.seeDecl(decl_index);
+        const decl_block = p9.getDeclBlock(decl_block_index);
+        const got_addr = p9.bases.data + decl_block.got_index.? * ptr_bytes;
         return MCValue{ .memory = got_addr };
     } else {
         return self.fail("TODO codegen non-ELF const Decl pointer", .{});
@@ -6148,8 +6168,7 @@ fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
         return self.fail("lowering unnamed constant failed: {s}", .{@errorName(err)});
     };
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const vaddr = elf_file.local_symbols.items[local_sym_index].st_value;
-        return MCValue{ .memory = vaddr };
+        return MCValue{ .memory = elf_file.getSymbol(local_sym_index).st_value };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         return MCValue{ .linker_load = .{
             .type = .direct,

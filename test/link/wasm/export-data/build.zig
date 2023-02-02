@@ -25,8 +25,8 @@ pub fn build(b: *std.Build) void {
     check_lib.checkNext("type i32");
     check_lib.checkNext("mutable false");
     check_lib.checkNext("i32.const {bar_address}");
-    check_lib.checkComputeCompare("foo_address", .{ .op = .eq, .value = .{ .literal = 0 } });
-    check_lib.checkComputeCompare("bar_address", .{ .op = .eq, .value = .{ .literal = 4 } });
+    check_lib.checkComputeCompare("foo_address", .{ .op = .eq, .value = .{ .literal = 4 } });
+    check_lib.checkComputeCompare("bar_address", .{ .op = .eq, .value = .{ .literal = 0 } });
 
     check_lib.checkStart("Section export");
     check_lib.checkNext("entries 3");

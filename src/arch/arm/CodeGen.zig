@@ -282,13 +282,7 @@ const DbgInfoReloc = struct {
                     else => unreachable, // not a possible argument
                 };
 
-                try dw.genArgDbgInfo(
-                    reloc.name,
-                    reloc.ty,
-                    function.bin_file.tag,
-                    function.mod_fn.owner_decl,
-                    loc,
-                );
+                try dw.genArgDbgInfo(reloc.name, reloc.ty, function.mod_fn.owner_decl, loc);
             },
             .plan9 => {},
             .none => {},
@@ -331,14 +325,7 @@ const DbgInfoReloc = struct {
                         break :blk .nop;
                     },
                 };
-                try dw.genVarDbgInfo(
-                    reloc.name,
-                    reloc.ty,
-                    function.bin_file.tag,
-                    function.mod_fn.owner_decl,
-                    is_ptr,
-                    loc,
-                );
+                try dw.genVarDbgInfo(reloc.name, reloc.ty, function.mod_fn.owner_decl, is_ptr, loc);
             },
             .plan9 => {},
             .none => {},
@@ -4256,12 +4243,11 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     if (self.air.value(callee)) |func_value| {
         if (func_value.castTag(.function)) |func_payload| {
             const func = func_payload.data;
-            const mod = self.bin_file.options.module.?;
-            const fn_owner_decl = mod.declPtr(func.owner_decl);
 
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                try fn_owner_decl.link.elf.ensureInitialized(elf_file);
-                const got_addr = @intCast(u32, fn_owner_decl.link.elf.getOffsetTableAddress(elf_file));
+                const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
+                const atom = elf_file.getAtom(atom_index);
+                const got_addr = @intCast(u32, atom.getOffsetTableAddress(elf_file));
                 try self.genSetReg(Type.initTag(.usize), .lr, .{ .memory = got_addr });
             } else if (self.bin_file.cast(link.File.MachO)) |_| {
                 unreachable; // unsupported architecture for MachO
@@ -6084,15 +6070,17 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
     mod.markDeclAlive(decl);
 
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        try decl.link.elf.ensureInitialized(elf_file);
-        return MCValue{ .memory = decl.link.elf.getOffsetTableAddress(elf_file) };
+        const atom_index = try elf_file.getOrCreateAtomForDecl(decl_index);
+        const atom = elf_file.getAtom(atom_index);
+        return MCValue{ .memory = atom.getOffsetTableAddress(elf_file) };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         unreachable; // unsupported architecture for MachO
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
         return self.fail("TODO codegen COFF const Decl pointer", .{});
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-        try p9.seeDecl(decl_index);
-        const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
+        const decl_block_index = try p9.seeDecl(decl_index);
+        const decl_block = p9.getDeclBlock(decl_block_index);
+        const got_addr = p9.bases.data + decl_block.got_index.? * ptr_bytes;
         return MCValue{ .memory = got_addr };
     } else {
         return self.fail("TODO codegen non-ELF const Decl pointer", .{});
@@ -6106,8 +6094,7 @@ fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
         return self.fail("lowering unnamed constant failed: {s}", .{@errorName(err)});
     };
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const vaddr = elf_file.local_symbols.items[local_sym_index].st_value;
-        return MCValue{ .memory = vaddr };
+        return MCValue{ .memory = elf_file.getSymbol(local_sym_index).st_value };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         unreachable;
     } else if (self.bin_file.cast(link.File.Coff)) |_| {

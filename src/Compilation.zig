@@ -3299,7 +3299,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const gpa = comp.gpa;
             const module = comp.bin_file.options.module.?;
             const decl = module.declPtr(decl_index);
-            comp.bin_file.updateDeclLineNumber(module, decl) catch |err| {
+            comp.bin_file.updateDeclLineNumber(module, decl_index) catch |err| {
                 try module.failed_decls.ensureUnusedCapacity(gpa, 1);
                 module.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
                     gpa,

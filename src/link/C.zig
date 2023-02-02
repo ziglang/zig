@@ -219,12 +219,12 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
     code.shrinkAndFree(module.gpa, code.items.len);
 }
 
-pub fn updateDeclLineNumber(self: *C, module: *Module, decl: *Module.Decl) !void {
+pub fn updateDeclLineNumber(self: *C, module: *Module, decl_index: Module.Decl.Index) !void {
     // The C backend does not have the ability to fix line numbers without re-generating
     // the entire Decl.
     _ = self;
     _ = module;
-    _ = decl;
+    _ = decl_index;
 }
 
 pub fn flush(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) !void {

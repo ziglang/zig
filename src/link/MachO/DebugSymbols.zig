@@ -82,11 +82,11 @@ pub fn populateMissingMetadata(self: *DebugSymbols) !void {
     }
 
     if (self.debug_str_section_index == null) {
-        assert(self.dwarf.strtab.items.len == 0);
-        try self.dwarf.strtab.append(self.allocator, 0);
+        assert(self.dwarf.strtab.buffer.items.len == 0);
+        try self.dwarf.strtab.buffer.append(self.allocator, 0);
         self.debug_str_section_index = try self.allocateSection(
             "__debug_str",
-            @intCast(u32, self.dwarf.strtab.items.len),
+            @intCast(u32, self.dwarf.strtab.buffer.items.len),
             0,
         );
         self.debug_string_table_dirty = true;
@@ -291,10 +291,10 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
 
     {
         const sect_index = self.debug_str_section_index.?;
-        if (self.debug_string_table_dirty or self.dwarf.strtab.items.len != self.getSection(sect_index).size) {
-            const needed_size = @intCast(u32, self.dwarf.strtab.items.len);
+        if (self.debug_string_table_dirty or self.dwarf.strtab.buffer.items.len != self.getSection(sect_index).size) {
+            const needed_size = @intCast(u32, self.dwarf.strtab.buffer.items.len);
             try self.growSection(sect_index, needed_size, false);
-            try self.file.pwriteAll(self.dwarf.strtab.items, self.getSection(sect_index).offset);
+            try self.file.pwriteAll(self.dwarf.strtab.buffer.items, self.getSection(sect_index).offset);
             self.debug_string_table_dirty = false;
         }
     }

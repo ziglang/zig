@@ -261,39 +261,6 @@ pub const File = struct {
     /// of this linking operation.
     lock: ?Cache.Lock = null,
 
-    pub const LinkBlock = union {
-        elf: Elf.TextBlock,
-        coff: Coff.Atom,
-        macho: MachO.Atom,
-        plan9: Plan9.DeclBlock,
-        c: void,
-        wasm: Wasm.DeclBlock,
-        spirv: void,
-        nvptx: void,
-    };
-
-    pub const LinkFn = union {
-        elf: Dwarf.SrcFn,
-        coff: Coff.SrcFn,
-        macho: Dwarf.SrcFn,
-        plan9: void,
-        c: void,
-        wasm: Wasm.FnData,
-        spirv: SpirV.FnData,
-        nvptx: void,
-    };
-
-    pub const Export = union {
-        elf: Elf.Export,
-        coff: Coff.Export,
-        macho: MachO.Export,
-        plan9: Plan9.Export,
-        c: void,
-        wasm: Wasm.Export,
-        spirv: void,
-        nvptx: void,
-    };
-
     /// Attempts incremental linking, if the file already exists. If
     /// incremental linking fails, falls back to truncating the file and
     /// rewriting it. A malicious file is detected as incremental link failure
@@ -580,22 +547,23 @@ pub const File = struct {
         }
     }
 
-    pub fn updateDeclLineNumber(base: *File, module: *Module, decl: *Module.Decl) UpdateDeclError!void {
+    pub fn updateDeclLineNumber(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
+        const decl = module.declPtr(decl_index);
         log.debug("updateDeclLineNumber {*} ({s}), line={}", .{
             decl, decl.name, decl.src_line + 1,
         });
         assert(decl.has_tv);
         if (build_options.only_c) {
             assert(base.tag == .c);
-            return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl);
+            return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl_index);
         }
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).updateDeclLineNumber(module, decl),
-            .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
-            .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl),
-            .c => return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl),
-            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclLineNumber(module, decl),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDeclLineNumber(module, decl),
+            .coff => return @fieldParentPtr(Coff, "base", base).updateDeclLineNumber(module, decl_index),
+            .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl_index),
+            .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl_index),
+            .c => return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl_index),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclLineNumber(module, decl_index),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDeclLineNumber(module, decl_index),
             .spirv, .nvptx => {},
         }
     }

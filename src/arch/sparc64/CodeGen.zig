@@ -1216,11 +1216,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         if (self.bin_file.tag == link.File.Elf.base_tag) {
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
-                const mod = self.bin_file.options.module.?;
-                const fn_owner_decl = mod.declPtr(func.owner_decl);
                 const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
-                    try fn_owner_decl.link.elf.ensureInitialized(elf_file);
-                    break :blk @intCast(u32, fn_owner_decl.link.elf.getOffsetTableAddress(elf_file));
+                    const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
+                    const atom = elf_file.getAtom(atom_index);
+                    break :blk @intCast(u32, atom.getOffsetTableAddress(elf_file));
                 } else unreachable;
 
                 try self.genSetReg(Type.initTag(.usize), .o7, .{ .memory = got_addr });
@@ -3413,13 +3412,9 @@ fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
 
     switch (self.debug_output) {
         .dwarf => |dw| switch (mcv) {
-            .register => |reg| try dw.genArgDbgInfo(
-                name,
-                ty,
-                self.bin_file.tag,
-                self.mod_fn.owner_decl,
-                .{ .register = reg.dwarfLocOp() },
-            ),
+            .register => |reg| try dw.genArgDbgInfo(name, ty, self.mod_fn.owner_decl, .{
+                .register = reg.dwarfLocOp(),
+            }),
             else => {},
         },
         else => {},
@@ -4205,8 +4200,9 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
 
     mod.markDeclAlive(decl);
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        try decl.link.elf.ensureInitialized(elf_file);
-        return MCValue{ .memory = decl.link.elf.getOffsetTableAddress(elf_file) };
+        const atom_index = try elf_file.getOrCreateAtomForDecl(decl_index);
+        const atom = elf_file.getAtom(atom_index);
+        return MCValue{ .memory = atom.getOffsetTableAddress(elf_file) };
     } else {
         return self.fail("TODO codegen non-ELF const Decl pointer", .{});
     }
