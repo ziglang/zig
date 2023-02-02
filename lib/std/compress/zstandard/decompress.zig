@@ -695,11 +695,11 @@ pub fn decodeZStandardFrameAlloc(
     var match_fse_data: [types.compressed_block.table_size_max.match]Table.Fse = undefined;
     var offset_fse_data: [types.compressed_block.table_size_max.offset]Table.Fse = undefined;
 
-    var block_header = decodeBlockHeader(src[consumed_count..][0..3]);
+    var block_header = try decodeBlockHeaderSlice(src[consumed_count..]);
     consumed_count += 3;
     var decode_state = DecodeState.init(&literal_fse_data, &match_fse_data, &offset_fse_data);
     while (true) : ({
-        block_header = decodeBlockHeader(src[consumed_count..][0..3]);
+        block_header = try decodeBlockHeaderSlice(src[consumed_count..]);
         consumed_count += 3;
     }) {
         if (block_header.block_size > frame_context.block_size_max) return error.BlockSizeOverMaximum;
@@ -737,6 +737,7 @@ const DecodeBlockError = error{
     ReservedBlock,
     MalformedRleBlock,
     MalformedCompressedBlock,
+    EndOfStream,
 };
 
 /// Convenience wrapper for decoding all blocks in a frame; see `decodeBlock()`.
@@ -751,13 +752,13 @@ pub fn decodeFrameBlocks(
     var match_fse_data: [types.compressed_block.table_size_max.match]Table.Fse = undefined;
     var offset_fse_data: [types.compressed_block.table_size_max.offset]Table.Fse = undefined;
 
-    var block_header = decodeBlockHeader(src[0..3]);
+    var block_header = try decodeBlockHeaderSlice(src);
     var bytes_read: usize = 3;
     defer consumed_count.* += bytes_read;
     var decode_state = DecodeState.init(&literal_fse_data, &match_fse_data, &offset_fse_data);
     var written_count: usize = 0;
     while (true) : ({
-        block_header = decodeBlockHeader(src[bytes_read..][0..3]);
+        block_header = try decodeBlockHeaderSlice(src[bytes_read..]);
         bytes_read += 3;
     }) {
         const written_size = try decodeBlock(
@@ -847,6 +848,7 @@ pub fn decodeBlock(
 
                 bytes_read += bit_stream_bytes.len;
             }
+            if (bytes_read != block_size) return error.MalformedCompressedBlock;
 
             if (decode_state.literal_written_count < literals.header.regenerated_size) {
                 const len = literals.header.regenerated_size - decode_state.literal_written_count;
@@ -855,7 +857,6 @@ pub fn decodeBlock(
                 bytes_written += len;
             }
 
-            assert(bytes_read == block_header.block_size);
             consumed_count.* += bytes_read;
             return bytes_written;
         },
@@ -931,6 +932,7 @@ pub fn decodeBlockRingBuffer(
 
                 bytes_read += bit_stream_bytes.len;
             }
+            if (bytes_read != block_size) return error.MalformedCompressedBlock;
 
             if (decode_state.literal_written_count < literals.header.regenerated_size) {
                 const len = literals.header.regenerated_size - decode_state.literal_written_count;
@@ -939,7 +941,6 @@ pub fn decodeBlockRingBuffer(
                 bytes_written += len;
             }
 
-            assert(bytes_read == block_header.block_size);
             consumed_count.* += bytes_read;
             if (bytes_written > block_size_max) return error.BlockSizeOverMaximum;
             return bytes_written;
@@ -1099,6 +1100,11 @@ pub fn decodeBlockHeader(src: *const [3]u8) frame.ZStandard.Block.Header {
         .block_type = block_type,
         .block_size = block_size,
     };
+}
+
+pub fn decodeBlockHeaderSlice(src: []const u8) error{EndOfStream}!frame.ZStandard.Block.Header {
+    if (src.len < 3) return error.EndOfStream;
+    return decodeBlockHeader(src[0..3]);
 }
 
 /// Decode a `LiteralsSection` from `src`, incrementing `consumed_count` by the
