@@ -1,6 +1,18 @@
 pub const Options = struct {
     /// Number of directory levels to skip when extracting files.
     strip_components: u32 = 0,
+    /// How to handle the "mode" property of files from within the tar file.
+    mode_mode: ModeMode = .executable_bit_only,
+
+    const ModeMode = enum {
+        /// The mode from the tar file is completely ignored. Files are created
+        /// with the default mode when creating files.
+        ignore,
+        /// The mode from the tar file is inspected for the owner executable bit
+        /// only. This bit is copied to the group and other executable bits.
+        /// Other bits of the mode are left as the default when creating files.
+        executable_bit_only,
+    };
 };
 
 pub const Header = struct {
@@ -72,6 +84,17 @@ pub const Header = struct {
 };
 
 pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !void {
+    switch (options.mode_mode) {
+        .ignore => {},
+        .executable_bit_only => {
+            // This code does not look at the mode bits yet. To implement this feature,
+            // the implementation must be adjusted to look at the mode, and check the
+            // user executable bit, then call fchmod on newly created files when
+            // the executable bit is supposed to be set.
+            // It also needs to properly deal with ACLs on Windows.
+            @panic("TODO: unimplemented: tar ModeMode.executable_bit_only");
+        },
+    }
     var file_name_buffer: [255]u8 = undefined;
     var buffer: [512 * 8]u8 = undefined;
     var start: usize = 0;

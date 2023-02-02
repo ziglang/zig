@@ -1,5 +1,6 @@
 const Package = @This();
 
+const builtin = @import("builtin");
 const std = @import("std");
 const fs = std.fs;
 const mem = std.mem;
@@ -440,6 +441,12 @@ fn unpackTarball(
 
     try std.tar.pipeToFileSystem(out_dir, decompress.reader(), .{
         .strip_components = 1,
+        // TODO: we would like to set this to executable_bit_only, but two
+        // things need to happen before that:
+        // 1. the tar implementation needs to support it
+        // 2. the hashing algorithm here needs to support detecting the is_executable
+        //    bit on Windows from the ACLs (see the isExecutable function).
+        .mode_mode = .ignore,
     });
 }
 
@@ -468,7 +475,7 @@ const HashedFile = struct {
     hash: [Hash.digest_length]u8,
     failure: Error!void,
 
-    const Error = fs.File.OpenError || fs.File.ReadError;
+    const Error = fs.File.OpenError || fs.File.ReadError || fs.File.StatError;
 
     fn lessThan(context: void, lhs: *const HashedFile, rhs: *const HashedFile) bool {
         _ = context;
@@ -544,12 +551,27 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
     var buf: [8000]u8 = undefined;
     var file = try dir.openFile(hashed_file.path, .{});
     var hasher = Hash.init(.{});
+    hasher.update(hashed_file.path);
+    hasher.update(&.{ 0, @boolToInt(try isExecutable(file)) });
     while (true) {
         const bytes_read = try file.read(&buf);
         if (bytes_read == 0) break;
         hasher.update(buf[0..bytes_read]);
     }
     hasher.final(&hashed_file.hash);
+}
+
+fn isExecutable(file: fs.File) !bool {
+    if (builtin.os.tag == .windows) {
+        // TODO check the ACL on Windows.
+        // Until this is implemented, this could be a false negative on
+        // Windows, which is why we do not yet set executable_bit_only above
+        // when unpacking the tarball.
+        return false;
+    } else {
+        const stat = try file.stat();
+        return (stat.mode & std.os.S.IXUSR) != 0;
+    }
 }
 
 const hex_charset = "0123456789abcdef";
