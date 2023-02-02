@@ -41,7 +41,7 @@ pub fn decodeFrameType(source: anytype) error{ BadMagic, EndOfStream }!frame.Kin
 /// Errors returned:
 ///   - `error.BadMagic` if `magic` is not a valid magic number.
 pub fn frameType(magic: u32) error{BadMagic}!frame.Kind {
-    return if (magic == frame.ZStandard.magic_number)
+    return if (magic == frame.Zstandard.magic_number)
         .zstandard
     else if (isSkippableMagic(magic))
         .skippable
@@ -79,7 +79,7 @@ pub fn decodeFrame(
 ) !ReadWriteCount {
     var fbs = std.io.fixedBufferStream(src);
     return switch (try decodeFrameType(fbs.reader())) {
-        .zstandard => decodeZStandardFrame(dest, src, verify_checksum),
+        .zstandard => decodeZstandardFrame(dest, src, verify_checksum),
         .skippable => ReadWriteCount{
             .read_count = try fbs.reader().readIntLittle(u32) + 8,
             .write_count = 0,
@@ -126,7 +126,7 @@ pub fn decodeFrameAlloc(
     const magic = try reader.readIntLittle(u32);
     return switch (try frameType(magic)) {
         .zstandard => .{
-            .zstandard = try decodeZStandardFrameAlloc(allocator, src, verify_checksum, window_size_max),
+            .zstandard = try decodeZstandardFrameAlloc(allocator, src, verify_checksum, window_size_max),
         },
         .skippable => .{
             .skippable = .{
@@ -166,17 +166,17 @@ const FrameError = error{
 ///   - `error.UnusedBitSet` if the unused bit of the frame header is set
 ///   - `error.EndOfStream` if `src` does not contain a complete frame
 ///   - an error in `block.Error` if there are errors decoding a block
-pub fn decodeZStandardFrame(
+pub fn decodeZstandardFrame(
     dest: []u8,
     src: []const u8,
     verify_checksum: bool,
 ) (error{ UnknownContentSizeUnsupported, ContentTooLarge } || FrameError)!ReadWriteCount {
-    assert(readInt(u32, src[0..4]) == frame.ZStandard.magic_number);
+    assert(readInt(u32, src[0..4]) == frame.Zstandard.magic_number);
     var consumed_count: usize = 4;
 
     var fbs = std.io.fixedBufferStream(src[consumed_count..]);
     var source = fbs.reader();
-    const frame_header = try decodeZStandardHeader(source);
+    const frame_header = try decodeZstandardHeader(source);
     consumed_count += fbs.pos;
 
     if (frame_header.descriptor.dictionary_id_flag != 0) return error.DictionaryIdFlagUnsupported;
@@ -218,7 +218,7 @@ pub const FrameContext = struct {
     ///   - `error.WindowSizeUnknown` if the frame does not have a valid window size
     ///   - `error.WindowTooLarge` if the window size is larger than
     pub fn init(
-        frame_header: frame.ZStandard.Header,
+        frame_header: frame.Zstandard.Header,
         window_size_max: usize,
         verify_checksum: bool,
     ) Error!FrameContext {
@@ -241,7 +241,7 @@ pub const FrameContext = struct {
 };
 
 /// Decode a Zstandard from from `src` and return the decompressed bytes and the
-/// number of bytes read; see `decodeZStandardFrame()`. `allocator` is used to
+/// number of bytes read; see `decodeZstandardFrame()`. `allocator` is used to
 /// allocate both the returned slice and internal buffers used during decoding.
 /// The first four bytes of `src` must be the magic number for a Zstandard
 /// frame.
@@ -259,20 +259,20 @@ pub const FrameContext = struct {
 ///   - `error.EndOfStream` if `src` does not contain a complete frame
 ///   - `error.OutOfMemory` if `allocator` cannot allocate enough memory
 ///   - an error in `block.Error` if there are errors decoding a block
-pub fn decodeZStandardFrameAlloc(
+pub fn decodeZstandardFrameAlloc(
     allocator: Allocator,
     src: []const u8,
     verify_checksum: bool,
     window_size_max: usize,
 ) (error{OutOfMemory} || FrameContext.Error || FrameError)!DecodeResult {
     var result = std.ArrayList(u8).init(allocator);
-    assert(readInt(u32, src[0..4]) == frame.ZStandard.magic_number);
+    assert(readInt(u32, src[0..4]) == frame.Zstandard.magic_number);
     var consumed_count: usize = 4;
 
     var frame_context = context: {
         var fbs = std.io.fixedBufferStream(src[consumed_count..]);
         var source = fbs.reader();
-        const frame_header = try decodeZStandardHeader(source);
+        const frame_header = try decodeZstandardHeader(source);
         consumed_count += fbs.pos;
         break :context try FrameContext.init(frame_header, window_size_max, verify_checksum);
     };
@@ -371,7 +371,7 @@ pub fn decodeSkippableHeader(src: *const [8]u8) frame.Skippable.Header {
 
 /// Returns the window size required to decompress a frame, or `null` if it
 /// cannot be determined (which indicates a malformed frame header).
-pub fn frameWindowSize(header: frame.ZStandard.Header) ?u64 {
+pub fn frameWindowSize(header: frame.Zstandard.Header) ?u64 {
     if (header.window_descriptor) |descriptor| {
         const exponent = (descriptor & 0b11111000) >> 3;
         const mantissa = descriptor & 0b00000111;
@@ -389,8 +389,8 @@ const InvalidBit = error{ UnusedBitSet, ReservedBitSet };
 ///   - `error.UnusedBitSet` if the unused bits of the header are set
 ///   - `error.ReservedBitSet` if the reserved bits of the header are set
 ///   - `error.EndOfStream` if `source` does not contain a complete header
-pub fn decodeZStandardHeader(source: anytype) (error{EndOfStream} || InvalidBit)!frame.ZStandard.Header {
-    const descriptor = @bitCast(frame.ZStandard.Header.Descriptor, try source.readByte());
+pub fn decodeZstandardHeader(source: anytype) (error{EndOfStream} || InvalidBit)!frame.Zstandard.Header {
+    const descriptor = @bitCast(frame.Zstandard.Header.Descriptor, try source.readByte());
 
     if (descriptor.unused) return error.UnusedBitSet;
     if (descriptor.reserved) return error.ReservedBitSet;
@@ -414,7 +414,7 @@ pub fn decodeZStandardHeader(source: anytype) (error{EndOfStream} || InvalidBit)
         if (field_size == 2) content_size.? += 256;
     }
 
-    const header = frame.ZStandard.Header{
+    const header = frame.Zstandard.Header{
         .descriptor = descriptor,
         .window_descriptor = window_descriptor,
         .dictionary_id = dictionary_id,

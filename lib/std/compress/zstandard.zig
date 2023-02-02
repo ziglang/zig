@@ -33,7 +33,7 @@ pub fn ZstandardStream(comptime ReaderType: type, comptime verify_checksum: bool
                 .skippable => return error.SkippableFrame,
                 .zstandard => {
                     const frame_context = context: {
-                        const frame_header = try decompress.decodeZStandardHeader(source);
+                        const frame_header = try decompress.decodeZstandardHeader(source);
                         break :context try decompress.FrameContext.init(
                             frame_header,
                             window_size_max,

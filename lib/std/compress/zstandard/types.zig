@@ -1,7 +1,7 @@
 pub const frame = struct {
     pub const Kind = enum { zstandard, skippable };
 
-    pub const ZStandard = struct {
+    pub const Zstandard = struct {
         pub const magic_number = 0xFD2FB528;
 
         header: Header,

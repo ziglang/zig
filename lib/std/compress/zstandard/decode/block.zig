@@ -580,7 +580,7 @@ pub const DecodeState = struct {
 pub fn decodeBlock(
     dest: []u8,
     src: []const u8,
-    block_header: frame.ZStandard.Block.Header,
+    block_header: frame.Zstandard.Block.Header,
     decode_state: *DecodeState,
     consumed_count: *usize,
     written_count: usize,
@@ -668,7 +668,7 @@ pub fn decodeBlock(
 pub fn decodeBlockRingBuffer(
     dest: *RingBuffer,
     src: []const u8,
-    block_header: frame.ZStandard.Block.Header,
+    block_header: frame.Zstandard.Block.Header,
     decode_state: *DecodeState,
     consumed_count: *usize,
     block_size_max: usize,
@@ -758,7 +758,7 @@ pub fn decodeBlockRingBuffer(
 pub fn decodeBlockReader(
     dest: *RingBuffer,
     source: anytype,
-    block_header: frame.ZStandard.Block.Header,
+    block_header: frame.Zstandard.Block.Header,
     decode_state: *DecodeState,
     block_size_max: usize,
     literals_buffer: []u8,
@@ -825,9 +825,9 @@ pub fn decodeBlockReader(
 }
 
 /// Decode the header of a block.
-pub fn decodeBlockHeader(src: *const [3]u8) frame.ZStandard.Block.Header {
+pub fn decodeBlockHeader(src: *const [3]u8) frame.Zstandard.Block.Header {
     const last_block = src[0] & 1 == 1;
-    const block_type = @intToEnum(frame.ZStandard.Block.Type, (src[0] & 0b110) >> 1);
+    const block_type = @intToEnum(frame.Zstandard.Block.Type, (src[0] & 0b110) >> 1);
     const block_size = ((src[0] & 0b11111000) >> 3) + (@as(u21, src[1]) << 5) + (@as(u21, src[2]) << 13);
     return .{
         .last_block = last_block,
@@ -840,7 +840,7 @@ pub fn decodeBlockHeader(src: *const [3]u8) frame.ZStandard.Block.Header {
 ///
 /// Errors returned:
 ///   - `error.EndOfStream` if `src.len < 3`
-pub fn decodeBlockHeaderSlice(src: []const u8) error{EndOfStream}!frame.ZStandard.Block.Header {
+pub fn decodeBlockHeaderSlice(src: []const u8) error{EndOfStream}!frame.Zstandard.Block.Header {
     if (src.len < 3) return error.EndOfStream;
     return decodeBlockHeader(src[0..3]);
 }
