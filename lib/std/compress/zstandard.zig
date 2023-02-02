@@ -13,7 +13,7 @@ pub fn ZstandardStream(comptime ReaderType: type, comptime verify_checksum: bool
 
         allocator: Allocator,
         in_reader: ReaderType,
-        decode_state: decompress.DecodeState,
+        decode_state: decompress.block.DecodeState,
         frame_context: decompress.FrameContext,
         buffer: RingBuffer,
         last_block: bool,
@@ -24,7 +24,7 @@ pub fn ZstandardStream(comptime ReaderType: type, comptime verify_checksum: bool
         sequence_buffer: []u8,
         checksum: if (verify_checksum) ?u32 else void,
 
-        pub const Error = ReaderType.Error || error{ MalformedBlock, MalformedFrame, EndOfStream };
+        pub const Error = ReaderType.Error || error{ MalformedBlock, MalformedFrame };
 
         pub const Reader = std.io.Reader(*Self, Error, read);
 
@@ -34,21 +34,41 @@ pub fn ZstandardStream(comptime ReaderType: type, comptime verify_checksum: bool
                 .zstandard => {
                     const frame_context = context: {
                         const frame_header = try decompress.decodeZStandardHeader(source);
-                        break :context try decompress.FrameContext.init(frame_header, window_size_max, verify_checksum);
+                        break :context try decompress.FrameContext.init(
+                            frame_header,
+                            window_size_max,
+                            verify_checksum,
+                        );
                     };
 
-                    const literal_fse_buffer = try allocator.alloc(types.compressed_block.Table.Fse, types.compressed_block.table_size_max.literal);
+                    const literal_fse_buffer = try allocator.alloc(
+                        types.compressed_block.Table.Fse,
+                        types.compressed_block.table_size_max.literal,
+                    );
                     errdefer allocator.free(literal_fse_buffer);
-                    const match_fse_buffer = try allocator.alloc(types.compressed_block.Table.Fse, types.compressed_block.table_size_max.match);
+
+                    const match_fse_buffer = try allocator.alloc(
+                        types.compressed_block.Table.Fse,
+                        types.compressed_block.table_size_max.match,
+                    );
                     errdefer allocator.free(match_fse_buffer);
-                    const offset_fse_buffer = try allocator.alloc(types.compressed_block.Table.Fse, types.compressed_block.table_size_max.offset);
+
+                    const offset_fse_buffer = try allocator.alloc(
+                        types.compressed_block.Table.Fse,
+                        types.compressed_block.table_size_max.offset,
+                    );
                     errdefer allocator.free(offset_fse_buffer);
 
-                    const decode_state = decompress.DecodeState.init(literal_fse_buffer, match_fse_buffer, offset_fse_buffer);
+                    const decode_state = decompress.block.DecodeState.init(
+                        literal_fse_buffer,
+                        match_fse_buffer,
+                        offset_fse_buffer,
+                    );
                     const buffer = try RingBuffer.init(allocator, frame_context.window_size);
 
                     const literals_data = try allocator.alloc(u8, window_size_max);
                     errdefer allocator.free(literals_data);
+
                     const sequence_data = try allocator.alloc(u8, window_size_max);
                     errdefer allocator.free(sequence_data);
 
@@ -87,10 +107,10 @@ pub fn ZstandardStream(comptime ReaderType: type, comptime verify_checksum: bool
             if (buffer.len == 0) return 0;
 
             if (self.buffer.isEmpty() and !self.last_block) {
-                const header_bytes = try self.in_reader.readBytesNoEof(3);
-                const block_header = decompress.decodeBlockHeader(&header_bytes);
+                const header_bytes = self.in_reader.readBytesNoEof(3) catch return error.MalformedFrame;
+                const block_header = decompress.block.decodeBlockHeader(&header_bytes);
 
-                decompress.decodeBlockReader(
+                decompress.block.decodeBlockReader(
                     &self.buffer,
                     self.in_reader,
                     block_header,
