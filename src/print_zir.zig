@@ -332,6 +332,7 @@ const Writer = struct {
             .float_cast,
             .int_cast,
             .ptr_cast,
+            .qual_cast,
             .truncate,
             .align_cast,
             .div_exact,

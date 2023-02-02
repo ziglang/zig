@@ -20,4 +20,4 @@ export fn entry() void {
 //
 // :11:27: error: expected type 'u8', found '?u8'
 // :11:27: note: cannot convert optional to payload type
-// :11:27: note: consider using `.?`, `orelse`, or `if`
+// :11:27: note: consider using '.?', 'orelse', or 'if'

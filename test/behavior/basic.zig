@@ -1125,3 +1125,21 @@ test "returning an opaque type from a function" {
     };
     try expect(S.foo(123).b == 123);
 }
+
+test "orelse coercion as function argument" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const Loc = struct { start: i32 = -1 };
+    const Container = struct {
+        a: ?Loc = null,
+        fn init(a: Loc) @This() {
+            return .{
+                .a = a,
+            };
+        }
+    };
+    var optional: ?Loc = .{};
+    var foo = Container.init(optional orelse .{});
+    try expect(foo.a.?.start == -1);
+}

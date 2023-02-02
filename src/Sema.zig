@@ -1015,6 +1015,7 @@ fn analyzeBodyInner(
             .float_cast                   => try sema.zirFloatCast(block, inst),
             .int_cast                     => try sema.zirIntCast(block, inst),
             .ptr_cast                     => try sema.zirPtrCast(block, inst),
+            .qual_cast                    => try sema.zirQualCast(block, inst),
             .truncate                     => try sema.zirTruncate(block, inst),
             .align_cast                   => try sema.zirAlignCast(block, inst),
             .has_decl                     => try sema.zirHasDecl(block, inst),
@@ -3294,7 +3295,7 @@ fn ensureResultUsed(
             const msg = msg: {
                 const msg = try sema.errMsg(block, src, "error is ignored", .{});
                 errdefer msg.destroy(sema.gpa);
-                try sema.errNote(block, src, msg, "consider using `try`, `catch`, or `if`", .{});
+                try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(msg);
@@ -3325,7 +3326,7 @@ fn zirEnsureResultNonError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             const msg = msg: {
                 const msg = try sema.errMsg(block, src, "error is discarded", .{});
                 errdefer msg.destroy(sema.gpa);
-                try sema.errNote(block, src, msg, "consider using `try`, `catch`, or `if`", .{});
+                try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(msg);
@@ -6874,6 +6875,8 @@ fn analyzeInlineCallArg(
                     if (err == error.AnalysisFail and param_block.comptime_reason != null) try param_block.comptime_reason.?.explain(sema, sema.err);
                     return err;
                 };
+            } else if (!is_comptime_call and zir_tags[inst] == .param_comptime) {
+                _ = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "parameter is comptime");
             }
             const casted_arg = sema.coerceExtra(arg_block, param_ty, uncasted_arg, arg_src, .{ .param_src = .{
                 .func_inst = func_inst,
@@ -6947,6 +6950,9 @@ fn analyzeInlineCallArg(
                     .val = arg_val,
                 };
             } else {
+                if (zir_tags[inst] == .param_anytype_comptime) {
+                    _ = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "parameter is comptime");
+                }
                 sema.inst_map.putAssumeCapacityNoClobber(inst, uncasted_arg);
             }
 
@@ -8467,7 +8473,7 @@ fn handleExternLibName(
             return sema.fail(
                 block,
                 src_loc,
-                "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by `-l{s}` or `-fPIC`.",
+                "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by '-l{s}' or '-fPIC'.",
                 .{ lib_name, lib_name },
             );
         }
@@ -9004,7 +9010,18 @@ fn zirParam(
         if (is_comptime and sema.preallocated_new_func != null) {
             // We have a comptime value for this parameter so it should be elided from the
             // function type of the function instruction in this block.
-            const coerced_arg = try sema.coerce(block, param_ty, arg, src);
+            const coerced_arg = sema.coerce(block, param_ty, arg, .unneeded) catch |err| switch (err) {
+                error.NeededSourceLocation => {
+                    // We are instantiating a generic function and a comptime arg
+                    // cannot be coerced to the param type, but since we don't
+                    // have the callee source location return `GenericPoison`
+                    // so that the instantiation is failed and the coercion
+                    // is handled by comptime call logic instead.
+                    assert(sema.is_generic_instantiation);
+                    return error.GenericPoison;
+                },
+                else => return err,
+            };
             sema.inst_map.putAssumeCapacity(inst, coerced_arg);
             return;
         }
@@ -19519,13 +19536,34 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const operand_info = operand_ty.ptrInfo().data;
     const dest_info = dest_ty.ptrInfo().data;
     if (!operand_info.mutable and dest_info.mutable) {
-        return sema.fail(block, src, "cast discards const qualifier", .{});
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "cast discards const qualifier", .{});
+            errdefer msg.destroy(sema.gpa);
+
+            try sema.errNote(block, src, msg, "consider using '@qualCast'", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
     if (operand_info.@"volatile" and !dest_info.@"volatile") {
-        return sema.fail(block, src, "cast discards volatile qualifier", .{});
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "cast discards volatile qualifier", .{});
+            errdefer msg.destroy(sema.gpa);
+
+            try sema.errNote(block, src, msg, "consider using '@qualCast'", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
     if (operand_info.@"addrspace" != dest_info.@"addrspace") {
-        return sema.fail(block, src, "cast changes pointer address space", .{});
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "cast changes pointer address space", .{});
+            errdefer msg.destroy(sema.gpa);
+
+            try sema.errNote(block, src, msg, "consider using '@addrSpaceCast'", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     const dest_is_slice = dest_ty.isSlice();
@@ -19580,6 +19618,8 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             try sema.errNote(block, dest_ty_src, msg, "'{}' has alignment '{d}'", .{
                 dest_ty.fmt(sema.mod), dest_align,
             });
+
+            try sema.errNote(block, src, msg, "consider using '@alignCast'", .{});
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
@@ -19613,6 +19653,49 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     }
 
     return block.addBitCast(aligned_dest_ty, ptr);
+}
+
+fn zirQualCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
+    const operand = try sema.resolveInst(extra.rhs);
+    const operand_ty = sema.typeOf(operand);
+
+    try sema.checkPtrType(block, dest_ty_src, dest_ty);
+    try sema.checkPtrOperand(block, operand_src, operand_ty);
+
+    var operand_payload = operand_ty.ptrInfo();
+    var dest_info = dest_ty.ptrInfo();
+
+    operand_payload.data.mutable = dest_info.data.mutable;
+    operand_payload.data.@"volatile" = dest_info.data.@"volatile";
+
+    const altered_operand_ty = Type.initPayload(&operand_payload.base);
+    if (!altered_operand_ty.eql(dest_ty, sema.mod)) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "'@qualCast' can only modify 'const' and 'volatile' qualifiers", .{});
+            errdefer msg.destroy(sema.gpa);
+
+            dest_info.data.mutable = !operand_ty.isConstPtr();
+            dest_info.data.@"volatile" = operand_ty.isVolatilePtr();
+            const altered_dest_ty = Type.initPayload(&dest_info.base);
+            try sema.errNote(block, src, msg, "expected type '{}'", .{altered_dest_ty.fmt(sema.mod)});
+            try sema.errNote(block, src, msg, "got type '{}'", .{operand_ty.fmt(sema.mod)});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
+    if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
+        return sema.addConstant(dest_ty, operand_val);
+    }
+
+    try sema.requireRuntimeBlock(block, src, null);
+    return block.addBitCast(dest_ty, operand);
 }
 
 fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -25131,7 +25214,7 @@ fn coerceExtra(
             (try sema.coerceInMemoryAllowed(block, inst_ty.errorUnionPayload(), dest_ty, false, target, dest_ty_src, inst_src)) == .ok)
         {
             try sema.errNote(block, inst_src, msg, "cannot convert error union to payload type", .{});
-            try sema.errNote(block, inst_src, msg, "consider using `try`, `catch`, or `if`", .{});
+            try sema.errNote(block, inst_src, msg, "consider using 'try', 'catch', or 'if'", .{});
         }
 
         // ?T to T
@@ -25140,7 +25223,7 @@ fn coerceExtra(
             (try sema.coerceInMemoryAllowed(block, inst_ty.optionalChild(&buf), dest_ty, false, target, dest_ty_src, inst_src)) == .ok)
         {
             try sema.errNote(block, inst_src, msg, "cannot convert optional to payload type", .{});
-            try sema.errNote(block, inst_src, msg, "consider using `.?`, `orelse`, or `if`", .{});
+            try sema.errNote(block, inst_src, msg, "consider using '.?', 'orelse', or 'if'", .{});
         }
 
         try in_memory_result.report(sema, block, inst_src, msg);

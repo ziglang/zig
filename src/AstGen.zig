@@ -2530,6 +2530,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .bit_size_of,
             .typeof_log2_int_type,
             .ptr_to_int,
+            .qual_cast,
             .align_of,
             .bool_to_int,
             .embed_file,
@@ -4278,7 +4279,34 @@ fn testDecl(
             var num_namespaces_out: u32 = 0;
             var capturing_namespace: ?*Scope.Namespace = null;
             while (true) switch (s.tag) {
-                .local_val, .local_ptr => unreachable, // a test cannot be in a local scope
+                .local_val => {
+                    const local_val = s.cast(Scope.LocalVal).?;
+                    if (local_val.name == name_str_index) {
+                        local_val.used = test_name_token;
+                        return astgen.failTokNotes(test_name_token, "cannot test a {s}", .{
+                            @tagName(local_val.id_cat),
+                        }, &[_]u32{
+                            try astgen.errNoteTok(local_val.token_src, "{s} declared here", .{
+                                @tagName(local_val.id_cat),
+                            }),
+                        });
+                    }
+                    s = local_val.parent;
+                },
+                .local_ptr => {
+                    const local_ptr = s.cast(Scope.LocalPtr).?;
+                    if (local_ptr.name == name_str_index) {
+                        local_ptr.used = test_name_token;
+                        return astgen.failTokNotes(test_name_token, "cannot test a {s}", .{
+                            @tagName(local_ptr.id_cat),
+                        }, &[_]u32{
+                            try astgen.errNoteTok(local_ptr.token_src, "{s} declared here", .{
+                                @tagName(local_ptr.id_cat),
+                            }),
+                        });
+                    }
+                    s = local_ptr.parent;
+                },
                 .gen_zir => s = s.cast(GenZir).?.parent,
                 .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
                 .namespace, .enum_namespace => {
@@ -8010,6 +8038,7 @@ fn builtinCall(
         .float_cast   => return typeCast(gz, scope, ri, node, params[0], params[1], .float_cast),
         .int_cast     => return typeCast(gz, scope, ri, node, params[0], params[1], .int_cast),
         .ptr_cast     => return typeCast(gz, scope, ri, node, params[0], params[1], .ptr_cast),
+        .qual_cast    => return typeCast(gz, scope, ri, node, params[0], params[1], .qual_cast),
         .truncate     => return typeCast(gz, scope, ri, node, params[0], params[1], .truncate),
         // zig fmt: on
 
@@ -8692,6 +8721,7 @@ fn callExpr(
         defer arg_block.unstack();
 
         // `call_inst` is reused to provide the param type.
+        arg_block.rl_ty_inst = call_inst;
         const arg_ref = try expr(&arg_block, &arg_block.base, .{ .rl = .{ .coerced_ty = call_inst }, .ctx = .fn_arg }, param_node);
         _ = try arg_block.addBreak(.break_inline, call_index, arg_ref);
 
@@ -10840,7 +10870,12 @@ const GenZir = struct {
         // we emit ZIR for the block break instructions to have the result values,
         // and then rvalue() on that to pass the value to the result location.
         switch (parent_ri.rl) {
-            .ty, .coerced_ty => |ty_inst| {
+            .coerced_ty => |ty_inst| {
+                // Type coercion needs to happend before breaks.
+                gz.rl_ty_inst = ty_inst;
+                gz.break_result_info = .{ .rl = .{ .ty = ty_inst } };
+            },
+            .ty => |ty_inst| {
                 gz.rl_ty_inst = ty_inst;
                 gz.break_result_info = parent_ri;
             },
