@@ -23,7 +23,6 @@ pub const Error = error{
     ReservedBlock,
     MalformedRleBlock,
     MalformedCompressedBlock,
-    EndOfStream,
 };
 
 pub const DecodeState = struct {
@@ -92,11 +91,17 @@ pub const DecodeState = struct {
     /// stream and Huffman tree from `literals` and reads the FSE tables from
     /// `source`.
     ///
-    /// Errors:
-    ///   - returns `error.BitStreamHasNoStartBit` if the (reversed) literal bitstream's
-    ///     first byte does not have any bits set.
-    ///   - returns `error.TreelessLiteralsFirst` `literals` is a treeless literals section
-    ///     and the decode state does not have a Huffman tree from a previous block.
+    /// Errors returned:
+    ///   - `error.BitStreamHasNoStartBit` if the (reversed) literal bitstream's
+    ///     first byte does not have any bits set
+    ///   - `error.TreelessLiteralsFirst` `literals` is a treeless literals
+    ///     section and the decode state does not have a Huffman tree from a
+    ///     previous block
+    ///   - `error.RepeatModeFirst` on the first call if one of the sequence FSE
+    ///     tables is set to repeat mode
+    ///   - `error.MalformedAccuracyLog` if an FSE table has an invalid accuracy
+    ///   - `error.MalformedFseTable` if there are errors decoding an FSE table
+    ///   - `error.EndOfStream` if `source` ends before all FSE tables are read
     pub fn prepare(
         self: *DecodeState,
         source: anytype,
@@ -132,8 +137,10 @@ pub const DecodeState = struct {
         }
     }
 
-    /// Read initial FSE states for sequence decoding. Returns `error.EndOfStream`
-    /// if `bit_reader` does not contain enough bits.
+    /// Read initial FSE states for sequence decoding.
+    ///
+    /// Errors returned:
+    ///   - `error.EndOfStream` if `bit_reader` does not contain enough bits.
     pub fn readInitialFseState(self: *DecodeState, bit_reader: *readers.ReverseBitReader) error{EndOfStream}!void {
         self.literal.state = try bit_reader.readBitsNoEof(u9, self.literal.accuracy_log);
         self.offset.state = try bit_reader.readBitsNoEof(u8, self.offset.accuracy_log);
@@ -308,13 +315,19 @@ pub const DecodeState = struct {
     } || DecodeLiteralsError;
 
     /// Decode one sequence from `bit_reader` into `dest`, written starting at
-    /// `write_pos` and update FSE states if `last_sequence` is `false`. Returns
-    /// `error.MalformedSequence` error if the decompressed sequence would be longer
-    /// than `sequence_size_limit` or the sequence's offset is too large; returns
-    /// `error.EndOfStream` if `bit_reader` does not contain enough bits; returns
-    /// `error.UnexpectedEndOfLiteralStream` if the decoder state's literal streams
-    /// do not contain enough literals for the sequence (this may mean the literal
-    /// stream or the sequence is malformed).
+    /// `write_pos` and update FSE states if `last_sequence` is `false`.
+    /// `prepare()` must be called for the block before attempting to decode
+    /// sequences.
+    ///
+    /// Errors returned:
+    ///   - `error.MalformedSequence` if the decompressed sequence would be
+    ///     longer than `sequence_size_limit` or the sequence's offset is too
+    ///     large
+    ///   - `error.UnexpectedEndOfLiteralStream` if the decoder state's literal
+    ///     streams do not contain enough literals for the sequence (this may
+    ///     mean the literal stream or the sequence is malformed).
+    ///   - `error.OffsetCodeTooLarge` if an invalid offset code is found
+    ///   - `error.EndOfStream` if `bit_reader` does not contain enough bits
     pub fn decodeSequenceSlice(
         self: *DecodeState,
         dest: []u8,
@@ -336,7 +349,8 @@ pub const DecodeState = struct {
         return sequence_length;
     }
 
-    /// Decode one sequence from `bit_reader` into `dest`; see `decodeSequenceSlice`.
+    /// Decode one sequence from `bit_reader` into `dest`; see
+    /// `decodeSequenceSlice`.
     pub fn decodeSequenceRingBuffer(
         self: *DecodeState,
         dest: *RingBuffer,
@@ -364,7 +378,7 @@ pub const DecodeState = struct {
         try self.initLiteralStream(self.literal_streams.four[self.literal_stream_index]);
     }
 
-    pub fn initLiteralStream(self: *DecodeState, bytes: []const u8) error{BitStreamHasNoStartBit}!void {
+    fn initLiteralStream(self: *DecodeState, bytes: []const u8) error{BitStreamHasNoStartBit}!void {
         try self.literal_stream_reader.init(bytes);
     }
 
@@ -393,12 +407,14 @@ pub const DecodeState = struct {
         PrefixNotFound,
     } || LiteralBitsError;
 
-    /// Decode `len` bytes of literals into `dest`. `literals` should be the
-    /// `LiteralsSection` that was passed to `prepare()`. Returns
-    /// `error.MalformedLiteralsLength` if the number of literal bytes decoded by
-    /// `self` plus `len` is greater than the regenerated size of `literals`.
-    /// Returns `error.UnexpectedEndOfLiteralStream` and `error.PrefixNotFound` if
-    /// there are problems decoding Huffman compressed literals.
+    /// Decode `len` bytes of literals into `dest`.
+    ///
+    /// Errors returned:
+    ///   - `error.MalformedLiteralsLength` if the number of literal bytes
+    ///     decoded by `self` plus `len` is greater than the regenerated size of
+    ///     `literals`
+    ///   - `error.UnexpectedEndOfLiteralStream` and `error.PrefixNotFound` if
+    ///     there are problems decoding Huffman compressed literals
     pub fn decodeLiteralsSlice(
         self: *DecodeState,
         dest: []u8,
@@ -561,7 +577,6 @@ pub const DecodeState = struct {
 ///   - `error.MalformedRleBlock` if the block is an RLE block and `src.len < 1`
 ///   - `error.MalformedCompressedBlock` if there are errors decoding a
 ///     compressed block
-///   - `error.EndOfStream` if the sequence bit stream ends unexpectedly
 pub fn decodeBlock(
     dest: []u8,
     src: []const u8,
@@ -738,7 +753,8 @@ pub fn decodeBlockRingBuffer(
 /// `error.SequenceBufferTooSmall` are returned (the maximum block size is an
 /// upper bound for the size of both buffers). See `decodeBlock`
 /// and `decodeBlockRingBuffer` for function that can decode a block without
-/// these extra copies.
+/// these extra copies. `error.EndOfStream` is returned if `source` does not
+/// contain enough bytes.
 pub fn decodeBlockReader(
     dest: *RingBuffer,
     source: anytype,
@@ -820,6 +836,10 @@ pub fn decodeBlockHeader(src: *const [3]u8) frame.ZStandard.Block.Header {
     };
 }
 
+/// Decode the header of a block.
+///
+/// Errors returned:
+///   - `error.EndOfStream` if `src.len < 3`
 pub fn decodeBlockHeaderSlice(src: []const u8) error{EndOfStream}!frame.ZStandard.Block.Header {
     if (src.len < 3) return error.EndOfStream;
     return decodeBlockHeader(src[0..3]);
@@ -828,9 +848,14 @@ pub fn decodeBlockHeaderSlice(src: []const u8) error{EndOfStream}!frame.ZStandar
 /// Decode a `LiteralsSection` from `src`, incrementing `consumed_count` by the
 /// number of bytes the section uses.
 ///
-/// Errors:
-///   - returns `error.MalformedLiteralsHeader` if the header is invalid
-///   - returns `error.MalformedLiteralsSection` if there are errors decoding
+/// Errors returned:
+///   - `error.MalformedLiteralsHeader` if the header is invalid
+///   - `error.MalformedLiteralsSection` if there are decoding errors
+///   - `error.MalformedAccuracyLog` if compressed literals have invalid
+///     accuracy
+///   - `error.MalformedFseTable` if compressed literals have invalid FSE table
+///   - `error.MalformedHuffmanTree` if there are errors decoding a Huffamn tree
+///   - `error.EndOfStream` if there are not enough bytes in `src`
 pub fn decodeLiteralsSectionSlice(
     src: []const u8,
     consumed_count: *usize,
@@ -886,11 +911,7 @@ pub fn decodeLiteralsSectionSlice(
 }
 
 /// Decode a `LiteralsSection` from `src`, incrementing `consumed_count` by the
-/// number of bytes the section uses.
-///
-/// Errors:
-///   - returns `error.MalformedLiteralsHeader` if the header is invalid
-///   - returns `error.MalformedLiteralsSection` if there are errors decoding
+/// number of bytes the section uses. See `decodeLiterasSectionSlice()`.
 pub fn decodeLiteralsSection(
     source: anytype,
     buffer: []u8,
@@ -961,6 +982,9 @@ fn decodeStreams(size_format: u2, stream_data: []const u8) !LiteralsSection.Stre
 }
 
 /// Decode a literals section header.
+///
+/// Errors returned:
+///   - `error.EndOfStream` if there are not enough bytes in `source`
 pub fn decodeLiteralsHeader(source: anytype) !LiteralsSection.Header {
     const byte0 = try source.readByte();
     const block_type = @intToEnum(LiteralsSection.BlockType, byte0 & 0b11);
@@ -1011,9 +1035,9 @@ pub fn decodeLiteralsHeader(source: anytype) !LiteralsSection.Header {
 
 /// Decode a sequences section header.
 ///
-/// Errors:
-///   - returns `error.ReservedBitSet` is the reserved bit is set
-///   - returns `error.MalformedSequencesHeader` if the header is invalid
+/// Errors returned:
+///   - `error.ReservedBitSet` if the reserved bit is set
+///   - `error.EndOfStream` if there are not enough bytes in `source`
 pub fn decodeSequencesHeader(
     source: anytype,
 ) !SequencesSection.Header {
