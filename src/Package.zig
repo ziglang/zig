@@ -1,5 +1,6 @@
 const Package = @This();
 
+const builtin = @import("builtin");
 const std = @import("std");
 const fs = std.fs;
 const mem = std.mem;
@@ -298,16 +299,37 @@ fn fetchAndUnpack(
     // Check if the expected_hash is already present in the global package
     // cache, and thereby avoid both fetching and unpacking.
     if (expected_hash) |h| cached: {
-        if (h.len != 2 * Hash.digest_length) {
+        const hex_multihash_len = 2 * multihash_len;
+        if (h.len >= 2) {
+            const their_multihash_func = std.fmt.parseInt(u8, h[0..2], 16) catch |err| {
+                return reportError(
+                    ini,
+                    comp_directory,
+                    h.ptr,
+                    "invalid multihash value: unable to parse hash function: {s}",
+                    .{@errorName(err)},
+                );
+            };
+            if (@intToEnum(MultihashFunction, their_multihash_func) != multihash_function) {
+                return reportError(
+                    ini,
+                    comp_directory,
+                    h.ptr,
+                    "unsupported hash function: only sha2-256 is supported",
+                    .{},
+                );
+            }
+        }
+        if (h.len != hex_multihash_len) {
             return reportError(
                 ini,
                 comp_directory,
                 h.ptr,
                 "wrong hash size. expected: {d}, found: {d}",
-                .{ Hash.digest_length, h.len },
+                .{ hex_multihash_len, h.len },
             );
         }
-        const hex_digest = h[0 .. 2 * Hash.digest_length];
+        const hex_digest = h[0..hex_multihash_len];
         const pkg_dir_sub_path = "p" ++ s ++ hex_digest;
         var pkg_dir = global_cache_directory.handle.openDir(pkg_dir_sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => break :cached,
@@ -396,8 +418,8 @@ fn fetchAndUnpack(
     const pkg_dir_sub_path = "p" ++ s ++ hexDigest(actual_hash);
     try renameTmpIntoCache(global_cache_directory.handle, tmp_dir_sub_path, pkg_dir_sub_path);
 
+    const actual_hex = hexDigest(actual_hash);
     if (expected_hash) |h| {
-        const actual_hex = hexDigest(actual_hash);
         if (!mem.eql(u8, h, &actual_hex)) {
             return reportError(
                 ini,
@@ -413,7 +435,7 @@ fn fetchAndUnpack(
             comp_directory,
             url.ptr,
             "url field is missing corresponding hash field: hash={s}",
-            .{std.fmt.fmtSliceHexLower(&actual_hash)},
+            .{&actual_hex},
         );
     }
 
@@ -440,6 +462,12 @@ fn unpackTarball(
 
     try std.tar.pipeToFileSystem(out_dir, decompress.reader(), .{
         .strip_components = 1,
+        // TODO: we would like to set this to executable_bit_only, but two
+        // things need to happen before that:
+        // 1. the tar implementation needs to support it
+        // 2. the hashing algorithm here needs to support detecting the is_executable
+        //    bit on Windows from the ACLs (see the isExecutable function).
+        .mode_mode = .ignore,
     });
 }
 
@@ -468,7 +496,7 @@ const HashedFile = struct {
     hash: [Hash.digest_length]u8,
     failure: Error!void,
 
-    const Error = fs.File.OpenError || fs.File.ReadError;
+    const Error = fs.File.OpenError || fs.File.ReadError || fs.File.StatError;
 
     fn lessThan(context: void, lhs: *const HashedFile, rhs: *const HashedFile) bool {
         _ = context;
@@ -544,12 +572,27 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
     var buf: [8000]u8 = undefined;
     var file = try dir.openFile(hashed_file.path, .{});
     var hasher = Hash.init(.{});
+    hasher.update(hashed_file.path);
+    hasher.update(&.{ 0, @boolToInt(try isExecutable(file)) });
     while (true) {
         const bytes_read = try file.read(&buf);
         if (bytes_read == 0) break;
         hasher.update(buf[0..bytes_read]);
     }
     hasher.final(&hashed_file.hash);
+}
+
+fn isExecutable(file: fs.File) !bool {
+    if (builtin.os.tag == .windows) {
+        // TODO check the ACL on Windows.
+        // Until this is implemented, this could be a false negative on
+        // Windows, which is why we do not yet set executable_bit_only above
+        // when unpacking the tarball.
+        return false;
+    } else {
+        const stat = try file.stat();
+        return (stat.mode & std.os.S.IXUSR) != 0;
+    }
 }
 
 const hex_charset = "0123456789abcdef";
@@ -570,11 +613,30 @@ test hex64 {
     try std.testing.expectEqualStrings("[00efcdab78563412]", s);
 }
 
-fn hexDigest(digest: [Hash.digest_length]u8) [Hash.digest_length * 2]u8 {
-    var result: [Hash.digest_length * 2]u8 = undefined;
+const multihash_function: MultihashFunction = switch (Hash) {
+    std.crypto.hash.sha2.Sha256 => .@"sha2-256",
+    else => @compileError("unreachable"),
+};
+comptime {
+    // We avoid unnecessary uleb128 code in hexDigest by asserting here the
+    // values are small enough to be contained in the one-byte encoding.
+    assert(@enumToInt(multihash_function) < 127);
+    assert(Hash.digest_length < 127);
+}
+const multihash_len = 1 + 1 + Hash.digest_length;
+
+fn hexDigest(digest: [Hash.digest_length]u8) [multihash_len * 2]u8 {
+    var result: [multihash_len * 2]u8 = undefined;
+
+    result[0] = hex_charset[@enumToInt(multihash_function) >> 4];
+    result[1] = hex_charset[@enumToInt(multihash_function) & 15];
+
+    result[2] = hex_charset[Hash.digest_length >> 4];
+    result[3] = hex_charset[Hash.digest_length & 15];
+
     for (digest) |byte, i| {
-        result[i * 2 + 0] = hex_charset[byte >> 4];
-        result[i * 2 + 1] = hex_charset[byte & 15];
+        result[4 + i * 2] = hex_charset[byte >> 4];
+        result[5 + i * 2] = hex_charset[byte & 15];
     }
     return result;
 }
@@ -607,3 +669,21 @@ fn renameTmpIntoCache(
         break;
     }
 }
+
+const MultihashFunction = enum(u16) {
+    identity = 0x00,
+    sha1 = 0x11,
+    @"sha2-256" = 0x12,
+    @"sha2-512" = 0x13,
+    @"sha3-512" = 0x14,
+    @"sha3-384" = 0x15,
+    @"sha3-256" = 0x16,
+    @"sha3-224" = 0x17,
+    @"sha2-384" = 0x20,
+    @"sha2-256-trunc254-padded" = 0x1012,
+    @"sha2-224" = 0x1013,
+    @"sha2-512-224" = 0x1014,
+    @"sha2-512-256" = 0x1015,
+    @"blake2b-256" = 0xb220,
+    _,
+};
