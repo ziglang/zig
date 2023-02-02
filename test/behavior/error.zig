@@ -896,3 +896,18 @@ test "optional error union return type" {
     };
     try expect(1234 == try S.foo().?);
 }
+
+test "optional error set return type" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const E = error{ A, B };
+    const S = struct {
+        fn foo(return_null: bool) ?E {
+            return if (return_null) null else E.A;
+        }
+    };
+
+    try expect(null == S.foo(true));
+    try expect(E.A == S.foo(false).?);
+}
