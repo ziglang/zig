@@ -1145,7 +1145,8 @@ pub fn ArrayHashMapUnmanaged(
         }
 
         /// Create a copy of the hash map which can be modified separately.
-        /// The copy uses the same context and allocator as this instance.
+        /// The copy uses the same context as this instance, but is allocated
+        /// with the provided allocator.
         pub fn clone(self: Self, allocator: Allocator) !Self {
             if (@sizeOf(ByIndexContext) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call cloneContext instead.");

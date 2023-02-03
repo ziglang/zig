@@ -2057,7 +2057,7 @@ pub const File = struct {
         if (file.tree_loaded) return &file.tree;
 
         const source = try file.getSource(gpa);
-        file.tree = try std.zig.parse(gpa, source.bytes);
+        file.tree = try Ast.parse(gpa, source.bytes, .zig);
         file.tree_loaded = true;
         return &file.tree;
     }
@@ -3662,7 +3662,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     file.source = source;
     file.source_loaded = true;
 
-    file.tree = try std.zig.parse(gpa, source);
+    file.tree = try Ast.parse(gpa, source, .zig);
     defer if (!file.tree_loaded) file.tree.deinit(gpa);
 
     if (file.tree.errors.len != 0) {
@@ -3977,7 +3977,7 @@ pub fn populateBuiltinFile(mod: *Module) !void {
         else => |e| return e,
     }
 
-    file.tree = try std.zig.parse(gpa, file.source);
+    file.tree = try Ast.parse(gpa, file.source, .zig);
     file.tree_loaded = true;
     assert(file.tree.errors.len == 0); // builtin.zig must parse
 

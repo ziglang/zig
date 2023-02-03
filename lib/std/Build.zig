@@ -1496,8 +1496,8 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
         }
     }
 
-    const full_path = b.pathFromRoot("build.zig.ini");
-    std.debug.print("no dependency named '{s}' in '{s}'\n", .{ name, full_path });
+    const full_path = b.pathFromRoot("build.zig.zon");
+    std.debug.print("no dependency named '{s}' in '{s}'. All packages used in build.zig must be declared in this file.\n", .{ name, full_path });
     std.process.exit(1);
 }
 
