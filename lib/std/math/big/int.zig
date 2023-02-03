@@ -30,7 +30,7 @@ pub fn calcLimbLen(scalar: anytype) usize {
     }
 
     const w_value = std.math.absCast(scalar);
-    return @divFloor(@intCast(Limb, math.log2(w_value)), limb_bits) + 1;
+    return @intCast(usize, @divFloor(@intCast(Limb, math.log2(w_value)), limb_bits) + 1);
 }
 
 pub fn calcToStringLimbsBufferLen(a_len: usize, base: u8) usize {
@@ -238,10 +238,7 @@ pub const Mutable = struct {
                     var i: usize = 0;
                     while (true) : (i += 1) {
                         self.limbs[i] = @truncate(Limb, w_value);
-
-                        // TODO: shift == 64 at compile-time fails. Fails on u128 limbs.
-                        w_value >>= limb_bits / 2;
-                        w_value >>= limb_bits / 2;
+                        w_value >>= limb_bits;
 
                         if (w_value == 0) break;
                     }
@@ -258,9 +255,7 @@ pub const Mutable = struct {
                     comptime var i = 0;
                     inline while (true) : (i += 1) {
                         self.limbs[i] = w_value & mask;
-
-                        w_value >>= limb_bits / 2;
-                        w_value >>= limb_bits / 2;
+                        w_value >>= limb_bits;
 
                         if (w_value == 0) break;
                     }
