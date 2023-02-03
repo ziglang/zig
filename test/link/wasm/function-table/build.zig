@@ -1,29 +1,37 @@
 const std = @import("std");
-const Builder = std.build.Builder;
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
 
-    const import_table = b.addSharedLibrary("lib", "lib.zig", .unversioned);
-    import_table.setBuildMode(mode);
-    import_table.setTarget(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
+    const import_table = b.addSharedLibrary(.{
+        .name = "lib",
+        .root_source_file = .{ .path = "lib.zig" },
+        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+        .optimize = optimize,
+    });
     import_table.use_llvm = false;
     import_table.use_lld = false;
     import_table.import_table = true;
 
-    const export_table = b.addSharedLibrary("lib", "lib.zig", .unversioned);
-    export_table.setBuildMode(mode);
-    export_table.setTarget(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
+    const export_table = b.addSharedLibrary(.{
+        .name = "lib",
+        .root_source_file = .{ .path = "lib.zig" },
+        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+        .optimize = optimize,
+    });
     export_table.use_llvm = false;
     export_table.use_lld = false;
     export_table.export_table = true;
 
-    const regular_table = b.addSharedLibrary("lib", "lib.zig", .unversioned);
-    regular_table.setBuildMode(mode);
-    regular_table.setTarget(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
+    const regular_table = b.addSharedLibrary(.{
+        .name = "lib",
+        .root_source_file = .{ .path = "lib.zig" },
+        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+        .optimize = optimize,
+    });
     regular_table.use_llvm = false;
     regular_table.use_lld = false;
 

@@ -1,14 +1,18 @@
 const std = @import("std");
 
-pub fn build(b: *std.build.Builder) void {
-    const mode = b.standardReleaseOptions();
-
+pub fn build(b: *std.Build) void {
     // Library with explicitly set cpu features
-    const lib = b.addSharedLibrary("lib", "main.zig", .unversioned);
-    lib.setTarget(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
-    lib.target.cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp };
-    lib.target.cpu_features_add.addFeature(0); // index 0 == atomics (see std.Target.wasm.Features)
-    lib.setBuildMode(mode);
+    const lib = b.addSharedLibrary(.{
+        .name = "lib",
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = b.standardOptimizeOption(.{}),
+        .target = .{
+            .cpu_arch = .wasm32,
+            .cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp },
+            .cpu_features_add = std.Target.wasm.featureSet(&.{.atomics}),
+            .os_tag = .freestanding,
+        },
+    });
     lib.use_llvm = false;
     lib.use_lld = false;
 

@@ -22,7 +22,7 @@ const UefiPoolAllocator = struct {
 
         assert(len > 0);
 
-        const ptr_align = 1 << log2_ptr_align;
+        const ptr_align = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_ptr_align);
 
         const metadata_len = mem.alignForward(@sizeOf(usize), ptr_align);
 

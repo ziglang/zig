@@ -166,7 +166,7 @@ pub const GetNameError = error{
 
 pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]const u8 {
     buffer_ptr[max_name_len] = 0;
-    var buffer = std.mem.span(buffer_ptr);
+    var buffer: [:0]u8 = buffer_ptr;
 
     switch (target.os.tag) {
         .linux => if (use_pthreads and is_gnu) {

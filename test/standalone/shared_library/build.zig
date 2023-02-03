@@ -1,12 +1,21 @@
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
-    const lib = b.addSharedLibrary("mathtest", "mathtest.zig", b.version(1, 0, 0));
-    lib.setTarget(target);
+    const lib = b.addSharedLibrary(.{
+        .name = "mathtest",
+        .root_source_file = .{ .path = "mathtest.zig" },
+        .version = .{ .major = 1, .minor = 0 },
+        .target = target,
+        .optimize = optimize,
+    });
 
-    const exe = b.addExecutable("test", null);
-    exe.setTarget(target);
+    const exe = b.addExecutable(.{
+        .name = "test",
+        .target = target,
+        .optimize = optimize,
+    });
     exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
     exe.linkLibrary(lib);
     exe.linkSystemLibrary("c");

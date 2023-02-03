@@ -1,19 +1,17 @@
 const std = @import("../std.zig");
 const mem = std.mem;
 const fs = std.fs;
-const build = @import("../build.zig");
-const Step = build.Step;
-const Builder = build.Builder;
-const InstallDir = std.build.InstallDir;
+const Step = std.Build.Step;
+const InstallDir = std.Build.InstallDir;
 const InstallDirStep = @This();
 const log = std.log;
 
 step: Step,
-builder: *Builder,
+builder: *std.Build,
 options: Options,
 /// This is used by the build system when a file being installed comes from one
 /// package but is being installed by another.
-override_source_builder: ?*Builder = null,
+override_source_builder: ?*std.Build = null,
 
 pub const base_id = .install_dir;
 
@@ -31,7 +29,7 @@ pub const Options = struct {
     /// `@import("test.zig")` would be a compile error.
     blank_extensions: []const []const u8 = &.{},
 
-    fn dupe(self: Options, b: *Builder) Options {
+    fn dupe(self: Options, b: *std.Build) Options {
         return .{
             .source_dir = b.dupe(self.source_dir),
             .install_dir = self.install_dir.dupe(b),
@@ -43,7 +41,7 @@ pub const Options = struct {
 };
 
 pub fn init(
-    builder: *Builder,
+    builder: *std.Build,
     options: Options,
 ) InstallDirStep {
     builder.pushInstalledFile(options.install_dir, options.install_subdir);

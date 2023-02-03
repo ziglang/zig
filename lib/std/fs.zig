@@ -834,7 +834,7 @@ pub const IterableDir = struct {
                         self.end_index = self.index; // Force fd_readdir in the next loop.
                         continue :start_over;
                     }
-                    const name = mem.span(self.buf[name_index .. name_index + entry.d_namlen]);
+                    const name = self.buf[name_index .. name_index + entry.d_namlen];
 
                     const next_index = name_index + entry.d_namlen;
                     self.index = next_index;
@@ -1763,7 +1763,7 @@ pub const Dir = struct {
         var nt_name = w.UNICODE_STRING{
             .Length = path_len_bytes,
             .MaximumLength = path_len_bytes,
-            .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+            .Buffer = @qualCast([*:0]u16, sub_path_w),
         };
         var attr = w.OBJECT_ATTRIBUTES{
             .Length = @sizeOf(w.OBJECT_ATTRIBUTES),

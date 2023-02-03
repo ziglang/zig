@@ -27,42 +27,44 @@ alignment: u32,
 
 /// Points to the previous and next neighbors, based on the `text_offset`.
 /// This can be used to find, for example, the capacity of this `Atom`.
-prev: ?*Atom,
-next: ?*Atom,
+prev_index: ?Index,
+next_index: ?Index,
 
-pub const empty = Atom{
-    .sym_index = 0,
-    .file = null,
-    .size = 0,
-    .alignment = 0,
-    .prev = null,
-    .next = null,
-};
+pub const Index = u32;
+
+pub fn getSymbolIndex(self: Atom) ?u32 {
+    if (self.sym_index == 0) return null;
+    return self.sym_index;
+}
 
 /// Returns symbol referencing this atom.
 pub fn getSymbol(self: Atom, coff_file: *const Coff) *const coff.Symbol {
+    const sym_index = self.getSymbolIndex().?;
     return coff_file.getSymbol(.{
-        .sym_index = self.sym_index,
+        .sym_index = sym_index,
         .file = self.file,
     });
 }
 
 /// Returns pointer-to-symbol referencing this atom.
 pub fn getSymbolPtr(self: Atom, coff_file: *Coff) *coff.Symbol {
+    const sym_index = self.getSymbolIndex().?;
     return coff_file.getSymbolPtr(.{
-        .sym_index = self.sym_index,
+        .sym_index = sym_index,
         .file = self.file,
     });
 }
 
 pub fn getSymbolWithLoc(self: Atom) SymbolWithLoc {
-    return .{ .sym_index = self.sym_index, .file = self.file };
+    const sym_index = self.getSymbolIndex().?;
+    return .{ .sym_index = sym_index, .file = self.file };
 }
 
 /// Returns the name of this atom.
 pub fn getName(self: Atom, coff_file: *const Coff) []const u8 {
+    const sym_index = self.getSymbolIndex().?;
     return coff_file.getSymbolName(.{
-        .sym_index = self.sym_index,
+        .sym_index = sym_index,
         .file = self.file,
     });
 }
@@ -70,7 +72,8 @@ pub fn getName(self: Atom, coff_file: *const Coff) []const u8 {
 /// Returns how much room there is to grow in virtual address space.
 pub fn capacity(self: Atom, coff_file: *const Coff) u32 {
     const self_sym = self.getSymbol(coff_file);
-    if (self.next) |next| {
+    if (self.next_index) |next_index| {
+        const next = coff_file.getAtom(next_index);
         const next_sym = next.getSymbol(coff_file);
         return next_sym.value - self_sym.value;
     } else {
@@ -82,7 +85,8 @@ pub fn capacity(self: Atom, coff_file: *const Coff) u32 {
 
 pub fn freeListEligible(self: Atom, coff_file: *const Coff) bool {
     // No need to keep a free list node for the last atom.
-    const next = self.next orelse return false;
+    const next_index = self.next_index orelse return false;
+    const next = coff_file.getAtom(next_index);
     const self_sym = self.getSymbol(coff_file);
     const next_sym = next.getSymbol(coff_file);
     const cap = next_sym.value - self_sym.value;
@@ -92,22 +96,33 @@ pub fn freeListEligible(self: Atom, coff_file: *const Coff) bool {
     return surplus >= Coff.min_text_capacity;
 }
 
-pub fn addRelocation(self: *Atom, coff_file: *Coff, reloc: Relocation) !void {
+pub fn addRelocation(coff_file: *Coff, atom_index: Index, reloc: Relocation) !void {
     const gpa = coff_file.base.allocator;
     log.debug("  (adding reloc of type {s} to target %{d})", .{ @tagName(reloc.type), reloc.target.sym_index });
-    const gop = try coff_file.relocs.getOrPut(gpa, self);
+    const gop = try coff_file.relocs.getOrPut(gpa, atom_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
     try gop.value_ptr.append(gpa, reloc);
 }
 
-pub fn addBaseRelocation(self: *Atom, coff_file: *Coff, offset: u32) !void {
+pub fn addBaseRelocation(coff_file: *Coff, atom_index: Index, offset: u32) !void {
     const gpa = coff_file.base.allocator;
-    log.debug("  (adding base relocation at offset 0x{x} in %{d})", .{ offset, self.sym_index });
-    const gop = try coff_file.base_relocs.getOrPut(gpa, self);
+    log.debug("  (adding base relocation at offset 0x{x} in %{d})", .{
+        offset,
+        coff_file.getAtom(atom_index).getSymbolIndex().?,
+    });
+    const gop = try coff_file.base_relocs.getOrPut(gpa, atom_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
     try gop.value_ptr.append(gpa, offset);
+}
+
+pub fn freeRelocations(coff_file: *Coff, atom_index: Index) void {
+    const gpa = coff_file.base.allocator;
+    var removed_relocs = coff_file.relocs.fetchRemove(atom_index);
+    if (removed_relocs) |*relocs| relocs.value.deinit(gpa);
+    var removed_base_relocs = coff_file.base_relocs.fetchRemove(atom_index);
+    if (removed_base_relocs) |*base_relocs| base_relocs.value.deinit(gpa);
 }

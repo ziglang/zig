@@ -4,7 +4,6 @@ const std = @import("std");
 const types = @import("types.zig");
 const Wasm = @import("../Wasm.zig");
 const Symbol = @import("Symbol.zig");
-const Dwarf = @import("../Dwarf.zig");
 
 const leb = std.leb;
 const log = std.log.scoped(.link);
@@ -30,17 +29,17 @@ file: ?u16,
 
 /// Next atom in relation to this atom.
 /// When null, this atom is the last atom
-next: ?*Atom,
+next: ?Atom.Index,
 /// Previous atom in relation to this atom.
 /// is null when this atom is the first in its order
-prev: ?*Atom,
+prev: ?Atom.Index,
 
 /// Contains atoms local to a decl, all managed by this `Atom`.
 /// When the parent atom is being freed, it will also do so for all local atoms.
-locals: std.ArrayListUnmanaged(Atom) = .{},
+locals: std.ArrayListUnmanaged(Atom.Index) = .{},
 
-/// Represents the debug Atom that holds all debug information of this Atom.
-dbg_info_atom: Dwarf.Atom,
+/// Alias to an unsigned 32-bit integer
+pub const Index = u32;
 
 /// Represents a default empty wasm `Atom`
 pub const empty: Atom = .{
@@ -51,18 +50,15 @@ pub const empty: Atom = .{
     .prev = null,
     .size = 0,
     .sym_index = 0,
-    .dbg_info_atom = undefined,
 };
 
 /// Frees all resources owned by this `Atom`.
-pub fn deinit(atom: *Atom, gpa: Allocator) void {
+pub fn deinit(atom: *Atom, wasm: *Wasm) void {
+    const gpa = wasm.base.allocator;
     atom.relocs.deinit(gpa);
     atom.code.deinit(gpa);
-
-    for (atom.locals.items) |*local| {
-        local.deinit(gpa);
-    }
     atom.locals.deinit(gpa);
+    atom.* = undefined;
 }
 
 /// Sets the length of relocations and code to '0',
@@ -83,16 +79,14 @@ pub fn format(atom: Atom, comptime fmt: []const u8, options: std.fmt.FormatOptio
     });
 }
 
-/// Returns the first `Atom` from a given atom
-pub fn getFirst(atom: *Atom) *Atom {
-    var tmp = atom;
-    while (tmp.prev) |prev| tmp = prev;
-    return tmp;
-}
-
 /// Returns the location of the symbol that represents this `Atom`
 pub fn symbolLoc(atom: Atom) Wasm.SymbolLoc {
     return .{ .file = atom.file, .index = atom.sym_index };
+}
+
+pub fn getSymbolIndex(atom: Atom) ?u32 {
+    if (atom.sym_index == 0) return null;
+    return atom.sym_index;
 }
 
 /// Returns the virtual address of the `Atom`. This is the address starting
@@ -192,20 +186,28 @@ fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wa
             if (symbol.isUndefined()) {
                 return 0;
             }
-            const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
+            const target_atom_index = wasm_bin.symbol_atom.get(target_loc) orelse {
+                // this can only occur during incremental-compilation when a relocation
+                // still points to a freed decl. It is fine to emit the value 0 here
+                // as no actual code will point towards it.
+                return 0;
+            };
+            const target_atom = wasm_bin.getAtom(target_atom_index);
             const va = @intCast(i32, target_atom.getVA(wasm_bin, symbol));
             return @intCast(u32, va + relocation.addend);
         },
         .R_WASM_EVENT_INDEX_LEB => return symbol.index,
         .R_WASM_SECTION_OFFSET_I32 => {
-            const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
+            const target_atom_index = wasm_bin.symbol_atom.get(target_loc).?;
+            const target_atom = wasm_bin.getAtom(target_atom_index);
             const rel_value = @intCast(i32, target_atom.offset) + relocation.addend;
             return @intCast(u32, rel_value);
         },
         .R_WASM_FUNCTION_OFFSET_I32 => {
-            const target_atom = wasm_bin.symbol_atom.get(target_loc) orelse {
+            const target_atom_index = wasm_bin.symbol_atom.get(target_loc) orelse {
                 return @bitCast(u32, @as(i32, -1));
             };
+            const target_atom = wasm_bin.getAtom(target_atom_index);
             const offset: u32 = 11 + Wasm.getULEB128Size(target_atom.size); // Header (11 bytes fixed-size) + body size (leb-encoded)
             const rel_value = @intCast(i32, target_atom.offset + offset) + relocation.addend;
             return @intCast(u32, rel_value);

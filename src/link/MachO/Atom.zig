@@ -13,7 +13,6 @@ const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
-const Dwarf = @import("../Dwarf.zig");
 const MachO = @import("../MachO.zig");
 const Relocation = @import("Relocation.zig");
 const SymbolWithLoc = MachO.SymbolWithLoc;
@@ -39,10 +38,11 @@ size: u64,
 alignment: u32,
 
 /// Points to the previous and next neighbours
-next: ?*Atom,
-prev: ?*Atom,
+/// TODO use the same trick as with symbols: reserve index 0 as null atom
+next_index: ?Index,
+prev_index: ?Index,
 
-dbg_info_atom: Dwarf.Atom,
+pub const Index = u32;
 
 pub const Binding = struct {
     target: SymbolWithLoc,
@@ -54,15 +54,10 @@ pub const SymbolAtOffset = struct {
     offset: u64,
 };
 
-pub const empty = Atom{
-    .sym_index = 0,
-    .file = null,
-    .size = 0,
-    .alignment = 0,
-    .prev = null,
-    .next = null,
-    .dbg_info_atom = undefined,
-};
+pub fn getSymbolIndex(self: Atom) ?u32 {
+    if (self.sym_index == 0) return null;
+    return self.sym_index;
+}
 
 /// Returns symbol referencing this atom.
 pub fn getSymbol(self: Atom, macho_file: *MachO) macho.nlist_64 {
@@ -71,20 +66,23 @@ pub fn getSymbol(self: Atom, macho_file: *MachO) macho.nlist_64 {
 
 /// Returns pointer-to-symbol referencing this atom.
 pub fn getSymbolPtr(self: Atom, macho_file: *MachO) *macho.nlist_64 {
+    const sym_index = self.getSymbolIndex().?;
     return macho_file.getSymbolPtr(.{
-        .sym_index = self.sym_index,
+        .sym_index = sym_index,
         .file = self.file,
     });
 }
 
 pub fn getSymbolWithLoc(self: Atom) SymbolWithLoc {
-    return .{ .sym_index = self.sym_index, .file = self.file };
+    const sym_index = self.getSymbolIndex().?;
+    return .{ .sym_index = sym_index, .file = self.file };
 }
 
 /// Returns the name of this atom.
 pub fn getName(self: Atom, macho_file: *MachO) []const u8 {
+    const sym_index = self.getSymbolIndex().?;
     return macho_file.getSymbolName(.{
-        .sym_index = self.sym_index,
+        .sym_index = sym_index,
         .file = self.file,
     });
 }
@@ -94,7 +92,8 @@ pub fn getName(self: Atom, macho_file: *MachO) []const u8 {
 /// this calculation.
 pub fn capacity(self: Atom, macho_file: *MachO) u64 {
     const self_sym = self.getSymbol(macho_file);
-    if (self.next) |next| {
+    if (self.next_index) |next_index| {
+        const next = macho_file.getAtom(next_index);
         const next_sym = next.getSymbol(macho_file);
         return next_sym.n_value - self_sym.n_value;
     } else {
@@ -106,7 +105,8 @@ pub fn capacity(self: Atom, macho_file: *MachO) u64 {
 
 pub fn freeListEligible(self: Atom, macho_file: *MachO) bool {
     // No need to keep a free list node for the last atom.
-    const next = self.next orelse return false;
+    const next_index = self.next_index orelse return false;
+    const next = macho_file.getAtom(next_index);
     const self_sym = self.getSymbol(macho_file);
     const next_sym = next.getSymbol(macho_file);
     const cap = next_sym.n_value - self_sym.n_value;
@@ -116,19 +116,19 @@ pub fn freeListEligible(self: Atom, macho_file: *MachO) bool {
     return surplus >= MachO.min_text_capacity;
 }
 
-pub fn addRelocation(self: *Atom, macho_file: *MachO, reloc: Relocation) !void {
-    return self.addRelocations(macho_file, 1, .{reloc});
+pub fn addRelocation(macho_file: *MachO, atom_index: Index, reloc: Relocation) !void {
+    return addRelocations(macho_file, atom_index, 1, .{reloc});
 }
 
 pub fn addRelocations(
-    self: *Atom,
     macho_file: *MachO,
+    atom_index: Index,
     comptime count: comptime_int,
     relocs: [count]Relocation,
 ) !void {
     const gpa = macho_file.base.allocator;
     const target = macho_file.base.options.target;
-    const gop = try macho_file.relocs.getOrPut(gpa, self);
+    const gop = try macho_file.relocs.getOrPut(gpa, atom_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
@@ -142,56 +142,72 @@ pub fn addRelocations(
     }
 }
 
-pub fn addRebase(self: *Atom, macho_file: *MachO, offset: u32) !void {
+pub fn addRebase(macho_file: *MachO, atom_index: Index, offset: u32) !void {
     const gpa = macho_file.base.allocator;
-    log.debug("  (adding rebase at offset 0x{x} in %{d})", .{ offset, self.sym_index });
-    const gop = try macho_file.rebases.getOrPut(gpa, self);
+    const atom = macho_file.getAtom(atom_index);
+    log.debug("  (adding rebase at offset 0x{x} in %{?d})", .{ offset, atom.getSymbolIndex() });
+    const gop = try macho_file.rebases.getOrPut(gpa, atom_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
     try gop.value_ptr.append(gpa, offset);
 }
 
-pub fn addBinding(self: *Atom, macho_file: *MachO, binding: Binding) !void {
+pub fn addBinding(macho_file: *MachO, atom_index: Index, binding: Binding) !void {
     const gpa = macho_file.base.allocator;
-    log.debug("  (adding binding to symbol {s} at offset 0x{x} in %{d})", .{
+    const atom = macho_file.getAtom(atom_index);
+    log.debug("  (adding binding to symbol {s} at offset 0x{x} in %{?d})", .{
         macho_file.getSymbolName(binding.target),
         binding.offset,
-        self.sym_index,
+        atom.getSymbolIndex(),
     });
-    const gop = try macho_file.bindings.getOrPut(gpa, self);
+    const gop = try macho_file.bindings.getOrPut(gpa, atom_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
     try gop.value_ptr.append(gpa, binding);
 }
 
-pub fn addLazyBinding(self: *Atom, macho_file: *MachO, binding: Binding) !void {
+pub fn addLazyBinding(macho_file: *MachO, atom_index: Index, binding: Binding) !void {
     const gpa = macho_file.base.allocator;
-    log.debug("  (adding lazy binding to symbol {s} at offset 0x{x} in %{d})", .{
+    const atom = macho_file.getAtom(atom_index);
+    log.debug("  (adding lazy binding to symbol {s} at offset 0x{x} in %{?d})", .{
         macho_file.getSymbolName(binding.target),
         binding.offset,
-        self.sym_index,
+        atom.getSymbolIndex(),
     });
-    const gop = try macho_file.lazy_bindings.getOrPut(gpa, self);
+    const gop = try macho_file.lazy_bindings.getOrPut(gpa, atom_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
     try gop.value_ptr.append(gpa, binding);
 }
 
-pub fn resolveRelocations(self: *Atom, macho_file: *MachO) !void {
-    const relocs = macho_file.relocs.get(self) orelse return;
-    const source_sym = self.getSymbol(macho_file);
+pub fn resolveRelocations(macho_file: *MachO, atom_index: Index) !void {
+    const atom = macho_file.getAtom(atom_index);
+    const relocs = macho_file.relocs.get(atom_index) orelse return;
+    const source_sym = atom.getSymbol(macho_file);
     const source_section = macho_file.sections.get(source_sym.n_sect - 1).header;
     const file_offset = source_section.offset + source_sym.n_value - source_section.addr;
 
-    log.debug("relocating '{s}'", .{self.getName(macho_file)});
+    log.debug("relocating '{s}'", .{atom.getName(macho_file)});
 
     for (relocs.items) |*reloc| {
         if (!reloc.dirty) continue;
 
-        try reloc.resolve(self, macho_file, file_offset);
+        try reloc.resolve(macho_file, atom_index, file_offset);
         reloc.dirty = false;
     }
+}
+
+pub fn freeRelocations(macho_file: *MachO, atom_index: Index) void {
+    const gpa = macho_file.base.allocator;
+    var removed_relocs = macho_file.relocs.fetchOrderedRemove(atom_index);
+    if (removed_relocs) |*relocs| relocs.value.deinit(gpa);
+    var removed_rebases = macho_file.rebases.fetchOrderedRemove(atom_index);
+    if (removed_rebases) |*rebases| rebases.value.deinit(gpa);
+    var removed_bindings = macho_file.bindings.fetchOrderedRemove(atom_index);
+    if (removed_bindings) |*bindings| bindings.value.deinit(gpa);
+    var removed_lazy_bindings = macho_file.lazy_bindings.fetchOrderedRemove(atom_index);
+    if (removed_lazy_bindings) |*lazy_bindings| lazy_bindings.value.deinit(gpa);
 }

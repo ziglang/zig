@@ -29,33 +29,35 @@ pub fn fmtType(self: Relocation, target: std.Target) []const u8 {
     }
 }
 
-pub fn getTargetAtom(self: Relocation, macho_file: *MachO) ?*Atom {
+pub fn getTargetAtomIndex(self: Relocation, macho_file: *MachO) ?Atom.Index {
     switch (macho_file.base.options.target.cpu.arch) {
         .aarch64 => switch (@intToEnum(macho.reloc_type_arm64, self.type)) {
             .ARM64_RELOC_GOT_LOAD_PAGE21,
             .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
             .ARM64_RELOC_POINTER_TO_GOT,
-            => return macho_file.getGotAtomForSymbol(self.target),
+            => return macho_file.getGotAtomIndexForSymbol(self.target),
             else => {},
         },
         .x86_64 => switch (@intToEnum(macho.reloc_type_x86_64, self.type)) {
             .X86_64_RELOC_GOT,
             .X86_64_RELOC_GOT_LOAD,
-            => return macho_file.getGotAtomForSymbol(self.target),
+            => return macho_file.getGotAtomIndexForSymbol(self.target),
             else => {},
         },
         else => unreachable,
     }
-    if (macho_file.getStubsAtomForSymbol(self.target)) |stubs_atom| return stubs_atom;
-    return macho_file.getAtomForSymbol(self.target);
+    if (macho_file.getStubsAtomIndexForSymbol(self.target)) |stubs_atom| return stubs_atom;
+    return macho_file.getAtomIndexForSymbol(self.target);
 }
 
-pub fn resolve(self: Relocation, atom: *Atom, macho_file: *MachO, base_offset: u64) !void {
+pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, base_offset: u64) !void {
     const arch = macho_file.base.options.target.cpu.arch;
+    const atom = macho_file.getAtom(atom_index);
     const source_sym = atom.getSymbol(macho_file);
     const source_addr = source_sym.n_value + self.offset;
 
-    const target_atom = self.getTargetAtom(macho_file) orelse return;
+    const target_atom_index = self.getTargetAtomIndex(macho_file) orelse return;
+    const target_atom = macho_file.getAtom(target_atom_index);
     const target_addr = @intCast(i64, target_atom.getSymbol(macho_file).n_value) + self.addend;
 
     log.debug("  ({x}: [() => 0x{x} ({s})) ({s})", .{

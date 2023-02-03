@@ -1,13 +1,20 @@
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
 
-    const hello = b.addExecutable("hello", "hello.zig");
-    hello.setBuildMode(mode);
+    const hello = b.addExecutable(.{
+        .name = "hello",
+        .root_source_file = .{ .path = "hello.zig" },
+        .optimize = optimize,
+    });
 
-    const main = b.addExecutable("main", "main.zig");
-    main.setBuildMode(mode);
+    const main = b.addExecutable(.{
+        .name = "main",
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = optimize,
+    });
+
     const run = main.run();
     run.addArtifactArg(hello);
 

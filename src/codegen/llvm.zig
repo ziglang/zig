@@ -19,7 +19,6 @@ const Liveness = @import("../Liveness.zig");
 const Value = @import("../value.zig").Value;
 const Type = @import("../type.zig").Type;
 const LazySrcLoc = Module.LazySrcLoc;
-const CType = @import("../type.zig").CType;
 const x86_64_abi = @import("../arch/x86_64/abi.zig");
 const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
@@ -11057,8 +11056,8 @@ fn backendSupportsF128(target: std.Target) bool {
 fn intrinsicsAllowed(scalar_ty: Type, target: std.Target) bool {
     return switch (scalar_ty.tag()) {
         .f16 => backendSupportsF16(target),
-        .f80 => (CType.longdouble.sizeInBits(target) == 80) and backendSupportsF80(target),
-        .f128 => (CType.longdouble.sizeInBits(target) == 128) and backendSupportsF128(target),
+        .f80 => (target.c_type_bit_size(.longdouble) == 80) and backendSupportsF80(target),
+        .f128 => (target.c_type_bit_size(.longdouble) == 128) and backendSupportsF128(target),
         else => true,
     };
 }

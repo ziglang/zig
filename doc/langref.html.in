@@ -871,6 +871,13 @@ pub fn main() void {
       However, it is possible to embed non-UTF-8 bytes into a string literal using <code>\xNN</code> notation.
       </p>
       <p>
+      Indexing into a string containing non-ASCII bytes will return individual bytes, whether valid
+      UTF-8 or not.
+      The {#link|Zig Standard Library#} provides routines for checking the validity of UTF-8 encoded
+      strings, accessing their code points and other encoding/decoding related tasks in
+      {#syntax#}std.unicode{#endsyntax#}.
+      </p>
+      <p>
       Unicode code point literals have type {#syntax#}comptime_int{#endsyntax#}, the same as
       {#link|Integer Literals#}. All {#link|Escape Sequences#} are valid in both string literals
       and Unicode code point literals.
@@ -894,9 +901,12 @@ pub fn main() void {
     print("{}\n", .{'e' == '\x65'});                    // true
     print("{d}\n", .{'\u{1f4a9}'});                     // 128169
     print("{d}\n", .{'💯'});                            // 128175
-    print("{}\n", .{mem.eql(u8, "hello", "h\x65llo")}); // true
-    print("0x{x}\n", .{"\xff"[0]}); // non-UTF-8 strings are possible with \xNN notation.
     print("{u}\n", .{'⚡'});
+    print("{}\n", .{mem.eql(u8, "hello", "h\x65llo")});      // true
+    print("{}\n", .{mem.eql(u8, "💯", "\xf0\x9f\x92\xaf")}); // also true
+    const invalid_utf8 = "\xff\xfe";      // non-UTF-8 strings are possible with \xNN notation.
+    print("0x{x}\n", .{invalid_utf8[1]}); // indexing them returns individual bytes...
+    print("0x{x}\n", .{"💯"[1]});    // ...as does indexing part-way through non-ASCII characters
 }
       {#code_end#}
       {#see_also|Arrays|Source Encoding#}
@@ -8799,6 +8809,15 @@ pub const PrefetchOptions = struct {
       {#link|Optional Pointers#} are allowed. Casting an optional pointer which is {#link|null#}
       to a non-optional pointer invokes safety-checked {#link|Undefined Behavior#}.
       </p>
+      <p>
+      {#syntax#}@ptrCast{#endsyntax#} cannot be used for:
+      </p>
+      <ul>
+          <li>Removing {#syntax#}const{#endsyntax#} or {#syntax#}volatile{#endsyntax#} qualifier, use {#link|@qualCast#}.</li>
+          <li>Changing pointer address space, use {#link|@addrSpaceCast#}.</li>
+          <li>Increasing pointer alignment, use {#link|@alignCast#}.</li>
+          <li>Casting a non-slice pointer to a slice, use slicing syntax {#syntax#}ptr[start..end]{#endsyntax#}.</li>
+      </ul>
       {#header_close#}
 
       {#header_open|@ptrToInt#}
@@ -8809,6 +8828,13 @@ pub const PrefetchOptions = struct {
       </p>
       <p>To convert the other way, use {#link|@intToPtr#}</p>
 
+      {#header_close#}
+
+      {#header_open|@qualCast#}
+      <pre>{#syntax#}@qualCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
+      <p>
+      Remove {#syntax#}const{#endsyntax#} or {#syntax#}volatile{#endsyntax#} qualifier from a pointer.
+      </p>
       {#header_close#}
 
       {#header_open|@rem#}
@@ -9180,8 +9206,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@sin#}
@@ -9191,8 +9216,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
 
@@ -9203,8 +9227,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
 
@@ -9215,8 +9238,7 @@ fn doTheTest() !void {
       Uses a dedicated hardware instruction when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
 
@@ -9227,8 +9249,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@exp2#}
@@ -9238,8 +9259,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@log#}
@@ -9249,8 +9269,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@log2#}
@@ -9260,8 +9279,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@log10#}
@@ -9271,8 +9289,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@fabs#}
@@ -9282,8 +9299,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@floor#}
@@ -9293,8 +9309,7 @@ fn doTheTest() !void {
       Uses a dedicated hardware instruction when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@ceil#}
@@ -9304,8 +9319,7 @@ fn doTheTest() !void {
       Uses a dedicated hardware instruction when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@trunc#}
@@ -9315,8 +9329,7 @@ fn doTheTest() !void {
       Uses a dedicated hardware instruction when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
       {#header_open|@round#}
@@ -9326,8 +9339,7 @@ fn doTheTest() !void {
       when available.
       </p>
       <p>
-      Supports {#link|Floats#} and {#link|Vectors#} of floats, with the caveat that
-      <a href="https://github.com/ziglang/zig/issues/4026">some float operations are not yet implemented for all float types</a>.
+      Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
       {#header_close#}
 
@@ -9528,11 +9540,15 @@ fn foo(comptime T: type, ptr: *T) T {
       To add standard build options to a <code class="file">build.zig</code> file:
       </p>
       {#code_begin|syntax|build#}
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
-    const exe = b.addExecutable("example", "example.zig");
-    exe.setBuildMode(b.standardReleaseOptions());
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
+    const exe = b.addExecutable(.{
+        .name = "example",
+        .root_source_file = .{ .path = "example.zig" },
+        .optimize = optimize,
+    });
     b.default_step.dependOn(&exe.step);
 }
       {#code_end#}
@@ -10547,22 +10563,26 @@ const separator = if (builtin.os.tag == .windows) '\\' else '/';
       <p>This <code class="file">build.zig</code> file is automatically generated
         by <kbd>zig init-exe</kbd>.</p>
       {#code_begin|syntax|build_executable#}
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *std.Build) void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
     // for restricting supported target set are available.
     const target = b.standardTargetOptions(.{});
 
-    // Standard release options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
-    const mode = b.standardReleaseOptions();
+    // Standard optimization options allow the person running `zig build` to select
+    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
+    // set a preferred release mode, allowing the user to decide how to optimize.
+    const optimize = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable("example", "src/main.zig");
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
+    const exe = b.addExecutable(.{
+        .name = "example",
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
     exe.install();
 
     const run_cmd = exe.run();
@@ -10581,16 +10601,21 @@ pub fn build(b: *Builder) void {
       <p>This <code class="file">build.zig</code> file is automatically generated
         by <kbd>zig init-lib</kbd>.</p>
       {#code_begin|syntax|build_library#}
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
-    const lib = b.addStaticLibrary("example", "src/main.zig");
-    lib.setBuildMode(mode);
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
+    const lib = b.addStaticLibrary(.{
+        .name = "example",
+        .root_source_file = .{ .path = "src/main.zig" },
+        .optimize = optimize,
+    });
     lib.install();
 
-    var main_tests = b.addTest("src/main.zig");
-    main_tests.setBuildMode(mode);
+    const main_tests = b.addTest(.{
+        .root_source_file = .{ .path = "src/main.zig" },
+        .optimize = optimize,
+    });
 
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
@@ -10949,12 +10974,17 @@ int main(int argc, char **argv) {
 }
       {#end_syntax_block#}
       {#code_begin|syntax|build_c#}
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
-    const lib = b.addSharedLibrary("mathtest", "mathtest.zig", b.version(1, 0, 0));
-
-    const exe = b.addExecutable("test", null);
+pub fn build(b: *std.Build) void {
+    const lib = b.addSharedLibrary(.{
+        .name = "mathtest",
+        .root_source_file = .{ .path = "mathtest.zig" },
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
+    });
+    const exe = b.addExecutable(.{
+        .name = "test",
+    });
     exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
     exe.linkLibrary(lib);
     exe.linkSystemLibrary("c");
@@ -11011,12 +11041,17 @@ int main(int argc, char **argv) {
 }
       {#end_syntax_block#}
       {#code_begin|syntax|build_object#}
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
-    const obj = b.addObject("base64", "base64.zig");
+pub fn build(b: *std.Build) void {
+    const obj = b.addObject(.{
+        .name = "base64",
+        .root_source_file = .{ .path = "base64.zig" },
+    });
 
-    const exe = b.addExecutable("test", null);
+    const exe = b.addExecutable(.{
+        .name = "test",
+    });
     exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
     exe.addObject(obj);
     exe.linkSystemLibrary("c");

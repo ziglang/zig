@@ -179,7 +179,7 @@ pub const File = struct {
         lock_nonblocking: bool = false,
 
         /// For POSIX systems this is the file system mode the file will
-        /// be created with.
+        /// be created with. On other systems this is always 0.
         mode: Mode = default_mode,
 
         /// Setting this to `.blocking` prevents `O.NONBLOCK` from being passed even
@@ -307,6 +307,7 @@ pub const File = struct {
         /// is unique to each filesystem.
         inode: INode,
         size: u64,
+        /// This is available on POSIX systems and is always 0 otherwise.
         mode: Mode,
         kind: Kind,
 

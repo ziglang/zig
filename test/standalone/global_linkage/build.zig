@@ -1,16 +1,26 @@
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
 
-    const obj1 = b.addStaticLibrary("obj1", "obj1.zig");
-    obj1.setBuildMode(mode);
+    const obj1 = b.addStaticLibrary(.{
+        .name = "obj1",
+        .root_source_file = .{ .path = "obj1.zig" },
+        .optimize = optimize,
+        .target = .{},
+    });
 
-    const obj2 = b.addStaticLibrary("obj2", "obj2.zig");
-    obj2.setBuildMode(mode);
+    const obj2 = b.addStaticLibrary(.{
+        .name = "obj2",
+        .root_source_file = .{ .path = "obj2.zig" },
+        .optimize = optimize,
+        .target = .{},
+    });
 
-    const main = b.addTest("main.zig");
-    main.setBuildMode(mode);
+    const main = b.addTest(.{
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = optimize,
+    });
     main.linkLibrary(obj1);
     main.linkLibrary(obj2);
 

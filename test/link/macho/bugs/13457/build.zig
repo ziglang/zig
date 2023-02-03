@@ -1,16 +1,17 @@
 const std = @import("std");
-const Builder = std.build.Builder;
-const LibExeObjectStep = std.build.LibExeObjStep;
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     const test_step = b.step("test", "Test the program");
 
-    const exe = b.addExecutable("test", "main.zig");
-    exe.setBuildMode(mode);
-    exe.setTarget(target);
+    const exe = b.addExecutable(.{
+        .name = "test",
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = optimize,
+        .target = target,
+    });
 
     const run = exe.runEmulatable();
     test_step.dependOn(&run.step);

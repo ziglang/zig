@@ -1,24 +1,33 @@
 const std = @import("std");
 
-pub fn build(b: *std.build.Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
 
-    const no_export = b.addSharedLibrary("no-export", "main.zig", .unversioned);
-    no_export.setTarget(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
-    no_export.setBuildMode(mode);
+    const no_export = b.addSharedLibrary(.{
+        .name = "no-export",
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = optimize,
+        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+    });
     no_export.use_llvm = false;
     no_export.use_lld = false;
 
-    const dynamic_export = b.addSharedLibrary("dynamic", "main.zig", .unversioned);
-    dynamic_export.setTarget(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
-    dynamic_export.setBuildMode(mode);
+    const dynamic_export = b.addSharedLibrary(.{
+        .name = "dynamic",
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = optimize,
+        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+    });
     dynamic_export.rdynamic = true;
     dynamic_export.use_llvm = false;
     dynamic_export.use_lld = false;
 
-    const force_export = b.addSharedLibrary("force", "main.zig", .unversioned);
-    force_export.setTarget(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
-    force_export.setBuildMode(mode);
+    const force_export = b.addSharedLibrary(.{
+        .name = "force",
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = optimize,
+        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+    });
     force_export.export_symbol_names = &.{"foo"};
     force_export.use_llvm = false;
     force_export.use_lld = false;

@@ -1,17 +1,18 @@
 const std = @import("std");
-const Builder = std.build.Builder;
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
 
     {
-        const exe = b.addExecutable("pagezero", null);
-        exe.setTarget(target);
-        exe.setBuildMode(mode);
+        const exe = b.addExecutable(.{
+            .name = "pagezero",
+            .optimize = optimize,
+            .target = target,
+        });
         exe.addCSourceFile("main.c", &.{});
         exe.linkLibC();
         exe.pagezero_size = 0x4000;
@@ -29,9 +30,11 @@ pub fn build(b: *Builder) void {
     }
 
     {
-        const exe = b.addExecutable("no_pagezero", null);
-        exe.setTarget(target);
-        exe.setBuildMode(mode);
+        const exe = b.addExecutable(.{
+            .name = "no_pagezero",
+            .optimize = optimize,
+            .target = target,
+        });
         exe.addCSourceFile("main.c", &.{});
         exe.linkLibC();
         exe.pagezero_size = 0;

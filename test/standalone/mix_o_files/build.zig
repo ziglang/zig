@@ -1,9 +1,19 @@
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
-    const obj = b.addObject("base64", "base64.zig");
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable("test", null);
+    const obj = b.addObject(.{
+        .name = "base64",
+        .root_source_file = .{ .path = "base64.zig" },
+        .optimize = optimize,
+        .target = .{},
+    });
+
+    const exe = b.addExecutable(.{
+        .name = "test",
+        .optimize = optimize,
+    });
     exe.addCSourceFile("test.c", &[_][]const u8{"-std=c99"});
     exe.addObject(obj);
     exe.linkSystemLibrary("c");

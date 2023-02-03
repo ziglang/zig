@@ -328,8 +328,6 @@ pub const ErrorInt = u32;
 pub const Export = struct {
     options: std.builtin.ExportOptions,
     src: LazySrcLoc,
-    /// Represents the position of the export, if any, in the output file.
-    link: link.File.Export,
     /// The Decl that performs the export. Note that this is *not* the Decl being exported.
     owner_decl: Decl.Index,
     /// The Decl containing the export statement.  Inline function calls
@@ -533,16 +531,8 @@ pub const Decl = struct {
     /// What kind of a declaration is this.
     kind: Kind,
 
-    /// Represents the position of the code in the output file.
-    /// This is populated regardless of semantic analysis and code generation.
-    link: link.File.LinkBlock,
-
-    /// Represents the function in the linked output file, if the `Decl` is a function.
-    /// This is stored here and not in `Fn` because `Decl` survives across updates but
-    /// `Fn` does not.
-    /// TODO Look into making `Fn` a longer lived structure and moving this field there
-    /// to save on memory usage.
-    fn_link: link.File.LinkFn,
+    /// TODO remove this once Wasm backend catches up
+    fn_link: ?link.File.Wasm.FnData = null,
 
     /// The shallow set of other decls whose typed_value could possibly change if this Decl's
     /// typed_value is modified.
@@ -2067,7 +2057,7 @@ pub const File = struct {
         if (file.tree_loaded) return &file.tree;
 
         const source = try file.getSource(gpa);
-        file.tree = try std.zig.parse(gpa, source.bytes);
+        file.tree = try Ast.parse(gpa, source.bytes, .zig);
         file.tree_loaded = true;
         return &file.tree;
     }
@@ -3672,7 +3662,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     file.source = source;
     file.source_loaded = true;
 
-    file.tree = try std.zig.parse(gpa, source);
+    file.tree = try Ast.parse(gpa, source, .zig);
     defer if (!file.tree_loaded) file.tree.deinit(gpa);
 
     if (file.tree.errors.len != 0) {
@@ -3987,7 +3977,7 @@ pub fn populateBuiltinFile(mod: *Module) !void {
         else => |e| return e,
     }
 
-    file.tree = try std.zig.parse(gpa, file.source);
+    file.tree = try Ast.parse(gpa, file.source, .zig);
     file.tree_loaded = true;
     assert(file.tree.errors.len == 0); // builtin.zig must parse
 
@@ -4098,7 +4088,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
 
             // The exports this Decl performs will be re-discovered, so we remove them here
             // prior to re-analysis.
-            mod.deleteDeclExports(decl_index);
+            try mod.deleteDeclExports(decl_index);
 
             // Similarly, `@setAlignStack` invocations will be re-discovered.
             if (decl.getFunction()) |func| {
@@ -4585,7 +4575,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
                 // We don't fully codegen the decl until later, but we do need to reserve a global
                 // offset table index for it. This allows us to codegen decls out of dependency
                 // order, increasing how many computations can be done in parallel.
-                try mod.comp.bin_file.allocateDeclIndexes(decl_index);
                 try mod.comp.work_queue.writeItem(.{ .codegen_func = func });
                 if (type_changed and mod.emit_h != null) {
                     try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
@@ -4697,7 +4686,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         // codegen backend wants full access to the Decl Type.
         try sema.resolveTypeFully(decl.ty);
 
-        try mod.comp.bin_file.allocateDeclIndexes(decl_index);
         try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
 
         if (type_changed and mod.emit_h != null) {
@@ -5185,20 +5173,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     decl.zir_decl_index = @intCast(u32, decl_sub_index);
     if (decl.getFunction()) |_| {
         switch (comp.bin_file.tag) {
-            .coff => {
-                // TODO Implement for COFF
-            },
-            .elf => if (decl.fn_link.elf.len != 0) {
-                // TODO Look into detecting when this would be unnecessary by storing enough state
-                // in `Decl` to notice that the line number did not change.
-                comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
-            },
-            .macho => if (decl.fn_link.macho.len != 0) {
-                // TODO Look into detecting when this would be unnecessary by storing enough state
-                // in `Decl` to notice that the line number did not change.
-                comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
-            },
-            .plan9 => {
+            .coff, .elf, .macho, .plan9 => {
                 // TODO Look into detecting when this would be unnecessary by storing enough state
                 // in `Decl` to notice that the line number did not change.
                 comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
@@ -5267,33 +5242,15 @@ pub fn clearDecl(
         assert(emit_h.decl_table.swapRemove(decl_index));
     }
     _ = mod.compile_log_decls.swapRemove(decl_index);
-    mod.deleteDeclExports(decl_index);
+    try mod.deleteDeclExports(decl_index);
 
     if (decl.has_tv) {
         if (decl.ty.isFnOrHasRuntimeBits()) {
             mod.comp.bin_file.freeDecl(decl_index);
 
-            // TODO instead of a union, put this memory trailing Decl objects,
-            // and allow it to be variably sized.
-            decl.link = switch (mod.comp.bin_file.tag) {
-                .coff => .{ .coff = link.File.Coff.Atom.empty },
-                .elf => .{ .elf = link.File.Elf.TextBlock.empty },
-                .macho => .{ .macho = link.File.MachO.Atom.empty },
-                .plan9 => .{ .plan9 = link.File.Plan9.DeclBlock.empty },
-                .c => .{ .c = {} },
-                .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
-                .spirv => .{ .spirv = {} },
-                .nvptx => .{ .nvptx = {} },
-            };
             decl.fn_link = switch (mod.comp.bin_file.tag) {
-                .coff => .{ .coff = {} },
-                .elf => .{ .elf = link.File.Dwarf.SrcFn.empty },
-                .macho => .{ .macho = link.File.Dwarf.SrcFn.empty },
-                .plan9 => .{ .plan9 = {} },
-                .c => .{ .c = {} },
-                .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
-                .spirv => .{ .spirv = .{} },
-                .nvptx => .{ .nvptx = {} },
+                .wasm => link.File.Wasm.FnData.empty,
+                else => null,
             };
         }
         if (decl.getInnerNamespace()) |namespace| {
@@ -5314,23 +5271,6 @@ pub fn clearDecl(
 pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
     const decl = mod.declPtr(decl_index);
     log.debug("deleteUnusedDecl {d} ({s})", .{ decl_index, decl.name });
-
-    // TODO: remove `allocateDeclIndexes` and make the API that the linker backends
-    // are required to notice the first time `updateDecl` happens and keep track
-    // of it themselves. However they can rely on getting a `freeDecl` call if any
-    // `updateDecl` or `updateFunc` calls happen. This will allow us to avoid any call
-    // into the linker backend here, since the linker backend will never have been told
-    // about the Decl in the first place.
-    // Until then, we did call `allocateDeclIndexes` on this anonymous Decl and so we
-    // must call `freeDecl` in the linker backend now.
-    switch (mod.comp.bin_file.tag) {
-        .c => {}, // this linker backend has already migrated to the new API
-        else => if (decl.has_tv) {
-            if (decl.ty.isFnOrHasRuntimeBits()) {
-                mod.comp.bin_file.freeDecl(decl_index);
-            }
-        },
-    }
 
     assert(!mod.declIsRoot(decl_index));
     assert(decl.src_namespace.anon_decls.swapRemove(decl_index));
@@ -5377,7 +5317,7 @@ pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
 
 /// Delete all the Export objects that are caused by this Decl. Re-analysis of
 /// this Decl will cause them to be re-created (or not).
-fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) void {
+fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
     var export_owners = (mod.export_owners.fetchSwapRemove(decl_index) orelse return).value;
 
     for (export_owners.items) |exp| {
@@ -5400,16 +5340,16 @@ fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) void {
             }
         }
         if (mod.comp.bin_file.cast(link.File.Elf)) |elf| {
-            elf.deleteExport(exp.link.elf);
+            elf.deleteDeclExport(decl_index, exp.options.name);
         }
         if (mod.comp.bin_file.cast(link.File.MachO)) |macho| {
-            macho.deleteExport(exp.link.macho);
+            try macho.deleteDeclExport(decl_index, exp.options.name);
         }
         if (mod.comp.bin_file.cast(link.File.Wasm)) |wasm| {
-            wasm.deleteExport(exp.link.wasm);
+            wasm.deleteDeclExport(decl_index);
         }
         if (mod.comp.bin_file.cast(link.File.Coff)) |coff| {
-            coff.deleteExport(exp.link.coff);
+            coff.deleteDeclExport(decl_index, exp.options.name);
         }
         if (mod.failed_exports.fetchSwapRemove(exp)) |failed_kv| {
             failed_kv.value.destroy(mod.gpa);
@@ -5712,25 +5652,9 @@ pub fn allocateNewDecl(
         .deletion_flag = false,
         .zir_decl_index = 0,
         .src_scope = src_scope,
-        .link = switch (mod.comp.bin_file.tag) {
-            .coff => .{ .coff = link.File.Coff.Atom.empty },
-            .elf => .{ .elf = link.File.Elf.TextBlock.empty },
-            .macho => .{ .macho = link.File.MachO.Atom.empty },
-            .plan9 => .{ .plan9 = link.File.Plan9.DeclBlock.empty },
-            .c => .{ .c = {} },
-            .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
-            .spirv => .{ .spirv = {} },
-            .nvptx => .{ .nvptx = {} },
-        },
         .fn_link = switch (mod.comp.bin_file.tag) {
-            .coff => .{ .coff = {} },
-            .elf => .{ .elf = link.File.Dwarf.SrcFn.empty },
-            .macho => .{ .macho = link.File.Dwarf.SrcFn.empty },
-            .plan9 => .{ .plan9 = {} },
-            .c => .{ .c = {} },
-            .wasm => .{ .wasm = link.File.Wasm.FnData.empty },
-            .spirv => .{ .spirv = .{} },
-            .nvptx => .{ .nvptx = {} },
+            .wasm => link.File.Wasm.FnData.empty,
+            else => null,
         },
         .generation = 0,
         .is_pub = false,
@@ -5816,7 +5740,6 @@ pub fn initNewAnonDecl(
     // the Decl will be garbage collected by the `codegen_decl` task instead of sent
     // to the linker.
     if (typed_value.ty.isFnOrHasRuntimeBits()) {
-        try mod.comp.bin_file.allocateDeclIndexes(new_decl_index);
         try mod.comp.anon_work_queue.writeItem(.{ .codegen_decl = new_decl_index });
     }
 }

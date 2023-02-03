@@ -1,10 +1,13 @@
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) void {
-    const exe = b.addExecutable("issue_7030", "main.zig");
-    exe.setTarget(.{
-        .cpu_arch = .wasm32,
-        .os_tag = .freestanding,
+pub fn build(b: *std.Build) void {
+    const exe = b.addExecutable(.{
+        .name = "issue_7030",
+        .root_source_file = .{ .path = "main.zig" },
+        .target = .{
+            .cpu_arch = .wasm32,
+            .os_tag = .freestanding,
+        },
     });
     exe.install();
     b.default_step.dependOn(&exe.step);

@@ -513,7 +513,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/zig/Ast.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/CrossTarget.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/c_builtins.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/zig/parse.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/zig/Parse.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/render.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/string_literal.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/system.zig"
@@ -654,46 +654,19 @@ include_directories(
     "${CMAKE_SOURCE_DIR}/src"
 )
 
-# These have to go before the -Wno- flags
 if(MSVC)
   set(EXE_CXX_FLAGS "/std:c++17")
-else(MSVC)
-  set(EXE_CXX_FLAGS "-std=c++17")
-endif(MSVC)
-
-if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-    if(MSVC)
-      set(EXE_CXX_FLAGS "${EXE_CXX_FLAGS} /w")
-    else()
-      set(EXE_CXX_FLAGS "${EXE_CXX_FLAGS} -Werror -Wall")
-        # fallthrough support was added in GCC 7.0
-        if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 7.0)
-          set(EXE_CXX_FLAGS "${EXE_CXX_FLAGS} -Werror=implicit-fallthrough")
-        endif()
-        # GCC 9.2 and older are unable to detect valid variable initialization in some cases
-        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS_EQUAL 9.2)
-          set(EXE_CXX_FLAGS "${EXE_CXX_FLAGS} -Wno-maybe-uninitialized")
-        endif()
-    endif()
-endif()
-
-if(MSVC)
-  set(EXE_CXX_FLAGS "${EXE_CXX_FLAGS}")
+  set(EXE_LDFLAGS "/STACK:16777216")
+  if(NOT "${CMAKE_BUILD_TYPE}" STREQUAL "Release" AND NOT "${CMAKE_BUILD_TYPE}" STREQUAL "MinSizeRel")
+    set(EXE_LDFLAGS "${EXE_LDFLAGS} /debug:fastlink")
+  endif()
 else()
-  set(EXE_CXX_FLAGS "${EXE_CXX_FLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Werror=type-limits -Wno-missing-braces -Wno-comment")
-    if(MINGW)
-      set(EXE_CXX_FLAGS "${EXE_CXX_FLAGS} -Wno-format")
-    endif()
-endif()
-
-set(EXE_LDFLAGS " ")
-if(MSVC)
-    set(EXE_LDFLAGS "${EXE_LDFLAGS} /STACK:16777216")
-    if(NOT "${CMAKE_BUILD_TYPE}" STREQUAL "Release" AND NOT "${CMAKE_BUILD_TYPE}" STREQUAL "MinSizeRel")
-        set(EXE_LDFLAGS "${EXE_LDFLAGS} /debug:fastlink")
-    endif()
-elseif(MINGW)
+  set(EXE_CXX_FLAGS "-std=c++17 -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Werror=type-limits -Wno-missing-braces -Wno-comment")
+  set(EXE_LDFLAGS " ")
+  if(MINGW)
+    set(EXE_CXX_FLAGS "${EXE_CXX_FLAGS} -Wno-format")
     set(EXE_LDFLAGS "${EXE_LDFLAGS} -Wl,--stack,16777216")
+  endif()
 endif()
 
 if(ZIG_STATIC)

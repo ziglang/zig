@@ -893,7 +893,7 @@ fn buildOutputType(
                 i: usize = 0,
                 fn next(it: *@This()) ?[]const u8 {
                     if (it.i >= it.args.len) {
-                        if (it.resp_file) |*resp| return if (resp.next()) |sentinel| std.mem.span(sentinel) else null;
+                        if (it.resp_file) |*resp| return resp.next();
                         return null;
                     }
                     defer it.i += 1;
@@ -901,7 +901,7 @@ fn buildOutputType(
                 }
                 fn nextOrFatal(it: *@This()) []const u8 {
                     if (it.i >= it.args.len) {
-                        if (it.resp_file) |*resp| if (resp.next()) |sentinel| return std.mem.span(sentinel);
+                        if (it.resp_file) |*resp| if (resp.next()) |ret| return ret;
                         fatal("expected parameter after {s}", .{it.args[it.i - 1]});
                     }
                     defer it.i += 1;
@@ -3915,6 +3915,7 @@ pub const usage_build =
 ;
 
 pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+    var color: Color = .auto;
     var prominent_compile_errors: bool = false;
 
     // We want to release all the locks before executing the child process, so we make a nice
@@ -4117,6 +4118,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             // Here we borrow main package's table and will replace it with a fresh
             // one after this process completes.
             main_pkg.fetchAndAddDependencies(
+                arena,
                 &thread_pool,
                 &http_client,
                 build_directory,
@@ -4125,6 +4127,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 &dependencies_source,
                 &build_roots_source,
                 "",
+                color,
             ) catch |err| switch (err) {
                 error.PackageFetchFailed => process.exit(1),
                 else => |e| return e,
@@ -4361,12 +4364,12 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
         };
         defer gpa.free(source_code);
 
-        var tree = std.zig.parse(gpa, source_code) catch |err| {
+        var tree = Ast.parse(gpa, source_code, .zig) catch |err| {
             fatal("error parsing stdin: {}", .{err});
         };
         defer tree.deinit(gpa);
 
-        try printErrsMsgToStdErr(gpa, arena, tree.errors, tree, "<stdin>", color);
+        try printErrsMsgToStdErr(gpa, arena, tree, "<stdin>", color);
         var has_ast_error = false;
         if (check_ast_flag) {
             const Module = @import("Module.zig");
@@ -4566,10 +4569,10 @@ fn fmtPathFile(
     // Add to set after no longer possible to get error.IsDir.
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
 
-    var tree = try std.zig.parse(fmt.gpa, source_code);
+    var tree = try Ast.parse(fmt.gpa, source_code, .zig);
     defer tree.deinit(fmt.gpa);
 
-    try printErrsMsgToStdErr(fmt.gpa, fmt.arena, tree.errors, tree, file_path, fmt.color);
+    try printErrsMsgToStdErr(fmt.gpa, fmt.arena, tree, file_path, fmt.color);
     if (tree.errors.len != 0) {
         fmt.any_error = true;
         return;
@@ -4649,14 +4652,14 @@ fn fmtPathFile(
     }
 }
 
-fn printErrsMsgToStdErr(
+pub fn printErrsMsgToStdErr(
     gpa: mem.Allocator,
     arena: mem.Allocator,
-    parse_errors: []const Ast.Error,
     tree: Ast,
     path: []const u8,
     color: Color,
 ) !void {
+    const parse_errors: []const Ast.Error = tree.errors;
     var i: usize = 0;
     while (i < parse_errors.len) : (i += 1) {
         const parse_error = parse_errors[i];
@@ -4973,7 +4976,7 @@ pub const ClangArgIterator = struct {
         // rather than an argument to a parameter.
         // We adjust the len below when necessary.
         self.other_args = (self.argv.ptr + self.next_index)[0..1];
-        var arg = mem.span(self.argv[self.next_index]);
+        var arg = self.argv[self.next_index];
         self.incrementArgIndex();
 
         if (mem.startsWith(u8, arg, "@")) {
@@ -5017,7 +5020,7 @@ pub const ClangArgIterator = struct {
 
             self.has_next = true;
             self.other_args = (self.argv.ptr + self.next_index)[0..1]; // We adjust len below when necessary.
-            arg = mem.span(self.argv[self.next_index]);
+            arg = self.argv[self.next_index];
             self.incrementArgIndex();
         }
 
@@ -5312,11 +5315,11 @@ pub fn cmdAstCheck(
     file.pkg = try Package.create(gpa, "root", null, file.sub_file_path);
     defer file.pkg.destroy(gpa);
 
-    file.tree = try std.zig.parse(gpa, file.source);
+    file.tree = try Ast.parse(gpa, file.source, .zig);
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
-    try printErrsMsgToStdErr(gpa, arena, file.tree.errors, file.tree, file.sub_file_path, color);
+    try printErrsMsgToStdErr(gpa, arena, file.tree, file.sub_file_path, color);
     if (file.tree.errors.len != 0) {
         process.exit(1);
     }
@@ -5438,11 +5441,11 @@ pub fn cmdChangelist(
     file.source = source;
     file.source_loaded = true;
 
-    file.tree = try std.zig.parse(gpa, file.source);
+    file.tree = try Ast.parse(gpa, file.source, .zig);
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
-    try printErrsMsgToStdErr(gpa, arena, file.tree.errors, file.tree, old_source_file, .auto);
+    try printErrsMsgToStdErr(gpa, arena, file.tree, old_source_file, .auto);
     if (file.tree.errors.len != 0) {
         process.exit(1);
     }
@@ -5476,10 +5479,10 @@ pub fn cmdChangelist(
     if (new_amt != new_stat.size)
         return error.UnexpectedEndOfFile;
 
-    var new_tree = try std.zig.parse(gpa, new_source);
+    var new_tree = try Ast.parse(gpa, new_source, .zig);
     defer new_tree.deinit(gpa);
 
-    try printErrsMsgToStdErr(gpa, arena, new_tree.errors, new_tree, new_source_file, .auto);
+    try printErrsMsgToStdErr(gpa, arena, new_tree, new_source_file, .auto);
     if (new_tree.errors.len != 0) {
         process.exit(1);
     }

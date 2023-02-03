@@ -1,18 +1,16 @@
 const std = @import("../std.zig");
 const log = std.log;
 const fs = std.fs;
-const build = @import("../build.zig");
-const Step = build.Step;
-const Builder = build.Builder;
+const Step = std.Build.Step;
 const RemoveDirStep = @This();
 
 pub const base_id = .remove_dir;
 
 step: Step,
-builder: *Builder,
+builder: *std.Build,
 dir_path: []const u8,
 
-pub fn init(builder: *Builder, dir_path: []const u8) RemoveDirStep {
+pub fn init(builder: *std.Build, dir_path: []const u8) RemoveDirStep {
     return RemoveDirStep{
         .builder = builder,
         .step = Step.init(.remove_dir, builder.fmt("RemoveDir {s}", .{dir_path}), builder.allocator, make),

@@ -3900,4 +3900,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const ZERO = @as(c_int, 0);
         \\pub const WORLD = @as(c_int, 0o0000123);
     });
+
+    cases.add("Assign expression from bool to int",
+        \\void foo(void) {
+        \\    int a;
+        \\    if (a = 1 > 0) {}
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var a: c_int = undefined;
+        \\    if ((blk: {
+        \\        const tmp = @boolToInt(@as(c_int, 1) > @as(c_int, 0));
+        \\        a = tmp;
+        \\        break :blk tmp;
+        \\    }) != 0) {}
+        \\}
+    });
 }

@@ -131,12 +131,15 @@ pub const CodeModel = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const Mode = enum {
+pub const OptimizeMode = enum {
     Debug,
     ReleaseSafe,
     ReleaseFast,
     ReleaseSmall,
 };
+
+/// Deprecated; use OptimizeMode.
+pub const Mode = OptimizeMode;
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.

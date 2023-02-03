@@ -75,6 +75,7 @@ pub const Tag = enum {
     prefetch,
     ptr_cast,
     ptr_to_int,
+    qual_cast,
     rem,
     return_address,
     select,
@@ -672,6 +673,13 @@ pub const list = list: {
             .{
                 .tag = .ptr_to_int,
                 .param_count = 1,
+            },
+        },
+        .{
+            "@qualCast",
+            .{
+                .tag = .qual_cast,
+                .param_count = 2,
             },
         },
         .{

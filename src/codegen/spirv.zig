@@ -49,7 +49,7 @@ pub const DeclGen = struct {
     spv: *SpvModule,
 
     /// The decl we are currently generating code for.
-    decl: *Decl,
+    decl_index: Decl.Index,
 
     /// The intermediate code of the declaration we are currently generating. Note: If
     /// the declaration is not a function, this value will be undefined!
@@ -58,6 +58,8 @@ pub const DeclGen = struct {
     /// The liveness analysis of the intermediate code for the declaration we are currently generating.
     /// Note: If the declaration is not a function, this value will be undefined!
     liveness: Liveness,
+
+    ids: *const std.AutoHashMap(Decl.Index, IdResult),
 
     /// An array of function argument result-ids. Each index corresponds with the
     /// function argument of the same index.
@@ -133,14 +135,20 @@ pub const DeclGen = struct {
 
     /// Initialize the common resources of a DeclGen. Some fields are left uninitialized,
     /// only set when `gen` is called.
-    pub fn init(allocator: Allocator, module: *Module, spv: *SpvModule) DeclGen {
+    pub fn init(
+        allocator: Allocator,
+        module: *Module,
+        spv: *SpvModule,
+        ids: *const std.AutoHashMap(Decl.Index, IdResult),
+    ) DeclGen {
         return .{
             .gpa = allocator,
             .module = module,
             .spv = spv,
-            .decl = undefined,
+            .decl_index = undefined,
             .air = undefined,
             .liveness = undefined,
+            .ids = ids,
             .next_arg_index = undefined,
             .current_block_label_id = undefined,
             .error_msg = undefined,
@@ -150,9 +158,9 @@ pub const DeclGen = struct {
     /// Generate the code for `decl`. If a reportable error occurred during code generation,
     /// a message is returned by this function. Callee owns the memory. If this function
     /// returns such a reportable error, it is valid to be called again for a different decl.
-    pub fn gen(self: *DeclGen, decl: *Decl, air: Air, liveness: Liveness) !?*Module.ErrorMsg {
+    pub fn gen(self: *DeclGen, decl_index: Decl.Index, air: Air, liveness: Liveness) !?*Module.ErrorMsg {
         // Reset internal resources, we don't want to re-allocate these.
-        self.decl = decl;
+        self.decl_index = decl_index;
         self.air = air;
         self.liveness = liveness;
         self.args.items.len = 0;
@@ -194,7 +202,7 @@ pub const DeclGen = struct {
     pub fn fail(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
         const src = LazySrcLoc.nodeOffset(0);
-        const src_loc = src.toSrcLoc(self.decl);
+        const src_loc = src.toSrcLoc(self.module.declPtr(self.decl_index));
         assert(self.error_msg == null);
         self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, format, args);
         return error.CodegenFail;
@@ -332,7 +340,7 @@ pub const DeclGen = struct {
             };
             const decl = self.module.declPtr(fn_decl_index);
             self.module.markDeclAlive(decl);
-            return decl.fn_link.spirv.id.toRef();
+            return self.ids.get(fn_decl_index).?.toRef();
         }
 
         const target = self.getTarget();
@@ -553,8 +561,8 @@ pub const DeclGen = struct {
     }
 
     fn genDecl(self: *DeclGen) !void {
-        const decl = self.decl;
-        const result_id = decl.fn_link.spirv.id;
+        const result_id = self.ids.get(self.decl_index).?;
+        const decl = self.module.declPtr(self.decl_index);
 
         if (decl.val.castTag(.function)) |_| {
             assert(decl.ty.zigTypeTag() == .Fn);
@@ -945,7 +953,7 @@ pub const DeclGen = struct {
 
     fn airDbgStmt(self: *DeclGen, inst: Air.Inst.Index) !void {
         const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
-        const src_fname_id = try self.spv.resolveSourceFileName(self.decl);
+        const src_fname_id = try self.spv.resolveSourceFileName(self.module.declPtr(self.decl_index));
         try self.func.body.emit(self.spv.gpa, .OpLine, .{
             .file = src_fname_id,
             .line = dbg_stmt.line,
@@ -1106,7 +1114,7 @@ pub const DeclGen = struct {
                 assert(as.errors.items.len != 0);
                 assert(self.error_msg == null);
                 const loc = LazySrcLoc.nodeOffset(0);
-                const src_loc = loc.toSrcLoc(self.decl);
+                const src_loc = loc.toSrcLoc(self.module.declPtr(self.decl_index));
                 self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, "failed to assemble SPIR-V inline assembly", .{});
                 const notes = try self.module.gpa.alloc(Module.ErrorMsg, as.errors.items.len);
 

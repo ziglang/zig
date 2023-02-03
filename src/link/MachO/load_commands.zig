@@ -12,7 +12,7 @@ pub const default_dyld_path: [*:0]const u8 = "/usr/lib/dyld";
 
 fn calcInstallNameLen(cmd_size: u64, name: []const u8, assume_max_path_len: bool) u64 {
     const darwin_path_max = 1024;
-    const name_len = if (assume_max_path_len) darwin_path_max else std.mem.len(name) + 1;
+    const name_len = if (assume_max_path_len) darwin_path_max else name.len + 1;
     return mem.alignForwardGeneric(u64, cmd_size + name_len, @alignOf(u64));
 }
 

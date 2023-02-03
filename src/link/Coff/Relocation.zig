@@ -46,33 +46,35 @@ length: u2,
 dirty: bool = true,
 
 /// Returns an Atom which is the target node of this relocation edge (if any).
-pub fn getTargetAtom(self: Relocation, coff_file: *Coff) ?*Atom {
+pub fn getTargetAtomIndex(self: Relocation, coff_file: *const Coff) ?Atom.Index {
     switch (self.type) {
         .got,
         .got_page,
         .got_pageoff,
-        => return coff_file.getGotAtomForSymbol(self.target),
+        => return coff_file.getGotAtomIndexForSymbol(self.target),
 
         .direct,
         .page,
         .pageoff,
-        => return coff_file.getAtomForSymbol(self.target),
+        => return coff_file.getAtomIndexForSymbol(self.target),
 
         .import,
         .import_page,
         .import_pageoff,
-        => return coff_file.getImportAtomForSymbol(self.target),
+        => return coff_file.getImportAtomIndexForSymbol(self.target),
     }
 }
 
-pub fn resolve(self: *Relocation, atom: *Atom, coff_file: *Coff) !void {
+pub fn resolve(self: *Relocation, atom_index: Atom.Index, coff_file: *Coff) !void {
+    const atom = coff_file.getAtom(atom_index);
     const source_sym = atom.getSymbol(coff_file);
     const source_section = coff_file.sections.get(@enumToInt(source_sym.section_number) - 1).header;
     const source_vaddr = source_sym.value + self.offset;
 
     const file_offset = source_section.pointer_to_raw_data + source_sym.value - source_section.virtual_address;
 
-    const target_atom = self.getTargetAtom(coff_file) orelse return;
+    const target_atom_index = self.getTargetAtomIndex(coff_file) orelse return;
+    const target_atom = coff_file.getAtom(target_atom_index);
     const target_vaddr = target_atom.getSymbol(coff_file).value;
     const target_vaddr_with_addend = target_vaddr + self.addend;
 
@@ -107,7 +109,7 @@ const Context = struct {
     image_base: u64,
 };
 
-fn resolveAarch64(self: *Relocation, ctx: Context, coff_file: *Coff) !void {
+fn resolveAarch64(self: Relocation, ctx: Context, coff_file: *Coff) !void {
     var buffer: [@sizeOf(u64)]u8 = undefined;
     switch (self.length) {
         2 => {
@@ -197,7 +199,7 @@ fn resolveAarch64(self: *Relocation, ctx: Context, coff_file: *Coff) !void {
     }
 }
 
-fn resolveX86(self: *Relocation, ctx: Context, coff_file: *Coff) !void {
+fn resolveX86(self: Relocation, ctx: Context, coff_file: *Coff) !void {
     switch (self.type) {
         .got_page => unreachable,
         .got_pageoff => unreachable,

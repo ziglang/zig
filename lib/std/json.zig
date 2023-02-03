@@ -1384,7 +1384,7 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
             return errors;
         },
         .Array => |arrayInfo| {
-            return error{ UnexpectedEndOfJson, UnexpectedToken } || TokenStream.Error ||
+            return error{ UnexpectedEndOfJson, UnexpectedToken, LengthMismatch } || TokenStream.Error ||
                 UnescapeValidStringError ||
                 ParseInternalErrorImpl(arrayInfo.child, inferred_types ++ [_]type{T});
         },
@@ -1625,6 +1625,7 @@ fn parseInternal(
                     if (arrayInfo.child != u8) return error.UnexpectedToken;
                     var r: T = undefined;
                     const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
+                    if (r.len != stringToken.decodedLength()) return error.LengthMismatch;
                     switch (stringToken.escapes) {
                         .None => mem.copy(u8, &r, source_slice),
                         .Some => try unescapeValidString(&r, source_slice),

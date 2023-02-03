@@ -901,14 +901,9 @@ pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_b
             continue; // found unknown section, so skip parsing into atom as we do not know how to handle it.
         };
 
-        const atom = try gpa.create(Atom);
+        const atom_index = @intCast(Atom.Index, wasm_bin.managed_atoms.items.len);
+        const atom = try wasm_bin.managed_atoms.addOne(gpa);
         atom.* = Atom.empty;
-        errdefer {
-            atom.deinit(gpa);
-            gpa.destroy(atom);
-        }
-
-        try wasm_bin.managed_atoms.append(gpa, atom);
         atom.file = object_index;
         atom.size = relocatable_data.size;
         atom.alignment = relocatable_data.getAlignment(object);
@@ -938,12 +933,12 @@ pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_b
             .index = relocatable_data.getIndex(),
         })) |symbols| {
             atom.sym_index = symbols.pop();
-            try wasm_bin.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), atom);
+            try wasm_bin.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), atom_index);
 
             // symbols referencing the same atom will be added as alias
             // or as 'parent' when they are global.
             while (symbols.popOrNull()) |idx| {
-                try wasm_bin.symbol_atom.putNoClobber(gpa, .{ .file = atom.file, .index = idx }, atom);
+                try wasm_bin.symbol_atom.putNoClobber(gpa, .{ .file = atom.file, .index = idx }, atom_index);
                 const alias_symbol = object.symtable[idx];
                 if (alias_symbol.isGlobal()) {
                     atom.sym_index = idx;
@@ -956,7 +951,7 @@ pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_b
             segment.alignment = std.math.max(segment.alignment, atom.alignment);
         }
 
-        try wasm_bin.appendAtomAtIndex(final_index, atom);
+        try wasm_bin.appendAtomAtIndex(final_index, atom_index);
         log.debug("Parsed into atom: '{s}' at segment index {d}", .{ object.string_table.get(object.symtable[atom.sym_index].name), final_index });
     }
 }

@@ -1,11 +1,12 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
+
 const io = std.io;
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const unicode = std.unicode;
 const meta = std.meta;
-const builtin = @import("builtin");
 const errol = @import("fmt/errol.zig");
 const lossyCast = std.math.lossyCast;
 const expectFmt = std.testing.expectFmt;
@@ -190,7 +191,7 @@ pub fn format(
                 .precision = precision,
             },
             writer,
-            default_max_depth,
+            std.options.fmt_max_depth,
         );
     }
 
@@ -2140,15 +2141,15 @@ test "buffer" {
     {
         var buf1: [32]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buf1);
-        try formatType(1234, "", FormatOptions{}, fbs.writer(), default_max_depth);
+        try formatType(1234, "", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
         try std.testing.expect(mem.eql(u8, fbs.getWritten(), "1234"));
 
         fbs.reset();
-        try formatType('a', "c", FormatOptions{}, fbs.writer(), default_max_depth);
+        try formatType('a', "c", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
         try std.testing.expect(mem.eql(u8, fbs.getWritten(), "a"));
 
         fbs.reset();
-        try formatType(0b1100, "b", FormatOptions{}, fbs.writer(), default_max_depth);
+        try formatType(0b1100, "b", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
         try std.testing.expect(mem.eql(u8, fbs.getWritten(), "1100"));
     }
 }

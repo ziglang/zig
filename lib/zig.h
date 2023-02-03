@@ -94,11 +94,35 @@ typedef char bool;
 #endif
 
 #if zig_has_attribute(aligned)
+#define zig_under_align(alignment) __attribute__((aligned(alignment)))
+#elif _MSC_VER
+#define zig_under_align(alignment) zig_align(alignment)
+#else
+#define zig_align zig_align_unavailable
+#endif
+
+#if zig_has_attribute(aligned)
 #define zig_align_fn(alignment) __attribute__((aligned(alignment)))
 #elif _MSC_VER
 #define zig_align_fn(alignment)
 #else
 #define zig_align_fn zig_align_fn_unavailable
+#endif
+
+#if zig_has_attribute(packed)
+#define zig_packed(definition) __attribute__((packed)) definition
+#elif _MSC_VER
+#define zig_packed(definition) __pragma(pack(1)) definition __pragma(pack())
+#else
+#define zig_packed(definition) zig_packed_unavailable
+#endif
+
+#if zig_has_attribute(section)
+#define zig_linksection(name, def, ...) def __attribute__((section(name)))
+#elif _MSC_VER
+#define zig_linksection(name, def, ...) __pragma(section(name, __VA_ARGS__)) __declspec(allocate(name)) def
+#else
+#define zig_linksection(name, def, ...) zig_linksection_unavailable
 #endif
 
 #if zig_has_builtin(unreachable) || defined(zig_gnuc)
