@@ -195,6 +195,7 @@ pub fn decodeZstandardFrame(
     );
 
     if (frame_header.descriptor.content_checksum_flag) {
+        if (src.len < consumed_count + 4) return error.EndOfStream;
         const checksum = readIntSlice(u32, src[consumed_count .. consumed_count + 4]);
         consumed_count += 4;
         if (hasher_opt) |*hasher| {
@@ -302,17 +303,20 @@ pub fn decodeZstandardFrameAlloc(
             &consumed_count,
             frame_context.block_size_max,
         );
-        const written_slice = ring_buffer.sliceLast(written_size);
-        try result.appendSlice(written_slice.first);
-        try result.appendSlice(written_slice.second);
-        if (frame_context.hasher_opt) |*hasher| {
-            hasher.update(written_slice.first);
-            hasher.update(written_slice.second);
+        if (written_size > 0) {
+            const written_slice = ring_buffer.sliceLast(written_size);
+            try result.appendSlice(written_slice.first);
+            try result.appendSlice(written_slice.second);
+            if (frame_context.hasher_opt) |*hasher| {
+                hasher.update(written_slice.first);
+                hasher.update(written_slice.second);
+            }
         }
         if (block_header.last_block) break;
     }
 
     if (frame_context.has_checksum) {
+        if (src.len < consumed_count + 4) return error.EndOfStream;
         const checksum = readIntSlice(u32, src[consumed_count .. consumed_count + 4]);
         consumed_count += 4;
         if (frame_context.hasher_opt) |*hasher| {

@@ -146,13 +146,14 @@ fn assignSymbols(weight_sorted_prefixed_symbols: []LiteralsSection.HuffmanTree.P
     return prefixed_symbol_count;
 }
 
-fn buildHuffmanTree(weights: *[256]u4, symbol_count: usize) LiteralsSection.HuffmanTree {
+fn buildHuffmanTree(weights: *[256]u4, symbol_count: usize) error{MalformedHuffmanTree}!LiteralsSection.HuffmanTree {
     var weight_power_sum: u16 = 0;
     for (weights[0 .. symbol_count - 1]) |value| {
         if (value > 0) {
             weight_power_sum += @as(u16, 1) << (value - 1);
         }
     }
+    if (weight_power_sum >= 1 << 11) return error.MalformedHuffmanTree;
 
     // advance to next power of two (even if weight_power_sum is a power of 2)
     const max_number_of_bits = std.math.log2_int(u16, weight_power_sum) + 1;
