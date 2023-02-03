@@ -109,7 +109,7 @@ pub fn create(self: Allocator, comptime T: type) Error!*T {
 /// `ptr` should be the return value of `create`, or otherwise
 /// have the same address and alignment property.
 pub fn destroy(self: Allocator, ptr: anytype) void {
-    const info = ensureSlice(@TypeOf(ptr), @src().fn_name, .One);
+    const info = ensureSlice(@TypeOf(ptr), "destroy", .One);
     const T = info.child;
     if (@sizeOf(T) == 0) return;
     const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
@@ -224,7 +224,7 @@ pub fn allocAdvancedWithRetAddr(
 /// the pointer, however the allocator implementation may refuse the resize
 /// request by returning `false`.
 pub fn resize(self: Allocator, old_mem: anytype, new_n: usize) bool {
-    const Slice = ensureSlice(@TypeOf(old_mem), @src().fn_name, .Slice);
+    const Slice = ensureSlice(@TypeOf(old_mem), "resize", .Slice);
     const T = Slice.child;
     if (new_n == 0) {
         self.free(old_mem);
@@ -260,7 +260,7 @@ pub fn reallocAdvanced(
     const Slice = ensureSlice(@TypeOf(old_mem), "reallocAdvanced", .Slice);
     break :t Error![]align(Slice.alignment) Slice.child;
 } {
-    const Slice = ensureSlice(@TypeOf(old_mem), @src().fn_name, .Slice);
+    const Slice = ensureSlice(@TypeOf(old_mem), "reallocAdvanced", .Slice);
     const T = Slice.child;
     if (old_mem.len == 0) {
         return self.allocAdvancedWithRetAddr(T, Slice.alignment, new_n, return_address);
@@ -293,7 +293,7 @@ pub fn reallocAdvanced(
 /// Free an array allocated with `alloc`. To free a single item,
 /// see `destroy`.
 pub fn free(self: Allocator, memory: anytype) void {
-    const Slice = ensureSlice(@TypeOf(memory), @src().fn_name, .Slice);
+    const Slice = ensureSlice(@TypeOf(memory), "free", .Slice);
     const bytes = mem.sliceAsBytes(memory);
     const bytes_len = bytes.len + if (Slice.sentinel != null) @sizeOf(Slice.child) else 0;
     if (bytes_len == 0) return;
