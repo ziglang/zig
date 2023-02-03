@@ -51,31 +51,31 @@ Integer and Float Operations
 | Done   | Name          | a    | b    | Out  | Comment                        |
 | ------ | ------------- | ---- | ---- | ---- | ------------------------------ |
 |   |                    |      |      |      | **Integer Bit Operations**     |
-| ✓ | __clzsi2           | u32  | ∅    | i32  | count leading zeroes           |
-| ✓ | __clzdi2           | u64  | ∅    | i32  | count leading zeroes           |
-| ✓ | __clzti2           | u128 | ∅    | i32  | count trailing zeros           |
+| ✓ | __clzsi2           | u32  | ∅    | i32  | count leading zeros            |
+| ✓ | __clzdi2           | u64  | ∅    | i32  | count leading zeros            |
+| ✓ | __clzti2           | u128 | ∅    | i32  | count leading zeros            |
 | ✓ | __ctzsi2           | u32  | ∅    | i32  | count trailing zeros           |
 | ✓ | __ctzdi2           | u64  | ∅    | i32  | count trailing zeros           |
-| ✓ | __ctzti2           | u128 | ∅    | i32  | count leading zeroes           |
-| ✓ | __ffssi2           | u32  | ∅    | i32  | count leading zeroes           |
-| ✓ | __ffsdi2           | u64  | ∅    | i32  | count leading zeroes           |
-| ✓ | __ffsti2           | u128 | ∅    | i32  | count leading zeroes           |
-| ✓ | __paritysi2        | u32  | ∅    | i32  | find least significant 1 bit   |
-| ✓ | __paritydi2        | u64  | ∅    | i32  | find least significant 1 bit   |
-| ✓ | __parityti2        | u128 | ∅    | i32  | find least significant 1 bit   |
+| ✓ | __ctzti2           | u128 | ∅    | i32  | count trailing zeros           |
+| ✓ | __ffssi2           | u32  | ∅    | i32  | find least significant 1 bit   |
+| ✓ | __ffsdi2           | u64  | ∅    | i32  | find least significant 1 bit   |
+| ✓ | __ffsti2           | u128 | ∅    | i32  | find least significant 1 bit   |
+| ✓ | __paritysi2        | u32  | ∅    | i32  | bit parity                     |
+| ✓ | __paritydi2        | u64  | ∅    | i32  | bit parity                     |
+| ✓ | __parityti2        | u128 | ∅    | i32  | bit parity                     |
 | ✓ | __popcountsi2      | u32  | ∅    | i32  | bit population                 |
 | ✓ | __popcountdi2      | u64  | ∅    | i32  | bit population                 |
 | ✓ | __popcountti2      | u128 | ∅    | i32  | bit population                 |
-| ✓ | __bswapsi2         | u32  | ∅    | i32  | bit parity                     |
-| ✓ | __bswapdi2         | u64  | ∅    | i32  | bit parity                     |
-| ✓ | __bswapti2         | u128 | ∅    | i32  | bit parity                     |
+| ✓ | __bswapsi2         | u32  | ∅    | i32  | byte swap                      |
+| ✓ | __bswapdi2         | u64  | ∅    | i32  | byte swap                      |
+| ✓ | __bswapti2         | u128 | ∅    | i32  | byte swap                      |
 |   |                    |      |      |      | **Integer Comparison**         |
 | ✓ | __cmpsi2           | i32  | i32  | i32  | `(a<b) -> 0, (a==b) -> 1, (a>b) -> 2` |
 | ✓ | __cmpdi2           | i64  | i64  | i32  | ..                             |
 | ✓ | __cmpti2           | i128 | i128 | i32  | ..                             |
-| ✓ | __ucmpsi2          | i32  | i32  | i32  | `(a<b) -> 0, (a==b) -> 1, (a>b) -> 2` |
-| ✓ | __ucmpdi2          | i64  | i64  | i32  | ..                             |
-| ✓ | __ucmpti2          | i128 | i128 | i32  | ..                             |
+| ✓ | __ucmpsi2          | u32  | u32  | i32  | `(a<b) -> 0, (a==b) -> 1, (a>b) -> 2` |
+| ✓ | __ucmpdi2          | u64  | u64  | i32  | ..                             |
+| ✓ | __ucmpti2          | u128 | u128 | i32  | ..                             |
 |   |                    |      |      |      | **Integer Arithmetic**         |
 | ✗ | __ashlsi3          | i32  | i32  | i32  | `a << b` [^unused_rl78]        |
 | ✓ | __ashldi3          | i64  | i32  | i64  | ..                             |
@@ -165,7 +165,7 @@ Integer and Float Operations
 | ✓ | _Qp_qtos           |*f128 | ∅    | f32  | .. SPARC                       |
 | ✓ | __trunckfdf2       | f128 | ∅    | f64  | .. PPC                         |
 | ✓ | _Qp_qtod           |*f128 | ∅    | f64  | .. SPARC                       |
-| ✓ | __fixhfsi          | f16  | ∅    | i32  | rounding towards zero          |
+| ✓ | __fixhfsi          | f16  | ∅    | i32  | float to int, rounding towards zero |
 | ✓ | __fixsfsi          | f32  | ∅    | i32  | ..                             |
 | ✓ | __fixdfsi          | f64  | ∅    | i32  | ..                             |
 | ✓ | __fixtfsi          | f128 | ∅    | i32  | ..                             |
@@ -180,7 +180,7 @@ Integer and Float Operations
 | ✓ | __fixdfti          | f64  | ∅    | i128 | ..                             |
 | ✓ | __fixtfti          | f128 | ∅    | i128 | ..                             |
 | ✓ | __fixxfti          | f80  | ∅    | i128 | ..                             |
-| ✓ | __fixunshfsi       | f16  | ∅    | u32  | rounding towards zero. negative values become 0. |
+| ✓ | __fixunshfsi       | f16  | ∅    | u32  | float to uint, rounding towards zero. negative values become 0. |
 | ✓ | __fixunssfsi       | f32  | ∅    | u32  | ..                             |
 | ✓ | __fixunsdfsi       | f64  | ∅    | u32  | ..                             |
 | ✓ | __fixunstfsi       | f128 | ∅    | u32  | ..                             |
@@ -195,7 +195,7 @@ Integer and Float Operations
 | ✓ | __fixunsdfti       | f64  | ∅    | u128 | ..                             |
 | ✓ | __fixunstfti       | f128 | ∅    | u128 | ..                             |
 | ✓ | __fixunsxfti       | f80  | ∅    | u128 | ..                             |
-| ✓ | __floatsihf        | i32  | ∅    | f16  | int_to_float conversions       |
+| ✓ | __floatsihf        | i32  | ∅    | f16  | int to float                   |
 | ✓ | __floatsisf        | i32  | ∅    | f32  | ..                             |
 | ✓ | __floatsidf        | i32  | ∅    | f64  | ..                             |
 | ✓ | __floatsitf        | i32  | ∅    | f128 | ..                             |
@@ -209,7 +209,7 @@ Integer and Float Operations
 | ✓ | __floattidf        | i128 | ∅    | f64  | ..                             |
 | ✓ | __floattitf        | i128 | ∅    | f128 | ..                             |
 | ✓ | __floattixf        | i128 | ∅    | f80  | ..                             |
-| ✓ | __floatunsihf      | u32  | ∅    | f16  | uint_to_float conversions      |
+| ✓ | __floatunsihf      | u32  | ∅    | f16  | uint to float                  |
 | ✓ | __floatunsisf      | u32  | ∅    | f32  | ..                             |
 | ✓ | __floatunsidf      | u32  | ∅    | f64  | ..                             |
 | ✓ | __floatunsitf      | u32  | ∅    | f128 | ..                             |
