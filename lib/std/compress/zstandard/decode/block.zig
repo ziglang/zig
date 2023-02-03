@@ -981,6 +981,8 @@ fn decodeStreams(size_format: u2, stream_data: []const u8) !LiteralsSection.Stre
     const stream_3_start = stream_2_start + stream_2_length;
     const stream_4_start = stream_3_start + stream_3_length;
 
+    if (stream_data.len < stream_4_start) return error.MalformedLiteralsSection;
+
     return .{ .four = .{
         stream_data[stream_1_start .. stream_1_start + stream_1_length],
         stream_data[stream_2_start .. stream_2_start + stream_2_length],

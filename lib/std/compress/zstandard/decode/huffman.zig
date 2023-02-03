@@ -59,7 +59,7 @@ fn assignWeights(huff_bits: *readers.ReverseBitReader, accuracy_log: usize, entr
     var even_state: u32 = huff_bits.readBitsNoEof(u32, accuracy_log) catch return error.MalformedHuffmanTree;
     var odd_state: u32 = huff_bits.readBitsNoEof(u32, accuracy_log) catch return error.MalformedHuffmanTree;
 
-    while (i < 255) {
+    while (i < 254) {
         const even_data = entries[even_state];
         var read_bits: usize = 0;
         const even_bits = huff_bits.readBits(u32, even_data.bits, &read_bits) catch unreachable;
@@ -78,7 +78,7 @@ fn assignWeights(huff_bits: *readers.ReverseBitReader, accuracy_log: usize, entr
         weights[i] = std.math.cast(u4, odd_data.symbol) orelse return error.MalformedHuffmanTree;
         i += 1;
         if (read_bits < odd_data.bits) {
-            if (i == 256) return error.MalformedHuffmanTree;
+            if (i == 255) return error.MalformedHuffmanTree;
             weights[i] = std.math.cast(u4, entries[even_state].symbol) orelse return error.MalformedHuffmanTree;
             i += 1;
             break;
@@ -147,16 +147,18 @@ fn assignSymbols(weight_sorted_prefixed_symbols: []LiteralsSection.HuffmanTree.P
 }
 
 fn buildHuffmanTree(weights: *[256]u4, symbol_count: usize) error{MalformedHuffmanTree}!LiteralsSection.HuffmanTree {
-    var weight_power_sum: u16 = 0;
+    var weight_power_sum_big: u32 = 0;
     for (weights[0 .. symbol_count - 1]) |value| {
         if (value > 0) {
-            weight_power_sum += @as(u16, 1) << (value - 1);
+            weight_power_sum_big += @as(u16, 1) << (value - 1);
         }
     }
-    if (weight_power_sum >= 1 << 11) return error.MalformedHuffmanTree;
+    if (weight_power_sum_big >= 1 << 11) return error.MalformedHuffmanTree;
+    const weight_power_sum = @intCast(u16, weight_power_sum_big);
 
     // advance to next power of two (even if weight_power_sum is a power of 2)
-    const max_number_of_bits = std.math.log2_int(u16, weight_power_sum) + 1;
+    // TODO: is it valid to have weight_power_sum == 0?
+    const max_number_of_bits = if (weight_power_sum == 0) 1 else std.math.log2_int(u16, weight_power_sum) + 1;
     const next_power_of_two = @as(u16, 1) << max_number_of_bits;
     weights[symbol_count - 1] = std.math.log2_int(u16, next_power_of_two - weight_power_sum) + 1;
 
