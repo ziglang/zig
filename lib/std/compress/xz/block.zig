@@ -97,7 +97,7 @@ pub fn Decoder(comptime ReaderType: type) type {
                 var header_hasher = std.compress.hashedReader(block_reader, Crc32.init());
                 const header_reader = header_hasher.reader();
 
-                const header_size = try header_reader.readByte() * 4;
+                const header_size = @as(u64, try header_reader.readByte()) * 4;
                 if (header_size == 0)
                     return error.EndOfStreamWithNoError;
 

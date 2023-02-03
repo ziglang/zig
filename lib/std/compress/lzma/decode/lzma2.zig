@@ -155,7 +155,7 @@ pub const Lzma2Decoder = struct {
         accum: *LzAccumBuffer,
         reset_dict: bool,
     ) !void {
-        const unpacked_size = try reader.readIntBig(u16) + 1; // TODO: overflow
+        const unpacked_size = @as(u17, try reader.readIntBig(u16)) + 1;
 
         if (reset_dict) {
             try accum.reset(writer);

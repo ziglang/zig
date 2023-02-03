@@ -78,3 +78,23 @@ test "unsupported" {
         );
     }
 }
+
+fn testDontPanic(data: []const u8) !void {
+    const buf = decompress(data) catch |err| switch (err) {
+        error.OutOfMemory => |e| return e,
+        else => return,
+    };
+    defer testing.allocator.free(buf);
+}
+
+test "size fields: integer overflow avoidance" {
+    // These cases were found via fuzz testing and each previously caused
+    // an integer overflow when decoding. We just want to ensure they no longer
+    // cause a panic
+    const header_size_overflow = "\xfd7zXZ\x00\x00\x01i\"\xde6z";
+    try testDontPanic(header_size_overflow);
+    const lzma2_chunk_size_overflow = "\xfd7zXZ\x00\x00\x01i\"\xde6\x02\x00!\x01\x08\x00\x00\x00\xd8\x0f#\x13\x01\xff\xff";
+    try testDontPanic(lzma2_chunk_size_overflow);
+    const backward_size_overflow = "\xfd7zXZ\x00\x00\x01i\"\xde6\x00\x00\x00\x00\x1c\xdfD!\x90B\x99\r\x01\x00\x00\xff\xff\x10\x00\x00\x00\x01DD\xff\xff\xff\x01";
+    try testDontPanic(backward_size_overflow);
+}
