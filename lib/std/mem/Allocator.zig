@@ -109,7 +109,7 @@ pub fn create(self: Allocator, comptime T: type) Error!*T {
 /// `ptr` should be the return value of `create`, or otherwise
 /// have the same address and alignment property.
 pub fn destroy(self: Allocator, ptr: anytype) void {
-    const info = ensureSlice(@TypeOf(ptr), @src().fn_name);
+    const info = ensureSlice(@TypeOf(ptr), @src().fn_name, .One);
     const T = info.child;
     if (@sizeOf(T) == 0) return;
     const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
@@ -224,7 +224,7 @@ pub fn allocAdvancedWithRetAddr(
 /// the pointer, however the allocator implementation may refuse the resize
 /// request by returning `false`.
 pub fn resize(self: Allocator, old_mem: anytype, new_n: usize) bool {
-    const Slice = ensureSlice(@TypeOf(old_mem), @src().fn_name);
+    const Slice = ensureSlice(@TypeOf(old_mem), @src().fn_name, .Slice);
     const T = Slice.child;
     if (new_n == 0) {
         self.free(old_mem);
@@ -245,7 +245,7 @@ pub fn resize(self: Allocator, old_mem: anytype, new_n: usize) bool {
 /// can be larger, smaller, or the same size as the old memory allocation.
 /// If `new_n` is 0, this is the same as `free` and it always succeeds.
 pub fn realloc(self: Allocator, old_mem: anytype, new_n: usize) t: {
-    const Slice = ensureSlice(@TypeOf(old_mem), "realloc");
+    const Slice = ensureSlice(@TypeOf(old_mem), "realloc", .Slice);
     break :t Error![]align(Slice.alignment) Slice.child;
 } {
     return self.reallocAdvanced(old_mem, new_n, @returnAddress());
@@ -257,10 +257,10 @@ pub fn reallocAdvanced(
     new_n: usize,
     return_address: usize,
 ) t: {
-    const Slice = ensureSlice(@TypeOf(old_mem), "reallocAdvanced");
+    const Slice = ensureSlice(@TypeOf(old_mem), "reallocAdvanced", .Slice);
     break :t Error![]align(Slice.alignment) Slice.child;
 } {
-    const Slice = ensureSlice(@TypeOf(old_mem), @src().fn_name);
+    const Slice = ensureSlice(@TypeOf(old_mem), @src().fn_name, .Slice);
     const T = Slice.child;
     if (old_mem.len == 0) {
         return self.allocAdvancedWithRetAddr(T, Slice.alignment, new_n, return_address);
@@ -293,7 +293,7 @@ pub fn reallocAdvanced(
 /// Free an array allocated with `alloc`. To free a single item,
 /// see `destroy`.
 pub fn free(self: Allocator, memory: anytype) void {
-    const Slice = ensureSlice(@TypeOf(memory), @src().fn_name);
+    const Slice = ensureSlice(@TypeOf(memory), @src().fn_name, .Slice);
     const bytes = mem.sliceAsBytes(memory);
     const bytes_len = bytes.len + if (Slice.sentinel != null) @sizeOf(Slice.child) else 0;
     if (bytes_len == 0) return;
@@ -318,11 +318,27 @@ pub fn dupeZ(allocator: Allocator, comptime T: type, m: []const T) ![:0]T {
     return new_buf[0..m.len :0];
 }
 
-inline fn ensureSlice(comptime Type: type, comptime function_name: []const u8) std.builtin.Type.Pointer {
-    return switch (@typeInfo(Type)) {
-        .Pointer => |pointer| pointer,
-        else => @compileError(function_name ++ " expects an array but received value of type `" ++ @typeName(Type) ++ "`"),
+inline fn ensureSlice(
+    comptime Type: type,
+    comptime function_name: []const u8,
+    comptime expected_size: std.builtin.Type.Pointer.Size,
+) std.builtin.Type.Pointer {
+    const expectation = switch (expected_size) {
+        .One => "a single item pointer",
+        .Slice => "a slice",
+        else => unreachable,
     };
+    const type_info = @typeInfo(Type);
+
+    if (type_info == .Pointer) {
+        const pointer = type_info.Pointer;
+
+        if (pointer.size == expected_size) {
+            return pointer;
+        }
+    }
+
+    @compileError(std.fmt.comptimePrint("{s} expects {s} but received a value of type `{s}`", .{ function_name, expectation, @typeName(Type) }));
 }
 
 /// TODO replace callsites with `@log2` after this proposal is implemented:
