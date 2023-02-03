@@ -4361,7 +4361,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
         };
         defer gpa.free(source_code);
 
-        var tree = std.zig.parse(gpa, source_code) catch |err| {
+        var tree = Ast.parse(gpa, source_code, .zig) catch |err| {
             fatal("error parsing stdin: {}", .{err});
         };
         defer tree.deinit(gpa);
@@ -4566,7 +4566,7 @@ fn fmtPathFile(
     // Add to set after no longer possible to get error.IsDir.
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
 
-    var tree = try std.zig.parse(fmt.gpa, source_code);
+    var tree = try Ast.parse(fmt.gpa, source_code, .zig);
     defer tree.deinit(fmt.gpa);
 
     try printErrsMsgToStdErr(fmt.gpa, fmt.arena, tree.errors, tree, file_path, fmt.color);
@@ -5312,7 +5312,7 @@ pub fn cmdAstCheck(
     file.pkg = try Package.create(gpa, "root", null, file.sub_file_path);
     defer file.pkg.destroy(gpa);
 
-    file.tree = try std.zig.parse(gpa, file.source);
+    file.tree = try Ast.parse(gpa, file.source, .zig);
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
@@ -5438,7 +5438,7 @@ pub fn cmdChangelist(
     file.source = source;
     file.source_loaded = true;
 
-    file.tree = try std.zig.parse(gpa, file.source);
+    file.tree = try Ast.parse(gpa, file.source, .zig);
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
@@ -5476,7 +5476,7 @@ pub fn cmdChangelist(
     if (new_amt != new_stat.size)
         return error.UnexpectedEndOfFile;
 
-    var new_tree = try std.zig.parse(gpa, new_source);
+    var new_tree = try Ast.parse(gpa, new_source, .zig);
     defer new_tree.deinit(gpa);
 
     try printErrsMsgToStdErr(gpa, arena, new_tree.errors, new_tree, new_source_file, .auto);

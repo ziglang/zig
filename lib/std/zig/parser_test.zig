@@ -6073,7 +6073,7 @@ var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 fn testParse(source: [:0]const u8, allocator: mem.Allocator, anything_changed: *bool) ![]u8 {
     const stderr = io.getStdErr().writer();
 
-    var tree = try std.zig.parse(allocator, source);
+    var tree = try std.zig.Ast.parse(allocator, source, .zig);
     defer tree.deinit(allocator);
 
     for (tree.errors) |parse_error| {
@@ -6124,7 +6124,7 @@ fn testCanonical(source: [:0]const u8) !void {
 const Error = std.zig.Ast.Error.Tag;
 
 fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
-    var tree = try std.zig.parse(std.testing.allocator, source);
+    var tree = try std.zig.Ast.parse(std.testing.allocator, source, .zig);
     defer tree.deinit(std.testing.allocator);
 
     std.testing.expectEqual(expected_errors.len, tree.errors.len) catch |err| {

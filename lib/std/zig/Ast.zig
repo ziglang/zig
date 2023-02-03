@@ -11,13 +11,6 @@ extra_data: []Node.Index,
 
 errors: []const Error,
 
-const std = @import("../std.zig");
-const assert = std.debug.assert;
-const testing = std.testing;
-const mem = std.mem;
-const Token = std.zig.Token;
-const Ast = @This();
-
 pub const TokenIndex = u32;
 pub const ByteOffset = u32;
 
@@ -34,7 +27,7 @@ pub const Location = struct {
     line_end: usize,
 };
 
-pub fn deinit(tree: *Ast, gpa: mem.Allocator) void {
+pub fn deinit(tree: *Ast, gpa: Allocator) void {
     tree.tokens.deinit(gpa);
     tree.nodes.deinit(gpa);
     gpa.free(tree.extra_data);
@@ -48,11 +41,69 @@ pub const RenderError = error{
     OutOfMemory,
 };
 
+pub const Mode = enum { zig, zon };
+
+/// Result should be freed with tree.deinit() when there are
+/// no more references to any of the tokens or nodes.
+pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!Ast {
+    var tokens = Ast.TokenList{};
+    defer tokens.deinit(gpa);
+
+    // Empirically, the zig std lib has an 8:1 ratio of source bytes to token count.
+    const estimated_token_count = source.len / 8;
+    try tokens.ensureTotalCapacity(gpa, estimated_token_count);
+
+    var tokenizer = std.zig.Tokenizer.init(source);
+    while (true) {
+        const token = tokenizer.next();
+        try tokens.append(gpa, .{
+            .tag = token.tag,
+            .start = @intCast(u32, token.loc.start),
+        });
+        if (token.tag == .eof) break;
+    }
+
+    var parser: Parse = .{
+        .source = source,
+        .gpa = gpa,
+        .token_tags = tokens.items(.tag),
+        .token_starts = tokens.items(.start),
+        .errors = .{},
+        .nodes = .{},
+        .extra_data = .{},
+        .scratch = .{},
+        .tok_i = 0,
+    };
+    defer parser.errors.deinit(gpa);
+    defer parser.nodes.deinit(gpa);
+    defer parser.extra_data.deinit(gpa);
+    defer parser.scratch.deinit(gpa);
+
+    // Empirically, Zig source code has a 2:1 ratio of tokens to AST nodes.
+    // Make sure at least 1 so we can use appendAssumeCapacity on the root node below.
+    const estimated_node_count = (tokens.len + 2) / 2;
+    try parser.nodes.ensureTotalCapacity(gpa, estimated_node_count);
+
+    switch (mode) {
+        .zig => try parser.parseRoot(),
+        .zon => try parser.parseZon(),
+    }
+
+    // TODO experiment with compacting the MultiArrayList slices here
+    return Ast{
+        .source = source,
+        .tokens = tokens.toOwnedSlice(),
+        .nodes = parser.nodes.toOwnedSlice(),
+        .extra_data = try parser.extra_data.toOwnedSlice(gpa),
+        .errors = try parser.errors.toOwnedSlice(gpa),
+    };
+}
+
 /// `gpa` is used for allocating the resulting formatted source code, as well as
 /// for allocating extra stack memory if needed, because this function utilizes recursion.
 /// Note: that's not actually true yet, see https://github.com/ziglang/zig/issues/1006.
 /// Caller owns the returned slice of bytes, allocated with `gpa`.
-pub fn render(tree: Ast, gpa: mem.Allocator) RenderError![]u8 {
+pub fn render(tree: Ast, gpa: Allocator) RenderError![]u8 {
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
 
@@ -3347,3 +3398,12 @@ pub const Node = struct {
         rparen: TokenIndex,
     };
 };
+
+const std = @import("../std.zig");
+const assert = std.debug.assert;
+const testing = std.testing;
+const mem = std.mem;
+const Token = std.zig.Token;
+const Ast = @This();
+const Allocator = std.mem.Allocator;
+const Parse = @import("Parse.zig");
