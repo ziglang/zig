@@ -531,9 +531,6 @@ pub const Decl = struct {
     /// What kind of a declaration is this.
     kind: Kind,
 
-    /// TODO remove this once Wasm backend catches up
-    fn_link: ?link.File.Wasm.FnData = null,
-
     /// The shallow set of other decls whose typed_value could possibly change if this Decl's
     /// typed_value is modified.
     dependants: DepsTable = .{},
@@ -5247,11 +5244,6 @@ pub fn clearDecl(
     if (decl.has_tv) {
         if (decl.ty.isFnOrHasRuntimeBits()) {
             mod.comp.bin_file.freeDecl(decl_index);
-
-            decl.fn_link = switch (mod.comp.bin_file.tag) {
-                .wasm => link.File.Wasm.FnData.empty,
-                else => null,
-            };
         }
         if (decl.getInnerNamespace()) |namespace| {
             try namespace.deleteAllDecls(mod, outdated_decls);
@@ -5652,10 +5644,6 @@ pub fn allocateNewDecl(
         .deletion_flag = false,
         .zir_decl_index = 0,
         .src_scope = src_scope,
-        .fn_link = switch (mod.comp.bin_file.tag) {
-            .wasm => link.File.Wasm.FnData.empty,
-            else => null,
-        },
         .generation = 0,
         .is_pub = false,
         .is_exported = false,
