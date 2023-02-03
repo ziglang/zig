@@ -1400,6 +1400,7 @@ fn walkInstruction(
         .float_cast,
         .int_cast,
         .ptr_cast,
+        .qual_cast,
         .truncate,
         .align_cast,
         .has_decl,
