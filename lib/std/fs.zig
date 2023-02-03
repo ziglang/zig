@@ -1820,7 +1820,7 @@ pub const Dir = struct {
         );
         switch (rc) {
             .SUCCESS => return result,
-            .OBJECT_NAME_INVALID => unreachable,
+            .OBJECT_NAME_INVALID => return error.NotDir,
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
             .NOT_A_DIRECTORY => return error.NotDir,
