@@ -181,17 +181,26 @@ pub fn parseRoot(p: *Parse) !void {
 /// TODO: set a flag in Parse struct, and honor that flag
 /// by emitting compilation errors when non-zon nodes are encountered.
 pub fn parseZon(p: *Parse) !void {
-    const node_index = p.parseExpr() catch |err| switch (err) {
+    // We must use index 0 so that 0 can be used as null elsewhere.
+    p.nodes.appendAssumeCapacity(.{
+        .tag = .root,
+        .main_token = 0,
+        .data = undefined,
+    });
+    const node_index = p.expectExpr() catch |err| switch (err) {
         error.ParseError => {
             assert(p.errors.items.len > 0);
             return;
         },
         else => |e| return e,
     };
-    assert(node_index == 0);
     if (p.token_tags[p.tok_i] != .eof) {
         try p.warnExpected(.eof);
     }
+    p.nodes.items(.data)[0] = .{
+        .lhs = node_index,
+        .rhs = undefined,
+    };
 }
 
 /// ContainerMembers <- ContainerDeclarations (ContainerField COMMA)* (ContainerField / ContainerDeclarations)

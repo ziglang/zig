@@ -1,4 +1,8 @@
 //! Abstract Syntax Tree for Zig source code.
+//! For Zig syntax, the root node is at nodes[0] and contains the list of
+//! sub-nodes.
+//! For Zon syntax, the root node is at nodes[0] and contains lhs as the node
+//! index of the main expression.
 
 /// Reference to externally-owned data.
 source: [:0]const u8,

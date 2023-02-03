@@ -385,7 +385,7 @@ pub const AllErrors = struct {
             count: u32 = 1,
             /// Does not include the trailing newline.
             source_line: ?[]const u8,
-            notes: []Message = &.{},
+            notes: []const Message = &.{},
             reference_trace: []Message = &.{},
 
             /// Splits the error message up into lines to properly indent them
