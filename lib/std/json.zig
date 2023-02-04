@@ -1163,11 +1163,12 @@ const ArrayList = std.ArrayList;
 const StringArrayHashMap = std.StringArrayHashMap;
 
 pub const ValueTree = struct {
-    arena: ArenaAllocator,
+    arena: *ArenaAllocator,
     root: Value,
 
     pub fn deinit(self: *ValueTree) void {
         self.arena.deinit();
+        self.arena.child_allocator.destroy(self.arena);
     }
 };
 
@@ -1809,8 +1810,12 @@ pub const Parser = struct {
     pub fn parse(p: *Parser, input: []const u8) !ValueTree {
         var s = TokenStream.init(input);
 
-        var arena = ArenaAllocator.init(p.allocator);
+        var arena = try p.allocator.create(ArenaAllocator);
+        errdefer p.allocator.destroy(arena);
+
+        arena.* = ArenaAllocator.init(p.allocator);
         errdefer arena.deinit();
+
         const allocator = arena.allocator();
 
         while (try s.next()) |token| {

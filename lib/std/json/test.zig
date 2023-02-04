@@ -2589,6 +2589,24 @@ test "parsing empty string gives appropriate error" {
     try testing.expectError(error.UnexpectedEndOfJson, testParse(arena_allocator.allocator(), ""));
 }
 
+test "parse tree should not contain dangling pointers" {
+    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_allocator.deinit();
+
+    var p = json.Parser.init(arena_allocator.allocator(), false);
+    defer p.deinit();
+
+    var tree = try p.parse("[]");
+    defer tree.deinit();
+
+    // Allocation should succeed
+    var i: usize = 0;
+    while (i < 100) : (i += 1) {
+        try tree.root.Array.append(std.json.Value{ .Integer = 100 });
+    }
+    try testing.expectEqual(tree.root.Array.items.len, 100);
+}
+
 test "integer after float has proper type" {
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
