@@ -1,68 +1,68 @@
 /// RFC 4493 - The AES-CMAC Algorithm
 /// https://www.rfc-editor.org/rfc/rfc4493
 const std = @import("std");
-const Aes128 = std.crypto.core.aes.Aes128;
+const Aes = std.crypto.core.aes;
+const Aes128 = Aes.Aes128;
 
 pub fn AesCmac() type {
     return struct {
         const Self = @This();
-        var ctx: std.crypto.core.aes.AesEncryptCtx(Aes128) = undefined;
+        key: [Aes.Block.block_length]u8,
 
         /// Create a new cmac context with the given key.
-        pub fn init(key: [16]u8) Self {
-            ctx = Aes128.initEnc(key);
-            return Self{};
+        pub fn init(key: [Aes.Block.block_length]u8) Self {
+            return Self{ .key = key };
         }
 
         /// Generates a cmac from the given message.
-        pub fn generate(self: Self, msg: []const u8) [16]u8 {
-            _ = self;
+        pub fn generate(self: Self, msg: []const u8) [Aes.Block.block_length]u8 {
+            var ctx = Aes128.initEnc(self.key);
 
             // make sub keys
-            var k1 = [_]u8{0} ** 16;
-            var k2 = [_]u8{0} ** 16;
+            var k1 = [_]u8{0} ** Aes.Block.block_length;
+            var k2 = [_]u8{0} ** Aes.Block.block_length;
             ctx.encrypt(&k1, &k1);
             makeKn(&k1, &k1);
             makeKn(&k2, &k1);
 
             var flag: bool = undefined;
-            var Ml: [16]u8 = undefined;
+            var Ml: [Aes.Block.block_length]u8 = undefined;
 
             // rounds
-            var n = (msg.len + 15) / 16;
+            var n = (msg.len + 15) / Aes.Block.block_length;
             if (n == 0) {
                 n = 1;
                 flag = false;
             } else {
-                flag = if (msg.len % 16 == 0) true else false;
+                flag = if (msg.len % Aes.Block.block_length == 0) true else false;
             }
 
             if (flag) {
-                Ml = xor(msg[16 * n - 16 ..], &k1);
+                Ml = xor(msg[Aes.Block.block_length * n - Aes.Block.block_length ..], &k1);
             } else {
-                var pad = padding(msg[16 * n - 16 ..], msg.len % 16);
+                var pad = padding(msg[Aes.Block.block_length * n - Aes.Block.block_length ..], msg.len % Aes.Block.block_length);
                 Ml = xor(&pad, &k2);
             }
 
-            var X: [16]u8 = [_]u8{0} ** 16;
-            var Y: [16]u8 = [_]u8{0} ** 16;
+            var X: [Aes.Block.block_length]u8 = [_]u8{0} ** Aes.Block.block_length;
+            var Y: [Aes.Block.block_length]u8 = [_]u8{0} ** Aes.Block.block_length;
             var i: usize = 0;
             while (i < n - 1) : (i += 1) {
-                Y = xor(msg[16 * i ..], &X);
+                Y = xor(msg[Aes.Block.block_length * i ..], &X);
                 ctx.encrypt(&X, &Y);
             }
             Y = xor(&X, &Ml);
 
-            var t: [16]u8 = undefined;
+            var t: [Aes.Block.block_length]u8 = undefined;
             ctx.encrypt(&t, &Y);
 
             return t;
         }
 
-        fn padding(lb: []const u8, len: usize) [16]u8 {
-            var pad: [16]u8 = [_]u8{0} ** 16;
+        fn padding(lb: []const u8, len: usize) [Aes.Block.block_length]u8 {
+            var pad: [Aes.Block.block_length]u8 = [_]u8{0} ** Aes.Block.block_length;
             var i: usize = 0;
-            while (i < 16) : (i += 1) {
+            while (i < Aes.Block.block_length) : (i += 1) {
                 if (i < len) {
                     pad[i] = lb[i];
                 } else if (i == len) {
@@ -74,8 +74,8 @@ pub fn AesCmac() type {
             return pad;
         }
 
-        fn xor(a: []const u8, b: []const u8) [16]u8 {
-            var res: [16]u8 = [_]u8{0} ** 16;
+        fn xor(a: []const u8, b: []const u8) [Aes.Block.block_length]u8 {
+            var res: [Aes.Block.block_length]u8 = [_]u8{0} ** Aes.Block.block_length;
             for (b) |v, i| {
                 res[i] = a[i] ^ v;
             }
@@ -87,7 +87,7 @@ pub fn AesCmac() type {
             const carry = src[15] >> 7;
 
             var cnext: u8 = 0;
-            var i: usize = 16;
+            var i: usize = Aes.Block.block_length;
             while (i > 0) : (i -= 1) {
                 const tmp = src[i - 1];
                 dst[i - 1] = (tmp << 1) | cnext;
