@@ -204,8 +204,11 @@ pub fn addOptionArtifact(self: *OptionsStep, name: []const u8, artifact: *Compil
     self.step.dependOn(&artifact.step);
 }
 
-pub fn getPackage(self: *OptionsStep, package_name: []const u8) std.Build.Pkg {
-    return .{ .name = package_name, .source = self.getSource() };
+pub fn createModule(self: *OptionsStep) *std.Build.Module {
+    return self.builder.createModule(.{
+        .source_file = self.getSource(),
+        .dependencies = &.{},
+    });
 }
 
 pub fn getSource(self: *OptionsStep) FileSource {

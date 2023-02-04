@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "test.zig" },
         .optimize = optimize,
     });
-    exe.addPackagePath("my_pkg", "pkg.zig");
+    exe.addAnonymousModule("my_pkg", .{ .source_file = .{ .path = "pkg.zig" } });
 
     const run = exe.run();
 
