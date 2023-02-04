@@ -1639,7 +1639,7 @@ fn parseInternal(
             const allocator = options.allocator orelse return error.AllocatorRequired;
             switch (ptrInfo.size) {
                 .One => {
-                    const r: T = try allocator.create(ptrInfo.child);
+                    const r: *ptrInfo.child = try allocator.create(ptrInfo.child);
                     errdefer allocator.destroy(r);
                     r.* = try parseInternal(ptrInfo.child, token, tokens, options);
                     return r;

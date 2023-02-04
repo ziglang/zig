@@ -2238,6 +2238,14 @@ test "parse into struct with no fields" {
     try testing.expectEqual(T{}, try parse(T, &ts, ParseOptions{}));
 }
 
+const test_const_value: usize = 123;
+
+test "parse into struct with default const pointer field" {
+    const T = struct { a: *const usize = &test_const_value };
+    var ts = TokenStream.init("{}");
+    try testing.expectEqual(T{}, try parse(T, &ts, .{}));
+}
+
 test "parse into struct where destination and source lengths mismatch" {
     const T = struct { a: [2]u8 };
     var ts = TokenStream.init("{\"a\": \"bbb\"}");
