@@ -327,7 +327,7 @@ fn _start() callconv(.Naked) noreturn {
                     : [argc] "={sp}" (-> [*]usize),
                 );
             },
-            .mips, .mipsel => {
+            .mips, .mipsel, .mips64, .mips64el => {
                 // The lr is already zeroed on entry, as specified by the ABI.
                 argc_argv_ptr = asm volatile (
                     \\ move $fp, $0

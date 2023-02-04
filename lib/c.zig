@@ -354,7 +354,7 @@ fn clone() callconv(.Naked) void {
                 \\    ecall
             );
         },
-        .mips, .mipsel => {
+        .mips, .mipsel, .mips64, .mips64el => {
             // __clone(func, stack, flags, arg, ptid, tls, ctid)
             //            3,     4,     5,   6,    7,   8,    9
 
