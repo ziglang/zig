@@ -1306,7 +1306,7 @@ fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
         \\
         \\Updates lib/std/target/<target>.zig from llvm/lib/Target/<Target>/<Target>.td .
         \\
-        \\On a less beefy system, or when debugging, compile with --single-threaded.
+        \\On a less beefy system, or when debugging, compile with -fsingle-threaded.
         \\
     , .{arg0}) catch std.process.exit(1);
     std.process.exit(code);

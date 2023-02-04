@@ -9604,7 +9604,7 @@ pub fn build(b: *std.Build) void {
       {#header_close#}
 
       {#header_open|Single Threaded Builds#}
-      <p>Zig has a compile option <kbd>--single-threaded</kbd> which has the following effects:</p>
+      <p>Zig has a compile option <kbd>-fsingle-threaded</kbd> which has the following effects:</p>
       <ul>
         <li>All {#link|Thread Local Variables#} are treated as regular {#link|Container Level Variables#}.</li>
         <li>The overhead of {#link|Async Functions#} becomes equivalent to function call overhead.</li>
