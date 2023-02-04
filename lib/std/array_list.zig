@@ -482,14 +482,14 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Return the last element from the list.
         /// Asserts the list has at least one item.
-        pub fn getLast(self: *Self) T {
+        pub fn getLast(self: Self) T {
             const val = self.items[self.items.len - 1];
             return val;
         }
 
         /// Return the last element from the list, or
         /// return `null` if list is empty.
-        pub fn getLastOrNull(self: *Self) ?T {
+        pub fn getLastOrNull(self: Self) ?T {
             if (self.items.len == 0) return null;
             return self.getLast();
         }
@@ -961,14 +961,14 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Return the last element from the list.
         /// Asserts the list has at least one item.
-        pub fn getLast(self: *Self) T {
+        pub fn getLast(self: Self) T {
             const val = self.items[self.items.len - 1];
             return val;
         }
 
         /// Return the last element from the list, or
         /// return `null` if list is empty.
-        pub fn getLastOrNull(self: *Self) ?T {
+        pub fn getLastOrNull(self: Self) ?T {
             if (self.items.len == 0) return null;
             return self.getLast();
         }
@@ -1718,4 +1718,28 @@ test "std.ArrayList(?u32).popOrNull()" {
     try testing.expect(list.popOrNull().? == @as(u32, 1));
     try testing.expect(list.popOrNull().? == null);
     try testing.expect(list.popOrNull() == null);
+}
+
+test "std.ArrayList(u32).getLast()" {
+    const a = testing.allocator;
+
+    var list = ArrayList(u32).init(a);
+    defer list.deinit();
+
+    try list.append(2);
+    const const_list = list;
+    try testing.expectEqual(const_list.getLast(), 2);
+}
+
+test "std.ArrayList(u32).getLastOrNull()" {
+    const a = testing.allocator;
+
+    var list = ArrayList(u32).init(a);
+    defer list.deinit();
+
+    try testing.expectEqual(list.getLastOrNull(), null);
+
+    try list.append(2);
+    const const_list = list;
+    try testing.expectEqual(const_list.getLastOrNull().?, 2);
 }
