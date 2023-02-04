@@ -2246,6 +2246,31 @@ test "parse into struct with default const pointer field" {
     try testing.expectEqual(T{}, try parse(T, &ts, .{}));
 }
 
+const test_default_usize: usize = 123;
+const test_default_usize_ptr: *align(1) const usize = &test_default_usize;
+const test_default_str: []const u8 = "test str";
+const test_default_str_slice: [2][]const u8 = [_][]const u8{
+    "test1",
+    "test2",
+};
+
+test "freeing parsed structs with pointers to default values" {
+    const T = struct {
+        int: *const usize = &test_default_usize,
+        int_ptr: *allowzero align(1) const usize = test_default_usize_ptr,
+        str: []const u8 = test_default_str,
+        str_slice: []const []const u8 = &test_default_str_slice,
+    };
+
+    var ts = json.TokenStream.init("{}");
+    const options = .{ .allocator = std.heap.page_allocator };
+    const parsed = try json.parse(T, &ts, options);
+
+    try testing.expectEqual(T{}, parsed);
+
+    json.parseFree(T, parsed, options);
+}
+
 test "parse into struct where destination and source lengths mismatch" {
     const T = struct { a: [2]u8 };
     var ts = TokenStream.init("{\"a\": \"bbb\"}");

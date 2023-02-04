@@ -1745,7 +1745,37 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
         .Struct => |structInfo| {
             inline for (structInfo.fields) |field| {
                 if (!field.is_comptime) {
-                    parseFree(field.type, @field(value, field.name), options);
+                    var should_free = true;
+                    if (field.default_value) |default| {
+                        switch (@typeInfo(field.type)) {
+                            // We must not attempt to free pointers to struct default values
+                            .Pointer => |fieldPtrInfo| {
+                                const field_value = @field(value, field.name);
+                                const field_ptr = switch (fieldPtrInfo.size) {
+                                    .One => field_value,
+                                    .Slice => field_value.ptr,
+                                    else => unreachable, // Other pointer types are not parseable
+                                };
+                                const field_addr = @ptrToInt(field_ptr);
+
+                                const casted_default = @ptrCast(*const field.type, @alignCast(@alignOf(field.type), default)).*;
+                                const default_ptr = switch (fieldPtrInfo.size) {
+                                    .One => casted_default,
+                                    .Slice => casted_default.ptr,
+                                    else => unreachable, // Other pointer types are not parseable
+                                };
+                                const default_addr = @ptrToInt(default_ptr);
+
+                                if (field_addr == default_addr) {
+                                    should_free = false;
+                                }
+                            },
+                            else => {},
+                        }
+                    }
+                    if (should_free) {
+                        parseFree(field.type, @field(value, field.name), options);
+                    }
                 }
             }
         },
