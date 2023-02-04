@@ -148,12 +148,8 @@ pub fn ZlibStreamWriter(comptime WriterType: type) type {
 
             const w = try self.deflator.write(bytes);
 
-            if (w != 0) {
-                self.hasher.update(bytes[0..w]);
-                return w;
-            }
-
-            return 0;
+            self.hasher.update(bytes[0..w]);
+            return w;
         }
 
         pub fn writer(self: *Self) Writer {
