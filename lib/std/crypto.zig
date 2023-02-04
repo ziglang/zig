@@ -15,6 +15,10 @@ pub const aead = struct {
         pub const Aes256Ocb = @import("crypto/aes_ocb.zig").Aes256Ocb;
     };
 
+    pub const aes_cmac = struct {
+        pub const AesCmac = @import("crypto/aes_cmac.zig").AesCmac;
+    };
+
     pub const Gimli = @import("crypto/gimli.zig").Aead;
 
     pub const chacha_poly = struct {
@@ -188,6 +192,8 @@ test {
 
     _ = aead.aes_ocb.Aes128Ocb;
     _ = aead.aes_ocb.Aes256Ocb;
+
+    _ = aead.aes_cmac.AesCmac;
 
     _ = aead.Gimli;
 
