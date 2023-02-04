@@ -2,7 +2,6 @@
 /// https://www.rfc-editor.org/rfc/rfc4493
 const std = @import("std");
 const Aes128 = std.crypto.core.aes.Aes128;
-const print = std.debug.print;
 
 pub fn AesCmac() type {
     return struct {
@@ -90,7 +89,7 @@ pub fn AesCmac() type {
             var cnext: u8 = 0;
             var i: usize = 16;
             while (i > 0) : (i -= 1) {
-                var tmp = src[i - 1];
+                const tmp = src[i - 1];
                 dst[i - 1] = (tmp << 1) | cnext;
                 cnext = tmp >> 7;
             }
