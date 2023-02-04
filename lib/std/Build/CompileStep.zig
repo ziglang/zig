@@ -16,7 +16,7 @@ const FileSource = std.Build.FileSource;
 const PkgConfigPkg = std.Build.PkgConfigPkg;
 const PkgConfigError = std.Build.PkgConfigError;
 const ExecError = std.Build.ExecError;
-const Pkg = std.Build.Pkg;
+const Module = std.Build.Module;
 const VcpkgRoot = std.Build.VcpkgRoot;
 const InstallDir = std.Build.InstallDir;
 const InstallArtifactStep = std.Build.InstallArtifactStep;
@@ -99,7 +99,7 @@ root_src: ?FileSource,
 out_h_filename: []const u8,
 out_lib_filename: []const u8,
 out_pdb_filename: []const u8,
-packages: ArrayList(Pkg),
+modules: std.StringArrayHashMap(*Module),
 
 object_src: []const u8,
 
@@ -334,7 +334,7 @@ pub fn create(builder: *std.Build, options: Options) *CompileStep {
         .out_pdb_filename = builder.fmt("{s}.pdb", .{name}),
         .major_only_filename = null,
         .name_only_filename = null,
-        .packages = ArrayList(Pkg).init(builder.allocator),
+        .modules = std.StringArrayHashMap(*Module).init(builder.allocator),
         .include_dirs = ArrayList(IncludeDir).init(builder.allocator),
         .link_objects = ArrayList(LinkObject).init(builder.allocator),
         .c_macros = ArrayList([]const u8).init(builder.allocator),
@@ -946,29 +946,29 @@ pub fn addFrameworkPath(self: *CompileStep, dir_path: []const u8) void {
     self.framework_dirs.append(self.builder.dupe(dir_path)) catch @panic("OOM");
 }
 
-pub fn addPackage(self: *CompileStep, package: Pkg) void {
-    self.packages.append(self.builder.dupePkg(package)) catch @panic("OOM");
-    self.addRecursiveBuildDeps(package);
+/// Adds a module to be used with `@import` and exposing it in the current
+/// package's module table using `name`.
+pub fn addModule(cs: *CompileStep, name: []const u8, module: *Module) void {
+    cs.modules.put(cs.builder.dupe(name), module) catch @panic("OOM");
+    cs.addRecursiveBuildDeps(module);
 }
 
-pub fn addOptions(self: *CompileStep, package_name: []const u8, options: *OptionsStep) void {
-    self.addPackage(options.getPackage(package_name));
+/// Adds a module to be used with `@import` without exposing it in the current
+/// package's module table.
+pub fn addAnonymousModule(cs: *CompileStep, name: []const u8, options: std.Build.CreateModuleOptions) void {
+    const module = cs.builder.createModule(options);
+    return addModule(cs, name, module);
 }
 
-fn addRecursiveBuildDeps(self: *CompileStep, package: Pkg) void {
-    package.source.addStepDependencies(&self.step);
-    if (package.dependencies) |deps| {
-        for (deps) |dep| {
-            self.addRecursiveBuildDeps(dep);
-        }
+pub fn addOptions(cs: *CompileStep, module_name: []const u8, options: *OptionsStep) void {
+    addModule(cs, module_name, options.createModule());
+}
+
+fn addRecursiveBuildDeps(cs: *CompileStep, module: *Module) void {
+    module.source_file.addStepDependencies(&cs.step);
+    for (module.dependencies.values()) |dep| {
+        cs.addRecursiveBuildDeps(dep);
     }
-}
-
-pub fn addPackagePath(self: *CompileStep, name: []const u8, pkg_index_path: []const u8) void {
-    self.addPackage(Pkg{
-        .name = self.builder.dupe(name),
-        .source = .{ .path = self.builder.dupe(pkg_index_path) },
-    });
 }
 
 /// If Vcpkg was found on the system, it will be added to include and lib
@@ -1023,16 +1023,21 @@ fn linkLibraryOrObject(self: *CompileStep, other: *CompileStep) void {
     self.include_dirs.append(.{ .other_step = other }) catch @panic("OOM");
 }
 
-fn makePackageCmd(self: *CompileStep, pkg: Pkg, zig_args: *ArrayList([]const u8)) error{OutOfMemory}!void {
-    const builder = self.builder;
-
+fn appendModuleArgs(
+    cs: *CompileStep,
+    zig_args: *ArrayList([]const u8),
+    name: []const u8,
+    module: *Module,
+) error{OutOfMemory}!void {
     try zig_args.append("--pkg-begin");
-    try zig_args.append(pkg.name);
-    try zig_args.append(builder.pathFromRoot(pkg.source.getPath(self.builder)));
+    try zig_args.append(name);
+    try zig_args.append(module.builder.pathFromRoot(module.source_file.getPath(module.builder)));
 
-    if (pkg.dependencies) |dependencies| {
-        for (dependencies) |sub_pkg| {
-            try self.makePackageCmd(sub_pkg, zig_args);
+    {
+        const keys = module.dependencies.keys();
+        for (module.dependencies.values()) |sub_module, i| {
+            const sub_name = keys[i];
+            try cs.appendModuleArgs(zig_args, sub_name, sub_module);
         }
     }
 
@@ -1563,8 +1568,12 @@ fn make(step: *Step) !void {
         try zig_args.append("--test-no-exec");
     }
 
-    for (self.packages.items) |pkg| {
-        try self.makePackageCmd(pkg, &zig_args);
+    {
+        const keys = self.modules.keys();
+        for (self.modules.values()) |module, i| {
+            const name = keys[i];
+            try self.appendModuleArgs(&zig_args, name, module);
+        }
     }
 
     for (self.include_dirs.items) |include_dir| {
@@ -1940,46 +1949,6 @@ fn getPkgConfigList(self: *std.Build) ![]const PkgConfigPkg {
         self.pkg_config_pkg_list = result;
         return result;
     }
-}
-
-test "addPackage" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    const host = try NativeTargetInfo.detect(.{});
-
-    var builder = try std.Build.create(
-        arena.allocator(),
-        "test",
-        "test",
-        "test",
-        "test",
-        host,
-    );
-    defer builder.destroy();
-
-    const pkg_dep = Pkg{
-        .name = "pkg_dep",
-        .source = .{ .path = "/not/a/pkg_dep.zig" },
-    };
-    const pkg_top = Pkg{
-        .name = "pkg_dep",
-        .source = .{ .path = "/not/a/pkg_top.zig" },
-        .dependencies = &[_]Pkg{pkg_dep},
-    };
-
-    var exe = builder.addExecutable(.{
-        .name = "not_an_executable",
-        .root_source_file = .{ .path = "/not/an/executable.zig" },
-    });
-    exe.addPackage(pkg_top);
-
-    try std.testing.expectEqual(@as(usize, 1), exe.packages.items.len);
-
-    const dupe = exe.packages.items[0];
-    try std.testing.expectEqualStrings(pkg_top.name, dupe.name);
 }
 
 fn addFlag(args: *ArrayList([]const u8), comptime name: []const u8, opt: ?bool) !void {
