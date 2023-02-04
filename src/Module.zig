@@ -4865,14 +4865,31 @@ pub fn importFile(
     };
 }
 
-pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*EmbedFile {
+pub fn embedFile(mod: *Module, cur_file: *File, import_string: []const u8) !*EmbedFile {
     const gpa = mod.gpa;
 
-    // The resolved path is used as the key in the table, to detect if
-    // a file refers to the same as another, despite different relative paths.
+    if (cur_file.pkg.table.get(import_string)) |pkg| {
+        const resolved_path = try std.fs.path.resolve(gpa, &[_][]const u8{
+            pkg.root_src_directory.path orelse ".", pkg.root_src_path,
+        });
+        var keep_resolved_path = false;
+        defer if (!keep_resolved_path) gpa.free(resolved_path);
+
+        const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
+        errdefer assert(mod.embed_table.remove(resolved_path));
+        if (gop.found_existing) return gop.value_ptr.*;
+
+        const sub_file_path = try gpa.dupe(u8, pkg.root_src_path);
+        errdefer gpa.free(sub_file_path);
+
+        return newEmbedFile(mod, pkg, sub_file_path, resolved_path, &keep_resolved_path, gop);
+    }
+
+    // The resolved path is used as the key in the table, to detect if a file
+    // refers to the same as another, despite different relative paths.
     const cur_pkg_dir_path = cur_file.pkg.root_src_directory.path orelse ".";
     const resolved_path = try std.fs.path.resolve(gpa, &[_][]const u8{
-        cur_pkg_dir_path, cur_file.sub_file_path, "..", rel_file_path,
+        cur_pkg_dir_path, cur_file.sub_file_path, "..", import_string,
     });
     var keep_resolved_path = false;
     defer if (!keep_resolved_path) gpa.free(resolved_path);
@@ -4880,9 +4897,6 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
     const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
     errdefer assert(mod.embed_table.remove(resolved_path));
     if (gop.found_existing) return gop.value_ptr.*;
-
-    const new_file = try gpa.create(EmbedFile);
-    errdefer gpa.destroy(new_file);
 
     const resolved_root_path = try std.fs.path.resolve(gpa, &[_][]const u8{cur_pkg_dir_path});
     defer gpa.free(resolved_root_path);
@@ -4902,7 +4916,23 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
     };
     errdefer gpa.free(sub_file_path);
 
-    var file = try cur_file.pkg.root_src_directory.handle.openFile(sub_file_path, .{});
+    return newEmbedFile(mod, cur_file.pkg, sub_file_path, resolved_path, &keep_resolved_path, gop);
+}
+
+fn newEmbedFile(
+    mod: *Module,
+    pkg: *Package,
+    sub_file_path: []const u8,
+    resolved_path: []const u8,
+    keep_resolved_path: *bool,
+    gop: std.StringHashMapUnmanaged(*EmbedFile).GetOrPutResult,
+) !*EmbedFile {
+    const gpa = mod.gpa;
+
+    const new_file = try gpa.create(EmbedFile);
+    errdefer gpa.destroy(new_file);
+
+    var file = try pkg.root_src_directory.handle.openFile(sub_file_path, .{});
     defer file.close();
 
     const actual_stat = try file.stat();
@@ -4915,10 +4945,6 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
     const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
     errdefer gpa.free(bytes);
 
-    log.debug("new embedFile. resolved_root_path={s}, resolved_path={s}, sub_file_path={s}, rel_file_path={s}", .{
-        resolved_root_path, resolved_path, sub_file_path, rel_file_path,
-    });
-
     if (mod.comp.whole_cache_manifest) |whole_cache_manifest| {
         const copied_resolved_path = try gpa.dupe(u8, resolved_path);
         errdefer gpa.free(copied_resolved_path);
@@ -4927,13 +4953,13 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
         try whole_cache_manifest.addFilePostContents(copied_resolved_path, bytes, stat);
     }
 
-    keep_resolved_path = true; // It's now owned by embed_table.
+    keep_resolved_path.* = true; // It's now owned by embed_table.
     gop.value_ptr.* = new_file;
     new_file.* = .{
         .sub_file_path = sub_file_path,
         .bytes = bytes,
         .stat = stat,
-        .pkg = cur_file.pkg,
+        .pkg = pkg,
         .owner_decl = undefined, // Set by Sema immediately after this function returns.
     };
     return new_file;
