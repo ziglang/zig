@@ -397,7 +397,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                         const prev = bucket.prev;
                         if (config.never_unmap) {
                             // free page that was intentionally leaked by never_unmap
-                            self.backing_allocator.free(bucket.page[0..page_size]);
+                            const array_ptr = bucket.page[0..page_size];
+                            comptime assert(@TypeOf(array_ptr) == *align(page_size) [page_size]u8);
+                            self.backing_allocator.free(@as([]align(page_size) u8, array_ptr));
                         }
                         // alloc_cursor was set to slot count when bucket added to empty_buckets
                         self.freeBucket(bucket, @divExact(page_size, bucket.alloc_cursor));
@@ -814,7 +816,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     self.buckets[bucket_index] = bucket.prev;
                 }
                 if (!config.never_unmap) {
-                    self.backing_allocator.free(bucket.page[0..page_size]);
+                    const array_ptr = bucket.page[0..page_size];
+                    comptime assert(@TypeOf(array_ptr) == *align(page_size) [page_size]u8);
+                    self.backing_allocator.free(@as([]align(page_size) u8, array_ptr));
                 }
                 if (!config.retain_metadata) {
                     self.freeBucket(bucket, size_class);
