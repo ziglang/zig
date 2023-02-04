@@ -6,24 +6,24 @@ const Aes128 = std.crypto.core.aes.Aes128;
 pub fn AesCmac() type {
     return struct {
         const Self = @This();
-        var k1: [16]u8 = undefined;
-        var k2: [16]u8 = undefined;
         var ctx: std.crypto.core.aes.AesEncryptCtx(Aes128) = undefined;
 
         /// Create a new cmac context with the given key.
         pub fn init(key: [16]u8) Self {
             ctx = Aes128.initEnc(key);
-            k1 = [_]u8{0} ** 16;
-            k2 = [_]u8{0} ** 16;
-            ctx.encrypt(&k1, &k1);
-            makeKn(&k1, &k1);
-            makeKn(&k2, &k1);
             return Self{};
         }
 
         /// Generates a cmac from the given message.
         pub fn generate(self: Self, msg: []const u8) [16]u8 {
             _ = self;
+
+            // make sub keys
+            var k1 = [_]u8{0} ** 16;
+            var k2 = [_]u8{0} ** 16;
+            ctx.encrypt(&k1, &k1);
+            makeKn(&k1, &k1);
+            makeKn(&k2, &k1);
 
             var flag: bool = undefined;
             var Ml: [16]u8 = undefined;
