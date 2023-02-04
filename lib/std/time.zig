@@ -5,6 +5,21 @@ const testing = std.testing;
 const os = std.os;
 const math = std.math;
 
+pub const Date = @import("time/Date.zig");
+pub const DateTime = @import("time/DateTime.zig");
+pub const Time = @import("time/Time.zig");
+pub const Year = Date.Year;
+pub const Month = Date.Month;
+pub const DayOfMonth = Date.DayOfMonth;
+pub const WeekOfYear = Date.WeekOfYear;
+pub const Weekday = Date.Weekday;
+pub const Hour = Time.Hour;
+pub const Minute = Time.Minute;
+pub const Second = Time.Second;
+pub const MilliSecond = Time.MilliSecond;
+pub const midnight = Time.midnight;
+pub const noon = Time.noon;
+
 pub const epoch = @import("time/epoch.zig");
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.

@@ -1,5 +1,11 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
+const Date = std.Date;
+const Year = Date.Year;
+const Month = Date.Month;
+const Weekday = Date.Weekday;
+const s_per_day = std.time.s_per_day;
+const s_per_hour = std.time.s_per_hour;
 
 pub const Transition = struct {
     ts: i64,
@@ -38,7 +44,7 @@ pub const Tz = struct {
     transitions: []const Transition,
     timetypes: []const Timetype,
     leapseconds: []const Leapsecond,
-    footer: ?[]const u8,
+    posix: ?PosixTz,
 
     const Header = extern struct {
         magic: [4]u8,
@@ -180,36 +186,185 @@ pub const Tz = struct {
         }
 
         // Footer
-        var footer: ?[]u8 = null;
+        var posix: ?PosixTz = null;
         if (!legacy) {
             if ((try reader.readByte()) != '\n') return error.Malformed; // An rfc8536 footer must start with a newline
             var footerdata_buf: [128]u8 = undefined;
-            const footer_mem = reader.readUntilDelimiter(&footerdata_buf, '\n') catch |err| switch (err) {
+            const footer = reader.readUntilDelimiter(&footerdata_buf, '\n') catch |err| switch (err) {
                 error.StreamTooLong => return error.OverlargeFooter, // Read more than 128 bytes, much larger than any reasonable POSIX TZ string
                 else => return err,
             };
-            if (footer_mem.len != 0) {
-                footer = try allocator.dupe(u8, footer_mem);
+            if (footer.len != 0) {
+                posix = try PosixTz.parse(footer);
             }
         }
-        errdefer if (footer) |ft| allocator.free(ft);
 
         return Tz{
             .allocator = allocator,
             .transitions = transitions,
             .timetypes = timetypes,
             .leapseconds = leapseconds,
-            .footer = footer,
+            .posix = posix,
         };
     }
 
     pub fn deinit(self: *Tz) void {
-        if (self.footer) |footer| {
-            self.allocator.free(footer);
-        }
         self.allocator.free(self.leapseconds);
         self.allocator.free(self.transitions);
         self.allocator.free(self.timetypes);
+    }
+};
+
+pub const PosixTz = struct {
+    std: Timetype,
+    dst: Timetype,
+    start_rule: Rule = undefined,
+    end_rule: Rule = undefined,
+
+    const Rule = struct {
+        month: Month,
+        week: u3,
+        weekday: Weekday = .Sunday,
+        offset: i32 = 2 * s_per_hour, // 02:00:00
+    };
+
+    pub fn parse(str: []const u8) !PosixTz {
+        var pos: usize = 0;
+        const std_abbrev = try getAbbrev(str, &pos);
+
+        var len = getOffLen(str[pos..]);
+        const std_off = try parseOffset(str[pos .. pos + len]);
+        pos += len;
+
+        if (pos >= str.len) {
+            return .{
+                .std = .{
+                    .name_data = std_abbrev,
+                    .offset = -std_off,
+                    .flags = 0,
+                },
+                .dst = .{
+                    .name_data = std_abbrev,
+                    .offset = -std_off,
+                    .flags = 0,
+                },
+            };
+        }
+
+        const dst_abbrev = try getAbbrev(str, &pos);
+
+        len = getOffLen(str[pos..]);
+        var dst_off = if (len > 0)
+            try parseOffset(str[pos .. pos + len])
+        else
+            std_off - s_per_hour;
+        pos += len;
+
+        var sit = std.mem.split(u8, str[pos..], ",");
+        _ = sit.next();
+        const start_rule = sit.next() orelse return error.ParseError;
+        const end_rule = sit.next() orelse return error.ParseError;
+        return .{
+            .std = .{
+                .name_data = std_abbrev,
+                .offset = -std_off,
+                .flags = 0,
+            },
+            .dst = .{
+                .name_data = dst_abbrev,
+                .offset = -dst_off,
+                .flags = 1,
+            },
+            .start_rule = try parseRule(start_rule),
+            .end_rule = try parseRule(end_rule),
+        };
+    }
+
+    pub fn ruleToSecs(r: Rule, year: Year) i64 {
+        var is_leap = false;
+        var t = Date.yearToSecs(year, &is_leap);
+        t += r.month.secondsIntoYear(is_leap);
+        const wday = @truncate(i32, @mod(@divTrunc(t, s_per_day) + 4, 7));
+        var day = @intCast(i32, @enumToInt(r.weekday)) - wday;
+        if (day < 0) day += 7;
+        const week = if (r.week == 5 and day + 28 >= r.month.daysInMonth(is_leap)) 4 else r.week;
+        t += s_per_day * (day + 7 * @intCast(i32, week - 1));
+        return t + r.offset;
+    }
+
+    fn parseRule(str: []const u8) !Rule {
+        // tzdata 2022e1 only has M-style rules
+        var sit = std.mem.split(u8, str, "/");
+        var sit2 = std.mem.split(u8, sit.next().?, ".");
+        const mstr = sit2.next().?;
+        if (mstr.len == 0 or mstr[0] != 'M') return error.ParseError;
+        const month = try std.fmt.parseUnsigned(u4, mstr[1..], 10);
+        const week = try std.fmt.parseUnsigned(u3, sit2.next() orelse return error.ParseError, 10);
+        const weekday = try std.fmt.parseUnsigned(u3, sit2.next() orelse return error.ParseError, 10);
+
+        const offset = if (sit.next()) |off_str|
+            try parseOffset(off_str)
+        else
+            2 * s_per_hour; // 02:00:00
+
+        return .{
+            .month = try std.meta.intToEnum(Month, month),
+            .week = week,
+            .weekday = try std.meta.intToEnum(Weekday, weekday),
+            .offset = offset,
+        };
+    }
+
+    fn getAbbrev(str: []const u8, ptr: *usize) ![6:0]u8 {
+        var pos = ptr.*;
+        if (pos >= str.len) return error.ParseError;
+
+        var abbrev: [6:0]u8 = undefined;
+
+        var end: usize = undefined;
+        if (str[pos] == '<') {
+            pos += 1;
+            end = std.mem.indexOfScalarPos(u8, str, pos, '>') orelse return error.ParseError;
+            ptr.* = end + 1;
+        } else if (std.ascii.isAlphabetic(str[pos])) {
+            end = pos + 1;
+            while (end < str.len and std.ascii.isAlphabetic(str[end])) {
+                end += 1;
+            }
+            ptr.* = end;
+        } else {
+            return error.ParseError;
+        }
+
+        if (end - pos > 6) return error.ParseError;
+        std.mem.copy(u8, abbrev[0..], str[pos..end]);
+        abbrev[end - pos] = 0;
+        return abbrev;
+    }
+
+    fn getOffLen(str: []const u8) usize {
+        var pos: usize = 0;
+        while (pos < str.len) {
+            switch (str[pos]) {
+                '0'...':', '+', '-' => pos += 1,
+                else => break,
+            }
+        }
+        return pos;
+    }
+
+    fn parseOffset(str: []const u8) !i32 {
+        var sit = std.mem.split(u8, str, ":");
+        var secs = s_per_hour * try std.fmt.parseInt(i32, sit.next().?, 10);
+
+        const part2 = sit.next() orelse return secs;
+        var usecs = 60 * try std.fmt.parseUnsigned(i32, part2, 10);
+
+        if (sit.next()) |part3| {
+            usecs += try std.fmt.parseUnsigned(i32, part3, 10);
+        }
+
+        return if (secs < 0) secs - usecs else secs + usecs;
     }
 };
 
@@ -249,4 +404,38 @@ test "legacy" {
     try std.testing.expectEqual(tz.transitions.len, 170);
     try std.testing.expect(std.mem.eql(u8, tz.transitions[69].timetype.name(), "CET"));
     try std.testing.expectEqual(tz.transitions[123].ts, 1414285200); // 2014-10-26 01:00:00 UTC
+}
+
+test "posix" {
+    var posix = try PosixTz.parse("EST5EDT,M3.2.0,M11.1.0");
+    try std.testing.expectEqualStrings("EST", std.mem.sliceTo(&posix.std.name_data, 0));
+    try std.testing.expectEqualStrings("EDT", std.mem.sliceTo(&posix.dst.name_data, 0));
+    try std.testing.expectEqual(@as(i32, -5 * s_per_hour), posix.std.offset);
+    try std.testing.expectEqual(@as(i32, -4 * s_per_hour), posix.dst.offset);
+    try std.testing.expectEqual(PosixTz.Rule{
+        .month = .March,
+        .week = 2,
+        .offset = 2 * s_per_hour,
+    }, posix.start_rule);
+    try std.testing.expectEqual(PosixTz.Rule{
+        .month = .November,
+        .week = 1,
+        .offset = 2 * s_per_hour,
+    }, posix.end_rule);
+
+    posix = try PosixTz.parse("<+1245>-12:45<+1345>-13:45,M9.5.0/2:45,M4.1.0/3:45");
+    try std.testing.expectEqualStrings("+1245", std.mem.sliceTo(&posix.std.name_data, 0));
+    try std.testing.expectEqualStrings("+1345", std.mem.sliceTo(&posix.dst.name_data, 0));
+    try std.testing.expectEqual(@as(i32, 12 * s_per_hour + 45 * 60), posix.std.offset);
+    try std.testing.expectEqual(@as(i32, 13 * s_per_hour + 45 * 60), posix.dst.offset);
+    try std.testing.expectEqual(PosixTz.Rule{
+        .month = .September,
+        .week = 5,
+        .offset = 2 * s_per_hour + 45 * 60,
+    }, posix.start_rule);
+    try std.testing.expectEqual(PosixTz.Rule{
+        .month = .April,
+        .week = 1,
+        .offset = 3 * s_per_hour + 45 * 60,
+    }, posix.end_rule);
 }
