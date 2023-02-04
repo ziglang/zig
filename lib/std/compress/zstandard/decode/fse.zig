@@ -46,6 +46,7 @@ pub fn decodeFseTable(
         if (value == 1) {
             while (true) {
                 const repeat_flag = try bit_reader.readBitsNoEof(u2, 2);
+                if (repeat_flag + value_count > 256) return error.MalformedFseTable;
                 var i: usize = 0;
                 while (i < repeat_flag) : (i += 1) {
                     values[value_count] = 1;
@@ -54,6 +55,7 @@ pub fn decodeFseTable(
                 if (repeat_flag < 3) break;
             }
         }
+        if (value_count == 256) break;
     }
     bit_reader.alignToByte();
 
