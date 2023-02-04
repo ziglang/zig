@@ -120,8 +120,9 @@ pub fn ZlibStreamWriter(comptime WriterType: type) type {
 
             const FLEVEL: u2 = @enumToInt(options.level);
             const FDICT: u1 = 0; // No preset dictionary support
-            const FCHECK: u5 = 28;
-            const FLG = (@as(u8, FLEVEL) << 6) | (@as(u8, FDICT) << 5) | FCHECK;
+            const FLG_temp = (@as(u8, FLEVEL) << 6) | (@as(u8, FDICT) << 5);
+            const FCHECK: u5 = 31 - ((@as(u16, CMF) * 256 + FLG_temp) % 31);
+            const FLG = FLG_temp | FCHECK;
 
             const compression_level: deflate.Compression = switch (options.level) {
                 .no_compression => .no_compression,
