@@ -54,6 +54,40 @@ const ReadWriteCount = struct {
     write_count: usize,
 };
 
+/// Decodes frames from `src` into `dest`; see `decodeFrame()`.
+pub fn decode(dest: []u8, src: []const u8, verify_checksum: bool) !usize {
+    var write_count: usize = 0;
+    var read_count: usize = 0;
+    while (read_count < src.len) {
+        const counts = try decodeFrame(dest, src[read_count..], verify_checksum);
+        read_count += counts.read_count;
+        write_count += counts.write_count;
+    }
+    return write_count;
+}
+
+pub fn decodeAlloc(
+    allocator: Allocator,
+    src: []const u8,
+    verify_checksum: bool,
+    window_size_max: usize,
+) ![]u8 {
+    var result = std.ArrayList(u8).init(allocator);
+    errdefer result.deinit();
+
+    var read_count: usize = 0;
+    while (read_count < src.len) {
+        read_count += try decodeZstandardFrameArrayList(
+            allocator,
+            &result,
+            src[read_count..],
+            verify_checksum,
+            window_size_max,
+        );
+    }
+    return result.toOwnedSlice();
+}
+
 /// Decodes the frame at the start of `src` into `dest`. Returns the number of
 /// bytes read from `src` and written to `dest`. This function can only decode
 /// frames that declare the decompressed content size.
@@ -268,6 +302,24 @@ pub fn decodeZstandardFrameAlloc(
 ) (error{OutOfMemory} || FrameContext.Error || FrameError)!DecodeResult {
     var result = std.ArrayList(u8).init(allocator);
     errdefer result.deinit();
+    const read_count = try decodeZstandardFrameArrayList(
+        allocator,
+        &result,
+        src,
+        verify_checksum,
+        window_size_max,
+    );
+    return DecodeResult{ .bytes = try result.toOwnedSlice(), .read_count = read_count };
+}
+
+/// Decode a ZStandard frame into `dest`; see `decodeZStandardFrameAlloc()`.
+pub fn decodeZstandardFrameArrayList(
+    allocator: Allocator,
+    dest: *std.ArrayList(u8),
+    src: []const u8,
+    verify_checksum: bool,
+    window_size_max: usize,
+) (error{OutOfMemory} || FrameContext.Error || FrameError)!usize {
     assert(readInt(u32, src[0..4]) == frame.Zstandard.magic_number);
     var consumed_count: usize = 4;
 
@@ -305,8 +357,8 @@ pub fn decodeZstandardFrameAlloc(
         );
         if (written_size > 0) {
             const written_slice = ring_buffer.sliceLast(written_size);
-            try result.appendSlice(written_slice.first);
-            try result.appendSlice(written_slice.second);
+            try dest.appendSlice(written_slice.first);
+            try dest.appendSlice(written_slice.second);
             if (frame_context.hasher_opt) |*hasher| {
                 hasher.update(written_slice.first);
                 hasher.update(written_slice.second);
@@ -323,7 +375,7 @@ pub fn decodeZstandardFrameAlloc(
             if (checksum != computeChecksum(hasher)) return error.ChecksumFailure;
         }
     }
-    return DecodeResult{ .bytes = try result.toOwnedSlice(), .read_count = consumed_count };
+    return consumed_count;
 }
 
 /// Convenience wrapper for decoding all blocks in a frame; see `decodeBlock()`.
