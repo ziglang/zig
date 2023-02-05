@@ -28,9 +28,7 @@ step: Step,
 builder: *std.Build,
 source: std.Build.FileSource,
 style: Style,
-values: std.StringHashMap(Value),
-gen_keys: std.ArrayList([]const u8),
-gen_values: std.ArrayList(Value),
+values: std.StringArrayHashMap(Value),
 max_bytes: usize = 2 * 1024 * 1024,
 output_dir: []const u8,
 output_path: []const u8,
@@ -44,9 +42,7 @@ pub fn create(builder: *std.Build, source: std.Build.FileSource, style: Style) *
         .step = Step.init(base_id, name, builder.allocator, make),
         .source = source,
         .style = style,
-        .values = std.StringHashMap(Value).init(builder.allocator),
-        .gen_keys = std.ArrayList([]const u8).init(builder.allocator),
-        .gen_values = std.ArrayList(Value).init(builder.allocator),
+        .values = std.StringArrayHashMap(Value).init(builder.allocator),
         .output_dir = undefined,
         .output_path = "config.h",
         .output_gen = std.build.GeneratedFile{ .step = &self.step },
@@ -200,7 +196,7 @@ fn make(step: *Step) !void {
     switch (self.style) {
         .autoconf => try render_autoconf(contents, &output, &values_copy, src_path),
         .cmake => try render_cmake(contents, &output, &values_copy, src_path),
-        .generated => try render_generated(gpa, &output, &self.gen_keys, &self.gen_values, self.source.getDisplayName()),
+        .generated => try render_generated(gpa, &output, &values_copy, self.source.getDisplayName()),
     }
 
     try dir.writeFile(outpath, output.items);
@@ -211,7 +207,7 @@ fn make(step: *Step) !void {
 fn render_autoconf(
     contents: []const u8,
     output: *std.ArrayList(u8),
-    values_copy: *std.StringHashMap(Value),
+    values_copy: *std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
     var any_errors = false;
@@ -231,7 +227,7 @@ fn render_autoconf(
             continue;
         }
         const name = it.rest();
-        const kv = values_copy.fetchRemove(name) orelse {
+        const kv = values_copy.fetchSwapRemove(name) orelse {
             std.debug.print("{s}:{d}: error: unspecified config header value: '{s}'\n", .{
                 src_path, line_index + 1, name,
             });
@@ -257,7 +253,7 @@ fn render_autoconf(
 fn render_cmake(
     contents: []const u8,
     output: *std.ArrayList(u8),
-    values_copy: *std.StringHashMap(Value),
+    values_copy: *std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
     var any_errors = false;
@@ -283,7 +279,7 @@ fn render_cmake(
             any_errors = true;
             continue;
         };
-        const kv = values_copy.fetchRemove(name) orelse {
+        const kv = values_copy.fetchSwapRemove(name) orelse {
             std.debug.print("{s}:{d}: error: unspecified config header value: '{s}'\n", .{
                 src_path, line_index + 1, name,
             });
@@ -340,8 +336,7 @@ fn renderValue(output: *std.ArrayList(u8), name: []const u8, value: Value) !void
 fn render_generated(
     gpa: std.mem.Allocator,
     output: *std.ArrayList(u8),
-    keys: *std.ArrayList([]const u8),
-    values: *std.ArrayList(Value),
+    values_copy: *std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
     var include_guard = try gpa.dupe(u8, src_path);
@@ -358,8 +353,9 @@ fn render_generated(
     try output.writer().print("#ifndef {s}\n", .{include_guard});
     try output.writer().print("#define {s}\n", .{include_guard});
 
-    for (keys.items) |k, i| {
-        try renderValue(output, k, values.items[i]);
+    var it = values_copy.iterator();
+    while (it.next()) |e| {
+        try renderValue(output, e.key_ptr.*, e.value_ptr.*);
     }
 
     try output.writer().print("#endif /* {s} */\n", .{include_guard});
