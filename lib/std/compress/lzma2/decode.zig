@@ -141,7 +141,7 @@ pub const Decoder = struct {
         const counter_reader = counter.reader();
 
         var rangecoder = try RangeDecoder.init(counter_reader);
-        try self.lzma_state.process(allocator, counter_reader, writer, accum, &rangecoder);
+        while (try self.lzma_state.process(allocator, counter_reader, writer, accum, &rangecoder) == .continue_) {}
 
         if (counter.bytes_read != packed_size) {
             return error.CorruptInput;

@@ -1,22 +1,24 @@
 const std = @import("../../std.zig");
 const lzma = @import("../lzma.zig");
 
-fn testDecompress(compressed: []const u8, writer: anytype) !void {
+fn testDecompress(compressed: []const u8) ![]u8 {
     const allocator = std.testing.allocator;
     var stream = std.io.fixedBufferStream(compressed);
-    try lzma.decompress(allocator, stream.reader(), writer, .{});
+    var decompressor = try lzma.decompress(allocator, stream.reader());
+    defer decompressor.deinit();
+    const reader = decompressor.reader();
+    return reader.readAllAlloc(allocator, std.math.maxInt(usize));
 }
 
 fn testDecompressEqual(expected: []const u8, compressed: []const u8) !void {
     const allocator = std.testing.allocator;
-    var decomp = std.ArrayList(u8).init(allocator);
-    defer decomp.deinit();
-    try testDecompress(compressed, decomp.writer());
-    try std.testing.expectEqualSlices(u8, expected, decomp.items);
+    const decomp = try testDecompress(compressed);
+    defer allocator.free(decomp);
+    try std.testing.expectEqualSlices(u8, expected, decomp);
 }
 
 fn testDecompressError(expected: anyerror, compressed: []const u8) !void {
-    return std.testing.expectError(expected, testDecompress(compressed, std.io.null_writer));
+    return std.testing.expectError(expected, testDecompress(compressed));
 }
 
 test "LZMA: decompress empty world" {

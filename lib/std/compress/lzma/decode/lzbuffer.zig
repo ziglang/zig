@@ -98,6 +98,7 @@ pub const LzAccumBuffer = struct {
 
     pub fn finish(self: *Self, writer: anytype) !void {
         try writer.writeAll(self.buf.items);
+        self.buf.clearRetainingCapacity();
     }
 
     pub fn deinit(self: *Self, allocator: Allocator) void {
@@ -216,6 +217,7 @@ pub const LzCircularBuffer = struct {
     pub fn finish(self: *Self, writer: anytype) !void {
         if (self.cursor > 0) {
             try writer.writeAll(self.buf.items[0..self.cursor]);
+            self.cursor = 0;
         }
     }
 

@@ -280,26 +280,29 @@ pub const DecoderState = struct {
         writer: anytype,
         buffer: anytype,
         decoder: *RangeDecoder,
-    ) !void {
-        while (true) {
+    ) !ProcessingStatus {
+        process_next: {
             if (self.unpacked_size) |unpacked_size| {
                 if (buffer.len >= unpacked_size) {
-                    break;
+                    break :process_next;
                 }
             } else if (decoder.isFinished()) {
-                break;
+                break :process_next;
             }
 
-            if (try self.processNext(allocator, reader, writer, buffer, decoder) == .finished) {
-                break;
+            switch (try self.processNext(allocator, reader, writer, buffer, decoder)) {
+                .continue_ => return .continue_,
+                .finished => break :process_next,
             }
         }
 
-        if (self.unpacked_size) |len| {
-            if (len != buffer.len) {
+        if (self.unpacked_size) |unpacked_size| {
+            if (buffer.len != unpacked_size) {
                 return error.CorruptInput;
             }
         }
+
+        return .finished;
     }
 
     fn decodeLiteral(
@@ -372,38 +375,5 @@ pub const DecoderState = struct {
         }
 
         return result;
-    }
-};
-
-pub const Decoder = struct {
-    params: Params,
-    memlimit: usize,
-    state: DecoderState,
-
-    pub fn init(allocator: Allocator, params: Params, memlimit: ?usize) !Decoder {
-        return Decoder{
-            .params = params,
-            .memlimit = memlimit orelse math.maxInt(usize),
-            .state = try DecoderState.init(allocator, params.properties, params.unpacked_size),
-        };
-    }
-
-    pub fn deinit(self: *Decoder, allocator: Allocator) void {
-        self.state.deinit(allocator);
-        self.* = undefined;
-    }
-
-    pub fn decompress(
-        self: *Decoder,
-        allocator: Allocator,
-        reader: anytype,
-        writer: anytype,
-    ) !void {
-        var buffer = LzCircularBuffer.init(self.params.dict_size, self.memlimit);
-        defer buffer.deinit(allocator);
-
-        var decoder = try RangeDecoder.init(reader);
-        try self.state.process(allocator, reader, writer, &buffer, &decoder);
-        try buffer.finish(writer);
     }
 };
