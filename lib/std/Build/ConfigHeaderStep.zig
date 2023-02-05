@@ -125,6 +125,12 @@ fn putValue(self: *ConfigHeaderStep, field_name: []const u8, comptime T: type, v
                         return;
                     }
                 },
+                .Int => {
+                    if (ptr.size == .Slice and ptr.child == u8) {
+                        try self.values.put(field_name, .{ .string = v });
+                        return;
+                    }
+                },
                 else => {},
             }
 
