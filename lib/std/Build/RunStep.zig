@@ -39,6 +39,10 @@ expected_exit_code: ?u8 = 0,
 
 /// Print the command before running it
 print: bool,
+/// Controls whether execution is skipped if the output file is up-to-date.
+/// The default is to always run if there is no output file, and to skip
+/// running if all output files are up-to-date.
+condition: enum { output_outdated, always } = .output_outdated,
 
 pub const StdIoAction = union(enum) {
     inherit,
@@ -51,6 +55,12 @@ pub const Arg = union(enum) {
     artifact: *CompileStep,
     file_source: std.Build.FileSource,
     bytes: []u8,
+    output: Output,
+
+    pub const Output = struct {
+        generated_file: *std.Build.GeneratedFile,
+        basename: []const u8,
+    };
 };
 
 pub fn create(builder: *std.Build, name: []const u8) *RunStep {
@@ -69,6 +79,20 @@ pub fn create(builder: *std.Build, name: []const u8) *RunStep {
 pub fn addArtifactArg(self: *RunStep, artifact: *CompileStep) void {
     self.argv.append(Arg{ .artifact = artifact }) catch @panic("OOM");
     self.step.dependOn(&artifact.step);
+}
+
+/// This provides file path as a command line argument to the command being
+/// run, and returns a FileSource which can be used as inputs to other APIs
+/// throughout the build system.
+pub fn addOutputFileArg(rs: *RunStep, basename: []const u8) std.Build.FileSource {
+    const generated_file = rs.builder.allocator.create(std.Build.GeneratedFile) catch @panic("OOM");
+    generated_file.* = .{ .step = &rs.step };
+    rs.argv.append(.{ .output = .{
+        .generated_file = generated_file,
+        .basename = rs.builder.dupe(basename),
+    } }) catch @panic("OOM");
+
+    return .{ .generated = generated_file };
 }
 
 pub fn addFileSourceArg(self: *RunStep, file_source: std.Build.FileSource) void {
@@ -159,10 +183,24 @@ fn stdIoActionToBehavior(action: StdIoAction) std.ChildProcess.StdIo {
     };
 }
 
+fn needOutputCheck(self: RunStep) bool {
+    switch (self.condition) {
+        .always => return false,
+        .output_outdated => {
+            for (self.argv.items) |arg| switch (arg) {
+                .output => return true,
+                else => continue,
+            };
+            return false;
+        },
+    }
+}
+
 fn make(step: *Step) !void {
     const self = @fieldParentPtr(RunStep, "step", step);
 
     var argv_list = ArrayList([]const u8).init(self.builder.allocator);
+
     for (self.argv.items) |arg| {
         switch (arg) {
             .bytes => |bytes| try argv_list.append(bytes),
@@ -172,8 +210,33 @@ fn make(step: *Step) !void {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                     self.addPathForDynLibs(artifact);
                 }
-                const executable_path = artifact.installed_path orelse artifact.getOutputSource().getPath(self.builder);
+                const executable_path = artifact.installed_path orelse
+                    artifact.getOutputSource().getPath(self.builder);
                 try argv_list.append(executable_path);
+            },
+            .output => |output| {
+                // TODO: until the cache system is brought into the build system,
+                // we use a temporary directory here for each run.
+                var digest: [16]u8 = undefined;
+                std.crypto.random.bytes(&digest);
+                var hash_basename: [digest.len * 2]u8 = undefined;
+                _ = std.fmt.bufPrint(
+                    &hash_basename,
+                    "{s}",
+                    .{std.fmt.fmtSliceHexLower(&digest)},
+                ) catch unreachable;
+
+                const output_path = try fs.path.join(self.builder.allocator, &[_][]const u8{
+                    self.builder.cache_root, "tmp", &hash_basename, output.basename,
+                });
+                const output_dir = fs.path.dirname(output_path).?;
+                fs.cwd().makePath(output_dir) catch |err| {
+                    std.debug.print("unable to make path {s}: {s}\n", .{ output_dir, @errorName(err) });
+                    return err;
+                };
+
+                output.generated_file.path = output_path;
+                try argv_list.append(output_path);
             },
         }
     }
