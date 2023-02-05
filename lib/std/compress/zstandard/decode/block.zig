@@ -334,6 +334,8 @@ pub const DecodeState = struct {
     ///     mean the literal stream or the sequence is malformed).
     ///   - `error.InvalidBitStream` if the FSE sequence bitstream is malformed
     ///   - `error.EndOfStream` if `bit_reader` does not contain enough bits
+    ///   - `error.DestTooSmall` if `dest` is not large enough to holde the
+    ///     decompressed sequence
     pub fn decodeSequenceSlice(
         self: *DecodeState,
         dest: []u8,
@@ -341,10 +343,11 @@ pub const DecodeState = struct {
         bit_reader: *readers.ReverseBitReader,
         sequence_size_limit: usize,
         last_sequence: bool,
-    ) DecodeSequenceError!usize {
+    ) (error{DestTooSmall} || DecodeSequenceError)!usize {
         const sequence = try self.nextSequence(bit_reader);
         const sequence_length = @as(usize, sequence.literal_length) + sequence.match_length;
         if (sequence_length > sequence_size_limit) return error.MalformedSequence;
+        if (sequence_length > dest[write_pos..].len) return error.DestTooSmall;
 
         try self.executeSequenceSlice(dest, write_pos, sequence);
         if (!last_sequence) {
@@ -583,6 +586,8 @@ pub const DecodeState = struct {
 ///   - `error.MalformedRleBlock` if the block is an RLE block and `src.len < 1`
 ///   - `error.MalformedCompressedBlock` if there are errors decoding a
 ///     compressed block
+///   - `error.DestTooSmall` is `dest` is not large enough to hold the
+///     decompressed block
 pub fn decodeBlock(
     dest: []u8,
     src: []const u8,
@@ -590,13 +595,14 @@ pub fn decodeBlock(
     decode_state: *DecodeState,
     consumed_count: *usize,
     written_count: usize,
-) Error!usize {
+) (error{DestTooSmall} || Error)!usize {
     const block_size_max = @min(1 << 17, dest[written_count..].len); // 128KiB
     const block_size = block_header.block_size;
     if (block_size_max < block_size) return error.BlockSizeOverMaximum;
     switch (block_header.block_type) {
         .raw => {
             if (src.len < block_size) return error.MalformedBlockSize;
+            if (dest[written_count..].len < block_size) return error.DestTooSmall;
             const data = src[0..block_size];
             std.mem.copy(u8, dest[written_count..], data);
             consumed_count.* += block_size;
@@ -604,6 +610,7 @@ pub fn decodeBlock(
         },
         .rle => {
             if (src.len < 1) return error.MalformedRleBlock;
+            if (dest[written_count..].len < block_size) return error.DestTooSmall;
             var write_pos: usize = written_count;
             while (write_pos < block_size + written_count) : (write_pos += 1) {
                 dest[write_pos] = src[0];
@@ -644,7 +651,10 @@ pub fn decodeBlock(
                         &bit_stream,
                         sequence_size_limit,
                         i == sequences_header.sequence_count - 1,
-                    ) catch return error.MalformedCompressedBlock;
+                    ) catch |err| switch (err) {
+                        error.DestTooSmall => return error.DestTooSmall,
+                        else => return error.MalformedCompressedBlock,
+                    };
                     bytes_written += decompressed_size;
                     sequence_size_limit -= decompressed_size;
                 }
@@ -655,6 +665,7 @@ pub fn decodeBlock(
 
             if (decode_state.literal_written_count < literals.header.regenerated_size) {
                 const len = literals.header.regenerated_size - decode_state.literal_written_count;
+                if (len > dest[written_count + bytes_written ..].len) return error.DestTooSmall;
                 decode_state.decodeLiteralsSlice(dest[written_count + bytes_written ..], len) catch
                     return error.MalformedCompressedBlock;
                 bytes_written += len;
