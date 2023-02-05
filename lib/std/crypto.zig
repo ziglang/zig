@@ -192,8 +192,6 @@ test {
     _ = aead.aes_ocb.Aes128Ocb;
     _ = aead.aes_ocb.Aes256Ocb;
 
-    _ = aead.aes_cmac.AesCmac;
-
     _ = aead.Gimli;
 
     _ = aead.chacha_poly.ChaCha20Poly1305;
