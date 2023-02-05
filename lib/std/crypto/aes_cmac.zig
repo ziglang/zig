@@ -1,155 +1,129 @@
-/// RFC 4493 - The AES-CMAC Algorithm
-/// https://www.rfc-editor.org/rfc/rfc4493
 const std = @import("std");
+const crypto = std.crypto;
 const mem = std.mem;
-const Aes = std.crypto.core.aes;
 
-pub const AesCmac = Cmac();
+/// CMAC with AES-128 - RFC 4493 https://www.rfc-editor.org/rfc/rfc4493
+pub const CmacAes128 = Cmac(crypto.core.aes.Aes128);
 
-pub fn Cmac() type {
+/// NIST Special Publication 800-38B - The CMAC Mode for Authentication
+/// https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-38b.pdf
+pub fn Cmac(comptime BlockCipher: type) type {
+    const BlockCipherCtx = @typeInfo(@TypeOf(BlockCipher.initEnc)).Fn.return_type.?;
+    const Block = [BlockCipher.block.block_length]u8;
+
     return struct {
         const Self = @This();
-        pub const key_length = Aes.Block.block_length;
-        pub const mac_length = Aes.Block.block_length;
-        ctx: std.crypto.core.aes.AesEncryptCtx(Aes.Aes128),
+        pub const key_length = BlockCipher.key_bits / 8;
+        pub const block_length = BlockCipher.block.block_length;
+        pub const mac_length = block_length;
 
-        pub fn create(out: *[mac_length]u8, msg: []const u8, key: []const u8) void {
-            var scratch: [key_length]u8 = undefined;
-            if (key.len > key_length) {
-                mem.copy(u8, scratch[0..], key[0..key_length]);
-            } else {
-                mem.copy(u8, scratch[0..], key);
-            }
-            const ctx = Self.init(scratch);
-            ctx.generate(out, msg);
+        cipher_ctx: BlockCipherCtx,
+        k1: Block,
+        k2: Block,
+        buf: Block = [_]u8{0} ** block_length,
+        pos: usize = 0,
+
+        pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [key_length]u8) void {
+            var ctx = Self.init(key);
+            ctx.update(msg);
+            ctx.final(out);
         }
 
-        /// Create a new cmac context with the given key.
-        pub fn init(key: [key_length]u8) Self {
-            return Self{ .ctx = Aes.Aes128.initEnc(key) };
+        pub fn init(key: *const [key_length]u8) Self {
+            const cipher_ctx = BlockCipher.initEnc(key.*);
+            const zeros = [_]u8{0} ** block_length;
+            var k1: Block = undefined;
+            cipher_ctx.encrypt(&k1, &zeros);
+            k1 = double(k1);
+            return Self{
+                .cipher_ctx = cipher_ctx,
+                .k1 = k1,
+                .k2 = double(k1),
+            };
         }
 
-        /// Generates a cmac from the given message.
-        pub fn generate(self: Self, out: *[mac_length]u8, msg: []const u8) void {
-
-            // make sub keys
-            var k1 = [_]u8{0} ** Aes.Block.block_length;
-            var k2 = [_]u8{0} ** Aes.Block.block_length;
-            self.ctx.encrypt(&k1, &k1);
-            const t1 = k1[Aes.Block.block_length - 1];
-            shiftBitLeft(&k1, &k1);
-            k1[Aes.Block.block_length - 1] ^= 0x87 & -%(t1 >> 7);
-            const t2 = k1[Aes.Block.block_length - 1];
-            shiftBitLeft(&k2, &k1);
-            k2[Aes.Block.block_length - 1] ^= 0x87 & -%(t2 >> 7);
-
-            var flag: bool = undefined;
-            var Ml: [Aes.Block.block_length]u8 = undefined;
-
-            // rounds
-            var n = (msg.len + 15) / Aes.Block.block_length;
-            if (n == 0) {
-                n = 1;
-                flag = false;
-            } else {
-                flag = if (msg.len % Aes.Block.block_length == 0) true else false;
+        pub fn update(self: *Self, msg: []const u8) void {
+            const left = block_length - self.pos;
+            var m = msg;
+            if (m.len > left) {
+                for (self.buf[self.pos..]) |*b, i| b.* ^= m[i];
+                m = m[left..];
+                self.cipher_ctx.encrypt(&self.buf, &self.buf);
+                self.pos = 0;
             }
-
-            if (flag) {
-                Ml = xor(msg[Aes.Block.block_length * n - Aes.Block.block_length ..], &k1);
-            } else {
-                var pad = padding(msg[Aes.Block.block_length * n - Aes.Block.block_length ..], msg.len % Aes.Block.block_length);
-                Ml = xor(&pad, &k2);
+            while (m.len > block_length) {
+                for (self.buf[0..block_length]) |*b, i| b.* ^= m[i];
+                m = m[block_length..];
+                self.cipher_ctx.encrypt(&self.buf, &self.buf);
+                self.pos = 0;
             }
-
-            var X: [Aes.Block.block_length]u8 = [_]u8{0} ** Aes.Block.block_length;
-            var Y: [Aes.Block.block_length]u8 = [_]u8{0} ** Aes.Block.block_length;
-            var i: usize = 0;
-            while (i < n - 1) : (i += 1) {
-                Y = xor(msg[Aes.Block.block_length * i ..], &X);
-                self.ctx.encrypt(&X, &Y);
+            if (m.len > 0) {
+                for (self.buf[self.pos..][0..m.len]) |*b, i| b.* ^= m[i];
+                self.pos += m.len;
             }
-            Y = xor(&X, &Ml);
-
-            // var t: [Aes.Block.block_length]u8 = undefined;
-            self.ctx.encrypt(out, &Y);
         }
 
-        fn padding(lb: []const u8, len: usize) [Aes.Block.block_length]u8 {
-            var pad: [Aes.Block.block_length]u8 = [_]u8{0} ** Aes.Block.block_length;
-            var i: usize = 0;
-            while (i < Aes.Block.block_length) : (i += 1) {
-                if (i < len) {
-                    pad[i] = lb[i];
-                } else if (i == len) {
-                    pad[i] = 0x80;
-                } else {
-                    break;
-                }
+        pub fn final(self: *Self, out: *[mac_length]u8) void {
+            var mac = self.k1;
+            if (self.pos < block_length) {
+                mac = self.k2;
+                mac[self.pos] ^= 0x80;
             }
-            return pad;
+            for (mac) |*b, i| b.* ^= self.buf[i];
+            self.cipher_ctx.encrypt(out, &mac);
         }
 
-        fn xor(a: []const u8, b: []const u8) [Aes.Block.block_length]u8 {
-            var res: [Aes.Block.block_length]u8 = [_]u8{0} ** Aes.Block.block_length;
-            for (b) |v, i| {
-                res[i] = a[i] ^ v;
-            }
-            return res;
-        }
-
-        fn shiftBitLeft(dst: []u8, src: []u8) void {
-            var cnext: u8 = 0;
-            var i: usize = Aes.Block.block_length;
-            while (i > 0) : (i -= 1) {
-                const tmp = src[i - 1];
-                dst[i - 1] = (tmp << 1) | cnext;
-                cnext = tmp >> 7;
-            }
+        fn double(l: Block) Block {
+            const Int = std.meta.Int(.unsigned, block_length * 8);
+            const l_ = mem.readIntBig(Int, &l);
+            const l_2 = switch (block_length) {
+                8 => (l_ << 1) ^ (0x1b & -%(l_ >> 63)), // mod x^64 + x^4 + x^3 + x + 1
+                16 => (l_ << 1) ^ (0x87 & -%(l_ >> 127)), // mod x^128 + x^7 + x^2 + x + 1
+                32 => (l_ << 1) ^ (0x0425 & -%(l_ >> 255)), // mod x^256 + x^10 + x^5 + x^2 + 1
+                64 => (l_ << 1) ^ (0x0125 & -%(l_ >> 511)), // mod x^512 + x^8 + x^5 + x^2 + 1
+                else => @compileError("unsupported block length"),
+            };
+            var l2: Block = undefined;
+            mem.writeIntBig(Int, &l2, l_2);
+            return l2;
         }
     };
 }
 
 const testing = std.testing;
 
-test "AesCmac - Example 1: len = 0" {
+test "CmacAes128 - Example 1: len = 0" {
     const key = [_]u8{
         0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c,
     };
-    const ctx = AesCmac.init(key);
-
     var msg: [0]u8 = undefined;
     const exp = [_]u8{
         0xbb, 0x1d, 0x69, 0x29, 0xe9, 0x59, 0x37, 0x28, 0x7f, 0xa3, 0x7d, 0x12, 0x9b, 0x75, 0x67, 0x46,
     };
-    var out: [AesCmac.mac_length]u8 = undefined;
-    ctx.generate(&out, &msg);
+    var out: [CmacAes128.mac_length]u8 = undefined;
+    CmacAes128.create(&out, &msg, &key);
     try testing.expectEqualSlices(u8, &out, &exp);
 }
 
-test "AesCmac - Example 2: len = 16" {
+test "CmacAes128 - Example 2: len = 16" {
     const key = [_]u8{
         0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c,
     };
-    const ctx = AesCmac.init(key);
-
     const msg = [_]u8{
         0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a,
     };
     const exp = [_]u8{
         0x07, 0x0a, 0x16, 0xb4, 0x6b, 0x4d, 0x41, 0x44, 0xf7, 0x9b, 0xdd, 0x9d, 0xd0, 0x4a, 0x28, 0x7c,
     };
-    var out: [AesCmac.mac_length]u8 = undefined;
-    ctx.generate(&out, &msg);
+    var out: [CmacAes128.mac_length]u8 = undefined;
+    CmacAes128.create(&out, &msg, &key);
     try testing.expectEqualSlices(u8, &out, &exp);
 }
 
-test "AesCmac - Example 3: len = 40" {
+test "CmacAes128 - Example 3: len = 40" {
     const key = [_]u8{
         0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c,
     };
-    const ctx = AesCmac.init(key);
-
     const msg = [_]u8{
         0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a,
         0xae, 0x2d, 0x8a, 0x57, 0x1e, 0x03, 0xac, 0x9c, 0x9e, 0xb7, 0x6f, 0xac, 0x45, 0xaf, 0x8e, 0x51,
@@ -158,17 +132,15 @@ test "AesCmac - Example 3: len = 40" {
     const exp = [_]u8{
         0xdf, 0xa6, 0x67, 0x47, 0xde, 0x9a, 0xe6, 0x30, 0x30, 0xca, 0x32, 0x61, 0x14, 0x97, 0xc8, 0x27,
     };
-    var out: [AesCmac.mac_length]u8 = undefined;
-    ctx.generate(&out, &msg);
+    var out: [CmacAes128.mac_length]u8 = undefined;
+    CmacAes128.create(&out, &msg, &key);
     try testing.expectEqualSlices(u8, &out, &exp);
 }
 
-test "AesCmac - Example 4: len = 64" {
+test "CmacAes128 - Example 4: len = 64" {
     const key = [_]u8{
         0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c,
     };
-    const ctx = AesCmac.init(key);
-
     const msg = [_]u8{
         0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a,
         0xae, 0x2d, 0x8a, 0x57, 0x1e, 0x03, 0xac, 0x9c, 0x9e, 0xb7, 0x6f, 0xac, 0x45, 0xaf, 0x8e, 0x51,
@@ -178,25 +150,7 @@ test "AesCmac - Example 4: len = 64" {
     const exp = [_]u8{
         0x51, 0xf0, 0xbe, 0xbf, 0x7e, 0x3b, 0x9d, 0x92, 0xfc, 0x49, 0x74, 0x17, 0x79, 0x36, 0x3c, 0xfe,
     };
-    var out: [AesCmac.mac_length]u8 = undefined;
-    ctx.generate(&out, &msg);
+    var out: [CmacAes128.mac_length]u8 = undefined;
+    CmacAes128.create(&out, &msg, &key);
     try testing.expectEqualSlices(u8, &out, &exp);
-}
-
-test "bench call" {
-    const KiB = 1024;
-    const Mac = AesCmac;
-    var prng = std.rand.DefaultPrng.init(0);
-    const random = prng.random();
-
-    var in: [512 * KiB]u8 = undefined;
-    random.bytes(in[0..]);
-
-    const key_length = if (Mac.key_length == 0) 32 else Mac.key_length;
-    var key: [key_length]u8 = undefined;
-    random.bytes(key[0..]);
-
-    var mac: [Mac.mac_length]u8 = undefined;
-    Mac.create(mac[0..], in[0..], key[0..]);
-    mem.doNotOptimizeAway(&mac);
 }
