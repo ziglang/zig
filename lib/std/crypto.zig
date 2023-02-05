@@ -42,7 +42,7 @@ pub const auth = struct {
         pub const Aegis256Mac = @import("crypto/aegis.zig").Aegis256Mac;
     };
     pub const cmac = struct {
-        pub const AesCmac = @import("crypto/aes_cmac.zig").AesCmac;
+        pub const CmacAes128 = @import("crypto/aes_cmac.zig").CmacAes128;
     };
 };
 
