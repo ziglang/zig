@@ -506,26 +506,11 @@ pub fn installLibraryHeaders(a: *CompileStep, l: *CompileStep) void {
     a.installed_headers.appendSlice(l.installed_headers.items) catch @panic("OOM");
 }
 
-/// Creates a `RunStep` with an executable built with `addExecutable`.
-/// Add command line arguments with `addArg`.
+/// Deprecated: use `std.Build.addRunArtifact`
+/// This function will run in the context of the package that created the executable,
+/// which is undesirable when running an executable provided by a dependency package.
 pub fn run(exe: *CompileStep) *RunStep {
-    assert(exe.kind == .exe or exe.kind == .test_exe);
-
-    // It doesn't have to be native. We catch that if you actually try to run it.
-    // Consider that this is declarative; the run step may not be run unless a user
-    // option is supplied.
-    const run_step = RunStep.create(exe.builder, exe.builder.fmt("run {s}", .{exe.step.name}));
-    run_step.addArtifactArg(exe);
-
-    if (exe.kind == .test_exe) {
-        run_step.addArg(exe.builder.zig_exe);
-    }
-
-    if (exe.vcpkg_bin_path) |path| {
-        run_step.addPathDir(path);
-    }
-
-    return run_step;
+    return exe.builder.addRunArtifact(exe);
 }
 
 /// Creates an `EmulatableRunStep` with an executable built with `addExecutable`.

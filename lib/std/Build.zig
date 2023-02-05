@@ -348,7 +348,7 @@ fn applyArgs(b: *Build, args: anytype) !void {
                         .used = false,
                     });
                 },
-                .Enum => {
+                .Enum, .EnumLiteral => {
                     try b.user_input_options.put(field.name, .{
                         .name = field.name,
                         .value = .{ .scalar = @tagName(v) },
@@ -596,6 +596,28 @@ pub fn addSystemCommand(self: *Build, argv: []const []const u8) *RunStep {
     assert(argv.len >= 1);
     const run_step = RunStep.create(self, self.fmt("run {s}", .{argv[0]}));
     run_step.addArgs(argv);
+    return run_step;
+}
+
+/// Creates a `RunStep` with an executable built with `addExecutable`.
+/// Add command line arguments with methods of `RunStep`.
+pub fn addRunArtifact(b: *Build, exe: *CompileStep) *RunStep {
+    assert(exe.kind == .exe or exe.kind == .test_exe);
+
+    // It doesn't have to be native. We catch that if you actually try to run it.
+    // Consider that this is declarative; the run step may not be run unless a user
+    // option is supplied.
+    const run_step = RunStep.create(b, b.fmt("run {s}", .{exe.step.name}));
+    run_step.addArtifactArg(exe);
+
+    if (exe.kind == .test_exe) {
+        run_step.addArg(b.zig_exe);
+    }
+
+    if (exe.vcpkg_bin_path) |path| {
+        run_step.addPathDir(path);
+    }
+
     return run_step;
 }
 
