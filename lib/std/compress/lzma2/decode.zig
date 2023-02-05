@@ -1,20 +1,20 @@
-const std = @import("../../../std.zig");
+const std = @import("../../std.zig");
 const Allocator = std.mem.Allocator;
 
-const lzma = @import("lzma.zig");
-const DecoderState = lzma.DecoderState;
-const LzmaProperties = lzma.LzmaProperties;
-const LzAccumBuffer = @import("lzbuffer.zig").LzAccumBuffer;
-const RangeDecoder = @import("rangecoder.zig").RangeDecoder;
+const lzma = @import("../lzma.zig");
+const DecoderState = lzma.decode.DecoderState;
+const LzAccumBuffer = lzma.decode.lzbuffer.LzAccumBuffer;
+const Properties = lzma.decode.Properties;
+const RangeDecoder = lzma.decode.rangecoder.RangeDecoder;
 
-pub const Lzma2Decoder = struct {
+pub const Decoder = struct {
     lzma_state: DecoderState,
 
-    pub fn init(allocator: Allocator) !Lzma2Decoder {
-        return Lzma2Decoder{
+    pub fn init(allocator: Allocator) !Decoder {
+        return Decoder{
             .lzma_state = try DecoderState.init(
                 allocator,
-                LzmaProperties{
+                Properties{
                     .lc = 0,
                     .lp = 0,
                     .pb = 0,
@@ -24,13 +24,13 @@ pub const Lzma2Decoder = struct {
         };
     }
 
-    pub fn deinit(self: *Lzma2Decoder, allocator: Allocator) void {
+    pub fn deinit(self: *Decoder, allocator: Allocator) void {
         self.lzma_state.deinit(allocator);
         self.* = undefined;
     }
 
     pub fn decompress(
-        self: *Lzma2Decoder,
+        self: *Decoder,
         allocator: Allocator,
         reader: anytype,
         writer: anytype,
@@ -53,7 +53,7 @@ pub const Lzma2Decoder = struct {
     }
 
     fn parseLzma(
-        self: *Lzma2Decoder,
+        self: *Decoder,
         allocator: Allocator,
         reader: anytype,
         writer: anytype,
@@ -129,7 +129,7 @@ pub const Lzma2Decoder = struct {
                     return error.CorruptInput;
                 }
 
-                new_props = LzmaProperties{ .lc = lc, .lp = lp, .pb = pb };
+                new_props = Properties{ .lc = lc, .lp = lp, .pb = pb };
             }
 
             try self.lzma_state.resetState(allocator, new_props);

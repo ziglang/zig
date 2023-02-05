@@ -1,8 +1,5 @@
 const std = @import("../../../std.zig");
 const mem = std.mem;
-const Allocator = std.mem.Allocator;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
-const FixedBufferStream = std.io.FixedBufferStream;
 
 pub const RangeDecoder = struct {
     range: u32,

@@ -4,7 +4,7 @@ const lzma = @import("../lzma.zig");
 fn testDecompress(compressed: []const u8, writer: anytype) !void {
     const allocator = std.testing.allocator;
     var stream = std.io.fixedBufferStream(compressed);
-    try lzma.lzmaDecompress(allocator, stream.reader(), writer, .{});
+    try lzma.decompress(allocator, stream.reader(), writer, .{});
 }
 
 fn testDecompressEqual(expected: []const u8, compressed: []const u8) !void {
@@ -19,7 +19,7 @@ fn testDecompressError(expected: anyerror, compressed: []const u8) !void {
     return std.testing.expectError(expected, testDecompress(compressed, std.io.null_writer));
 }
 
-test "decompress empty world" {
+test "LZMA: decompress empty world" {
     try testDecompressEqual(
         "",
         &[_]u8{
@@ -29,7 +29,7 @@ test "decompress empty world" {
     );
 }
 
-test "decompress hello world" {
+test "LZMA: decompress hello world" {
     try testDecompressEqual(
         "Hello world\n",
         &[_]u8{
@@ -40,7 +40,7 @@ test "decompress hello world" {
     );
 }
 
-test "decompress huge dict" {
+test "LZMA: decompress huge dict" {
     try testDecompressEqual(
         "Hello world\n",
         &[_]u8{
@@ -51,35 +51,35 @@ test "decompress huge dict" {
     );
 }
 
-test "unknown size with end of payload marker" {
+test "LZMA: unknown size with end of payload marker" {
     try testDecompressEqual(
         "Hello\nWorld!\n",
         @embedFile("testdata/good-unknown_size-with_eopm.lzma"),
     );
 }
 
-test "known size without end of payload marker" {
+test "LZMA: known size without end of payload marker" {
     try testDecompressEqual(
         "Hello\nWorld!\n",
         @embedFile("testdata/good-known_size-without_eopm.lzma"),
     );
 }
 
-test "known size with end of payload marker" {
+test "LZMA: known size with end of payload marker" {
     try testDecompressEqual(
         "Hello\nWorld!\n",
         @embedFile("testdata/good-known_size-with_eopm.lzma"),
     );
 }
 
-test "too big uncompressed size in header" {
+test "LZMA: too big uncompressed size in header" {
     try testDecompressError(
         error.CorruptInput,
         @embedFile("testdata/bad-too_big_size-with_eopm.lzma"),
     );
 }
 
-test "too small uncompressed size in header" {
+test "LZMA: too small uncompressed size in header" {
     try testDecompressError(
         error.CorruptInput,
         @embedFile("testdata/bad-too_small_size-without_eopm-3.lzma"),
