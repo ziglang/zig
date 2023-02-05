@@ -598,13 +598,17 @@ pub fn addSystemCommand(self: *Build, argv: []const []const u8) *RunStep {
     return run_step;
 }
 
+/// Using the `values` provided, produces a C header file, possibly based on a
+/// template input file (e.g. config.h.in).
+/// When an input template file is provided, this function will fail the build
+/// when an option not found in the input file is provided in `values`, and
+/// when an option found in the input file is missing from `values`.
 pub fn addConfigHeader(
     b: *Build,
-    source: FileSource,
-    style: ConfigHeaderStep.Style,
+    options: ConfigHeaderStep.Options,
     values: anytype,
 ) *ConfigHeaderStep {
-    const config_header_step = ConfigHeaderStep.create(b, source, style);
+    const config_header_step = ConfigHeaderStep.create(b, options);
     config_header_step.addValues(values);
     return config_header_step;
 }

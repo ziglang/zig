@@ -4,15 +4,22 @@ const Step = std.Build.Step;
 
 pub const base_id: Step.Id = .config_header;
 
-pub const Style = enum {
+pub const Style = union(enum) {
     /// The configure format supported by autotools. It uses `#undef foo` to
     /// mark lines that can be substituted with different values.
-    autoconf,
+    autoconf: std.Build.FileSource,
     /// The configure format supported by CMake. It uses `@@FOO@@` and
     /// `#cmakedefine` for template substitution.
-    cmake,
-    /// Generate a c header from scratch with the values passed.
-    generated,
+    cmake: std.Build.FileSource,
+    /// Instead of starting with an input file, start with nothing.
+    blank,
+
+    pub fn getFileSource(style: Style) ?std.Build.FileSource {
+        switch (style) {
+            .autoconf, .cmake => |s| return s,
+            .blank => return null,
+        }
+    }
 };
 
 pub const Value = union(enum) {
@@ -26,53 +33,51 @@ pub const Value = union(enum) {
 
 step: Step,
 builder: *std.Build,
-source: std.Build.FileSource,
-style: Style,
-values: std.StringHashMap(Value),
-gen_keys: std.ArrayList([]const u8),
-gen_values: std.ArrayList(Value),
-max_bytes: usize = 2 * 1024 * 1024,
-output_dir: []const u8,
-output_path: []const u8,
-output_gen: std.build.GeneratedFile,
+values: std.StringArrayHashMap(Value),
+output_file: std.Build.GeneratedFile,
 
-pub fn create(builder: *std.Build, source: std.Build.FileSource, style: Style) *ConfigHeaderStep {
+style: Style,
+max_bytes: usize,
+include_path: []const u8,
+
+pub const Options = struct {
+    style: Style = .blank,
+    max_bytes: usize = 2 * 1024 * 1024,
+    include_path: ?[]const u8 = null,
+};
+
+pub fn create(builder: *std.Build, options: Options) *ConfigHeaderStep {
     const self = builder.allocator.create(ConfigHeaderStep) catch @panic("OOM");
-    const name = builder.fmt("configure header {s}", .{source.getDisplayName()});
+    const name = if (options.style.getFileSource()) |s|
+        builder.fmt("configure {s} header {s}", .{ @tagName(options.style), s.getDisplayName() })
+    else
+        builder.fmt("configure {s} header", .{@tagName(options.style)});
     self.* = .{
         .builder = builder,
         .step = Step.init(base_id, name, builder.allocator, make),
-        .source = source,
-        .style = style,
-        .values = std.StringHashMap(Value).init(builder.allocator),
-        .gen_keys = std.ArrayList([]const u8).init(builder.allocator),
-        .gen_values = std.ArrayList(Value).init(builder.allocator),
-        .output_dir = undefined,
-        .output_path = "config.h",
-        .output_gen = std.build.GeneratedFile{ .step = &self.step },
+        .style = options.style,
+        .values = std.StringArrayHashMap(Value).init(builder.allocator),
+
+        .max_bytes = options.max_bytes,
+        .include_path = "config.h",
+        .output_file = .{ .step = &self.step },
     };
 
-    switch (source) {
+    if (options.style.getFileSource()) |s| switch (s) {
         .path => |p| {
-            self.output_path = p;
-
-            switch (style) {
-                .autoconf, .cmake => {
-                    if (std.mem.endsWith(u8, p, ".h.in")) {
-                        self.output_path = p[0 .. p.len - 3];
-                    }
-                },
-                else => {},
+            const basename = std.fs.path.basename(p);
+            if (std.mem.endsWith(u8, basename, ".h.in")) {
+                self.include_path = basename[0 .. basename.len - 3];
             }
         },
         else => {},
+    };
+
+    if (options.include_path) |include_path| {
+        self.include_path = include_path;
     }
 
     return self;
-}
-
-pub fn getOutputSource(self: *ConfigHeaderStep) std.build.FileSource {
-    return std.build.FileSource{ .generated = &self.output_gen };
 }
 
 pub fn addValues(self: *ConfigHeaderStep, values: anytype) void {
@@ -81,36 +86,43 @@ pub fn addValues(self: *ConfigHeaderStep, values: anytype) void {
 
 fn addValuesInner(self: *ConfigHeaderStep, values: anytype) !void {
     inline for (@typeInfo(@TypeOf(values)).Struct.fields) |field| {
-        const val = try getValue(self, field.type, @field(values, field.name));
-        switch (self.style) {
-            .generated => {
-                try self.gen_keys.append(field.name);
-                try self.gen_values.append(val);
-            },
-            else => try self.values.put(field.name, val),
-        }
+        try putValue(self, field.name, field.type, @field(values, field.name));
     }
 }
 
-fn getValue(self: *ConfigHeaderStep, comptime T: type, v: T) !Value {
+fn putValue(self: *ConfigHeaderStep, field_name: []const u8, comptime T: type, v: T) !void {
     switch (@typeInfo(T)) {
-        .Null => return .undef,
-        .Void => return .defined,
-        .Bool => return .{ .boolean = v },
-        .Int, .ComptimeInt => return .{ .int = v },
-        .EnumLiteral => return .{ .ident = @tagName(v) },
+        .Null => {
+            try self.values.put(field_name, .undef);
+        },
+        .Void => {
+            try self.values.put(field_name, .defined);
+        },
+        .Bool => {
+            try self.values.put(field_name, .{ .boolean = v });
+        },
+        .Int => {
+            try self.values.put(field_name, .{ .int = v });
+        },
+        .ComptimeInt => {
+            try self.values.put(field_name, .{ .int = v });
+        },
+        .EnumLiteral => {
+            try self.values.put(field_name, .{ .ident = @tagName(v) });
+        },
         .Optional => {
             if (v) |x| {
-                return getValue(self, @TypeOf(x), x);
+                return putValue(self, field_name, @TypeOf(x), x);
             } else {
-                return .undef;
+                try self.values.put(field_name, .undef);
             }
         },
         .Pointer => |ptr| {
             switch (@typeInfo(ptr.child)) {
                 .Array => |array| {
                     if (ptr.size == .One and array.child == u8) {
-                        return .{ .string = v };
+                        try self.values.put(field_name, .{ .string = v });
+                        return;
                     }
                 },
                 else => {},
@@ -125,11 +137,6 @@ fn getValue(self: *ConfigHeaderStep, comptime T: type, v: T) !Value {
 fn make(step: *Step) !void {
     const self = @fieldParentPtr(ConfigHeaderStep, "step", step);
     const gpa = self.builder.allocator;
-    const src_path = self.source.getPath(self.builder);
-    const contents = switch (self.style) {
-        .generated => src_path,
-        else => try std.fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes),
-    };
 
     // The cache is used here not really as a way to speed things up - because writing
     // the data to a file would probably be very fast - but as a way to find a canonical
@@ -146,9 +153,30 @@ fn make(step: *Step) !void {
     // Random bytes to make ConfigHeaderStep unique. Refresh this with new
     // random bytes when ConfigHeaderStep implementation is modified in a
     // non-backwards-compatible way.
-    var hash = Hasher.init("X1pQzdDt91Zlh7Eh");
-    hash.update(self.source.getDisplayName());
-    hash.update(contents);
+    var hash = Hasher.init("PGuDTpidxyMqnkGM");
+
+    var output = std.ArrayList(u8).init(gpa);
+    defer output.deinit();
+
+    try output.appendSlice("/* This file was generated by ConfigHeaderStep using the Zig Build System. */\n");
+
+    switch (self.style) {
+        .autoconf => |file_source| {
+            const src_path = file_source.getPath(self.builder);
+            const contents = try std.fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes);
+            try render_autoconf(contents, &output, self.values, src_path);
+        },
+        .cmake => |file_source| {
+            const src_path = file_source.getPath(self.builder);
+            const contents = try std.fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes);
+            try render_cmake(contents, &output, self.values, src_path);
+        },
+        .blank => {
+            try render_blank(&output, self.values, self.include_path);
+        },
+    }
+
+    hash.update(output.items);
 
     var digest: [16]u8 = undefined;
     hash.final(&digest);
@@ -159,7 +187,7 @@ fn make(step: *Step) !void {
         .{std.fmt.fmtSliceHexLower(&digest)},
     ) catch unreachable;
 
-    self.output_dir = try std.fs.path.join(gpa, &[_][]const u8{
+    const output_dir = try std.fs.path.join(gpa, &[_][]const u8{
         self.builder.cache_root, "o", &hash_basename,
     });
 
@@ -168,45 +196,33 @@ fn make(step: *Step) !void {
     // output_path is libavutil/avconfig.h
     // We want to open directory zig-cache/o/HASH/libavutil/
     // but keep output_dir as zig-cache/o/HASH for -I include
-    var outdir = self.output_dir;
-    var outpath = self.output_path;
-    if (std.fs.path.dirname(self.output_path)) |d| {
-        outdir = try std.fs.path.join(gpa, &[_][]const u8{ self.output_dir, d });
-        outpath = std.fs.path.basename(self.output_path);
-    }
+    const sub_dir_path = if (std.fs.path.dirname(self.include_path)) |d|
+        try std.fs.path.join(gpa, &.{ output_dir, d })
+    else
+        output_dir;
 
-    var dir = std.fs.cwd().makeOpenPath(outdir, .{}) catch |err| {
-        std.debug.print("unable to make path {s}: {s}\n", .{ outdir, @errorName(err) });
+    var dir = std.fs.cwd().makeOpenPath(sub_dir_path, .{}) catch |err| {
+        std.debug.print("unable to make path {s}: {s}\n", .{ output_dir, @errorName(err) });
         return err;
     };
     defer dir.close();
 
-    var values_copy = try self.values.clone();
-    defer values_copy.deinit();
+    try dir.writeFile(std.fs.path.basename(self.include_path), output.items);
 
-    var output = std.ArrayList(u8).init(gpa);
-    defer output.deinit();
-    try output.ensureTotalCapacity(contents.len);
-
-    try output.appendSlice("/* This file was generated by ConfigHeaderStep using the Zig Build System. */\n");
-
-    switch (self.style) {
-        .autoconf => try render_autoconf(contents, &output, &values_copy, src_path),
-        .cmake => try render_cmake(contents, &output, &values_copy, src_path),
-        .generated => try render_generated(gpa, &output, &self.gen_keys, &self.gen_values, self.source.getDisplayName()),
-    }
-
-    try dir.writeFile(outpath, output.items);
-
-    self.output_gen.path = try std.fs.path.join(gpa, &[_][]const u8{ self.output_dir, self.output_path });
+    self.output_file.path = try std.fs.path.join(self.builder.allocator, &.{
+        output_dir, self.include_path,
+    });
 }
 
 fn render_autoconf(
     contents: []const u8,
     output: *std.ArrayList(u8),
-    values_copy: *std.StringHashMap(Value),
+    values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
+    var values_copy = try values.clone();
+    defer values_copy.deinit();
+
     var any_errors = false;
     var line_index: u32 = 0;
     var line_it = std.mem.split(u8, contents, "\n");
@@ -224,7 +240,7 @@ fn render_autoconf(
             continue;
         }
         const name = it.rest();
-        const kv = values_copy.fetchRemove(name) orelse {
+        const kv = values_copy.fetchSwapRemove(name) orelse {
             std.debug.print("{s}:{d}: error: unspecified config header value: '{s}'\n", .{
                 src_path, line_index + 1, name,
             });
@@ -234,12 +250,8 @@ fn render_autoconf(
         try renderValue(output, name, kv.value);
     }
 
-    {
-        var it = values_copy.iterator();
-        while (it.next()) |entry| {
-            const name = entry.key_ptr.*;
-            std.debug.print("{s}: error: config header value unused: '{s}'\n", .{ src_path, name });
-        }
+    for (values_copy.keys()) |name| {
+        std.debug.print("{s}: error: config header value unused: '{s}'\n", .{ src_path, name });
     }
 
     if (any_errors) {
@@ -250,9 +262,12 @@ fn render_autoconf(
 fn render_cmake(
     contents: []const u8,
     output: *std.ArrayList(u8),
-    values_copy: *std.StringHashMap(Value),
+    values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
+    var values_copy = try values.clone();
+    defer values_copy.deinit();
+
     var any_errors = false;
     var line_index: u32 = 0;
     var line_it = std.mem.split(u8, contents, "\n");
@@ -276,7 +291,7 @@ fn render_cmake(
             any_errors = true;
             continue;
         };
-        const kv = values_copy.fetchRemove(name) orelse {
+        const kv = values_copy.fetchSwapRemove(name) orelse {
             std.debug.print("{s}:{d}: error: unspecified config header value: '{s}'\n", .{
                 src_path, line_index + 1, name,
             });
@@ -286,17 +301,43 @@ fn render_cmake(
         try renderValue(output, name, kv.value);
     }
 
-    {
-        var it = values_copy.iterator();
-        while (it.next()) |entry| {
-            const name = entry.key_ptr.*;
-            std.debug.print("{s}: error: config header value unused: '{s}'\n", .{ src_path, name });
-        }
+    for (values_copy.keys()) |name| {
+        std.debug.print("{s}: error: config header value unused: '{s}'\n", .{ src_path, name });
     }
 
     if (any_errors) {
         return error.HeaderConfigFailed;
     }
+}
+
+fn render_blank(
+    output: *std.ArrayList(u8),
+    defines: std.StringArrayHashMap(Value),
+    include_path: []const u8,
+) !void {
+    const include_guard_name = try output.allocator.dupe(u8, include_path);
+    for (include_guard_name) |*byte| {
+        switch (byte.*) {
+            'a'...'z' => byte.* = byte.* - 'a' + 'A',
+            'A'...'Z', '0'...'9' => continue,
+            else => byte.* = '_',
+        }
+    }
+
+    try output.appendSlice("#ifndef ");
+    try output.appendSlice(include_guard_name);
+    try output.appendSlice("\n#define ");
+    try output.appendSlice(include_guard_name);
+    try output.appendSlice("\n");
+
+    const values = defines.values();
+    for (defines.keys()) |name, i| {
+        try renderValue(output, name, values[i]);
+    }
+
+    try output.appendSlice("#endif /* ");
+    try output.appendSlice(include_guard_name);
+    try output.appendSlice(" */\n");
 }
 
 fn renderValue(output: *std.ArrayList(u8), name: []const u8, value: Value) !void {
@@ -328,32 +369,4 @@ fn renderValue(output: *std.ArrayList(u8), name: []const u8, value: Value) !void
             try output.writer().print("#define {s} \"{}\"\n", .{ name, std.zig.fmtEscapes(string) });
         },
     }
-}
-
-fn render_generated(
-    gpa: std.mem.Allocator,
-    output: *std.ArrayList(u8),
-    keys: *std.ArrayList([]const u8),
-    values: *std.ArrayList(Value),
-    src_path: []const u8,
-) !void {
-    var include_guard = try gpa.dupe(u8, src_path);
-    defer gpa.free(include_guard);
-
-    for (include_guard) |*ch| {
-        if (ch.* == '.' or std.fs.path.isSep(ch.*)) {
-            ch.* = '_';
-        } else {
-            ch.* = std.ascii.toUpper(ch.*);
-        }
-    }
-
-    try output.writer().print("#ifndef {s}\n", .{include_guard});
-    try output.writer().print("#define {s}\n", .{include_guard});
-
-    for (keys.items) |k, i| {
-        try renderValue(output, k, values.items[i]);
-    }
-
-    try output.writer().print("#endif /* {s} */\n", .{include_guard});
 }
