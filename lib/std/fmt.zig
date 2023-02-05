@@ -23,6 +23,7 @@ pub const FormatOptions = struct {
     precision: ?usize = null,
     width: ?usize = null,
     alignment: Alignment = .Right,
+    print_sign: ?bool = null,
     fill: u8 = ' ',
 };
 
@@ -1462,7 +1463,7 @@ pub fn formatInt(
             buf[index] = '-';
         } else if (options.width == null or options.width.? == 0) {
             // Positive integer, omit the plus sign
-        } else {
+        } else if (options.print_sign != null and options.print_sign.? == true) {
             // Positive integer
             index -= 1;
             buf[index] = '+';
