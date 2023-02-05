@@ -553,7 +553,7 @@ TODO brief explanation + implementation
 |        |               |             |           |           | **Fixed-Point Fractional** |
 
 Math functions according to C99 with gnu extension sincos. f16, f80 and f128 functions
-are additionally supported by Zig, but not part of C standard. Alphabetical sorted.
+are additionally supported by Zig, but not part of C standard. Alphabetically sorted.
 
 | Done | Name    | a         | b         | Out       | Comment                    |
 | ---- | ------- | --------- | --------- | --------- | -------------------------- |
