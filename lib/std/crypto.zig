@@ -41,9 +41,7 @@ pub const auth = struct {
         pub const Aegis128LMac = @import("crypto/aegis.zig").Aegis128LMac;
         pub const Aegis256Mac = @import("crypto/aegis.zig").Aegis256Mac;
     };
-    pub const cmac = struct {
-        pub const CmacAes128 = @import("crypto/aes_cmac.zig").CmacAes128;
-    };
+    pub const cmac = @import("crypto/cmac.zig");
 };
 
 /// Core functions, that should rarely be used directly by applications.
