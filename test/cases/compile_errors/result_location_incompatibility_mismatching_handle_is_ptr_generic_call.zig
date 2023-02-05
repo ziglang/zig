@@ -17,4 +17,4 @@ pub const Container = struct {
 //
 // :3:36: error: expected type 'i32', found '?i32'
 // :3:36: note: cannot convert optional to payload type
-// :3:36: note: consider using `.?`, `orelse`, or `if`
+// :3:36: note: consider using '.?', 'orelse', or 'if'

@@ -1400,6 +1400,7 @@ fn walkInstruction(
         .float_cast,
         .int_cast,
         .ptr_cast,
+        .qual_cast,
         .truncate,
         .align_cast,
         .has_decl,
@@ -2200,17 +2201,10 @@ fn walkInstruction(
                 false,
             );
 
-            _ = operand;
-
-            // WIP
-
-            printWithContext(
-                file,
-                inst_index,
-                "TODO: implement `{s}` for walkInstruction\n\n",
-                .{@tagName(tags[inst_index])},
-            );
-            return self.cteTodo(@tagName(tags[inst_index]));
+            return DocData.WalkResult{
+                .typeRef = operand.expr,
+                .expr = .{ .@"struct" = &.{} },
+            };
         },
         .struct_init_anon => {
             const pl_node = data[inst_index].pl_node;
@@ -2537,6 +2531,7 @@ fn walkInstruction(
                         const var_init_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
                         const var_init = try self.walkRef(file, parent_scope, parent_src, var_init_ref, need_type);
                         value.expr = var_init.expr;
+                        value.typeRef = var_init.typeRef;
                     }
 
                     return value;

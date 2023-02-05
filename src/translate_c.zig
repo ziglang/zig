@@ -4519,7 +4519,10 @@ fn transCreateNodeAssign(
     defer block_scope.deinit();
 
     const tmp = try block_scope.makeMangledName(c, "tmp");
-    const rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
+    var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
+    if (!exprIsBooleanType(lhs) and isBoolRes(rhs_node)) {
+        rhs_node = try Tag.bool_to_int.create(c.arena, rhs_node);
+    }
     const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = rhs_node });
     try block_scope.statements.append(tmp_decl);
 

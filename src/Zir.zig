@@ -857,6 +857,9 @@ pub const Inst = struct {
         /// Implements the `@ptrCast` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
         ptr_cast,
+        /// Implements the `@qualCast` builtin.
+        /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
+        qual_cast,
         /// Implements the `@truncate` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
         truncate,
@@ -1195,6 +1198,7 @@ pub const Inst = struct {
                 .float_cast,
                 .int_cast,
                 .ptr_cast,
+                .qual_cast,
                 .truncate,
                 .align_cast,
                 .has_field,
@@ -1484,6 +1488,7 @@ pub const Inst = struct {
                 .float_cast,
                 .int_cast,
                 .ptr_cast,
+                .qual_cast,
                 .truncate,
                 .align_cast,
                 .has_field,
@@ -1755,6 +1760,7 @@ pub const Inst = struct {
                 .float_cast = .pl_node,
                 .int_cast = .pl_node,
                 .ptr_cast = .pl_node,
+                .qual_cast = .pl_node,
                 .truncate = .pl_node,
                 .align_cast = .pl_node,
                 .typeof_builtin = .pl_node,

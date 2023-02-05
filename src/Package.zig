@@ -1,12 +1,13 @@
 const Package = @This();
 
+const builtin = @import("builtin");
 const std = @import("std");
 const fs = std.fs;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
-const Hash = std.crypto.hash.sha2.Sha256;
 const log = std.log.scoped(.package);
+const main = @import("main.zig");
 
 const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
@@ -14,6 +15,7 @@ const ThreadPool = @import("ThreadPool.zig");
 const WaitGroup = @import("WaitGroup.zig");
 const Cache = @import("Cache.zig");
 const build_options = @import("build_options");
+const Manifest = @import("Manifest.zig");
 
 pub const Table = std.StringHashMapUnmanaged(*Package);
 
@@ -140,10 +142,10 @@ pub fn addAndAdopt(parent: *Package, gpa: Allocator, child: *Package) !void {
 }
 
 pub const build_zig_basename = "build.zig";
-pub const ini_basename = build_zig_basename ++ ".ini";
 
 pub fn fetchAndAddDependencies(
     pkg: *Package,
+    arena: Allocator,
     thread_pool: *ThreadPool,
     http_client: *std.http.Client,
     directory: Compilation.Directory,
@@ -152,89 +154,77 @@ pub fn fetchAndAddDependencies(
     dependencies_source: *std.ArrayList(u8),
     build_roots_source: *std.ArrayList(u8),
     name_prefix: []const u8,
+    color: main.Color,
 ) !void {
     const max_bytes = 10 * 1024 * 1024;
     const gpa = thread_pool.allocator;
-    const build_zig_ini = directory.handle.readFileAlloc(gpa, ini_basename, max_bytes) catch |err| switch (err) {
+    const build_zig_zon_bytes = directory.handle.readFileAllocOptions(
+        arena,
+        Manifest.basename,
+        max_bytes,
+        null,
+        1,
+        0,
+    ) catch |err| switch (err) {
         error.FileNotFound => {
             // Handle the same as no dependencies.
             return;
         },
         else => |e| return e,
     };
-    defer gpa.free(build_zig_ini);
 
-    const ini: std.Ini = .{ .bytes = build_zig_ini };
-    var any_error = false;
-    var it = ini.iterateSection("\n[dependency]\n");
-    while (it.next()) |dep| {
-        var line_it = mem.split(u8, dep, "\n");
-        var opt_name: ?[]const u8 = null;
-        var opt_url: ?[]const u8 = null;
-        var expected_hash: ?[]const u8 = null;
-        while (line_it.next()) |kv| {
-            const eq_pos = mem.indexOfScalar(u8, kv, '=') orelse continue;
-            const key = kv[0..eq_pos];
-            const value = kv[eq_pos + 1 ..];
-            if (mem.eql(u8, key, "name")) {
-                opt_name = value;
-            } else if (mem.eql(u8, key, "url")) {
-                opt_url = value;
-            } else if (mem.eql(u8, key, "hash")) {
-                expected_hash = value;
-            } else {
-                const loc = std.zig.findLineColumn(ini.bytes, @ptrToInt(key.ptr) - @ptrToInt(ini.bytes.ptr));
-                std.log.warn("{s}/{s}:{d}:{d} unrecognized key: '{s}'", .{
-                    directory.path orelse ".",
-                    "build.zig.ini",
-                    loc.line,
-                    loc.column,
-                    key,
-                });
-            }
+    var ast = try std.zig.Ast.parse(gpa, build_zig_zon_bytes, .zon);
+    defer ast.deinit(gpa);
+
+    if (ast.errors.len > 0) {
+        const file_path = try directory.join(arena, &.{Manifest.basename});
+        try main.printErrsMsgToStdErr(gpa, arena, ast, file_path, color);
+        return error.PackageFetchFailed;
+    }
+
+    var manifest = try Manifest.parse(gpa, ast);
+    defer manifest.deinit(gpa);
+
+    if (manifest.errors.len > 0) {
+        const ttyconf: std.debug.TTY.Config = switch (color) {
+            .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
+            .on => .escape_codes,
+            .off => .no_color,
+        };
+        const file_path = try directory.join(arena, &.{Manifest.basename});
+        for (manifest.errors) |msg| {
+            Report.renderErrorMessage(ast, file_path, ttyconf, msg, &.{});
         }
+        return error.PackageFetchFailed;
+    }
 
-        const name = opt_name orelse {
-            const loc = std.zig.findLineColumn(ini.bytes, @ptrToInt(dep.ptr) - @ptrToInt(ini.bytes.ptr));
-            std.log.err("{s}/{s}:{d}:{d} missing key: 'name'", .{
-                directory.path orelse ".",
-                "build.zig.ini",
-                loc.line,
-                loc.column,
-            });
-            any_error = true;
-            continue;
-        };
+    const report: Report = .{
+        .ast = &ast,
+        .directory = directory,
+        .color = color,
+        .arena = arena,
+    };
 
-        const url = opt_url orelse {
-            const loc = std.zig.findLineColumn(ini.bytes, @ptrToInt(dep.ptr) - @ptrToInt(ini.bytes.ptr));
-            std.log.err("{s}/{s}:{d}:{d} missing key: 'name'", .{
-                directory.path orelse ".",
-                "build.zig.ini",
-                loc.line,
-                loc.column,
-            });
-            any_error = true;
-            continue;
-        };
+    var any_error = false;
+    const deps_list = manifest.dependencies.values();
+    for (manifest.dependencies.keys()) |name, i| {
+        const dep = deps_list[i];
 
-        const sub_prefix = try std.fmt.allocPrint(gpa, "{s}{s}.", .{ name_prefix, name });
-        defer gpa.free(sub_prefix);
+        const sub_prefix = try std.fmt.allocPrint(arena, "{s}{s}.", .{ name_prefix, name });
         const fqn = sub_prefix[0 .. sub_prefix.len - 1];
 
         const sub_pkg = try fetchAndUnpack(
             thread_pool,
             http_client,
             global_cache_directory,
-            url,
-            expected_hash,
-            ini,
-            directory,
+            dep,
+            report,
             build_roots_source,
             fqn,
         );
 
         try pkg.fetchAndAddDependencies(
+            arena,
             thread_pool,
             http_client,
             sub_pkg.root_src_directory,
@@ -243,6 +233,7 @@ pub fn fetchAndAddDependencies(
             dependencies_source,
             build_roots_source,
             sub_prefix,
+            color,
         );
 
         try addAndAdopt(pkg, gpa, sub_pkg);
@@ -252,7 +243,7 @@ pub fn fetchAndAddDependencies(
         });
     }
 
-    if (any_error) return error.InvalidBuildZigIniFile;
+    if (any_error) return error.InvalidBuildManifestFile;
 }
 
 pub fn createFilePkg(
@@ -263,7 +254,7 @@ pub fn createFilePkg(
     contents: []const u8,
 ) !*Package {
     const rand_int = std.crypto.random.int(u64);
-    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ hex64(rand_int);
+    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ Manifest.hex64(rand_int);
     {
         var tmp_dir = try cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
         defer tmp_dir.close();
@@ -281,14 +272,73 @@ pub fn createFilePkg(
     return createWithDir(gpa, name, cache_directory, o_dir_sub_path, basename);
 }
 
+const Report = struct {
+    ast: *const std.zig.Ast,
+    directory: Compilation.Directory,
+    color: main.Color,
+    arena: Allocator,
+
+    fn fail(
+        report: Report,
+        tok: std.zig.Ast.TokenIndex,
+        comptime fmt_string: []const u8,
+        fmt_args: anytype,
+    ) error{ PackageFetchFailed, OutOfMemory } {
+        return failWithNotes(report, &.{}, tok, fmt_string, fmt_args);
+    }
+
+    fn failWithNotes(
+        report: Report,
+        notes: []const Compilation.AllErrors.Message,
+        tok: std.zig.Ast.TokenIndex,
+        comptime fmt_string: []const u8,
+        fmt_args: anytype,
+    ) error{ PackageFetchFailed, OutOfMemory } {
+        const ttyconf: std.debug.TTY.Config = switch (report.color) {
+            .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
+            .on => .escape_codes,
+            .off => .no_color,
+        };
+        const file_path = try report.directory.join(report.arena, &.{Manifest.basename});
+        renderErrorMessage(report.ast.*, file_path, ttyconf, .{
+            .tok = tok,
+            .off = 0,
+            .msg = try std.fmt.allocPrint(report.arena, fmt_string, fmt_args),
+        }, notes);
+        return error.PackageFetchFailed;
+    }
+
+    fn renderErrorMessage(
+        ast: std.zig.Ast,
+        file_path: []const u8,
+        ttyconf: std.debug.TTY.Config,
+        msg: Manifest.ErrorMessage,
+        notes: []const Compilation.AllErrors.Message,
+    ) void {
+        const token_starts = ast.tokens.items(.start);
+        const start_loc = ast.tokenLocation(0, msg.tok);
+        Compilation.AllErrors.Message.renderToStdErr(.{ .src = .{
+            .msg = msg.msg,
+            .src_path = file_path,
+            .line = @intCast(u32, start_loc.line),
+            .column = @intCast(u32, start_loc.column),
+            .span = .{
+                .start = token_starts[msg.tok],
+                .end = @intCast(u32, token_starts[msg.tok] + ast.tokenSlice(msg.tok).len),
+                .main = token_starts[msg.tok] + msg.off,
+            },
+            .source_line = ast.source[start_loc.line_start..start_loc.line_end],
+            .notes = notes,
+        } }, ttyconf);
+    }
+};
+
 fn fetchAndUnpack(
     thread_pool: *ThreadPool,
     http_client: *std.http.Client,
     global_cache_directory: Compilation.Directory,
-    url: []const u8,
-    expected_hash: ?[]const u8,
-    ini: std.Ini,
-    comp_directory: Compilation.Directory,
+    dep: Manifest.Dependency,
+    report: Report,
     build_roots_source: *std.ArrayList(u8),
     fqn: []const u8,
 ) !*Package {
@@ -297,17 +347,9 @@ fn fetchAndUnpack(
 
     // Check if the expected_hash is already present in the global package
     // cache, and thereby avoid both fetching and unpacking.
-    if (expected_hash) |h| cached: {
-        if (h.len != 2 * Hash.digest_length) {
-            return reportError(
-                ini,
-                comp_directory,
-                h.ptr,
-                "wrong hash size. expected: {d}, found: {d}",
-                .{ Hash.digest_length, h.len },
-            );
-        }
-        const hex_digest = h[0 .. 2 * Hash.digest_length];
+    if (dep.hash) |h| cached: {
+        const hex_multihash_len = 2 * Manifest.multihash_len;
+        const hex_digest = h[0..hex_multihash_len];
         const pkg_dir_sub_path = "p" ++ s ++ hex_digest;
         var pkg_dir = global_cache_directory.handle.openDir(pkg_dir_sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => break :cached,
@@ -344,10 +386,10 @@ fn fetchAndUnpack(
         return ptr;
     }
 
-    const uri = try std.Uri.parse(url);
+    const uri = try std.Uri.parse(dep.url);
 
     const rand_int = std.crypto.random.int(u64);
-    const tmp_dir_sub_path = "tmp" ++ s ++ hex64(rand_int);
+    const tmp_dir_sub_path = "tmp" ++ s ++ Manifest.hex64(rand_int);
 
     const actual_hash = a: {
         var tmp_directory: Compilation.Directory = d: {
@@ -376,13 +418,9 @@ fn fetchAndUnpack(
             // by default, so the same logic applies for buffering the reader as for gzip.
             try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.xz);
         } else {
-            return reportError(
-                ini,
-                comp_directory,
-                uri.path.ptr,
-                "unknown file extension for path '{s}'",
-                .{uri.path},
-            );
+            return report.fail(dep.url_tok, "unknown file extension for path '{s}'", .{
+                uri.path,
+            });
         }
 
         // TODO: delete files not included in the package prior to computing the package hash.
@@ -393,28 +431,21 @@ fn fetchAndUnpack(
         break :a try computePackageHash(thread_pool, .{ .dir = tmp_directory.handle });
     };
 
-    const pkg_dir_sub_path = "p" ++ s ++ hexDigest(actual_hash);
+    const pkg_dir_sub_path = "p" ++ s ++ Manifest.hexDigest(actual_hash);
     try renameTmpIntoCache(global_cache_directory.handle, tmp_dir_sub_path, pkg_dir_sub_path);
 
-    if (expected_hash) |h| {
-        const actual_hex = hexDigest(actual_hash);
+    const actual_hex = Manifest.hexDigest(actual_hash);
+    if (dep.hash) |h| {
         if (!mem.eql(u8, h, &actual_hex)) {
-            return reportError(
-                ini,
-                comp_directory,
-                h.ptr,
-                "hash mismatch: expected: {s}, found: {s}",
-                .{ h, actual_hex },
-            );
+            return report.fail(dep.hash_tok, "hash mismatch: expected: {s}, found: {s}", .{
+                h, actual_hex,
+            });
         }
     } else {
-        return reportError(
-            ini,
-            comp_directory,
-            url.ptr,
-            "url field is missing corresponding hash field: hash={s}",
-            .{std.fmt.fmtSliceHexLower(&actual_hash)},
-        );
+        const notes: [1]Compilation.AllErrors.Message = .{.{ .plain = .{
+            .msg = try std.fmt.allocPrint(report.arena, "expected .hash = \"{s}\",", .{&actual_hex}),
+        } }};
+        return report.failWithNotes(&notes, dep.url_tok, "url field is missing corresponding hash field", .{});
     }
 
     const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
@@ -440,35 +471,21 @@ fn unpackTarball(
 
     try std.tar.pipeToFileSystem(out_dir, decompress.reader(), .{
         .strip_components = 1,
+        // TODO: we would like to set this to executable_bit_only, but two
+        // things need to happen before that:
+        // 1. the tar implementation needs to support it
+        // 2. the hashing algorithm here needs to support detecting the is_executable
+        //    bit on Windows from the ACLs (see the isExecutable function).
+        .mode_mode = .ignore,
     });
-}
-
-fn reportError(
-    ini: std.Ini,
-    comp_directory: Compilation.Directory,
-    src_ptr: [*]const u8,
-    comptime fmt_string: []const u8,
-    fmt_args: anytype,
-) error{PackageFetchFailed} {
-    const loc = std.zig.findLineColumn(ini.bytes, @ptrToInt(src_ptr) - @ptrToInt(ini.bytes.ptr));
-    if (comp_directory.path) |p| {
-        std.debug.print("{s}{c}{s}:{d}:{d}: error: " ++ fmt_string ++ "\n", .{
-            p, fs.path.sep, ini_basename, loc.line + 1, loc.column + 1,
-        } ++ fmt_args);
-    } else {
-        std.debug.print("{s}:{d}:{d}: error: " ++ fmt_string ++ "\n", .{
-            ini_basename, loc.line + 1, loc.column + 1,
-        } ++ fmt_args);
-    }
-    return error.PackageFetchFailed;
 }
 
 const HashedFile = struct {
     path: []const u8,
-    hash: [Hash.digest_length]u8,
+    hash: [Manifest.Hash.digest_length]u8,
     failure: Error!void,
 
-    const Error = fs.File.OpenError || fs.File.ReadError;
+    const Error = fs.File.OpenError || fs.File.ReadError || fs.File.StatError;
 
     fn lessThan(context: void, lhs: *const HashedFile, rhs: *const HashedFile) bool {
         _ = context;
@@ -479,7 +496,7 @@ const HashedFile = struct {
 fn computePackageHash(
     thread_pool: *ThreadPool,
     pkg_dir: fs.IterableDir,
-) ![Hash.digest_length]u8 {
+) ![Manifest.Hash.digest_length]u8 {
     const gpa = thread_pool.allocator;
 
     // We'll use an arena allocator for the path name strings since they all
@@ -522,7 +539,7 @@ fn computePackageHash(
 
     std.sort.sort(*HashedFile, all_files.items, {}, HashedFile.lessThan);
 
-    var hasher = Hash.init(.{});
+    var hasher = Manifest.Hash.init(.{});
     var any_failures = false;
     for (all_files.items) |hashed_file| {
         hashed_file.failure catch |err| {
@@ -543,7 +560,9 @@ fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
 fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void {
     var buf: [8000]u8 = undefined;
     var file = try dir.openFile(hashed_file.path, .{});
-    var hasher = Hash.init(.{});
+    var hasher = Manifest.Hash.init(.{});
+    hasher.update(hashed_file.path);
+    hasher.update(&.{ 0, @boolToInt(try isExecutable(file)) });
     while (true) {
         const bytes_read = try file.read(&buf);
         if (bytes_read == 0) break;
@@ -552,31 +571,17 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
     hasher.final(&hashed_file.hash);
 }
 
-const hex_charset = "0123456789abcdef";
-
-fn hex64(x: u64) [16]u8 {
-    var result: [16]u8 = undefined;
-    var i: usize = 0;
-    while (i < 8) : (i += 1) {
-        const byte = @truncate(u8, x >> @intCast(u6, 8 * i));
-        result[i * 2 + 0] = hex_charset[byte >> 4];
-        result[i * 2 + 1] = hex_charset[byte & 15];
+fn isExecutable(file: fs.File) !bool {
+    if (builtin.os.tag == .windows) {
+        // TODO check the ACL on Windows.
+        // Until this is implemented, this could be a false negative on
+        // Windows, which is why we do not yet set executable_bit_only above
+        // when unpacking the tarball.
+        return false;
+    } else {
+        const stat = try file.stat();
+        return (stat.mode & std.os.S.IXUSR) != 0;
     }
-    return result;
-}
-
-test hex64 {
-    const s = "[" ++ hex64(0x12345678_abcdef00) ++ "]";
-    try std.testing.expectEqualStrings("[00efcdab78563412]", s);
-}
-
-fn hexDigest(digest: [Hash.digest_length]u8) [Hash.digest_length * 2]u8 {
-    var result: [Hash.digest_length * 2]u8 = undefined;
-    for (digest) |byte, i| {
-        result[i * 2 + 0] = hex_charset[byte >> 4];
-        result[i * 2 + 1] = hex_charset[byte & 15];
-    }
-    return result;
 }
 
 fn renameTmpIntoCache(

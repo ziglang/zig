@@ -1,17 +1,15 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
-const build = std.build;
-const Step = build.Step;
-const Builder = build.Builder;
-const LibExeObjStep = build.LibExeObjStep;
-const WriteFileStep = build.WriteFileStep;
+const Step = std.Build.Step;
+const CompileStep = std.Build.CompileStep;
+const WriteFileStep = std.Build.WriteFileStep;
 const fs = std.fs;
 const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
 const EnvMap = process.EnvMap;
 const Allocator = mem.Allocator;
-const ExecError = build.Builder.ExecError;
+const ExecError = std.Build.ExecError;
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MiB
 
@@ -20,7 +18,7 @@ const RunStep = @This();
 pub const base_id: Step.Id = .run;
 
 step: Step,
-builder: *Builder,
+builder: *std.Build,
 
 /// See also addArg and addArgs to modifying this directly
 argv: ArrayList(Arg),
@@ -50,13 +48,13 @@ pub const StdIoAction = union(enum) {
 };
 
 pub const Arg = union(enum) {
-    artifact: *LibExeObjStep,
-    file_source: build.FileSource,
+    artifact: *CompileStep,
+    file_source: std.Build.FileSource,
     bytes: []u8,
 };
 
-pub fn create(builder: *Builder, name: []const u8) *RunStep {
-    const self = builder.allocator.create(RunStep) catch unreachable;
+pub fn create(builder: *std.Build, name: []const u8) *RunStep {
+    const self = builder.allocator.create(RunStep) catch @panic("OOM");
     self.* = RunStep{
         .builder = builder,
         .step = Step.init(base_id, name, builder.allocator, make),
@@ -68,20 +66,20 @@ pub fn create(builder: *Builder, name: []const u8) *RunStep {
     return self;
 }
 
-pub fn addArtifactArg(self: *RunStep, artifact: *LibExeObjStep) void {
-    self.argv.append(Arg{ .artifact = artifact }) catch unreachable;
+pub fn addArtifactArg(self: *RunStep, artifact: *CompileStep) void {
+    self.argv.append(Arg{ .artifact = artifact }) catch @panic("OOM");
     self.step.dependOn(&artifact.step);
 }
 
-pub fn addFileSourceArg(self: *RunStep, file_source: build.FileSource) void {
+pub fn addFileSourceArg(self: *RunStep, file_source: std.Build.FileSource) void {
     self.argv.append(Arg{
         .file_source = file_source.dupe(self.builder),
-    }) catch unreachable;
+    }) catch @panic("OOM");
     file_source.addStepDependencies(&self.step);
 }
 
 pub fn addArg(self: *RunStep, arg: []const u8) void {
-    self.argv.append(Arg{ .bytes = self.builder.dupe(arg) }) catch unreachable;
+    self.argv.append(Arg{ .bytes = self.builder.dupe(arg) }) catch @panic("OOM");
 }
 
 pub fn addArgs(self: *RunStep, args: []const []const u8) void {
@@ -91,7 +89,7 @@ pub fn addArgs(self: *RunStep, args: []const []const u8) void {
 }
 
 pub fn clearEnvironment(self: *RunStep) void {
-    const new_env_map = self.builder.allocator.create(EnvMap) catch unreachable;
+    const new_env_map = self.builder.allocator.create(EnvMap) catch @panic("OOM");
     new_env_map.* = EnvMap.init(self.builder.allocator);
     self.env_map = new_env_map;
 }
@@ -101,7 +99,7 @@ pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
 }
 
 /// For internal use only, users of `RunStep` should use `addPathDir` directly.
-pub fn addPathDirInternal(step: *Step, builder: *Builder, search_path: []const u8) void {
+pub fn addPathDirInternal(step: *Step, builder: *std.Build, search_path: []const u8) void {
     const env_map = getEnvMapInternal(step, builder.allocator);
 
     const key = "PATH";
@@ -109,9 +107,9 @@ pub fn addPathDirInternal(step: *Step, builder: *Builder, search_path: []const u
 
     if (prev_path) |pp| {
         const new_path = builder.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });
-        env_map.put(key, new_path) catch unreachable;
+        env_map.put(key, new_path) catch @panic("OOM");
     } else {
-        env_map.put(key, builder.dupePath(search_path)) catch unreachable;
+        env_map.put(key, builder.dupePath(search_path)) catch @panic("OOM");
     }
 }
 
@@ -122,12 +120,12 @@ pub fn getEnvMap(self: *RunStep) *EnvMap {
 fn getEnvMapInternal(step: *Step, allocator: Allocator) *EnvMap {
     const maybe_env_map = switch (step.id) {
         .run => step.cast(RunStep).?.env_map,
-        .emulatable_run => step.cast(build.EmulatableRunStep).?.env_map,
+        .emulatable_run => step.cast(std.Build.EmulatableRunStep).?.env_map,
         else => unreachable,
     };
     return maybe_env_map orelse {
-        const env_map = allocator.create(EnvMap) catch unreachable;
-        env_map.* = process.getEnvMap(allocator) catch unreachable;
+        const env_map = allocator.create(EnvMap) catch @panic("OOM");
+        env_map.* = process.getEnvMap(allocator) catch @panic("unhandled error");
         switch (step.id) {
             .run => step.cast(RunStep).?.env_map = env_map,
             .emulatable_run => step.cast(RunStep).?.env_map = env_map,
@@ -142,7 +140,7 @@ pub fn setEnvironmentVariable(self: *RunStep, key: []const u8, value: []const u8
     env_map.put(
         self.builder.dupe(key),
         self.builder.dupe(value),
-    ) catch unreachable;
+    ) catch @panic("unhandled error");
 }
 
 pub fn expectStdErrEqual(self: *RunStep, bytes: []const u8) void {
@@ -195,7 +193,7 @@ fn make(step: *Step) !void {
 
 pub fn runCommand(
     argv: []const []const u8,
-    builder: *Builder,
+    builder: *std.Build,
     expected_exit_code: ?u8,
     stdout_action: StdIoAction,
     stderr_action: StdIoAction,
@@ -236,7 +234,7 @@ pub fn runCommand(
 
     switch (stdout_action) {
         .expect_exact, .expect_matches => {
-            stdout = child.stdout.?.reader().readAllAlloc(builder.allocator, max_stdout_size) catch unreachable;
+            stdout = try child.stdout.?.reader().readAllAlloc(builder.allocator, max_stdout_size);
         },
         .inherit, .ignore => {},
     }
@@ -246,7 +244,7 @@ pub fn runCommand(
 
     switch (stderr_action) {
         .expect_exact, .expect_matches => {
-            stderr = child.stderr.?.reader().readAllAlloc(builder.allocator, max_stdout_size) catch unreachable;
+            stderr = try child.stderr.?.reader().readAllAlloc(builder.allocator, max_stdout_size);
         },
         .inherit, .ignore => {},
     }
@@ -357,13 +355,13 @@ fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
     std.debug.print("\n", .{});
 }
 
-fn addPathForDynLibs(self: *RunStep, artifact: *LibExeObjStep) void {
+fn addPathForDynLibs(self: *RunStep, artifact: *CompileStep) void {
     addPathForDynLibsInternal(&self.step, self.builder, artifact);
 }
 
 /// This should only be used for internal usage, this is called automatically
 /// for the user.
-pub fn addPathForDynLibsInternal(step: *Step, builder: *Builder, artifact: *LibExeObjStep) void {
+pub fn addPathForDynLibsInternal(step: *Step, builder: *std.Build, artifact: *CompileStep) void {
     for (artifact.link_objects.items) |link_object| {
         switch (link_object) {
             .other_step => |other| {

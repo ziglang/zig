@@ -1,9 +1,11 @@
 const std = @import("std");
 
-pub fn build(b: *std.build.Builder) !void {
-    const mode = b.standardReleaseOptions();
-    const zip_add = b.addTest("main.zig");
-    zip_add.setBuildMode(mode);
+pub fn build(b: *std.Build) !void {
+    const optimize = b.standardOptimizeOption(.{});
+    const zip_add = b.addTest(.{
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = optimize,
+    });
     zip_add.addCSourceFile("vendor/kuba-zip/zip.c", &[_][]const u8{
         "-std=c99",
         "-fno-sanitize=undefined",

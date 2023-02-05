@@ -31,10 +31,7 @@
 #define valid(n, b)	((n) >= 0 && (n) < (b))
 
 uintmax_t
-strtoumax(nptr, endptr, base)
-	register const char * __restrict__	nptr;
-	char ** __restrict__			endptr;
-	register int				base;
+strtoumax(const char * __restrict__ nptr, char ** __restrict__ endptr, int base)
 	{
 	register uintmax_t	accum;	/* accumulates converted value */
 	register uintmax_t	next;	/* for computing next value of accum */

@@ -3,7 +3,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const io = std.io;
 const fmt = std.fmt;
-const Builder = std.build.Builder;
 const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
@@ -42,12 +41,15 @@ pub fn main() !void {
         return error.InvalidArgs;
     };
 
-    const builder = try Builder.create(
+    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+
+    const builder = try std.Build.create(
         allocator,
         zig_exe,
         build_root,
         cache_root,
         global_cache_root,
+        host,
     );
     defer builder.destroy();
 
@@ -58,7 +60,7 @@ pub fn main() !void {
     const stdout_stream = io.getStdOut().writer();
 
     var install_prefix: ?[]const u8 = null;
-    var dir_list = Builder.DirList{};
+    var dir_list = std.Build.DirList{};
 
     // before arg parsing, check for the NO_COLOR environment variable
     // if it exists, default the color setting to .off
@@ -230,7 +232,7 @@ pub fn main() !void {
     };
 }
 
-fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void {
+fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !void {
     // run the build script to collect the options
     if (!already_ran_build) {
         builder.resolveInstallPrefix(null, .{});
@@ -330,7 +332,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
     );
 }
 
-fn usageAndErr(builder: *Builder, already_ran_build: bool, out_stream: anytype) void {
+fn usageAndErr(builder: *std.Build, already_ran_build: bool, out_stream: anytype) void {
     usage(builder, already_ran_build, out_stream) catch {};
     process.exit(1);
 }

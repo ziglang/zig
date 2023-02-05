@@ -1,16 +1,16 @@
 const std = @import("std");
-const Builder = std.build.Builder;
-const LibExeObjectStep = std.build.LibExeObjStep;
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
 
     const test_step = b.step("test", "Test the program");
     test_step.dependOn(b.getInstallStep());
 
-    const exe = b.addExecutable("test", null);
+    const exe = b.addExecutable(.{
+        .name = "test",
+        .optimize = optimize,
+    });
     exe.addCSourceFile("main.c", &[0][]const u8{});
-    exe.setBuildMode(mode);
     exe.linkLibC();
     exe.linkFrameworkWeak("Cocoa");
 

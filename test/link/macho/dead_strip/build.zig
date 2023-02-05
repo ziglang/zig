@@ -1,9 +1,7 @@
 const std = @import("std");
-const Builder = std.build.Builder;
-const LibExeObjectStep = std.build.LibExeObjStep;
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     const test_step = b.step("test", "Test the program");
@@ -11,7 +9,7 @@ pub fn build(b: *Builder) void {
 
     {
         // Without -dead_strip, we expect `iAmUnused` symbol present
-        const exe = createScenario(b, mode, target);
+        const exe = createScenario(b, optimize, target);
 
         const check = exe.checkObject(.macho);
         check.checkInSymtab();
@@ -24,7 +22,7 @@ pub fn build(b: *Builder) void {
 
     {
         // With -dead_strip, no `iAmUnused` symbol should be present
-        const exe = createScenario(b, mode, target);
+        const exe = createScenario(b, optimize, target);
         exe.link_gc_sections = true;
 
         const check = exe.checkObject(.macho);
@@ -37,11 +35,17 @@ pub fn build(b: *Builder) void {
     }
 }
 
-fn createScenario(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) *LibExeObjectStep {
-    const exe = b.addExecutable("test", null);
+fn createScenario(
+    b: *std.Build,
+    optimize: std.builtin.OptimizeMode,
+    target: std.zig.CrossTarget,
+) *std.Build.CompileStep {
+    const exe = b.addExecutable(.{
+        .name = "test",
+        .optimize = optimize,
+        .target = target,
+    });
     exe.addCSourceFile("main.c", &[0][]const u8{});
-    exe.setBuildMode(mode);
-    exe.setTarget(target);
     exe.linkLibC();
     return exe;
 }

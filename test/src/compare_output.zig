@@ -1,19 +1,18 @@
 // This is the implementation of the test harness.
 // For the actual test cases, see test/compare_output.zig.
 const std = @import("std");
-const build = std.build;
 const ArrayList = std.ArrayList;
 const fmt = std.fmt;
 const mem = std.mem;
 const fs = std.fs;
-const Mode = std.builtin.Mode;
+const OptimizeMode = std.builtin.OptimizeMode;
 
 pub const CompareOutputContext = struct {
-    b: *build.Builder,
-    step: *build.Step,
+    b: *std.Build,
+    step: *std.Build.Step,
     test_index: usize,
     test_filter: ?[]const u8,
-    modes: []const Mode,
+    optimize_modes: []const OptimizeMode,
 
     const Special = enum {
         None,
@@ -102,7 +101,11 @@ pub const CompareOutputContext = struct {
                     if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
                 }
 
-                const exe = b.addExecutable("test", null);
+                const exe = b.addExecutable(.{
+                    .name = "test",
+                    .target = .{},
+                    .optimize = .Debug,
+                });
                 exe.addAssemblyFileSource(write_src.getFileSource(case.sources.items[0].filename).?);
 
                 const run = exe.run();
@@ -113,19 +116,23 @@ pub const CompareOutputContext = struct {
                 self.step.dependOn(&run.step);
             },
             Special.None => {
-                for (self.modes) |mode| {
+                for (self.optimize_modes) |optimize| {
                     const annotated_case_name = fmt.allocPrint(self.b.allocator, "{s} {s} ({s})", .{
                         "compare-output",
                         case.name,
-                        @tagName(mode),
+                        @tagName(optimize),
                     }) catch unreachable;
                     if (self.test_filter) |filter| {
                         if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
                     }
 
                     const basename = case.sources.items[0].filename;
-                    const exe = b.addExecutableSource("test", write_src.getFileSource(basename).?);
-                    exe.setBuildMode(mode);
+                    const exe = b.addExecutable(.{
+                        .name = "test",
+                        .root_source_file = write_src.getFileSource(basename).?,
+                        .optimize = optimize,
+                        .target = .{},
+                    });
                     if (case.link_libc) {
                         exe.linkSystemLibrary("c");
                     }
@@ -139,13 +146,20 @@ pub const CompareOutputContext = struct {
                 }
             },
             Special.RuntimeSafety => {
+                // TODO iterate over self.optimize_modes and test this in both
+                // debug and release safe mode
                 const annotated_case_name = fmt.allocPrint(self.b.allocator, "safety {s}", .{case.name}) catch unreachable;
                 if (self.test_filter) |filter| {
                     if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
                 }
 
                 const basename = case.sources.items[0].filename;
-                const exe = b.addExecutableSource("test", write_src.getFileSource(basename).?);
+                const exe = b.addExecutable(.{
+                    .name = "test",
+                    .root_source_file = write_src.getFileSource(basename).?,
+                    .target = .{},
+                    .optimize = .Debug,
+                });
                 if (case.link_libc) {
                     exe.linkSystemLibrary("c");
                 }

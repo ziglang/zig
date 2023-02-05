@@ -1,25 +1,28 @@
 const std = @import("std");
-const Builder = std.build.Builder;
-const LibExeObjectStep = std.build.LibExeObjStep;
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     const test_step = b.step("test", "Test the program");
     test_step.dependOn(b.getInstallStep());
 
-    const dylib = b.addSharedLibrary("a", null, b.version(1, 0, 0));
-    dylib.setTarget(target);
-    dylib.setBuildMode(mode);
+    const dylib = b.addSharedLibrary(.{
+        .name = "a",
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
+        .target = target,
+        .optimize = optimize,
+    });
     dylib.addCSourceFile("a.c", &.{});
     dylib.linkLibC();
     dylib.install();
 
-    const exe = b.addExecutable("test", null);
+    const exe = b.addExecutable(.{
+        .name = "test",
+        .target = target,
+        .optimize = optimize,
+    });
     exe.addCSourceFile("main.c", &[0][]const u8{});
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
     exe.linkLibC();
     exe.linkSystemLibraryWeak("a");
     exe.addLibraryPath(b.pathFromRoot("zig-out/lib"));

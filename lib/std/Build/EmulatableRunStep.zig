@@ -5,11 +5,9 @@
 //! without having to verify if it's possible to be ran against.
 
 const std = @import("../std.zig");
-const build = std.build;
-const Step = std.build.Step;
-const Builder = std.build.Builder;
-const LibExeObjStep = std.build.LibExeObjStep;
-const RunStep = std.build.RunStep;
+const Step = std.Build.Step;
+const CompileStep = std.Build.CompileStep;
+const RunStep = std.Build.RunStep;
 
 const fs = std.fs;
 const process = std.process;
@@ -22,10 +20,10 @@ pub const base_id = .emulatable_run;
 const max_stdout_size = 1 * 1024 * 1024; // 1 MiB
 
 step: Step,
-builder: *Builder,
+builder: *std.Build,
 
 /// The artifact (executable) to be run by this step
-exe: *LibExeObjStep,
+exe: *CompileStep,
 
 /// Set this to `null` to ignore the exit code for the purpose of determining a successful execution
 expected_exit_code: ?u8 = 0,
@@ -47,9 +45,9 @@ hide_foreign_binaries_warning: bool,
 /// binary through emulation when any of the emulation options such as `enable_rosetta` are set to true.
 /// When set to false, and the binary is foreign, running the executable is skipped.
 /// Asserts given artifact is an executable.
-pub fn create(builder: *Builder, name: []const u8, artifact: *LibExeObjStep) *EmulatableRunStep {
+pub fn create(builder: *std.Build, name: []const u8, artifact: *CompileStep) *EmulatableRunStep {
     std.debug.assert(artifact.kind == .exe or artifact.kind == .test_exe);
-    const self = builder.allocator.create(EmulatableRunStep) catch unreachable;
+    const self = builder.allocator.create(EmulatableRunStep) catch @panic("OOM");
 
     const option_name = "hide-foreign-warnings";
     const hide_warnings = if (builder.available_options_map.get(option_name) == null) warn: {
@@ -156,9 +154,9 @@ fn warnAboutForeignBinaries(step: *EmulatableRunStep) void {
     const builder = step.builder;
     const artifact = step.exe;
 
-    const host_name = builder.host.target.zigTriple(builder.allocator) catch unreachable;
-    const foreign_name = artifact.target.zigTriple(builder.allocator) catch unreachable;
-    const target_info = std.zig.system.NativeTargetInfo.detect(artifact.target) catch unreachable;
+    const host_name = builder.host.target.zigTriple(builder.allocator) catch @panic("unhandled error");
+    const foreign_name = artifact.target.zigTriple(builder.allocator) catch @panic("unhandled error");
+    const target_info = std.zig.system.NativeTargetInfo.detect(artifact.target) catch @panic("unhandled error");
     const need_cross_glibc = artifact.target.isGnuLibC() and artifact.is_linking_libc;
     switch (builder.host.getExternalExecutor(target_info, .{
         .qemu_fixes_dl = need_cross_glibc and builder.glibc_runtimes_dir != null,

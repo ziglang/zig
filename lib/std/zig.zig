@@ -8,7 +8,6 @@ pub const Tokenizer = tokenizer.Tokenizer;
 pub const fmtId = fmt.fmtId;
 pub const fmtEscapes = fmt.fmtEscapes;
 pub const isValidId = fmt.isValidId;
-pub const parse = @import("zig/parse.zig").parse;
 pub const string_literal = @import("zig/string_literal.zig");
 pub const number_literal = @import("zig/number_literal.zig");
 pub const primitives = @import("zig/primitives.zig");

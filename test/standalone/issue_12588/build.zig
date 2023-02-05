@@ -1,13 +1,15 @@
 const std = @import("std");
-const Builder = std.build.Builder;
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
-    const obj = b.addObject("main", "main.zig");
-    obj.setBuildMode(mode);
-    obj.setTarget(target);
+    const obj = b.addObject(.{
+        .name = "main",
+        .root_source_file = .{ .path = "main.zig" },
+        .optimize = optimize,
+        .target = target,
+    });
     obj.emit_llvm_ir = .{ .emit_to = b.pathFromRoot("main.ll") };
     obj.emit_llvm_bc = .{ .emit_to = b.pathFromRoot("main.bc") };
     obj.emit_bin = .no_emit;

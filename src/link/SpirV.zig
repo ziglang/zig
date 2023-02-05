@@ -42,13 +42,6 @@ const SpvModule = @import("../codegen/spirv/Module.zig");
 const spec = @import("../codegen/spirv/spec.zig");
 const IdResult = spec.IdResult;
 
-// TODO: Should this struct be used at all rather than just a hashmap of aux data for every decl?
-pub const FnData = struct {
-    // We're going to fill these in flushModule, and we're going to fill them unconditionally,
-    // so just set it to undefined.
-    id: IdResult = undefined,
-};
-
 base: link.File,
 
 /// This linker backend does not try to incrementally link output SPIR-V code.
@@ -209,16 +202,19 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
     // so that we can access them before processing them.
     // TODO: We're allocating an ID unconditionally now, are there
     // declarations which don't generate a result?
-    // TODO: fn_link is used here, but thats probably not the right field. It will work anyway though.
+    var ids = std.AutoHashMap(Module.Decl.Index, IdResult).init(self.base.allocator);
+    defer ids.deinit();
+    try ids.ensureTotalCapacity(@intCast(u32, self.decl_table.count()));
+
     for (self.decl_table.keys()) |decl_index| {
         const decl = module.declPtr(decl_index);
         if (decl.has_tv) {
-            decl.fn_link.spirv.id = spv.allocId();
+            ids.putAssumeCapacityNoClobber(decl_index, spv.allocId());
         }
     }
 
     // Now, actually generate the code for all declarations.
-    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &spv);
+    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &spv, &ids);
     defer decl_gen.deinit();
 
     var it = self.decl_table.iterator();
@@ -231,7 +227,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
         const liveness = entry.value_ptr.liveness;
 
         // Note, if `decl` is not a function, air/liveness may be undefined.
-        if (try decl_gen.gen(decl, air, liveness)) |msg| {
+        if (try decl_gen.gen(decl_index, air, liveness)) |msg| {
             try module.failed_decls.put(module.gpa, decl_index, msg);
             return; // TODO: Attempt to generate more decls?
         }
