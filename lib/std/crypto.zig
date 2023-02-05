@@ -207,6 +207,7 @@ test {
     _ = aead.salsa_poly.XSalsa20Poly1305;
 
     _ = auth.hmac;
+    _ = auth.cmac;
     _ = auth.siphash;
 
     _ = core.aes;
