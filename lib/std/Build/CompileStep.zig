@@ -442,6 +442,26 @@ pub fn installHeader(a: *CompileStep, src_path: []const u8, dest_rel_path: []con
     a.installed_headers.append(&install_file.step) catch @panic("OOM");
 }
 
+pub const InstallConfigHeaderOptions = struct {
+    install_dir: InstallDir = .header,
+    dest_rel_path: ?[]const u8 = null,
+};
+
+pub fn installConfigHeader(
+    cs: *CompileStep,
+    config_header: *ConfigHeaderStep,
+    options: InstallConfigHeaderOptions,
+) void {
+    const dest_rel_path = options.dest_rel_path orelse config_header.include_path;
+    const install_file = cs.builder.addInstallFileWithDir(
+        .{ .generated = &config_header.output_file },
+        options.install_dir,
+        dest_rel_path,
+    );
+    cs.builder.getInstallStep().dependOn(&install_file.step);
+    cs.installed_headers.append(&install_file.step) catch @panic("OOM");
+}
+
 pub fn installHeadersDirectory(
     a: *CompileStep,
     src_dir_path: []const u8,
@@ -1622,8 +1642,9 @@ fn make(step: *Step) !void {
                 }
             },
             .config_header_step => |config_header| {
-                try zig_args.append("-I");
-                try zig_args.append(config_header.output_dir);
+                const full_file_path = config_header.output_file.path.?;
+                const header_dir_path = full_file_path[0 .. full_file_path.len - config_header.include_path.len];
+                try zig_args.appendSlice(&.{ "-I", header_dir_path });
             },
         }
     }
