@@ -1,5 +1,5 @@
 const std = @import("../../std.zig");
-const lzma = std.compress.lzma;
+const lzma2 = std.compress.lzma2;
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Crc32 = std.hash.Crc32;
@@ -155,7 +155,7 @@ pub fn Decoder(comptime ReaderType: type) type {
 
             // Compressed Data
             var packed_counter = std.io.countingReader(block_reader);
-            try lzma.lzma2Decompress(
+            try lzma2.decompress(
                 self.allocator,
                 packed_counter.reader(),
                 self.to_read.writer(self.allocator),
