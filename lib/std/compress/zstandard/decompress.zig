@@ -236,6 +236,7 @@ pub fn decodeZstandardFrame(
         src[consumed_count..],
         &consumed_count,
         if (frame_context.hasher_opt) |*hasher| hasher else null,
+        frame_context.block_size_max,
     ) catch |err| switch (err) {
         error.DestTooSmall => return error.BadContentSize,
         inline else => |e| return e,
@@ -376,7 +377,6 @@ pub fn decodeZstandardFrameArrayList(
         block_header = try block.decodeBlockHeaderSlice(src[consumed_count..]);
         consumed_count += 3;
     }) {
-        if (block_header.block_size > frame_context.block_size_max) return error.BlockSizeOverMaximum;
         const written_size = try block.decodeBlockRingBuffer(
             &ring_buffer,
             src[consumed_count..],
@@ -420,6 +420,7 @@ fn decodeFrameBlocks(
     src: []const u8,
     consumed_count: *usize,
     hash: ?*std.hash.XxHash64,
+    block_size_max: usize,
 ) (error{ EndOfStream, DestTooSmall } || block.Error)!usize {
     // These tables take 7680 bytes
     var literal_fse_data: [types.compressed_block.table_size_max.literal]Table.Fse = undefined;
@@ -441,6 +442,7 @@ fn decodeFrameBlocks(
             block_header,
             &decode_state,
             &bytes_read,
+            block_size_max,
             written_count,
         );
         if (hash) |hash_state| hash_state.update(dest[written_count .. written_count + written_size]);

@@ -594,9 +594,9 @@ pub fn decodeBlock(
     block_header: frame.Zstandard.Block.Header,
     decode_state: *DecodeState,
     consumed_count: *usize,
+    block_size_max: usize,
     written_count: usize,
 ) (error{DestTooSmall} || Error)!usize {
-    const block_size_max = @min(1 << 17, dest[written_count..].len); // 128KiB
     const block_size = block_header.block_size;
     if (block_size_max < block_size) return error.BlockSizeOverMaximum;
     switch (block_header.block_type) {
@@ -805,6 +805,7 @@ pub fn decodeBlockReader(
 
             try decode_state.prepare(block_reader, literals, sequences_header);
 
+            var bytes_written: usize = 0;
             if (sequences_header.sequence_count > 0) {
                 if (sequence_buffer.len < block_reader_limited.bytes_left)
                     return error.SequenceBufferTooSmall;
@@ -825,6 +826,7 @@ pub fn decodeBlockReader(
                         i == sequences_header.sequence_count - 1,
                     ) catch return error.MalformedCompressedBlock;
                     sequence_size_limit -= decompressed_size;
+                    bytes_written += decompressed_size;
                 }
             }
 
@@ -832,8 +834,10 @@ pub fn decodeBlockReader(
                 const len = literals.header.regenerated_size - decode_state.literal_written_count;
                 decode_state.decodeLiteralsRingBuffer(dest, len) catch
                     return error.MalformedCompressedBlock;
+                bytes_written += len;
             }
 
+            if (bytes_written > block_size_max) return error.BlockSizeOverMaximum;
             decode_state.literal_written_count = 0;
             assert(block_reader.readByte() == error.EndOfStream);
         },
