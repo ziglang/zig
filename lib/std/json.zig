@@ -313,17 +313,17 @@ pub const StreamingParser = struct {
     };
 
     /// Give another byte to the parser and obtain any new tokens. This may (rarely) return two
-    /// tokens. token2 is always null if token1 is null.
+    /// tokens. next_token is always null if current_token is null.
     ///
     /// There is currently no error recovery on a bad stream.
-    pub fn feed(p: *StreamingParser, c: u8, token1: *?Token, token2: *?Token) Error!void {
-        token1.* = null;
-        token2.* = null;
+    pub fn feed(p: *StreamingParser, c: u8, current_token: *?Token, next_token: *?Token) Error!void {
+        current_token.* = null;
+        next_token.* = null;
         p.count += 1;
 
         // unlikely
-        if (try p.transition(c, token1)) {
-            _ = try p.transition(c, token2);
+        if (try p.transition(c, current_token)) {
+            _ = try p.transition(c, next_token);
         }
     }
 
@@ -1088,8 +1088,8 @@ pub const TokenStream = struct {
     i: usize,
     slice: []const u8,
     parser: StreamingParser,
-    token1: ?Token,
-    token2: ?Token,
+    current_token: ?Token,
+    next_token: ?Token,
 
     pub const Error = StreamingParser.Error || error{UnexpectedEndOfJson};
 
@@ -1098,41 +1098,41 @@ pub const TokenStream = struct {
             .i = 0,
             .slice = slice,
             .parser = StreamingParser.init(),
-            .token1 = null,
-            .token2 = null,
+            .current_token = null,
+            .next_token = null,
         };
     }
 
     fn stackUsed(self: *TokenStream) usize {
-        return self.parser.stack.len + @boolToInt(self.token1 != null) + @boolToInt(self.token2 != null);
+        return self.parser.stack.len + @boolToInt(self.current_token != null) + @boolToInt(self.next_token != null);
     }
 
     pub fn next(self: *TokenStream) Error!?Token {
         const token = try self.peek();
-        self.token1 = self.token2;
-        self.token2 = null;
+        self.current_token = self.next_token;
+        self.next_token = null;
         return token;
     }
 
     pub fn peek(self: *TokenStream) Error!?Token {
-        if (self.token1) |token| {
+        if (self.current_token) |token| {
             return token;
         }
 
         while (self.i < self.slice.len) {
-            try self.parser.feed(self.slice[self.i], &self.token1, &self.token2);
+            try self.parser.feed(self.slice[self.i], &self.current_token, &self.next_token);
             self.i += 1;
 
-            if (self.token1) |token| {
+            if (self.current_token) |token| {
                 return token;
             }
         }
 
         // Without this a bare number fails, the streaming parser doesn't know the input ended
-        try self.parser.feed(' ', &self.token1, &self.token2);
+        try self.parser.feed(' ', &self.current_token, &self.next_token);
         self.i += 1;
 
-        if (self.token1) |token| {
+        if (self.current_token) |token| {
             return token;
         } else if (self.parser.complete) {
             return null;
@@ -1148,10 +1148,10 @@ pub fn validate(s: []const u8) bool {
     var p = StreamingParser.init();
 
     for (s) |c| {
-        var token1: ?Token = undefined;
-        var token2: ?Token = undefined;
+        var current_token: ?Token = undefined;
+        var next_token: ?Token = undefined;
 
-        p.feed(c, &token1, &token2) catch {
+        p.feed(c, &current_token, &next_token) catch {
             return false;
         };
     }
