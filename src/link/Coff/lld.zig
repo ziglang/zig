@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const mem = std.mem;
+const Cache = std.Build.Cache;
 
 const mingw = @import("../../mingw.zig");
 const link = @import("../../link.zig");
@@ -13,7 +14,6 @@ const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 
-const Cache = @import("../../Cache.zig");
 const Coff = @import("../Coff.zig");
 const Compilation = @import("../../Compilation.zig");
 

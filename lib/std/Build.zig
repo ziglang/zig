@@ -19,6 +19,8 @@ const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Build = @This();
 
+pub const Cache = @import("Build/Cache.zig");
+
 /// deprecated: use `CompileStep`.
 pub const LibExeObjStep = CompileStep;
 /// deprecated: use `Build`.

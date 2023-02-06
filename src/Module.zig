@@ -16,7 +16,7 @@ const Ast = std.zig.Ast;
 
 const Module = @This();
 const Compilation = @import("Compilation.zig");
-const Cache = @import("Cache.zig");
+const Cache = std.Build.Cache;
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
