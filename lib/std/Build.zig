@@ -63,6 +63,7 @@ color: enum { auto, on, off } = .auto,
 reference_trace: ?u32 = null,
 invalid_user_input: bool,
 zig_exe: []const u8,
+zig_lib_dir: []const u8,
 default_step: *Step,
 env_map: *EnvMap,
 top_level_steps: ArrayList(*TopLevelStep),
@@ -185,6 +186,7 @@ pub const DirList = struct {
 pub fn create(
     allocator: Allocator,
     zig_exe: []const u8,
+    zig_lib_dir: []const u8,
     build_root: []const u8,
     cache_root: []const u8,
     global_cache_root: []const u8,
@@ -196,6 +198,7 @@ pub fn create(
     const self = try allocator.create(Build);
     self.* = Build{
         .zig_exe = zig_exe,
+        .zig_lib_dir = zig_lib_dir,
         .build_root = build_root,
         .cache_root = try fs.path.relative(allocator, build_root, cache_root),
         .global_cache_root = global_cache_root,
@@ -281,6 +284,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: []const u8)
         .reference_trace = parent.reference_trace,
         .invalid_user_input = false,
         .zig_exe = parent.zig_exe,
+        .zig_lib_dir = parent.zig_exe,
         .default_step = undefined,
         .env_map = parent.env_map,
         .top_level_steps = ArrayList(*TopLevelStep).init(allocator),

@@ -28,6 +28,10 @@ pub fn main() !void {
         std.debug.print("Expected path to zig compiler\n", .{});
         return error.InvalidArgs;
     };
+    const zig_lib_dir = nextArg(args, &arg_idx) orelse {
+        std.debug.print("Expected zig lib directory path\n", .{});
+        return error.InvalidArgs;
+    };
     const build_root = nextArg(args, &arg_idx) orelse {
         std.debug.print("Expected build root directory path\n", .{});
         return error.InvalidArgs;
@@ -46,6 +50,7 @@ pub fn main() !void {
     const builder = try std.Build.create(
         allocator,
         zig_exe,
+        zig_lib_dir,
         build_root,
         cache_root,
         global_cache_root,

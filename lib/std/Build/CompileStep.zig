@@ -1630,6 +1630,10 @@ fn make(step: *Step) !void {
                     const h_path = other.getOutputHSource().getPath(builder);
                     try zig_args.append("-isystem");
                     try zig_args.append(fs.path.dirname(h_path).?);
+                    if (builder.zig_lib_dir.len > 0) {
+                        try zig_args.append("-isystem");
+                        try zig_args.append(builder.zig_lib_dir);
+                    }
                 }
                 if (other.installed_headers.items.len > 0) {
                     for (other.installed_headers.items) |install_step| {

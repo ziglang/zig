@@ -3936,6 +3936,9 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
         try child_argv.append(self_exe_path);
 
+        const argv_index_zig_lib_dir = child_argv.items.len;
+        _ = try child_argv.addOne();
+
         const argv_index_build_file = child_argv.items.len;
         _ = try child_argv.addOne();
 
@@ -4003,6 +4006,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
         };
         defer zig_lib_directory.handle.close();
+
+        child_argv.items[argv_index_zig_lib_dir] = zig_lib_directory.path orelse "";
 
         var cleanup_build_dir: ?fs.Dir = null;
         defer if (cleanup_build_dir) |*dir| dir.close();
