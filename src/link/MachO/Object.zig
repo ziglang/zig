@@ -60,11 +60,15 @@ globals_lookup: []i64 = undefined,
 /// Can be undefined as set together with in_symtab.
 relocs_lookup: []RelocEntry = undefined,
 
-/// All relocations sorted and flatened.
+/// All relocations sorted and flatened, sorted by address descending
+/// per section.
 relocations: std.ArrayListUnmanaged(macho.relocation_info) = .{},
 /// Beginning index to the relocations array for each input section
 /// defined within this Object file.
 section_relocs_lookup: std.ArrayListUnmanaged(u32) = .{},
+
+/// Data-in-code records sorted by address.
+data_in_code: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
 
 atoms: std.ArrayListUnmanaged(AtomIndex) = .{},
 exec_atoms: std.ArrayListUnmanaged(AtomIndex) = .{},
@@ -108,6 +112,7 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
     self.unwind_records_lookup.deinit(gpa);
     self.relocations.deinit(gpa);
     self.section_relocs_lookup.deinit(gpa);
+    self.data_in_code.deinit(gpa);
 }
 
 pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch) !void {
@@ -365,6 +370,7 @@ pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u32) !void {
     try self.splitRegularSections(zld, object_id);
     try self.parseEhFrameSection(zld, object_id);
     try self.parseUnwindInfo(zld, object_id);
+    try self.parseDataInCode(zld.gpa);
 }
 
 /// Splits input regular sections into Atoms.
@@ -870,24 +876,27 @@ pub fn getSourceSections(self: Object) []const macho.section_64 {
     } else unreachable;
 }
 
-pub fn parseDataInCode(self: Object) ?[]const macho.data_in_code_entry {
+pub fn parseDataInCode(self: *Object, gpa: Allocator) !void {
     var it = LoadCommandIterator{
         .ncmds = self.header.ncmds,
         .buffer = self.contents[@sizeOf(macho.mach_header_64)..][0..self.header.sizeofcmds],
     };
-    while (it.next()) |cmd| {
+    const cmd = while (it.next()) |cmd| {
         switch (cmd.cmd()) {
-            .DATA_IN_CODE => {
-                const dice = cmd.cast(macho.linkedit_data_command).?;
-                const ndice = @divExact(dice.datasize, @sizeOf(macho.data_in_code_entry));
-                return @ptrCast(
-                    [*]const macho.data_in_code_entry,
-                    @alignCast(@alignOf(macho.data_in_code_entry), &self.contents[dice.dataoff]),
-                )[0..ndice];
-            },
+            .DATA_IN_CODE => break cmd.cast(macho.linkedit_data_command).?,
             else => {},
         }
-    } else return null;
+    } else return;
+    const ndice = @divExact(cmd.datasize, @sizeOf(macho.data_in_code_entry));
+    const dice = @ptrCast([*]align(1) const macho.data_in_code_entry, self.contents.ptr + cmd.dataoff)[0..ndice];
+    try self.data_in_code.ensureTotalCapacityPrecise(gpa, dice.len);
+    self.data_in_code.appendUnalignedSliceAssumeCapacity(dice);
+    std.sort.sort(macho.data_in_code_entry, self.data_in_code.items, {}, diceLessThan);
+}
+
+fn diceLessThan(ctx: void, lhs: macho.data_in_code_entry, rhs: macho.data_in_code_entry) bool {
+    _ = ctx;
+    return lhs.offset < rhs.offset;
 }
 
 fn parseDysymtab(self: Object) ?macho.dysymtab_command {
@@ -1032,4 +1041,8 @@ pub fn getEhFrameRecordsIterator(self: Object) eh_frame.Iterator {
     const sect = self.getSourceSection(sect_id);
     const data = self.getSectionContents(sect);
     return .{ .data = data };
+}
+
+pub fn hasDataInCode(self: Object) bool {
+    return self.data_in_code.items.len > 0;
 }

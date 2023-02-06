@@ -2391,16 +2391,14 @@ pub const Zld = struct {
         const text_sect_header = self.sections.items(.header)[text_sect_id];
 
         for (self.objects.items) |object| {
-            const dice = object.parseDataInCode() orelse continue;
+            if (!object.hasDataInCode()) continue;
+            const dice = object.data_in_code.items;
             try out_dice.ensureUnusedCapacity(dice.len);
 
-            for (object.atoms.items) |atom_index| {
+            for (object.exec_atoms.items) |atom_index| {
                 const atom = self.getAtom(atom_index);
                 const sym = self.getSymbol(atom.getSymbolWithLoc());
-                const sect_id = sym.n_sect - 1;
-                if (sect_id != text_sect_id) {
-                    continue;
-                }
+                if (sym.n_desc == N_DEAD) continue;
 
                 const source_addr = if (object.getSourceSymbol(atom.sym_index)) |source_sym|
                     source_sym.n_value
