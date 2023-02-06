@@ -703,15 +703,11 @@ pub fn parseRelocTarget(
     } else return sym_loc;
 }
 
-fn getRelocs(
-    zld: *Zld,
-    object_id: u32,
-    record_id: usize,
-) []align(1) const macho.relocation_info {
+fn getRelocs(zld: *Zld, object_id: u32, record_id: usize) []const macho.relocation_info {
     const object = &zld.objects.items[object_id];
     assert(object.hasUnwindRecords());
     const rel_pos = object.unwind_relocs_lookup[record_id].reloc;
-    const relocs = object.getRelocs(object.unwind_info_sect.?);
+    const relocs = object.getRelocs(object.unwind_info_sect_id.?);
     return relocs[rel_pos.start..][0..rel_pos.len];
 }
 

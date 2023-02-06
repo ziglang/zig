@@ -2406,7 +2406,7 @@ pub const Zld = struct {
                     source_sym.n_value
                 else blk: {
                     const nbase = @intCast(u32, object.in_symtab.?.len);
-                    const source_sect_id = @intCast(u16, atom.sym_index - nbase);
+                    const source_sect_id = @intCast(u8, atom.sym_index - nbase);
                     break :blk object.getSourceSection(source_sect_id).addr;
                 };
                 const filtered_dice = filterDataInCode(dice, source_addr, source_addr + atom.size);
