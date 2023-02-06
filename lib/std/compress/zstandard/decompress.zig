@@ -107,19 +107,27 @@ pub fn decodeAlloc(
 ///   - `error.UnusedBitSet` if the unused bit of the frame header is set
 ///   - `error.EndOfStream` if `src` does not contain a complete frame
 ///   - an error in `block.Error` if there are errors decoding a block
+///   - `error.SkippableSizeTooLarge` if the frame is skippable and reports a
+///     size greater than `src.len`
 pub fn decodeFrame(
     dest: []u8,
     src: []const u8,
     verify_checksum: bool,
 ) !ReadWriteCount {
     var fbs = std.io.fixedBufferStream(src);
-    return switch (try decodeFrameType(fbs.reader())) {
-        .zstandard => decodeZstandardFrame(dest, src, verify_checksum),
-        .skippable => ReadWriteCount{
-            .read_count = try fbs.reader().readIntLittle(u32) + 8,
-            .write_count = 0,
+    switch (try decodeFrameType(fbs.reader())) {
+        .zstandard => return decodeZstandardFrame(dest, src, verify_checksum),
+        .skippable => {
+            const content_size = try fbs.reader().readIntLittle(u32);
+            if (content_size > std.math.maxInt(usize) - 8) return error.SkippableSizeTooLarge;
+            const read_count = @as(usize, content_size) + 8;
+            if (read_count > src.len) return error.SkippableSizeTooLarge;
+            return ReadWriteCount{
+                .read_count = read_count,
+                .write_count = 0,
+            };
         },
-    };
+    }
 }
 
 pub const DecodeResult = struct {
@@ -150,6 +158,8 @@ pub const DecodedFrame = union(enum) {
 ///   - `error.EndOfStream` if `src` does not contain a complete frame
 ///   - `error.OutOfMemory` if `allocator` cannot allocate enough memory
 ///   - an error in `block.Error` if there are errors decoding a block
+///   - `error.SkippableSizeTooLarge` if the frame is skippable and reports a
+///     size greater than `src.len`
 pub fn decodeFrameAlloc(
     allocator: Allocator,
     src: []const u8,
@@ -159,17 +169,23 @@ pub fn decodeFrameAlloc(
     var fbs = std.io.fixedBufferStream(src);
     const reader = fbs.reader();
     const magic = try reader.readIntLittle(u32);
-    return switch (try frameType(magic)) {
-        .zstandard => .{
+    switch (try frameType(magic)) {
+        .zstandard => return .{
             .zstandard = try decodeZstandardFrameAlloc(allocator, src, verify_checksum, window_size_max),
         },
-        .skippable => .{
-            .skippable = .{
-                .magic_number = magic,
-                .frame_size = try reader.readIntLittle(u32),
-            },
+        .skippable => {
+            const content_size = try fbs.reader().readIntLittle(u32);
+            if (content_size > std.math.maxInt(usize) - 8) return error.SkippableSizeTooLarge;
+            const read_count = @as(usize, content_size) + 8;
+            if (read_count > src.len) return error.SkippableSizeTooLarge;
+            return .{
+                .skippable = .{
+                    .magic_number = magic,
+                    .frame_size = content_size,
+                },
+            };
         },
-    };
+    }
 }
 
 /// Returns the frame checksum corresponding to the data fed into `hasher`
