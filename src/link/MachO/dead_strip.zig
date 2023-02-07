@@ -88,7 +88,7 @@ fn collectRoots(zld: *Zld, roots: *AtomTable) !void {
                     source_sym.n_sect - 1
                 else sect_id: {
                     const nbase = @intCast(u32, object.in_symtab.?.len);
-                    const sect_id = @intCast(u16, atom.sym_index - nbase);
+                    const sect_id = @intCast(u8, atom.sym_index - nbase);
                     break :sect_id sect_id;
                 };
                 const source_sect = object.getSourceSection(sect_id);
@@ -223,7 +223,7 @@ fn mark(zld: *Zld, roots: AtomTable, alive: *AtomTable) !void {
                     source_sym.n_sect - 1
                 else blk: {
                     const nbase = @intCast(u32, object.in_symtab.?.len);
-                    const sect_id = @intCast(u16, atom.sym_index - nbase);
+                    const sect_id = @intCast(u8, atom.sym_index - nbase);
                     break :blk sect_id;
                 };
                 const source_sect = object.getSourceSection(sect_id);
@@ -350,8 +350,9 @@ fn markEhFrameRecord(zld: *Zld, object_id: u32, atom_index: AtomIndex, alive: *A
             }
         },
         .x86_64 => {
+            const sect = object.getSourceSection(object.eh_frame_sect_id.?);
             const lsda_ptr = try fde.getLsdaPointer(cie, .{
-                .base_addr = object.eh_frame_sect.?.addr,
+                .base_addr = sect.addr,
                 .base_offset = fde_offset,
             });
             if (lsda_ptr) |lsda_address| {

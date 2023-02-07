@@ -60,14 +60,24 @@ globals_lookup: []i64 = undefined,
 /// Can be undefined as set together with in_symtab.
 relocs_lookup: []RelocEntry = undefined,
 
+/// All relocations sorted and flatened, sorted by address descending
+/// per section.
+relocations: std.ArrayListUnmanaged(macho.relocation_info) = .{},
+/// Beginning index to the relocations array for each input section
+/// defined within this Object file.
+section_relocs_lookup: std.ArrayListUnmanaged(u32) = .{},
+
+/// Data-in-code records sorted by address.
+data_in_code: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
+
 atoms: std.ArrayListUnmanaged(AtomIndex) = .{},
 exec_atoms: std.ArrayListUnmanaged(AtomIndex) = .{},
 
-eh_frame_sect: ?macho.section_64 = null,
+eh_frame_sect_id: ?u8 = null,
 eh_frame_relocs_lookup: std.AutoArrayHashMapUnmanaged(u32, Record) = .{},
 eh_frame_records_lookup: std.AutoArrayHashMapUnmanaged(AtomIndex, u32) = .{},
 
-unwind_info_sect: ?macho.section_64 = null,
+unwind_info_sect_id: ?u8 = null,
 unwind_relocs_lookup: []Record = undefined,
 unwind_records_lookup: std.AutoHashMapUnmanaged(AtomIndex, u32) = .{},
 
@@ -100,6 +110,9 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
         gpa.free(self.unwind_relocs_lookup);
     }
     self.unwind_records_lookup.deinit(gpa);
+    self.relocations.deinit(gpa);
+    self.section_relocs_lookup.deinit(gpa);
+    self.data_in_code.deinit(gpa);
 }
 
 pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch) !void {
@@ -137,15 +150,18 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
         .buffer = self.contents[@sizeOf(macho.mach_header_64)..][0..self.header.sizeofcmds],
     };
     const nsects = self.getSourceSections().len;
+
+    // Prepopulate relocations per section lookup table.
+    try self.section_relocs_lookup.resize(allocator, nsects);
+    mem.set(u32, self.section_relocs_lookup.items, 0);
+
+    // Parse symtab.
     const symtab = while (it.next()) |cmd| switch (cmd.cmd()) {
         .SYMTAB => break cmd.cast(macho.symtab_command).?,
         else => {},
     } else return;
 
-    self.in_symtab = @ptrCast(
-        [*]const macho.nlist_64,
-        @alignCast(@alignOf(macho.nlist_64), &self.contents[symtab.symoff]),
-    )[0..symtab.nsyms];
+    self.in_symtab = @ptrCast([*]align(1) const macho.nlist_64, self.contents.ptr + symtab.symoff)[0..symtab.nsyms];
     self.in_strtab = self.contents[symtab.stroff..][0..symtab.strsize];
 
     self.symtab = try allocator.alloc(macho.nlist_64, self.in_symtab.?.len + nsects);
@@ -212,10 +228,10 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
     }
 
     // Parse __TEXT,__eh_frame header if one exists
-    self.eh_frame_sect = self.getSourceSectionByName("__TEXT", "__eh_frame");
+    self.eh_frame_sect_id = self.getSourceSectionIndexByName("__TEXT", "__eh_frame");
 
     // Parse __LD,__compact_unwind header if one exists
-    self.unwind_info_sect = self.getSourceSectionByName("__LD", "__compact_unwind");
+    self.unwind_info_sect_id = self.getSourceSectionIndexByName("__LD", "__compact_unwind");
     if (self.hasUnwindRecords()) {
         self.unwind_relocs_lookup = try allocator.alloc(Record, self.getUnwindRecords().len);
         mem.set(Record, self.unwind_relocs_lookup, .{
@@ -354,6 +370,7 @@ pub fn splitIntoAtoms(self: *Object, zld: *Zld, object_id: u32) !void {
     try self.splitRegularSections(zld, object_id);
     try self.parseEhFrameSection(zld, object_id);
     try self.parseUnwindInfo(zld, object_id);
+    try self.parseDataInCode(zld.gpa);
 }
 
 /// Splits input regular sections into Atoms.
@@ -451,6 +468,8 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
             zld.sections.items(.header)[out_sect_id].segName(),
             zld.sections.items(.header)[out_sect_id].sectName(),
         });
+
+        try self.parseRelocs(gpa, section.id);
 
         const cpu_arch = zld.options.target.cpu.arch;
         const sect_loc = filterSymbolsBySection(symtab[sect_sym_index..], sect_id + 1);
@@ -623,25 +642,36 @@ fn filterRelocs(
     return .{ .start = @intCast(u32, start), .len = @intCast(u32, len) };
 }
 
+/// Parse all relocs for the input section, and sort in descending order.
+/// Previously, I have wrongly assumed the compilers output relocations for each
+/// section in a sorted manner which is simply not true.
+fn parseRelocs(self: *Object, gpa: Allocator, sect_id: u8) !void {
+    const section = self.getSourceSection(sect_id);
+    const start = @intCast(u32, self.relocations.items.len);
+    if (self.getSourceRelocs(section)) |relocs| {
+        try self.relocations.ensureUnusedCapacity(gpa, relocs.len);
+        self.relocations.appendUnalignedSliceAssumeCapacity(relocs);
+        std.sort.sort(macho.relocation_info, self.relocations.items[start..], {}, relocGreaterThan);
+    }
+    self.section_relocs_lookup.items[sect_id] = start;
+}
+
 fn cacheRelocs(self: *Object, zld: *Zld, atom_index: AtomIndex) !void {
     const atom = zld.getAtom(atom_index);
 
-    const source_sect = if (self.getSourceSymbol(atom.sym_index)) |source_sym| blk: {
-        const source_sect = self.getSourceSection(source_sym.n_sect - 1);
-        assert(!source_sect.isZerofill());
-        break :blk source_sect;
+    const source_sect_id = if (self.getSourceSymbol(atom.sym_index)) |source_sym| blk: {
+        break :blk source_sym.n_sect - 1;
     } else blk: {
         // If there was no matching symbol present in the source symtab, this means
         // we are dealing with either an entire section, or part of it, but also
         // starting at the beginning.
         const nbase = @intCast(u32, self.in_symtab.?.len);
-        const sect_id = @intCast(u16, atom.sym_index - nbase);
-        const source_sect = self.getSourceSection(sect_id);
-        assert(!source_sect.isZerofill());
-        break :blk source_sect;
+        const sect_id = @intCast(u8, atom.sym_index - nbase);
+        break :blk sect_id;
     };
-
-    const relocs = self.getRelocs(source_sect);
+    const source_sect = self.getSourceSection(source_sect_id);
+    assert(!source_sect.isZerofill());
+    const relocs = self.getRelocs(source_sect_id);
 
     self.relocs_lookup[atom.sym_index] = if (self.getSourceSymbol(atom.sym_index)) |source_sym| blk: {
         const offset = source_sym.n_value - source_sect.addr;
@@ -649,8 +679,14 @@ fn cacheRelocs(self: *Object, zld: *Zld, atom_index: AtomIndex) !void {
     } else filterRelocs(relocs, 0, atom.size);
 }
 
+fn relocGreaterThan(ctx: void, lhs: macho.relocation_info, rhs: macho.relocation_info) bool {
+    _ = ctx;
+    return lhs.r_address > rhs.r_address;
+}
+
 fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
-    const sect = self.eh_frame_sect orelse return;
+    const sect_id = self.eh_frame_sect_id orelse return;
+    const sect = self.getSourceSection(sect_id);
 
     log.debug("parsing __TEXT,__eh_frame section", .{});
 
@@ -660,7 +696,8 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
 
     const gpa = zld.gpa;
     const cpu_arch = zld.options.target.cpu.arch;
-    const relocs = self.getRelocs(sect);
+    try self.parseRelocs(gpa, sect_id);
+    const relocs = self.getRelocs(sect_id);
 
     var it = self.getEhFrameRecordsIterator();
     var record_count: u32 = 0;
@@ -728,12 +765,12 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
 }
 
 fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
-    const sect = self.unwind_info_sect orelse {
+    const sect_id = self.unwind_info_sect_id orelse {
         // If it so happens that the object had `__eh_frame` section defined but no `__compact_unwind`,
         // we will try fully synthesising unwind info records to somewhat match Apple ld's
         // approach. However, we will only synthesise DWARF records and nothing more. For this reason,
         // we still create the output `__TEXT,__unwind_info` section.
-        if (self.eh_frame_sect != null) {
+        if (self.hasEhFrameRecords()) {
             if (zld.getSectionByName("__TEXT", "__unwind_info") == null) {
                 _ = try zld.initSection("__TEXT", "__unwind_info", .{});
             }
@@ -758,15 +795,15 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
         if (UnwindInfo.UnwindEncoding.isDwarf(record.compactUnwindEncoding, cpu_arch)) break true;
     } else false;
 
-    if (needs_eh_frame) {
-        if (self.eh_frame_sect == null) {
-            log.err("missing __TEXT,__eh_frame section", .{});
-            log.err("  in object {s}", .{self.name});
-            return error.MissingSection;
-        }
+    if (needs_eh_frame and !self.hasEhFrameRecords()) {
+        log.err("missing __TEXT,__eh_frame section", .{});
+        log.err("  in object {s}", .{self.name});
+        return error.MissingSection;
     }
 
-    const relocs = self.getRelocs(sect);
+    try self.parseRelocs(gpa, sect_id);
+    const relocs = self.getRelocs(sect_id);
+
     for (unwind_records) |record, record_id| {
         const offset = record_id * @sizeOf(macho.compact_unwind_entry);
         const rel_pos = filterRelocs(
@@ -806,25 +843,23 @@ pub fn getSourceSymbol(self: Object, index: u32) ?macho.nlist_64 {
     return symtab[mapped_index];
 }
 
-pub fn getSourceSection(self: Object, index: u16) macho.section_64 {
+pub fn getSourceSection(self: Object, index: u8) macho.section_64 {
     const sections = self.getSourceSections();
     assert(index < sections.len);
     return sections[index];
 }
 
 pub fn getSourceSectionByName(self: Object, segname: []const u8, sectname: []const u8) ?macho.section_64 {
+    const index = self.getSourceSectionIndexByName(segname, sectname) orelse return null;
     const sections = self.getSourceSections();
-    for (sections) |sect| {
-        if (mem.eql(u8, segname, sect.segName()) and mem.eql(u8, sectname, sect.sectName()))
-            return sect;
-    } else return null;
+    return sections[index];
 }
 
 pub fn getSourceSectionIndexByName(self: Object, segname: []const u8, sectname: []const u8) ?u8 {
     const sections = self.getSourceSections();
     for (sections) |sect, i| {
         if (mem.eql(u8, segname, sect.segName()) and mem.eql(u8, sectname, sect.sectName()))
-            return @intCast(u8, i + 1);
+            return @intCast(u8, i);
     } else return null;
 }
 
@@ -841,24 +876,27 @@ pub fn getSourceSections(self: Object) []const macho.section_64 {
     } else unreachable;
 }
 
-pub fn parseDataInCode(self: Object) ?[]const macho.data_in_code_entry {
+pub fn parseDataInCode(self: *Object, gpa: Allocator) !void {
     var it = LoadCommandIterator{
         .ncmds = self.header.ncmds,
         .buffer = self.contents[@sizeOf(macho.mach_header_64)..][0..self.header.sizeofcmds],
     };
-    while (it.next()) |cmd| {
+    const cmd = while (it.next()) |cmd| {
         switch (cmd.cmd()) {
-            .DATA_IN_CODE => {
-                const dice = cmd.cast(macho.linkedit_data_command).?;
-                const ndice = @divExact(dice.datasize, @sizeOf(macho.data_in_code_entry));
-                return @ptrCast(
-                    [*]const macho.data_in_code_entry,
-                    @alignCast(@alignOf(macho.data_in_code_entry), &self.contents[dice.dataoff]),
-                )[0..ndice];
-            },
+            .DATA_IN_CODE => break cmd.cast(macho.linkedit_data_command).?,
             else => {},
         }
-    } else return null;
+    } else return;
+    const ndice = @divExact(cmd.datasize, @sizeOf(macho.data_in_code_entry));
+    const dice = @ptrCast([*]align(1) const macho.data_in_code_entry, self.contents.ptr + cmd.dataoff)[0..ndice];
+    try self.data_in_code.ensureTotalCapacityPrecise(gpa, dice.len);
+    self.data_in_code.appendUnalignedSliceAssumeCapacity(dice);
+    std.sort.sort(macho.data_in_code_entry, self.data_in_code.items, {}, diceLessThan);
+}
+
+fn diceLessThan(ctx: void, lhs: macho.data_in_code_entry, rhs: macho.data_in_code_entry) bool {
+    _ = ctx;
+    return lhs.offset < rhs.offset;
 }
 
 fn parseDysymtab(self: Object) ?macho.dysymtab_command {
@@ -914,9 +952,16 @@ pub fn getSectionAliasSymbolPtr(self: *Object, sect_id: u8) *macho.nlist_64 {
     return &self.symtab[self.getSectionAliasSymbolIndex(sect_id)];
 }
 
-pub fn getRelocs(self: Object, sect: macho.section_64) []align(1) const macho.relocation_info {
-    if (sect.nreloc == 0) return &[0]macho.relocation_info{};
+fn getSourceRelocs(self: Object, sect: macho.section_64) ?[]align(1) const macho.relocation_info {
+    if (sect.nreloc == 0) return null;
     return @ptrCast([*]align(1) const macho.relocation_info, self.contents.ptr + sect.reloff)[0..sect.nreloc];
+}
+
+pub fn getRelocs(self: Object, sect_id: u8) []const macho.relocation_info {
+    const sect = self.getSourceSection(sect_id);
+    const start = self.section_relocs_lookup.items[sect_id];
+    const len = sect.nreloc;
+    return self.relocations.items[start..][0..len];
 }
 
 pub fn getSymbolName(self: Object, index: u32) []const u8 {
@@ -976,22 +1021,28 @@ pub fn getAtomIndexForSymbol(self: Object, sym_index: u32) ?AtomIndex {
 }
 
 pub fn hasUnwindRecords(self: Object) bool {
-    return self.unwind_info_sect != null;
+    return self.unwind_info_sect_id != null;
 }
 
 pub fn getUnwindRecords(self: Object) []align(1) const macho.compact_unwind_entry {
-    const sect = self.unwind_info_sect orelse return &[0]macho.compact_unwind_entry{};
+    const sect_id = self.unwind_info_sect_id orelse return &[0]macho.compact_unwind_entry{};
+    const sect = self.getSourceSection(sect_id);
     const data = self.getSectionContents(sect);
     const num_entries = @divExact(data.len, @sizeOf(macho.compact_unwind_entry));
     return @ptrCast([*]align(1) const macho.compact_unwind_entry, data)[0..num_entries];
 }
 
 pub fn hasEhFrameRecords(self: Object) bool {
-    return self.eh_frame_sect != null;
+    return self.eh_frame_sect_id != null;
 }
 
 pub fn getEhFrameRecordsIterator(self: Object) eh_frame.Iterator {
-    const sect = self.eh_frame_sect orelse return .{ .data = &[0]u8{} };
+    const sect_id = self.eh_frame_sect_id orelse return .{ .data = &[0]u8{} };
+    const sect = self.getSourceSection(sect_id);
     const data = self.getSectionContents(sect);
     return .{ .data = data };
+}
+
+pub fn hasDataInCode(self: Object) bool {
+    return self.data_in_code.items.len > 0;
 }
