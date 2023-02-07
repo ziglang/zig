@@ -2273,7 +2273,9 @@ pub const Object = struct {
 
                 const full_di_fields: [2]*llvm.DIType =
                     if (layout.tag_align >= layout.payload_align)
-                .{ tag_di, payload_di } else .{ payload_di, tag_di };
+                    .{ tag_di, payload_di }
+                else
+                    .{ payload_di, tag_di };
 
                 const full_di_ty = dib.createStructType(
                     compile_unit_scope,
