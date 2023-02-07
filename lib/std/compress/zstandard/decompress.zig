@@ -77,7 +77,7 @@ pub fn decodeAlloc(
 
     var read_count: usize = 0;
     while (read_count < src.len) {
-        read_count += try decodeZstandardFrameArrayList(
+        read_count += try decodeFrameArrayList(
             allocator,
             &result,
             src[read_count..],
@@ -140,8 +140,7 @@ pub const DecodedFrame = union(enum) {
 };
 
 /// Decodes the frame at the start of `src` into `dest`. Returns the number of
-/// bytes read from `src` and the decoded bytes for a Zstandard frame, or the
-/// frame header for a Skippable frame.
+/// bytes read from `src`.
 ///
 /// Errors returned:
 ///   - `error.BadMagic` if the first 4 bytes of `src` is not a valid magic
@@ -160,30 +159,24 @@ pub const DecodedFrame = union(enum) {
 ///   - an error in `block.Error` if there are errors decoding a block
 ///   - `error.SkippableSizeTooLarge` if the frame is skippable and reports a
 ///     size greater than `src.len`
-pub fn decodeFrameAlloc(
+pub fn decodeFrameArrayList(
     allocator: Allocator,
+    dest: *std.ArrayList(u8),
     src: []const u8,
     verify_checksum: bool,
     window_size_max: usize,
-) !DecodedFrame {
+) !usize {
     var fbs = std.io.fixedBufferStream(src);
     const reader = fbs.reader();
     const magic = try reader.readIntLittle(u32);
     switch (try frameType(magic)) {
-        .zstandard => return .{
-            .zstandard = try decodeZstandardFrameAlloc(allocator, src, verify_checksum, window_size_max),
-        },
+        .zstandard => return decodeZstandardFrameArrayList(allocator, dest, src, verify_checksum, window_size_max),
         .skippable => {
             const content_size = try fbs.reader().readIntLittle(u32);
             if (content_size > std.math.maxInt(usize) - 8) return error.SkippableSizeTooLarge;
             const read_count = @as(usize, content_size) + 8;
             if (read_count > src.len) return error.SkippableSizeTooLarge;
-            return .{
-                .skippable = .{
-                    .magic_number = magic,
-                    .frame_size = content_size,
-                },
-            };
+            return read_count;
         },
     }
 }
@@ -319,11 +312,9 @@ pub const FrameContext = struct {
     }
 };
 
-/// Decode a Zstandard from from `src` and return the decompressed bytes and the
-/// number of bytes read; see `decodeZstandardFrame()`. `allocator` is used to
-/// allocate both the returned slice and internal buffers used during decoding.
-/// The first four bytes of `src` must be the magic number for a Zstandard
-/// frame.
+/// Decode a Zstandard from from `src` and return number of bytes read; see
+/// `decodeZstandardFrame()`. The first four bytes of `src` must be the magic
+/// number for a Zstandard frame.
 ///
 /// Errors returned:
 ///   - `error.WindowSizeUnknown` if the frame does not have a valid window size
@@ -340,25 +331,6 @@ pub const FrameContext = struct {
 ///   - an error in `block.Error` if there are errors decoding a block
 ///   - `error.BadContentSize` if the content size declared by the frame does
 ///     not equal the size of decompressed data
-pub fn decodeZstandardFrameAlloc(
-    allocator: Allocator,
-    src: []const u8,
-    verify_checksum: bool,
-    window_size_max: usize,
-) (error{OutOfMemory} || FrameContext.Error || FrameError)!DecodeResult {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
-    const read_count = try decodeZstandardFrameArrayList(
-        allocator,
-        &result,
-        src,
-        verify_checksum,
-        window_size_max,
-    );
-    return DecodeResult{ .bytes = try result.toOwnedSlice(), .read_count = read_count };
-}
-
-/// Decode a ZStandard frame into `dest`; see `decodeZStandardFrameAlloc()`.
 pub fn decodeZstandardFrameArrayList(
     allocator: Allocator,
     dest: *std.ArrayList(u8),
