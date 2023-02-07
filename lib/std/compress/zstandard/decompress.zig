@@ -104,7 +104,6 @@ pub fn decodeAlloc(
 ///     contains a checksum that does not match the checksum of the decompressed
 ///     data
 ///   - `error.ReservedBitSet` if the reserved bit of the frame header is set
-///   - `error.UnusedBitSet` if the unused bit of the frame header is set
 ///   - `error.EndOfStream` if `src` does not contain a complete frame
 ///   - an error in `block.Error` if there are errors decoding a block
 ///   - `error.SkippableSizeTooLarge` if the frame is skippable and reports a
@@ -153,7 +152,6 @@ pub const DecodedFrame = union(enum) {
 ///     contains a checksum that does not match the checksum of the decompressed
 ///     data
 ///   - `error.ReservedBitSet` if the reserved bit of the frame header is set
-///   - `error.UnusedBitSet` if the unused bit of the frame header is set
 ///   - `error.EndOfStream` if `src` does not contain a complete frame
 ///   - `error.OutOfMemory` if `allocator` cannot allocate enough memory
 ///   - an error in `block.Error` if there are errors decoding a block
@@ -192,7 +190,8 @@ const FrameError = error{
     ChecksumFailure,
     BadContentSize,
     EndOfStream,
-} || InvalidBit || block.Error;
+    ReservedBitSet,
+} || block.Error;
 
 /// Decode a Zstandard frame from `src` into `dest`, returning the number of
 /// bytes read from `src` and written to `dest`. The first four bytes of `src`
@@ -208,7 +207,6 @@ const FrameError = error{
 ///     contains a checksum that does not match the checksum of the decompressed
 ///     data
 ///   - `error.ReservedBitSet` if the reserved bit of the frame header is set
-///   - `error.UnusedBitSet` if the unused bit of the frame header is set
 ///   - `error.EndOfStream` if `src` does not contain a complete frame
 ///   - an error in `block.Error` if there are errors decoding a block
 ///   - `error.BadContentSize` if the content size declared by the frame does
@@ -325,7 +323,6 @@ pub const FrameContext = struct {
 ///     contains a checksum that does not match the checksum of the decompressed
 ///     data
 ///   - `error.ReservedBitSet` if the reserved bit of the frame header is set
-///   - `error.UnusedBitSet` if the unused bit of the frame header is set
 ///   - `error.EndOfStream` if `src` does not contain a complete frame
 ///   - `error.OutOfMemory` if `allocator` cannot allocate enough memory
 ///   - an error in `block.Error` if there are errors decoding a block
@@ -465,17 +462,14 @@ pub fn frameWindowSize(header: frame.Zstandard.Header) ?u64 {
     } else return header.content_size;
 }
 
-const InvalidBit = error{ UnusedBitSet, ReservedBitSet };
 /// Decode the header of a Zstandard frame.
 ///
 /// Errors returned:
-///   - `error.UnusedBitSet` if the unused bits of the header are set
 ///   - `error.ReservedBitSet` if the reserved bits of the header are set
 ///   - `error.EndOfStream` if `source` does not contain a complete header
-pub fn decodeZstandardHeader(source: anytype) (error{EndOfStream} || InvalidBit)!frame.Zstandard.Header {
+pub fn decodeZstandardHeader(source: anytype) error{ EndOfStream, ReservedBitSet }!frame.Zstandard.Header {
     const descriptor = @bitCast(frame.Zstandard.Header.Descriptor, try source.readByte());
 
-    if (descriptor.unused) return error.UnusedBitSet;
     if (descriptor.reserved) return error.ReservedBitSet;
 
     var window_descriptor: ?u8 = null;
