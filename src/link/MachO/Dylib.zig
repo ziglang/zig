@@ -166,6 +166,8 @@ pub fn parseFromBinary(
                 const symtab_cmd = cmd.cast(macho.symtab_command).?;
                 const symtab = @ptrCast(
                     [*]const macho.nlist_64,
+                    // Alignment is guaranteed as a dylib is a final linked image and has to have sections
+                    // properly aligned in order to be correctly loaded by the loader.
                     @alignCast(@alignOf(macho.nlist_64), &data[symtab_cmd.symoff]),
                 )[0..symtab_cmd.nsyms];
                 const strtab = data[symtab_cmd.stroff..][0..symtab_cmd.strsize];
