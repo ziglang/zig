@@ -535,6 +535,7 @@ pub const AssemblyOptions = struct {
 pub fn addAssembly(b: *Build, options: AssemblyOptions) *CompileStep {
     const obj_step = CompileStep.create(b, .{
         .name = options.name,
+        .kind = .obj,
         .root_source_file = null,
         .target = options.target,
         .optimize = options.optimize,
