@@ -907,8 +907,10 @@ pub fn request(client: *Client, uri: Uri, headers: Request.Headers, options: Req
         try h.appendSlice(@tagName(headers.version));
         try h.appendSlice("\r\nHost: ");
         try h.appendSlice(host);
-        try h.appendSlice("\r\nConnection: close\r\n\r\n");
-
+        try h.appendSlice(switch (headers.version) {
+            .@"HTTP/1.0" => "\r\nConnection: close\r\n\r\n",
+            .@"HTTP/1.1" => "\r\nConnection: keep-alive\r\n\r\n",
+        });
         const header_bytes = h.slice();
         try req.connection.writeAll(header_bytes);
     }
