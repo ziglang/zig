@@ -1621,8 +1621,11 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             const root_pkg = if (options.is_test) root_pkg: {
                 // TODO: we currently have two packages named 'root' here, which is weird. This
                 // should be changed as part of the resolution of #12201
-                const test_pkg = if (options.test_runner_path) |test_runner|
-                    try Package.create(gpa, "root", null, test_runner)
+                const test_pkg = if (options.test_runner_path) |test_runner| test_pkg: {
+                    const test_dir = std.fs.path.dirname(test_runner);
+                    const basename = std.fs.path.basename(test_runner);
+                    break :test_pkg try Package.create(gpa, "root", test_dir, basename);
+                }
                 else
                     try Package.createWithDir(
                         gpa,
