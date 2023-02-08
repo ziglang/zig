@@ -910,7 +910,6 @@ pub fn request(client: *Client, uri: Uri, headers: Request.Headers, options: Req
         switch (headers.version) {
             .@"HTTP/1.0" => try h.appendSlice("\r\nConnection: close\r\n\r\n"),
             .@"HTTP/1.1" => try h.appendSlice("\r\nConnection: keep-alive\r\n\r\n"),
-            else => {},
         }
         const header_bytes = h.slice();
         try req.connection.writeAll(header_bytes);
