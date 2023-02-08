@@ -1627,10 +1627,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                     const pkg = try Package.create(gpa, "root", test_dir, basename);
 
                     // copy package table from main_pkg to root_pkg
-                    var iter = main_pkg.table.valueIterator();
-                    while (iter.next()) |v| {
-                        try pkg.add(gpa, v.*);
-                    }
+                    pkg.table = try main_pkg.table.clone(gpa);
                     break :test_pkg pkg;
                 } else try Package.createWithDir(
                     gpa,
