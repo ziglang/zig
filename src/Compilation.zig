@@ -1298,8 +1298,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 break :dl true;
             }
             const any_dyn_libs: bool = x: {
-                if (options.system_lib_names.len != 0)
-                    break :x true;
                 for (options.link_objects) |obj| {
                     switch (classifyFileExt(obj.path)) {
                         .shared_library => break :x true,
