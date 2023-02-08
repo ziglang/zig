@@ -1624,16 +1624,21 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 const test_pkg = if (options.test_runner_path) |test_runner| test_pkg: {
                     const test_dir = std.fs.path.dirname(test_runner);
                     const basename = std.fs.path.basename(test_runner);
-                    break :test_pkg try Package.create(gpa, "root", test_dir, basename);
-                }
-                else
-                    try Package.createWithDir(
-                        gpa,
-                        "root",
-                        options.zig_lib_directory,
-                        null,
-                        "test_runner.zig",
-                    );
+                    const pkg = try Package.create(gpa, "root", test_dir, basename);
+
+                    // copy package table from main_pkg to root_pkg
+                    var iter = main_pkg.table.valueIterator();
+                    while (iter.next()) |v| {
+                        try pkg.add(gpa, v.*);
+                    }
+                    break :test_pkg pkg;
+                } else try Package.createWithDir(
+                    gpa,
+                    "root",
+                    options.zig_lib_directory,
+                    null,
+                    "test_runner.zig",
+                );
                 errdefer test_pkg.destroy(gpa);
 
                 break :root_pkg test_pkg;
