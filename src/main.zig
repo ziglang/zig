@@ -4099,6 +4099,12 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .name = "root",
         };
 
+        var build_pkg: Package = .{
+            .root_src_directory = build_directory,
+            .root_src_path = build_zig_basename,
+            .name = "@build",
+        };
+
         if (!build_options.omit_pkg_fetching_code) {
             var http_client: std.http.Client = .{ .allocator = gpa };
             defer http_client.deinit();
@@ -4112,8 +4118,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
             // This will go into the same package. It contains the file system paths
             // to all the build.zig files.
-            var build_roots_source = std.ArrayList(u8).init(gpa);
-            defer build_roots_source.deinit();
+            var build_roots_path = std.StringArrayHashMap([]u8).init(gpa);
+            defer build_roots_path.deinit();
 
             // Here we borrow main package's table and will replace it with a fresh
             // one after this process completes.
@@ -4125,7 +4131,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 global_cache_directory,
                 local_cache_directory,
                 &dependencies_source,
-                &build_roots_source,
+                &build_roots_path,
                 "",
                 color,
             ) catch |err| switch (err) {
@@ -4134,7 +4140,12 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             };
 
             try dependencies_source.appendSlice("};\npub const build_root = struct {\n");
-            try dependencies_source.appendSlice(build_roots_source.items);
+            {
+                var it = build_roots_path.iterator();
+                while (it.next()) |dep| {
+                    try dependencies_source.writer().print("    pub const {s} = \"{}\";\n", .{ std.zig.fmtId(dep.key_ptr.*), std.zig.fmtEscapes(dep.value_ptr.*) });
+                }
+            }
             try dependencies_source.appendSlice("};\n");
 
             const deps_pkg = try Package.createFilePkg(
@@ -4147,13 +4158,26 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
             mem.swap(Package.Table, &main_pkg.table, &deps_pkg.table);
             try main_pkg.addAndAdopt(gpa, deps_pkg);
+            {
+                var it = build_roots_path.iterator();
+                while (it.next()) |dep| {
+                    const dirname = dep.value_ptr.*;
+                    const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
+                        fatal("unable to open directory to build file from argument 'build-file', '{s}': {s}", .{ dirname, @errorName(err) });
+                    };
+
+                    const build_zig_pkg = try gpa.create(Package);
+                    build_zig_pkg.* = Package{
+                        .root_src_directory = .{ .path = dirname, .handle = dir },
+                        .root_src_path = "build.zig",
+                        .name = dep.key_ptr.*,
+                    };
+
+                    try build_pkg.addAndAdopt(gpa, build_zig_pkg);
+                }
+            }
         }
 
-        var build_pkg: Package = .{
-            .root_src_directory = build_directory,
-            .root_src_path = build_zig_basename,
-            .name = "@build",
-        };
         try main_pkg.addAndAdopt(gpa, &build_pkg);
 
         const comp = Compilation.create(gpa, .{

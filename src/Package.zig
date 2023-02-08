@@ -152,7 +152,7 @@ pub fn fetchAndAddDependencies(
     global_cache_directory: Compilation.Directory,
     local_cache_directory: Compilation.Directory,
     dependencies_source: *std.ArrayList(u8),
-    build_roots_source: *std.ArrayList(u8),
+    build_roots_path: *std.StringArrayHashMap([]u8),
     name_prefix: []const u8,
     color: main.Color,
 ) !void {
@@ -219,7 +219,7 @@ pub fn fetchAndAddDependencies(
             global_cache_directory,
             dep,
             report,
-            build_roots_source,
+            build_roots_path,
             fqn,
         );
 
@@ -231,7 +231,7 @@ pub fn fetchAndAddDependencies(
             global_cache_directory,
             local_cache_directory,
             dependencies_source,
-            build_roots_source,
+            build_roots_path,
             sub_prefix,
             color,
         );
@@ -339,7 +339,7 @@ fn fetchAndUnpack(
     global_cache_directory: Compilation.Directory,
     dep: Manifest.Dependency,
     report: Report,
-    build_roots_source: *std.ArrayList(u8),
+    build_roots_path: *std.StringArrayHashMap([]u8),
     fqn: []const u8,
 ) !*Package {
     const gpa = http_client.allocator;
@@ -369,9 +369,7 @@ fn fetchAndUnpack(
         const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
         errdefer gpa.free(build_root);
 
-        try build_roots_source.writer().print("    pub const {s} = \"{}\";\n", .{
-            std.zig.fmtId(fqn), std.zig.fmtEscapes(build_root),
-        });
+        try build_roots_path.put(fqn, build_root);
 
         ptr.* = .{
             .root_src_directory = .{
@@ -451,9 +449,7 @@ fn fetchAndUnpack(
     const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
     defer gpa.free(build_root);
 
-    try build_roots_source.writer().print("    pub const {s} = \"{}\";\n", .{
-        std.zig.fmtId(fqn), std.zig.fmtEscapes(build_root),
-    });
+    try build_roots_path.put(fqn, build_root);
 
     return createWithDir(gpa, fqn, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
 }
