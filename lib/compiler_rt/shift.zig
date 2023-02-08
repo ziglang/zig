@@ -7,6 +7,11 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
+    // symbol compatibility with libgcc
+    @export(__ashlsi3, .{ .name = "__ashlsi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__ashrsi3, .{ .name = "__ashrsi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__lshrsi3, .{ .name = "__lshrsi3", .linkage = common.linkage, .visibility = common.visibility });
+
     @export(__ashlti3, .{ .name = "__ashlti3", .linkage = common.linkage, .visibility = common.visibility });
     @export(__ashrti3, .{ .name = "__ashrti3", .linkage = common.linkage, .visibility = common.visibility });
     @export(__lshrti3, .{ .name = "__lshrti3", .linkage = common.linkage, .visibility = common.visibility });
@@ -37,7 +42,7 @@ fn Dwords(comptime T: type, comptime signed_half: bool) type {
     };
 }
 
-// Arithmetic shift left
+// Arithmetic shift left: shift in 0 from right to left
 // Precondition: 0 <= b < bits_in_dword
 inline fn ashlXi3(comptime T: type, a: T, b: i32) T {
     const dwords = Dwords(T, false);
@@ -60,7 +65,7 @@ inline fn ashlXi3(comptime T: type, a: T, b: i32) T {
     return output.all;
 }
 
-// Arithmetic shift right
+// Arithmetic shift right: shift in 1 from left to right
 // Precondition: 0 <= b < T.bit_count
 inline fn ashrXi3(comptime T: type, a: T, b: i32) T {
     const dwords = Dwords(T, true);
@@ -87,7 +92,7 @@ inline fn ashrXi3(comptime T: type, a: T, b: i32) T {
     return output.all;
 }
 
-// Logical shift right
+// Logical shift right: shift in 0 from left to right
 // Precondition: 0 <= b < T.bit_count
 inline fn lshrXi3(comptime T: type, a: T, b: i32) T {
     const dwords = Dwords(T, false);
@@ -108,6 +113,18 @@ inline fn lshrXi3(comptime T: type, a: T, b: i32) T {
     }
 
     return output.all;
+}
+
+pub fn __ashlsi3(a: i32, b: i32) callconv(.C) i32 {
+    return ashlXi3(i32, a, b);
+}
+
+pub fn __ashrsi3(a: i32, b: i32) callconv(.C) i32 {
+    return ashrXi3(i32, a, b);
+}
+
+pub fn __lshrsi3(a: i32, b: i32) callconv(.C) i32 {
+    return lshrXi3(i32, a, b);
 }
 
 pub fn __ashldi3(a: i64, b: i32) callconv(.C) i64 {
@@ -144,12 +161,5 @@ pub fn __lshrti3(a: i128, b: i32) callconv(.C) i128 {
 }
 
 test {
-    _ = @import("ashrdi3_test.zig");
-    _ = @import("ashrti3_test.zig");
-
-    _ = @import("ashldi3_test.zig");
-    _ = @import("ashlti3_test.zig");
-
-    _ = @import("lshrdi3_test.zig");
-    _ = @import("lshrti3_test.zig");
+    _ = @import("shift_test.zig");
 }
