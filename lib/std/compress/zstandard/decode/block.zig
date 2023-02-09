@@ -795,6 +795,7 @@ pub fn decodeBlockReader(
     if (block_size_max < block_size) return error.BlockSizeOverMaximum;
     switch (block_header.block_type) {
         .raw => {
+            if (block_size == 0) return;
             const slice = dest.sliceAt(dest.write_index, block_size);
             try source.readNoEof(slice.first);
             try source.readNoEof(slice.second);
