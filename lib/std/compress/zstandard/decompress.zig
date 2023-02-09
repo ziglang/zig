@@ -421,13 +421,13 @@ pub fn decodeZstandardFrameBlocksArrayList(
                 hasher.update(written_slice.second);
             }
         }
-        const added_len = dest.items.len - initial_len;
-        if (frame_context.content_size) |size| {
-            if (added_len != size) {
-                return error.BadContentSize;
-            }
-        }
         if (block_header.last_block) break;
+    }
+    const added_len = dest.items.len - initial_len;
+    if (frame_context.content_size) |size| {
+        if (added_len != size) {
+            return error.BadContentSize;
+        }
     }
 
     if (frame_context.has_checksum) {
