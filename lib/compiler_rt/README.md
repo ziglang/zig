@@ -114,7 +114,7 @@ Integer and Float Operations
 | ✓ | __udivmodti4       | u128 | u128 | u128 | ..                             |
 | ✓ | __divmodsi4        | i32  | i32  | i32  | `a / b, rem.* = a % b`         |
 | ✓ | __divmoddi4        | i64  | i64  | i64  | ..                             |
-| ✗ | __divmodti4        | i128 | i128 | i128 | .. [^libgcc_compat]            |
+| ✓ | __divmodti4        | i128 | i128 | i128 | .. [^libgcc_compat]            |
 |   |                    |      |      |      | **Integer Arithmetic with Trapping Overflow**|
 | ✓ | __absvsi2          | i32  | i32  | i32  | abs(a)                         |
 | ✓ | __absvdi2          | i64  | i64  | i64  | ..                             |
