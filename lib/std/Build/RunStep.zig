@@ -44,6 +44,10 @@ print: bool,
 /// running if all output files are up-to-date.
 condition: enum { output_outdated, always } = .output_outdated,
 
+/// Additional file paths relative to build.zig that, when modified, indicate
+/// that the RunStep should be re-executed.
+extra_file_dependencies: []const []const u8 = &.{},
+
 pub const StdIoAction = union(enum) {
     inherit,
     ignore,
@@ -184,60 +188,101 @@ fn stdIoActionToBehavior(action: StdIoAction) std.ChildProcess.StdIo {
 }
 
 fn needOutputCheck(self: RunStep) bool {
-    switch (self.condition) {
-        .always => return false,
-        .output_outdated => {
-            for (self.argv.items) |arg| switch (arg) {
-                .output => return true,
-                else => continue,
-            };
-            return false;
-        },
-    }
+    if (self.extra_file_dependencies.len > 0) return true;
+
+    for (self.argv.items) |arg| switch (arg) {
+        .output => return true,
+        else => continue,
+    };
+
+    return switch (self.condition) {
+        .always => false,
+        .output_outdated => true,
+    };
 }
 
 fn make(step: *Step) !void {
     const self = @fieldParentPtr(RunStep, "step", step);
+    const need_output_check = self.needOutputCheck();
 
     var argv_list = ArrayList([]const u8).init(self.builder.allocator);
+    var output_placeholders = ArrayList(struct {
+        index: usize,
+        output: Arg.Output,
+    }).init(self.builder.allocator);
+
+    var man = self.builder.cache.obtain();
+    defer man.deinit();
 
     for (self.argv.items) |arg| {
         switch (arg) {
-            .bytes => |bytes| try argv_list.append(bytes),
-            .file_source => |file| try argv_list.append(file.getPath(self.builder)),
+            .bytes => |bytes| {
+                try argv_list.append(bytes);
+                man.hash.addBytes(bytes);
+            },
+            .file_source => |file| {
+                const file_path = file.getPath(self.builder);
+                try argv_list.append(file_path);
+                _ = try man.addFile(file_path, null);
+            },
             .artifact => |artifact| {
                 if (artifact.target.isWindows()) {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                     self.addPathForDynLibs(artifact);
                 }
-                const executable_path = artifact.installed_path orelse
+                const file_path = artifact.installed_path orelse
                     artifact.getOutputSource().getPath(self.builder);
-                try argv_list.append(executable_path);
+
+                try argv_list.append(file_path);
+
+                _ = try man.addFile(file_path, null);
             },
             .output => |output| {
-                // TODO: until the cache system is brought into the build system,
-                // we use a temporary directory here for each run.
-                var digest: [16]u8 = undefined;
-                std.crypto.random.bytes(&digest);
-                var hash_basename: [digest.len * 2]u8 = undefined;
-                _ = std.fmt.bufPrint(
-                    &hash_basename,
-                    "{s}",
-                    .{std.fmt.fmtSliceHexLower(&digest)},
-                ) catch unreachable;
-
-                const output_path = try fs.path.join(self.builder.allocator, &[_][]const u8{
-                    self.builder.cache_root, "tmp", &hash_basename, output.basename,
+                man.hash.addBytes(output.basename);
+                // Add a placeholder into the argument list because we need the
+                // manifest hash to be updated with all arguments before the
+                // object directory is computed.
+                try argv_list.append("");
+                try output_placeholders.append(.{
+                    .index = argv_list.items.len - 1,
+                    .output = output,
                 });
-                const output_dir = fs.path.dirname(output_path).?;
-                fs.cwd().makePath(output_dir) catch |err| {
-                    std.debug.print("unable to make path {s}: {s}\n", .{ output_dir, @errorName(err) });
-                    return err;
-                };
-
-                output.generated_file.path = output_path;
-                try argv_list.append(output_path);
             },
+        }
+    }
+
+    if (need_output_check) {
+        for (self.extra_file_dependencies) |file_path| {
+            _ = try man.addFile(self.builder.pathFromRoot(file_path), null);
+        }
+
+        if (man.hit() catch |err| failWithCacheError(man, err)) {
+            // cache hit, skip running command
+            const digest = man.final();
+            for (output_placeholders.items) |placeholder| {
+                placeholder.output.generated_file.path = try self.builder.cache_root.join(
+                    self.builder.allocator,
+                    &.{ "o", &digest, placeholder.output.basename },
+                );
+            }
+            return;
+        }
+
+        const digest = man.final();
+
+        for (output_placeholders.items) |placeholder| {
+            const output_path = try self.builder.cache_root.join(
+                self.builder.allocator,
+                &.{ "o", &digest, placeholder.output.basename },
+            );
+            const output_dir = fs.path.dirname(output_path).?;
+            fs.cwd().makePath(output_dir) catch |err| {
+                std.debug.print("unable to make path {s}: {s}\n", .{ output_dir, @errorName(err) });
+                return err;
+            };
+
+            placeholder.output.generated_file.path = output_path;
+            argv_list.items[placeholder.index] = output_path;
         }
     }
 
@@ -252,6 +297,10 @@ fn make(step: *Step) !void {
         self.cwd,
         self.print,
     );
+
+    if (need_output_check) {
+        try man.writeManifest();
+    }
 }
 
 pub fn runCommand(
@@ -265,11 +314,13 @@ pub fn runCommand(
     maybe_cwd: ?[]const u8,
     print: bool,
 ) !void {
-    const cwd = if (maybe_cwd) |cwd| builder.pathFromRoot(cwd) else builder.build_root;
+    const cwd = if (maybe_cwd) |cwd| builder.pathFromRoot(cwd) else builder.build_root.path;
 
     if (!std.process.can_spawn) {
         const cmd = try std.mem.join(builder.allocator, " ", argv);
-        std.debug.print("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
+        std.debug.print("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{
+            @tagName(builtin.os.tag), cmd,
+        });
         builder.allocator.free(cmd);
         return ExecError.ExecNotSupported;
     }
@@ -408,6 +459,19 @@ pub fn runCommand(
             }
         },
     }
+}
+
+fn failWithCacheError(man: std.Build.Cache.Manifest, err: anyerror) noreturn {
+    const i = man.failed_file_index orelse failWithSimpleError(err);
+    const pp = man.files.items[i].prefixed_path orelse failWithSimpleError(err);
+    const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
+    std.debug.print("{s}: {s}/{s}\n", .{ @errorName(err), prefix, pp.sub_path });
+    std.process.exit(1);
+}
+
+fn failWithSimpleError(err: anyerror) noreturn {
+    std.debug.print("{s}\n", .{@errorName(err)});
+    std.process.exit(1);
 }
 
 fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {

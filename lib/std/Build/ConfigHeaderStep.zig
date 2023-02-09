@@ -208,9 +208,7 @@ fn make(step: *Step) !void {
         .{std.fmt.fmtSliceHexLower(&digest)},
     ) catch unreachable;
 
-    const output_dir = try std.fs.path.join(gpa, &[_][]const u8{
-        self.builder.cache_root, "o", &hash_basename,
-    });
+    const output_dir = try self.builder.cache_root.join(gpa, &.{ "o", &hash_basename });
 
     // If output_path has directory parts, deal with them.  Example:
     // output_dir is zig-cache/o/HASH
