@@ -13,6 +13,8 @@ data: []u8,
 read_index: usize,
 write_index: usize,
 
+pub const Error = error{Full};
+
 /// Allocate a new `RingBuffer`
 pub fn init(allocator: Allocator, capacity: usize) Allocator.Error!RingBuffer {
     const bytes = try allocator.alloc(u8, capacity);
@@ -41,7 +43,7 @@ pub fn mask2(self: RingBuffer, index: usize) usize {
 
 /// Write `byte` into the ring buffer. Returns `error.Full` if the ring
 /// buffer is full.
-pub fn write(self: *RingBuffer, byte: u8) !void {
+pub fn write(self: *RingBuffer, byte: u8) Error!void {
     if (self.isFull()) return error.Full;
     self.writeAssumeCapacity(byte);
 }
@@ -55,7 +57,7 @@ pub fn writeAssumeCapacity(self: *RingBuffer, byte: u8) void {
 
 /// Write `bytes` into the ring bufffer. Returns `error.Full` if the ring
 /// buffer does not have enough space, without writing any data.
-pub fn writeSlice(self: *RingBuffer, bytes: []const u8) !void {
+pub fn writeSlice(self: *RingBuffer, bytes: []const u8) Error!void {
     if (self.len() + bytes.len > self.data.len) return error.Full;
     self.writeSliceAssumeCapacity(bytes);
 }
@@ -87,7 +89,8 @@ pub fn isFull(self: RingBuffer) bool {
 
 /// Returns the length
 pub fn len(self: RingBuffer) usize {
-    const adjusted_write_index = self.write_index + @as(usize, @boolToInt(self.write_index < self.read_index)) * 2 * self.data.len;
+    const wrap_offset = 2 * self.data.len * @boolToInt(self.write_index < self.read_index);
+    const adjusted_write_index = self.write_index + wrap_offset;
     return adjusted_write_index - self.read_index;
 }
 

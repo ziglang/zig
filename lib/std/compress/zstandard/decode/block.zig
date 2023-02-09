@@ -413,7 +413,7 @@ pub const DecodeState = struct {
 
     const DecodeLiteralsError = error{
         MalformedLiteralsLength,
-        PrefixNotFound,
+        NotFound,
     } || LiteralBitsError;
 
     /// Decode `len` bytes of literals into `dest`.
@@ -422,8 +422,8 @@ pub const DecodeState = struct {
     ///   - `error.MalformedLiteralsLength` if the number of literal bytes
     ///     decoded by `self` plus `len` is greater than the regenerated size of
     ///     `literals`
-    ///   - `error.UnexpectedEndOfLiteralStream` and `error.PrefixNotFound` if
-    ///     there are problems decoding Huffman compressed literals
+    ///   - `error.UnexpectedEndOfLiteralStream` and `error.NotFound` if there
+    ///     are problems decoding Huffman compressed literals
     pub fn decodeLiteralsSlice(
         self: *DecodeState,
         dest: []u8,

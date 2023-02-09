@@ -7,7 +7,11 @@ const RingBuffer = @import("zstandard/RingBuffer.zig");
 pub const decompress = @import("zstandard/decompress.zig");
 pub usingnamespace @import("zstandard/types.zig");
 
-pub fn ZstandardStream(comptime ReaderType: type, comptime verify_checksum: bool, comptime window_size_max: usize) type {
+pub fn ZstandardStream(
+    comptime ReaderType: type,
+    comptime verify_checksum: bool,
+    comptime window_size_max: usize,
+) type {
     return struct {
         const Self = @This();
 
@@ -24,11 +28,16 @@ pub fn ZstandardStream(comptime ReaderType: type, comptime verify_checksum: bool
         sequence_buffer: []u8,
         checksum: if (verify_checksum) ?u32 else void,
 
-        pub const Error = ReaderType.Error || error{ ChecksumFailure, MalformedBlock, MalformedFrame, OutOfMemory };
+        pub const Error = ReaderType.Error || error{
+            ChecksumFailure,
+            MalformedBlock,
+            MalformedFrame,
+            OutOfMemory,
+        };
 
         pub const Reader = std.io.Reader(*Self, Error, read);
 
-        pub fn init(allocator: Allocator, source: ReaderType) !Self {
+        pub fn init(allocator: Allocator, source: ReaderType) Self {
             return Self{
                 .allocator = allocator,
                 .source = std.io.countingReader(source),
@@ -146,7 +155,8 @@ pub fn ZstandardStream(comptime ReaderType: type, comptime verify_checksum: bool
 
             const source_reader = self.source.reader();
             while (self.buffer.isEmpty() and self.state != .LastBlock) {
-                const header_bytes = source_reader.readBytesNoEof(3) catch return error.MalformedFrame;
+                const header_bytes = source_reader.readBytesNoEof(3) catch
+                    return error.MalformedFrame;
                 const block_header = decompress.block.decodeBlockHeader(&header_bytes);
 
                 decompress.block.decodeBlockReader(
@@ -171,10 +181,12 @@ pub fn ZstandardStream(comptime ReaderType: type, comptime verify_checksum: bool
                 if (block_header.last_block) {
                     self.state = .LastBlock;
                     if (self.frame_context.has_checksum) {
-                        const checksum = source_reader.readIntLittle(u32) catch return error.MalformedFrame;
+                        const checksum = source_reader.readIntLittle(u32) catch
+                            return error.MalformedFrame;
                         if (comptime verify_checksum) {
                             if (self.frame_context.hasher_opt) |*hasher| {
-                                if (checksum != decompress.computeChecksum(hasher)) return error.ChecksumFailure;
+                                if (checksum != decompress.computeChecksum(hasher))
+                                    return error.ChecksumFailure;
                             }
                         }
                     }
@@ -182,9 +194,9 @@ pub fn ZstandardStream(comptime ReaderType: type, comptime verify_checksum: bool
             }
 
             const decoded_data_len = self.buffer.len();
-            var written_count: usize = 0;
-            while (written_count < decoded_data_len and written_count < buffer.len) : (written_count += 1) {
-                buffer[written_count] = self.buffer.read().?;
+            var count: usize = 0;
+            while (count < decoded_data_len and count < buffer.len) : (count += 1) {
+                buffer[count] = self.buffer.read().?;
             }
             if (self.state == .LastBlock and self.buffer.len() == 0) {
                 self.state = .NewFrame;
@@ -195,18 +207,22 @@ pub fn ZstandardStream(comptime ReaderType: type, comptime verify_checksum: bool
                 self.allocator.free(self.sequence_buffer);
                 self.buffer.deinit(self.allocator);
             }
-            return written_count;
+            return count;
         }
     };
 }
 
-pub fn zstandardStream(allocator: Allocator, reader: anytype) !ZstandardStream(@TypeOf(reader), true, 8 * (1 << 20)) {
+pub fn zstandardStream(
+    allocator: Allocator,
+    reader: anytype,
+    comptime window_size_max: usize,
+) ZstandardStream(@TypeOf(reader), true, window_size_max) {
     return ZstandardStream(@TypeOf(reader), true, 8 * (1 << 20)).init(allocator, reader);
 }
 
 fn testDecompress(data: []const u8) ![]u8 {
     var in_stream = std.io.fixedBufferStream(data);
-    var stream = try zstandardStream(std.testing.allocator, in_stream.reader());
+    var stream = zstandardStream(std.testing.allocator, in_stream.reader(), 1 << 23);
     defer stream.deinit();
     const result = stream.reader().readAllAlloc(std.testing.allocator, std.math.maxInt(usize));
     return result;
