@@ -695,6 +695,22 @@ are additionally supported by Zig, but not part of C standard. Alphabetically so
 | ✓ | truncq     |     f128  |    ∅      |     f128  | .. PPC                     |
 | ✓ | truncl     |long double|    ∅      |long double| ..                         |
 
+Arbitrary Precision Big Integer (BigInt) library routines
+
+TODO brief description
+
+| Done | Name    | result| a     | b     | size| ret   | Comment               |
+| ---- | ------- | ----- | ----- | ----- | --- | ----- |---------------------- |
+| |              |       |       |       |     |       |**BigInt Bit Operation**|
+| |              |       |       |       |     |       |**BigInt Comparison**   |
+| |              |       |       |       |     |       |**BigInt Arithmetic**   |
+|✓|__udivei4     |[*c]u32|[*c]u32|[*c]u32|usize|void   | `a / b`               |
+|✓|__umodei4     |[*c]u32|[*c]u32|[*c]u32|usize|void   | `a % b`               |
+|✗|__divei4      |[*c]u32|[*c]u32|[*c]u32|usize|void   | `a / b`               |
+|✗|__modei4      |[*c]u32|[*c]u32|[*c]u32|usize|void   | `a % b`               |
+| |              |       |       |       |     |       |**BigInt Arithmetic with Trapping Overflow**|
+| |              |       |       |       |     |       |**BigInt Arithmetic which Return on Overflow**[^noptr_faster]|
+
 Further content (conditionally) exported with C abi:
 - aarch64 outline atomics
 - arm routines (memory routines + memclr [setting to 0], divmod routines and stubs for unwind_cpp)
@@ -706,6 +722,3 @@ Further content (conditionally) exported with C abi:
 - objective-c __isPlatformVersionAtLeast check
 - stack probe routines
 - tls emulation
-
-Future work:
-- Arbitrary length integer library routines
