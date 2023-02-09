@@ -2700,20 +2700,20 @@ fn buildOutputType(
     };
 
     const default_h_basename = try std.fmt.allocPrint(arena, "{s}.h", .{root_name});
-    var emit_h_resolved = emit_h.resolve(default_h_basename) catch |err| {
-        switch (emit_h) {
-            .yes => |p| {
-                fatal("unable to open directory from argument '-femit-h', '{s}': {s}", .{
-                    p, @errorName(err),
-                });
+    var emit_h_resolved = switch (emit_h) {
+        .no => Emit.Resolved{ .data = null, .dir = null },
+        .yes => |p| emit_h.resolve(default_h_basename) catch |err| {
+            fatal("unable to open directory from argument '-femit-h', '{s}': {s}", .{
+                p, @errorName(err),
+            });
+        },
+        .yes_default_path => Emit.Resolved{
+            .data = Compilation.EmitLoc{
+                .directory = if (have_enable_cache) null else .{ .path = null, .handle = fs.cwd() },
+                .basename = default_h_basename,
             },
-            .yes_default_path => {
-                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{
-                    default_h_basename, @errorName(err),
-                });
-            },
-            .no => unreachable,
-        }
+            .dir = null,
+        },
     };
     defer emit_h_resolved.deinit();
 

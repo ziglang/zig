@@ -484,7 +484,7 @@ pub fn flushEmitH(module: *Module) !void {
         }
     }
 
-    const directory = emit_h.loc.directory orelse module.comp.local_cache_directory;
+    const directory = emit_h.loc.directory orelse module.zig_cache_artifact_directory;
     const file = try directory.handle.createFile(emit_h.loc.basename, .{
         // We set the end position explicitly below; by not truncating the file, we possibly
         // make it easier on the file system by doing 1 reallocation instead of two.
