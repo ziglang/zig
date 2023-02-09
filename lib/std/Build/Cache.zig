@@ -53,7 +53,7 @@ mutex: std.Thread.Mutex = .{},
 /// are replaced with single-character indicators. This is not to save
 /// space but to eliminate absolute file paths. This improves portability
 /// and usefulness of the cache for advanced use cases.
-prefixes_buffer: [3]Directory = undefined,
+prefixes_buffer: [4]Directory = undefined,
 prefixes_len: usize = 0,
 
 pub const DepTokenizer = @import("Cache/DepTokenizer.zig");
@@ -71,9 +71,6 @@ const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.cache);
 
 pub fn addPrefix(cache: *Cache, directory: Directory) void {
-    if (directory.path) |p| {
-        log.debug("Cache.addPrefix {d} {s}", .{ cache.prefixes_len, p });
-    }
     cache.prefixes_buffer[cache.prefixes_len] = directory;
     cache.prefixes_len += 1;
 }
@@ -120,8 +117,6 @@ fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
                 .prefix = @intCast(u8, i),
                 .sub_path = sub_path,
             };
-        } else {
-            log.debug("'{s}' does not start with '{s}'", .{ resolved_path, p });
         }
     }
 
@@ -318,10 +313,6 @@ pub const Manifest = struct {
         try self.files.ensureUnusedCapacity(gpa, 1);
         const prefixed_path = try self.cache.findPrefix(file_path);
         errdefer gpa.free(prefixed_path.sub_path);
-
-        log.debug("Manifest.addFile {s} -> {d} {s}", .{
-            file_path, prefixed_path.prefix, prefixed_path.sub_path,
-        });
 
         self.files.addOneAssumeCapacity().* = .{
             .prefixed_path = prefixed_path,
@@ -687,10 +678,6 @@ pub const Manifest = struct {
         const prefixed_path = try self.cache.findPrefix(file_path);
         errdefer gpa.free(prefixed_path.sub_path);
 
-        log.debug("Manifest.addFilePostFetch {s} -> {d} {s}", .{
-            file_path, prefixed_path.prefix, prefixed_path.sub_path,
-        });
-
         const new_ch_file = try self.files.addOne(gpa);
         new_ch_file.* = .{
             .prefixed_path = prefixed_path,
@@ -716,10 +703,6 @@ pub const Manifest = struct {
         const gpa = self.cache.gpa;
         const prefixed_path = try self.cache.findPrefix(file_path);
         errdefer gpa.free(prefixed_path.sub_path);
-
-        log.debug("Manifest.addFilePost {s} -> {d} {s}", .{
-            file_path, prefixed_path.prefix, prefixed_path.sub_path,
-        });
 
         const new_ch_file = try self.files.addOne(gpa);
         new_ch_file.* = .{
@@ -748,14 +731,8 @@ pub const Manifest = struct {
         const ch_file = try self.files.addOne(gpa);
         errdefer self.files.shrinkRetainingCapacity(self.files.items.len - 1);
 
-        log.debug("Manifest.addFilePostContents resolved_path={s}", .{resolved_path});
-
         const prefixed_path = try self.cache.findPrefixResolved(resolved_path);
         errdefer gpa.free(prefixed_path.sub_path);
-
-        log.debug("Manifest.addFilePostContents -> {d} {s}", .{
-            prefixed_path.prefix, prefixed_path.sub_path,
-        });
 
         ch_file.* = .{
             .prefixed_path = prefixed_path,
