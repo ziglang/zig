@@ -659,6 +659,10 @@ pub fn decodeBlock(
                     sequence_size_limit -= decompressed_size;
                 }
 
+                if (bit_stream.bit_reader.bit_count != 0) {
+                    return error.MalformedCompressedBlock;
+                }
+
                 bytes_read += bit_stream_bytes.len;
             }
             if (bytes_read != block_size) return error.MalformedCompressedBlock;
@@ -745,6 +749,10 @@ pub fn decodeBlockRingBuffer(
                     sequence_size_limit -= decompressed_size;
                 }
 
+                if (bit_stream.bit_reader.bit_count != 0) {
+                    return error.MalformedCompressedBlock;
+                }
+
                 bytes_read += bit_stream_bytes.len;
             }
             if (bytes_read != block_size) return error.MalformedCompressedBlock;
@@ -827,6 +835,9 @@ pub fn decodeBlockReader(
                     ) catch return error.MalformedCompressedBlock;
                     sequence_size_limit -= decompressed_size;
                     bytes_written += decompressed_size;
+                }
+                if (bit_stream.bit_reader.bit_count != 0) {
+                    return error.MalformedCompressedBlock;
                 }
             }
 
