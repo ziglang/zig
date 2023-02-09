@@ -49,6 +49,25 @@ pub fn frameType(magic: u32) error{BadMagic}!frame.Kind {
         error.BadMagic;
 }
 
+pub const FrameHeader = union(enum) {
+    zstandard: types.frame.Zstandard.Header,
+    skippable: types.frame.Skippable.Header,
+};
+
+pub fn decodeFrameHeader(source: anytype) error{ BadMagic, EndOfStream, ReservedBitSet }!FrameHeader {
+    const magic = try source.readIntLittle(u32);
+    const frame_type = try frameType(magic);
+    switch (frame_type) {
+        .zstandard => return FrameHeader{ .zstandard = try decodeZstandardHeader(source) },
+        .skippable => return FrameHeader{
+            .skippable = .{
+                .magic_number = magic,
+                .frame_size = try source.readIntLittle(u32),
+            },
+        },
+    }
+}
+
 const ReadWriteCount = struct {
     read_count: usize,
     write_count: usize,
@@ -129,15 +148,6 @@ pub fn decodeFrame(
     }
 }
 
-pub const DecodeResult = struct {
-    bytes: []u8,
-    read_count: usize,
-};
-pub const DecodedFrame = union(enum) {
-    zstandard: DecodeResult,
-    skippable: frame.Skippable.Header,
-};
-
 /// Decodes the frame at the start of `src` into `dest`. Returns the number of
 /// bytes read from `src`.
 ///
@@ -186,7 +196,6 @@ pub fn computeChecksum(hasher: *std.hash.XxHash64) u32 {
 }
 
 const FrameError = error{
-    DictionaryIdFlagUnsupported,
     ChecksumFailure,
     BadContentSize,
     EndOfStream,
@@ -220,6 +229,7 @@ pub fn decodeZstandardFrame(
     ContentTooLarge,
     ContentSizeTooLarge,
     WindowSizeUnknown,
+    DictionaryIdFlagUnsupported,
 } || FrameError)!ReadWriteCount {
     assert(readInt(u32, src[0..4]) == frame.Zstandard.magic_number);
     var consumed_count: usize = 4;
@@ -234,11 +244,27 @@ pub fn decodeZstandardFrame(
             inline else => |e| return e,
         };
     };
+    const counts = try decodeZStandardFrameBlocks(
+        dest,
+        src[consumed_count..],
+        &frame_context,
+    );
+    return ReadWriteCount{
+        .read_count = counts.read_count + consumed_count,
+        .write_count = counts.write_count,
+    };
+}
 
+pub fn decodeZStandardFrameBlocks(
+    dest: []u8,
+    src: []const u8,
+    frame_context: *FrameContext,
+) (error{ ContentTooLarge, UnknownContentSizeUnsupported } || FrameError)!ReadWriteCount {
     const content_size = frame_context.content_size orelse return error.UnknownContentSizeUnsupported;
     if (dest.len < content_size) return error.ContentTooLarge;
 
-    const written_count = decodeFrameBlocks(
+    var consumed_count: usize = 0;
+    const written_count = decodeFrameBlocksInner(
         dest[0..content_size],
         src[consumed_count..],
         &consumed_count,
@@ -279,7 +305,7 @@ pub const FrameContext = struct {
     /// Errors returned:
     ///   - `error.DictionaryIdFlagUnsupported` if the frame uses a dictionary
     ///   - `error.WindowSizeUnknown` if the frame does not have a valid window size
-    ///   - `error.WindowTooLarge` if the window size is larger than
+    ///   - `error.WindowTooLarge` if the window size is larger than `window_size_max`
     pub fn init(
         frame_header: frame.Zstandard.Header,
         window_size_max: usize,
@@ -336,7 +362,6 @@ pub fn decodeZstandardFrameArrayList(
     window_size_max: usize,
 ) (error{OutOfMemory} || FrameContext.Error || FrameError)!usize {
     assert(readInt(u32, src[0..4]) == frame.Zstandard.magic_number);
-    const initial_len = dest.items.len;
     var consumed_count: usize = 4;
 
     var frame_context = context: {
@@ -347,6 +372,23 @@ pub fn decodeZstandardFrameArrayList(
         break :context try FrameContext.init(frame_header, window_size_max, verify_checksum);
     };
 
+    consumed_count += try decodeZstandardFrameBlocksArrayList(
+        allocator,
+        dest,
+        src[consumed_count..],
+        &frame_context,
+    );
+    return consumed_count;
+}
+
+pub fn decodeZstandardFrameBlocksArrayList(
+    allocator: Allocator,
+    dest: *std.ArrayList(u8),
+    src: []const u8,
+    frame_context: *FrameContext,
+) (error{OutOfMemory} || FrameError)!usize {
+    const initial_len = dest.items.len;
+
     var ring_buffer = try RingBuffer.init(allocator, frame_context.window_size);
     defer ring_buffer.deinit(allocator);
 
@@ -355,8 +397,8 @@ pub fn decodeZstandardFrameArrayList(
     var match_fse_data: [types.compressed_block.table_size_max.match]Table.Fse = undefined;
     var offset_fse_data: [types.compressed_block.table_size_max.offset]Table.Fse = undefined;
 
-    var block_header = try block.decodeBlockHeaderSlice(src[consumed_count..]);
-    consumed_count += 3;
+    var block_header = try block.decodeBlockHeaderSlice(src);
+    var consumed_count: usize = 3;
     var decode_state = block.DecodeState.init(&literal_fse_data, &match_fse_data, &offset_fse_data);
     while (true) : ({
         block_header = try block.decodeBlockHeaderSlice(src[consumed_count..]);
@@ -399,8 +441,9 @@ pub fn decodeZstandardFrameArrayList(
     return consumed_count;
 }
 
-/// Convenience wrapper for decoding all blocks in a frame; see `decodeBlock()`.
-fn decodeFrameBlocks(
+/// Convenience wrapper for decoding all blocks in a frame; see
+/// `decodeZStandardFrameBlocks()`.
+fn decodeFrameBlocksInner(
     dest: []u8,
     src: []const u8,
     consumed_count: *usize,
