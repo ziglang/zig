@@ -4164,6 +4164,10 @@ pub const DeclGen = struct {
             if (func.data.owner_decl != decl_index) {
                 return self.lowerDeclRefValue(tv, func.data.owner_decl);
             }
+        } else if (decl.val.castTag(.extern_fn)) |func| {
+            if (func.data.owner_decl != decl_index) {
+                return self.lowerDeclRefValue(tv, func.data.owner_decl);
+            }
         }
 
         const is_fn_body = decl.ty.zigTypeTag() == .Fn;
