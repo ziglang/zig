@@ -13,8 +13,7 @@ comptime {
     _ = @import("compiler_rt/shift.zig");
     _ = @import("compiler_rt/negXi2.zig");
     _ = @import("compiler_rt/int.zig");
-    _ = @import("compiler_rt/muldi3.zig");
-    _ = @import("compiler_rt/multi3.zig");
+    _ = @import("compiler_rt/mulXi3.zig");
     _ = @import("compiler_rt/divti3.zig");
     _ = @import("compiler_rt/udivti3.zig");
     _ = @import("compiler_rt/modti3.zig");
