@@ -3628,7 +3628,7 @@ fn tryResolveRefPath(
     }
 
     if (self.pending_ref_paths.get(&path[path.len - 1])) |waiter_list| {
-        // It's important to de-register oureslves as pending before
+        // It's important to de-register ourselves as pending before
         // attempting to resolve any other decl.
         _ = self.pending_ref_paths.remove(&path[path.len - 1]);
 
