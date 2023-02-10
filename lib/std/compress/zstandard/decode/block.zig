@@ -850,8 +850,8 @@ pub fn decodeBlockReader(
             }
 
             if (bytes_written > block_size_max) return error.BlockSizeOverMaximum;
+            if (block_reader_limited.bytes_left != 0) return error.MalformedCompressedBlock;
             decode_state.literal_written_count = 0;
-            assert(block_reader.readByte() == error.EndOfStream);
         },
         .reserved => return error.ReservedBlock,
     }
