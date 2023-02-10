@@ -3916,4 +3916,36 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }) != 0) {}
         \\}
     });
+
+    if (builtin.os.tag == .windows) {
+        cases.add("Pointer subtraction with typedef",
+            \\typedef char* S;
+            \\void foo() {
+            \\    S a, b;
+            \\    long long c = a - b;
+            \\}
+        , &[_][]const u8{
+            \\pub export fn foo() void {
+            \\    var a: S = undefined;
+            \\    var b: S = undefined;
+            \\    var c: c_longlong = @divExact(@bitCast(c_longlong, @ptrToInt(a) -% @ptrToInt(b)), @sizeOf(u8));
+            \\    _ = @TypeOf(c);
+            \\}
+        });
+    } else {
+        cases.add("Pointer subtraction with typedef",
+            \\typedef char* S;
+            \\void foo() {
+            \\    S a, b;
+            \\    long c = a - b;
+            \\}
+        , &[_][]const u8{
+            \\pub export fn foo() void {
+            \\    var a: S = undefined;
+            \\    var b: S = undefined;
+            \\    var c: c_long = @divExact(@bitCast(c_long, @ptrToInt(a) -% @ptrToInt(b)), @sizeOf(u8));
+            \\    _ = @TypeOf(c);
+            \\}
+        });
+    }
 }
