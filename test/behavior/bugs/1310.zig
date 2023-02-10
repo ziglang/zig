@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 
 pub const VM = ?[*]const struct_InvocationTable_;
 pub const struct_InvocationTable_ = extern struct {
-    GetVM: ?fn (?[*]VM) callconv(.C) c_int,
+    GetVM: ?*const fn (?[*]VM) callconv(.C) c_int,
 };
 
 pub const struct_VM_ = extern struct {
@@ -22,6 +22,6 @@ fn agent_callback(_vm: [*]VM, options: [*]u8) callconv(.C) i32 {
     return 11;
 }
 
-test "fixed" {
+test {
     try expect(agent_callback(undefined, undefined) == 11);
 }

@@ -1,4 +1,4 @@
-//===------------------------- string.cpp ---------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,66 +6,83 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "string"
-#include "charconv"
-#include "cstdlib"
-#include "cwchar"
-#include "cerrno"
-#include "limits"
-#include "stdexcept"
+#include <__assert>
+#include <cerrno>
+#include <charconv>
+#include <cstdlib>
+#include <limits>
+#include <stdexcept>
 #include <stdio.h>
-#include "__debug"
+#include <string>
+
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  include <cwchar>
+#endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS __basic_string_common<true>;
+#ifndef _LIBCPP_ABI_DO_NOT_EXPORT_BASIC_STRING_COMMON
+
+template <bool>
+struct __basic_string_common;
+
+// The struct isn't declared anymore in the headers. It's only here for ABI compatibility.
+template <>
+struct __basic_string_common<true> {
+    _LIBCPP_NORETURN _LIBCPP_EXPORTED_FROM_ABI void __throw_length_error() const;
+    _LIBCPP_NORETURN _LIBCPP_EXPORTED_FROM_ABI void __throw_out_of_range() const;
+};
+
+void __basic_string_common<true>::__throw_length_error() const {
+    std::__throw_length_error("basic_string");
+}
+void __basic_string_common<true>::__throw_out_of_range() const {
+    std::__throw_out_of_range("basic_string");
+}
+
+#endif // _LIBCPP_ABI_DO_NOT_EXPORT_BASIC_STRING_COMMON
 
 #define _LIBCPP_EXTERN_TEMPLATE_DEFINE(...) template __VA_ARGS__;
 #ifdef _LIBCPP_ABI_STRING_OPTIMIZED_EXTERNAL_INSTANTIATION
-_LIBCPP_STRING_UNSTABLE_EXTERN_TEMPLATE_LIST(_LIBCPP_EXTERN_TEMPLATE_DEFINE, char)
-_LIBCPP_STRING_UNSTABLE_EXTERN_TEMPLATE_LIST(_LIBCPP_EXTERN_TEMPLATE_DEFINE, wchar_t)
+    _LIBCPP_STRING_UNSTABLE_EXTERN_TEMPLATE_LIST(_LIBCPP_EXTERN_TEMPLATE_DEFINE, char)
+#   ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+        _LIBCPP_STRING_UNSTABLE_EXTERN_TEMPLATE_LIST(_LIBCPP_EXTERN_TEMPLATE_DEFINE, wchar_t)
+#   endif
 #else
-_LIBCPP_STRING_V1_EXTERN_TEMPLATE_LIST(_LIBCPP_EXTERN_TEMPLATE_DEFINE, char)
-_LIBCPP_STRING_V1_EXTERN_TEMPLATE_LIST(_LIBCPP_EXTERN_TEMPLATE_DEFINE, wchar_t)
+    _LIBCPP_STRING_V1_EXTERN_TEMPLATE_LIST(_LIBCPP_EXTERN_TEMPLATE_DEFINE, char)
+#   ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+        _LIBCPP_STRING_V1_EXTERN_TEMPLATE_LIST(_LIBCPP_EXTERN_TEMPLATE_DEFINE, wchar_t)
+#   endif
 #endif
 #undef _LIBCPP_EXTERN_TEMPLATE_DEFINE
 
-template string operator+<char, char_traits<char>, allocator<char> >(char const*, string const&);
+template string operator+<char, char_traits<char>, allocator<char>>(char const*, string const&);
 
 namespace
 {
 
 template<typename T>
-inline
-void throw_helper( const string& msg )
-{
+inline void throw_helper(const string& msg) {
 #ifndef _LIBCPP_NO_EXCEPTIONS
-    throw T( msg );
+    throw T(msg);
 #else
     fprintf(stderr, "%s\n", msg.c_str());
     _VSTD::abort();
 #endif
 }
 
-inline
-void throw_from_string_out_of_range( const string& func )
-{
+inline void throw_from_string_out_of_range(const string& func) {
     throw_helper<out_of_range>(func + ": out of range");
 }
 
-inline
-void throw_from_string_invalid_arg( const string& func )
-{
+inline void throw_from_string_invalid_arg(const string& func) {
     throw_helper<invalid_argument>(func + ": no conversion");
 }
 
 // as_integer
 
 template<typename V, typename S, typename F>
-inline
-V
-as_integer_helper(const string& func, const S& str, size_t* idx, int base, F f)
-{
+inline V as_integer_helper(const string& func, const S& str, size_t* idx, int base, F f) {
     typename S::value_type* ptr = nullptr;
     const typename S::value_type* const p = str.c_str();
     typename remove_reference<decltype(errno)>::type errno_save = errno;
@@ -82,107 +99,77 @@ as_integer_helper(const string& func, const S& str, size_t* idx, int base, F f)
 }
 
 template<typename V, typename S>
-inline
-V
-as_integer(const string& func, const S& s, size_t* idx, int base);
+inline V as_integer(const string& func, const S& s, size_t* idx, int base);
 
 // string
 template<>
-inline
-int
-as_integer(const string& func, const string& s, size_t* idx, int base )
-{
+inline int as_integer(const string& func, const string& s, size_t* idx, int base) {
     // Use long as no Standard string to integer exists.
-    long r = as_integer_helper<long>( func, s, idx, base, strtol );
+    long r = as_integer_helper<long>(func, s, idx, base, strtol);
     if (r < numeric_limits<int>::min() || numeric_limits<int>::max() < r)
         throw_from_string_out_of_range(func);
     return static_cast<int>(r);
 }
 
 template<>
-inline
-long
-as_integer(const string& func, const string& s, size_t* idx, int base )
-{
-    return as_integer_helper<long>( func, s, idx, base, strtol );
+inline long as_integer(const string& func, const string& s, size_t* idx, int base) {
+    return as_integer_helper<long>(func, s, idx, base, strtol);
 }
 
 template<>
-inline
-unsigned long
-as_integer( const string& func, const string& s, size_t* idx, int base )
-{
-    return as_integer_helper<unsigned long>( func, s, idx, base, strtoul );
+inline unsigned long as_integer(const string& func, const string& s, size_t* idx, int base) {
+    return as_integer_helper<unsigned long>(func, s, idx, base, strtoul);
 }
 
 template<>
-inline
-long long
-as_integer( const string& func, const string& s, size_t* idx, int base )
-{
-    return as_integer_helper<long long>( func, s, idx, base, strtoll );
+inline long long as_integer(const string& func, const string& s, size_t* idx, int base) {
+    return as_integer_helper<long long>(func, s, idx, base, strtoll);
 }
 
 template<>
-inline
-unsigned long long
-as_integer( const string& func, const string& s, size_t* idx, int base )
-{
-    return as_integer_helper<unsigned long long>( func, s, idx, base, strtoull );
+inline unsigned long long as_integer(const string& func, const string& s, size_t* idx, int base) {
+    return as_integer_helper<unsigned long long>(func, s, idx, base, strtoull);
 }
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 // wstring
 template<>
-inline
-int
-as_integer( const string& func, const wstring& s, size_t* idx, int base )
-{
+inline int as_integer(const string& func, const wstring& s, size_t* idx, int base) {
     // Use long as no Stantard string to integer exists.
-    long r = as_integer_helper<long>( func, s, idx, base, wcstol );
+    long r = as_integer_helper<long>(func, s, idx, base, wcstol);
     if (r < numeric_limits<int>::min() || numeric_limits<int>::max() < r)
         throw_from_string_out_of_range(func);
     return static_cast<int>(r);
 }
 
 template<>
-inline
-long
-as_integer( const string& func, const wstring& s, size_t* idx, int base )
-{
-    return as_integer_helper<long>( func, s, idx, base, wcstol );
+inline long as_integer(const string& func, const wstring& s, size_t* idx, int base) {
+    return as_integer_helper<long>(func, s, idx, base, wcstol);
 }
 
 template<>
 inline
 unsigned long
-as_integer( const string& func, const wstring& s, size_t* idx, int base )
+as_integer(const string& func, const wstring& s, size_t* idx, int base)
 {
-    return as_integer_helper<unsigned long>( func, s, idx, base, wcstoul );
+    return as_integer_helper<unsigned long>(func, s, idx, base, wcstoul);
 }
 
 template<>
-inline
-long long
-as_integer( const string& func, const wstring& s, size_t* idx, int base )
-{
-    return as_integer_helper<long long>( func, s, idx, base, wcstoll );
+inline long long as_integer(const string& func, const wstring& s, size_t* idx, int base) {
+    return as_integer_helper<long long>(func, s, idx, base, wcstoll);
 }
 
 template<>
-inline
-unsigned long long
-as_integer( const string& func, const wstring& s, size_t* idx, int base )
-{
-    return as_integer_helper<unsigned long long>( func, s, idx, base, wcstoull );
+inline unsigned long long as_integer(const string& func, const wstring& s, size_t* idx, int base) {
+    return as_integer_helper<unsigned long long>(func, s, idx, base, wcstoull);
 }
+#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 // as_float
 
 template<typename V, typename S, typename F>
-inline
-V
-as_float_helper(const string& func, const S& str, size_t* idx, F f )
-{
+inline V as_float_helper(const string& func, const S& str, size_t* idx, F f) {
     typename S::value_type* ptr = nullptr;
     const typename S::value_type* const p = str.c_str();
     typename remove_reference<decltype(errno)>::type errno_save = errno;
@@ -199,154 +186,107 @@ as_float_helper(const string& func, const S& str, size_t* idx, F f )
 }
 
 template<typename V, typename S>
-inline
-V as_float( const string& func, const S& s, size_t* idx = nullptr );
+inline V as_float(const string& func, const S& s, size_t* idx = nullptr);
 
 template<>
-inline
-float
-as_float( const string& func, const string& s, size_t* idx )
-{
-    return as_float_helper<float>( func, s, idx, strtof );
+inline float as_float(const string& func, const string& s, size_t* idx) {
+    return as_float_helper<float>(func, s, idx, strtof);
 }
 
 template<>
-inline
-double
-as_float(const string& func, const string& s, size_t* idx )
-{
-    return as_float_helper<double>( func, s, idx, strtod );
+inline double as_float(const string& func, const string& s, size_t* idx) {
+    return as_float_helper<double>(func, s, idx, strtod);
 }
 
 template<>
-inline
-long double
-as_float( const string& func, const string& s, size_t* idx )
-{
-    return as_float_helper<long double>( func, s, idx, strtold );
+inline long double as_float(const string& func, const string& s, size_t* idx) {
+    return as_float_helper<long double>(func, s, idx, strtold);
+}
+
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+template<>
+inline float as_float(const string& func, const wstring& s, size_t* idx) {
+    return as_float_helper<float>(func, s, idx, wcstof);
 }
 
 template<>
-inline
-float
-as_float( const string& func, const wstring& s, size_t* idx )
-{
-    return as_float_helper<float>( func, s, idx, wcstof );
+inline double as_float(const string& func, const wstring& s, size_t* idx) {
+    return as_float_helper<double>(func, s, idx, wcstod);
 }
 
 template<>
-inline
-double
-as_float( const string& func, const wstring& s, size_t* idx )
-{
-    return as_float_helper<double>( func, s, idx, wcstod );
+inline long double as_float(const string& func, const wstring& s, size_t* idx) {
+    return as_float_helper<long double>(func, s, idx, wcstold);
 }
-
-template<>
-inline
-long double
-as_float( const string& func, const wstring& s, size_t* idx )
-{
-    return as_float_helper<long double>( func, s, idx, wcstold );
-}
+#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 }  // unnamed namespace
 
-int
-stoi(const string& str, size_t* idx, int base)
-{
-    return as_integer<int>( "stoi", str, idx, base );
+int stoi(const string& str, size_t* idx, int base) {
+    return as_integer<int>("stoi", str, idx, base);
 }
 
-int
-stoi(const wstring& str, size_t* idx, int base)
-{
-    return as_integer<int>( "stoi", str, idx, base );
+long stol(const string& str, size_t* idx, int base) {
+    return as_integer<long>("stol", str, idx, base);
 }
 
-long
-stol(const string& str, size_t* idx, int base)
-{
-    return as_integer<long>( "stol", str, idx, base );
+unsigned long stoul(const string& str, size_t* idx, int base) {
+    return as_integer<unsigned long>("stoul", str, idx, base);
 }
 
-long
-stol(const wstring& str, size_t* idx, int base)
-{
-    return as_integer<long>( "stol", str, idx, base );
+long long stoll(const string& str, size_t* idx, int base) {
+    return as_integer<long long>("stoll", str, idx, base);
 }
 
-unsigned long
-stoul(const string& str, size_t* idx, int base)
-{
-    return as_integer<unsigned long>( "stoul", str, idx, base );
+unsigned long long stoull(const string& str, size_t* idx, int base) {
+    return as_integer<unsigned long long>("stoull", str, idx, base);
 }
 
-unsigned long
-stoul(const wstring& str, size_t* idx, int base)
-{
-    return as_integer<unsigned long>( "stoul", str, idx, base );
+float stof(const string& str, size_t* idx) {
+    return as_float<float>("stof", str, idx);
 }
 
-long long
-stoll(const string& str, size_t* idx, int base)
-{
-    return as_integer<long long>( "stoll", str, idx, base );
+double stod(const string& str, size_t* idx) {
+    return as_float<double>("stod", str, idx);
 }
 
-long long
-stoll(const wstring& str, size_t* idx, int base)
-{
-    return as_integer<long long>( "stoll", str, idx, base );
+long double stold(const string& str, size_t* idx) {
+    return as_float<long double>("stold", str, idx);
 }
 
-unsigned long long
-stoull(const string& str, size_t* idx, int base)
-{
-    return as_integer<unsigned long long>( "stoull", str, idx, base );
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+int stoi(const wstring& str, size_t* idx, int base) {
+    return as_integer<int>("stoi", str, idx, base);
 }
 
-unsigned long long
-stoull(const wstring& str, size_t* idx, int base)
-{
-    return as_integer<unsigned long long>( "stoull", str, idx, base );
+long stol(const wstring& str, size_t* idx, int base) {
+    return as_integer<long>("stol", str, idx, base);
 }
 
-float
-stof(const string& str, size_t* idx)
-{
-    return as_float<float>( "stof", str, idx );
+unsigned long stoul(const wstring& str, size_t* idx, int base) {
+    return as_integer<unsigned long>("stoul", str, idx, base);
 }
 
-float
-stof(const wstring& str, size_t* idx)
-{
-    return as_float<float>( "stof", str, idx );
+long long stoll(const wstring& str, size_t* idx, int base) {
+    return as_integer<long long>("stoll", str, idx, base);
 }
 
-double
-stod(const string& str, size_t* idx)
-{
-    return as_float<double>( "stod", str, idx );
+unsigned long long stoull(const wstring& str, size_t* idx, int base) {
+    return as_integer<unsigned long long>("stoull", str, idx, base);
 }
 
-double
-stod(const wstring& str, size_t* idx)
-{
-    return as_float<double>( "stod", str, idx );
+float stof(const wstring& str, size_t* idx) {
+    return as_float<float>("stof", str, idx);
 }
 
-long double
-stold(const string& str, size_t* idx)
-{
-    return as_float<long double>( "stold", str, idx );
+double stod(const wstring& str, size_t* idx) {
+    return as_float<double>("stod", str, idx);
 }
 
-long double
-stold(const wstring& str, size_t* idx)
-{
-    return as_float<long double>( "stold", str, idx );
+long double stold(const wstring& str, size_t* idx) {
+    return as_float<long double>("stold", str, idx);
 }
+#endif // !_LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 // to_string
 
@@ -356,21 +296,15 @@ namespace
 // as_string
 
 template<typename S, typename P, typename V >
-inline
-S
-as_string(P sprintf_like, S s, const typename S::value_type* fmt, V a)
-{
+inline S as_string(P sprintf_like, S s, const typename S::value_type* fmt, V a) {
     typedef typename S::size_type size_type;
     size_type available = s.size();
-    while (true)
-    {
+    while (true) {
         int status = sprintf_like(&s[0], available + 1, fmt, a);
-        if ( status >= 0 )
-        {
+        if (status >= 0) {
             size_type used = static_cast<size_type>(status);
-            if ( used <= available )
-            {
-                s.resize( used );
+            if (used <= available) {
+                s.resize(used);
                 break;
             }
             available = used; // Assume this is advice of how much space we need.
@@ -386,23 +320,18 @@ template <class S>
 struct initial_string;
 
 template <>
-struct initial_string<string>
-{
-    string
-    operator()() const
-    {
+struct initial_string<string> {
+    string operator()() const {
         string s;
         s.resize(s.capacity());
         return s;
     }
 };
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
-struct initial_string<wstring>
-{
-    wstring
-    operator()() const
-    {
+struct initial_string<wstring> {
+    wstring operator()() const {
         wstring s(20, wchar_t());
         s.resize(s.capacity());
         return s;
@@ -411,20 +340,17 @@ struct initial_string<wstring>
 
 typedef int (*wide_printf)(wchar_t* __restrict, size_t, const wchar_t*__restrict, ...);
 
-inline
-wide_printf
-get_swprintf()
-{
+inline wide_printf get_swprintf() {
 #ifndef _LIBCPP_MSVCRT
     return swprintf;
 #else
     return static_cast<int (__cdecl*)(wchar_t* __restrict, size_t, const wchar_t*__restrict, ...)>(_snwprintf);
 #endif
 }
+#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 template <typename S, typename V>
-S i_to_string(V v)
-{
+S i_to_string(V v) {
 //  numeric_limits::digits10 returns value less on 1 than desired for unsigned numbers.
 //  For example, for 1-byte unsigned value digits10 is 2 (999 can not be represented),
 //  so we need +1 here.
@@ -444,20 +370,23 @@ string  to_string (unsigned val)           { return i_to_string< string>(val); }
 string  to_string (unsigned long val)      { return i_to_string< string>(val); }
 string  to_string (unsigned long long val) { return i_to_string< string>(val); }
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 wstring to_wstring(int val)                { return i_to_string<wstring>(val); }
 wstring to_wstring(long val)               { return i_to_string<wstring>(val); }
 wstring to_wstring(long long val)          { return i_to_string<wstring>(val); }
 wstring to_wstring(unsigned val)           { return i_to_string<wstring>(val); }
 wstring to_wstring(unsigned long val)      { return i_to_string<wstring>(val); }
 wstring to_wstring(unsigned long long val) { return i_to_string<wstring>(val); }
-
+#endif
 
 string  to_string (float val)       { return as_string(snprintf,       initial_string< string>()(),   "%f", val); }
 string  to_string (double val)      { return as_string(snprintf,       initial_string< string>()(),   "%f", val); }
 string  to_string (long double val) { return as_string(snprintf,       initial_string< string>()(),  "%Lf", val); }
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 wstring to_wstring(float val)       { return as_string(get_swprintf(), initial_string<wstring>()(),  L"%f", val); }
 wstring to_wstring(double val)      { return as_string(get_swprintf(), initial_string<wstring>()(),  L"%f", val); }
 wstring to_wstring(long double val) { return as_string(get_swprintf(), initial_string<wstring>()(), L"%Lf", val); }
+#endif
 
 _LIBCPP_END_NAMESPACE_STD

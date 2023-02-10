@@ -42,6 +42,9 @@ abi: ?Target.Abi = null,
 /// based on the `os_tag`.
 dynamic_linker: DynamicLinker = DynamicLinker{},
 
+/// `null` means default for the cpu/arch/os combo.
+ofmt: ?Target.ObjectFormat = null,
+
 pub const CpuModel = union(enum) {
     /// Always native
     native,
@@ -118,6 +121,7 @@ fn updateOsVersionRange(self: *CrossTarget, os: Target.Os) void {
         .nvcl,
         .amdhsa,
         .ps4,
+        .ps5,
         .elfiamcu,
         .mesa3d,
         .contiki,
@@ -126,6 +130,8 @@ fn updateOsVersionRange(self: *CrossTarget, os: Target.Os) void {
         .hurd,
         .wasi,
         .emscripten,
+        .driverkit,
+        .shadermodel,
         .uefi,
         .opencl,
         .glsl450,
@@ -168,6 +174,7 @@ pub fn toTarget(self: CrossTarget) Target {
         .cpu = self.getCpu(),
         .os = self.getOs(),
         .abi = self.getAbi(),
+        .ofmt = self.getObjectFormat(),
     };
 }
 
@@ -196,6 +203,8 @@ pub const ParseOptions = struct {
     /// Absolute path to dynamic linker, to override the default, which is either a natively
     /// detected path, or a standard path.
     dynamic_linker: ?[]const u8 = null,
+
+    object_format: ?[]const u8 = null,
 
     /// If this is provided, the function will populate some information about parsing failures,
     /// so that user-friendly error messages can be delivered.
@@ -231,7 +240,7 @@ pub fn parse(args: ParseOptions) !CrossTarget {
     };
 
     var it = mem.split(u8, args.arch_os_abi, "-");
-    const arch_name = it.next().?;
+    const arch_name = it.first();
     const arch_is_native = mem.eql(u8, arch_name, "native");
     if (!arch_is_native) {
         result.cpu_arch = std.meta.stringToEnum(Target.Cpu.Arch, arch_name) orelse
@@ -249,7 +258,7 @@ pub fn parse(args: ParseOptions) !CrossTarget {
     const opt_abi_text = it.next();
     if (opt_abi_text) |abi_text| {
         var abi_it = mem.split(u8, abi_text, ".");
-        const abi = std.meta.stringToEnum(Target.Abi, abi_it.next().?) orelse
+        const abi = std.meta.stringToEnum(Target.Abi, abi_it.first()) orelse
             return error.UnknownApplicationBinaryInterface;
         result.abi = abi;
         diags.abi = abi;
@@ -321,6 +330,11 @@ pub fn parse(args: ParseOptions) !CrossTarget {
         }
     }
 
+    if (args.object_format) |ofmt_name| {
+        result.ofmt = std.meta.stringToEnum(Target.ObjectFormat, ofmt_name) orelse
+            return error.UnknownObjectFormat;
+    }
+
     return result;
 }
 
@@ -330,7 +344,7 @@ pub fn parse(args: ParseOptions) !CrossTarget {
 /// target CPU architecture in order to fully populate `ParseOptions`.
 pub fn parseCpuArch(args: ParseOptions) ?Target.Cpu.Arch {
     var it = mem.split(u8, args.arch_os_abi, "-");
-    const arch_name = it.next().?;
+    const arch_name = it.first();
     const arch_is_native = mem.eql(u8, arch_name, "native");
     if (arch_is_native) {
         return builtin.cpu.arch;
@@ -578,7 +592,7 @@ pub const VcpkgLinkage = std.builtin.LinkMode;
 /// Returned slice must be freed by the caller.
 pub fn vcpkgTriplet(self: CrossTarget, allocator: mem.Allocator, linkage: VcpkgLinkage) ![]u8 {
     const arch = switch (self.getCpuArch()) {
-        .i386 => "x86",
+        .x86 => "x86",
         .x86_64 => "x64",
 
         .arm,
@@ -620,7 +634,7 @@ pub fn setGnuLibCVersion(self: *CrossTarget, major: u32, minor: u32, patch: u32)
 }
 
 pub fn getObjectFormat(self: CrossTarget) Target.ObjectFormat {
-    return Target.getObjectFormatSimple(self.getOsTag(), self.getCpuArch());
+    return self.ofmt orelse Target.ObjectFormat.default(self.getOsTag(), self.getCpuArch());
 }
 
 pub fn updateCpuFeatures(self: CrossTarget, set: *Target.Cpu.Feature.Set) void {
@@ -632,7 +646,7 @@ pub fn updateCpuFeatures(self: CrossTarget, set: *Target.Cpu.Feature.Set) void {
 
 fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const u8) !void {
     var it = mem.split(u8, text, ".");
-    const os_name = it.next().?;
+    const os_name = it.first();
     diags.os_name = os_name;
     const os_is_native = mem.eql(u8, os_name, "native");
     if (!os_is_native) {
@@ -663,6 +677,7 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
         .nvcl,
         .amdhsa,
         .ps4,
+        .ps5,
         .elfiamcu,
         .mesa3d,
         .contiki,
@@ -676,6 +691,8 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
         .glsl450,
         .vulkan,
         .plan9,
+        .driverkit,
+        .shadermodel,
         .other,
         => return error.InvalidOperatingSystemVersion,
 
@@ -711,7 +728,7 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
         .windows => {
             var range_it = mem.split(u8, version_text, "...");
 
-            const min_text = range_it.next().?;
+            const min_text = range_it.first();
             const min_ver = std.meta.stringToEnum(Target.Os.WindowsVersion, min_text) orelse
                 return error.InvalidOperatingSystemVersion;
             result.os_version_min = .{ .windows = min_ver };

@@ -35,7 +35,7 @@ pub const Ipv6Address = extern struct {
     address: [16]u8,
 };
 
-/// GUIDs must be align(8)
+/// GUIDs are align(8) unless otherwise specified.
 pub const Guid = extern struct {
     time_low: u32,
     time_mid: u16,
@@ -55,9 +55,9 @@ pub const Guid = extern struct {
         if (f.len == 0) {
             const fmt = std.fmt.fmtSliceHexLower;
 
-            const time_low = @byteSwap(u32, self.time_low);
-            const time_mid = @byteSwap(u16, self.time_mid);
-            const time_high_and_version = @byteSwap(u16, self.time_high_and_version);
+            const time_low = @byteSwap(self.time_low);
+            const time_mid = @byteSwap(self.time_mid);
+            const time_high_and_version = @byteSwap(self.time_high_and_version);
 
             return std.fmt.format(writer, "{:0>8}-{:0>4}-{:0>4}-{:0>2}{:0>2}-{:0>12}", .{
                 fmt(std.mem.asBytes(&time_low)),
@@ -68,7 +68,7 @@ pub const Guid = extern struct {
                 fmt(std.mem.asBytes(&self.node)),
             });
         } else {
-            @compileError("Unknown format character: '" ++ f ++ "'");
+            std.fmt.invalidFmtError(f, self);
         }
     }
 
@@ -149,4 +149,9 @@ test "GUID formatting" {
     defer std.testing.allocator.free(str);
 
     try std.testing.expect(std.mem.eql(u8, str, "32cb3c89-8080-427c-ba13-5049873bc287"));
+}
+
+test {
+    _ = tables;
+    _ = protocols;
 }

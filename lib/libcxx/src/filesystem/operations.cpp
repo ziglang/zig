@@ -1,4 +1,4 @@
-//===--------------------- filesystem/ops.cpp -----------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,14 +6,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "filesystem"
-#include "array"
-#include "iterator"
-#include "string_view"
-#include "type_traits"
-#include "vector"
-#include "cstdlib"
-#include "climits"
+#include <__assert>
+#include <__utility/unreachable.h>
+#include <array>
+#include <climits>
+#include <cstdlib>
+#include <filesystem>
+#include <iterator>
+#include <string_view>
+#include <type_traits>
+#include <vector>
 
 #include "filesystem_common.h"
 
@@ -24,9 +26,10 @@
 # define NOMINMAX
 # include <windows.h>
 #else
-# include <unistd.h>
+# include <dirent.h>
 # include <sys/stat.h>
 # include <sys/statvfs.h>
+# include <unistd.h>
 #endif
 #include <time.h>
 #include <fcntl.h> /* values for fchmodat */
@@ -38,7 +41,7 @@
 # include <copyfile.h>
 # define _LIBCPP_FILESYSTEM_USE_COPYFILE
 #else
-# include "fstream"
+# include <fstream>
 # define _LIBCPP_FILESYSTEM_USE_FSTREAM
 #endif
 
@@ -153,7 +156,7 @@ public:
       return makeState(PS_AtEnd);
 
     case PS_AtEnd:
-      _LIBCPP_UNREACHABLE();
+      __libcpp_unreachable();
     }
   }
 
@@ -201,7 +204,7 @@ public:
       return makeState(PS_InRootName, Path.data(), RStart + 1);
     case PS_InRootName:
     case PS_BeforeBegin:
-      _LIBCPP_UNREACHABLE();
+      __libcpp_unreachable();
     }
   }
 
@@ -211,19 +214,19 @@ public:
     switch (State) {
     case PS_BeforeBegin:
     case PS_AtEnd:
-      return PS("");
+      return PATHSTR("");
     case PS_InRootDir:
       if (RawEntry[0] == '\\')
-        return PS("\\");
+        return PATHSTR("\\");
       else
-        return PS("/");
+        return PATHSTR("/");
     case PS_InTrailingSep:
-      return PS("");
+      return PATHSTR("");
     case PS_InRootName:
     case PS_InFilenames:
       return RawEntry;
     }
-    _LIBCPP_UNREACHABLE();
+    __libcpp_unreachable();
   }
 
   explicit operator bool() const noexcept {
@@ -284,7 +287,7 @@ private:
     case PS_AtEnd:
       return getAfterBack();
     }
-    _LIBCPP_UNREACHABLE();
+    __libcpp_unreachable();
   }
 
   /// \brief Return a pointer to the first character in the currently lexed
@@ -301,7 +304,7 @@ private:
     case PS_AtEnd:
       return &Path.back() + 1;
     }
-    _LIBCPP_UNREACHABLE();
+    __libcpp_unreachable();
   }
 
   // Consume all consecutive separators.
@@ -384,8 +387,8 @@ private:
 };
 
 string_view_pair separate_filename(string_view_t const& s) {
-  if (s == PS(".") || s == PS("..") || s.empty())
-    return string_view_pair{s, PS("")};
+  if (s == PATHSTR(".") || s == PATHSTR("..") || s.empty())
+    return string_view_pair{s, PATHSTR("")};
   auto pos = s.find_last_of('.');
   if (pos == string_view_t::npos || pos == 0)
     return string_view_pair{s, string_view_t{}};
@@ -680,7 +683,7 @@ void filesystem_error::__create_what(int __num_paths) {
       return detail::format_string("filesystem error: %s [" PATH_CSTR_FMT "] [" PATH_CSTR_FMT "]",
                                    derived_what, path1().c_str(), path2().c_str());
     }
-    _LIBCPP_UNREACHABLE();
+    __libcpp_unreachable();
   }();
 }
 
@@ -1187,7 +1190,7 @@ bool __fs_is_empty(const path& p, error_code* ec) {
   } else if (is_regular_file(st))
     return static_cast<uintmax_t>(pst.st_size) == 0;
 
-  _LIBCPP_UNREACHABLE();
+  __libcpp_unreachable();
 }
 
 static file_time_type __extract_last_write_time(const path& p, const StatT& st,
@@ -1338,6 +1341,19 @@ bool __remove(const path& p, error_code* ec) {
   return true;
 }
 
+// We currently have two implementations of `__remove_all`. The first one is general and
+// used on platforms where we don't have access to the `openat()` family of POSIX functions.
+// That implementation uses `directory_iterator`, however it is vulnerable to some race
+// conditions, see https://reviews.llvm.org/D118134 for details.
+//
+// The second implementation is used on platforms where `openat()` & friends are available,
+// and it threads file descriptors through recursive calls to avoid such race conditions.
+#if defined(_LIBCPP_WIN32API)
+# define REMOVE_ALL_USE_DIRECTORY_ITERATOR
+#endif
+
+#if defined(REMOVE_ALL_USE_DIRECTORY_ITERATOR)
+
 namespace {
 
 uintmax_t remove_all_impl(path const& p, error_code& ec) {
@@ -1376,6 +1392,99 @@ uintmax_t __remove_all(const path& p, error_code* ec) {
   }
   return count;
 }
+
+#else // !REMOVE_ALL_USE_DIRECTORY_ITERATOR
+
+namespace {
+
+template <class Cleanup>
+struct scope_exit {
+  explicit scope_exit(Cleanup const& cleanup)
+    : cleanup_(cleanup)
+  { }
+
+  ~scope_exit() { cleanup_(); }
+
+private:
+  Cleanup cleanup_;
+};
+
+uintmax_t remove_all_impl(int parent_directory, const path& p, error_code& ec) {
+  // First, try to open the path as a directory.
+  const int options = O_CLOEXEC | O_RDONLY | O_DIRECTORY | O_NOFOLLOW;
+  int fd = ::openat(parent_directory, p.c_str(), options);
+  if (fd != -1) {
+    // If that worked, iterate over the contents of the directory and
+    // remove everything in it, recursively.
+    DIR* stream = ::fdopendir(fd);
+    if (stream == nullptr) {
+      ::close(fd);
+      ec = detail::capture_errno();
+      return 0;
+    }
+    // Note: `::closedir` will also close the associated file descriptor, so
+    // there should be no call to `close(fd)`.
+    scope_exit close_stream([=] { ::closedir(stream); });
+
+    uintmax_t count = 0;
+    while (true) {
+      auto [str, type] = detail::posix_readdir(stream, ec);
+      static_assert(std::is_same_v<decltype(str), std::string_view>);
+      if (str == "." || str == "..") {
+        continue;
+      } else if (ec || str.empty()) {
+        break; // we're done iterating through the directory
+      } else {
+        count += remove_all_impl(fd, str, ec);
+      }
+    }
+
+    // Then, remove the now-empty directory itself.
+    if (::unlinkat(parent_directory, p.c_str(), AT_REMOVEDIR) == -1) {
+      ec = detail::capture_errno();
+      return count;
+    }
+
+    return count + 1; // the contents of the directory + the directory itself
+  }
+
+  ec = detail::capture_errno();
+
+  // If we failed to open `p` because it didn't exist, it's not an
+  // error -- it might have moved or have been deleted already.
+  if (ec == errc::no_such_file_or_directory) {
+    ec.clear();
+    return 0;
+  }
+
+  // If opening `p` failed because it wasn't a directory, remove it as
+  // a normal file instead. Note that `openat()` can return either ENOTDIR
+  // or ELOOP depending on the exact reason of the failure.
+  if (ec == errc::not_a_directory || ec == errc::too_many_symbolic_link_levels) {
+    ec.clear();
+    if (::unlinkat(parent_directory, p.c_str(), /* flags = */0) == -1) {
+      ec = detail::capture_errno();
+      return 0;
+    }
+    return 1;
+  }
+
+  // Otherwise, it's a real error -- we don't remove anything.
+  return 0;
+}
+
+} // end namespace
+
+uintmax_t __remove_all(const path& p, error_code* ec) {
+  ErrorHandler<uintmax_t> err("remove_all", ec, &p);
+  error_code mec;
+  uintmax_t count = remove_all_impl(AT_FDCWD, p, mec);
+  if (mec)
+    return err.report(mec);
+  return count;
+}
+
+#endif // REMOVE_ALL_USE_DIRECTORY_ITERATOR
 
 void __rename(const path& from, const path& to, error_code* ec) {
   ErrorHandler<void> err("rename", ec, &from, &to);
@@ -1507,7 +1616,7 @@ path& path::replace_extension(path const& replacement) {
   }
   if (!replacement.empty()) {
     if (replacement.native()[0] != '.') {
-      __pn_ += PS(".");
+      __pn_ += PATHSTR(".");
     }
     __pn_.append(replacement.__pn_);
   }
@@ -1629,14 +1738,14 @@ enum PathPartKind : unsigned char {
 static PathPartKind ClassifyPathPart(string_view_t Part) {
   if (Part.empty())
     return PK_TrailingSep;
-  if (Part == PS("."))
+  if (Part == PATHSTR("."))
     return PK_Dot;
-  if (Part == PS(".."))
+  if (Part == PATHSTR(".."))
     return PK_DotDot;
-  if (Part == PS("/"))
+  if (Part == PATHSTR("/"))
     return PK_RootSep;
 #if defined(_LIBCPP_WIN32API)
-  if (Part == PS("\\"))
+  if (Part == PATHSTR("\\"))
     return PK_RootSep;
 #endif
   return PK_Filename;
@@ -1686,7 +1795,7 @@ path path::lexically_normal() const {
         NewPathSize -= Parts.back().first.size();
         Parts.pop_back();
       } else if (LastKind != PK_RootSep)
-        AddPart(PK_DotDot, PS(".."));
+        AddPart(PK_DotDot, PATHSTR(".."));
       MaybeNeedTrailingSep = LastKind == PK_Filename;
       break;
     }
@@ -1696,12 +1805,12 @@ path path::lexically_normal() const {
       break;
     }
     case PK_None:
-      _LIBCPP_UNREACHABLE();
+      __libcpp_unreachable();
     }
   }
   // [fs.path.generic]p6.8: If the path is empty, add a dot.
   if (Parts.empty())
-    return PS(".");
+    return PATHSTR(".");
 
   // [fs.path.generic]p6.7: If the last filename is dot-dot, remove any
   // trailing directory-separator.
@@ -1713,7 +1822,7 @@ path path::lexically_normal() const {
     Result /= PK.first;
 
   if (NeedTrailingSep)
-    Result /= PS("");
+    Result /= PATHSTR("");
 
   Result.make_preferred();
   return Result;
@@ -1723,9 +1832,9 @@ static int DetermineLexicalElementCount(PathParser PP) {
   int Count = 0;
   for (; PP; ++PP) {
     auto Elem = *PP;
-    if (Elem == PS(".."))
+    if (Elem == PATHSTR(".."))
       --Count;
-    else if (Elem != PS(".") && Elem != PS(""))
+    else if (Elem != PATHSTR(".") && Elem != PATHSTR(""))
       ++Count;
   }
   return Count;
@@ -1772,15 +1881,15 @@ path path::lexically_relative(const path& base) const {
     return {};
 
   // if n == 0 and (a == end() || a->empty()), returns path("."); otherwise
-  if (ElemCount == 0 && (PP.atEnd() || *PP == PS("")))
-    return PS(".");
+  if (ElemCount == 0 && (PP.atEnd() || *PP == PATHSTR("")))
+    return PATHSTR(".");
 
-  // return a path constructed with 'n' dot-dot elements, followed by the the
+  // return a path constructed with 'n' dot-dot elements, followed by the
   // elements of '*this' after the mismatch.
   path Result;
   // FIXME: Reserve enough room in Result that it won't have to re-allocate.
   while (ElemCount--)
-    Result /= PS("..");
+    Result /= PATHSTR("..");
   for (; PP; ++PP)
     Result /= *PP;
   return Result;
@@ -1793,7 +1902,7 @@ static int CompareRootName(PathParser *LHS, PathParser *RHS) {
     return 0;
 
   auto GetRootName = [](PathParser *Parser) -> string_view_t {
-    return Parser->inRootName() ? **Parser : PS("");
+    return Parser->inRootName() ? **Parser : PATHSTR("");
   };
   int res = GetRootName(LHS).compare(GetRootName(RHS));
   ConsumeRootName(LHS);

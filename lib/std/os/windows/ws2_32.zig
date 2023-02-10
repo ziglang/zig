@@ -1,4 +1,5 @@
 const std = @import("../../std.zig");
+const assert = std.debug.assert;
 const windows = std.os.windows;
 
 const WINAPI = windows.WINAPI;
@@ -942,7 +943,7 @@ pub const UDP_NOCHECKSUM = 1;
 pub const UDP_CHECKSUM_COVERAGE = 20;
 pub const GAI_STRERROR_BUFFER_SIZE = 1024;
 
-pub const LPCONDITIONPROC = fn (
+pub const LPCONDITIONPROC = *const fn (
     lpCallerId: *WSABUF,
     lpCallerData: *WSABUF,
     lpSQOS: *QOS,
@@ -953,7 +954,7 @@ pub const LPCONDITIONPROC = fn (
     dwCallbackData: usize,
 ) callconv(WINAPI) i32;
 
-pub const LPWSAOVERLAPPED_COMPLETION_ROUTINE = fn (
+pub const LPWSAOVERLAPPED_COMPLETION_ROUTINE = *const fn (
     dwError: u32,
     cbTransferred: u32,
     lpOverlapped: *OVERLAPPED,
@@ -1106,7 +1107,15 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 
     pub const SS_MAXSIZE = 128;
-    pub const storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = extern struct {
+        family: ADDRESS_FAMILY align(8),
+        padding: [SS_MAXSIZE - @sizeOf(ADDRESS_FAMILY)]u8 = undefined,
+
+        comptime {
+            assert(@sizeOf(storage) == SS_MAXSIZE);
+            assert(@alignOf(storage) == 8);
+        }
+    };
 
     /// IPv4 socket address
     pub const in = extern struct {
@@ -1173,7 +1182,7 @@ pub const TRANSMIT_FILE_BUFFERS = extern struct {
     TailLength: u32,
 };
 
-pub const LPFN_TRANSMITFILE = fn (
+pub const LPFN_TRANSMITFILE = *const fn (
     hSocket: SOCKET,
     hFile: HANDLE,
     nNumberOfBytesToWrite: u32,
@@ -1183,7 +1192,7 @@ pub const LPFN_TRANSMITFILE = fn (
     dwReserved: u32,
 ) callconv(WINAPI) BOOL;
 
-pub const LPFN_ACCEPTEX = fn (
+pub const LPFN_ACCEPTEX = *const fn (
     sListenSocket: SOCKET,
     sAcceptSocket: SOCKET,
     lpOutputBuffer: *anyopaque,
@@ -1194,7 +1203,7 @@ pub const LPFN_ACCEPTEX = fn (
     lpOverlapped: *OVERLAPPED,
 ) callconv(WINAPI) BOOL;
 
-pub const LPFN_GETACCEPTEXSOCKADDRS = fn (
+pub const LPFN_GETACCEPTEXSOCKADDRS = *const fn (
     lpOutputBuffer: *anyopaque,
     dwReceiveDataLength: u32,
     dwLocalAddressLength: u32,
@@ -1205,24 +1214,24 @@ pub const LPFN_GETACCEPTEXSOCKADDRS = fn (
     RemoteSockaddrLength: *i32,
 ) callconv(WINAPI) void;
 
-pub const LPFN_WSASENDMSG = fn (
+pub const LPFN_WSASENDMSG = *const fn (
     s: SOCKET,
-    lpMsg: *const std.x.os.Socket.Message,
+    lpMsg: *const WSAMSG_const,
     dwFlags: u32,
     lpNumberOfBytesSent: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
     lpCompletionRoutine: ?LPWSAOVERLAPPED_COMPLETION_ROUTINE,
 ) callconv(WINAPI) i32;
 
-pub const LPFN_WSARECVMSG = fn (
+pub const LPFN_WSARECVMSG = *const fn (
     s: SOCKET,
-    lpMsg: *std.x.os.Socket.Message,
+    lpMsg: *WSAMSG,
     lpdwNumberOfBytesRecv: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
     lpCompletionRoutine: ?LPWSAOVERLAPPED_COMPLETION_ROUTINE,
 ) callconv(WINAPI) i32;
 
-pub const LPSERVICE_CALLBACK_PROC = fn (
+pub const LPSERVICE_CALLBACK_PROC = *const fn (
     lParam: LPARAM,
     hAsyncTaskHandle: HANDLE,
 ) callconv(WINAPI) void;
@@ -1233,7 +1242,7 @@ pub const SERVICE_ASYNC_INFO = extern struct {
     hAsyncTaskHandle: HANDLE,
 };
 
-pub const LPLOOKUPSERVICE_COMPLETION_ROUTINE = fn (
+pub const LPLOOKUPSERVICE_COMPLETION_ROUTINE = *const fn (
     dwError: u32,
     dwBytes: u32,
     lpOverlapped: *OVERLAPPED,
@@ -2090,7 +2099,7 @@ pub extern "ws2_32" fn WSASend(
 
 pub extern "ws2_32" fn WSASendMsg(
     s: SOCKET,
-    lpMsg: *const std.x.os.Socket.Message,
+    lpMsg: *WSAMSG_const,
     dwFlags: u32,
     lpNumberOfBytesSent: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
@@ -2099,7 +2108,7 @@ pub extern "ws2_32" fn WSASendMsg(
 
 pub extern "ws2_32" fn WSARecvMsg(
     s: SOCKET,
-    lpMsg: *std.x.os.Socket.Message,
+    lpMsg: *WSAMSG,
     lpdwNumberOfBytesRecv: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
     lpCompletionRoutine: ?LPWSAOVERLAPPED_COMPLETION_ROUTINE,
@@ -2303,7 +2312,7 @@ pub extern "ws2_32" fn getaddrinfo(
     pNodeName: ?[*:0]const u8,
     pServiceName: ?[*:0]const u8,
     pHints: ?*const addrinfoa,
-    ppResult: **addrinfoa,
+    ppResult: *?*addrinfoa,
 ) callconv(WINAPI) i32;
 
 pub extern "ws2_32" fn GetAddrInfoExA(
@@ -2344,6 +2353,6 @@ pub extern "ws2_32" fn getnameinfo(
     Flags: i32,
 ) callconv(WINAPI) i32;
 
-pub extern "IPHLPAPI" fn if_nametoindex(
+pub extern "iphlpapi" fn if_nametoindex(
     InterfaceName: [*:0]const u8,
 ) callconv(WINAPI) u32;

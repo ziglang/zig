@@ -22,7 +22,7 @@ pub fn random(self: *Xoshiro256) Random {
     return Random.init(self, fill);
 }
 
-fn next(self: *Xoshiro256) u64 {
+pub fn next(self: *Xoshiro256) u64 {
     const r = math.rotl(u64, self.s[0] +% self.s[3], 23) +% self.s[0];
 
     const t = self.s[1] << 17;
@@ -40,7 +40,7 @@ fn next(self: *Xoshiro256) u64 {
 }
 
 // Skip 2^128 places ahead in the sequence
-fn jump(self: *Xoshiro256) void {
+pub fn jump(self: *Xoshiro256) void {
     var s: u256 = 0;
 
     var table: u256 = 0x39abdc4529b1661ca9582618e03fc9aad5a61266f0c9392c180ec6d33cfd0aba;

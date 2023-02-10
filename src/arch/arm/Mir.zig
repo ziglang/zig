@@ -111,6 +111,11 @@ pub const Inst = struct {
         strh,
         /// Subtract
         sub,
+        /// Pseudo-instruction: Subtract 32-bit immediate from stack
+        ///
+        /// r4 can be used by Emit as a scratch register for loading
+        /// the immediate
+        sub_sp_scratch_r4,
         /// Subtract, update condition flags
         subs,
         /// Supervisor Call
@@ -144,6 +149,10 @@ pub const Inst = struct {
         ///
         /// Used by e.g. svc
         imm24: u24,
+        /// A 32-bit immediate value.
+        ///
+        /// Used by e.g. sub_sp_scratch_r0
+        imm32: u32,
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
         ///
         /// Used by e.g. load_memory
@@ -165,6 +174,20 @@ pub const Inst = struct {
         r_imm16: struct {
             rd: Register,
             imm16: u16,
+        },
+        /// A register and an operand
+        ///
+        /// Used by mov and mvn
+        r_op_mov: struct {
+            rd: Register,
+            op: bits.Instruction.Operand,
+        },
+        /// A register and an operand
+        ///
+        /// Used by cmp
+        r_op_cmp: struct {
+            rn: Register,
+            op: bits.Instruction.Operand,
         },
         /// Two registers and a shift amount
         ///
@@ -241,7 +264,7 @@ pub const Inst = struct {
     // Make sure we don't accidentally make instructions bigger than expected.
     // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
     comptime {
-        if (builtin.mode != .Debug) {
+        if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
             assert(@sizeOf(Data) == 8);
         }
     }
@@ -260,7 +283,7 @@ pub fn extraData(mir: Mir, comptime T: type, index: usize) struct { data: T, end
     var i: usize = index;
     var result: T = undefined;
     inline for (fields) |field| {
-        @field(result, field.name) = switch (field.field_type) {
+        @field(result, field.name) = switch (field.type) {
             u32 => mir.extra[i],
             i32 => @bitCast(i32, mir.extra[i]),
             else => @compileError("bad field type"),

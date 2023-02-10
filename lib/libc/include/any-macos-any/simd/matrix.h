@@ -24,6 +24,10 @@
  *
  *      simd_transpose(x)               Transpose of the matrix x.
  *
+ *      simd_trace(x)                   Trace of the matrix x.
+ *
+ *      simd_determinant(x)             Determinant of the matrix x.
+ *
  *      simd_inverse(x)                 Inverse of x if x is non-singular.  If
  *                                      x is singular, the result is undefined.
  *
@@ -248,6 +252,14 @@ static simd_double4x3 SIMD_CFUNC simd_transpose(simd_double3x4 __x);
 static simd_double4x4 SIMD_CFUNC simd_transpose(simd_double4x4 __x);
 #define matrix_transpose simd_transpose
 
+static float SIMD_CFUNC simd_trace(simd_float2x2 __x);
+static float SIMD_CFUNC simd_trace(simd_float3x3 __x);
+static float SIMD_CFUNC simd_trace(simd_float4x4 __x);
+static double SIMD_CFUNC simd_trace(simd_double2x2 __x);
+static double SIMD_CFUNC simd_trace(simd_double3x3 __x);
+static double SIMD_CFUNC simd_trace(simd_double4x4 __x);
+#define matrix_trace simd_trace
+
 static float SIMD_CFUNC simd_determinant(simd_float2x2 __x);
 static float SIMD_CFUNC simd_determinant(simd_float3x3 __x);
 static float SIMD_CFUNC simd_determinant(simd_float4x4 __x);
@@ -468,7 +480,11 @@ namespace simd {
   static SIMD_CPPFUNC float4x2 transpose(const float2x4 x) { return ::simd_transpose(x); }
   static SIMD_CPPFUNC float4x3 transpose(const float3x4 x) { return ::simd_transpose(x); }
   static SIMD_CPPFUNC float4x4 transpose(const float4x4 x) { return ::simd_transpose(x); }
-  
+
+  static SIMD_CPPFUNC float trace(const float2x2 x) { return ::simd_trace(x); }
+  static SIMD_CPPFUNC float trace(const float3x3 x) { return ::simd_trace(x); }
+  static SIMD_CPPFUNC float trace(const float4x4 x) { return ::simd_trace(x); }
+
   static SIMD_CPPFUNC float determinant(const float2x2 x) { return ::simd_determinant(x); }
   static SIMD_CPPFUNC float determinant(const float3x3 x) { return ::simd_determinant(x); }
   static SIMD_CPPFUNC float determinant(const float4x4 x) { return ::simd_determinant(x); }
@@ -656,7 +672,11 @@ namespace simd {
   static SIMD_CPPFUNC double4x2 transpose(const double2x4 x) { return ::simd_transpose(x); }
   static SIMD_CPPFUNC double4x3 transpose(const double3x4 x) { return ::simd_transpose(x); }
   static SIMD_CPPFUNC double4x4 transpose(const double4x4 x) { return ::simd_transpose(x); }
-  
+
+  static SIMD_CPPFUNC double trace(const double2x2 x) { return ::simd_trace(x); }
+  static SIMD_CPPFUNC double trace(const double3x3 x) { return ::simd_trace(x); }
+  static SIMD_CPPFUNC double trace(const double4x4 x) { return ::simd_trace(x); }
+
   static SIMD_CPPFUNC double determinant(const double2x2 x) { return ::simd_determinant(x); }
   static SIMD_CPPFUNC double determinant(const double3x3 x) { return ::simd_determinant(x); }
   static SIMD_CPPFUNC double determinant(const double4x4 x) { return ::simd_determinant(x); }
@@ -1291,6 +1311,13 @@ static simd_double3 SIMD_CFUNC __rotate2(simd_double3 __x) { return __builtin_sh
 static simd_double4 SIMD_CFUNC __rotate1(simd_double4 __x) { return __builtin_shufflevector(__x,__x,1,2,3,0); }
 static simd_double4 SIMD_CFUNC __rotate2(simd_double4 __x) { return __builtin_shufflevector(__x,__x,2,3,0,1); }
 static simd_double4 SIMD_CFUNC __rotate3(simd_double4 __x) { return __builtin_shufflevector(__x,__x,3,0,1,2); }
+
+static  float SIMD_CFUNC simd_trace( simd_float2x2 __x) { return __x.columns[0][0] + __x.columns[1][1]; }
+static double SIMD_CFUNC simd_trace(simd_double2x2 __x) { return __x.columns[0][0] + __x.columns[1][1]; }
+static  float SIMD_CFUNC simd_trace( simd_float3x3 __x) { return __x.columns[0][0] + __x.columns[1][1] + __x.columns[2][2]; }
+static double SIMD_CFUNC simd_trace(simd_double3x3 __x) { return __x.columns[0][0] + __x.columns[1][1] + __x.columns[2][2]; }
+static  float SIMD_CFUNC simd_trace( simd_float4x4 __x) { return __x.columns[0][0] + __x.columns[1][1] + __x.columns[2][2] + __x.columns[3][3]; }
+static double SIMD_CFUNC simd_trace(simd_double4x4 __x) { return __x.columns[0][0] + __x.columns[1][1] + __x.columns[2][2] + __x.columns[3][3]; }
 
 static  float SIMD_CFUNC simd_determinant( simd_float2x2 __x) { return __x.columns[0][0]*__x.columns[1][1] - __x.columns[0][1]*__x.columns[1][0]; }
 static double SIMD_CFUNC simd_determinant(simd_double2x2 __x) { return __x.columns[0][0]*__x.columns[1][1] - __x.columns[0][1]*__x.columns[1][0]; }

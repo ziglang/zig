@@ -35,8 +35,8 @@ pub fn add(
     src: SwitchProngSrc,
 ) !?SwitchProngSrc {
     for (self.ranges.items) |range| {
-        if (last.compare(.gte, range.first, ty, self.module) and
-            first.compare(.lte, range.last, ty, self.module))
+        if (last.compareAll(.gte, range.first, ty, self.module) and
+            first.compareAll(.lte, range.last, ty, self.module))
         {
             return range.src; // They overlap.
         }
@@ -53,7 +53,7 @@ const LessThanContext = struct { ty: Type, module: *Module };
 
 /// Assumes a and b do not overlap
 fn lessThan(ctx: LessThanContext, a: Range, b: Range) bool {
-    return a.first.compare(.lt, b.first, ctx.ty, ctx.module);
+    return a.first.compareAll(.lt, b.first, ctx.ty, ctx.module);
 }
 
 pub fn spans(self: *RangeSet, first: Value, last: Value, ty: Type) !bool {
@@ -85,7 +85,7 @@ pub fn spans(self: *RangeSet, first: Value, last: Value, ty: Type) !bool {
 
         // prev.last + 1 == cur.first
         try counter.copy(prev.last.toBigInt(&space, target));
-        try counter.addScalar(counter.toConst(), 1);
+        try counter.addScalar(&counter, 1);
 
         const cur_start_int = cur.first.toBigInt(&space, target);
         if (!cur_start_int.eq(counter.toConst())) {

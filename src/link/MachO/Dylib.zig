@@ -11,30 +11,25 @@ const mem = std.mem;
 const fat = @import("fat.zig");
 
 const Allocator = mem.Allocator;
+const CrossTarget = std.zig.CrossTarget;
 const LibStub = @import("../tapi.zig").LibStub;
+const LoadCommandIterator = macho.LoadCommandIterator;
 const MachO = @import("../MachO.zig");
 
-file: fs.File,
-name: []const u8,
-
-header: ?macho.mach_header_64 = null,
-
-// The actual dylib contents we care about linking with will be embedded at
-// an offset within a file if we are linking against a fat lib
-library_offset: u64 = 0,
-
-load_commands: std.ArrayListUnmanaged(macho.LoadCommand) = .{},
-
-symtab_cmd_index: ?u16 = null,
-dysymtab_cmd_index: ?u16 = null,
-id_cmd_index: ?u16 = null,
-
 id: ?Id = null,
+weak: bool = false,
 
 /// Parsed symbol table represented as hash map of symbols'
 /// names. We can and should defer creating *Symbols until
 /// a symbol is referenced by an object file.
-symbols: std.StringArrayHashMapUnmanaged(void) = .{},
+///
+/// The value for each parsed symbol represents whether the
+/// symbol is defined as a weak symbol or strong.
+/// TODO when the referenced symbol is weak, ld64 marks it as
+/// N_REF_TO_WEAK but need to investigate if there's more to it
+/// such as weak binding entry or simply weak. For now, we generate
+/// standard bind or lazy bind.
+symbols: std.StringArrayHashMapUnmanaged(bool) = .{},
 
 pub const Id = struct {
     name: []const u8,
@@ -51,16 +46,12 @@ pub const Id = struct {
         };
     }
 
-    pub fn fromLoadCommand(allocator: Allocator, lc: macho.GenericCommandWithData(macho.dylib_command)) !Id {
-        const dylib = lc.inner.dylib;
-        const dylib_name = @ptrCast([*:0]const u8, lc.data[dylib.name - @sizeOf(macho.dylib_command) ..]);
-        const name = try allocator.dupe(u8, mem.sliceTo(dylib_name, 0));
-
+    pub fn fromLoadCommand(allocator: Allocator, lc: macho.dylib_command, name: []const u8) !Id {
         return Id{
-            .name = name,
-            .timestamp = dylib.timestamp,
-            .current_version = dylib.current_version,
-            .compatibility_version = dylib.compatibility_version,
+            .name = try allocator.dupe(u8, name),
+            .timestamp = lc.dylib.timestamp,
+            .current_version = lc.dylib.current_version,
+            .compatibility_version = lc.dylib.compatibility_version,
         };
     }
 
@@ -124,113 +115,91 @@ pub const Id = struct {
 };
 
 pub fn deinit(self: *Dylib, allocator: Allocator) void {
-    for (self.load_commands.items) |*lc| {
-        lc.deinit(allocator);
-    }
-    self.load_commands.deinit(allocator);
-
     for (self.symbols.keys()) |key| {
         allocator.free(key);
     }
     self.symbols.deinit(allocator);
-
-    allocator.free(self.name);
-
     if (self.id) |*id| {
         id.deinit(allocator);
     }
 }
 
-pub fn parse(self: *Dylib, allocator: Allocator, target: std.Target, dependent_libs: anytype) !void {
-    log.debug("parsing shared library '{s}'", .{self.name});
+pub fn parseFromBinary(
+    self: *Dylib,
+    allocator: Allocator,
+    cpu_arch: std.Target.Cpu.Arch,
+    dylib_id: u16,
+    dependent_libs: anytype,
+    name: []const u8,
+    data: []align(@alignOf(u64)) const u8,
+) !void {
+    var stream = std.io.fixedBufferStream(data);
+    const reader = stream.reader();
 
-    self.library_offset = try fat.getLibraryOffset(self.file.reader(), target);
+    log.debug("parsing shared library '{s}'", .{name});
 
-    try self.file.seekTo(self.library_offset);
+    const header = try reader.readStruct(macho.mach_header_64);
 
-    var reader = self.file.reader();
-    self.header = try reader.readStruct(macho.mach_header_64);
-
-    if (self.header.?.filetype != macho.MH_DYLIB) {
-        log.debug("invalid filetype: expected 0x{x}, found 0x{x}", .{ macho.MH_DYLIB, self.header.?.filetype });
+    if (header.filetype != macho.MH_DYLIB) {
+        log.debug("invalid filetype: expected 0x{x}, found 0x{x}", .{ macho.MH_DYLIB, header.filetype });
         return error.NotDylib;
     }
 
-    const this_arch: std.Target.Cpu.Arch = try fat.decodeArch(self.header.?.cputype, true);
+    const this_arch: std.Target.Cpu.Arch = try fat.decodeArch(header.cputype, true);
 
-    if (this_arch != target.cpu.arch) {
-        log.err("mismatched cpu architecture: expected {s}, found {s}", .{ target.cpu.arch, this_arch });
+    if (this_arch != cpu_arch) {
+        log.err("mismatched cpu architecture: expected {s}, found {s}", .{
+            @tagName(cpu_arch),
+            @tagName(this_arch),
+        });
         return error.MismatchedCpuArchitecture;
     }
 
-    try self.readLoadCommands(allocator, reader, dependent_libs);
-    try self.parseId(allocator);
-    try self.parseSymbols(allocator);
-}
-
-fn readLoadCommands(self: *Dylib, allocator: Allocator, reader: anytype, dependent_libs: anytype) !void {
-    const should_lookup_reexports = self.header.?.flags & macho.MH_NO_REEXPORTED_DYLIBS == 0;
-
-    try self.load_commands.ensureUnusedCapacity(allocator, self.header.?.ncmds);
-
-    var i: u16 = 0;
-    while (i < self.header.?.ncmds) : (i += 1) {
-        var cmd = try macho.LoadCommand.read(allocator, reader);
+    const should_lookup_reexports = header.flags & macho.MH_NO_REEXPORTED_DYLIBS == 0;
+    var it = LoadCommandIterator{
+        .ncmds = header.ncmds,
+        .buffer = data[@sizeOf(macho.mach_header_64)..][0..header.sizeofcmds],
+    };
+    while (it.next()) |cmd| {
         switch (cmd.cmd()) {
             .SYMTAB => {
-                self.symtab_cmd_index = i;
-            },
-            .DYSYMTAB => {
-                self.dysymtab_cmd_index = i;
+                const symtab_cmd = cmd.cast(macho.symtab_command).?;
+                const symtab = @ptrCast(
+                    [*]const macho.nlist_64,
+                    // Alignment is guaranteed as a dylib is a final linked image and has to have sections
+                    // properly aligned in order to be correctly loaded by the loader.
+                    @alignCast(@alignOf(macho.nlist_64), &data[symtab_cmd.symoff]),
+                )[0..symtab_cmd.nsyms];
+                const strtab = data[symtab_cmd.stroff..][0..symtab_cmd.strsize];
+
+                for (symtab) |sym| {
+                    const add_to_symtab = sym.ext() and (sym.sect() or sym.indr());
+                    if (!add_to_symtab) continue;
+
+                    const sym_name = mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx), 0);
+                    try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), false);
+                }
             },
             .ID_DYLIB => {
-                self.id_cmd_index = i;
+                self.id = try Id.fromLoadCommand(
+                    allocator,
+                    cmd.cast(macho.dylib_command).?,
+                    cmd.getDylibPathName(),
+                );
             },
             .REEXPORT_DYLIB => {
                 if (should_lookup_reexports) {
                     // Parse install_name to dependent dylib.
-                    var id = try Id.fromLoadCommand(allocator, cmd.dylib);
-                    try dependent_libs.writeItem(id);
+                    var id = try Id.fromLoadCommand(
+                        allocator,
+                        cmd.cast(macho.dylib_command).?,
+                        cmd.getDylibPathName(),
+                    );
+                    try dependent_libs.writeItem(.{ .id = id, .parent = dylib_id });
                 }
             },
-            else => {
-                log.debug("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
-            },
+            else => {},
         }
-        self.load_commands.appendAssumeCapacity(cmd);
-    }
-}
-
-fn parseId(self: *Dylib, allocator: Allocator) !void {
-    const index = self.id_cmd_index orelse {
-        log.debug("no LC_ID_DYLIB load command found; using hard-coded defaults...", .{});
-        self.id = try Id.default(allocator, self.name);
-        return;
-    };
-    self.id = try Id.fromLoadCommand(allocator, self.load_commands.items[index].dylib);
-}
-
-fn parseSymbols(self: *Dylib, allocator: Allocator) !void {
-    const index = self.symtab_cmd_index orelse return;
-    const symtab_cmd = self.load_commands.items[index].symtab;
-
-    const symtab = try allocator.alloc(u8, @sizeOf(macho.nlist_64) * symtab_cmd.nsyms);
-    defer allocator.free(symtab);
-    _ = try self.file.preadAll(symtab, symtab_cmd.symoff + self.library_offset);
-    const slice = @alignCast(@alignOf(macho.nlist_64), mem.bytesAsSlice(macho.nlist_64, symtab));
-
-    const strtab = try allocator.alloc(u8, symtab_cmd.strsize);
-    defer allocator.free(strtab);
-    _ = try self.file.preadAll(strtab, symtab_cmd.stroff + self.library_offset);
-
-    for (slice) |sym| {
-        const add_to_symtab = sym.ext() and (sym.sect() or sym.indr());
-
-        if (!add_to_symtab) continue;
-
-        const sym_name = mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx), 0);
-        const name = try allocator.dupe(u8, sym_name);
-        try self.symbols.putNoClobber(allocator, name, {});
     }
 }
 
@@ -242,46 +211,52 @@ fn addObjCClassSymbol(self: *Dylib, allocator: Allocator, sym_name: []const u8) 
 
     for (expanded) |sym| {
         if (self.symbols.contains(sym)) continue;
-        try self.symbols.putNoClobber(allocator, sym, {});
+        try self.symbols.putNoClobber(allocator, sym, false);
     }
 }
 
 fn addObjCIVarSymbol(self: *Dylib, allocator: Allocator, sym_name: []const u8) !void {
     const expanded = try std.fmt.allocPrint(allocator, "_OBJC_IVAR_$_{s}", .{sym_name});
     if (self.symbols.contains(expanded)) return;
-    try self.symbols.putNoClobber(allocator, expanded, {});
+    try self.symbols.putNoClobber(allocator, expanded, false);
 }
 
 fn addObjCEhTypeSymbol(self: *Dylib, allocator: Allocator, sym_name: []const u8) !void {
     const expanded = try std.fmt.allocPrint(allocator, "_OBJC_EHTYPE_$_{s}", .{sym_name});
     if (self.symbols.contains(expanded)) return;
-    try self.symbols.putNoClobber(allocator, expanded, {});
+    try self.symbols.putNoClobber(allocator, expanded, false);
 }
 
 fn addSymbol(self: *Dylib, allocator: Allocator, sym_name: []const u8) !void {
     if (self.symbols.contains(sym_name)) return;
-    try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), {});
+    try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), false);
+}
+
+fn addWeakSymbol(self: *Dylib, allocator: Allocator, sym_name: []const u8) !void {
+    if (self.symbols.contains(sym_name)) return;
+    try self.symbols.putNoClobber(allocator, try allocator.dupe(u8, sym_name), true);
 }
 
 const TargetMatcher = struct {
     allocator: Allocator,
-    target: std.Target,
+    target: CrossTarget,
     target_strings: std.ArrayListUnmanaged([]const u8) = .{},
 
-    fn init(allocator: Allocator, target: std.Target) !TargetMatcher {
+    fn init(allocator: Allocator, target: CrossTarget) !TargetMatcher {
         var self = TargetMatcher{
             .allocator = allocator,
             .target = target,
         };
         try self.target_strings.append(allocator, try targetToAppleString(allocator, target));
 
-        if (target.abi == .simulator) {
+        const abi = target.abi orelse .none;
+        if (abi == .simulator) {
             // For Apple simulator targets, linking gets tricky as we need to link against the simulator
             // hosts dylibs too.
-            const host_target = try targetToAppleString(allocator, (std.zig.CrossTarget{
-                .cpu_arch = target.cpu.arch,
+            const host_target = try targetToAppleString(allocator, .{
+                .cpu_arch = target.cpu_arch.?,
                 .os_tag = .macos,
-            }).toTarget());
+            });
             try self.target_strings.append(allocator, host_target);
         }
 
@@ -295,23 +270,24 @@ const TargetMatcher = struct {
         self.target_strings.deinit(self.allocator);
     }
 
-    fn targetToAppleString(allocator: Allocator, target: std.Target) ![]const u8 {
-        const arch = switch (target.cpu.arch) {
+    fn targetToAppleString(allocator: Allocator, target: CrossTarget) ![]const u8 {
+        const cpu_arch = switch (target.cpu_arch.?) {
             .aarch64 => "arm64",
             .x86_64 => "x86_64",
             else => unreachable,
         };
-        const os = @tagName(target.os.tag);
-        const abi: ?[]const u8 = switch (target.abi) {
+        const os_tag = @tagName(target.os_tag.?);
+        const target_abi = target.abi orelse .none;
+        const abi: ?[]const u8 = switch (target_abi) {
             .none => null,
             .simulator => "simulator",
             .macabi => "maccatalyst",
             else => unreachable,
         };
         if (abi) |x| {
-            return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ arch, os, x });
+            return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ cpu_arch, os_tag, x });
         }
-        return std.fmt.allocPrint(allocator, "{s}-{s}", .{ arch, os });
+        return std.fmt.allocPrint(allocator, "{s}-{s}", .{ cpu_arch, os_tag });
     }
 
     fn hasValue(stack: []const []const u8, needle: []const u8) bool {
@@ -329,7 +305,7 @@ const TargetMatcher = struct {
     }
 
     fn matchesArch(self: TargetMatcher, archs: []const []const u8) bool {
-        return hasValue(archs, @tagName(self.target.cpu.arch));
+        return hasValue(archs, @tagName(self.target.cpu_arch.?));
     }
 };
 
@@ -338,11 +314,13 @@ pub fn parseFromStub(
     allocator: Allocator,
     target: std.Target,
     lib_stub: LibStub,
+    dylib_id: u16,
     dependent_libs: anytype,
+    name: []const u8,
 ) !void {
     if (lib_stub.inner.len == 0) return error.EmptyStubFile;
 
-    log.debug("parsing shared library from stub '{s}'", .{self.name});
+    log.debug("parsing shared library from stub '{s}'", .{name});
 
     const umbrella_lib = lib_stub.inner[0];
 
@@ -362,7 +340,11 @@ pub fn parseFromStub(
 
     log.debug("  (install_name '{s}')", .{umbrella_lib.installName()});
 
-    var matcher = try TargetMatcher.init(allocator, target);
+    var matcher = try TargetMatcher.init(allocator, .{
+        .cpu_arch = target.cpu.arch,
+        .os_tag = target.os.tag,
+        .abi = target.abi,
+    });
     defer matcher.deinit();
 
     for (lib_stub.inner) |elem, stub_index| {
@@ -388,6 +370,12 @@ pub fn parseFromStub(
                         if (exp.symbols) |symbols| {
                             for (symbols) |sym_name| {
                                 try self.addSymbol(allocator, sym_name);
+                            }
+                        }
+
+                        if (exp.weak_symbols) |symbols| {
+                            for (symbols) |sym_name| {
+                                try self.addWeakSymbol(allocator, sym_name);
                             }
                         }
 
@@ -417,7 +405,7 @@ pub fn parseFromStub(
                                 log.debug("  (found re-export '{s}')", .{lib});
 
                                 var dep_id = try Id.default(allocator, lib);
-                                try dependent_libs.writeItem(dep_id);
+                                try dependent_libs.writeItem(.{ .id = dep_id, .parent = dylib_id });
                             }
                         }
                     }
@@ -431,6 +419,12 @@ pub fn parseFromStub(
                         if (exp.symbols) |symbols| {
                             for (symbols) |sym_name| {
                                 try self.addSymbol(allocator, sym_name);
+                            }
+                        }
+
+                        if (exp.weak_symbols) |symbols| {
+                            for (symbols) |sym_name| {
+                                try self.addWeakSymbol(allocator, sym_name);
                             }
                         }
 
@@ -461,6 +455,12 @@ pub fn parseFromStub(
                         if (reexp.symbols) |symbols| {
                             for (symbols) |sym_name| {
                                 try self.addSymbol(allocator, sym_name);
+                            }
+                        }
+
+                        if (reexp.weak_symbols) |symbols| {
+                            for (symbols) |sym_name| {
+                                try self.addWeakSymbol(allocator, sym_name);
                             }
                         }
 
@@ -522,7 +522,7 @@ pub fn parseFromStub(
                     log.debug("  (found re-export '{s}')", .{lib});
 
                     var dep_id = try Id.default(allocator, lib);
-                    try dependent_libs.writeItem(dep_id);
+                    try dependent_libs.writeItem(.{ .id = dep_id, .parent = dylib_id });
                 }
             }
         }

@@ -7,6 +7,7 @@ Portions of this software are derived from third-party works covered by
 their own licenses:
 
 dlmalloc/                     - CC0; see the notice in malloc.c for details
+emmalloc/                     - MIT; see the notice in emmalloc.c for details
 libc-bottom-half/cloudlibc/   - BSD-2-Clause; see the LICENSE file for details
 libc-top-half/musl/           - MIT; see the COPYRIGHT file for details
 

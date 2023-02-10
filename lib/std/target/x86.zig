@@ -24,6 +24,7 @@ pub const Feature = enum {
     avx512dq,
     avx512er,
     avx512f,
+    avx512fp16,
     avx512ifma,
     avx512pf,
     avx512vbmi,
@@ -41,13 +42,19 @@ pub const Feature = enum {
     clwb,
     clzero,
     cmov,
+    crc32,
     cx16,
     cx8,
     enqcmd,
     ermsb,
     f16c,
+    false_deps_getmant,
     false_deps_lzcnt_tzcnt,
+    false_deps_mulc,
+    false_deps_mullq,
+    false_deps_perm,
     false_deps_popcnt,
+    false_deps_range,
     fast_11bytenop,
     fast_15bytenop,
     fast_7bytenop,
@@ -69,6 +76,8 @@ pub const Feature = enum {
     fsrm,
     fxsr,
     gfni,
+    harden_sls_ijmp,
+    harden_sls_ret,
     hreset,
     idivl_to_divb,
     idivq_to_divl,
@@ -99,6 +108,7 @@ pub const Feature = enum {
     prfchw,
     ptwrite,
     rdpid,
+    rdpru,
     rdrnd,
     rdseed,
     retpoline,
@@ -107,6 +117,7 @@ pub const Feature = enum {
     retpoline_indirect_calls,
     rtm,
     sahf,
+    sbb_dep_breaking,
     serialize,
     seses,
     sgx,
@@ -130,11 +141,12 @@ pub const Feature = enum {
     sse4a,
     sse_unaligned_mem,
     ssse3,
+    tagged_globals,
     tbm,
     tsxldtrk,
     uintr,
-    use_aa,
     use_glm_div_sqrt_costs,
+    use_slm_arith_costs,
     vaes,
     vpclmulqdq,
     vzeroupper,
@@ -283,6 +295,15 @@ pub const all_features = blk: {
             .fma,
         }),
     };
+    result[@enumToInt(Feature.avx512fp16)] = .{
+        .llvm_name = "avx512fp16",
+        .description = "Support 16-bit floating point",
+        .dependencies = featureSet(&[_]Feature{
+            .avx512bw,
+            .avx512dq,
+            .avx512vl,
+        }),
+    };
     result[@enumToInt(Feature.avx512ifma)] = .{
         .llvm_name = "avx512ifma",
         .description = "Enable AVX-512 Integer Fused Multiple-Add",
@@ -363,7 +384,7 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.cldemote)] = .{
         .llvm_name = "cldemote",
-        .description = "Enable Cache Demote",
+        .description = "Enable Cache Line Demote",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.clflushopt)] = .{
@@ -386,9 +407,14 @@ pub const all_features = blk: {
         .description = "Enable conditional move instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.crc32)] = .{
+        .llvm_name = "crc32",
+        .description = "Enable SSE 4.2 CRC32 instruction (used when SSE4.2 is supported but function is GPR only)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.cx16)] = .{
         .llvm_name = "cx16",
-        .description = "64-bit with cmpxchg16b",
+        .description = "64-bit with cmpxchg16b (this is true for most x86-64 chips, but not the first AMD chips)",
         .dependencies = featureSet(&[_]Feature{
             .cx8,
         }),
@@ -415,14 +441,39 @@ pub const all_features = blk: {
             .avx,
         }),
     };
+    result[@enumToInt(Feature.false_deps_getmant)] = .{
+        .llvm_name = "false-deps-getmant",
+        .description = "VGETMANTSS/SD/SH and VGETMANDPS/PD(memory version) has a false dependency on dest register",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.false_deps_lzcnt_tzcnt)] = .{
         .llvm_name = "false-deps-lzcnt-tzcnt",
         .description = "LZCNT/TZCNT have a false dependency on dest register",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.false_deps_mulc)] = .{
+        .llvm_name = "false-deps-mulc",
+        .description = "VF[C]MULCPH/SH has a false dependency on dest register",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.false_deps_mullq)] = .{
+        .llvm_name = "false-deps-mullq",
+        .description = "VPMULLQ has a false dependency on dest register",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.false_deps_perm)] = .{
+        .llvm_name = "false-deps-perm",
+        .description = "VPERMD/Q/PS/PD has a false dependency on dest register",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.false_deps_popcnt)] = .{
         .llvm_name = "false-deps-popcnt",
         .description = "POPCNT has a false dependency on dest register",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.false_deps_range)] = .{
+        .llvm_name = "false-deps-range",
+        .description = "VRANGEPD/PS/SD/SS has a false dependency on dest register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fast_11bytenop)] = .{
@@ -447,7 +498,7 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.fast_gather)] = .{
         .llvm_name = "fast-gather",
-        .description = "Indicates if gather is reasonably fast",
+        .description = "Indicates if gather is reasonably fast (this is true for Skylake client and all AVX-512 CPUs)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fast_hops)] = .{
@@ -537,6 +588,16 @@ pub const all_features = blk: {
             .sse2,
         }),
     };
+    result[@enumToInt(Feature.harden_sls_ijmp)] = .{
+        .llvm_name = "harden-sls-ijmp",
+        .description = "Harden against straight line speculation across indirect JMP instructions.",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.harden_sls_ret)] = .{
+        .llvm_name = "harden-sls-ret",
+        .description = "Harden against straight line speculation across RET instructions.",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.hreset)] = .{
         .llvm_name = "hreset",
         .description = "Has hreset instruction",
@@ -566,7 +627,7 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.lea_sp)] = .{
         .llvm_name = "lea-sp",
-        .description = "Use LEA for adjusting the stack pointer",
+        .description = "Use LEA for adjusting the stack pointer (this is an optimization for Intel Atom processors)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.lea_uses_ag)] = .{
@@ -611,12 +672,12 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.movdir64b)] = .{
         .llvm_name = "movdir64b",
-        .description = "Support movdir64b instruction",
+        .description = "Support movdir64b instruction (direct store 64 bytes)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.movdiri)] = .{
         .llvm_name = "movdiri",
-        .description = "Support movdiri instruction",
+        .description = "Support movdiri instruction (direct store integer)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mwaitx)] = .{
@@ -626,12 +687,12 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.nopl)] = .{
         .llvm_name = "nopl",
-        .description = "Enable NOPL instruction",
+        .description = "Enable NOPL instruction (generally pentium pro+)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.pad_short_functions)] = .{
         .llvm_name = "pad-short-functions",
-        .description = "Pad short functions",
+        .description = "Pad short functions (to prevent a stall when returning too early)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.pclmul)] = .{
@@ -691,6 +752,11 @@ pub const all_features = blk: {
         .description = "Support RDPID instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.rdpru)] = .{
+        .llvm_name = "rdpru",
+        .description = "Support RDPRU instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.rdrnd)] = .{
         .llvm_name = "rdrnd",
         .description = "Support RDRAND instruction",
@@ -734,6 +800,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.sahf)] = .{
         .llvm_name = "sahf",
         .description = "Support LAHF and SAHF instructions in 64-bit mode",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.sbb_dep_breaking)] = .{
+        .llvm_name = "sbb-dep-breaking",
+        .description = "SBB with same register has no source dependency",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.serialize)] = .{
@@ -787,7 +858,7 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.slow_pmulld)] = .{
         .llvm_name = "slow-pmulld",
-        .description = "PMULLD instruction is slow",
+        .description = "PMULLD instruction is slow (compared to PMULLW/PMULHW and PMULUDQ)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.slow_shld)] = .{
@@ -857,7 +928,7 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.sse_unaligned_mem)] = .{
         .llvm_name = "sse-unaligned-mem",
-        .description = "Allow unaligned memory operands with SSE instructions",
+        .description = "Allow unaligned memory operands with SSE instructions (this may require setting a configuration bit in the processor)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ssse3)] = .{
@@ -866,6 +937,11 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{
             .sse3,
         }),
+    };
+    result[@enumToInt(Feature.tagged_globals)] = .{
+        .llvm_name = "tagged-globals",
+        .description = "Use an instruction sequence for taking the address of a global that allows a memory tag in the upper address bits.",
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.tbm)] = .{
         .llvm_name = "tbm",
@@ -882,14 +958,14 @@ pub const all_features = blk: {
         .description = "Has UINTR Instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.use_aa)] = .{
-        .llvm_name = "use-aa",
-        .description = "Use alias analysis during codegen",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
     result[@enumToInt(Feature.use_glm_div_sqrt_costs)] = .{
         .llvm_name = "use-glm-div-sqrt-costs",
         .description = "Use Goldmont specific floating point div/sqrt costs",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.use_slm_arith_costs)] = .{
+        .llvm_name = "use-slm-arith-costs",
+        .description = "Use Silvermont specific arithmetic costs",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.vaes)] = .{
@@ -977,45 +1053,6 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const _i386 = CpuModel{
-        .name = "_i386",
-        .llvm_name = "i386",
-        .features = featureSet(&[_]Feature{
-            .slow_unaligned_mem_16,
-            .vzeroupper,
-            .x87,
-        }),
-    };
-    pub const _i486 = CpuModel{
-        .name = "_i486",
-        .llvm_name = "i486",
-        .features = featureSet(&[_]Feature{
-            .slow_unaligned_mem_16,
-            .vzeroupper,
-            .x87,
-        }),
-    };
-    pub const _i586 = CpuModel{
-        .name = "_i586",
-        .llvm_name = "i586",
-        .features = featureSet(&[_]Feature{
-            .cx8,
-            .slow_unaligned_mem_16,
-            .vzeroupper,
-            .x87,
-        }),
-    };
-    pub const _i686 = CpuModel{
-        .name = "_i686",
-        .llvm_name = "i686",
-        .features = featureSet(&[_]Feature{
-            .cmov,
-            .cx8,
-            .slow_unaligned_mem_16,
-            .vzeroupper,
-            .x87,
-        }),
-    };
     pub const alderlake = CpuModel{
         .name = "alderlake",
         .llvm_name = "alderlake",
@@ -1029,8 +1066,10 @@ pub const cpu = struct {
             .clflushopt,
             .clwb,
             .cmov,
+            .crc32,
             .cx16,
             .f16c,
+            .false_deps_perm,
             .false_deps_popcnt,
             .fast_15bytenop,
             .fast_gather,
@@ -1092,6 +1131,7 @@ pub const cpu = struct {
             .popcnt,
             .prfchw,
             .sahf,
+            .sbb_dep_breaking,
             .slow_shld,
             .sse4a,
             .vzeroupper,
@@ -1123,6 +1163,7 @@ pub const cpu = struct {
             .fast_scalar_shift_masks,
             .fxsr,
             .nopl,
+            .sbb_dep_breaking,
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse2,
@@ -1141,6 +1182,7 @@ pub const cpu = struct {
             .fast_scalar_shift_masks,
             .fxsr,
             .nopl,
+            .sbb_dep_breaking,
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse3,
@@ -1175,6 +1217,7 @@ pub const cpu = struct {
             .fast_scalar_shift_masks,
             .fxsr,
             .nopl,
+            .sbb_dep_breaking,
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse2,
@@ -1267,6 +1310,7 @@ pub const cpu = struct {
             .popcnt,
             .prfchw,
             .sahf,
+            .sbb_dep_breaking,
             .slow_shld,
             .sse4a,
             .vzeroupper,
@@ -1281,6 +1325,7 @@ pub const cpu = struct {
             .aes,
             .branchfusion,
             .cmov,
+            .crc32,
             .cx16,
             .fast_11bytenop,
             .fast_scalar_shift_masks,
@@ -1293,6 +1338,7 @@ pub const cpu = struct {
             .popcnt,
             .prfchw,
             .sahf,
+            .sbb_dep_breaking,
             .slow_shld,
             .vzeroupper,
             .x87,
@@ -1309,6 +1355,7 @@ pub const cpu = struct {
             .bmi,
             .branchfusion,
             .cmov,
+            .crc32,
             .cx16,
             .f16c,
             .fast_11bytenop,
@@ -1325,6 +1372,7 @@ pub const cpu = struct {
             .popcnt,
             .prfchw,
             .sahf,
+            .sbb_dep_breaking,
             .slow_shld,
             .tbm,
             .vzeroupper,
@@ -1342,6 +1390,7 @@ pub const cpu = struct {
             .bmi,
             .branchfusion,
             .cmov,
+            .crc32,
             .cx16,
             .f16c,
             .fast_11bytenop,
@@ -1359,6 +1408,7 @@ pub const cpu = struct {
             .popcnt,
             .prfchw,
             .sahf,
+            .sbb_dep_breaking,
             .slow_shld,
             .tbm,
             .vzeroupper,
@@ -1378,6 +1428,7 @@ pub const cpu = struct {
             .bmi2,
             .branchfusion,
             .cmov,
+            .crc32,
             .cx16,
             .f16c,
             .fast_11bytenop,
@@ -1398,6 +1449,7 @@ pub const cpu = struct {
             .prfchw,
             .rdrnd,
             .sahf,
+            .sbb_dep_breaking,
             .slow_shld,
             .tbm,
             .vzeroupper,
@@ -1440,6 +1492,7 @@ pub const cpu = struct {
             .bmi,
             .bmi2,
             .cmov,
+            .crc32,
             .cx16,
             .ermsb,
             .f16c,
@@ -1489,6 +1542,7 @@ pub const cpu = struct {
             .popcnt,
             .prfchw,
             .sahf,
+            .sbb_dep_breaking,
             .slow_shld,
             .sse4a,
             .ssse3,
@@ -1504,6 +1558,7 @@ pub const cpu = struct {
             .aes,
             .bmi,
             .cmov,
+            .crc32,
             .cx16,
             .f16c,
             .fast_15bytenop,
@@ -1522,6 +1577,7 @@ pub const cpu = struct {
             .popcnt,
             .prfchw,
             .sahf,
+            .sbb_dep_breaking,
             .slow_shld,
             .sse4a,
             .x87,
@@ -1568,6 +1624,7 @@ pub const cpu = struct {
             .bmi2,
             .clflushopt,
             .cmov,
+            .crc32,
             .cx16,
             .ermsb,
             .fast_15bytenop,
@@ -1620,6 +1677,7 @@ pub const cpu = struct {
             .clflushopt,
             .clwb,
             .cmov,
+            .crc32,
             .cx16,
             .ermsb,
             .false_deps_popcnt,
@@ -1672,6 +1730,7 @@ pub const cpu = struct {
             .clflushopt,
             .clwb,
             .cmov,
+            .crc32,
             .cx16,
             .ermsb,
             .false_deps_popcnt,
@@ -1734,6 +1793,7 @@ pub const cpu = struct {
             .bmi,
             .bmi2,
             .cmov,
+            .crc32,
             .cx16,
             .ermsb,
             .f16c,
@@ -1770,6 +1830,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .cmov,
+            .crc32,
             .cx16,
             .f16c,
             .false_deps_popcnt,
@@ -1799,6 +1860,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .cmov,
+            .crc32,
             .cx16,
             .fxsr,
             .macrofusion,
@@ -1818,6 +1880,7 @@ pub const cpu = struct {
             .@"64bit",
             .avx,
             .cmov,
+            .crc32,
             .cx16,
             .false_deps_popcnt,
             .fast_15bytenop,
@@ -1844,10 +1907,11 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .cx8,
+            .fast_15bytenop,
+            .fast_scalar_fsqrt,
             .idivq_to_divl,
             .macrofusion,
             .slow_3ops_lea,
-            .slow_incdec,
             .vzeroupper,
             .x87,
         }),
@@ -1871,6 +1935,7 @@ pub const cpu = struct {
             .aes,
             .clflushopt,
             .cmov,
+            .crc32,
             .cx16,
             .false_deps_popcnt,
             .fast_movbe,
@@ -1906,6 +1971,7 @@ pub const cpu = struct {
             .aes,
             .clflushopt,
             .cmov,
+            .crc32,
             .cx16,
             .fast_movbe,
             .fsgsbase,
@@ -1943,6 +2009,7 @@ pub const cpu = struct {
             .bmi,
             .bmi2,
             .cmov,
+            .crc32,
             .cx16,
             .ermsb,
             .f16c,
@@ -1973,6 +2040,45 @@ pub const cpu = struct {
             .xsaveopt,
         }),
     };
+    pub const @"i386" = CpuModel{
+        .name = "i386",
+        .llvm_name = "i386",
+        .features = featureSet(&[_]Feature{
+            .slow_unaligned_mem_16,
+            .vzeroupper,
+            .x87,
+        }),
+    };
+    pub const @"i486" = CpuModel{
+        .name = "i486",
+        .llvm_name = "i486",
+        .features = featureSet(&[_]Feature{
+            .slow_unaligned_mem_16,
+            .vzeroupper,
+            .x87,
+        }),
+    };
+    pub const @"i586" = CpuModel{
+        .name = "i586",
+        .llvm_name = "i586",
+        .features = featureSet(&[_]Feature{
+            .cx8,
+            .slow_unaligned_mem_16,
+            .vzeroupper,
+            .x87,
+        }),
+    };
+    pub const @"i686" = CpuModel{
+        .name = "i686",
+        .llvm_name = "i686",
+        .features = featureSet(&[_]Feature{
+            .cmov,
+            .cx8,
+            .slow_unaligned_mem_16,
+            .vzeroupper,
+            .x87,
+        }),
+    };
     pub const icelake_client = CpuModel{
         .name = "icelake_client",
         .llvm_name = "icelake-client",
@@ -1992,6 +2098,7 @@ pub const cpu = struct {
             .bmi2,
             .clflushopt,
             .cmov,
+            .crc32,
             .cx16,
             .ermsb,
             .fast_15bytenop,
@@ -2051,6 +2158,7 @@ pub const cpu = struct {
             .clflushopt,
             .clwb,
             .cmov,
+            .crc32,
             .cx16,
             .ermsb,
             .fast_15bytenop,
@@ -2098,6 +2206,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .cmov,
+            .crc32,
             .cx16,
             .f16c,
             .false_deps_popcnt,
@@ -2165,6 +2274,7 @@ pub const cpu = struct {
             .fast_scalar_shift_masks,
             .fxsr,
             .nopl,
+            .sbb_dep_breaking,
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse2,
@@ -2183,6 +2293,7 @@ pub const cpu = struct {
             .fast_scalar_shift_masks,
             .fxsr,
             .nopl,
+            .sbb_dep_breaking,
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse3,
@@ -2203,6 +2314,7 @@ pub const cpu = struct {
             .bmi,
             .bmi2,
             .cmov,
+            .crc32,
             .cx16,
             .fast_gather,
             .fast_movbe,
@@ -2243,6 +2355,7 @@ pub const cpu = struct {
             .bmi,
             .bmi2,
             .cmov,
+            .crc32,
             .cx16,
             .fast_gather,
             .fast_movbe,
@@ -2285,6 +2398,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .cmov,
+            .crc32,
             .cx16,
             .fxsr,
             .macrofusion,
@@ -2324,6 +2438,7 @@ pub const cpu = struct {
             .fast_scalar_shift_masks,
             .fxsr,
             .nopl,
+            .sbb_dep_breaking,
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse2,
@@ -2342,6 +2457,7 @@ pub const cpu = struct {
             .fast_scalar_shift_masks,
             .fxsr,
             .nopl,
+            .sbb_dep_breaking,
             .slow_shld,
             .slow_unaligned_mem_16,
             .sse3,
@@ -2523,6 +2639,7 @@ pub const cpu = struct {
             .bmi2,
             .clflushopt,
             .cmov,
+            .crc32,
             .cx16,
             .ermsb,
             .fast_15bytenop,
@@ -2569,6 +2686,7 @@ pub const cpu = struct {
             .@"64bit",
             .avx,
             .cmov,
+            .crc32,
             .cx16,
             .false_deps_popcnt,
             .fast_15bytenop,
@@ -2600,13 +2718,11 @@ pub const cpu = struct {
             .avx512bf16,
             .avx512bitalg,
             .avx512cd,
-            .avx512dq,
+            .avx512fp16,
             .avx512ifma,
             .avx512vbmi,
             .avx512vbmi2,
-            .avx512vl,
             .avx512vnni,
-            .avx512vp2intersect,
             .avx512vpopcntdq,
             .avxvnni,
             .bmi,
@@ -2615,9 +2731,15 @@ pub const cpu = struct {
             .clflushopt,
             .clwb,
             .cmov,
+            .crc32,
             .cx16,
             .enqcmd,
             .ermsb,
+            .false_deps_getmant,
+            .false_deps_mulc,
+            .false_deps_mullq,
+            .false_deps_perm,
+            .false_deps_range,
             .fast_15bytenop,
             .fast_gather,
             .fast_scalar_fsqrt,
@@ -2671,6 +2793,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .cmov,
+            .crc32,
             .cx16,
             .false_deps_popcnt,
             .fast_7bytenop,
@@ -2690,6 +2813,7 @@ pub const cpu = struct {
             .slow_pmulld,
             .slow_two_mem_ops,
             .sse4_2,
+            .use_slm_arith_costs,
             .vzeroupper,
             .x87,
         }),
@@ -2710,6 +2834,7 @@ pub const cpu = struct {
             .clflushopt,
             .clwb,
             .cmov,
+            .crc32,
             .cx16,
             .ermsb,
             .false_deps_popcnt,
@@ -2757,6 +2882,7 @@ pub const cpu = struct {
             .bmi2,
             .clflushopt,
             .cmov,
+            .crc32,
             .cx16,
             .ermsb,
             .f16c,
@@ -2808,6 +2934,7 @@ pub const cpu = struct {
             .clflushopt,
             .clwb,
             .cmov,
+            .crc32,
             .cx16,
             .ermsb,
             .false_deps_popcnt,
@@ -2849,6 +2976,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .cmov,
+            .crc32,
             .cx16,
             .false_deps_popcnt,
             .fast_7bytenop,
@@ -2868,6 +2996,7 @@ pub const cpu = struct {
             .slow_pmulld,
             .slow_two_mem_ops,
             .sse4_2,
+            .use_slm_arith_costs,
             .vzeroupper,
             .x87,
         }),
@@ -2893,6 +3022,7 @@ pub const cpu = struct {
             .clflushopt,
             .clwb,
             .cmov,
+            .crc32,
             .cx16,
             .ermsb,
             .fast_15bytenop,
@@ -2944,6 +3074,7 @@ pub const cpu = struct {
             .clflushopt,
             .clwb,
             .cmov,
+            .crc32,
             .cx16,
             .fast_movbe,
             .fsgsbase,
@@ -2979,6 +3110,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .cmov,
+            .crc32,
             .cx16,
             .fxsr,
             .macrofusion,
@@ -3037,6 +3169,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .@"64bit",
             .cmov,
+            .crc32,
             .cx16,
             .false_deps_popcnt,
             .fast_15bytenop,
@@ -3065,6 +3198,7 @@ pub const cpu = struct {
             .bmi,
             .bmi2,
             .cmov,
+            .crc32,
             .cx16,
             .f16c,
             .false_deps_lzcnt_tzcnt,
@@ -3102,6 +3236,7 @@ pub const cpu = struct {
             .bmi,
             .bmi2,
             .cmov,
+            .crc32,
             .cx16,
             .false_deps_popcnt,
             .fast_15bytenop,
@@ -3156,13 +3291,17 @@ pub const cpu = struct {
             .clflushopt,
             .clzero,
             .cmov,
+            .crc32,
             .cx16,
             .f16c,
             .fast_15bytenop,
             .fast_bextr,
             .fast_lzcnt,
             .fast_movbe,
+            .fast_scalar_fsqrt,
             .fast_scalar_shift_masks,
+            .fast_variable_perlane_shuffle,
+            .fast_vector_fsqrt,
             .fma,
             .fsgsbase,
             .fxsr,
@@ -3177,6 +3316,7 @@ pub const cpu = struct {
             .rdrnd,
             .rdseed,
             .sahf,
+            .sbb_dep_breaking,
             .sha,
             .slow_shld,
             .sse4a,
@@ -3202,13 +3342,17 @@ pub const cpu = struct {
             .clwb,
             .clzero,
             .cmov,
+            .crc32,
             .cx16,
             .f16c,
             .fast_15bytenop,
             .fast_bextr,
             .fast_lzcnt,
             .fast_movbe,
+            .fast_scalar_fsqrt,
             .fast_scalar_shift_masks,
+            .fast_variable_perlane_shuffle,
+            .fast_vector_fsqrt,
             .fma,
             .fsgsbase,
             .fxsr,
@@ -3221,9 +3365,11 @@ pub const cpu = struct {
             .popcnt,
             .prfchw,
             .rdpid,
+            .rdpru,
             .rdrnd,
             .rdseed,
             .sahf,
+            .sbb_dep_breaking,
             .sha,
             .slow_shld,
             .sse4a,
@@ -3249,14 +3395,17 @@ pub const cpu = struct {
             .clwb,
             .clzero,
             .cmov,
+            .crc32,
             .cx16,
             .f16c,
             .fast_15bytenop,
             .fast_bextr,
             .fast_lzcnt,
             .fast_movbe,
+            .fast_scalar_fsqrt,
             .fast_scalar_shift_masks,
             .fast_variable_perlane_shuffle,
+            .fast_vector_fsqrt,
             .fma,
             .fsgsbase,
             .fsrm,
@@ -3272,9 +3421,11 @@ pub const cpu = struct {
             .popcnt,
             .prfchw,
             .rdpid,
+            .rdpru,
             .rdrnd,
             .rdseed,
             .sahf,
+            .sbb_dep_breaking,
             .sha,
             .slow_shld,
             .sse4a,

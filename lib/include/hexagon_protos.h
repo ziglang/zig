@@ -8003,17 +8003,6 @@
 #define Q6_P_vtrunohb_PP __builtin_HEXAGON_S6_vtrunohb_ppp
 #endif /* __HEXAGON_ARCH___ >= 62 */
 
-#if __HEXAGON_ARCH__ >= 62
-/* ==========================================================================
-   Assembly Syntax:       Vd32=vmem(Rt32):nt
-   C Intrinsic Prototype: HVX_Vector Q6_V_vmem_R_nt(Word32 Rt)
-   Instruction Type:      MAPPING
-   Execution Slots:       SLOT0123
-   ========================================================================== */
-
-#define Q6_V_vmem_R_nt __builtin_HEXAGON_V6_ldntnt0
-#endif /* __HEXAGON_ARCH___ >= 62 */
-
 #if __HEXAGON_ARCH__ >= 65
 /* ==========================================================================
    Assembly Syntax:       Pd4=!any8(vcmpb.eq(Rss32,Rtt32))

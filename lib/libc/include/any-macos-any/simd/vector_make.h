@@ -34,6 +34,35 @@
  *  simd_float3 vector = simd_make_float3(ab, 3);
  *  ~~~
  *
+ *  In C++ the above functions are templated in the simd:: namespace.
+ *
+ *      C++ Function                            Equivalent C Function
+ *      -------------------------------------------------------------------
+ *      simd::make<simd::typeN>(x ...)          simd_make_typeN(x ...)
+ *      simd::make_undef<simd::typeN>(x ...)    simd_make_typeN_undef(x ...)
+ *
+ *
+ *  In addition, templated Vector<ScalarType, count> struct is available for
+ *  templated code based on the scalar type.
+ *
+ *      template <typename ScalarType, size_t count> struct simd::Vector {
+ *        //  static const size_t count
+ *        //  typedef scalar_t
+ *        //  typedef type
+ *        //  typedef packed_t
+ *      };
+ *
+ *  Lookup the equivalent Vector struct according to typeN:
+ *      template <typename typeN> struct simd::get_traits
+ *      {
+ *      //    using type = Vector<ScalarType, count>;
+ *      };
+ *
+ *  This is commonly used to get the type traits of typeN, so a helper type,
+ *  namely traits, is available to query the type traits easily.
+ *      simd::traits<typeN>::count
+ *      simd::traits<typeN>::scalar_t
+ *
  *  @copyright 2014-2016 Apple, Inc. All rights reserved.
  *  @unsorted                                                                 */
 
@@ -5278,6 +5307,9 @@ static inline SIMD_CFUNC simd_double8 simd_make_double8(simd_double8 other) {
 #ifdef __cplusplus
 } /* extern "C" */
 
+#include <tuple>
+#include <simd/packed.h>
+
 namespace simd {
 /*! @abstract Concatenates `x` and `y` to form a vector of two 8-bit signed
  *  (twos-complement) integers.                                               */
@@ -6762,6 +6794,1080 @@ template <typename typeN> static SIMD_CPPFUNC double8 make_double8_undef(typeN o
   return ::simd_make_double8_undef(other);
 }
 
+/*! @struct Vector
+ *  @abstract Templated Vector struct based on scalar type and number of
+ *  elements
+ *  @field count Number of elements in the vector
+ *  @field scalar_t The scalar type of each element
+ *  @field type The inferred simd::typeN type
+ *  @field packed_t The inferred simd::packed::typeN type
+ *  @field mask_t The return type of comparison operations                    */
+template <typename ScalarType, size_t count> struct Vector {
+  //  static const size_t count
+  //  typedef scalar_t
+  //  typedef type
+  //  typedef packed_t
+  //  typedef mask_t
+};
+/*! @abstract Helper type to access the simd type easily.                     */
+template <typename ScalarType, size_t count>
+using Vector_t = typename Vector<ScalarType, count>::type;
+
+/*! @abstract Look up the equivalent Vector struct according to the simd
+ *  type.                                                                     */
+template <typename typeN> struct get_traits
+{
+//    using type = Vector<ScalarType, count>;
+};
+/*! @abstract Helper type to access the Vector struct easily.
+ *  @discussion This is commonly used to query the type traits of a simd
+ *  type.
+ *  For example, simd::traits<simd::float4>::count is 4.                      */
+template<typename typeN>
+using traits = typename get_traits<typeN>::type;
+
+template<> struct Vector<char1, 1> {
+  static const size_t count = 1;
+  typedef char1 scalar_t;
+  typedef char1 type;
+  typedef char1 mask_t;
+};
+
+template <> struct get_traits<char1>
+{
+    using type = Vector<char1, 1>;
+};
+
+template<> struct Vector<char1, 2> {
+  static const size_t count = 2;
+  typedef char1 scalar_t;
+  typedef char2 type;
+  typedef packed::char2 packed_t;
+  typedef char2 mask_t;
+};
+
+template <> struct get_traits<char2>
+{
+    using type = Vector<char1, 2>;
+};
+
+template<> struct Vector<char1, 3> {
+  static const size_t count = 3;
+  typedef char1 scalar_t;
+  typedef char3 type;
+  typedef char3 mask_t;
+};
+
+template <> struct get_traits<char3>
+{
+    using type = Vector<char1, 3>;
+};
+
+template<> struct Vector<char1, 4> {
+  static const size_t count = 4;
+  typedef char1 scalar_t;
+  typedef char4 type;
+  typedef packed::char4 packed_t;
+  typedef char4 mask_t;
+};
+
+template <> struct get_traits<char4>
+{
+    using type = Vector<char1, 4>;
+};
+
+template<> struct Vector<char1, 8> {
+  static const size_t count = 8;
+  typedef char1 scalar_t;
+  typedef char8 type;
+  typedef packed::char8 packed_t;
+  typedef char8 mask_t;
+};
+
+template <> struct get_traits<char8>
+{
+    using type = Vector<char1, 8>;
+};
+
+template<> struct Vector<char1, 16> {
+  static const size_t count = 16;
+  typedef char1 scalar_t;
+  typedef char16 type;
+  typedef packed::char16 packed_t;
+  typedef char16 mask_t;
+};
+
+template <> struct get_traits<char16>
+{
+    using type = Vector<char1, 16>;
+};
+
+template<> struct Vector<char1, 32> {
+  static const size_t count = 32;
+  typedef char1 scalar_t;
+  typedef char32 type;
+  typedef packed::char32 packed_t;
+  typedef char32 mask_t;
+};
+
+template <> struct get_traits<char32>
+{
+    using type = Vector<char1, 32>;
+};
+
+template<> struct Vector<char1, 64> {
+  static const size_t count = 64;
+  typedef char1 scalar_t;
+  typedef char64 type;
+  typedef packed::char64 packed_t;
+  typedef char64 mask_t;
+};
+
+template <> struct get_traits<char64>
+{
+    using type = Vector<char1, 64>;
+};
+
+template<> struct Vector<uchar1, 1> {
+  static const size_t count = 1;
+  typedef uchar1 scalar_t;
+  typedef uchar1 type;
+  typedef char1 mask_t;
+};
+
+template <> struct get_traits<uchar1>
+{
+    using type = Vector<uchar1, 1>;
+};
+
+template<> struct Vector<uchar1, 2> {
+  static const size_t count = 2;
+  typedef uchar1 scalar_t;
+  typedef uchar2 type;
+  typedef packed::uchar2 packed_t;
+  typedef char2 mask_t;
+};
+
+template <> struct get_traits<uchar2>
+{
+    using type = Vector<uchar1, 2>;
+};
+
+template<> struct Vector<uchar1, 3> {
+  static const size_t count = 3;
+  typedef uchar1 scalar_t;
+  typedef uchar3 type;
+  typedef char3 mask_t;
+};
+
+template <> struct get_traits<uchar3>
+{
+    using type = Vector<uchar1, 3>;
+};
+
+template<> struct Vector<uchar1, 4> {
+  static const size_t count = 4;
+  typedef uchar1 scalar_t;
+  typedef uchar4 type;
+  typedef packed::uchar4 packed_t;
+  typedef char4 mask_t;
+};
+
+template <> struct get_traits<uchar4>
+{
+    using type = Vector<uchar1, 4>;
+};
+
+template<> struct Vector<uchar1, 8> {
+  static const size_t count = 8;
+  typedef uchar1 scalar_t;
+  typedef uchar8 type;
+  typedef packed::uchar8 packed_t;
+  typedef char8 mask_t;
+};
+
+template <> struct get_traits<uchar8>
+{
+    using type = Vector<uchar1, 8>;
+};
+
+template<> struct Vector<uchar1, 16> {
+  static const size_t count = 16;
+  typedef uchar1 scalar_t;
+  typedef uchar16 type;
+  typedef packed::uchar16 packed_t;
+  typedef char16 mask_t;
+};
+
+template <> struct get_traits<uchar16>
+{
+    using type = Vector<uchar1, 16>;
+};
+
+template<> struct Vector<uchar1, 32> {
+  static const size_t count = 32;
+  typedef uchar1 scalar_t;
+  typedef uchar32 type;
+  typedef packed::uchar32 packed_t;
+  typedef char32 mask_t;
+};
+
+template <> struct get_traits<uchar32>
+{
+    using type = Vector<uchar1, 32>;
+};
+
+template<> struct Vector<uchar1, 64> {
+  static const size_t count = 64;
+  typedef uchar1 scalar_t;
+  typedef uchar64 type;
+  typedef packed::uchar64 packed_t;
+  typedef char64 mask_t;
+};
+
+template <> struct get_traits<uchar64>
+{
+    using type = Vector<uchar1, 64>;
+};
+
+template<> struct Vector<short1, 1> {
+  static const size_t count = 1;
+  typedef short1 scalar_t;
+  typedef short1 type;
+  typedef short1 mask_t;
+};
+
+template <> struct get_traits<short1>
+{
+    using type = Vector<short1, 1>;
+};
+
+template<> struct Vector<short1, 2> {
+  static const size_t count = 2;
+  typedef short1 scalar_t;
+  typedef short2 type;
+  typedef packed::short2 packed_t;
+  typedef short2 mask_t;
+};
+
+template <> struct get_traits<short2>
+{
+    using type = Vector<short1, 2>;
+};
+
+template<> struct Vector<short1, 3> {
+  static const size_t count = 3;
+  typedef short1 scalar_t;
+  typedef short3 type;
+  typedef short3 mask_t;
+};
+
+template <> struct get_traits<short3>
+{
+    using type = Vector<short1, 3>;
+};
+
+template<> struct Vector<short1, 4> {
+  static const size_t count = 4;
+  typedef short1 scalar_t;
+  typedef short4 type;
+  typedef packed::short4 packed_t;
+  typedef short4 mask_t;
+};
+
+template <> struct get_traits<short4>
+{
+    using type = Vector<short1, 4>;
+};
+
+template<> struct Vector<short1, 8> {
+  static const size_t count = 8;
+  typedef short1 scalar_t;
+  typedef short8 type;
+  typedef packed::short8 packed_t;
+  typedef short8 mask_t;
+};
+
+template <> struct get_traits<short8>
+{
+    using type = Vector<short1, 8>;
+};
+
+template<> struct Vector<short1, 16> {
+  static const size_t count = 16;
+  typedef short1 scalar_t;
+  typedef short16 type;
+  typedef packed::short16 packed_t;
+  typedef short16 mask_t;
+};
+
+template <> struct get_traits<short16>
+{
+    using type = Vector<short1, 16>;
+};
+
+template<> struct Vector<short1, 32> {
+  static const size_t count = 32;
+  typedef short1 scalar_t;
+  typedef short32 type;
+  typedef packed::short32 packed_t;
+  typedef short32 mask_t;
+};
+
+template <> struct get_traits<short32>
+{
+    using type = Vector<short1, 32>;
+};
+
+template<> struct Vector<ushort1, 1> {
+  static const size_t count = 1;
+  typedef ushort1 scalar_t;
+  typedef ushort1 type;
+  typedef short1 mask_t;
+};
+
+template <> struct get_traits<ushort1>
+{
+    using type = Vector<ushort1, 1>;
+};
+
+template<> struct Vector<ushort1, 2> {
+  static const size_t count = 2;
+  typedef ushort1 scalar_t;
+  typedef ushort2 type;
+  typedef packed::ushort2 packed_t;
+  typedef short2 mask_t;
+};
+
+template <> struct get_traits<ushort2>
+{
+    using type = Vector<ushort1, 2>;
+};
+
+template<> struct Vector<ushort1, 3> {
+  static const size_t count = 3;
+  typedef ushort1 scalar_t;
+  typedef ushort3 type;
+  typedef short3 mask_t;
+};
+
+template <> struct get_traits<ushort3>
+{
+    using type = Vector<ushort1, 3>;
+};
+
+template<> struct Vector<ushort1, 4> {
+  static const size_t count = 4;
+  typedef ushort1 scalar_t;
+  typedef ushort4 type;
+  typedef packed::ushort4 packed_t;
+  typedef short4 mask_t;
+};
+
+template <> struct get_traits<ushort4>
+{
+    using type = Vector<ushort1, 4>;
+};
+
+template<> struct Vector<ushort1, 8> {
+  static const size_t count = 8;
+  typedef ushort1 scalar_t;
+  typedef ushort8 type;
+  typedef packed::ushort8 packed_t;
+  typedef short8 mask_t;
+};
+
+template <> struct get_traits<ushort8>
+{
+    using type = Vector<ushort1, 8>;
+};
+
+template<> struct Vector<ushort1, 16> {
+  static const size_t count = 16;
+  typedef ushort1 scalar_t;
+  typedef ushort16 type;
+  typedef packed::ushort16 packed_t;
+  typedef short16 mask_t;
+};
+
+template <> struct get_traits<ushort16>
+{
+    using type = Vector<ushort1, 16>;
+};
+
+template<> struct Vector<ushort1, 32> {
+  static const size_t count = 32;
+  typedef ushort1 scalar_t;
+  typedef ushort32 type;
+  typedef packed::ushort32 packed_t;
+  typedef short32 mask_t;
+};
+
+template <> struct get_traits<ushort32>
+{
+    using type = Vector<ushort1, 32>;
+};
+
+template<> struct Vector<int1, 1> {
+  static const size_t count = 1;
+  typedef int1 scalar_t;
+  typedef int1 type;
+  typedef int1 mask_t;
+};
+
+template <> struct get_traits<int1>
+{
+    using type = Vector<int1, 1>;
+};
+
+template<> struct Vector<int1, 2> {
+  static const size_t count = 2;
+  typedef int1 scalar_t;
+  typedef int2 type;
+  typedef packed::int2 packed_t;
+  typedef int2 mask_t;
+};
+
+template <> struct get_traits<int2>
+{
+    using type = Vector<int1, 2>;
+};
+
+template<> struct Vector<int1, 3> {
+  static const size_t count = 3;
+  typedef int1 scalar_t;
+  typedef int3 type;
+  typedef int3 mask_t;
+};
+
+template <> struct get_traits<int3>
+{
+    using type = Vector<int1, 3>;
+};
+
+template<> struct Vector<int1, 4> {
+  static const size_t count = 4;
+  typedef int1 scalar_t;
+  typedef int4 type;
+  typedef packed::int4 packed_t;
+  typedef int4 mask_t;
+};
+
+template <> struct get_traits<int4>
+{
+    using type = Vector<int1, 4>;
+};
+
+template<> struct Vector<int1, 8> {
+  static const size_t count = 8;
+  typedef int1 scalar_t;
+  typedef int8 type;
+  typedef packed::int8 packed_t;
+  typedef int8 mask_t;
+};
+
+template <> struct get_traits<int8>
+{
+    using type = Vector<int1, 8>;
+};
+
+template<> struct Vector<int1, 16> {
+  static const size_t count = 16;
+  typedef int1 scalar_t;
+  typedef int16 type;
+  typedef packed::int16 packed_t;
+  typedef int16 mask_t;
+};
+
+template <> struct get_traits<int16>
+{
+    using type = Vector<int1, 16>;
+};
+
+template<> struct Vector<uint1, 1> {
+  static const size_t count = 1;
+  typedef uint1 scalar_t;
+  typedef uint1 type;
+  typedef int1 mask_t;
+};
+
+template <> struct get_traits<uint1>
+{
+    using type = Vector<uint1, 1>;
+};
+
+template<> struct Vector<uint1, 2> {
+  static const size_t count = 2;
+  typedef uint1 scalar_t;
+  typedef uint2 type;
+  typedef packed::uint2 packed_t;
+  typedef int2 mask_t;
+};
+
+template <> struct get_traits<uint2>
+{
+    using type = Vector<uint1, 2>;
+};
+
+template<> struct Vector<uint1, 3> {
+  static const size_t count = 3;
+  typedef uint1 scalar_t;
+  typedef uint3 type;
+  typedef int3 mask_t;
+};
+
+template <> struct get_traits<uint3>
+{
+    using type = Vector<uint1, 3>;
+};
+
+template<> struct Vector<uint1, 4> {
+  static const size_t count = 4;
+  typedef uint1 scalar_t;
+  typedef uint4 type;
+  typedef packed::uint4 packed_t;
+  typedef int4 mask_t;
+};
+
+template <> struct get_traits<uint4>
+{
+    using type = Vector<uint1, 4>;
+};
+
+template<> struct Vector<uint1, 8> {
+  static const size_t count = 8;
+  typedef uint1 scalar_t;
+  typedef uint8 type;
+  typedef packed::uint8 packed_t;
+  typedef int8 mask_t;
+};
+
+template <> struct get_traits<uint8>
+{
+    using type = Vector<uint1, 8>;
+};
+
+template<> struct Vector<uint1, 16> {
+  static const size_t count = 16;
+  typedef uint1 scalar_t;
+  typedef uint16 type;
+  typedef packed::uint16 packed_t;
+  typedef int16 mask_t;
+};
+
+template <> struct get_traits<uint16>
+{
+    using type = Vector<uint1, 16>;
+};
+
+template<> struct Vector<float1, 1> {
+  static const size_t count = 1;
+  typedef float1 scalar_t;
+  typedef float1 type;
+  typedef int1 mask_t;
+};
+
+template <> struct get_traits<float1>
+{
+    using type = Vector<float1, 1>;
+};
+
+template<> struct Vector<float1, 2> {
+  static const size_t count = 2;
+  typedef float1 scalar_t;
+  typedef float2 type;
+  typedef packed::float2 packed_t;
+  typedef int2 mask_t;
+};
+
+template <> struct get_traits<float2>
+{
+    using type = Vector<float1, 2>;
+};
+
+template<> struct Vector<float1, 3> {
+  static const size_t count = 3;
+  typedef float1 scalar_t;
+  typedef float3 type;
+  typedef int3 mask_t;
+};
+
+template <> struct get_traits<float3>
+{
+    using type = Vector<float1, 3>;
+};
+
+template<> struct Vector<float1, 4> {
+  static const size_t count = 4;
+  typedef float1 scalar_t;
+  typedef float4 type;
+  typedef packed::float4 packed_t;
+  typedef int4 mask_t;
+};
+
+template <> struct get_traits<float4>
+{
+    using type = Vector<float1, 4>;
+};
+
+template<> struct Vector<float1, 8> {
+  static const size_t count = 8;
+  typedef float1 scalar_t;
+  typedef float8 type;
+  typedef packed::float8 packed_t;
+  typedef int8 mask_t;
+};
+
+template <> struct get_traits<float8>
+{
+    using type = Vector<float1, 8>;
+};
+
+template<> struct Vector<float1, 16> {
+  static const size_t count = 16;
+  typedef float1 scalar_t;
+  typedef float16 type;
+  typedef packed::float16 packed_t;
+  typedef int16 mask_t;
+};
+
+template <> struct get_traits<float16>
+{
+    using type = Vector<float1, 16>;
+};
+
+template<> struct Vector<long1, 1> {
+  static const size_t count = 1;
+  typedef long1 scalar_t;
+  typedef long1 type;
+  typedef long1 mask_t;
+};
+
+template <> struct get_traits<long1>
+{
+    using type = Vector<long1, 1>;
+};
+
+template<> struct Vector<long1, 2> {
+  static const size_t count = 2;
+  typedef long1 scalar_t;
+  typedef long2 type;
+  typedef packed::long2 packed_t;
+  typedef long2 mask_t;
+};
+
+template <> struct get_traits<long2>
+{
+    using type = Vector<long1, 2>;
+};
+
+template<> struct Vector<long1, 3> {
+  static const size_t count = 3;
+  typedef long1 scalar_t;
+  typedef long3 type;
+  typedef long3 mask_t;
+};
+
+template <> struct get_traits<long3>
+{
+    using type = Vector<long1, 3>;
+};
+
+template<> struct Vector<long1, 4> {
+  static const size_t count = 4;
+  typedef long1 scalar_t;
+  typedef long4 type;
+  typedef packed::long4 packed_t;
+  typedef long4 mask_t;
+};
+
+template <> struct get_traits<long4>
+{
+    using type = Vector<long1, 4>;
+};
+
+template<> struct Vector<long1, 8> {
+  static const size_t count = 8;
+  typedef long1 scalar_t;
+  typedef long8 type;
+  typedef packed::long8 packed_t;
+  typedef long8 mask_t;
+};
+
+template <> struct get_traits<long8>
+{
+    using type = Vector<long1, 8>;
+};
+
+template<> struct Vector<ulong1, 1> {
+  static const size_t count = 1;
+  typedef ulong1 scalar_t;
+  typedef ulong1 type;
+  typedef long1 mask_t;
+};
+
+template <> struct get_traits<ulong1>
+{
+    using type = Vector<ulong1, 1>;
+};
+
+template<> struct Vector<ulong1, 2> {
+  static const size_t count = 2;
+  typedef ulong1 scalar_t;
+  typedef ulong2 type;
+  typedef packed::ulong2 packed_t;
+  typedef long2 mask_t;
+};
+
+template <> struct get_traits<ulong2>
+{
+    using type = Vector<ulong1, 2>;
+};
+
+template<> struct Vector<ulong1, 3> {
+  static const size_t count = 3;
+  typedef ulong1 scalar_t;
+  typedef ulong3 type;
+  typedef long3 mask_t;
+};
+
+template <> struct get_traits<ulong3>
+{
+    using type = Vector<ulong1, 3>;
+};
+
+template<> struct Vector<ulong1, 4> {
+  static const size_t count = 4;
+  typedef ulong1 scalar_t;
+  typedef ulong4 type;
+  typedef packed::ulong4 packed_t;
+  typedef long4 mask_t;
+};
+
+template <> struct get_traits<ulong4>
+{
+    using type = Vector<ulong1, 4>;
+};
+
+template<> struct Vector<ulong1, 8> {
+  static const size_t count = 8;
+  typedef ulong1 scalar_t;
+  typedef ulong8 type;
+  typedef packed::ulong8 packed_t;
+  typedef long8 mask_t;
+};
+
+template <> struct get_traits<ulong8>
+{
+    using type = Vector<ulong1, 8>;
+};
+
+template<> struct Vector<double1, 1> {
+  static const size_t count = 1;
+  typedef double1 scalar_t;
+  typedef double1 type;
+  typedef long1 mask_t;
+};
+
+template <> struct get_traits<double1>
+{
+    using type = Vector<double1, 1>;
+};
+
+template<> struct Vector<double1, 2> {
+  static const size_t count = 2;
+  typedef double1 scalar_t;
+  typedef double2 type;
+  typedef packed::double2 packed_t;
+  typedef long2 mask_t;
+};
+
+template <> struct get_traits<double2>
+{
+    using type = Vector<double1, 2>;
+};
+
+template<> struct Vector<double1, 3> {
+  static const size_t count = 3;
+  typedef double1 scalar_t;
+  typedef double3 type;
+  typedef long3 mask_t;
+};
+
+template <> struct get_traits<double3>
+{
+    using type = Vector<double1, 3>;
+};
+
+template<> struct Vector<double1, 4> {
+  static const size_t count = 4;
+  typedef double1 scalar_t;
+  typedef double4 type;
+  typedef packed::double4 packed_t;
+  typedef long4 mask_t;
+};
+
+template <> struct get_traits<double4>
+{
+    using type = Vector<double1, 4>;
+};
+
+template<> struct Vector<double1, 8> {
+  static const size_t count = 8;
+  typedef double1 scalar_t;
+  typedef double8 type;
+  typedef packed::double8 packed_t;
+  typedef long8 mask_t;
+};
+
+template <> struct get_traits<double8>
+{
+    using type = Vector<double1, 8>;
+};
+
+#if __has_feature(cxx_constexpr)
+/*! @abstract Templated make function based on return type and argument
+ *  type.                                                                     */
+template<typename typeN, typename... Args>
+static constexpr typeN make(Args... args)
+{
+    if constexpr (traits<typeN>::count == 1)
+    {
+        using FirstArgType = typename std::tuple_element<0, std::tuple<Args...>>::type;
+        if constexpr (std::is_same<FirstArgType, typename traits<FirstArgType>::scalar_t>::value)
+            return typeN(std::get<0>(std::make_tuple(args...)));
+        else
+            return typeN(std::get<0>(std::make_tuple(args...))[0]);
+    }
+    else if constexpr (std::is_same<typeN, char2>::value)
+        return make_char2(args...);
+    else if constexpr (std::is_same<typeN, char3>::value)
+        return make_char3(args...);
+    else if constexpr (std::is_same<typeN, char4>::value)
+        return make_char4(args...);
+    else if constexpr (std::is_same<typeN, char8>::value)
+        return make_char8(args...);
+    else if constexpr (std::is_same<typeN, char16>::value)
+        return make_char16(args...);
+    else if constexpr (std::is_same<typeN, char32>::value)
+        return make_char32(args...);
+    else if constexpr (std::is_same<typeN, char64>::value)
+        return make_char64(args...);
+    else if constexpr (std::is_same<typeN, uchar2>::value)
+        return make_uchar2(args...);
+    else if constexpr (std::is_same<typeN, uchar3>::value)
+        return make_uchar3(args...);
+    else if constexpr (std::is_same<typeN, uchar4>::value)
+        return make_uchar4(args...);
+    else if constexpr (std::is_same<typeN, uchar8>::value)
+        return make_uchar8(args...);
+    else if constexpr (std::is_same<typeN, uchar16>::value)
+        return make_uchar16(args...);
+    else if constexpr (std::is_same<typeN, uchar32>::value)
+        return make_uchar32(args...);
+    else if constexpr (std::is_same<typeN, uchar64>::value)
+        return make_uchar64(args...);
+    else if constexpr (std::is_same<typeN, short2>::value)
+        return make_short2(args...);
+    else if constexpr (std::is_same<typeN, short3>::value)
+        return make_short3(args...);
+    else if constexpr (std::is_same<typeN, short4>::value)
+        return make_short4(args...);
+    else if constexpr (std::is_same<typeN, short8>::value)
+        return make_short8(args...);
+    else if constexpr (std::is_same<typeN, short16>::value)
+        return make_short16(args...);
+    else if constexpr (std::is_same<typeN, short32>::value)
+        return make_short32(args...);
+    else if constexpr (std::is_same<typeN, ushort2>::value)
+        return make_ushort2(args...);
+    else if constexpr (std::is_same<typeN, ushort3>::value)
+        return make_ushort3(args...);
+    else if constexpr (std::is_same<typeN, ushort4>::value)
+        return make_ushort4(args...);
+    else if constexpr (std::is_same<typeN, ushort8>::value)
+        return make_ushort8(args...);
+    else if constexpr (std::is_same<typeN, ushort16>::value)
+        return make_ushort16(args...);
+    else if constexpr (std::is_same<typeN, ushort32>::value)
+        return make_ushort32(args...);
+    else if constexpr (std::is_same<typeN, int2>::value)
+        return make_int2(args...);
+    else if constexpr (std::is_same<typeN, int3>::value)
+        return make_int3(args...);
+    else if constexpr (std::is_same<typeN, int4>::value)
+        return make_int4(args...);
+    else if constexpr (std::is_same<typeN, int8>::value)
+        return make_int8(args...);
+    else if constexpr (std::is_same<typeN, int16>::value)
+        return make_int16(args...);
+    else if constexpr (std::is_same<typeN, uint2>::value)
+        return make_uint2(args...);
+    else if constexpr (std::is_same<typeN, uint3>::value)
+        return make_uint3(args...);
+    else if constexpr (std::is_same<typeN, uint4>::value)
+        return make_uint4(args...);
+    else if constexpr (std::is_same<typeN, uint8>::value)
+        return make_uint8(args...);
+    else if constexpr (std::is_same<typeN, uint16>::value)
+        return make_uint16(args...);
+    else if constexpr (std::is_same<typeN, float2>::value)
+        return make_float2(args...);
+    else if constexpr (std::is_same<typeN, float3>::value)
+        return make_float3(args...);
+    else if constexpr (std::is_same<typeN, float4>::value)
+        return make_float4(args...);
+    else if constexpr (std::is_same<typeN, float8>::value)
+        return make_float8(args...);
+    else if constexpr (std::is_same<typeN, float16>::value)
+        return make_float16(args...);
+    else if constexpr (std::is_same<typeN, long2>::value)
+        return make_long2(args...);
+    else if constexpr (std::is_same<typeN, long3>::value)
+        return make_long3(args...);
+    else if constexpr (std::is_same<typeN, long4>::value)
+        return make_long4(args...);
+    else if constexpr (std::is_same<typeN, long8>::value)
+        return make_long8(args...);
+    else if constexpr (std::is_same<typeN, ulong2>::value)
+        return make_ulong2(args...);
+    else if constexpr (std::is_same<typeN, ulong3>::value)
+        return make_ulong3(args...);
+    else if constexpr (std::is_same<typeN, ulong4>::value)
+        return make_ulong4(args...);
+    else if constexpr (std::is_same<typeN, ulong8>::value)
+        return make_ulong8(args...);
+    else if constexpr (std::is_same<typeN, double2>::value)
+        return make_double2(args...);
+    else if constexpr (std::is_same<typeN, double3>::value)
+        return make_double3(args...);
+    else if constexpr (std::is_same<typeN, double4>::value)
+        return make_double4(args...);
+    else if constexpr (std::is_same<typeN, double8>::value)
+        return make_double8(args...);
+}
+
+/*! @abstract Templated make_undef function based on return type and
+ *  argument type.                                                            */
+template<typename typeN, typename... Args>
+static constexpr typeN make_undef(Args... args)
+{
+    if constexpr (traits<typeN>::count == 1)
+    {
+        using FirstArgType = typename std::tuple_element<0, std::tuple<Args...>>::type;
+        if constexpr (std::is_same<FirstArgType, typename traits<FirstArgType>::scalar_t>::value)
+            return typeN(std::get<0>(std::make_tuple(args...)));
+        else
+            return typeN(std::get<0>(std::make_tuple(args...))[0]);
+    }
+    else if constexpr (std::is_same<typeN, char2>::value)
+        return make_char2_undef(args...);
+    else if constexpr (std::is_same<typeN, char3>::value)
+        return make_char3_undef(args...);
+    else if constexpr (std::is_same<typeN, char4>::value)
+        return make_char4_undef(args...);
+    else if constexpr (std::is_same<typeN, char8>::value)
+        return make_char8_undef(args...);
+    else if constexpr (std::is_same<typeN, char16>::value)
+        return make_char16_undef(args...);
+    else if constexpr (std::is_same<typeN, char32>::value)
+        return make_char32_undef(args...);
+    else if constexpr (std::is_same<typeN, char64>::value)
+        return make_char64_undef(args...);
+    else if constexpr (std::is_same<typeN, uchar2>::value)
+        return make_uchar2_undef(args...);
+    else if constexpr (std::is_same<typeN, uchar3>::value)
+        return make_uchar3_undef(args...);
+    else if constexpr (std::is_same<typeN, uchar4>::value)
+        return make_uchar4_undef(args...);
+    else if constexpr (std::is_same<typeN, uchar8>::value)
+        return make_uchar8_undef(args...);
+    else if constexpr (std::is_same<typeN, uchar16>::value)
+        return make_uchar16_undef(args...);
+    else if constexpr (std::is_same<typeN, uchar32>::value)
+        return make_uchar32_undef(args...);
+    else if constexpr (std::is_same<typeN, uchar64>::value)
+        return make_uchar64_undef(args...);
+    else if constexpr (std::is_same<typeN, short2>::value)
+        return make_short2_undef(args...);
+    else if constexpr (std::is_same<typeN, short3>::value)
+        return make_short3_undef(args...);
+    else if constexpr (std::is_same<typeN, short4>::value)
+        return make_short4_undef(args...);
+    else if constexpr (std::is_same<typeN, short8>::value)
+        return make_short8_undef(args...);
+    else if constexpr (std::is_same<typeN, short16>::value)
+        return make_short16_undef(args...);
+    else if constexpr (std::is_same<typeN, short32>::value)
+        return make_short32_undef(args...);
+    else if constexpr (std::is_same<typeN, ushort2>::value)
+        return make_ushort2_undef(args...);
+    else if constexpr (std::is_same<typeN, ushort3>::value)
+        return make_ushort3_undef(args...);
+    else if constexpr (std::is_same<typeN, ushort4>::value)
+        return make_ushort4_undef(args...);
+    else if constexpr (std::is_same<typeN, ushort8>::value)
+        return make_ushort8_undef(args...);
+    else if constexpr (std::is_same<typeN, ushort16>::value)
+        return make_ushort16_undef(args...);
+    else if constexpr (std::is_same<typeN, ushort32>::value)
+        return make_ushort32_undef(args...);
+    else if constexpr (std::is_same<typeN, int2>::value)
+        return make_int2_undef(args...);
+    else if constexpr (std::is_same<typeN, int3>::value)
+        return make_int3_undef(args...);
+    else if constexpr (std::is_same<typeN, int4>::value)
+        return make_int4_undef(args...);
+    else if constexpr (std::is_same<typeN, int8>::value)
+        return make_int8_undef(args...);
+    else if constexpr (std::is_same<typeN, int16>::value)
+        return make_int16_undef(args...);
+    else if constexpr (std::is_same<typeN, uint2>::value)
+        return make_uint2_undef(args...);
+    else if constexpr (std::is_same<typeN, uint3>::value)
+        return make_uint3_undef(args...);
+    else if constexpr (std::is_same<typeN, uint4>::value)
+        return make_uint4_undef(args...);
+    else if constexpr (std::is_same<typeN, uint8>::value)
+        return make_uint8_undef(args...);
+    else if constexpr (std::is_same<typeN, uint16>::value)
+        return make_uint16_undef(args...);
+    else if constexpr (std::is_same<typeN, float2>::value)
+        return make_float2_undef(args...);
+    else if constexpr (std::is_same<typeN, float3>::value)
+        return make_float3_undef(args...);
+    else if constexpr (std::is_same<typeN, float4>::value)
+        return make_float4_undef(args...);
+    else if constexpr (std::is_same<typeN, float8>::value)
+        return make_float8_undef(args...);
+    else if constexpr (std::is_same<typeN, float16>::value)
+        return make_float16_undef(args...);
+    else if constexpr (std::is_same<typeN, long2>::value)
+        return make_long2_undef(args...);
+    else if constexpr (std::is_same<typeN, long3>::value)
+        return make_long3_undef(args...);
+    else if constexpr (std::is_same<typeN, long4>::value)
+        return make_long4_undef(args...);
+    else if constexpr (std::is_same<typeN, long8>::value)
+        return make_long8_undef(args...);
+    else if constexpr (std::is_same<typeN, ulong2>::value)
+        return make_ulong2_undef(args...);
+    else if constexpr (std::is_same<typeN, ulong3>::value)
+        return make_ulong3_undef(args...);
+    else if constexpr (std::is_same<typeN, ulong4>::value)
+        return make_ulong4_undef(args...);
+    else if constexpr (std::is_same<typeN, ulong8>::value)
+        return make_ulong8_undef(args...);
+    else if constexpr (std::is_same<typeN, double2>::value)
+        return make_double2_undef(args...);
+    else if constexpr (std::is_same<typeN, double3>::value)
+        return make_double3_undef(args...);
+    else if constexpr (std::is_same<typeN, double4>::value)
+        return make_double4_undef(args...);
+    else if constexpr (std::is_same<typeN, double8>::value)
+        return make_double8_undef(args...);
+}
+#endif /* __has_feature(cxx_constexpr) */
 } /* namespace simd */
 #endif /* __cplusplus */
 #endif /* SIMD_COMPILER_HAS_REQUIRED_FEATURES */

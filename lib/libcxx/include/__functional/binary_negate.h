@@ -14,7 +14,7 @@
 #include <__functional/binary_function.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -23,9 +23,9 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Predicate>
 class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 binary_negate
-    : public binary_function<typename _Predicate::first_argument_type,
-                             typename _Predicate::second_argument_type,
-                             bool>
+    : public __binary_function<typename _Predicate::first_argument_type,
+                               typename _Predicate::second_argument_type,
+                               bool>
 {
     _Predicate __pred_;
 public:

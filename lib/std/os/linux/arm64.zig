@@ -98,17 +98,28 @@ pub fn syscall6(
     );
 }
 
+const CloneFn = *const fn (arg: usize) callconv(.C) u8;
+
 /// This matches the libc clone function.
-pub extern fn clone(func: fn (arg: usize) callconv(.C) u8, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
 
 pub const restore = restore_rt;
 
 pub fn restore_rt() callconv(.Naked) void {
-    return asm volatile ("svc #0"
-        :
-        : [number] "{x8}" (@enumToInt(SYS.rt_sigreturn)),
-        : "memory", "cc"
-    );
+    switch (@import("builtin").zig_backend) {
+        .stage2_c => return asm volatile (
+            \\ mov x8, %[number]
+            \\ svc #0
+            :
+            : [number] "i" (@enumToInt(SYS.rt_sigreturn)),
+            : "memory", "cc"
+        ),
+        else => return asm volatile ("svc #0"
+            :
+            : [number] "{x8}" (@enumToInt(SYS.rt_sigreturn)),
+            : "memory", "cc"
+        ),
+    }
 }
 
 pub const O = struct {

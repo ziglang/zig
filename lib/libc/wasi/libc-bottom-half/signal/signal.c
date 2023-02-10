@@ -24,7 +24,7 @@ void __SIG_ERR(int sig) {
 
 _Noreturn
 static void core_handler(int sig) {
-    fprintf(stderr, "Program recieved fatal signal: %s\n", strsignal(sig));
+    fprintf(stderr, "Program received fatal signal: %s\n", strsignal(sig));
     abort();
 }
 

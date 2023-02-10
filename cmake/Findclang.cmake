@@ -8,51 +8,33 @@
 # CLANG_LIBDIRS
 
 find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
-  PATHS
-    /usr/lib/llvm/13/include
-    /usr/lib/llvm-13/include
-    /usr/lib/llvm-13.0/include
-    /usr/local/llvm130/include
-    /usr/local/llvm13/include
-    /usr/local/opt/llvm@13/include
-    /opt/homebrew/opt/llvm@13/include
-    /mingw64/include
+  HINTS ${LLVM_INCLUDE_DIRS}
+  # Only look for Clang next to LLVM or in { CMAKE_PREFIX_PATH, CMAKE_LIBRARY_PATH, CMAKE_FRAMEWORK_PATH }
+  NO_SYSTEM_ENVIRONMENT_PATH
+  NO_CMAKE_SYSTEM_PATH
 )
 
-if(ZIG_PREFER_CLANG_CPP_DYLIB)
+if(${LLVM_LINK_MODE} STREQUAL "shared")
   find_library(CLANG_LIBRARIES
     NAMES
-      clang-cpp-13.0
-      clang-cpp130
+      libclang-cpp.so.15
+      clang-cpp-15.0
+      clang-cpp150
       clang-cpp
-    PATHS
-      ${CLANG_LIBDIRS}
-      /usr/lib/llvm/13/lib
-      /usr/lib/llvm/13/lib64
-      /usr/lib/llvm-13/lib
-      /usr/local/llvm130/lib
-      /usr/local/llvm13/lib
-      /usr/local/opt/llvm@13/lib
-      /opt/homebrew/opt/llvm@13/lib
+    NAMES_PER_DIR
+    HINTS "${LLVM_LIBDIRS}"
+    # Only look for Clang next to LLVM or in { CMAKE_PREFIX_PATH, CMAKE_LIBRARY_PATH, CMAKE_FRAMEWORK_PATH }
+    NO_SYSTEM_ENVIRONMENT_PATH
+    NO_CMAKE_SYSTEM_PATH
   )
-endif()
-
-if(NOT CLANG_LIBRARIES)
+else()
   macro(FIND_AND_ADD_CLANG_LIB _libname_)
     string(TOUPPER ${_libname_} _prettylibname_)
-    find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_}
-      PATHS
-        ${CLANG_LIBDIRS}
-        /usr/lib/llvm/13/lib
-        /usr/lib/llvm-13/lib
-        /usr/lib/llvm-13.0/lib
-        /usr/local/llvm130/lib
-        /usr/local/llvm13/lib
-        /usr/local/opt/llvm@13/lib
-        /opt/homebrew/opt/llvm@13/lib
-        /mingw64/lib
-        /c/msys64/mingw64/lib
-        c:\\msys64\\mingw64\\lib
+    find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_} NAMES_PER_DIR
+      HINTS "${LLVM_LIBDIRS}"
+      # Only look for Clang next to LLVM or in { CMAKE_PREFIX_PATH, CMAKE_LIBRARY_PATH, CMAKE_FRAMEWORK_PATH }
+      NO_SYSTEM_ENVIRONMENT_PATH
+      NO_CMAKE_SYSTEM_PATH
     )
     if(CLANG_${_prettylibname_}_LIB)
       set(CLANG_LIBRARIES ${CLANG_LIBRARIES} ${CLANG_${_prettylibname_}_LIB})
@@ -82,6 +64,12 @@ if(NOT CLANG_LIBRARIES)
   FIND_AND_ADD_CLANG_LIB(clangCrossTU)
   FIND_AND_ADD_CLANG_LIB(clangIndex)
   FIND_AND_ADD_CLANG_LIB(clangToolingCore)
+  FIND_AND_ADD_CLANG_LIB(clangExtractAPI)
+  FIND_AND_ADD_CLANG_LIB(clangSupport)
+endif()
+
+if (MSVC)
+  set(CLANG_LIBRARIES ${CLANG_LIBRARIES} "version.lib")
 endif()
 
 include(FindPackageHandleStandardArgs)

@@ -474,8 +474,8 @@ pub const IO_Uring = struct {
         self: *IO_Uring,
         user_data: u64,
         fd: os.fd_t,
-        addr: *os.sockaddr,
-        addrlen: *os.socklen_t,
+        addr: ?*os.sockaddr,
+        addrlen: ?*os.socklen_t,
         flags: u32,
     ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
@@ -954,7 +954,7 @@ pub const IO_Uring = struct {
     pub fn register_files_update(self: *IO_Uring, offset: u32, fds: []const os.fd_t) !void {
         assert(self.fd >= 0);
 
-        const FilesUpdate = struct {
+        const FilesUpdate = extern struct {
             offset: u32,
             resv: u32,
             fds: u64 align(8),
@@ -1292,8 +1292,8 @@ pub inline fn __io_uring_prep_poll_mask(poll_mask: u32) u32 {
 pub fn io_uring_prep_accept(
     sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
-    addr: *os.sockaddr,
-    addrlen: *os.socklen_t,
+    addr: ?*os.sockaddr,
+    addrlen: ?*os.socklen_t,
     flags: u32,
 ) void {
     // `addr` holds a pointer to `sockaddr`, and `addr2` holds a pointer to socklen_t`.
@@ -1902,6 +1902,12 @@ test "openat" {
     const path = "test_io_uring_openat";
     defer std.fs.cwd().deleteFile(path) catch {};
 
+    // Workaround for LLVM bug: https://github.com/ziglang/zig/issues/12014
+    const path_addr = if (builtin.zig_backend == .stage2_llvm) p: {
+        var workaround = path;
+        break :p @ptrToInt(workaround);
+    } else @ptrToInt(path);
+
     const flags: u32 = os.O.CLOEXEC | os.O.RDWR | os.O.CREAT;
     const mode: os.mode_t = 0o666;
     const sqe_openat = try ring.openat(0x33333333, linux.AT.FDCWD, path, flags, mode);
@@ -1911,7 +1917,7 @@ test "openat" {
         .ioprio = 0,
         .fd = linux.AT.FDCWD,
         .off = 0,
-        .addr = @ptrToInt(path),
+        .addr = path_addr,
         .len = mode,
         .rw_flags = flags,
         .user_data = 0x33333333,
@@ -2001,7 +2007,8 @@ test "accept/connect/send/recv" {
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xffffffff,
         .res = buffer_recv.len,
-        .flags = 0,
+        // ignore IORING_CQE_F_SOCK_NONEMPTY since it is only set on some systems
+        .flags = cqe_recv.flags & linux.IORING_CQE_F_SOCK_NONEMPTY,
     }, cqe_recv);
 
     try testing.expectEqualSlices(u8, buffer_send[0..buffer_recv.len], buffer_recv[0..]);
@@ -2083,7 +2090,8 @@ test "sendmsg/recvmsg" {
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x22222222,
         .res = buffer_recv.len,
-        .flags = 0,
+        // ignore IORING_CQE_F_SOCK_NONEMPTY since it is set non-deterministically
+        .flags = cqe_recvmsg.flags & linux.IORING_CQE_F_SOCK_NONEMPTY,
     }, cqe_recvmsg);
 
     try testing.expectEqualSlices(u8, buffer_send[0..buffer_recv.len], buffer_recv[0..]);
@@ -2175,29 +2183,41 @@ test "timeout_remove" {
 
     try testing.expectEqual(@as(u32, 2), try ring.submit());
 
-    const cqe_timeout = try ring.copy_cqe();
-    // IORING_OP_TIMEOUT_REMOVE is not supported by this kernel version:
-    // Timeout remove operations set the fd to -1, which results in EBADF before EINVAL.
-    // We use IORING_FEAT_RW_CUR_POS as a safety check here to make sure we are at least pre-5.6.
-    // We don't want to skip this test for newer kernels.
-    if (cqe_timeout.user_data == 0x99999999 and
-        cqe_timeout.err() == .BADF and
-        (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0)
-    {
-        return error.SkipZigTest;
-    }
-    try testing.expectEqual(linux.io_uring_cqe{
-        .user_data = 0x88888888,
-        .res = -@as(i32, @enumToInt(linux.E.CANCELED)),
-        .flags = 0,
-    }, cqe_timeout);
+    // The order in which the CQE arrive is not clearly documented and it changed with kernel 5.18:
+    // * kernel 5.10 gives user data 0x88888888 first, 0x99999999 second
+    // * kernel 5.18 gives user data 0x99999999 first, 0x88888888 second
 
-    const cqe_timeout_remove = try ring.copy_cqe();
-    try testing.expectEqual(linux.io_uring_cqe{
-        .user_data = 0x99999999,
-        .res = 0,
-        .flags = 0,
-    }, cqe_timeout_remove);
+    var cqes: [2]os.linux.io_uring_cqe = undefined;
+    try testing.expectEqual(@as(u32, 2), try ring.copy_cqes(cqes[0..], 2));
+
+    for (cqes) |cqe| {
+        // IORING_OP_TIMEOUT_REMOVE is not supported by this kernel version:
+        // Timeout remove operations set the fd to -1, which results in EBADF before EINVAL.
+        // We use IORING_FEAT_RW_CUR_POS as a safety check here to make sure we are at least pre-5.6.
+        // We don't want to skip this test for newer kernels.
+        if (cqe.user_data == 0x99999999 and
+            cqe.err() == .BADF and
+            (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0)
+        {
+            return error.SkipZigTest;
+        }
+
+        try testing.expect(cqe.user_data == 0x88888888 or cqe.user_data == 0x99999999);
+
+        if (cqe.user_data == 0x88888888) {
+            try testing.expectEqual(linux.io_uring_cqe{
+                .user_data = 0x88888888,
+                .res = -@as(i32, @enumToInt(linux.E.CANCELED)),
+                .flags = 0,
+            }, cqe);
+        } else if (cqe.user_data == 0x99999999) {
+            try testing.expectEqual(linux.io_uring_cqe{
+                .user_data = 0x99999999,
+                .res = 0,
+                .flags = 0,
+            }, cqe);
+        }
+    }
 }
 
 test "accept/connect/recv/link_timeout" {
@@ -2983,7 +3003,7 @@ test "remove_buffers" {
         try testing.expectEqual(@as(u64, 0xcccccccc), cqe.user_data);
     }
 
-    // Remove the first 3 buffers
+    // Remove 3 buffers
 
     {
         var sqe = try ring.remove_buffers(0xbababababa, 3, group_id);
@@ -3015,7 +3035,7 @@ test "remove_buffers" {
 
         try testing.expect(cqe.flags & linux.IORING_CQE_F_BUFFER == linux.IORING_CQE_F_BUFFER);
         const used_buffer_id = cqe.flags >> 16;
-        try testing.expectEqual(used_buffer_id, 0);
+        try testing.expect(used_buffer_id >= 0 and used_buffer_id < 4);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
         try testing.expectEqual(@as(u64, 0xdfdfdfdf), cqe.user_data);
         try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@intCast(usize, cqe.res)]);

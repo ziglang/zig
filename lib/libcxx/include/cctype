@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===---------------------------- cctype ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -34,11 +34,12 @@ int toupper(int c);
 }  // std
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <ctype.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD

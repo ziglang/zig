@@ -1,4 +1,4 @@
-//===------------------------- __libunwind_config.h -----------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -9,8 +9,10 @@
 #ifndef ____LIBUNWIND_CONFIG_H__
 #define ____LIBUNWIND_CONFIG_H__
 
+#define _LIBUNWIND_VERSION 15000
+
 #if defined(__arm__) && !defined(__USING_SJLJ_EXCEPTIONS__) && \
-    !defined(__ARM_DWARF_EH__)
+    !defined(__ARM_DWARF_EH__) && !defined(__SEH__)
 #define _LIBUNWIND_ARM_EHABI
 #endif
 
@@ -27,6 +29,7 @@
 #define _LIBUNWIND_HIGHEST_DWARF_REGISTER_HEXAGON   34
 #define _LIBUNWIND_HIGHEST_DWARF_REGISTER_RISCV     64
 #define _LIBUNWIND_HIGHEST_DWARF_REGISTER_VE        143
+#define _LIBUNWIND_HIGHEST_DWARF_REGISTER_S390X     83
 
 #if defined(_LIBUNWIND_IS_NATIVE_ONLY)
 # if defined(__linux__)
@@ -56,7 +59,7 @@
 #  define _LIBUNWIND_CONTEXT_SIZE 167
 #  define _LIBUNWIND_CURSOR_SIZE 179
 #  define _LIBUNWIND_HIGHEST_DWARF_REGISTER _LIBUNWIND_HIGHEST_DWARF_REGISTER_PPC64
-# elif defined(__ppc__)
+# elif defined(__powerpc__)
 #  define _LIBUNWIND_TARGET_PPC 1
 #  define _LIBUNWIND_CONTEXT_SIZE 117
 #  define _LIBUNWIND_CURSOR_SIZE 124
@@ -126,11 +129,12 @@
 #    error "Unsupported MIPS ABI and/or environment"
 #  endif
 #  define _LIBUNWIND_HIGHEST_DWARF_REGISTER _LIBUNWIND_HIGHEST_DWARF_REGISTER_MIPS
-# elif defined(__sparc__) && defined(__arch64__)
-#  define _LIBUNWIND_TARGET_SPARC64 1
-#  define _LIBUNWIND_HIGHEST_DWARF_REGISTER _LIBUNWIND_HIGHEST_DWARF_REGISTER_SPARC64
-#  define _LIBUNWIND_CONTEXT_SIZE 33
-#  define _LIBUNWIND_CURSOR_SIZE 45
+#elif defined(__sparc__) && defined(__arch64__)
+#define _LIBUNWIND_TARGET_SPARC64 1
+#define _LIBUNWIND_HIGHEST_DWARF_REGISTER                                      \
+  _LIBUNWIND_HIGHEST_DWARF_REGISTER_SPARC64
+#define _LIBUNWIND_CONTEXT_SIZE 33
+#define _LIBUNWIND_CURSOR_SIZE 45
 # elif defined(__sparc__)
   #define _LIBUNWIND_TARGET_SPARC 1
   #define _LIBUNWIND_HIGHEST_DWARF_REGISTER _LIBUNWIND_HIGHEST_DWARF_REGISTER_SPARC
@@ -157,6 +161,11 @@
 #  define _LIBUNWIND_CONTEXT_SIZE 67
 #  define _LIBUNWIND_CURSOR_SIZE 79
 #  define _LIBUNWIND_HIGHEST_DWARF_REGISTER _LIBUNWIND_HIGHEST_DWARF_REGISTER_VE
+# elif defined(__s390x__)
+#  define _LIBUNWIND_TARGET_S390X 1
+#  define _LIBUNWIND_CONTEXT_SIZE 34
+#  define _LIBUNWIND_CURSOR_SIZE 46
+#  define _LIBUNWIND_HIGHEST_DWARF_REGISTER _LIBUNWIND_HIGHEST_DWARF_REGISTER_S390X
 # else
 #  error "Unsupported architecture."
 # endif
@@ -175,6 +184,7 @@
 # define _LIBUNWIND_TARGET_HEXAGON 1
 # define _LIBUNWIND_TARGET_RISCV 1
 # define _LIBUNWIND_TARGET_VE 1
+# define _LIBUNWIND_TARGET_S390X 1
 # define _LIBUNWIND_CONTEXT_SIZE 167
 # define _LIBUNWIND_CURSOR_SIZE 179
 # define _LIBUNWIND_HIGHEST_DWARF_REGISTER 287

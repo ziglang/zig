@@ -10,14 +10,18 @@
 #ifndef _LIBCPP___MUTEX_BASE
 #define _LIBCPP___MUTEX_BASE
 
+#include <__chrono/duration.h>
+#include <__chrono/steady_clock.h>
+#include <__chrono/system_clock.h>
+#include <__chrono/time_point.h>
 #include <__config>
 #include <__threading_support>
-#include <chrono>
+#include <ratio>
 #include <system_error>
 #include <time.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -68,9 +72,9 @@ extern _LIBCPP_EXPORTED_FROM_ABI const adopt_lock_t  adopt_lock;
 
 #else
 
-/* _LIBCPP_INLINE_VAR */ constexpr defer_lock_t  defer_lock  = defer_lock_t();
-/* _LIBCPP_INLINE_VAR */ constexpr try_to_lock_t try_to_lock = try_to_lock_t();
-/* _LIBCPP_INLINE_VAR */ constexpr adopt_lock_t  adopt_lock  = adopt_lock_t();
+/* inline */ constexpr defer_lock_t  defer_lock  = defer_lock_t();
+/* inline */ constexpr try_to_lock_t try_to_lock = try_to_lock_t();
+/* inline */ constexpr adopt_lock_t  adopt_lock  = adopt_lock_t();
 
 #endif
 
@@ -96,8 +100,8 @@ public:
     ~lock_guard() _LIBCPP_THREAD_SAFETY_ANNOTATION(release_capability()) {__m_.unlock();}
 
 private:
-    lock_guard(lock_guard const&) _LIBCPP_EQUAL_DELETE;
-    lock_guard& operator=(lock_guard const&) _LIBCPP_EQUAL_DELETE;
+    lock_guard(lock_guard const&) = delete;
+    lock_guard& operator=(lock_guard const&) = delete;
 };
 
 template <class _Mutex>
@@ -140,11 +144,9 @@ public:
             __m_->unlock();
     }
 
-private:
-    unique_lock(unique_lock const&); // = delete;
-    unique_lock& operator=(unique_lock const&); // = delete;
+    unique_lock(unique_lock const&) = delete;
+    unique_lock& operator=(unique_lock const&) = delete;
 
-public:
     _LIBCPP_INLINE_VISIBILITY
     unique_lock(unique_lock&& __u) _NOEXCEPT
         : __m_(__u.__m_), __owns_(__u.__owns_)
@@ -336,11 +338,7 @@ private:
 
 template <class _Rep, class _Period>
 inline _LIBCPP_INLINE_VISIBILITY
-typename enable_if
-<
-    is_floating_point<_Rep>::value,
-    chrono::nanoseconds
->::type
+__enable_if_t<is_floating_point<_Rep>::value, chrono::nanoseconds>
 __safe_nanosecond_cast(chrono::duration<_Rep, _Period> __d)
 {
     using namespace chrono;
@@ -363,11 +361,7 @@ __safe_nanosecond_cast(chrono::duration<_Rep, _Period> __d)
 
 template <class _Rep, class _Period>
 inline _LIBCPP_INLINE_VISIBILITY
-typename enable_if
-<
-    !is_floating_point<_Rep>::value,
-    chrono::nanoseconds
->::type
+__enable_if_t<!is_floating_point<_Rep>::value, chrono::nanoseconds>
 __safe_nanosecond_cast(chrono::duration<_Rep, _Period> __d)
 {
     using namespace chrono;

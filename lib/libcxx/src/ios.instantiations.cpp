@@ -6,27 +6,29 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "__config"
-#include "fstream"
-#include "ios"
-#include "istream"
-#include "ostream"
-#include "sstream"
-#include "streambuf"
-
+#include <__config>
+#include <fstream>
+#include <ios>
+#include <istream>
+#include <ostream>
+#include <sstream>
+#include <streambuf>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 // Original explicit instantiations provided in the library
 template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_ios<char>;
-template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_ios<wchar_t>;
 template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_streambuf<char>;
-template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_streambuf<wchar_t>;
 template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_istream<char>;
-template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_istream<wchar_t>;
 template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_ostream<char>;
-template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_ostream<wchar_t>;
 template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_iostream<char>;
+
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_ios<wchar_t>;
+template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_streambuf<wchar_t>;
+template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_istream<wchar_t>;
+template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_ostream<wchar_t>;
+#endif
 
 // Additional instantiations added later. Whether programs rely on these being
 // available is protected by _LIBCPP_ABI_ENABLE_ADDITIONAL_IOSTREAM_EXPLICIT_INSTANTIATIONS_1.

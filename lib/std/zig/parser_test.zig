@@ -1,3 +1,17 @@
+test "zig fmt: tuple struct" {
+    try testCanonical(
+        \\const T = struct {
+        \\    /// doc comment on tuple field
+        \\    comptime comptime u32,
+        \\    /// another doc comment on tuple field
+        \\    *u32 = 1,
+        \\    // needs to be wrapped in parentheses to not be parsed as a function decl
+        \\    (fn () void) align(1),
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: preserves clobbers in inline asm with stray comma" {
     try testCanonical(
         \\fn foo() void {
@@ -10,6 +24,28 @@ test "zig fmt: preserves clobbers in inline asm with stray comma" {
         \\        :
         \\        : [_] "" (type),
         \\        : "clobber"
+        \\    );
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: remove trailing comma at the end of assembly clobber" {
+    try testTransform(
+        \\fn foo() void {
+        \\    asm volatile (""
+        \\        : [_] "" (-> type),
+        \\        :
+        \\        : "clobber1", "clobber2",
+        \\    );
+        \\}
+        \\
+    ,
+        \\fn foo() void {
+        \\    asm volatile (""
+        \\        : [_] "" (-> type),
+        \\        :
+        \\        : "clobber1", "clobber2"
         \\    );
         \\}
         \\
@@ -68,29 +104,6 @@ test "zig fmt: rewrite callconv(.Inline) to the inline keyword" {
         \\inline fn foo() void {}
         \\const bar = .Inline;
         \\fn foo() callconv(bar) void {}
-        \\
-    );
-}
-
-// TODO Remove this after zig 0.10.0 is released.
-test "zig fmt: rewrite c_void to anyopaque" {
-    try testTransform(
-        \\const Foo = struct {
-        \\    c_void: *c_void,
-        \\};
-        \\
-        \\fn foo(a: ?*c_void) !*c_void {
-        \\    return a orelse unreachable;
-        \\}
-        \\
-    ,
-        \\const Foo = struct {
-        \\    c_void: *anyopaque,
-        \\};
-        \\
-        \\fn foo(a: ?*anyopaque) !*anyopaque {
-        \\    return a orelse unreachable;
-        \\}
         \\
     );
 }
@@ -173,6 +186,15 @@ test "zig fmt: file ends in comment" {
     );
 }
 
+test "zig fmt: file ends in multi line comment" {
+    try testTransform(
+        \\     \\foobar
+    ,
+        \\\\foobar
+        \\
+    );
+}
+
 test "zig fmt: file ends in comment after var decl" {
     try testTransform(
         \\const x = 42;
@@ -180,15 +202,6 @@ test "zig fmt: file ends in comment after var decl" {
     ,
         \\const x = 42;
         \\//foobar
-        \\
-    );
-}
-
-test "zig fmt: doc comments on test" {
-    try testCanonical(
-        \\/// hello
-        \\/// world
-        \\test "" {}
         \\
     );
 }
@@ -212,6 +225,55 @@ test "zig fmt: top-level fields" {
     );
 }
 
+test "zig fmt: top-level tuple function call type" {
+    try testCanonical(
+        \\foo()
+        \\
+    );
+}
+
+test "zig fmt: top-level enum missing 'const name ='" {
+    try testError(
+        \\enum(u32)
+        \\
+    , &[_]Error{.expected_token});
+}
+
+test "zig fmt: top-level bare asterisk+identifier" {
+    try testCanonical(
+        \\*x
+        \\
+    );
+}
+
+test "zig fmt: top-level bare asterisk+asterisk+identifier" {
+    try testCanonical(
+        \\**x
+        \\
+    );
+}
+
+test "zig fmt: C style containers" {
+    try testError(
+        \\struct Foo {
+        \\    a: u32,
+        \\};
+    , &[_]Error{
+        .c_style_container,
+        .zig_style_container,
+    });
+    try testError(
+        \\test {
+        \\    struct Foo {
+        \\        a: u32,
+        \\    };
+        \\}
+    , &[_]Error{
+        .c_style_container,
+        .zig_style_container,
+    });
+}
+
 test "zig fmt: decl between fields" {
     try testError(
         \\const S = struct {
@@ -228,14 +290,6 @@ test "zig fmt: decl between fields" {
         .decl_between_fields,
         .previous_field,
         .next_field,
-    });
-}
-
-test "zig fmt: eof after missing comma" {
-    try testError(
-        \\foo()
-    , &[_]Error{
-        .expected_comma_after_field,
     });
 }
 
@@ -2679,9 +2733,6 @@ test "zig fmt: comments in statements" {
 
 test "zig fmt: comments before test decl" {
     try testCanonical(
-        \\/// top level doc comment
-        \\test "hi" {}
-        \\
         \\// top level normal comment
         \\test "hi" {}
         \\
@@ -3055,6 +3106,13 @@ test "zig fmt: struct declaration" {
         \\    c: u8,
         \\};
         \\
+        \\const Ps = packed struct(u32) {
+        \\    a: u1,
+        \\    b: u2,
+        \\
+        \\    c: u29,
+        \\};
+        \\
         \\const Es = extern struct {
         \\    a: u8,
         \\    b: u8,
@@ -3238,6 +3296,8 @@ test "zig fmt: switch" {
         \\    switch (u) {
         \\        Union.Int => |int| {},
         \\        Union.Float => |*float| unreachable,
+        \\        1 => |a, b| unreachable,
+        \\        2 => |*a, b| unreachable,
         \\    }
         \\}
         \\
@@ -4154,6 +4214,89 @@ test "zig fmt: container doc comments" {
     );
 }
 
+test "zig fmt: remove newlines surrounding doc comment" {
+    try testTransform(
+        \\
+        \\
+        \\
+        \\/// doc comment
+        \\
+        \\fn foo() void {}
+        \\
+    ,
+        \\/// doc comment
+        \\fn foo() void {}
+        \\
+    );
+}
+
+test "zig fmt: remove newlines surrounding doc comment within container decl" {
+    try testTransform(
+        \\const Foo = struct {
+        \\
+        \\
+        \\    /// doc comment
+        \\
+        \\    fn foo() void {}
+        \\};
+        \\
+    ,
+        \\const Foo = struct {
+        \\    /// doc comment
+        \\    fn foo() void {}
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: comptime before comptime field" {
+    try testError(
+        \\const Foo = struct {
+        \\    a: i32,
+        \\    comptime comptime b: i32 = 1234,
+        \\};
+        \\
+    , &[_]Error{
+        .expected_comma_after_field,
+    });
+}
+
+test "zig fmt: invalid else branch statement" {
+    try testError(
+        \\/// This is a doc comment for a comptime block.
+        \\comptime {}
+        \\/// This is a doc comment for a test
+        \\test "This is my test" {}
+    , &[_]Error{
+        .comptime_doc_comment,
+        .test_doc_comment,
+    });
+}
+
+test "zig fmt: invalid else branch statement" {
+    try testError(
+        \\comptime {
+        \\    if (true) {} else var a = 0;
+        \\    if (true) {} else defer {}
+        \\}
+        \\comptime {
+        \\    while (true) {} else var a = 0;
+        \\    while (true) {} else defer {}
+        \\}
+        \\comptime {
+        \\    for ("") |_| {} else var a = 0;
+        \\    for ("") |_| {} else defer {}
+        \\}
+    , &[_]Error{
+        .expected_statement,
+        .expected_statement,
+        .expected_statement,
+        .expected_statement,
+        .expected_statement,
+        .expected_statement,
+    });
+}
+
 test "zig fmt: anytype struct field" {
     try testError(
         \\pub const Pointer = struct {
@@ -4203,10 +4346,10 @@ test "zig fmt: integer literals with underscore separators" {
         \\const
         \\ x     =
         \\ 1_234_567
-        \\ + (0b0_1-0o7_0+0xff_FF ) +  0_0;
+        \\ + (0b0_1-0o7_0+0xff_FF ) +  1_0;
     ,
         \\const x =
-        \\    1_234_567 + (0b0_1 - 0o7_0 + 0xff_FF) + 0_0;
+        \\    1_234_567 + (0b0_1 - 0o7_0 + 0xff_FF) + 1_0;
         \\
     );
 }
@@ -4215,7 +4358,7 @@ test "zig fmt: hex literals with underscore separators" {
     try testTransform(
         \\pub fn orMask(a: [ 1_000 ]u64, b: [  1_000]  u64) [1_000]u64 {
         \\    var c: [1_000]u64 =  [1]u64{ 0xFFFF_FFFF_FFFF_FFFF}**1_000;
-        \\    for (c [ 0_0 .. ]) |_, i| {
+        \\    for (c [ 1_0 .. ]) |_, i| {
         \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
         \\    }
         \\    return c;
@@ -4225,7 +4368,7 @@ test "zig fmt: hex literals with underscore separators" {
     ,
         \\pub fn orMask(a: [1_000]u64, b: [1_000]u64) [1_000]u64 {
         \\    var c: [1_000]u64 = [1]u64{0xFFFF_FFFF_FFFF_FFFF} ** 1_000;
-        \\    for (c[0_0..]) |_, i| {
+        \\    for (c[1_0..]) |_, i| {
         \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
         \\    }
         \\    return c;
@@ -4237,14 +4380,14 @@ test "zig fmt: hex literals with underscore separators" {
 test "zig fmt: decimal float literals with underscore separators" {
     try testTransform(
         \\pub fn main() void {
-        \\    const a:f64=(10.0e-0+(10.0e+0))+10_00.00_00e-2+00_00.00_10e+4;
-        \\    const b:f64=010.0--0_10.0+0_1_0.0_0+1e2;
+        \\    const a:f64=(10.0e-0+(10.0e+0))+10_00.00_00e-2+20_00.00_10e+4;
+        \\    const b:f64=1_0.0--10_10.0+1_0_0.0_0+1e2;
         \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
         \\}
     ,
         \\pub fn main() void {
-        \\    const a: f64 = (10.0e-0 + (10.0e+0)) + 10_00.00_00e-2 + 00_00.00_10e+4;
-        \\    const b: f64 = 010.0 - -0_10.0 + 0_1_0.0_0 + 1e2;
+        \\    const a: f64 = (10.0e-0 + (10.0e+0)) + 10_00.00_00e-2 + 20_00.00_10e+4;
+        \\    const b: f64 = 1_0.0 - -10_10.0 + 1_0_0.0_0 + 1e2;
         \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
         \\}
         \\
@@ -4984,6 +5127,21 @@ test "zig fmt: make single-line if no trailing comma" {
     );
 }
 
+test "zig fmt: preserve container doc comment in container without trailing comma" {
+    try testTransform(
+        \\const A = enum(u32) {
+        \\//! comment
+        \\_ };
+        \\
+    ,
+        \\const A = enum(u32) {
+        \\    //! comment
+        \\    _,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: make single-line if no trailing comma" {
     try testCanonical(
         \\// Test trailing comma syntax
@@ -5055,6 +5213,52 @@ test "zig fmt: make single-line if no trailing comma" {
     );
 }
 
+test "zig fmt: variable initialized with ==" {
+    try testError(
+        \\comptime {
+        \\    var z: u32 == 12 + 1;
+        \\}
+    , &.{.wrong_equal_var_decl});
+}
+
+test "zig fmt: missing const/var before local variable" {
+    try testError(
+        \\comptime {
+        \\    z: u32;
+        \\}
+        \\comptime {
+        \\    z: u32 align(1);
+        \\}
+        \\comptime {
+        \\    z: u32 addrspace(.generic);
+        \\}
+        \\comptime {
+        \\    z: u32 linksection("foo");
+        \\}
+        \\comptime {
+        \\    z: u32 = 1;
+        \\}
+    , &.{
+        .expected_labelable,
+        .expected_var_const,
+        .expected_var_const,
+        .expected_var_const,
+        .expected_var_const,
+    });
+}
+
+test "zig fmt: missing const/var before local variable" {
+    try testError(
+        \\std = foo,
+        \\std = foo;
+        \\*u32 = foo;
+    , &.{
+        .expected_comma_after_field,
+        .var_const_decl,
+        .expected_comma_after_field,
+    });
+}
+
 test "zig fmt: while continue expr" {
     try testCanonical(
         \\test {
@@ -5071,6 +5275,419 @@ test "zig fmt: while continue expr" {
         \\}
     , &[_]Error{
         .expected_continue_expr,
+    });
+}
+
+test "zig fmt: canonicalize symbols (simple)" {
+    try testTransform(
+        \\const val_normal: Normal = .{};
+        \\const @"val_unesc_me": @"UnescMe" = .{};
+        \\const @"val_esc!": @"Esc!" = .{};
+        \\
+        \\fn fnNormal() void {}
+        \\fn @"fnUnescMe"() void {}
+        \\fn @"fnEsc!"() void {}
+        \\
+        \\extern fn protoNormal() void;
+        \\extern fn @"protoUnescMe"() void;
+        \\extern fn @"protoEsc!"() void;
+        \\
+        \\fn fnWithArgs(normal: Normal, @"unesc_me": @"UnescMe", @"esc!": @"Esc!") void {
+        \\    _ = normal;
+        \\    _ = @"unesc_me";
+        \\    _ = @"esc!";
+        \\}
+        \\
+        \\const Normal = struct {};
+        \\const @"UnescMe" = struct {
+        \\    @"x": @"X",
+        \\    const X = union(@"EnumUnesc") {
+        \\        normal,
+        \\        @"unesc_me",
+        \\        @"esc!",
+        \\    };
+        \\    const @"EnumUnesc" = enum {
+        \\        normal,
+        \\        @"unesc_me",
+        \\        @"esc!",
+        \\    };
+        \\};
+        \\const @"Esc!" = struct {
+        \\    normal: bool = false,
+        \\    @"unesc_me": bool = false,
+        \\    @"esc!": bool = false,
+        \\};
+        \\
+        \\pub fn main() void {
+        \\    _ = val_normal;
+        \\    _ = @"val_normal";
+        \\    _ = val_unesc_me;
+        \\    _ = @"val_unesc_me";
+        \\    _ = @"val_esc!";
+        \\
+        \\    fnNormal();
+        \\    @"fnNormal"();
+        \\    fnUnescMe();
+        \\    @"fnUnescMe"();
+        \\    @"fnEsc!"();
+        \\
+        \\    fnWithArgs(1, Normal{}, UnescMe{}, @"Esc!"{});
+        \\    fnWithArgs(1, @"Normal"{}, @"UnescMe"{}, @"Esc!"{});
+        \\    fnWithArgs(1, @"Normal"{}, @"Normal"{}, @"Esc!"{});
+        \\
+        \\    const local_val1: @"Normal" = .{};
+        \\    const @"local_val2": UnescMe = .{
+        \\        .@"x" = .@"unesc_me",
+        \\    };
+        \\    fnWithArgs(@"local_val1", @"local_val2", .{ .@"normal" = true, .@"unesc_me" = true, .@"esc!" = true });
+        \\    fnWithArgs(local_val1, local_val2, .{ .normal = true, .unesc_me = true, .@"esc!" = true });
+        \\
+        \\    var x: u8 = 'x';
+        \\    switch (@"x") {
+        \\        @"x" => {},
+        \\    }
+        \\
+        \\    _ = @import("std"); // Don't mess with @builtins
+        \\    // @"comment"
+        \\}
+        \\
+    ,
+        \\const val_normal: Normal = .{};
+        \\const val_unesc_me: UnescMe = .{};
+        \\const @"val_esc!": @"Esc!" = .{};
+        \\
+        \\fn fnNormal() void {}
+        \\fn fnUnescMe() void {}
+        \\fn @"fnEsc!"() void {}
+        \\
+        \\extern fn protoNormal() void;
+        \\extern fn protoUnescMe() void;
+        \\extern fn @"protoEsc!"() void;
+        \\
+        \\fn fnWithArgs(normal: Normal, unesc_me: UnescMe, @"esc!": @"Esc!") void {
+        \\    _ = normal;
+        \\    _ = unesc_me;
+        \\    _ = @"esc!";
+        \\}
+        \\
+        \\const Normal = struct {};
+        \\const UnescMe = struct {
+        \\    x: X,
+        \\    const X = union(EnumUnesc) {
+        \\        normal,
+        \\        unesc_me,
+        \\        @"esc!",
+        \\    };
+        \\    const EnumUnesc = enum {
+        \\        normal,
+        \\        unesc_me,
+        \\        @"esc!",
+        \\    };
+        \\};
+        \\const @"Esc!" = struct {
+        \\    normal: bool = false,
+        \\    unesc_me: bool = false,
+        \\    @"esc!": bool = false,
+        \\};
+        \\
+        \\pub fn main() void {
+        \\    _ = val_normal;
+        \\    _ = val_normal;
+        \\    _ = val_unesc_me;
+        \\    _ = val_unesc_me;
+        \\    _ = @"val_esc!";
+        \\
+        \\    fnNormal();
+        \\    fnNormal();
+        \\    fnUnescMe();
+        \\    fnUnescMe();
+        \\    @"fnEsc!"();
+        \\
+        \\    fnWithArgs(1, Normal{}, UnescMe{}, @"Esc!"{});
+        \\    fnWithArgs(1, Normal{}, UnescMe{}, @"Esc!"{});
+        \\    fnWithArgs(1, Normal{}, Normal{}, @"Esc!"{});
+        \\
+        \\    const local_val1: Normal = .{};
+        \\    const local_val2: UnescMe = .{
+        \\        .x = .unesc_me,
+        \\    };
+        \\    fnWithArgs(local_val1, local_val2, .{ .normal = true, .unesc_me = true, .@"esc!" = true });
+        \\    fnWithArgs(local_val1, local_val2, .{ .normal = true, .unesc_me = true, .@"esc!" = true });
+        \\
+        \\    var x: u8 = 'x';
+        \\    switch (x) {
+        \\        x => {},
+        \\    }
+        \\
+        \\    _ = @import("std"); // Don't mess with @builtins
+        \\    // @"comment"
+        \\}
+        \\
+    );
+}
+
+// Contextually unescape when shadowing primitive types and values.
+test "zig fmt: canonicalize symbols (primitive types)" {
+    try testTransform(
+        \\const @"anyopaque" = struct {
+        \\    @"u8": @"type" = true,
+        \\    @"_": @"false" = @"true",
+        \\    const @"type" = bool;
+        \\    const @"false" = bool;
+        \\    const @"true" = false;
+        \\};
+        \\
+        \\const U = union(@"null") {
+        \\    @"type",
+        \\    const @"null" = enum {
+        \\        @"type",
+        \\    };
+        \\};
+        \\
+        \\test {
+        \\    const E = enum { @"anyopaque" };
+        \\    _ = U{ .@"type" = {} };
+        \\    _ = U.@"type";
+        \\    _ = E.@"anyopaque";
+        \\}
+        \\
+        \\fn @"i10"(@"void": @"anyopaque", @"type": @"anyopaque".@"type") error{@"null"}!void {
+        \\    var @"f32" = @"void";
+        \\    @"f32".@"u8" = false;
+        \\    _ = @"type";
+        \\    _ = type;
+        \\    if (@"f32".@"u8") {
+        \\        return @"i10"(.{ .@"u8" = true, .@"_" = false }, false);
+        \\    } else {
+        \\        return error.@"null";
+        \\    }
+        \\}
+        \\
+        \\test @"i10" {
+        \\    try @"i10"(.{}, true);
+        \\    _ = @"void": while (null) |@"u3"| {
+        \\        break :@"void" @"u3";
+        \\    };
+        \\    _ = @"void": {
+        \\        break :@"void";
+        \\    };
+        \\    for ("hi") |@"u3", @"i4"| {
+        \\        _ = @"u3";
+        \\        _ = @"i4";
+        \\    }
+        \\    if (false) {} else |@"bool"| {
+        \\        _ = @"bool";
+        \\    }
+        \\}
+        \\
+    ,
+        \\const @"anyopaque" = struct {
+        \\    u8: @"type" = true,
+        \\    _: @"false" = @"true",
+        \\    const @"type" = bool;
+        \\    const @"false" = bool;
+        \\    const @"true" = false;
+        \\};
+        \\
+        \\const U = union(@"null") {
+        \\    type,
+        \\    const @"null" = enum {
+        \\        type,
+        \\    };
+        \\};
+        \\
+        \\test {
+        \\    const E = enum { anyopaque };
+        \\    _ = U{ .type = {} };
+        \\    _ = U.type;
+        \\    _ = E.anyopaque;
+        \\}
+        \\
+        \\fn @"i10"(@"void": @"anyopaque", @"type": @"anyopaque".type) error{null}!void {
+        \\    var @"f32" = @"void";
+        \\    @"f32".u8 = false;
+        \\    _ = @"type";
+        \\    _ = type;
+        \\    if (@"f32".u8) {
+        \\        return @"i10"(.{ .u8 = true, ._ = false }, false);
+        \\    } else {
+        \\        return error.null;
+        \\    }
+        \\}
+        \\
+        \\test @"i10" {
+        \\    try @"i10"(.{}, true);
+        \\    _ = void: while (null) |@"u3"| {
+        \\        break :void @"u3";
+        \\    };
+        \\    _ = void: {
+        \\        break :void;
+        \\    };
+        \\    for ("hi") |@"u3", @"i4"| {
+        \\        _ = @"u3";
+        \\        _ = @"i4";
+        \\    }
+        \\    if (false) {} else |@"bool"| {
+        \\        _ = @"bool";
+        \\    }
+        \\}
+        \\
+    );
+}
+
+// Never unescape names spelled like keywords.
+test "zig fmt: canonicalize symbols (keywords)" {
+    try testCanonical(
+        \\const @"enum" = struct {
+        \\    @"error": @"struct" = true,
+        \\    const @"struct" = bool;
+        \\};
+        \\
+        \\fn @"usingnamespace"(@"union": @"enum") error{@"try"}!void {
+        \\    var @"struct" = @"union";
+        \\    @"struct".@"error" = false;
+        \\    if (@"struct".@"error") {
+        \\        return @"usingnamespace"(.{ .@"error" = false });
+        \\    } else {
+        \\        return error.@"try";
+        \\    }
+        \\}
+        \\
+        \\test @"usingnamespace" {
+        \\    try @"usingnamespace"(.{});
+        \\    _ = @"return": {
+        \\        break :@"return" 4;
+        \\    };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: no space before newline before multiline string" {
+    try testCanonical(
+        \\const S = struct {
+        \\    text: []const u8,
+        \\    comment: []const u8,
+        \\};
+        \\
+        \\test {
+        \\    const s1 = .{
+        \\        .text =
+        \\        \\hello
+        \\        \\world
+        \\        ,
+        \\        .comment = "test",
+        \\    };
+        \\    _ = s1;
+        \\    const s2 = .{
+        \\        .comment = "test",
+        \\        .text =
+        \\        \\hello
+        \\        \\world
+        \\        ,
+        \\    };
+        \\    _ = s2;
+        \\}
+        \\
+    );
+}
+
+// Normalize \xNN and \u{NN} escapes and unicode inside @"" escapes.
+test "zig fmt: canonicalize symbols (character escapes)" {
+    try testTransform(
+        \\const @"\x46\x6f\x6f\x64" = struct {
+        \\    @"\x62\x61\x72\x6E": @"\x43\x72\x61\x62" = false,
+        \\    @"\u{67}\u{6C}o\u{70}\xFF": @"Cra\x62" = false,
+        \\    @"\x65\x72\x72\x6F\x72": Crab = true,
+        \\    @"\x74\x72\x79": Crab = true,
+        \\    @"\u{74}\u{79}\u{70}\u{65}": @"any\u{6F}\u{70}\u{61}\u{71}\u{75}\u{65}",
+        \\
+        \\    const @"\x43\x72\x61\x62" = bool;
+        \\    const @"\x61\x6E\x79\x6F\x70\x61que" = void;
+        \\};
+        \\
+        \\test "unicode" {
+        \\    const @"cąbbäge ⚡" = 2;
+        \\    _ = @"cąbbäge ⚡";
+        \\    const @"\u{01f422} friend\u{f6}" = 4;
+        \\    _ = @"🐢 friendö";
+        \\}
+        \\
+    ,
+        \\const Food = struct {
+        \\    barn: Crab = false,
+        \\    @"glop\xFF": Crab = false,
+        \\    @"error": Crab = true,
+        \\    @"try": Crab = true,
+        \\    type: @"anyopaque",
+        \\
+        \\    const Crab = bool;
+        \\    const @"anyopaque" = void;
+        \\};
+        \\
+        \\test "unicode" {
+        \\    const @"cąbbäge ⚡" = 2;
+        \\    _ = @"cąbbäge ⚡";
+        \\    const @"\u{01f422} friend\u{f6}" = 4;
+        \\    _ = @"🐢 friendö";
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: canonicalize symbols (asm)" {
+    try testTransform(
+        \\test "asm" {
+        \\    const @"null" = usize;
+        \\    const @"try": usize = 808;
+        \\    const arg: usize = 2;
+        \\    _ = asm volatile ("syscall"
+        \\        : [@"void"] "={rax}" (-> @"null"),
+        \\        : [@"error"] "{rax}" (@"try"),
+        \\          [@"arg1"] "{rdi}" (arg),
+        \\          [arg2] "{rsi}" (arg),
+        \\          [arg3] "{rdx}" (arg),
+        \\        : "rcx", "r11"
+        \\    );
+        \\
+        \\    const @"false": usize = 10;
+        \\    const @"true" = "explode";
+        \\    _ = asm volatile (@"true"
+        \\        : [one] "={rax}" (@"false"),
+        \\        : [two] "{rax}" (@"false"),
+        \\    );
+        \\}
+        \\
+    ,
+        \\test "asm" {
+        \\    const @"null" = usize;
+        \\    const @"try": usize = 808;
+        \\    const arg: usize = 2;
+        \\    _ = asm volatile ("syscall"
+        \\        : [void] "={rax}" (-> @"null"),
+        \\        : [@"error"] "{rax}" (@"try"),
+        \\          [arg1] "{rdi}" (arg),
+        \\          [arg2] "{rsi}" (arg),
+        \\          [arg3] "{rdx}" (arg),
+        \\        : "rcx", "r11"
+        \\    );
+        \\
+        \\    const @"false": usize = 10;
+        \\    const @"true" = "explode";
+        \\    _ = asm volatile (@"true"
+        \\        : [one] "={rax}" (false),
+        \\        : [two] "{rax}" (@"false"),
+        \\    );
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: error for missing sentinel value in sentinel slice" {
+    try testError(
+        \\const foo = foo[0..:];
+    , &[_]Error{
+        .expected_expr,
     });
 }
 
@@ -5224,8 +5841,8 @@ test "recovery: missing semicolon" {
 test "recovery: invalid container members" {
     try testError(
         \\usingnamespace;
-        \\foo+
-        \\bar@,
+        \\@foo()+
+        \\@bar()@,
         \\while (a == 2) { test "" {}}
         \\test "" {
         \\    a & b
@@ -5233,7 +5850,7 @@ test "recovery: invalid container members" {
     , &[_]Error{
         .expected_expr,
         .expected_comma_after_field,
-        .expected_container_members,
+        .expected_type_expr,
         .expected_semi_after_stmt,
     });
 }
@@ -5312,7 +5929,7 @@ test "recovery: invalid comptime" {
     try testError(
         \\comptime
     , &[_]Error{
-        .expected_block_or_field,
+        .expected_type_expr,
     });
 }
 
@@ -5456,7 +6073,7 @@ var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 fn testParse(source: [:0]const u8, allocator: mem.Allocator, anything_changed: *bool) ![]u8 {
     const stderr = io.getStdErr().writer();
 
-    var tree = try std.zig.parse(allocator, source);
+    var tree = try std.zig.Ast.parse(allocator, source, .zig);
     defer tree.deinit(allocator);
 
     for (tree.errors) |parse_error| {
@@ -5507,7 +6124,7 @@ fn testCanonical(source: [:0]const u8) !void {
 const Error = std.zig.Ast.Error.Tag;
 
 fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
-    var tree = try std.zig.parse(std.testing.allocator, source);
+    var tree = try std.zig.Ast.parse(std.testing.allocator, source, .zig);
     defer tree.deinit(std.testing.allocator);
 
     std.testing.expectEqual(expected_errors.len, tree.errors.len) catch |err| {

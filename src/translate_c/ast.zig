@@ -36,6 +36,7 @@ pub const Node = extern union {
         /// "string"[0..end]
         string_slice,
         identifier,
+        fn_identifier,
         @"if",
         /// if (!operand) break;
         if_not_break,
@@ -153,8 +154,13 @@ pub const Node = extern union {
         div_exact,
         /// @offsetOf(lhs, rhs)
         offset_of,
+        /// @splat(lhs, rhs)
+        vector_zero_init,
         /// @shuffle(type, a, b, mask)
         shuffle,
+
+        /// @import("std").zig.c_translation.MacroArithmetic.<op>(lhs, rhs)
+        macro_arithmetic,
 
         asm_simple,
 
@@ -327,6 +333,7 @@ pub const Node = extern union {
                 .div_exact,
                 .offset_of,
                 .helpers_cast,
+                .vector_zero_init,
                 => Payload.BinOp,
 
                 .integer_literal,
@@ -335,6 +342,7 @@ pub const Node = extern union {
                 .char_literal,
                 .enum_literal,
                 .identifier,
+                .fn_identifier,
                 .warning,
                 .type,
                 .helpers_macro,
@@ -365,6 +373,7 @@ pub const Node = extern union {
                 .field_access => Payload.FieldAccess,
                 .string_slice => Payload.StringSlice,
                 .shuffle => Payload.Shuffle,
+                .macro_arithmetic => Payload.MacroArithmetic,
             };
         }
 
@@ -383,7 +392,7 @@ pub const Node = extern union {
         }
 
         pub fn Data(comptime t: Tag) type {
-            return std.meta.fieldInfo(t.Type(), .data).field_type;
+            return std.meta.fieldInfo(t.Type(), .data).type;
         }
     };
 
@@ -708,6 +717,17 @@ pub const Payload = struct {
             mask_vector: Node,
         },
     };
+
+    pub const MacroArithmetic = struct {
+        base: Payload,
+        data: struct {
+            op: Operator,
+            lhs: Node,
+            rhs: Node,
+        },
+
+        pub const Operator = enum { div, rem };
+    };
 };
 
 /// Converts the nodes into a Zig Ast.
@@ -767,7 +787,7 @@ pub fn render(gpa: Allocator, nodes: []const Node) !std.zig.Ast {
         .source = try ctx.buf.toOwnedSliceSentinel(0),
         .tokens = ctx.tokens.toOwnedSlice(),
         .nodes = ctx.nodes.toOwnedSlice(),
-        .extra_data = ctx.extra_data.toOwnedSlice(gpa),
+        .extra_data = try ctx.extra_data.toOwnedSlice(gpa),
         .errors = &.{},
     };
 }
@@ -801,7 +821,7 @@ const Context = struct {
     }
 
     fn addIdentifier(c: *Context, bytes: []const u8) Allocator.Error!TokenIndex {
-        if (@import("../AstGen.zig").isPrimitive(bytes))
+        if (std.zig.primitives.isPrimitive(bytes))
             return c.addTokenFmt(.identifier, "@\"{s}\"", .{bytes});
         return c.addTokenFmt(.identifier, "{s}", .{std.zig.fmtId(bytes)});
     }
@@ -825,7 +845,7 @@ const Context = struct {
         try c.extra_data.ensureUnusedCapacity(c.gpa, fields.len);
         const result = @intCast(u32, c.extra_data.items.len);
         inline for (fields) |field| {
-            comptime std.debug.assert(field.field_type == NodeIndex);
+            comptime std.debug.assert(field.type == NodeIndex);
             c.extra_data.appendAssumeCapacity(@field(extra, field.name));
         }
         return result;
@@ -905,7 +925,15 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .call => {
             const payload = node.castTag(.call).?.data;
-            const lhs = try renderNode(c, payload.lhs);
+            // Cosmetic: avoids an unnecesary address_of on most function calls.
+            const lhs = if (payload.lhs.tag() == .fn_identifier)
+                try c.addNode(.{
+                    .tag = .identifier,
+                    .main_token = try c.addIdentifier(payload.lhs.castTag(.fn_identifier).?.data),
+                    .data = undefined,
+                })
+            else
+                try renderNodeGrouped(c, payload.lhs);
             return renderCall(c, lhs, payload.args);
         },
         .null_literal => return c.addNode(.{
@@ -929,13 +957,13 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             .data = undefined,
         }),
         .zero_literal => return c.addNode(.{
-            .tag = .integer_literal,
-            .main_token = try c.addToken(.integer_literal, "0"),
+            .tag = .number_literal,
+            .main_token = try c.addToken(.number_literal, "0"),
             .data = undefined,
         }),
         .one_literal => return c.addNode(.{
-            .tag = .integer_literal,
-            .main_token = try c.addToken(.integer_literal, "1"),
+            .tag = .number_literal,
+            .main_token = try c.addToken(.number_literal, "1"),
             .data = undefined,
         }),
         .void_type => return c.addNode(.{
@@ -1058,26 +1086,46 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .data = undefined,
             });
         },
+        .fn_identifier => {
+            // C semantics are that a function identifier has address
+            // value (implicit in stage1, explicit in stage2), except in
+            // the context of an address_of, which is handled there.
+            const payload = node.castTag(.fn_identifier).?.data;
+            const tok = try c.addToken(.ampersand, "&");
+            const arg = try c.addNode(.{
+                .tag = .identifier,
+                .main_token = try c.addIdentifier(payload),
+                .data = undefined,
+            });
+            return c.addNode(.{
+                .tag = .address_of,
+                .main_token = tok,
+                .data = .{
+                    .lhs = arg,
+                    .rhs = undefined,
+                },
+            });
+        },
         .float_literal => {
             const payload = node.castTag(.float_literal).?.data;
             return c.addNode(.{
-                .tag = .float_literal,
-                .main_token = try c.addToken(.float_literal, payload),
+                .tag = .number_literal,
+                .main_token = try c.addToken(.number_literal, payload),
                 .data = undefined,
             });
         },
         .integer_literal => {
             const payload = node.castTag(.integer_literal).?.data;
             return c.addNode(.{
-                .tag = .integer_literal,
-                .main_token = try c.addToken(.integer_literal, payload),
+                .tag = .number_literal,
+                .main_token = try c.addToken(.number_literal, payload),
                 .data = undefined,
             });
         },
         .string_literal => {
             const payload = node.castTag(.string_literal).?.data;
             return c.addNode(.{
-                .tag = .identifier,
+                .tag = .string_literal,
                 .main_token = try c.addToken(.string_literal, payload),
                 .data = undefined,
             });
@@ -1085,7 +1133,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .char_literal => {
             const payload = node.castTag(.char_literal).?.data;
             return c.addNode(.{
-                .tag = .identifier,
+                .tag = .char_literal,
                 .main_token = try c.addToken(.char_literal, payload),
                 .data = undefined,
             });
@@ -1124,14 +1172,14 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const string = try renderNode(c, payload.string);
             const l_bracket = try c.addToken(.l_bracket, "[");
             const start = try c.addNode(.{
-                .tag = .integer_literal,
-                .main_token = try c.addToken(.integer_literal, "0"),
+                .tag = .number_literal,
+                .main_token = try c.addToken(.number_literal, "0"),
                 .data = undefined,
             });
             _ = try c.addToken(.ellipsis2, "..");
             const end = try c.addNode(.{
-                .tag = .integer_literal,
-                .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{payload.end}),
+                .tag = .number_literal,
+                .main_token = try c.addTokenFmt(.number_literal, "{d}", .{payload.end}),
                 .data = undefined,
             });
             _ = try c.addToken(.r_bracket, "]");
@@ -1361,6 +1409,12 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 payload.mask_vector,
             });
         },
+        .macro_arithmetic => {
+            const payload = node.castTag(.macro_arithmetic).?.data;
+            const op = @tagName(payload.op);
+            const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "MacroArithmetic", op });
+            return renderCall(c, import_node, &.{ payload.lhs, payload.rhs });
+        },
         .alignof => {
             const payload = node.castTag(.alignof).?.data;
             return renderBuiltinCall(c, "@alignOf", &.{payload});
@@ -1378,7 +1432,27 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .bit_not => return renderPrefixOp(c, node, .bit_not, .tilde, "~"),
         .not => return renderPrefixOp(c, node, .bool_not, .bang, "!"),
         .optional_type => return renderPrefixOp(c, node, .optional_type, .question_mark, "?"),
-        .address_of => return renderPrefixOp(c, node, .address_of, .ampersand, "&"),
+        .address_of => {
+            const payload = node.castTag(.address_of).?.data;
+
+            const ampersand = try c.addToken(.ampersand, "&");
+            const base = if (payload.tag() == .fn_identifier)
+                try c.addNode(.{
+                    .tag = .identifier,
+                    .main_token = try c.addIdentifier(payload.castTag(.fn_identifier).?.data),
+                    .data = undefined,
+                })
+            else
+                try renderNodeGrouped(c, payload);
+            return c.addNode(.{
+                .tag = .address_of,
+                .main_token = ampersand,
+                .data = .{
+                    .lhs = base,
+                    .rhs = undefined,
+                },
+            });
+        },
         .deref => {
             const payload = node.castTag(.deref).?.data;
             const operand = try renderNodeGrouped(c, payload);
@@ -1537,14 +1611,27 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .main_token = try c.addToken(.identifier, "_"),
                 .data = undefined,
             });
-            return c.addNode(.{
-                .tag = .assign,
-                .main_token = try c.addToken(.equal, "="),
-                .data = .{
-                    .lhs = lhs,
-                    .rhs = try renderNode(c, payload.value),
-                },
-            });
+            const main_token = try c.addToken(.equal, "=");
+            if (payload.value.tag() == .identifier) {
+                // Render as `_ = @TypeOf(foo);` to avoid tripping "pointless discard" error.
+                return c.addNode(.{
+                    .tag = .assign,
+                    .main_token = main_token,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = try renderBuiltinCall(c, "@TypeOf", &.{payload.value}),
+                    },
+                });
+            } else {
+                return c.addNode(.{
+                    .tag = .assign,
+                    .main_token = main_token,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = try renderNode(c, payload.value),
+                    },
+                });
+            }
         },
         .@"while" => {
             const payload = node.castTag(.@"while").?.data;
@@ -1801,8 +1888,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .data = .{
                     .lhs = init,
                     .rhs = try c.addNode(.{
-                        .tag = .integer_literal,
-                        .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{payload.count}),
+                        .tag = .number_literal,
+                        .main_token = try c.addTokenFmt(.number_literal, "{d}", .{payload.count}),
                         .data = undefined,
                     }),
                 },
@@ -1818,6 +1905,10 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.array_init).?.data;
             const type_expr = try renderNode(c, payload.cond);
             return renderArrayInit(c, type_expr, payload.cases);
+        },
+        .vector_zero_init => {
+            const payload = node.castTag(.vector_zero_init).?.data;
+            return renderBuiltinCall(c, "@splat", &.{ payload.lhs, payload.rhs });
         },
         .field_access => {
             const payload = node.castTag(.field_access).?.data;
@@ -2009,8 +2100,8 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.keyword_align, "align");
         _ = try c.addToken(.l_paren, "(");
         const align_expr = try c.addNode(.{
-            .tag = .integer_literal,
-            .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{alignment}),
+            .tag = .number_literal,
+            .main_token = try c.addTokenFmt(.number_literal, "{d}", .{alignment}),
             .data = undefined,
         });
         _ = try c.addToken(.r_paren, ")");
@@ -2113,8 +2204,8 @@ fn renderArrayInit(c: *Context, lhs: NodeIndex, inits: []const Node) !NodeIndex 
 fn renderArrayType(c: *Context, len: usize, elem_type: Node) !NodeIndex {
     const l_bracket = try c.addToken(.l_bracket, "[");
     const len_expr = try c.addNode(.{
-        .tag = .integer_literal,
-        .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{len}),
+        .tag = .number_literal,
+        .main_token = try c.addTokenFmt(.number_literal, "{d}", .{len}),
         .data = undefined,
     });
     _ = try c.addToken(.r_bracket, "]");
@@ -2132,15 +2223,15 @@ fn renderArrayType(c: *Context, len: usize, elem_type: Node) !NodeIndex {
 fn renderNullSentinelArrayType(c: *Context, len: usize, elem_type: Node) !NodeIndex {
     const l_bracket = try c.addToken(.l_bracket, "[");
     const len_expr = try c.addNode(.{
-        .tag = .integer_literal,
-        .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{len}),
+        .tag = .number_literal,
+        .main_token = try c.addTokenFmt(.number_literal, "{d}", .{len}),
         .data = undefined,
     });
     _ = try c.addToken(.colon, ":");
 
     const sentinel_expr = try c.addNode(.{
-        .tag = .integer_literal,
-        .main_token = try c.addToken(.integer_literal, "0"),
+        .tag = .number_literal,
+        .main_token = try c.addToken(.number_literal, "0"),
         .data = undefined,
     });
 
@@ -2234,6 +2325,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .char_literal,
         .enum_literal,
         .identifier,
+        .fn_identifier,
         .field_access,
         .ptr_cast,
         .type,
@@ -2258,6 +2350,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .shuffle,
         .static_local_var,
         .mut_str,
+        .macro_arithmetic,
         => {
             // no grouping needed
             return renderNode(c, node);
@@ -2294,6 +2387,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .@"struct",
         .@"union",
         .array_init,
+        .vector_zero_init,
         .tuple,
         .container_init,
         .container_init_dot,
@@ -2539,8 +2633,8 @@ fn renderVar(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.keyword_align, "align");
         _ = try c.addToken(.l_paren, "(");
         const res = try c.addNode(.{
-            .tag = .integer_literal,
-            .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{some}),
+            .tag = .number_literal,
+            .main_token = try c.addTokenFmt(.number_literal, "{d}", .{some}),
             .data = undefined,
         });
         _ = try c.addToken(.r_paren, ")");
@@ -2623,8 +2717,8 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.keyword_align, "align");
         _ = try c.addToken(.l_paren, "(");
         const res = try c.addNode(.{
-            .tag = .integer_literal,
-            .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{some}),
+            .tag = .number_literal,
+            .main_token = try c.addTokenFmt(.number_literal, "{d}", .{some}),
             .data = undefined,
         });
         _ = try c.addToken(.r_paren, ")");

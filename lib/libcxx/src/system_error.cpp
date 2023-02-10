@@ -1,4 +1,4 @@
-//===---------------------- system_error.cpp ------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,18 +6,21 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "__config"
+#include <__config>
+#ifdef _LIBCPP_DEPRECATED_ABI_LEGACY_LIBRARY_DEFINITIONS_FOR_INLINE_FUNCTIONS
+#   define _LIBCPP_ERROR_CATEGORY_DEFINE_LEGACY_INLINE_FUNCTIONS
+#endif
 
-#include "system_error"
+#include <__assert>
+#include <cerrno>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <string.h>
+#include <system_error>
 
 #include "include/config_elast.h"
-#include "cerrno"
-#include "cstring"
-#include "cstdio"
-#include "cstdlib"
-#include "string"
-#include "string.h"
-#include "__debug"
 
 #if defined(__ANDROID__)
 #include <android/api-level.h>
@@ -27,7 +30,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 // class error_category
 
-#if defined(_LIBCPP_DEPRECATED_ABI_LEGACY_LIBRARY_DEFINITIONS_FOR_INLINE_FUNCTIONS)
+#if defined(_LIBCPP_ERROR_CATEGORY_DEFINE_LEGACY_INLINE_FUNCTIONS)
 error_category::error_category() noexcept
 {
 }

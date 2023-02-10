@@ -51,35 +51,46 @@ const llvm_targets = [_]LlvmTarget{
         .branch_quota = 2000,
         .feature_overrides = &.{
             .{
+                .llvm_name = "all",
+                .omit = true,
+            },
+            .{
+                .llvm_name = "v8a",
+                .extra_deps = &.{ "fp_armv8", "neon" },
+            },
+            .{
                 .llvm_name = "CONTEXTIDREL2",
                 .zig_name = "contextidr_el2",
                 .desc = "Enable RW operand Context ID Register (EL2)",
             },
             .{
                 .llvm_name = "neoversee1",
-                .zig_name = "neoverse_e1",
+                .flatten = true,
             },
             .{
                 .llvm_name = "neoversen1",
-                .zig_name = "neoverse_n1",
+                .flatten = true,
             },
             .{
                 .llvm_name = "neoversen2",
-                .zig_name = "neoverse_n2",
+                .flatten = true,
             },
             .{
                 .llvm_name = "neoversev1",
-                .zig_name = "neoverse_v1",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "neoverse512tvb",
+                .flatten = true,
             },
             .{
                 .llvm_name = "exynosm3",
-                .zig_name = "exynos_m3",
                 .flatten = true,
                 .extra_deps = &.{"v8a"},
             },
             .{
                 .llvm_name = "exynosm4",
-                .zig_name = "exynos_m4",
+                .flatten = true,
             },
             .{
                 .llvm_name = "v8.1a",
@@ -127,6 +138,10 @@ const llvm_targets = [_]LlvmTarget{
                 .flatten = true,
             },
             .{
+                .llvm_name = "apple-a7",
+                .flatten = true,
+            },
+            .{
                 .llvm_name = "apple-a10",
                 .flatten = true,
             },
@@ -135,7 +150,19 @@ const llvm_targets = [_]LlvmTarget{
                 .flatten = true,
             },
             .{
+                .llvm_name = "apple-a12",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "apple-a13",
+                .flatten = true,
+            },
+            .{
                 .llvm_name = "apple-a14",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "apple-a7-sysreg",
                 .flatten = true,
             },
             .{
@@ -148,6 +175,10 @@ const llvm_targets = [_]LlvmTarget{
             },
             .{
                 .llvm_name = "cortex-x1",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "cortex-x2",
                 .flatten = true,
             },
             .{
@@ -196,12 +227,9 @@ const llvm_targets = [_]LlvmTarget{
                 .llvm_name = "tsv110",
                 .flatten = true,
             },
-        },
-        .extra_features = &.{
             .{
-                .zig_name = "v8a",
-                .desc = "Support ARM v8a instructions",
-                .deps = &.{ "fp_armv8", "neon" },
+                .llvm_name = "ampere1",
+                .flatten = true,
             },
         },
         .extra_cpus = &.{
@@ -275,6 +303,18 @@ const llvm_targets = [_]LlvmTarget{
                 .llvm_name = "dumpcode",
                 .omit = true,
             },
+            .{
+                .llvm_name = "enable-ds128",
+                .zig_name = "ds128",
+            },
+            .{
+                .llvm_name = "enable-flat-scratch",
+                .zig_name = "flat_scratch",
+            },
+            .{
+                .llvm_name = "enable-prt-strict-null",
+                .zig_name = "prt_strict_null",
+            },
         },
     },
     .{
@@ -307,6 +347,14 @@ const llvm_targets = [_]LlvmTarget{
         .feature_overrides = &.{
             .{
                 .llvm_name = "cortex-a78",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "cortex-a710",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "cortex-x1c",
                 .flatten = true,
             },
             .{
@@ -543,6 +591,10 @@ const llvm_targets = [_]LlvmTarget{
                 .zig_name = "v8_7a",
             },
             .{
+                .llvm_name = "armv8.8-a",
+                .zig_name = "v8_8a",
+            },
+            .{
                 .llvm_name = "armv8-a",
                 .zig_name = "v8a",
             },
@@ -557,6 +609,22 @@ const llvm_targets = [_]LlvmTarget{
             .{
                 .llvm_name = "armv8-r",
                 .zig_name = "v8r",
+            },
+            .{
+                .llvm_name = "armv9.1-a",
+                .zig_name = "v9_1a",
+            },
+            .{
+                .llvm_name = "armv9.2-a",
+                .zig_name = "v9_2a",
+            },
+            .{
+                .llvm_name = "armv9.3-a",
+                .zig_name = "v9_3a",
+            },
+            .{
+                .llvm_name = "armv9-a",
+                .zig_name = "v9a",
             },
             .{
                 .llvm_name = "v4t",
@@ -638,6 +706,26 @@ const llvm_targets = [_]LlvmTarget{
                 .llvm_name = "v8.7a",
                 .zig_name = "has_v8_7a",
             },
+            .{
+                .llvm_name = "v8.8a",
+                .zig_name = "has_v8_8a",
+            },
+            .{
+                .llvm_name = "v9a",
+                .zig_name = "has_v9a",
+            },
+            .{
+                .llvm_name = "v9.1a",
+                .zig_name = "has_v9_1a",
+            },
+            .{
+                .llvm_name = "v9.2a",
+                .zig_name = "has_v9_2a",
+            },
+            .{
+                .llvm_name = "v9.3a",
+                .zig_name = "has_v9_3a",
+            },
         },
     },
     .{
@@ -664,6 +752,11 @@ const llvm_targets = [_]LlvmTarget{
         .zig_name = "lanai",
         .llvm_name = "Lanai",
         .td_name = "Lanai.td",
+    },
+    .{
+        .zig_name = "m68k",
+        .llvm_name = "M68k",
+        .td_name = "M68k.td",
     },
     .{
         .zig_name = "msp430",
@@ -695,6 +788,12 @@ const llvm_targets = [_]LlvmTarget{
         .zig_name = "riscv",
         .llvm_name = "RISCV",
         .td_name = "RISCV.td",
+        .feature_overrides = &.{
+            .{
+                .llvm_name = "sifive7",
+                .flatten = true,
+            },
+        },
         .extra_cpus = &.{
             .{
                 .llvm_name = null,
@@ -714,7 +813,7 @@ const llvm_targets = [_]LlvmTarget{
         .td_name = "Sparc.td",
     },
     .{
-        .zig_name = "systemz",
+        .zig_name = "s390x",
         .llvm_name = "SystemZ",
         .td_name = "SystemZ.td",
     },
@@ -736,22 +835,6 @@ const llvm_targets = [_]LlvmTarget{
             .{
                 .llvm_name = "64bit-mode",
                 .omit = true,
-            },
-            .{
-                .llvm_name = "i386",
-                .zig_name = "_i386",
-            },
-            .{
-                .llvm_name = "i486",
-                .zig_name = "_i486",
-            },
-            .{
-                .llvm_name = "i586",
-                .zig_name = "_i586",
-            },
-            .{
-                .llvm_name = "i686",
-                .zig_name = "_i686",
             },
             .{
                 .llvm_name = "lakemont",
@@ -871,7 +954,7 @@ fn processOneTarget(job: Job) anyerror!void {
     const child_result = try std.ChildProcess.exec(.{
         .allocator = arena,
         .argv = &child_args,
-        .max_output_bytes = 200 * 1024 * 1024,
+        .max_output_bytes = 400 * 1024 * 1024,
     });
     tblgen_progress.end();
     if (child_result.stderr.len != 0) {
@@ -1223,7 +1306,7 @@ fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
         \\
         \\Updates lib/std/target/<target>.zig from llvm/lib/Target/<Target>/<Target>.td .
         \\
-        \\On a less beefy system, or when debugging, compile with --single-threaded.
+        \\On a less beefy system, or when debugging, compile with -fsingle-threaded.
         \\
     , .{arg0}) catch std.process.exit(1);
     std.process.exit(code);

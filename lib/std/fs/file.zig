@@ -21,7 +21,7 @@ pub const File = struct {
     /// blocking.
     capable_io_mode: io.ModeOverride = io.default_mode,
 
-    /// Furthermore, even when `std.io.mode` is async, it is still sometimes desirable
+    /// Furthermore, even when `std.options.io_mode` is async, it is still sometimes desirable
     /// to perform blocking I/O, although not by default. For example, when printing a
     /// stack trace to stderr. This field tracks both by acting as an overriding I/O mode.
     /// When not building in async I/O mode, the type only has the `.blocking` tag, making
@@ -179,7 +179,7 @@ pub const File = struct {
         lock_nonblocking: bool = false,
 
         /// For POSIX systems this is the file system mode the file will
-        /// be created with.
+        /// be created with. On other systems this is always 0.
         mode: Mode = default_mode,
 
         /// Setting this to `.blocking` prevents `O.NONBLOCK` from being passed even
@@ -230,7 +230,6 @@ pub const File = struct {
         }
         if (self.isTty()) {
             if (self.handle == os.STDOUT_FILENO or self.handle == os.STDERR_FILENO) {
-                // Use getenvC to workaround https://github.com/ziglang/zig/issues/3511
                 if (os.getenvZ("TERM")) |term| {
                     if (std.mem.eql(u8, term, "dumb"))
                         return false;
@@ -295,16 +294,20 @@ pub const File = struct {
     }
 
     pub const Stat = struct {
-        /// A number that the system uses to point to the file metadata. This number is not guaranteed to be
-        /// unique across time, as some file systems may reuse an inode after its file has been deleted.
-        /// Some systems may change the inode of a file over time.
+        /// A number that the system uses to point to the file metadata. This
+        /// number is not guaranteed to be unique across time, as some file
+        /// systems may reuse an inode after its file has been deleted. Some
+        /// systems may change the inode of a file over time.
         ///
-        /// On Linux, the inode is a structure that stores the metadata, and the inode _number_ is what
-        /// you see here: the index number of the inode.
+        /// On Linux, the inode is a structure that stores the metadata, and
+        /// the inode _number_ is what you see here: the index number of the
+        /// inode.
         ///
-        /// The FileIndex on Windows is similar. It is a number for a file that is unique to each filesystem.
+        /// The FileIndex on Windows is similar. It is a number for a file that
+        /// is unique to each filesystem.
         inode: INode,
         size: u64,
+        /// This is available on POSIX systems and is always 0 otherwise.
         mode: Mode,
         kind: Kind,
 
@@ -314,6 +317,50 @@ pub const File = struct {
         mtime: i128,
         /// Creation time in nanoseconds, relative to UTC 1970-01-01.
         ctime: i128,
+
+        pub fn fromSystem(st: os.system.Stat) Stat {
+            const atime = st.atime();
+            const mtime = st.mtime();
+            const ctime = st.ctime();
+            const kind: Kind = if (builtin.os.tag == .wasi and !builtin.link_libc) switch (st.filetype) {
+                .BLOCK_DEVICE => Kind.BlockDevice,
+                .CHARACTER_DEVICE => Kind.CharacterDevice,
+                .DIRECTORY => Kind.Directory,
+                .SYMBOLIC_LINK => Kind.SymLink,
+                .REGULAR_FILE => Kind.File,
+                .SOCKET_STREAM, .SOCKET_DGRAM => Kind.UnixDomainSocket,
+                else => Kind.Unknown,
+            } else blk: {
+                const m = st.mode & os.S.IFMT;
+                switch (m) {
+                    os.S.IFBLK => break :blk Kind.BlockDevice,
+                    os.S.IFCHR => break :blk Kind.CharacterDevice,
+                    os.S.IFDIR => break :blk Kind.Directory,
+                    os.S.IFIFO => break :blk Kind.NamedPipe,
+                    os.S.IFLNK => break :blk Kind.SymLink,
+                    os.S.IFREG => break :blk Kind.File,
+                    os.S.IFSOCK => break :blk Kind.UnixDomainSocket,
+                    else => {},
+                }
+                if (builtin.os.tag == .solaris) switch (m) {
+                    os.S.IFDOOR => break :blk Kind.Door,
+                    os.S.IFPORT => break :blk Kind.EventPort,
+                    else => {},
+                };
+
+                break :blk .Unknown;
+            };
+
+            return Stat{
+                .inode = st.ino,
+                .size = @bitCast(u64, st.size),
+                .mode = st.mode,
+                .kind = kind,
+                .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
+                .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
+                .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+            };
+        }
     };
 
     pub const StatError = os.FStatError;
@@ -343,47 +390,7 @@ pub const File = struct {
         }
 
         const st = try os.fstat(self.handle);
-        const atime = st.atime();
-        const mtime = st.mtime();
-        const ctime = st.ctime();
-        const kind: Kind = if (builtin.os.tag == .wasi and !builtin.link_libc) switch (st.filetype) {
-            .BLOCK_DEVICE => Kind.BlockDevice,
-            .CHARACTER_DEVICE => Kind.CharacterDevice,
-            .DIRECTORY => Kind.Directory,
-            .SYMBOLIC_LINK => Kind.SymLink,
-            .REGULAR_FILE => Kind.File,
-            .SOCKET_STREAM, .SOCKET_DGRAM => Kind.UnixDomainSocket,
-            else => Kind.Unknown,
-        } else blk: {
-            const m = st.mode & os.S.IFMT;
-            switch (m) {
-                os.S.IFBLK => break :blk Kind.BlockDevice,
-                os.S.IFCHR => break :blk Kind.CharacterDevice,
-                os.S.IFDIR => break :blk Kind.Directory,
-                os.S.IFIFO => break :blk Kind.NamedPipe,
-                os.S.IFLNK => break :blk Kind.SymLink,
-                os.S.IFREG => break :blk Kind.File,
-                os.S.IFSOCK => break :blk Kind.UnixDomainSocket,
-                else => {},
-            }
-            if (builtin.os.tag == .solaris) switch (m) {
-                os.S.IFDOOR => break :blk Kind.Door,
-                os.S.IFPORT => break :blk Kind.EventPort,
-                else => {},
-            };
-
-            break :blk .Unknown;
-        };
-
-        return Stat{
-            .inode = st.ino,
-            .size = @bitCast(u64, st.size),
-            .mode = st.mode,
-            .kind = kind,
-            .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
-            .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
-            .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
-        };
+        return Stat.fromSystem(st);
     }
 
     pub const ChmodError = std.os.FChmodError;
@@ -955,11 +962,9 @@ pub const File = struct {
         };
 
         if (optional_sentinel) |sentinel| {
-            try array_list.append(sentinel);
-            const buf = array_list.toOwnedSlice();
-            return buf[0 .. buf.len - 1 :sentinel];
+            return try array_list.toOwnedSliceSentinel(sentinel);
         } else {
-            return array_list.toOwnedSlice();
+            return try array_list.toOwnedSlice();
         }
     }
 
@@ -990,6 +995,8 @@ pub const File = struct {
         return index;
     }
 
+    /// On Windows, this function currently does alter the file pointer.
+    /// https://github.com/ziglang/zig/issues/12783
     pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
         if (is_windows) {
             return windows.ReadFile(self.handle, buffer, offset, self.intended_io_mode);
@@ -1004,6 +1011,8 @@ pub const File = struct {
 
     /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
     /// means the file reached the end. Reaching the end of a file is not an error condition.
+    /// On Windows, this function currently does alter the file pointer.
+    /// https://github.com/ziglang/zig/issues/12783
     pub fn preadAll(self: File, buffer: []u8, offset: u64) PReadError!usize {
         var index: usize = 0;
         while (index != buffer.len) {
@@ -1058,6 +1067,8 @@ pub const File = struct {
     }
 
     /// See https://github.com/ziglang/zig/issues/7699
+    /// On Windows, this function currently does alter the file pointer.
+    /// https://github.com/ziglang/zig/issues/12783
     pub fn preadv(self: File, iovecs: []const os.iovec, offset: u64) PReadError!usize {
         if (is_windows) {
             // TODO improve this to use ReadFileScatter
@@ -1079,6 +1090,8 @@ pub const File = struct {
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial reads from the underlying OS layer.
     /// See https://github.com/ziglang/zig/issues/7699
+    /// On Windows, this function currently does alter the file pointer.
+    /// https://github.com/ziglang/zig/issues/12783
     pub fn preadvAll(self: File, iovecs: []os.iovec, offset: u64) PReadError!usize {
         if (iovecs.len == 0) return 0;
 
@@ -1122,6 +1135,8 @@ pub const File = struct {
         }
     }
 
+    /// On Windows, this function currently does alter the file pointer.
+    /// https://github.com/ziglang/zig/issues/12783
     pub fn pwrite(self: File, bytes: []const u8, offset: u64) PWriteError!usize {
         if (is_windows) {
             return windows.WriteFile(self.handle, bytes, offset, self.intended_io_mode);
@@ -1134,6 +1149,8 @@ pub const File = struct {
         }
     }
 
+    /// On Windows, this function currently does alter the file pointer.
+    /// https://github.com/ziglang/zig/issues/12783
     pub fn pwriteAll(self: File, bytes: []const u8, offset: u64) PWriteError!void {
         var index: usize = 0;
         while (index < bytes.len) {
@@ -1179,6 +1196,8 @@ pub const File = struct {
     }
 
     /// See https://github.com/ziglang/zig/issues/7699
+    /// On Windows, this function currently does alter the file pointer.
+    /// https://github.com/ziglang/zig/issues/12783
     pub fn pwritev(self: File, iovecs: []os.iovec_const, offset: u64) PWriteError!usize {
         if (is_windows) {
             // TODO improve this to use WriteFileScatter
@@ -1197,6 +1216,8 @@ pub const File = struct {
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial writes from the underlying OS layer.
     /// See https://github.com/ziglang/zig/issues/7699
+    /// On Windows, this function currently does alter the file pointer.
+    /// https://github.com/ziglang/zig/issues/12783
     pub fn pwritevAll(self: File, iovecs: []os.iovec_const, offset: u64) PWriteError!void {
         if (iovecs.len == 0) return;
 

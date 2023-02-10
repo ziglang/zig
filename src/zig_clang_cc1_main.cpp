@@ -28,6 +28,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/LinkAllPasses.h"
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Option/Arg.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/OptTable.h"
@@ -38,7 +39,6 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
 #include "llvm/Support/Signals.h"
-#include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/Timer.h"
@@ -57,7 +57,7 @@ using namespace llvm::opt;
 // Main driver
 //===----------------------------------------------------------------------===//
 
-static void LLVMErrorHandler(void *UserData, const std::string &Message,
+static void LLVMErrorHandler(void *UserData, const char *Message,
                              bool GenCrashDiag) {
   DiagnosticsEngine &Diags = *static_cast<DiagnosticsEngine*>(UserData);
 
@@ -212,7 +212,9 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   bool Success = CompilerInvocation::CreateFromArgs(Clang->getInvocation(),
                                                     Argv, Diags, Argv0);
 
-  if (Clang->getFrontendOpts().TimeTrace) {
+  if (Clang->getFrontendOpts().TimeTrace ||
+      !Clang->getFrontendOpts().TimeTracePath.empty()) {
+    Clang->getFrontendOpts().TimeTrace = 1;
     llvm::timeTraceProfilerInitialize(
         Clang->getFrontendOpts().TimeTraceGranularity, Argv0);
   }
@@ -237,8 +239,10 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
                                   static_cast<void*>(&Clang->getDiagnostics()));
 
   DiagsBuffer->FlushDiagnostics(Clang->getDiagnostics());
-  if (!Success)
+  if (!Success) {
+    Clang->getDiagnosticClient().finish();
     return 1;
+  }
 
   // Execute the frontend actions.
   {
@@ -254,12 +258,18 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   if (llvm::timeTraceProfilerEnabled()) {
     SmallString<128> Path(Clang->getFrontendOpts().OutputFile);
     llvm::sys::path::replace_extension(Path, "json");
+    if (!Clang->getFrontendOpts().TimeTracePath.empty()) {
+      // replace the suffix to '.json' directly
+      SmallString<128> TracePath(Clang->getFrontendOpts().TimeTracePath);
+      if (llvm::sys::fs::is_directory(TracePath))
+        llvm::sys::path::append(TracePath, llvm::sys::path::filename(Path));
+      Path.assign(TracePath);
+    }
     if (auto profilerOutput = Clang->createOutputFile(
             Path.str(), /*Binary=*/false, /*RemoveFileOnSignal=*/false,
             /*useTemporary=*/false)) {
       llvm::timeTraceProfilerWrite(*profilerOutput);
-      // FIXME(ibiryukov): make profilerOutput flush in destructor instead.
-      profilerOutput->flush();
+      profilerOutput.reset();
       llvm::timeTraceProfilerCleanup();
       Clang->clearOutputFiles(false);
     }

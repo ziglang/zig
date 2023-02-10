@@ -19,8 +19,10 @@ const Package = @import("Package.zig");
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 
+/// When adding a new field, remember to update `hashAddSystemLibs`.
 pub const SystemLib = struct {
     needed: bool = false,
+    weak: bool = false,
 };
 
 pub const CacheMode = enum { incremental, whole };
@@ -34,6 +36,7 @@ pub fn hashAddSystemLibs(
     hh.addListOfBytes(keys);
     for (hm.values()) |value| {
         hh.add(value.needed);
+        hh.add(value.weak);
     }
 }
 
@@ -69,7 +72,6 @@ pub const Options = struct {
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
-    object_format: std.Target.ObjectFormat,
     optimize_mode: std.builtin.Mode,
     machine_code_model: std.builtin.CodeModel,
     root_name: [:0]const u8,
@@ -88,6 +90,9 @@ pub const Options = struct {
     entry: ?[]const u8,
     stack_size_override: ?u64,
     image_base_override: ?u64,
+    /// 0 means no stack protector
+    /// other value means stack protector with that buffer size.
+    stack_protector: u32,
     cache_mode: CacheMode,
     include_compiler_rt: bool,
     /// Set to `true` to omit debug info.
@@ -105,6 +110,7 @@ pub const Options = struct {
     link_libcpp: bool,
     link_libunwind: bool,
     function_sections: bool,
+    no_builtin: bool,
     eh_frame_hdr: bool,
     emit_relocs: bool,
     rdynamic: bool,
@@ -115,13 +121,17 @@ pub const Options = struct {
     z_nocopyreloc: bool,
     z_now: bool,
     z_relro: bool,
+    z_common_page_size: ?u64,
+    z_max_page_size: ?u64,
     tsaware: bool,
     nxcompat: bool,
     dynamicbase: bool,
     linker_optimization: u8,
     exclude_libs: ?[]const u8,
+    compress_debug_sections: CompressDebugSections,
     bind_global_refs_locally: bool,
     import_memory: bool,
+    import_symbols: bool,
     import_table: bool,
     export_table: bool,
     initial_memory: ?u64,
@@ -149,7 +159,6 @@ pub const Options = struct {
     build_id: bool,
     disable_lld_caching: bool,
     is_test: bool,
-    use_stage1: bool,
     hash_style: HashStyle,
     major_subsystem_version: ?u32,
     minor_subsystem_version: ?u32,
@@ -160,14 +169,24 @@ pub const Options = struct {
     version_script: ?[]const u8,
     soname: ?[]const u8,
     llvm_cpu_features: ?[*:0]const u8,
+    print_gc_sections: bool,
+    print_icf_sections: bool,
+    print_map: bool,
+    opt_bisect_limit: i32,
 
     objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,
-    frameworks: []const []const u8,
+    frameworks: std.StringArrayHashMapUnmanaged(SystemLib),
     system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
     wasi_emulated_libs: []const wasi_libc.CRTFile,
     lib_dirs: []const []const u8,
     rpath_list: []const []const u8,
+
+    /// List of symbols forced as undefined in the symbol table
+    /// thus forcing their resolution by the linker.
+    /// Corresponds to `-u <symbol>` for ELF and `/include:<symbol>` for COFF/PE.
+    /// TODO add handling for MachO.
+    force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
 
     version: ?std.builtin.Version,
     compatibility_version: ?std.builtin.Version,
@@ -200,18 +219,35 @@ pub const Options = struct {
     /// (Darwin) set enough space as if all paths were MATPATHLEN
     headerpad_max_install_names: bool = false,
 
+    /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
+    dead_strip_dylibs: bool = false,
+
+    /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
+    /// paths when consolidating CodeView streams into a single PDB file.
+    pdb_source_path: ?[]const u8 = null,
+
+    /// (Windows) PDB output path
+    pdb_out_path: ?[]const u8 = null,
+
+    /// (Windows) .def file to specify when linking
+    module_definition_file: ?[]const u8 = null,
+
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
     }
 
     pub fn move(self: *Options) Options {
         const copied_state = self.*;
+        self.frameworks = .{};
         self.system_libs = .{};
+        self.force_undefined_symbols = .{};
         return copied_state;
     }
 };
 
 pub const HashStyle = enum { sysv, gnu, both };
+
+pub const CompressDebugSections = enum { none, zlib };
 
 pub const File = struct {
     tag: Tag,
@@ -226,51 +262,18 @@ pub const File = struct {
     /// of this linking operation.
     lock: ?Cache.Lock = null,
 
-    pub const LinkBlock = union {
-        elf: Elf.TextBlock,
-        coff: Coff.TextBlock,
-        macho: MachO.TextBlock,
-        plan9: Plan9.DeclBlock,
-        c: void,
-        wasm: Wasm.DeclBlock,
-        spirv: void,
-        nvptx: void,
-    };
-
-    pub const LinkFn = union {
-        elf: Dwarf.SrcFn,
-        coff: Coff.SrcFn,
-        macho: Dwarf.SrcFn,
-        plan9: void,
-        c: void,
-        wasm: Wasm.FnData,
-        spirv: SpirV.FnData,
-        nvptx: void,
-    };
-
-    pub const Export = union {
-        elf: Elf.Export,
-        coff: void,
-        macho: MachO.Export,
-        plan9: Plan9.Export,
-        c: void,
-        wasm: Wasm.Export,
-        spirv: void,
-        nvptx: void,
-    };
-
     /// Attempts incremental linking, if the file already exists. If
     /// incremental linking fails, falls back to truncating the file and
     /// rewriting it. A malicious file is detected as incremental link failure
     /// and does not cause Illegal Behavior. This operation is not atomic.
     pub fn openPath(allocator: Allocator, options: Options) !*File {
-        if (options.object_format == .macho) {
+        const have_macho = !build_options.only_c;
+        if (have_macho and options.target.ofmt == .macho) {
             return &(try MachO.openPath(allocator, options)).base;
         }
 
-        const use_stage1 = build_options.is_stage1 and options.use_stage1;
-        if (use_stage1 or options.emit == null) {
-            return switch (options.object_format) {
+        if (options.emit == null) {
+            return switch (options.target.ofmt) {
                 .coff => &(try Coff.createEmpty(allocator, options)).base,
                 .elf => &(try Elf.createEmpty(allocator, options)).base,
                 .macho => unreachable,
@@ -281,15 +284,16 @@ pub const File = struct {
                 .nvptx => &(try NvPtx.createEmpty(allocator, options)).base,
                 .hex => return error.HexObjectFormatUnimplemented,
                 .raw => return error.RawObjectFormatUnimplemented,
+                .dxcontainer => return error.DirectXContainerObjectFormatUnimplemented,
             };
         }
         const emit = options.emit.?;
-        const use_lld = build_options.have_llvm and options.use_lld; // comptime known false when !have_llvm
+        const use_lld = build_options.have_llvm and options.use_lld; // comptime-known false when !have_llvm
         const sub_path = if (use_lld) blk: {
             if (options.module == null) {
                 // No point in opening a file, we would not write anything to it.
                 // Initialize with empty.
-                return switch (options.object_format) {
+                return switch (options.target.ofmt) {
                     .coff => &(try Coff.createEmpty(allocator, options)).base,
                     .elf => &(try Elf.createEmpty(allocator, options)).base,
                     .macho => unreachable,
@@ -300,27 +304,51 @@ pub const File = struct {
                     .nvptx => &(try NvPtx.createEmpty(allocator, options)).base,
                     .hex => return error.HexObjectFormatUnimplemented,
                     .raw => return error.RawObjectFormatUnimplemented,
+                    .dxcontainer => return error.DirectXContainerObjectFormatUnimplemented,
                 };
             }
             // Open a temporary object file, not the final output file because we
             // want to link with LLD.
             break :blk try std.fmt.allocPrint(allocator, "{s}{s}", .{
-                emit.sub_path, options.object_format.fileExt(options.target.cpu.arch),
+                emit.sub_path, options.target.ofmt.fileExt(options.target.cpu.arch),
             });
         } else emit.sub_path;
         errdefer if (use_lld) allocator.free(sub_path);
 
-        const file: *File = switch (options.object_format) {
-            .coff => &(try Coff.openPath(allocator, sub_path, options)).base,
-            .elf => &(try Elf.openPath(allocator, sub_path, options)).base,
-            .macho => unreachable,
-            .plan9 => &(try Plan9.openPath(allocator, sub_path, options)).base,
-            .wasm => &(try Wasm.openPath(allocator, sub_path, options)).base,
-            .c => &(try C.openPath(allocator, sub_path, options)).base,
-            .spirv => &(try SpirV.openPath(allocator, sub_path, options)).base,
-            .nvptx => &(try NvPtx.openPath(allocator, sub_path, options)).base,
-            .hex => return error.HexObjectFormatUnimplemented,
-            .raw => return error.RawObjectFormatUnimplemented,
+        const file: *File = f: {
+            switch (options.target.ofmt) {
+                .coff => {
+                    if (build_options.only_c) unreachable;
+                    break :f &(try Coff.openPath(allocator, sub_path, options)).base;
+                },
+                .elf => {
+                    if (build_options.only_c) unreachable;
+                    break :f &(try Elf.openPath(allocator, sub_path, options)).base;
+                },
+                .macho => unreachable,
+                .plan9 => {
+                    if (build_options.only_c) unreachable;
+                    break :f &(try Plan9.openPath(allocator, sub_path, options)).base;
+                },
+                .wasm => {
+                    if (build_options.only_c) unreachable;
+                    break :f &(try Wasm.openPath(allocator, sub_path, options)).base;
+                },
+                .c => {
+                    break :f &(try C.openPath(allocator, sub_path, options)).base;
+                },
+                .spirv => {
+                    if (build_options.only_c) unreachable;
+                    break :f &(try SpirV.openPath(allocator, sub_path, options)).base;
+                },
+                .nvptx => {
+                    if (build_options.only_c) unreachable;
+                    break :f &(try NvPtx.openPath(allocator, sub_path, options)).base;
+                },
+                .hex => return error.HexObjectFormatUnimplemented,
+                .raw => return error.RawObjectFormatUnimplemented,
+                .dxcontainer => return error.DirectXContainerObjectFormatUnimplemented,
+            }
         };
 
         if (use_lld) {
@@ -342,7 +370,8 @@ pub const File = struct {
 
     pub fn makeWritable(base: *File) !void {
         switch (base.tag) {
-            .coff, .elf, .macho, .plan9 => {
+            .coff, .elf, .macho, .plan9, .wasm => {
+                if (build_options.only_c) unreachable;
                 if (base.file != null) return;
                 const emit = base.options.emit orelse return;
                 base.file = try emit.directory.handle.createFile(emit.sub_path, .{
@@ -351,7 +380,7 @@ pub const File = struct {
                     .mode = determineMode(base.options),
                 });
             },
-            .c, .wasm, .spirv, .nvptx => {},
+            .c, .spirv, .nvptx => {},
         }
     }
 
@@ -366,6 +395,7 @@ pub const File = struct {
         }
         switch (base.tag) {
             .macho => if (base.file) |f| {
+                if (build_options.only_c) unreachable;
                 if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
                     if (base.options.target.cpu.arch == .aarch64) {
                         // XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
@@ -380,12 +410,11 @@ pub const File = struct {
                         try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
                     }
                 }
-                if (base.intermediary_basename == null) {
-                    f.close();
-                    base.file = null;
-                }
+                f.close();
+                base.file = null;
             },
-            .coff, .elf, .plan9 => if (base.file) |f| {
+            .coff, .elf, .plan9, .wasm => if (base.file) |f| {
+                if (build_options.only_c) unreachable;
                 if (base.intermediary_basename != null) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
@@ -394,7 +423,7 @@ pub const File = struct {
                 f.close();
                 base.file = null;
             },
-            .c, .wasm, .spirv, .nvptx => {},
+            .c, .spirv, .nvptx => {},
         }
     }
 
@@ -409,7 +438,8 @@ pub const File = struct {
         NoSpaceLeft,
         Unseekable,
         PermissionDenied,
-        FileBusy,
+        SwapFile,
+        CorruptedData,
         SystemResources,
         OperationAborted,
         BrokenPipe,
@@ -426,12 +456,15 @@ pub const File = struct {
         EmitFail,
         NameTooLong,
         CurrentWorkingDirectoryUnlinked,
+        LockViolation,
+        NetNameDeleted,
     };
 
     /// Called from within the CodeGen to lower a local variable instantion as an unnamed
     /// constant. Returns the symbol index of the lowered constant in the read-only section
     /// of the final binary.
     pub fn lowerUnnamedConst(base: *File, tv: TypedValue, decl_index: Module.Decl.Index) UpdateDeclError!u32 {
+        if (build_options.only_c) @compileError("unreachable");
         const decl = base.options.module.?.declPtr(decl_index);
         log.debug("lowerUnnamedConst {*} ({s})", .{ decl, decl.name });
         switch (base.tag) {
@@ -452,10 +485,11 @@ pub const File = struct {
     /// If no symbol exists yet with this name, a new undefined global symbol will
     /// be created. This symbol may get resolved once all relocatables are (re-)linked.
     pub fn getGlobalSymbol(base: *File, name: []const u8) UpdateDeclError!u32 {
+        if (build_options.only_c) @compileError("unreachable");
         log.debug("getGlobalSymbol '{s}'", .{name});
         switch (base.tag) {
             // zig fmt: off
-            .coff  => unreachable,
+            .coff  => return @fieldParentPtr(Coff, "base", base).getGlobalSymbol(name),
             .elf   => unreachable,
             .macho => return @fieldParentPtr(MachO, "base", base).getGlobalSymbol(name),
             .plan9 => unreachable,
@@ -467,12 +501,15 @@ pub const File = struct {
         }
     }
 
-    /// May be called before or after updateDeclExports but must be called
-    /// after allocateDeclIndexes for any given Decl.
+    /// May be called before or after updateDeclExports for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
         log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty.fmtDebug() });
         assert(decl.has_tv);
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return @fieldParentPtr(C, "base", base).updateDecl(module, decl_index);
+        }
         switch (base.tag) {
             // zig fmt: off
             .coff  => return @fieldParentPtr(Coff,  "base", base).updateDecl(module, decl_index),
@@ -487,13 +524,16 @@ pub const File = struct {
         }
     }
 
-    /// May be called before or after updateDeclExports but must be called
-    /// after allocateDeclIndexes for any given Decl.
+    /// May be called before or after updateDeclExports for any given Decl.
     pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) UpdateDeclError!void {
         const owner_decl = module.declPtr(func.owner_decl);
         log.debug("updateFunc {*} ({s}), type={}", .{
             owner_decl, owner_decl.name, owner_decl.ty.fmtDebug(),
         });
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return @fieldParentPtr(C, "base", base).updateFunc(module, func, air, liveness);
+        }
         switch (base.tag) {
             // zig fmt: off
             .coff  => return @fieldParentPtr(Coff,  "base", base).updateFunc(module, func, air, liveness),
@@ -508,42 +548,24 @@ pub const File = struct {
         }
     }
 
-    pub fn updateDeclLineNumber(base: *File, module: *Module, decl: *Module.Decl) UpdateDeclError!void {
+    pub fn updateDeclLineNumber(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
+        const decl = module.declPtr(decl_index);
         log.debug("updateDeclLineNumber {*} ({s}), line={}", .{
             decl, decl.name, decl.src_line + 1,
         });
         assert(decl.has_tv);
-        switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).updateDeclLineNumber(module, decl),
-            .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
-            .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl),
-            .c => return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl),
-            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclLineNumber(module, decl),
-            .plan9 => @panic("TODO: implement updateDeclLineNumber for plan9"),
-            .spirv, .nvptx => {},
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl_index);
         }
-    }
-
-    /// Must be called before any call to updateDecl or updateDeclExports for
-    /// any given Decl.
-    /// TODO we're transitioning to deleting this function and instead having
-    /// each linker backend notice the first time updateDecl or updateFunc is called, or
-    /// a callee referenced from AIR.
-    pub fn allocateDeclIndexes(base: *File, decl_index: Module.Decl.Index) error{OutOfMemory}!void {
-        const decl = base.options.module.?.declPtr(decl_index);
-        log.debug("allocateDeclIndexes {*} ({s})", .{ decl, decl.name });
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl_index),
-            .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl_index),
-            .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl_index) catch |err| switch (err) {
-                // remap this error code because we are transitioning away from
-                // `allocateDeclIndexes`.
-                error.Overflow => return error.OutOfMemory,
-                error.OutOfMemory => return error.OutOfMemory,
-            },
-            .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl_index),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl_index),
-            .c, .spirv, .nvptx => {},
+            .coff => return @fieldParentPtr(Coff, "base", base).updateDeclLineNumber(module, decl_index),
+            .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl_index),
+            .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl_index),
+            .c => return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl_index),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclLineNumber(module, decl_index),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDeclLineNumber(module, decl_index),
+            .spirv, .nvptx => {},
         }
     }
 
@@ -564,19 +586,24 @@ pub const File = struct {
         base.releaseLock();
         if (base.file) |f| f.close();
         if (base.intermediary_basename) |sub_path| base.allocator.free(sub_path);
+        base.options.frameworks.deinit(base.allocator);
         base.options.system_libs.deinit(base.allocator);
+        base.options.force_undefined_symbols.deinit(base.allocator);
         switch (base.tag) {
             .coff => {
+                if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(Coff, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
             .elf => {
+                if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(Elf, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
             .macho => {
+                if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(MachO, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
@@ -587,21 +614,25 @@ pub const File = struct {
                 base.allocator.destroy(parent);
             },
             .wasm => {
+                if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(Wasm, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
             .spirv => {
+                if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(SpirV, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
             .plan9 => {
+                if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(Plan9, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
             .nvptx => {
+                if (build_options.only_c) unreachable;
                 const parent = @fieldParentPtr(NvPtx, "base", base);
                 parent.deinit();
                 base.allocator.destroy(parent);
@@ -609,9 +640,101 @@ pub const File = struct {
         }
     }
 
+    /// TODO audit this error set. most of these should be collapsed into one error,
+    /// and ErrorFlags should be updated to convey the meaning to the user.
+    pub const FlushError = error{
+        BadDwarfCfi,
+        CacheUnavailable,
+        CurrentWorkingDirectoryUnlinked,
+        DivisionByZero,
+        DllImportLibraryNotFound,
+        EmptyStubFile,
+        ExpectedFuncType,
+        FailedToEmit,
+        FailedToResolveRelocationTarget,
+        FileSystem,
+        FilesOpenedWithWrongFlags,
+        FlushFailure,
+        FrameworkNotFound,
+        FunctionSignatureMismatch,
+        GlobalTypeMismatch,
+        InvalidCharacter,
+        InvalidEntryKind,
+        InvalidFeatureSet,
+        InvalidFormat,
+        InvalidIndex,
+        InvalidInitFunc,
+        InvalidMagicByte,
+        InvalidWasmVersion,
+        LLDCrashed,
+        LLDReportedFailure,
+        LLD_LinkingIsTODO_ForSpirV,
+        LibCInstallationMissingCRTDir,
+        LibCInstallationNotAvailable,
+        LibraryNotFound,
+        LinkingWithoutZigSourceUnimplemented,
+        MalformedArchive,
+        MalformedDwarf,
+        MalformedSection,
+        MemoryTooBig,
+        MemoryTooSmall,
+        MismatchedCpuArchitecture,
+        MissAlignment,
+        MissingEndForBody,
+        MissingEndForExpression,
+        /// TODO: this should be removed from the error set in favor of using ErrorFlags
+        MissingMainEntrypoint,
+        /// TODO: this should be removed from the error set in favor of using ErrorFlags
+        MissingSection,
+        MissingSymbol,
+        MissingTableSymbols,
+        ModuleNameMismatch,
+        MultipleSymbolDefinitions,
+        NoObjectsToLink,
+        NotObject,
+        NotObjectFile,
+        NotSupported,
+        OutOfMemory,
+        Overflow,
+        PermissionDenied,
+        StreamTooLong,
+        SwapFile,
+        SymbolCollision,
+        SymbolMismatchingType,
+        TODOImplementPlan9Objs,
+        TODOImplementWritingLibFiles,
+        TODOImplementWritingStaticLibFiles,
+        UnableToSpawnSelf,
+        UnableToSpawnWasm,
+        UnableToWriteArchive,
+        UndefinedLocal,
+        /// TODO: merge with UndefinedSymbolReference
+        UndefinedSymbol,
+        /// TODO: merge with UndefinedSymbol
+        UndefinedSymbolReference,
+        Underflow,
+        UnexpectedRemainder,
+        UnexpectedTable,
+        UnexpectedValue,
+        UnhandledDwFormValue,
+        UnhandledSymbolType,
+        UnknownFeature,
+        Unseekable,
+        UnsupportedCpuArchitecture,
+        UnsupportedVersion,
+    } ||
+        fs.File.WriteFileError ||
+        fs.File.OpenError ||
+        std.ChildProcess.SpawnError ||
+        fs.Dir.CopyFileError;
+
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
-    pub fn flush(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+    pub fn flush(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) FlushError!void {
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return @fieldParentPtr(C, "base", base).flush(comp, prog_node);
+        }
         if (comp.clang_preprocessor_mode == .yes) {
             const emit = base.options.emit orelse return; // -fno-emit-bin
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
@@ -645,7 +768,11 @@ pub const File = struct {
 
     /// Commit pending changes and write headers. Works based on `effectiveOutputMode`
     /// rather than final output mode.
-    pub fn flushModule(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+    pub fn flushModule(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) FlushError!void {
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return @fieldParentPtr(C, "base", base).flushModule(comp, prog_node);
+        }
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).flushModule(comp, prog_node),
             .elf => return @fieldParentPtr(Elf, "base", base).flushModule(comp, prog_node),
@@ -660,6 +787,10 @@ pub const File = struct {
 
     /// Called when a Decl is deleted from the Module.
     pub fn freeDecl(base: *File, decl_index: Module.Decl.Index) void {
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return @fieldParentPtr(C, "base", base).freeDecl(decl_index);
+        }
         switch (base.tag) {
             .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl_index),
             .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl_index),
@@ -688,8 +819,7 @@ pub const File = struct {
         AnalysisFail,
     };
 
-    /// May be called before or after updateDecl, but must be called after
-    /// allocateDeclIndexes for any given Decl.
+    /// May be called before or after updateDecl for any given Decl.
     pub fn updateDeclExports(
         base: *File,
         module: *Module,
@@ -699,6 +829,10 @@ pub const File = struct {
         const decl = module.declPtr(decl_index);
         log.debug("updateDeclExports {*} ({s})", .{ decl, decl.name });
         assert(decl.has_tv);
+        if (build_options.only_c) {
+            assert(base.tag == .c);
+            return @fieldParentPtr(C, "base", base).updateDeclExports(module, decl_index, exports);
+        }
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl_index, exports),
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl_index, exports),
@@ -721,7 +855,10 @@ pub const File = struct {
     /// The linker is passed information about the containing atom, `parent_atom_index`, and offset within it's
     /// memory buffer, `offset`, so that it can make a note of potential relocation sites, should the
     /// `Decl`'s address was not yet resolved, or the containing atom gets moved in virtual memory.
+    /// May be called before or after updateFunc/updateDecl therefore it is up to the linker to allocate
+    /// the block/atom.
     pub fn getDeclVAddr(base: *File, decl_index: Module.Decl.Index, reloc_info: RelocInfo) !u64 {
+        if (build_options.only_c) unreachable;
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl_index, reloc_info),
             .elf => return @fieldParentPtr(Elf, "base", base).getDeclVAddr(decl_index, reloc_info),
@@ -758,7 +895,7 @@ pub const File = struct {
         _ = base;
         while (true) {
             if (builtin.os.tag == .windows) {
-                // workaround windows `renameW` can't fail with `PathAlreadyExists`
+                // Work around windows `renameW` can't fail with `PathAlreadyExists`
                 // See https://github.com/ziglang/zig/issues/8362
                 if (cache_directory.handle.access(o_sub_path, .{})) |_| {
                     try cache_directory.handle.deleteTree(o_sub_path);
@@ -767,12 +904,15 @@ pub const File = struct {
                     error.FileNotFound => {},
                     else => |e| return e,
                 }
-                try std.fs.rename(
+                std.fs.rename(
                     cache_directory.handle,
                     tmp_dir_sub_path,
                     cache_directory.handle,
                     o_sub_path,
-                );
+                ) catch |err| {
+                    log.err("unable to rename cache dir {s} to {s}: {s}", .{ tmp_dir_sub_path, o_sub_path, @errorName(err) });
+                    return err;
+                };
                 break;
             } else {
                 std.fs.rename(
@@ -792,7 +932,7 @@ pub const File = struct {
         }
     }
 
-    pub fn linkAsArchive(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+    pub fn linkAsArchive(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) FlushError!void {
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -806,24 +946,7 @@ pub const File = struct {
 
         // If there is no Zig code to compile, then we should skip flushing the output file
         // because it will not be part of the linker line anyway.
-        const module_obj_path: ?[]const u8 = if (base.options.module) |module| blk: {
-            const use_stage1 = build_options.is_stage1 and base.options.use_stage1;
-            if (use_stage1) {
-                const obj_basename = try std.zig.binNameAlloc(arena, .{
-                    .root_name = base.options.root_name,
-                    .target = base.options.target,
-                    .output_mode = .Obj,
-                });
-                switch (base.options.cache_mode) {
-                    .incremental => break :blk try module.zig_cache_artifact_directory.join(
-                        arena,
-                        &[_][]const u8{obj_basename},
-                    ),
-                    .whole => break :blk try fs.path.join(arena, &.{
-                        fs.path.dirname(full_out_path_z).?, obj_basename,
-                    }),
-                }
-            }
+        const module_obj_path: ?[]const u8 = if (base.options.module != null) blk: {
             try base.flushModule(comp, prog_node);
 
             const dirname = fs.path.dirname(full_out_path_z) orelse ".";
@@ -915,9 +1038,10 @@ pub const File = struct {
             std.debug.print("\n", .{});
         }
 
-        const llvm = @import("codegen/llvm/bindings.zig");
-        const os_type = @import("target.zig").osToLLVM(base.options.target.os.tag);
-        const bad = llvm.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_type);
+        const llvm_bindings = @import("codegen/llvm/bindings.zig");
+        const llvm = @import("codegen/llvm.zig");
+        const os_tag = llvm.targetOs(base.options.target.os.tag);
+        const bad = llvm_bindings.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_tag);
         if (bad) return error.UnableToWriteArchive;
 
         if (!base.options.disable_lld_caching) {
@@ -946,6 +1070,7 @@ pub const File = struct {
 
     pub const ErrorFlags = struct {
         no_entry_point_found: bool = false,
+        missing_libc: bool = false,
     };
 
     pub const C = @import("link/C.zig");

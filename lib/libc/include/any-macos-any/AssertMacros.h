@@ -214,10 +214,15 @@
  *  If you do not define DEBUG_ASSERT_MESSAGE, a simple printf to stderr will be used.
  */
 #ifndef DEBUG_ASSERT_MESSAGE
+#include <TargetConditionals.h>
    #ifdef KERNEL
       #include <libkern/libkern.h>
       #define DEBUG_ASSERT_MESSAGE(name, assertion, label, message, file, line, value) \
                                   printf( "AssertMacros: %s, %s file: %s, line: %d, value: %ld\n", assertion, (message!=0) ? message : "", file, line, (long) (value));
+   #elif TARGET_OS_DRIVERKIT
+      #include <os/log.h>
+      #define DEBUG_ASSERT_MESSAGE(name, assertion, label, message, file, line, value) \
+                                  os_log(OS_LOG_DEFAULT, "AssertMacros: %s, %s file: %s, line: %d, value: %ld\n", assertion, (message!=0) ? message : "", file, line, (long) (value));
    #else
       #include <stdio.h>
       #define DEBUG_ASSERT_MESSAGE(name, assertion, label, message, file, line, value) \

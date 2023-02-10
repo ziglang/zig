@@ -1,9 +1,11 @@
 const std = @import("std");
 
-pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
-    _ = message;
+pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = stack_trace;
-    std.process.exit(0);
+    if (std.mem.eql(u8, message, "division by zero")) {
+        std.process.exit(0);
+    }
+    std.process.exit(1);
 }
 pub fn main() !void {
     var a: @Vector(4, i32) = [4]i32{111, 222, 333, 444};
@@ -16,5 +18,5 @@ fn div0(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
     return @divTrunc(a, b);
 }
 // run
-// backend=stage1
+// backend=llvm
 // target=native

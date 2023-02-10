@@ -110,9 +110,9 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
             var found = false;
             inline for (comptime meta.fields(HashResult)) |p| {
                 if (mem.eql(u8, p.name, param.key)) {
-                    switch (@typeInfo(p.field_type)) {
+                    switch (@typeInfo(p.type)) {
                         .Int => @field(out, p.name) = fmt.parseUnsigned(
-                            p.field_type,
+                            p.type,
                             param.value,
                             10,
                         ) catch return Error.InvalidEncoding,
@@ -161,7 +161,7 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
     // with default values
     var expected_fields: usize = 0;
     inline for (comptime meta.fields(HashResult)) |p| {
-        if (@typeInfo(p.field_type) != .Optional and p.default_value == null) {
+        if (@typeInfo(p.type) != .Optional and p.default_value == null) {
             expected_fields += 1;
         }
     }
@@ -216,14 +216,14 @@ fn serializeTo(params: anytype, out: anytype) !void {
 
     var has_params = false;
     inline for (comptime meta.fields(HashResult)) |p| {
-        if (!(mem.eql(u8, p.name, "alg_id") or
+        if (comptime !(mem.eql(u8, p.name, "alg_id") or
             mem.eql(u8, p.name, "alg_version") or
             mem.eql(u8, p.name, "hash") or
             mem.eql(u8, p.name, "salt")))
         {
             const value = @field(params, p.name);
             try out.writeAll(if (has_params) params_delimiter else fields_delimiter);
-            if (@typeInfo(p.field_type) == .Struct) {
+            if (@typeInfo(p.type) == .Struct) {
                 var buf: [@TypeOf(value).max_encoded_length]u8 = undefined;
                 try out.print("{s}{s}{s}", .{ p.name, kv_delimiter, try value.toB64(&buf) });
             } else {
@@ -253,7 +253,7 @@ fn serializeTo(params: anytype, out: anytype) !void {
 // Split a `key=value` string into `key` and `value`
 fn kvSplit(str: []const u8) !struct { key: []const u8, value: []const u8 } {
     var it = mem.split(u8, str, kv_delimiter);
-    const key = it.next() orelse return Error.InvalidEncoding;
+    const key = it.first();
     const value = it.next() orelse return Error.InvalidEncoding;
     const ret = .{ .key = key, .value = value };
     return ret;

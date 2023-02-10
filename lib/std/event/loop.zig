@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
-const root = @import("root");
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
@@ -69,7 +68,7 @@ pub const Loop = struct {
         };
 
         pub const EventFd = switch (builtin.os.tag) {
-            .macos, .freebsd, .netbsd, .dragonfly, .openbsd => KEventFd,
+            .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => KEventFd,
             .linux => struct {
                 base: ResumeNode,
                 epoll_op: u32,
@@ -88,7 +87,7 @@ pub const Loop = struct {
         };
 
         pub const Basic = switch (builtin.os.tag) {
-            .macos, .freebsd, .netbsd, .dragonfly, .openbsd => KEventBasic,
+            .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => KEventBasic,
             .linux => struct {
                 base: ResumeNode,
             },
@@ -104,25 +103,29 @@ pub const Loop = struct {
         };
     };
 
-    const LoopOrVoid = switch (std.io.mode) {
-        .blocking => void,
-        .evented => Loop,
+    pub const Instance = switch (std.options.io_mode) {
+        .blocking => @TypeOf(null),
+        .evented => ?*Loop,
     };
+    pub const instance = std.options.event_loop;
 
-    var global_instance_state: LoopOrVoid = undefined;
-    const default_instance: ?*LoopOrVoid = switch (std.io.mode) {
+    var global_instance_state: Loop = undefined;
+    pub const default_instance = switch (std.options.io_mode) {
         .blocking => null,
         .evented => &global_instance_state,
     };
-    pub const instance: ?*LoopOrVoid = if (@hasDecl(root, "event_loop")) root.event_loop else default_instance;
+
+    pub const Mode = enum {
+        single_threaded,
+        multi_threaded,
+    };
+    pub const default_mode = .multi_threaded;
 
     /// TODO copy elision / named return values so that the threads referencing *Loop
     /// have the correct pointer value.
     /// https://github.com/ziglang/zig/issues/2761 and https://github.com/ziglang/zig/issues/2765
     pub fn init(self: *Loop) !void {
-        if (builtin.single_threaded or
-            (@hasDecl(root, "event_loop_mode") and root.event_loop_mode == .single_threaded))
-        {
+        if (builtin.single_threaded or std.options.event_loop_mode == .single_threaded) {
             return self.initSingleThreaded();
         } else {
             return self.initMultiThreaded();
@@ -269,7 +272,7 @@ pub const Loop = struct {
                     self.extra_threads[extra_thread_index] = try Thread.spawn(.{}, workerRun, .{self});
                 }
             },
-            .macos, .freebsd, .netbsd, .dragonfly => {
+            .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly => {
                 self.os_data.kqfd = try os.kqueue();
                 errdefer os.close(self.os_data.kqfd);
 
@@ -457,7 +460,7 @@ pub const Loop = struct {
                 while (self.available_eventfd_resume_nodes.pop()) |node| os.close(node.data.eventfd);
                 os.close(self.os_data.epollfd);
             },
-            .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
+            .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                 os.close(self.os_data.kqfd);
             },
             .windows => {
@@ -552,7 +555,7 @@ pub const Loop = struct {
             .linux => {
                 self.linuxWaitFd(fd, os.linux.EPOLL.ET | os.linux.EPOLL.ONESHOT | os.linux.EPOLL.IN);
             },
-            .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
+            .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                 self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_READ, os.system.EV_ONESHOT);
             },
             else => @compileError("Unsupported OS"),
@@ -564,7 +567,7 @@ pub const Loop = struct {
             .linux => {
                 self.linuxWaitFd(fd, os.linux.EPOLL.ET | os.linux.EPOLL.ONESHOT | os.linux.EPOLL.OUT);
             },
-            .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
+            .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                 self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_WRITE, os.system.EV_ONESHOT);
             },
             else => @compileError("Unsupported OS"),
@@ -576,7 +579,7 @@ pub const Loop = struct {
             .linux => {
                 self.linuxWaitFd(fd, os.linux.EPOLL.ET | os.linux.EPOLL.ONESHOT | os.linux.EPOLL.OUT | os.linux.EPOLL.IN);
             },
-            .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
+            .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                 self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_READ, os.system.EV_ONESHOT);
                 self.bsdWaitKev(@intCast(usize, fd), os.system.EVFILT_WRITE, os.system.EV_ONESHOT);
             },
@@ -645,7 +648,7 @@ pub const Loop = struct {
             const eventfd_node = &resume_stack_node.data;
             eventfd_node.base.handle = next_tick_node.data;
             switch (builtin.os.tag) {
-                .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
+                .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                     const kevent_array = @as(*const [1]os.Kevent, &eventfd_node.kevent);
                     const empty_kevs = &[0]os.Kevent{};
                     _ = os.kevent(self.os_data.kqfd, kevent_array, empty_kevs, null) catch {
@@ -708,6 +711,9 @@ pub const Loop = struct {
             switch (builtin.os.tag) {
                 .linux,
                 .macos,
+                .ios,
+                .tvos,
+                .watchos,
                 .freebsd,
                 .netbsd,
                 .dragonfly,
@@ -802,7 +808,7 @@ pub const Loop = struct {
                     }
                     return;
                 },
-                .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
+                .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                     const final_kevent = @as(*const [1]os.Kevent, &self.os_data.final_kevent);
                     const empty_kevs = &[0]os.Kevent{};
                     // cannot fail because we already added it and this just enables it
@@ -1428,7 +1434,7 @@ pub const Loop = struct {
                         }
                     }
                 },
-                .macos, .freebsd, .netbsd, .dragonfly, .openbsd => {
+                .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => {
                     var eventlist: [1]os.Kevent = undefined;
                     const empty_kevs = &[0]os.Kevent{};
                     const count = os.kevent(self.os_data.kqfd, empty_kevs, eventlist[0..], null) catch unreachable;
@@ -1466,7 +1472,7 @@ pub const Loop = struct {
                             .Cancelled => continue,
                         }
                         if (overlapped) |o| break o;
-                    } else unreachable; // TODO else unreachable should not be necessary
+                    };
                     const resume_node = @fieldParentPtr(ResumeNode, "overlapped", overlapped);
                     const handle = resume_node.handle;
                     const resume_node_id = resume_node.id;
@@ -1554,7 +1560,7 @@ pub const Loop = struct {
 
     const OsData = switch (builtin.os.tag) {
         .linux => LinuxOsData,
-        .macos, .freebsd, .netbsd, .dragonfly, .openbsd => KEventData,
+        .macos, .ios, .tvos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd => KEventData,
         .windows => struct {
             io_port: windows.HANDLE,
             extra_thread_count: usize,

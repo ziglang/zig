@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===------------------------- hash_set ------------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -192,10 +192,16 @@ template <class Value, class Hash, class Pred, class Alloc>
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__hash_table>
-#include <functional>
+#include <algorithm>
 #include <ext/__hash>
+#include <functional>
+
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <iterator>
+#endif
 
 #if defined(__DEPRECATED) && __DEPRECATED
 #if defined(_LIBCPP_WARNING)
@@ -203,6 +209,10 @@ template <class Value, class Hash, class Pred, class Alloc>
 #else
 #   warning Use of the header <ext/hash_set> is deprecated.  Migrate to <unordered_set>
 #endif
+#endif
+
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#  pragma GCC system_header
 #endif
 
 namespace __gnu_cxx {
@@ -323,7 +333,7 @@ public:
     size_type elems_in_bucket(size_type __n) const {return __table_.bucket_size(__n);}
 
     _LIBCPP_INLINE_VISIBILITY
-    void resize(size_type __n) {__table_.rehash(__n);}
+    void resize(size_type __n) {__table_.__rehash_unique(__n);}
 };
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -331,7 +341,7 @@ hash_set<_Value, _Hash, _Pred, _Alloc>::hash_set(size_type __n,
         const hasher& __hf, const key_equal& __eql)
     : __table_(__hf, __eql)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_unique(__n);
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -339,7 +349,7 @@ hash_set<_Value, _Hash, _Pred, _Alloc>::hash_set(size_type __n,
         const hasher& __hf, const key_equal& __eql, const allocator_type& __a)
     : __table_(__hf, __eql, __a)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_unique(__n);
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -357,7 +367,7 @@ hash_set<_Value, _Hash, _Pred, _Alloc>::hash_set(
         const hasher& __hf, const key_equal& __eql)
     : __table_(__hf, __eql)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_unique(__n);
     insert(__first, __last);
 }
 
@@ -368,7 +378,7 @@ hash_set<_Value, _Hash, _Pred, _Alloc>::hash_set(
         const hasher& __hf, const key_equal& __eql, const allocator_type& __a)
     : __table_(__hf, __eql, __a)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_unique(__n);
     insert(__first, __last);
 }
 
@@ -377,7 +387,7 @@ hash_set<_Value, _Hash, _Pred, _Alloc>::hash_set(
         const hash_set& __u)
     : __table_(__u.__table_)
 {
-    __table_.rehash(__u.bucket_count());
+    __table_.__rehash_unique(__u.bucket_count());
     insert(__u.begin(), __u.end());
 }
 
@@ -543,7 +553,7 @@ public:
     size_type elems_in_bucket(size_type __n) const {return __table_.bucket_size(__n);}
 
     _LIBCPP_INLINE_VISIBILITY
-    void resize(size_type __n) {__table_.rehash(__n);}
+    void resize(size_type __n) {__table_.__rehash_multi(__n);}
 };
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -551,7 +561,7 @@ hash_multiset<_Value, _Hash, _Pred, _Alloc>::hash_multiset(
         size_type __n, const hasher& __hf, const key_equal& __eql)
     : __table_(__hf, __eql)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_multi(__n);
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -560,7 +570,7 @@ hash_multiset<_Value, _Hash, _Pred, _Alloc>::hash_multiset(
         const allocator_type& __a)
     : __table_(__hf, __eql, __a)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_multi(__n);
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -578,7 +588,7 @@ hash_multiset<_Value, _Hash, _Pred, _Alloc>::hash_multiset(
         const hasher& __hf, const key_equal& __eql)
     : __table_(__hf, __eql)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_multi(__n);
     insert(__first, __last);
 }
 
@@ -589,7 +599,7 @@ hash_multiset<_Value, _Hash, _Pred, _Alloc>::hash_multiset(
         const hasher& __hf, const key_equal& __eql, const allocator_type& __a)
     : __table_(__hf, __eql, __a)
 {
-    __table_.rehash(__n);
+    __table_.__rehash_multi(__n);
     insert(__first, __last);
 }
 
@@ -598,7 +608,7 @@ hash_multiset<_Value, _Hash, _Pred, _Alloc>::hash_multiset(
         const hash_multiset& __u)
     : __table_(__u.__table_)
 {
-    __table_.rehash(__u.bucket_count());
+    __table_.__rehash_multi(__u.bucket_count());
     insert(__u.begin(), __u.end());
 }
 
@@ -654,6 +664,6 @@ operator!=(const hash_multiset<_Value, _Hash, _Pred, _Alloc>& __x,
     return !(__x == __y);
 }
 
-} // __gnu_cxx
+} // namespace __gnu_cxx
 
 #endif // _LIBCPP_HASH_SET

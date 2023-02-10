@@ -3,6 +3,7 @@ const windows = std.os.windows;
 
 const BOOL = windows.BOOL;
 const DWORD = windows.DWORD;
+const DWORD64 = windows.DWORD64;
 const ULONG = windows.ULONG;
 const WINAPI = windows.WINAPI;
 const NTSTATUS = windows.NTSTATUS;
@@ -22,6 +23,13 @@ const RTL_OSVERSIONINFOW = windows.RTL_OSVERSIONINFOW;
 const FILE_BASIC_INFORMATION = windows.FILE_BASIC_INFORMATION;
 const SIZE_T = windows.SIZE_T;
 const CURDIR = windows.CURDIR;
+const PCWSTR = windows.PCWSTR;
+const RTL_QUERY_REGISTRY_TABLE = windows.RTL_QUERY_REGISTRY_TABLE;
+const CONTEXT = windows.CONTEXT;
+const UNWIND_HISTORY_TABLE = windows.UNWIND_HISTORY_TABLE;
+const RUNTIME_FUNCTION = windows.RUNTIME_FUNCTION;
+const KNONVOLATILE_CONTEXT_POINTERS = windows.KNONVOLATILE_CONTEXT_POINTERS;
+const EXCEPTION_ROUTINE = windows.EXCEPTION_ROUTINE;
 
 pub const THREADINFOCLASS = enum(c_int) {
     ThreadBasicInformation,
@@ -97,6 +105,22 @@ pub extern "ntdll" fn RtlCaptureStackBackTrace(
     BackTrace: **anyopaque,
     BackTraceHash: ?*DWORD,
 ) callconv(WINAPI) WORD;
+pub extern "ntdll" fn RtlCaptureContext(ContextRecord: *CONTEXT) callconv(WINAPI) void;
+pub extern "ntdll" fn RtlLookupFunctionEntry(
+    ControlPc: DWORD64,
+    ImageBase: *DWORD64,
+    HistoryTable: *UNWIND_HISTORY_TABLE,
+) callconv(WINAPI) ?*RUNTIME_FUNCTION;
+pub extern "ntdll" fn RtlVirtualUnwind(
+    HandlerType: DWORD,
+    ImageBase: DWORD64,
+    ControlPc: DWORD64,
+    FunctionEntry: *RUNTIME_FUNCTION,
+    ContextRecord: *CONTEXT,
+    HandlerData: *?PVOID,
+    EstablisherFrame: *DWORD64,
+    ContextPointers: ?*KNONVOLATILE_CONTEXT_POINTERS,
+) callconv(WINAPI) *EXCEPTION_ROUTINE;
 pub extern "ntdll" fn NtQueryInformationFile(
     FileHandle: HANDLE,
     IoStatusBlock: *IO_STATUS_BLOCK,
@@ -252,4 +276,26 @@ pub extern "ntdll" fn NtUnlockFile(
     ByteOffset: *const LARGE_INTEGER,
     Length: *const LARGE_INTEGER,
     Key: ?*ULONG,
+) callconv(WINAPI) NTSTATUS;
+
+pub extern "ntdll" fn NtOpenKey(
+    KeyHandle: *HANDLE,
+    DesiredAccess: ACCESS_MASK,
+    ObjectAttributes: OBJECT_ATTRIBUTES,
+) callconv(WINAPI) NTSTATUS;
+
+pub extern "ntdll" fn RtlQueryRegistryValues(
+    RelativeTo: ULONG,
+    Path: PCWSTR,
+    QueryTable: [*]RTL_QUERY_REGISTRY_TABLE,
+    Context: ?*anyopaque,
+    Environment: ?*anyopaque,
+) callconv(WINAPI) NTSTATUS;
+
+pub extern "ntdll" fn NtProtectVirtualMemory(
+    ProcessHandle: HANDLE,
+    BaseAddress: *PVOID,
+    NumberOfBytesToProtect: *ULONG,
+    NewAccessProtection: ULONG,
+    OldAccessProtection: *ULONG,
 ) callconv(WINAPI) NTSTATUS;

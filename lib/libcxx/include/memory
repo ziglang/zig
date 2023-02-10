@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===-------------------------- memory ------------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -98,6 +98,16 @@ struct allocator_traits
     static allocator_type select_on_container_copy_construction(const allocator_type& a); // constexpr in C++20
 };
 
+template<class Pointer>
+struct allocation_result {
+    Pointer ptr;
+    size_t count;
+}; // since C++23
+
+template<class Allocator>
+[[nodiscard]] constexpr allocation_result<typename allocator_traits<Allocator>::pointer>
+    allocate_at_least(Allocator& a, size_t n); // since C++23
+
 template <>
 class allocator<void> // removed in C++20
 {
@@ -181,46 +191,189 @@ template <class InputIterator, class ForwardIterator>
 ForwardIterator
 uninitialized_copy(InputIterator first, InputIterator last, ForwardIterator result);
 
+namespace ranges {
+
+template<class InputIterator, class OutputIterator>
+using uninitialized_copy_result = in_out_result<InputIterator, OutputIterator>; // since C++20
+
+template<input_iterator InputIterator, sentinel-for<InputIterator> Sentinel1, nothrow-forward-iterator OutputIterator, nothrow-sentinel-for<OutputIterator> Sentinel2>
+  requires constructible_from<iter_value_t<OutputIterator>, iter_reference_t<InputIterator>>
+uninitialized_copy_result<InputIterator, OutputIterator>
+uninitialized_copy(InputIterator ifirst, Sentinel1 ilast, OutputIterator ofirst, Sentinel2 olast); // since C++20
+
+template<input_range InputRange, nothrow-forward-range OutputRange>
+  requires constructible_from<range_value_t<OutputRange>, range_reference_t<InputRange>>
+uninitialized_copy_result<borrowed_iterator_t<InputRange>, borrowed_iterator_t<OutputRange>>
+uninitialized_copy(InputRange&& in_range, OutputRange&& out_range); // since C++20
+
+}
+
 template <class InputIterator, class Size, class ForwardIterator>
 ForwardIterator
 uninitialized_copy_n(InputIterator first, Size n, ForwardIterator result);
 
+namespace ranges {
+
+template<class InputIterator, class OutputIterator>
+using uninitialized_copy_n_result = in_out_result<InputIterator, OutputIterator>; // since C++20
+
+template<input_iterator InputIterator, nothrow-forward-iterator OutputIterator, nothrow-sentinel-for<OutputIterator> Sentinel>
+  requires constructible_from<iter_value_t<OutputIterator>, iter_reference_t<InputIterator>>
+uninitialized_copy_n_result<InputIterator, OutputIterator>
+uninitialized_copy_n(InputIterator ifirst, iter_difference_t<InputIterator> n, OutputIterator ofirst, Sentinel olast); // since C++20
+
+}
+
 template <class ForwardIterator, class T>
 void uninitialized_fill(ForwardIterator first, ForwardIterator last, const T& x);
+
+namespace ranges {
+
+template <nothrow-forward-iterator ForwardIterator, nothrow-sentinel-for<ForwardIterator> Sentinel, class T>
+  requires constructible_from<iter_value_t<ForwardIterator>, const T&>
+ForwardIterator uninitialized_fill(ForwardIterator first, Sentinel last, const T& x); // since C++20
+
+template <nothrow-forward-range ForwardRange, class T>
+  requires constructible_from<range_value_t<ForwardRange>, const T&>
+borrowed_iterator_t<ForwardRange> uninitialized_fill(ForwardRange&& range, const T& x); // since C++20
+
+}
 
 template <class ForwardIterator, class Size, class T>
 ForwardIterator
 uninitialized_fill_n(ForwardIterator first, Size n, const T& x);
 
+namespace ranges {
+
+template <nothrow-forward-iterator ForwardIterator, class T>
+  requires constructible_from<iter_value_t<ForwardIterator>, const T&>
+ForwardIterator uninitialized_fill_n(ForwardIterator first, iter_difference_t<ForwardIterator> n); // since C++20
+
+}
+
 template <class T, class ...Args>
 constexpr T* construct_at(T* location, Args&& ...args); // since C++20
+
+namespace ranges {
+  template<class T, class... Args>
+    constexpr T* construct_at(T* location, Args&&... args); // since C++20
+}
 
 template <class T>
 void destroy_at(T* location); // constexpr in C++20
 
+namespace ranges {
+  template<destructible T>
+    constexpr void destroy_at(T* location) noexcept; // since C++20
+}
+
 template <class ForwardIterator>
 void destroy(ForwardIterator first, ForwardIterator last); // constexpr in C++20
+
+namespace ranges {
+  template<nothrow-input-iterator InputIterator, nothrow-sentinel-for<InputIterator> Sentinel>
+    requires destructible<iter_value_t<InputIterator>>
+    constexpr InputIterator destroy(InputIterator first, Sentinel last) noexcept; // since C++20
+  template<nothrow-input-range InputRange>
+    requires destructible<range_value_t<InputRange>>
+    constexpr borrowed_iterator_t<InputRange> destroy(InputRange&& range) noexcept; // since C++20
+}
 
 template <class ForwardIterator, class Size>
 ForwardIterator destroy_n(ForwardIterator first, Size n); // constexpr in C++20
 
+namespace ranges {
+  template<nothrow-input-iterator InputIterator>
+    requires destructible<iter_value_t<InputIterator>>
+    constexpr InputIterator destroy_n(InputIterator first, iter_difference_t<InputIterator> n) noexcept; // since C++20
+}
+
 template <class InputIterator, class ForwardIterator>
  ForwardIterator uninitialized_move(InputIterator first, InputIterator last, ForwardIterator result);
+
+namespace ranges {
+
+template<class InputIterator, class OutputIterator>
+using uninitialized_move_result = in_out_result<InputIterator, OutputIterator>; // since C++20
+
+template <input_iterator InputIterator, sentinel_for<InputIterator> Sentinel1, nothrow-forward-iterator OutputIterator, nothrow-sentinel-for<O> Sentinel2>
+  requires constructible_from<iter_value_t<OutputIterator>, iter_rvalue_reference_t<InputIterator>>
+uninitialized_move_result<InputIterator, OutputIterator>
+uninitialized_move(InputIterator ifirst, Sentinel1 ilast, OutputIterator ofirst, Sentinel2 olast); // since C++20
+
+template<input_range InputRange, nothrow-forward-range OutputRange>
+  requires constructible_from<range_value_t<OutputRange>, range_rvalue_reference_t<InputRange>>
+uninitialized_move_result<borrowed_iterator_t<InputRange>, borrowed_iterator_t<OutputRange>>
+uninitialized_move(InputRange&& in_range, OutputRange&& out_range); // since C++20
+
+}
 
 template <class InputIterator, class Size, class ForwardIterator>
  pair<InputIterator,ForwardIterator> uninitialized_move_n(InputIterator first, Size n, ForwardIterator result);
 
+namespace ranges {
+
+template<class InputIterator, class OutputIterator>
+using uninitialized_move_n_result = in_out_result<InputIterator, OutputIterator>; // since C++20
+
+template<input_iterator InputIterator, nothrow-forward-iterator OutputIterator, nothrow-sentinel-for<OutputIterator> Sentinel>
+  requires constructible_from<iter_value_t<OutputIterator>, iter_rvalue_reference_t<InputIterator>>
+uninitialized_move_n_result<InputIterator, OutputIterator>
+uninitialized_move_n(InputIterator ifirst, iter_difference_t<InputIterator> n, OutputIterator ofirst, Sentinel olast); // since C++20
+
+}
+
 template <class ForwardIterator>
  void uninitialized_value_construct(ForwardIterator first, ForwardIterator last);
+
+namespace ranges {
+
+template <nothrow-forward-iterator ForwardIterator, nothrow-sentinel-for<ForwardIterator> Sentinel>
+  requires default_initializable<iter_value_t<ForwardIterator>>
+ ForwardIterator uninitialized_value_construct(ForwardIterator first, Sentinel last); // since C++20
+
+template <nothrow-forward-range ForwardRange>
+  requires default_initializable<range_value_t<ForwardRange>>
+ borrowed_iterator_t<ForwardRange> uninitialized_value_construct(ForwardRange&& r); // since C++20
+
+}
 
 template <class ForwardIterator, class Size>
  ForwardIterator uninitialized_value_construct_n(ForwardIterator first, Size n);
 
+namespace ranges {
+
+template <nothrow-forward-iterator ForwardIterator>
+  requires default_initializable<iter_value_t<ForwardIterator>>
+ ForwardIterator uninitialized_value_construct_n(ForwardIterator first, iter_difference_t<ForwardIterator> n); // since C++20
+
+}
+
 template <class ForwardIterator>
  void uninitialized_default_construct(ForwardIterator first, ForwardIterator last);
 
+namespace ranges {
+
+template <nothrow-forward-iterator ForwardIterator, nothrow-sentinel-for<ForwardIterator> Sentinel>
+  requires default_initializable<iter_value_t<ForwardIterator>>
+ ForwardIterator uninitialized_default_construct(ForwardIterator first, Sentinel last); // since C++20
+
+template <nothrow-forward-range ForwardRange>
+  requires default_initializable<range_value_t<ForwardRange>>
+ borrowed_iterator_t<ForwardRange> uninitialized_default_construct(ForwardRange&& r); // since C++20
+
+}
+
 template <class ForwardIterator, class Size>
  ForwardIterator uninitialized_default_construct_n(ForwardIterator first, Size n);
+
+namespace ranges {
+
+template <nothrow-forward-iterator ForwardIterator>
+  requires default_initializable<iter_value_t<ForwardIterator>>
+ ForwardIterator uninitialized_default_construct_n(ForwardIterator first, iter_difference_t<ForwardIterator> n); // since C++20
+
+}
 
 template <class Y> struct auto_ptr_ref {};      // deprecated in C++11, removed in C++17
 
@@ -405,7 +558,8 @@ template<class T>
 class shared_ptr
 {
 public:
-    typedef T element_type;
+    typedef T element_type; // until C++17
+    typedef remove_extent_t<T> element_type; // since C++17
     typedef weak_ptr<T> weak_type; // C++17
 
     // constructors:
@@ -517,15 +671,36 @@ template<class E, class T, class Y>
 template<class D, class T> D* get_deleter(shared_ptr<T> const& p) noexcept;
 
 template<class T, class... Args>
-    shared_ptr<T> make_shared(Args&&... args);
+    shared_ptr<T> make_shared(Args&&... args); // T is not an array
 template<class T, class A, class... Args>
-    shared_ptr<T> allocate_shared(const A& a, Args&&... args);
+    shared_ptr<T> allocate_shared(const A& a, Args&&... args); // T is not an array
+
+template<class T>
+    shared_ptr<T> make_shared(size_t N); // T is U[] (since C++20)
+template<class T, class A>
+    shared_ptr<T> allocate_shared(const A& a, size_t N); // T is U[] (since C++20)
+
+template<class T>
+    shared_ptr<T> make_shared(); // T is U[N] (since C++20)
+template<class T, class A>
+    shared_ptr<T> allocate_shared(const A& a); // T is U[N] (since C++20)
+
+template<class T>
+    shared_ptr<T> make_shared(size_t N, const remove_extent_t<T>& u); // T is U[] (since C++20)
+template<class T, class A>
+    shared_ptr<T> allocate_shared(const A& a, size_t N, const remove_extent_t<T>& u); // T is U[] (since C++20)
+
+template<class T> shared_ptr<T>
+    make_shared(const remove_extent_t<T>& u); // T is U[N] (since C++20)
+template<class T, class A>
+    shared_ptr<T> allocate_shared(const A& a, const remove_extent_t<T>& u); // T is U[N] (since C++20)
 
 template<class T>
 class weak_ptr
 {
 public:
-    typedef T element_type;
+    typedef T element_type; // until C++17
+    typedef remove_extent_t<T> element_type; // since C++17
 
     // constructors
     constexpr weak_ptr() noexcept;
@@ -653,151 +828,64 @@ template <class T> struct hash<shared_ptr<T> >;
 template <class T, class Alloc>
   inline constexpr bool uses_allocator_v = uses_allocator<T, Alloc>::value;
 
-// Pointer safety
-enum class pointer_safety { relaxed, preferred, strict }; // since C++11
-void declare_reachable(void *p);                          // since C++11
-template <class T> T *undeclare_reachable(T *p);          // since C++11
-void declare_no_pointers(char *p, size_t n);              // since C++11
-void undeclare_no_pointers(char *p, size_t n);            // since C++11
-pointer_safety get_pointer_safety() noexcept;             // since C++11
-
+// [ptr.align]
 void* align(size_t alignment, size_t size, void*& ptr, size_t& space);
+
+template<size_t N, class T>
+[[nodiscard]] constexpr T* assume_aligned(T* ptr); // since C++20
 
 }  // std
 
 */
 
+#include <__algorithm/copy.h>
+#include <__algorithm/move.h>
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <__functional_base>
 #include <__memory/addressof.h>
+#include <__memory/allocate_at_least.h>
 #include <__memory/allocation_guard.h>
 #include <__memory/allocator.h>
 #include <__memory/allocator_arg_t.h>
 #include <__memory/allocator_traits.h>
+#include <__memory/assume_aligned.h>
+#include <__memory/auto_ptr.h>
 #include <__memory/compressed_pair.h>
+#include <__memory/concepts.h>
 #include <__memory/construct_at.h>
-#include <__memory/pointer_safety.h>
 #include <__memory/pointer_traits.h>
+#include <__memory/ranges_construct_at.h>
+#include <__memory/ranges_uninitialized_algorithms.h>
 #include <__memory/raw_storage_iterator.h>
 #include <__memory/shared_ptr.h>
 #include <__memory/temporary_buffer.h>
 #include <__memory/uninitialized_algorithms.h>
 #include <__memory/unique_ptr.h>
 #include <__memory/uses_allocator.h>
-#include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <iosfwd>
-#include <iterator>
 #include <new>
 #include <stdexcept>
 #include <tuple>
 #include <type_traits>
 #include <typeinfo>
-#include <utility>
 #include <version>
 
-#if _LIBCPP_STD_VER <= 14 || defined(_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR)
-#   include <__memory/auto_ptr.h>
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <iterator>
+#  include <utility>
 #endif
+
+// standard-mandated includes
+#include <compare>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 
 _LIBCPP_BEGIN_NAMESPACE_STD
-
-template <class _Alloc, class _Ptr>
-_LIBCPP_INLINE_VISIBILITY
-void __construct_forward_with_exception_guarantees(_Alloc& __a, _Ptr __begin1, _Ptr __end1, _Ptr& __begin2) {
-    static_assert(__is_cpp17_move_insertable<_Alloc>::value,
-        "The specified type does not meet the requirements of Cpp17MoveInsertable");
-    typedef allocator_traits<_Alloc> _Traits;
-    for (; __begin1 != __end1; ++__begin1, (void)++__begin2) {
-        _Traits::construct(__a, _VSTD::__to_address(__begin2),
-#ifdef _LIBCPP_NO_EXCEPTIONS
-            _VSTD::move(*__begin1)
-#else
-            _VSTD::move_if_noexcept(*__begin1)
-#endif
-        );
-    }
-}
-
-template <class _Alloc, class _Tp, typename enable_if<
-    (__is_default_allocator<_Alloc>::value || !__has_construct<_Alloc, _Tp*, _Tp>::value) &&
-    is_trivially_move_constructible<_Tp>::value
->::type>
-_LIBCPP_INLINE_VISIBILITY
-void __construct_forward_with_exception_guarantees(_Alloc&, _Tp* __begin1, _Tp* __end1, _Tp*& __begin2) {
-    ptrdiff_t _Np = __end1 - __begin1;
-    if (_Np > 0) {
-        _VSTD::memcpy(__begin2, __begin1, _Np * sizeof(_Tp));
-        __begin2 += _Np;
-    }
-}
-
-template <class _Alloc, class _Iter, class _Ptr>
-_LIBCPP_INLINE_VISIBILITY
-void __construct_range_forward(_Alloc& __a, _Iter __begin1, _Iter __end1, _Ptr& __begin2) {
-    typedef allocator_traits<_Alloc> _Traits;
-    for (; __begin1 != __end1; ++__begin1, (void) ++__begin2) {
-        _Traits::construct(__a, _VSTD::__to_address(__begin2), *__begin1);
-    }
-}
-
-template <class _Alloc, class _Source, class _Dest,
-          class _RawSource = typename remove_const<_Source>::type,
-          class _RawDest = typename remove_const<_Dest>::type,
-          class =
-    typename enable_if<
-        is_trivially_copy_constructible<_Dest>::value &&
-        is_same<_RawSource, _RawDest>::value &&
-        (__is_default_allocator<_Alloc>::value || !__has_construct<_Alloc, _Dest*, _Source&>::value)
-    >::type>
-_LIBCPP_INLINE_VISIBILITY
-void __construct_range_forward(_Alloc&, _Source* __begin1, _Source* __end1, _Dest*& __begin2) {
-    ptrdiff_t _Np = __end1 - __begin1;
-    if (_Np > 0) {
-        _VSTD::memcpy(const_cast<_RawDest*>(__begin2), __begin1, _Np * sizeof(_Dest));
-        __begin2 += _Np;
-    }
-}
-
-template <class _Alloc, class _Ptr>
-_LIBCPP_INLINE_VISIBILITY
-void __construct_backward_with_exception_guarantees(_Alloc& __a, _Ptr __begin1, _Ptr __end1, _Ptr& __end2) {
-    static_assert(__is_cpp17_move_insertable<_Alloc>::value,
-        "The specified type does not meet the requirements of Cpp17MoveInsertable");
-    typedef allocator_traits<_Alloc> _Traits;
-    while (__end1 != __begin1) {
-        _Traits::construct(__a, _VSTD::__to_address(__end2 - 1),
-#ifdef _LIBCPP_NO_EXCEPTIONS
-            _VSTD::move(*--__end1)
-#else
-            _VSTD::move_if_noexcept(*--__end1)
-#endif
-        );
-        --__end2;
-    }
-}
-
-template <class _Alloc, class _Tp, class = typename enable_if<
-    (__is_default_allocator<_Alloc>::value || !__has_construct<_Alloc, _Tp*, _Tp>::value) &&
-    is_trivially_move_constructible<_Tp>::value
->::type>
-_LIBCPP_INLINE_VISIBILITY
-void __construct_backward_with_exception_guarantees(_Alloc&, _Tp* __begin1, _Tp* __end1, _Tp*& __end2) {
-    ptrdiff_t _Np = __end1 - __begin1;
-    __end2 -= _Np;
-    if (_Np > 0)
-        _VSTD::memcpy(static_cast<void*>(__end2), static_cast<void const*>(__begin1), _Np * sizeof(_Tp));
-}
 
 struct __destruct_n
 {
@@ -840,37 +928,6 @@ public:
 
 _LIBCPP_FUNC_VIS void* align(size_t __align, size_t __sz, void*& __ptr, size_t& __space);
 
-// --- Helper for container swap --
-template <typename _Alloc>
-_LIBCPP_INLINE_VISIBILITY
-void __swap_allocator(_Alloc & __a1, _Alloc & __a2, true_type)
-#if _LIBCPP_STD_VER >= 14
-    _NOEXCEPT
-#else
-    _NOEXCEPT_(__is_nothrow_swappable<_Alloc>::value)
-#endif
-{
-    using _VSTD::swap;
-    swap(__a1, __a2);
-}
-
-template <typename _Alloc>
-inline _LIBCPP_INLINE_VISIBILITY
-void __swap_allocator(_Alloc &, _Alloc &, false_type) _NOEXCEPT {}
-
-template <typename _Alloc>
-inline _LIBCPP_INLINE_VISIBILITY
-void __swap_allocator(_Alloc & __a1, _Alloc & __a2)
-#if _LIBCPP_STD_VER >= 14
-    _NOEXCEPT
-#else
-    _NOEXCEPT_(__is_nothrow_swappable<_Alloc>::value)
-#endif
-{
-    _VSTD::__swap_allocator(__a1, __a2,
-      integral_constant<bool, allocator_traits<_Alloc>::propagate_on_container_swap::value>());
-}
-
 template <typename _Alloc, typename _Traits=allocator_traits<_Alloc> >
 struct __noexcept_move_assign_container : public integral_constant<bool,
     _Traits::propagate_on_container_move_assignment::value
@@ -886,21 +943,31 @@ template <class _Tp, class _Alloc>
 struct __temp_value {
     typedef allocator_traits<_Alloc> _Traits;
 
+#ifdef _LIBCPP_CXX03_LANG
     typename aligned_storage<sizeof(_Tp), _LIBCPP_ALIGNOF(_Tp)>::type __v;
+#else
+    union { _Tp __v; };
+#endif
     _Alloc &__a;
 
-    _Tp *__addr() { return reinterpret_cast<_Tp *>(addressof(__v)); }
-    _Tp &   get() { return *__addr(); }
+    _LIBCPP_CONSTEXPR_AFTER_CXX17 _Tp *__addr() {
+#ifdef _LIBCPP_CXX03_LANG
+        return reinterpret_cast<_Tp*>(std::addressof(__v));
+#else
+        return std::addressof(__v);
+#endif
+    }
+
+    _LIBCPP_CONSTEXPR_AFTER_CXX17 _Tp &   get() { return *__addr(); }
 
     template<class... _Args>
     _LIBCPP_NO_CFI
-    __temp_value(_Alloc &__alloc, _Args&& ... __args) : __a(__alloc) {
-      _Traits::construct(__a, reinterpret_cast<_Tp*>(addressof(__v)),
-                         _VSTD::forward<_Args>(__args)...);
+    _LIBCPP_CONSTEXPR_AFTER_CXX17 __temp_value(_Alloc &__alloc, _Args&& ... __args) : __a(__alloc) {
+      _Traits::construct(__a, __addr(), std::forward<_Args>(__args)...);
     }
 
-    ~__temp_value() { _Traits::destroy(__a, __addr()); }
-    };
+    _LIBCPP_CONSTEXPR_AFTER_CXX17 ~__temp_value() { _Traits::destroy(__a, __addr()); }
+};
 
 template<typename _Alloc, typename = void, typename = void>
 struct __is_allocator : false_type {};
@@ -923,8 +990,8 @@ struct __builtin_new_allocator {
     _LIBCPP_CONSTEXPR explicit __builtin_new_deleter(size_t __size, size_t __align)
         : __size_(__size), __align_(__align) {}
 
-    void operator()(void* p) const _NOEXCEPT {
-        _VSTD::__libcpp_deallocate(p, __size_, __align_);
+    void operator()(void* __p) const _NOEXCEPT {
+        _VSTD::__libcpp_deallocate(__p, __size_, __align_);
     }
 
    private:
@@ -957,10 +1024,7 @@ struct __builtin_new_allocator {
   }
 };
 
-
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #if defined(_LIBCPP_HAS_PARALLEL_ALGORITHMS) && _LIBCPP_STD_VER >= 17
 #   include <__pstl_memory>

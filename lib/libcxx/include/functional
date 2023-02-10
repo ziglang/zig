@@ -135,6 +135,9 @@ struct less_equal {
     bool operator()(const T& x, const T& y) const;
 };
 
+// [comparisons.three.way], class compare_three_way
+struct compare_three_way;
+
 template <class T> // <class T=void> in C++14
 struct logical_and {
     bool operator()(const T& x, const T& y) const;
@@ -479,6 +482,16 @@ template <> struct hash<long double>;
 template<class T> struct hash<T*>;
 template <> struct hash<nullptr_t>;  // C++17
 
+namespace ranges {
+  // [range.cmp], concept-constrained comparisons
+  struct equal_to;
+  struct not_equal_to;
+  struct greater;
+  struct less;
+  struct greater_equal;
+  struct less_equal;
+}
+
 }  // std
 
 POLICY:  For non-variadic implementations, the number of arguments is limited
@@ -488,14 +501,19 @@ POLICY:  For non-variadic implementations, the number of arguments is limited
 */
 
 #include <__algorithm/search.h>
+#include <__assert> // all public C++ headers provide the assertion handler
+#include <__compare/compare_three_way.h>
 #include <__config>
 #include <__debug>
 #include <__functional/binary_function.h> // TODO: deprecate
 #include <__functional/binary_negate.h>
-#include <__functional/bind_front.h>
 #include <__functional/bind.h>
+#include <__functional/bind_back.h>
+#include <__functional/bind_front.h>
 #include <__functional/binder1st.h>
 #include <__functional/binder2nd.h>
+#include <__functional/boyer_moore_searcher.h>
+#include <__functional/compose.h>
 #include <__functional/default_searcher.h>
 #include <__functional/function.h>
 #include <__functional/hash.h>
@@ -519,11 +537,14 @@ POLICY:  For non-variadic implementations, the number of arguments is limited
 #include <tuple>
 #include <type_traits>
 #include <typeinfo>
-#include <utility>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <utility>
+#endif
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #endif // _LIBCPP_FUNCTIONAL

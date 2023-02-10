@@ -1,4 +1,4 @@
-//===-------------------------- random.cpp --------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -9,16 +9,16 @@
 #include <__config>
 
 #if defined(_LIBCPP_USING_WIN32_RANDOM)
-// Must be defined before including stdlib.h to enable rand_s().
-#define _CRT_RAND_S
+    // Must be defined before including stdlib.h to enable rand_s().
+#   define _CRT_RAND_S
 #endif // defined(_LIBCPP_USING_WIN32_RANDOM)
 
-#include "limits"
-#include "random"
-#include "system_error"
+#include <limits>
+#include <random>
+#include <system_error>
 
 #if defined(__sun__)
-#define rename solaris_headers_are_broken
+#   define rename solaris_headers_are_broken
 #endif // defined(__sun__)
 
 #include <errno.h>
@@ -26,16 +26,18 @@
 #include <stdlib.h>
 
 #if defined(_LIBCPP_USING_GETENTROPY)
-#include <sys/random.h>
+#   include <sys/random.h>
 #elif defined(_LIBCPP_USING_DEV_RANDOM)
-#include <fcntl.h>
-#include <unistd.h>
-#if __has_include(<sys/ioctl.h>) && __has_include(<linux/random.h>)
-#include <sys/ioctl.h>
-#include <linux/random.h>
-#endif
+#   include <fcntl.h>
+#   include <unistd.h>
+#   if __has_include(<sys/ioctl.h>) && __has_include(<linux/random.h>)
+#       include <sys/ioctl.h>
+#       include <linux/random.h>
+#   endif
 #elif defined(_LIBCPP_USING_NACL_RANDOM)
-#include <nacl/nacl_random.h>
+#   include <nacl/nacl_random.h>
+#elif defined(_LIBCPP_USING_FUCHSIA_CPRNG)
+#  include <zircon/syscalls.h>
 #endif
 
 
@@ -66,10 +68,8 @@ random_device::operator()()
 
 #elif defined(_LIBCPP_USING_ARC4_RANDOM)
 
-random_device::random_device(const string& __token)
+random_device::random_device(const string&)
 {
-    if (__token != "/dev/urandom")
-        __throw_system_error(ENOENT, ("random device not supported " + __token).c_str());
 }
 
 random_device::~random_device()
@@ -170,6 +170,27 @@ random_device::operator()()
     return r;
 }
 
+#elif defined(_LIBCPP_USING_FUCHSIA_CPRNG)
+
+random_device::random_device(const string& __token) {
+  if (__token != "/dev/urandom")
+    __throw_system_error(ENOENT, ("random device not supported " + __token).c_str());
+}
+
+random_device::~random_device() {}
+
+unsigned random_device::operator()() {
+  // Implicitly link against the vDSO system call ABI without
+  // requiring the final link to specify -lzircon explicitly when
+  // statically linking libc++.
+#  pragma comment(lib, "zircon")
+
+  // The system call cannot fail.  It returns only when the bits are ready.
+  unsigned r;
+  _zx_cprng_draw(&r, sizeof(r));
+  return r;
+}
+
 #else
 #error "Random device not implemented for this architecture"
 #endif
@@ -189,7 +210,7 @@ random_device::entropy() const noexcept
     return std::numeric_limits<result_type>::digits;
 
   return ent;
-#elif defined(__OpenBSD__)
+#elif defined(_LIBCPP_USING_ARC4_RANDOM) || defined(_LIBCPP_USING_FUCHSIA_CPRNG)
   return std::numeric_limits<result_type>::digits;
 #else
   return 0;

@@ -76,7 +76,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: Endian) type {
             const value_ptr = @ptrCast(*align(1) const Container, &bytes[start_byte]);
             var value = value_ptr.*;
 
-            if (endian != native_endian) value = @byteSwap(Container, value);
+            if (endian != native_endian) value = @byteSwap(value);
 
             switch (endian) {
                 .Big => {
@@ -126,7 +126,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: Endian) type {
             const target_ptr = @ptrCast(*align(1) Container, &bytes[start_byte]);
             var target = target_ptr.*;
 
-            if (endian != native_endian) target = @byteSwap(Container, target);
+            if (endian != native_endian) target = @byteSwap(target);
 
             //zero the bits we want to replace in the existing bytes
             const inv_mask = @intCast(Container, std.math.maxInt(UnInt)) << keep_shift;
@@ -136,7 +136,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: Endian) type {
             //merge the new value
             target |= value;
 
-            if (endian != native_endian) target = @byteSwap(Container, target);
+            if (endian != native_endian) target = @byteSwap(target);
 
             //save it back
             target_ptr.* = target;
@@ -207,6 +207,9 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: Endian, comptim
         bytes: [total_bytes]u8,
         /// The number of elements in the packed array.
         comptime len: usize = int_count,
+
+        /// The integer type of the packed array.
+        pub const Child = Int;
 
         /// Initialize a packed array using an unpacked array
         /// or, more likely, an array literal.
@@ -283,6 +286,9 @@ pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: Endian) type {
         bit_offset: u3,
         len: usize,
 
+        /// The integer type of the packed slice.
+        pub const Child = Int;
+
         /// Calculates the number of bytes required to store a desired count
         /// of `Int`s.
         pub fn bytesRequired(int_count: usize) usize {
@@ -338,12 +344,12 @@ pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: Endian) type {
     };
 }
 
-const we_are_testing_this_with_stage1_which_leaks_comptime_memory = true;
-
 test "PackedIntArray" {
     // TODO @setEvalBranchQuota generates panics in wasm32. Investigate.
     if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
-    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
+
+    // TODO: enable this test
+    if (true) return error.SkipZigTest;
 
     @setEvalBranchQuota(10000);
     const max_bits = 256;
@@ -405,7 +411,9 @@ test "PackedIntArray initAllTo" {
 test "PackedIntSlice" {
     // TODO @setEvalBranchQuota generates panics in wasm32. Investigate.
     if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
-    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
+
+    // TODO enable this test
+    if (true) return error.SkipZigTest;
 
     @setEvalBranchQuota(10000);
     const max_bits = 256;
@@ -444,7 +452,9 @@ test "PackedIntSlice" {
 }
 
 test "PackedIntSlice of PackedInt(Array/Slice)" {
-    if (we_are_testing_this_with_stage1_which_leaks_comptime_memory) return error.SkipZigTest;
+    // TODO enable this test
+    if (true) return error.SkipZigTest;
+
     const max_bits = 16;
     const int_count = 19;
 

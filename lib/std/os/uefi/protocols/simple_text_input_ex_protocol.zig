@@ -1,16 +1,17 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 
 /// Character input devices, e.g. Keyboard
 pub const SimpleTextInputExProtocol = extern struct {
-    _reset: fn (*const SimpleTextInputExProtocol, bool) callconv(.C) Status,
-    _read_key_stroke_ex: fn (*const SimpleTextInputExProtocol, *KeyData) callconv(.C) Status,
+    _reset: *const fn (*const SimpleTextInputExProtocol, bool) callconv(.C) Status,
+    _read_key_stroke_ex: *const fn (*const SimpleTextInputExProtocol, *KeyData) callconv(.C) Status,
     wait_for_key_ex: Event,
-    _set_state: fn (*const SimpleTextInputExProtocol, *const u8) callconv(.C) Status,
-    _register_key_notify: fn (*const SimpleTextInputExProtocol, *const KeyData, fn (*const KeyData) callconv(.C) usize, **anyopaque) callconv(.C) Status,
-    _unregister_key_notify: fn (*const SimpleTextInputExProtocol, *const anyopaque) callconv(.C) Status,
+    _set_state: *const fn (*const SimpleTextInputExProtocol, *const u8) callconv(.C) Status,
+    _register_key_notify: *const fn (*const SimpleTextInputExProtocol, *const KeyData, *const fn (*const KeyData) callconv(.C) usize, **anyopaque) callconv(.C) Status,
+    _unregister_key_notify: *const fn (*const SimpleTextInputExProtocol, *const anyopaque) callconv(.C) Status,
 
     /// Resets the input device hardware.
     pub fn reset(self: *const SimpleTextInputExProtocol, verify: bool) Status {
@@ -28,7 +29,7 @@ pub const SimpleTextInputExProtocol = extern struct {
     }
 
     /// Register a notification function for a particular keystroke for the input device.
-    pub fn registerKeyNotify(self: *const SimpleTextInputExProtocol, key_data: *const KeyData, notify: fn (*const KeyData) callconv(.C) usize, handle: **anyopaque) Status {
+    pub fn registerKeyNotify(self: *const SimpleTextInputExProtocol, key_data: *const KeyData, notify: *const fn (*const KeyData) callconv(.C) usize, handle: **anyopaque) Status {
         return self._register_key_notify(self, key_data, notify, handle);
     }
 
@@ -52,29 +53,33 @@ pub const KeyData = extern struct {
     key_state: KeyState = undefined,
 };
 
+pub const KeyShiftState = packed struct(u32) {
+    right_shift_pressed: bool,
+    left_shift_pressed: bool,
+    right_control_pressed: bool,
+    left_control_pressed: bool,
+    right_alt_pressed: bool,
+    left_alt_pressed: bool,
+    right_logo_pressed: bool,
+    left_logo_pressed: bool,
+    menu_key_pressed: bool,
+    sys_req_pressed: bool,
+    _pad: u21 = 0,
+    shift_state_valid: bool,
+};
+
+pub const KeyToggleState = packed struct(u8) {
+    scroll_lock_active: bool,
+    num_lock_active: bool,
+    caps_lock_active: bool,
+    _pad: u3 = 0,
+    key_state_exposed: bool,
+    toggle_state_valid: bool,
+};
+
 pub const KeyState = extern struct {
-    key_shift_state: packed struct {
-        right_shift_pressed: bool,
-        left_shift_pressed: bool,
-        right_control_pressed: bool,
-        left_control_pressed: bool,
-        right_alt_pressed: bool,
-        left_alt_pressed: bool,
-        right_logo_pressed: bool,
-        left_logo_pressed: bool,
-        menu_key_pressed: bool,
-        sys_req_pressed: bool,
-        _pad: u21 = 0,
-        shift_state_valid: bool,
-    },
-    key_toggle_state: packed struct {
-        scroll_lock_active: bool,
-        num_lock_active: bool,
-        caps_lock_active: bool,
-        _pad: u3 = 0,
-        key_state_exposed: bool,
-        toggle_state_valid: bool,
-    },
+    key_shift_state: KeyShiftState,
+    key_toggle_state: KeyToggleState,
 };
 
 pub const InputKey = extern struct {

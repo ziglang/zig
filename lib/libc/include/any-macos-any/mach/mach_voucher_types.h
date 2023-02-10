@@ -31,6 +31,7 @@
 
 #include <mach/std_types.h>
 #include <mach/port.h>
+#include <mach/message.h>
 
 /*
  * Mach Voucher - an immutable collection of attribute value handles.
@@ -212,7 +213,7 @@ typedef mach_port_t             ipc_voucher_attr_control_t;
  * The private handle that the voucher attribute manager provides to
  * the mach voucher mechanism to represent a given attr content/value.
  */
-typedef uint64_t mach_voucher_attr_value_handle_t;
+typedef uint64_t mach_voucher_attr_value_handle_t __kernel_ptr_semantics;
 typedef mach_voucher_attr_value_handle_t *mach_voucher_attr_value_handle_array_t;
 
 typedef mach_msg_type_number_t mach_voucher_attr_value_handle_array_size_t;

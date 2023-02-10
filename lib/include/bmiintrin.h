@@ -47,6 +47,7 @@ __tzcnt_u16(unsigned short __X)
 ///    An unsigned 32-bit integer whose trailing zeros are to be counted.
 /// \returns An unsigned 32-bit integer containing the number of trailing zero
 ///    bits in the operand.
+/// \see _mm_tzcnt_32
 static __inline__ unsigned int __RELAXED_FN_ATTRS
 __tzcnt_u32(unsigned int __X)
 {
@@ -63,10 +64,11 @@ __tzcnt_u32(unsigned int __X)
 ///    An unsigned 32-bit integer whose trailing zeros are to be counted.
 /// \returns An 32-bit integer containing the number of trailing zero bits in
 ///    the operand.
+/// \see __tzcnt_u32
 static __inline__ int __RELAXED_FN_ATTRS
 _mm_tzcnt_32(unsigned int __X)
 {
-  return __builtin_ia32_tzcnt_u32(__X);
+  return (int)__builtin_ia32_tzcnt_u32(__X);
 }
 
 #define _tzcnt_u32(a)     (__tzcnt_u32((a)))
@@ -83,6 +85,7 @@ _mm_tzcnt_32(unsigned int __X)
 ///    An unsigned 64-bit integer whose trailing zeros are to be counted.
 /// \returns An unsigned 64-bit integer containing the number of trailing zero
 ///    bits in the operand.
+/// \see _mm_tzcnt_64
 static __inline__ unsigned long long __RELAXED_FN_ATTRS
 __tzcnt_u64(unsigned long long __X)
 {
@@ -99,10 +102,11 @@ __tzcnt_u64(unsigned long long __X)
 ///    An unsigned 64-bit integer whose trailing zeros are to be counted.
 /// \returns An 64-bit integer containing the number of trailing zero bits in
 ///    the operand.
+/// \see __tzcnt_u64
 static __inline__ long long __RELAXED_FN_ATTRS
 _mm_tzcnt_64(unsigned long long __X)
 {
-  return __builtin_ia32_tzcnt_u64(__X);
+  return (long long)__builtin_ia32_tzcnt_u64(__X);
 }
 
 #define _tzcnt_u64(a)     (__tzcnt_u64((a)))

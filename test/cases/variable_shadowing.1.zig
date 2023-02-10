@@ -5,5 +5,5 @@ pub fn main() void {
 
 // error
 //
-// :3:9: error: local shadows declaration of 'testing'
+// :3:9: error: local variable shadows declaration of 'testing'
 // :1:1: note: declared here

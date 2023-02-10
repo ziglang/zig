@@ -22,7 +22,7 @@ pub fn Locked(comptime T: type) type {
 
         pub fn init(data: T) Self {
             return Self{
-                .lock = Lock.init(),
+                .lock = .{},
                 .private_data = data,
             };
         }

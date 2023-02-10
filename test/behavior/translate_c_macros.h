@@ -37,5 +37,25 @@ union U {
 #define IGNORE_ME_10(x) (volatile const void)(x)
 
 #define UNION_CAST(X) (union U)(X)
+#define CAST_OR_CALL_WITH_PARENS(type_or_fn, val) ((type_or_fn)(val))
 
 #define NESTED_COMMA_OPERATOR (1, (2, 3))
+#define NESTED_COMMA_OPERATOR_LHS (1, 2), 3
+
+#include <stdint.h>
+#if !defined(__UINTPTR_MAX__)
+typedef _Bool uintptr_t;
+#endif
+
+#define CAST_TO_BOOL(X) (_Bool)(X)
+#define CAST_TO_UINTPTR(X) (uintptr_t)(X)
+
+#define LARGE_INT 18446744073709550592
+
+#define EMBEDDED_TAB "hello	"
+
+#define DIVIDE_CONSTANT(version) (version / 1000)
+#define DIVIDE_ARGS(A, B) (A / B)
+
+#define REMAINDER_CONSTANT(version) (version % 10000)
+#define REMAINDER_ARGS(A, B) (A % B)

@@ -112,6 +112,16 @@ test "p256 double base multiplication" {
     try testing.expect(pr1.equivalent(pr2));
 }
 
+test "p256 double base multiplication with large scalars" {
+    const p1 = P256.basePoint;
+    const p2 = P256.basePoint.dbl();
+    const s1 = [_]u8{0xee} ** 32;
+    const s2 = [_]u8{0xdd} ** 32;
+    const pr1 = try P256.mulDoubleBasePublic(p1, s1, p2, s2, .Little);
+    const pr2 = (try p1.mul(s1, .Little)).add(try p2.mul(s2, .Little));
+    try testing.expect(pr1.equivalent(pr2));
+}
+
 test "p256 scalar inverse" {
     const expected = "3b549196a13c898a6f6e84dfb3a22c40a8b9b17fb88e408ea674e451cd01d0a6";
     var out: [32]u8 = undefined;

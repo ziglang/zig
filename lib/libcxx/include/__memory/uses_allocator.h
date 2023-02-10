@@ -15,7 +15,7 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -24,11 +24,10 @@ template <class _Tp>
 struct __has_allocator_type
 {
 private:
-    struct __two {char __lx; char __lxx;};
-    template <class _Up> static __two __test(...);
-    template <class _Up> static char __test(typename _Up::allocator_type* = 0);
+    template <class _Up> static false_type __test(...);
+    template <class _Up> static true_type __test(typename _Up::allocator_type* = 0);
 public:
-    static const bool value = sizeof(__test<_Tp>(0)) == 1;
+    static const bool value = decltype(__test<_Tp>(0))::value;
 };
 
 template <class _Tp, class _Alloc, bool = __has_allocator_type<_Tp>::value>
@@ -52,7 +51,7 @@ struct _LIBCPP_TEMPLATE_VIS uses_allocator
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp, class _Alloc>
-_LIBCPP_INLINE_VAR constexpr size_t uses_allocator_v = uses_allocator<_Tp, _Alloc>::value;
+inline constexpr size_t uses_allocator_v = uses_allocator<_Tp, _Alloc>::value;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

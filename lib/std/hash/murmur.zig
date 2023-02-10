@@ -9,7 +9,7 @@ pub const Murmur2_32 = struct {
     const Self = @This();
 
     pub fn hash(str: []const u8) u32 {
-        return @call(.{ .modifier = .always_inline }, Self.hashWithSeed, .{ str, default_seed });
+        return @call(.always_inline, Self.hashWithSeed, .{ str, default_seed });
     }
 
     pub fn hashWithSeed(str: []const u8, seed: u32) u32 {
@@ -19,7 +19,7 @@ pub const Murmur2_32 = struct {
         for (@ptrCast([*]align(1) const u32, str.ptr)[0..(len >> 2)]) |v| {
             var k1: u32 = v;
             if (native_endian == .Big)
-                k1 = @byteSwap(u32, k1);
+                k1 = @byteSwap(k1);
             k1 *%= m;
             k1 ^= k1 >> 24;
             k1 *%= m;
@@ -45,7 +45,7 @@ pub const Murmur2_32 = struct {
     }
 
     pub fn hashUint32(v: u32) u32 {
-        return @call(.{ .modifier = .always_inline }, Self.hashUint32WithSeed, .{ v, default_seed });
+        return @call(.always_inline, Self.hashUint32WithSeed, .{ v, default_seed });
     }
 
     pub fn hashUint32WithSeed(v: u32, seed: u32) u32 {
@@ -65,7 +65,7 @@ pub const Murmur2_32 = struct {
     }
 
     pub fn hashUint64(v: u64) u32 {
-        return @call(.{ .modifier = .always_inline }, Self.hashUint64WithSeed, .{ v, default_seed });
+        return @call(.always_inline, Self.hashUint64WithSeed, .{ v, default_seed });
     }
 
     pub fn hashUint64WithSeed(v: u64, seed: u32) u32 {
@@ -94,7 +94,7 @@ pub const Murmur2_64 = struct {
     const Self = @This();
 
     pub fn hash(str: []const u8) u64 {
-        return @call(.{ .modifier = .always_inline }, Self.hashWithSeed, .{ str, default_seed });
+        return @call(.always_inline, Self.hashWithSeed, .{ str, default_seed });
     }
 
     pub fn hashWithSeed(str: []const u8, seed: u64) u64 {
@@ -104,7 +104,7 @@ pub const Murmur2_64 = struct {
         for (@ptrCast([*]align(1) const u64, str.ptr)[0..@intCast(usize, len >> 3)]) |v| {
             var k1: u64 = v;
             if (native_endian == .Big)
-                k1 = @byteSwap(u64, k1);
+                k1 = @byteSwap(k1);
             k1 *%= m;
             k1 ^= k1 >> 47;
             k1 *%= m;
@@ -117,7 +117,7 @@ pub const Murmur2_64 = struct {
             var k1: u64 = 0;
             @memcpy(@ptrCast([*]u8, &k1), @ptrCast([*]const u8, &str[@intCast(usize, offset)]), @intCast(usize, rest));
             if (native_endian == .Big)
-                k1 = @byteSwap(u64, k1);
+                k1 = @byteSwap(k1);
             h1 ^= k1;
             h1 *%= m;
         }
@@ -128,7 +128,7 @@ pub const Murmur2_64 = struct {
     }
 
     pub fn hashUint32(v: u32) u64 {
-        return @call(.{ .modifier = .always_inline }, Self.hashUint32WithSeed, .{ v, default_seed });
+        return @call(.always_inline, Self.hashUint32WithSeed, .{ v, default_seed });
     }
 
     pub fn hashUint32WithSeed(v: u32, seed: u64) u64 {
@@ -145,7 +145,7 @@ pub const Murmur2_64 = struct {
     }
 
     pub fn hashUint64(v: u64) u64 {
-        return @call(.{ .modifier = .always_inline }, Self.hashUint64WithSeed, .{ v, default_seed });
+        return @call(.always_inline, Self.hashUint64WithSeed, .{ v, default_seed });
     }
 
     pub fn hashUint64WithSeed(v: u64, seed: u64) u64 {
@@ -173,7 +173,7 @@ pub const Murmur3_32 = struct {
     }
 
     pub fn hash(str: []const u8) u32 {
-        return @call(.{ .modifier = .always_inline }, Self.hashWithSeed, .{ str, default_seed });
+        return @call(.always_inline, Self.hashWithSeed, .{ str, default_seed });
     }
 
     pub fn hashWithSeed(str: []const u8, seed: u32) u32 {
@@ -184,7 +184,7 @@ pub const Murmur3_32 = struct {
         for (@ptrCast([*]align(1) const u32, str.ptr)[0..(len >> 2)]) |v| {
             var k1: u32 = v;
             if (native_endian == .Big)
-                k1 = @byteSwap(u32, k1);
+                k1 = @byteSwap(k1);
             k1 *%= c1;
             k1 = rotl32(k1, 15);
             k1 *%= c2;
@@ -221,7 +221,7 @@ pub const Murmur3_32 = struct {
     }
 
     pub fn hashUint32(v: u32) u32 {
-        return @call(.{ .modifier = .always_inline }, Self.hashUint32WithSeed, .{ v, default_seed });
+        return @call(.always_inline, Self.hashUint32WithSeed, .{ v, default_seed });
     }
 
     pub fn hashUint32WithSeed(v: u32, seed: u32) u32 {
@@ -247,7 +247,7 @@ pub const Murmur3_32 = struct {
     }
 
     pub fn hashUint64(v: u64) u32 {
-        return @call(.{ .modifier = .always_inline }, Self.hashUint64WithSeed, .{ v, default_seed });
+        return @call(.always_inline, Self.hashUint64WithSeed, .{ v, default_seed });
     }
 
     pub fn hashUint64WithSeed(v: u64, seed: u32) u32 {
@@ -296,7 +296,7 @@ fn SMHasherTest(comptime hash_fn: anytype, comptime hashbits: u32) u32 {
 
         var h = hash_fn(key[0..i], 256 - i);
         if (native_endian == .Big)
-            h = @byteSwap(@TypeOf(h), h);
+            h = @byteSwap(h);
         @memcpy(@ptrCast([*]u8, &hashes[i * hashbytes]), @ptrCast([*]u8, &h), hashbytes);
     }
 
@@ -310,8 +310,8 @@ test "murmur2_32" {
     var v0le: u32 = v0;
     var v1le: u64 = v1;
     if (native_endian == .Big) {
-        v0le = @byteSwap(u32, v0le);
-        v1le = @byteSwap(u64, v1le);
+        v0le = @byteSwap(v0le);
+        v1le = @byteSwap(v1le);
     }
     try testing.expectEqual(Murmur2_32.hash(@ptrCast([*]u8, &v0le)[0..4]), Murmur2_32.hashUint32(v0));
     try testing.expectEqual(Murmur2_32.hash(@ptrCast([*]u8, &v1le)[0..8]), Murmur2_32.hashUint64(v1));
@@ -324,8 +324,8 @@ test "murmur2_64" {
     var v0le: u32 = v0;
     var v1le: u64 = v1;
     if (native_endian == .Big) {
-        v0le = @byteSwap(u32, v0le);
-        v1le = @byteSwap(u64, v1le);
+        v0le = @byteSwap(v0le);
+        v1le = @byteSwap(v1le);
     }
     try testing.expectEqual(Murmur2_64.hash(@ptrCast([*]u8, &v0le)[0..4]), Murmur2_64.hashUint32(v0));
     try testing.expectEqual(Murmur2_64.hash(@ptrCast([*]u8, &v1le)[0..8]), Murmur2_64.hashUint64(v1));
@@ -338,8 +338,8 @@ test "murmur3_32" {
     var v0le: u32 = v0;
     var v1le: u64 = v1;
     if (native_endian == .Big) {
-        v0le = @byteSwap(u32, v0le);
-        v1le = @byteSwap(u64, v1le);
+        v0le = @byteSwap(v0le);
+        v1le = @byteSwap(v1le);
     }
     try testing.expectEqual(Murmur3_32.hash(@ptrCast([*]u8, &v0le)[0..4]), Murmur3_32.hashUint32(v0));
     try testing.expectEqual(Murmur3_32.hash(@ptrCast([*]u8, &v1le)[0..8]), Murmur3_32.hashUint64(v1));

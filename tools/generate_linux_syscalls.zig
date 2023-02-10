@@ -168,6 +168,31 @@ pub fn main() !void {
         try writer.writeAll("};\n\n");
     }
     {
+        try writer.writeAll(
+            \\pub const Mips64 = enum(usize) {
+            \\    pub const Linux = 5000;
+            \\
+            \\
+        );
+
+        const table = try linux_dir.readFile("arch/mips/kernel/syscalls/syscall_n64.tbl", buf);
+        var lines = mem.tokenize(u8, table, "\n");
+        while (lines.next()) |line| {
+            if (line[0] == '#') continue;
+
+            var fields = mem.tokenize(u8, line, " \t");
+            const number = fields.next() orelse return error.Incomplete;
+            // abi is always n64
+            _ = fields.next() orelse return error.Incomplete;
+            const name = fields.next() orelse return error.Incomplete;
+            const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
+
+            try writer.print("    {s} = Linux + {s},\n", .{ zig.fmtId(fixed_name), number });
+        }
+
+        try writer.writeAll("};\n\n");
+    }
+    {
         try writer.writeAll("pub const PowerPC = enum(usize) {\n");
 
         const table = try linux_dir.readFile("arch/powerpc/kernel/syscalls/syscall.tbl", buf);

@@ -18,60 +18,68 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
         }
 
         pub fn allocator(self: *Self) Allocator {
-            return Allocator.init(self, alloc, resize, free);
+            return .{
+                .ptr = self,
+                .vtable = &.{
+                    .alloc = alloc,
+                    .resize = resize,
+                    .free = free,
+                },
+            };
         }
 
         fn alloc(
-            self: *Self,
+            ctx: *anyopaque,
             len: usize,
-            ptr_align: u29,
-            len_align: u29,
+            log2_ptr_align: u8,
             ra: usize,
-        ) error{OutOfMemory}![]u8 {
+        ) ?[*]u8 {
+            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
             self.writer.print("alloc : {}", .{len}) catch {};
-            const result = self.parent_allocator.rawAlloc(len, ptr_align, len_align, ra);
-            if (result) |_| {
+            const result = self.parent_allocator.rawAlloc(len, log2_ptr_align, ra);
+            if (result != null) {
                 self.writer.print(" success!\n", .{}) catch {};
-            } else |_| {
+            } else {
                 self.writer.print(" failure!\n", .{}) catch {};
             }
             return result;
         }
 
         fn resize(
-            self: *Self,
+            ctx: *anyopaque,
             buf: []u8,
-            buf_align: u29,
+            log2_buf_align: u8,
             new_len: usize,
-            len_align: u29,
             ra: usize,
-        ) ?usize {
+        ) bool {
+            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
             if (new_len <= buf.len) {
                 self.writer.print("shrink: {} to {}\n", .{ buf.len, new_len }) catch {};
             } else {
                 self.writer.print("expand: {} to {}", .{ buf.len, new_len }) catch {};
             }
 
-            if (self.parent_allocator.rawResize(buf, buf_align, new_len, len_align, ra)) |resized_len| {
+            if (self.parent_allocator.rawResize(buf, log2_buf_align, new_len, ra)) {
                 if (new_len > buf.len) {
                     self.writer.print(" success!\n", .{}) catch {};
                 }
-                return resized_len;
+                return true;
             }
 
             std.debug.assert(new_len > buf.len);
             self.writer.print(" failure!\n", .{}) catch {};
-            return null;
+            return false;
         }
 
         fn free(
-            self: *Self,
+            ctx: *anyopaque,
             buf: []u8,
-            buf_align: u29,
+            log2_buf_align: u8,
             ra: usize,
         ) void {
+            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
             self.writer.print("free  : {}\n", .{buf.len}) catch {};
-            self.parent_allocator.rawFree(buf, buf_align, ra);
+            self.parent_allocator.rawFree(buf, log2_buf_align, ra);
         }
     };
 }
@@ -95,9 +103,9 @@ test "LogToWriterAllocator" {
     const allocator = allocator_state.allocator();
 
     var a = try allocator.alloc(u8, 10);
-    a = allocator.shrink(a, 5);
-    try std.testing.expect(a.len == 5);
-    try std.testing.expect(allocator.resize(a, 20) == null);
+    try std.testing.expect(allocator.resize(a, 5));
+    a = a[0..5];
+    try std.testing.expect(!allocator.resize(a, 20));
     allocator.free(a);
 
     try std.testing.expectEqualSlices(u8,

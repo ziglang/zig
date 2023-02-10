@@ -14,59 +14,58 @@
 #include <__iterator/iterator_traits.h>
 #include <__ranges/access.h>
 #include <__ranges/concepts.h>
+#include <__ranges/owning_view.h>
+#include <__ranges/range_adaptor.h>
 #include <__ranges/ref_view.h>
-#include <__ranges/subrange.h>
-#include <__utility/__decay_copy.h>
+#include <__utility/auto_cast.h>
 #include <__utility/declval.h>
 #include <__utility/forward.h>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_RANGES)
+#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
-namespace views {
+namespace ranges::views {
 
 namespace __all {
-  struct __fn {
+  struct __fn : __range_adaptor_closure<__fn> {
     template<class _Tp>
       requires ranges::view<decay_t<_Tp>>
-    _LIBCPP_HIDE_FROM_ABI
+    [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
     constexpr auto operator()(_Tp&& __t) const
-      noexcept(noexcept(_VSTD::__decay_copy(_VSTD::forward<_Tp>(__t))))
+      noexcept(noexcept(_LIBCPP_AUTO_CAST(std::forward<_Tp>(__t))))
+      -> decltype(_LIBCPP_AUTO_CAST(std::forward<_Tp>(__t)))
     {
-      return _VSTD::forward<_Tp>(__t);
+      return _LIBCPP_AUTO_CAST(std::forward<_Tp>(__t));
     }
 
     template<class _Tp>
       requires (!ranges::view<decay_t<_Tp>>) &&
-               requires (_Tp&& __t) { ranges::ref_view{_VSTD::forward<_Tp>(__t)}; }
-    _LIBCPP_HIDE_FROM_ABI
+               requires (_Tp&& __t) { ranges::ref_view{std::forward<_Tp>(__t)}; }
+    [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
     constexpr auto operator()(_Tp&& __t) const
-      noexcept(noexcept(ranges::ref_view{_VSTD::forward<_Tp>(__t)}))
+      noexcept(noexcept(ranges::ref_view{std::forward<_Tp>(__t)}))
     {
-      return ranges::ref_view{_VSTD::forward<_Tp>(__t)};
+      return ranges::ref_view{std::forward<_Tp>(__t)};
     }
 
     template<class _Tp>
       requires (!ranges::view<decay_t<_Tp>> &&
-                !requires (_Tp&& __t) { ranges::ref_view{_VSTD::forward<_Tp>(__t)}; } &&
-                 requires (_Tp&& __t) { ranges::subrange{_VSTD::forward<_Tp>(__t)}; })
-    _LIBCPP_HIDE_FROM_ABI
+                !requires (_Tp&& __t) { ranges::ref_view{std::forward<_Tp>(__t)}; } &&
+                 requires (_Tp&& __t) { ranges::owning_view{std::forward<_Tp>(__t)}; })
+    [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
     constexpr auto operator()(_Tp&& __t) const
-      noexcept(noexcept(ranges::subrange{_VSTD::forward<_Tp>(__t)}))
+      noexcept(noexcept(ranges::owning_view{std::forward<_Tp>(__t)}))
     {
-      return ranges::subrange{_VSTD::forward<_Tp>(__t)};
+      return ranges::owning_view{std::forward<_Tp>(__t)};
     }
   };
-}
+} // namespace __all
 
 inline namespace __cpo {
   inline constexpr auto all = __all::__fn{};
@@ -75,12 +74,10 @@ inline namespace __cpo {
 template<ranges::viewable_range _Range>
 using all_t = decltype(views::all(declval<_Range>()));
 
-} // namespace views
+} // namespace ranges::views
 
-#endif // !defined(_LIBCPP_HAS_NO_RANGES)
+#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___RANGES_ALL_H

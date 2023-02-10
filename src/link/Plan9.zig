@@ -21,13 +21,7 @@ const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.link);
 const assert = std.debug.assert;
 
-const FnDeclOutput = struct {
-    code: []const u8,
-    /// this might have to be modified in the linker, so thats why its mutable
-    lineinfo: []u8,
-    start_line: u32,
-    end_line: u32,
-};
+pub const base_tag = .plan9;
 
 base: link.File,
 sixtyfour_bit: bool,
@@ -61,10 +55,34 @@ fn_decl_table: std.AutoArrayHashMapUnmanaged(
     *Module.File,
     struct { sym_index: u32, functions: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, FnDeclOutput) = .{} },
 ) = .{},
-data_decl_table: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, []const u8) = .{},
+/// the code is modified when relocated, so that is why it is mutable
+data_decl_table: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, []u8) = .{},
 
+/// Table of unnamed constants associated with a parent `Decl`.
+/// We store them here so that we can free the constants whenever the `Decl`
+/// needs updating or is freed.
+///
+/// For example,
+///
+/// ```zig
+/// const Foo = struct{
+///     a: u8,
+/// };
+///
+/// pub fn main() void {
+///     var foo = Foo{ .a = 1 };
+///     _ = foo;
+/// }
+/// ```
+///
+/// value assigned to label `foo` is an unnamed constant belonging/associated
+/// with `Decl` `main`, and lives as long as that `Decl`.
+unnamed_const_atoms: UnnamedConstTable = .{},
+
+relocs: std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Reloc)) = .{},
 hdr: aout.ExecHdr = undefined,
 
+// relocs: std.
 magic: u32,
 
 entry_val: ?u64 = null,
@@ -76,10 +94,57 @@ got_index_free_list: std.ArrayListUnmanaged(usize) = .{},
 
 syms_index_free_list: std.ArrayListUnmanaged(usize) = .{},
 
+decl_blocks: std.ArrayListUnmanaged(DeclBlock) = .{},
+decls: std.AutoHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
+
+const Reloc = struct {
+    target: Module.Decl.Index,
+    offset: u64,
+    addend: u32,
+};
+
 const Bases = struct {
     text: u64,
     /// the Global Offset Table starts at the beginning of the data section
     data: u64,
+};
+
+const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(struct { info: DeclBlock, code: []const u8 }));
+
+pub const PtrWidth = enum { p32, p64 };
+
+pub const DeclBlock = struct {
+    type: aout.Sym.Type,
+    /// offset in the text or data sects
+    offset: ?u64,
+    /// offset into syms
+    sym_index: ?usize,
+    /// offset into got
+    got_index: ?usize,
+
+    pub const Index = u32;
+};
+
+const DeclMetadata = struct {
+    index: DeclBlock.Index,
+    exports: std.ArrayListUnmanaged(usize) = .{},
+
+    fn getExport(m: DeclMetadata, p9: *const Plan9, name: []const u8) ?usize {
+        for (m.exports.items) |exp| {
+            const sym = p9.syms.items[exp];
+            if (mem.eql(u8, name, sym.name)) return exp;
+        }
+        return null;
+    }
+};
+
+const FnDeclOutput = struct {
+    /// this code is modified when relocated so it is mutable
+    code: []u8,
+    /// this might have to be modified in the linker, so thats why its mutable
+    lineinfo: []u8,
+    start_line: u32,
+    end_line: u32,
 };
 
 fn getAddr(self: Plan9, addr: u64, t: aout.Sym.Type) u64 {
@@ -94,22 +159,6 @@ fn getSymAddr(self: Plan9, s: aout.Sym) u64 {
     return self.getAddr(s.value, s.type);
 }
 
-pub const DeclBlock = struct {
-    type: aout.Sym.Type,
-    /// offset in the text or data sects
-    offset: ?u64,
-    /// offset into syms
-    sym_index: ?usize,
-    /// offset into got
-    got_index: ?usize,
-    pub const empty = DeclBlock{
-        .type = .t,
-        .offset = null,
-        .sym_index = null,
-        .got_index = null,
-    };
-};
-
 pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
     return switch (arch) {
         .x86_64 => .{
@@ -117,7 +166,7 @@ pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
             .text = 0x200028,
             .data = 0x400000,
         },
-        .i386 => .{
+        .x86 => .{
             // header size => 32 => 0x20
             .text = 0x200020,
             .data = 0x400000,
@@ -130,8 +179,6 @@ pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
         else => std.debug.panic("find default base address for {}", .{arch}),
     };
 }
-
-pub const PtrWidth = enum { p32, p64 };
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*Plan9 {
     if (options.use_llvm)
@@ -168,7 +215,10 @@ fn putFn(self: *Plan9, decl_index: Module.Decl.Index, out: FnDeclOutput) !void {
     const decl = mod.declPtr(decl_index);
     const fn_map_res = try self.fn_decl_table.getOrPut(gpa, decl.getFileScope());
     if (fn_map_res.found_existing) {
-        try fn_map_res.value_ptr.functions.put(gpa, decl_index, out);
+        if (try fn_map_res.value_ptr.functions.fetchPut(gpa, decl_index, out)) |old_entry| {
+            gpa.free(old_entry.value.code);
+            gpa.free(old_entry.value.lineinfo);
+        }
     } else {
         const file = decl.getFileScope();
         const arena = self.path_arena.allocator();
@@ -197,7 +247,7 @@ fn putFn(self: *Plan9, decl_index: Module.Decl.Index, out: FnDeclOutput) !void {
 
         // null terminate
         try a.append(0);
-        const final = a.toOwnedSlice();
+        const final = try a.toOwnedSlice();
         self.syms.items[fn_map_res.value_ptr.sym_index - 1] = .{
             .type = .z,
             .value = 1,
@@ -233,8 +283,9 @@ pub fn updateFunc(self: *Plan9, module: *Module, func: *Module.Fn, air: Air, liv
 
     const decl_index = func.owner_decl;
     const decl = module.declPtr(decl_index);
+    self.freeUnnamedConsts(decl_index);
 
-    try self.seeDecl(decl_index);
+    _ = try self.seeDecl(decl_index);
     log.debug("codegen decl {*} ({s})", .{ decl, decl.name });
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
@@ -262,7 +313,7 @@ pub fn updateFunc(self: *Plan9, module: *Module, func: *Module.Fn, air: Air, liv
         },
     );
     const code = switch (res) {
-        .appended => code_buffer.toOwnedSlice(),
+        .ok => try code_buffer.toOwnedSlice(),
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl_index, em);
@@ -271,20 +322,70 @@ pub fn updateFunc(self: *Plan9, module: *Module, func: *Module.Fn, air: Air, liv
     };
     const out: FnDeclOutput = .{
         .code = code,
-        .lineinfo = dbg_line_buffer.toOwnedSlice(),
+        .lineinfo = try dbg_line_buffer.toOwnedSlice(),
         .start_line = start_line.?,
         .end_line = end_line,
     };
     try self.putFn(decl_index, out);
-    return self.updateFinish(decl);
+    return self.updateFinish(decl_index);
 }
 
 pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
-    _ = self;
-    _ = tv;
-    _ = decl_index;
-    log.debug("TODO lowerUnnamedConst for Plan9", .{});
-    return error.AnalysisFail;
+    _ = try self.seeDecl(decl_index);
+    var code_buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer code_buffer.deinit();
+
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
+
+    const gop = try self.unnamed_const_atoms.getOrPut(self.base.allocator, decl_index);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    const unnamed_consts = gop.value_ptr;
+
+    const decl_name = try decl.getFullyQualifiedName(mod);
+    defer self.base.allocator.free(decl_name);
+
+    const index = unnamed_consts.items.len;
+    // name is freed when the unnamed const is freed
+    const name = try std.fmt.allocPrint(self.base.allocator, "__unnamed_{s}_{d}", .{ decl_name, index });
+
+    const sym_index = try self.allocateSymbolIndex();
+
+    const info: DeclBlock = .{
+        .type = .d,
+        .offset = null,
+        .sym_index = sym_index,
+        .got_index = self.allocateGotIndex(),
+    };
+    const sym: aout.Sym = .{
+        .value = undefined,
+        .type = info.type,
+        .name = name,
+    };
+    self.syms.items[info.sym_index.?] = sym;
+
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), tv, &code_buffer, .{
+        .none = {},
+    }, .{
+        .parent_atom_index = @enumToInt(decl_index),
+    });
+    const code = switch (res) {
+        .ok => code_buffer.items,
+        .fail => |em| {
+            decl.analysis = .codegen_failure;
+            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            log.err("{s}", .{em.msg});
+            return error.AnalysisFail;
+        },
+    };
+    // duped_code is freed when the unnamed const is freed
+    var duped_code = try self.base.allocator.dupe(u8, code);
+    errdefer self.base.allocator.free(duped_code);
+    try unnamed_consts.append(self.base.allocator, .{ .info = info, .code = duped_code });
+    // we return the got_index to codegen so that it can reference to the place of the data in the got
+    return @intCast(u32, info.got_index.?);
 }
 
 pub fn updateDecl(self: *Plan9, module: *Module, decl_index: Module.Decl.Index) !void {
@@ -300,63 +401,80 @@ pub fn updateDecl(self: *Plan9, module: *Module, decl_index: Module.Decl.Index) 
         }
     }
 
-    try self.seeDecl(decl_index);
+    _ = try self.seeDecl(decl_index);
 
-    log.debug("codegen decl {*} ({s})", .{ decl, decl.name });
+    log.debug("codegen decl {*} ({s}) ({d})", .{ decl, decl.name, decl_index });
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
     // TODO we need the symbol index for symbol in the table of locals for the containing atom
-    const sym_index = decl.link.plan9.sym_index orelse 0;
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
         .ty = decl.ty,
         .val = decl_val,
     }, &code_buffer, .{ .none = {} }, .{
-        .parent_atom_index = @intCast(u32, sym_index),
+        .parent_atom_index = @enumToInt(decl_index),
     });
     const code = switch (res) {
-        .externally_managed => |x| x,
-        .appended => code_buffer.items,
+        .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl_index, em);
             return;
         },
     };
-    var duped_code = try self.base.allocator.dupe(u8, code);
-    errdefer self.base.allocator.free(duped_code);
-    try self.data_decl_table.put(self.base.allocator, decl_index, duped_code);
-    return self.updateFinish(decl);
+    try self.data_decl_table.ensureUnusedCapacity(self.base.allocator, 1);
+    const duped_code = try self.base.allocator.dupe(u8, code);
+    if (self.data_decl_table.fetchPutAssumeCapacity(decl_index, duped_code)) |old_entry| {
+        self.base.allocator.free(old_entry.value);
+    }
+    return self.updateFinish(decl_index);
 }
 /// called at the end of update{Decl,Func}
-fn updateFinish(self: *Plan9, decl: *Module.Decl) !void {
+fn updateFinish(self: *Plan9, decl_index: Module.Decl.Index) !void {
+    const decl = self.base.options.module.?.declPtr(decl_index);
     const is_fn = (decl.ty.zigTypeTag() == .Fn);
     log.debug("update the symbol table and got for decl {*} ({s})", .{ decl, decl.name });
     const sym_t: aout.Sym.Type = if (is_fn) .t else .d;
+
+    const decl_block = self.getDeclBlockPtr(self.decls.get(decl_index).?.index);
     // write the internal linker metadata
-    decl.link.plan9.type = sym_t;
+    decl_block.type = sym_t;
     // write the symbol
-    // we already have the got index because that got allocated in allocateDeclIndexes
+    // we already have the got index
     const sym: aout.Sym = .{
         .value = undefined, // the value of stuff gets filled in in flushModule
-        .type = decl.link.plan9.type,
+        .type = decl_block.type,
         .name = mem.span(decl.name),
     };
 
-    if (decl.link.plan9.sym_index) |s| {
+    if (decl_block.sym_index) |s| {
         self.syms.items[s] = sym;
     } else {
-        if (self.syms_index_free_list.popOrNull()) |i| {
-            decl.link.plan9.sym_index = i;
-        } else {
-            try self.syms.append(self.base.allocator, sym);
-            decl.link.plan9.sym_index = self.syms.items.len - 1;
-        }
+        const s = try self.allocateSymbolIndex();
+        decl_block.sym_index = s;
+        self.syms.items[s] = sym;
     }
 }
 
-pub fn flush(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+fn allocateSymbolIndex(self: *Plan9) !usize {
+    if (self.syms_index_free_list.popOrNull()) |i| {
+        return i;
+    } else {
+        _ = try self.syms.addOne(self.base.allocator);
+        return self.syms.items.len - 1;
+    }
+}
+fn allocateGotIndex(self: *Plan9) usize {
+    if (self.got_index_free_list.popOrNull()) |i| {
+        return i;
+    } else {
+        self.got_len += 1;
+        return self.got_len - 1;
+    }
+}
+
+pub fn flush(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     assert(!self.base.options.use_lld);
 
     switch (self.base.options.effectiveOutputMode()) {
@@ -381,7 +499,8 @@ pub fn changeLine(l: *std.ArrayList(u8), delta_line: i32) !void {
     }
 }
 
-fn declCount(self: *Plan9) usize {
+// counts decls and unnamed consts
+fn atomCount(self: *Plan9) usize {
     var fn_decl_count: usize = 0;
     var itf_files = self.fn_decl_table.iterator();
     while (itf_files.next()) |ent| {
@@ -389,10 +508,16 @@ fn declCount(self: *Plan9) usize {
         var submap = ent.value_ptr.functions;
         fn_decl_count += submap.count();
     }
-    return self.data_decl_table.count() + fn_decl_count;
+    const data_decl_count = self.data_decl_table.count();
+    var unnamed_const_count: usize = 0;
+    var it_unc = self.unnamed_const_atoms.iterator();
+    while (it_unc.next()) |unnamed_consts| {
+        unnamed_const_count += unnamed_consts.value_ptr.items.len;
+    }
+    return data_decl_count + fn_decl_count + unnamed_const_count;
 }
 
-pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
     if (build_options.skip_non_native and builtin.object_format != .plan9) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -411,13 +536,13 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
 
     const mod = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
-    assert(self.got_len == self.declCount() + self.got_index_free_list.items.len);
+    assert(self.got_len == self.atomCount() + self.got_index_free_list.items.len);
     const got_size = self.got_len * if (!self.sixtyfour_bit) @as(u32, 4) else 8;
     var got_table = try self.base.allocator.alloc(u8, got_size);
     defer self.base.allocator.free(got_table);
 
     // + 4 for header, got, symbols, linecountinfo
-    var iovecs = try self.base.allocator.alloc(std.os.iovec_const, self.declCount() + 4);
+    var iovecs = try self.base.allocator.alloc(std.os.iovec_const, self.atomCount() + 4);
     defer self.base.allocator.free(iovecs);
 
     const file = self.base.file.?;
@@ -442,6 +567,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             while (it.next()) |entry| {
                 const decl_index = entry.key_ptr.*;
                 const decl = mod.declPtr(decl_index);
+                const decl_block = self.getDeclBlockPtr(self.decls.get(decl_index).?.index);
                 const out = entry.value_ptr.*;
                 log.debug("write text decl {*} ({s}), lines {d} to {d}", .{ decl, decl.name, out.start_line + 1, out.end_line });
                 {
@@ -460,16 +586,16 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
                 iovecs_i += 1;
                 const off = self.getAddr(text_i, .t);
                 text_i += out.code.len;
-                decl.link.plan9.offset = off;
+                decl_block.offset = off;
                 if (!self.sixtyfour_bit) {
-                    mem.writeIntNative(u32, got_table[decl.link.plan9.got_index.? * 4 ..][0..4], @intCast(u32, off));
-                    mem.writeInt(u32, got_table[decl.link.plan9.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+                    mem.writeIntNative(u32, got_table[decl_block.got_index.? * 4 ..][0..4], @intCast(u32, off));
+                    mem.writeInt(u32, got_table[decl_block.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
                 } else {
-                    mem.writeInt(u64, got_table[decl.link.plan9.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                    mem.writeInt(u64, got_table[decl_block.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
                 }
-                self.syms.items[decl.link.plan9.sym_index.?].value = off;
+                self.syms.items[decl_block.sym_index.?].value = off;
                 if (mod.decl_exports.get(decl_index)) |exports| {
-                    try self.addDeclExports(mod, decl, exports);
+                    try self.addDeclExports(mod, decl_index, exports.items);
                 }
             }
         }
@@ -490,6 +616,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
         while (it.next()) |entry| {
             const decl_index = entry.key_ptr.*;
             const decl = mod.declPtr(decl_index);
+            const decl_block = self.getDeclBlockPtr(self.decls.get(decl_index).?.index);
             const code = entry.value_ptr.*;
             log.debug("write data decl {*} ({s})", .{ decl, decl.name });
 
@@ -498,15 +625,35 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             iovecs_i += 1;
             const off = self.getAddr(data_i, .d);
             data_i += code.len;
-            decl.link.plan9.offset = off;
+            decl_block.offset = off;
             if (!self.sixtyfour_bit) {
-                mem.writeInt(u32, got_table[decl.link.plan9.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u32, got_table[decl_block.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
             } else {
-                mem.writeInt(u64, got_table[decl.link.plan9.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u64, got_table[decl_block.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
             }
-            self.syms.items[decl.link.plan9.sym_index.?].value = off;
+            self.syms.items[decl_block.sym_index.?].value = off;
             if (mod.decl_exports.get(decl_index)) |exports| {
-                try self.addDeclExports(mod, decl, exports);
+                try self.addDeclExports(mod, decl_index, exports.items);
+            }
+        }
+        // write the unnamed constants after the other data decls
+        var it_unc = self.unnamed_const_atoms.iterator();
+        while (it_unc.next()) |unnamed_consts| {
+            for (unnamed_consts.value_ptr.items) |*unnamed_const| {
+                const code = unnamed_const.code;
+                log.debug("write unnamed const: ({s})", .{self.syms.items[unnamed_const.info.sym_index.?].name});
+                foff += code.len;
+                iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
+                iovecs_i += 1;
+                const off = self.getAddr(data_i, .d);
+                data_i += code.len;
+                unnamed_const.info.offset = off;
+                if (!self.sixtyfour_bit) {
+                    mem.writeInt(u32, got_table[unnamed_const.info.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+                } else {
+                    mem.writeInt(u64, got_table[unnamed_const.info.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                }
+                self.syms.items[unnamed_const.info.sym_index.?].value = off;
             }
         }
         // edata symbol
@@ -516,9 +663,9 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
     self.syms.items[1].value = self.getAddr(0x0, .b);
     var sym_buf = std.ArrayList(u8).init(self.base.allocator);
     try self.writeSyms(&sym_buf);
-    const syms = sym_buf.toOwnedSlice();
+    const syms = try sym_buf.toOwnedSlice();
     defer self.base.allocator.free(syms);
-    assert(2 + self.declCount() == iovecs_i); // we didn't write all the decls
+    assert(2 + self.atomCount() == iovecs_i); // we didn't write all the decls
     iovecs[iovecs_i] = .{ .iov_base = syms.ptr, .iov_len = syms.len };
     iovecs_i += 1;
     iovecs[iovecs_i] = .{ .iov_base = linecountinfo.items.ptr, .iov_len = linecountinfo.items.len };
@@ -539,41 +686,86 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
     if (self.sixtyfour_bit) {
         mem.writeIntSliceBig(u64, hdr_buf[32..40], self.entry_val.?);
     }
+    // perform the relocs
+    {
+        var it = self.relocs.iterator();
+        while (it.next()) |kv| {
+            const source_decl_index = kv.key_ptr.*;
+            const source_decl = mod.declPtr(source_decl_index);
+            for (kv.value_ptr.items) |reloc| {
+                const target_decl_index = reloc.target;
+                const target_decl = mod.declPtr(target_decl_index);
+                const target_decl_block = self.getDeclBlock(self.decls.get(target_decl_index).?.index);
+                const target_decl_offset = target_decl_block.offset.?;
+
+                const offset = reloc.offset;
+                const addend = reloc.addend;
+
+                log.debug("relocating the address of '{s}' + {d} into '{s}' + {d}", .{ target_decl.name, addend, source_decl.name, offset });
+
+                const code = blk: {
+                    const is_fn = source_decl.ty.zigTypeTag() == .Fn;
+                    if (is_fn) {
+                        const table = self.fn_decl_table.get(source_decl.getFileScope()).?.functions;
+                        const output = table.get(source_decl_index).?;
+                        break :blk output.code;
+                    } else {
+                        const code = self.data_decl_table.get(source_decl_index).?;
+                        break :blk code;
+                    }
+                };
+
+                if (!self.sixtyfour_bit) {
+                    mem.writeInt(u32, code[@intCast(usize, offset)..][0..4], @intCast(u32, target_decl_offset + addend), self.base.options.target.cpu.arch.endian());
+                } else {
+                    mem.writeInt(u64, code[@intCast(usize, offset)..][0..8], target_decl_offset + addend, self.base.options.target.cpu.arch.endian());
+                }
+            }
+        }
+    }
     // write it all!
     try file.pwritevAll(iovecs, 0);
 }
 fn addDeclExports(
     self: *Plan9,
     module: *Module,
-    decl: *Module.Decl,
+    decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
 ) !void {
+    const metadata = self.decls.getPtr(decl_index).?;
+    const decl_block = self.getDeclBlock(metadata.index);
+
     for (exports) |exp| {
         // plan9 does not support custom sections
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, ".text") or !mem.eql(u8, section_name, ".data")) {
-                try module.failed_exports.put(module.gpa, exp, try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "plan9 does not support extra sections", .{}));
+                try module.failed_exports.put(module.gpa, exp, try Module.ErrorMsg.create(
+                    self.base.allocator,
+                    module.declPtr(decl_index).srcLoc(),
+                    "plan9 does not support extra sections",
+                    .{},
+                ));
                 break;
             }
         }
         const sym = .{
-            .value = decl.link.plan9.offset.?,
-            .type = decl.link.plan9.type.toGlobal(),
+            .value = decl_block.offset.?,
+            .type = decl_block.type.toGlobal(),
             .name = exp.options.name,
         };
 
-        if (exp.link.plan9) |i| {
+        if (metadata.getExport(self, exp.options.name)) |i| {
             self.syms.items[i] = sym;
         } else {
             try self.syms.append(self.base.allocator, sym);
-            exp.link.plan9 = self.syms.items.len - 1;
+            try metadata.exports.append(self.base.allocator, self.syms.items.len - 1);
         }
     }
 }
 
 pub fn freeDecl(self: *Plan9, decl_index: Module.Decl.Index) void {
     // TODO audit the lifetimes of decls table entries. It's possible to get
-    // allocateDeclIndexes and then freeDecl without any updateDecl in between.
+    // freeDecl without any updateDecl in between.
     // However that is planned to change, see the TODO comment in Module.zig
     // in the deleteUnusedDecl function.
     const mod = self.base.options.module.?;
@@ -582,36 +774,75 @@ pub fn freeDecl(self: *Plan9, decl_index: Module.Decl.Index) void {
     if (is_fn) {
         var symidx_and_submap = self.fn_decl_table.get(decl.getFileScope()).?;
         var submap = symidx_and_submap.functions;
-        _ = submap.swapRemove(decl_index);
+        if (submap.fetchSwapRemove(decl_index)) |removed_entry| {
+            self.base.allocator.free(removed_entry.value.code);
+            self.base.allocator.free(removed_entry.value.lineinfo);
+        }
         if (submap.count() == 0) {
             self.syms.items[symidx_and_submap.sym_index] = aout.Sym.undefined_symbol;
             self.syms_index_free_list.append(self.base.allocator, symidx_and_submap.sym_index) catch {};
             submap.deinit(self.base.allocator);
         }
     } else {
-        _ = self.data_decl_table.swapRemove(decl_index);
-    }
-    if (decl.link.plan9.got_index) |i| {
-        // TODO: if this catch {} is triggered, an assertion in flushModule will be triggered, because got_index_free_list will have the wrong length
-        self.got_index_free_list.append(self.base.allocator, i) catch {};
-    }
-    if (decl.link.plan9.sym_index) |i| {
-        self.syms_index_free_list.append(self.base.allocator, i) catch {};
-        self.syms.items[i] = aout.Sym.undefined_symbol;
-    }
-}
-
-pub fn seeDecl(self: *Plan9, decl_index: Module.Decl.Index) !void {
-    const mod = self.base.options.module.?;
-    const decl = mod.declPtr(decl_index);
-    if (decl.link.plan9.got_index == null) {
-        if (self.got_index_free_list.popOrNull()) |i| {
-            decl.link.plan9.got_index = i;
-        } else {
-            self.got_len += 1;
-            decl.link.plan9.got_index = self.got_len - 1;
+        if (self.data_decl_table.fetchSwapRemove(decl_index)) |removed_entry| {
+            self.base.allocator.free(removed_entry.value);
         }
     }
+    if (self.decls.fetchRemove(decl_index)) |const_kv| {
+        var kv = const_kv;
+        const decl_block = self.getDeclBlock(kv.value.index);
+        if (decl_block.got_index) |i| {
+            // TODO: if this catch {} is triggered, an assertion in flushModule will be triggered, because got_index_free_list will have the wrong length
+            self.got_index_free_list.append(self.base.allocator, i) catch {};
+        }
+        if (decl_block.sym_index) |i| {
+            self.syms_index_free_list.append(self.base.allocator, i) catch {};
+            self.syms.items[i] = aout.Sym.undefined_symbol;
+        }
+        kv.value.exports.deinit(self.base.allocator);
+    }
+    self.freeUnnamedConsts(decl_index);
+    {
+        const relocs = self.relocs.getPtr(decl_index) orelse return;
+        relocs.clearAndFree(self.base.allocator);
+        assert(self.relocs.remove(decl_index));
+    }
+}
+fn freeUnnamedConsts(self: *Plan9, decl_index: Module.Decl.Index) void {
+    const unnamed_consts = self.unnamed_const_atoms.getPtr(decl_index) orelse return;
+    for (unnamed_consts.items) |c| {
+        self.base.allocator.free(self.syms.items[c.info.sym_index.?].name);
+        self.base.allocator.free(c.code);
+        self.syms.items[c.info.sym_index.?] = aout.Sym.undefined_symbol;
+        self.syms_index_free_list.append(self.base.allocator, c.info.sym_index.?) catch {};
+    }
+    unnamed_consts.clearAndFree(self.base.allocator);
+}
+
+fn createDeclBlock(self: *Plan9) !DeclBlock.Index {
+    const gpa = self.base.allocator;
+    const index = @intCast(DeclBlock.Index, self.decl_blocks.items.len);
+    const decl_block = try self.decl_blocks.addOne(gpa);
+    decl_block.* = .{
+        .type = .t,
+        .offset = null,
+        .sym_index = null,
+        .got_index = null,
+    };
+    return index;
+}
+
+pub fn seeDecl(self: *Plan9, decl_index: Module.Decl.Index) !DeclBlock.Index {
+    const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
+    if (!gop.found_existing) {
+        const index = try self.createDeclBlock();
+        self.getDeclBlockPtr(index).got_index = self.allocateGotIndex();
+        gop.value_ptr.* = .{
+            .index = index,
+            .exports = .{},
+        };
+    }
+    return gop.value_ptr.index;
 }
 
 pub fn updateDeclExports(
@@ -620,14 +851,26 @@ pub fn updateDeclExports(
     decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
 ) !void {
-    try self.seeDecl(decl_index);
+    _ = try self.seeDecl(decl_index);
     // we do all the things in flush
-    _ = self;
     _ = module;
     _ = exports;
 }
 pub fn deinit(self: *Plan9) void {
     const gpa = self.base.allocator;
+    {
+        var it = self.relocs.valueIterator();
+        while (it.next()) |relocs| {
+            relocs.deinit(self.base.allocator);
+        }
+        self.relocs.deinit(self.base.allocator);
+    }
+    // free the unnamed consts
+    var it_unc = self.unnamed_const_atoms.iterator();
+    while (it_unc.next()) |kv| {
+        self.freeUnnamedConsts(kv.key_ptr.*);
+    }
+    self.unnamed_const_atoms.deinit(gpa);
     var itf_files = self.fn_decl_table.iterator();
     while (itf_files.next()) |ent| {
         // get the submap
@@ -650,14 +893,21 @@ pub fn deinit(self: *Plan9) void {
     self.syms_index_free_list.deinit(gpa);
     self.file_segments.deinit(gpa);
     self.path_arena.deinit();
+    self.decl_blocks.deinit(gpa);
+
+    {
+        var it = self.decls.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.exports.deinit(gpa);
+        }
+        self.decls.deinit(gpa);
+    }
 }
 
-pub const Export = ?usize;
-pub const base_tag = .plan9;
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Plan9 {
     if (options.use_llvm)
         return error.LLVMBackendDoesNotSupportPlan9;
-    assert(options.object_format == .plan9);
+    assert(options.target.ofmt == .plan9);
 
     const self = try createEmpty(allocator, options);
     errdefer self.base.destroy();
@@ -719,20 +969,19 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
         }
     }
 
-    const mod = self.base.options.module.?;
-
     // write the data symbols
     {
         var it = self.data_decl_table.iterator();
         while (it.next()) |entry| {
             const decl_index = entry.key_ptr.*;
-            const decl = mod.declPtr(decl_index);
-            const sym = self.syms.items[decl.link.plan9.sym_index.?];
+            const decl_metadata = self.decls.get(decl_index).?;
+            const decl_block = self.getDeclBlock(decl_metadata.index);
+            const sym = self.syms.items[decl_block.sym_index.?];
             try self.writeSym(writer, sym);
             if (self.base.options.module.?.decl_exports.get(decl_index)) |exports| {
-                for (exports) |e| {
-                    try self.writeSym(writer, self.syms.items[e.link.plan9.?]);
-                }
+                for (exports.items) |e| if (decl_metadata.getExport(self, e.options.name)) |exp_i| {
+                    try self.writeSym(writer, self.syms.items[exp_i]);
+                };
             }
         }
     }
@@ -751,33 +1000,35 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
             var submap_it = symidx_and_submap.functions.iterator();
             while (submap_it.next()) |entry| {
                 const decl_index = entry.key_ptr.*;
-                const decl = mod.declPtr(decl_index);
-                const sym = self.syms.items[decl.link.plan9.sym_index.?];
+                const decl_metadata = self.decls.get(decl_index).?;
+                const decl_block = self.getDeclBlock(decl_metadata.index);
+                const sym = self.syms.items[decl_block.sym_index.?];
                 try self.writeSym(writer, sym);
                 if (self.base.options.module.?.decl_exports.get(decl_index)) |exports| {
-                    for (exports) |e| {
-                        const s = self.syms.items[e.link.plan9.?];
+                    for (exports.items) |e| if (decl_metadata.getExport(self, e.options.name)) |exp_i| {
+                        const s = self.syms.items[exp_i];
                         if (mem.eql(u8, s.name, "_start"))
                             self.entry_val = s.value;
                         try self.writeSym(writer, s);
-                    }
+                    };
                 }
             }
         }
     }
 }
 
-/// this will be removed, moved to updateFinish
-pub fn allocateDeclIndexes(self: *Plan9, decl_index: Module.Decl.Index) !void {
+/// Must be called only after a successful call to `updateDecl`.
+pub fn updateDeclLineNumber(self: *Plan9, mod: *Module, decl_index: Module.Decl.Index) !void {
     _ = self;
+    _ = mod;
     _ = decl_index;
 }
+
 pub fn getDeclVAddr(
     self: *Plan9,
     decl_index: Module.Decl.Index,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    _ = reloc_info;
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
     if (decl.ty.zigTypeTag() == .Fn) {
@@ -791,7 +1042,6 @@ pub fn getDeclVAddr(
                 start += entry.value_ptr.code.len;
             }
         }
-        unreachable;
     } else {
         var start = self.bases.data + self.got_len * if (!self.sixtyfour_bit) @as(u32, 4) else 8;
         var it = self.data_decl_table.iterator();
@@ -799,6 +1049,24 @@ pub fn getDeclVAddr(
             if (decl_index == kv.key_ptr.*) return start;
             start += kv.value_ptr.len;
         }
-        unreachable;
     }
+    // the parent_atom_index in this case is just the decl_index of the parent
+    const gop = try self.relocs.getOrPut(self.base.allocator, @intToEnum(Module.Decl.Index, reloc_info.parent_atom_index));
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.append(self.base.allocator, .{
+        .target = decl_index,
+        .offset = reloc_info.offset,
+        .addend = reloc_info.addend,
+    });
+    return undefined;
+}
+
+pub fn getDeclBlock(self: *const Plan9, index: DeclBlock.Index) DeclBlock {
+    return self.decl_blocks.items[index];
+}
+
+fn getDeclBlockPtr(self: *Plan9, index: DeclBlock.Index) *DeclBlock {
+    return &self.decl_blocks.items[index];
 }

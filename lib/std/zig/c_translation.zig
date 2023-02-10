@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const math = std.math;
 const mem = std.mem;
@@ -8,19 +9,13 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
     // this function should behave like transCCast in translate-c, except it's for macros
     const SourceType = @TypeOf(target);
     switch (@typeInfo(DestType)) {
-        .Fn => if (@import("builtin").zig_backend == .stage1)
-            return castToPtr(DestType, SourceType, target)
-        else
-            return castToPtr(*const DestType, SourceType, target),
+        .Fn => return castToPtr(*const DestType, SourceType, target),
         .Pointer => return castToPtr(DestType, SourceType, target),
         .Optional => |dest_opt| {
             if (@typeInfo(dest_opt.child) == .Pointer) {
                 return castToPtr(DestType, SourceType, target);
             } else if (@typeInfo(dest_opt.child) == .Fn) {
-                if (@import("builtin").zig_backend == .stage1)
-                    return castToPtr(DestType, SourceType, target)
-                else
-                    return castToPtr(?*const dest_opt.child, SourceType, target);
+                return castToPtr(?*const dest_opt.child, SourceType, target);
             }
         },
         .Int => {
@@ -36,15 +31,30 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
                 .Int => {
                     return castInt(DestType, target);
                 },
+                .Fn => {
+                    return castInt(DestType, @ptrToInt(&target));
+                },
+                .Bool => {
+                    return @boolToInt(target);
+                },
+                else => {},
+            }
+        },
+        .Float => {
+            switch (@typeInfo(SourceType)) {
+                .Int => return @intToFloat(DestType, target),
+                .Float => return @floatCast(DestType, target),
+                .Bool => return @intToFloat(DestType, @boolToInt(target)),
                 else => {},
             }
         },
         .Union => |info| {
             inline for (info.fields) |field| {
-                if (field.field_type == SourceType) return @unionInit(DestType, field.name, target);
+                if (field.type == SourceType) return @unionInit(DestType, field.name, target);
             }
             @compileError("cast to union type '" ++ @typeName(DestType) ++ "' from type '" ++ @typeName(SourceType) ++ "' which is not present in union");
         },
+        .Bool => return cast(usize, target) != 0,
         else => {},
     }
     return @as(DestType, target);
@@ -65,7 +75,7 @@ fn castPtr(comptime DestType: type, target: anytype) DestType {
     const source = ptrInfo(@TypeOf(target));
 
     if (source.is_const and !dest.is_const or source.is_volatile and !dest.is_volatile)
-        return @intToPtr(DestType, @ptrToInt(target))
+        return @qualCast(DestType, target)
     else if (@typeInfo(dest.child) == .Opaque)
         // dest.alignment would error out
         return @ptrCast(DestType, target)
@@ -133,10 +143,7 @@ test "cast" {
     try testing.expect(cast(?*anyopaque, -1) == @intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))));
     try testing.expect(cast(?*anyopaque, foo) == @intToPtr(?*anyopaque, @bitCast(usize, @as(isize, -1))));
 
-    const FnPtr = if (@import("builtin").zig_backend == .stage1)
-        ?fn (*anyopaque) void
-    else
-        ?*const fn (*anyopaque) void;
+    const FnPtr = ?*align(1) const fn (*anyopaque) void;
     try testing.expect(cast(FnPtr, 0) == @intToPtr(FnPtr, @as(usize, 0)));
     try testing.expect(cast(FnPtr, foo) == @intToPtr(FnPtr, @bitCast(usize, @as(isize, -1))));
 }
@@ -147,12 +154,6 @@ pub fn sizeof(target: anytype) usize {
     switch (@typeInfo(T)) {
         .Float, .Int, .Struct, .Union, .Array, .Bool, .Vector => return @sizeOf(T),
         .Fn => {
-            if (@import("builtin").zig_backend == .stage1) {
-                // sizeof(main) returns 1, sizeof(&main) returns pointer size.
-                // We cannot distinguish those types in Zig, so use pointer size.
-                return @sizeOf(T);
-            }
-
             // sizeof(main) in C returns 1
             return 1;
         },
@@ -189,7 +190,7 @@ pub fn sizeof(target: anytype) usize {
                 const array_info = @typeInfo(ptr.child).Array;
                 if ((array_info.child == u8 or array_info.child == u16) and
                     array_info.sentinel != null and
-                    @ptrCast(*const array_info.child, array_info.sentinel.?).* == 0)
+                    @ptrCast(*align(1) const array_info.child, array_info.sentinel.?).* == 0)
                 {
                     // length of the string plus one for the null terminator.
                     return (array_info.len + 1) * @sizeOf(array_info.child);
@@ -250,9 +251,7 @@ test "sizeof" {
     try testing.expect(sizeof(*const *const [4:0]u8) == ptr_size);
     try testing.expect(sizeof(*const [4]u8) == ptr_size);
 
-    if (@import("builtin").zig_backend == .stage1) {
-        try testing.expect(sizeof(sizeof) == @sizeOf(@TypeOf(sizeof)));
-    } else if (false) { // TODO
+    if (false) { // TODO
         try testing.expect(sizeof(&sizeof) == @sizeOf(@TypeOf(&sizeof)));
         try testing.expect(sizeof(sizeof) == 1);
     }
@@ -264,7 +263,7 @@ test "sizeof" {
 pub const CIntLiteralRadix = enum { decimal, octal, hexadecimal };
 
 fn PromoteIntLiteralReturnType(comptime SuffixType: type, comptime number: comptime_int, comptime radix: CIntLiteralRadix) type {
-    const signed_decimal = [_]type{ c_int, c_long, c_longlong };
+    const signed_decimal = [_]type{ c_int, c_long, c_longlong, c_ulonglong };
     const signed_oct_hex = [_]type{ c_int, c_uint, c_long, c_ulong, c_longlong, c_ulonglong };
     const unsigned = [_]type{ c_uint, c_ulong, c_ulonglong };
 
@@ -345,7 +344,7 @@ test "shuffleVectorIndex" {
 
 /// Constructs a [*c] pointer with the const and volatile annotations
 /// from SelfType for pointing to a C flexible array of ElementType.
-pub fn FlexibleArrayType(comptime SelfType: type, ElementType: type) type {
+pub fn FlexibleArrayType(comptime SelfType: type, comptime ElementType: type) type {
     switch (@typeInfo(SelfType)) {
         .Pointer => |ptr| {
             return @Type(.{ .Pointer = .{
@@ -441,6 +440,137 @@ pub const Macros = struct {
 
     pub inline fn DISCARD(x: anytype) void {
         _ = x;
+    }
+};
+
+/// Integer promotion described in C11 6.3.1.1.2
+fn PromotedIntType(comptime T: type) type {
+    return switch (T) {
+        bool, u8, i8, c_short => c_int,
+        c_ushort => if (@sizeOf(c_ushort) == @sizeOf(c_int)) c_uint else c_int,
+        c_int, c_uint, c_long, c_ulong, c_longlong, c_ulonglong => T,
+        else => if (T == comptime_int) {
+            @compileError("Cannot promote `" ++ @typeName(T) ++ "`; a fixed-size number type is required");
+        } else if (@typeInfo(T) == .Int) {
+            @compileError("Cannot promote `" ++ @typeName(T) ++ "`; a C ABI type is required");
+        } else {
+            @compileError("Attempted to promote invalid type `" ++ @typeName(T) ++ "`");
+        },
+    };
+}
+
+/// C11 6.3.1.1.1
+fn integerRank(comptime T: type) u8 {
+    return switch (T) {
+        bool => 0,
+        u8, i8 => 1,
+        c_short, c_ushort => 2,
+        c_int, c_uint => 3,
+        c_long, c_ulong => 4,
+        c_longlong, c_ulonglong => 5,
+        else => @compileError("integer rank not supported for `" ++ @typeName(T) ++ "`"),
+    };
+}
+
+fn ToUnsigned(comptime T: type) type {
+    return switch (T) {
+        c_int => c_uint,
+        c_long => c_ulong,
+        c_longlong => c_ulonglong,
+        else => @compileError("Cannot convert `" ++ @typeName(T) ++ "` to unsigned"),
+    };
+}
+
+/// "Usual arithmetic conversions" from C11 standard 6.3.1.8
+fn ArithmeticConversion(comptime A: type, comptime B: type) type {
+    if (A == c_longdouble or B == c_longdouble) return c_longdouble;
+    if (A == f80 or B == f80) return f80;
+    if (A == f64 or B == f64) return f64;
+    if (A == f32 or B == f32) return f32;
+
+    const A_Promoted = PromotedIntType(A);
+    const B_Promoted = PromotedIntType(B);
+    comptime {
+        std.debug.assert(integerRank(A_Promoted) >= integerRank(c_int));
+        std.debug.assert(integerRank(B_Promoted) >= integerRank(c_int));
+    }
+
+    if (A_Promoted == B_Promoted) return A_Promoted;
+
+    const a_signed = @typeInfo(A_Promoted).Int.signedness == .signed;
+    const b_signed = @typeInfo(B_Promoted).Int.signedness == .signed;
+
+    if (a_signed == b_signed) {
+        return if (integerRank(A_Promoted) > integerRank(B_Promoted)) A_Promoted else B_Promoted;
+    }
+
+    const SignedType = if (a_signed) A_Promoted else B_Promoted;
+    const UnsignedType = if (!a_signed) A_Promoted else B_Promoted;
+
+    if (integerRank(UnsignedType) >= integerRank(SignedType)) return UnsignedType;
+
+    if (std.math.maxInt(SignedType) >= std.math.maxInt(UnsignedType)) return SignedType;
+
+    return ToUnsigned(SignedType);
+}
+
+test "ArithmeticConversion" {
+    // Promotions not necessarily the same for other platforms
+    if (builtin.target.cpu.arch != .x86_64 or builtin.target.os.tag != .linux) return error.SkipZigTest;
+
+    const Test = struct {
+        /// Order of operands should not matter for arithmetic conversions
+        fn checkPromotion(comptime A: type, comptime B: type, comptime Expected: type) !void {
+            try std.testing.expect(ArithmeticConversion(A, B) == Expected);
+            try std.testing.expect(ArithmeticConversion(B, A) == Expected);
+        }
+    };
+
+    try Test.checkPromotion(c_longdouble, c_int, c_longdouble);
+    try Test.checkPromotion(c_int, f64, f64);
+    try Test.checkPromotion(f32, bool, f32);
+
+    try Test.checkPromotion(bool, c_short, c_int);
+    try Test.checkPromotion(c_int, c_int, c_int);
+    try Test.checkPromotion(c_short, c_int, c_int);
+
+    try Test.checkPromotion(c_int, c_long, c_long);
+
+    try Test.checkPromotion(c_ulonglong, c_uint, c_ulonglong);
+
+    try Test.checkPromotion(c_uint, c_int, c_uint);
+
+    try Test.checkPromotion(c_uint, c_long, c_long);
+
+    try Test.checkPromotion(c_ulong, c_longlong, c_ulonglong);
+}
+
+pub const MacroArithmetic = struct {
+    pub fn div(a: anytype, b: anytype) ArithmeticConversion(@TypeOf(a), @TypeOf(b)) {
+        const ResType = ArithmeticConversion(@TypeOf(a), @TypeOf(b));
+        const a_casted = cast(ResType, a);
+        const b_casted = cast(ResType, b);
+        switch (@typeInfo(ResType)) {
+            .Float => return a_casted / b_casted,
+            .Int => return @divTrunc(a_casted, b_casted),
+            else => unreachable,
+        }
+    }
+
+    pub fn rem(a: anytype, b: anytype) ArithmeticConversion(@TypeOf(a), @TypeOf(b)) {
+        const ResType = ArithmeticConversion(@TypeOf(a), @TypeOf(b));
+        const a_casted = cast(ResType, a);
+        const b_casted = cast(ResType, b);
+        switch (@typeInfo(ResType)) {
+            .Int => {
+                if (@typeInfo(ResType).Int.signedness == .signed) {
+                    return signedRemainder(a_casted, b_casted);
+                } else {
+                    return a_casted % b_casted;
+                }
+            },
+            else => unreachable,
+        }
     }
 };
 

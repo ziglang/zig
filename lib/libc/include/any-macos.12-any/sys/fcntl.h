@@ -172,6 +172,7 @@
 #if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
 #define AT_REALDEV              0x0200  /* Return real device inodes resides on for fstatat(2) */
 #define AT_FDONLY               0x0400  /* Use only the fd and Ignore the path for fstatat(2) */
+#define AT_SYMLINK_NOFOLLOW_ANY 0x0800  /* Path should not contain any symlinks */
 #endif
 #endif
 
@@ -308,6 +309,7 @@
 #define F_ADDFILESIGS_INFO      103     /* Add signature from same file, return information */
 #define F_ADDFILESUPPL          104     /* Add supplemental signature from same file with fd reference to original */
 #define F_GETSIGSINFO           105     /* Look up code signature information attached to a file or slice */
+#define F_FSRESERVED            106     /* Placeholder for future usage */
 
 // FS-specific fcntl()'s numbers begin at 0x00010000 and go up
 #define FCNTL_FS_SPECIFIC_BASE  0x00010000

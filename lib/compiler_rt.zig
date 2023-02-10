@@ -1,64 +1,94 @@
+const builtin = @import("builtin");
+
 pub const panic = @import("compiler_rt/common.zig").panic;
 
 comptime {
-    _ = @import("compiler_rt/atomics.zig");
-
     _ = @import("compiler_rt/addf3.zig");
-    _ = @import("compiler_rt/adddf3.zig");
+    _ = @import("compiler_rt/addhf3.zig");
     _ = @import("compiler_rt/addsf3.zig");
+    _ = @import("compiler_rt/adddf3.zig");
     _ = @import("compiler_rt/addtf3.zig");
     _ = @import("compiler_rt/addxf3.zig");
-    _ = @import("compiler_rt/subdf3.zig");
+
+    _ = @import("compiler_rt/subhf3.zig");
     _ = @import("compiler_rt/subsf3.zig");
+    _ = @import("compiler_rt/subdf3.zig");
     _ = @import("compiler_rt/subtf3.zig");
     _ = @import("compiler_rt/subxf3.zig");
 
     _ = @import("compiler_rt/mulf3.zig");
-    _ = @import("compiler_rt/muldf3.zig");
+    _ = @import("compiler_rt/mulhf3.zig");
     _ = @import("compiler_rt/mulsf3.zig");
+    _ = @import("compiler_rt/muldf3.zig");
     _ = @import("compiler_rt/multf3.zig");
     _ = @import("compiler_rt/mulxf3.zig");
 
+    _ = @import("compiler_rt/mulc3.zig");
+    _ = @import("compiler_rt/mulhc3.zig");
+    _ = @import("compiler_rt/mulsc3.zig");
+    _ = @import("compiler_rt/muldc3.zig");
+    _ = @import("compiler_rt/mulxc3.zig");
+    _ = @import("compiler_rt/multc3.zig");
+
+    _ = @import("compiler_rt/divc3.zig");
+    _ = @import("compiler_rt/divhc3.zig");
+    _ = @import("compiler_rt/divsc3.zig");
+    _ = @import("compiler_rt/divdc3.zig");
+    _ = @import("compiler_rt/divxc3.zig");
+    _ = @import("compiler_rt/divtc3.zig");
+
+    _ = @import("compiler_rt/neghf2.zig");
+    _ = @import("compiler_rt/negsf2.zig");
+    _ = @import("compiler_rt/negdf2.zig");
+    _ = @import("compiler_rt/negtf2.zig");
+    _ = @import("compiler_rt/negxf2.zig");
+
     _ = @import("compiler_rt/comparef.zig");
+    _ = @import("compiler_rt/cmphf2.zig");
     _ = @import("compiler_rt/cmpsf2.zig");
     _ = @import("compiler_rt/cmpdf2.zig");
     _ = @import("compiler_rt/cmptf2.zig");
     _ = @import("compiler_rt/cmpxf2.zig");
+    _ = @import("compiler_rt/gehf2.zig");
     _ = @import("compiler_rt/gesf2.zig");
     _ = @import("compiler_rt/gedf2.zig");
-    _ = @import("compiler_rt/getf2.zig");
     _ = @import("compiler_rt/gexf2.zig");
+    _ = @import("compiler_rt/getf2.zig");
+    _ = @import("compiler_rt/unordhf2.zig");
     _ = @import("compiler_rt/unordsf2.zig");
     _ = @import("compiler_rt/unorddf2.zig");
+    _ = @import("compiler_rt/unordxf2.zig");
     _ = @import("compiler_rt/unordtf2.zig");
 
     _ = @import("compiler_rt/extendf.zig");
-    _ = @import("compiler_rt/extenddftf2.zig");
-    _ = @import("compiler_rt/extenddfxf2.zig");
     _ = @import("compiler_rt/extendhfsf2.zig");
+    _ = @import("compiler_rt/extendhfdf2.zig");
     _ = @import("compiler_rt/extendhftf2.zig");
     _ = @import("compiler_rt/extendhfxf2.zig");
     _ = @import("compiler_rt/extendsfdf2.zig");
     _ = @import("compiler_rt/extendsftf2.zig");
     _ = @import("compiler_rt/extendsfxf2.zig");
+    _ = @import("compiler_rt/extenddftf2.zig");
+    _ = @import("compiler_rt/extenddfxf2.zig");
     _ = @import("compiler_rt/extendxftf2.zig");
 
     _ = @import("compiler_rt/truncf.zig");
     _ = @import("compiler_rt/truncsfhf2.zig");
     _ = @import("compiler_rt/truncdfhf2.zig");
     _ = @import("compiler_rt/truncdfsf2.zig");
+    _ = @import("compiler_rt/truncxfhf2.zig");
+    _ = @import("compiler_rt/truncxfsf2.zig");
+    _ = @import("compiler_rt/truncxfdf2.zig");
     _ = @import("compiler_rt/trunctfhf2.zig");
     _ = @import("compiler_rt/trunctfsf2.zig");
     _ = @import("compiler_rt/trunctfdf2.zig");
     _ = @import("compiler_rt/trunctfxf2.zig");
-    _ = @import("compiler_rt/truncxfhf2.zig");
-    _ = @import("compiler_rt/truncxfsf2.zig");
-    _ = @import("compiler_rt/truncxfdf2.zig");
 
-    _ = @import("compiler_rt/divtf3.zig");
+    _ = @import("compiler_rt/divhf3.zig");
     _ = @import("compiler_rt/divsf3.zig");
     _ = @import("compiler_rt/divdf3.zig");
     _ = @import("compiler_rt/divxf3.zig");
+    _ = @import("compiler_rt/divtf3.zig");
     _ = @import("compiler_rt/sin.zig");
     _ = @import("compiler_rt/cos.zig");
     _ = @import("compiler_rt/sincos.zig");
@@ -78,11 +108,11 @@ comptime {
     _ = @import("compiler_rt/sqrt.zig");
     _ = @import("compiler_rt/tan.zig");
     _ = @import("compiler_rt/trunc.zig");
-    _ = @import("compiler_rt/stack_probe.zig");
     _ = @import("compiler_rt/divti3.zig");
     _ = @import("compiler_rt/modti3.zig");
     _ = @import("compiler_rt/multi3.zig");
     _ = @import("compiler_rt/udivti3.zig");
+    _ = @import("compiler_rt/udivmodei4.zig");
     _ = @import("compiler_rt/udivmodti4.zig");
     _ = @import("compiler_rt/umodti3.zig");
 
@@ -172,12 +202,26 @@ comptime {
     _ = @import("compiler_rt/mulo.zig");
     _ = @import("compiler_rt/cmp.zig");
 
-    _ = @import("compiler_rt/negXf2.zig");
-
     _ = @import("compiler_rt/os_version_check.zig");
     _ = @import("compiler_rt/emutls.zig");
     _ = @import("compiler_rt/arm.zig");
     _ = @import("compiler_rt/aulldiv.zig");
     _ = @import("compiler_rt/aullrem.zig");
     _ = @import("compiler_rt/clear_cache.zig");
+
+    if (@import("builtin").object_format != .c) {
+        _ = @import("compiler_rt/atomics.zig");
+        _ = @import("compiler_rt/stack_probe.zig");
+
+        // macOS has these functions inside libSystem.
+        if (builtin.cpu.arch.isAARCH64() and !builtin.os.tag.isDarwin()) {
+            _ = @import("compiler_rt/aarch64_outline_atomics.zig");
+        }
+
+        _ = @import("compiler_rt/memcpy.zig");
+        _ = @import("compiler_rt/memset.zig");
+        _ = @import("compiler_rt/memmove.zig");
+        _ = @import("compiler_rt/memcmp.zig");
+        _ = @import("compiler_rt/bcmp.zig");
+    }
 }

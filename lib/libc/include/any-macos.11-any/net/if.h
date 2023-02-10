@@ -63,19 +63,22 @@
 #ifndef _NET_IF_H_
 #define _NET_IF_H_
 
-#include <sys/cdefs.h>
-#include <net/net_kev.h>
-
 #define IF_NAMESIZE     16
 
 #if !defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)
+#include <sys/cdefs.h>
 #include <sys/appleapiopts.h>
 #ifdef __APPLE__
 
 #include <net/if_var.h>
+#include <net/net_kev.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#endif
+
+#ifndef IFNAMSIZ
+#define IFNAMSIZ        IF_NAMESIZE
 #endif
 
 struct if_clonereq {
@@ -285,9 +288,6 @@ struct ifkpi {
  * remainder may be interface specific.
  */
 struct  ifreq {
-#ifndef IFNAMSIZ
-#define IFNAMSIZ        IF_NAMESIZE
-#endif
 	char    ifr_name[IFNAMSIZ];             /* if name, e.g. "en0" */
 	union {
 		struct  sockaddr ifru_addr;
@@ -369,7 +369,6 @@ struct ifmediareq {
 };
 
 #pragma pack()
-
 
 
 #pragma pack(4)

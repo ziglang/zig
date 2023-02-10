@@ -295,6 +295,17 @@ pub fn Field(comptime params: FieldParams) type {
                 const x63 = x32.sqn(31).mul(x31);
                 const x126 = x63.sqn(63).mul(x63);
                 return x126.sqn(126).mul(x126).sqn(3).mul(t111).sqn(33).mul(x32).sqn(64).mul(x2).sqn(30);
+            } else if (field_order == 115792089237316195423570985008687907853269984665640564039457584007908834671663) {
+                const t11 = x2.mul(x2.sq());
+                const t1111 = t11.mul(t11.sqn(2));
+                const t11111 = x2.mul(t1111.sq());
+                const t1111111 = t11.mul(t11111.sqn(2));
+                const x11 = t1111111.sqn(4).mul(t1111);
+                const x22 = x11.sqn(11).mul(x11);
+                const x27 = x22.sqn(5).mul(t11111);
+                const x54 = x27.sqn(27).mul(x27);
+                const x108 = x54.sqn(54).mul(x54);
+                return x108.sqn(108).mul(x108).sqn(7).mul(t1111111).sqn(23).mul(x22).sqn(6).mul(t11).sqn(2);
             } else {
                 return x2.pow(std.meta.Int(.unsigned, field_bits), (field_order + 1) / 4);
             }

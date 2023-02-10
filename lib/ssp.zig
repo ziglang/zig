@@ -20,7 +20,7 @@ extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) call
 extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8;
 
 // Avoid dragging in the runtime safety mechanisms into this .o file.
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = msg;
     _ = error_return_trace;
     @setCold(true);
@@ -35,7 +35,7 @@ export fn __chk_fail() callconv(.C) noreturn {
     @panic("buffer overflow detected");
 }
 
-// Emitted when targeting some architectures (eg. i386)
+// Emitted when targeting some architectures (eg. x86)
 // XXX: This symbol should be hidden
 export fn __stack_chk_fail_local() callconv(.C) noreturn {
     __stack_chk_fail();

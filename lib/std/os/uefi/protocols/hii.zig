@@ -4,7 +4,7 @@ const Guid = uefi.Guid;
 pub const HIIHandle = *opaque {};
 
 /// The header found at the start of each package.
-pub const HIIPackageHeader = packed struct {
+pub const HIIPackageHeader = packed struct(u32) {
     length: u24,
     type: u8,
 
@@ -43,23 +43,27 @@ pub const HIISimplifiedFontPackage = extern struct {
     }
 };
 
+pub const NarrowGlyphAttributes = packed struct(u8) {
+    non_spacing: bool,
+    wide: bool,
+    _pad: u6 = 0,
+};
+
 pub const NarrowGlyph = extern struct {
     unicode_weight: u16,
-    attributes: packed struct {
-        non_spacing: bool,
-        wide: bool,
-        _pad: u6 = 0,
-    },
+    attributes: NarrowGlyphAttributes,
     glyph_col_1: [19]u8,
+};
+
+pub const WideGlyphAttributes = packed struct(u8) {
+    non_spacing: bool,
+    wide: bool,
+    _pad: u6 = 0,
 };
 
 pub const WideGlyph = extern struct {
     unicode_weight: u16,
-    attributes: packed struct {
-        non_spacing: bool,
-        wide: bool,
-        _pad: u6,
-    },
+    attributes: WideGlyphAttributes,
     glyph_col_1: [19]u8,
     glyph_col_2: [19]u8,
     _pad: [3]u8 = [_]u8{0} ** 3,

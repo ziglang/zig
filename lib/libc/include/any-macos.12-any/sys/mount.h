@@ -228,6 +228,7 @@ struct vfsstatfs {
 #define MNT_NOUSERXATTR 0x01000000      /* Don't allow user extended attributes */
 #define MNT_DEFWRITE    0x02000000      /* filesystem should defer writes */
 #define MNT_MULTILABEL  0x04000000      /* MAC support for individual labels */
+#define MNT_NOFOLLOW    0x08000000      /* don't follow symlink when resolving mount point */
 #define MNT_NOATIME             0x10000000      /* disable update of file access time */
 #define MNT_SNAPSHOT    0x40000000 /* The mount is a snapshot */
 #define MNT_STRICTATIME 0x80000000      /* enable strict update of file access time */
@@ -247,7 +248,8 @@ struct vfsstatfs {
 	                MNT_ROOTFS	| MNT_DOVOLFS	| MNT_DONTBROWSE | \
 	                MNT_IGNORE_OWNERSHIP | MNT_AUTOMOUNTED | MNT_JOURNALED | \
 	                MNT_NOUSERXATTR | MNT_DEFWRITE	| MNT_MULTILABEL | \
-	                MNT_NOATIME | MNT_STRICTATIME | MNT_SNAPSHOT | MNT_CPROTECT)
+	                MNT_NOFOLLOW | MNT_NOATIME | MNT_STRICTATIME | \
+	                MNT_SNAPSHOT | MNT_CPROTECT)
 /*
  * External filesystem command modifier flags.
  * Unmount can use the MNT_FORCE flag.

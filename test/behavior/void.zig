@@ -19,7 +19,7 @@ test "compare void with void compile time known" {
 }
 
 test "iterate over a void slice" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var j: usize = 0;
     for (times(10)) |_, i| {
@@ -36,6 +36,7 @@ test "void optional" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x: ?void = {};
     try expect(x != null);
@@ -44,4 +45,10 @@ test "void optional" {
 test "void array as a local variable initializer" {
     var x = [_]void{{}} ** 1004;
     _ = x[0];
+}
+
+const void_constant = {};
+test "reference to void constants" {
+    var a = void_constant;
+    _ = a;
 }

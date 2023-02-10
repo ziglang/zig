@@ -28,9 +28,9 @@ extern "C" int posix_memalign(void **__memptr, size_t __alignment, size_t __size
 
 #if !(defined(_WIN32) && defined(_mm_malloc))
 static __inline__ void *__attribute__((__always_inline__, __nodebug__,
-                                       __malloc__))
-_mm_malloc(size_t __size, size_t __align)
-{
+                                       __malloc__, __alloc_size__(1),
+                                       __alloc_align__(2)))
+_mm_malloc(size_t __size, size_t __align) {
   if (__align == 1) {
     return malloc(__size);
   }

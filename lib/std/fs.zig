@@ -34,7 +34,7 @@ pub const Watch = @import("fs/watch.zig").Watch;
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .haiku, .solaris => os.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
@@ -46,6 +46,30 @@ pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
         root.os.PATH_MAX
     else
         @compileError("PATH_MAX not implemented for " ++ @tagName(builtin.os.tag)),
+};
+
+/// This represents the maximum size of a UTF-8 encoded file name component that
+/// the platform's common file systems support. File name components returned by file system
+/// operations are likely to fit into a UTF-8 encoded array of this length, but
+/// (depending on the platform) this assumption may not hold for every configuration.
+/// The byte count does not include a null sentinel byte.
+pub const MAX_NAME_BYTES = switch (builtin.os.tag) {
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly => os.NAME_MAX,
+    // Haiku's NAME_MAX includes the null terminator, so subtract one.
+    .haiku => os.NAME_MAX - 1,
+    .solaris => os.system.MAXNAMLEN,
+    // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
+    // If it would require 4 UTF-8 bytes, then there would be a surrogate
+    // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.
+    .windows => os.windows.NAME_MAX * 3,
+    // For WASI, the MAX_NAME will depend on the host OS, so it needs to be
+    // as large as the largest MAX_NAME_BYTES (Windows) in order to work on any host OS.
+    // TODO determine if this is a reasonable approach
+    .wasi => os.windows.NAME_MAX * 3,
+    else => if (@hasDecl(root, "os") and @hasDecl(root.os, "NAME_MAX"))
+        root.os.NAME_MAX
+    else
+        @compileError("NAME_MAX not implemented for " ++ @tagName(builtin.os.tag)),
 };
 
 pub const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
@@ -126,7 +150,6 @@ pub fn copyFileAbsolute(source_path: []const u8, dest_path: []const u8, args: Co
     return Dir.copyFile(my_cwd, source_path, my_cwd, dest_path, args);
 }
 
-/// TODO update this API to avoid a getrandom syscall for every operation.
 pub const AtomicFile = struct {
     file: File,
     // TODO either replace this with rand_buf or use []u16 on Windows
@@ -283,8 +306,10 @@ pub fn renameW(old_dir: Dir, old_sub_path_w: []const u16, new_dir: Dir, new_sub_
     return os.renameatW(old_dir.fd, old_sub_path_w, new_dir.fd, new_sub_path_w);
 }
 
-pub const Dir = struct {
-    fd: os.fd_t,
+/// A directory that can be iterated. It is *NOT* legal to initialize this with a regular `Dir`
+/// that has been opened without iteration permission.
+pub const IterableDir = struct {
+    dir: Dir,
 
     pub const Entry = struct {
         name: []const u8,
@@ -299,7 +324,7 @@ pub const Dir = struct {
         .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris => struct {
             dir: Dir,
             seek: i64,
-            buf: [8192]u8, // TODO align(@alignOf(os.system.dirent)),
+            buf: [1024]u8, // TODO align(@alignOf(os.system.dirent)),
             index: usize,
             end_index: usize,
             first_iter: bool,
@@ -488,10 +513,16 @@ pub const Dir = struct {
                     };
                 }
             }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.first_iter = true;
+            }
         },
         .haiku => struct {
             dir: Dir,
-            buf: [8192]u8, // TODO align(@alignOf(os.dirent64)),
+            buf: [1024]u8, // TODO align(@alignOf(os.dirent64)),
             index: usize,
             end_index: usize,
             first_iter: bool,
@@ -575,12 +606,18 @@ pub const Dir = struct {
                     };
                 }
             }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.first_iter = true;
+            }
         },
         .linux => struct {
             dir: Dir,
             // The if guard is solely there to prevent compile errors from missing `linux.dirent64`
             // definition when compiling for other OSes. It doesn't do anything when compiling for Linux.
-            buf: [8192]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(linux.dirent64)),
+            buf: [1024]u8 align(if (builtin.os.tag != .linux) 1 else @alignOf(linux.dirent64)),
             index: usize,
             end_index: usize,
             first_iter: bool,
@@ -593,6 +630,19 @@ pub const Dir = struct {
             /// Memory such as file names referenced in this returned entry becomes invalid
             /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
             pub fn next(self: *Self) Error!?Entry {
+                return self.nextLinux() catch |err| switch (err) {
+                    // To be consistent across platforms, iteration ends if the directory being iterated is deleted during iteration.
+                    // This matches the behavior of non-Linux UNIX platforms.
+                    error.DirNotFound => null,
+                    else => |e| return e,
+                };
+            }
+
+            pub const ErrorLinux = error{DirNotFound} || IteratorError;
+
+            /// Implementation of `next` that can return `error.DirNotFound` if the directory being
+            /// iterated was deleted during iteration (this error is Linux specific).
+            pub fn nextLinux(self: *Self) ErrorLinux!?Entry {
                 start_over: while (true) {
                     if (self.index >= self.end_index) {
                         if (self.first_iter) {
@@ -605,6 +655,7 @@ pub const Dir = struct {
                             .BADF => unreachable, // Dir is invalid or was opened without iteration ability
                             .FAULT => unreachable,
                             .NOTDIR => unreachable,
+                            .NOENT => return error.DirNotFound, // The directory being iterated was deleted during iteration.
                             .INVAL => return error.Unexpected, // Linux may in some cases return EINVAL when reading /proc/$PID/net.
                             else => |err| return os.unexpectedErrno(err),
                         }
@@ -639,14 +690,20 @@ pub const Dir = struct {
                     };
                 }
             }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.first_iter = true;
+            }
         },
         .windows => struct {
             dir: Dir,
-            buf: [8192]u8 align(@alignOf(os.windows.FILE_BOTH_DIR_INFORMATION)),
+            buf: [1024]u8 align(@alignOf(os.windows.FILE_BOTH_DIR_INFORMATION)),
             index: usize,
             end_index: usize,
             first_iter: bool,
-            name_data: [256]u8,
+            name_data: [MAX_NAME_BYTES]u8,
 
             const Self = @This();
 
@@ -711,10 +768,16 @@ pub const Dir = struct {
                     };
                 }
             }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.first_iter = true;
+            }
         },
         .wasi => struct {
             dir: Dir,
-            buf: [8192]u8, // TODO align(@alignOf(os.wasi.dirent_t)),
+            buf: [1024]u8, // TODO align(@alignOf(os.wasi.dirent_t)),
             cookie: u64,
             index: usize,
             end_index: usize,
@@ -726,12 +789,28 @@ pub const Dir = struct {
             /// Memory such as file names referenced in this returned entry becomes invalid
             /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
             pub fn next(self: *Self) Error!?Entry {
+                return self.nextWasi() catch |err| switch (err) {
+                    // To be consistent across platforms, iteration ends if the directory being iterated is deleted during iteration.
+                    // This matches the behavior of non-Linux UNIX platforms.
+                    error.DirNotFound => null,
+                    else => |e| return e,
+                };
+            }
+
+            pub const ErrorWasi = error{DirNotFound} || IteratorError;
+
+            /// Implementation of `next` that can return platform-dependent errors depending on the host platform.
+            /// When the host platform is Linux, `error.DirNotFound` can be returned if the directory being
+            /// iterated was deleted during iteration.
+            pub fn nextWasi(self: *Self) ErrorWasi!?Entry {
                 // We intentinally use fd_readdir even when linked with libc,
                 // since its implementation is exactly the same as below,
                 // and we avoid the code complexity here.
                 const w = os.wasi;
                 start_over: while (true) {
-                    if (self.index >= self.end_index) {
+                    // According to the WASI spec, the last entry might be truncated,
+                    // so we need to check if the left buffer contains the whole dirent.
+                    if (self.end_index - self.index < @sizeOf(w.dirent_t)) {
                         var bufused: usize = undefined;
                         switch (w.fd_readdir(self.dir.fd, &self.buf, self.buf.len, self.cookie, &bufused)) {
                             .SUCCESS => {},
@@ -739,6 +818,7 @@ pub const Dir = struct {
                             .FAULT => unreachable,
                             .NOTDIR => unreachable,
                             .INVAL => unreachable,
+                            .NOENT => return error.DirNotFound, // The directory being iterated was deleted during iteration.
                             .NOTCAPABLE => return error.AccessDenied,
                             else => |err| return os.unexpectedErrno(err),
                         }
@@ -749,7 +829,12 @@ pub const Dir = struct {
                     const entry = @ptrCast(*align(1) w.dirent_t, &self.buf[self.index]);
                     const entry_size = @sizeOf(w.dirent_t);
                     const name_index = self.index + entry_size;
-                    const name = mem.span(self.buf[name_index .. name_index + entry.d_namlen]);
+                    if (name_index + entry.d_namlen > self.end_index) {
+                        // This case, the name is truncated, so we need to call readdir to store the entire name.
+                        self.end_index = self.index; // Force fd_readdir in the next loop.
+                        continue :start_over;
+                    }
+                    const name = self.buf[name_index .. name_index + entry.d_namlen];
 
                     const next_index = name_index + entry.d_namlen;
                     self.index = next_index;
@@ -775,11 +860,28 @@ pub const Dir = struct {
                     };
                 }
             }
+
+            pub fn reset(self: *Self) void {
+                self.index = 0;
+                self.end_index = 0;
+                self.cookie = os.wasi.DIRCOOKIE_START;
+            }
         },
         else => @compileError("unimplemented"),
     };
 
-    pub fn iterate(self: Dir) Iterator {
+    pub fn iterate(self: IterableDir) Iterator {
+        return self.iterateImpl(true);
+    }
+
+    /// Like `iterate`, but will not reset the directory cursor before the first
+    /// iteration. This should only be used in cases where it is known that the
+    /// `IterableDir` has not had its cursor modified yet (e.g. it was just opened).
+    pub fn iterateAssumeFirstIteration(self: IterableDir) Iterator {
+        return self.iterateImpl(false);
+    }
+
+    fn iterateImpl(self: IterableDir, first_iter_start_value: bool) Iterator {
         switch (builtin.os.tag) {
             .macos,
             .ios,
@@ -789,30 +891,30 @@ pub const Dir = struct {
             .openbsd,
             .solaris,
             => return Iterator{
-                .dir = self,
+                .dir = self.dir,
                 .seek = 0,
                 .index = 0,
                 .end_index = 0,
                 .buf = undefined,
-                .first_iter = true,
+                .first_iter = first_iter_start_value,
             },
             .linux, .haiku => return Iterator{
-                .dir = self,
+                .dir = self.dir,
                 .index = 0,
                 .end_index = 0,
                 .buf = undefined,
-                .first_iter = true,
+                .first_iter = first_iter_start_value,
             },
             .windows => return Iterator{
-                .dir = self,
+                .dir = self.dir,
                 .index = 0,
                 .end_index = 0,
-                .first_iter = true,
+                .first_iter = first_iter_start_value,
                 .buf = undefined,
                 .name_data = undefined,
             },
             .wasi => return Iterator{
-                .dir = self,
+                .dir = self.dir,
                 .cookie = os.wasi.DIRCOOKIE_START,
                 .index = 0,
                 .end_index = 0,
@@ -833,11 +935,11 @@ pub const Dir = struct {
             dir: Dir,
             basename: []const u8,
             path: []const u8,
-            kind: Dir.Entry.Kind,
+            kind: IterableDir.Entry.Kind,
         };
 
         const StackItem = struct {
-            iter: Dir.Iterator,
+            iter: IterableDir.Iterator,
             dirname_len: usize,
         };
 
@@ -846,8 +948,9 @@ pub const Dir = struct {
         /// a reference to the path.
         pub fn next(self: *Walker) !?WalkerEntry {
             while (self.stack.items.len != 0) {
-                // `top` becomes invalid after appending to `self.stack`
+                // `top` and `containing` become invalid after appending to `self.stack`
                 var top = &self.stack.items[self.stack.items.len - 1];
+                var containing = top;
                 var dirname_len = top.dirname_len;
                 if (try top.iter.next()) |base| {
                     self.name_buffer.shrinkRetainingCapacity(dirname_len);
@@ -857,7 +960,7 @@ pub const Dir = struct {
                     }
                     try self.name_buffer.appendSlice(base.name);
                     if (base.kind == .Directory) {
-                        var new_dir = top.iter.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
+                        var new_dir = top.iter.dir.openIterableDir(base.name, .{}) catch |err| switch (err) {
                             error.NameTooLong => unreachable, // no path sep in base.name
                             else => |e| return e,
                         };
@@ -868,10 +971,11 @@ pub const Dir = struct {
                                 .dirname_len = self.name_buffer.items.len,
                             });
                             top = &self.stack.items[self.stack.items.len - 1];
+                            containing = &self.stack.items[self.stack.items.len - 2];
                         }
                     }
                     return WalkerEntry{
-                        .dir = top.iter.dir,
+                        .dir = containing.iter.dir,
                         .basename = self.name_buffer.items[dirname_len..],
                         .path = self.name_buffer.items,
                         .kind = base.kind,
@@ -887,8 +991,11 @@ pub const Dir = struct {
         }
 
         pub fn deinit(self: *Walker) void {
-            for (self.stack.items) |*item| {
-                item.iter.dir.close();
+            // Close any remaining directories except the initial one (which is always at index 0)
+            if (self.stack.items.len > 1) {
+                for (self.stack.items[1..]) |*item| {
+                    item.iter.dir.close();
+                }
             }
             self.stack.deinit();
             self.name_buffer.deinit();
@@ -896,11 +1003,10 @@ pub const Dir = struct {
     };
 
     /// Recursively iterates over a directory.
-    /// `self` must have been opened with `OpenDirOptions{.iterate = true}`.
     /// Must call `Walker.deinit` when done.
     /// The order of returned file system entries is undefined.
     /// `self` will not be closed after walking it.
-    pub fn walk(self: Dir, allocator: Allocator) !Walker {
+    pub fn walk(self: IterableDir, allocator: Allocator) !Walker {
         var name_buffer = std.ArrayList(u8).init(allocator);
         errdefer name_buffer.deinit();
 
@@ -917,6 +1023,49 @@ pub const Dir = struct {
             .name_buffer = name_buffer,
         };
     }
+
+    pub fn close(self: *IterableDir) void {
+        self.dir.close();
+        self.* = undefined;
+    }
+
+    pub const ChmodError = File.ChmodError;
+
+    /// Changes the mode of the directory.
+    /// The process must have the correct privileges in order to do this
+    /// successfully, or must have the effective user ID matching the owner
+    /// of the directory.
+    pub fn chmod(self: IterableDir, new_mode: File.Mode) ChmodError!void {
+        const file: File = .{
+            .handle = self.dir.fd,
+            .capable_io_mode = .blocking,
+        };
+        try file.chmod(new_mode);
+    }
+
+    /// Changes the owner and group of the directory.
+    /// The process must have the correct privileges in order to do this
+    /// successfully. The group may be changed by the owner of the directory to
+    /// any group of which the owner is a member. If the
+    /// owner or group is specified as `null`, the ID is not changed.
+    pub fn chown(self: IterableDir, owner: ?File.Uid, group: ?File.Gid) ChownError!void {
+        const file: File = .{
+            .handle = self.dir.fd,
+            .capable_io_mode = .blocking,
+        };
+        try file.chown(owner, group);
+    }
+
+    pub const ChownError = File.ChownError;
+};
+
+pub const Dir = struct {
+    fd: os.fd_t,
+
+    pub const iterate = @compileError("only 'IterableDir' can be iterated; 'IterableDir' can be obtained with 'openIterableDir'");
+    pub const walk = @compileError("only 'IterableDir' can be walked; 'IterableDir' can be obtained with 'openIterableDir'");
+    pub const chmod = @compileError("only 'IterableDir' can have its mode changed; 'IterableDir' can be obtained with 'openIterableDir'");
+    pub const chown = @compileError("only 'IterableDir' can have its owner changed; 'IterableDir' can be obtained with 'openIterableDir'");
 
     pub const OpenError = error{
         FileNotFound,
@@ -979,13 +1128,6 @@ pub const Dir = struct {
                 w.RIGHT.FD_ADVISE |
                 w.RIGHT.FD_FILESTAT_SET_TIMES |
                 w.RIGHT.FD_FILESTAT_SET_SIZE;
-        }
-        if (self.fd == os.wasi.AT.FDCWD or path.isAbsolute(sub_path)) {
-            // Resolve absolute or CWD-relative paths to a path within a Preopen
-            var resolved_path_buf: [MAX_PATH_BYTES]u8 = undefined;
-            const resolved_path = try os.resolvePathWasi(sub_path, &resolved_path_buf);
-            const fd = try os.openatWasi(resolved_path.dir_fd, resolved_path.relative_path, 0x0, 0x0, fdflags, base, 0x0);
-            return File{ .handle = fd };
         }
         const fd = try os.openatWasi(self.fd, sub_path, 0x0, 0x0, fdflags, base, 0x0);
         return File{ .handle = fd };
@@ -1150,13 +1292,6 @@ pub const Dir = struct {
         }
         if (flags.exclusive) {
             oflags |= w.O.EXCL;
-        }
-        if (self.fd == os.wasi.AT.FDCWD or path.isAbsolute(sub_path)) {
-            // Resolve absolute or CWD-relative paths to a path within a Preopen
-            var resolved_path_buf: [MAX_PATH_BYTES]u8 = undefined;
-            const resolved_path = try os.resolvePathWasi(sub_path, &resolved_path_buf);
-            const fd = try os.openatWasi(resolved_path.dir_fd, resolved_path.relative_path, 0x0, oflags, 0x0, base, 0x0);
-            return File{ .handle = fd };
         }
         const fd = try os.openatWasi(self.fd, sub_path, 0x0, oflags, 0x0, base, 0x0);
         return File{ .handle = fd };
@@ -1334,6 +1469,15 @@ pub const Dir = struct {
         return self.openDir(sub_path, open_dir_options);
     }
 
+    /// This function performs `makePath`, followed by `openIterableDir`.
+    /// If supported by the OS, this operation is atomic. It is not atomic on
+    /// all operating systems.
+    pub fn makeOpenPathIterable(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) !IterableDir {
+        // TODO improve this implementation on Windows; we can avoid 1 call to NtClose
+        try self.makePath(sub_path);
+        return self.openIterableDir(sub_path, open_dir_options);
+    }
+
     ///  This function returns the canonicalized absolute pathname of
     /// `pathname` relative to this `Dir`. If `pathname` is absolute, ignores this
     /// `Dir` handle and returns the canonicalized absolute pathname of `pathname`
@@ -1343,19 +1487,7 @@ pub const Dir = struct {
     /// See also `Dir.realpathZ`, `Dir.realpathW`, and `Dir.realpathAlloc`.
     pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
         if (builtin.os.tag == .wasi) {
-            if (self.fd == os.wasi.AT.FDCWD or path.isAbsolute(pathname)) {
-                var buffer: [MAX_PATH_BYTES]u8 = undefined;
-                const out_path = try os.realpath(pathname, &buffer);
-                if (out_path.len > out_buffer.len) {
-                    return error.NameTooLong;
-                }
-                mem.copy(u8, out_buffer, out_path);
-                return out_buffer[0..out_path.len];
-            } else {
-                // Unfortunately, we have no ability to look up the path for an fd_t
-                // on WASI, so we have to give up here.
-                return error.InvalidHandle;
-            }
+            @compileError("realpath is not available on WASI");
         }
         if (builtin.os.tag == .windows) {
             const pathname_w = try os.windows.sliceToPrefixedFileW(pathname);
@@ -1474,6 +1606,14 @@ pub const Dir = struct {
         if (builtin.os.tag == .wasi) {
             @compileError("changing cwd is not currently possible in WASI");
         }
+        if (builtin.os.tag == .windows) {
+            var dir_path_buffer: [os.windows.PATH_MAX_WIDE]u16 = undefined;
+            var dir_path = try os.windows.GetFinalPathNameByHandle(self.fd, .{}, &dir_path_buffer);
+            if (builtin.link_libc) {
+                return os.chdirW(dir_path);
+            }
+            return os.windows.SetCurrentDirectory(dir_path);
+        }
         try os.fchdir(self.fd);
     }
 
@@ -1482,10 +1622,6 @@ pub const Dir = struct {
         /// for functions which operate based on an open directory handle. When `false`,
         /// such operations are Illegal Behavior.
         access_sub_paths: bool = true,
-
-        /// `true` means the opened directory can be scanned for the files and sub-directories
-        /// of the result. It means the `iterate` function can be called.
-        iterate: bool = false,
 
         /// `true` means it won't dereference the symlinks.
         no_follow: bool = false,
@@ -1498,12 +1634,28 @@ pub const Dir = struct {
     pub fn openDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.openDirW(sub_path_w.span().ptr, args);
+            return self.openDirW(sub_path_w.span().ptr, args, false);
         } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return self.openDirWasi(sub_path, args);
         } else {
             const sub_path_c = try os.toPosixPath(sub_path);
-            return self.openDirZ(&sub_path_c, args);
+            return self.openDirZ(&sub_path_c, args, false);
+        }
+    }
+
+    /// Opens an iterable directory at the given path. The directory is a system resource that remains
+    /// open until `close` is called on the result.
+    ///
+    /// Asserts that the path parameter has no null bytes.
+    pub fn openIterableDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!IterableDir {
+        if (builtin.os.tag == .windows) {
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return IterableDir{ .dir = try self.openDirW(sub_path_w.span().ptr, args, true) };
+        } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
+            return IterableDir{ .dir = try self.openDirWasi(sub_path, args) };
+        } else {
+            const sub_path_c = try os.toPosixPath(sub_path);
+            return IterableDir{ .dir = try self.openDirZ(&sub_path_c, args, true) };
         }
     }
 
@@ -1532,16 +1684,15 @@ pub const Dir = struct {
         // TODO do we really need all the rights here?
         const inheriting: w.rights_t = w.RIGHT.ALL ^ w.RIGHT.SOCK_SHUTDOWN;
 
-        const result = blk: {
-            if (self.fd == os.wasi.AT.FDCWD or path.isAbsolute(sub_path)) {
-                // Resolve absolute or CWD-relative paths to a path within a Preopen
-                var resolved_path_buf: [MAX_PATH_BYTES]u8 = undefined;
-                const resolved_path = try os.resolvePathWasi(sub_path, &resolved_path_buf);
-                break :blk os.openatWasi(resolved_path.dir_fd, resolved_path.relative_path, symlink_flags, w.O.DIRECTORY, 0x0, base, inheriting);
-            } else {
-                break :blk os.openatWasi(self.fd, sub_path, symlink_flags, w.O.DIRECTORY, 0x0, base, inheriting);
-            }
-        };
+        const result = os.openatWasi(
+            self.fd,
+            sub_path,
+            symlink_flags,
+            w.O.DIRECTORY,
+            0x0,
+            base,
+            inheriting,
+        );
         const fd = result catch |err| switch (err) {
             error.FileTooBig => unreachable, // can't happen for directories
             error.IsDir => unreachable, // we're providing O.DIRECTORY
@@ -1556,13 +1707,13 @@ pub const Dir = struct {
     }
 
     /// Same as `openDir` except the parameter is null-terminated.
-    pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions) OpenError!Dir {
+    pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions, iterable: bool) OpenError!Dir {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
-            return self.openDirW(sub_path_w.span().ptr, args);
+            return self.openDirW(sub_path_w.span().ptr, args, iterable);
         }
         const symlink_flags: u32 = if (args.no_follow) os.O.NOFOLLOW else 0x0;
-        if (!args.iterate) {
+        if (!iterable) {
             const O_PATH = if (@hasDecl(os.O, "PATH")) os.O.PATH else 0;
             return self.openDirFlagsZ(sub_path_c, os.O.DIRECTORY | os.O.RDONLY | os.O.CLOEXEC | O_PATH | symlink_flags);
         } else {
@@ -1572,13 +1723,14 @@ pub const Dir = struct {
 
     /// Same as `openDir` except the path parameter is WTF-16 encoded, NT-prefixed.
     /// This function asserts the target OS is Windows.
-    pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions) OpenError!Dir {
+    pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions, iterable: bool) OpenError!Dir {
         const w = os.windows;
         // TODO remove some of these flags if args.access_sub_paths is false
         const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
             w.SYNCHRONIZE | w.FILE_TRAVERSE;
-        const flags: u32 = if (args.iterate) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-        return self.openDirAccessMaskW(sub_path_w, flags, args.no_follow);
+        const flags: u32 = if (iterable) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
+        var dir = try self.openDirAccessMaskW(sub_path_w, flags, args.no_follow);
+        return dir;
     }
 
     /// `flags` must contain `os.O.DIRECTORY`.
@@ -1611,7 +1763,7 @@ pub const Dir = struct {
         var nt_name = w.UNICODE_STRING{
             .Length = path_len_bytes,
             .MaximumLength = path_len_bytes,
-            .Buffer = @intToPtr([*]u16, @ptrToInt(sub_path_w)),
+            .Buffer = @qualCast([*:0]u16, sub_path_w),
         };
         var attr = w.OBJECT_ATTRIBUTES{
             .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
@@ -1642,6 +1794,9 @@ pub const Dir = struct {
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
             .NOT_A_DIRECTORY => return error.NotDir,
+            // This can happen if the directory has 'List folder contents' permission set to 'Deny'
+            // and the directory is trying to be opened for iteration.
+            .ACCESS_DENIED => return error.AccessDenied,
             .INVALID_PARAMETER => unreachable,
             else => return w.unexpectedStatus(rc),
         }
@@ -1935,60 +2090,202 @@ pub const Dir = struct {
     /// this function recursively removes its entries and then tries again.
     /// This operation is not atomic on most file systems.
     pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
-        start_over: while (true) {
-            var got_access_denied = false;
+        var initial_iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, .File)) orelse return;
 
-            // First, try deleting the item as a file. This way we don't follow sym links.
-            if (self.deleteFile(sub_path)) {
-                return;
-            } else |err| switch (err) {
-                error.FileNotFound => return,
-                error.IsDir => {},
-                error.AccessDenied => got_access_denied = true,
+        const StackItem = struct {
+            name: []const u8,
+            parent_dir: Dir,
+            iter: IterableDir.Iterator,
+        };
 
-                error.InvalidUtf8,
-                error.SymLinkLoop,
-                error.NameTooLong,
-                error.SystemResources,
-                error.ReadOnlyFileSystem,
-                error.NotDir,
-                error.FileSystem,
-                error.FileBusy,
-                error.BadPathName,
-                error.Unexpected,
-                => |e| return e,
+        var stack = std.BoundedArray(StackItem, 16){};
+        defer {
+            for (stack.slice()) |*item| {
+                item.iter.dir.close();
             }
-            var dir = self.openDir(sub_path, .{ .iterate = true, .no_follow = true }) catch |err| switch (err) {
-                error.NotDir => {
-                    if (got_access_denied) {
-                        return error.AccessDenied;
-                    }
-                    continue :start_over;
-                },
-                error.FileNotFound => {
-                    // That's fine, we were trying to remove this directory anyway.
-                    continue :start_over;
-                },
+        }
 
-                error.InvalidHandle,
-                error.AccessDenied,
-                error.SymLinkLoop,
-                error.ProcessFdQuotaExceeded,
-                error.NameTooLong,
-                error.SystemFdQuotaExceeded,
-                error.NoDevice,
-                error.SystemResources,
-                error.Unexpected,
-                error.InvalidUtf8,
-                error.BadPathName,
-                error.DeviceBusy,
-                => |e| return e,
+        stack.appendAssumeCapacity(StackItem{
+            .name = sub_path,
+            .parent_dir = self,
+            .iter = initial_iterable_dir.iterateAssumeFirstIteration(),
+        });
+
+        process_stack: while (stack.len != 0) {
+            var top = &(stack.slice()[stack.len - 1]);
+            while (try top.iter.next()) |entry| {
+                var treat_as_dir = entry.kind == .Directory;
+                handle_entry: while (true) {
+                    if (treat_as_dir) {
+                        if (stack.ensureUnusedCapacity(1)) {
+                            var iterable_dir = top.iter.dir.openIterableDir(entry.name, .{ .no_follow = true }) catch |err| switch (err) {
+                                error.NotDir => {
+                                    treat_as_dir = false;
+                                    continue :handle_entry;
+                                },
+                                error.FileNotFound => {
+                                    // That's fine, we were trying to remove this directory anyway.
+                                    break :handle_entry;
+                                },
+
+                                error.InvalidHandle,
+                                error.AccessDenied,
+                                error.SymLinkLoop,
+                                error.ProcessFdQuotaExceeded,
+                                error.NameTooLong,
+                                error.SystemFdQuotaExceeded,
+                                error.NoDevice,
+                                error.SystemResources,
+                                error.Unexpected,
+                                error.InvalidUtf8,
+                                error.BadPathName,
+                                error.DeviceBusy,
+                                => |e| return e,
+                            };
+                            stack.appendAssumeCapacity(StackItem{
+                                .name = entry.name,
+                                .parent_dir = top.iter.dir,
+                                .iter = iterable_dir.iterateAssumeFirstIteration(),
+                            });
+                            continue :process_stack;
+                        } else |_| {
+                            try top.iter.dir.deleteTreeMinStackSizeWithKindHint(entry.name, entry.kind);
+                            break :handle_entry;
+                        }
+                    } else {
+                        if (top.iter.dir.deleteFile(entry.name)) {
+                            break :handle_entry;
+                        } else |err| switch (err) {
+                            error.FileNotFound => break :handle_entry,
+
+                            // Impossible because we do not pass any path separators.
+                            error.NotDir => unreachable,
+
+                            error.IsDir => {
+                                treat_as_dir = true;
+                                continue :handle_entry;
+                            },
+
+                            error.AccessDenied,
+                            error.InvalidUtf8,
+                            error.SymLinkLoop,
+                            error.NameTooLong,
+                            error.SystemResources,
+                            error.ReadOnlyFileSystem,
+                            error.FileSystem,
+                            error.FileBusy,
+                            error.BadPathName,
+                            error.Unexpected,
+                            => |e| return e,
+                        }
+                    }
+                }
+            }
+
+            // On Windows, we can't delete until the dir's handle has been closed, so
+            // close it before we try to delete.
+            top.iter.dir.close();
+
+            // In order to avoid double-closing the directory when cleaning up
+            // the stack in the case of an error, we save the relevant portions and
+            // pop the value from the stack.
+            const parent_dir = top.parent_dir;
+            const name = top.name;
+            _ = stack.pop();
+
+            var need_to_retry: bool = false;
+            parent_dir.deleteDir(name) catch |err| switch (err) {
+                error.FileNotFound => {},
+                error.DirNotEmpty => need_to_retry = false,
+                else => |e| return e,
             };
-            var cleanup_dir_parent: ?Dir = null;
+
+            if (need_to_retry) {
+                // Since we closed the handle that the previous iterator used, we
+                // need to re-open the dir and re-create the iterator.
+                var iterable_dir = iterable_dir: {
+                    var treat_as_dir = true;
+                    handle_entry: while (true) {
+                        if (treat_as_dir) {
+                            break :iterable_dir parent_dir.openIterableDir(name, .{ .no_follow = true }) catch |err| switch (err) {
+                                error.NotDir => {
+                                    treat_as_dir = false;
+                                    continue :handle_entry;
+                                },
+                                error.FileNotFound => {
+                                    // That's fine, we were trying to remove this directory anyway.
+                                    continue :process_stack;
+                                },
+
+                                error.InvalidHandle,
+                                error.AccessDenied,
+                                error.SymLinkLoop,
+                                error.ProcessFdQuotaExceeded,
+                                error.NameTooLong,
+                                error.SystemFdQuotaExceeded,
+                                error.NoDevice,
+                                error.SystemResources,
+                                error.Unexpected,
+                                error.InvalidUtf8,
+                                error.BadPathName,
+                                error.DeviceBusy,
+                                => |e| return e,
+                            };
+                        } else {
+                            if (parent_dir.deleteFile(name)) {
+                                continue :process_stack;
+                            } else |err| switch (err) {
+                                error.FileNotFound => continue :process_stack,
+
+                                // Impossible because we do not pass any path separators.
+                                error.NotDir => unreachable,
+
+                                error.IsDir => {
+                                    treat_as_dir = true;
+                                    continue :handle_entry;
+                                },
+
+                                error.AccessDenied,
+                                error.InvalidUtf8,
+                                error.SymLinkLoop,
+                                error.NameTooLong,
+                                error.SystemResources,
+                                error.ReadOnlyFileSystem,
+                                error.FileSystem,
+                                error.FileBusy,
+                                error.BadPathName,
+                                error.Unexpected,
+                                => |e| return e,
+                            }
+                        }
+                    }
+                };
+                // We know there is room on the stack since we are just re-adding
+                // the StackItem that we previously popped.
+                stack.appendAssumeCapacity(StackItem{
+                    .name = name,
+                    .parent_dir = parent_dir,
+                    .iter = iterable_dir.iterateAssumeFirstIteration(),
+                });
+                continue :process_stack;
+            }
+        }
+    }
+
+    /// Like `deleteTree`, but only keeps one `Iterator` active at a time to minimize the function's stack size.
+    /// This is slower than `deleteTree` but uses less stack space.
+    pub fn deleteTreeMinStackSize(self: Dir, sub_path: []const u8) DeleteTreeError!void {
+        return self.deleteTreeMinStackSizeWithKindHint(sub_path, .File);
+    }
+
+    fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint: File.Kind) DeleteTreeError!void {
+        start_over: while (true) {
+            var iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, kind_hint)) orelse return;
+            var cleanup_dir_parent: ?IterableDir = null;
             defer if (cleanup_dir_parent) |*d| d.close();
 
             var cleanup_dir = true;
-            defer if (cleanup_dir) dir.close();
+            defer if (cleanup_dir) iterable_dir.close();
 
             // Valid use of MAX_PATH_BYTES because dir_name_buf will only
             // ever store a single path component that was returned from the
@@ -2001,41 +2298,110 @@ pub const Dir = struct {
             // open it, and close the original directory. Repeat. Then start the entire operation over.
 
             scan_dir: while (true) {
-                var dir_it = dir.iterate();
-                while (try dir_it.next()) |entry| {
-                    if (dir.deleteFile(entry.name)) {
-                        continue;
-                    } else |err| switch (err) {
-                        error.FileNotFound => continue,
+                var dir_it = iterable_dir.iterateAssumeFirstIteration();
+                dir_it: while (try dir_it.next()) |entry| {
+                    var treat_as_dir = entry.kind == .Directory;
+                    handle_entry: while (true) {
+                        if (treat_as_dir) {
+                            const new_dir = iterable_dir.dir.openIterableDir(entry.name, .{ .no_follow = true }) catch |err| switch (err) {
+                                error.NotDir => {
+                                    treat_as_dir = false;
+                                    continue :handle_entry;
+                                },
+                                error.FileNotFound => {
+                                    // That's fine, we were trying to remove this directory anyway.
+                                    continue :dir_it;
+                                },
 
-                        // Impossible because we do not pass any path separators.
-                        error.NotDir => unreachable,
-
-                        error.IsDir => {},
-                        error.AccessDenied => got_access_denied = true,
-
-                        error.InvalidUtf8,
-                        error.SymLinkLoop,
-                        error.NameTooLong,
-                        error.SystemResources,
-                        error.ReadOnlyFileSystem,
-                        error.FileSystem,
-                        error.FileBusy,
-                        error.BadPathName,
-                        error.Unexpected,
-                        => |e| return e,
-                    }
-
-                    const new_dir = dir.openDir(entry.name, .{ .iterate = true, .no_follow = true }) catch |err| switch (err) {
-                        error.NotDir => {
-                            if (got_access_denied) {
-                                return error.AccessDenied;
-                            }
+                                error.InvalidHandle,
+                                error.AccessDenied,
+                                error.SymLinkLoop,
+                                error.ProcessFdQuotaExceeded,
+                                error.NameTooLong,
+                                error.SystemFdQuotaExceeded,
+                                error.NoDevice,
+                                error.SystemResources,
+                                error.Unexpected,
+                                error.InvalidUtf8,
+                                error.BadPathName,
+                                error.DeviceBusy,
+                                => |e| return e,
+                            };
+                            if (cleanup_dir_parent) |*d| d.close();
+                            cleanup_dir_parent = iterable_dir;
+                            iterable_dir = new_dir;
+                            mem.copy(u8, &dir_name_buf, entry.name);
+                            dir_name = dir_name_buf[0..entry.name.len];
                             continue :scan_dir;
+                        } else {
+                            if (iterable_dir.dir.deleteFile(entry.name)) {
+                                continue :dir_it;
+                            } else |err| switch (err) {
+                                error.FileNotFound => continue :dir_it,
+
+                                // Impossible because we do not pass any path separators.
+                                error.NotDir => unreachable,
+
+                                error.IsDir => {
+                                    treat_as_dir = true;
+                                    continue :handle_entry;
+                                },
+
+                                error.AccessDenied,
+                                error.InvalidUtf8,
+                                error.SymLinkLoop,
+                                error.NameTooLong,
+                                error.SystemResources,
+                                error.ReadOnlyFileSystem,
+                                error.FileSystem,
+                                error.FileBusy,
+                                error.BadPathName,
+                                error.Unexpected,
+                                => |e| return e,
+                            }
+                        }
+                    }
+                }
+                // Reached the end of the directory entries, which means we successfully deleted all of them.
+                // Now to remove the directory itself.
+                iterable_dir.close();
+                cleanup_dir = false;
+
+                if (cleanup_dir_parent) |d| {
+                    d.dir.deleteDir(dir_name) catch |err| switch (err) {
+                        // These two things can happen due to file system race conditions.
+                        error.FileNotFound, error.DirNotEmpty => continue :start_over,
+                        else => |e| return e,
+                    };
+                    continue :start_over;
+                } else {
+                    self.deleteDir(sub_path) catch |err| switch (err) {
+                        error.FileNotFound => return,
+                        error.DirNotEmpty => continue :start_over,
+                        else => |e| return e,
+                    };
+                    return;
+                }
+            }
+        }
+    }
+
+    /// On successful delete, returns null.
+    fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File.Kind) !?IterableDir {
+        return iterable_dir: {
+            // Treat as a file by default
+            var treat_as_dir = kind_hint == .Directory;
+
+            handle_entry: while (true) {
+                if (treat_as_dir) {
+                    break :iterable_dir self.openIterableDir(sub_path, .{ .no_follow = true }) catch |err| switch (err) {
+                        error.NotDir => {
+                            treat_as_dir = false;
+                            continue :handle_entry;
                         },
                         error.FileNotFound => {
                             // That's fine, we were trying to remove this directory anyway.
-                            continue :scan_dir;
+                            return null;
                         },
 
                         error.InvalidHandle,
@@ -2052,35 +2418,33 @@ pub const Dir = struct {
                         error.DeviceBusy,
                         => |e| return e,
                     };
-                    if (cleanup_dir_parent) |*d| d.close();
-                    cleanup_dir_parent = dir;
-                    dir = new_dir;
-                    mem.copy(u8, &dir_name_buf, entry.name);
-                    dir_name = dir_name_buf[0..entry.name.len];
-                    continue :scan_dir;
-                }
-                // Reached the end of the directory entries, which means we successfully deleted all of them.
-                // Now to remove the directory itself.
-                dir.close();
-                cleanup_dir = false;
-
-                if (cleanup_dir_parent) |d| {
-                    d.deleteDir(dir_name) catch |err| switch (err) {
-                        // These two things can happen due to file system race conditions.
-                        error.FileNotFound, error.DirNotEmpty => continue :start_over,
-                        else => |e| return e,
-                    };
-                    continue :start_over;
                 } else {
-                    self.deleteDir(sub_path) catch |err| switch (err) {
-                        error.FileNotFound => return,
-                        error.DirNotEmpty => continue :start_over,
-                        else => |e| return e,
-                    };
-                    return;
+                    if (self.deleteFile(sub_path)) {
+                        return null;
+                    } else |err| switch (err) {
+                        error.FileNotFound => return null,
+
+                        error.IsDir => {
+                            treat_as_dir = true;
+                            continue :handle_entry;
+                        },
+
+                        error.AccessDenied,
+                        error.InvalidUtf8,
+                        error.SymLinkLoop,
+                        error.NameTooLong,
+                        error.SystemResources,
+                        error.ReadOnlyFileSystem,
+                        error.NotDir,
+                        error.FileSystem,
+                        error.FileBusy,
+                        error.BadPathName,
+                        error.Unexpected,
+                        => |e| return e,
+                    }
                 }
             }
-        }
+        };
     }
 
     /// Writes content to the file system, creating a new file if it does not exist, truncating
@@ -2204,7 +2568,7 @@ pub const Dir = struct {
         var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = mode });
         defer atomic_file.deinit();
 
-        try copy_file(in_file.handle, atomic_file.file.handle);
+        try copy_file(in_file.handle, atomic_file.file.handle, size);
         try atomic_file.finish();
     }
 
@@ -2236,46 +2600,33 @@ pub const Dir = struct {
         return file.stat();
     }
 
-    pub const StatFileError = File.OpenError || StatError;
+    pub const StatFileError = File.OpenError || File.StatError || os.FStatAtError;
 
-    // TODO: improve this to use the fstatat syscall instead of making 2 syscalls here.
-    pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!File.Stat {
-        var file = try self.openFile(sub_path, .{});
-        defer file.close();
-
-        return file.stat();
+    /// Returns metadata for a file inside the directory.
+    ///
+    /// On Windows, this requires three syscalls. On other operating systems, it
+    /// only takes one.
+    ///
+    /// Symlinks are followed.
+    ///
+    /// `sub_path` may be absolute, in which case `self` is ignored.
+    pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
+        switch (builtin.os.tag) {
+            .windows => {
+                var file = try self.openFile(sub_path, .{});
+                defer file.close();
+                return file.stat();
+            },
+            .wasi => {
+                const st = try os.fstatatWasi(self.fd, sub_path, os.wasi.LOOKUP_SYMLINK_FOLLOW);
+                return Stat.fromSystem(st);
+            },
+            else => {
+                const st = try os.fstatat(self.fd, sub_path, 0);
+                return Stat.fromSystem(st);
+            },
+        }
     }
-
-    pub const ChmodError = File.ChmodError;
-
-    /// Changes the mode of the directory.
-    /// The process must have the correct privileges in order to do this
-    /// successfully, or must have the effective user ID matching the owner
-    /// of the directory. Additionally, the directory must have been opened
-    /// with `OpenDirOptions{ .iterate = true }`.
-    pub fn chmod(self: Dir, new_mode: File.Mode) ChmodError!void {
-        const file: File = .{
-            .handle = self.fd,
-            .capable_io_mode = .blocking,
-        };
-        try file.chmod(new_mode);
-    }
-
-    /// Changes the owner and group of the directory.
-    /// The process must have the correct privileges in order to do this
-    /// successfully. The group may be changed by the owner of the directory to
-    /// any group of which the owner is a member. Additionally, the directory
-    /// must have been opened with `OpenDirOptions{ .iterate = true }`. If the
-    /// owner or group is specified as `null`, the ID is not changed.
-    pub fn chown(self: Dir, owner: ?File.Uid, group: ?File.Gid) ChownError!void {
-        const file: File = .{
-            .handle = self.fd,
-            .capable_io_mode = .blocking,
-        };
-        try file.chown(owner, group);
-    }
-
-    pub const ChownError = File.ChownError;
 
     const Permissions = File.Permissions;
     pub const SetPermissionsError = File.SetPermissionsError;
@@ -2309,9 +2660,16 @@ pub const Dir = struct {
 pub fn cwd() Dir {
     if (builtin.os.tag == .windows) {
         return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
+    } else if (builtin.os.tag == .wasi) {
+        return std.options.wasiCwd();
     } else {
         return Dir{ .fd = os.AT.FDCWD };
     }
+}
+
+pub fn defaultWasiCwd() Dir {
+    // Expect the first preopen to be current working directory.
+    return .{ .fd = 3 };
 }
 
 /// Opens a directory at the given path. The directory is a system resource that remains
@@ -2327,12 +2685,33 @@ pub fn openDirAbsolute(absolute_path: []const u8, flags: Dir.OpenDirOptions) Fil
 /// Same as `openDirAbsolute` but the path parameter is null-terminated.
 pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
     assert(path.isAbsoluteZ(absolute_path_c));
-    return cwd().openDirZ(absolute_path_c, flags);
+    return cwd().openDirZ(absolute_path_c, flags, false);
 }
 /// Same as `openDirAbsolute` but the path parameter is null-terminated.
 pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenDirOptions) File.OpenError!Dir {
     assert(path.isAbsoluteWindowsW(absolute_path_c));
-    return cwd().openDirW(absolute_path_c, flags);
+    return cwd().openDirW(absolute_path_c, flags, false);
+}
+
+/// Opens a directory at the given path. The directory is a system resource that remains
+/// open until `close` is called on the result.
+/// See `openIterableDirAbsoluteZ` for a function that accepts a null-terminated path.
+///
+/// Asserts that the path parameter has no null bytes.
+pub fn openIterableDirAbsolute(absolute_path: []const u8, flags: Dir.OpenDirOptions) File.OpenError!IterableDir {
+    assert(path.isAbsolute(absolute_path));
+    return cwd().openIterableDir(absolute_path, flags);
+}
+
+/// Same as `openIterableDirAbsolute` but the path parameter is null-terminated.
+pub fn openIterableDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenDirOptions) File.OpenError!IterableDir {
+    assert(path.isAbsoluteZ(absolute_path_c));
+    return IterableDir{ .dir = try cwd().openDirZ(absolute_path_c, flags, true) };
+}
+/// Same as `openIterableDirAbsolute` but the path parameter is null-terminated.
+pub fn openIterableDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenDirOptions) File.OpenError!IterableDir {
+    assert(path.isAbsoluteWindowsW(absolute_path_c));
+    return IterableDir{ .dir = try cwd().openDirW(absolute_path_c, flags, true) };
 }
 
 /// Opens a file for reading or writing, without attempting to create a new file, based on an absolute path.
@@ -2589,14 +2968,14 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             var out_len: usize = out_buffer.len;
             try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
-            return mem.sliceTo(std.meta.assumeSentinel(out_buffer.ptr, 0), 0);
+            return mem.sliceTo(out_buffer, 0);
         },
         .netbsd => {
             var mib = [4]c_int{ os.CTL.KERN, os.KERN.PROC_ARGS, -1, os.KERN.PROC_PATHNAME };
             var out_len: usize = out_buffer.len;
             try os.sysctl(&mib, out_buffer.ptr, &out_len, null, 0);
             // TODO could this slice from 0 to out_len instead?
-            return mem.sliceTo(std.meta.assumeSentinel(out_buffer.ptr, 0), 0);
+            return mem.sliceTo(out_buffer, 0);
         },
         .openbsd, .haiku => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it
@@ -2649,7 +3028,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
 /// The result is UTF16LE-encoded.
 pub fn selfExePathW() [:0]const u16 {
     const image_path_name = &os.windows.peb().ProcessParameters.ImagePathName;
-    return mem.sliceTo(std.meta.assumeSentinel(image_path_name.Buffer, 0), 0);
+    return image_path_name.Buffer[0 .. image_path_name.Length / 2 :0];
 }
 
 /// `selfExeDirPath` except allocates the result on the heap.
@@ -2693,7 +3072,7 @@ const CopyFileRawError = error{SystemResources} || os.CopyFileRangeError || os.S
 // Transfer all the data between two file descriptors in the most efficient way.
 // The copy starts at offset 0, the initial offsets are preserved.
 // No metadata is transferred over.
-fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileRawError!void {
+fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t, maybe_size: ?u64) CopyFileRawError!void {
     if (comptime builtin.target.isDarwin()) {
         const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE_DATA);
         switch (os.errno(rc)) {
@@ -2716,7 +3095,10 @@ fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileRawError!void {
             // a 32 bit value so that the syscall won't return EINVAL except for
             // impossibly large files (> 2^64-1 - 2^32-1).
             const amt = try os.copy_file_range(fd_in, offset, fd_out, offset, math.maxInt(u32), 0);
-            // Terminate when no data was copied
+            // Terminate as soon as we have copied size bytes or no bytes
+            if (maybe_size) |s| {
+                if (s == amt) break :cfr_loop;
+            }
             if (amt == 0) break :cfr_loop;
             offset += amt;
         }
@@ -2729,7 +3111,10 @@ fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileRawError!void {
     var offset: u64 = 0;
     sendfile_loop: while (true) {
         const amt = try os.sendfile(fd_out, fd_in, offset, 0, &empty_iovec, &empty_iovec, 0);
-        // Terminate when no data was copied
+        // Terminate as soon as we have copied size bytes or no bytes
+        if (maybe_size) |s| {
+            if (s == amt) break :sendfile_loop;
+        }
         if (amt == 0) break :sendfile_loop;
         offset += amt;
     }

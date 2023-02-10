@@ -1,10 +1,12 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
+
+const io = std.io;
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const unicode = std.unicode;
 const meta = std.meta;
-const builtin = @import("builtin");
 const errol = @import("fmt/errol.zig");
 const lossyCast = std.math.lossyCast;
 const expectFmt = std.testing.expectFmt;
@@ -28,13 +30,15 @@ pub const FormatOptions = struct {
 /// If `writer` returns an error, the error is returned from `format` and
 /// `writer` is not called again.
 ///
-/// The format string must be comptime known and may contain placeholders following
+/// The format string must be comptime-known and may contain placeholders following
 /// this format:
 /// `{[argument][specifier]:[fill][alignment][width].[precision]}`
 ///
-/// Each word between `[` and `]` is a parameter you have to replace with something:
+/// Above, each word including its surrounding [ and ] is a parameter which you have to replace with something:
 ///
-/// - *argument* is either the index or the name of the argument that should be inserted
+/// - *argument* is either the numeric index or the field name of the argument that should be inserted
+///   - when using a field name, you are required to enclose the field name (an identifier) in square
+///     brackets, e.g. {[score]...} as opposed to the numeric index form which can be written e.g. {2...}
 /// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
 /// - *fill* is a single character which is used to pad the formatted text
 /// - *alignment* is one of the three characters `<`, `^` or `>`. they define if the text is *left*, *center*, or *right* aligned
@@ -57,8 +61,10 @@ pub const FormatOptions = struct {
 /// - `o`: output integer value in octal notation
 /// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
 /// - `u`: output integer as an UTF-8 sequence. Integer type must have 21 bits at max.
+/// - `?`: output optional value as either the unwrapped value, or `null`; may be followed by a format specifier for the underlying value.
+/// - `!`: output error union value as either the unwrapped value, or the formatted error value; may be followed by a format specifier for the underlying value.
 /// - `*`: output the address of the value instead of the value itself.
-/// - `any`: output a value of any type using its default format
+/// - `any`: output a value of any type using its default format.
 ///
 /// If a formatted user type contains a function of the type
 /// ```
@@ -78,7 +84,7 @@ pub fn format(
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
     if (args_type_info != .Struct) {
-        @compileError("Expected tuple or struct argument, found " ++ @typeName(ArgsType));
+        @compileError("expected tuple or struct argument, found " ++ @typeName(ArgsType));
     }
 
     const fields_info = args_type_info.Struct.fields;
@@ -122,7 +128,7 @@ pub fn format(
         if (i >= fmt.len) break;
 
         if (fmt[i] == '}') {
-            @compileError("Missing opening {");
+            @compileError("missing opening {");
         }
 
         // Get past the {
@@ -135,7 +141,7 @@ pub fn format(
         const fmt_end = i;
 
         if (i >= fmt.len) {
-            @compileError("Missing closing }");
+            @compileError("missing closing }");
         }
 
         // Get past the }
@@ -147,7 +153,7 @@ pub fn format(
             .none => null,
             .number => |pos| pos,
             .named => |arg_name| meta.fieldIndex(ArgsType, arg_name) orelse
-                @compileError("No argument with name '" ++ arg_name ++ "'"),
+                @compileError("no argument with name '" ++ arg_name ++ "'"),
         };
 
         const width = switch (placeholder.width) {
@@ -155,8 +161,8 @@ pub fn format(
             .number => |v| v,
             .named => |arg_name| blk: {
                 const arg_i = comptime meta.fieldIndex(ArgsType, arg_name) orelse
-                    @compileError("No argument with name '" ++ arg_name ++ "'");
-                _ = comptime arg_state.nextArg(arg_i) orelse @compileError("Too few arguments");
+                    @compileError("no argument with name '" ++ arg_name ++ "'");
+                _ = comptime arg_state.nextArg(arg_i) orelse @compileError("too few arguments");
                 break :blk @field(args, arg_name);
             },
         };
@@ -166,14 +172,14 @@ pub fn format(
             .number => |v| v,
             .named => |arg_name| blk: {
                 const arg_i = comptime meta.fieldIndex(ArgsType, arg_name) orelse
-                    @compileError("No argument with name '" ++ arg_name ++ "'");
-                _ = comptime arg_state.nextArg(arg_i) orelse @compileError("Too few arguments");
+                    @compileError("no argument with name '" ++ arg_name ++ "'");
+                _ = comptime arg_state.nextArg(arg_i) orelse @compileError("too few arguments");
                 break :blk @field(args, arg_name);
             },
         };
 
         const arg_to_print = comptime arg_state.nextArg(arg_pos) orelse
-            @compileError("Too few arguments");
+            @compileError("too few arguments");
 
         try formatType(
             @field(args, fields_info[arg_to_print].name),
@@ -185,16 +191,16 @@ pub fn format(
                 .precision = precision,
             },
             writer,
-            default_max_depth,
+            std.options.fmt_max_depth,
         );
     }
 
     if (comptime arg_state.hasUnusedArgs()) {
-        const missing_count = arg_state.args_len - @popCount(ArgSetType, arg_state.used_args);
+        const missing_count = arg_state.args_len - @popCount(arg_state.used_args);
         switch (missing_count) {
             0 => unreachable,
-            1 => @compileError("Unused argument in '" ++ fmt ++ "'"),
-            else => @compileError((comptime comptimePrint("{d}", .{missing_count})) ++ " unused arguments in '" ++ fmt ++ "'"),
+            1 => @compileError("unused argument in '" ++ fmt ++ "'"),
+            else => @compileError(comptimePrint("{d}", .{missing_count}) ++ " unused arguments in '" ++ fmt ++ "'"),
         }
     }
 }
@@ -212,7 +218,7 @@ fn parsePlaceholder(comptime str: anytype) Placeholder {
     // Skip the colon, if present
     if (comptime parser.char()) |ch| {
         if (ch != ':') {
-            @compileError("Expected : or }, found '" ++ [1]u8{ch} ++ "'");
+            @compileError("expected : or }, found '" ++ [1]u8{ch} ++ "'");
         }
     }
 
@@ -247,7 +253,7 @@ fn parsePlaceholder(comptime str: anytype) Placeholder {
     // Skip the dot, if present
     if (comptime parser.char()) |ch| {
         if (ch != '.') {
-            @compileError("Expected . or }, found '" ++ [1]u8{ch} ++ "'");
+            @compileError("expected . or }, found '" ++ [1]u8{ch} ++ "'");
         }
     }
 
@@ -256,7 +262,7 @@ fn parsePlaceholder(comptime str: anytype) Placeholder {
         @compileError(@errorName(err));
 
     if (comptime parser.char()) |ch| {
-        @compileError("Extraneous trailing character '" ++ [1]u8{ch} ++ "'");
+        @compileError("extraneous trailing character '" ++ [1]u8{ch} ++ "'");
     }
 
     return Placeholder{
@@ -375,7 +381,7 @@ const ArgState = struct {
     args_len: usize,
 
     fn hasUnusedArgs(self: *@This()) bool {
-        return @popCount(ArgSetType, self.used_args) != self.args_len;
+        return @popCount(self.used_args) != self.args_len;
     }
 
     fn nextArg(self: *@This(), arg_index: ?usize) ?usize {
@@ -418,7 +424,7 @@ pub fn formatAddress(value: anytype, options: FormatOptions, writer: anytype) @T
         else => {},
     }
 
-    @compileError("Cannot format non-pointer type " ++ @typeName(T) ++ " with * specifier");
+    @compileError("cannot format non-pointer type " ++ @typeName(T) ++ " with * specifier");
 }
 
 // This ANY const is a workaround for: https://github.com/ziglang/zig/issues/7948
@@ -435,10 +441,22 @@ fn defaultSpec(comptime T: type) [:0]const u8 {
             .Many, .C => return "*",
             .Slice => return ANY,
         },
-        .Optional => |info| return defaultSpec(info.child),
+        .Optional => |info| return "?" ++ defaultSpec(info.child),
+        .ErrorUnion => |info| return "!" ++ defaultSpec(info.payload),
         else => {},
     }
     return "";
+}
+
+fn stripOptionalOrErrorUnionSpec(comptime fmt: []const u8) []const u8 {
+    return if (std.mem.eql(u8, fmt[1..], ANY))
+        ANY
+    else
+        fmt[1..];
+}
+
+pub fn invalidFmtError(comptime fmt: []const u8, value: anytype) void {
+    @compileError("invalid format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
 }
 
 pub fn formatType(
@@ -448,12 +466,18 @@ pub fn formatType(
     writer: anytype,
     max_depth: usize,
 ) @TypeOf(writer).Error!void {
-    const actual_fmt = comptime if (std.mem.eql(u8, fmt, ANY)) defaultSpec(@TypeOf(value)) else fmt;
+    const T = @TypeOf(value);
+    const actual_fmt = comptime if (std.mem.eql(u8, fmt, ANY))
+        defaultSpec(@TypeOf(value))
+    else if (fmt.len != 0 and (fmt[0] == '?' or fmt[0] == '!')) switch (@typeInfo(T)) {
+        .Optional, .ErrorUnion => fmt,
+        else => stripOptionalOrErrorUnionSpec(fmt),
+    } else fmt;
+
     if (comptime std.mem.eql(u8, actual_fmt, "*")) {
         return formatAddress(value, options, writer);
     }
 
-    const T = @TypeOf(value);
     if (comptime std.meta.trait.hasFn("format")(T)) {
         return try value.format(actual_fmt, options, writer);
     }
@@ -463,32 +487,42 @@ pub fn formatType(
             return formatValue(value, actual_fmt, options, writer);
         },
         .Void => {
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             return formatBuf("void", options, writer);
         },
         .Bool => {
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             return formatBuf(if (value) "true" else "false", options, writer);
         },
         .Optional => {
+            if (actual_fmt.len == 0 or actual_fmt[0] != '?')
+                @compileError("cannot format optional without a specifier (i.e. {?} or {any})");
+            const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
             if (value) |payload| {
-                return formatType(payload, actual_fmt, options, writer, max_depth);
+                return formatType(payload, remaining_fmt, options, writer, max_depth);
             } else {
                 return formatBuf("null", options, writer);
             }
         },
         .ErrorUnion => {
+            if (actual_fmt.len == 0 or actual_fmt[0] != '!')
+                @compileError("cannot format error union without a specifier (i.e. {!} or {any})");
+            const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
             if (value) |payload| {
-                return formatType(payload, actual_fmt, options, writer, max_depth);
+                return formatType(payload, remaining_fmt, options, writer, max_depth);
             } else |err| {
-                return formatType(err, actual_fmt, options, writer, max_depth);
+                return formatType(err, "", options, writer, max_depth);
             }
         },
         .ErrorSet => {
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             try writer.writeAll("error.");
             return writer.writeAll(@errorName(value));
         },
         .Enum => |enumInfo| {
             try writer.writeAll(@typeName(T));
             if (enumInfo.is_exhaustive) {
+                if (actual_fmt.len != 0) invalidFmtError(fmt, value);
                 try writer.writeAll(".");
                 try writer.writeAll(@tagName(value));
                 return;
@@ -509,6 +543,7 @@ pub fn formatType(
             try writer.writeAll(")");
         },
         .Union => |info| {
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             try writer.writeAll(@typeName(T));
             if (max_depth == 0) {
                 return writer.writeAll("{ ... }");
@@ -528,6 +563,7 @@ pub fn formatType(
             }
         },
         .Struct => |info| {
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             if (info.is_tuple) {
                 // Skip the type and field names when formatting tuples.
                 if (max_depth == 0) {
@@ -583,7 +619,7 @@ pub fn formatType(
                         }
                         return;
                     }
-                    @compileError("Unknown format string: '" ++ actual_fmt ++ "' for type '" ++ @typeName(T) ++ "'");
+                    invalidFmtError(fmt, value);
                 },
                 .Enum, .Union, .Struct => {
                     return formatType(value.*, actual_fmt, options, writer, max_depth);
@@ -605,7 +641,7 @@ pub fn formatType(
                         else => {},
                     }
                 }
-                @compileError("Unknown format string: '" ++ actual_fmt ++ "' for type '" ++ @typeName(T) ++ "'");
+                invalidFmtError(fmt, value);
             },
             .Slice => {
                 if (actual_fmt.len == 0)
@@ -668,15 +704,23 @@ pub fn formatType(
             try writer.writeAll(" }");
         },
         .Fn => {
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             return format(writer, "{s}@{x}", .{ @typeName(T), @ptrToInt(value) });
         },
-        .Type => return formatBuf(@typeName(value), options, writer),
+        .Type => {
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            return formatBuf(@typeName(value), options, writer);
+        },
         .EnumLiteral => {
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             const buffer = [_]u8{'.'} ++ @tagName(value);
             return formatBuf(buffer, options, writer);
         },
-        .Null => return formatBuf("null", options, writer),
-        else => @compileError("Unable to format type '" ++ @typeName(T) ++ "'"),
+        .Null => {
+            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            return formatBuf("null", options, writer);
+        },
+        else => @compileError("unable to format type '" ++ @typeName(T) ++ "'"),
     }
 }
 
@@ -722,13 +766,13 @@ pub fn formatIntValue(
         if (@typeInfo(@TypeOf(int_value)).Int.bits <= 8) {
             return formatAsciiChar(@as(u8, int_value), options, writer);
         } else {
-            @compileError("Cannot print integer that is larger than 8 bits as an ASCII character");
+            @compileError("cannot print integer that is larger than 8 bits as an ASCII character");
         }
     } else if (comptime std.mem.eql(u8, fmt, "u")) {
         if (@typeInfo(@TypeOf(int_value)).Int.bits <= 21) {
             return formatUnicodeCodepoint(@as(u21, int_value), options, writer);
         } else {
-            @compileError("Cannot print integer that is larger than 21 bits as an UTF-8 sequence");
+            @compileError("cannot print integer that is larger than 21 bits as an UTF-8 sequence");
         }
     } else if (comptime std.mem.eql(u8, fmt, "b")) {
         radix = 2;
@@ -743,7 +787,7 @@ pub fn formatIntValue(
         radix = 8;
         case = .lower;
     } else {
-        @compileError("Unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
+        invalidFmtError(fmt, value);
     }
 
     return formatInt(int_value, radix, case, options, writer);
@@ -772,7 +816,7 @@ fn formatFloatValue(
             error.NoSpaceLeft => unreachable,
         };
     } else {
-        @compileError("Unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
+        invalidFmtError(fmt, value);
     }
 
     return formatBuf(buf_stream.getWritten(), options, writer);
@@ -784,7 +828,7 @@ fn formatSliceHexImpl(comptime case: Case) type {
     const charset = "0123456789" ++ if (case == .upper) "ABCDEF" else "abcdef";
 
     return struct {
-        pub fn f(
+        pub fn formatSliceHexImpl(
             bytes: []const u8,
             comptime fmt: []const u8,
             options: std.fmt.FormatOptions,
@@ -803,8 +847,8 @@ fn formatSliceHexImpl(comptime case: Case) type {
     };
 }
 
-const formatSliceHexLower = formatSliceHexImpl(.lower).f;
-const formatSliceHexUpper = formatSliceHexImpl(.upper).f;
+const formatSliceHexLower = formatSliceHexImpl(.lower).formatSliceHexImpl;
+const formatSliceHexUpper = formatSliceHexImpl(.upper).formatSliceHexImpl;
 
 /// Return a Formatter for a []const u8 where every byte is formatted as a pair
 /// of lowercase hexadecimal digits.
@@ -822,7 +866,7 @@ fn formatSliceEscapeImpl(comptime case: Case) type {
     const charset = "0123456789" ++ if (case == .upper) "ABCDEF" else "abcdef";
 
     return struct {
-        pub fn f(
+        pub fn formatSliceEscapeImpl(
             bytes: []const u8,
             comptime fmt: []const u8,
             options: std.fmt.FormatOptions,
@@ -848,8 +892,8 @@ fn formatSliceEscapeImpl(comptime case: Case) type {
     };
 }
 
-const formatSliceEscapeLower = formatSliceEscapeImpl(.lower).f;
-const formatSliceEscapeUpper = formatSliceEscapeImpl(.upper).f;
+const formatSliceEscapeLower = formatSliceEscapeImpl(.lower).formatSliceEscapeImpl;
+const formatSliceEscapeUpper = formatSliceEscapeImpl(.upper).formatSliceEscapeImpl;
 
 /// Return a Formatter for a []const u8 where every non-printable ASCII
 /// character is escaped as \xNN, where NN is the character in lowercase
@@ -867,7 +911,7 @@ pub fn fmtSliceEscapeUpper(bytes: []const u8) std.fmt.Formatter(formatSliceEscap
 
 fn formatSizeImpl(comptime radix: comptime_int) type {
     return struct {
-        fn f(
+        fn formatSizeImpl(
             value: u64,
             comptime fmt: []const u8,
             options: FormatOptions,
@@ -875,8 +919,11 @@ fn formatSizeImpl(comptime radix: comptime_int) type {
         ) !void {
             _ = fmt;
             if (value == 0) {
-                return writer.writeAll("0B");
+                return formatBuf("0B", options, writer);
             }
+            // The worst case in terms of space needed is 32 bytes + 3 for the suffix.
+            var buf: [35]u8 = undefined;
+            var bufstream = io.fixedBufferStream(buf[0..]);
 
             const mags_si = " kMGTPEZY";
             const mags_iec = " KMGTPEZY";
@@ -894,24 +941,26 @@ fn formatSizeImpl(comptime radix: comptime_int) type {
                 else => unreachable,
             };
 
-            try formatFloatDecimal(new_value, options, writer);
+            formatFloatDecimal(new_value, options, bufstream.writer()) catch |err| switch (err) {
+                error.NoSpaceLeft => unreachable, // 35 bytes should be enough
+            };
 
-            if (suffix == ' ') {
-                return writer.writeAll("B");
-            }
-
-            const buf = switch (radix) {
+            bufstream.writer().writeAll(if (suffix == ' ')
+                "B"
+            else switch (radix) {
                 1000 => &[_]u8{ suffix, 'B' },
                 1024 => &[_]u8{ suffix, 'i', 'B' },
                 else => unreachable,
+            }) catch |err| switch (err) {
+                error.NoSpaceLeft => unreachable,
             };
-            return writer.writeAll(buf);
+            return formatBuf(bufstream.getWritten(), options, writer);
         }
     };
 }
 
-const formatSizeDec = formatSizeImpl(1000).f;
-const formatSizeBin = formatSizeImpl(1024).f;
+const formatSizeDec = formatSizeImpl(1000).formatSizeImpl;
+const formatSizeBin = formatSizeImpl(1024).formatSizeImpl;
 
 /// Return a Formatter for a u64 value representing a file size.
 /// This formatter represents the number as multiple of 1000 and uses the SI
@@ -929,7 +978,7 @@ pub fn fmtIntSizeBin(value: u64) std.fmt.Formatter(formatSizeBin) {
 
 fn checkTextFmt(comptime fmt: []const u8) void {
     if (fmt.len != 1)
-        @compileError("Unsupported format string '" ++ fmt ++ "' when formatting text");
+        @compileError("unsupported format string '" ++ fmt ++ "' when formatting text");
     switch (fmt[0]) {
         'x' => @compileError("specifier 'x' has been deprecated, wrap your argument in std.fmt.fmtSliceHexLower instead"),
         'X' => @compileError("specifier 'X' has been deprecated, wrap your argument in std.fmt.fmtSliceHexUpper instead"),
@@ -956,8 +1005,7 @@ pub fn formatAsciiChar(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    _ = options;
-    return writer.writeAll(@as(*const [1]u8, &c));
+    return formatBuf(@as(*const [1]u8, &c), options, writer);
 }
 
 pub fn formatUnicodeCodepoint(
@@ -1160,10 +1208,9 @@ pub fn formatFloatHexadecimal(
             mantissa |= 1 << fractional_bits; // Add the implicit integer bit.
     }
 
-    // Fill in zeroes to round the mantissa width to a multiple of 4.
-    if (T == f16) mantissa <<= 2 else if (T == f32) mantissa <<= 1;
-
     const mantissa_digits = (fractional_bits + 3) / 4;
+    // Fill in zeroes to round the fraction width to a multiple of 4.
+    mantissa <<= mantissa_digits * 4 - fractional_bits;
 
     if (options.precision) |precision| {
         // Round if needed.
@@ -1383,12 +1430,29 @@ pub fn formatInt(
 
     var a: MinInt = abs_value;
     var index: usize = buf.len;
-    while (true) {
-        const digit = a % base;
-        index -= 1;
-        buf[index] = digitToChar(@intCast(u8, digit), case);
-        a /= base;
-        if (a == 0) break;
+
+    // TODO isComptime here because of https://github.com/ziglang/zig/issues/13335.
+    if (base == 10 and !isComptime()) {
+        while (a >= 100) : (a = @divTrunc(a, 100)) {
+            index -= 2;
+            buf[index..][0..2].* = digits2(@intCast(usize, a % 100));
+        }
+
+        if (a < 10) {
+            index -= 1;
+            buf[index] = '0' + @intCast(u8, a);
+        } else {
+            index -= 2;
+            buf[index..][0..2].* = digits2(@intCast(usize, a));
+        }
+    } else {
+        while (true) {
+            const digit = a % base;
+            index -= 1;
+            buf[index] = digitToChar(@intCast(u8, digit), case);
+            a /= base;
+            if (a == 0) break;
+        }
     }
 
     if (value_info.signedness == .signed) {
@@ -1408,10 +1472,25 @@ pub fn formatInt(
     return formatBuf(buf[index..], options, writer);
 }
 
+// TODO: Remove once https://github.com/ziglang/zig/issues/868 is resolved.
+fn isComptime() bool {
+    var a: u8 = 0;
+    return @typeInfo(@TypeOf(.{a})).Struct.fields[0].is_comptime;
+}
+
 pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, case: Case, options: FormatOptions) usize {
     var fbs = std.io.fixedBufferStream(out_buf);
     formatInt(value, base, case, options, fbs.writer()) catch unreachable;
     return fbs.pos;
+}
+
+// Converts values in the range [0, 100) to a string.
+fn digits2(value: usize) [2]u8 {
+    return ("0001020304050607080910111213141516171819" ++
+        "2021222324252627282930313233343536373839" ++
+        "4041424344454647484950515253545556575859" ++
+        "6061626364656667686970717273747576777879" ++
+        "8081828384858687888990919293949596979899")[value * 2 ..][0..2].*;
 }
 
 const FormatDurationData = struct {
@@ -1646,7 +1725,7 @@ pub const ParseIntError = error{
 ///     ) !void;
 ///
 pub fn Formatter(comptime format_fn: anytype) type {
-    const Data = @typeInfo(@TypeOf(format_fn)).Fn.args[0].arg_type.?;
+    const Data = @typeInfo(@TypeOf(format_fn)).Fn.params[0].type.?;
     return struct {
         data: Data,
         pub fn format(
@@ -1837,7 +1916,6 @@ test "parseUnsigned" {
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
-pub const parseHexFloat = @compileError("deprecated; use `parseFloat`");
 pub const ParseFloatError = @import("fmt/parse_float.zig").ParseFloatError;
 
 test {
@@ -1899,8 +1977,6 @@ pub fn allocPrint(allocator: mem.Allocator, comptime fmt: []const u8, args: anyt
         error.NoSpaceLeft => unreachable, // we just counted the size above
     };
 }
-
-pub const allocPrint0 = @compileError("deprecated; use allocPrintZ");
 
 pub fn allocPrintZ(allocator: mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![:0]u8 {
     const result = try allocPrint(allocator, fmt ++ "\x00", args);
@@ -1969,11 +2045,17 @@ test "escaped braces" {
 test "optional" {
     {
         const value: ?i32 = 1234;
-        try expectFmt("optional: 1234\n", "optional: {}\n", .{value});
+        try expectFmt("optional: 1234\n", "optional: {?}\n", .{value});
+        try expectFmt("optional: 1234\n", "optional: {?d}\n", .{value});
+        try expectFmt("optional: 4d2\n", "optional: {?x}\n", .{value});
+    }
+    {
+        const value: ?[]const u8 = "string";
+        try expectFmt("optional: string\n", "optional: {?s}\n", .{value});
     }
     {
         const value: ?i32 = null;
-        try expectFmt("optional: null\n", "optional: {}\n", .{value});
+        try expectFmt("optional: null\n", "optional: {?}\n", .{value});
     }
     {
         const value = @intToPtr(?*i32, 0xf000d000);
@@ -1984,11 +2066,17 @@ test "optional" {
 test "error" {
     {
         const value: anyerror!i32 = 1234;
-        try expectFmt("error union: 1234\n", "error union: {}\n", .{value});
+        try expectFmt("error union: 1234\n", "error union: {!}\n", .{value});
+        try expectFmt("error union: 1234\n", "error union: {!d}\n", .{value});
+        try expectFmt("error union: 4d2\n", "error union: {!x}\n", .{value});
+    }
+    {
+        const value: anyerror![]const u8 = "string";
+        try expectFmt("error union: string\n", "error union: {!s}\n", .{value});
     }
     {
         const value: anyerror!i32 = error.InvalidChar;
-        try expectFmt("error union: error.InvalidChar\n", "error union: {}\n", .{value});
+        try expectFmt("error union: error.InvalidChar\n", "error union: {!}\n", .{value});
     }
 }
 
@@ -2053,15 +2141,15 @@ test "buffer" {
     {
         var buf1: [32]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buf1);
-        try formatType(1234, "", FormatOptions{}, fbs.writer(), default_max_depth);
+        try formatType(1234, "", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
         try std.testing.expect(mem.eql(u8, fbs.getWritten(), "1234"));
 
         fbs.reset();
-        try formatType('a', "c", FormatOptions{}, fbs.writer(), default_max_depth);
+        try formatType('a', "c", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
         try std.testing.expect(mem.eql(u8, fbs.getWritten(), "a"));
 
         fbs.reset();
-        try formatType(0b1100, "b", FormatOptions{}, fbs.writer(), default_max_depth);
+        try formatType(0b1100, "b", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
         try std.testing.expect(mem.eql(u8, fbs.getWritten(), "1100"));
     }
 }
@@ -2111,24 +2199,25 @@ test "slice" {
 }
 
 test "escape non-printable" {
-    try expectFmt("abc", "{s}", .{fmtSliceEscapeLower("abc")});
+    try expectFmt("abc 123", "{s}", .{fmtSliceEscapeLower("abc 123")});
     try expectFmt("ab\\xffc", "{s}", .{fmtSliceEscapeLower("ab\xffc")});
+    try expectFmt("abc 123", "{s}", .{fmtSliceEscapeUpper("abc 123")});
     try expectFmt("ab\\xFFc", "{s}", .{fmtSliceEscapeUpper("ab\xffc")});
 }
 
 test "pointer" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     {
         const value = @intToPtr(*align(1) i32, 0xdeadbeef);
         try expectFmt("pointer: i32@deadbeef\n", "pointer: {}\n", .{value});
         try expectFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
     }
+    const FnPtr = *align(1) const fn () void;
     {
-        const value = @intToPtr(*const fn () void, 0xdeadbeef);
+        const value = @intToPtr(FnPtr, 0xdeadbeef);
         try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
     {
-        const value = @intToPtr(*const fn () void, 0xdeadbeef);
+        const value = @intToPtr(FnPtr, 0xdeadbeef);
         try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
 }
@@ -2153,6 +2242,10 @@ test "filesize" {
     try expectFmt("file size: 63MiB\n", "file size: {}\n", .{fmtIntSizeBin(63 * 1024 * 1024)});
     try expectFmt("file size: 66.06MB\n", "file size: {:.2}\n", .{fmtIntSizeDec(63 * 1024 * 1024)});
     try expectFmt("file size: 60.08MiB\n", "file size: {:.2}\n", .{fmtIntSizeBin(63 * 1000 * 1000)});
+    try expectFmt("file size: =66.06MB=\n", "file size: {:=^9.2}\n", .{fmtIntSizeDec(63 * 1024 * 1024)});
+    try expectFmt("file size:   66.06MB\n", "file size: {: >9.2}\n", .{fmtIntSizeDec(63 * 1024 * 1024)});
+    try expectFmt("file size: 66.06MB  \n", "file size: {: <9.2}\n", .{fmtIntSizeDec(63 * 1024 * 1024)});
+    try expectFmt("file size: 0.01844674407370955ZB\n", "file size: {}\n", .{fmtIntSizeDec(math.maxInt(u64))});
 }
 
 test "struct" {
@@ -2182,18 +2275,14 @@ test "enum" {
     const value = Enum.Two;
     try expectFmt("enum: Enum.Two\n", "enum: {}\n", .{value});
     try expectFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
-    try expectFmt("enum: Enum.One\n", "enum: {x}\n", .{Enum.One});
-    try expectFmt("enum: Enum.Two\n", "enum: {X}\n", .{Enum.Two});
+    try expectFmt("enum: Enum.One\n", "enum: {}\n", .{Enum.One});
+    try expectFmt("enum: Enum.Two\n", "enum: {}\n", .{Enum.Two});
 
     // test very large enum to verify ct branch quota is large enough
     try expectFmt("enum: os.windows.win32error.Win32Error.INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
 }
 
 test "non-exhaustive enum" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 fails to return fully qualified namespaces.
-        return error.SkipZigTest;
-    }
     const Enum = enum(u16) {
         One = 0x000f,
         Two = 0xbeef,
@@ -2225,7 +2314,6 @@ test "float.scientific.precision" {
 }
 
 test "float.special" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     try expectFmt("f64: nan", "f64: {}", .{math.nan_f64});
     // negative nan is not defined by IEE 754,
     // and ARM thus normalizes it to positive nan
@@ -2237,7 +2325,6 @@ test "float.special" {
 }
 
 test "float.hexadecimal.special" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     try expectFmt("f64: nan", "f64: {x}", .{math.nan_f64});
     // negative nan is not defined by IEE 754,
     // and ARM thus normalizes it to positive nan
@@ -2255,21 +2342,25 @@ test "float.hexadecimal" {
     try expectFmt("f16: 0x1.554p-2", "f16: {x}", .{@as(f16, 1.0 / 3.0)});
     try expectFmt("f32: 0x1.555556p-2", "f32: {x}", .{@as(f32, 1.0 / 3.0)});
     try expectFmt("f64: 0x1.5555555555555p-2", "f64: {x}", .{@as(f64, 1.0 / 3.0)});
+    try expectFmt("f80: 0x1.5555555555555556p-2", "f80: {x}", .{@as(f80, 1.0 / 3.0)});
     try expectFmt("f128: 0x1.5555555555555555555555555555p-2", "f128: {x}", .{@as(f128, 1.0 / 3.0)});
 
     try expectFmt("f16: 0x1p-14", "f16: {x}", .{math.floatMin(f16)});
     try expectFmt("f32: 0x1p-126", "f32: {x}", .{math.floatMin(f32)});
     try expectFmt("f64: 0x1p-1022", "f64: {x}", .{math.floatMin(f64)});
+    try expectFmt("f80: 0x1p-16382", "f80: {x}", .{math.floatMin(f80)});
     try expectFmt("f128: 0x1p-16382", "f128: {x}", .{math.floatMin(f128)});
 
     try expectFmt("f16: 0x0.004p-14", "f16: {x}", .{math.floatTrueMin(f16)});
     try expectFmt("f32: 0x0.000002p-126", "f32: {x}", .{math.floatTrueMin(f32)});
     try expectFmt("f64: 0x0.0000000000001p-1022", "f64: {x}", .{math.floatTrueMin(f64)});
+    try expectFmt("f80: 0x0.0000000000000002p-16382", "f80: {x}", .{math.floatTrueMin(f80)});
     try expectFmt("f128: 0x0.0000000000000000000000000001p-16382", "f128: {x}", .{math.floatTrueMin(f128)});
 
     try expectFmt("f16: 0x1.ffcp15", "f16: {x}", .{math.floatMax(f16)});
     try expectFmt("f32: 0x1.fffffep127", "f32: {x}", .{math.floatMax(f32)});
     try expectFmt("f64: 0x1.fffffffffffffp1023", "f64: {x}", .{math.floatMax(f64)});
+    try expectFmt("f80: 0x1.fffffffffffffffep16383", "f80: {x}", .{math.floatMax(f80)});
     try expectFmt("f128: 0x1.ffffffffffffffffffffffffffffp16383", "f128: {x}", .{math.floatMax(f128)});
 }
 
@@ -2277,11 +2368,13 @@ test "float.hexadecimal.precision" {
     try expectFmt("f16: 0x1.5p-2", "f16: {x:.1}", .{@as(f16, 1.0 / 3.0)});
     try expectFmt("f32: 0x1.555p-2", "f32: {x:.3}", .{@as(f32, 1.0 / 3.0)});
     try expectFmt("f64: 0x1.55555p-2", "f64: {x:.5}", .{@as(f64, 1.0 / 3.0)});
-    try expectFmt("f128: 0x1.5555555p-2", "f128: {x:.7}", .{@as(f128, 1.0 / 3.0)});
+    try expectFmt("f80: 0x1.5555555p-2", "f80: {x:.7}", .{@as(f80, 1.0 / 3.0)});
+    try expectFmt("f128: 0x1.555555555p-2", "f128: {x:.9}", .{@as(f128, 1.0 / 3.0)});
 
     try expectFmt("f16: 0x1.00000p0", "f16: {x:.5}", .{@as(f16, 1.0)});
     try expectFmt("f32: 0x1.00000p0", "f32: {x:.5}", .{@as(f32, 1.0)});
     try expectFmt("f64: 0x1.00000p0", "f64: {x:.5}", .{@as(f64, 1.0)});
+    try expectFmt("f80: 0x1.00000p0", "f80: {x:.5}", .{@as(f80, 1.0)});
     try expectFmt("f128: 0x1.00000p0", "f128: {x:.5}", .{@as(f128, 1.0)});
 }
 
@@ -2345,7 +2438,7 @@ test "custom" {
             } else if (comptime std.mem.eql(u8, fmt, "d")) {
                 return std.fmt.format(writer, "{d:.3}x{d:.3}", .{ self.x, self.y });
             } else {
-                @compileError("Unknown format character: '" ++ fmt ++ "'");
+                @compileError("unknown format character: '" ++ fmt ++ "'");
             }
         }
     };
@@ -2363,10 +2456,6 @@ test "custom" {
 }
 
 test "struct" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 fails to return fully qualified namespaces.
-        return error.SkipZigTest;
-    }
     const S = struct {
         a: u32,
         b: anyerror,
@@ -2385,10 +2474,6 @@ test "struct" {
 }
 
 test "union" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 fails to return fully qualified namespaces.
-        return error.SkipZigTest;
-    }
     const TU = union(enum) {
         float: f32,
         int: u32,
@@ -2419,10 +2504,6 @@ test "union" {
 }
 
 test "enum" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 fails to return fully qualified namespaces.
-        return error.SkipZigTest;
-    }
     const E = enum {
         One,
         Two,
@@ -2435,10 +2516,6 @@ test "enum" {
 }
 
 test "struct.self-referential" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 fails to return fully qualified namespaces.
-        return error.SkipZigTest;
-    }
     const S = struct {
         const SelfType = @This();
         a: ?*SelfType,
@@ -2453,10 +2530,6 @@ test "struct.self-referential" {
 }
 
 test "struct.zero-size" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 fails to return fully qualified namespaces.
-        return error.SkipZigTest;
-    }
     const A = struct {
         fn foo() void {}
     };
@@ -2534,10 +2607,6 @@ test "formatFloatValue with comptime_float" {
 }
 
 test "formatType max_depth" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 fails to return fully qualified namespaces.
-        return error.SkipZigTest;
-    }
     const Vec2 = struct {
         const SelfType = @This();
         x: f32,
@@ -2553,7 +2622,7 @@ test "formatType max_depth" {
             if (fmt.len == 0) {
                 return std.fmt.format(writer, "({d:.3},{d:.3})", .{ self.x, self.y });
             } else {
-                @compileError("Unknown format string: '" ++ fmt ++ "'");
+                @compileError("unknown format string: '" ++ fmt ++ "'");
             }
         }
     };
@@ -2637,7 +2706,7 @@ test "vector" {
 }
 
 test "enum-literal" {
-    try expectFmt(".hello_world", "{s}", .{.hello_world});
+    try expectFmt(".hello_world", "{}", .{.hello_world});
 }
 
 test "padding" {
@@ -2655,6 +2724,9 @@ test "padding" {
     try expectFmt("==crêpe===", "{s:=^10}", .{"crêpe"});
     try expectFmt("=====crêpe", "{s:=>10}", .{"crêpe"});
     try expectFmt("crêpe=====", "{s:=<10}", .{"crêpe"});
+    try expectFmt("====a", "{c:=>5}", .{'a'});
+    try expectFmt("==a==", "{c:=^5}", .{'a'});
+    try expectFmt("a====", "{c:=<5}", .{'a'});
 }
 
 test "decimal float padding" {
@@ -2701,4 +2773,22 @@ test "runtime precision specifier" {
     var precision: usize = 2;
     try expectFmt("3.14e+00", "{:1.[1]}", .{ number, precision });
     try expectFmt("3.14e+00", "{:1.[precision]}", .{ .number = number, .precision = precision });
+}
+
+test "recursive format function" {
+    const R = union(enum) {
+        const R = @This();
+        Leaf: i32,
+        Branch: struct { left: *const R, right: *const R },
+
+        pub fn format(self: R, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+            return switch (self) {
+                .Leaf => |n| std.fmt.format(writer, "Leaf({})", .{n}),
+                .Branch => |b| std.fmt.format(writer, "Branch({}, {})", .{ b.left, b.right }),
+            };
+        }
+    };
+
+    var r = R{ .Leaf = 1 };
+    try expectFmt("Leaf(1)\n", "{}\n", .{&r});
 }

@@ -1,5 +1,6 @@
-pub export fn _start() noreturn {}
+pub export fn main() noreturn {}
 
 // error
 //
-// :1:34: error: expected noreturn, found void
+// :1:22: error: function declared 'noreturn' implicitly returns
+// :1:32: note: control flow reaches end of body here

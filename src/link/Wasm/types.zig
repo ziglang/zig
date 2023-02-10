@@ -12,8 +12,8 @@ pub const Relocation = struct {
     /// When the type is `R_WASM_TYPE_INDEX_LEB`, it represents the index of the type.
     index: u32,
     /// Addend to add to the address.
-    /// This field is only non-null for `R_WASM_MEMORY_ADDR_*`, `R_WASM_FUNCTION_OFFSET_I32` and `R_WASM_SECTION_OFFSET_I32`.
-    addend: ?u32 = null,
+    /// This field is only non-zero for `R_WASM_MEMORY_ADDR_*`, `R_WASM_FUNCTION_OFFSET_I32` and `R_WASM_SECTION_OFFSET_I32`.
+    addend: i32 = 0,
 
     /// All possible relocation types currently existing.
     /// This enum is exhaustive as the spec is WIP and new types
@@ -129,6 +129,7 @@ pub const Segment = struct {
     /// file or binary. When `merge_segments` is true, this will return the
     /// short name. i.e. ".rodata". When false, it returns the entire name instead.
     pub fn outputName(self: Segment, merge_segments: bool) []const u8 {
+        if (std.mem.startsWith(u8, self.name, ".synthetic")) return ".synthetic"; // always merge
         if (!merge_segments) return self.name;
         if (std.mem.startsWith(u8, self.name, ".rodata.")) {
             return ".rodata";
@@ -183,17 +184,44 @@ pub const Feature = struct {
     /// Type of the feature, must be unique in the sequence of features.
     tag: Tag,
 
+    /// Unlike `std.Target.wasm.Feature` this also contains linker-features such as shared-mem
     pub const Tag = enum {
         atomics,
         bulk_memory,
         exception_handling,
+        extended_const,
         multivalue,
         mutable_globals,
         nontrapping_fptoint,
+        reference_types,
+        relaxed_simd,
         sign_ext,
         simd128,
         tail_call,
         shared_mem,
+
+        /// From a given cpu feature, returns its linker feature
+        pub fn fromCpuFeature(feature: std.Target.wasm.Feature) Tag {
+            return @intToEnum(Tag, @enumToInt(feature));
+        }
+
+        pub fn toString(tag: Tag) []const u8 {
+            return switch (tag) {
+                .atomics => "atomics",
+                .bulk_memory => "bulk-memory",
+                .exception_handling => "exception-handling",
+                .extended_const => "extended-const",
+                .multivalue => "multivalue",
+                .mutable_globals => "mutable-globals",
+                .nontrapping_fptoint => "nontrapping-fptoint",
+                .reference_types => "reference-types",
+                .relaxed_simd => "relaxed-simd",
+                .sign_ext => "sign-ext",
+                .simd128 => "simd128",
+                .tail_call => "tail-call",
+                .shared_mem => "shared-mem",
+            };
+        }
     };
 
     pub const Prefix = enum(u8) {
@@ -202,22 +230,10 @@ pub const Feature = struct {
         required = '=',
     };
 
-    pub fn toString(self: Feature) []const u8 {
-        return switch (self.tag) {
-            .bulk_memory => "bulk-memory",
-            .exception_handling => "exception-handling",
-            .mutable_globals => "mutable-globals",
-            .nontrapping_fptoint => "nontrapping-fptoint",
-            .sign_ext => "sign-ext",
-            .tail_call => "tail-call",
-            else => @tagName(self),
-        };
-    }
-
-    pub fn format(self: Feature, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(feature: Feature, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
         _ = opt;
         _ = fmt;
-        try writer.print("{c} {s}", .{ self.prefix, self.toString() });
+        try writer.print("{c} {s}", .{ feature.prefix, feature.tag.toString() });
     }
 };
 
@@ -225,9 +241,12 @@ pub const known_features = std.ComptimeStringMap(Feature.Tag, .{
     .{ "atomics", .atomics },
     .{ "bulk-memory", .bulk_memory },
     .{ "exception-handling", .exception_handling },
+    .{ "extended-const", .extended_const },
     .{ "multivalue", .multivalue },
     .{ "mutable-globals", .mutable_globals },
     .{ "nontrapping-fptoint", .nontrapping_fptoint },
+    .{ "reference-types", .reference_types },
+    .{ "relaxed-simd", .relaxed_simd },
     .{ "sign-ext", .sign_ext },
     .{ "simd128", .simd128 },
     .{ "tail-call", .tail_call },

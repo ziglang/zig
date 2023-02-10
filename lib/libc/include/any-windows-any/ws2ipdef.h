@@ -192,11 +192,6 @@ typedef enum _MULTICAST_MODE_TYPE {
   MCAST_EXCLUDE
 } MULTICAST_MODE_TYPE;
 
-typedef struct ip_mreq {
-  IN_ADDR imr_multiaddr;
-  IN_ADDR imr_interface;
-} IP_MREQ, *PIP_MREQ;
-
 typedef struct ip_mreq_source {
   IN_ADDR imr_multiaddr;
   IN_ADDR imr_sourceaddr;

@@ -3,6 +3,7 @@ const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
+const native_endian = @import("builtin").target.cpu.arch.endian();
 
 pub fn Reader(
     comptime Context: type,
@@ -30,10 +31,20 @@ pub fn Reader(
         /// means the stream reached the end. Reaching the end of a stream is not an error
         /// condition.
         pub fn readAll(self: Self, buffer: []u8) Error!usize {
+            return readAtLeast(self, buffer, buffer.len);
+        }
+
+        /// Returns the number of bytes read, calling the underlying read
+        /// function the minimal number of times until the buffer has at least
+        /// `len` bytes filled. If the number read is less than `len` it means
+        /// the stream reached the end. Reaching the end of the stream is not
+        /// an error condition.
+        pub fn readAtLeast(self: Self, buffer: []u8, len: usize) Error!usize {
+            assert(len <= buffer.len);
             var index: usize = 0;
-            while (index != buffer.len) {
+            while (index < len) {
                 const amt = try self.read(buffer[index..]);
-                if (amt == 0) return index;
+                if (amt == 0) break;
                 index += amt;
             }
             return index;
@@ -176,11 +187,11 @@ pub fn Reader(
                 error.EndOfStream => if (array_list.items.len == 0) {
                     return null;
                 } else {
-                    return array_list.toOwnedSlice();
+                    return try array_list.toOwnedSlice();
                 },
                 else => |e| return e,
             };
-            return array_list.toOwnedSlice();
+            return try array_list.toOwnedSlice();
         }
 
         /// Reads from the stream until specified byte is found. If the buffer is not
@@ -245,6 +256,27 @@ pub fn Reader(
             var bytes: [num_bytes]u8 = undefined;
             try self.readNoEof(&bytes);
             return bytes;
+        }
+
+        /// Reads bytes into the bounded array, until
+        /// the bounded array is full, or the stream ends.
+        pub fn readIntoBoundedBytes(
+            self: Self,
+            comptime num_bytes: usize,
+            bounded: *std.BoundedArray(u8, num_bytes),
+        ) !void {
+            while (bounded.len < num_bytes) {
+                const bytes_read = try self.read(bounded.unusedCapacitySlice());
+                if (bytes_read == 0) return;
+                bounded.len += bytes_read;
+            }
+        }
+
+        /// Reads at most `num_bytes` and returns as a bounded array.
+        pub fn readBoundedBytes(self: Self, comptime num_bytes: usize) !std.BoundedArray(u8, num_bytes) {
+            var result = std.BoundedArray(u8, num_bytes){};
+            try self.readIntoBoundedBytes(num_bytes, &result);
+            return result;
         }
 
         /// Reads a native-endian integer
@@ -318,6 +350,14 @@ pub fn Reader(
             var res: [1]T = undefined;
             try self.readNoEof(mem.sliceAsBytes(res[0..]));
             return res[0];
+        }
+
+        pub fn readStructBig(self: Self, comptime T: type) !T {
+            var res = try self.readStruct(T);
+            if (native_endian != std.builtin.Endian.Big) {
+                mem.byteSwapAllFields(T, &res);
+            }
+            return res;
         }
 
         /// Reads an integer with the same size as the given enum's tag type. If the integer matches

@@ -6,14 +6,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "__config"
+#include <__config>
+
 #ifndef _LIBCPP_HAS_NO_THREADS
 
-#include "thread"
-#include "exception"
-#include "vector"
-#include "future"
-#include "limits"
+#include <exception>
+#include <future>
+#include <limits>
+#include <thread>
+#include <vector>
 
 #if __has_include(<unistd.h>)
 # include <unistd.h> // for sysconf
@@ -114,8 +115,13 @@ sleep_for(const chrono::nanoseconds& ns)
 __thread_specific_ptr<__thread_struct>&
 __thread_local_data()
 {
-    static __thread_specific_ptr<__thread_struct> __p;
-    return __p;
+  // Even though __thread_specific_ptr's destructor doesn't actually destroy
+  // anything (see comments there), we can't call it at all because threads may
+  // outlive the static variable and calling its destructor means accessing an
+  // object outside of its lifetime, which is UB.
+  alignas(__thread_specific_ptr<__thread_struct>) static char __b[sizeof(__thread_specific_ptr<__thread_struct>)];
+  static __thread_specific_ptr<__thread_struct>* __p = new (__b) __thread_specific_ptr<__thread_struct>();
+  return *__p;
 }
 
 // __thread_struct_imp

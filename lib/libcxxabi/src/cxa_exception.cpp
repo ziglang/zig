@@ -1,4 +1,4 @@
-//===------------------------- cxa_exception.cpp --------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -17,7 +17,7 @@
 #include "cxa_exception.h"
 #include "cxa_handlers.h"
 #include "fallback_malloc.h"
-#include "include/atomic_support.h"
+#include "include/atomic_support.h" // from libc++
 
 #if __has_feature(address_sanitizer)
 #include <sanitizer/asan_interface.h>
@@ -254,7 +254,7 @@ will call terminate, assuming that there was no handler for the
 exception.
 */
 void
-__cxa_throw(void *thrown_object, std::type_info *tinfo, void (*dest)(void *)) {
+__cxa_throw(void *thrown_object, std::type_info *tinfo, void (_LIBCXXABI_DTOR_FUNC *dest)(void *)) {
     __cxa_eh_globals *globals = __cxa_get_globals();
     __cxa_exception* exception_header = cxa_exception_from_thrown_object(thrown_object);
 
@@ -341,8 +341,11 @@ unwinding with _Unwind_Resume.
 According to ARM EHABI 8.4.1, __cxa_end_cleanup() should not clobber any
 register, thus we have to write this function in assembly so that we can save
 {r1, r2, r3}.  We don't have to save r0 because it is the return value and the
-first argument to _Unwind_Resume().  In addition, we are saving r4 in order to
-align the stack to 16 bytes, even though it is a callee-save register.
+first argument to _Unwind_Resume().  The function also saves/restores r4 to
+keep the stack aligned and to provide a temp register.  _Unwind_Resume never
+returns and we need to keep the original lr so just branch to it.  When
+targeting bare metal, the function also clobbers ip/r12 to hold the address of
+_Unwind_Resume, which may be too far away for an ordinary branch.
 */
 __attribute__((used)) static _Unwind_Exception *
 __cxa_end_cleanup_impl()
@@ -372,18 +375,28 @@ __cxa_end_cleanup_impl()
     return &exception_header->unwindHeader;
 }
 
-asm (
-    "	.pushsection	.text.__cxa_end_cleanup,\"ax\",%progbits\n"
+asm("	.pushsection	.text.__cxa_end_cleanup,\"ax\",%progbits\n"
     "	.globl	__cxa_end_cleanup\n"
     "	.type	__cxa_end_cleanup,%function\n"
     "__cxa_end_cleanup:\n"
+#if defined(__ARM_FEATURE_BTI_DEFAULT)
+    "	bti\n"
+#endif
     "	push	{r1, r2, r3, r4}\n"
+    "	mov	r4, lr\n"
     "	bl	__cxa_end_cleanup_impl\n"
+    "	mov	lr, r4\n"
+#if defined(LIBCXXABI_BAREMETAL)
+    "	ldr	r4,	=_Unwind_Resume\n"
+    "	mov	ip,	r4\n"
+#endif
     "	pop	{r1, r2, r3, r4}\n"
-    "	bl	_Unwind_Resume\n"
-    "	bl	abort\n"
-    "	.popsection"
-);
+#if defined(LIBCXXABI_BAREMETAL)
+    "	bx	ip\n"
+#else
+    "	b	_Unwind_Resume\n"
+#endif
+    "	.popsection");
 #endif // defined(_LIBCXXABI_ARM_EHABI)
 
 /*
@@ -431,6 +444,14 @@ __cxa_begin_catch(void* unwind_arg) throw()
             (
                 static_cast<_Unwind_Exception*>(unwind_exception)
             );
+
+#if defined(__MVS__)
+    // Remove the exception object from the linked list of exceptions that the z/OS unwinder
+    // maintains before adding it to the libc++abi list of caught exceptions.
+    // The libc++abi will manage the lifetime of the exception from this point forward.
+    _UnwindZOS_PopException();
+#endif
+
     if (native_exception)
     {
         // Increment the handler count, removing the flag about being rethrown

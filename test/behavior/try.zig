@@ -3,8 +3,7 @@ const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 test "try on error union" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try tryOnErrorUnionImpl();
     comptime try tryOnErrorUnionImpl();

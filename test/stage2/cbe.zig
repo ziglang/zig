@@ -51,8 +51,9 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
             \\var y: @import("std").builtin.CallingConvention = .C;
         , &.{
-            ":2:22: error: unable to resolve comptime value",
+            ":2:22: error: expected type 'type', found 'i32'",
             ":5:26: error: unable to resolve comptime value",
+            ":5:26: note: calling convention must be comptime-known",
         });
     }
 
@@ -96,13 +97,13 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @intToError(0);
             \\    return 0;
             \\}
-        , &.{":2:21: error: integer value 0 represents no error"});
+        , &.{":2:21: error: integer value '0' represents no error"});
         case.addError(
             \\pub export fn main() c_int {
             \\    _ = @intToError(3);
             \\    return 0;
             \\}
-        , &.{":2:21: error: integer value 3 represents no error"});
+        , &.{":2:21: error: integer value '3' represents no error"});
     }
 
     {
@@ -669,7 +670,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = E1.a;
             \\}
         , &.{
-            ":3:7: error: expected ',' after field",
+            ":3:13: error: enum fields cannot be aligned",
         });
 
         // Redundant non-exhaustive enum mark.
@@ -705,15 +706,6 @@ pub fn addCases(ctx: *TestContext) !void {
         });
 
         case.addError(
-            \\const E1 = enum {};
-            \\export fn foo() void {
-            \\    _ = E1.a;
-            \\}
-        , &.{
-            ":1:12: error: enum declarations must have at least one tag",
-        });
-
-        case.addError(
             \\const E1 = enum { a, b, _ };
             \\export fn foo() void {
             \\    _ = E1.a;
@@ -729,8 +721,8 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = E1.a;
             \\}
         , &.{
-            ":1:28: error: duplicate enum tag",
-            ":1:22: note: other tag here",
+            ":1:28: error: duplicate enum field 'b'",
+            ":1:22: note: other field here",
         });
 
         case.addError(
@@ -739,7 +731,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @enumToInt(a);
             \\}
         , &.{
-            ":3:20: error: expected enum or tagged union, found bool",
+            ":3:20: error: expected enum or tagged union, found 'bool'",
         });
 
         case.addError(
@@ -748,7 +740,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @intToEnum(bool, a);
             \\}
         , &.{
-            ":3:20: error: expected enum, found bool",
+            ":3:20: error: expected enum, found 'bool'",
         });
 
         case.addError(
@@ -757,7 +749,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @intToEnum(E, 3);
             \\}
         , &.{
-            ":3:9: error: enum 'tmp.E' has no tag with value 3",
+            ":3:9: error: enum 'tmp.E' has no tag with value '3'",
             ":1:11: note: enum declared here",
         });
 
@@ -772,7 +764,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &.{
             ":4:5: error: switch must handle all possibilities",
-            ":4:5: note: unhandled enumeration value: 'b'",
+            ":1:21: note: unhandled enumeration value: 'b'",
             ":1:11: note: enum 'tmp.E' declared here",
         });
 
@@ -839,7 +831,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = x;
             \\}
         , &.{
-            ":3:17: error: enum 'tmp.E' has no field named 'd'",
+            ":3:17: error: no field named 'd' in enum 'tmp.E'",
             ":1:11: note: enum declared here",
         });
     }
@@ -959,7 +951,7 @@ pub fn addCases(ctx: *TestContext) !void {
     ctx.h("simple header", linux_x64,
         \\export fn start() void{}
     ,
-        \\ZIG_EXTERN_C void start(void);
+        \\zig_extern void start(void);
         \\
     );
     ctx.h("header with single param function", linux_x64,
@@ -967,7 +959,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    _ = a;
         \\}
     ,
-        \\ZIG_EXTERN_C void start(uint8_t a0);
+        \\zig_extern void start(zig_u8 const a0);
         \\
     );
     ctx.h("header with multiple param function", linux_x64,
@@ -975,25 +967,25 @@ pub fn addCases(ctx: *TestContext) !void {
         \\  _ = a; _ = b; _ = c;
         \\}
     ,
-        \\ZIG_EXTERN_C void start(uint8_t a0, uint8_t a1, uint8_t a2);
+        \\zig_extern void start(zig_u8 const a0, zig_u8 const a1, zig_u8 const a2);
         \\
     );
     ctx.h("header with u32 param function", linux_x64,
         \\export fn start(a: u32) void{ _ = a; }
     ,
-        \\ZIG_EXTERN_C void start(uint32_t a0);
+        \\zig_extern void start(zig_u32 const a0);
         \\
     );
     ctx.h("header with usize param function", linux_x64,
         \\export fn start(a: usize) void{ _ = a; }
     ,
-        \\ZIG_EXTERN_C void start(uintptr_t a0);
+        \\zig_extern void start(zig_usize const a0);
         \\
     );
     ctx.h("header with bool param function", linux_x64,
         \\export fn start(a: bool) void{_ = a;}
     ,
-        \\ZIG_EXTERN_C void start(bool a0);
+        \\zig_extern void start(bool const a0);
         \\
     );
     ctx.h("header with noreturn function", linux_x64,
@@ -1001,7 +993,7 @@ pub fn addCases(ctx: *TestContext) !void {
         \\    unreachable;
         \\}
     ,
-        \\ZIG_EXTERN_C zig_noreturn void start(void);
+        \\zig_extern zig_noreturn start(void);
         \\
     );
     ctx.h("header with multiple functions", linux_x64,
@@ -1009,15 +1001,15 @@ pub fn addCases(ctx: *TestContext) !void {
         \\export fn b() void{}
         \\export fn c() void{}
     ,
-        \\ZIG_EXTERN_C void a(void);
-        \\ZIG_EXTERN_C void b(void);
-        \\ZIG_EXTERN_C void c(void);
+        \\zig_extern void a(void);
+        \\zig_extern void b(void);
+        \\zig_extern void c(void);
         \\
     );
     ctx.h("header with multiple includes", linux_x64,
         \\export fn start(a: u32, b: usize) void{ _ = a; _ = b; }
     ,
-        \\ZIG_EXTERN_C void start(uint32_t a0, uintptr_t a1);
+        \\zig_extern void start(zig_u32 const a0, zig_usize const a1);
         \\
     );
 }

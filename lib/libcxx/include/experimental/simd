@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===------------------------------- simd ---------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -649,14 +649,20 @@ public:
 
 */
 
-#include <experimental/__config>
-#include <algorithm>
+#include <__assert> // all public C++ headers provide the assertion handler
+#include <__functional/operations.h>
 #include <array>
 #include <cstddef>
-#include <functional>
+#include <experimental/__config>
+#include <tuple>
+
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <algorithm>
+#  include <functional>
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -689,7 +695,7 @@ class __simd_storage<_Tp, __simd_abi<_StorageKind::_Array, __num_element>> {
   friend struct simd_mask;
 
 public:
-  _Tp __get(size_t __index) const noexcept { return __storage_[__index]; };
+  _Tp __get(size_t __index) const noexcept { return __storage_[__index]; }
   void __set(size_t __index, _Tp __val) noexcept {
     __storage_[__index] = __val;
   }
@@ -706,7 +712,7 @@ class __simd_storage<_Tp, __simd_abi<_StorageKind::_Scalar, 1>> {
   friend struct simd_mask;
 
 public:
-  _Tp __get(size_t __index) const noexcept { return (&__storage_)[__index]; };
+  _Tp __get(size_t __index) const noexcept { return (&__storage_)[__index]; }
   void __set(size_t __index, _Tp __val) noexcept {
     (&__storage_)[__index] = __val;
   }
@@ -770,7 +776,7 @@ struct __vec_ext_traits {
   _LIBCPP_SPECIALIZE_VEC_EXT(_TYPE, 29);                                       \
   _LIBCPP_SPECIALIZE_VEC_EXT(_TYPE, 30);                                       \
   _LIBCPP_SPECIALIZE_VEC_EXT(_TYPE, 31);                                       \
-  _LIBCPP_SPECIALIZE_VEC_EXT(_TYPE, 32);
+  _LIBCPP_SPECIALIZE_VEC_EXT(_TYPE, 32)
 
 _LIBCPP_SPECIALIZE_VEC_EXT_32(char);
 _LIBCPP_SPECIALIZE_VEC_EXT_32(char16_t);
@@ -808,7 +814,7 @@ class __simd_storage<_Tp, __simd_abi<_StorageKind::_VecExt, __num_element>> {
   friend struct simd_mask;
 
 public:
-  _Tp __get(size_t __index) const noexcept { return __storage_[__index]; };
+  _Tp __get(size_t __index) const noexcept { return __storage_[__index]; }
   void __set(size_t __index, _Tp __val) noexcept {
     __storage_[__index] = __val;
   }
@@ -963,7 +969,7 @@ template <int _Np>
 using fixed_size = __simd_abi<_StorageKind::_Array, _Np>;
 
 template <class _Tp>
-_LIBCPP_INLINE_VAR constexpr size_t max_fixed_size = 32;
+inline constexpr size_t max_fixed_size = 32;
 
 template <class _Tp>
 using compatible = fixed_size<16 / sizeof(_Tp)>;
@@ -990,10 +996,10 @@ struct element_aligned_tag {};
 struct vector_aligned_tag {};
 template <size_t>
 struct overaligned_tag {};
-_LIBCPP_INLINE_VAR constexpr element_aligned_tag element_aligned{};
-_LIBCPP_INLINE_VAR constexpr vector_aligned_tag vector_aligned{};
+inline constexpr element_aligned_tag element_aligned{};
+inline constexpr vector_aligned_tag vector_aligned{};
 template <size_t _Np>
-_LIBCPP_INLINE_VAR constexpr overaligned_tag<_Np> overaligned{};
+inline constexpr overaligned_tag<_Np> overaligned{};
 
 // traits [simd.traits]
 template <class _Tp>
@@ -1032,14 +1038,13 @@ struct is_simd_flag_type<overaligned_tag<_Align>>
     : std::integral_constant<bool, true> {};
 
 template <class _Tp>
-_LIBCPP_INLINE_VAR constexpr bool is_abi_tag_v = is_abi_tag<_Tp>::value;
+inline constexpr bool is_abi_tag_v = is_abi_tag<_Tp>::value;
 template <class _Tp>
-_LIBCPP_INLINE_VAR constexpr bool is_simd_v = is_simd<_Tp>::value;
+inline constexpr bool is_simd_v = is_simd<_Tp>::value;
 template <class _Tp>
-_LIBCPP_INLINE_VAR constexpr bool is_simd_mask_v = is_simd_mask<_Tp>::value;
+inline constexpr bool is_simd_mask_v = is_simd_mask<_Tp>::value;
 template <class _Tp>
-_LIBCPP_INLINE_VAR constexpr bool is_simd_flag_type_v =
-    is_simd_flag_type<_Tp>::value;
+inline constexpr bool is_simd_flag_type_v = is_simd_flag_type<_Tp>::value;
 template <class _Tp, size_t _Np>
 struct abi_for_size {
   using type = simd_abi::fixed_size<_Np>;
@@ -1064,11 +1069,10 @@ template <class _Tp, class _Up = typename _Tp::value_type>
 struct memory_alignment;
 
 template <class _Tp, class _Abi = simd_abi::compatible<_Tp>>
-_LIBCPP_INLINE_VAR constexpr size_t simd_size_v = simd_size<_Tp, _Abi>::value;
+inline constexpr size_t simd_size_v = simd_size<_Tp, _Abi>::value;
 
 template <class _Tp, class _Up = typename _Tp::value_type>
-_LIBCPP_INLINE_VAR constexpr size_t memory_alignment_v =
-    memory_alignment<_Tp, _Up>::value;
+inline constexpr size_t memory_alignment_v = memory_alignment<_Tp, _Up>::value;
 
 // class template simd [simd.class]
 template <class _Tp>
@@ -1238,32 +1242,32 @@ _Tp reduce(const simd<_Tp, _Abi>&, _BinaryOp = _BinaryOp());
 template <class _MaskType, class _SimdType, class _BinaryOp>
 typename _SimdType::value_type
 reduce(const const_where_expression<_MaskType, _SimdType>&,
-       typename _SimdType::value_type neutral_element, _BinaryOp binary_op);
+       typename _SimdType::value_type __neutral_element, _BinaryOp);
 
 template <class _MaskType, class _SimdType>
 typename _SimdType::value_type
 reduce(const const_where_expression<_MaskType, _SimdType>&,
-       plus<typename _SimdType::value_type> binary_op = {});
+       plus<typename _SimdType::value_type> = {});
 
 template <class _MaskType, class _SimdType>
 typename _SimdType::value_type
 reduce(const const_where_expression<_MaskType, _SimdType>&,
-       multiplies<typename _SimdType::value_type> binary_op);
+       multiplies<typename _SimdType::value_type>);
 
 template <class _MaskType, class _SimdType>
 typename _SimdType::value_type
 reduce(const const_where_expression<_MaskType, _SimdType>&,
-       bit_and<typename _SimdType::value_type> binary_op);
+       bit_and<typename _SimdType::value_type>);
 
 template <class _MaskType, class _SimdType>
 typename _SimdType::value_type
 reduce(const const_where_expression<_MaskType, _SimdType>&,
-       bit_or<typename _SimdType::value_type> binary_op);
+       bit_or<typename _SimdType::value_type>);
 
 template <class _MaskType, class _SimdType>
 typename _SimdType::value_type
 reduce(const const_where_expression<_MaskType, _SimdType>&,
-       bit_xor<typename _SimdType::value_type> binary_op);
+       bit_xor<typename _SimdType::value_type>);
 
 template <class _Tp, class _Abi>
 _Tp hmin(const simd<_Tp, _Abi>&);
@@ -1473,6 +1477,7 @@ public:
   simd operator+() const;
   simd operator-() const;
 
+#if 0
   // binary operators [simd.binary]
   friend simd operator+(const simd&, const simd&);
   friend simd operator-(const simd&, const simd&);
@@ -1509,6 +1514,7 @@ public:
   friend mask_type operator<=(const simd&, const simd&);
   friend mask_type operator>(const simd&, const simd&);
   friend mask_type operator<(const simd&, const simd&);
+#endif
 };
 
 // [simd.mask.class]
@@ -1548,6 +1554,7 @@ public:
   // unary operators [simd.mask.unary]
   simd_mask operator!() const noexcept;
 
+#if 0
   // simd_mask binary operators [simd.mask.binary]
   friend simd_mask operator&&(const simd_mask&, const simd_mask&) noexcept;
   friend simd_mask operator||(const simd_mask&, const simd_mask&) noexcept;
@@ -1563,6 +1570,7 @@ public:
   // simd_mask compares [simd.mask.comparison]
   friend simd_mask operator==(const simd_mask&, const simd_mask&) noexcept;
   friend simd_mask operator!=(const simd_mask&, const simd_mask&) noexcept;
+#endif
 };
 
 #endif // _LIBCPP_STD_VER >= 17

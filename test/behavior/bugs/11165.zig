@@ -1,6 +1,8 @@
 const builtin = @import("builtin");
 
 test "bytes" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     const S = struct {
         a: u32,
         c: [5]u8,
@@ -14,13 +16,14 @@ test "bytes" {
         .a = undefined,
         .c = "12345".*, // this caused problems
     };
-    _ = s_1;
 
     var u_2 = U{ .s = s_1 };
     _ = u_2;
 }
 
 test "aggregate" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     const S = struct {
         a: u32,
         c: [5]u8,
@@ -35,7 +38,6 @@ test "aggregate" {
         .a = undefined,
         .c = c, // this caused problems
     };
-    _ = s_1;
 
     var u_2 = U{ .s = s_1 };
     _ = u_2;

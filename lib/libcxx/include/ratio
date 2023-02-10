@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===---------------------------- ratio -----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -77,13 +77,15 @@ typedef ratio<1000000000000000000000000, 1> yotta;  // not supported
 }
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <climits>
 #include <cstdint>
 #include <type_traits>
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -415,11 +417,11 @@ struct _LIBCPP_TEMPLATE_VIS ratio_subtract
 
 template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_equal
-    : public _LIBCPP_BOOL_CONSTANT((_R1::num == _R2::num && _R1::den == _R2::den)) {};
+    : _BoolConstant<(_R1::num == _R2::num && _R1::den == _R2::den)> {};
 
 template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_not_equal
-    : public _LIBCPP_BOOL_CONSTANT((!ratio_equal<_R1, _R2>::value)) {};
+    : _BoolConstant<!ratio_equal<_R1, _R2>::value> {};
 
 // ratio_less
 
@@ -478,19 +480,19 @@ struct __ratio_less<_R1, _R2, -1LL, -1LL>
 
 template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_less
-    : public _LIBCPP_BOOL_CONSTANT((__ratio_less<_R1, _R2>::value)) {};
+    : _BoolConstant<__ratio_less<_R1, _R2>::value> {};
 
 template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_less_equal
-    : public _LIBCPP_BOOL_CONSTANT((!ratio_less<_R2, _R1>::value)) {};
+    : _BoolConstant<!ratio_less<_R2, _R1>::value> {};
 
 template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_greater
-    : public _LIBCPP_BOOL_CONSTANT((ratio_less<_R2, _R1>::value)) {};
+    : _BoolConstant<ratio_less<_R2, _R1>::value> {};
 
 template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_greater_equal
-    : public _LIBCPP_BOOL_CONSTANT((!ratio_less<_R1, _R2>::value)) {};
+    : _BoolConstant<!ratio_less<_R1, _R2>::value> {};
 
 template <class _R1, class _R2>
 struct __ratio_gcd
@@ -499,30 +501,24 @@ struct __ratio_gcd
                   __static_lcm<_R1::den, _R2::den>::value> type;
 };
 
-#if _LIBCPP_STD_VER > 14 && !defined(_LIBCPP_HAS_NO_VARIABLE_TEMPLATES)
+#if _LIBCPP_STD_VER > 14
 template <class _R1, class _R2>
-_LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool ratio_equal_v
-    = ratio_equal<_R1, _R2>::value;
+inline constexpr bool ratio_equal_v = ratio_equal<_R1, _R2>::value;
 
 template <class _R1, class _R2>
-_LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool ratio_not_equal_v
-    = ratio_not_equal<_R1, _R2>::value;
+inline constexpr bool ratio_not_equal_v = ratio_not_equal<_R1, _R2>::value;
 
 template <class _R1, class _R2>
-_LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool ratio_less_v
-    = ratio_less<_R1, _R2>::value;
+inline constexpr bool ratio_less_v = ratio_less<_R1, _R2>::value;
 
 template <class _R1, class _R2>
-_LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool ratio_less_equal_v
-    = ratio_less_equal<_R1, _R2>::value;
+inline constexpr bool ratio_less_equal_v = ratio_less_equal<_R1, _R2>::value;
 
 template <class _R1, class _R2>
-_LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool ratio_greater_v
-    = ratio_greater<_R1, _R2>::value;
+inline constexpr bool ratio_greater_v = ratio_greater<_R1, _R2>::value;
 
 template <class _R1, class _R2>
-_LIBCPP_INLINE_VAR _LIBCPP_CONSTEXPR bool ratio_greater_equal_v
-    = ratio_greater_equal<_R1, _R2>::value;
+inline constexpr bool ratio_greater_equal_v = ratio_greater_equal<_R1, _R2>::value;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

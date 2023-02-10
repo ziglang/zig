@@ -18,8 +18,8 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
     const SignedDoubleInt = std.meta.Int(.signed, double_int_bits);
     const Log2SingleInt = std.math.Log2Int(SingleInt);
 
-    const n = @ptrCast(*const [2]SingleInt, &a).*; // TODO issue #421
-    const d = @ptrCast(*const [2]SingleInt, &b).*; // TODO issue #421
+    const n = @bitCast([2]SingleInt, a);
+    const d = @bitCast([2]SingleInt, b);
     var q: [2]SingleInt = undefined;
     var r: [2]SingleInt = undefined;
     var sr: c_uint = undefined;
@@ -61,7 +61,7 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
             if (maybe_rem) |rem| {
                 r[high] = n[high] % d[high];
                 r[low] = 0;
-                rem.* = @ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &r[0]).*; // TODO issue #421
+                rem.* = @bitCast(DoubleInt, r);
             }
             return n[high] / d[high];
         }
@@ -73,14 +73,14 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
             if (maybe_rem) |rem| {
                 r[low] = n[low];
                 r[high] = n[high] & (d[high] - 1);
-                rem.* = @ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &r[0]).*; // TODO issue #421
+                rem.* = @bitCast(DoubleInt, r);
             }
-            return n[high] >> @intCast(Log2SingleInt, @ctz(SingleInt, d[high]));
+            return n[high] >> @intCast(Log2SingleInt, @ctz(d[high]));
         }
         // K K
         // ---
         // K 0
-        sr = @bitCast(c_uint, @as(c_int, @clz(SingleInt, d[high])) - @as(c_int, @clz(SingleInt, n[high])));
+        sr = @bitCast(c_uint, @as(c_int, @clz(d[high])) - @as(c_int, @clz(n[high])));
         // 0 <= sr <= single_int_bits - 2 or sr large
         if (sr > single_int_bits - 2) {
             if (maybe_rem) |rem| {
@@ -110,15 +110,15 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
                 if (d[low] == 1) {
                     return a;
                 }
-                sr = @ctz(SingleInt, d[low]);
+                sr = @ctz(d[low]);
                 q[high] = n[high] >> @intCast(Log2SingleInt, sr);
                 q[low] = (n[high] << @intCast(Log2SingleInt, single_int_bits - sr)) | (n[low] >> @intCast(Log2SingleInt, sr));
-                return @ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &q[0]).*; // TODO issue #421
+                return @bitCast(DoubleInt, q);
             }
             // K X
             // ---
             // 0 K
-            sr = 1 + single_int_bits + @as(c_uint, @clz(SingleInt, d[low])) - @as(c_uint, @clz(SingleInt, n[high]));
+            sr = 1 + single_int_bits + @as(c_uint, @clz(d[low])) - @as(c_uint, @clz(n[high]));
             // 2 <= sr <= double_int_bits - 1
             // q.all = a << (double_int_bits - sr);
             // r.all = a >> sr;
@@ -144,7 +144,7 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
             // K X
             // ---
             // K K
-            sr = @bitCast(c_uint, @as(c_int, @clz(SingleInt, d[high])) - @as(c_int, @clz(SingleInt, n[high])));
+            sr = @bitCast(c_uint, @as(c_int, @clz(d[high])) - @as(c_int, @clz(n[high])));
             // 0 <= sr <= single_int_bits - 1 or sr large
             if (sr > single_int_bits - 1) {
                 if (maybe_rem) |rem| {
@@ -187,13 +187,13 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
         //     r.all -= b;
         //      carry = 1;
         // }
-        r_all = @ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &r[0]).*; // TODO issue #421
+        r_all = @bitCast(DoubleInt, r);
         const s: SignedDoubleInt = @bitCast(SignedDoubleInt, b -% r_all -% 1) >> (double_int_bits - 1);
         carry = @intCast(u32, s & 1);
         r_all -= b & @bitCast(DoubleInt, s);
-        r = @ptrCast(*[2]SingleInt, &r_all).*; // TODO issue #421
+        r = @bitCast([2]SingleInt, r_all);
     }
-    const q_all = ((@ptrCast(*align(@alignOf(SingleInt)) DoubleInt, &q[0]).*) << 1) | carry; // TODO issue #421
+    const q_all = (@bitCast(DoubleInt, q) << 1) | carry;
     if (maybe_rem) |rem| {
         rem.* = r_all;
     }

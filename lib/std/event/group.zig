@@ -35,7 +35,7 @@ pub fn Group(comptime ReturnType: type) type {
             return Self{
                 .frame_stack = Stack.init(),
                 .alloc_stack = AllocStack.init(),
-                .lock = Lock.init(),
+                .lock = .{},
                 .allocator = allocator,
             };
         }

@@ -1,4 +1,4 @@
-//===------------------------- EHHeaderParser.hpp -------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -57,7 +57,8 @@ bool EHHeaderParser<A>::decodeEHHdr(A &addressSpace, pint_t ehHdrStart,
   pint_t p = ehHdrStart;
   uint8_t version = addressSpace.get8(p++);
   if (version != 1) {
-    _LIBUNWIND_LOG0("Unsupported .eh_frame_hdr version");
+    _LIBUNWIND_LOG("unsupported .eh_frame_hdr version: %" PRIu8 " at %" PRIx64,
+                   version, static_cast<uint64_t>(ehHdrStart));
     return false;
   }
 

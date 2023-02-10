@@ -56,8 +56,8 @@ pub inline fn extendf(
         // a is denormal.
         // renormalize the significand and clear the leading bit, then insert
         // the correct adjusted exponent in the destination type.
-        const scale: u32 = @clz(src_rep_t, aAbs) -
-            @clz(src_rep_t, @as(src_rep_t, srcMinNormal));
+        const scale: u32 = @clz(aAbs) -
+            @clz(@as(src_rep_t, srcMinNormal));
         absResult = @as(dst_rep_t, aAbs) << @intCast(DstShift, dstSigBits - srcSigBits + scale);
         absResult ^= dstMinNormal;
         const resultExponent: u32 = dstExpBias - srcExpBias - scale + 1;
@@ -92,6 +92,8 @@ pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeI
     const src_qnan = 1 << (src_sig_bits - 1);
     const src_nan_code = src_qnan - 1;
 
+    const SrcShift = std.math.Log2Int(src_rep_t);
+
     var dst: std.math.F80 = undefined;
 
     // Break a into a sign and representation of the absolute value
@@ -119,12 +121,12 @@ pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeI
         // a is denormal.
         // renormalize the significand and clear the leading bit, then insert
         // the correct adjusted exponent in the destination type.
-        const scale: u16 = @clz(src_rep_t, a_abs) -
-            @clz(src_rep_t, @as(src_rep_t, src_min_normal));
+        const scale: u16 = @clz(a_abs) -
+            @clz(@as(src_rep_t, src_min_normal));
 
         dst.fraction = @as(u64, a_abs) << @intCast(u6, dst_sig_bits - src_sig_bits + scale);
         dst.fraction |= dst_int_bit; // bit 64 is always set for normal numbers
-        dst.exp = @truncate(u16, a_abs >> @intCast(u4, src_sig_bits - scale));
+        dst.exp = @truncate(u16, a_abs >> @intCast(SrcShift, src_sig_bits - scale));
         dst.exp ^= 1;
         dst.exp |= dst_exp_bias - src_exp_bias - scale + 1;
     } else {

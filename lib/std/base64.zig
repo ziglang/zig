@@ -9,10 +9,7 @@ pub const Error = error{
     NoSpaceLeft,
 };
 
-const decoderWithIgnoreProto = switch (@import("builtin").zig_backend) {
-    .stage1 => fn (ignore: []const u8) Base64DecoderWithIgnore,
-    else => *const fn (ignore: []const u8) Base64DecoderWithIgnore,
-};
+const decoderWithIgnoreProto = *const fn (ignore: []const u8) Base64DecoderWithIgnore;
 
 /// Base64 codecs
 pub const Codecs = struct {
@@ -68,10 +65,6 @@ pub const url_safe_no_pad = Codecs{
     .Encoder = Base64Encoder.init(url_safe_alphabet_chars, null),
     .Decoder = Base64Decoder.init(url_safe_alphabet_chars, null),
 };
-
-pub const standard_pad_char = @compileError("deprecated; use standard.pad_char");
-pub const standard_encoder = @compileError("deprecated; use standard.Encoder");
-pub const standard_decoder = @compileError("deprecated; use standard.Decoder");
 
 pub const Base64Encoder = struct {
     alphabet_chars: [64]u8,

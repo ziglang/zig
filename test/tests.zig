@@ -1,17 +1,17 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const debug = std.debug;
-const build = std.build;
 const CrossTarget = std.zig.CrossTarget;
 const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
 const fmt = std.fmt;
 const ArrayList = std.ArrayList;
-const Mode = std.builtin.Mode;
-const LibExeObjStep = build.LibExeObjStep;
+const OptimizeMode = std.builtin.OptimizeMode;
+const CompileStep = std.Build.CompileStep;
 const Allocator = mem.Allocator;
-const ExecError = build.Builder.ExecError;
+const ExecError = std.Build.ExecError;
+const Step = std.Build.Step;
 
 // Cases
 const compare_output = @import("compare_output.zig");
@@ -30,7 +30,7 @@ pub const CompareOutputContext = @import("src/compare_output.zig").CompareOutput
 
 const TestTarget = struct {
     target: CrossTarget = @as(CrossTarget, .{}),
-    mode: std.builtin.Mode = .Debug,
+    optimize_mode: std.builtin.OptimizeMode = .Debug,
     link_libc: bool = false,
     single_threaded: bool = false,
     disable_native: bool = false,
@@ -52,6 +52,9 @@ const test_targets = blk: {
         },
 
         .{
+            .target = .{
+                .ofmt = .c,
+            },
             .link_libc = true,
             .backend = .stage2_c,
         },
@@ -78,20 +81,22 @@ const test_targets = blk: {
             .single_threaded = true,
             .backend = .stage2_wasm,
         },
-        .{
-            .target = .{
-                .cpu_arch = .arm,
-                .os_tag = .linux,
-            },
-            .backend = .stage2_wasm,
-        },
-        .{
-            .target = CrossTarget.parse(.{
-                .arch_os_abi = "arm-linux-none",
-                .cpu_features = "generic+v8a",
-            }) catch unreachable,
-            .backend = .stage2_arm,
-        },
+        // https://github.com/ziglang/zig/issues/13623
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .arm,
+        //        .os_tag = .linux,
+        //    },
+        //    .backend = .stage2_arm,
+        //},
+        // https://github.com/ziglang/zig/issues/13623
+        //.{
+        //    .target = CrossTarget.parse(.{
+        //        .arch_os_abi = "arm-linux-none",
+        //        .cpu_features = "generic+v8a",
+        //    }) catch unreachable,
+        //    .backend = .stage2_arm,
+        //},
         .{
             .target = .{
                 .cpu_arch = .aarch64,
@@ -105,6 +110,14 @@ const test_targets = blk: {
                 .cpu_arch = .x86_64,
                 .os_tag = .macos,
                 .abi = .none,
+            },
+            .backend = .stage2_x86_64,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
             },
             .backend = .stage2_x86_64,
         },
@@ -152,14 +165,14 @@ const test_targets = blk: {
 
         .{
             .target = .{
-                .cpu_arch = .i386,
+                .cpu_arch = .x86,
                 .os_tag = .linux,
                 .abi = .none,
             },
         },
         .{
             .target = .{
-                .cpu_arch = .i386,
+                .cpu_arch = .x86,
                 .os_tag = .linux,
                 .abi = .musl,
             },
@@ -167,7 +180,7 @@ const test_targets = blk: {
         },
         .{
             .target = .{
-                .cpu_arch = .i386,
+                .cpu_arch = .x86,
                 .os_tag = .linux,
                 .abi = .gnu,
             },
@@ -309,6 +322,30 @@ const test_targets = blk: {
 
         .{
             .target = .{
+                .cpu_arch = .powerpc64le,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .powerpc64le,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .powerpc64le,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
+
+        .{
+            .target = .{
                 .cpu_arch = .riscv64,
                 .os_tag = .linux,
                 .abi = .none,
@@ -352,7 +389,7 @@ const test_targets = blk: {
 
         .{
             .target = .{
-                .cpu_arch = .i386,
+                .cpu_arch = .x86,
                 .os_tag = .windows,
                 .abi = .msvc,
             },
@@ -368,7 +405,7 @@ const test_targets = blk: {
 
         .{
             .target = .{
-                .cpu_arch = .i386,
+                .cpu_arch = .x86,
                 .os_tag = .windows,
                 .abi = .gnu,
             },
@@ -386,38 +423,38 @@ const test_targets = blk: {
 
         // Do the release tests last because they take a long time
         .{
-            .mode = .ReleaseFast,
+            .optimize_mode = .ReleaseFast,
         },
         .{
             .link_libc = true,
-            .mode = .ReleaseFast,
+            .optimize_mode = .ReleaseFast,
         },
         .{
-            .mode = .ReleaseFast,
+            .optimize_mode = .ReleaseFast,
             .single_threaded = true,
         },
 
         .{
-            .mode = .ReleaseSafe,
+            .optimize_mode = .ReleaseSafe,
         },
         .{
             .link_libc = true,
-            .mode = .ReleaseSafe,
+            .optimize_mode = .ReleaseSafe,
         },
         .{
-            .mode = .ReleaseSafe,
+            .optimize_mode = .ReleaseSafe,
             .single_threaded = true,
         },
 
         .{
-            .mode = .ReleaseSmall,
+            .optimize_mode = .ReleaseSmall,
         },
         .{
             .link_libc = true,
-            .mode = .ReleaseSmall,
+            .optimize_mode = .ReleaseSmall,
         },
         .{
-            .mode = .ReleaseSmall,
+            .optimize_mode = .ReleaseSmall,
             .single_threaded = true,
         },
     };
@@ -425,14 +462,14 @@ const test_targets = blk: {
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MB
 
-pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addCompareOutputTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *Step {
     const cases = b.allocator.create(CompareOutputContext) catch unreachable;
     cases.* = CompareOutputContext{
         .b = b,
         .step = b.step("test-compare-output", "Run the compare output tests"),
         .test_index = 0,
         .test_filter = test_filter,
-        .modes = modes,
+        .optimize_modes = optimize_modes,
     };
 
     compare_output.addCases(cases);
@@ -440,14 +477,14 @@ pub fn addCompareOutputTests(b: *build.Builder, test_filter: ?[]const u8, modes:
     return cases.step;
 }
 
-pub fn addStackTraceTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addStackTraceTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *Step {
     const cases = b.allocator.create(StackTracesContext) catch unreachable;
     cases.* = StackTracesContext{
         .b = b,
         .step = b.step("test-stack-traces", "Run the stack trace tests"),
         .test_index = 0,
         .test_filter = test_filter,
-        .modes = modes,
+        .optimize_modes = optimize_modes,
     };
 
     stack_traces.addCases(cases);
@@ -456,23 +493,37 @@ pub fn addStackTraceTests(b: *build.Builder, test_filter: ?[]const u8, modes: []
 }
 
 pub fn addStandaloneTests(
-    b: *build.Builder,
+    b: *std.Build,
     test_filter: ?[]const u8,
-    modes: []const Mode,
+    optimize_modes: []const OptimizeMode,
     skip_non_native: bool,
     enable_macos_sdk: bool,
     target: std.zig.CrossTarget,
-) *build.Step {
+    omit_stage2: bool,
+    enable_darling: bool,
+    enable_qemu: bool,
+    enable_rosetta: bool,
+    enable_wasmtime: bool,
+    enable_wine: bool,
+    enable_symlinks_windows: bool,
+) *Step {
     const cases = b.allocator.create(StandaloneContext) catch unreachable;
     cases.* = StandaloneContext{
         .b = b,
         .step = b.step("test-standalone", "Run the standalone tests"),
         .test_index = 0,
         .test_filter = test_filter,
-        .modes = modes,
+        .optimize_modes = optimize_modes,
         .skip_non_native = skip_non_native,
         .enable_macos_sdk = enable_macos_sdk,
         .target = target,
+        .omit_stage2 = omit_stage2,
+        .enable_darling = enable_darling,
+        .enable_qemu = enable_qemu,
+        .enable_rosetta = enable_rosetta,
+        .enable_wasmtime = enable_wasmtime,
+        .enable_wine = enable_wine,
+        .enable_symlinks_windows = enable_symlinks_windows,
     };
 
     standalone.addCases(cases);
@@ -481,32 +532,41 @@ pub fn addStandaloneTests(
 }
 
 pub fn addLinkTests(
-    b: *build.Builder,
+    b: *std.Build,
     test_filter: ?[]const u8,
-    modes: []const Mode,
+    optimize_modes: []const OptimizeMode,
     enable_macos_sdk: bool,
-) *build.Step {
+    omit_stage2: bool,
+    enable_symlinks_windows: bool,
+) *Step {
     const cases = b.allocator.create(StandaloneContext) catch unreachable;
     cases.* = StandaloneContext{
         .b = b,
         .step = b.step("test-link", "Run the linker tests"),
         .test_index = 0,
         .test_filter = test_filter,
-        .modes = modes,
+        .optimize_modes = optimize_modes,
         .skip_non_native = true,
         .enable_macos_sdk = enable_macos_sdk,
         .target = .{},
+        .omit_stage2 = omit_stage2,
+        .enable_symlinks_windows = enable_symlinks_windows,
     };
     link.addCases(cases);
     return cases.step;
 }
 
-pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addCliTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *Step {
     _ = test_filter;
-    _ = modes;
+    _ = optimize_modes;
     const step = b.step("test-cli", "Test the command line interface");
 
-    const exe = b.addExecutable("test-cli", "test/cli.zig");
+    const exe = b.addExecutable(.{
+        .name = "test-cli",
+        .root_source_file = .{ .path = "test/cli.zig" },
+        .target = .{},
+        .optimize = .Debug,
+    });
     const run_cmd = exe.run();
     run_cmd.addArgs(&[_][]const u8{
         fs.realpathAlloc(b.allocator, b.zig_exe) catch unreachable,
@@ -517,14 +577,14 @@ pub fn addCliTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const M
     return step;
 }
 
-pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8, modes: []const Mode) *build.Step {
+pub fn addAssembleAndLinkTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *Step {
     const cases = b.allocator.create(CompareOutputContext) catch unreachable;
     cases.* = CompareOutputContext{
         .b = b,
         .step = b.step("test-asm-link", "Run the assemble and link tests"),
         .test_index = 0,
         .test_filter = test_filter,
-        .modes = modes,
+        .optimize_modes = optimize_modes,
     };
 
     assemble_and_link.addCases(cases);
@@ -532,7 +592,7 @@ pub fn addAssembleAndLinkTests(b: *build.Builder, test_filter: ?[]const u8, mode
     return cases.step;
 }
 
-pub fn addTranslateCTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+pub fn addTranslateCTests(b: *std.Build, test_filter: ?[]const u8) *Step {
     const cases = b.allocator.create(TranslateCContext) catch unreachable;
     cases.* = TranslateCContext{
         .b = b,
@@ -547,10 +607,10 @@ pub fn addTranslateCTests(b: *build.Builder, test_filter: ?[]const u8) *build.St
 }
 
 pub fn addRunTranslatedCTests(
-    b: *build.Builder,
+    b: *std.Build,
     test_filter: ?[]const u8,
     target: std.zig.CrossTarget,
-) *build.Step {
+) *Step {
     const cases = b.allocator.create(RunTranslatedCContext) catch unreachable;
     cases.* = .{
         .b = b,
@@ -565,7 +625,7 @@ pub fn addRunTranslatedCTests(
     return cases.step;
 }
 
-pub fn addGenHTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
+pub fn addGenHTests(b: *std.Build, test_filter: ?[]const u8) *Step {
     const cases = b.allocator.create(GenHContext) catch unreachable;
     cases.* = GenHContext{
         .b = b,
@@ -580,19 +640,18 @@ pub fn addGenHTests(b: *build.Builder, test_filter: ?[]const u8) *build.Step {
 }
 
 pub fn addPkgTests(
-    b: *build.Builder,
+    b: *std.Build,
     test_filter: ?[]const u8,
     root_src: []const u8,
     name: []const u8,
     desc: []const u8,
-    modes: []const Mode,
+    optimize_modes: []const OptimizeMode,
     skip_single_threaded: bool,
     skip_non_native: bool,
     skip_libc: bool,
     skip_stage1: bool,
     skip_stage2: bool,
-    is_stage1: bool,
-) *build.Step {
+) *Step {
     const step = b.step(b.fmt("test-{s}", .{name}), desc);
 
     for (test_targets) |test_target| {
@@ -619,11 +678,12 @@ pub fn addPkgTests(
 
         if (test_target.backend) |backend| switch (backend) {
             .stage1 => if (skip_stage1) continue,
+            .stage2_llvm => {},
             else => if (skip_stage2) continue,
-        } else if (is_stage1 and skip_stage1) continue;
+        };
 
-        const want_this_mode = for (modes) |m| {
-            if (m == test_target.mode) break true;
+        const want_this_mode = for (optimize_modes) |m| {
+            if (m == test_target.optimize_mode) break true;
         } else false;
         if (!want_this_mode) continue;
 
@@ -636,21 +696,23 @@ pub fn addPkgTests(
 
         const triple_prefix = test_target.target.zigTriple(b.allocator) catch unreachable;
 
-        const these_tests = b.addTest(root_src);
+        const these_tests = b.addTest(.{
+            .root_source_file = .{ .path = root_src },
+            .optimize = test_target.optimize_mode,
+            .target = test_target.target,
+        });
         const single_threaded_txt = if (test_target.single_threaded) "single" else "multi";
         const backend_txt = if (test_target.backend) |backend| @tagName(backend) else "default";
         these_tests.setNamePrefix(b.fmt("{s}-{s}-{s}-{s}-{s}-{s} ", .{
             name,
             triple_prefix,
-            @tagName(test_target.mode),
+            @tagName(test_target.optimize_mode),
             libc_prefix,
             single_threaded_txt,
             backend_txt,
         }));
         these_tests.single_threaded = test_target.single_threaded;
         these_tests.setFilter(test_filter);
-        these_tests.setBuildMode(test_target.mode);
-        these_tests.setTarget(test_target.target);
         if (test_target.link_libc) {
             these_tests.linkSystemLibrary("c");
         }
@@ -658,20 +720,19 @@ pub fn addPkgTests(
         these_tests.addIncludePath("test");
         if (test_target.backend) |backend| switch (backend) {
             .stage1 => {
-                these_tests.use_stage1 = true;
+                @panic("stage1 testing requested");
             },
             .stage2_llvm => {
-                these_tests.use_stage1 = false;
                 these_tests.use_llvm = true;
             },
             .stage2_c => {
-                these_tests.use_stage1 = false;
                 these_tests.use_llvm = false;
-                these_tests.ofmt = .c;
             },
             else => {
-                these_tests.use_stage1 = false;
                 these_tests.use_llvm = false;
+                // TODO: force self-hosted linkers to avoid LLD creeping in
+                // until the auto-select mechanism deems them worthy
+                these_tests.use_lld = false;
             },
         };
 
@@ -681,13 +742,13 @@ pub fn addPkgTests(
 }
 
 pub const StackTracesContext = struct {
-    b: *build.Builder,
-    step: *build.Step,
+    b: *std.Build,
+    step: *Step,
     test_index: usize,
     test_filter: ?[]const u8,
-    modes: []const Mode,
+    optimize_modes: []const OptimizeMode,
 
-    const Expect = [@typeInfo(Mode).Enum.fields.len][]const u8;
+    const Expect = [@typeInfo(OptimizeMode).Enum.fields.len][]const u8;
 
     pub fn addCase(self: *StackTracesContext, config: anytype) void {
         if (@hasField(@TypeOf(config), "exclude")) {
@@ -701,26 +762,26 @@ pub const StackTracesContext = struct {
             const exclude_os: []const std.Target.Os.Tag = &config.exclude_os;
             for (exclude_os) |os| if (os == builtin.os.tag) return;
         }
-        for (self.modes) |mode| {
-            switch (mode) {
+        for (self.optimize_modes) |optimize_mode| {
+            switch (optimize_mode) {
                 .Debug => {
                     if (@hasField(@TypeOf(config), "Debug")) {
-                        self.addExpect(config.name, config.source, mode, config.Debug);
+                        self.addExpect(config.name, config.source, optimize_mode, config.Debug);
                     }
                 },
                 .ReleaseSafe => {
                     if (@hasField(@TypeOf(config), "ReleaseSafe")) {
-                        self.addExpect(config.name, config.source, mode, config.ReleaseSafe);
+                        self.addExpect(config.name, config.source, optimize_mode, config.ReleaseSafe);
                     }
                 },
                 .ReleaseFast => {
                     if (@hasField(@TypeOf(config), "ReleaseFast")) {
-                        self.addExpect(config.name, config.source, mode, config.ReleaseFast);
+                        self.addExpect(config.name, config.source, optimize_mode, config.ReleaseFast);
                     }
                 },
                 .ReleaseSmall => {
                     if (@hasField(@TypeOf(config), "ReleaseSmall")) {
-                        self.addExpect(config.name, config.source, mode, config.ReleaseSmall);
+                        self.addExpect(config.name, config.source, optimize_mode, config.ReleaseSmall);
                     }
                 },
             }
@@ -731,7 +792,7 @@ pub const StackTracesContext = struct {
         self: *StackTracesContext,
         name: []const u8,
         source: []const u8,
-        mode: Mode,
+        optimize_mode: OptimizeMode,
         mode_config: anytype,
     ) void {
         if (@hasField(@TypeOf(mode_config), "exclude")) {
@@ -749,7 +810,7 @@ pub const StackTracesContext = struct {
         const annotated_case_name = fmt.allocPrint(self.b.allocator, "{s} {s} ({s})", .{
             "stack-trace",
             name,
-            @tagName(mode),
+            @tagName(optimize_mode),
         }) catch unreachable;
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
@@ -758,14 +819,18 @@ pub const StackTracesContext = struct {
         const b = self.b;
         const src_basename = "source.zig";
         const write_src = b.addWriteFile(src_basename, source);
-        const exe = b.addExecutableSource("test", write_src.getFileSource(src_basename).?);
-        exe.setBuildMode(mode);
+        const exe = b.addExecutable(.{
+            .name = "test",
+            .root_source_file = write_src.getFileSource(src_basename).?,
+            .optimize = optimize_mode,
+            .target = .{},
+        });
 
         const run_and_compare = RunAndCompareStep.create(
             self,
             exe,
             annotated_case_name,
-            mode,
+            optimize_mode,
             mode_config.expect,
         );
 
@@ -775,29 +840,29 @@ pub const StackTracesContext = struct {
     const RunAndCompareStep = struct {
         pub const base_id = .custom;
 
-        step: build.Step,
+        step: Step,
         context: *StackTracesContext,
-        exe: *LibExeObjStep,
+        exe: *CompileStep,
         name: []const u8,
-        mode: Mode,
+        optimize_mode: OptimizeMode,
         expect_output: []const u8,
         test_index: usize,
 
         pub fn create(
             context: *StackTracesContext,
-            exe: *LibExeObjStep,
+            exe: *CompileStep,
             name: []const u8,
-            mode: Mode,
+            optimize_mode: OptimizeMode,
             expect_output: []const u8,
         ) *RunAndCompareStep {
             const allocator = context.b.allocator;
             const ptr = allocator.create(RunAndCompareStep) catch unreachable;
             ptr.* = RunAndCompareStep{
-                .step = build.Step.init(.custom, "StackTraceCompareOutputStep", allocator, make),
+                .step = Step.init(.custom, "StackTraceCompareOutputStep", allocator, make),
                 .context = context,
                 .exe = exe,
                 .name = name,
-                .mode = mode,
+                .optimize_mode = optimize_mode,
                 .expect_output = expect_output,
                 .test_index = context.test_index,
             };
@@ -806,7 +871,7 @@ pub const StackTracesContext = struct {
             return ptr;
         }
 
-        fn make(step: *build.Step) !void {
+        fn make(step: *Step) !void {
             const self = @fieldParentPtr(RunAndCompareStep, "step", step);
             const b = self.context.b;
 
@@ -878,7 +943,7 @@ pub const StackTracesContext = struct {
             // process result
             // - keep only basename of source file path
             // - replace address with symbolic string
-            // - replace function name with symbolic string when mode != .Debug
+            // - replace function name with symbolic string when optimize_mode != .Debug
             // - skip empty lines
             const got: []const u8 = got_result: {
                 var buf = ArrayList(u8).init(b.allocator);
@@ -914,10 +979,10 @@ pub const StackTracesContext = struct {
                     // emit substituted line
                     try buf.appendSlice(line[pos + 1 .. marks[2] + delims[2].len]);
                     try buf.appendSlice(" [address]");
-                    if (self.mode == .Debug) {
-                        if (mem.lastIndexOfScalar(u8, line[marks[4]..marks[5]], '.')) |idot| {
-                            // On certain platforms (windows) or possibly depending on how we choose to link main
-                            // the object file extension may be present so we simply strip any extension.
+                    if (self.optimize_mode == .Debug) {
+                        // On certain platforms (windows) or possibly depending on how we choose to link main
+                        // the object file extension may be present so we simply strip any extension.
+                        if (mem.indexOfScalar(u8, line[marks[4]..marks[5]], '.')) |idot| {
                             try buf.appendSlice(line[marks[3] .. marks[4] + idot]);
                             try buf.appendSlice(line[marks[5]..]);
                         } else {
@@ -929,7 +994,7 @@ pub const StackTracesContext = struct {
                     }
                     try buf.appendSlice("\n");
                 }
-                break :got_result buf.toOwnedSlice();
+                break :got_result try buf.toOwnedSlice();
             };
 
             if (!mem.eql(u8, self.expect_output, got)) {
@@ -949,14 +1014,21 @@ pub const StackTracesContext = struct {
 };
 
 pub const StandaloneContext = struct {
-    b: *build.Builder,
-    step: *build.Step,
+    b: *std.Build,
+    step: *Step,
     test_index: usize,
     test_filter: ?[]const u8,
-    modes: []const Mode,
+    optimize_modes: []const OptimizeMode,
     skip_non_native: bool,
     enable_macos_sdk: bool,
     target: std.zig.CrossTarget,
+    omit_stage2: bool,
+    enable_darling: bool = false,
+    enable_qemu: bool = false,
+    enable_rosetta: bool = false,
+    enable_wasmtime: bool = false,
+    enable_wine: bool = false,
+    enable_symlinks_windows: bool,
 
     pub fn addC(self: *StandaloneContext, root_src: []const u8) void {
         self.addAllArgs(root_src, true);
@@ -970,10 +1042,16 @@ pub const StandaloneContext = struct {
         build_modes: bool = false,
         cross_targets: bool = false,
         requires_macos_sdk: bool = false,
+        requires_stage2: bool = false,
+        use_emulation: bool = false,
+        requires_symlinks: bool = false,
+        extra_argv: []const []const u8 = &.{},
     }) void {
         const b = self.b;
 
         if (features.requires_macos_sdk and !self.enable_macos_sdk) return;
+        if (features.requires_stage2 and self.omit_stage2) return;
+        if (features.requires_symlinks and !self.enable_symlinks_windows and builtin.os.tag == .windows) return;
 
         const annotated_case_name = b.fmt("build {s}", .{build_file});
         if (self.test_filter) |filter| {
@@ -988,6 +1066,8 @@ pub const StandaloneContext = struct {
         zig_args.append("--build-file") catch unreachable;
         zig_args.append(b.pathFromRoot(build_file)) catch unreachable;
 
+        zig_args.appendSlice(features.extra_argv) catch unreachable;
+
         zig_args.append("test") catch unreachable;
 
         if (b.verbose) {
@@ -1000,13 +1080,31 @@ pub const StandaloneContext = struct {
             zig_args.append(target_arg) catch unreachable;
         }
 
-        const modes = if (features.build_modes) self.modes else &[1]Mode{.Debug};
-        for (modes) |mode| {
-            const arg = switch (mode) {
+        if (features.use_emulation) {
+            if (self.enable_darling) {
+                zig_args.append("-fdarling") catch unreachable;
+            }
+            if (self.enable_qemu) {
+                zig_args.append("-fqemu") catch unreachable;
+            }
+            if (self.enable_rosetta) {
+                zig_args.append("-frosetta") catch unreachable;
+            }
+            if (self.enable_wasmtime) {
+                zig_args.append("-fwasmtime") catch unreachable;
+            }
+            if (self.enable_wine) {
+                zig_args.append("-fwine") catch unreachable;
+            }
+        }
+
+        const optimize_modes = if (features.build_modes) self.optimize_modes else &[1]OptimizeMode{.Debug};
+        for (optimize_modes) |optimize_mode| {
+            const arg = switch (optimize_mode) {
                 .Debug => "",
-                .ReleaseFast => "-Drelease-fast",
-                .ReleaseSafe => "-Drelease-safe",
-                .ReleaseSmall => "-Drelease-small",
+                .ReleaseFast => "-Doptimize=ReleaseFast",
+                .ReleaseSafe => "-Doptimize=ReleaseSafe",
+                .ReleaseSmall => "-Doptimize=ReleaseSmall",
             };
             const zig_args_base_len = zig_args.items.len;
             if (arg.len > 0)
@@ -1014,7 +1112,7 @@ pub const StandaloneContext = struct {
             defer zig_args.resize(zig_args_base_len) catch unreachable;
 
             const run_cmd = b.addSystemCommand(zig_args.items);
-            const log_step = b.addLog("PASS {s} ({s})\n", .{ annotated_case_name, @tagName(mode) });
+            const log_step = b.addLog("PASS {s} ({s})", .{ annotated_case_name, @tagName(optimize_mode) });
             log_step.step.dependOn(&run_cmd.step);
 
             self.step.dependOn(&log_step.step);
@@ -1024,22 +1122,26 @@ pub const StandaloneContext = struct {
     pub fn addAllArgs(self: *StandaloneContext, root_src: []const u8, link_libc: bool) void {
         const b = self.b;
 
-        for (self.modes) |mode| {
+        for (self.optimize_modes) |optimize| {
             const annotated_case_name = fmt.allocPrint(self.b.allocator, "build {s} ({s})", .{
                 root_src,
-                @tagName(mode),
+                @tagName(optimize),
             }) catch unreachable;
             if (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
             }
 
-            const exe = b.addExecutable("test", root_src);
-            exe.setBuildMode(mode);
+            const exe = b.addExecutable(.{
+                .name = "test",
+                .root_source_file = .{ .path = root_src },
+                .optimize = optimize,
+                .target = .{},
+            });
             if (link_libc) {
                 exe.linkSystemLibrary("c");
             }
 
-            const log_step = b.addLog("PASS {s}\n", .{annotated_case_name});
+            const log_step = b.addLog("PASS {s}", .{annotated_case_name});
             log_step.step.dependOn(&exe.step);
 
             self.step.dependOn(&log_step.step);
@@ -1048,8 +1150,8 @@ pub const StandaloneContext = struct {
 };
 
 pub const GenHContext = struct {
-    b: *build.Builder,
-    step: *build.Step,
+    b: *std.Build,
+    step: *Step,
     test_index: usize,
     test_filter: ?[]const u8,
 
@@ -1076,23 +1178,23 @@ pub const GenHContext = struct {
     };
 
     const GenHCmpOutputStep = struct {
-        step: build.Step,
+        step: Step,
         context: *GenHContext,
-        obj: *LibExeObjStep,
+        obj: *CompileStep,
         name: []const u8,
         test_index: usize,
         case: *const TestCase,
 
         pub fn create(
             context: *GenHContext,
-            obj: *LibExeObjStep,
+            obj: *CompileStep,
             name: []const u8,
             case: *const TestCase,
         ) *GenHCmpOutputStep {
             const allocator = context.b.allocator;
             const ptr = allocator.create(GenHCmpOutputStep) catch unreachable;
             ptr.* = GenHCmpOutputStep{
-                .step = build.Step.init(.Custom, "ParseCCmpOutput", allocator, make),
+                .step = Step.init(.Custom, "ParseCCmpOutput", allocator, make),
                 .context = context,
                 .obj = obj,
                 .name = name,
@@ -1104,7 +1206,7 @@ pub const GenHContext = struct {
             return ptr;
         }
 
-        fn make(step: *build.Step) !void {
+        fn make(step: *Step) !void {
             const self = @fieldParentPtr(GenHCmpOutputStep, "step", step);
             const b = self.context.b;
 
@@ -1160,8 +1262,8 @@ pub const GenHContext = struct {
     pub fn addCase(self: *GenHContext, case: *const TestCase) void {
         const b = self.b;
 
-        const mode = std.builtin.Mode.Debug;
-        const annotated_case_name = fmt.allocPrint(self.b.allocator, "gen-h {s} ({s})", .{ case.name, @tagName(mode) }) catch unreachable;
+        const optimize_mode = std.builtin.OptimizeMode.Debug;
+        const annotated_case_name = fmt.allocPrint(self.b.allocator, "gen-h {s} ({s})", .{ case.name, @tagName(optimize_mode) }) catch unreachable;
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
         }
@@ -1172,7 +1274,7 @@ pub const GenHContext = struct {
         }
 
         const obj = b.addObjectFromWriteFileStep("test", write_src, case.sources.items[0].filename);
-        obj.setBuildMode(mode);
+        obj.setBuildMode(optimize_mode);
 
         const cmp_h = GenHCmpOutputStep.create(self, obj, annotated_case_name, case);
 
@@ -1185,4 +1287,103 @@ fn printInvocation(args: []const []const u8) void {
         std.debug.print("{s} ", .{arg});
     }
     std.debug.print("\n", .{});
+}
+
+const c_abi_targets = [_]CrossTarget{
+    .{},
+    .{
+        .cpu_arch = .x86_64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .x86,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .aarch64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .arm,
+        .os_tag = .linux,
+        .abi = .musleabihf,
+    },
+    .{
+        .cpu_arch = .mips,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .riscv64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .wasm32,
+        .os_tag = .wasi,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .powerpc,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .powerpc64le,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .x86,
+        .os_tag = .windows,
+        .abi = .gnu,
+    },
+    .{
+        .cpu_arch = .x86_64,
+        .os_tag = .windows,
+        .abi = .gnu,
+    },
+};
+
+pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *Step {
+    const step = b.step("test-c-abi", "Run the C ABI tests");
+
+    const optimize_modes: [2]OptimizeMode = .{ .Debug, .ReleaseFast };
+
+    for (optimize_modes[0 .. @as(u8, 1) + @boolToInt(!skip_release)]) |optimize_mode| for (c_abi_targets) |c_abi_target| {
+        if (skip_non_native and !c_abi_target.isNative())
+            continue;
+
+        const test_step = b.addTest(.{
+            .root_source_file = .{ .path = "test/c_abi/main.zig" },
+            .optimize = optimize_mode,
+            .target = c_abi_target,
+        });
+        if (c_abi_target.abi != null and c_abi_target.abi.?.isMusl()) {
+            // TODO NativeTargetInfo insists on dynamically linking musl
+            // for some reason?
+            test_step.target_info.dynamic_linker.max_byte = null;
+        }
+        test_step.linkLibC();
+        test_step.addCSourceFile("test/c_abi/cfuncs.c", &.{"-std=c99"});
+
+        if (c_abi_target.isWindows() and (c_abi_target.getCpuArch() == .x86 or builtin.target.os.tag == .linux)) {
+            // LTO currently incorrectly strips stdcall name-mangled functions
+            // LLD crashes in LTO here when cross compiling for windows on linux
+            test_step.want_lto = false;
+        }
+
+        const triple_prefix = c_abi_target.zigTriple(b.allocator) catch unreachable;
+        test_step.setNamePrefix(b.fmt("{s}-{s}-{s} ", .{
+            "test-c-abi",
+            triple_prefix,
+            @tagName(optimize_mode),
+        }));
+
+        step.dependOn(&test_step.step);
+    };
+    return step;
 }

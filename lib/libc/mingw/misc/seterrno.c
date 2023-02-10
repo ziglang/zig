@@ -8,11 +8,17 @@
 errno_t __cdecl _set_errno (int _Value)
 {
   errno = _Value;
-  return errno;
+  return 0;
 }
 
 errno_t __cdecl _get_errno (int *_Value)
 {
-  if(_Value) *_Value=errno;
-  return errno;
+  if(!_Value)
+  {
+    errno = EINVAL;
+    return EINVAL;
+  }
+
+  *_Value = errno;
+  return 0;
 }

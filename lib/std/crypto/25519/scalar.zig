@@ -4,16 +4,20 @@ const mem = std.mem;
 
 const NonCanonicalError = std.crypto.errors.NonCanonicalError;
 
-/// 2^252 + 27742317777372353535851937790883648493
-pub const field_size = [32]u8{
-    0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, // 2^252+27742317777372353535851937790883648493
-};
+/// The scalar field order.
+pub const field_order: u256 = 7237005577332262213973186563042994240857116359379907606001950938285454250989;
 
 /// A compressed scalar
 pub const CompressedScalar = [32]u8;
 
 /// Zero
 pub const zero = [_]u8{0} ** 32;
+
+const field_order_s = s: {
+    var s: [32]u8 = undefined;
+    mem.writeIntLittle(u256, &s, field_order);
+    break :s s;
+};
 
 /// Reject a scalar whose encoding is not canonical.
 pub fn rejectNonCanonical(s: CompressedScalar) NonCanonicalError!void {
@@ -22,9 +26,9 @@ pub fn rejectNonCanonical(s: CompressedScalar) NonCanonicalError!void {
     var i: usize = 31;
     while (true) : (i -= 1) {
         const xs = @as(u16, s[i]);
-        const xfield_size = @as(u16, field_size[i]);
-        c |= @intCast(u8, ((xs -% xfield_size) >> 8) & n);
-        n &= @intCast(u8, ((xs ^ xfield_size) -% 1) >> 8);
+        const xfield_order_s = @as(u16, field_order_s[i]);
+        c |= @intCast(u8, ((xs -% xfield_order_s) >> 8) & n);
+        n &= @intCast(u8, ((xs ^ xfield_order_s) -% 1) >> 8);
         if (i == 0) break;
     }
     if (c == 0) {
@@ -77,7 +81,7 @@ pub fn add(a: CompressedScalar, b: CompressedScalar) CompressedScalar {
 
 /// Return -s (mod L)
 pub fn neg(s: CompressedScalar) CompressedScalar {
-    const fs: [64]u8 = field_size ++ [_]u8{0} ** 32;
+    const fs: [64]u8 = field_order_s ++ [_]u8{0} ** 32;
     var sx: [64]u8 = undefined;
     mem.copy(u8, sx[0..32], s[0..]);
     mem.set(u8, sx[32..], 0);
@@ -848,7 +852,7 @@ test "scalar25519" {
     var buf: [128]u8 = undefined;
     try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&y)}), "1E979B917937F3DE71D18077F961F6CEFF01030405060708010203040506070F");
 
-    const reduced = reduce(field_size);
+    const reduced = reduce(field_order_s);
     try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&reduced)}), "0000000000000000000000000000000000000000000000000000000000000000");
 }
 
@@ -881,7 +885,7 @@ test "random scalar" {
 }
 
 test "64-bit reduction" {
-    const bytes = field_size ++ [_]u8{0} ** 32;
+    const bytes = field_order_s ++ [_]u8{0} ** 32;
     const x = Scalar.fromBytes64(bytes);
     try std.testing.expect(x.isZero());
 }

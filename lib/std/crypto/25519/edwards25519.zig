@@ -69,7 +69,6 @@ pub const Edwards25519 = struct {
         .is_base = true,
     };
 
-    pub const neutralElement = @compileError("deprecated: use identityElement instead");
     pub const identityElement = Edwards25519{ .x = Fe.zero, .y = Fe.one, .z = Fe.one, .t = Fe.zero };
 
     /// Reject the neutral element.
@@ -82,6 +81,19 @@ pub const Edwards25519 = struct {
     /// Multiply a point by the cofactor
     pub fn clearCofactor(p: Edwards25519) Edwards25519 {
         return p.dbl().dbl().dbl();
+    }
+
+    /// Check that the point does not generate a low-order group.
+    /// Return a `WeakPublicKey` error if it does.
+    pub fn rejectLowOrder(p: Edwards25519) WeakPublicKeyError!void {
+        const zi = p.z.invert();
+        const x = p.x.mul(zi);
+        const y = p.y.mul(zi);
+        const x_neg = x.neg();
+        const iy = Fe.sqrtm1.mul(y);
+        if (x.isZero() or y.isZero() or iy.equivalent(x) or iy.equivalent(x_neg)) {
+            return error.WeakPublicKey;
+        }
     }
 
     /// Flip the sign of the X coordinate.

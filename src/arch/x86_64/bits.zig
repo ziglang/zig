@@ -135,8 +135,6 @@ pub const Condition = enum(u5) {
     }
 };
 
-// zig fmt: off
-
 /// Definitions of all of the general purpose x64 registers. The order is semantically meaningful.
 /// The registers are defined such that IDs go in descending order of 64-bit,
 /// 32-bit, 16-bit, and then 8-bit, and each set contains exactly sixteen
@@ -152,6 +150,7 @@ pub const Condition = enum(u5) {
 /// The ID can be easily determined by figuring out what range the register is
 /// in, and then subtracting the base.
 pub const Register = enum(u7) {
+    // zig fmt: off
     // 0 through 15, 64-bit registers. 8-15 are extended.
     // id is just the int value.
     rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi,
@@ -184,6 +183,7 @@ pub const Register = enum(u7) {
 
     // Pseudo-value for MIR instructions.
     none,
+    // zig fmt: on
 
     pub fn id(self: Register) u7 {
         return switch (@enumToInt(self)) {
@@ -192,7 +192,7 @@ pub const Register = enum(u7) {
             else => unreachable,
         };
     }
-        
+
     /// Returns the bit-width of the register.
     pub fn size(self: Register) u9 {
         return switch (@enumToInt(self)) {
@@ -258,27 +258,66 @@ pub const Register = enum(u7) {
     }
 
     pub fn dwarfLocOp(self: Register) u8 {
-        return switch (self.to64()) {
-            .rax => DW.OP.reg0,
-            .rdx => DW.OP.reg1,
-            .rcx => DW.OP.reg2,
-            .rbx => DW.OP.reg3,
-            .rsi => DW.OP.reg4,
-            .rdi => DW.OP.reg5,
-            .rbp => DW.OP.reg6,
-            .rsp => DW.OP.reg7,
+        switch (@enumToInt(self)) {
+            0...63 => return switch (self.to64()) {
+                .rax => DW.OP.reg0,
+                .rdx => DW.OP.reg1,
+                .rcx => DW.OP.reg2,
+                .rbx => DW.OP.reg3,
+                .rsi => DW.OP.reg4,
+                .rdi => DW.OP.reg5,
+                .rbp => DW.OP.reg6,
+                .rsp => DW.OP.reg7,
 
-            .r8 => DW.OP.reg8,
-            .r9 => DW.OP.reg9,
-            .r10 => DW.OP.reg10,
-            .r11 => DW.OP.reg11,
-            .r12 => DW.OP.reg12,
-            .r13 => DW.OP.reg13,
-            .r14 => DW.OP.reg14,
-            .r15 => DW.OP.reg15,
+                .r8 => DW.OP.reg8,
+                .r9 => DW.OP.reg9,
+                .r10 => DW.OP.reg10,
+                .r11 => DW.OP.reg11,
+                .r12 => DW.OP.reg12,
+                .r13 => DW.OP.reg13,
+                .r14 => DW.OP.reg14,
+                .r15 => DW.OP.reg15,
+
+                else => unreachable,
+            },
+
+            64...79 => return @as(u8, self.enc()) + DW.OP.reg17,
 
             else => unreachable,
-        };
+        }
+    }
+
+    /// DWARF encodings that push a value onto the DWARF stack that is either
+    /// the contents of a register or the result of adding the contents a given
+    /// register to a given signed offset.
+    pub fn dwarfLocOpDeref(self: Register) u8 {
+        switch (@enumToInt(self)) {
+            0...63 => return switch (self.to64()) {
+                .rax => DW.OP.breg0,
+                .rdx => DW.OP.breg1,
+                .rcx => DW.OP.breg2,
+                .rbx => DW.OP.breg3,
+                .rsi => DW.OP.breg4,
+                .rdi => DW.OP.breg5,
+                .rbp => DW.OP.breg6,
+                .rsp => DW.OP.fbreg,
+
+                .r8 => DW.OP.breg8,
+                .r9 => DW.OP.breg9,
+                .r10 => DW.OP.breg10,
+                .r11 => DW.OP.breg11,
+                .r12 => DW.OP.breg12,
+                .r13 => DW.OP.breg13,
+                .r14 => DW.OP.breg14,
+                .r15 => DW.OP.breg15,
+
+                else => unreachable,
+            },
+
+            64...79 => return @as(u8, self.enc()) + DW.OP.breg17,
+
+            else => unreachable,
+        }
     }
 };
 

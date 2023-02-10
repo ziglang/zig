@@ -1,4 +1,5 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Event = uefi.Event;
 const Status = uefi.Status;
@@ -7,14 +8,14 @@ const SimpleNetworkMode = uefi.protocols.SimpleNetworkMode;
 const MacAddress = uefi.protocols.MacAddress;
 
 pub const ManagedNetworkProtocol = extern struct {
-    _get_mode_data: fn (*const ManagedNetworkProtocol, ?*ManagedNetworkConfigData, ?*SimpleNetworkMode) callconv(.C) Status,
-    _configure: fn (*const ManagedNetworkProtocol, ?*const ManagedNetworkConfigData) callconv(.C) Status,
-    _mcast_ip_to_mac: fn (*const ManagedNetworkProtocol, bool, *const anyopaque, *MacAddress) callconv(.C) Status,
-    _groups: fn (*const ManagedNetworkProtocol, bool, ?*const MacAddress) callconv(.C) Status,
-    _transmit: fn (*const ManagedNetworkProtocol, *const ManagedNetworkCompletionToken) callconv(.C) Status,
-    _receive: fn (*const ManagedNetworkProtocol, *const ManagedNetworkCompletionToken) callconv(.C) Status,
-    _cancel: fn (*const ManagedNetworkProtocol, ?*const ManagedNetworkCompletionToken) callconv(.C) Status,
-    _poll: fn (*const ManagedNetworkProtocol) callconv(.C) usize,
+    _get_mode_data: *const fn (*const ManagedNetworkProtocol, ?*ManagedNetworkConfigData, ?*SimpleNetworkMode) callconv(.C) Status,
+    _configure: *const fn (*const ManagedNetworkProtocol, ?*const ManagedNetworkConfigData) callconv(.C) Status,
+    _mcast_ip_to_mac: *const fn (*const ManagedNetworkProtocol, bool, *const anyopaque, *MacAddress) callconv(.C) Status,
+    _groups: *const fn (*const ManagedNetworkProtocol, bool, ?*const MacAddress) callconv(.C) Status,
+    _transmit: *const fn (*const ManagedNetworkProtocol, *const ManagedNetworkCompletionToken) callconv(.C) Status,
+    _receive: *const fn (*const ManagedNetworkProtocol, *const ManagedNetworkCompletionToken) callconv(.C) Status,
+    _cancel: *const fn (*const ManagedNetworkProtocol, ?*const ManagedNetworkCompletionToken) callconv(.C) Status,
+    _poll: *const fn (*const ManagedNetworkProtocol) callconv(.C) Status,
 
     /// Returns the operational parameters for the current MNP child driver.
     /// May also support returning the underlying SNP driver mode data.
@@ -30,8 +31,7 @@ pub const ManagedNetworkProtocol = extern struct {
     /// Translates an IP multicast address to a hardware (MAC) multicast address.
     /// This function may be unsupported in some MNP implementations.
     pub fn mcastIpToMac(self: *const ManagedNetworkProtocol, ipv6flag: bool, ipaddress: *const anyopaque, mac_address: *MacAddress) Status {
-        _ = mac_address;
-        return self._mcast_ip_to_mac(self, ipv6flag, ipaddress);
+        return self._mcast_ip_to_mac(self, ipv6flag, ipaddress, mac_address);
     }
 
     /// Enables and disables receive filters for multicast address.

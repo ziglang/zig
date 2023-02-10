@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
@@ -30,8 +31,8 @@ pub extern "c" fn _kern_get_current_team() i32;
 pub const sem_t = extern struct {
     type: i32,
     u: extern union {
-        named_sem_id: ?i32,
-        unnamed_sem: ?i32,
+        named_sem_id: i32,
+        unnamed_sem: i32,
     },
     padding: [2]i32,
 };
@@ -266,6 +267,7 @@ pub const area_info = extern struct {
 };
 
 pub const MAXPATHLEN = PATH_MAX;
+pub const MAXNAMLEN = NAME_MAX;
 
 pub const image_info = extern struct {
     id: u32,
@@ -338,7 +340,16 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 
     pub const SS_MAXSIZE = 128;
-    pub const storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = extern struct {
+        len: u8 align(8),
+        family: sa_family_t,
+        padding: [126]u8 = undefined,
+
+        comptime {
+            assert(@sizeOf(storage) == SS_MAXSIZE);
+            assert(@alignOf(storage) == 8);
+        }
+    };
 
     pub const in = extern struct {
         len: u8 = @sizeOf(in),
@@ -371,6 +382,9 @@ pub const KERN = struct {};
 pub const IOV_MAX = 1024;
 
 pub const PATH_MAX = 1024;
+/// NOTE: Contains room for the terminating null character (despite the POSIX
+/// definition saying that NAME_MAX does not include the terminating null).
+pub const NAME_MAX = 256; // limits.h
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
@@ -463,9 +477,9 @@ pub const SA = struct {
 };
 
 pub const SIG = struct {
-    pub const ERR = @intToPtr(fn (i32) callconv(.C) void, maxInt(usize));
-    pub const DFL = @intToPtr(fn (i32) callconv(.C) void, 0);
-    pub const IGN = @intToPtr(fn (i32) callconv(.C) void, 1);
+    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
+    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
 
     pub const HUP = 1;
     pub const INT = 2;
@@ -702,7 +716,7 @@ pub const T = struct {
     pub const CSETAF = 0x8002;
     pub const CSETAW = 0x8003;
     pub const CWAITEVENT = 0x8004;
-    pub const CSBRK = 08005;
+    pub const CSBRK = 0x8005;
     pub const CFLSH = 0x8006;
     pub const CXONC = 0x8007;
     pub const CQUERYCONNECTED = 0x8008;
@@ -738,9 +752,11 @@ const NSIG = 32;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
+    pub const handler_fn = *const fn (i32) align(1) callconv(.C) void;
+
     /// signal handler
     __sigaction_u: extern union {
-        __sa_handler: fn (i32) callconv(.C) void,
+        __sa_handler: handler_fn,
     },
 
     /// see signal options
@@ -869,7 +885,7 @@ pub const S = struct {
     pub const IFDIR = 0o040000;
     pub const IFCHR = 0o020000;
     pub const IFIFO = 0o010000;
-    pub const INDEX_DIR = 04000000000;
+    pub const INDEX_DIR = 0o4000000000;
 
     pub const IUMSK = 0o7777;
     pub const ISUID = 0o4000;

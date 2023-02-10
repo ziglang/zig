@@ -30,7 +30,7 @@ const native_arch = @import("builtin").cpu.arch;
 //         `-- The thread pointer register points here
 //
 // The structure of the TCB is not defined by the ABI so we reserve enough space
-// for a single pointer as some architectures such as i386 and x86_64 need a
+// for a single pointer as some architectures such as x86 and x86_64 need a
 // pointer to the TCB block itself at the address pointed by the tp.
 //
 // In this case the control structure and DTV are placed one after another right
@@ -48,8 +48,8 @@ const TLSVariant = enum {
 };
 
 const tls_variant = switch (native_arch) {
-    .arm, .armeb, .thumb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => TLSVariant.VariantI,
-    .x86_64, .i386, .sparc64 => TLSVariant.VariantII,
+    .arm, .armeb, .thumb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpc64, .powerpc64le => TLSVariant.VariantI,
+    .x86_64, .x86, .sparc64 => TLSVariant.VariantII,
     else => @compileError("undefined tls_variant for this architecture"),
 };
 
@@ -64,7 +64,7 @@ const tls_tcb_size = switch (native_arch) {
 
 // Controls if the TP points to the end of the TCB instead of its beginning
 const tls_tp_points_past_tcb = switch (native_arch) {
-    .riscv32, .riscv64, .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => true,
+    .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpc64, .powerpc64le => true,
     else => false,
 };
 
@@ -72,12 +72,12 @@ const tls_tp_points_past_tcb = switch (native_arch) {
 // make the generated code more efficient
 
 const tls_tp_offset = switch (native_arch) {
-    .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => 0x7000,
+    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpc64, .powerpc64le => 0x7000,
     else => 0,
 };
 
 const tls_dtv_offset = switch (native_arch) {
-    .mips, .mipsel, .powerpc, .powerpc64, .powerpc64le => 0x8000,
+    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpc64, .powerpc64le => 0x8000,
     .riscv32, .riscv64 => 0x800,
     else => 0,
 };
@@ -102,7 +102,7 @@ const TLSImage = struct {
     dtv_offset: usize,
     data_offset: usize,
     data_size: usize,
-    // Only used on the i386 architecture
+    // Only used on the x86 architecture
     gdt_entry_number: usize,
 };
 
@@ -110,7 +110,7 @@ pub var tls_image: TLSImage = undefined;
 
 pub fn setThreadPointer(addr: usize) void {
     switch (native_arch) {
-        .i386 => {
+        .x86 => {
             var user_desc = std.os.linux.user_desc{
                 .entry_number = tls_image.gdt_entry_number,
                 .base_addr = addr,
@@ -156,7 +156,7 @@ pub fn setThreadPointer(addr: usize) void {
                 : [addr] "r" (addr),
             );
         },
-        .mips, .mipsel => {
+        .mips, .mipsel, .mips64, .mips64el => {
             const rc = std.os.linux.syscall1(.set_thread_area, addr);
             assert(rc == 0);
         },

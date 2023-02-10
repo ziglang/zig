@@ -18,9 +18,7 @@ test "@sizeOf on compile-time types" {
 }
 
 test "@TypeOf() with multiple arguments" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     {
         var var_1: u32 = undefined;
         var var_2: u8 = undefined;
@@ -77,8 +75,7 @@ const P = packed struct {
 };
 
 test "@offsetOf" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     // Packed structs have fixed memory layout
     try expect(@offsetOf(P, "a") == 0);
@@ -104,51 +101,9 @@ test "@offsetOf" {
     try expect(@ptrToInt(&a.i) - @ptrToInt(&a) == @offsetOf(A, "i"));
 }
 
-test "@offsetOf packed struct, array length not power of 2 or multiple of native pointer width in bytes" {
-    const p3a_len = 3;
-    const P3 = packed struct {
-        a: [p3a_len]u8,
-        b: usize,
-    };
-    try std.testing.expect(0 == @offsetOf(P3, "a"));
-    try std.testing.expect(p3a_len == @offsetOf(P3, "b"));
-
-    const p5a_len = 5;
-    const P5 = packed struct {
-        a: [p5a_len]u8,
-        b: usize,
-    };
-    try std.testing.expect(0 == @offsetOf(P5, "a"));
-    try std.testing.expect(p5a_len == @offsetOf(P5, "b"));
-
-    const p6a_len = 6;
-    const P6 = packed struct {
-        a: [p6a_len]u8,
-        b: usize,
-    };
-    try std.testing.expect(0 == @offsetOf(P6, "a"));
-    try std.testing.expect(p6a_len == @offsetOf(P6, "b"));
-
-    const p7a_len = 7;
-    const P7 = packed struct {
-        a: [p7a_len]u8,
-        b: usize,
-    };
-    try std.testing.expect(0 == @offsetOf(P7, "a"));
-    try std.testing.expect(p7a_len == @offsetOf(P7, "b"));
-
-    const p9a_len = 9;
-    const P9 = packed struct {
-        a: [p9a_len]u8,
-        b: usize,
-    };
-    try std.testing.expect(0 == @offsetOf(P9, "a"));
-    try std.testing.expect(p9a_len == @offsetOf(P9, "b"));
-
-    // 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 25 etc. are further cases
-}
-
 test "@bitOffsetOf" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     // Packed structs have fixed memory layout
     try expect(@bitOffsetOf(P, "a") == 0);
     try expect(@bitOffsetOf(P, "b") == 8);
@@ -212,24 +167,17 @@ test "branching logic inside @TypeOf" {
 }
 
 test "@bitSizeOf" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
     try expect(@bitSizeOf(u2) == 2);
     try expect(@bitSizeOf(u8) == @sizeOf(u8) * 8);
     try expect(@bitSizeOf(struct {
         a: u2,
-    }) == 2);
+    }) == 8);
     try expect(@bitSizeOf(packed struct {
         a: u2,
     }) == 2);
 }
 
 test "@sizeOf comparison against zero" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 gets the wrong answer for size of pointers to zero bit types
-        return error.SkipZigTest;
-    }
-
     const S0 = struct {
         f: *@This(),
     };
@@ -298,4 +246,58 @@ test "array access of generic param in typeof expression" {
     };
     try expect(S.first("a") == 'a');
     comptime try expect(S.first("a") == 'a');
+}
+
+test "lazy size cast to float" {
+    {
+        const S = struct { a: u8 };
+        try expect(@intToFloat(f32, @sizeOf(S)) == 1.0);
+    }
+    {
+        const S = struct { a: u8 };
+        try expect(@as(f32, @sizeOf(S)) == 1.0);
+    }
+}
+
+test "bitSizeOf comptime_int" {
+    try expect(@bitSizeOf(comptime_int) == 0);
+}
+
+test "runtime instructions inside typeof in comptime only scope" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    {
+        var y: i8 = 2;
+        const i: [2]i8 = [_]i8{ 1, y };
+        const T = struct {
+            a: @TypeOf(i) = undefined, // causes crash
+            b: @TypeOf(i[0]) = undefined, // causes crash
+        };
+        try expect(@TypeOf((T{}).a) == [2]i8);
+        try expect(@TypeOf((T{}).b) == i8);
+    }
+    {
+        var y: i8 = 2;
+        const i = .{ 1, y };
+        const T = struct {
+            b: @TypeOf(i[1]) = undefined,
+        };
+        try expect(@TypeOf((T{}).b) == i8);
+    }
+}
+
+test "@sizeOf optional of previously unresolved union" {
+    const Node = union { a: usize };
+    try expect(@sizeOf(?Node) == @sizeOf(Node) + @alignOf(Node));
+}
+
+test "@offsetOf zero-bit field" {
+    const S = packed struct {
+        a: u32,
+        b: u0,
+        c: u32,
+    };
+    try expect(@offsetOf(S, "b") == @offsetOf(S, "c"));
 }

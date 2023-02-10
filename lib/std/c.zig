@@ -20,7 +20,7 @@ pub const Tokenizer = tokenizer.Tokenizer;
 /// If linking gnu libc (glibc), the `ok` value will be true if the target
 /// version is greater than or equal to `glibc_version`.
 /// If linking a libc other than these, returns `false`.
-pub fn versionCheck(glibc_version: std.builtin.Version) type {
+pub fn versionCheck(comptime glibc_version: std.builtin.Version) type {
     return struct {
         pub const ok = blk: {
             if (!builtin.link_libc) break :blk false;
@@ -90,6 +90,8 @@ pub usingnamespace switch (builtin.os.tag) {
         pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *c.Stat) c_int;
 
         pub extern "c" fn alarm(seconds: c_uint) c_uint;
+
+        pub extern "c" fn msync(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
     },
 };
 
@@ -145,7 +147,6 @@ pub extern "c" fn write(fd: c.fd_t, buf: [*]const u8, nbyte: usize) isize;
 pub extern "c" fn pwrite(fd: c.fd_t, buf: [*]const u8, nbyte: usize, offset: c.off_t) isize;
 pub extern "c" fn mmap(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: c.fd_t, offset: c.off_t) *anyopaque;
 pub extern "c" fn munmap(addr: *align(page_size) const anyopaque, len: usize) c_int;
-pub extern "c" fn msync(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
 pub extern "c" fn mprotect(addr: *align(page_size) anyopaque, len: usize, prot: c_uint) c_int;
 pub extern "c" fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: c_int) c_int;
 pub extern "c" fn linkat(oldfd: c.fd_t, oldpath: [*:0]const u8, newfd: c.fd_t, newpath: [*:0]const u8, flags: c_int) c_int;
@@ -206,7 +207,7 @@ pub extern "c" fn sendto(
     dest_addr: ?*const c.sockaddr,
     addrlen: c.socklen_t,
 ) isize;
-pub extern "c" fn sendmsg(sockfd: c.fd_t, msg: *const std.x.os.Socket.Message, flags: c_int) isize;
+pub extern "c" fn sendmsg(sockfd: c.fd_t, msg: *const c.msghdr_const, flags: u32) isize;
 
 pub extern "c" fn recv(sockfd: c.fd_t, arg1: ?*anyopaque, arg2: usize, arg3: c_int) isize;
 pub extern "c" fn recvfrom(
@@ -217,7 +218,7 @@ pub extern "c" fn recvfrom(
     noalias src_addr: ?*c.sockaddr,
     noalias addrlen: ?*c.socklen_t,
 ) isize;
-pub extern "c" fn recvmsg(sockfd: c.fd_t, msg: *std.x.os.Socket.Message, flags: c_int) isize;
+pub extern "c" fn recvmsg(sockfd: c.fd_t, msg: *c.msghdr, flags: u32) isize;
 
 pub extern "c" fn kill(pid: c.pid_t, sig: c_int) c_int;
 pub extern "c" fn getdirentries(fd: c.fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
@@ -241,11 +242,12 @@ pub extern "c" fn utimes(path: [*:0]const u8, times: *[2]c.timeval) c_int;
 pub extern "c" fn utimensat(dirfd: c.fd_t, pathname: [*:0]const u8, times: *[2]c.timespec, flags: u32) c_int;
 pub extern "c" fn futimens(fd: c.fd_t, times: *const [2]c.timespec) c_int;
 
-pub extern "c" fn pthread_create(noalias newthread: *pthread_t, noalias attr: ?*const c.pthread_attr_t, start_routine: PThreadStartFn, noalias arg: ?*anyopaque) c.E;
-const PThreadStartFn = if (builtin.zig_backend == .stage1)
-    fn (?*anyopaque) callconv(.C) ?*anyopaque
-else
-    *const fn (?*anyopaque) callconv(.C) ?*anyopaque;
+pub extern "c" fn pthread_create(
+    noalias newthread: *pthread_t,
+    noalias attr: ?*const c.pthread_attr_t,
+    start_routine: *const fn (?*anyopaque) callconv(.C) ?*anyopaque,
+    noalias arg: ?*anyopaque,
+) c.E;
 pub extern "c" fn pthread_attr_init(attr: *c.pthread_attr_t) c.E;
 pub extern "c" fn pthread_attr_setstack(attr: *c.pthread_attr_t, stackaddr: *anyopaque, stacksize: usize) c.E;
 pub extern "c" fn pthread_attr_setstacksize(attr: *c.pthread_attr_t, stacksize: usize) c.E;
@@ -255,18 +257,18 @@ pub extern "c" fn pthread_self() pthread_t;
 pub extern "c" fn pthread_join(thread: pthread_t, arg_return: ?*?*anyopaque) c.E;
 pub extern "c" fn pthread_detach(thread: pthread_t) c.E;
 pub extern "c" fn pthread_atfork(
-    prepare: ?PThreadForkFn,
-    parent: ?PThreadForkFn,
-    child: ?PThreadForkFn,
+    prepare: ?*const fn () callconv(.C) void,
+    parent: ?*const fn () callconv(.C) void,
+    child: ?*const fn () callconv(.C) void,
 ) c_int;
-const PThreadForkFn = if (builtin.zig_backend == .stage1)
-    fn () callconv(.C) void
-else
-    *const fn () callconv(.C) void;
-pub extern "c" fn pthread_key_create(key: *c.pthread_key_t, destructor: ?fn (value: *anyopaque) callconv(.C) void) c.E;
+pub extern "c" fn pthread_key_create(
+    key: *c.pthread_key_t,
+    destructor: ?*const fn (value: *anyopaque) callconv(.C) void,
+) c.E;
 pub extern "c" fn pthread_key_delete(key: c.pthread_key_t) c.E;
 pub extern "c" fn pthread_getspecific(key: c.pthread_key_t) ?*anyopaque;
 pub extern "c" fn pthread_setspecific(key: c.pthread_key_t, value: ?*anyopaque) c_int;
+pub extern "c" fn pthread_sigmask(how: c_int, set: *const c.sigset_t, oldset: *c.sigset_t) c_int;
 pub extern "c" fn sem_init(sem: *c.sem_t, pshared: c_int, value: c_uint) c_int;
 pub extern "c" fn sem_destroy(sem: *c.sem_t) c_int;
 pub extern "c" fn sem_open(name: [*:0]const u8, flag: c_int, mode: c.mode_t, value: c_uint) *c.sem_t;
@@ -321,7 +323,9 @@ pub extern "c" fn getaddrinfo(
     noalias node: ?[*:0]const u8,
     noalias service: ?[*:0]const u8,
     noalias hints: ?*const c.addrinfo,
-    noalias res: **c.addrinfo,
+    /// On Linux, `res` will not be modified on error and `freeaddrinfo` will
+    /// potentially crash if you pass it an undefined pointer
+    noalias res: *?*c.addrinfo,
 ) c.EAI;
 
 pub extern "c" fn freeaddrinfo(res: *c.addrinfo) void;

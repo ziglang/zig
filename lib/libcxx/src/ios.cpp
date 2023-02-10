@@ -1,4 +1,4 @@
-//===-------------------------- ios.cpp -----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,20 +6,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "__config"
-
-#include "ios"
-
+#include <__config>
+#include <__locale>
+#include <algorithm>
+#include <ios>
+#include <limits>
+#include <memory>
+#include <new>
 #include <stdlib.h>
+#include <string>
 
-#include "__locale"
-#include "algorithm"
 #include "include/config_elast.h"
-#include "limits"
-#include "memory"
-#include "new"
-#include "string"
-#include "__undef_macros"
+
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -137,7 +137,7 @@ ios_base::getloc() const
 
 // xalloc
 #if defined(_LIBCPP_HAS_C_ATOMIC_IMP) && !defined(_LIBCPP_HAS_NO_THREADS)
-atomic<int> ios_base::__xindex_ = ATOMIC_VAR_INIT(0);
+atomic<int> ios_base::__xindex_{0};
 #else
 int ios_base::__xindex_ = 0;
 #endif
@@ -439,3 +439,5 @@ ios_base::sync_with_stdio(bool sync)
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS

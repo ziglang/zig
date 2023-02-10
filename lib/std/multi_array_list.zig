@@ -84,19 +84,18 @@ pub fn MultiArrayList(comptime S: type) type {
             var data: [fields.len]Data = undefined;
             for (fields) |field_info, i| {
                 data[i] = .{
-                    .size = @sizeOf(field_info.field_type),
+                    .size = @sizeOf(field_info.type),
                     .size_index = i,
-                    .alignment = if (@sizeOf(field_info.field_type) == 0) 1 else field_info.alignment,
+                    .alignment = if (@sizeOf(field_info.type) == 0) 1 else field_info.alignment,
                 };
             }
             const Sort = struct {
-                fn lessThan(trash: *i32, lhs: Data, rhs: Data) bool {
-                    _ = trash;
+                fn lessThan(context: void, lhs: Data, rhs: Data) bool {
+                    _ = context;
                     return lhs.alignment > rhs.alignment;
                 }
             };
-            var trash: i32 = undefined; // workaround for stage1 compiler bug
-            std.sort.sort(Data, &data, &trash, Sort.lessThan);
+            std.sort.sort(Data, &data, {}, Sort.lessThan);
             var sizes_bytes: [fields.len]usize = undefined;
             var field_indexes: [fields.len]usize = undefined;
             for (data) |elem, i| {
@@ -288,18 +287,17 @@ pub fn MultiArrayList(comptime S: type) type {
             assert(new_len <= self.capacity);
             assert(new_len <= self.len);
 
-            const other_bytes = gpa.allocAdvanced(
+            const other_bytes = gpa.alignedAlloc(
                 u8,
                 @alignOf(S),
                 capacityInBytes(new_len),
-                .exact,
             ) catch {
                 const self_slice = self.slice();
                 inline for (fields) |field_info, i| {
-                    if (@sizeOf(field_info.field_type) != 0) {
+                    if (@sizeOf(field_info.type) != 0) {
                         const field = @intToEnum(Field, i);
                         const dest_slice = self_slice.items(field)[new_len..];
-                        const byte_count = dest_slice.len * @sizeOf(field_info.field_type);
+                        const byte_count = dest_slice.len * @sizeOf(field_info.type);
                         // We use memset here for more efficient codegen in safety-checked,
                         // valgrind-enabled builds. Otherwise the valgrind client request
                         // will be repeated for every element.
@@ -318,13 +316,9 @@ pub fn MultiArrayList(comptime S: type) type {
             const self_slice = self.slice();
             const other_slice = other.slice();
             inline for (fields) |field_info, i| {
-                if (@sizeOf(field_info.field_type) != 0) {
+                if (@sizeOf(field_info.type) != 0) {
                     const field = @intToEnum(Field, i);
-                    // TODO we should be able to use std.mem.copy here but it causes a
-                    // test failure on aarch64 with -OReleaseFast
-                    const src_slice = mem.sliceAsBytes(self_slice.items(field));
-                    const dst_slice = mem.sliceAsBytes(other_slice.items(field));
-                    @memcpy(dst_slice.ptr, src_slice.ptr, src_slice.len);
+                    mem.copy(field_info.type, other_slice.items(field), self_slice.items(field));
                 }
             }
             gpa.free(self.allocatedBytes());
@@ -337,8 +331,6 @@ pub fn MultiArrayList(comptime S: type) type {
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
             self.len = new_len;
         }
-
-        pub const ensureCapacity = @compileError("deprecated; call `ensureUnusedCapacity` or `ensureTotalCapacity`");
 
         /// Modify the array so that it can hold at least `new_capacity` items.
         /// Implements super-linear growth to achieve amortized O(1) append operations.
@@ -366,11 +358,10 @@ pub fn MultiArrayList(comptime S: type) type {
         /// `new_capacity` must be greater or equal to `len`.
         pub fn setCapacity(self: *Self, gpa: Allocator, new_capacity: usize) !void {
             assert(new_capacity >= self.len);
-            const new_bytes = try gpa.allocAdvanced(
+            const new_bytes = try gpa.alignedAlloc(
                 u8,
                 @alignOf(S),
                 capacityInBytes(new_capacity),
-                .exact,
             );
             if (self.len == 0) {
                 gpa.free(self.allocatedBytes());
@@ -386,13 +377,9 @@ pub fn MultiArrayList(comptime S: type) type {
             const self_slice = self.slice();
             const other_slice = other.slice();
             inline for (fields) |field_info, i| {
-                if (@sizeOf(field_info.field_type) != 0) {
+                if (@sizeOf(field_info.type) != 0) {
                     const field = @intToEnum(Field, i);
-                    // TODO we should be able to use std.mem.copy here but it causes a
-                    // test failure on aarch64 with -OReleaseFast
-                    const src_slice = mem.sliceAsBytes(self_slice.items(field));
-                    const dst_slice = mem.sliceAsBytes(other_slice.items(field));
-                    @memcpy(dst_slice.ptr, src_slice.ptr, src_slice.len);
+                    mem.copy(field_info.type, other_slice.items(field), self_slice.items(field));
                 }
             }
             gpa.free(self.allocatedBytes());
@@ -409,13 +396,9 @@ pub fn MultiArrayList(comptime S: type) type {
             const self_slice = self.slice();
             const result_slice = result.slice();
             inline for (fields) |field_info, i| {
-                if (@sizeOf(field_info.field_type) != 0) {
+                if (@sizeOf(field_info.type) != 0) {
                     const field = @intToEnum(Field, i);
-                    // TODO we should be able to use std.mem.copy here but it causes a
-                    // test failure on aarch64 with -OReleaseFast
-                    const src_slice = mem.sliceAsBytes(self_slice.items(field));
-                    const dst_slice = mem.sliceAsBytes(result_slice.items(field));
-                    @memcpy(dst_slice.ptr, src_slice.ptr, src_slice.len);
+                    mem.copy(field_info.type, result_slice.items(field), self_slice.items(field));
                 }
             }
             return result;
@@ -430,10 +413,10 @@ pub fn MultiArrayList(comptime S: type) type {
 
                 pub fn swap(sc: @This(), a_index: usize, b_index: usize) void {
                     inline for (fields) |field_info, i| {
-                        if (@sizeOf(field_info.field_type) != 0) {
+                        if (@sizeOf(field_info.type) != 0) {
                             const field = @intToEnum(Field, i);
                             const ptr = sc.slice.items(field);
-                            mem.swap(field_info.field_type, &ptr[a_index], &ptr[b_index]);
+                            mem.swap(field_info.type, &ptr[a_index], &ptr[b_index]);
                         }
                     }
                 }
@@ -450,17 +433,23 @@ pub fn MultiArrayList(comptime S: type) type {
         }
 
         fn capacityInBytes(capacity: usize) usize {
-            const sizes_vector: @Vector(sizes.bytes.len, usize) = sizes.bytes;
-            const capacity_vector = @splat(sizes.bytes.len, capacity);
-            return @reduce(.Add, capacity_vector * sizes_vector);
+            if (builtin.zig_backend == .stage2_c) {
+                var bytes: usize = 0;
+                for (sizes.bytes) |size| bytes += size * capacity;
+                return bytes;
+            } else {
+                const sizes_vector: @Vector(sizes.bytes.len, usize) = sizes.bytes;
+                const capacity_vector = @splat(sizes.bytes.len, capacity);
+                return @reduce(.Add, capacity_vector * sizes_vector);
+            }
         }
 
         fn allocatedBytes(self: Self) []align(@alignOf(S)) u8 {
             return self.bytes[0..capacityInBytes(self.capacity)];
         }
 
-        fn FieldType(field: Field) type {
-            return meta.fieldInfo(S, field).field_type;
+        fn FieldType(comptime field: Field) type {
+            return meta.fieldInfo(S, field).type;
         }
 
         /// This function is used in tools/zig-gdb.py to fetch the child type to facilitate

@@ -1,4 +1,4 @@
-//===----------------------- random_shuffle.cpp ---------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,19 +6,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "algorithm"
-#include "random"
+#include <algorithm>
+#include <random>
+
 #ifndef _LIBCPP_HAS_NO_THREADS
-#   include "mutex"
-#   if defined(__ELF__) && defined(_LIBCPP_LINK_PTHREAD_LIB)
-#       pragma comment(lib, "pthread")
-#   endif
+#  include <mutex>
+#  if defined(__ELF__) && defined(_LIBCPP_LINK_PTHREAD_LIB)
+#    pragma comment(lib, "pthread")
+#  endif
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 #ifndef _LIBCPP_HAS_NO_THREADS
-_LIBCPP_SAFE_STATIC static __libcpp_mutex_t __rs_mut = _LIBCPP_MUTEX_INITIALIZER;
+static constinit __libcpp_mutex_t __rs_mut = _LIBCPP_MUTEX_INITIALIZER;
 #endif
 unsigned __rs_default::__c_ = 0;
 

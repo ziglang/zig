@@ -22,7 +22,7 @@ const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
 
-const FnResult = @import("../../codegen.zig").FnResult;
+const Result = @import("../../codegen.zig").Result;
 const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 
@@ -225,7 +225,7 @@ pub fn generate(
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
-) GenerateSymbolError!FnResult {
+) GenerateSymbolError!Result {
     if (build_options.skip_non_native and builtin.cpu.arch != bin_file.options.target.cpu.arch) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
@@ -268,8 +268,8 @@ pub fn generate(
     defer function.exitlude_jump_relocs.deinit(bin_file.allocator);
 
     var call_info = function.resolveCallingConventionValues(fn_type) catch |err| switch (err) {
-        error.CodegenFail => return FnResult{ .fail = function.err_msg.? },
-        error.OutOfRegisters => return FnResult{
+        error.CodegenFail => return Result{ .fail = function.err_msg.? },
+        error.OutOfRegisters => return Result{
             .fail = try ErrorMsg.create(bin_file.allocator, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
         },
         else => |e| return e,
@@ -282,8 +282,8 @@ pub fn generate(
     function.max_end_stack = call_info.stack_byte_count;
 
     function.gen() catch |err| switch (err) {
-        error.CodegenFail => return FnResult{ .fail = function.err_msg.? },
-        error.OutOfRegisters => return FnResult{
+        error.CodegenFail => return Result{ .fail = function.err_msg.? },
+        error.OutOfRegisters => return Result{
             .fail = try ErrorMsg.create(bin_file.allocator, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
         },
         else => |e| return e,
@@ -291,7 +291,7 @@ pub fn generate(
 
     var mir = Mir{
         .instructions = function.mir_instructions.toOwnedSlice(),
-        .extra = function.mir_extra.toOwnedSlice(bin_file.allocator),
+        .extra = try function.mir_extra.toOwnedSlice(bin_file.allocator),
     };
     defer mir.deinit(bin_file.allocator);
 
@@ -309,14 +309,14 @@ pub fn generate(
     defer emit.deinit();
 
     emit.emitMir() catch |err| switch (err) {
-        error.EmitFail => return FnResult{ .fail = emit.err_msg.? },
+        error.EmitFail => return Result{ .fail = emit.err_msg.? },
         else => |e| return e,
     };
 
     if (function.err_msg) |em| {
-        return FnResult{ .fail = em };
+        return Result{ .fail = em };
     } else {
-        return FnResult{ .appended = {} };
+        return Result.ok;
     }
 }
 
@@ -340,7 +340,7 @@ pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
     const fields = std.meta.fields(@TypeOf(extra));
     const result = @intCast(u32, self.mir_extra.items.len);
     inline for (fields) |field| {
-        self.mir_extra.appendAssumeCapacity(switch (field.field_type) {
+        self.mir_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
             i32 => @bitCast(u32, @field(extra, field.name)),
             else => @compileError("bad field type"),
@@ -516,6 +516,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ceil,
             .round,
             .trunc_float,
+            .neg,
             => try self.airUnaryMath(inst),
 
             .add_with_overflow => try self.airAddWithOverflow(inst),
@@ -603,6 +604,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .union_init      => try self.airUnionInit(inst),
             .prefetch        => try self.airPrefetch(inst),
             .mul_add         => try self.airMulAdd(inst),
+            .addrspace_cast  => @panic("TODO"),
 
             .@"try"          => @panic("TODO"),
             .try_ptr         => @panic("TODO"),
@@ -663,10 +665,44 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .errunion_payload_ptr_set   => try self.airErrUnionPayloadPtrSet(inst),
             .err_return_trace           => try self.airErrReturnTrace(inst),
             .set_err_return_trace       => try self.airSetErrReturnTrace(inst),
+            .save_err_return_trace_index=> try self.airSaveErrReturnTraceIndex(inst),
 
             .wrap_optional         => try self.airWrapOptional(inst),
             .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
+
+            .add_optimized,
+            .addwrap_optimized,
+            .sub_optimized,
+            .subwrap_optimized,
+            .mul_optimized,
+            .mulwrap_optimized,
+            .div_float_optimized,
+            .div_trunc_optimized,
+            .div_floor_optimized,
+            .div_exact_optimized,
+            .rem_optimized,
+            .mod_optimized,
+            .neg_optimized,
+            .cmp_lt_optimized,
+            .cmp_lte_optimized,
+            .cmp_eq_optimized,
+            .cmp_gte_optimized,
+            .cmp_gt_optimized,
+            .cmp_neq_optimized,
+            .cmp_vector_optimized,
+            .reduce_optimized,
+            .float_to_int_optimized,
+            => return self.fail("TODO implement optimized float mode", .{}),
+
+            .is_named_enum_value => return self.fail("TODO implement is_named_enum_value", .{}),
+            .error_set_has_value => return self.fail("TODO implement error_set_has_value", .{}),
+            .vector_store_elem => return self.fail("TODO implement vector_store_elem", .{}),
+
+            .c_va_arg => return self.fail("TODO implement c_va_arg", .{}),
+            .c_va_copy => return self.fail("TODO implement c_va_copy", .{}),
+            .c_va_end => return self.fail("TODO implement c_va_end", .{}),
+            .c_va_start => return self.fail("TODO implement c_va_start", .{}),
 
             .wasm_memory_size => unreachable,
             .wasm_memory_grow => unreachable,
@@ -740,28 +776,6 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
 fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
     const table = &self.branch_stack.items[self.branch_stack.items.len - 1].inst_table;
     try table.ensureUnusedCapacity(self.gpa, additional_count);
-}
-
-/// Adds a Type to the .debug_info at the current position. The bytes will be populated later,
-/// after codegen for this symbol is done.
-fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
-    switch (self.debug_output) {
-        .dwarf => |dw| {
-            assert(ty.hasRuntimeBits());
-            const dbg_info = &dw.dbg_info;
-            const index = dbg_info.items.len;
-            try dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
-            const mod = self.bin_file.options.module.?;
-            const atom = switch (self.bin_file.tag) {
-                .elf => &mod.declPtr(self.mod_fn.owner_decl).link.elf.dbg_info_atom,
-                .macho => unreachable,
-                else => unreachable,
-            };
-            try dw.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
-        },
-        .plan9 => {},
-        .none => {},
-    }
 }
 
 fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u32 {
@@ -1288,7 +1302,6 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airErrReturnTrace(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
@@ -1299,6 +1312,11 @@ fn airErrReturnTrace(self: *Self, inst: Air.Inst.Index) !void {
 fn airSetErrReturnTrace(self: *Self, inst: Air.Inst.Index) !void {
     _ = inst;
     return self.fail("TODO implement airSetErrReturnTrace for {}", .{self.target.cpu.arch});
+}
+
+fn airSaveErrReturnTraceIndex(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return self.fail("TODO implement airSaveErrReturnTraceIndex for {}", .{self.target.cpu.arch});
 }
 
 fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
@@ -1570,7 +1588,6 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
     return self.structFieldPtr(ty_op.operand, ty_op.ty, index);
 }
 fn structFieldPtr(self: *Self, operand: Air.Inst.Ref, ty: Air.Inst.Ref, index: u32) !void {
-    _ = self;
     _ = operand;
     _ = ty;
     _ = index;
@@ -1587,44 +1604,25 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
-    _ = self;
     _ = inst;
     return self.fail("TODO implement codegen airFieldParentPtr", .{});
 }
 
-fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue, arg_index: u32) !void {
-    const ty = self.air.instructions.items(.data)[inst].ty;
-    const name = self.mod_fn.getParamName(arg_index);
-    const name_with_null = name.ptr[0 .. name.len + 1];
+fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
+    const arg = self.air.instructions.items(.data)[inst].arg;
+    const ty = self.air.getRefType(arg.ty);
+    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg.src_index);
 
-    switch (mcv) {
-        .register => |reg| {
-            switch (self.debug_output) {
-                .dwarf => |dw| {
-                    const dbg_info = &dw.dbg_info;
-                    try dbg_info.ensureUnusedCapacity(3);
-                    dbg_info.appendAssumeCapacity(@enumToInt(link.File.Dwarf.AbbrevKind.parameter));
-                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                        1, // ULEB128 dwarf expression length
-                        reg.dwarfLocOp(),
-                    });
-                    try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-                },
-                .plan9 => {},
-                .none => {},
-            }
+    switch (self.debug_output) {
+        .dwarf => |dw| switch (mcv) {
+            .register => |reg| try dw.genArgDbgInfo(name, ty, self.mod_fn.owner_decl, .{
+                .register = reg.dwarfLocOp(),
+            }),
+            .stack_offset => {},
+            else => {},
         },
-        .stack_offset => |offset| {
-            _ = offset;
-            switch (self.debug_output) {
-                .dwarf => {},
-                .plan9 => {},
-                .none => {},
-            }
-        },
-        else => {},
+        .plan9 => {},
+        .none => {},
     }
 }
 
@@ -1639,7 +1637,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     // TODO support stack-only arguments
     // TODO Copy registers to the stack
     const mcv = result;
-    try self.genArgDbgInfo(inst, mcv, @intCast(u32, arg_index));
+    try self.genArgDbgInfo(inst, mcv);
 
     if (self.liveness.isUnused(inst))
         return self.finishAirBookkeeping();
@@ -1677,7 +1675,7 @@ fn airFence(self: *Self) !void {
     //return self.finishAirBookkeeping();
 }
 
-fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.Modifier) !void {
+fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
     if (modifier == .always_tail) return self.fail("TODO implement tail calls for riscv64", .{});
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const fn_ty = self.air.typeOf(pl_op.operand);
@@ -1690,7 +1688,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
 
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
-    if (self.bin_file.tag == link.File.Elf.base_tag or self.bin_file.tag == link.File.Coff.base_tag) {
+    if (self.bin_file.cast(link.File.Elf)) |elf_file| {
         for (info.args) |mc_arg, arg_i| {
             const arg = args[arg_i];
             const arg_ty = self.air.typeOf(arg);
@@ -1719,19 +1717,9 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         if (self.air.value(callee)) |func_value| {
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
-
-                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-                const mod = self.bin_file.options.module.?;
-                const fn_owner_decl = mod.declPtr(func.owner_decl);
-                const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
-                    const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
-                    break :blk @intCast(u32, got.p_vaddr + fn_owner_decl.link.elf.offset_table_index * ptr_bytes);
-                } else if (self.bin_file.cast(link.File.Coff)) |coff_file|
-                    coff_file.offset_table_virtual_address + fn_owner_decl.link.coff.offset_table_index * ptr_bytes
-                else
-                    unreachable;
-
+                const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
+                const atom = elf_file.getAtom(atom_index);
+                const got_addr = @intCast(u32, atom.getOffsetTableAddress(elf_file));
                 try self.genSetReg(Type.initTag(.usize), .ra, .{ .memory = got_addr });
                 _ = try self.addInst(.{
                     .tag = .jalr,
@@ -1747,8 +1735,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 return self.fail("TODO implement calling bitcasted functions", .{});
             }
         } else {
-            return self.fail("TODO implement calling runtime known function pointer", .{});
+            return self.fail("TODO implement calling runtime-known function pointer", .{});
         }
+    } else if (self.bin_file.cast(link.File.Coff)) |_| {
+        return self.fail("TODO implement calling in COFF for {}", .{self.target.cpu.arch});
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         unreachable; // unsupported architecture for MachO
     } else if (self.bin_file.cast(link.File.Plan9)) |_| {
@@ -2556,19 +2546,17 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
     const decl = mod.declPtr(decl_index);
     mod.markDeclAlive(decl);
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
-        const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
-        return MCValue{ .memory = got_addr };
+        const atom_index = try elf_file.getOrCreateAtomForDecl(decl_index);
+        const atom = elf_file.getAtom(atom_index);
+        return MCValue{ .memory = atom.getOffsetTableAddress(elf_file) };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
-        // TODO I'm hacking my way through here by repurposing .memory for storing
-        // index to the GOT target symbol index.
-        return MCValue{ .memory = decl.link.macho.local_sym_index };
-    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-        const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
-        return MCValue{ .memory = got_addr };
+        unreachable;
+    } else if (self.bin_file.cast(link.File.Coff)) |_| {
+        return self.fail("TODO codegen COFF const Decl pointer", .{});
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-        try p9.seeDecl(decl_index);
-        const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
+        const decl_block_index = try p9.seeDecl(decl_index);
+        const decl_block = p9.getDeclBlock(decl_block_index);
+        const got_addr = p9.bases.data + decl_block.got_index.? * ptr_bytes;
         return MCValue{ .memory = got_addr };
     } else {
         return self.fail("TODO codegen non-ELF const Decl pointer", .{});

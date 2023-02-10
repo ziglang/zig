@@ -1,4 +1,4 @@
-//===--------------------------- DwarfParser.hpp --------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -152,10 +152,11 @@ public:
   };
 
   static bool findFDE(A &addressSpace, pint_t pc, pint_t ehSectionStart,
-                      uintptr_t sectionLength, pint_t fdeHint, FDE_Info *fdeInfo,
+                      size_t sectionLength, pint_t fdeHint, FDE_Info *fdeInfo,
                       CIE_Info *cieInfo);
   static const char *decodeFDE(A &addressSpace, pint_t fdeStart,
-                               FDE_Info *fdeInfo, CIE_Info *cieInfo);
+                               FDE_Info *fdeInfo, CIE_Info *cieInfo,
+                               bool useCIEInfo = false);
   static bool parseFDEInstructions(A &addressSpace, const FDE_Info &fdeInfo,
                                    const CIE_Info &cieInfo, pint_t upToPC,
                                    int arch, PrologInfo *results);
@@ -163,10 +164,14 @@ public:
   static const char *parseCIE(A &addressSpace, pint_t cie, CIE_Info *cieInfo);
 };
 
-/// Parse a FDE into a CIE_Info and an FDE_Info
+/// Parse a FDE into a CIE_Info and an FDE_Info. If useCIEInfo is
+/// true, treat cieInfo as already-parsed CIE_Info (whose start offset
+/// must match the one specified by the FDE) rather than parsing the
+/// one indicated within the FDE.
 template <typename A>
 const char *CFI_Parser<A>::decodeFDE(A &addressSpace, pint_t fdeStart,
-                                     FDE_Info *fdeInfo, CIE_Info *cieInfo) {
+                                     FDE_Info *fdeInfo, CIE_Info *cieInfo,
+                                     bool useCIEInfo) {
   pint_t p = fdeStart;
   pint_t cfiLength = (pint_t)addressSpace.get32(p);
   p += 4;
@@ -182,9 +187,14 @@ const char *CFI_Parser<A>::decodeFDE(A &addressSpace, pint_t fdeStart,
     return "FDE is really a CIE"; // this is a CIE not an FDE
   pint_t nextCFI = p + cfiLength;
   pint_t cieStart = p - ciePointer;
-  const char *err = parseCIE(addressSpace, cieStart, cieInfo);
-  if (err != NULL)
-    return err;
+  if (useCIEInfo) {
+    if (cieInfo->cieStart != cieStart)
+      return "CIE start does not match";
+  } else {
+    const char *err = parseCIE(addressSpace, cieStart, cieInfo);
+    if (err != NULL)
+      return err;
+  }
   p += 4;
   // Parse pc begin and range.
   pint_t pcStart =
@@ -221,11 +231,11 @@ const char *CFI_Parser<A>::decodeFDE(A &addressSpace, pint_t fdeStart,
 /// Scan an eh_frame section to find an FDE for a pc
 template <typename A>
 bool CFI_Parser<A>::findFDE(A &addressSpace, pint_t pc, pint_t ehSectionStart,
-                            uintptr_t sectionLength, pint_t fdeHint,
+                            size_t sectionLength, pint_t fdeHint,
                             FDE_Info *fdeInfo, CIE_Info *cieInfo) {
   //fprintf(stderr, "findFDE(0x%llX)\n", (long long)pc);
   pint_t p = (fdeHint != 0) ? fdeHint : ehSectionStart;
-  const pint_t ehSectionEnd = (sectionLength == UINTPTR_MAX)
+  const pint_t ehSectionEnd = (sectionLength == SIZE_MAX)
                                   ? static_cast<pint_t>(-1)
                                   : (ehSectionStart + sectionLength);
   while (p < ehSectionEnd) {
@@ -735,8 +745,8 @@ bool CFI_Parser<A>::parseFDEInstructions(A &addressSpace,
 #if defined(_LIBUNWIND_TARGET_AARCH64)
         case REGISTERS_ARM64: {
           int64_t value =
-              results->savedRegisters[UNW_ARM64_RA_SIGN_STATE].value ^ 0x1;
-          results->setRegisterValue(UNW_ARM64_RA_SIGN_STATE, value,
+              results->savedRegisters[UNW_AARCH64_RA_SIGN_STATE].value ^ 0x1;
+          results->setRegisterValue(UNW_AARCH64_RA_SIGN_STATE, value,
                                     initialState);
           _LIBUNWIND_TRACE_DWARF("DW_CFA_AARCH64_negate_ra_state\n");
         } break;
@@ -770,11 +780,13 @@ bool CFI_Parser<A>::parseFDEInstructions(A &addressSpace,
             if (reg == UNW_SPARC_I7)
               results->setRegister(
                   reg, kRegisterInCFADecrypt,
-                  ((int64_t)reg - UNW_SPARC_L0) * sizeof(pint_t), initialState);
+                  static_cast<int64_t>((reg - UNW_SPARC_L0) * sizeof(pint_t)),
+                  initialState);
             else
               results->setRegister(
                   reg, kRegisterInCFA,
-                  ((int64_t)reg - UNW_SPARC_L0) * sizeof(pint_t), initialState);
+                  static_cast<int64_t>((reg - UNW_SPARC_L0) * sizeof(pint_t)),
+                  initialState);
           }
           _LIBUNWIND_TRACE_DWARF("DW_CFA_GNU_window_save\n");
           break;

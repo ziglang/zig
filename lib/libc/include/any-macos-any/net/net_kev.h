@@ -74,7 +74,7 @@
 #define KEV_DL_LINK_QUALITY_METRIC_CHANGED      20
 #define KEV_DL_NODE_PRESENCE                    21
 #define KEV_DL_NODE_ABSENCE                     22
-#define KEV_DL_MASTER_ELECTED                   23
+#define KEV_DL_PRIMARY_ELECTED                  23
 #define KEV_DL_ISSUES                           24
 #define KEV_DL_IFDELEGATE_CHANGED               25
 #define KEV_DL_AWDL_RESTRICTED                  26
@@ -82,6 +82,8 @@
 #define KEV_DL_RRC_STATE_CHANGED                28
 #define KEV_DL_QOS_MODE_CHANGED                 29
 #define KEV_DL_LOW_POWER_MODE_CHANGED           30
+
+#define KEV_DL_MASTER_ELECTED (_Pragma("gcc warn Use KEV_DL_PRIMARY_ELECTED instead") KEV_DL_PRIMARY_ELECTED)
 
 
 #define KEV_INET6_SUBCLASS      6       /* inet6 subclass */

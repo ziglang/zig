@@ -18,10 +18,10 @@ const maxInt = std.math.maxInt;
 pub const DefaultPrng = Xoshiro256;
 
 /// Cryptographically secure random numbers.
-pub const DefaultCsprng = Gimli;
+pub const DefaultCsprng = Xoodoo;
 
 pub const Isaac64 = @import("rand/Isaac64.zig");
-pub const Gimli = @import("rand/Gimli.zig");
+pub const Xoodoo = @import("rand/Xoodoo.zig");
 pub const Pcg = @import("rand/Pcg.zig");
 pub const Xoroshiro128 = @import("rand/Xoroshiro128.zig");
 pub const Xoshiro256 = @import("rand/Xoshiro256.zig");
@@ -30,10 +30,7 @@ pub const RomuTrio = @import("rand/RomuTrio.zig");
 
 pub const Random = struct {
     ptr: *anyopaque,
-    fillFn: if (builtin.zig_backend == .stage1)
-        fn (ptr: *anyopaque, buf: []u8) void
-    else
-        *const fn (ptr: *anyopaque, buf: []u8) void,
+    fillFn: *const fn (ptr: *anyopaque, buf: []u8) void,
 
     pub fn init(pointer: anytype, comptime fillFn: fn (ptr: @TypeOf(pointer), buf: []u8) void) Random {
         const Ptr = @TypeOf(pointer);
@@ -64,14 +61,41 @@ pub const Random = struct {
     }
 
     /// Returns a random value from an enum, evenly distributed.
-    pub fn enumValue(r: Random, comptime EnumType: type) EnumType {
+    ///
+    /// Note that this will not yield consistent results across all targets
+    /// due to dependence on the representation of `usize` as an index.
+    /// See `enumValueWithIndex` for further commentary.
+    pub inline fn enumValue(r: Random, comptime EnumType: type) EnumType {
+        return r.enumValueWithIndex(EnumType, usize);
+    }
+
+    /// Returns a random value from an enum, evenly distributed.
+    ///
+    /// An index into an array of all named values is generated using the
+    /// specified `Index` type to determine the return value.
+    /// This allows for results to be independent of `usize` representation.
+    ///
+    /// Prefer `enumValue` if this isn't important.
+    ///
+    /// See `uintLessThan`, which this function uses in most cases,
+    /// for commentary on the runtime of this function.
+    pub fn enumValueWithIndex(r: Random, comptime EnumType: type, comptime Index: type) EnumType {
         comptime assert(@typeInfo(EnumType) == .Enum);
 
         // We won't use int -> enum casting because enum elements can have
         //  arbitrary values.  Instead we'll randomly pick one of the type's values.
-        const values = std.enums.values(EnumType);
-        const index = r.uintLessThan(usize, values.len);
-        return values[index];
+        const values = comptime std.enums.values(EnumType);
+        comptime assert(values.len > 0); // can't return anything
+        comptime assert(maxInt(Index) >= values.len - 1); // can't access all values
+        comptime if (values.len == 1) return values[0];
+
+        const index = if (comptime values.len - 1 == maxInt(Index))
+            r.int(Index)
+        else
+            r.uintLessThan(Index, values.len);
+
+        const MinInt = MinArrayIndex(Index);
+        return values[@intCast(MinInt, index)];
     }
 
     /// Returns a random int `i` such that `minInt(T) <= i <= maxInt(T)`.
@@ -257,15 +281,15 @@ pub const Random = struct {
                 // If all 41 bits are zero, generate additional random bits, until a
                 // set bit is found, or 126 bits have been generated.
                 const rand = r.int(u64);
-                var rand_lz = @clz(u64, rand);
+                var rand_lz = @clz(rand);
                 if (rand_lz >= 41) {
                     // TODO: when #5177 or #489 is implemented,
                     // tell the compiler it is unlikely (1/2^41) to reach this point.
                     // (Same for the if branch and the f64 calculations below.)
-                    rand_lz = 41 + @clz(u64, r.int(u64));
+                    rand_lz = 41 + @clz(r.int(u64));
                     if (rand_lz == 41 + 64) {
                         // It is astronomically unlikely to reach this point.
-                        rand_lz += @clz(u32, r.int(u32) | 0x7FF);
+                        rand_lz += @clz(r.int(u32) | 0x7FF);
                     }
                 }
                 const mantissa = @truncate(u23, rand);
@@ -277,12 +301,12 @@ pub const Random = struct {
                 // If all 12 bits are zero, generate additional random bits, until a
                 // set bit is found, or 1022 bits have been generated.
                 const rand = r.int(u64);
-                var rand_lz: u64 = @clz(u64, rand);
+                var rand_lz: u64 = @clz(rand);
                 if (rand_lz >= 12) {
                     rand_lz = 12;
                     while (true) {
                         // It is astronomically unlikely for this loop to execute more than once.
-                        const addl_rand_lz = @clz(u64, r.int(u64));
+                        const addl_rand_lz = @clz(r.int(u64));
                         rand_lz += addl_rand_lz;
                         if (addl_rand_lz != 64) {
                             break;
@@ -326,16 +350,82 @@ pub const Random = struct {
     }
 
     /// Shuffle a slice into a random order.
-    pub fn shuffle(r: Random, comptime T: type, buf: []T) void {
+    ///
+    /// Note that this will not yield consistent results across all targets
+    /// due to dependence on the representation of `usize` as an index.
+    /// See `shuffleWithIndex` for further commentary.
+    pub inline fn shuffle(r: Random, comptime T: type, buf: []T) void {
+        r.shuffleWithIndex(T, buf, usize);
+    }
+
+    /// Shuffle a slice into a random order, using an index of a
+    /// specified type to maintain distribution across targets.
+    /// Asserts the index type can represent `buf.len`.
+    ///
+    /// Indexes into the slice are generated using the specified `Index`
+    /// type, which determines distribution properties. This allows for
+    /// results to be independent of `usize` representation.
+    ///
+    /// Prefer `shuffle` if this isn't important.
+    ///
+    /// See `intRangeLessThan`, which this function uses,
+    /// for commentary on the runtime of this function.
+    pub fn shuffleWithIndex(r: Random, comptime T: type, buf: []T, comptime Index: type) void {
+        const MinInt = MinArrayIndex(Index);
         if (buf.len < 2) {
             return;
         }
 
-        var i: usize = 0;
-        while (i < buf.len - 1) : (i += 1) {
-            const j = r.intRangeLessThan(usize, i, buf.len);
+        // `i <= j < max <= maxInt(MinInt)`
+        const max = @intCast(MinInt, buf.len);
+        var i: MinInt = 0;
+        while (i < max - 1) : (i += 1) {
+            const j = @intCast(MinInt, r.intRangeLessThan(Index, i, max));
             mem.swap(T, &buf[i], &buf[j]);
         }
+    }
+
+    /// Randomly selects an index into `proportions`, where the likelihood of each
+    /// index is weighted by that proportion.
+    ///
+    /// This is useful for selecting an item from a slice where weights are not equal.
+    /// `T` must be a numeric type capable of holding the sum of `proportions`.
+    pub fn weightedIndex(r: std.rand.Random, comptime T: type, proportions: []const T) usize {
+        // This implementation works by summing the proportions and picking a random
+        //  point in [0, sum).  We then loop over the proportions, accumulating
+        //  until our accumulator is greater than the random point.
+
+        var sum: T = 0;
+        for (proportions) |v| {
+            sum += v;
+        }
+
+        const point = if (comptime std.meta.trait.isSignedInt(T))
+            r.intRangeLessThan(T, 0, sum)
+        else if (comptime std.meta.trait.isUnsignedInt(T))
+            r.uintLessThan(T, sum)
+        else if (comptime std.meta.trait.isFloat(T))
+            // take care that imprecision doesn't lead to a value slightly greater than sum
+            std.math.min(r.float(T) * sum, sum - std.math.epsilon(T))
+        else
+            @compileError("weightedIndex does not support proportions of type " ++ @typeName(T));
+
+        std.debug.assert(point < sum);
+
+        var accumulator: T = 0;
+        for (proportions) |p, index| {
+            accumulator += p;
+            if (point < accumulator) return index;
+        }
+
+        unreachable;
+    }
+
+    /// Returns the smallest of `Index` and `usize`.
+    fn MinArrayIndex(comptime Index: type) type {
+        const index_info = @typeInfo(Index).Int;
+        assert(index_info.signedness == .unsigned);
+        return if (index_info.bits >= @typeInfo(usize).Int.bits) usize else Index;
     }
 };
 

@@ -7,25 +7,24 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_ppc_abi) {
-        @export(__eqkf2, .{ .name = "__eqkf2", .linkage = common.linkage });
-        @export(__nekf2, .{ .name = "__nekf2", .linkage = common.linkage });
-        @export(__ltkf2, .{ .name = "__ltkf2", .linkage = common.linkage });
-        @export(__lekf2, .{ .name = "__lekf2", .linkage = common.linkage });
+        @export(__eqtf2, .{ .name = "__eqkf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__netf2, .{ .name = "__nekf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__lttf2, .{ .name = "__ltkf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(__letf2, .{ .name = "__lekf2", .linkage = common.linkage, .visibility = common.visibility });
     } else if (common.want_sparc_abi) {
-        @export(_Qp_cmp, .{ .name = "_Qp_cmp", .linkage = common.linkage });
-        @export(_Qp_feq, .{ .name = "_Qp_feq", .linkage = common.linkage });
-        @export(_Qp_fne, .{ .name = "_Qp_fne", .linkage = common.linkage });
-        @export(_Qp_flt, .{ .name = "_Qp_flt", .linkage = common.linkage });
-        @export(_Qp_fle, .{ .name = "_Qp_fle", .linkage = common.linkage });
-        @export(_Qp_fgt, .{ .name = "_Qp_fgt", .linkage = common.linkage });
-        @export(_Qp_fge, .{ .name = "_Qp_fge", .linkage = common.linkage });
-    } else {
-        @export(__eqtf2, .{ .name = "__eqtf2", .linkage = common.linkage });
-        @export(__netf2, .{ .name = "__netf2", .linkage = common.linkage });
-        @export(__letf2, .{ .name = "__letf2", .linkage = common.linkage });
-        @export(__cmptf2, .{ .name = "__cmptf2", .linkage = common.linkage });
-        @export(__lttf2, .{ .name = "__lttf2", .linkage = common.linkage });
+        @export(_Qp_cmp, .{ .name = "_Qp_cmp", .linkage = common.linkage, .visibility = common.visibility });
+        @export(_Qp_feq, .{ .name = "_Qp_feq", .linkage = common.linkage, .visibility = common.visibility });
+        @export(_Qp_fne, .{ .name = "_Qp_fne", .linkage = common.linkage, .visibility = common.visibility });
+        @export(_Qp_flt, .{ .name = "_Qp_flt", .linkage = common.linkage, .visibility = common.visibility });
+        @export(_Qp_fle, .{ .name = "_Qp_fle", .linkage = common.linkage, .visibility = common.visibility });
+        @export(_Qp_fgt, .{ .name = "_Qp_fgt", .linkage = common.linkage, .visibility = common.visibility });
+        @export(_Qp_fge, .{ .name = "_Qp_fge", .linkage = common.linkage, .visibility = common.visibility });
     }
+    @export(__eqtf2, .{ .name = "__eqtf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__netf2, .{ .name = "__netf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__letf2, .{ .name = "__letf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__cmptf2, .{ .name = "__cmptf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(__lttf2, .{ .name = "__lttf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 /// "These functions calculate a <=> b. That is, if a is less than b, they return -1;
@@ -61,22 +60,6 @@ fn __netf2(a: f128, b: f128) callconv(.C) i32 {
 /// "These functions return a value less than zero if neither argument is NaN, and a
 /// is strictly less than b."
 fn __lttf2(a: f128, b: f128) callconv(.C) i32 {
-    return __cmptf2(a, b);
-}
-
-fn __eqkf2(a: f128, b: f128) callconv(.C) i32 {
-    return __cmptf2(a, b);
-}
-
-fn __nekf2(a: f128, b: f128) callconv(.C) i32 {
-    return __cmptf2(a, b);
-}
-
-fn __ltkf2(a: f128, b: f128) callconv(.C) i32 {
-    return __cmptf2(a, b);
-}
-
-fn __lekf2(a: f128, b: f128) callconv(.C) i32 {
     return __cmptf2(a, b);
 }
 

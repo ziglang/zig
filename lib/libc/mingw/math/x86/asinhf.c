@@ -5,6 +5,7 @@
  */
 #include <math.h>
 #include <errno.h>
+#include <float.h>
 #include "fastmath.h"
 
  /* asinh(x) = copysign(log(fabs(x) + sqrt(x * x + 1.0)), x) */
@@ -21,13 +22,13 @@ float asinhf(float x)
     return x;
 #endif
 
+  /* See commentary in asinh */
+  const float asinhCutover = pow(2,FLT_MAX_EXP/2);
 
-  /* Use log1p to avoid cancellation with small x. Put
-     x * x in denom, so overflow is harmless. 
-     asinh(x) = log1p (x + sqrt (x * x + 1.0) - 1.0)
-              = log1p (x + x * x / (sqrt (x * x + 1.0) + 1.0))  */
-
-  z = __fast_log1p (z + z * z / (__fast_sqrt (z * z + 1.0) + 1.0));
-
-  return ( x > 0.0 ? z : -z);
+  if (z < asinhCutover)
+    z = __fast_log1p (z + z * (z / (__fast_sqrt (z * z + 1.0) + 1.0)));
+    //z = __fast_log(z + __fast_sqrt(z * z + 1.0));
+  else
+    z = __fast_log(2) + __fast_log(z);
+  return copysignf(z, x); //ensure 0.0 -> 0.0 and -0.0 -> -0.0.
 }

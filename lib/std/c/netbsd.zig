@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
@@ -9,7 +10,7 @@ const rusage = std.c.rusage;
 extern "c" fn __errno() *c_int;
 pub const _errno = __errno;
 
-pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub extern "c" fn _lwp_self() lwpid_t;
@@ -58,6 +59,9 @@ pub const sched_yield = __libc_thr_yield;
 
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 
+pub extern "c" fn __msync13(addr: *align(std.mem.page_size) const anyopaque, len: usize, flags: c_int) c_int;
+pub const msync = __msync13;
+
 pub const pthread_mutex_t = extern struct {
     magic: u32 = 0x33330003,
     errorcheck: padded_pthread_spin_t = 0,
@@ -80,7 +84,7 @@ pub const pthread_cond_t = extern struct {
 pub const pthread_rwlock_t = extern struct {
     magic: c_uint = 0x99990009,
     interlock: switch (builtin.cpu.arch) {
-        .aarch64, .sparc, .x86_64, .i386 => u8,
+        .aarch64, .sparc, .x86_64, .x86 => u8,
         .arm, .powerpc => c_int,
         else => unreachable,
     } = 0,
@@ -97,7 +101,7 @@ const pthread_spin_t = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be, .aarch64_32 => u8,
     .mips, .mipsel, .mips64, .mips64el => u32,
     .powerpc, .powerpc64, .powerpc64le => i32,
-    .i386, .x86_64 => u8,
+    .x86, .x86_64 => u8,
     .arm, .armeb, .thumb, .thumbeb => i32,
     .sparc, .sparcel, .sparc64 => u8,
     .riscv32, .riscv64 => u32,
@@ -105,7 +109,7 @@ const pthread_spin_t = switch (builtin.cpu.arch) {
 };
 
 const padded_pthread_spin_t = switch (builtin.cpu.arch) {
-    .i386, .x86_64 => u32,
+    .x86, .x86_64 => u32,
     .sparc, .sparcel, .sparc64 => u32,
     else => pthread_spin_t,
 };
@@ -481,7 +485,16 @@ pub const sockaddr = extern struct {
     data: [14]u8,
 
     pub const SS_MAXSIZE = 128;
-    pub const storage = std.x.os.Socket.Address.Native.Storage;
+    pub const storage = extern struct {
+        len: u8 align(8),
+        family: sa_family_t,
+        padding: [126]u8 = undefined,
+
+        comptime {
+            assert(@sizeOf(storage) == SS_MAXSIZE);
+            assert(@alignOf(storage) == 8);
+        }
+    };
 
     pub const in = extern struct {
         len: u8 = @sizeOf(in),
@@ -537,6 +550,7 @@ pub const KERN = struct {
 };
 
 pub const PATH_MAX = 1024;
+pub const NAME_MAX = 255;
 pub const IOV_MAX = KERN.IOV_MAX;
 
 pub const STDIN_FILENO = 0;
@@ -689,13 +703,17 @@ pub const F = struct {
     pub const SETFD = 2;
     pub const GETFL = 3;
     pub const SETFL = 4;
-
     pub const GETOWN = 5;
     pub const SETOWN = 6;
-
     pub const GETLK = 7;
     pub const SETLK = 8;
     pub const SETLKW = 9;
+    pub const CLOSEM = 10;
+    pub const MAXFD = 11;
+    pub const DUPFD_CLOEXEC = 12;
+    pub const GETNOSIGPIPE = 13;
+    pub const SETNOSIGPIPE = 14;
+    pub const GETPATH = 15;
 
     pub const RDLCK = 1;
     pub const WRLCK = 3;
@@ -907,9 +925,9 @@ pub const winsize = extern struct {
 const NSIG = 32;
 
 pub const SIG = struct {
-    pub const DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
-    pub const ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
+    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
+    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
+    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
 
     pub const WORDS = 4;
     pub const MAXSIG = 128;
@@ -971,8 +989,8 @@ pub const SIG = struct {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
+    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     /// signal handler
     handler: extern union {
@@ -1046,17 +1064,37 @@ pub const sigset_t = extern struct {
 
 pub const empty_sigset = sigset_t{ .__bits = [_]u32{0} ** SIG.WORDS };
 
-// XXX x86_64 specific
-pub const mcontext_t = extern struct {
-    gregs: [26]u64,
-    mc_tlsbase: u64,
-    fpregs: [512]u8 align(8),
+pub const mcontext_t = switch (builtin.cpu.arch) {
+    .aarch64 => extern struct {
+        gregs: [35]u64,
+        fregs: [528]u8 align(16),
+        spare: [8]u64,
+    },
+    .x86_64 => extern struct {
+        gregs: [26]u64,
+        mc_tlsbase: u64,
+        fpregs: [512]u8 align(8),
+    },
+    else => struct {},
 };
 
-pub const REG = struct {
-    pub const RBP = 12;
-    pub const RIP = 21;
-    pub const RSP = 24;
+pub const REG = switch (builtin.cpu.arch) {
+    .aarch64 => struct {
+        pub const FP = 29;
+        pub const SP = 31;
+        pub const PC = 32;
+    },
+    .arm => struct {
+        pub const FP = 11;
+        pub const SP = 13;
+        pub const PC = 15;
+    },
+    .x86_64 => struct {
+        pub const RBP = 12;
+        pub const RIP = 21;
+        pub const RSP = 24;
+    },
+    else => struct {},
 };
 
 pub const ucontext_t = extern struct {
@@ -1067,7 +1105,7 @@ pub const ucontext_t = extern struct {
     mcontext: mcontext_t,
     __pad: [
         switch (builtin.cpu.arch) {
-            .i386 => 4,
+            .x86 => 4,
             .mips, .mipsel, .mips64, .mips64el => 14,
             .arm, .armeb, .thumb, .thumbeb => 1,
             .sparc, .sparcel, .sparc64 => if (@sizeOf(usize) == 4) 43 else 8,

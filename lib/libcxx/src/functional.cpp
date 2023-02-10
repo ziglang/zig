@@ -1,4 +1,4 @@
-//===----------------------- functional.cpp -------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "functional"
+#include <functional>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -14,7 +14,9 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 bad_function_call::~bad_function_call() noexcept
 {
 }
+#endif
 
+#ifdef _LIBCPP_ABI_BAD_FUNCTION_CALL_GOOD_WHAT_MESSAGE
 const char*
 bad_function_call::what() const noexcept
 {

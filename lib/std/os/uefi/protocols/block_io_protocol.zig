@@ -2,7 +2,7 @@ const std = @import("std");
 const uefi = std.os.uefi;
 const Status = uefi.Status;
 
-const EfiBlockMedia = extern struct {
+pub const EfiBlockMedia = extern struct {
     /// The current media ID. If the media changes, this value is changed.
     media_id: u32,
 
@@ -38,16 +38,16 @@ const EfiBlockMedia = extern struct {
     optimal_transfer_length_granularity: u32,
 };
 
-const BlockIoProtocol = extern struct {
+pub const BlockIoProtocol = extern struct {
     const Self = @This();
 
     revision: u64,
     media: *EfiBlockMedia,
 
-    _reset: fn (*BlockIoProtocol, extended_verification: bool) callconv(.C) Status,
-    _read_blocks: fn (*BlockIoProtocol, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) callconv(.C) Status,
-    _write_blocks: fn (*BlockIoProtocol, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) callconv(.C) Status,
-    _flush_blocks: fn (*BlockIoProtocol) callconv(.C) Status,
+    _reset: *const fn (*BlockIoProtocol, extended_verification: bool) callconv(.C) Status,
+    _read_blocks: *const fn (*BlockIoProtocol, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) callconv(.C) Status,
+    _write_blocks: *const fn (*BlockIoProtocol, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) callconv(.C) Status,
+    _flush_blocks: *const fn (*BlockIoProtocol) callconv(.C) Status,
 
     /// Resets the block device hardware.
     pub fn reset(self: *Self, extended_verification: bool) Status {

@@ -1,4 +1,4 @@
-//===------------------------ UnwindRegistersSave.S -----------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,7 +8,11 @@
 
 #include "assembly.h"
 
+#if defined(_AIX)
+    .toc
+#else
     .text
+#endif
 
 #if !defined(__USING_SJLJ_EXCEPTIONS__)
 
@@ -27,6 +31,8 @@
 #   +                       +
 #
 DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
+
+  _LIBUNWIND_CET_ENDBR
   push  %eax
   movl  8(%esp), %eax
   movl  %ebx,  4(%eax)
@@ -70,6 +76,7 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
 #define TMP %rsi
 #endif
 
+  _LIBUNWIND_CET_ENDBR
   movq  %rax,   (PTR)
   movq  %rbx,  8(PTR)
   movq  %rcx, 16(PTR)
@@ -331,8 +338,11 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
 // On entry:
 //  thread_state pointer is in r3
 //
+#if defined(_AIX)
+DEFINE_LIBUNWIND_FUNCTION_AND_WEAK_ALIAS(__unw_getcontext, unw_getcontext)
+#else
 DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
-
+#endif
 // store register (GPR)
 #define PPC64_STR(n) \
   std   n, (8 * (n + 2))(3)
@@ -556,7 +566,7 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
   blr
 
 
-#elif defined(__ppc__)
+#elif defined(__powerpc__)
 
 //
 // extern int unw_getcontext(unw_context_t* thread_state)
@@ -564,7 +574,11 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
 // On entry:
 //  thread_state pointer is in r3
 //
+#if defined(_AIX)
+DEFINE_LIBUNWIND_FUNCTION_AND_WEAK_ALIAS(__unw_getcontext, unw_getcontext)
+#else
 DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
+#endif
   stw     0,   8(3)
   mflr    0
   stw     0,   0(3) // store lr as ssr0
@@ -600,9 +614,11 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
   stw     30,128(3)
   stw     31,132(3)
 
+#if defined(__ALTIVEC__)
   // save VRSave register
   mfspr   0, 256
   stw     0, 156(3)
+#endif
   // save CR registers
   mfcr    0
   stw     0, 136(3)
@@ -766,7 +782,7 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
 @
 @ On entry:
 @  thread_state pointer is in r0
-@
+@ 
 @ Per EHABI #4.7 this only saves the core integer registers.
 @ EHABI #7.4.5 notes that in general all VRS registers should be restored
 @ however this is very hard to do for VFP registers because it is unknown
@@ -1163,6 +1179,49 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
 
   li     a0, 0  // return UNW_ESUCCESS
   ret           // jump to ra
+
+#elif defined(__s390x__)
+
+//
+// extern int __unw_getcontext(unw_context_t* thread_state)
+//
+// On entry:
+//  thread_state pointer is in r2
+//
+DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
+
+  // Save GPRs
+  stmg %r0, %r15, 16(%r2)
+
+  // Save PSWM
+  epsw %r0, %r1
+  stm %r0, %r1, 0(%r2)
+
+  // Store return address as PSWA
+  stg %r14, 8(%r2)
+
+  // Save FPRs
+  std %f0, 144(%r2)
+  std %f1, 152(%r2)
+  std %f2, 160(%r2)
+  std %f3, 168(%r2)
+  std %f4, 176(%r2)
+  std %f5, 184(%r2)
+  std %f6, 192(%r2)
+  std %f7, 200(%r2)
+  std %f8, 208(%r2)
+  std %f9, 216(%r2)
+  std %f10, 224(%r2)
+  std %f11, 232(%r2)
+  std %f12, 240(%r2)
+  std %f13, 248(%r2)
+  std %f14, 256(%r2)
+  std %f15, 264(%r2)
+
+  // Return UNW_ESUCCESS
+  lghi %r2, 0
+  br %r14
+
 #endif
 
   WEAK_ALIAS(__unw_getcontext, unw_getcontext)

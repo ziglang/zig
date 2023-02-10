@@ -9,29 +9,28 @@
 #ifndef _LIBCPP___ITERATOR_COUNTED_ITERATOR_H
 #define _LIBCPP___ITERATOR_COUNTED_ITERATOR_H
 
+#include <__assert>
 #include <__config>
-#include <__debug>
 #include <__iterator/concepts.h>
 #include <__iterator/default_sentinel.h>
+#include <__iterator/incrementable_traits.h>
 #include <__iterator/iter_move.h>
 #include <__iterator/iter_swap.h>
-#include <__iterator/incrementable_traits.h>
 #include <__iterator/iterator_traits.h>
 #include <__iterator/readable_traits.h>
 #include <__memory/pointer_traits.h>
+#include <__utility/move.h>
+#include <compare>
 #include <concepts>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 template<class>
 struct __counted_iterator_concept {};
@@ -66,7 +65,7 @@ class counted_iterator
   , public __counted_iterator_value_type<_Iter>
 {
 public:
-  [[no_unique_address]] _Iter __current_ = _Iter();
+  _LIBCPP_NO_UNIQUE_ADDRESS _Iter __current_ = _Iter();
   iter_difference_t<_Iter> __count_ = 0;
 
   using iterator_type = _Iter;
@@ -97,7 +96,7 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI
-  constexpr const _Iter& base() const& { return __current_; }
+  constexpr const _Iter& base() const& noexcept { return __current_; }
 
   _LIBCPP_HIDE_FROM_ABI
   constexpr _Iter base() && { return _VSTD::move(__current_); }
@@ -297,10 +296,8 @@ struct iterator_traits<counted_iterator<_Iter>> : iterator_traits<_Iter> {
                                 add_pointer_t<iter_reference_t<_Iter>>, void>;
 };
 
-#endif // !defined(_LIBCPP_HAS_NO_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ITERATOR_COUNTED_ITERATOR_H

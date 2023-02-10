@@ -21,6 +21,10 @@ pub fn cmdEnv(gpa: Allocator, args: []const []const u8, stdout: std.fs.File.Writ
     const global_cache_dir = try introspect.resolveGlobalCacheDir(gpa);
     defer gpa.free(global_cache_dir);
 
+    const info = try std.zig.system.NativeTargetInfo.detect(.{});
+    const triple = try info.target.zigTriple(gpa);
+    defer gpa.free(triple);
+
     var bw = std.io.bufferedWriter(stdout);
     const w = bw.writer();
 
@@ -41,6 +45,9 @@ pub fn cmdEnv(gpa: Allocator, args: []const []const u8, stdout: std.fs.File.Writ
 
     try jws.objectField("version");
     try jws.emitString(build_options.version);
+
+    try jws.objectField("target");
+    try jws.emitString(triple);
 
     try jws.endObject();
     try w.writeByte('\n');

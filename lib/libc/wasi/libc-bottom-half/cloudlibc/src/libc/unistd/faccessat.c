@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: BSD-2-Clause
 
-#include <common/errno.h>
-
 #include <wasi/api.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -24,7 +22,7 @@ int __wasilibc_nocwd_faccessat(int fd, const char *path, int amode, int flag) {
   __wasi_errno_t error =
       __wasi_path_filestat_get(fd, lookup_flags, path, &file);
   if (error != 0) {
-    errno = errno_fixup_directory(fd, error);
+    errno = error;
     return -1;
   }
 

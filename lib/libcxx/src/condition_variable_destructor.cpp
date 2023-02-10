@@ -1,4 +1,4 @@
-//===---------------- condition_variable_destructor.cpp ------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -11,8 +11,8 @@
 // On some platforms ~condition_variable has been made trivial and the
 // definition is only provided for ABI compatibility.
 
-#include "__config"
-#include "__threading_support"
+#include <__config>
+#include <__threading_support>
 
 #if !defined(_LIBCPP_HAS_NO_THREADS)
 # if _LIBCPP_ABI_VERSION == 1 || !defined(_LIBCPP_HAS_TRIVIAL_CONDVAR_DESTRUCTION)

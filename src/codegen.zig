@@ -21,16 +21,11 @@ const TypedValue = @import("TypedValue.zig");
 const Value = @import("value.zig").Value;
 const Zir = @import("Zir.zig");
 
-pub const FnResult = union(enum) {
-    /// The `code` parameter passed to `generateSymbol` has the value appended.
-    appended: void,
-    fail: *ErrorMsg,
-};
 pub const Result = union(enum) {
-    /// The `code` parameter passed to `generateSymbol` has the value appended.
-    appended: void,
-    /// The value is available externally, `code` is unused.
-    externally_managed: []const u8,
+    /// The `code` parameter passed to `generateSymbol` has the value ok.
+    ok: void,
+
+    /// There was a codegen error.
     fail: *ErrorMsg,
 };
 
@@ -68,6 +63,19 @@ pub const DebugInfoOutput = union(enum) {
     none,
 };
 
+/// Helper struct to denote that the value is in memory but requires a linker relocation fixup:
+/// * got - the value is referenced indirectly via GOT entry index (the linker emits a got-type reloc)
+/// * direct - the value is referenced directly via symbol index index (the linker emits a displacement reloc)
+/// * import - the value is referenced indirectly via import entry index (the linker emits an import-type reloc)
+pub const LinkerLoad = struct {
+    type: enum {
+        got,
+        direct,
+        import,
+    },
+    sym_index: u32,
+};
+
 pub fn generateFunction(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
@@ -76,7 +84,7 @@ pub fn generateFunction(
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
-) GenerateSymbolError!FnResult {
+) GenerateSymbolError!Result {
     switch (bin_file.options.target.cpu.arch) {
         .arm,
         .armeb,
@@ -85,54 +93,13 @@ pub fn generateFunction(
         .aarch64_be,
         .aarch64_32,
         => return @import("arch/aarch64/CodeGen.zig").generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.arc => return Function(.arc).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.avr => return Function(.avr).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.bpfel => return Function(.bpfel).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.bpfeb => return Function(.bpfeb).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.hexagon => return Function(.hexagon).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.mips => return Function(.mips).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.mipsel => return Function(.mipsel).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.mips64 => return Function(.mips64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.mips64el => return Function(.mips64el).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.msp430 => return Function(.msp430).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.powerpc => return Function(.powerpc).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.powerpc64 => return Function(.powerpc64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.powerpc64le => return Function(.powerpc64le).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.r600 => return Function(.r600).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.amdgcn => return Function(.amdgcn).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.riscv32 => return Function(.riscv32).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         .riscv64 => return @import("arch/riscv64/CodeGen.zig").generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.sparc => return Function(.sparc).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         .sparc64 => return @import("arch/sparc64/CodeGen.zig").generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.sparcel => return Function(.sparcel).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.s390x => return Function(.s390x).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.tce => return Function(.tce).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.tcele => return Function(.tcele).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.thumb => return Function(.thumb).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.thumbeb => return Function(.thumbeb).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.i386 => return Function(.i386).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         .x86_64 => return @import("arch/x86_64/CodeGen.zig").generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.xcore => return Function(.xcore).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.nvptx => return Function(.nvptx).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.nvptx64 => return Function(.nvptx64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.le32 => return Function(.le32).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.le64 => return Function(.le64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.amdil => return Function(.amdil).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.amdil64 => return Function(.amdil64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.hsail => return Function(.hsail).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.hsail64 => return Function(.hsail64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.spir => return Function(.spir).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.spir64 => return Function(.spir64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.kalimba => return Function(.kalimba).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.shave => return Function(.shave).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.lanai => return Function(.lanai).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.renderscript32 => return Function(.renderscript32).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.renderscript64 => return Function(.renderscript64).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        //.ve => return Function(.ve).generate(bin_file, src_loc, func, air, liveness, code, debug_output),
         .wasm32,
         .wasm64,
         => return @import("arch/wasm/CodeGen.zig").generate(bin_file, src_loc, func, air, liveness, code, debug_output),
-        else => @panic("Backend architectures that don't have good support yet are commented out, to improve compilation performance. If you are interested in one of these other backends feel free to uncomment them. Eventually these will be completed, but stage1 is slow and a memory hog."),
+        else => unreachable,
     }
 }
 
@@ -149,13 +116,18 @@ fn writeFloat(comptime F: type, f: F, target: Target, endian: std.builtin.Endian
 pub fn generateSymbol(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    typed_value: TypedValue,
+    arg_tv: TypedValue,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
 ) GenerateSymbolError!Result {
     const tracy = trace(@src());
     defer tracy.end();
+
+    var typed_value = arg_tv;
+    if (arg_tv.val.castTag(.runtime_value)) |rt| {
+        typed_value.val = rt.data;
+    }
 
     const target = bin_file.options.target;
     const endian = target.cpu.arch.endian();
@@ -168,7 +140,7 @@ pub fn generateSymbol(
     if (typed_value.val.isUndefDeep()) {
         const abi_size = math.cast(usize, typed_value.ty.abiSize(target)) orelse return error.Overflow;
         try code.appendNTimes(0xaa, abi_size);
-        return Result{ .appended = {} };
+        return Result.ok;
     }
 
     switch (typed_value.ty.zigTypeTag()) {
@@ -199,7 +171,7 @@ pub fn generateSymbol(
                 128 => writeFloat(f128, typed_value.val.toFloat(f128), target, endian, try code.addManyAsArray(16)),
                 else => unreachable,
             }
-            return Result{ .appended = {} };
+            return Result.ok;
         },
         .Array => switch (typed_value.val.tag()) {
             .bytes => {
@@ -208,7 +180,7 @@ pub fn generateSymbol(
                 // The bytes payload already includes the sentinel, if any
                 try code.ensureUnusedCapacity(len);
                 code.appendSliceAssumeCapacity(bytes[0..len]);
-                return Result{ .appended = {} };
+                return Result.ok;
             },
             .str_lit => {
                 const str_lit = typed_value.val.castTag(.str_lit).?.data;
@@ -220,7 +192,7 @@ pub fn generateSymbol(
                     const byte = @intCast(u8, sent_val.toUnsignedInt(target));
                     code.appendAssumeCapacity(byte);
                 }
-                return Result{ .appended = {} };
+                return Result.ok;
             },
             .aggregate => {
                 const elem_vals = typed_value.val.castTag(.aggregate).?.data;
@@ -231,14 +203,11 @@ pub fn generateSymbol(
                         .ty = elem_ty,
                         .val = elem_val,
                     }, code, debug_output, reloc_info)) {
-                        .appended => {},
-                        .externally_managed => |slice| {
-                            code.appendSliceAssumeCapacity(slice);
-                        },
+                        .ok => {},
                         .fail => |em| return Result{ .fail = em },
                     }
                 }
-                return Result{ .appended = {} };
+                return Result.ok;
             },
             .repeated => {
                 const array = typed_value.val.castTag(.repeated).?.data;
@@ -252,10 +221,7 @@ pub fn generateSymbol(
                         .ty = elem_ty,
                         .val = array,
                     }, code, debug_output, reloc_info)) {
-                        .appended => {},
-                        .externally_managed => |slice| {
-                            code.appendSliceAssumeCapacity(slice);
-                        },
+                        .ok => {},
                         .fail => |em| return Result{ .fail = em },
                     }
                 }
@@ -265,15 +231,12 @@ pub fn generateSymbol(
                         .ty = elem_ty,
                         .val = sentinel_val,
                     }, code, debug_output, reloc_info)) {
-                        .appended => {},
-                        .externally_managed => |slice| {
-                            code.appendSliceAssumeCapacity(slice);
-                        },
+                        .ok => {},
                         .fail => |em| return Result{ .fail = em },
                     }
                 }
 
-                return Result{ .appended = {} };
+                return Result.ok;
             },
             .empty_array_sentinel => {
                 const elem_ty = typed_value.ty.childType();
@@ -282,13 +245,10 @@ pub fn generateSymbol(
                     .ty = elem_ty,
                     .val = sentinel_val,
                 }, code, debug_output, reloc_info)) {
-                    .appended => {},
-                    .externally_managed => |slice| {
-                        code.appendSliceAssumeCapacity(slice);
-                    },
+                    .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
-                return Result{ .appended = {} };
+                return Result.ok;
             },
             else => return Result{
                 .fail = try ErrorMsg.create(
@@ -312,7 +272,7 @@ pub fn generateSymbol(
                     },
                     else => unreachable,
                 }
-                return Result{ .appended = {} };
+                return Result.ok;
             },
             .variable => {
                 const decl = typed_value.val.castTag(.variable).?.data.owner_decl;
@@ -332,10 +292,7 @@ pub fn generateSymbol(
                     .ty = slice_ptr_field_type,
                     .val = slice.ptr,
                 }, code, debug_output, reloc_info)) {
-                    .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
+                    .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
 
@@ -344,14 +301,11 @@ pub fn generateSymbol(
                     .ty = Type.initTag(.usize),
                     .val = slice.len,
                 }, code, debug_output, reloc_info)) {
-                    .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
+                    .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
 
-                return Result{ .appended = {} };
+                return Result.ok;
             },
             .field_ptr => {
                 const field_ptr = typed_value.val.castTag(.field_ptr).?.data;
@@ -363,9 +317,19 @@ pub fn generateSymbol(
                         const mod = bin_file.options.module.?;
                         const decl = mod.declPtr(decl_index);
                         const addend = blk: {
-                            switch (decl.ty.tag()) {
-                                .@"struct" => {
+                            switch (decl.ty.zigTypeTag()) {
+                                .Struct => {
                                     const addend = decl.ty.structFieldOffset(field_ptr.field_index, target);
+                                    break :blk @intCast(u32, addend);
+                                },
+                                .Pointer => {
+                                    assert(decl.ty.isSlice());
+                                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                                    const addend = switch (field_ptr.field_index) {
+                                        0 => 0,
+                                        1 => decl.ty.slicePtrFieldType(&buf).abiSize(target),
+                                        else => unreachable,
+                                    };
                                     break :blk @intCast(u32, addend);
                                 },
                                 else => return Result{
@@ -388,13 +352,10 @@ pub fn generateSymbol(
                             .ty = typed_value.ty,
                             .val = container_ptr,
                         }, code, debug_output, reloc_info)) {
-                            .appended => {},
-                            .externally_managed => |external_slice| {
-                                code.appendSliceAssumeCapacity(external_slice);
-                            },
+                            .ok => {},
                             .fail => |em| return Result{ .fail = em },
                         }
-                        return Result{ .appended = {} };
+                        return Result.ok;
                     },
                     else => return Result{
                         .fail = try ErrorMsg.create(
@@ -444,10 +405,10 @@ pub fn generateSymbol(
             if (info.bits <= 8) {
                 const x: u8 = switch (info.signedness) {
                     .unsigned => @intCast(u8, typed_value.val.toUnsignedInt(target)),
-                    .signed => @bitCast(u8, @intCast(i8, typed_value.val.toSignedInt())),
+                    .signed => @bitCast(u8, @intCast(i8, typed_value.val.toSignedInt(target))),
                 };
                 try code.append(x);
-                return Result{ .appended = {} };
+                return Result.ok;
             }
             if (info.bits > 64) {
                 var bigint_buffer: Value.BigIntSpace = undefined;
@@ -455,8 +416,8 @@ pub fn generateSymbol(
                 const abi_size = math.cast(usize, typed_value.ty.abiSize(target)) orelse return error.Overflow;
                 const start = code.items.len;
                 try code.resize(start + abi_size);
-                bigint.writeTwosComplement(code.items[start..][0..abi_size], info.bits, abi_size, endian);
-                return Result{ .appended = {} };
+                bigint.writeTwosComplement(code.items[start..][0..abi_size], endian);
+                return Result.ok;
             }
             switch (info.signedness) {
                 .unsigned => {
@@ -473,18 +434,18 @@ pub fn generateSymbol(
                 },
                 .signed => {
                     if (info.bits <= 16) {
-                        const x = @intCast(i16, typed_value.val.toSignedInt());
+                        const x = @intCast(i16, typed_value.val.toSignedInt(target));
                         mem.writeInt(i16, try code.addManyAsArray(2), x, endian);
                     } else if (info.bits <= 32) {
-                        const x = @intCast(i32, typed_value.val.toSignedInt());
+                        const x = @intCast(i32, typed_value.val.toSignedInt(target));
                         mem.writeInt(i32, try code.addManyAsArray(4), x, endian);
                     } else {
-                        const x = typed_value.val.toSignedInt();
+                        const x = typed_value.val.toSignedInt(target);
                         mem.writeInt(i64, try code.addManyAsArray(8), x, endian);
                     }
                 },
             }
-            return Result{ .appended = {} };
+            return Result.ok;
         },
         .Enum => {
             var int_buffer: Value.Payload.U64 = undefined;
@@ -494,7 +455,7 @@ pub fn generateSymbol(
             if (info.bits <= 8) {
                 const x = @intCast(u8, int_val.toUnsignedInt(target));
                 try code.append(x);
-                return Result{ .appended = {} };
+                return Result.ok;
             }
             if (info.bits > 64) {
                 return Result{
@@ -521,34 +482,57 @@ pub fn generateSymbol(
                 },
                 .signed => {
                     if (info.bits <= 16) {
-                        const x = @intCast(i16, int_val.toSignedInt());
+                        const x = @intCast(i16, int_val.toSignedInt(target));
                         mem.writeInt(i16, try code.addManyAsArray(2), x, endian);
                     } else if (info.bits <= 32) {
-                        const x = @intCast(i32, int_val.toSignedInt());
+                        const x = @intCast(i32, int_val.toSignedInt(target));
                         mem.writeInt(i32, try code.addManyAsArray(4), x, endian);
                     } else {
-                        const x = int_val.toSignedInt();
+                        const x = int_val.toSignedInt(target);
                         mem.writeInt(i64, try code.addManyAsArray(8), x, endian);
                     }
                 },
             }
-            return Result{ .appended = {} };
+            return Result.ok;
         },
         .Bool => {
             const x: u8 = @boolToInt(typed_value.val.toBool());
             try code.append(x);
-            return Result{ .appended = {} };
+            return Result.ok;
         },
         .Struct => {
             if (typed_value.ty.containerLayout() == .Packed) {
-                return Result{
-                    .fail = try ErrorMsg.create(
-                        bin_file.allocator,
-                        src_loc,
-                        "TODO implement generateSymbol for packed struct",
-                        .{},
-                    ),
-                };
+                const struct_obj = typed_value.ty.castTag(.@"struct").?.data;
+                const fields = struct_obj.fields.values();
+                const field_vals = typed_value.val.castTag(.aggregate).?.data;
+                const abi_size = math.cast(usize, typed_value.ty.abiSize(target)) orelse return error.Overflow;
+                const current_pos = code.items.len;
+                const mod = bin_file.options.module.?;
+                try code.resize(current_pos + abi_size);
+                var bits: u16 = 0;
+
+                for (field_vals) |field_val, index| {
+                    const field_ty = fields[index].ty;
+                    // pointer may point to a decl which must be marked used
+                    // but can also result in a relocation. Therefore we handle those seperately.
+                    if (field_ty.zigTypeTag() == .Pointer) {
+                        const field_size = math.cast(usize, field_ty.abiSize(target)) orelse return error.Overflow;
+                        var tmp_list = try std.ArrayList(u8).initCapacity(code.allocator, field_size);
+                        defer tmp_list.deinit();
+                        switch (try generateSymbol(bin_file, src_loc, .{
+                            .ty = field_ty,
+                            .val = field_val,
+                        }, &tmp_list, debug_output, reloc_info)) {
+                            .ok => mem.copy(u8, code.items[current_pos..], tmp_list.items),
+                            .fail => |em| return Result{ .fail = em },
+                        }
+                    } else {
+                        field_val.writeToPackedMemory(field_ty, mod, code.items[current_pos..], bits);
+                    }
+                    bits += @intCast(u16, field_ty.bitSize(target));
+                }
+
+                return Result.ok;
             }
 
             const struct_begin = code.items.len;
@@ -561,10 +545,7 @@ pub fn generateSymbol(
                     .ty = field_ty,
                     .val = field_val,
                 }, code, debug_output, reloc_info)) {
-                    .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
+                    .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
                 const unpadded_field_end = code.items.len - struct_begin;
@@ -578,7 +559,7 @@ pub fn generateSymbol(
                 }
             }
 
-            return Result{ .appended = {} };
+            return Result.ok;
         },
         .Union => {
             const union_obj = typed_value.val.castTag(.@"union").?.data;
@@ -597,17 +578,14 @@ pub fn generateSymbol(
                     .ty = typed_value.ty.unionTagType().?,
                     .val = union_obj.tag,
                 }, code, debug_output, reloc_info)) {
-                    .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
+                    .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
             }
 
             const union_ty = typed_value.ty.cast(Type.Payload.Union).?.data;
             const mod = bin_file.options.module.?;
-            const field_index = union_ty.tag_ty.enumTagFieldIndex(union_obj.tag, mod).?;
+            const field_index = typed_value.ty.unionTagFieldIndex(union_obj.tag, mod).?;
             assert(union_ty.haveFieldTypes());
             const field_ty = union_ty.fields.values()[field_index].ty;
             if (!field_ty.hasRuntimeBits()) {
@@ -617,10 +595,7 @@ pub fn generateSymbol(
                     .ty = field_ty,
                     .val = union_obj.val,
                 }, code, debug_output, reloc_info)) {
-                    .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
+                    .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
 
@@ -635,15 +610,12 @@ pub fn generateSymbol(
                     .ty = union_ty.tag_ty,
                     .val = union_obj.tag,
                 }, code, debug_output, reloc_info)) {
-                    .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
+                    .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
             }
 
-            return Result{ .appended = {} };
+            return Result.ok;
         },
         .Optional => {
             var opt_buf: Type.Payload.ElemType = undefined;
@@ -654,7 +626,7 @@ pub fn generateSymbol(
 
             if (!payload_type.hasRuntimeBits()) {
                 try code.writer().writeByteNTimes(@boolToInt(is_pl), abi_size);
-                return Result{ .appended = {} };
+                return Result.ok;
             }
 
             if (typed_value.ty.optionalReprIsPayload()) {
@@ -663,10 +635,7 @@ pub fn generateSymbol(
                         .ty = payload_type,
                         .val = payload.data,
                     }, code, debug_output, reloc_info)) {
-                        .appended => {},
-                        .externally_managed => |external_slice| {
-                            code.appendSliceAssumeCapacity(external_slice);
-                        },
+                        .ok => {},
                         .fail => |em| return Result{ .fail = em },
                     }
                 } else if (!typed_value.val.isNull()) {
@@ -674,17 +643,14 @@ pub fn generateSymbol(
                         .ty = payload_type,
                         .val = typed_value.val,
                     }, code, debug_output, reloc_info)) {
-                        .appended => {},
-                        .externally_managed => |external_slice| {
-                            code.appendSliceAssumeCapacity(external_slice);
-                        },
+                        .ok => {},
                         .fail => |em| return Result{ .fail = em },
                     }
                 } else {
                     try code.writer().writeByteNTimes(0, abi_size);
                 }
 
-                return Result{ .appended = {} };
+                return Result.ok;
             }
 
             const value = if (typed_value.val.castTag(.opt_payload)) |payload| payload.data else Value.initTag(.undef);
@@ -693,14 +659,11 @@ pub fn generateSymbol(
                 .ty = payload_type,
                 .val = value,
             }, code, debug_output, reloc_info)) {
-                .appended => {},
-                .externally_managed => |external_slice| {
-                    code.appendSliceAssumeCapacity(external_slice);
-                },
+                .ok => {},
                 .fail => |em| return Result{ .fail = em },
             }
 
-            return Result{ .appended = {} };
+            return Result.ok;
         },
         .ErrorUnion => {
             const error_ty = typed_value.ty.errorUnionSet();
@@ -725,10 +688,7 @@ pub fn generateSymbol(
                     .ty = error_ty,
                     .val = if (is_payload) Value.initTag(.zero) else typed_value.val,
                 }, code, debug_output, reloc_info)) {
-                    .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
+                    .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
             }
@@ -741,10 +701,7 @@ pub fn generateSymbol(
                     .ty = payload_ty,
                     .val = payload_val,
                 }, code, debug_output, reloc_info)) {
-                    .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
+                    .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
                 const unpadded_end = code.items.len - begin;
@@ -763,10 +720,7 @@ pub fn generateSymbol(
                     .ty = error_ty,
                     .val = if (is_payload) Value.initTag(.zero) else typed_value.val,
                 }, code, debug_output, reloc_info)) {
-                    .appended => {},
-                    .externally_managed => |external_slice| {
-                        code.appendSliceAssumeCapacity(external_slice);
-                    },
+                    .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
                 const unpadded_end = code.items.len - begin;
@@ -778,7 +732,7 @@ pub fn generateSymbol(
                 }
             }
 
-            return Result{ .appended = {} };
+            return Result.ok;
         },
         .ErrorSet => {
             switch (typed_value.val.tag()) {
@@ -791,7 +745,57 @@ pub fn generateSymbol(
                     try code.writer().writeByteNTimes(0, @intCast(usize, Type.anyerror.abiSize(target)));
                 },
             }
-            return Result{ .appended = {} };
+            return Result.ok;
+        },
+        .Vector => switch (typed_value.val.tag()) {
+            .bytes => {
+                const bytes = typed_value.val.castTag(.bytes).?.data;
+                const len = @intCast(usize, typed_value.ty.arrayLen());
+                try code.ensureUnusedCapacity(len);
+                code.appendSliceAssumeCapacity(bytes[0..len]);
+                return Result.ok;
+            },
+            .aggregate => {
+                const elem_vals = typed_value.val.castTag(.aggregate).?.data;
+                const elem_ty = typed_value.ty.elemType();
+                const len = @intCast(usize, typed_value.ty.arrayLen());
+                for (elem_vals[0..len]) |elem_val| {
+                    switch (try generateSymbol(bin_file, src_loc, .{
+                        .ty = elem_ty,
+                        .val = elem_val,
+                    }, code, debug_output, reloc_info)) {
+                        .ok => {},
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                }
+                return Result.ok;
+            },
+            .repeated => {
+                const array = typed_value.val.castTag(.repeated).?.data;
+                const elem_ty = typed_value.ty.childType();
+                const len = typed_value.ty.arrayLen();
+
+                var index: u64 = 0;
+                while (index < len) : (index += 1) {
+                    switch (try generateSymbol(bin_file, src_loc, .{
+                        .ty = elem_ty,
+                        .val = array,
+                    }, code, debug_output, reloc_info)) {
+                        .ok => {},
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                }
+                return Result.ok;
+            },
+            .str_lit => {
+                const str_lit = typed_value.val.castTag(.str_lit).?.data;
+                const mod = bin_file.options.module.?;
+                const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                try code.ensureUnusedCapacity(str_lit.len);
+                code.appendSliceAssumeCapacity(bytes);
+                return Result.ok;
+            },
+            else => unreachable,
         },
         else => |t| {
             return Result{
@@ -830,10 +834,7 @@ fn lowerDeclRef(
             .ty = slice_ptr_field_type,
             .val = typed_value.val,
         }, code, debug_output, reloc_info)) {
-            .appended => {},
-            .externally_managed => |external_slice| {
-                code.appendSliceAssumeCapacity(external_slice);
-            },
+            .ok => {},
             .fail => |em| return Result{ .fail = em },
         }
 
@@ -846,14 +847,11 @@ fn lowerDeclRef(
             .ty = Type.usize,
             .val = Value.initPayload(&slice_len.base),
         }, code, debug_output, reloc_info)) {
-            .appended => {},
-            .externally_managed => |external_slice| {
-                code.appendSliceAssumeCapacity(external_slice);
-            },
+            .ok => {},
             .fail => |em| return Result{ .fail = em },
         }
 
-        return Result{ .appended = {} };
+        return Result.ok;
     }
 
     const ptr_width = target.cpu.arch.ptrBitWidth();
@@ -861,7 +859,7 @@ fn lowerDeclRef(
     const is_fn_body = decl.ty.zigTypeTag() == .Fn;
     if (!is_fn_body and !decl.ty.hasRuntimeBits()) {
         try code.writer().writeByteNTimes(0xaa, @divExact(ptr_width, 8));
-        return Result{ .appended = {} };
+        return Result.ok;
     }
 
     module.markDeclAlive(decl);
@@ -879,7 +877,7 @@ fn lowerDeclRef(
         else => unreachable,
     }
 
-    return Result{ .appended = {} };
+    return Result.ok;
 }
 
 pub fn errUnionPayloadOffset(payload_ty: Type, target: std.Target) u64 {

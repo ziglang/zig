@@ -32,8 +32,9 @@ pub inline fn mulf3(comptime T: type, a: T, b: T) T {
     const infRep = @bitCast(Z, math.inf(T));
     const minNormalRep = @bitCast(Z, math.floatMin(T));
 
-    const aExponent = @truncate(u32, (@bitCast(Z, a) >> significandBits) & maxExponent);
-    const bExponent = @truncate(u32, (@bitCast(Z, b) >> significandBits) & maxExponent);
+    const ZExp = if (typeWidth >= 32) u32 else Z;
+    const aExponent = @truncate(ZExp, (@bitCast(Z, a) >> significandBits) & maxExponent);
+    const bExponent = @truncate(ZExp, (@bitCast(Z, b) >> significandBits) & maxExponent);
     const productSign: Z = (@bitCast(Z, a) ^ @bitCast(Z, b)) & signBit;
 
     var aSignificand: ZSignificand = @intCast(ZSignificand, @bitCast(Z, a) & significandMask);
@@ -186,7 +187,7 @@ fn normalize(comptime T: type, significand: *PowerOfTwoSignificandZ(T)) i32 {
     const Z = PowerOfTwoSignificandZ(T);
     const integerBit = @as(Z, 1) << math.floatFractionalBits(T);
 
-    const shift = @clz(Z, significand.*) - @clz(Z, integerBit);
+    const shift = @clz(significand.*) - @clz(integerBit);
     significand.* <<= @intCast(math.Log2Int(Z), shift);
     return @as(i32, 1) - shift;
 }

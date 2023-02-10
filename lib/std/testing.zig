@@ -8,7 +8,11 @@ pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAll
 
 /// This should only be used in temporary test programs.
 pub const allocator = allocator_instance.allocator();
-pub var allocator_instance = std.heap.GeneralPurposeAllocator(.{}){};
+pub var allocator_instance = b: {
+    if (!builtin.is_test)
+        @compileError("Cannot use testing allocator outside of test block");
+    break :b std.heap.GeneralPurposeAllocator(.{}){};
+};
 
 pub const failing_allocator = failing_allocator_instance.allocator();
 pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), 0);
@@ -17,10 +21,6 @@ pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
-
-/// This is available to any test that wants to execute Zig in a child process.
-/// It will be the same executable that is running `zig test`.
-pub var zig_exe_path: []const u8 = undefined;
 
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
 /// and then returns a test failure error when actual_error_union is not expected_error.
@@ -46,7 +46,6 @@ pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void 
 pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
-        .BoundFn,
         .Opaque,
         .Frame,
         .AnyFrame,
@@ -213,8 +212,8 @@ pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anyt
 /// This function is intended to be used only in tests. When the actual value is
 /// not approximately equal to the expected value, prints diagnostics to stderr
 /// to show exactly how they are not equal, then returns a test failure error.
-/// See `math.approxEqAbs` for more informations on the tolerance parameter.
-/// The types must be floating point
+/// See `math.approxEqAbs` for more information on the tolerance parameter.
+/// The types must be floating-point.
 pub fn expectApproxEqAbs(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
     const T = @TypeOf(expected);
 
@@ -245,8 +244,8 @@ test "expectApproxEqAbs" {
 /// This function is intended to be used only in tests. When the actual value is
 /// not approximately equal to the expected value, prints diagnostics to stderr
 /// to show exactly how they are not equal, then returns a test failure error.
-/// See `math.approxEqRel` for more informations on the tolerance parameter.
-/// The types must be floating point
+/// See `math.approxEqRel` for more information on the tolerance parameter.
+/// The types must be floating-point.
 pub fn expectApproxEqRel(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
     const T = @TypeOf(expected);
 
@@ -278,25 +277,188 @@ test "expectApproxEqRel" {
 }
 
 /// This function is intended to be used only in tests. When the two slices are not
-/// equal, prints diagnostics to stderr to show exactly how they are not equal,
-/// then returns a test failure error.
+/// equal, prints diagnostics to stderr to show exactly how they are not equal (with
+/// the differences highlighted in red), then returns a test failure error.
+/// The colorized output is optional and controlled by the return of `std.debug.detectTTYConfig()`.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
-    // TODO better printing of the difference
-    // If the arrays are small enough we could print the whole thing
-    // If the child type is u8 and no weird bytes, we could print it as strings
-    // Even for the length difference, it would be useful to see the values of the slices probably.
-    if (expected.len != actual.len) {
-        std.debug.print("slice lengths differ. expected {d}, found {d}\n", .{ expected.len, actual.len });
-        return error.TestExpectedEqual;
+    if (expected.ptr == actual.ptr and expected.len == actual.len) {
+        return;
     }
-    var i: usize = 0;
-    while (i < expected.len) : (i += 1) {
-        if (!std.meta.eql(expected[i], actual[i])) {
-            std.debug.print("index {} incorrect. expected {any}, found {any}\n", .{ i, expected[i], actual[i] });
-            return error.TestExpectedEqual;
+    const diff_index: usize = diff_index: {
+        const shortest = @min(expected.len, actual.len);
+        var index: usize = 0;
+        while (index < shortest) : (index += 1) {
+            if (!std.meta.eql(actual[index], expected[index])) break :diff_index index;
+        }
+        break :diff_index if (expected.len == actual.len) return else shortest;
+    };
+
+    std.debug.print("slices differ. first difference occurs at index {d} (0x{X})\n", .{ diff_index, diff_index });
+
+    // TODO: Should this be configurable by the caller?
+    const max_lines: usize = 16;
+    const max_window_size: usize = if (T == u8) max_lines * 16 else max_lines;
+
+    // Print a maximum of max_window_size items of each input, starting just before the
+    // first difference to give a bit of context.
+    var window_start: usize = 0;
+    if (@max(actual.len, expected.len) > max_window_size) {
+        const alignment = if (T == u8) 16 else 2;
+        window_start = std.mem.alignBackward(diff_index - @min(diff_index, alignment), alignment);
+    }
+    const expected_window = expected[window_start..@min(expected.len, window_start + max_window_size)];
+    const expected_truncated = window_start + expected_window.len < expected.len;
+    const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
+    const actual_truncated = window_start + actual_window.len < actual.len;
+
+    const ttyconf = std.debug.detectTTYConfig(std.io.getStdErr());
+    var differ = if (T == u8) BytesDiffer{
+        .expected = expected_window,
+        .actual = actual_window,
+        .ttyconf = ttyconf,
+    } else SliceDiffer(T){
+        .start_index = window_start,
+        .expected = expected_window,
+        .actual = actual_window,
+        .ttyconf = ttyconf,
+    };
+    const stderr = std.io.getStdErr();
+
+    // Print indexes as hex for slices of u8 since it's more likely to be binary data where
+    // that is usually useful.
+    const index_fmt = if (T == u8) "0x{X}" else "{}";
+
+    std.debug.print("\n============ expected this output: =============  len: {} (0x{X})\n\n", .{ expected.len, expected.len });
+    if (window_start > 0) {
+        if (T == u8) {
+            std.debug.print("... truncated, start index: " ++ index_fmt ++ " ...\n", .{window_start});
+        } else {
+            std.debug.print("... truncated ...\n", .{});
         }
     }
+    differ.write(stderr.writer()) catch {};
+    if (expected_truncated) {
+        const end_offset = window_start + expected_window.len;
+        const num_missing_items = expected.len - (window_start + expected_window.len);
+        if (T == u8) {
+            std.debug.print("... truncated, indexes [" ++ index_fmt ++ "..] not shown, remaining bytes: " ++ index_fmt ++ " ...\n", .{ end_offset, num_missing_items });
+        } else {
+            std.debug.print("... truncated, remaining items: " ++ index_fmt ++ " ...\n", .{num_missing_items});
+        }
+    }
+
+    // now reverse expected/actual and print again
+    differ.expected = actual_window;
+    differ.actual = expected_window;
+    std.debug.print("\n============= instead found this: ==============  len: {} (0x{X})\n\n", .{ actual.len, actual.len });
+    if (window_start > 0) {
+        if (T == u8) {
+            std.debug.print("... truncated, start index: " ++ index_fmt ++ " ...\n", .{window_start});
+        } else {
+            std.debug.print("... truncated ...\n", .{});
+        }
+    }
+    differ.write(stderr.writer()) catch {};
+    if (actual_truncated) {
+        const end_offset = window_start + actual_window.len;
+        const num_missing_items = actual.len - (window_start + actual_window.len);
+        if (T == u8) {
+            std.debug.print("... truncated, indexes [" ++ index_fmt ++ "..] not shown, remaining bytes: " ++ index_fmt ++ " ...\n", .{ end_offset, num_missing_items });
+        } else {
+            std.debug.print("... truncated, remaining items: " ++ index_fmt ++ " ...\n", .{num_missing_items});
+        }
+    }
+    std.debug.print("\n================================================\n\n", .{});
+
+    return error.TestExpectedEqual;
+}
+
+fn SliceDiffer(comptime T: type) type {
+    return struct {
+        start_index: usize,
+        expected: []const T,
+        actual: []const T,
+        ttyconf: std.debug.TTY.Config,
+
+        const Self = @This();
+
+        pub fn write(self: Self, writer: anytype) !void {
+            for (self.expected) |value, i| {
+                var full_index = self.start_index + i;
+                const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
+                if (diff) try self.ttyconf.setColor(writer, .Red);
+                try writer.print("[{}]: {any}\n", .{ full_index, value });
+                if (diff) try self.ttyconf.setColor(writer, .Reset);
+            }
+        }
+    };
+}
+
+const BytesDiffer = struct {
+    expected: []const u8,
+    actual: []const u8,
+    ttyconf: std.debug.TTY.Config,
+
+    pub fn write(self: BytesDiffer, writer: anytype) !void {
+        var expected_iterator = ChunkIterator{ .bytes = self.expected };
+        while (expected_iterator.next()) |chunk| {
+            // to avoid having to calculate diffs twice per chunk
+            var diffs: std.bit_set.IntegerBitSet(16) = .{ .mask = 0 };
+            for (chunk) |byte, i| {
+                var absolute_byte_index = (expected_iterator.index - chunk.len) + i;
+                const diff = if (absolute_byte_index < self.actual.len) self.actual[absolute_byte_index] != byte else true;
+                if (diff) diffs.set(i);
+                try self.writeByteDiff(writer, "{X:0>2} ", byte, diff);
+                if (i == 7) try writer.writeByte(' ');
+            }
+            try writer.writeByte(' ');
+            if (chunk.len < 16) {
+                var missing_columns = (16 - chunk.len) * 3;
+                if (chunk.len < 8) missing_columns += 1;
+                try writer.writeByteNTimes(' ', missing_columns);
+            }
+            for (chunk) |byte, i| {
+                const byte_to_print = if (std.ascii.isPrint(byte)) byte else '.';
+                try self.writeByteDiff(writer, "{c}", byte_to_print, diffs.isSet(i));
+            }
+            try writer.writeByte('\n');
+        }
+    }
+
+    fn writeByteDiff(self: BytesDiffer, writer: anytype, comptime fmt: []const u8, byte: u8, diff: bool) !void {
+        if (diff) try self.ttyconf.setColor(writer, .Red);
+        try writer.print(fmt, .{byte});
+        if (diff) try self.ttyconf.setColor(writer, .Reset);
+    }
+
+    const ChunkIterator = struct {
+        bytes: []const u8,
+        index: usize = 0,
+
+        pub fn next(self: *ChunkIterator) ?[]const u8 {
+            if (self.index == self.bytes.len) return null;
+
+            const start_index = self.index;
+            const end_index = @min(self.bytes.len, start_index + 16);
+            self.index = end_index;
+            return self.bytes[start_index..end_index];
+        }
+    };
+};
+
+test {
+    try expectEqualSlices(u8, "foo\x00", "foo\x00");
+    try expectEqualSlices(u16, &[_]u16{ 100, 200, 300, 400 }, &[_]u16{ 100, 200, 300, 400 });
+    const E = enum { foo, bar };
+    const S = struct {
+        v: E,
+    };
+    try expectEqualSlices(
+        S,
+        &[_]S{ .{ .v = .foo }, .{ .v = .bar }, .{ .v = .foo }, .{ .v = .bar } },
+        &[_]S{ .{ .v = .foo }, .{ .v = .bar }, .{ .v = .foo }, .{ .v = .bar } },
+    );
 }
 
 /// This function is intended to be used only in tests. Checks that two slices or two arrays are equal,
@@ -363,20 +525,21 @@ pub const TmpDir = struct {
     }
 };
 
-fn getCwdOrWasiPreopen() std.fs.Dir {
-    if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        var preopens = std.fs.wasi.PreopenList.init(allocator);
-        defer preopens.deinit();
-        preopens.populate(null) catch
-            @panic("unable to make tmp dir for testing: unable to populate preopens");
-        const preopen = preopens.find(std.fs.wasi.PreopenType{ .Dir = "." }) orelse
-            @panic("unable to make tmp dir for testing: didn't find '.' in the preopens");
+pub const TmpIterableDir = struct {
+    iterable_dir: std.fs.IterableDir,
+    parent_dir: std.fs.Dir,
+    sub_path: [sub_path_len]u8,
 
-        return std.fs.Dir{ .fd = preopen.fd };
-    } else {
-        return std.fs.cwd();
+    const random_bytes_count = 12;
+    const sub_path_len = std.fs.base64_encoder.calcSize(random_bytes_count);
+
+    pub fn cleanup(self: *TmpIterableDir) void {
+        self.iterable_dir.close();
+        self.parent_dir.deleteTree(&self.sub_path) catch {};
+        self.parent_dir.close();
+        self.* = undefined;
     }
-}
+};
 
 pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
     var random_bytes: [TmpDir.random_bytes_count]u8 = undefined;
@@ -384,7 +547,7 @@ pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
     var sub_path: [TmpDir.sub_path_len]u8 = undefined;
     _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
 
-    var cwd = getCwdOrWasiPreopen();
+    var cwd = std.fs.cwd();
     var cache_dir = cwd.makeOpenPath("zig-cache", .{}) catch
         @panic("unable to make tmp dir for testing: unable to make and open zig-cache dir");
     defer cache_dir.close();
@@ -395,6 +558,28 @@ pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
 
     return .{
         .dir = dir,
+        .parent_dir = parent_dir,
+        .sub_path = sub_path,
+    };
+}
+
+pub fn tmpIterableDir(opts: std.fs.Dir.OpenDirOptions) TmpIterableDir {
+    var random_bytes: [TmpIterableDir.random_bytes_count]u8 = undefined;
+    std.crypto.random.bytes(&random_bytes);
+    var sub_path: [TmpIterableDir.sub_path_len]u8 = undefined;
+    _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
+
+    var cwd = std.fs.cwd();
+    var cache_dir = cwd.makeOpenPath("zig-cache", .{}) catch
+        @panic("unable to make tmp dir for testing: unable to make and open zig-cache dir");
+    defer cache_dir.close();
+    var parent_dir = cache_dir.makeOpenPath("tmp", .{}) catch
+        @panic("unable to make tmp dir for testing: unable to make and open zig-cache/tmp dir");
+    var dir = parent_dir.makeOpenPathIterable(&sub_path, opts) catch
+        @panic("unable to make tmp dir for testing: unable to make and open the tmp dir");
+
+    return .{
+        .iterable_dir = dir,
         .parent_dir = parent_dir,
         .sub_path = sub_path,
     };
@@ -456,7 +641,7 @@ pub fn expectStringStartsWith(actual: []const u8, expected_starts_with: []const 
 
     print("\n====== expected to start with: =========\n", .{});
     printWithVisibleNewlines(expected_starts_with);
-    print("\n====== instead ended with: ===========\n", .{});
+    print("\n====== instead started with: ===========\n", .{});
     printWithVisibleNewlines(shortened_actual);
     print("\n========= full output: ==============\n", .{});
     printWithVisibleNewlines(actual);
@@ -485,6 +670,252 @@ pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) 
     return error.TestExpectedEndsWith;
 }
 
+/// This function is intended to be used only in tests. When the two values are not
+/// deeply equal, prints diagnostics to stderr to show exactly how they are not equal,
+/// then returns a test failure error.
+/// `actual` is casted to the type of `expected`.
+///
+/// Deeply equal is defined as follows:
+/// Primitive types are deeply equal if they are equal using  `==` operator.
+/// Struct values are deeply equal if their corresponding fields are deeply equal.
+/// Container types(like Array/Slice/Vector) deeply equal when their corresponding elements are deeply equal.
+/// Pointer values are deeply equal if values they point to are deeply equal.
+///
+/// Note: Self-referential structs are not supported (e.g. things like std.SinglyLinkedList)
+pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
+    switch (@typeInfo(@TypeOf(actual))) {
+        .NoReturn,
+        .Opaque,
+        .Frame,
+        .AnyFrame,
+        => @compileError("value of type " ++ @typeName(@TypeOf(actual)) ++ " encountered"),
+
+        .Undefined,
+        .Null,
+        .Void,
+        => return,
+
+        .Type => {
+            if (actual != expected) {
+                std.debug.print("expected type {s}, found type {s}\n", .{ @typeName(expected), @typeName(actual) });
+                return error.TestExpectedEqual;
+            }
+        },
+
+        .Bool,
+        .Int,
+        .Float,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .EnumLiteral,
+        .Enum,
+        .Fn,
+        .ErrorSet,
+        => {
+            if (actual != expected) {
+                std.debug.print("expected {}, found {}\n", .{ expected, actual });
+                return error.TestExpectedEqual;
+            }
+        },
+
+        .Pointer => |pointer| {
+            switch (pointer.size) {
+                // We have no idea what is behind those pointers, so the best we can do is `==` check.
+                .C, .Many => {
+                    if (actual != expected) {
+                        std.debug.print("expected {*}, found {*}\n", .{ expected, actual });
+                        return error.TestExpectedEqual;
+                    }
+                },
+                .One => {
+                    // Length of those pointers are runtime value, so the best we can do is `==` check.
+                    switch (@typeInfo(pointer.child)) {
+                        .Fn, .Opaque => {
+                            if (actual != expected) {
+                                std.debug.print("expected {*}, found {*}\n", .{ expected, actual });
+                                return error.TestExpectedEqual;
+                            }
+                        },
+                        else => try expectEqualDeep(expected.*, actual.*),
+                    }
+                },
+                .Slice => {
+                    if (expected.len != actual.len) {
+                        std.debug.print("Slice len not the same, expected {d}, found {d}\n", .{ expected.len, actual.len });
+                        return error.TestExpectedEqual;
+                    }
+                    var i: usize = 0;
+                    while (i < expected.len) : (i += 1) {
+                        expectEqualDeep(expected[i], actual[i]) catch |e| {
+                            std.debug.print("index {d} incorrect. expected {any}, found {any}\n", .{
+                                i, expected[i], actual[i],
+                            });
+                            return e;
+                        };
+                    }
+                },
+            }
+        },
+
+        .Array => |_| {
+            if (expected.len != actual.len) {
+                std.debug.print("Array len not the same, expected {d}, found {d}\n", .{ expected.len, actual.len });
+                return error.TestExpectedEqual;
+            }
+            var i: usize = 0;
+            while (i < expected.len) : (i += 1) {
+                expectEqualDeep(expected[i], actual[i]) catch |e| {
+                    std.debug.print("index {d} incorrect. expected {any}, found {any}\n", .{
+                        i, expected[i], actual[i],
+                    });
+                    return e;
+                };
+            }
+        },
+
+        .Vector => |info| {
+            if (info.len != @typeInfo(@TypeOf(actual)).Vector.len) {
+                std.debug.print("Vector len not the same, expected {d}, found {d}\n", .{ info.len, @typeInfo(@TypeOf(actual)).Vector.len });
+                return error.TestExpectedEqual;
+            }
+            var i: usize = 0;
+            while (i < info.len) : (i += 1) {
+                expectEqualDeep(expected[i], actual[i]) catch |e| {
+                    std.debug.print("index {d} incorrect. expected {any}, found {any}\n", .{
+                        i, expected[i], actual[i],
+                    });
+                    return e;
+                };
+            }
+        },
+
+        .Struct => |structType| {
+            inline for (structType.fields) |field| {
+                expectEqualDeep(@field(expected, field.name), @field(actual, field.name)) catch |e| {
+                    std.debug.print("Field {s} incorrect. expected {any}, found {any}\n", .{ field.name, @field(expected, field.name), @field(actual, field.name) });
+                    return e;
+                };
+            }
+        },
+
+        .Union => |union_info| {
+            if (union_info.tag_type == null) {
+                @compileError("Unable to compare untagged union values");
+            }
+
+            const Tag = std.meta.Tag(@TypeOf(expected));
+
+            const expectedTag = @as(Tag, expected);
+            const actualTag = @as(Tag, actual);
+
+            try expectEqual(expectedTag, actualTag);
+
+            // we only reach this loop if the tags are equal
+            switch (expected) {
+                inline else => |val, tag| {
+                    try expectEqualDeep(val, @field(actual, @tagName(tag)));
+                },
+            }
+        },
+
+        .Optional => {
+            if (expected) |expected_payload| {
+                if (actual) |actual_payload| {
+                    try expectEqualDeep(expected_payload, actual_payload);
+                } else {
+                    std.debug.print("expected {any}, found null\n", .{expected_payload});
+                    return error.TestExpectedEqual;
+                }
+            } else {
+                if (actual) |actual_payload| {
+                    std.debug.print("expected null, found {any}\n", .{actual_payload});
+                    return error.TestExpectedEqual;
+                }
+            }
+        },
+
+        .ErrorUnion => {
+            if (expected) |expected_payload| {
+                if (actual) |actual_payload| {
+                    try expectEqualDeep(expected_payload, actual_payload);
+                } else |actual_err| {
+                    std.debug.print("expected {any}, found {any}\n", .{ expected_payload, actual_err });
+                    return error.TestExpectedEqual;
+                }
+            } else |expected_err| {
+                if (actual) |actual_payload| {
+                    std.debug.print("expected {any}, found {any}\n", .{ expected_err, actual_payload });
+                    return error.TestExpectedEqual;
+                } else |actual_err| {
+                    try expectEqualDeep(expected_err, actual_err);
+                }
+            }
+        },
+    }
+}
+
+test "expectEqualDeep primitive type" {
+    try expectEqualDeep(1, 1);
+    try expectEqualDeep(true, true);
+    try expectEqualDeep(1.5, 1.5);
+    try expectEqualDeep(u8, u8);
+    try expectEqualDeep(error.Bad, error.Bad);
+
+    // optional
+    {
+        const foo: ?u32 = 1;
+        const bar: ?u32 = 1;
+        try expectEqualDeep(foo, bar);
+        try expectEqualDeep(?u32, ?u32);
+    }
+    // function type
+    {
+        const fnType = struct {
+            fn foo() void {
+                unreachable;
+            }
+        }.foo;
+        try expectEqualDeep(fnType, fnType);
+    }
+}
+
+test "expectEqualDeep pointer" {
+    const a = 1;
+    const b = 1;
+    try expectEqualDeep(&a, &b);
+}
+
+test "expectEqualDeep composite type" {
+    try expectEqualDeep("abc", "abc");
+    const s1: []const u8 = "abc";
+    const s2 = "abcd";
+    const s3: []const u8 = s2[0..3];
+    try expectEqualDeep(s1, s3);
+
+    const TestStruct = struct { s: []const u8 };
+    try expectEqualDeep(TestStruct{ .s = "abc" }, TestStruct{ .s = "abc" });
+    try expectEqualDeep([_][]const u8{ "a", "b", "c" }, [_][]const u8{ "a", "b", "c" });
+
+    // vector
+    try expectEqualDeep(@splat(4, @as(u32, 4)), @splat(4, @as(u32, 4)));
+
+    // nested array
+    {
+        const a = [2][2]f32{
+            [_]f32{ 1.0, 0.0 },
+            [_]f32{ 0.0, 1.0 },
+        };
+
+        const b = [2][2]f32{
+            [_]f32{ 1.0, 0.0 },
+            [_]f32{ 0.0, 1.0 },
+        };
+
+        try expectEqualDeep(a, b);
+        try expectEqualDeep(&a, &b);
+    }
+}
+
 fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
     const line_begin_index = if (std.mem.lastIndexOfScalar(u8, source[0..indicator_index], '\n')) |line_begin|
         line_begin + 1
@@ -501,7 +932,10 @@ fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
         while (i < indicator_index) : (i += 1)
             print(" ", .{});
     }
-    print("^\n", .{});
+    if (indicator_index >= source.len)
+        print("^ (end of string)\n", .{})
+    else
+        print("^ ('\\x{x:0>2}')\n", .{source[indicator_index]});
 }
 
 fn printWithVisibleNewlines(source: []const u8) void {
@@ -534,18 +968,27 @@ test {
 ///
 /// Any relevant state shared between runs of `test_fn` *must* be reset within `test_fn`.
 ///
-/// Expects that the `test_fn` has a deterministic number of memory allocations
-/// (an error will be returned if non-deterministic allocations are detected).
-///
 /// The strategy employed is to:
 /// - Run the test function once to get the total number of allocations.
 /// - Then, iterate and run the function X more times, incrementing
 ///   the failing index each iteration (where X is the total number of
 ///   allocations determined previously)
 ///
+/// Expects that `test_fn` has a deterministic number of memory allocations:
+/// - If an allocation was made to fail during a run of `test_fn`, but `test_fn`
+///   didn't return `error.OutOfMemory`, then `error.SwallowedOutOfMemoryError`
+///   is returned from `checkAllAllocationFailures`. You may want to ignore this
+///   depending on whether or not the code you're testing includes some strategies
+///   for recovering from `error.OutOfMemory`.
+/// - If a run of `test_fn` with an expected allocation failure executes without
+///   an allocation failure being induced, then `error.NondeterministicMemoryUsage`
+///   is returned. This error means that there are allocation points that won't be
+///   tested by the strategy this function employs (that is, there are sometimes more
+///   points of allocation than the initial run of `test_fn` detects).
+///
 /// ---
 ///
-/// Here's an example of using a simple test case that will cause a leak when the
+/// Here's an example using a simple test case that will cause a leak when the
 /// allocation of `bar` fails (but will pass normally):
 ///
 /// ```zig
@@ -605,22 +1048,18 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
 
     const ArgsTuple = std.meta.ArgsTuple(@TypeOf(test_fn));
     const fn_args_fields = @typeInfo(ArgsTuple).Struct.fields;
-    if (fn_args_fields.len == 0 or fn_args_fields[0].field_type != std.mem.Allocator) {
+    if (fn_args_fields.len == 0 or fn_args_fields[0].type != std.mem.Allocator) {
         @compileError("The provided function must have an " ++ @typeName(std.mem.Allocator) ++ " as its first argument");
     }
     const expected_args_tuple_len = fn_args_fields.len - 1;
     if (extra_args.len != expected_args_tuple_len) {
-        @compileError("The provided function expects " ++ (comptime std.fmt.comptimePrint("{d}", .{expected_args_tuple_len})) ++ " extra arguments, but the provided tuple contains " ++ (comptime std.fmt.comptimePrint("{d}", .{extra_args.len})));
+        @compileError("The provided function expects " ++ std.fmt.comptimePrint("{d}", .{expected_args_tuple_len}) ++ " extra arguments, but the provided tuple contains " ++ std.fmt.comptimePrint("{d}", .{extra_args.len}));
     }
 
     // Setup the tuple that will actually be used with @call (we'll need to insert
     // the failing allocator in field @"0" before each @call)
     var args: ArgsTuple = undefined;
     inline for (@typeInfo(@TypeOf(extra_args)).Struct.fields) |field, i| {
-        const expected_type = fn_args_fields[i + 1].field_type;
-        if (expected_type != field.field_type) {
-            @compileError("Unexpected type for extra argument at index " ++ (comptime std.fmt.comptimePrint("{d}", .{i})) ++ ": expected " ++ @typeName(expected_type) ++ ", found " ++ @typeName(field.field_type));
-        }
         const arg_i_str = comptime str: {
             var str_buf: [100]u8 = undefined;
             const args_i = i + 1;
@@ -635,7 +1074,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
         var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, std.math.maxInt(usize));
         args.@"0" = failing_allocator_inst.allocator();
 
-        try @call(.{}, test_fn, args);
+        try @call(.auto, test_fn, args);
         break :x failing_allocator_inst.index;
     };
 
@@ -644,13 +1083,17 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
         var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, fail_index);
         args.@"0" = failing_allocator_inst.allocator();
 
-        if (@call(.{}, test_fn, args)) |_| {
-            return error.NondeterministicMemoryUsage;
+        if (@call(.auto, test_fn, args)) |_| {
+            if (failing_allocator_inst.has_induced_failure) {
+                return error.SwallowedOutOfMemoryError;
+            } else {
+                return error.NondeterministicMemoryUsage;
+            }
         } else |err| switch (err) {
             error.OutOfMemory => {
                 if (failing_allocator_inst.allocated_bytes != failing_allocator_inst.freed_bytes) {
                     print(
-                        "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\n",
+                        "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\nallocation that was made to fail: {}",
                         .{
                             fail_index,
                             needed_alloc_count,
@@ -658,6 +1101,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
                             failing_allocator_inst.freed_bytes,
                             failing_allocator_inst.allocations,
                             failing_allocator_inst.deallocations,
+                            failing_allocator_inst.getStackTrace(),
                         },
                     );
                     return error.MemoryLeakDetected;
@@ -668,10 +1112,27 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
     }
 }
 
-/// Given a type, reference all the declarations inside, so that the semantic analyzer sees them.
+/// Given a type, references all the declarations inside, so that the semantic analyzer sees them.
 pub fn refAllDecls(comptime T: type) void {
     if (!builtin.is_test) return;
     inline for (comptime std.meta.declarations(T)) |decl| {
         if (decl.is_pub) _ = @field(T, decl.name);
+    }
+}
+
+/// Given a type, recursively references all the declarations inside, so that the semantic analyzer sees them.
+/// For deep types, you may use `@setEvalBranchQuota`.
+pub fn refAllDeclsRecursive(comptime T: type) void {
+    if (!builtin.is_test) return;
+    inline for (comptime std.meta.declarations(T)) |decl| {
+        if (decl.is_pub) {
+            if (@TypeOf(@field(T, decl.name)) == type) {
+                switch (@typeInfo(@field(T, decl.name))) {
+                    .Struct, .Enum, .Union, .Opaque => refAllDeclsRecursive(@field(T, decl.name)),
+                    else => {},
+                }
+            }
+            _ = @field(T, decl.name);
+        }
     }
 }

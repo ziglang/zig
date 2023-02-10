@@ -30,8 +30,10 @@ pub const Rational = struct {
     /// Create a new Rational. A small amount of memory will be allocated on initialization.
     /// This will be 2 * Int.default_capacity.
     pub fn init(a: Allocator) !Rational {
+        var p = try Int.init(a);
+        errdefer p.deinit();
         return Rational{
-            .p = try Int.init(a),
+            .p = p,
             .q = try Int.initSet(a, 1),
         };
     }
@@ -102,20 +104,23 @@ pub const Rational = struct {
             try self.p.setString(10, str[0..i]);
 
             const base = IntConst{ .limbs = &[_]Limb{10}, .positive = true };
+            var local_buf: [@sizeOf(Limb) * Int.default_capacity]u8 align(@alignOf(Limb)) = undefined;
+            var fba = std.heap.FixedBufferAllocator.init(&local_buf);
+            const base_managed = try base.toManaged(fba.allocator());
 
             var j: usize = start;
             while (j < str.len - i - 1) : (j += 1) {
                 try self.p.ensureMulCapacity(self.p.toConst(), base);
-                try self.p.mul(self.p.toConst(), base);
+                try self.p.mul(&self.p, &base_managed);
             }
 
             try self.q.setString(10, str[i + 1 ..]);
-            try self.p.add(self.p.toConst(), self.q.toConst());
+            try self.p.add(&self.p, &self.q);
 
             try self.q.set(1);
             var k: usize = i + 1;
             while (k < str.len) : (k += 1) {
-                try self.q.mul(self.q.toConst(), base);
+                try self.q.mul(&self.q, &base_managed);
             }
 
             try self.reduce();
@@ -172,9 +177,9 @@ pub const Rational = struct {
 
         try self.q.set(1);
         if (shift >= 0) {
-            try self.q.shiftLeft(self.q, @intCast(usize, shift));
+            try self.q.shiftLeft(&self.q, @intCast(usize, shift));
         } else {
-            try self.p.shiftLeft(self.p, @intCast(usize, -shift));
+            try self.p.shiftLeft(&self.p, @intCast(usize, -shift));
         }
 
         try self.reduce();
@@ -215,9 +220,9 @@ pub const Rational = struct {
 
         const shift = msize2 - exp;
         if (shift >= 0) {
-            try a2.shiftLeft(a2, @intCast(usize, shift));
+            try a2.shiftLeft(&a2, @intCast(usize, shift));
         } else {
-            try b2.shiftLeft(b2, @intCast(usize, -shift));
+            try b2.shiftLeft(&b2, @intCast(usize, -shift));
         }
 
         // 2. compute quotient and remainder
@@ -228,7 +233,7 @@ pub const Rational = struct {
         var r = try Int.init(self.p.allocator);
         defer r.deinit();
 
-        try Int.divTrunc(&q, &r, a2.toConst(), b2.toConst());
+        try Int.divTrunc(&q, &r, &a2, &b2);
 
         var mantissa = extractLowBits(q, BitReprType);
         var have_rem = r.len() > 0;
@@ -331,13 +336,13 @@ pub const Rational = struct {
     /// Returns math.Order.lt, math.Order.eq, math.Order.gt if a < b, a == b or a
     /// > b respectively.
     pub fn order(a: Rational, b: Rational) !math.Order {
-        return cmpInternal(a, b, true);
+        return cmpInternal(a, b, false);
     }
 
     /// Returns math.Order.lt, math.Order.eq, math.Order.gt if |a| < |b|, |a| ==
     /// |b| or |a| > |b| respectively.
     pub fn orderAbs(a: Rational, b: Rational) !math.Order {
-        return cmpInternal(a, b, false);
+        return cmpInternal(a, b, true);
     }
 
     // p/q > x/y iff p*y > x*q
@@ -350,8 +355,8 @@ pub const Rational = struct {
         var p = try Int.init(b.p.allocator);
         defer p.deinit();
 
-        try q.mul(a.p.toConst(), b.q.toConst());
-        try p.mul(b.p.toConst(), a.q.toConst());
+        try q.mul(&a.p, &b.q);
+        try p.mul(&b.p, &a.q);
 
         return if (is_abs) q.orderAbs(p) else q.order(p);
     }
@@ -376,11 +381,11 @@ pub const Rational = struct {
             r.deinit();
         };
 
-        try r.p.mul(a.p.toConst(), b.q.toConst());
-        try r.q.mul(b.p.toConst(), a.q.toConst());
-        try r.p.add(r.p.toConst(), r.q.toConst());
+        try r.p.mul(&a.p, &b.q);
+        try r.q.mul(&b.p, &a.q);
+        try r.p.add(&r.p, &r.q);
 
-        try r.q.mul(a.q.toConst(), b.q.toConst());
+        try r.q.mul(&a.q, &b.q);
         try r.reduce();
     }
 
@@ -404,11 +409,11 @@ pub const Rational = struct {
             r.deinit();
         };
 
-        try r.p.mul(a.p.toConst(), b.q.toConst());
-        try r.q.mul(b.p.toConst(), a.q.toConst());
-        try r.p.sub(r.p.toConst(), r.q.toConst());
+        try r.p.mul(&a.p, &b.q);
+        try r.q.mul(&b.p, &a.q);
+        try r.p.sub(&r.p, &r.q);
 
-        try r.q.mul(a.q.toConst(), b.q.toConst());
+        try r.q.mul(&a.q, &b.q);
         try r.reduce();
     }
 
@@ -418,8 +423,8 @@ pub const Rational = struct {
     ///
     /// Returns an error if memory could not be allocated.
     pub fn mul(r: *Rational, a: Rational, b: Rational) !void {
-        try r.p.mul(a.p.toConst(), b.p.toConst());
-        try r.q.mul(a.q.toConst(), b.q.toConst());
+        try r.p.mul(&a.p, &b.p);
+        try r.q.mul(&a.q, &b.q);
         try r.reduce();
     }
 
@@ -433,8 +438,8 @@ pub const Rational = struct {
             @panic("division by zero");
         }
 
-        try r.p.mul(a.p.toConst(), b.q.toConst());
-        try r.q.mul(b.p.toConst(), a.q.toConst());
+        try r.p.mul(&a.p, &b.q);
+        try r.q.mul(&b.p, &a.q);
         try r.reduce();
     }
 
@@ -450,7 +455,7 @@ pub const Rational = struct {
 
         const sign = r.p.isPositive();
         r.p.abs();
-        try a.gcd(r.p, r.q);
+        try a.gcd(&r.p, &r.q);
         r.p.setSign(sign);
 
         const one = IntConst{ .limbs = &[_]Limb{1}, .positive = true };
@@ -460,8 +465,8 @@ pub const Rational = struct {
 
             // TODO: divexact would be useful here
             // TODO: don't copy r.q for div
-            try Int.divTrunc(&r.p, &unused, r.p.toConst(), a.toConst());
-            try Int.divTrunc(&r.q, &unused, r.q.toConst(), a.toConst());
+            try Int.divTrunc(&r.p, &unused, &r.p, &a);
+            try Int.divTrunc(&r.q, &unused, &r.q, &a);
         }
     }
 };
@@ -573,7 +578,6 @@ test "big.rational setFloatString" {
 }
 
 test "big.rational toFloat" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
 
@@ -587,7 +591,6 @@ test "big.rational toFloat" {
 }
 
 test "big.rational set/to Float round-trip" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
     var prng = std.rand.DefaultPrng.init(0x5EED);
@@ -701,6 +704,18 @@ test "big.rational order" {
     try a.setRatio(890, 10);
     try b.setRatio(89, 1);
     try testing.expect((try a.order(b)) == .eq);
+}
+
+test "big.rational order/orderAbs with negative" {
+    var a = try Rational.init(testing.allocator);
+    defer a.deinit();
+    var b = try Rational.init(testing.allocator);
+    defer b.deinit();
+
+    try a.setRatio(1, 1);
+    try b.setRatio(-2, 1);
+    try testing.expect((try a.order(b)) == .gt);
+    try testing.expect((try a.orderAbs(b)) == .lt);
 }
 
 test "big.rational add single-limb" {

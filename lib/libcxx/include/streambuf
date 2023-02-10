@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===------------------------- streambuf ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -107,12 +107,15 @@ protected:
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+#include <cstdint>
 #include <ios>
 #include <iosfwd>
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -485,11 +488,11 @@ basic_streambuf<_CharT, _Traits>::overflow(int_type)
     return traits_type::eof();
 }
 
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_streambuf<char>)
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_streambuf<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_streambuf<char>;
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_streambuf<wchar_t>;
 
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ios<char>)
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ios<wchar_t>)
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ios<char>;
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ios<wchar_t>;
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -3,13 +3,23 @@
  * This file is part of the mingw-w64 runtime package.
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
-#ifndef _INC_WINEVT
-#define _INC_WINEVT
+#ifndef __WINEVT_H__
+#define __WINEVT_H__
+
+#include <winapifamily.h>
+
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+
 #if (_WIN32_WINNT >= 0x0600)
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define EVT_READ_ACCESS 0x1
+#define EVT_WRITE_ACCESS 0x2
+#define EVT_CLEAR_ACCESS 0x4
+#define EVT_ALL_ACCESS 0x7
 
 typedef enum _EVT_CHANNEL_CLOCK_TYPE {
   EvtChannelClockTypeSystemTime   = 0,
@@ -265,6 +275,9 @@ typedef enum _EVT_VARIANT_TYPE {
   EvtVarTypeEvtHandle    = 32,
   EvtVarTypeEvtXml       = 35 
 } EVT_VARIANT_TYPE;
+
+#define EVT_VARIANT_TYPE_MASK 0x7f
+#define EVT_VARIANT_TYPE_ARRAY 128
 
 typedef HANDLE EVT_HANDLE;
 typedef HANDLE EVT_OBJECT_ARRAY_PROPERTY_HANDLE;
@@ -572,5 +585,7 @@ WINBOOL WINAPI EvtUpdateBookmark(
 #ifdef __cplusplus
 }
 #endif
+
 #endif /*(_WIN32_WINNT >= 0x0600)*/
-#endif /*_INC_TDH*/
+#endif /* WINAPI_PARTITION_DESKTOP */
+#endif /*__WINEVT_H__ */

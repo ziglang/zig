@@ -6,33 +6,64 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub fn suggestVectorSizeForCpu(comptime T: type, cpu: std.Target.Cpu) ?usize {
-    switch (cpu.arch) {
-        .x86_64 => {
-            // Note: This is mostly just guesswork. It'd be great if someone more qualified were to take a
-            // proper look at this.
-
+pub fn suggestVectorSizeForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?usize {
+    // This is guesswork, if you have better suggestions can add it or edit the current here
+    // This can run in comptime only, but stage 1 fails at it, stage 2 can understand it
+    const element_bit_size = @max(8, std.math.ceilPowerOfTwo(u16, @bitSizeOf(T)) catch unreachable);
+    const vector_bit_size: u16 = blk: {
+        if (cpu.arch.isX86()) {
             if (T == bool and std.Target.x86.featureSetHas(.prefer_mask_registers)) return 64;
+            if (std.Target.x86.featureSetHas(cpu.features, .avx512f) and !std.Target.x86.featureSetHasAny(cpu.features, .{ .prefer_256_bit, .prefer_128_bit })) break :blk 512;
+            if (std.Target.x86.featureSetHasAny(cpu.features, .{ .prefer_256_bit, .avx2 }) and !std.Target.x86.featureSetHas(cpu.features, .prefer_128_bit)) break :blk 256;
+            if (std.Target.x86.featureSetHas(cpu.features, .sse)) break :blk 128;
+            if (std.Target.x86.featureSetHasAny(cpu.features, .{ .mmx, .@"3dnow" })) break :blk 64;
+        } else if (cpu.arch.isARM()) {
+            if (std.Target.arm.featureSetHas(cpu.features, .neon)) break :blk 128;
+        } else if (cpu.arch.isAARCH64()) {
+            // SVE allows up to 2048 bits in the specification, as of 2022 the most powerful machine has implemented 512-bit
+            // I think is safer to just be on 128 until is more common
+            // TODO: Check on this return when bigger values are more common
+            if (std.Target.aarch64.featureSetHas(cpu.features, .sve)) break :blk 128;
+            if (std.Target.aarch64.featureSetHas(cpu.features, .neon)) break :blk 128;
+        } else if (cpu.arch.isPPC() or cpu.arch.isPPC64()) {
+            if (std.Target.powerpc.featureSetHas(cpu.features, .altivec)) break :blk 128;
+        } else if (cpu.arch.isMIPS()) {
+            if (std.Target.mips.featureSetHas(cpu.features, .msa)) break :blk 128;
+            // TODO: Test MIPS capability to handle bigger vectors
+            //       In theory MDMX and by extension mips3d have 32 registers of 64 bits which can use in parallel
+            //       for multiple processing, but I don't know what's optimal here, if using
+            //       the 2048 bits or using just 64 per vector or something in between
+            if (std.Target.mips.featureSetHas(cpu.features, std.Target.mips.Feature.mips3d)) break :blk 64;
+        } else if (cpu.arch.isRISCV()) {
+            // in risc-v the Vector Extension allows configurable vector sizes, but a standard size of 128 is a safe estimate
+            if (std.Target.riscv.featureSetHas(cpu.features, .v)) break :blk 128;
+        } else if (cpu.arch.isSPARC()) {
+            // TODO: Test Sparc capability to handle bigger vectors
+            //       In theory Sparc have 32 registers of 64 bits which can use in parallel
+            //       for multiple processing, but I don't know what's optimal here, if using
+            //       the 2048 bits or using just 64 per vector or something in between
+            if (std.Target.sparc.featureSetHasAny(cpu.features, .{ .vis, .vis2, .vis3 })) break :blk 64;
+        }
+        return null;
+    };
+    if (vector_bit_size <= element_bit_size) return null;
 
-            const vector_bit_size = blk: {
-                if (std.Target.x86.featureSetHas(.avx512f)) break :blk 512;
-                if (std.Target.x86.featureSetHas(.prefer_256_bit)) break :blk 256;
-                if (std.Target.x86.featureSetHas(.prefer_128_bit)) break :blk 128;
-                return null;
-            };
-            const element_bit_size = std.math.max(8, std.math.ceilPowerOfTwo(T, @bitSizeOf(T)));
-            return @divExact(vector_bit_size, element_bit_size);
-        },
-        else => {
-            return null;
-        },
-    }
+    return @divExact(vector_bit_size, element_bit_size);
 }
 
 /// Suggests a target-dependant vector size for a given type, or null if scalars are recommended.
 /// Not yet implemented for every CPU architecture.
 pub fn suggestVectorSize(comptime T: type) ?usize {
     return suggestVectorSizeForCpu(T, builtin.cpu);
+}
+
+test "suggestVectorSizeForCpu works with signed and unsigned values" {
+    comptime var cpu = std.Target.Cpu.baseline(std.Target.Cpu.Arch.x86_64);
+    comptime cpu.features.addFeature(@enumToInt(std.Target.x86.Feature.avx512f));
+    const signed_integer_size = suggestVectorSizeForCpu(i32, cpu).?;
+    const unsigned_integer_size = suggestVectorSizeForCpu(u32, cpu).?;
+    try std.testing.expectEqual(@as(usize, 16), unsigned_integer_size);
+    try std.testing.expectEqual(@as(usize, 16), signed_integer_size);
 }
 
 fn vectorLength(comptime VectorType: type) comptime_int {
@@ -55,16 +86,18 @@ pub fn VectorCount(comptime VectorType: type) type {
 
 /// Returns a vector containing the first `len` integers in order from 0 to `len`-1.
 /// For example, `iota(i32, 8)` will return a vector containing `.{0, 1, 2, 3, 4, 5, 6, 7}`.
-pub fn iota(comptime T: type, comptime len: usize) @Vector(len, T) {
-    var out: [len]T = undefined;
-    for (out) |*element, i| {
-        element.* = switch (@typeInfo(T)) {
-            .Int => @intCast(T, i),
-            .Float => @intToFloat(T, i),
-            else => @compileError("Can't use type " ++ @typeName(T) ++ " in iota."),
-        };
+pub inline fn iota(comptime T: type, comptime len: usize) @Vector(len, T) {
+    comptime {
+        var out: [len]T = undefined;
+        for (out) |*element, i| {
+            element.* = switch (@typeInfo(T)) {
+                .Int => @intCast(T, i),
+                .Float => @intToFloat(T, i),
+                else => @compileError("Can't use type " ++ @typeName(T) ++ " in iota."),
+            };
+        }
+        return @as(@Vector(len, T), out);
     }
-    return @as(@Vector(len, T), out);
 }
 
 /// Returns a vector containing the same elements as the input, but repeated until the desired length is reached.
@@ -160,7 +193,10 @@ pub fn extract(
 }
 
 test "vector patterns" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+        // https://github.com/ziglang/zig/issues/12012
+        return error.SkipZigTest;
+    }
     const base = @Vector(4, u32){ 10, 20, 30, 40 };
     const other_base = @Vector(4, u32){ 55, 66, 77, 88 };
 
@@ -369,8 +405,8 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
                 .Xor => a ^ b,
                 .Add => a + b,
                 .Mul => a * b,
-                .Min => @minimum(a, b),
-                .Max => @maximum(a, b),
+                .Min => @min(a, b),
+                .Max => @max(a, b),
             };
         }
     };
@@ -380,6 +416,12 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
 
 test "vector prefix scan" {
     if (comptime builtin.cpu.arch.isMIPS()) {
+        return error.SkipZigTest;
+    }
+
+    if (builtin.zig_backend == .stage2_llvm) {
+        // Regressed in LLVM 14:
+        // https://github.com/llvm/llvm-project/issues/55522
         return error.SkipZigTest;
     }
 

@@ -1,8 +1,6 @@
 //! This is Zig's multi-target implementation of libc.
 //! When builtin.link_libc is true, we need to export all the functions and
 //! provide an entire C API.
-//! Otherwise, only the functions which LLVM generates calls to need to be generated,
-//! such as memcpy, memset, and some math functions.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -35,13 +33,6 @@ comptime {
         @export(clone, .{ .name = "clone" });
     }
 
-    @export(memset, .{ .name = "memset", .linkage = .Strong });
-    @export(__memset, .{ .name = "__memset", .linkage = .Strong });
-    @export(memcpy, .{ .name = "memcpy", .linkage = .Strong });
-    @export(memmove, .{ .name = "memmove", .linkage = .Strong });
-    @export(memcmp, .{ .name = "memcmp", .linkage = .Strong });
-    @export(bcmp, .{ .name = "bcmp", .linkage = .Strong });
-
     if (builtin.link_libc) {
         @export(strcmp, .{ .name = "strcmp", .linkage = .Strong });
         @export(strncmp, .{ .name = "strncmp", .linkage = .Strong });
@@ -58,131 +49,21 @@ comptime {
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     @setCold(true);
     _ = error_return_trace;
     if (builtin.is_test) {
         std.debug.panic("{s}", .{msg});
     }
-    if (native_os != .freestanding and native_os != .other) {
-        std.os.abort();
+    switch (native_os) {
+        .freestanding, .other, .amdhsa, .amdpal => while (true) {},
+        else => std.os.abort(),
     }
-    while (true) {}
 }
 
 extern fn main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 fn wasm_start() callconv(.C) void {
     _ = main(0, undefined);
-}
-
-fn memset(dest: ?[*]u8, c: u8, len: usize) callconv(.C) ?[*]u8 {
-    @setRuntimeSafety(false);
-
-    if (len != 0) {
-        var d = dest.?;
-        var n = len;
-        while (true) {
-            d.* = c;
-            n -= 1;
-            if (n == 0) break;
-            d += 1;
-        }
-    }
-
-    return dest;
-}
-
-fn __memset(dest: ?[*]u8, c: u8, n: usize, dest_n: usize) callconv(.C) ?[*]u8 {
-    if (dest_n < n)
-        @panic("buffer overflow");
-    return memset(dest, c, n);
-}
-
-fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
-    @setRuntimeSafety(false);
-
-    if (len != 0) {
-        var d = dest.?;
-        var s = src.?;
-        var n = len;
-        while (true) {
-            d[0] = s[0];
-            n -= 1;
-            if (n == 0) break;
-            d += 1;
-            s += 1;
-        }
-    }
-
-    return dest;
-}
-
-fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8 {
-    @setRuntimeSafety(false);
-
-    if (@ptrToInt(dest) < @ptrToInt(src)) {
-        var index: usize = 0;
-        while (index != n) : (index += 1) {
-            dest.?[index] = src.?[index];
-        }
-    } else {
-        var index = n;
-        while (index != 0) {
-            index -= 1;
-            dest.?[index] = src.?[index];
-        }
-    }
-
-    return dest;
-}
-
-fn memcmp(vl: ?[*]const u8, vr: ?[*]const u8, n: usize) callconv(.C) c_int {
-    @setRuntimeSafety(false);
-
-    var index: usize = 0;
-    while (index != n) : (index += 1) {
-        const compare_val = @bitCast(i8, vl.?[index] -% vr.?[index]);
-        if (compare_val != 0) {
-            return compare_val;
-        }
-    }
-
-    return 0;
-}
-
-test "memcmp" {
-    const base_arr = &[_]u8{ 1, 1, 1 };
-    const arr1 = &[_]u8{ 1, 1, 1 };
-    const arr2 = &[_]u8{ 1, 0, 1 };
-    const arr3 = &[_]u8{ 1, 2, 1 };
-
-    try std.testing.expect(memcmp(base_arr[0..], arr1[0..], base_arr.len) == 0);
-    try std.testing.expect(memcmp(base_arr[0..], arr2[0..], base_arr.len) > 0);
-    try std.testing.expect(memcmp(base_arr[0..], arr3[0..], base_arr.len) < 0);
-}
-
-fn bcmp(vl: [*]allowzero const u8, vr: [*]allowzero const u8, n: usize) callconv(.C) c_int {
-    @setRuntimeSafety(false);
-
-    var index: usize = 0;
-    while (index != n) : (index += 1) {
-        if (vl[index] != vr[index]) {
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
-test "bcmp" {
-    const base_arr = &[_]u8{ 1, 1, 1 };
-    const arr1 = &[_]u8{ 1, 1, 1 };
-    const arr2 = &[_]u8{ 1, 0, 1 };
-    const arr3 = &[_]u8{ 1, 2, 1 };
-
-    try std.testing.expect(bcmp(base_arr[0..], arr1[0..], base_arr.len) == 0);
-    try std.testing.expect(bcmp(base_arr[0..], arr2[0..], base_arr.len) != 0);
-    try std.testing.expect(bcmp(base_arr[0..], arr3[0..], base_arr.len) != 0);
 }
 
 var _fltused: c_int = 1;
@@ -298,10 +179,10 @@ fn strerror(errnum: c_int) callconv(.C) [*:0]const u8 {
 }
 
 test "strncmp" {
-    try std.testing.expect(strncmp("a", "b", 1) == -1);
-    try std.testing.expect(strncmp("a", "c", 1) == -2);
-    try std.testing.expect(strncmp("b", "a", 1) == 1);
-    try std.testing.expect(strncmp("\xff", "\x02", 1) == 253);
+    try std.testing.expect(strncmp("a", "b", 1) < 0);
+    try std.testing.expect(strncmp("a", "c", 1) < 0);
+    try std.testing.expect(strncmp("b", "a", 1) > 0);
+    try std.testing.expect(strncmp("\xff", "\x02", 1) > 0);
 }
 
 // TODO we should be able to put this directly in std/linux/x86_64.zig but
@@ -309,7 +190,7 @@ test "strncmp" {
 // across .o file boundaries. fix comptime @ptrCast of nakedcc functions.
 fn clone() callconv(.Naked) void {
     switch (native_arch) {
-        .i386 => {
+        .x86 => {
             // __clone(func, stack, flags, arg, ptid, tls, ctid)
             //         +8,   +12,   +16,   +20, +24,  +28, +32
             // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
@@ -473,7 +354,7 @@ fn clone() callconv(.Naked) void {
                 \\    ecall
             );
         },
-        .mips, .mipsel => {
+        .mips, .mipsel, .mips64, .mips64el => {
             // __clone(func, stack, flags, arg, ptid, tls, ctid)
             //            3,     4,     5,   6,    7,   8,    9
 

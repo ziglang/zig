@@ -33,3 +33,30 @@ pub const thread_state = extern struct {
 
 pub const THREAD_STATE = 4;
 pub const THREAD_STATE_COUNT: c.mach_msg_type_number_t = @sizeOf(thread_state) / @sizeOf(c_int);
+
+pub const EXC_TYPES_COUNT = 14;
+pub const EXC_MASK_MACHINE = 0;
+
+pub const x86_THREAD_STATE32 = 1;
+pub const x86_FLOAT_STATE32 = 2;
+pub const x86_EXCEPTION_STATE32 = 3;
+pub const x86_THREAD_STATE64 = 4;
+pub const x86_FLOAT_STATE64 = 5;
+pub const x86_EXCEPTION_STATE64 = 6;
+pub const x86_THREAD_STATE = 7;
+pub const x86_FLOAT_STATE = 8;
+pub const x86_EXCEPTION_STATE = 9;
+pub const x86_DEBUG_STATE32 = 10;
+pub const x86_DEBUG_STATE64 = 11;
+pub const x86_DEBUG_STATE = 12;
+pub const THREAD_STATE_NONE = 13;
+pub const x86_AVX_STATE32 = 16;
+pub const x86_AVX_STATE64 = (x86_AVX_STATE32 + 1);
+pub const x86_AVX_STATE = (x86_AVX_STATE32 + 2);
+pub const x86_AVX512_STATE32 = 19;
+pub const x86_AVX512_STATE64 = (x86_AVX512_STATE32 + 1);
+pub const x86_AVX512_STATE = (x86_AVX512_STATE32 + 2);
+pub const x86_PAGEIN_STATE = 22;
+pub const x86_THREAD_FULL_STATE64 = 23;
+pub const x86_INSTRUCTION_STATE = 24;
+pub const x86_LAST_BRANCH_STATE = 25;

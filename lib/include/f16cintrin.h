@@ -65,9 +65,9 @@ _cvtsh_ss(unsigned short __a)
 ///    011: Truncate \n
 ///    1XX: Use MXCSR.RC for rounding
 /// \returns The converted 16-bit half-precision float value.
-#define _cvtss_sh(a, imm) \
+#define _cvtss_sh(a, imm) __extension__ ({ \
   (unsigned short)(((__v8hi)__builtin_ia32_vcvtps2ph((__v4sf){a, 0, 0, 0}, \
-                                                     (imm)))[0])
+                                                     (imm)))[0]); })
 
 /// Converts a 128-bit vector containing 32-bit float values into a
 ///    128-bit vector containing 16-bit half-precision float values.
@@ -93,7 +93,7 @@ _cvtsh_ss(unsigned short __a)
 ///    values. The lower 64 bits are used to store the converted 16-bit
 ///    half-precision floating-point values.
 #define _mm_cvtps_ph(a, imm) \
-  (__m128i)__builtin_ia32_vcvtps2ph((__v4sf)(__m128)(a), (imm))
+  ((__m128i)__builtin_ia32_vcvtps2ph((__v4sf)(__m128)(a), (imm)))
 
 /// Converts a 128-bit vector containing 16-bit half-precision float
 ///    values into a 128-bit vector containing 32-bit float values.
@@ -136,7 +136,7 @@ _mm_cvtph_ps(__m128i __a)
 /// \returns A 128-bit vector containing the converted 16-bit half-precision
 ///    float values.
 #define _mm256_cvtps_ph(a, imm) \
- (__m128i)__builtin_ia32_vcvtps2ph256((__v8sf)(__m256)(a), (imm))
+ ((__m128i)__builtin_ia32_vcvtps2ph256((__v8sf)(__m256)(a), (imm)))
 
 /// Converts a 128-bit vector containing 16-bit half-precision float
 ///    values into a 256-bit vector of [8 x float].

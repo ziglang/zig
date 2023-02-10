@@ -473,6 +473,9 @@ dispatch_async_and_wait_f(dispatch_queue_t queue,
  * @param block
  * The block to be invoked the specified number of iterations.
  * The result of passing NULL in this parameter is undefined.
+ * This function performs a Block_copy() and Block_release() of the input block
+ * on behalf of the callers. To elide the additional block allocation,
+ * dispatch_apply_f may be used instead.
  */
 #ifdef __BLOCKS__
 API_AVAILABLE(macos(10.6), ios(4.0))

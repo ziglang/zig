@@ -41,6 +41,7 @@ test "isValidId" {
     try std.testing.expect(!isValidId("a b c"));
     try std.testing.expect(!isValidId("3d"));
     try std.testing.expect(!isValidId("enum"));
+    try std.testing.expect(isValidId("i386"));
 }
 
 /// Print the string as escaped contents of a double quoted or single-quoted string.

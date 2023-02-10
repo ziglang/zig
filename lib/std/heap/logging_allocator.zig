@@ -33,7 +33,14 @@ pub fn ScopedLoggingAllocator(
         }
 
         pub fn allocator(self: *Self) Allocator {
-            return Allocator.init(self, alloc, resize, free);
+            return .{
+                .ptr = self,
+                .vtable = &.{
+                    .alloc = alloc,
+                    .resize = resize,
+                    .free = free,
+                },
+            };
         }
 
         // This function is required as the `std.log.log` function is not public
@@ -47,71 +54,72 @@ pub fn ScopedLoggingAllocator(
         }
 
         fn alloc(
-            self: *Self,
+            ctx: *anyopaque,
             len: usize,
-            ptr_align: u29,
-            len_align: u29,
+            log2_ptr_align: u8,
             ra: usize,
-        ) error{OutOfMemory}![]u8 {
-            const result = self.parent_allocator.rawAlloc(len, ptr_align, len_align, ra);
-            if (result) |_| {
+        ) ?[*]u8 {
+            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+            const result = self.parent_allocator.rawAlloc(len, log2_ptr_align, ra);
+            if (result != null) {
                 logHelper(
                     success_log_level,
-                    "alloc - success - len: {}, ptr_align: {}, len_align: {}",
-                    .{ len, ptr_align, len_align },
+                    "alloc - success - len: {}, ptr_align: {}",
+                    .{ len, log2_ptr_align },
                 );
-            } else |err| {
+            } else {
                 logHelper(
                     failure_log_level,
-                    "alloc - failure: {s} - len: {}, ptr_align: {}, len_align: {}",
-                    .{ @errorName(err), len, ptr_align, len_align },
+                    "alloc - failure: OutOfMemory - len: {}, ptr_align: {}",
+                    .{ len, log2_ptr_align },
                 );
             }
             return result;
         }
 
         fn resize(
-            self: *Self,
+            ctx: *anyopaque,
             buf: []u8,
-            buf_align: u29,
+            log2_buf_align: u8,
             new_len: usize,
-            len_align: u29,
             ra: usize,
-        ) ?usize {
-            if (self.parent_allocator.rawResize(buf, buf_align, new_len, len_align, ra)) |resized_len| {
+        ) bool {
+            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+            if (self.parent_allocator.rawResize(buf, log2_buf_align, new_len, ra)) {
                 if (new_len <= buf.len) {
                     logHelper(
                         success_log_level,
-                        "shrink - success - {} to {}, len_align: {}, buf_align: {}",
-                        .{ buf.len, new_len, len_align, buf_align },
+                        "shrink - success - {} to {}, buf_align: {}",
+                        .{ buf.len, new_len, log2_buf_align },
                     );
                 } else {
                     logHelper(
                         success_log_level,
-                        "expand - success - {} to {}, len_align: {}, buf_align: {}",
-                        .{ buf.len, new_len, len_align, buf_align },
+                        "expand - success - {} to {}, buf_align: {}",
+                        .{ buf.len, new_len, log2_buf_align },
                     );
                 }
 
-                return resized_len;
+                return true;
             }
 
             std.debug.assert(new_len > buf.len);
             logHelper(
                 failure_log_level,
-                "expand - failure - {} to {}, len_align: {}, buf_align: {}",
-                .{ buf.len, new_len, len_align, buf_align },
+                "expand - failure - {} to {}, buf_align: {}",
+                .{ buf.len, new_len, log2_buf_align },
             );
-            return null;
+            return false;
         }
 
         fn free(
-            self: *Self,
+            ctx: *anyopaque,
             buf: []u8,
-            buf_align: u29,
+            log2_buf_align: u8,
             ra: usize,
         ) void {
-            self.parent_allocator.rawFree(buf, buf_align, ra);
+            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
+            self.parent_allocator.rawFree(buf, log2_buf_align, ra);
             logHelper(success_log_level, "free - len: {}", .{buf.len});
         }
     };

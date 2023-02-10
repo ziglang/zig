@@ -3,11 +3,12 @@ const std = @import("std");
 const builtin = @import("builtin");
 const io = std.io;
 const fmt = std.fmt;
-const Builder = std.build.Builder;
 const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
 const File = std.fs.File;
+
+pub const dependencies = @import("@dependencies");
 
 pub fn main() !void {
     // Here we use an ArenaAllocator backed by a DirectAllocator because a build is a short-lived,
@@ -40,12 +41,15 @@ pub fn main() !void {
         return error.InvalidArgs;
     };
 
-    const builder = try Builder.create(
+    const host = try std.zig.system.NativeTargetInfo.detect(.{});
+
+    const builder = try std.Build.create(
         allocator,
         zig_exe,
         build_root,
         cache_root,
         global_cache_root,
+        host,
     );
     defer builder.destroy();
 
@@ -56,7 +60,7 @@ pub fn main() !void {
     const stdout_stream = io.getStdOut().writer();
 
     var install_prefix: ?[]const u8 = null;
-    var dir_list = Builder.DirList{};
+    var dir_list = std.Build.DirList{};
 
     // before arg parsing, check for the NO_COLOR environment variable
     // if it exists, default the color setting to .off
@@ -142,6 +146,8 @@ pub fn main() !void {
                     return usageAndErr(builder, false, stderr_stream);
                 };
                 try debug_log_scopes.append(next_arg);
+            } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
+                builder.debug_compile_errors = true;
             } else if (mem.eql(u8, arg, "--glibc-runtimes")) {
                 builder.glibc_runtimes_dir = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after --glibc-runtimes\n\n", .{});
@@ -181,10 +187,16 @@ pub fn main() !void {
                 builder.enable_darling = true;
             } else if (mem.eql(u8, arg, "-fno-darling")) {
                 builder.enable_darling = false;
-            } else if (mem.eql(u8, arg, "-fstage1")) {
-                builder.use_stage1 = true;
-            } else if (mem.eql(u8, arg, "-fno-stage1")) {
-                builder.use_stage1 = false;
+            } else if (mem.eql(u8, arg, "-freference-trace")) {
+                builder.reference_trace = 256;
+            } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
+                const num = arg["-freference-trace=".len..];
+                builder.reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
+                    std.debug.print("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
+                    process.exit(1);
+                };
+            } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
+                builder.reference_trace = null;
             } else if (mem.eql(u8, arg, "--")) {
                 builder.args = argsRest(args, arg_idx);
                 break;
@@ -199,7 +211,7 @@ pub fn main() !void {
 
     builder.debug_log_scopes = debug_log_scopes.items;
     builder.resolveInstallPrefix(install_prefix, dir_list);
-    try runBuild(builder);
+    try builder.runBuild(root);
 
     if (builder.validateUserInputDidItFail())
         return usageAndErr(builder, true, stderr_stream);
@@ -210,24 +222,21 @@ pub fn main() !void {
                 return usageAndErr(builder, true, stderr_stream);
             },
             error.UncleanExit => process.exit(1),
+            // This error is intended to indicate that the step has already
+            // logged an error message and so printing the error return trace
+            // here would be unwanted extra information, unless the user opts
+            // into it with a debug flag.
+            error.StepFailed => process.exit(1),
             else => return err,
         }
     };
 }
 
-fn runBuild(builder: *Builder) anyerror!void {
-    switch (@typeInfo(@typeInfo(@TypeOf(root.build)).Fn.return_type.?)) {
-        .Void => root.build(builder),
-        .ErrorUnion => try root.build(builder),
-        else => @compileError("expected return type of build to be 'void' or '!void'"),
-    }
-}
-
-fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void {
+fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !void {
     // run the build script to collect the options
     if (!already_ran_build) {
         builder.resolveInstallPrefix(null, .{});
-        try runBuild(builder);
+        try builder.runBuild(root);
     }
 
     try out_stream.print(
@@ -306,8 +315,8 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
     try out_stream.writeAll(
         \\
         \\Advanced Options:
-        \\  -fstage1                     Force using bootstrap compiler as the codegen backend
-        \\  -fno-stage1                  Prevent using bootstrap compiler as the codegen backend
+        \\  -freference-trace[=num]      How many lines of reference trace should be shown per compile error
+        \\  -fno-reference-trace         Disable reference trace
         \\  --build-file [file]          Override path to build.zig
         \\  --cache-dir [path]           Override path to local Zig cache directory
         \\  --global-cache-dir [path]    Override path to global Zig cache directory
@@ -323,7 +332,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
     );
 }
 
-fn usageAndErr(builder: *Builder, already_ran_build: bool, out_stream: anytype) void {
+fn usageAndErr(builder: *std.Build, already_ran_build: bool, out_stream: anytype) void {
     usage(builder, already_ran_build, out_stream) catch {};
     process.exit(1);
 }

@@ -96,7 +96,7 @@ const glibc_targets = [_]LibCTarget{
     },
     LibCTarget{
         .name = "i686-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.i386 },
+        .arch = MultiArch{ .specific = Arch.x86 },
         .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
@@ -208,8 +208,8 @@ const musl_targets = [_]LibCTarget{
         .abi = MultiAbi.musl,
     },
     LibCTarget{
-        .name = "i386",
-        .arch = MultiArch{ .specific = .i386 },
+        .name = "x86",
+        .arch = MultiArch{ .specific = .x86 },
         .abi = MultiAbi.musl,
     },
     LibCTarget{
@@ -381,14 +381,14 @@ pub fn main() !void {
             try dir_stack.append(target_include_dir);
 
             while (dir_stack.popOrNull()) |full_dir_name| {
-                var dir = std.fs.cwd().openDir(full_dir_name, .{ .iterate = true }) catch |err| switch (err) {
+                var iterable_dir = std.fs.cwd().openIterableDir(full_dir_name, .{}) catch |err| switch (err) {
                     error.FileNotFound => continue :search,
                     error.AccessDenied => continue :search,
                     else => return err,
                 };
-                defer dir.close();
+                defer iterable_dir.close();
 
-                var dir_it = dir.iterate();
+                var dir_it = iterable_dir.iterate();
 
                 while (try dir_it.next()) |entry| {
                     const full_path = try std.fs.path.join(allocator, &[_][]const u8{ full_dir_name, entry.name });

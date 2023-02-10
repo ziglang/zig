@@ -18,8 +18,8 @@ const gcc_word = usize;
 pub const panic = common.panic;
 
 comptime {
-    if (builtin.link_libc and builtin.os.tag == .openbsd) {
-        @export(__emutls_get_address, .{ .name = "__emutls_get_address", .linkage = common.linkage });
+    if (builtin.link_libc and (builtin.abi == .android or builtin.os.tag == .openbsd)) {
+        @export(__emutls_get_address, .{ .name = "__emutls_get_address", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
@@ -86,12 +86,10 @@ const ObjectArray = struct {
     /// create a new ObjectArray with n slots. must call deinit() to deallocate.
     pub fn init(n: usize) *ObjectArray {
         var array = simple_allocator.alloc(ObjectArray);
-        errdefer simple_allocator.free(array);
 
         array.* = ObjectArray{
             .slots = simple_allocator.allocSlice(?ObjectPointer, n),
         };
-        errdefer simple_allocator.free(array.slots);
 
         for (array.slots) |*object| {
             object.* = null;
@@ -141,7 +139,7 @@ const ObjectArray = struct {
 
             if (control.default_value) |value| {
                 // default value: copy the content to newly allocated object.
-                @memcpy(data, @ptrCast([*]u8, value), size);
+                @memcpy(data, @ptrCast([*]const u8, value), size);
             } else {
                 // no default: return zeroed memory.
                 @memset(data, 0, size);
@@ -236,7 +234,7 @@ const emutls_control = extern struct {
     },
 
     // null or non-zero initial value for the object
-    default_value: ?*anyopaque,
+    default_value: ?*const anyopaque,
 
     // global Mutex used to serialize control.index initialization.
     var mutex: std.c.pthread_mutex_t = std.c.PTHREAD_MUTEX_INITIALIZER;
@@ -291,12 +289,12 @@ const emutls_control = extern struct {
     }
 
     /// Simple helper for testing purpose.
-    pub fn init(comptime T: type, default_value: ?*T) emutls_control {
+    pub fn init(comptime T: type, default_value: ?*const T) emutls_control {
         return emutls_control{
             .size = @sizeOf(T),
             .alignment = @alignOf(T),
             .object = .{ .index = 0 },
-            .default_value = @ptrCast(?*anyopaque, default_value),
+            .default_value = @ptrCast(?*const anyopaque, default_value),
         };
     }
 
@@ -362,7 +360,7 @@ test "__emutls_get_address zeroed" {
 test "__emutls_get_address with default_value" {
     if (!builtin.link_libc or builtin.os.tag != .openbsd) return error.SkipZigTest;
 
-    var value: usize = 5678; // default value
+    const value: usize = 5678; // default value
     var ctl = emutls_control.init(usize, &value);
     try expect(ctl.object.index == 0);
 
@@ -384,8 +382,7 @@ test "test default_value with differents sizes" {
 
     const testType = struct {
         fn _testType(comptime T: type, value: T) !void {
-            var def: T = value;
-            var ctl = emutls_control.init(T, &def);
+            var ctl = emutls_control.init(T, &value);
             var x = ctl.get_typed_pointer(T);
             try expect(x.* == value);
         }

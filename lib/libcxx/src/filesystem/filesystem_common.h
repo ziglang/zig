@@ -9,21 +9,30 @@
 #ifndef FILESYSTEM_COMMON_H
 #define FILESYSTEM_COMMON_H
 
-#include "__config"
-#include "filesystem"
-#include "array"
-#include "chrono"
-#include "climits"
-#include "cstdlib"
-#include "ctime"
+#include <__assert>
+#include <__config>
+#include <array>
+#include <chrono>
+#include <climits>
+#include <cstdarg>
+#include <ctime>
+#include <filesystem>
+#include <ratio>
+#include <system_error>
+#include <utility>
 
-#if !defined(_LIBCPP_WIN32API)
-# include <unistd.h>
+#if defined(_LIBCPP_WIN32API)
+# define WIN32_LEAN_AND_MEAN
+# define NOMINMAX
+# include <windows.h>
+#else
+# include <dirent.h>   // for DIR & friends
+# include <fcntl.h>    /* values for fchmodat */
 # include <sys/stat.h>
 # include <sys/statvfs.h>
 # include <sys/time.h> // for ::utimes as used in __last_write_time
-# include <fcntl.h>    /* values for fchmodat */
-#endif
+# include <unistd.h>
+#endif // defined(_LIBCPP_WIN32API)
 
 #include "../include/apple_availability.h"
 
@@ -35,17 +44,16 @@
 #endif
 #endif
 
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-function"
-#endif
+_LIBCPP_DIAGNOSTIC_PUSH
+_LIBCPP_GCC_DIAGNOSTIC_IGNORED("-Wunused-function")
+_LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wunused-function")
 
 #if defined(_LIBCPP_WIN32API)
-#define PS(x) (L##x)
-#define PATH_CSTR_FMT "\"%ls\""
+#  define PATHSTR(x) (L##x)
+#  define PATH_CSTR_FMT "\"%ls\""
 #else
-#define PS(x) (x)
-#define PATH_CSTR_FMT "\"%s\""
+#  define PATHSTR(x) (x)
+#  define PATH_CSTR_FMT "\"%s\""
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
@@ -59,7 +67,7 @@ errc __win_err_to_errc(int err);
 
 namespace {
 
-static _LIBCPP_FORMAT_PRINTF(1, 0) string
+static _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 1, 0) string
 format_string_impl(const char* msg, va_list ap) {
   array<char, 256> buf;
 
@@ -83,7 +91,7 @@ format_string_impl(const char* msg, va_list ap) {
   return result;
 }
 
-static _LIBCPP_FORMAT_PRINTF(1, 2) string
+static _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 1, 2) string
 format_string(const char* msg, ...) {
   string ret;
   va_list ap;
@@ -103,7 +111,7 @@ format_string(const char* msg, ...) {
 }
 
 error_code capture_errno() {
-  _LIBCPP_ASSERT(errno, "Expected errno to be non-zero");
+  _LIBCPP_ASSERT(errno != 0, "Expected errno to be non-zero");
   return error_code(errno, generic_category());
 }
 
@@ -168,10 +176,10 @@ struct ErrorHandler {
     case 2:
       __throw_filesystem_error(what, *p1_, *p2_, ec);
     }
-    _LIBCPP_UNREACHABLE();
+    __libcpp_unreachable();
   }
 
-  _LIBCPP_FORMAT_PRINTF(3, 0)
+  _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 3, 0)
   void report_impl(const error_code& ec, const char* msg, va_list ap) const {
     if (ec_) {
       *ec_ = ec;
@@ -187,10 +195,10 @@ struct ErrorHandler {
     case 2:
       __throw_filesystem_error(what, *p1_, *p2_, ec);
     }
-    _LIBCPP_UNREACHABLE();
+    __libcpp_unreachable();
   }
 
-  _LIBCPP_FORMAT_PRINTF(3, 4)
+  _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 3, 4)
   T report(const error_code& ec, const char* msg, ...) const {
     va_list ap;
     va_start(ap, msg);
@@ -212,7 +220,7 @@ struct ErrorHandler {
     return report(make_error_code(err));
   }
 
-  _LIBCPP_FORMAT_PRINTF(3, 4)
+  _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 3, 4)
   T report(errc const& err, const char* msg, ...) const {
     va_list ap;
     va_start(ap, msg);
@@ -524,11 +532,82 @@ bool set_file_times(const path& p, std::array<TimeSpec, 2> const& TS,
   return posix_utimensat(p, TS, ec);
 #endif
 }
-#endif /* !_LIBCPP_WIN32API */
+
+#if defined(DT_BLK)
+template <class DirEntT, class = decltype(DirEntT::d_type)>
+static file_type get_file_type(DirEntT* ent, int) {
+  switch (ent->d_type) {
+  case DT_BLK:
+    return file_type::block;
+  case DT_CHR:
+    return file_type::character;
+  case DT_DIR:
+    return file_type::directory;
+  case DT_FIFO:
+    return file_type::fifo;
+  case DT_LNK:
+    return file_type::symlink;
+  case DT_REG:
+    return file_type::regular;
+  case DT_SOCK:
+    return file_type::socket;
+  // Unlike in lstat, hitting "unknown" here simply means that the underlying
+  // filesystem doesn't support d_type. Report is as 'none' so we correctly
+  // set the cache to empty.
+  case DT_UNKNOWN:
+    break;
+  }
+  return file_type::none;
+}
+#endif // defined(DT_BLK)
+
+template <class DirEntT>
+static file_type get_file_type(DirEntT*, long) {
+  return file_type::none;
+}
+
+static pair<string_view, file_type> posix_readdir(DIR* dir_stream,
+                                                  error_code& ec) {
+  struct dirent* dir_entry_ptr = nullptr;
+  errno = 0; // zero errno in order to detect errors
+  ec.clear();
+  if ((dir_entry_ptr = ::readdir(dir_stream)) == nullptr) {
+    if (errno)
+      ec = capture_errno();
+    return {};
+  } else {
+    return {dir_entry_ptr->d_name, get_file_type(dir_entry_ptr, 0)};
+  }
+}
+
+#else // _LIBCPP_WIN32API
+
+static file_type get_file_type(const WIN32_FIND_DATAW& data) {
+  if (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT &&
+      data.dwReserved0 == IO_REPARSE_TAG_SYMLINK)
+    return file_type::symlink;
+  if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+    return file_type::directory;
+  return file_type::regular;
+}
+static uintmax_t get_file_size(const WIN32_FIND_DATAW& data) {
+  return (static_cast<uint64_t>(data.nFileSizeHigh) << 32) + data.nFileSizeLow;
+}
+static file_time_type get_write_time(const WIN32_FIND_DATAW& data) {
+  ULARGE_INTEGER tmp;
+  const FILETIME& time = data.ftLastWriteTime;
+  tmp.u.LowPart = time.dwLowDateTime;
+  tmp.u.HighPart = time.dwHighDateTime;
+  return file_time_type(file_time_type::duration(tmp.QuadPart));
+}
+
+#endif // !_LIBCPP_WIN32API
 
 } // namespace
 } // end namespace detail
 
 _LIBCPP_END_NAMESPACE_FILESYSTEM
+
+_LIBCPP_DIAGNOSTIC_POP
 
 #endif // FILESYSTEM_COMMON_H

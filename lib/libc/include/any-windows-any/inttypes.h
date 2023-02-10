@@ -28,6 +28,7 @@ typedef struct {
  * length specifier. It appears to treat "ll" as "l".
  * The non-standard I64 length specifier causes warning in GCC,
  * but understood by MS runtime functions.
+ * crtdll.dll and msvcrt10.dll do not support any 64-bit modifier.
  */
 #if defined(_UCRT) || __USE_MINGW_ANSI_STDIO
 #define PRId64 "lld"
@@ -36,7 +37,7 @@ typedef struct {
 #define PRIu64 "llu"
 #define PRIx64 "llx"
 #define PRIX64 "llX"
-#else
+#elif !defined(__CRTDLL__) && __MSVCRT_VERSION__ >= 0x200
 #define PRId64 "I64d"
 #define PRIi64 "I64i"
 #define PRIo64 "I64o"
@@ -277,6 +278,51 @@ typedef struct {
 #define SCNuLEAST8 "hhu"
 #define SCNuFAST8 "hhu"
 #endif /* __STDC_VERSION__ >= 199901 */
+
+#if (defined(__CRTDLL__) || __MSVCRT_VERSION__ < 0x200) && !defined(__USE_MINGW_ANSI_STDIO)
+/*
+ * crtdll.dll and msvcrt10.dll do not support any 64-bit modifier.
+ * Undef all previously defined 64-bit modifiers.
+ */
+#undef PRIdLEAST64
+#undef PRIdFAST64
+#undef PRIdMAX
+#undef PRIiLEAST64
+#undef PRIiFAST64
+#undef PRIiMAX
+#undef PRIoLEAST64
+#undef PRIoFAST64
+#undef PRIoMAX
+#undef PRIuLEAST64
+#undef PRIuFAST64
+#undef PRIuMAX
+#undef PRIxLEAST64
+#undef PRIxFAST64
+#undef PRIxMAX
+#undef PRIXLEAST64
+#undef PRIXFAST64
+#undef PRIXMAX
+#undef SCNd64
+#undef SCNdLEAST64
+#undef SCNdFAST64
+#undef SCNdMAX
+#undef SCNi64
+#undef SCNiLEAST64
+#undef SCNiFAST64
+#undef SCNiMAX
+#undef SCNo64
+#undef SCNoLEAST64
+#undef SCNoFAST64
+#undef SCNoMAX
+#undef SCNx64
+#undef SCNxLEAST64
+#undef SCNxFAST64
+#undef SCNxMAX
+#undef SCNu64
+#undef SCNuLEAST64
+#undef SCNuFAST64
+#undef SCNuMAX
+#endif
 
 intmax_t __cdecl imaxabs (intmax_t j);
 #ifndef __CRT__NO_INLINE

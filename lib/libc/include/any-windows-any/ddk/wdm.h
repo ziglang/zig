@@ -800,7 +800,10 @@ typedef enum _KBUGCHECK_CALLBACK_REASON {
   KbCallbackReserved1,
   KbCallbackSecondaryDumpData,
   KbCallbackDumpIo,
-  KbCallbackAddPages
+  KbCallbackAddPages,
+  KbCallbackSecondaryMultiPartDumpData,
+  KbCallbackRemovePages,
+  KbCallbackTriageDumpData
 } KBUGCHECK_CALLBACK_REASON;
 
 struct _KBUGCHECK_REASON_CALLBACK_RECORD;
@@ -917,7 +920,16 @@ typedef PROCESSOR_CALLBACK_FUNCTION *PPROCESSOR_CALLBACK_FUNCTION;
 typedef enum _KINTERRUPT_POLARITY {
   InterruptPolarityUnknown,
   InterruptActiveHigh,
-  InterruptActiveLow
+  InterruptRisingEdge = InterruptActiveHigh,
+  InterruptActiveLow,
+  InterruptFallingEdge = InterruptActiveLow,
+#if NTDDI_VERSION >= NTDDI_WIN8
+  InterruptActiveBoth,
+#endif
+#if NTDDI_VERSION >= NTDDI_WINBLUE
+  InterruptActiveBothTriggerLow = InterruptActiveBoth,
+  InterruptActiveBothTriggerHigh
+#endif
 } KINTERRUPT_POLARITY, *PKINTERRUPT_POLARITY;
 
 typedef enum _KPROFILE_SOURCE {
@@ -963,7 +975,7 @@ typedef enum _KWAIT_REASON {
   WrDelayExecution,
   WrSuspended,
   WrUserRequest,
-  WrEventPair,
+  WrSpare0,
   WrQueue,
   WrLpcReceive,
   WrLpcReply,
@@ -986,6 +998,9 @@ typedef enum _KWAIT_REASON {
   WrFastMutex,
   WrGuardedMutex,
   WrRundown,
+  WrAlertByThreadId,
+  WrDeferredPreempt,
+  WrPhysicalFault,
   MaximumWaitReason
 } KWAIT_REASON;
 
@@ -1134,48 +1149,46 @@ typedef struct _KLOCK_QUEUE_HANDLE {
 
 typedef ULONG64 KSPIN_LOCK_QUEUE_NUMBER;
 
-#define LockQueueDispatcherLock 0
-#define LockQueueExpansionLock 1
-#define LockQueuePfnLock 2
-#define LockQueueSystemSpaceLock 3
+#define LockQueueUnusedSpare0 0
+#define LockQueueUnusedSpare1 1
+#define LockQueueUnusedSpare2 2
+#define LockQueueUnusedSpare3 3
 #define LockQueueVacbLock 4
 #define LockQueueMasterLock 5
 #define LockQueueNonPagedPoolLock 6
 #define LockQueueIoCancelLock 7
-#define LockQueueWorkQueueLock 8
+#define LockQueueUnusedSpare8 8
 #define LockQueueIoVpbLock 9
 #define LockQueueIoDatabaseLock 10
 #define LockQueueIoCompletionLock 11
 #define LockQueueNtfsStructLock 12
 #define LockQueueAfdWorkQueueLock 13
 #define LockQueueBcbLock 14
-#define LockQueueMmNonPagedPoolLock 15
+#define LockQueueUnusedSpare15 15
 #define LockQueueUnusedSpare16 16
-#define LockQueueTimerTableLock 17
-#define LockQueueMaximumLock (LockQueueTimerTableLock + LOCK_QUEUE_TIMER_TABLE_LOCKS)
+#define LockQueueMaximumLock 17
 
 #else
 
 typedef enum _KSPIN_LOCK_QUEUE_NUMBER {
-  LockQueueDispatcherLock,
-  LockQueueExpansionLock,
-  LockQueuePfnLock,
-  LockQueueSystemSpaceLock,
+  LockQueueUnusedSpare0,
+  LockQueueUnusedSpare1,
+  LockQueueUnusedSpare2,
+  LockQueueUnusedSpare3,
   LockQueueVacbLock,
   LockQueueMasterLock,
   LockQueueNonPagedPoolLock,
   LockQueueIoCancelLock,
-  LockQueueWorkQueueLock,
+  LockQueueUnusedSpare8,
   LockQueueIoVpbLock,
   LockQueueIoDatabaseLock,
   LockQueueIoCompletionLock,
   LockQueueNtfsStructLock,
   LockQueueAfdWorkQueueLock,
   LockQueueBcbLock,
-  LockQueueMmNonPagedPoolLock,
+  LockQueueUnusedSpare15,
   LockQueueUnusedSpare16,
-  LockQueueTimerTableLock,
-  LockQueueMaximumLock = LockQueueTimerTableLock + LOCK_QUEUE_TIMER_TABLE_LOCKS
+  LockQueueMaximumLock = LockQueueUnusedSpare16 + 1
 } KSPIN_LOCK_QUEUE_NUMBER, *PKSPIN_LOCK_QUEUE_NUMBER;
 
 #endif /* defined(_AMD64_) */
@@ -1371,6 +1384,7 @@ typedef KSYNCHRONIZE_ROUTINE *PKSYNCHRONIZE_ROUTINE;
 
 typedef enum _POOL_TYPE {
   NonPagedPool,
+  NonPagedPoolExecute = NonPagedPool,
   PagedPool,
   NonPagedPoolMustSucceed,
   DontUseThisType,
@@ -1378,13 +1392,20 @@ typedef enum _POOL_TYPE {
   PagedPoolCacheAligned,
   NonPagedPoolCacheAlignedMustS,
   MaxPoolType,
+  NonPagedPoolBase = 0,
+  NonPagedPoolBaseMustSucceed = 2,
+  NonPagedPoolBaseCacheAligned = 4,
+  NonPagedPoolBaseCacheAlignedMustS = 6,
   NonPagedPoolSession = 32,
   PagedPoolSession,
   NonPagedPoolMustSucceedSession,
   DontUseThisTypeSession,
   NonPagedPoolCacheAlignedSession,
   PagedPoolCacheAlignedSession,
-  NonPagedPoolCacheAlignedMustSSession
+  NonPagedPoolCacheAlignedMustSSession,
+  NonPagedPoolNx = 512,
+  NonPagedPoolNxCacheAligned = 516,
+  NonPagedPoolSessionNx = 544,
 } POOL_TYPE;
 
 typedef enum _ALTERNATIVE_ARCHITECTURE_TYPE {
@@ -1666,7 +1687,8 @@ typedef enum _MEMORY_CACHING_TYPE {
   MmHardwareCoherentCached,
   MmNonCachedUnordered,
   MmUSWCCached,
-  MmMaximumCacheType
+  MmMaximumCacheType,
+  MmNotMapped = -1
 } MEMORY_CACHING_TYPE;
 
 typedef enum _MM_PAGE_PRIORITY {
@@ -1863,7 +1885,12 @@ typedef enum _WORK_QUEUE_TYPE {
   CriticalWorkQueue,
   DelayedWorkQueue,
   HyperCriticalWorkQueue,
-  MaximumWorkQueue
+  NormalWorkQueue,
+  BackgroundWorkQueue,
+  RealTimeWorkQueue,
+  SuperCriticalWorkQueue,
+  MaximumWorkQueue,
+  CustomPriorityWorkQueue = 32
 } WORK_QUEUE_TYPE;
 
 typedef VOID
@@ -2215,7 +2242,13 @@ typedef enum _SE_ADT_PARAMETER_TYPE {
   SeAdtParmTypeLogonIdNoSid,
   SeAdtParmTypeUlongNoConv,
   SeAdtParmTypeSockAddrNoPort,
-  SeAdtParmTypeAccessReason
+  SeAdtParmTypeAccessReason,
+  SeAdtParmTypeStagingReason,
+  SeAdtParmTypeResourceAttribute,
+  SeAdtParmTypeClaims,
+  SeAdtParmTypeLogonIdAsSid,
+  SeAdtParmTypeMultiSzString,
+  SeAdtParmTypeLogonIdEx
 } SE_ADT_PARAMETER_TYPE, *PSE_ADT_PARAMETER_TYPE;
 
 typedef struct _SE_ADT_OBJECT_TYPE {
@@ -2311,7 +2344,7 @@ typedef enum _POWER_INFORMATION_LEVEL {
   SetPowerSettingValue,
   NotifyUserPowerSetting,
   PowerInformationLevelUnused0,
-  PowerInformationLevelUnused1,
+  SystemMonitorHiberBootPowerOff,
   SystemVideoState,
   TraceApplicationPowerMessage,
   TraceApplicationPowerMessageEnd,
@@ -2335,6 +2368,50 @@ typedef enum _POWER_INFORMATION_LEVEL {
   ProcessorIdleDomains,
   WakeTimerList,
   SystemHiberFileSize,
+  ProcessorIdleStatesHv,
+  ProcessorPerfStatesHv,
+  ProcessorPerfCapHv,
+  ProcessorSetIdle,
+  LogicalProcessorIdling,
+  UserPresence,
+  PowerSettingNotificationName,
+  GetPowerSettingValue,
+  IdleResiliency,
+  SessionRITState,
+  SessionConnectNotification,
+  SessionPowerCleanup,
+  SessionLockState,
+  SystemHiberbootState,
+  PlatformInformation,
+  PdcInvocation,
+  MonitorInvocation,
+  FirmwareTableInformationRegistered,
+  SetShutdownSelectedTime,
+  SuspendResumeInvocation,
+  PlmPowerRequestCreate,
+  ScreenOff,
+  CsDeviceNotification,
+  PlatformRole,
+  LastResumePerformance,
+  DisplayBurst,
+  ExitLatencySamplingPercentage,
+  RegisterSpmPowerSettings,
+  PlatformIdleStates,
+  ProcessorIdleVeto,
+  PlatformIdleVeto,
+  SystemBatteryStatePrecise,
+  ThermalEvent,
+  PowerRequestActionInternal,
+  BatteryDeviceState,
+  PowerInformationInternal,
+  ThermalStandby,
+  SystemHiberFileType,
+  PhysicalPowerButtonPress,
+  QueryPotentialDripsConstraint,
+  EnergyTrackerCreate,
+  EnergyTrackerQuery,
+  UpdateBlackBoxRecorder,
+  SessionAllowExternalDmaDevices,
   PowerInformationLevelMaximum
 } POWER_INFORMATION_LEVEL;
 
@@ -2346,7 +2423,8 @@ typedef enum {
   PowerActionShutdown,
   PowerActionShutdownReset,
   PowerActionShutdownOff,
-  PowerActionWarmEject
+  PowerActionWarmEject,
+  PowerActionDisplayOff
 } POWER_ACTION, *PPOWER_ACTION;
 
 typedef enum _DEVICE_POWER_STATE {
@@ -2445,7 +2523,8 @@ typedef enum {
 typedef enum _POWER_REQUEST_TYPE {
   PowerRequestDisplayRequired,
   PowerRequestSystemRequired,
-  PowerRequestAwayModeRequired
+  PowerRequestAwayModeRequired,
+  PowerRequestExecutionRequired
 } POWER_REQUEST_TYPE, *PPOWER_REQUEST_TYPE;
 
 #if (NTDDI_VERSION >= NTDDI_WINXP)
@@ -2509,6 +2588,7 @@ typedef enum _POWER_PLATFORM_ROLE {
   PlatformRoleSOHOServer,
   PlatformRoleAppliancePC,
   PlatformRolePerformanceServer,
+  PlatformRoleSlate,
   PlatformRoleMaximum
 } POWER_PLATFORM_ROLE;
 
@@ -3041,6 +3121,7 @@ typedef enum _INTERFACE_TYPE {
   PNPISABus,
   PNPBus,
   Vmcs,
+  ACPIBus,
   MaximumInterfaceType
 } INTERFACE_TYPE, *PINTERFACE_TYPE;
 
@@ -3224,6 +3305,8 @@ typedef enum _KEY_INFORMATION_CLASS {
   KeyFlagsInformation,
   KeyVirtualizationInformation,
   KeyHandleTagsInformation,
+  KeyTrustInformation,
+  KeyLayerInformation,
   MaxKeyInfoClass
 } KEY_INFORMATION_CLASS;
 
@@ -3272,6 +3355,7 @@ typedef enum _KEY_SET_INFORMATION_CLASS {
   KeySetVirtualizationInformation,
   KeySetDebugInformation,
   KeySetHandleTagsInformation,
+  KeySetLayerInformation,
   MaxKeySetInfoClass
 } KEY_SET_INFORMATION_CLASS;
 
@@ -3323,7 +3407,9 @@ typedef enum _KEY_VALUE_INFORMATION_CLASS {
   KeyValueFullInformation,
   KeyValuePartialInformation,
   KeyValueFullInformationAlign64,
-  KeyValuePartialInformationAlign64
+  KeyValuePartialInformationAlign64,
+  KeyValueLayerInformation,
+  MaxKeyValueInfoClass
 } KEY_VALUE_INFORMATION_CLASS;
 
 typedef struct _KEY_WOW64_FLAGS_INFORMATION {
@@ -3393,6 +3479,8 @@ typedef enum _REG_NOTIFY_CLASS {
   RegNtPostSaveKey,
   RegNtPreReplaceKey,
   RegNtPostReplaceKey,
+  RegNtPreQueryKeyName,
+  RegNtPostQueryKeyName,
   MaxRegNtNotifyClass
 } REG_NOTIFY_CLASS, *PREG_NOTIFY_CLASS;
 
@@ -3840,7 +3928,10 @@ typedef enum _IRQ_DEVICE_POLICY_USHORT {
   IrqPolicyAllProcessorsInMachine = 3,
   IrqPolicyAllProcessorsInGroup = 3,
   IrqPolicySpecifiedProcessors = 4,
-  IrqPolicySpreadMessagesAcrossAllProcessors = 5};
+  IrqPolicySpreadMessagesAcrossAllProcessors = 5,
+  IrqPolicyAllProcessorsInMachineWhenSteered = 6,
+  IrqPolicyAllProcessorsInGroupWhenSteered = 6
+};
 
 #else /* defined(NT_PROCESSOR_GROUPS) */
 
@@ -3850,7 +3941,8 @@ typedef enum _IRQ_DEVICE_POLICY {
   IrqPolicyOneCloseProcessor,
   IrqPolicyAllProcessorsInMachine,
   IrqPolicySpecifiedProcessors,
-  IrqPolicySpreadMessagesAcrossAllProcessors
+  IrqPolicySpreadMessagesAcrossAllProcessors,
+  IrqPolicyAllProcessorsInMachineWhenSteered
 } IRQ_DEVICE_POLICY, *PIRQ_DEVICE_POLICY;
 
 #endif
@@ -4267,6 +4359,24 @@ typedef enum _CREATE_FILE_TYPE {
   CreateFileTypeNamedPipe,
   CreateFileTypeMailslot
 } CREATE_FILE_TYPE;
+
+typedef struct _NAMED_PIPE_CREATE_PARAMETERS {
+  ULONG NamedPipeType;
+  ULONG ReadMode;
+  ULONG CompletionMode;
+  ULONG MaximumInstances;
+  ULONG InboundQuota;
+  ULONG OutboundQuota;
+  LARGE_INTEGER DefaultTimeout;
+  BOOLEAN TimeoutSpecified;
+} NAMED_PIPE_CREATE_PARAMETERS, *PNAMED_PIPE_CREATE_PARAMETERS;
+
+typedef struct _MAILSLOT_CREATE_PARAMETERS {
+  ULONG MailslotQuota;
+  ULONG MaximumMessageSize;
+  LARGE_INTEGER ReadTimeout;
+  BOOLEAN TimeoutSpecified;
+} MAILSLOT_CREATE_PARAMETERS, *PMAILSLOT_CREATE_PARAMETERS;
 
 #define IO_FORCE_ACCESS_CHECK               0x001
 #define IO_NO_PARAMETER_CHECKING            0x100
@@ -4873,7 +4983,10 @@ typedef enum _DEVICE_USAGE_NOTIFICATION_TYPE {
   DeviceUsageTypeUndefined,
   DeviceUsageTypePaging,
   DeviceUsageTypeHibernation,
-  DeviceUsageTypeDumpFile
+  DeviceUsageTypeDumpFile,
+  DeviceUsageTypeBoot,
+  DeviceUsageTypePostDisplay,
+  DeviceUsageTypeGuestAssigned
 } DEVICE_USAGE_NOTIFICATION_TYPE;
 
 typedef struct _POWER_SEQUENCE {
@@ -4912,7 +5025,8 @@ typedef enum _IO_NOTIFICATION_EVENT_CATEGORY {
   EventCategoryReserved,
   EventCategoryHardwareProfileChange,
   EventCategoryDeviceInterfaceChange,
-  EventCategoryTargetDeviceChange
+  EventCategoryTargetDeviceChange,
+  EventCategoryKernelSoftRestart
 } IO_NOTIFICATION_EVENT_CATEGORY;
 
 typedef enum _IO_PRIORITY_HINT {
@@ -4989,12 +5103,37 @@ typedef enum _FILE_INFORMATION_CLASS {
   FileNetworkPhysicalNameInformation,
   FileIdGlobalTxDirectoryInformation,
   FileIsRemoteDeviceInformation,
-  FileAttributeCacheInformation,
+  FileUnusedInformation,
   FileNumaNodeInformation,
   FileStandardLinkInformation,
   FileRemoteProtocolInformation,
+  FileRenameInformationBypassAccessCheck,
+  FileLinkInformationBypassAccessCheck,
+  FileVolumeNameInformation,
+  FileIdInformation,
+  FileIdExtdDirectoryInformation,
+  FileReplaceCompletionInformation,
+  FileHardLinkFullIdInformation,
+  FileIdExtdBothDirectoryInformation,
+  FileDispositionInformationEx,
+  FileRenameInformationEx,
+  FileRenameInformationExBypassAccessCheck,
+  FileDesiredStorageClassInformation,
+  FileStatInformation,
+  FileMemoryPartitionInformation,
+  FileStatLxInformation,
+  FileCaseSensitiveInformation,
+  FileLinkInformationEx,
+  FileLinkInformationExBypassAccessCheck,
+  FileStorageReserveIdInformation,
+  FileCaseSensitiveInformationForceAccessCheck,
   FileMaximumInformation
 } FILE_INFORMATION_CLASS, *PFILE_INFORMATION_CLASS;
+
+typedef enum _DIRECTORY_NOTIFY_INFORMATION_CLASS {
+  DirectoryNotifyInformation = 1,
+  DirectoryNotifyExtendedInformation
+} DIRECTORY_NOTIFY_INFORMATION_CLASS, *PDIRECTORY_NOTIFY_INFORMATION_CLASS;
 
 typedef struct _FILE_POSITION_INFORMATION {
   LARGE_INTEGER CurrentByteOffset;
@@ -5063,6 +5202,10 @@ typedef enum _FSINFOCLASS {
   FileFsObjectIdInformation,
   FileFsDriverPathInformation,
   FileFsVolumeFlagsInformation,
+  FileFsSectorSizeInformation,
+  FileFsDataCopyInformation,
+  FileFsMetadataSizeInformation,
+  FileFsFullSizeInformationEx,
   FileFsMaximumInformation
 } FS_INFORMATION_CLASS, *PFS_INFORMATION_CLASS;
 
@@ -5662,6 +5805,8 @@ typedef enum _DMA_WIDTH {
   Width8Bits,
   Width16Bits,
   Width32Bits,
+  Width64Bits,
+  WidthNoWrap,
   MaximumDmaWidth
 } DMA_WIDTH, *PDMA_WIDTH;
 
@@ -6202,7 +6347,8 @@ typedef enum _BUS_QUERY_ID_TYPE {
   BusQueryHardwareIDs,
   BusQueryCompatibleIDs,
   BusQueryInstanceID,
-  BusQueryDeviceSerialNumber
+  BusQueryDeviceSerialNumber,
+  BusQueryContainerID
 } BUS_QUERY_ID_TYPE, *PBUS_QUERY_ID_TYPE;
 
 typedef enum _DEVICE_TEXT_TYPE {
@@ -6357,25 +6503,50 @@ typedef struct _IO_STACK_LOCATION {
       ULONG POINTER_ALIGNMENT EaLength;
     } Create;
     struct {
+      PIO_SECURITY_CONTEXT SecurityContext;
+      ULONG Options;
+      USHORT POINTER_ALIGNMENT Reserved;
+      USHORT ShareAccess;
+      PNAMED_PIPE_CREATE_PARAMETERS Parameters;
+    } CreatePipe;
+    struct {
+      PIO_SECURITY_CONTEXT SecurityContext;
+      ULONG Options;
+      USHORT POINTER_ALIGNMENT Reserved;
+      USHORT ShareAccess;
+      PMAILSLOT_CREATE_PARAMETERS Parameters;
+    } CreateMailslot;
+    struct {
       ULONG Length;
       ULONG POINTER_ALIGNMENT Key;
+#ifdef _WIN64
+      ULONG Flags;
+#endif
       LARGE_INTEGER ByteOffset;
     } Read;
     struct {
       ULONG Length;
       ULONG POINTER_ALIGNMENT Key;
+#ifdef _WIN64
+      ULONG Flags;
+#endif
       LARGE_INTEGER ByteOffset;
     } Write;
     struct {
       ULONG Length;
       PUNICODE_STRING FileName;
       FILE_INFORMATION_CLASS FileInformationClass;
-      ULONG FileIndex;
+      ULONG POINTER_ALIGNMENT FileIndex;
     } QueryDirectory;
     struct {
       ULONG Length;
-      ULONG CompletionFilter;
+      ULONG POINTER_ALIGNMENT CompletionFilter;
     } NotifyDirectory;
+    struct {
+      ULONG Length;
+      ULONG POINTER_ALIGNMENT CompletionFilter;
+      DIRECTORY_NOTIFY_INFORMATION_CLASS POINTER_ALIGNMENT DirectoryNotifyInformationClass;
+    } NotifyDirectoryEx;
     struct {
       ULONG Length;
       FILE_INFORMATION_CLASS POINTER_ALIGNMENT FileInformationClass;
@@ -6397,7 +6568,7 @@ typedef struct _IO_STACK_LOCATION {
       ULONG Length;
       PVOID EaList;
       ULONG EaListLength;
-      ULONG EaIndex;
+      ULONG POINTER_ALIGNMENT EaIndex;
     } QueryEa;
     struct {
       ULONG Length;
@@ -6408,17 +6579,17 @@ typedef struct _IO_STACK_LOCATION {
     } QueryVolume;
     struct {
       ULONG Length;
-      FS_INFORMATION_CLASS FsInformationClass;
+      FS_INFORMATION_CLASS POINTER_ALIGNMENT FsInformationClass;
     } SetVolume;
     struct {
       ULONG OutputBufferLength;
-      ULONG InputBufferLength;
-      ULONG FsControlCode;
+      ULONG POINTER_ALIGNMENT InputBufferLength;
+      ULONG POINTER_ALIGNMENT FsControlCode;
       PVOID Type3InputBuffer;
     } FileSystemControl;
     struct {
       PLARGE_INTEGER Length;
-      ULONG Key;
+      ULONG POINTER_ALIGNMENT Key;
       LARGE_INTEGER ByteOffset;
     } LockControl;
     struct {
@@ -6499,7 +6670,14 @@ typedef struct _IO_STACK_LOCATION {
       PPOWER_SEQUENCE PowerSequence;
     } PowerSequence;
     struct {
-      ULONG SystemContext;
+#if (NTDDI_VERSION >= NTDDI_WINVISTA)
+      _ANONYMOUS_UNION union {
+#endif
+        ULONG SystemContext;
+#if (NTDDI_VERSION >= NTDDI_WINVISTA)
+        SYSTEM_POWER_STATE_CONTEXT SystemPowerStateContext;
+      } DUMMYUNIONNAME;
+#endif
       POWER_STATE_TYPE POINTER_ALIGNMENT Type;
       POWER_STATE POINTER_ALIGNMENT State;
       POWER_ACTION POINTER_ALIGNMENT ShutdownType;
@@ -7679,6 +7857,11 @@ typedef enum _TRACE_INFORMATION_CLASS {
   LoggerEventsLostClass,
   TraceSessionSettingsClass,
   LoggerEventsLoggedClass,
+  DiskIoNotifyRoutinesClass,
+  TraceInformationClassReserved1,
+  FltIoNotifyRoutinesClass,
+  TraceInformationClassReserved2,
+  WdfNotifyRoutinesClass,
   MaxTraceInformationClass
 } TRACE_INFORMATION_CLASS;
 
@@ -9345,7 +9528,7 @@ RtlExtendedMagicDivide(
   ret64 = UnsignedMultiplyHigh(Pos ? Dividend.QuadPart : -Dividend.QuadPart,
                                MagicDivisor.QuadPart);
   ret64 >>= ShiftCount;
-  ret.QuadPart = Pos ? ret64 : -(LONG64)ret64;
+  ret.QuadPart = Pos ? (LONG64)ret64 : -(LONG64)ret64;
   return ret;
 }
 #endif
@@ -16127,6 +16310,885 @@ ZwSetInformationKey(
   IN ULONG KeySetInformationLength);
 
 #endif /* (NTDDI_VERSION >= NTDDI_WIN7) */
+
+#ifndef _CLFS_PUBLIC_H_
+#define _CLFS_PUBLIC_H_
+
+#ifndef CLFSUSER_API
+#ifdef __CLFSUSER_EXPORTS__
+#define CLFSUSER_API
+#else
+#define CLFSUSER_API __declspec(dllimport)
+#endif
+#endif
+
+#if NTDDI_VERSION >= NTDDI_WS03SP1 || _WIN32_WINNT >= _WIN32_WINNT_WS03
+
+#define FILE_ATTRIBUTE_DEDICATED                  FILE_ATTRIBUTE_TEMPORARY
+#define EA_CONTAINER_NAME                         "ContainerName"
+#define EA_CONTAINER_SIZE                         "ContainerSize"
+#define CLFS_BASELOG_EXTENSION                    L".blf"
+#define CLFS_FLAG_NO_FLAGS                        0x00000000
+#define CLFS_FLAG_FORCE_APPEND                    0x00000001
+#define CLFS_FLAG_FORCE_FLUSH                     0x00000002
+#define CLFS_FLAG_USE_RESERVATION                 0x00000004
+#define CLFS_FLAG_REENTRANT_FILE_SYSTEM           0x00000008
+#define CLFS_FLAG_NON_REENTRANT_FILTER            0x00000010
+#define CLFS_FLAG_REENTRANT_FILTER                0x00000020
+#define CLFS_FLAG_IGNORE_SHARE_ACCESS             0x00000040
+#define CLFS_FLAG_READ_IN_PROGRESS                0x00000080
+#define CLFS_FLAG_MINIFILTER_LEVEL                0x00000100
+#define CLFS_FLAG_HIDDEN_SYSTEM_LOG               0x00000200
+#define CLFS_FLAG_FILTER_INTERMEDIATE_LEVEL       CLFS_FLAG_NON_REENTRANT_FILTER
+#define CLFS_FLAG_FILTER_TOP_LEVEL                CLFS_FLAG_REENTRANT_FILTER
+#define CLFS_MARSHALLING_FLAG_NONE                0x00000000
+#define CLFS_MARSHALLING_FLAG_DISABLE_BUFF_INIT   0x00000001
+
+typedef ULONG CLFS_CONTAINER_ID, *PCLFS_CONTAINER_ID, **PPCLFS_CONTAINER_ID;
+
+typedef struct _CLS_LSN {
+  ULONGLONG Internal;
+} CLS_LSN, *PCLS_LSN, **PPCLS_LSN;
+
+typedef CLS_LSN CLFS_LSN, *PCLFS_LSN, **PPCLFS_LSN;
+
+extern __declspec(dllimport) const CLFS_LSN CLFS_LSN_INVALID;
+extern __declspec(dllimport) const CLFS_LSN CLFS_LSN_NULL;
+
+#define ClfsNullRecord      0x00
+#define ClfsDataRecord      0x01
+#define ClfsRestartRecord   0x02
+#define ClfsClientRecord (ClfsDataRecord | ClfsRestartRecord)
+
+#define CLFS_CONTAINER_STREAM_PREFIX        L"%BLF%:"
+#define CLFS_CONTAINER_RELATIVE_PREFIX      L"%BLF%\\"
+
+typedef UCHAR CLS_RECORD_TYPE, *PCLS_RECORD_TYPE, **PPCLS_RECORD_TYPE;
+typedef CLS_RECORD_TYPE CLFS_RECORD_TYPE, *PCLFS_RECORD_TYPE, **PPCLFS_RECORD_TYPE;
+
+typedef enum _CLS_CONTEXT_MODE {
+  ClsContextNone,
+  ClsContextUndoNext,
+  ClsContextPrevious,
+  ClsContextForward
+} CLS_CONTEXT_MODE, *PCLS_CONTEXT_MODE, **PPCLS_CONTEXT_MODE;
+
+typedef enum _CLFS_CONTEXT_MODE {
+  ClfsContextNone,
+  ClfsContextUndoNext,
+  ClfsContextPrevious,
+  ClfsContextForward
+} CLFS_CONTEXT_MODE, *PCLFS_CONTEXT_MODE, **PPCLFS_CONTEXT_MODE;
+
+typedef struct _CLFS_NODE_ID {
+  ULONG cType;
+  ULONG cbNode;
+} CLFS_NODE_ID, *PCLFS_NODE_ID;
+
+typedef struct _CLS_WRITE_ENTRY {
+  PVOID Buffer;
+  ULONG ByteLength;
+} CLS_WRITE_ENTRY, *PCLS_WRITE_ENTRY, **PPCLS_WRITE_ENTRY;
+
+typedef CLS_WRITE_ENTRY CLFS_WRITE_ENTRY, *PCLFS_WRITE_ENTRY, **PPCLFS_WRITE_ENTRY;
+
+typedef GUID CLFS_LOG_ID;
+
+typedef struct _CLS_INFORMATION {
+  LONGLONG TotalAvailable;
+  LONGLONG CurrentAvailable;
+  LONGLONG TotalReservation;
+  ULONGLONG BaseFileSize;
+  ULONGLONG ContainerSize;
+  ULONG TotalContainers;
+  ULONG FreeContainers;
+  ULONG TotalClients;
+  ULONG Attributes;
+  ULONG FlushThreshold;
+  ULONG SectorSize;
+  CLS_LSN MinArchiveTailLsn;
+  CLS_LSN BaseLsn;
+  CLS_LSN LastFlushedLsn;
+  CLS_LSN LastLsn;
+  CLS_LSN RestartLsn;
+  GUID Identity;
+} CLS_INFORMATION, *PCLS_INFORMATION, *PPCLS_INFORMATION;
+
+typedef CLS_INFORMATION CLFS_INFORMATION, *PCLFS_INFORMATION, *PPCLFS_INFORMATION;
+
+typedef struct _CLFS_LOG_NAME_INFORMATION {
+  USHORT NameLengthInBytes;
+  WCHAR Name[1];
+} CLFS_LOG_NAME_INFORMATION, *PCLFS_LOG_NAME_INFORMATION, **PPCLFS_LOG_NAME_INFORMATION;
+
+typedef struct _CLFS_STREAM_ID_INFORMATION {
+  UCHAR StreamIdentifier;
+} CLFS_STREAM_ID_INFORMATION, *PCLFS_STREAM_ID_INFORMATION, **PPCLFS_STREAM_ID_INFORMATION;
+
+typedef UINT32 CLS_CONTAINER_STATE, *PCLS_CONTAINER_STATE, *PPCLS_CONTAINER_STATE;
+typedef CLS_CONTAINER_STATE CLFS_CONTAINER_STATE, *PCLFS_CONTAINER_STATE, *PPCLFS_CONTAINER_STATE;
+
+#define ClsContainerInitializing              0x01
+#define ClsContainerInactive                  0x02
+#define ClsContainerActive                    0x04
+#define ClsContainerActivePendingDelete       0x08
+#define ClsContainerPendingArchive            0x10
+#define ClsContainerPendingArchiveAndDelete   0x20
+
+#define ClfsContainerInitializing             0x01
+#define ClfsContainerInactive                 0x02
+#define ClfsContainerActive                   0x04
+#define ClfsContainerActivePendingDelete      0x08
+#define ClfsContainerPendingArchive           0x10
+#define ClfsContainerPendingArchiveAndDelete  0x20
+
+#define CLFS_MAX_CONTAINER_INFO 256
+
+typedef struct _CLS_CONTAINER_INFORMATION {
+  ULONG FileAttributes;
+  ULONGLONG CreationTime;
+  ULONGLONG LastAccessTime;
+  ULONGLONG LastWriteTime;
+  LONGLONG ContainerSize;
+  ULONG FileNameActualLength;
+  ULONG FileNameLength;
+  WCHAR FileName[CLFS_MAX_CONTAINER_INFO];
+  CLFS_CONTAINER_STATE State;
+  CLFS_CONTAINER_ID PhysicalContainerId;
+  CLFS_CONTAINER_ID LogicalContainerId;
+} CLS_CONTAINER_INFORMATION, *PCLS_CONTAINER_INFORMATION, **PPCLS_CONTAINER_INFORMATION;
+
+typedef CLS_CONTAINER_INFORMATION CLFS_CONTAINER_INFORMATION, *PCLFS_CONTAINER_INFORMATION, **PPCLFS_CONTAINER_INFORMATION;
+
+typedef enum _CLS_LOG_INFORMATION_CLASS {
+  ClfsLogBasicInformation,
+  ClfsLogBasicInformationPhysical,
+  ClfsLogPhysicalNameInformation,
+  ClfsLogStreamIdentifierInformation,
+#if NTDDI_VERSION >= NTDDI_VISTA || _WIN32_WINNT >= _WIN32_WINNT_VISTA
+  ClfsLogSystemMarkingInformation,
+  ClfsLogPhysicalLsnInformation
+#endif
+} CLS_LOG_INFORMATION_CLASS, *PCLS_LOG_INFORMATION_CLASS, **PPCLS_LOG_INFORMATION_CLASS;
+
+typedef CLS_LOG_INFORMATION_CLASS CLFS_LOG_INFORMATION_CLASS, *PCLFS_LOG_INFORMATION_CLASS, **PPCLFS_LOG_INFORMATION_CLASS;
+
+typedef enum _CLS_IOSTATS_CLASS {
+  ClsIoStatsDefault = 0x0000,
+  ClsIoStatsMax = 0xffff
+} CLS_IOSTATS_CLASS, *PCLS_IOSTATS_CLASS, **PPCLS_IOSTATS_CLASS;
+
+typedef enum _CLFS_IOSTATS_CLASS {
+  ClfsIoStatsDefault = 0x0000,
+  ClfsIoStatsMax = 0xffff
+} CLFS_IOSTATS_CLASS, *PCLFS_IOSTATS_CLASS, **PPCLFS_IOSTATS_CLASS;
+
+typedef struct _CLS_IO_STATISTICS_HEADER {
+  UCHAR ubMajorVersion;
+  UCHAR ubMinorVersion;
+  CLFS_IOSTATS_CLASS eStatsClass;
+  USHORT cbLength;
+  ULONG coffData;
+} CLS_IO_STATISTICS_HEADER, *PCLS_IO_STATISTICS_HEADER, **PPCLS_IO_STATISTICS_HEADER;
+
+typedef CLS_IO_STATISTICS_HEADER CLFS_IO_STATISTICS_HEADER, *PCLFS_IO_STATISTICS_HEADER, **PPCLFS_IO_STATISTICS_HEADER;
+
+typedef struct _CLS_IO_STATISTICS {
+  CLS_IO_STATISTICS_HEADER hdrIoStats;
+  ULONGLONG cFlush;
+  ULONGLONG cbFlush;
+  ULONGLONG cMetaFlush;
+  ULONGLONG cbMetaFlush;
+} CLS_IO_STATISTICS, *PCLS_IO_STATISTICS, **PPCLS_IO_STATISTICS;
+
+typedef CLS_IO_STATISTICS CLFS_IO_STATISTICS, *PCLFS_IO_STATISTICS, **PPCLFS_IO_STATISTICS;
+
+#define CLFS_SCAN_INIT          0x01
+#define CLFS_SCAN_FORWARD       0x02
+#define CLFS_SCAN_BACKWARD      0x04
+#define CLFS_SCAN_CLOSE         0x08
+#define CLFS_SCAN_INITIALIZED   0x10
+#define CLFS_SCAN_BUFFERED      0x20
+
+typedef UCHAR CLFS_SCAN_MODE, *PCLFS_SCAN_MODE;
+
+typedef FILE_OBJECT LOG_FILE_OBJECT, *PLOG_FILE_OBJECT, **PPLOG_FILE_OBJECT;
+
+typedef struct _CLS_SCAN_CONTEXT {
+  CLFS_NODE_ID cidNode;
+  PLOG_FILE_OBJECT plfoLog;
+  ULONG cIndex __attribute__((aligned(8)));
+  ULONG cContainers __attribute__((aligned(8)));
+  ULONG cContainersReturned __attribute__((aligned(8)));
+  CLFS_SCAN_MODE eScanMode __attribute__((aligned(8)));
+  PCLS_CONTAINER_INFORMATION pinfoContainer __attribute__((aligned(8)));
+} CLS_SCAN_CONTEXT, *PCLS_SCAN_CONTEXT, **PPCLS_SCAN_CONTEXT;
+
+typedef CLS_SCAN_CONTEXT CLFS_SCAN_CONTEXT, *PCLFS_SCAN_CONTEXT, **PPCLFS_SCAN_CONTEXT;
+
+typedef struct _CLS_ARCHIVE_DESCRIPTOR {
+  ULONGLONG coffLow;
+  ULONGLONG coffHigh;
+  CLS_CONTAINER_INFORMATION infoContainer;
+} CLS_ARCHIVE_DESCRIPTOR, *PCLS_ARCHIVE_DESCRIPTOR, **PPCLS_ARCHIVE_DESCRIPTOR;
+
+typedef CLS_ARCHIVE_DESCRIPTOR CLFS_ARCHIVE_DESCRIPTOR, *PCLFS_ARCHIVE_DESCRIPTOR, **PPCLFS_ARCHIVE_DESCRIPTOR;
+
+typedef PVOID (*CLFS_BLOCK_ALLOCATION)(ULONG cbBufferLength, PVOID pvUserContext);
+typedef void (*CLFS_BLOCK_DEALLOCATION)(PVOID pvBuffer, PVOID pvUserContext);
+
+typedef enum _CLFS_LOG_ARCHIVE_MODE {
+  ClfsLogArchiveEnabled = 1,
+  ClfsLogArchiveDisabled = 2
+} CLFS_LOG_ARCHIVE_MODE, *PCLFS_LOG_ARCHIVE_MODE;
+
+CLFSUSER_API
+BOOLEAN
+NTAPI
+ClfsLsnEqual(
+  const CLFS_LSN* plsn1,
+  const CLFS_LSN* plsn2);
+
+CLFSUSER_API
+BOOLEAN
+NTAPI
+ClfsLsnLess(
+  const CLFS_LSN* plsn1,
+  const CLFS_LSN* plsn2);
+
+CLFSUSER_API
+BOOLEAN
+NTAPI
+ClfsLsnGreater(
+  const CLFS_LSN* plsn1,
+  const CLFS_LSN* plsn2);
+
+CLFSUSER_API
+BOOLEAN
+NTAPI
+ClfsLsnNull(
+  const CLFS_LSN* plsn);
+
+CLFSUSER_API
+CLFS_CONTAINER_ID
+NTAPI
+ClfsLsnContainer(
+  const CLFS_LSN* plsn);
+
+CLFSUSER_API
+CLFS_LSN
+NTAPI
+ClfsLsnCreate(
+  CLFS_CONTAINER_ID cidContainer,
+  ULONG offBlock,
+  ULONG cRecord);
+
+CLFSUSER_API
+ULONG
+NTAPI
+ClfsLsnBlockOffset(
+  const CLFS_LSN* plsn);
+
+CLFSUSER_API
+ULONG
+NTAPI
+ClfsLsnRecordSequence(
+  const CLFS_LSN* plsn);
+
+CLFSUSER_API
+BOOLEAN
+NTAPI
+ClfsLsnInvalid(
+  const CLFS_LSN* plsn);
+
+CLFSUSER_API
+CLFS_LSN
+NTAPI
+ClfsLsnIncrement(
+  PCLFS_LSN  plsn);
+
+#ifdef __cplusplus
+#ifdef CLFS_OPERATORS
+
+inline CLFS_LSN operator++(CLFS_LSN& refLsn) {
+  refLsn = ClfsLsnIncrement (&refLsn);
+  return refLsn;
+}
+
+inline BOOLEAN operator<(const CLFS_LSN& refLsn1, const CLFS_LSN& refLsn2) {
+  return ClfsLsnLess(&refLsn1, &refLsn2);
+}
+
+inline BOOLEAN operator>(const CLFS_LSN& refLsn1, const CLFS_LSN& refLsn2) {
+  return ClfsLsnGreater(&refLsn1, &refLsn2);
+}
+
+inline BOOLEAN operator==(const CLFS_LSN& refLsn1, const CLFS_LSN& refLsn2) {
+  return ClfsLsnEqual(&refLsn1, &refLsn2);
+}
+
+inline BOOLEAN operator!=(const CLFS_LSN& refLsn1, const CLFS_LSN& refLsn2) {
+  return !ClfsLsnEqual(&refLsn1, &refLsn2);
+}
+
+inline BOOLEAN operator<=(const CLFS_LSN& refLsn1, const CLFS_LSN& refLsn2) {
+  return !ClfsLsnGreater(&refLsn1, &refLsn2);
+}
+
+inline BOOLEAN operator>=(const CLFS_LSN& refLsn1, const CLFS_LSN& refLsn2) {
+  return !ClfsLsnLess(&refLsn1, &refLsn2);
+}
+
+#endif
+#endif
+#endif
+
+#if NTDDI_VERSION >= NTDDI_VISTA || _WIN32_WINNT >= _WIN32_WINNT_VISTA
+
+#pragma pack(push,8)
+
+typedef struct _CLFS_PHYSICAL_LSN_INFORMATION {
+  UCHAR StreamIdentifier;
+  CLFS_LSN VirtualLsn;
+  CLFS_LSN PhysicalLsn;
+} CLFS_PHYSICAL_LSN_INFORMATION, *PCLFS_PHYSICAL_LSN_INFORMATION;
+
+#pragma pack(pop)
+
+#endif
+
+#endif /* _CLFS_PUBLIC_H_ */
+
+#if NTDDI_VERSION >= NTDDI_WS03SP1 || _WIN32_WINNT >= _WIN32_WINNT_WS03
+
+typedef enum _CLFS_MGMT_POLICY_TYPE {
+  ClfsMgmtPolicyMaximumSize,
+  ClfsMgmtPolicyMinimumSize,
+  ClfsMgmtPolicyNewContainerSize,
+  ClfsMgmtPolicyGrowthRate,
+  ClfsMgmtPolicyLogTail,
+  ClfsMgmtPolicyAutoShrink,
+  ClfsMgmtPolicyAutoGrow,
+  ClfsMgmtPolicyNewContainerPrefix,
+  ClfsMgmtPolicyNewContainerSuffix,
+  ClfsMgmtPolicyNewContainerExtension,
+  ClfsMgmtPolicyInvalid
+} CLFS_MGMT_POLICY_TYPE, *PCLFS_MGMT_POLICY_TYPE;
+
+#define CLFS_MGMT_NUM_POLICIES (ULONG)ClfsMgmtPolicyInvalid
+
+#define CLFS_LOG_SIZE_MINIMUM (ULONGLONG)0
+#define CLFS_LOG_SIZE_MAXIMUM (ULONGLONG)-1
+
+#define CLFS_MGMT_POLICY_VERSION  1
+
+#define LOG_POLICY_OVERWRITE      0x01
+#define LOG_POLICY_PERSIST        0x02
+
+typedef struct _CLFS_MGMT_POLICY {
+  ULONG Version;
+  ULONG LengthInBytes;
+  ULONG PolicyFlags;
+  CLFS_MGMT_POLICY_TYPE PolicyType;
+  union {
+    struct {
+      ULONG Containers;
+    } MaximumSize;
+    struct {
+      ULONG Containers;
+    } MinimumSize;
+    struct {
+      ULONG SizeInBytes;
+    } NewContainerSize;
+    struct {
+      ULONG AbsoluteGrowthInContainers;
+      ULONG RelativeGrowthPercentage;
+    } GrowthRate;
+    struct {
+      ULONG MinimumAvailablePercentage;
+      ULONG MinimumAvailableContainers;
+    } LogTail;
+    struct {
+      ULONG Percentage;
+    } AutoShrink;
+    struct {
+      ULONG Enabled;
+    } AutoGrow;
+    struct {
+      USHORT PrefixLengthInBytes;
+      WCHAR PrefixString[1];
+    } NewContainerPrefix;
+    struct {
+      ULONGLONG NextContainerSuffix;
+    } NewContainerSuffix;
+    struct {
+      USHORT ExtensionLengthInBytes;
+      WCHAR ExtensionString[1];
+    } NewContainerExtension;
+  } PolicyParameters;
+} CLFS_MGMT_POLICY, *PCLFS_MGMT_POLICY;
+
+typedef enum _CLFS_MGMT_NOTIFICATION_TYPE {
+  ClfsMgmtAdvanceTailNotification,
+  ClfsMgmtLogFullHandlerNotification,
+  ClfsMgmtLogUnpinnedNotification,
+  ClfsMgmtLogWriteNotification
+} CLFS_MGMT_NOTIFICATION_TYPE, *PCLFS_MGMT_NOTIFICATION_TYPE;
+
+typedef struct _CLFS_MGMT_NOTIFICATION {
+  CLFS_MGMT_NOTIFICATION_TYPE Notification;
+  CLFS_LSN Lsn;
+  USHORT LogIsPinned;
+} CLFS_MGMT_NOTIFICATION, *PCLFS_MGMT_NOTIFICATION;
+
+typedef NTSTATUS (*PCLFS_CLIENT_ADVANCE_TAIL_CALLBACK)(
+  PLOG_FILE_OBJECT LogFile,
+  PCLFS_LSN TargetLsn,
+  PVOID ClientData);
+
+typedef VOID (*PCLFS_CLIENT_LFF_HANDLER_COMPLETE_CALLBACK)(
+  PLOG_FILE_OBJECT LogFile,
+  NTSTATUS OperationStatus,
+  BOOLEAN LogIsPinned,
+  PVOID ClientData);
+
+typedef VOID (*PCLFS_CLIENT_LOG_UNPINNED_CALLBACK)(
+  PLOG_FILE_OBJECT LogFile,
+  PVOID ClientData);
+
+typedef VOID (*PCLFS_SET_LOG_SIZE_COMPLETE_CALLBACK)(
+  PLOG_FILE_OBJECT LogFile,
+  NTSTATUS OperationStatus,
+  PVOID ClientData);
+
+#define CLFS_MGMT_CLIENT_REGISTRATION_VERSION 1
+
+typedef struct _CLFS_MGMT_CLIENT_REGISTRATION {
+  ULONG Version;
+  PCLFS_CLIENT_ADVANCE_TAIL_CALLBACK AdvanceTailCallback;
+  PVOID AdvanceTailCallbackData;
+  PCLFS_CLIENT_LFF_HANDLER_COMPLETE_CALLBACK LogGrowthCompleteCallback;
+  PVOID LogGrowthCompleteCallbackData;
+  PCLFS_CLIENT_LOG_UNPINNED_CALLBACK LogUnpinnedCallback;
+  PVOID LogUnpinnedCallbackData;
+} CLFS_MGMT_CLIENT_REGISTRATION, *PCLFS_MGMT_CLIENT_REGISTRATION;
+
+typedef PVOID CLFS_MGMT_CLIENT, *PCLFS_MGMT_CLIENT;
+
+CLFSUSER_API
+NTSTATUS
+ClfsMgmtRegisterManagedClient(
+  PLOG_FILE_OBJECT LogFile,
+  PCLFS_MGMT_CLIENT_REGISTRATION RegistrationData,
+  PCLFS_MGMT_CLIENT ClientCookie);
+
+CLFSUSER_API
+NTSTATUS
+ClfsMgmtDeregisterManagedClient(
+  CLFS_MGMT_CLIENT ClientCookie);
+
+CLFSUSER_API
+NTSTATUS
+ClfsMgmtTailAdvanceFailure(
+  CLFS_MGMT_CLIENT Client,
+  NTSTATUS Reason);
+
+CLFSUSER_API
+NTSTATUS
+ClfsMgmtHandleLogFileFull(
+  CLFS_MGMT_CLIENT Client);
+
+CLFSUSER_API
+NTSTATUS
+ClfsMgmtInstallPolicy(
+  PLOG_FILE_OBJECT LogFile,
+  PCLFS_MGMT_POLICY Policy,
+  ULONG PolicyLength);
+
+CLFSUSER_API
+NTSTATUS
+ClfsMgmtQueryPolicy(
+  PLOG_FILE_OBJECT LogFile,
+  CLFS_MGMT_POLICY_TYPE PolicyType,
+  PCLFS_MGMT_POLICY Policy,
+  PULONG PolicyLength);
+
+CLFSUSER_API
+NTSTATUS
+ClfsMgmtRemovePolicy(
+  PLOG_FILE_OBJECT LogFile,
+  CLFS_MGMT_POLICY_TYPE PolicyType);
+
+CLFSUSER_API
+NTSTATUS
+ClfsMgmtSetLogFileSize(
+  PLOG_FILE_OBJECT LogFile,
+  PULONGLONG NewSizeInContainers,
+  PULONGLONG ResultingSizeInContainers,
+  PCLFS_SET_LOG_SIZE_COMPLETE_CALLBACK CompletionRoutine,
+  PVOID CompletionRoutineData);
+
+#endif
+
+#if NTDDI_VERSION >= NTDDI_VISTA || _WIN32_WINNT >= _WIN32_WINNT_VISTA
+
+CLFSUSER_API
+NTSTATUS
+ClfsMgmtSetLogFileSizeAsClient(
+  PLOG_FILE_OBJECT LogFile,
+  PCLFS_MGMT_CLIENT ClientCookie,
+  PULONGLONG NewSizeInContainers,
+  PULONGLONG ResultingSizeInContainers,
+  PCLFS_SET_LOG_SIZE_COMPLETE_CALLBACK CompletionRoutine,
+  PVOID CompletionRoutineData);
+
+#endif
+
+#ifndef __CLFSPROC_H__
+#define __CLFSPROC_H__
+
+#if NTDDI_VERSION >= NTDDI_WS03SP1
+
+CLFSUSER_API NTSTATUS ClfsInitialize(void);
+
+CLFSUSER_API void ClfsFinalize(void);
+
+CLFSUSER_API
+NTSTATUS
+ClfsCreateLogFile(
+  PPLOG_FILE_OBJECT pplfoLog,
+  PUNICODE_STRING puszLogFileName,
+  ACCESS_MASK fDesiredAccess,
+  ULONG dwShareMode,
+  PSECURITY_DESCRIPTOR psdLogFile,
+  ULONG fCreateDisposition,
+  ULONG fCreateOptions,
+  ULONG fFlagsAndAttributes,
+  ULONG fLogOptionFlag,
+  PVOID pvContext,
+  ULONG cbContext);
+
+CLFSUSER_API
+NTSTATUS
+ClfsDeleteLogByPointer(
+  PLOG_FILE_OBJECT plfoLog);
+
+CLFSUSER_API
+NTSTATUS
+ClfsDeleteLogFile(
+  PUNICODE_STRING puszLogFileName,
+  PVOID pvReserved,
+  ULONG fLogOptionFlag,
+  PVOID pvContext,
+  ULONG cbContext);
+
+CLFSUSER_API
+NTSTATUS
+ClfsAddLogContainer(
+  PLOG_FILE_OBJECT plfoLog,
+  PULONGLONG pcbContainer,
+  PUNICODE_STRING puszContainerPath);
+
+CLFSUSER_API
+NTSTATUS
+ClfsAddLogContainerSet(
+  PLOG_FILE_OBJECT plfoLog,
+  USHORT cContainers,
+  PULONGLONG pcbContainer,
+  PUNICODE_STRING rguszContainerPath);
+
+CLFSUSER_API
+NTSTATUS
+ClfsRemoveLogContainer(
+  PLOG_FILE_OBJECT plfoLog,
+  PUNICODE_STRING puszContainerPath,
+  BOOLEAN fForce);
+
+CLFSUSER_API
+NTSTATUS
+ClfsRemoveLogContainerSet(
+  PLOG_FILE_OBJECT plfoLog,
+  USHORT cContainers,
+  PUNICODE_STRING rgwszContainerPath,
+  BOOLEAN fForce);
+
+CLFSUSER_API
+NTSTATUS
+ClfsSetArchiveTail(
+  PLOG_FILE_OBJECT plfoLog,
+  PCLFS_LSN plsnArchiveTail);
+
+CLFSUSER_API
+NTSTATUS
+ClfsSetEndOfLog(
+  PLOG_FILE_OBJECT plfoLog,
+  PCLFS_LSN plsnEnd);
+
+CLFSUSER_API
+NTSTATUS
+ClfsCreateScanContext(
+  PLOG_FILE_OBJECT plfoLog,
+  ULONG cFromContainer,
+  ULONG cContainers,
+  CLFS_SCAN_MODE eScanMode,
+  PCLFS_SCAN_CONTEXT pcxScan);
+
+CLFSUSER_API
+NTSTATUS
+ClfsScanLogContainers(
+  PCLFS_SCAN_CONTEXT pcxScan,
+  CLFS_SCAN_MODE eScanMode);
+
+CLFSUSER_API
+NTSTATUS
+ClfsGetContainerName(
+  PLOG_FILE_OBJECT plfoLog,
+  CLFS_CONTAINER_ID cidLogicalContainer,
+  PUNICODE_STRING puszContainerName,
+  PULONG pcActualLenContainerName);
+
+CLFSUSER_API
+NTSTATUS
+ClfsGetLogFileInformation(
+  PLOG_FILE_OBJECT plfoLog,
+  PCLFS_INFORMATION pinfoBuffer,
+  PULONG pcbInfoBuffer);
+
+CLFSUSER_API
+NTSTATUS
+ClfsSetLogFileInformation(
+  PLOG_FILE_OBJECT plfoLog,
+  CLFS_LOG_INFORMATION_CLASS eInformationClass,
+  PVOID pinfoBuffer,
+  ULONG cbBuffer);
+
+CLFSUSER_API
+NTSTATUS
+ClfsReadRestartArea(
+  PVOID pvMarshalContext,
+  PVOID* ppvRestartBuffer,
+  PULONG pcbRestartBuffer,
+  PCLFS_LSN plsn,
+  PVOID* ppvReadContext);
+
+CLFSUSER_API
+NTSTATUS
+ClfsReadPreviousRestartArea(
+  PVOID pvReadContext,
+  PVOID* ppvRestartBuffer,
+  PULONG pcbRestartBuffer,
+  PCLFS_LSN plsnRestart);
+
+CLFSUSER_API
+NTSTATUS
+ClfsWriteRestartArea(
+  PVOID pvMarshalContext,
+  PVOID pvRestartBuffer,
+  ULONG cbRestartBuffer,
+  PCLFS_LSN plsnBase,
+  ULONG fFlags,
+  PULONG pcbWritten,
+  PCLFS_LSN plsnNext);
+
+CLFSUSER_API
+NTSTATUS
+ClfsAdvanceLogBase(
+  PVOID pvMarshalContext,
+  PCLFS_LSN plsnBase,
+  ULONG fFlags);
+
+CLFSUSER_API
+NTSTATUS
+ClfsCloseAndResetLogFile(
+  PLOG_FILE_OBJECT plfoLog);
+
+CLFSUSER_API
+NTSTATUS
+ClfsCloseLogFileObject(
+  PLOG_FILE_OBJECT plfoLog);
+
+CLFSUSER_API
+NTSTATUS
+ClfsCreateMarshallingArea(
+  PLOG_FILE_OBJECT plfoLog,
+  POOL_TYPE ePoolType,
+  PALLOCATE_FUNCTION pfnAllocBuffer,
+  PFREE_FUNCTION pfnFreeBuffer,
+  ULONG cbMarshallingBuffer,
+  ULONG cMaxWriteBuffers,
+  ULONG cMaxReadBuffers,
+  PVOID* ppvMarshalContext);
+
+CLFSUSER_API
+NTSTATUS
+ClfsDeleteMarshallingArea(
+  PVOID pvMarshalContext);
+
+CLFSUSER_API
+NTSTATUS
+ClfsReserveAndAppendLog(
+  PVOID pvMarshalContext,
+  PCLFS_WRITE_ENTRY rgWriteEntries,
+  ULONG cWriteEntries,
+  PCLFS_LSN plsnUndoNext,
+  PCLFS_LSN plsnPrevious,
+  ULONG cReserveRecords,
+  PLONGLONG rgcbReservation,
+  ULONG fFlags,
+  PCLFS_LSN plsn);
+
+CLFSUSER_API
+NTSTATUS
+ClfsReserveAndAppendLogAligned(
+  PVOID pvMarshalContext,
+  PCLFS_WRITE_ENTRY rgWriteEntries,
+  ULONG cWriteEntries,
+  ULONG cbEntryAlignment,
+  PCLFS_LSN plsnUndoNext,
+  PCLFS_LSN plsnPrevious,
+  ULONG cReserveRecords,
+  PLONGLONG rgcbReservation,
+  ULONG fFlags,
+  PCLFS_LSN plsn);
+
+CLFSUSER_API
+NTSTATUS
+ClfsAlignReservedLog(
+  PVOID pvMarshalContext,
+  ULONG cRecords,
+  LONGLONG rgcbReservation[],
+  PLONGLONG pcbAlignReservation);
+
+CLFSUSER_API
+NTSTATUS
+ClfsAllocReservedLog(
+  PVOID pvMarshalContext,
+  ULONG cRecords,
+  PLONGLONG pcbAdjustment);
+
+CLFSUSER_API
+NTSTATUS
+ClfsFreeReservedLog(
+  PVOID pvMarshalContext,
+  ULONG cRecords,
+  PLONGLONG pcbAdjustment);
+
+CLFSUSER_API
+NTSTATUS
+ClfsFlushBuffers(
+  PVOID pvMarshalContext);
+
+CLFSUSER_API
+NTSTATUS
+ClfsFlushToLsn(
+  PVOID pvMarshalContext,
+  PCLFS_LSN plsnFlush,
+  PCLFS_LSN plsnLastFlushed);
+
+CLFSUSER_API
+NTSTATUS
+ClfsReadLogRecord(
+  PVOID pvMarshalContext,
+  PCLFS_LSN plsnFirst,
+  CLFS_CONTEXT_MODE peContextMode,
+  PVOID* ppvReadBuffer,
+  PULONG pcbReadBuffer,
+  PCLFS_RECORD_TYPE peRecordType,
+  PCLFS_LSN plsnUndoNext,
+  PCLFS_LSN plsnPrevious,
+  PVOID* ppvReadContext);
+
+CLFSUSER_API
+NTSTATUS
+ClfsReadNextLogRecord(
+  PVOID pvReadContext,
+  PVOID* ppvBuffer,
+  PULONG pcbBuffer,
+  PCLFS_RECORD_TYPE peRecordType,
+  PCLFS_LSN plsnUser,
+  PCLFS_LSN plsnUndoNext,
+  PCLFS_LSN plsnPrevious,
+  PCLFS_LSN plsnRecord);
+
+CLFSUSER_API
+NTSTATUS
+ClfsTerminateReadLog(
+  PVOID pvCursorContext);
+
+CLFSUSER_API
+NTSTATUS
+ClfsGetLastLsn(
+  PLOG_FILE_OBJECT plfoLog,
+  PCLFS_LSN plsnLast);
+
+CLFSUSER_API
+NTSTATUS
+ClfsGetIoStatistics(
+  PLOG_FILE_OBJECT plfoLog,
+  PVOID pvStatsBuffer,
+  ULONG cbStatsBuffer,
+  CLFS_IOSTATS_CLASS eStatsClass,
+  PULONG pcbStatsWritten);
+
+CLFSUSER_API
+CLFS_LSN
+ClfsLaterLsn(
+  PCLFS_LSN plsn);
+
+CLFSUSER_API
+CLFS_LSN
+ClfsEarlierLsn(
+  PCLFS_LSN plsn);
+
+CLFSUSER_API
+NTSTATUS
+ClfsLsnDifference(
+  PCLFS_LSN plsnStart,
+  PCLFS_LSN plsnFinish,
+  ULONG cbContainer,
+  ULONG cbMaxBlock,
+  PLONGLONG pcbDifference);
+
+#endif
+
+#if NTDDI_VERSION >= NTDDI_VISTA
+
+CLFSUSER_API
+BOOLEAN
+ClfsValidTopLevelContext(
+  PIRP pirpTopLevelContext);
+
+CLFSUSER_API
+NTSTATUS
+ClfsQueryLogFileInformation(
+  PLOG_FILE_OBJECT plfoLog,
+  CLFS_LOG_INFORMATION_CLASS eInformationClass,
+  PVOID pinfoInputBuffer,
+  ULONG cbinfoInputBuffer,
+  PVOID pinfoBuffer,
+  PULONG pcbInfoBuffer);
+
+#endif
+
+#if NTDDI_VERSION >= NTDDI_WIN8
+
+CLFSUSER_API
+NTSTATUS
+ClfsCreateMarshallingAreaEx(
+  PLOG_FILE_OBJECT plfoLog,
+  POOL_TYPE ePoolType,
+  PALLOCATE_FUNCTION pfnAllocBuffer,
+  PFREE_FUNCTION pfnFreeBuffer,
+  ULONG cbMarshallingBuffer,
+  ULONG cMaxWriteBuffers,
+  ULONG cMaxReadBuffers,
+  ULONG cAlignmentSize,
+  ULONGLONG fFlags,
+  PVOID* ppvMarshalContext);
+
+#endif
+
+#endif /* __CLFSPROC_H__ */
 
 #ifdef __cplusplus
 }

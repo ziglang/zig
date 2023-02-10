@@ -1326,6 +1326,9 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\int main(int argc, char**argv) {
         \\    __v8hi uninitialized;
         \\    __v8hi empty_init = {};
+        \\    for (int i = 0; i < 8; i++) {
+        \\        if (empty_init[i] != 0) abort();
+        \\    }
         \\    __v8hi partial_init = {0, 1, 2, 3};
         \\
         \\    __v8hi a = {0, 1, 2, 3, 4, 5, 6, 7};
@@ -1858,6 +1861,19 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\int main(void) {
         \\    int x = FOO;
         \\    if (x != 3) abort();
+        \\    return 0;
+        \\}
+    , "");
+
+    // The C standard does not require function pointers to be convertible to any integer type.
+    // However, POSIX requires that function pointers have the same representation as `void *`
+    // so that dlsym() can work
+    cases.add("Function to integral",
+        \\#include <stdint.h>
+        \\int main(void) {
+        \\#if defined(__UINTPTR_MAX__) && __has_include(<unistd.h>)
+        \\    uintptr_t x = (uintptr_t)main;
+        \\#endif
         \\    return 0;
         \\}
     , "");

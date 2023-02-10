@@ -12,14 +12,27 @@ const UefiPoolAllocator = struct {
         return @intToPtr(*[*]align(8) u8, @ptrToInt(ptr) - @sizeOf(usize));
     }
 
-    fn alignedAlloc(len: usize, alignment: usize) ?[*]u8 {
-        var unaligned_ptr: [*]align(8) u8 = undefined;
+    fn alloc(
+        _: *anyopaque,
+        len: usize,
+        log2_ptr_align: u8,
+        ret_addr: usize,
+    ) ?[*]u8 {
+        _ = ret_addr;
 
-        if (uefi.system_table.boot_services.?.allocatePool(uefi.efi_pool_memory_type, len, &unaligned_ptr) != .Success)
-            return null;
+        assert(len > 0);
+
+        const ptr_align = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_ptr_align);
+
+        const metadata_len = mem.alignForward(@sizeOf(usize), ptr_align);
+
+        const full_len = metadata_len + len;
+
+        var unaligned_ptr: [*]align(8) u8 = undefined;
+        if (uefi.system_table.boot_services.?.allocatePool(uefi.efi_pool_memory_type, full_len, &unaligned_ptr) != .Success) return null;
 
         const unaligned_addr = @ptrToInt(unaligned_ptr);
-        const aligned_addr = mem.alignForward(unaligned_addr + @sizeOf(usize), alignment);
+        const aligned_addr = mem.alignForward(unaligned_addr + @sizeOf(usize), ptr_align);
 
         var aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
         getHeader(aligned_ptr).* = unaligned_ptr;
@@ -27,53 +40,31 @@ const UefiPoolAllocator = struct {
         return aligned_ptr;
     }
 
-    fn alignedFree(ptr: [*]u8) void {
-        _ = uefi.system_table.boot_services.?.freePool(getHeader(ptr).*);
-    }
-
-    fn alloc(
-        _: *anyopaque,
-        len: usize,
-        ptr_align: u29,
-        len_align: u29,
-        ret_addr: usize,
-    ) Allocator.Error![]u8 {
-        _ = ret_addr;
-
-        assert(len > 0);
-        assert(std.math.isPowerOfTwo(ptr_align));
-
-        var ptr = alignedAlloc(len, ptr_align) orelse return error.OutOfMemory;
-
-        if (len_align == 0)
-            return ptr[0..len];
-
-        return ptr[0..mem.alignBackwardAnyAlign(len, len_align)];
-    }
-
     fn resize(
         _: *anyopaque,
         buf: []u8,
-        buf_align: u29,
+        log2_old_ptr_align: u8,
         new_len: usize,
-        len_align: u29,
         ret_addr: usize,
-    ) ?usize {
-        _ = buf_align;
+    ) bool {
         _ = ret_addr;
 
-        return if (new_len <= buf.len) mem.alignAllocLen(buf.len, new_len, len_align) else null;
+        if (new_len > buf.len) return false;
+
+        _ = mem.alignAllocLen(buf.len, new_len, log2_old_ptr_align);
+
+        return true;
     }
 
     fn free(
         _: *anyopaque,
         buf: []u8,
-        buf_align: u29,
+        log2_old_ptr_align: u8,
         ret_addr: usize,
     ) void {
-        _ = buf_align;
+        _ = log2_old_ptr_align;
         _ = ret_addr;
-        alignedFree(buf.ptr);
+        _ = uefi.system_table.boot_services.?.freePool(getHeader(buf.ptr).*);
     }
 };
 
@@ -105,49 +96,44 @@ const raw_pool_allocator_table = Allocator.VTable{
 fn uefi_alloc(
     _: *anyopaque,
     len: usize,
-    ptr_align: u29,
-    len_align: u29,
+    log2_ptr_align: u8,
     ret_addr: usize,
-) Allocator.Error![]u8 {
-    _ = len_align;
+) ?[*]u8 {
     _ = ret_addr;
 
-    std.debug.assert(ptr_align <= 8);
+    std.debug.assert(log2_ptr_align <= 3);
 
     var ptr: [*]align(8) u8 = undefined;
+    if (uefi.system_table.boot_services.?.allocatePool(uefi.efi_pool_memory_type, len, &ptr) != .Success) return null;
 
-    if (uefi.system_table.boot_services.?.allocatePool(uefi.efi_pool_memory_type, len, &ptr) != .Success) {
-        return error.OutOfMemory;
-    }
-
-    return ptr[0..len];
+    return ptr;
 }
 
 fn uefi_resize(
     _: *anyopaque,
     buf: []u8,
-    old_align: u29,
+    log2_old_ptr_align: u8,
     new_len: usize,
-    len_align: u29,
     ret_addr: usize,
-) ?usize {
-    _ = old_align;
+) bool {
     _ = ret_addr;
 
-    if (new_len <= buf.len) {
-        return mem.alignAllocLen(buf.len, new_len, len_align);
-    }
+    std.debug.assert(log2_old_ptr_align <= 3);
 
-    return null;
+    if (new_len > buf.len) return false;
+
+    _ = mem.alignAllocLen(buf.len, new_len, 8);
+
+    return true;
 }
 
 fn uefi_free(
     _: *anyopaque,
     buf: []u8,
-    buf_align: u29,
+    log2_old_ptr_align: u8,
     ret_addr: usize,
 ) void {
-    _ = buf_align;
+    _ = log2_old_ptr_align;
     _ = ret_addr;
     _ = uefi.system_table.boot_services.?.freePool(@alignCast(8, buf.ptr));
 }

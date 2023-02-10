@@ -2,9 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
 
-test "aggregate initializers should allow initializing comptime fields, verifying equality (stage2 only)" {
-    if (builtin.zig_backend == .stage1) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+test "aggregate initializers should allow initializing comptime fields, verifying equality" {
+    if (true) return error.SkipZigTest; // TODO
 
     var x: u32 = 15;
     const T = @TypeOf(.{ @as(i32, -1234), @as(u32, 5678), x });

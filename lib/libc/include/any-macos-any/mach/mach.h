@@ -85,10 +85,6 @@ __BEGIN_DECLS
 extern void                     panic_init(mach_port_t);
 extern void                     panic(const char *, ...);
 
-extern void                     safe_gets(char *,
-    char *,
-    int);
-
 extern void                     slot_name(cpu_type_t,
     cpu_subtype_t,
     char **,

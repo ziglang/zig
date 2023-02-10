@@ -720,6 +720,8 @@ int vsnprintf (char *__stream, size_t __n, const char *__format, __builtin_va_li
   int __cdecl setvbuf(FILE * __restrict__ _File,char * __restrict__ _Buf,int _Mode,size_t _Size);
 #ifdef _UCRT
   __mingw_ovr
+  __MINGW_ATTRIB_PURE
+  __attribute__((__format__ (__MINGW_PRINTF_FORMAT, 1, 2))) __MINGW_ATTRIB_NONNULL(1)
   int __cdecl _scprintf(const char * __restrict__ _Format,...)
   {
     __builtin_va_list __ap;
@@ -730,6 +732,7 @@ int vsnprintf (char *__stream, size_t __n, const char *__format, __builtin_va_li
     return __ret;
   }
   __mingw_ovr __MINGW_ATTRIB_DEPRECATED_SEC_WARN
+  __attribute__((__format__ (__MINGW_SCANF_FORMAT, 3, 4))) __MINGW_ATTRIB_NONNULL(3)
   int __cdecl _snscanf(const char * __restrict__ _Src,size_t _MaxCount,const char * __restrict__ _Format,...)
   {
     __builtin_va_list __ap;
@@ -740,9 +743,15 @@ int vsnprintf (char *__stream, size_t __n, const char *__format, __builtin_va_li
     return __ret;
   }
 #else
+  __MINGW_ATTRIB_PURE
+  __attribute__((__format__ (ms_printf, 1, 2))) __MINGW_ATTRIB_NONNULL(1)
   _CRTIMP int __cdecl _scprintf(const char * __restrict__ _Format,...);
+  __attribute__((__format__ (ms_scanf, 3, 4))) __MINGW_ATTRIB_NONNULL(3)
   _CRTIMP int __cdecl _snscanf(const char * __restrict__ _Src,size_t _MaxCount,const char * __restrict__ _Format,...) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
 #endif
+  __MINGW_ATTRIB_PURE
+  __attribute__((__format__ (ms_printf, 1, 0))) __MINGW_ATTRIB_NONNULL(1)
+  _CRTIMP int __cdecl _vscprintf(const char * __restrict__ _Format,va_list _ArgList);
   FILE *__cdecl tmpfile(void) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
   char *__cdecl tmpnam(char *_Buffer);
   int __cdecl ungetc(int _Ch,FILE *_File);
@@ -844,6 +853,8 @@ char * tmpnam(char * __dst)
 #if __MINGW_FORTIFY_LEVEL > 0
     __mingw_bos_ptr_chk_warn(__stream, __n, 1);
 #endif
+    if (__builtin_constant_p(__n) && __n == 0)
+      return _vscprintf(__format, __local_argv);
     return __ms_vsnprintf (__stream, __n, __format, __local_argv);
   }
 
@@ -858,6 +869,8 @@ __attribute__((__format__ (ms_printf, 3, 4))) __MINGW_ATTRIB_NONNULL(3)
 int snprintf (char * __restrict__ __stream, size_t __n, const char * __restrict__ __format, ...)
 {
   __mingw_bos_ptr_chk_warn(__stream, __n, 1);
+  if (__builtin_constant_p(__n) && __n == 0)
+    return _scprintf(__format, __builtin_va_arg_pack());
   return __ms_snprintf(__stream, __n, __format, __builtin_va_arg_pack());
 }
 
@@ -869,7 +882,10 @@ int snprintf (char * __restrict__ __stream, size_t __n, const char * __restrict_
 {
   int __retval;
   __builtin_va_list __local_argv; __builtin_va_start( __local_argv, __format );
-  __retval = __ms_vsnprintf (__stream, __n, __format, __local_argv);
+  if (__builtin_constant_p(__n) && __n == 0)
+    __retval = _vscprintf(__format, __local_argv);
+  else
+    __retval = __ms_vsnprintf (__stream, __n, __format, __local_argv);
   __builtin_va_end( __local_argv );
   return __retval;
 }
@@ -920,8 +936,6 @@ int vsprintf (char * __restrict__ __stream, const char * __restrict__ __format, 
 #endif
 #endif /* _UCRT */
 #endif /* __USE_MINGW_ANSI_STDIO */
-
-  _CRTIMP int __cdecl _vscprintf(const char * __restrict__ _Format,va_list _ArgList);
 
   _CRTIMP int __cdecl _set_printf_count_output(int _Value);
   _CRTIMP int __cdecl _get_printf_count_output(void);

@@ -109,7 +109,7 @@ pub const Block = struct {
     /// Perform operations on multiple blocks in parallel.
     pub const parallel = struct {
         /// The recommended number of AES encryption/decryption to perform in parallel for the chosen implementation.
-        pub const optimal_parallel_blocks = 8;
+        pub const optimal_parallel_blocks = 6;
 
         /// Encrypt multiple blocks in parallel, each their own round key.
         pub inline fn encryptParallel(comptime count: usize, blocks: [count]Block, round_keys: [count]Block) [count]Block {

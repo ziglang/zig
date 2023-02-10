@@ -6,7 +6,7 @@ const testing = std.testing;
 pub fn MultiWriter(comptime Writers: type) type {
     comptime var ErrSet = error{};
     inline for (@typeInfo(Writers).Struct.fields) |field| {
-        const StreamType = field.field_type;
+        const StreamType = field.type;
         ErrSet = ErrSet || StreamType.Error;
     }
 

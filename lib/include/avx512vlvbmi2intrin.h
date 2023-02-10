@@ -239,172 +239,172 @@ _mm256_maskz_expandloadu_epi8(__mmask32 __U, void const *__P)
 }
 
 #define _mm256_shldi_epi64(A, B, I) \
-  (__m256i)__builtin_ia32_vpshldq256((__v4di)(__m256i)(A), \
-                                     (__v4di)(__m256i)(B), (int)(I))
+  ((__m256i)__builtin_ia32_vpshldq256((__v4di)(__m256i)(A), \
+                                      (__v4di)(__m256i)(B), (int)(I)))
 
 #define _mm256_mask_shldi_epi64(S, U, A, B, I) \
-  (__m256i)__builtin_ia32_selectq_256((__mmask8)(U), \
-                                    (__v4di)_mm256_shldi_epi64((A), (B), (I)), \
-                                    (__v4di)(__m256i)(S))
+  ((__m256i)__builtin_ia32_selectq_256((__mmask8)(U), \
+                                     (__v4di)_mm256_shldi_epi64((A), (B), (I)), \
+                                     (__v4di)(__m256i)(S)))
 
 #define _mm256_maskz_shldi_epi64(U, A, B, I) \
-  (__m256i)__builtin_ia32_selectq_256((__mmask8)(U), \
-                                    (__v4di)_mm256_shldi_epi64((A), (B), (I)), \
-                                    (__v4di)_mm256_setzero_si256())
+  ((__m256i)__builtin_ia32_selectq_256((__mmask8)(U), \
+                                     (__v4di)_mm256_shldi_epi64((A), (B), (I)), \
+                                     (__v4di)_mm256_setzero_si256()))
 
 #define _mm_shldi_epi64(A, B, I) \
-  (__m128i)__builtin_ia32_vpshldq128((__v2di)(__m128i)(A), \
-                                     (__v2di)(__m128i)(B), (int)(I))
+  ((__m128i)__builtin_ia32_vpshldq128((__v2di)(__m128i)(A), \
+                                      (__v2di)(__m128i)(B), (int)(I)))
 
 #define _mm_mask_shldi_epi64(S, U, A, B, I) \
-  (__m128i)__builtin_ia32_selectq_128((__mmask8)(U), \
-                                      (__v2di)_mm_shldi_epi64((A), (B), (I)), \
-                                      (__v2di)(__m128i)(S))
+  ((__m128i)__builtin_ia32_selectq_128((__mmask8)(U), \
+                                       (__v2di)_mm_shldi_epi64((A), (B), (I)), \
+                                       (__v2di)(__m128i)(S)))
 
 #define _mm_maskz_shldi_epi64(U, A, B, I) \
-  (__m128i)__builtin_ia32_selectq_128((__mmask8)(U), \
-                                      (__v2di)_mm_shldi_epi64((A), (B), (I)), \
-                                      (__v2di)_mm_setzero_si128())
+  ((__m128i)__builtin_ia32_selectq_128((__mmask8)(U), \
+                                       (__v2di)_mm_shldi_epi64((A), (B), (I)), \
+                                       (__v2di)_mm_setzero_si128()))
 
 #define _mm256_shldi_epi32(A, B, I) \
-  (__m256i)__builtin_ia32_vpshldd256((__v8si)(__m256i)(A), \
-                                     (__v8si)(__m256i)(B), (int)(I))
+  ((__m256i)__builtin_ia32_vpshldd256((__v8si)(__m256i)(A), \
+                                      (__v8si)(__m256i)(B), (int)(I)))
 
 #define _mm256_mask_shldi_epi32(S, U, A, B, I) \
-  (__m256i)__builtin_ia32_selectd_256((__mmask8)(U), \
-                                    (__v8si)_mm256_shldi_epi32((A), (B), (I)), \
-                                    (__v8si)(__m256i)(S))
+  ((__m256i)__builtin_ia32_selectd_256((__mmask8)(U), \
+                                     (__v8si)_mm256_shldi_epi32((A), (B), (I)), \
+                                     (__v8si)(__m256i)(S)))
 
 #define _mm256_maskz_shldi_epi32(U, A, B, I) \
-  (__m256i)__builtin_ia32_selectd_256((__mmask8)(U), \
-                                    (__v8si)_mm256_shldi_epi32((A), (B), (I)), \
-                                    (__v8si)_mm256_setzero_si256())
+  ((__m256i)__builtin_ia32_selectd_256((__mmask8)(U), \
+                                     (__v8si)_mm256_shldi_epi32((A), (B), (I)), \
+                                     (__v8si)_mm256_setzero_si256()))
 
 #define _mm_shldi_epi32(A, B, I) \
-  (__m128i)__builtin_ia32_vpshldd128((__v4si)(__m128i)(A), \
-                                     (__v4si)(__m128i)(B), (int)(I))
+  ((__m128i)__builtin_ia32_vpshldd128((__v4si)(__m128i)(A), \
+                                      (__v4si)(__m128i)(B), (int)(I)))
 
 #define _mm_mask_shldi_epi32(S, U, A, B, I) \
-  (__m128i)__builtin_ia32_selectd_128((__mmask8)(U), \
-                                      (__v4si)_mm_shldi_epi32((A), (B), (I)), \
-                                      (__v4si)(__m128i)(S))
+  ((__m128i)__builtin_ia32_selectd_128((__mmask8)(U), \
+                                       (__v4si)_mm_shldi_epi32((A), (B), (I)), \
+                                       (__v4si)(__m128i)(S)))
 
 #define _mm_maskz_shldi_epi32(U, A, B, I) \
-  (__m128i)__builtin_ia32_selectd_128((__mmask8)(U), \
-                                      (__v4si)_mm_shldi_epi32((A), (B), (I)), \
-                                      (__v4si)_mm_setzero_si128())
+  ((__m128i)__builtin_ia32_selectd_128((__mmask8)(U), \
+                                       (__v4si)_mm_shldi_epi32((A), (B), (I)), \
+                                       (__v4si)_mm_setzero_si128()))
 
 #define _mm256_shldi_epi16(A, B, I) \
-  (__m256i)__builtin_ia32_vpshldw256((__v16hi)(__m256i)(A), \
-                                     (__v16hi)(__m256i)(B), (int)(I))
+  ((__m256i)__builtin_ia32_vpshldw256((__v16hi)(__m256i)(A), \
+                                      (__v16hi)(__m256i)(B), (int)(I)))
 
 #define _mm256_mask_shldi_epi16(S, U, A, B, I) \
-  (__m256i)__builtin_ia32_selectw_256((__mmask16)(U), \
-                                   (__v16hi)_mm256_shldi_epi16((A), (B), (I)), \
-                                   (__v16hi)(__m256i)(S))
+  ((__m256i)__builtin_ia32_selectw_256((__mmask16)(U), \
+                                    (__v16hi)_mm256_shldi_epi16((A), (B), (I)), \
+                                    (__v16hi)(__m256i)(S)))
 
 #define _mm256_maskz_shldi_epi16(U, A, B, I) \
-  (__m256i)__builtin_ia32_selectw_256((__mmask16)(U), \
-                                   (__v16hi)_mm256_shldi_epi16((A), (B), (I)), \
-                                   (__v16hi)_mm256_setzero_si256())
+  ((__m256i)__builtin_ia32_selectw_256((__mmask16)(U), \
+                                    (__v16hi)_mm256_shldi_epi16((A), (B), (I)), \
+                                    (__v16hi)_mm256_setzero_si256()))
 
 #define _mm_shldi_epi16(A, B, I) \
-  (__m128i)__builtin_ia32_vpshldw128((__v8hi)(__m128i)(A), \
-                                     (__v8hi)(__m128i)(B), (int)(I))
+  ((__m128i)__builtin_ia32_vpshldw128((__v8hi)(__m128i)(A), \
+                                      (__v8hi)(__m128i)(B), (int)(I)))
 
 #define _mm_mask_shldi_epi16(S, U, A, B, I) \
-  (__m128i)__builtin_ia32_selectw_128((__mmask8)(U), \
-                                      (__v8hi)_mm_shldi_epi16((A), (B), (I)), \
-                                      (__v8hi)(__m128i)(S))
+  ((__m128i)__builtin_ia32_selectw_128((__mmask8)(U), \
+                                       (__v8hi)_mm_shldi_epi16((A), (B), (I)), \
+                                       (__v8hi)(__m128i)(S)))
 
 #define _mm_maskz_shldi_epi16(U, A, B, I) \
-  (__m128i)__builtin_ia32_selectw_128((__mmask8)(U), \
-                                      (__v8hi)_mm_shldi_epi16((A), (B), (I)), \
-                                      (__v8hi)_mm_setzero_si128())
+  ((__m128i)__builtin_ia32_selectw_128((__mmask8)(U), \
+                                       (__v8hi)_mm_shldi_epi16((A), (B), (I)), \
+                                       (__v8hi)_mm_setzero_si128()))
 
 #define _mm256_shrdi_epi64(A, B, I) \
-  (__m256i)__builtin_ia32_vpshrdq256((__v4di)(__m256i)(A), \
-                                     (__v4di)(__m256i)(B), (int)(I))
+  ((__m256i)__builtin_ia32_vpshrdq256((__v4di)(__m256i)(A), \
+                                      (__v4di)(__m256i)(B), (int)(I)))
 
 #define _mm256_mask_shrdi_epi64(S, U, A, B, I) \
-  (__m256i)__builtin_ia32_selectq_256((__mmask8)(U), \
-                                    (__v4di)_mm256_shrdi_epi64((A), (B), (I)), \
-                                    (__v4di)(__m256i)(S))
+  ((__m256i)__builtin_ia32_selectq_256((__mmask8)(U), \
+                                     (__v4di)_mm256_shrdi_epi64((A), (B), (I)), \
+                                     (__v4di)(__m256i)(S)))
 
 #define _mm256_maskz_shrdi_epi64(U, A, B, I) \
-  (__m256i)__builtin_ia32_selectq_256((__mmask8)(U), \
-                                    (__v4di)_mm256_shrdi_epi64((A), (B), (I)), \
-                                    (__v4di)_mm256_setzero_si256())
+  ((__m256i)__builtin_ia32_selectq_256((__mmask8)(U), \
+                                     (__v4di)_mm256_shrdi_epi64((A), (B), (I)), \
+                                     (__v4di)_mm256_setzero_si256()))
 
 #define _mm_shrdi_epi64(A, B, I) \
-  (__m128i)__builtin_ia32_vpshrdq128((__v2di)(__m128i)(A), \
-                                     (__v2di)(__m128i)(B), (int)(I))
+  ((__m128i)__builtin_ia32_vpshrdq128((__v2di)(__m128i)(A), \
+                                      (__v2di)(__m128i)(B), (int)(I)))
 
 #define _mm_mask_shrdi_epi64(S, U, A, B, I) \
-  (__m128i)__builtin_ia32_selectq_128((__mmask8)(U), \
-                                      (__v2di)_mm_shrdi_epi64((A), (B), (I)), \
-                                      (__v2di)(__m128i)(S))
+  ((__m128i)__builtin_ia32_selectq_128((__mmask8)(U), \
+                                       (__v2di)_mm_shrdi_epi64((A), (B), (I)), \
+                                       (__v2di)(__m128i)(S)))
 
 #define _mm_maskz_shrdi_epi64(U, A, B, I) \
-  (__m128i)__builtin_ia32_selectq_128((__mmask8)(U), \
-                                      (__v2di)_mm_shrdi_epi64((A), (B), (I)), \
-                                      (__v2di)_mm_setzero_si128())
+  ((__m128i)__builtin_ia32_selectq_128((__mmask8)(U), \
+                                       (__v2di)_mm_shrdi_epi64((A), (B), (I)), \
+                                       (__v2di)_mm_setzero_si128()))
 
 #define _mm256_shrdi_epi32(A, B, I) \
-  (__m256i)__builtin_ia32_vpshrdd256((__v8si)(__m256i)(A), \
-                                     (__v8si)(__m256i)(B), (int)(I))
+  ((__m256i)__builtin_ia32_vpshrdd256((__v8si)(__m256i)(A), \
+                                      (__v8si)(__m256i)(B), (int)(I)))
 
 #define _mm256_mask_shrdi_epi32(S, U, A, B, I) \
-  (__m256i)__builtin_ia32_selectd_256((__mmask8)(U), \
-                                    (__v8si)_mm256_shrdi_epi32((A), (B), (I)), \
-                                    (__v8si)(__m256i)(S))
+  ((__m256i)__builtin_ia32_selectd_256((__mmask8)(U), \
+                                     (__v8si)_mm256_shrdi_epi32((A), (B), (I)), \
+                                     (__v8si)(__m256i)(S)))
 
 #define _mm256_maskz_shrdi_epi32(U, A, B, I) \
-  (__m256i)__builtin_ia32_selectd_256((__mmask8)(U), \
-                                    (__v8si)_mm256_shrdi_epi32((A), (B), (I)), \
-                                    (__v8si)_mm256_setzero_si256())
+  ((__m256i)__builtin_ia32_selectd_256((__mmask8)(U), \
+                                     (__v8si)_mm256_shrdi_epi32((A), (B), (I)), \
+                                     (__v8si)_mm256_setzero_si256()))
 
 #define _mm_shrdi_epi32(A, B, I) \
-  (__m128i)__builtin_ia32_vpshrdd128((__v4si)(__m128i)(A), \
-                                     (__v4si)(__m128i)(B), (int)(I))
+  ((__m128i)__builtin_ia32_vpshrdd128((__v4si)(__m128i)(A), \
+                                      (__v4si)(__m128i)(B), (int)(I)))
 
 #define _mm_mask_shrdi_epi32(S, U, A, B, I) \
-  (__m128i)__builtin_ia32_selectd_128((__mmask8)(U), \
-                                      (__v4si)_mm_shrdi_epi32((A), (B), (I)), \
-                                      (__v4si)(__m128i)(S))
+  ((__m128i)__builtin_ia32_selectd_128((__mmask8)(U), \
+                                       (__v4si)_mm_shrdi_epi32((A), (B), (I)), \
+                                       (__v4si)(__m128i)(S)))
 
 #define _mm_maskz_shrdi_epi32(U, A, B, I) \
-  (__m128i)__builtin_ia32_selectd_128((__mmask8)(U), \
-                                      (__v4si)_mm_shrdi_epi32((A), (B), (I)), \
-                                      (__v4si)_mm_setzero_si128())
+  ((__m128i)__builtin_ia32_selectd_128((__mmask8)(U), \
+                                       (__v4si)_mm_shrdi_epi32((A), (B), (I)), \
+                                       (__v4si)_mm_setzero_si128()))
 
 #define _mm256_shrdi_epi16(A, B, I) \
-  (__m256i)__builtin_ia32_vpshrdw256((__v16hi)(__m256i)(A), \
-                                     (__v16hi)(__m256i)(B), (int)(I))
+  ((__m256i)__builtin_ia32_vpshrdw256((__v16hi)(__m256i)(A), \
+                                      (__v16hi)(__m256i)(B), (int)(I)))
 
 #define _mm256_mask_shrdi_epi16(S, U, A, B, I) \
-  (__m256i)__builtin_ia32_selectw_256((__mmask16)(U), \
-                                   (__v16hi)_mm256_shrdi_epi16((A), (B), (I)), \
-                                   (__v16hi)(__m256i)(S))
+  ((__m256i)__builtin_ia32_selectw_256((__mmask16)(U), \
+                                    (__v16hi)_mm256_shrdi_epi16((A), (B), (I)), \
+                                    (__v16hi)(__m256i)(S)))
 
 #define _mm256_maskz_shrdi_epi16(U, A, B, I) \
-  (__m256i)__builtin_ia32_selectw_256((__mmask16)(U), \
-                                   (__v16hi)_mm256_shrdi_epi16((A), (B), (I)), \
-                                   (__v16hi)_mm256_setzero_si256())
+  ((__m256i)__builtin_ia32_selectw_256((__mmask16)(U), \
+                                    (__v16hi)_mm256_shrdi_epi16((A), (B), (I)), \
+                                    (__v16hi)_mm256_setzero_si256()))
 
 #define _mm_shrdi_epi16(A, B, I) \
-  (__m128i)__builtin_ia32_vpshrdw128((__v8hi)(__m128i)(A), \
-                                     (__v8hi)(__m128i)(B), (int)(I))
+  ((__m128i)__builtin_ia32_vpshrdw128((__v8hi)(__m128i)(A), \
+                                      (__v8hi)(__m128i)(B), (int)(I)))
 
 #define _mm_mask_shrdi_epi16(S, U, A, B, I) \
-  (__m128i)__builtin_ia32_selectw_128((__mmask8)(U), \
-                                      (__v8hi)_mm_shrdi_epi16((A), (B), (I)), \
-                                      (__v8hi)(__m128i)(S))
+  ((__m128i)__builtin_ia32_selectw_128((__mmask8)(U), \
+                                       (__v8hi)_mm_shrdi_epi16((A), (B), (I)), \
+                                       (__v8hi)(__m128i)(S)))
 
 #define _mm_maskz_shrdi_epi16(U, A, B, I) \
-  (__m128i)__builtin_ia32_selectw_128((__mmask8)(U), \
-                                      (__v8hi)_mm_shrdi_epi16((A), (B), (I)), \
-                                      (__v8hi)_mm_setzero_si128())
+  ((__m128i)__builtin_ia32_selectw_128((__mmask8)(U), \
+                                       (__v8hi)_mm_shrdi_epi16((A), (B), (I)), \
+                                       (__v8hi)_mm_setzero_si128()))
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS256
 _mm256_shldv_epi64(__m256i __A, __m256i __B, __m256i __C)

@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const Tag = enum {
     add_with_overflow,
+    addrspace_cast,
     align_cast,
     align_of,
     as,
@@ -29,6 +30,10 @@ pub const Tag = enum {
     compile_log,
     ctz,
     c_undef,
+    c_va_arg,
+    c_va_copy,
+    c_va_end,
+    c_va_start,
     div_exact,
     div_floor,
     div_trunc,
@@ -57,10 +62,10 @@ pub const Tag = enum {
     int_to_error,
     int_to_float,
     int_to_ptr,
-    maximum,
+    max,
     memcpy,
     memset,
-    minimum,
+    min,
     wasm_memory_size,
     wasm_memory_grow,
     mod,
@@ -70,6 +75,7 @@ pub const Tag = enum {
     prefetch,
     ptr_cast,
     ptr_to_int,
+    qual_cast,
     rem,
     return_address,
     select,
@@ -149,7 +155,14 @@ pub const list = list: {
             "@addWithOverflow",
             .{
                 .tag = .add_with_overflow,
-                .param_count = 4,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@addrSpaceCast",
+            .{
+                .tag = .addrspace_cast,
+                .param_count = 2,
             },
         },
         .{
@@ -250,14 +263,14 @@ pub const list = list: {
             "@byteSwap",
             .{
                 .tag = .byte_swap,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
             "@bitReverse",
             .{
                 .tag = .bit_reverse,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -301,7 +314,7 @@ pub const list = list: {
             "@clz",
             .{
                 .tag = .clz,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -336,7 +349,7 @@ pub const list = list: {
             "@ctz",
             .{
                 .tag = .ctz,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -344,6 +357,30 @@ pub const list = list: {
             .{
                 .tag = .c_undef,
                 .param_count = 1,
+            },
+        },
+        .{
+            "@cVaArg", .{
+                .tag = .c_va_arg,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@cVaCopy", .{
+                .tag = .c_va_copy,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@cVaEnd", .{
+                .tag = .c_va_end,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@cVaStart", .{
+                .tag = .c_va_start,
+                .param_count = 0,
             },
         },
         .{
@@ -548,9 +585,9 @@ pub const list = list: {
             },
         },
         .{
-            "@maximum",
+            "@max",
             .{
-                .tag = .maximum,
+                .tag = .max,
                 .param_count = 2,
             },
         },
@@ -569,9 +606,9 @@ pub const list = list: {
             },
         },
         .{
-            "@minimum",
+            "@min",
             .{
-                .tag = .minimum,
+                .tag = .min,
                 .param_count = 2,
             },
         },
@@ -600,7 +637,7 @@ pub const list = list: {
             "@mulWithOverflow",
             .{
                 .tag = .mul_with_overflow,
-                .param_count = 4,
+                .param_count = 2,
             },
         },
         .{
@@ -614,7 +651,7 @@ pub const list = list: {
             "@popCount",
             .{
                 .tag = .pop_count,
-                .param_count = 2,
+                .param_count = 1,
             },
         },
         .{
@@ -636,6 +673,13 @@ pub const list = list: {
             .{
                 .tag = .ptr_to_int,
                 .param_count = 1,
+            },
+        },
+        .{
+            "@qualCast",
+            .{
+                .tag = .qual_cast,
+                .param_count = 2,
             },
         },
         .{
@@ -705,7 +749,7 @@ pub const list = list: {
             "@shlWithOverflow",
             .{
                 .tag = .shl_with_overflow,
-                .param_count = 4,
+                .param_count = 2,
             },
         },
         .{
@@ -853,7 +897,7 @@ pub const list = list: {
             "@subWithOverflow",
             .{
                 .tag = .sub_with_overflow,
-                .param_count = 4,
+                .param_count = 2,
             },
         },
         .{

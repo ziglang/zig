@@ -11,9 +11,8 @@ const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
 const Type = @import("../../type.zig").Type;
 const ErrorMsg = Module.ErrorMsg;
+const Target = std.Target;
 const assert = std.debug.assert;
-const DW = std.dwarf;
-const leb128 = std.leb;
 const Instruction = bits.Instruction;
 const Register = bits.Register;
 const log = std.log.scoped(.aarch64_emit);
@@ -33,9 +32,13 @@ prev_di_column: u32,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
-/// The amount of stack space consumed by all stack arguments as well
-/// as the saved callee-saved registers
-prologue_stack_space: u32,
+/// The amount of stack space consumed by the saved callee-saved
+/// registers in bytes
+saved_regs_stack_space: u32,
+
+/// The final stack frame size of the function (already aligned to the
+/// respective stack alignment). Does not include prologue stack space.
+stack_size: u32,
 
 /// The branch type of every branch
 branch_types: std.AutoHashMapUnmanaged(Mir.Inst.Index, BranchType) = .{},
@@ -88,6 +91,8 @@ pub fn emitMir(
             .rsb => try emit.mirDataProcessing(inst),
             .sub => try emit.mirDataProcessing(inst),
             .subs => try emit.mirDataProcessing(inst),
+
+            .sub_sp_scratch_r4 => try emit.mirSubStackPointer(inst),
 
             .asr => try emit.mirShift(inst),
             .lsl => try emit.mirShift(inst),
@@ -186,6 +191,24 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
         .dbg_epilogue_begin,
         .dbg_prologue_end,
         => return 0,
+
+        .sub_sp_scratch_r4 => {
+            const imm32 = emit.mir.instructions.items(.data)[inst].imm32;
+
+            if (imm32 == 0) {
+                return 0 * 4;
+            } else if (Instruction.Operand.fromU32(imm32) != null) {
+                // sub
+                return 1 * 4;
+            } else if (Target.arm.featureSetHas(emit.target.cpu.features, .has_v7)) {
+                // movw; movt; sub
+                return 3 * 4;
+            } else {
+                // mov; orr; orr; orr; sub
+                return 5 * 4;
+            }
+        },
+
         else => return 4,
     }
 }
@@ -331,19 +354,7 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
     const delta_pc: usize = self.code.items.len - self.prev_di_pc;
     switch (self.debug_output) {
         .dwarf => |dw| {
-            // TODO Look into using the DWARF special opcodes to compress this data.
-            // It lets you emit single-byte opcodes that add different numbers to
-            // both the PC and the line number at the same time.
-            const dbg_line = &dw.dbg_line;
-            try dbg_line.ensureUnusedCapacity(11);
-            dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
-            leb128.writeULEB128(dbg_line.writer(), delta_pc) catch unreachable;
-            if (delta_line != 0) {
-                dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
-                leb128.writeILEB128(dbg_line.writer(), delta_line) catch unreachable;
-            }
-            dbg_line.appendAssumeCapacity(DW.LNS.copy);
-            self.prev_di_pc = self.code.items.len;
+            try dw.advancePCAndLine(delta_line, delta_pc);
             self.prev_di_line = line;
             self.prev_di_column = column;
             self.prev_di_pc = self.code.items.len;
@@ -381,20 +392,75 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
 fn mirDataProcessing(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const cond = emit.mir.instructions.items(.cond)[inst];
-    const rr_op = emit.mir.instructions.items(.data)[inst].rr_op;
 
     switch (tag) {
-        .add => try emit.writeInstruction(Instruction.add(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .adds => try emit.writeInstruction(Instruction.adds(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .@"and" => try emit.writeInstruction(Instruction.@"and"(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .cmp => try emit.writeInstruction(Instruction.cmp(cond, rr_op.rn, rr_op.op)),
-        .eor => try emit.writeInstruction(Instruction.eor(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .mov => try emit.writeInstruction(Instruction.mov(cond, rr_op.rd, rr_op.op)),
-        .mvn => try emit.writeInstruction(Instruction.mvn(cond, rr_op.rd, rr_op.op)),
-        .orr => try emit.writeInstruction(Instruction.orr(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .rsb => try emit.writeInstruction(Instruction.rsb(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .sub => try emit.writeInstruction(Instruction.sub(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .subs => try emit.writeInstruction(Instruction.subs(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+        .add,
+        .adds,
+        .@"and",
+        .eor,
+        .orr,
+        .rsb,
+        .sub,
+        .subs,
+        => {
+            const rr_op = emit.mir.instructions.items(.data)[inst].rr_op;
+            switch (tag) {
+                .add => try emit.writeInstruction(Instruction.add(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .adds => try emit.writeInstruction(Instruction.adds(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .@"and" => try emit.writeInstruction(Instruction.@"and"(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .eor => try emit.writeInstruction(Instruction.eor(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .orr => try emit.writeInstruction(Instruction.orr(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .rsb => try emit.writeInstruction(Instruction.rsb(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .sub => try emit.writeInstruction(Instruction.sub(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .subs => try emit.writeInstruction(Instruction.subs(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                else => unreachable,
+            }
+        },
+        .cmp => {
+            const r_op_cmp = emit.mir.instructions.items(.data)[inst].r_op_cmp;
+            try emit.writeInstruction(Instruction.cmp(cond, r_op_cmp.rn, r_op_cmp.op));
+        },
+        .mov,
+        .mvn,
+        => {
+            const r_op_mov = emit.mir.instructions.items(.data)[inst].r_op_mov;
+            switch (tag) {
+                .mov => try emit.writeInstruction(Instruction.mov(cond, r_op_mov.rd, r_op_mov.op)),
+                .mvn => try emit.writeInstruction(Instruction.mvn(cond, r_op_mov.rd, r_op_mov.op)),
+                else => unreachable,
+            }
+        },
+        else => unreachable,
+    }
+}
+
+fn mirSubStackPointer(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const cond = emit.mir.instructions.items(.cond)[inst];
+    const imm32 = emit.mir.instructions.items(.data)[inst].imm32;
+
+    switch (tag) {
+        .sub_sp_scratch_r4 => {
+            if (imm32 == 0) return;
+
+            const operand = Instruction.Operand.fromU32(imm32) orelse blk: {
+                const scratch: Register = .r4;
+
+                if (Target.arm.featureSetHas(emit.target.cpu.features, .has_v7)) {
+                    try emit.writeInstruction(Instruction.movw(cond, scratch, @truncate(u16, imm32)));
+                    try emit.writeInstruction(Instruction.movt(cond, scratch, @truncate(u16, imm32 >> 16)));
+                } else {
+                    try emit.writeInstruction(Instruction.mov(cond, scratch, Instruction.Operand.imm(@truncate(u8, imm32), 0)));
+                    try emit.writeInstruction(Instruction.orr(cond, scratch, scratch, Instruction.Operand.imm(@truncate(u8, imm32 >> 8), 12)));
+                    try emit.writeInstruction(Instruction.orr(cond, scratch, scratch, Instruction.Operand.imm(@truncate(u8, imm32 >> 16), 8)));
+                    try emit.writeInstruction(Instruction.orr(cond, scratch, scratch, Instruction.Operand.imm(@truncate(u8, imm32 >> 24), 4)));
+                }
+
+                break :blk Instruction.Operand.reg(scratch, Instruction.Operand.Shift.none);
+            };
+
+            try emit.writeInstruction(Instruction.sub(cond, .sp, .sp, operand));
+        },
         else => unreachable,
     }
 }
@@ -463,7 +529,7 @@ fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
 fn mirDebugPrologueEnd(emit: *Emit) !void {
     switch (emit.debug_output) {
         .dwarf => |dw| {
-            try dw.dbg_line.append(DW.LNS.set_prologue_end);
+            try dw.setPrologueEnd();
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
@@ -474,7 +540,7 @@ fn mirDebugPrologueEnd(emit: *Emit) !void {
 fn mirDebugEpilogueBegin(emit: *Emit) !void {
     switch (emit.debug_output) {
         .dwarf => |dw| {
-            try dw.dbg_line.append(DW.LNS.set_epilogue_begin);
+            try dw.setEpilogueBegin();
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
@@ -500,14 +566,15 @@ fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const cond = emit.mir.instructions.items(.cond)[inst];
     const r_stack_offset = emit.mir.instructions.items(.data)[inst].r_stack_offset;
+    const rt = r_stack_offset.rt;
 
-    const raw_offset = emit.prologue_stack_space - r_stack_offset.stack_offset;
+    const raw_offset = emit.stack_size + emit.saved_regs_stack_space + r_stack_offset.stack_offset;
     switch (tag) {
         .ldr_ptr_stack_argument => {
             const operand = Instruction.Operand.fromU32(raw_offset) orelse
                 return emit.fail("TODO mirLoadStack larger offsets", .{});
 
-            try emit.writeInstruction(Instruction.add(cond, r_stack_offset.rt, .fp, operand));
+            try emit.writeInstruction(Instruction.add(cond, rt, .sp, operand));
         },
         .ldr_stack_argument,
         .ldrb_stack_argument,
@@ -516,23 +583,11 @@ fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
                 break :blk Instruction.Offset.imm(@intCast(u12, raw_offset));
             } else return emit.fail("TODO mirLoadStack larger offsets", .{});
 
-            const ldr = switch (tag) {
-                .ldr_stack_argument => &Instruction.ldr,
-                .ldrb_stack_argument => &Instruction.ldrb,
+            switch (tag) {
+                .ldr_stack_argument => try emit.writeInstruction(Instruction.ldr(cond, rt, .sp, .{ .offset = offset })),
+                .ldrb_stack_argument => try emit.writeInstruction(Instruction.ldrb(cond, rt, .sp, .{ .offset = offset })),
                 else => unreachable,
-            };
-
-            const ldr_workaround = switch (builtin.zig_backend) {
-                .stage1 => ldr.*,
-                else => ldr,
-            };
-
-            try emit.writeInstruction(ldr_workaround(
-                cond,
-                r_stack_offset.rt,
-                .fp,
-                .{ .offset = offset },
-            ));
+            }
         },
         .ldrh_stack_argument,
         .ldrsb_stack_argument,
@@ -542,24 +597,12 @@ fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
                 break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, raw_offset));
             } else return emit.fail("TODO mirLoadStack larger offsets", .{});
 
-            const ldr = switch (tag) {
-                .ldrh_stack_argument => &Instruction.ldrh,
-                .ldrsb_stack_argument => &Instruction.ldrsb,
-                .ldrsh_stack_argument => &Instruction.ldrsh,
+            switch (tag) {
+                .ldrh_stack_argument => try emit.writeInstruction(Instruction.ldrh(cond, rt, .sp, .{ .offset = offset })),
+                .ldrsb_stack_argument => try emit.writeInstruction(Instruction.ldrsb(cond, rt, .sp, .{ .offset = offset })),
+                .ldrsh_stack_argument => try emit.writeInstruction(Instruction.ldrsh(cond, rt, .sp, .{ .offset = offset })),
                 else => unreachable,
-            };
-
-            const ldr_workaround = switch (builtin.zig_backend) {
-                .stage1 => ldr.*,
-                else => ldr,
-            };
-
-            try emit.writeInstruction(ldr_workaround(
-                cond,
-                r_stack_offset.rt,
-                .fp,
-                .{ .offset = offset },
-            ));
+            }
         },
         else => unreachable,
     }

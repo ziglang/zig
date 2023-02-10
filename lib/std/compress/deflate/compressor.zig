@@ -202,7 +202,7 @@ fn bulkHash4(b: []u8, dst: []u32) u32 {
     return hb;
 }
 
-const CompressorOptions = struct {
+pub const CompressorOptions = struct {
     level: Compression = .default_compression,
     dictionary: ?[]const u8 = null,
 };
@@ -254,10 +254,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
 
         // Inner writer wrapped in a HuffmanBitWriter
         hm_bw: hm_bw.HuffmanBitWriter(WriterType) = undefined,
-        bulk_hasher: if (@import("builtin").zig_backend == .stage1)
-            fn ([]u8, []u32) u32
-        else
-            *const fn ([]u8, []u32) u32,
+        bulk_hasher: *const fn ([]u8, []u32) u32,
 
         sync: bool, // requesting flush
         best_speed_enc: *fast.DeflateFast, // Encoder for best_speed
@@ -1082,7 +1079,7 @@ test "deflate" {
         try comp.close();
         comp.deinit();
 
-        try expect(mem.eql(u8, output.items, dt.out));
+        try testing.expectEqualSlices(u8, dt.out, output.items);
     }
 }
 
@@ -1107,7 +1104,7 @@ test "bulkHash4" {
             _ = bulkHash4(y, dst);
             for (dst) |got, i| {
                 var want = hash4(y[i..]);
-                try expect(got == want);
+                try testing.expectEqual(want, got);
             }
         }
     }

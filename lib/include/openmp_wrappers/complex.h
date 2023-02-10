@@ -17,9 +17,18 @@
 // We require math functions in the complex builtins below.
 #include <math.h>
 
+#ifdef __NVPTX__
 #define __OPENMP_NVPTX__
 #include <__clang_cuda_complex_builtins.h>
 #undef __OPENMP_NVPTX__
+#endif
+
+#ifdef __AMDGCN__
+#define __OPENMP_AMDGCN__
+#include <__clang_cuda_complex_builtins.h>
+#undef __OPENMP_AMDGCN__
+#endif
+
 #endif
 
 // Grab the host header too.

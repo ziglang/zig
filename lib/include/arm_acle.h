@@ -730,6 +730,12 @@ __arm_st64bv0(void *__addr, data512_t __value) {
 #define __arm_mte_ptrdiff(__ptra, __ptrb) __builtin_arm_subp(__ptra, __ptrb)
 #endif
 
+/* Memory Operations Intrinsics */
+#if __ARM_FEATURE_MOPS && __ARM_FEATURE_MEMORY_TAGGING
+#define __arm_mops_memset_tag(__tagged_address, __value, __size)    \
+  __builtin_arm_mops_memset_tag(__tagged_address, __value, __size)
+#endif
+
 /* Transactional Memory Extension (TME) Intrinsics */
 #if __ARM_FEATURE_TME
 

@@ -95,7 +95,9 @@ pub fn syscall6(
     );
 }
 
-pub extern fn clone(func: fn (arg: usize) callconv(.C) u8, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+const CloneFn = *const fn (arg: usize) callconv(.C) u8;
+
+pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
 
 pub const restore = restore_rt;
 

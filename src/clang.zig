@@ -161,12 +161,11 @@ pub const ASTUnit = opaque {
     extern fn ZigClangASTUnit_getSourceManager(*ASTUnit) *SourceManager;
 
     pub const visitLocalTopLevelDecls = ZigClangASTUnit_visitLocalTopLevelDecls;
-    extern fn ZigClangASTUnit_visitLocalTopLevelDecls(*ASTUnit, context: ?*anyopaque, Fn: ?VisitorFn) bool;
-
-    const VisitorFn = if (@import("builtin").zig_backend == .stage1)
-        fn (?*anyopaque, *const Decl) callconv(.C) bool
-    else
-        *const fn (?*anyopaque, *const Decl) callconv(.C) bool;
+    extern fn ZigClangASTUnit_visitLocalTopLevelDecls(
+        *ASTUnit,
+        context: ?*anyopaque,
+        Fn: ?*const fn (?*anyopaque, *const Decl) callconv(.C) bool,
+    ) bool;
 
     pub const getLocalPreprocessingEntities_begin = ZigClangASTUnit_getLocalPreprocessingEntities_begin;
     extern fn ZigClangASTUnit_getLocalPreprocessingEntities_begin(*ASTUnit) PreprocessingRecord.iterator;
@@ -469,6 +468,9 @@ pub const FieldDecl = opaque {
 
     pub const getAlignedAttribute = ZigClangFieldDecl_getAlignedAttribute;
     extern fn ZigClangFieldDecl_getAlignedAttribute(*const FieldDecl, *const ASTContext) c_uint;
+
+    pub const getPackedAttribute = ZigClangFieldDecl_getPackedAttribute;
+    extern fn ZigClangFieldDecl_getPackedAttribute(*const FieldDecl) bool;
 
     pub const isAnonymousStructOrUnion = ZigClangFieldDecl_isAnonymousStructOrUnion;
     extern fn ZigClangFieldDecl_isAnonymousStructOrUnion(*const FieldDecl) bool;
@@ -859,7 +861,7 @@ pub const StmtExpr = opaque {
 
 pub const StringLiteral = opaque {
     pub const getKind = ZigClangStringLiteral_getKind;
-    extern fn ZigClangStringLiteral_getKind(*const StringLiteral) StringLiteral_StringKind;
+    extern fn ZigClangStringLiteral_getKind(*const StringLiteral) CharacterLiteral_CharacterKind;
 
     pub const getCodeUnit = ZigClangStringLiteral_getCodeUnit;
     extern fn ZigClangStringLiteral_getCodeUnit(*const StringLiteral, usize) u32;
@@ -1015,6 +1017,9 @@ pub const VarDecl = opaque {
     pub const getAlignedAttribute = ZigClangVarDecl_getAlignedAttribute;
     extern fn ZigClangVarDecl_getAlignedAttribute(*const VarDecl, *const ASTContext) c_uint;
 
+    pub const getPackedAttribute = ZigClangVarDecl_getPackedAttribute;
+    extern fn ZigClangVarDecl_getPackedAttribute(*const VarDecl) bool;
+
     pub const getCleanupAttribute = ZigClangVarDecl_getCleanupAttribute;
     extern fn ZigClangVarDecl_getCleanupAttribute(*const VarDecl) ?*const FunctionDecl;
 
@@ -1117,6 +1122,8 @@ pub const TypeClass = enum(c_int) {
     VariableArray,
     Atomic,
     Attributed,
+    BTFTagAttributed,
+    BitInt,
     BlockPointer,
     Builtin,
     Complex,
@@ -1124,13 +1131,12 @@ pub const TypeClass = enum(c_int) {
     Auto,
     DeducedTemplateSpecialization,
     DependentAddressSpace,
-    DependentExtInt,
+    DependentBitInt,
     DependentName,
     DependentSizedExtVector,
     DependentTemplateSpecialization,
     DependentVector,
     Elaborated,
-    ExtInt,
     FunctionNoProto,
     FunctionProto,
     InjectedClassName,
@@ -1159,6 +1165,7 @@ pub const TypeClass = enum(c_int) {
     Typedef,
     UnaryTransform,
     UnresolvedUsing,
+    Using,
     Vector,
     ExtVector,
 };
@@ -1200,31 +1207,42 @@ const StmtClass = enum(c_int) {
     OMPDistributeSimdDirectiveClass,
     OMPForDirectiveClass,
     OMPForSimdDirectiveClass,
+    OMPGenericLoopDirectiveClass,
+    OMPMaskedTaskLoopDirectiveClass,
+    OMPMaskedTaskLoopSimdDirectiveClass,
     OMPMasterTaskLoopDirectiveClass,
     OMPMasterTaskLoopSimdDirectiveClass,
     OMPParallelForDirectiveClass,
     OMPParallelForSimdDirectiveClass,
+    OMPParallelGenericLoopDirectiveClass,
+    OMPParallelMaskedTaskLoopDirectiveClass,
+    OMPParallelMaskedTaskLoopSimdDirectiveClass,
     OMPParallelMasterTaskLoopDirectiveClass,
     OMPParallelMasterTaskLoopSimdDirectiveClass,
     OMPSimdDirectiveClass,
     OMPTargetParallelForSimdDirectiveClass,
+    OMPTargetParallelGenericLoopDirectiveClass,
     OMPTargetSimdDirectiveClass,
     OMPTargetTeamsDistributeDirectiveClass,
     OMPTargetTeamsDistributeParallelForDirectiveClass,
     OMPTargetTeamsDistributeParallelForSimdDirectiveClass,
     OMPTargetTeamsDistributeSimdDirectiveClass,
+    OMPTargetTeamsGenericLoopDirectiveClass,
     OMPTaskLoopDirectiveClass,
     OMPTaskLoopSimdDirectiveClass,
     OMPTeamsDistributeDirectiveClass,
     OMPTeamsDistributeParallelForDirectiveClass,
     OMPTeamsDistributeParallelForSimdDirectiveClass,
     OMPTeamsDistributeSimdDirectiveClass,
+    OMPTeamsGenericLoopDirectiveClass,
     OMPTileDirectiveClass,
     OMPUnrollDirectiveClass,
     OMPMaskedDirectiveClass,
     OMPMasterDirectiveClass,
+    OMPMetaDirectiveClass,
     OMPOrderedDirectiveClass,
     OMPParallelDirectiveClass,
+    OMPParallelMaskedDirectiveClass,
     OMPParallelMasterDirectiveClass,
     OMPParallelSectionsDirectiveClass,
     OMPScanDirectiveClass,
@@ -1529,6 +1547,7 @@ pub const DeclKind = enum(c_int) {
     OMPDeclareMapper,
     OMPDeclareReduction,
     TemplateParamObject,
+    UnnamedGlobalConstant,
     UnresolvedUsingValue,
     OMPAllocate,
     OMPRequires,
@@ -1759,6 +1778,7 @@ pub const BuiltinTypeKind = enum(c_int) {
     Float16,
     BFloat16,
     Float128,
+    Ibm128,
     NullPtr,
     ObjCId,
     ObjCClass,
@@ -1801,6 +1821,8 @@ pub const CallingConv = enum(c_int) {
     PreserveMost,
     PreserveAll,
     AArch64VectorCall,
+    AArch64SVEPCS,
+    AMDGPUKernelCall,
 };
 
 pub const StorageClass = enum(c_int) {
@@ -1820,14 +1842,6 @@ pub const APFloat_roundingMode = enum(i8) {
     NearestTiesToAway = 4,
     Dynamic = 7,
     Invalid = -1,
-};
-
-pub const StringLiteral_StringKind = enum(c_int) {
-    Ascii,
-    Wide,
-    UTF8,
-    UTF16,
-    UTF32,
 };
 
 pub const CharacterLiteral_CharacterKind = enum(c_int) {
@@ -1883,13 +1897,13 @@ pub const OffsetOfNode_Kind = enum(c_int) {
     Base,
 };
 
-pub const Stage2ErrorMsg = extern struct {
+pub const ErrorMsg = extern struct {
     filename_ptr: ?[*]const u8,
     filename_len: usize,
     msg_ptr: [*]const u8,
     msg_len: usize,
     // valid until the ASTUnit is freed
-    source: ?[*]const u8,
+    source: ?[*:0]const u8,
     // 0 based
     line: c_uint,
     // 0 based
@@ -1898,14 +1912,17 @@ pub const Stage2ErrorMsg = extern struct {
     offset: c_uint,
 
     pub const delete = ZigClangErrorMsg_delete;
-    extern fn ZigClangErrorMsg_delete(ptr: [*]Stage2ErrorMsg, len: usize) void;
+    extern fn ZigClangErrorMsg_delete(ptr: [*]ErrorMsg, len: usize) void;
 };
 
 pub const LoadFromCommandLine = ZigClangLoadFromCommandLine;
 extern fn ZigClangLoadFromCommandLine(
     args_begin: [*]?[*]const u8,
     args_end: [*]?[*]const u8,
-    errors_ptr: *[*]Stage2ErrorMsg,
+    errors_ptr: *[*]ErrorMsg,
     errors_len: *usize,
     resources_path: [*:0]const u8,
 ) ?*ASTUnit;
+
+pub const isLLVMUsingSeparateLibcxx = ZigClangIsLLVMUsingSeparateLibcxx;
+extern fn ZigClangIsLLVMUsingSeparateLibcxx() bool;

@@ -47,8 +47,12 @@ const posix_spawn = if (builtin.target.isDarwin()) struct {
         }
 
         pub fn deinit(self: *Attr) void {
-            system.posix_spawnattr_destroy(&self.attr);
-            self.* = undefined;
+            defer self.* = undefined;
+            switch (errno(system.posix_spawnattr_destroy(&self.attr))) {
+                .SUCCESS => return,
+                .INVAL => unreachable, // Invalid parameters.
+                else => unreachable,
+            }
         }
 
         pub fn get(self: Attr) Error!u16 {
@@ -83,8 +87,12 @@ const posix_spawn = if (builtin.target.isDarwin()) struct {
         }
 
         pub fn deinit(self: *Actions) void {
-            system.posix_spawn_file_actions_destroy(&self.actions);
-            self.* = undefined;
+            defer self.* = undefined;
+            switch (errno(system.posix_spawn_file_actions_destroy(&self.actions))) {
+                .SUCCESS => return,
+                .INVAL => unreachable, // Invalid parameters.
+                else => unreachable,
+            }
         }
 
         pub fn open(self: *Actions, fd: fd_t, path: []const u8, flags: u32, mode: mode_t) Error!void {

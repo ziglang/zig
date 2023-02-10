@@ -31,6 +31,14 @@
 
 #include <sys/cdefs.h>
 
+#if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
+#define RENAME_SECLUDE                  0x00000001
+#define RENAME_SWAP                     0x00000002
+#define RENAME_EXCL                     0x00000004
+#define RENAME_RESERVED1                0x00000008
+#define RENAME_NOFOLLOW_ANY             0x00000010
+#endif
+
 #if __DARWIN_C_LEVEL >= 200809L
 #include <Availability.h>
 
@@ -40,9 +48,6 @@ int     renameat(int, const char *, int, const char *) __OSX_AVAILABLE_STARTING(
 
 #if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
 
-#define RENAME_SECLUDE          0x00000001
-#define RENAME_SWAP                     0x00000002
-#define RENAME_EXCL                     0x00000004
 int renamex_np(const char *, const char *, unsigned int) __OSX_AVAILABLE(10.12) __IOS_AVAILABLE(10.0) __TVOS_AVAILABLE(10.0) __WATCHOS_AVAILABLE(3.0);
 int renameatx_np(int, const char *, int, const char *, unsigned int) __OSX_AVAILABLE(10.12) __IOS_AVAILABLE(10.0) __TVOS_AVAILABLE(10.0) __WATCHOS_AVAILABLE(3.0);
 

@@ -23,7 +23,7 @@ static int n = 31;
 static int i = 3;
 static int j = 0;
 static uint32_t *x = init+1;
-#ifdef __wasilibc_unmodified_upstream
+#if defined(__wasilibc_unmodified_upstream) || defined(_REENTRANT)
 static volatile int lock[1];
 volatile int *const __random_lockptr = lock;
 #endif

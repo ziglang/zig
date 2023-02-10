@@ -310,6 +310,10 @@ pub const SymbolKind = enum(u16) {
 
 pub const TypeIndex = u32;
 
+// TODO According to this header:
+// https://github.com/microsoft/microsoft-pdb/blob/082c5290e5aff028ae84e43affa8be717aa7af73/include/cvinfo.h#L3722
+// we should define RecordPrefix as part of the ProcSym structure.
+// This might be important when we start generating PDB in self-hosted with our own PE linker.
 pub const ProcSym = extern struct {
     Parent: u32,
     End: u32,
@@ -321,8 +325,7 @@ pub const ProcSym = extern struct {
     CodeOffset: u32,
     Segment: u16,
     Flags: ProcSymFlags,
-    // following is a null terminated string
-    // Name: [*]u8,
+    Name: [1]u8, // null-terminated
 };
 
 pub const ProcSymFlags = packed struct {
@@ -475,7 +478,7 @@ fn readSparseBitVector(stream: anytype, allocator: mem.Allocator) ![]u32 {
             if (bit_i == std.math.maxInt(u5)) break;
         }
     }
-    return list.toOwnedSlice();
+    return try list.toOwnedSlice();
 }
 
 pub const Pdb = struct {
@@ -612,8 +615,8 @@ pub const Pdb = struct {
                 return error.InvalidDebugInfo;
         }
 
-        self.modules = modules.toOwnedSlice();
-        self.sect_contribs = sect_contribs.toOwnedSlice();
+        self.modules = try modules.toOwnedSlice();
+        self.sect_contribs = try sect_contribs.toOwnedSlice();
     }
 
     pub fn parseInfoStream(self: *Pdb) !void {
@@ -668,7 +671,7 @@ pub const Pdb = struct {
                 const name_index = try reader.readIntLittle(u32);
                 if (name_offset > name_bytes.len)
                     return error.InvalidDebugInfo;
-                const name = mem.sliceTo(std.meta.assumeSentinel(name_bytes.ptr + name_offset, 0), 0);
+                const name = mem.sliceTo(name_bytes[name_offset..], 0);
                 if (mem.eql(u8, name, "/names")) {
                     break :str_tab_index name_index;
                 }
@@ -693,7 +696,7 @@ pub const Pdb = struct {
                 .S_LPROC32, .S_GPROC32 => {
                     const proc_sym = @ptrCast(*align(1) ProcSym, &module.symbols[symbol_i + @sizeOf(RecordPrefix)]);
                     if (address >= proc_sym.CodeOffset and address < proc_sym.CodeOffset + proc_sym.CodeSize) {
-                        return mem.sliceTo(@ptrCast([*:0]u8, proc_sym) + @sizeOf(ProcSym), 0);
+                        return mem.sliceTo(@ptrCast([*:0]u8, &proc_sym.Name[0]), 0);
                     }
                 },
                 else => {},
@@ -969,9 +972,9 @@ fn blockCountFromSize(size: u32, block_size: u32) u32 {
 }
 
 // https://llvm.org/docs/PDB/MsfFile.html#the-superblock
-const SuperBlock = extern struct {
+pub const SuperBlock = extern struct {
     /// The LLVM docs list a space between C / C++ but empirically this is not the case.
-    const file_magic = "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\x00\x00\x00";
+    pub const file_magic = "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\x00\x00\x00";
 
     FileMagic: [file_magic.len]u8,
 

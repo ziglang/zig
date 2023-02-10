@@ -14,4 +14,4 @@ fn x() void {}
 
 // error
 //
-// :6:23: error: expected usize, found bool
+// :6:23: error: expected type 'usize', found 'bool'

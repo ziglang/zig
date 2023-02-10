@@ -14,17 +14,19 @@ pub const Keccak_512 = Keccak(512, 0x01);
 fn Keccak(comptime bits: usize, comptime delim: u8) type {
     return struct {
         const Self = @This();
-        pub const block_length = 200;
+        /// The output length, in bytes.
         pub const digest_length = bits / 8;
+        /// The block length, or rate, in bytes.
+        pub const block_length = 200 - bits / 4;
+        /// Keccak does not have any options.
         pub const Options = struct {};
 
         s: [200]u8,
         offset: usize,
-        rate: usize,
 
         pub fn init(options: Options) Self {
             _ = options;
-            return Self{ .s = [_]u8{0} ** 200, .offset = 0, .rate = 200 - (bits / 4) };
+            return Self{ .s = [_]u8{0} ** 200, .offset = 0 };
         }
 
         pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
@@ -36,7 +38,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
         pub fn update(d: *Self, b: []const u8) void {
             var ip: usize = 0;
             var len = b.len;
-            var rate = d.rate - d.offset;
+            var rate = block_length - d.offset;
             var offset = d.offset;
 
             // absorb
@@ -48,7 +50,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
 
                 ip += rate;
                 len -= rate;
-                rate = d.rate;
+                rate = block_length;
                 offset = 0;
             }
 
@@ -61,7 +63,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
         pub fn final(d: *Self, out: *[digest_length]u8) void {
             // padding
             d.s[d.offset] ^= delim;
-            d.s[d.rate - 1] ^= 0x80;
+            d.s[block_length - 1] ^= 0x80;
 
             keccakF(1600, &d.s);
 
@@ -69,11 +71,11 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
             var op: usize = 0;
             var len: usize = bits / 8;
 
-            while (len >= d.rate) {
-                mem.copy(u8, out[op..], d.s[0..d.rate]);
+            while (len >= block_length) {
+                mem.copy(u8, out[op..], d.s[0..block_length]);
                 keccakF(1600, &d.s);
-                op += d.rate;
-                len -= d.rate;
+                op += block_length;
+                len -= block_length;
             }
 
             mem.copy(u8, out[op..], d.s[0..len]);

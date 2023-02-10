@@ -1,4 +1,4 @@
-//===------------------------- barrier.cpp ---------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -15,14 +15,14 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_TREE_BARRIER) && (_LIBCPP_STD_VER > 11)
+#if !defined(_LIBCPP_HAS_NO_TREE_BARRIER)
 
 class __barrier_algorithm_base {
 public:
     struct alignas(64) /* naturally-align the heap state */ __state_t
     {
         struct {
-            __atomic_base<__barrier_phase_t> __phase = ATOMIC_VAR_INIT(0);
+          __atomic_base<__barrier_phase_t> __phase{0};
         } __tickets[64];
     };
 
@@ -90,7 +90,7 @@ void __destroy_barrier_algorithm_base(__barrier_algorithm_base* __barrier)
     delete __barrier;
 }
 
-#endif //!defined(_LIBCPP_HAS_NO_TREE_BARRIER) && (_LIBCPP_STD_VER >= 11)
+#endif // !defined(_LIBCPP_HAS_NO_TREE_BARRIER)
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -87,11 +87,11 @@ struct tm {
 };
 
 #if __DARWIN_UNIX03
-#define CLOCKS_PER_SEC  1000000	/* [XSI] */
+#define CLOCKS_PER_SEC  ((clock_t)1000000)	/* [XSI] */
 #else /* !__DARWIN_UNIX03 */
 #include <machine/_limits.h>	/* Include file containing CLK_TCK. */
 
-#define CLOCKS_PER_SEC  (__DARWIN_CLK_TCK)
+#define CLOCKS_PER_SEC  ((clock_t)(__DARWIN_CLK_TCK))
 #endif /* __DARWIN_UNIX03 */
 
 #ifndef _ANSI_SOURCE

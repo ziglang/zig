@@ -115,6 +115,16 @@ test "p384 double base multiplication" {
     try testing.expect(pr1.equivalent(pr2));
 }
 
+test "p384 double base multiplication with large scalars" {
+    const p1 = P384.basePoint;
+    const p2 = P384.basePoint.dbl();
+    const s1 = [_]u8{0xee} ** 48;
+    const s2 = [_]u8{0xdd} ** 48;
+    const pr1 = try P384.mulDoubleBasePublic(p1, s1, p2, s2, .Little);
+    const pr2 = (try p1.mul(s1, .Little)).add(try p2.mul(s2, .Little));
+    try testing.expect(pr1.equivalent(pr2));
+}
+
 test "p384 scalar inverse" {
     const expected = "a3cc705f33b5679a66e76ce66e68055c927c5dba531b2837b18fe86119511091b54d733f26b2e7a0f6fa2e7ea21ca806";
     var out: [48]u8 = undefined;

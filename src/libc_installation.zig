@@ -64,10 +64,7 @@ pub const LibCInstallation = struct {
         while (it.next()) |line| {
             if (line.len == 0 or line[0] == '#') continue;
             var line_it = std.mem.split(u8, line, "=");
-            const name = line_it.next() orelse {
-                log.err("missing equal sign after field name\n", .{});
-                return error.ParseError;
-            };
+            const name = line_it.first();
             const value = line_it.rest();
             inline for (fields) |field, i| {
                 if (std.mem.eql(u8, name, field.name)) {
@@ -390,7 +387,7 @@ pub const LibCInstallation = struct {
                 else => return error.FileSystem,
             };
 
-            self.include_dir = result_buf.toOwnedSlice();
+            self.include_dir = try result_buf.toOwnedSlice();
             return;
         }
 
@@ -411,9 +408,10 @@ pub const LibCInstallation = struct {
         defer result_buf.deinit();
 
         const arch_sub_dir = switch (builtin.target.cpu.arch) {
-            .i386 => "x86",
+            .x86 => "x86",
             .x86_64 => "x64",
             .arm, .armeb => "arm",
+            .aarch64 => "arm64",
             else => return error.UnsupportedArchitecture,
         };
 
@@ -436,7 +434,7 @@ pub const LibCInstallation = struct {
                 else => return error.FileSystem,
             };
 
-            self.crt_dir = result_buf.toOwnedSlice();
+            self.crt_dir = try result_buf.toOwnedSlice();
             return;
         }
         return error.LibCRuntimeNotFound;
@@ -474,9 +472,10 @@ pub const LibCInstallation = struct {
         defer result_buf.deinit();
 
         const arch_sub_dir = switch (builtin.target.cpu.arch) {
-            .i386 => "x86",
+            .x86 => "x86",
             .x86_64 => "x64",
             .arm, .armeb => "arm",
+            .aarch64 => "arm64",
             else => return error.UnsupportedArchitecture,
         };
 
@@ -500,7 +499,7 @@ pub const LibCInstallation = struct {
                 else => return error.FileSystem,
             };
 
-            self.kernel32_lib_dir = result_buf.toOwnedSlice();
+            self.kernel32_lib_dir = try result_buf.toOwnedSlice();
             return;
         }
         return error.LibCKernel32LibNotFound;

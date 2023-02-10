@@ -30,7 +30,7 @@ fn cWriterWrite(c_file: *std.c.FILE, bytes: []const u8) std.fs.File.WriteError!u
     }
 }
 
-test {
+test "C Writer" {
     if (!builtin.link_libc or builtin.os.tag == .wasi) return error.SkipZigTest;
 
     const filename = "tmp_io_test_file.txt";

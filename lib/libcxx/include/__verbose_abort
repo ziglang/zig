@@ -1,0 +1,51 @@
+// -*- C++ -*-
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef _LIBCPP___VERBOSE_ABORT
+#define _LIBCPP___VERBOSE_ABORT
+
+#include <__availability>
+#include <__config>
+
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#  pragma GCC system_header
+#endif
+
+// Provide a default implementation of __libcpp_verbose_abort if we know that neither the built
+// library not the user is providing one. Otherwise, just declare it and use the one from the
+// built library or the one provided by the user.
+//
+// We can't provide a great implementation because it needs to be pretty much
+// dependency-free (this is included everywhere else in the library).
+#if defined(_LIBCPP_HAS_NO_VERBOSE_ABORT_IN_LIBRARY) && !defined(_LIBCPP_AVAILABILITY_CUSTOM_VERBOSE_ABORT_PROVIDED)
+
+extern "C" void abort();
+
+_LIBCPP_BEGIN_NAMESPACE_STD
+
+_LIBCPP_NORETURN _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 1, 2) _LIBCPP_HIDE_FROM_ABI inline
+void __libcpp_verbose_abort(const char *, ...) {
+  ::abort();
+  __builtin_unreachable(); // never reached, but needed to tell the compiler that the function never returns
+}
+
+_LIBCPP_END_NAMESPACE_STD
+
+#else
+
+_LIBCPP_BEGIN_NAMESPACE_STD
+
+_LIBCPP_NORETURN _LIBCPP_OVERRIDABLE_FUNC_VIS _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 1, 2)
+void __libcpp_verbose_abort(const char *__format, ...);
+
+_LIBCPP_END_NAMESPACE_STD
+
+#endif
+
+#endif // _LIBCPP___VERBOSE_ABORT

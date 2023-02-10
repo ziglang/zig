@@ -16,7 +16,7 @@
 
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__))
-#define __DEFAULT_FN_ATTRS_SSE42 __attribute__((__always_inline__, __nodebug__, __target__("sse4.2")))
+#define __DEFAULT_FN_ATTRS_CRC32 __attribute__((__always_inline__, __nodebug__, __target__("crc32")))
 
 #if defined(__cplusplus) && (__cplusplus >= 201103L)
 #define __DEFAULT_FN_ATTRS_CAST __attribute__((__always_inline__)) constexpr
@@ -40,7 +40,7 @@
  */
 static __inline__ int __DEFAULT_FN_ATTRS_CONSTEXPR
 __bsfd(int __A) {
-  return __builtin_ctz(__A);
+  return __builtin_ctz((unsigned int)__A);
 }
 
 /** Find the first set bit starting from the msb. Result is undefined if
@@ -57,7 +57,7 @@ __bsfd(int __A) {
  */
 static __inline__ int __DEFAULT_FN_ATTRS_CONSTEXPR
 __bsrd(int __A) {
-  return 31 - __builtin_clz(__A);
+  return 31 - __builtin_clz((unsigned int)__A);
 }
 
 /** Swaps the bytes in the input. Converting little endian to big endian or
@@ -73,12 +73,12 @@ __bsrd(int __A) {
  */
 static __inline__ int __DEFAULT_FN_ATTRS_CONSTEXPR
 __bswapd(int __A) {
-  return __builtin_bswap32(__A);
+  return (int)__builtin_bswap32((unsigned int)__A);
 }
 
 static __inline__ int __DEFAULT_FN_ATTRS_CONSTEXPR
 _bswap(int __A) {
-  return __builtin_bswap32(__A);
+  return (int)__builtin_bswap32((unsigned int)__A);
 }
 
 #define _bit_scan_forward(A) __bsfd((A))
@@ -99,7 +99,7 @@ _bswap(int __A) {
  */
 static __inline__ int __DEFAULT_FN_ATTRS_CONSTEXPR
 __bsfq(long long __A) {
-  return __builtin_ctzll(__A);
+  return (long long)__builtin_ctzll((unsigned long long)__A);
 }
 
 /** Find the first set bit starting from the msb. Result is undefined if
@@ -116,7 +116,7 @@ __bsfq(long long __A) {
  */
 static __inline__ int __DEFAULT_FN_ATTRS_CONSTEXPR
 __bsrq(long long __A) {
-  return 63 - __builtin_clzll(__A);
+  return 63 - __builtin_clzll((unsigned long long)__A);
 }
 
 /** Swaps the bytes in the input. Converting little endian to big endian or
@@ -132,7 +132,7 @@ __bsrq(long long __A) {
  */
 static __inline__ long long __DEFAULT_FN_ATTRS_CONSTEXPR
 __bswapq(long long __A) {
-  return __builtin_bswap64(__A);
+  return (long long)__builtin_bswap64((unsigned long long)__A);
 }
 
 #define _bswap64(A) __bswapq((A))
@@ -282,7 +282,7 @@ _castu64_f64(unsigned long long __A) {
  *  \returns The result of adding operand \a __C to the CRC-32C checksum of
  *     operand \a __D.
  */
-static __inline__ unsigned int __DEFAULT_FN_ATTRS_SSE42
+static __inline__ unsigned int __DEFAULT_FN_ATTRS_CRC32
 __crc32b(unsigned int __C, unsigned char __D)
 {
   return __builtin_ia32_crc32qi(__C, __D);
@@ -303,7 +303,7 @@ __crc32b(unsigned int __C, unsigned char __D)
  *  \returns The result of adding operand \a __C to the CRC-32C checksum of
  *     operand \a __D.
  */
-static __inline__ unsigned int __DEFAULT_FN_ATTRS_SSE42
+static __inline__ unsigned int __DEFAULT_FN_ATTRS_CRC32
 __crc32w(unsigned int __C, unsigned short __D)
 {
   return __builtin_ia32_crc32hi(__C, __D);
@@ -324,7 +324,7 @@ __crc32w(unsigned int __C, unsigned short __D)
  *  \returns The result of adding operand \a __C to the CRC-32C checksum of
  *     operand \a __D.
  */
-static __inline__ unsigned int __DEFAULT_FN_ATTRS_SSE42
+static __inline__ unsigned int __DEFAULT_FN_ATTRS_CRC32
 __crc32d(unsigned int __C, unsigned int __D)
 {
   return __builtin_ia32_crc32si(__C, __D);
@@ -346,7 +346,7 @@ __crc32d(unsigned int __C, unsigned int __D)
  *  \returns The result of adding operand \a __C to the CRC-32C checksum of
  *     operand \a __D.
  */
-static __inline__ unsigned long long __DEFAULT_FN_ATTRS_SSE42
+static __inline__ unsigned long long __DEFAULT_FN_ATTRS_CRC32
 __crc32q(unsigned long long __C, unsigned long long __D)
 {
   return __builtin_ia32_crc32di(__C, __D);
@@ -395,23 +395,23 @@ __rorw(unsigned short __X, int __C) {
 
 static __inline__ unsigned int __DEFAULT_FN_ATTRS_CONSTEXPR
 __rold(unsigned int __X, int __C) {
-  return __builtin_rotateleft32(__X, __C);
+  return __builtin_rotateleft32(__X, (unsigned int)__C);
 }
 
 static __inline__ unsigned int __DEFAULT_FN_ATTRS_CONSTEXPR
 __rord(unsigned int __X, int __C) {
-  return __builtin_rotateright32(__X, __C);
+  return __builtin_rotateright32(__X, (unsigned int)__C);
 }
 
 #ifdef __x86_64__
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS_CONSTEXPR
 __rolq(unsigned long long __X, int __C) {
-  return __builtin_rotateleft64(__X, __C);
+  return __builtin_rotateleft64(__X, (unsigned long long)__C);
 }
 
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS_CONSTEXPR
 __rorq(unsigned long long __X, int __C) {
-  return __builtin_rotateright64(__X, __C);
+  return __builtin_rotateright64(__X, (unsigned long long)__C);
 }
 #endif /* __x86_64__ */
 
@@ -435,7 +435,7 @@ __rorq(unsigned long long __X, int __C) {
 
 #undef __DEFAULT_FN_ATTRS
 #undef __DEFAULT_FN_ATTRS_CAST
-#undef __DEFAULT_FN_ATTRS_SSE42
+#undef __DEFAULT_FN_ATTRS_CRC32
 #undef __DEFAULT_FN_ATTRS_CONSTEXPR
 
 #endif /* __IA32INTRIN_H */

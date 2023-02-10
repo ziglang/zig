@@ -154,8 +154,6 @@ int     posix_spawnattr_setexceptionports_np(posix_spawnattr_t * __restrict,
 int     posix_spawnattr_setspecialport_np(posix_spawnattr_t * __restrict,
     mach_port_t, int) __API_AVAILABLE(macos(10.5), ios(2.0)) __API_UNAVAILABLE(watchos, tvos);
 
-int     posix_spawnattr_setsuidcredport_np(posix_spawnattr_t * __restrict, mach_port_t) __API_UNAVAILABLE(ios, macos);
-
 int     posix_spawnattr_setnosmt_np(const posix_spawnattr_t * __restrict attr) __API_AVAILABLE(macos(11.0));
 
 /*

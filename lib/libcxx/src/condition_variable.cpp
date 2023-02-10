@@ -1,4 +1,4 @@
-//===-------------------- condition_variable.cpp --------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,18 +6,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "__config"
+#include <__config>
 
 #ifndef _LIBCPP_HAS_NO_THREADS
 
-#include "condition_variable"
-#include "thread"
-#include "system_error"
-#include "__undef_macros"
+#include <condition_variable>
+#include <thread>
+#include <system_error>
 
 #if defined(__ELF__) && defined(_LIBCPP_LINK_PTHREAD_LIB)
-#pragma comment(lib, "pthread")
+#  pragma comment(lib, "pthread")
 #endif
+
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -89,5 +91,7 @@ notify_all_at_thread_exit(condition_variable& cond, unique_lock<mutex> lk)
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // !_LIBCPP_HAS_NO_THREADS

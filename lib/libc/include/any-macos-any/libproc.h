@@ -161,26 +161,11 @@ int proc_setthread_csm(uint32_t flags) __API_AVAILABLE(macos(11.0));
 #define PROC_CSM_NOSMT       0x0002  /* Set NO_SMT - see above */
 #define PROC_CSM_TECS        0x0004  /* Execute VERW on every return to user mode */
 
-#ifdef PRIVATE
-#include <sys/event.h>
-/*
- * Enumerate potential userspace pointers embedded in kernel data structures.
- * Currently inspects kqueues only.
- *
- * NOTE: returned "pointers" are opaque user-supplied values and thus not
- * guaranteed to address valid objects or be pointers at all.
- *
- * Returns the number of pointers found (which may exceed buffersize), or -1 on
- * failure and errno set appropriately.
- */
-int proc_list_uptrs(pid_t pid, uint64_t *buffer, uint32_t buffersize);
-
-int proc_list_dynkqueueids(int pid, kqueue_id_t *buf, uint32_t bufsz);
-int proc_piddynkqueueinfo(int pid, int flavor, kqueue_id_t kq_id, void *buffer,
-    int buffersize);
-#endif /* PRIVATE */
-
 int proc_udata_info(int pid, int flavor, void *buffer, int buffersize);
+
+#if __has_include(<libproc_private.h>)
+#include <libproc_private.h>
+#endif
 
 __END_DECLS
 

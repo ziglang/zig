@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- clocale ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -34,19 +34,18 @@ lconv* localeconv();
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <locale.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 using ::lconv _LIBCPP_USING_IF_EXISTS;
-#ifndef _LIBCPP_HAS_NO_THREAD_UNSAFE_C_FUNCTIONS
 using ::setlocale _LIBCPP_USING_IF_EXISTS;
-#endif
 using ::localeconv _LIBCPP_USING_IF_EXISTS;
 
 _LIBCPP_END_NAMESPACE_STD

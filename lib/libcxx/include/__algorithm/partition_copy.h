@@ -11,14 +11,11 @@
 
 #include <__config>
 #include <__iterator/iterator_traits.h>
-#include <utility> // pair
+#include <__utility/pair.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -46,7 +43,5 @@ partition_copy(_InputIterator __first, _InputIterator __last,
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_PARTITION_COPY_H

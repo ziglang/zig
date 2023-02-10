@@ -49,7 +49,7 @@ typedef function_table_entry   *function_table_t;
 #endif /* AUTOTEST */
 
 #ifndef	task_MSG_COUNT
-#define	task_MSG_COUNT	63
+#define	task_MSG_COUNT	64
 #endif	/* task_MSG_COUNT */
 
 #include <Availability.h>
@@ -812,20 +812,6 @@ kern_return_t task_set_exc_guard_behavior
 	task_exc_guard_behavior_t behavior
 );
 
-/* Routine task_create_suid_cred */
-#ifdef	mig_external
-mig_external
-#else
-extern
-#endif	/* mig_external */
-kern_return_t task_create_suid_cred
-(
-	task_t task,
-	suid_cred_path_t path,
-	suid_cred_uid_t uid,
-	suid_cred_t *delegation
-);
-
 /* Routine task_dyld_process_info_notify_register */
 #ifdef	mig_external
 mig_external
@@ -914,6 +900,20 @@ kern_return_t task_set_corpse_forking_behavior
 (
 	task_t task,
 	task_corpse_forking_behavior_t behavior
+);
+
+/* Routine task_test_async_upcall_propagation */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+kern_return_t task_test_async_upcall_propagation
+(
+	task_t task,
+	mach_port_t port,
+	int qos,
+	int iotier
 );
 
 __END_DECLS
@@ -1018,7 +1018,7 @@ __END_DECLS
 		NDR_record_t NDR;
 		task_flavor_t flavor;
 		mach_msg_type_number_t task_info_inCnt;
-		integer_t task_info_in[87];
+		integer_t task_info_in[89];
 	} __Request__task_set_info_t __attribute__((unused));
 #ifdef  __MigPackStructs
 #pragma pack(pop)
@@ -1645,21 +1645,6 @@ __END_DECLS
 #endif
 	typedef struct {
 		mach_msg_header_t Head;
-		NDR_record_t NDR;
-		mach_msg_type_number_t pathOffset; /* MiG doesn't use it */
-		mach_msg_type_number_t pathCnt;
-		char path[1024];
-		suid_cred_uid_t uid;
-	} __Request__task_create_suid_cred_t __attribute__((unused));
-#ifdef  __MigPackStructs
-#pragma pack(pop)
-#endif
-
-#ifdef  __MigPackStructs
-#pragma pack(push, 4)
-#endif
-	typedef struct {
-		mach_msg_header_t Head;
 		/* start of the kernel processed data */
 		mach_msg_body_t msgh_body;
 		mach_msg_port_descriptor_t notify;
@@ -1740,6 +1725,23 @@ __END_DECLS
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		/* start of the kernel processed data */
+		mach_msg_body_t msgh_body;
+		mach_msg_port_descriptor_t port;
+		/* end of the kernel processed data */
+		NDR_record_t NDR;
+		int qos;
+		int iotier;
+	} __Request__task_test_async_upcall_propagation_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Request__task_subsystem__defined */
 
 /* union of all requests */
@@ -1801,7 +1803,6 @@ union __RequestUnion__task_subsystem {
 	__Request__task_inspect_t Request_task_inspect;
 	__Request__task_get_exc_guard_behavior_t Request_task_get_exc_guard_behavior;
 	__Request__task_set_exc_guard_behavior_t Request_task_set_exc_guard_behavior;
-	__Request__task_create_suid_cred_t Request_task_create_suid_cred;
 	__Request__task_dyld_process_info_notify_register_t Request_task_dyld_process_info_notify_register;
 	__Request__task_create_identity_token_t Request_task_create_identity_token;
 	__Request__task_identity_token_get_task_port_t Request_task_identity_token_get_task_port;
@@ -1809,6 +1810,7 @@ union __RequestUnion__task_subsystem {
 	__Request__task_get_exception_ports_info_t Request_task_get_exception_ports_info;
 	__Request__task_test_sync_upcall_t Request_task_test_sync_upcall;
 	__Request__task_set_corpse_forking_behavior_t Request_task_set_corpse_forking_behavior;
+	__Request__task_test_async_upcall_propagation_t Request_task_test_async_upcall_propagation;
 };
 #endif /* !__RequestUnion__task_subsystem__defined */
 /* typedefs for all replies */
@@ -1894,7 +1896,7 @@ union __RequestUnion__task_subsystem {
 		NDR_record_t NDR;
 		kern_return_t RetCode;
 		mach_msg_type_number_t task_info_outCnt;
-		integer_t task_info_out[87];
+		integer_t task_info_out[89];
 	} __Reply__task_info_t __attribute__((unused));
 #ifdef  __MigPackStructs
 #pragma pack(pop)
@@ -2545,20 +2547,6 @@ union __RequestUnion__task_subsystem {
 #endif
 	typedef struct {
 		mach_msg_header_t Head;
-		/* start of the kernel processed data */
-		mach_msg_body_t msgh_body;
-		mach_msg_port_descriptor_t delegation;
-		/* end of the kernel processed data */
-	} __Reply__task_create_suid_cred_t __attribute__((unused));
-#ifdef  __MigPackStructs
-#pragma pack(pop)
-#endif
-
-#ifdef  __MigPackStructs
-#pragma pack(push, 4)
-#endif
-	typedef struct {
-		mach_msg_header_t Head;
 		NDR_record_t NDR;
 		kern_return_t RetCode;
 	} __Reply__task_dyld_process_info_notify_register_t __attribute__((unused));
@@ -2646,6 +2634,18 @@ union __RequestUnion__task_subsystem {
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		kern_return_t RetCode;
+	} __Reply__task_test_async_upcall_propagation_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Reply__task_subsystem__defined */
 
 /* union of all replies */
@@ -2707,7 +2707,6 @@ union __ReplyUnion__task_subsystem {
 	__Reply__task_inspect_t Reply_task_inspect;
 	__Reply__task_get_exc_guard_behavior_t Reply_task_get_exc_guard_behavior;
 	__Reply__task_set_exc_guard_behavior_t Reply_task_set_exc_guard_behavior;
-	__Reply__task_create_suid_cred_t Reply_task_create_suid_cred;
 	__Reply__task_dyld_process_info_notify_register_t Reply_task_dyld_process_info_notify_register;
 	__Reply__task_create_identity_token_t Reply_task_create_identity_token;
 	__Reply__task_identity_token_get_task_port_t Reply_task_identity_token_get_task_port;
@@ -2715,6 +2714,7 @@ union __ReplyUnion__task_subsystem {
 	__Reply__task_get_exception_ports_info_t Reply_task_get_exception_ports_info;
 	__Reply__task_test_sync_upcall_t Reply_task_test_sync_upcall;
 	__Reply__task_set_corpse_forking_behavior_t Reply_task_set_corpse_forking_behavior;
+	__Reply__task_test_async_upcall_propagation_t Reply_task_test_async_upcall_propagation;
 };
 #endif /* !__RequestUnion__task_subsystem__defined */
 
@@ -2774,14 +2774,14 @@ union __ReplyUnion__task_subsystem {
     { "task_inspect", 3451 },\
     { "task_get_exc_guard_behavior", 3452 },\
     { "task_set_exc_guard_behavior", 3453 },\
-    { "task_create_suid_cred", 3454 },\
     { "task_dyld_process_info_notify_register", 3456 },\
     { "task_create_identity_token", 3457 },\
     { "task_identity_token_get_task_port", 3458 },\
     { "task_dyld_process_info_notify_deregister", 3459 },\
     { "task_get_exception_ports_info", 3460 },\
     { "task_test_sync_upcall", 3461 },\
-    { "task_set_corpse_forking_behavior", 3462 }
+    { "task_set_corpse_forking_behavior", 3462 },\
+    { "task_test_async_upcall_propagation", 3463 }
 #endif
 
 #ifdef __AfterMigUserHeader

@@ -8,10 +8,12 @@ pub const Feature = enum {
     atomics,
     bulk_memory,
     exception_handling,
+    extended_const,
     multivalue,
     mutable_globals,
     nontrapping_fptoint,
     reference_types,
+    relaxed_simd,
     sign_ext,
     simd128,
     tail_call,
@@ -41,6 +43,11 @@ pub const all_features = blk: {
         .description = "Enable Wasm exception handling",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.extended_const)] = .{
+        .llvm_name = "extended-const",
+        .description = "Enable extended const expressions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.multivalue)] = .{
         .llvm_name = "multivalue",
         .description = "Enable multivalue blocks, instructions, and functions",
@@ -59,6 +66,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.reference_types)] = .{
         .llvm_name = "reference-types",
         .description = "Enable reference types",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.relaxed_simd)] = .{
+        .llvm_name = "relaxed-simd",
+        .description = "Enable relaxed-simd instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sign_ext)] = .{

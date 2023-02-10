@@ -13,12 +13,10 @@ const Decl = Module.Decl;
 
 pub const is_enabled = builtin.mode == .Debug;
 
-/// To use these crash report diagnostics, publish these symbols in your main file.
+/// To use these crash report diagnostics, publish this panic in your main file
+/// and add `pub const enable_segfault_handler = false;` to your `std_options`.
 /// You will also need to call initialize() on startup, preferably as the very first operation in your program.
-pub const root_decls = struct {
-    pub const panic = if (is_enabled) compilerPanic else std.builtin.default_panic;
-    pub const enable_segfault_handler = false;
-};
+pub const panic = if (is_enabled) compilerPanic else std.builtin.default_panic;
 
 /// Install signal handlers to identify crashes and report diagnostics.
 pub fn initialize() void {
@@ -155,10 +153,10 @@ fn writeFullyQualifiedDeclWithFile(mod: *Module, decl: *Decl, stream: anytype) !
     try decl.renderFullyQualifiedDebugName(mod, stream);
 }
 
-pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
+pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, maybe_ret_addr: ?usize) noreturn {
     PanicSwitch.preDispatch();
     @setCold(true);
-    const ret_addr = @returnAddress();
+    const ret_addr = maybe_ret_addr orelse @returnAddress();
     const stack_ctx: StackContext = .{ .current = .{ .ret_addr = ret_addr } };
     PanicSwitch.dispatch(error_return_trace, stack_ctx, msg);
 }
@@ -205,7 +203,7 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
     };
 
     const stack_ctx: StackContext = switch (builtin.cpu.arch) {
-        .i386 => ctx: {
+        .x86 => ctx: {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
             const ip = @intCast(usize, ctx.mcontext.gregs[os.REG.EIP]);
             const bp = @intCast(usize, ctx.mcontext.gregs[os.REG.EBP]);
@@ -239,11 +237,15 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
             const ip = switch (native_os) {
                 .macos => @intCast(usize, ctx.mcontext.ss.pc),
+                .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.PC]),
+                .freebsd => @intCast(usize, ctx.mcontext.gpregs.elr),
                 else => @intCast(usize, ctx.mcontext.pc),
             };
             // x29 is the ABI-designated frame pointer
             const bp = switch (native_os) {
                 .macos => @intCast(usize, ctx.mcontext.ss.fp),
+                .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.FP]),
+                .freebsd => @intCast(usize, ctx.mcontext.gpregs.x[os.REG.FP]),
                 else => @intCast(usize, ctx.mcontext.regs[29]),
             };
             break :ctx StackContext{ .exception = .{ .bp = bp, .ip = ip } };
@@ -549,8 +551,8 @@ const PanicSwitch = struct {
         // TODO: Tailcall is broken right now, but eventually this should be used
         // to avoid blowing up the stack.  It's ok for now though, there are no
         // cycles in the state machine so the max stack usage is bounded.
-        //@call(.{.modifier = .always_tail}, func, args);
-        @call(.{}, func, args);
+        //@call(.always_tail, func, args);
+        @call(.auto, func, args);
     }
 
     fn recover(

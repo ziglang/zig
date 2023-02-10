@@ -1,14 +1,16 @@
 const std = @import("std");
-const Builder = std.build.Builder;
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const optimize = b.standardOptimizeOption(.{});
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
 
-    const exe = b.addExecutable("main", null);
-    exe.setBuildMode(mode);
+    const exe = b.addExecutable(.{
+        .name = "main",
+        .optimize = optimize,
+        .target = .{ .os_tag = .macos },
+    });
     exe.addCSourceFile("main.c", &.{});
     exe.linkLibC();
     exe.entry_symbol_name = "_non_main";
@@ -22,13 +24,11 @@ pub fn build(b: *Builder) void {
     check_exe.checkNext("entryoff {entryoff}");
 
     check_exe.checkInSymtab();
-    check_exe.checkNext("_non_main {n_value}");
+    check_exe.checkNext("{n_value} (__TEXT,__text) external _non_main");
 
     check_exe.checkComputeCompare("vmaddr entryoff +", .{ .op = .eq, .value = .{ .variable = "n_value" } });
 
-    test_step.dependOn(&check_exe.step);
-
-    const run = exe.run();
+    const run = check_exe.runAndCompare();
     run.expectStdOutEqual("42");
     test_step.dependOn(&run.step);
 }

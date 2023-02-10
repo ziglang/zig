@@ -46,6 +46,7 @@ pub fn enumToInt(tv: TypedValue, buffer: *Value.Payload.U64) Value {
 }
 
 const max_aggregate_items = 100;
+const max_string_len = 256;
 
 const FormatContext = struct {
     tv: TypedValue,
@@ -73,6 +74,9 @@ pub fn print(
     const target = mod.getTarget();
     var val = tv.val;
     var ty = tv.ty;
+    if (val.isVariable(mod))
+        return writer.writeAll("(variable)");
+
     while (true) switch (val.tag()) {
         .u1_type => return writer.writeAll("u1"),
         .u8_type => return writer.writeAll("u8"),
@@ -132,86 +136,64 @@ pub fn print(
         .address_space_type => return writer.writeAll("std.builtin.AddressSpace"),
         .float_mode_type => return writer.writeAll("std.builtin.FloatMode"),
         .reduce_op_type => return writer.writeAll("std.builtin.ReduceOp"),
-        .call_options_type => return writer.writeAll("std.builtin.CallOptions"),
+        .modifier_type => return writer.writeAll("std.builtin.CallModifier"),
         .prefetch_options_type => return writer.writeAll("std.builtin.PrefetchOptions"),
         .export_options_type => return writer.writeAll("std.builtin.ExportOptions"),
         .extern_options_type => return writer.writeAll("std.builtin.ExternOptions"),
         .type_info_type => return writer.writeAll("std.builtin.Type"),
 
-        .empty_struct_value => return writer.writeAll(".{}"),
-        .aggregate => {
+        .empty_struct_value, .aggregate => {
             if (level == 0) {
                 return writer.writeAll(".{ ... }");
             }
-            const vals = val.castTag(.aggregate).?.data;
-            if (ty.castTag(.anon_struct)) |anon_struct| {
-                const field_names = anon_struct.data.names;
-                const types = anon_struct.data.types;
-                const max_len = std.math.min(types.len, max_aggregate_items);
+            if (ty.zigTypeTag() == .Struct) {
+                try writer.writeAll(".{");
+                const max_len = std.math.min(ty.structFieldCount(), max_aggregate_items);
 
                 var i: u32 = 0;
                 while (i < max_len) : (i += 1) {
                     if (i != 0) try writer.writeAll(", ");
-                    try writer.print(".{s} = ", .{field_names[i]});
+                    switch (ty.tag()) {
+                        .anon_struct, .@"struct" => try writer.print(".{s} = ", .{ty.structFieldName(i)}),
+                        else => {},
+                    }
                     try print(.{
-                        .ty = types[i],
-                        .val = vals[i],
+                        .ty = ty.structFieldType(i),
+                        .val = val.fieldValue(ty, i),
                     }, writer, level - 1, mod);
                 }
-                if (types.len > max_aggregate_items) {
+                if (ty.structFieldCount() > max_aggregate_items) {
                     try writer.writeAll(", ...");
                 }
-                return writer.writeAll(" }");
-            } else if (ty.isTuple()) {
-                const fields = ty.tupleFields();
-                const max_len = std.math.min(fields.types.len, max_aggregate_items);
-
-                var i: u32 = 0;
-                while (i < max_len) : (i += 1) {
-                    if (i != 0) try writer.writeAll(", ");
-                    try print(.{
-                        .ty = fields.types[i],
-                        .val = vals[i],
-                    }, writer, level - 1, mod);
-                }
-                if (fields.types.len > max_aggregate_items) {
-                    try writer.writeAll(", ...");
-                }
-                return writer.writeAll(" }");
-            } else if (ty.zigTypeTag() == .Struct) {
-                try writer.writeAll(".{ ");
-                const struct_fields = ty.structFields();
-                const len = struct_fields.count();
-                const max_len = std.math.min(len, max_aggregate_items);
-
-                const field_names = struct_fields.keys();
-                const fields = struct_fields.values();
-
-                var i: u32 = 0;
-                while (i < max_len) : (i += 1) {
-                    if (i != 0) try writer.writeAll(", ");
-                    try writer.print(".{s} = ", .{field_names[i]});
-                    try print(.{
-                        .ty = fields[i].ty,
-                        .val = vals[i],
-                    }, writer, level - 1, mod);
-                }
-                if (len > max_aggregate_items) {
-                    try writer.writeAll(", ...");
-                }
-                return writer.writeAll(" }");
+                return writer.writeAll("}");
             } else {
-                try writer.writeAll(".{ ");
                 const elem_ty = ty.elemType2();
                 const len = ty.arrayLen();
-                const max_len = std.math.min(len, max_aggregate_items);
 
+                if (elem_ty.eql(Type.u8, mod)) str: {
+                    const max_len = @intCast(usize, std.math.min(len, max_string_len));
+                    var buf: [max_string_len]u8 = undefined;
+
+                    var i: u32 = 0;
+                    while (i < max_len) : (i += 1) {
+                        const elem = val.fieldValue(ty, i);
+                        if (elem.isUndef()) break :str;
+                        buf[i] = std.math.cast(u8, elem.toUnsignedInt(target)) orelse break :str;
+                    }
+
+                    const truncated = if (len > max_string_len) " (truncated)" else "";
+                    return writer.print("\"{}{s}\"", .{ std.zig.fmtEscapes(buf[0..max_len]), truncated });
+                }
+
+                try writer.writeAll(".{ ");
+
+                const max_len = std.math.min(len, max_aggregate_items);
                 var i: u32 = 0;
                 while (i < max_len) : (i += 1) {
                     if (i != 0) try writer.writeAll(", ");
                     try print(.{
                         .ty = elem_ty,
-                        .val = vals[i],
+                        .val = val.fieldValue(ty, i),
                     }, writer, level - 1, mod);
                 }
                 if (len > max_aggregate_items) {
@@ -245,9 +227,7 @@ pub fn print(
         .one => return writer.writeAll("1"),
         .void_value => return writer.writeAll("{}"),
         .unreachable_value => return writer.writeAll("unreachable"),
-        .the_only_possible_value => {
-            val = ty.onePossibleValue().?;
-        },
+        .the_only_possible_value => return writer.writeAll("0"),
         .bool_true => return writer.writeAll("true"),
         .bool_false => return writer.writeAll("false"),
         .ty => return val.castTag(.ty).?.data.print(writer, mod),
@@ -276,7 +256,7 @@ pub fn print(
             mod.declPtr(val.castTag(.function).?.data.owner_decl).name,
         }),
         .extern_fn => return writer.writeAll("(extern function)"),
-        .variable => return writer.writeAll("(variable)"),
+        .variable => unreachable,
         .decl_ref_mut => {
             const decl_index = val.castTag(.decl_ref_mut).?.data.decl_index;
             const decl = mod.declPtr(decl_index);
@@ -335,12 +315,23 @@ pub fn print(
             }
 
             if (field_ptr.container_ty.zigTypeTag() == .Struct) {
-                const field_name = field_ptr.container_ty.structFields().keys()[field_ptr.field_index];
-                return writer.print(".{s}", .{field_name});
+                switch (field_ptr.container_ty.tag()) {
+                    .tuple => return writer.print(".@\"{d}\"", .{field_ptr.field_index}),
+                    else => {
+                        const field_name = field_ptr.container_ty.structFieldName(field_ptr.field_index);
+                        return writer.print(".{s}", .{field_name});
+                    },
+                }
             } else if (field_ptr.container_ty.zigTypeTag() == .Union) {
                 const field_name = field_ptr.container_ty.unionFields().keys()[field_ptr.field_index];
                 return writer.print(".{s}", .{field_name});
-            } else unreachable;
+            } else if (field_ptr.container_ty.isSlice()) {
+                switch (field_ptr.field_index) {
+                    Value.Payload.Slice.ptr_index => return writer.writeAll(".ptr"),
+                    Value.Payload.Slice.len_index => return writer.writeAll(".len"),
+                    else => unreachable,
+                }
+            }
         },
         .empty_array => return writer.writeAll(".{}"),
         .enum_literal => return writer.print(".{}", .{std.zig.fmtId(val.castTag(.enum_literal).?.data)}),
@@ -390,11 +381,29 @@ pub fn print(
                 return writer.writeAll(".{ ... }");
             }
             const payload = val.castTag(.slice).?.data;
-            try writer.writeAll(".{ ");
             const elem_ty = ty.elemType2();
             const len = payload.len.toUnsignedInt(target);
-            const max_len = std.math.min(len, max_aggregate_items);
 
+            if (elem_ty.eql(Type.u8, mod)) str: {
+                const max_len = @intCast(usize, std.math.min(len, max_string_len));
+                var buf: [max_string_len]u8 = undefined;
+
+                var i: u32 = 0;
+                while (i < max_len) : (i += 1) {
+                    var elem_buf: Value.ElemValueBuffer = undefined;
+                    const elem_val = payload.ptr.elemValueBuffer(mod, i, &elem_buf);
+                    if (elem_val.isUndef()) break :str;
+                    buf[i] = std.math.cast(u8, elem_val.toUnsignedInt(target)) orelse break :str;
+                }
+
+                // TODO would be nice if this had a bit of unicode awareness.
+                const truncated = if (len > max_string_len) " (truncated)" else "";
+                return writer.print("\"{}{s}\"", .{ std.zig.fmtEscapes(buf[0..max_len]), truncated });
+            }
+
+            try writer.writeAll(".{ ");
+
+            const max_len = std.math.min(len, max_aggregate_items);
             var i: u32 = 0;
             while (i < max_len) : (i += 1) {
                 if (i != 0) try writer.writeAll(", ");
@@ -409,11 +418,11 @@ pub fn print(
             }
             return writer.writeAll(" }");
         },
-        .float_16 => return writer.print("{}", .{val.castTag(.float_16).?.data}),
-        .float_32 => return writer.print("{}", .{val.castTag(.float_32).?.data}),
-        .float_64 => return writer.print("{}", .{val.castTag(.float_64).?.data}),
-        .float_80 => return writer.print("{}", .{val.castTag(.float_80).?.data}),
-        .float_128 => return writer.print("{}", .{val.castTag(.float_128).?.data}),
+        .float_16 => return writer.print("{d}", .{val.castTag(.float_16).?.data}),
+        .float_32 => return writer.print("{d}", .{val.castTag(.float_32).?.data}),
+        .float_64 => return writer.print("{d}", .{val.castTag(.float_64).?.data}),
+        .float_80 => return writer.print("{d}", .{@floatCast(f64, val.castTag(.float_80).?.data)}),
+        .float_128 => return writer.print("{d}", .{@floatCast(f64, val.castTag(.float_128).?.data)}),
         .@"error" => return writer.print("error.{s}", .{val.castTag(.@"error").?.data.name}),
         .eu_payload => {
             val = val.castTag(.eu_payload).?.data;
@@ -427,15 +436,63 @@ pub fn print(
         },
         .eu_payload_ptr => {
             try writer.writeAll("&");
-            val = val.castTag(.eu_payload_ptr).?.data.container_ptr;
-            ty = ty.elemType2().errorUnionPayload();
+
+            const data = val.castTag(.eu_payload_ptr).?.data;
+
+            var ty_val: Value.Payload.Ty = .{
+                .base = .{ .tag = .ty },
+                .data = ty,
+            };
+
+            try writer.writeAll("@as(");
+            try print(.{
+                .ty = Type.type,
+                .val = Value.initPayload(&ty_val.base),
+            }, writer, level - 1, mod);
+
+            try writer.writeAll(", &(payload of ");
+
+            var ptr_ty: Type.Payload.ElemType = .{
+                .base = .{ .tag = .single_mut_pointer },
+                .data = data.container_ty,
+            };
+
+            try print(.{
+                .ty = Type.initPayload(&ptr_ty.base),
+                .val = data.container_ptr,
+            }, writer, level - 1, mod);
+
+            try writer.writeAll("))");
+            return;
         },
         .opt_payload_ptr => {
-            try writer.writeAll("&");
-            val = val.castTag(.opt_payload).?.data;
-            var buf: Type.Payload.ElemType = undefined;
-            ty = ty.elemType2().optionalChild(&buf);
-            return print(.{ .ty = ty, .val = val }, writer, level, mod);
+            const data = val.castTag(.opt_payload_ptr).?.data;
+
+            var ty_val: Value.Payload.Ty = .{
+                .base = .{ .tag = .ty },
+                .data = ty,
+            };
+
+            try writer.writeAll("@as(");
+            try print(.{
+                .ty = Type.type,
+                .val = Value.initPayload(&ty_val.base),
+            }, writer, level - 1, mod);
+
+            try writer.writeAll(", &(payload of ");
+
+            var ptr_ty: Type.Payload.ElemType = .{
+                .base = .{ .tag = .single_mut_pointer },
+                .data = data.container_ty,
+            };
+
+            try print(.{
+                .ty = Type.initPayload(&ptr_ty.base),
+                .val = data.container_ptr,
+            }, writer, level - 1, mod);
+
+            try writer.writeAll("))");
+            return;
         },
 
         // TODO these should not appear in this function
@@ -447,5 +504,6 @@ pub fn print(
         },
         .generic_poison_type => return writer.writeAll("(generic poison type)"),
         .generic_poison => return writer.writeAll("(generic poison)"),
+        .runtime_value => return writer.writeAll("[runtime value]"),
     };
 }

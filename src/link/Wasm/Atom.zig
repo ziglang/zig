@@ -4,7 +4,6 @@ const std = @import("std");
 const types = @import("types.zig");
 const Wasm = @import("../Wasm.zig");
 const Symbol = @import("Symbol.zig");
-const Dwarf = @import("../Dwarf.zig");
 
 const leb = std.leb;
 const log = std.log.scoped(.link);
@@ -30,17 +29,17 @@ file: ?u16,
 
 /// Next atom in relation to this atom.
 /// When null, this atom is the last atom
-next: ?*Atom,
+next: ?Atom.Index,
 /// Previous atom in relation to this atom.
 /// is null when this atom is the first in its order
-prev: ?*Atom,
+prev: ?Atom.Index,
 
 /// Contains atoms local to a decl, all managed by this `Atom`.
 /// When the parent atom is being freed, it will also do so for all local atoms.
-locals: std.ArrayListUnmanaged(Atom) = .{},
+locals: std.ArrayListUnmanaged(Atom.Index) = .{},
 
-/// Represents the debug Atom that holds all debug information of this Atom.
-dbg_info_atom: Dwarf.Atom,
+/// Alias to an unsigned 32-bit integer
+pub const Index = u32;
 
 /// Represents a default empty wasm `Atom`
 pub const empty: Atom = .{
@@ -51,64 +50,74 @@ pub const empty: Atom = .{
     .prev = null,
     .size = 0,
     .sym_index = 0,
-    .dbg_info_atom = undefined,
 };
 
 /// Frees all resources owned by this `Atom`.
-pub fn deinit(self: *Atom, gpa: Allocator) void {
-    self.relocs.deinit(gpa);
-    self.code.deinit(gpa);
-
-    for (self.locals.items) |*local| {
-        local.deinit(gpa);
-    }
-    self.locals.deinit(gpa);
+pub fn deinit(atom: *Atom, wasm: *Wasm) void {
+    const gpa = wasm.base.allocator;
+    atom.relocs.deinit(gpa);
+    atom.code.deinit(gpa);
+    atom.locals.deinit(gpa);
+    atom.* = undefined;
 }
 
 /// Sets the length of relocations and code to '0',
 /// effectively resetting them and allowing them to be re-populated.
-pub fn clear(self: *Atom) void {
-    self.relocs.clearRetainingCapacity();
-    self.code.clearRetainingCapacity();
+pub fn clear(atom: *Atom) void {
+    atom.relocs.clearRetainingCapacity();
+    atom.code.clearRetainingCapacity();
 }
 
-pub fn format(self: Atom, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+pub fn format(atom: Atom, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     _ = fmt;
     _ = options;
     try writer.print("Atom{{ .sym_index = {d}, .alignment = {d}, .size = {d}, .offset = 0x{x:0>8} }}", .{
-        self.sym_index,
-        self.alignment,
-        self.size,
-        self.offset,
+        atom.sym_index,
+        atom.alignment,
+        atom.size,
+        atom.offset,
     });
 }
 
-/// Returns the first `Atom` from a given atom
-pub fn getFirst(self: *Atom) *Atom {
-    var tmp = self;
-    while (tmp.prev) |prev| tmp = prev;
-    return tmp;
+/// Returns the location of the symbol that represents this `Atom`
+pub fn symbolLoc(atom: Atom) Wasm.SymbolLoc {
+    return .{ .file = atom.file, .index = atom.sym_index };
 }
 
-/// Returns the location of the symbol that represents this `Atom`
-pub fn symbolLoc(self: Atom) Wasm.SymbolLoc {
-    return .{ .file = self.file, .index = self.sym_index };
+pub fn getSymbolIndex(atom: Atom) ?u32 {
+    if (atom.sym_index == 0) return null;
+    return atom.sym_index;
+}
+
+/// Returns the virtual address of the `Atom`. This is the address starting
+/// from the first entry within a section.
+pub fn getVA(atom: Atom, wasm: *const Wasm, symbol: *const Symbol) u32 {
+    if (symbol.tag == .function) return atom.offset;
+    std.debug.assert(symbol.tag == .data);
+    const merge_segment = wasm.base.options.output_mode != .Obj;
+    const segment_info = if (atom.file) |object_index| blk: {
+        break :blk wasm.objects.items[object_index].segment_info;
+    } else wasm.segment_info.values();
+    const segment_name = segment_info[symbol.index].outputName(merge_segment);
+    const segment_index = wasm.data_segments.get(segment_name).?;
+    const segment = wasm.segments.items[segment_index];
+    return segment.offset + atom.offset;
 }
 
 /// Resolves the relocations within the atom, writing the new value
 /// at the calculated offset.
-pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) void {
-    if (self.relocs.items.len == 0) return;
-    const symbol_name = self.symbolLoc().getName(wasm_bin);
+pub fn resolveRelocs(atom: *Atom, wasm_bin: *const Wasm) void {
+    if (atom.relocs.items.len == 0) return;
+    const symbol_name = atom.symbolLoc().getName(wasm_bin);
     log.debug("Resolving relocs in atom '{s}' count({d})", .{
         symbol_name,
-        self.relocs.items.len,
+        atom.relocs.items.len,
     });
 
-    for (self.relocs.items) |reloc| {
-        const value = self.relocationValue(reloc, wasm_bin);
+    for (atom.relocs.items) |reloc| {
+        const value = atom.relocationValue(reloc, wasm_bin);
         log.debug("Relocating '{s}' referenced in '{s}' offset=0x{x:0>8} value={d}", .{
-            (Wasm.SymbolLoc{ .file = self.file, .index = reloc.index }).getName(wasm_bin),
+            (Wasm.SymbolLoc{ .file = atom.file, .index = reloc.index }).getName(wasm_bin),
             symbol_name,
             reloc.offset,
             value,
@@ -120,10 +129,10 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) void {
             .R_WASM_GLOBAL_INDEX_I32,
             .R_WASM_MEMORY_ADDR_I32,
             .R_WASM_SECTION_OFFSET_I32,
-            => std.mem.writeIntLittle(u32, self.code.items[reloc.offset..][0..4], @intCast(u32, value)),
+            => std.mem.writeIntLittle(u32, atom.code.items[reloc.offset..][0..4], @intCast(u32, value)),
             .R_WASM_TABLE_INDEX_I64,
             .R_WASM_MEMORY_ADDR_I64,
-            => std.mem.writeIntLittle(u64, self.code.items[reloc.offset..][0..8], value),
+            => std.mem.writeIntLittle(u64, atom.code.items[reloc.offset..][0..8], value),
             .R_WASM_GLOBAL_INDEX_LEB,
             .R_WASM_EVENT_INDEX_LEB,
             .R_WASM_FUNCTION_INDEX_LEB,
@@ -132,11 +141,11 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) void {
             .R_WASM_TABLE_INDEX_SLEB,
             .R_WASM_TABLE_NUMBER_LEB,
             .R_WASM_TYPE_INDEX_LEB,
-            => leb.writeUnsignedFixed(5, self.code.items[reloc.offset..][0..5], @intCast(u32, value)),
+            => leb.writeUnsignedFixed(5, atom.code.items[reloc.offset..][0..5], @intCast(u32, value)),
             .R_WASM_MEMORY_ADDR_LEB64,
             .R_WASM_MEMORY_ADDR_SLEB64,
             .R_WASM_TABLE_INDEX_SLEB64,
-            => leb.writeUnsignedFixed(10, self.code.items[reloc.offset..][0..10], value),
+            => leb.writeUnsignedFixed(10, atom.code.items[reloc.offset..][0..10], value),
         }
     }
 }
@@ -144,9 +153,9 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) void {
 /// From a given `relocation` will return the new value to be written.
 /// All values will be represented as a `u64` as all values can fit within it.
 /// The final value must be casted to the correct size.
-fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wasm) u64 {
-    const target_loc: Wasm.SymbolLoc = .{ .file = self.file, .index = relocation.index };
-    const symbol = target_loc.getSymbol(wasm_bin).*;
+fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wasm) u64 {
+    const target_loc = (Wasm.SymbolLoc{ .file = atom.file, .index = relocation.index }).finalLoc(wasm_bin);
+    const symbol = target_loc.getSymbol(wasm_bin);
     switch (relocation.relocation_type) {
         .R_WASM_FUNCTION_INDEX_LEB => return symbol.index,
         .R_WASM_TABLE_NUMBER_LEB => return symbol.index,
@@ -155,12 +164,13 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
         .R_WASM_TABLE_INDEX_SLEB,
         .R_WASM_TABLE_INDEX_SLEB64,
         => return wasm_bin.function_table.get(target_loc) orelse 0,
-        .R_WASM_TYPE_INDEX_LEB => return blk: {
-            if (symbol.isUndefined()) {
-                const imp = wasm_bin.imports.get(target_loc).?;
-                break :blk imp.kind.function;
-            }
-            break :blk wasm_bin.functions.values()[symbol.index - wasm_bin.imported_functions_count].type_index;
+        .R_WASM_TYPE_INDEX_LEB => {
+            const file_index = atom.file orelse {
+                return relocation.index;
+            };
+
+            const original_type = wasm_bin.objects.items[file_index].func_types[relocation.index];
+            return wasm_bin.getTypeIndex(original_type).?;
         },
         .R_WASM_GLOBAL_INDEX_I32,
         .R_WASM_GLOBAL_INDEX_LEB,
@@ -172,23 +182,35 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
         .R_WASM_MEMORY_ADDR_SLEB,
         .R_WASM_MEMORY_ADDR_SLEB64,
         => {
-            if (symbol.isUndefined() and symbol.isWeak()) {
+            std.debug.assert(symbol.tag == .data);
+            if (symbol.isUndefined()) {
                 return 0;
             }
-            std.debug.assert(symbol.tag == .data);
-            const merge_segment = wasm_bin.base.options.output_mode != .Obj;
-            const segment_info = if (self.file) |object_index| blk: {
-                break :blk wasm_bin.objects.items[object_index].segment_info;
-            } else wasm_bin.segment_info.items;
-            const segment_name = segment_info[symbol.index].outputName(merge_segment);
-            const atom_index = wasm_bin.data_segments.get(segment_name).?;
-            const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
-            const segment = wasm_bin.segments.items[atom_index];
-            return target_atom.offset + segment.offset + (relocation.addend orelse 0);
+            const target_atom_index = wasm_bin.symbol_atom.get(target_loc) orelse {
+                // this can only occur during incremental-compilation when a relocation
+                // still points to a freed decl. It is fine to emit the value 0 here
+                // as no actual code will point towards it.
+                return 0;
+            };
+            const target_atom = wasm_bin.getAtom(target_atom_index);
+            const va = @intCast(i32, target_atom.getVA(wasm_bin, symbol));
+            return @intCast(u32, va + relocation.addend);
         },
         .R_WASM_EVENT_INDEX_LEB => return symbol.index,
-        .R_WASM_SECTION_OFFSET_I32,
-        .R_WASM_FUNCTION_OFFSET_I32,
-        => return relocation.offset,
+        .R_WASM_SECTION_OFFSET_I32 => {
+            const target_atom_index = wasm_bin.symbol_atom.get(target_loc).?;
+            const target_atom = wasm_bin.getAtom(target_atom_index);
+            const rel_value = @intCast(i32, target_atom.offset) + relocation.addend;
+            return @intCast(u32, rel_value);
+        },
+        .R_WASM_FUNCTION_OFFSET_I32 => {
+            const target_atom_index = wasm_bin.symbol_atom.get(target_loc) orelse {
+                return @bitCast(u32, @as(i32, -1));
+            };
+            const target_atom = wasm_bin.getAtom(target_atom_index);
+            const offset: u32 = 11 + Wasm.getULEB128Size(target_atom.size); // Header (11 bytes fixed-size) + body size (leb-encoded)
+            const rel_value = @intCast(i32, target_atom.offset + offset) + relocation.addend;
+            return @intCast(u32, rel_value);
+        },
     }
 }

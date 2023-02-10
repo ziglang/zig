@@ -145,7 +145,6 @@ typedef mach_port_t             clock_ctrl_t;
 typedef mach_port_t             arcade_register_t;
 typedef mach_port_t             ipc_eventlink_t;
 typedef mach_port_t             eventlink_port_pair_t[2];
-typedef mach_port_t             suid_cred_t;
 typedef mach_port_t             task_id_token_t;
 
 
@@ -219,8 +218,6 @@ typedef exception_handler_array_t exception_port_arrary_t;
 typedef char vfs_path_t[4096];
 typedef char nspace_path_t[1024]; /* 1024 == PATH_MAX */
 typedef char nspace_name_t[1024]; /* 1024 == PATH_MAX */
-typedef char suid_cred_path_t[1024];
-typedef uint32_t suid_cred_uid_t;
 
 #define TASK_NULL               ((task_t) 0)
 #define TASK_NAME_NULL          ((task_name_t) 0)
@@ -249,7 +246,6 @@ typedef uint32_t suid_cred_uid_t;
 #define ARCADE_REG_NULL         ((arcade_register_t) 0)
 #define MACH_EVENTLINK_NULL     ((mach_eventlink_t) 0)
 #define IPC_EVENTLINK_NULL      ((ipc_eventlink_t) 0)
-#define SUID_CRED_NULL          ((suid_cred_t) 0)
 #define TASK_ID_TOKEN_NULL      ((task_id_token_t) 0)
 
 /* capability strictly _DECREASING_.

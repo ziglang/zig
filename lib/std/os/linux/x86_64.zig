@@ -100,22 +100,29 @@ pub fn syscall6(
     );
 }
 
+const CloneFn = *const fn (arg: usize) callconv(.C) u8;
+
 /// This matches the libc clone function.
 pub extern fn clone(func: CloneFn, stack: usize, flags: usize, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
-
-const CloneFn = switch (@import("builtin").zig_backend) {
-    .stage1 => fn (arg: usize) callconv(.C) u8,
-    else => *const fn (arg: usize) callconv(.C) u8,
-};
 
 pub const restore = restore_rt;
 
 pub fn restore_rt() callconv(.Naked) void {
-    return asm volatile ("syscall"
-        :
-        : [number] "{rax}" (@enumToInt(SYS.rt_sigreturn)),
-        : "rcx", "r11", "memory"
-    );
+    switch (@import("builtin").zig_backend) {
+        .stage2_c => return asm volatile (
+            \\ movl %[number], %%eax
+            \\ syscall
+            \\ retq
+            :
+            : [number] "i" (@enumToInt(SYS.rt_sigreturn)),
+            : "rcx", "r11", "memory"
+        ),
+        else => return asm volatile ("syscall"
+            :
+            : [number] "{rax}" (@enumToInt(SYS.rt_sigreturn)),
+            : "rcx", "r11", "memory"
+        ),
+    }
 }
 
 pub const mode_t = usize;

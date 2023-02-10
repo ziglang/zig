@@ -16,21 +16,21 @@
 #include <__ranges/all.h>
 #include <__ranges/concepts.h>
 #include <__ranges/enable_borrowed_range.h>
+#include <__ranges/range_adaptor.h>
 #include <__ranges/size.h>
 #include <__ranges/view_interface.h>
+#include <__utility/forward.h>
+#include <__utility/move.h>
 #include <concepts>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_RANGES)
+#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 namespace ranges {
 
@@ -44,13 +44,13 @@ public:
   common_view() requires default_initializable<_View> = default;
 
   _LIBCPP_HIDE_FROM_ABI
-  constexpr explicit common_view(_View __v) : __base_(_VSTD::move(__v)) { }
+  constexpr explicit common_view(_View __v) : __base_(std::move(__v)) { }
 
   _LIBCPP_HIDE_FROM_ABI
   constexpr _View base() const& requires copy_constructible<_View> { return __base_; }
 
   _LIBCPP_HIDE_FROM_ABI
-  constexpr _View base() && { return _VSTD::move(__base_); }
+  constexpr _View base() && { return std::move(__base_); }
 
   _LIBCPP_HIDE_FROM_ABI
   constexpr auto begin() {
@@ -102,12 +102,34 @@ common_view(_Range&&)
 template<class _View>
 inline constexpr bool enable_borrowed_range<common_view<_View>> = enable_borrowed_range<_View>;
 
+namespace views {
+namespace __common {
+  struct __fn : __range_adaptor_closure<__fn> {
+    template<class _Range>
+      requires common_range<_Range>
+    [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
+    constexpr auto operator()(_Range&& __range) const
+      noexcept(noexcept(views::all(std::forward<_Range>(__range))))
+      -> decltype(      views::all(std::forward<_Range>(__range)))
+      { return          views::all(std::forward<_Range>(__range)); }
+
+    template<class _Range>
+    [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
+    constexpr auto operator()(_Range&& __range) const
+      noexcept(noexcept(common_view{std::forward<_Range>(__range)}))
+      -> decltype(      common_view{std::forward<_Range>(__range)})
+      { return          common_view{std::forward<_Range>(__range)}; }
+  };
+} // namespace __common
+
+inline namespace __cpo {
+  inline constexpr auto common = __common::__fn{};
+} // namespace __cpo
+} // namespace views
 } // namespace ranges
 
-#endif // !defined(_LIBCPP_HAS_NO_RANGES)
+#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___RANGES_COMMON_VIEW_H
