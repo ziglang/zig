@@ -23,6 +23,7 @@ comptime {
     _ = @import("compiler_rt/multf3.zig");
     _ = @import("compiler_rt/mulxf3.zig");
 
+    _ = @import("compiler_rt/powiXf2.zig");
     _ = @import("compiler_rt/mulc3.zig");
     _ = @import("compiler_rt/mulhc3.zig");
     _ = @import("compiler_rt/mulsc3.zig");
