@@ -21930,7 +21930,7 @@ fn zirCUndef(
     const src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
 
     const name = try sema.resolveConstString(block, src, extra.operand, "name of macro being undefined must be comptime-known");
-    try block.c_import_buf.?.writer().print("#undefine {s}\n", .{name});
+    try block.c_import_buf.?.writer().print("#undef {s}\n", .{name});
     return Air.Inst.Ref.void_value;
 }
 
