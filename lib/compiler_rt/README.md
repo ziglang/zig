@@ -331,7 +331,7 @@ Integer and Float Operations
 | ✓ | __negdf2           | f64  | ∅    | f64  | ..                             |
 | ✓ | __negtf2           | f128 | ∅    | f128 | ..                             |
 | ✓ | __negxf2           | f80  | ∅    | f80  | ..                             |
-|   |                    |      |      |      | **Floating point raised to integer power** |
+|   |                    |      |      |      | **Other** |
 | ✓ | __powihf2          | f16  | i32  | f16  | `a ^ b`                        |
 | ✓ | __powisf2          | f32  | i32  | f32  | ..                             |
 | ✓ | __powidf2          | f64  | i32  | f64  | ..                             |
