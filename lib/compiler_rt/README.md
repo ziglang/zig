@@ -77,15 +77,15 @@ Integer and Float Operations
 | ✓ | __ucmpdi2          | u64  | u64  | i32  | ..                             |
 | ✓ | __ucmpti2          | u128 | u128 | i32  | ..                             |
 |   |                    |      |      |      | **Integer Arithmetic**         |
-| ✗ | __ashlsi3          | i32  | i32  | i32  | `a << b` [^unused_rl78]        |
+| ✓ | __ashlsi3          | i32  | i32  | i32  | `a << b` [^unused_rl78]        |
 | ✓ | __ashldi3          | i64  | i32  | i64  | ..                             |
 | ✓ | __ashlti3          | i128 | i32  | i128 | ..                             |
 | ✓ | __aeabi_llsl       | i32  | i32  | i32  | .. ARM                         |
-| ✗ | __ashrsi3          | i32  | i32  | i32  | `a >> b` arithmetic (sign fill) [^unused_rl78] |
+| ✓ | __ashrsi3          | i32  | i32  | i32  | `a >> b` arithmetic (sign fill) [^unused_rl78] |
 | ✓ | __ashrdi3          | i64  | i32  | i64  | ..                             |
 | ✓ | __ashrti3          | i128 | i32  | i128 | ..                             |
 | ✓ | __aeabi_lasr       | i64  | i32  | i64  | .. ARM                         |
-| ✗ | __lshrsi3          | i32  | i32  | i32  | `a >> b` logical (zero fill) [^unused_rl78] |
+| ✓ | __lshrsi3          | i32  | i32  | i32  | `a >> b` logical (zero fill) [^unused_rl78] |
 | ✓ | __lshrdi3          | i64  | i32  | i64  | ..                             |
 | ✓ | __lshrti3          | i128 | i32  | i128 | ..                             |
 | ✓ | __aeabi_llsr       | i64  | i32  | i64  | .. ARM                         |
@@ -114,7 +114,7 @@ Integer and Float Operations
 | ✓ | __udivmodti4       | u128 | u128 | u128 | ..                             |
 | ✓ | __divmodsi4        | i32  | i32  | i32  | `a / b, rem.* = a % b`         |
 | ✓ | __divmoddi4        | i64  | i64  | i64  | ..                             |
-| ✗ | __divmodti4        | i128 | i128 | i128 | .. [^libgcc_compat]            |
+| ✓ | __divmodti4        | i128 | i128 | i128 | .. [^libgcc_compat]            |
 |   |                    |      |      |      | **Integer Arithmetic with Trapping Overflow**|
 | ✓ | __absvsi2          | i32  | i32  | i32  | abs(a)                         |
 | ✓ | __absvdi2          | i64  | i64  | i64  | ..                             |

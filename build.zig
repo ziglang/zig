@@ -128,6 +128,8 @@ pub fn build(b: *std.Build) !void {
                 "compress-gettysburg.txt",
                 "compress-pi.txt",
                 "rfc1951.txt",
+                // exclude files from lib/std/compress/lzma/testdata
+                ".lzma",
                 // exclude files from lib/std/compress/xz/testdata
                 ".xz",
                 // exclude files from lib/std/tz/

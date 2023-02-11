@@ -1621,16 +1621,21 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             const root_pkg = if (options.is_test) root_pkg: {
                 // TODO: we currently have two packages named 'root' here, which is weird. This
                 // should be changed as part of the resolution of #12201
-                const test_pkg = if (options.test_runner_path) |test_runner|
-                    try Package.create(gpa, "root", null, test_runner)
-                else
-                    try Package.createWithDir(
-                        gpa,
-                        "root",
-                        options.zig_lib_directory,
-                        null,
-                        "test_runner.zig",
-                    );
+                const test_pkg = if (options.test_runner_path) |test_runner| test_pkg: {
+                    const test_dir = std.fs.path.dirname(test_runner);
+                    const basename = std.fs.path.basename(test_runner);
+                    const pkg = try Package.create(gpa, "root", test_dir, basename);
+
+                    // copy package table from main_pkg to root_pkg
+                    pkg.table = try main_pkg.table.clone(gpa);
+                    break :test_pkg pkg;
+                } else try Package.createWithDir(
+                    gpa,
+                    "root",
+                    options.zig_lib_directory,
+                    null,
+                    "test_runner.zig",
+                );
                 errdefer test_pkg.destroy(gpa);
 
                 break :root_pkg test_pkg;

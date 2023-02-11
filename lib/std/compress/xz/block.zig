@@ -1,6 +1,7 @@
 const std = @import("../../std.zig");
-const lzma = @import("lzma.zig");
+const lzma2 = std.compress.lzma2;
 const Allocator = std.mem.Allocator;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Crc32 = std.hash.Crc32;
 const Crc64 = std.hash.crc.Crc64Xz;
 const Sha256 = std.crypto.hash.sha2.Sha256;
@@ -32,8 +33,7 @@ pub fn Decoder(comptime ReaderType: type) type {
         inner_reader: ReaderType,
         check: xz.Check,
         err: ?Error,
-        accum: lzma.LzAccumBuffer,
-        lzma_state: lzma.DecoderState,
+        to_read: ArrayListUnmanaged(u8),
         block_count: usize,
 
         fn init(allocator: Allocator, in_reader: ReaderType, check: xz.Check) !Self {
@@ -42,15 +42,13 @@ pub fn Decoder(comptime ReaderType: type) type {
                 .inner_reader = in_reader,
                 .check = check,
                 .err = null,
-                .accum = .{},
-                .lzma_state = try lzma.DecoderState.init(allocator),
+                .to_read = .{},
                 .block_count = 0,
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.accum.deinit(self.allocator);
-            self.lzma_state.deinit(self.allocator);
+            self.to_read.deinit(self.allocator);
         }
 
         pub fn reader(self: *Self) Reader {
@@ -59,9 +57,13 @@ pub fn Decoder(comptime ReaderType: type) type {
 
         pub fn read(self: *Self, output: []u8) Error!usize {
             while (true) {
-                if (self.accum.to_read.items.len > 0) {
-                    const n = self.accum.read(output);
-                    if (self.accum.to_read.items.len == 0 and self.err != null) {
+                if (self.to_read.items.len > 0) {
+                    const input = self.to_read.items;
+                    const n = std.math.min(input.len, output.len);
+                    std.mem.copy(u8, output[0..n], input[0..n]);
+                    std.mem.copy(u8, input, input[n..]);
+                    self.to_read.shrinkRetainingCapacity(input.len - n);
+                    if (self.to_read.items.len == 0 and self.err != null) {
                         if (self.err.? == DecodeError.EndOfStreamWithNoError) {
                             return n;
                         }
@@ -77,15 +79,12 @@ pub fn Decoder(comptime ReaderType: type) type {
                 }
                 self.readBlock() catch |e| {
                     self.err = e;
-                    if (self.accum.to_read.items.len == 0) {
-                        try self.accum.reset(self.allocator);
-                    }
                 };
             }
         }
 
         fn readBlock(self: *Self) Error!void {
-            const unpacked_pos = self.accum.to_read.items.len;
+            const unpacked_pos = self.to_read.items.len;
 
             var block_counter = std.io.countingReader(self.inner_reader);
             const block_reader = block_counter.reader();
@@ -98,7 +97,7 @@ pub fn Decoder(comptime ReaderType: type) type {
                 var header_hasher = std.compress.hashedReader(block_reader, Crc32.init());
                 const header_reader = header_hasher.reader();
 
-                const header_size = try header_reader.readByte() * 4;
+                const header_size = @as(u64, try header_reader.readByte()) * 4;
                 if (header_size == 0)
                     return error.EndOfStreamWithNoError;
 
@@ -156,15 +155,18 @@ pub fn Decoder(comptime ReaderType: type) type {
 
             // Compressed Data
             var packed_counter = std.io.countingReader(block_reader);
-            const packed_reader = packed_counter.reader();
-            while (try self.readLzma2Chunk(packed_reader)) {}
+            try lzma2.decompress(
+                self.allocator,
+                packed_counter.reader(),
+                self.to_read.writer(self.allocator),
+            );
 
             if (packed_size) |s| {
                 if (s != packed_counter.bytes_read)
                     return error.CorruptInput;
             }
 
-            const unpacked_bytes = self.accum.to_read.items[unpacked_pos..];
+            const unpacked_bytes = self.to_read.items[unpacked_pos..];
             if (unpacked_size) |s| {
                 if (s != unpacked_bytes.len)
                     return error.CorruptInput;
@@ -204,114 +206,6 @@ pub fn Decoder(comptime ReaderType: type) type {
             }
 
             self.block_count += 1;
-        }
-
-        fn readLzma2Chunk(self: *Self, packed_reader: anytype) Error!bool {
-            const status = try packed_reader.readByte();
-            switch (status) {
-                0 => {
-                    try self.accum.reset(self.allocator);
-                    return false;
-                },
-                1, 2 => {
-                    if (status == 1)
-                        try self.accum.reset(self.allocator);
-
-                    const size = try packed_reader.readIntBig(u16) + 1;
-                    try self.accum.ensureUnusedCapacity(self.allocator, size);
-
-                    var i: usize = 0;
-                    while (i < size) : (i += 1)
-                        self.accum.appendAssumeCapacity(try packed_reader.readByte());
-
-                    return true;
-                },
-                else => {
-                    if (status & 0x80 == 0)
-                        return error.CorruptInput;
-
-                    const Reset = struct {
-                        dict: bool,
-                        state: bool,
-                        props: bool,
-                    };
-
-                    const reset = switch ((status >> 5) & 0x3) {
-                        0 => Reset{
-                            .dict = false,
-                            .state = false,
-                            .props = false,
-                        },
-                        1 => Reset{
-                            .dict = false,
-                            .state = true,
-                            .props = false,
-                        },
-                        2 => Reset{
-                            .dict = false,
-                            .state = true,
-                            .props = true,
-                        },
-                        3 => Reset{
-                            .dict = true,
-                            .state = true,
-                            .props = true,
-                        },
-                        else => unreachable,
-                    };
-
-                    const unpacked_size = blk: {
-                        var tmp: u64 = status & 0x1F;
-                        tmp <<= 16;
-                        tmp |= try packed_reader.readIntBig(u16);
-                        break :blk tmp + 1;
-                    };
-
-                    const packed_size = blk: {
-                        const tmp: u17 = try packed_reader.readIntBig(u16);
-                        break :blk tmp + 1;
-                    };
-
-                    if (reset.dict)
-                        try self.accum.reset(self.allocator);
-
-                    if (reset.state) {
-                        var new_props = self.lzma_state.lzma_props;
-
-                        if (reset.props) {
-                            var props = try packed_reader.readByte();
-                            if (props >= 225)
-                                return error.CorruptInput;
-
-                            const lc = @intCast(u4, props % 9);
-                            props /= 9;
-                            const lp = @intCast(u3, props % 5);
-                            props /= 5;
-                            const pb = @intCast(u3, props);
-
-                            if (lc + lp > 4)
-                                return error.CorruptInput;
-
-                            new_props = .{ .lc = lc, .lp = lp, .pb = pb };
-                        }
-
-                        try self.lzma_state.reset_state(self.allocator, new_props);
-                    }
-
-                    self.lzma_state.unpacked_size = unpacked_size + self.accum.len();
-
-                    const buffer = try self.allocator.alloc(u8, packed_size);
-                    defer self.allocator.free(buffer);
-
-                    for (buffer) |*b|
-                        b.* = try packed_reader.readByte();
-
-                    var rangecoder = try lzma.RangeDecoder.init(buffer);
-                    try self.lzma_state.process(self.allocator, &self.accum, &rangecoder);
-
-                    return true;
-                },
-            }
         }
     };
 }

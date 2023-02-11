@@ -1748,7 +1748,8 @@ fn transBinaryOperator(
         const lhs_expr = stmt.getLHS();
         const lhs_qt = getExprQualType(c, lhs_expr);
         const lhs_qt_translated = try transQualType(c, scope, lhs_qt, lhs_expr.getBeginLoc());
-        const elem_type = lhs_qt_translated.castTag(.c_pointer).?.data.elem_type;
+        const c_pointer = getContainer(c, lhs_qt_translated).?;
+        const elem_type = c_pointer.castTag(.c_pointer).?.data.elem_type;
         const sizeof = try Tag.sizeof.create(c.arena, elem_type);
 
         const bitcast = try Tag.bit_cast.create(c.arena, .{ .lhs = ptrdiff_type, .rhs = infixOpNode });
