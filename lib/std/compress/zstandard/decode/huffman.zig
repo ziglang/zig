@@ -86,6 +86,10 @@ fn assignWeights(huff_bits: *readers.ReverseBitReader, accuracy_log: usize, entr
         odd_state = odd_data.baseline + odd_bits;
     } else return error.MalformedHuffmanTree;
 
+    if (!huff_bits.isEmpty()) {
+        return error.MalformedHuffmanTree;
+    }
+
     return i + 1; // stream contains all but the last symbol
 }
 

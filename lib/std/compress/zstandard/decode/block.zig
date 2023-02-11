@@ -391,15 +391,21 @@ pub const DecodeState = struct {
         try self.literal_stream_reader.init(bytes);
     }
 
+    fn isLiteralStreamEmpty(self: *DecodeState) bool {
+        switch (self.literal_streams) {
+            .one => return self.literal_stream_reader.isEmpty(),
+            .four => return self.literal_stream_index == 3 and self.literal_stream_reader.isEmpty(),
+        }
+    }
+
     const LiteralBitsError = error{
         BitStreamHasNoStartBit,
         UnexpectedEndOfLiteralStream,
     };
     fn readLiteralsBits(
         self: *DecodeState,
-        comptime T: type,
         bit_count_to_read: usize,
-    ) LiteralBitsError!T {
+    ) LiteralBitsError!u16 {
         return self.literal_stream_reader.readBitsNoEof(u16, bit_count_to_read) catch bits: {
             if (self.literal_streams == .four and self.literal_stream_index < 3) {
                 try self.nextLiteralMultiStream();
@@ -461,7 +467,7 @@ pub const DecodeState = struct {
                 while (i < len) : (i += 1) {
                     var prefix: u16 = 0;
                     while (true) {
-                        const new_bits = self.readLiteralsBits(u16, bit_count_to_read) catch |err| {
+                        const new_bits = self.readLiteralsBits(bit_count_to_read) catch |err| {
                             return err;
                         };
                         prefix <<= bit_count_to_read;
@@ -533,7 +539,7 @@ pub const DecodeState = struct {
                 while (i < len) : (i += 1) {
                     var prefix: u16 = 0;
                     while (true) {
-                        const new_bits = try self.readLiteralsBits(u16, bit_count_to_read);
+                        const new_bits = try self.readLiteralsBits(bit_count_to_read);
                         prefix <<= bit_count_to_read;
                         prefix |= new_bits;
                         bits_read += bit_count_to_read;
@@ -659,13 +665,10 @@ pub fn decodeBlock(
                     sequence_size_limit -= decompressed_size;
                 }
 
-                if (bit_stream.bit_reader.bit_count != 0) {
+                if (!bit_stream.isEmpty()) {
                     return error.MalformedCompressedBlock;
                 }
-
-                bytes_read += bit_stream_bytes.len;
             }
-            if (bytes_read != block_size) return error.MalformedCompressedBlock;
 
             if (decode_state.literal_written_count < literals.header.regenerated_size) {
                 const len = literals.header.regenerated_size - decode_state.literal_written_count;
@@ -675,7 +678,9 @@ pub fn decodeBlock(
                 bytes_written += len;
             }
 
-            consumed_count.* += bytes_read;
+            if (!decode_state.isLiteralStreamEmpty()) return error.MalformedCompressedBlock;
+
+            consumed_count.* += block_size;
             return bytes_written;
         },
         .reserved => return error.ReservedBlock,
@@ -749,13 +754,10 @@ pub fn decodeBlockRingBuffer(
                     sequence_size_limit -= decompressed_size;
                 }
 
-                if (bit_stream.bit_reader.bit_count != 0) {
+                if (!bit_stream.isEmpty()) {
                     return error.MalformedCompressedBlock;
                 }
-
-                bytes_read += bit_stream_bytes.len;
             }
-            if (bytes_read != block_size) return error.MalformedCompressedBlock;
 
             if (decode_state.literal_written_count < literals.header.regenerated_size) {
                 const len = literals.header.regenerated_size - decode_state.literal_written_count;
@@ -764,7 +766,9 @@ pub fn decodeBlockRingBuffer(
                 bytes_written += len;
             }
 
-            consumed_count.* += bytes_read;
+            if (!decode_state.isLiteralStreamEmpty()) return error.MalformedCompressedBlock;
+
+            consumed_count.* += block_size;
             if (bytes_written > block_size_max) return error.BlockSizeOverMaximum;
             return bytes_written;
         },
@@ -837,7 +841,7 @@ pub fn decodeBlockReader(
                     sequence_size_limit -= decompressed_size;
                     bytes_written += decompressed_size;
                 }
-                if (bit_stream.bit_reader.bit_count != 0) {
+                if (!bit_stream.isEmpty()) {
                     return error.MalformedCompressedBlock;
                 }
             }
@@ -848,6 +852,8 @@ pub fn decodeBlockReader(
                     return error.MalformedCompressedBlock;
                 bytes_written += len;
             }
+
+            if (!decode_state.isLiteralStreamEmpty()) return error.MalformedCompressedBlock;
 
             if (bytes_written > block_size_max) return error.BlockSizeOverMaximum;
             if (block_reader_limited.bytes_left != 0) return error.MalformedCompressedBlock;
