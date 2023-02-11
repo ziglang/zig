@@ -666,6 +666,7 @@ const blacklisted_symbols = [_][]const u8{
     "__divkf3",
     "__divmoddi4",
     "__divmodsi4",
+    "__divmodti4",
     "__divsf3",
     "__divsi3",
     "__divtf3",
