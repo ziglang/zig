@@ -2687,12 +2687,9 @@ test "encodesTo" {
 
 test "issue 14600" {
     const json = "\"\\n\"";
+    var token_stream = std.json.TokenStream.init(json);
+    const options = ParseOptions{ .allocator = std.testing.allocator };
 
-    var ts = std.json.TokenStream.init(json);
-
-    _ = try std.json.parse(
-        [:0]const u8,
-        &ts,
-        .{ .allocator = std.heap.page_allocator },
-    );
+    const result = try std.json.parse([:0]const u8, &token_stream, options);
+    defer std.json.parseFree([:0]const u8, result, options);
 }
