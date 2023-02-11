@@ -328,11 +328,11 @@ Integer and Float Operations
 | ✓ | __negtf2           | f128 | ∅    | f128 | ..                             |
 | ✓ | __negxf2           | f80  | ∅    | f80  | ..                             |
 |   |                    |      |      |      | **Floating point raised to integer power** |
-| ✗ | __powihf2          | f16  | f16  | f16  | `a ^ b`                        |
-| ✗ | __powisf2          | f32  | f32  | f32  | ..                             |
-| ✗ | __powidf2          | f64  | f64  | f64  | ..                             |
-| ✗ | __powitf2          | f128 | f128 | f128 | ..                             |
-| ✗ | __powixf2          | f80  | f80  | f80  | ..                             |
+| ✓ | __powihf2          | f16  | i32  | f16  | `a ^ b`                        |
+| ✓ | __powisf2          | f32  | i32  | f32  | ..                             |
+| ✓ | __powidf2          | f64  | i32  | f64  | ..                             |
+| ✓ | __powitf2          | f128 | i32  | f128 | ..                             |
+| ✓ | __powixf2          | f80  | i32  | f80  | ..                             |
 | ✓ | __mulhc3           | all4 | f16  | f16  | `(a+ib) * (c+id)`              |
 | ✓ | __mulsc3           | all4 | f32  | f32  | ..                             |
 | ✓ | __muldc3           | all4 | f64  | f64  | ..                             |
