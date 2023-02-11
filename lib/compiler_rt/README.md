@@ -260,10 +260,9 @@ Integer and Float Operations
 | ✓ | __gedf2            | f64  | f64  | i32  | ..                             |
 | ✓ | __getf2            | f128 | f128 | i32  | ..                             |
 | ✓ | __gexf2            | f80  | f80  | i32  | ..                             |
-| ✓ | __gekf2            | f128 | f128 | i32  | .. PPC                         |
-| ✓ | __aeabi_hcmpge     | f16  | f16  | i32  | .. ARM                         |
 | ✓ | __aeabi_fcmpge     | f32  | f32  | i32  | .. ARM                         |
 | ✓ | __aeabi_dcmpge     | f64  | f64  | i32  | .. ARM                         |
+| ✓ | __gekf2            | f128 | f128 | i32  | .. PPC                         |
 | ✓ | _Qp_fge            |*f128 |*f128 | bool | .. SPARC                       |
 | ✓ | __lthf2            | f16  | f16  | i32  | `(a!=Nan) and (b!=Nan) and (a<b) -> output<0` |
 | ✓ | __ltsf2            | f32  | f32  | i32  | ..                             |
@@ -288,10 +287,9 @@ Integer and Float Operations
 | ✓ | __gtdf2            | f64  | f64  | i32  | ..                             |
 | ✓ | __gttf2            | f128 | f128 | i32  | ..                             |
 | ✓ | __gtxf2            | f80  | f80  | i32  | ..                             |
-| ✓ | __gtkf2            | f128 | f128 | i32  | .. PPC                         |
-| ✓ | __aeabi_hcmpgt     | f16  | f16  | i32  | .. ARM                         |
 | ✓ | __aeabi_fcmpgt     | f32  | f32  | i32  | .. ARM                         |
 | ✓ | __aeabi_dcmpgt     | f64  | f64  | i32  | .. ARM                         |
+| ✓ | __gtkf2            | f128 | f128 | i32  | .. PPC                         |
 | ✓ | _Qp_fgt            |*f128 |*f128 | bool | .. SPARC                       |
 |   |                    |      |      |      | **Float Arithmetic**           |
 | ✓ | __addhf3           | f32  | f32  | f32  | `a + b`                        |
