@@ -1682,7 +1682,7 @@ fn parseInternal(
                             errdefer allocator.free(output);
                             switch (stringToken.escapes) {
                                 .None => mem.copy(u8, output, source_slice),
-                                .Some => try unescapeValidString(output, source_slice),
+                                .Some => try unescapeValidString(output[0..len], source_slice),
                             }
 
                             if (ptrInfo.sentinel) |some| {
@@ -2683,4 +2683,16 @@ test "encodesTo" {
     try testing.expectEqual(true, encodesTo("ą", "\\u0105"));
     try testing.expectEqual(true, encodesTo("😂", "\\ud83d\\ude02"));
     try testing.expectEqual(true, encodesTo("withąunicode😂", "with\\u0105unicode\\ud83d\\ude02"));
+}
+
+test "issue 14600" {
+    const json = "\"\\n\"";
+
+    var ts = std.json.TokenStream.init(json);
+
+    _ = try std.json.parse(
+        [:0]const u8,
+        &ts,
+        .{ .allocator = std.heap.page_allocator },
+    );
 }
