@@ -1029,6 +1029,7 @@ pub const InitOptions = struct {
     /// This is for stage1 and should be deleted upon completion of self-hosting.
     color: Color = .auto,
     reference_trace: ?u32 = null,
+    error_tracing: ?bool = null,
     test_filter: ?[]const u8 = null,
     test_name_prefix: ?[]const u8 = null,
     test_runner_path: ?[]const u8 = null,
@@ -1715,8 +1716,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const error_return_tracing = !strip and switch (options.optimize_mode) {
             .Debug, .ReleaseSafe => (!options.target.isWasm() or options.target.os.tag == .emscripten) and
-                !options.target.cpu.arch.isBpf(),
-            .ReleaseFast, .ReleaseSmall => false,
+                !options.target.cpu.arch.isBpf() and (options.error_tracing orelse true),
+            .ReleaseFast, => options.error_tracing orelse false,
+            .ReleaseSmall => false,
         };
 
         // For resource management purposes.

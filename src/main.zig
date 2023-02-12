@@ -432,6 +432,8 @@ const usage_build_generic =
     \\  -fno-Clang                Prevent using Clang as the C/C++ compilation backend
     \\  -freference-trace[=num]   How many lines of reference trace should be shown per compile error
     \\  -fno-reference-trace      Disable reference trace
+    \\  -ferror-tracing           Enable error tracing in ReleaseFast mode
+    \\  -fno-error-tracing        Disable error tracing in Debug and ReleaseSafe mode
     \\  -fsingle-threaded         Code assumes there is only one thread
     \\  -fno-single-threaded      Code may not assume there is only one thread
     \\  -fbuiltin                 Enable implicit builtin knowledge of functions
@@ -797,6 +799,7 @@ fn buildOutputType(
     var headerpad_max_install_names: bool = false;
     var dead_strip_dylibs: bool = false;
     var reference_trace: ?u32 = null;
+    var error_tracing: ?bool = null;
     var pdb_out_path: ?[]const u8 = null;
 
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
@@ -1218,6 +1221,10 @@ fn buildOutputType(
                         };
                     } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
                         reference_trace = null;
+                    } else if (mem.eql(u8, arg, "-ferror-tracing")) {
+                        error_tracing = true;
+                    } else if (mem.eql(u8, arg, "-fno-error-tracing")) {
+                        error_tracing = false;
                     } else if (mem.eql(u8, arg, "-rdynamic")) {
                         rdynamic = true;
                     } else if (mem.eql(u8, arg, "-fsoname")) {
@@ -3136,6 +3143,7 @@ fn buildOutputType(
         .headerpad_max_install_names = headerpad_max_install_names,
         .dead_strip_dylibs = dead_strip_dylibs,
         .reference_trace = reference_trace,
+        .error_tracing = error_tracing,
         .pdb_out_path = pdb_out_path,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {

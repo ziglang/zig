@@ -906,7 +906,7 @@ pub fn standardOptimizeOption(self: *Build, options: StandardOptimizeOptionOptio
         return self.option(
             std.builtin.Mode,
             "optimize",
-            "prioritize performance, safety, or binary size (-O flag)",
+            "Prioritize performance, safety, or binary size (-O flag)",
         ) orelse .Debug;
     }
 }
