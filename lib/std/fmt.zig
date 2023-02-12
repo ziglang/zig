@@ -1503,8 +1503,16 @@ fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: s
 
     // worst case: "-XXXyXXwXXdXXhXXmXX.XXXs".len = 24
     var buf: [24]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
+
+    return tryFormatDuration(data, &buf, options, writer) catch |err| switch (err) {
+        error.NoSpaceLeft => unreachable
+    };
+}
+
+fn tryFormatDuration(data: FormatDurationData, buffer_ptr: []u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    var fbs = std.io.fixedBufferStream(buffer_ptr);
     var buf_writer = fbs.writer();
+
     if (data.negative) {
         try buf_writer.writeByte('-');
     }
