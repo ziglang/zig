@@ -1503,7 +1503,6 @@ fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: s
 
     // worst case: "-XXXyXXwXXdXXhXXmXX.XXXs".len = 24
     var buf: [24]u8 = undefined;
-    errdefer @panic("buffer overflow while formatting duration");
     var fbs = std.io.fixedBufferStream(&buf);
     var buf_writer = fbs.writer();
     if (data.negative) {
