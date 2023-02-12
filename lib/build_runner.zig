@@ -49,12 +49,12 @@ pub fn main() !void {
     };
 
     const local_cache_directory: std.Build.Cache.Directory = .{
-        .path = try std.fs.path.relative(allocator, build_root, cache_root),
+        .path = cache_root,
         .handle = try std.fs.cwd().makeOpenPath(cache_root, .{}),
     };
 
     const global_cache_directory: std.Build.Cache.Directory = .{
-        .path = try std.fs.path.relative(allocator, build_root, global_cache_root),
+        .path = global_cache_root,
         .handle = try std.fs.cwd().makeOpenPath(global_cache_root, .{}),
     };
 

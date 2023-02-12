@@ -1644,7 +1644,6 @@ pub const GeneratedFile = struct {
 };
 
 /// A file source is a reference to an existing or future file.
-///
 pub const FileSource = union(enum) {
     /// A plain file path, relative to build root or absolute.
     path: []const u8,

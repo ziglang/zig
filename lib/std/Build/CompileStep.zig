@@ -1350,10 +1350,10 @@ fn make(step: *Step) !void {
     }
 
     try zig_args.append("--cache-dir");
-    try zig_args.append(builder.pathFromRoot(builder.cache_root.path orelse "."));
+    try zig_args.append(builder.cache_root.path orelse ".");
 
     try zig_args.append("--global-cache-dir");
-    try zig_args.append(builder.pathFromRoot(builder.global_cache_root.path orelse "."));
+    try zig_args.append(builder.global_cache_root.path orelse ".");
 
     try zig_args.append("--name");
     try zig_args.append(self.name);
@@ -1786,7 +1786,7 @@ fn make(step: *Step) !void {
 
         const resolved_args_file = try mem.concat(builder.allocator, u8, &.{
             "@",
-            builder.pathFromRoot(try builder.cache_root.join(builder.allocator, &.{args_file})),
+            try builder.cache_root.join(builder.allocator, &.{args_file}),
         });
 
         zig_args.shrinkRetainingCapacity(2);
