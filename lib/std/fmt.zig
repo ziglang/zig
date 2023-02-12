@@ -1505,7 +1505,7 @@ fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: s
     var buf: [24]u8 = undefined;
 
     return tryFormatDuration(data, &buf, options, writer) catch |err| switch (err) {
-        error.NoSpaceLeft => unreachable
+        error.NoSpaceLeft => unreachable,
     };
 }
 
