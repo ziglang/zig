@@ -678,7 +678,12 @@ pub fn decodeBlock(
                 bytes_written += len;
             }
 
-            if (!decode_state.isLiteralStreamEmpty()) return error.MalformedCompressedBlock;
+            switch (decode_state.literal_header.block_type) {
+                .treeless, .compressed => {
+                    if (!decode_state.isLiteralStreamEmpty()) return error.MalformedCompressedBlock;
+                },
+                .raw, .rle => {},
+            }
 
             consumed_count.* += block_size;
             return bytes_written;
@@ -766,7 +771,12 @@ pub fn decodeBlockRingBuffer(
                 bytes_written += len;
             }
 
-            if (!decode_state.isLiteralStreamEmpty()) return error.MalformedCompressedBlock;
+            switch (decode_state.literal_header.block_type) {
+                .treeless, .compressed => {
+                    if (!decode_state.isLiteralStreamEmpty()) return error.MalformedCompressedBlock;
+                },
+                .raw, .rle => {},
+            }
 
             consumed_count.* += block_size;
             if (bytes_written > block_size_max) return error.BlockSizeOverMaximum;
@@ -853,7 +863,12 @@ pub fn decodeBlockReader(
                 bytes_written += len;
             }
 
-            if (!decode_state.isLiteralStreamEmpty()) return error.MalformedCompressedBlock;
+            switch (decode_state.literal_header.block_type) {
+                .treeless, .compressed => {
+                    if (!decode_state.isLiteralStreamEmpty()) return error.MalformedCompressedBlock;
+                },
+                .raw, .rle => {},
+            }
 
             if (bytes_written > block_size_max) return error.BlockSizeOverMaximum;
             if (block_reader_limited.bytes_left != 0) return error.MalformedCompressedBlock;
