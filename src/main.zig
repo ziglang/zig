@@ -402,8 +402,8 @@ const usage_build_generic =
     \\  --name [name]             Override root name (not a file path)
     \\  -O [mode]                 Choose what to optimize for
     \\    Debug                   (default) Optimizations off, safety on
-    \\    ReleaseFast             Optimizations on, safety off
-    \\    ReleaseSafe             Optimizations on, safety on
+    \\    ReleaseFast             Optimize for performance, safety off
+    \\    ReleaseSafe             Optimize for performance, safety on
     \\    ReleaseSmall            Optimize for small binary, safety off
     \\  --mod [name]:[deps]:[src] Make a module available for dependency under the given name
     \\      deps: [dep],[dep],...
