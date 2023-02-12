@@ -2687,6 +2687,10 @@ test "issue 14600" {
     var token_stream = std.json.TokenStream.init(json);
     const options = ParseOptions{ .allocator = std.testing.allocator };
 
+    // Pre-fix, this line would panic:
     const result = try std.json.parse([:0]const u8, &token_stream, options);
     defer std.json.parseFree([:0]const u8, result, options);
+
+    // Double-check that we're getting the right result
+    try testing.expect(mem.eql(u8, result, "\n"));
 }
