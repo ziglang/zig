@@ -153,9 +153,7 @@ fn assignSymbols(weight_sorted_prefixed_symbols: []LiteralsSection.HuffmanTree.P
 fn buildHuffmanTree(weights: *[256]u4, symbol_count: usize) error{MalformedHuffmanTree}!LiteralsSection.HuffmanTree {
     var weight_power_sum_big: u32 = 0;
     for (weights[0 .. symbol_count - 1]) |value| {
-        if (value > 0) {
-            weight_power_sum_big += @as(u16, 1) << (value - 1);
-        }
+        weight_power_sum_big += (@as(u16, 1) << value) >> 1;
     }
     if (weight_power_sum_big >= 1 << 11) return error.MalformedHuffmanTree;
     const weight_power_sum = @intCast(u16, weight_power_sum_big);
