@@ -1717,7 +1717,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const error_return_tracing = !strip and switch (options.optimize_mode) {
             .Debug, .ReleaseSafe => (!options.target.isWasm() or options.target.os.tag == .emscripten) and
                 !options.target.cpu.arch.isBpf() and (options.error_tracing orelse true),
-            .ReleaseFast, => options.error_tracing orelse false,
+            .ReleaseFast => options.error_tracing orelse false,
             .ReleaseSmall => false,
         };
 
