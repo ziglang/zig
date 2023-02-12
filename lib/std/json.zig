@@ -1678,17 +1678,14 @@ fn parseInternal(
                             if (ptrInfo.child != u8) return error.UnexpectedToken;
                             const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
                             const len = stringToken.decodedLength();
-                            const output = try allocator.alloc(u8, len + @boolToInt(ptrInfo.sentinel != null));
+                            const output = if (ptrInfo.sentinel) |sentinel_ptr|
+                                try allocator.allocSentinel(u8, len, @ptrCast(*const u8, sentinel_ptr).*)
+                            else
+                                try allocator.alloc(u8, len);
                             errdefer allocator.free(output);
                             switch (stringToken.escapes) {
                                 .None => mem.copy(u8, output, source_slice),
-                                .Some => try unescapeValidString(output[0..len], source_slice),
-                            }
-
-                            if (ptrInfo.sentinel) |some| {
-                                const char = @ptrCast(*const u8, some).*;
-                                output[len] = char;
-                                return output[0..len :char];
+                                .Some => try unescapeValidString(output, source_slice),
                             }
 
                             return output;
