@@ -40,12 +40,11 @@ pub fn build(b: *std.Build) !void {
     });
     docgen_exe.single_threaded = single_threaded;
 
-    const rel_zig_exe = try b.build_root.join(b.allocator, &.{b.zig_exe});
     const langref_out_path = try b.cache_root.join(b.allocator, &.{"langref.html"});
     const docgen_cmd = docgen_exe.run();
     docgen_cmd.addArgs(&[_][]const u8{
         "--zig",
-        rel_zig_exe,
+        b.zig_exe,
         "doc" ++ fs.path.sep_str ++ "langref.html.in",
         langref_out_path,
     });
