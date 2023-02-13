@@ -28,6 +28,7 @@ pub const Tag = enum {
     cmpxchg_weak,
     compile_error,
     compile_log,
+    const_cast,
     ctz,
     c_undef,
     c_va_arg,
@@ -75,7 +76,6 @@ pub const Tag = enum {
     prefetch,
     ptr_cast,
     ptr_to_int,
-    qual_cast,
     rem,
     return_address,
     select,
@@ -116,6 +116,7 @@ pub const Tag = enum {
     TypeOf,
     union_init,
     Vector,
+    volatile_cast,
 };
 
 pub const MemLocRequirement = enum {
@@ -343,6 +344,13 @@ pub const list = list: {
             .{
                 .tag = .compile_log,
                 .param_count = null,
+            },
+        },
+        .{
+            "@constCast",
+            .{
+                .tag = .const_cast,
+                .param_count = 1,
             },
         },
         .{
@@ -676,13 +684,6 @@ pub const list = list: {
             },
         },
         .{
-            "@qualCast",
-            .{
-                .tag = .qual_cast,
-                .param_count = 2,
-            },
-        },
-        .{
             "@rem",
             .{
                 .tag = .rem,
@@ -962,6 +963,13 @@ pub const list = list: {
             .{
                 .tag = .Vector,
                 .param_count = 2,
+            },
+        },
+        .{
+            "@volatileCast",
+            .{
+                .tag = .volatile_cast,
+                .param_count = 1,
             },
         },
     });

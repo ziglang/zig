@@ -112,7 +112,7 @@ pub fn destroy(self: Allocator, ptr: anytype) void {
     const info = @typeInfo(@TypeOf(ptr)).Pointer;
     const T = info.child;
     if (@sizeOf(T) == 0) return;
-    const non_const_ptr = @intToPtr([*]u8, @ptrToInt(ptr));
+    const non_const_ptr = @ptrCast([*]u8, @constCast(ptr));
     self.rawFree(non_const_ptr[0..@sizeOf(T)], math.log2(info.alignment), @returnAddress());
 }
 
@@ -297,7 +297,7 @@ pub fn free(self: Allocator, memory: anytype) void {
     const bytes = mem.sliceAsBytes(memory);
     const bytes_len = bytes.len + if (Slice.sentinel != null) @sizeOf(Slice.child) else 0;
     if (bytes_len == 0) return;
-    const non_const_ptr = @intToPtr([*]u8, @ptrToInt(bytes.ptr));
+    const non_const_ptr = @constCast(bytes.ptr);
     // TODO: https://github.com/ziglang/zig/issues/4298
     @memset(non_const_ptr, undefined, bytes_len);
     self.rawFree(non_const_ptr[0..bytes_len], log2a(Slice.alignment), @returnAddress());

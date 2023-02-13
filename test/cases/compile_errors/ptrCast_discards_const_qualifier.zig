@@ -9,4 +9,4 @@ export fn entry() void {
 // target=native
 //
 // :3:15: error: cast discards const qualifier
-// :3:15: note: consider using '@qualCast'
+// :3:15: note: consider using '@constCast'

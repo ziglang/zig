@@ -1763,7 +1763,7 @@ pub const Dir = struct {
         var nt_name = w.UNICODE_STRING{
             .Length = path_len_bytes,
             .MaximumLength = path_len_bytes,
-            .Buffer = @qualCast([*:0]u16, sub_path_w),
+            .Buffer = @constCast(sub_path_w),
         };
         var attr = w.OBJECT_ATTRIBUTES{
             .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
