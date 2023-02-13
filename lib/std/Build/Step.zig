@@ -2,7 +2,8 @@ id: Id,
 name: []const u8,
 makeFn: *const fn (self: *Step) anyerror!void,
 dependencies: std.ArrayList(*Step),
-loop_flag: bool,
+/// Used only during a pre-check for dependency loops.
+loop_tag: enum { unstarted, started, done },
 done_flag: bool,
 
 pub const Id = enum {
@@ -60,7 +61,7 @@ pub fn init(
         .name = allocator.dupe(u8, name) catch @panic("OOM"),
         .makeFn = makeFn,
         .dependencies = std.ArrayList(*Step).init(allocator),
-        .loop_flag = false,
+        .loop_tag = .unstarted,
         .done_flag = false,
     };
 }

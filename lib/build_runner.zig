@@ -275,19 +275,26 @@ fn make(b: *std.Build, step_names: []const []const u8) !void {
     }
 
     for (wanted_steps.items) |s| {
+        checkForDependencyLoop(b, s) catch |err| switch (err) {
+            error.DependencyLoopDetected => return error.UncleanExit,
+            else => |e| return e,
+        };
+    }
+
+    for (wanted_steps.items) |s| {
         try makeOneStep(b, s);
     }
 }
 
-fn makeOneStep(b: *std.Build, s: *std.Build.Step) anyerror!void {
-    if (s.loop_flag) {
+fn checkForDependencyLoop(b: *std.Build, s: *std.Build.Step) !void {
+    if (s.loop_tag == .started) {
         std.debug.print("dependency loop detected:\n  {s}\n", .{s.name});
         return error.DependencyLoopDetected;
     }
-    s.loop_flag = true;
+    s.loop_tag = .started;
 
     for (s.dependencies.items) |dep| {
-        makeOneStep(b, dep) catch |err| {
+        checkForDependencyLoop(b, dep) catch |err| {
             if (err == error.DependencyLoopDetected) {
                 std.debug.print("  {s}\n", .{s.name});
             }
@@ -295,7 +302,13 @@ fn makeOneStep(b: *std.Build, s: *std.Build.Step) anyerror!void {
         };
     }
 
-    s.loop_flag = false;
+    s.loop_tag = .done;
+}
+
+fn makeOneStep(b: *std.Build, s: *std.Build.Step) anyerror!void {
+    for (s.dependencies.items) |dep| {
+        try makeOneStep(b, dep);
+    }
 
     try s.make();
 }
