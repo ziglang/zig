@@ -654,29 +654,32 @@ pub fn decodeBlock(
             bytes_read += fbs.pos;
 
             var bytes_written: usize = 0;
-            if (sequences_header.sequence_count > 0) {
+            {
                 const bit_stream_bytes = src[bytes_read..block_size];
                 var bit_stream: readers.ReverseBitReader = undefined;
                 bit_stream.init(bit_stream_bytes) catch return error.MalformedCompressedBlock;
 
-                decode_state.readInitialFseState(&bit_stream) catch return error.MalformedCompressedBlock;
+                if (sequences_header.sequence_count > 0) {
+                    decode_state.readInitialFseState(&bit_stream) catch
+                        return error.MalformedCompressedBlock;
 
-                var sequence_size_limit = block_size_max;
-                var i: usize = 0;
-                while (i < sequences_header.sequence_count) : (i += 1) {
-                    const write_pos = written_count + bytes_written;
-                    const decompressed_size = decode_state.decodeSequenceSlice(
-                        dest,
-                        write_pos,
-                        &bit_stream,
-                        sequence_size_limit,
-                        i == sequences_header.sequence_count - 1,
-                    ) catch |err| switch (err) {
-                        error.DestTooSmall => return error.DestTooSmall,
-                        else => return error.MalformedCompressedBlock,
-                    };
-                    bytes_written += decompressed_size;
-                    sequence_size_limit -= decompressed_size;
+                    var sequence_size_limit = block_size_max;
+                    var i: usize = 0;
+                    while (i < sequences_header.sequence_count) : (i += 1) {
+                        const write_pos = written_count + bytes_written;
+                        const decompressed_size = decode_state.decodeSequenceSlice(
+                            dest,
+                            write_pos,
+                            &bit_stream,
+                            sequence_size_limit,
+                            i == sequences_header.sequence_count - 1,
+                        ) catch |err| switch (err) {
+                            error.DestTooSmall => return error.DestTooSmall,
+                            else => return error.MalformedCompressedBlock,
+                        };
+                        bytes_written += decompressed_size;
+                        sequence_size_limit -= decompressed_size;
+                    }
                 }
 
                 if (!bit_stream.isEmpty()) {
@@ -755,24 +758,27 @@ pub fn decodeBlockRingBuffer(
             bytes_read += fbs.pos;
 
             var bytes_written: usize = 0;
-            if (sequences_header.sequence_count > 0) {
+            {
                 const bit_stream_bytes = src[bytes_read..block_size];
                 var bit_stream: readers.ReverseBitReader = undefined;
                 bit_stream.init(bit_stream_bytes) catch return error.MalformedCompressedBlock;
 
-                decode_state.readInitialFseState(&bit_stream) catch return error.MalformedCompressedBlock;
+                if (sequences_header.sequence_count > 0) {
+                    decode_state.readInitialFseState(&bit_stream) catch
+                        return error.MalformedCompressedBlock;
 
-                var sequence_size_limit = block_size_max;
-                var i: usize = 0;
-                while (i < sequences_header.sequence_count) : (i += 1) {
-                    const decompressed_size = decode_state.decodeSequenceRingBuffer(
-                        dest,
-                        &bit_stream,
-                        sequence_size_limit,
-                        i == sequences_header.sequence_count - 1,
-                    ) catch return error.MalformedCompressedBlock;
-                    bytes_written += decompressed_size;
-                    sequence_size_limit -= decompressed_size;
+                    var sequence_size_limit = block_size_max;
+                    var i: usize = 0;
+                    while (i < sequences_header.sequence_count) : (i += 1) {
+                        const decompressed_size = decode_state.decodeSequenceRingBuffer(
+                            dest,
+                            &bit_stream,
+                            sequence_size_limit,
+                            i == sequences_header.sequence_count - 1,
+                        ) catch return error.MalformedCompressedBlock;
+                        bytes_written += decompressed_size;
+                        sequence_size_limit -= decompressed_size;
+                    }
                 }
 
                 if (!bit_stream.isEmpty()) {
@@ -847,28 +853,32 @@ pub fn decodeBlockReader(
             try decode_state.prepare(block_reader, literals, sequences_header);
 
             var bytes_written: usize = 0;
-            if (sequences_header.sequence_count > 0) {
-                if (sequence_buffer.len < block_reader_limited.bytes_left)
-                    return error.SequenceBufferTooSmall;
-
+            {
                 const size = try block_reader.readAll(sequence_buffer);
                 var bit_stream: readers.ReverseBitReader = undefined;
                 try bit_stream.init(sequence_buffer[0..size]);
 
-                decode_state.readInitialFseState(&bit_stream) catch return error.MalformedCompressedBlock;
+                if (sequences_header.sequence_count > 0) {
+                    if (sequence_buffer.len < block_reader_limited.bytes_left)
+                        return error.SequenceBufferTooSmall;
 
-                var sequence_size_limit = block_size_max;
-                var i: usize = 0;
-                while (i < sequences_header.sequence_count) : (i += 1) {
-                    const decompressed_size = decode_state.decodeSequenceRingBuffer(
-                        dest,
-                        &bit_stream,
-                        sequence_size_limit,
-                        i == sequences_header.sequence_count - 1,
-                    ) catch return error.MalformedCompressedBlock;
-                    sequence_size_limit -= decompressed_size;
-                    bytes_written += decompressed_size;
+                    decode_state.readInitialFseState(&bit_stream) catch
+                        return error.MalformedCompressedBlock;
+
+                    var sequence_size_limit = block_size_max;
+                    var i: usize = 0;
+                    while (i < sequences_header.sequence_count) : (i += 1) {
+                        const decompressed_size = decode_state.decodeSequenceRingBuffer(
+                            dest,
+                            &bit_stream,
+                            sequence_size_limit,
+                            i == sequences_header.sequence_count - 1,
+                        ) catch return error.MalformedCompressedBlock;
+                        sequence_size_limit -= decompressed_size;
+                        bytes_written += decompressed_size;
+                    }
                 }
+
                 if (!bit_stream.isEmpty()) {
                     return error.MalformedCompressedBlock;
                 }

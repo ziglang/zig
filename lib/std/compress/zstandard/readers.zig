@@ -36,8 +36,9 @@ pub const ReverseBitReader = struct {
     pub fn init(self: *ReverseBitReader, bytes: []const u8) error{BitStreamHasNoStartBit}!void {
         self.byte_reader = ReversedByteReader.init(bytes);
         self.bit_reader = std.io.bitReader(.Big, self.byte_reader.reader());
+        if (bytes.len == 0) return;
         var i: usize = 0;
-        while (i < 8 and 0 == self.readBitsNoEof(u1, 1) catch return error.BitStreamHasNoStartBit) : (i += 1) {}
+        while (i < 8 and 0 == self.readBitsNoEof(u1, 1) catch unreachable) : (i += 1) {}
         if (i == 8) return error.BitStreamHasNoStartBit;
     }
 
