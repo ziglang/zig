@@ -1163,11 +1163,12 @@ const ArrayList = std.ArrayList;
 const StringArrayHashMap = std.StringArrayHashMap;
 
 pub const ValueTree = struct {
-    arena: ArenaAllocator,
+    arena: *ArenaAllocator,
     root: Value,
 
     pub fn deinit(self: *ValueTree) void {
         self.arena.deinit();
+        self.arena.child_allocator.destroy(self.arena);
     }
 };
 
@@ -1639,7 +1640,7 @@ fn parseInternal(
             const allocator = options.allocator orelse return error.AllocatorRequired;
             switch (ptrInfo.size) {
                 .One => {
-                    const r: T = try allocator.create(ptrInfo.child);
+                    const r: *ptrInfo.child = try allocator.create(ptrInfo.child);
                     errdefer allocator.destroy(r);
                     r.* = try parseInternal(ptrInfo.child, token, tokens, options);
                     return r;
@@ -1741,7 +1742,37 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
         .Struct => |structInfo| {
             inline for (structInfo.fields) |field| {
                 if (!field.is_comptime) {
-                    parseFree(field.type, @field(value, field.name), options);
+                    var should_free = true;
+                    if (field.default_value) |default| {
+                        switch (@typeInfo(field.type)) {
+                            // We must not attempt to free pointers to struct default values
+                            .Pointer => |fieldPtrInfo| {
+                                const field_value = @field(value, field.name);
+                                const field_ptr = switch (fieldPtrInfo.size) {
+                                    .One => field_value,
+                                    .Slice => field_value.ptr,
+                                    else => unreachable, // Other pointer types are not parseable
+                                };
+                                const field_addr = @ptrToInt(field_ptr);
+
+                                const casted_default = @ptrCast(*const field.type, @alignCast(@alignOf(field.type), default)).*;
+                                const default_ptr = switch (fieldPtrInfo.size) {
+                                    .One => casted_default,
+                                    .Slice => casted_default.ptr,
+                                    else => unreachable, // Other pointer types are not parseable
+                                };
+                                const default_addr = @ptrToInt(default_ptr);
+
+                                if (field_addr == default_addr) {
+                                    should_free = false;
+                                }
+                            },
+                            else => {},
+                        }
+                    }
+                    if (should_free) {
+                        parseFree(field.type, @field(value, field.name), options);
+                    }
                 }
             }
         },
@@ -1806,8 +1837,12 @@ pub const Parser = struct {
     pub fn parse(p: *Parser, input: []const u8) !ValueTree {
         var s = TokenStream.init(input);
 
-        var arena = ArenaAllocator.init(p.allocator);
+        var arena = try p.allocator.create(ArenaAllocator);
+        errdefer p.allocator.destroy(arena);
+
+        arena.* = ArenaAllocator.init(p.allocator);
         errdefer arena.deinit();
+
         const allocator = arena.allocator();
 
         while (try s.next()) |token| {
