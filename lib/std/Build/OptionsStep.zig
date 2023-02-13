@@ -283,13 +283,19 @@ test "OptionsStep" {
 
     const host = try std.zig.system.NativeTargetInfo.detect(.{});
 
+    var cache: std.Build.Cache = .{
+        .gpa = arena.allocator(),
+        .manifest_dir = std.fs.cwd(),
+    };
+
     var builder = try std.Build.create(
         arena.allocator(),
         "test",
-        "test",
-        "test",
-        "test",
+        .{ .path = "test", .handle = std.fs.cwd() },
+        .{ .path = "test", .handle = std.fs.cwd() },
+        .{ .path = "test", .handle = std.fs.cwd() },
         host,
+        &cache,
     );
     defer builder.destroy();
 
