@@ -1596,26 +1596,6 @@ pub fn runBuild(b: *Build, build_zig: anytype) anyerror!void {
     }
 }
 
-test "builder.findProgram compiles" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-
-    const host = try NativeTargetInfo.detect(.{});
-
-    const builder = try Build.create(
-        arena.allocator(),
-        "zig",
-        "zig-cache",
-        "zig-cache",
-        "zig-cache",
-        host,
-    );
-    defer builder.destroy();
-    _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
-}
-
 pub const Module = struct {
     builder: *Build,
     /// This could either be a generated file, in which case the module
