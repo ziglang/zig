@@ -92,23 +92,23 @@ pub fn main() !void {
     // before arg parsing, check for the NO_COLOR environment variable
     // if it exists, default the color setting to .off
     // explicit --color arguments will still override this setting.
-    builder.color = if (std.process.hasEnvVarConstant("NO_COLOR")) .off else .auto;
+    builder.color = if (process.hasEnvVarConstant("NO_COLOR")) .off else .auto;
 
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
             if (option_contents.len == 0) {
                 std.debug.print("Expected option name after '-D'\n\n", .{});
-                return usageAndErr(builder, false, stderr_stream);
+                usageAndErr(builder, false, stderr_stream);
             }
             if (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
                 const option_name = option_contents[0..name_end];
                 const option_value = option_contents[name_end + 1 ..];
                 if (try builder.addUserInputOption(option_name, option_value))
-                    return usageAndErr(builder, false, stderr_stream);
+                    usageAndErr(builder, false, stderr_stream);
             } else {
                 if (try builder.addUserInputFlag(option_contents))
-                    return usageAndErr(builder, false, stderr_stream);
+                    usageAndErr(builder, false, stderr_stream);
             }
         } else if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "--verbose")) {
@@ -118,61 +118,61 @@ pub fn main() !void {
             } else if (mem.eql(u8, arg, "-p") or mem.eql(u8, arg, "--prefix")) {
                 install_prefix = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    return usageAndErr(builder, false, stderr_stream);
+                    usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "-l") or mem.eql(u8, arg, "--list-steps")) {
                 return steps(builder, false, stdout_stream);
             } else if (mem.eql(u8, arg, "--prefix-lib-dir")) {
                 dir_list.lib_dir = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    return usageAndErr(builder, false, stderr_stream);
+                    usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--prefix-exe-dir")) {
                 dir_list.exe_dir = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    return usageAndErr(builder, false, stderr_stream);
+                    usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--prefix-include-dir")) {
                 dir_list.include_dir = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    return usageAndErr(builder, false, stderr_stream);
+                    usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--sysroot")) {
                 const sysroot = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after --sysroot\n\n", .{});
-                    return usageAndErr(builder, false, stderr_stream);
+                    usageAndErr(builder, false, stderr_stream);
                 };
                 builder.sysroot = sysroot;
             } else if (mem.eql(u8, arg, "--search-prefix")) {
                 const search_prefix = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after --search-prefix\n\n", .{});
-                    return usageAndErr(builder, false, stderr_stream);
+                    usageAndErr(builder, false, stderr_stream);
                 };
                 builder.addSearchPrefix(search_prefix);
             } else if (mem.eql(u8, arg, "--libc")) {
                 const libc_file = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after --libc\n\n", .{});
-                    return usageAndErr(builder, false, stderr_stream);
+                    usageAndErr(builder, false, stderr_stream);
                 };
                 builder.libc_file = libc_file;
             } else if (mem.eql(u8, arg, "--color")) {
                 const next_arg = nextArg(args, &arg_idx) orelse {
                     std.debug.print("expected [auto|on|off] after --color", .{});
-                    return usageAndErr(builder, false, stderr_stream);
+                    usageAndErr(builder, false, stderr_stream);
                 };
                 builder.color = std.meta.stringToEnum(@TypeOf(builder.color), next_arg) orelse {
                     std.debug.print("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
-                    return usageAndErr(builder, false, stderr_stream);
+                    usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
                 builder.zig_lib_dir = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after --zig-lib-dir\n\n", .{});
-                    return usageAndErr(builder, false, stderr_stream);
+                    usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--debug-log")) {
                 const next_arg = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    return usageAndErr(builder, false, stderr_stream);
+                    usageAndErr(builder, false, stderr_stream);
                 };
                 try debug_log_scopes.append(next_arg);
             } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
@@ -180,7 +180,7 @@ pub fn main() !void {
             } else if (mem.eql(u8, arg, "--glibc-runtimes")) {
                 builder.glibc_runtimes_dir = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after --glibc-runtimes\n\n", .{});
-                    return usageAndErr(builder, false, stderr_stream);
+                    usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--verbose-link")) {
                 builder.verbose_link = true;
@@ -231,7 +231,7 @@ pub fn main() !void {
                 break;
             } else {
                 std.debug.print("Unrecognized argument: {s}\n\n", .{arg});
-                return usageAndErr(builder, false, stderr_stream);
+                usageAndErr(builder, false, stderr_stream);
             }
         } else {
             try targets.append(arg);
@@ -243,13 +243,10 @@ pub fn main() !void {
     try builder.runBuild(root);
 
     if (builder.validateUserInputDidItFail())
-        return usageAndErr(builder, true, stderr_stream);
+        usageAndErr(builder, true, stderr_stream);
 
-    builder.make(targets.items) catch |err| {
+    make(builder, targets.items) catch |err| {
         switch (err) {
-            error.InvalidStepName => {
-                return usageAndErr(builder, true, stderr_stream);
-            },
             error.UncleanExit => process.exit(1),
             // This error is intended to indicate that the step has already
             // logged an error message and so printing the error return trace
@@ -261,6 +258,48 @@ pub fn main() !void {
     };
 }
 
+fn make(b: *std.Build, step_names: []const []const u8) !void {
+    var wanted_steps = ArrayList(*std.Build.Step).init(b.allocator);
+    defer wanted_steps.deinit();
+
+    if (step_names.len == 0) {
+        try wanted_steps.append(b.default_step);
+    } else {
+        for (step_names) |step_name| {
+            const s = b.top_level_steps.get(step_name) orelse {
+                std.debug.print("no step named '{s}'. Access the help menu with 'zig build -h'\n", .{step_name});
+                process.exit(1);
+            };
+            try wanted_steps.append(&s.step);
+        }
+    }
+
+    for (wanted_steps.items) |s| {
+        try makeOneStep(b, s);
+    }
+}
+
+fn makeOneStep(b: *std.Build, s: *std.Build.Step) anyerror!void {
+    if (s.loop_flag) {
+        std.debug.print("dependency loop detected:\n  {s}\n", .{s.name});
+        return error.DependencyLoopDetected;
+    }
+    s.loop_flag = true;
+
+    for (s.dependencies.items) |dep| {
+        makeOneStep(b, dep) catch |err| {
+            if (err == error.DependencyLoopDetected) {
+                std.debug.print("  {s}\n", .{s.name});
+            }
+            return err;
+        };
+    }
+
+    s.loop_flag = false;
+
+    try s.make();
+}
+
 fn steps(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !void {
     // run the build script to collect the options
     if (!already_ran_build) {
@@ -269,7 +308,7 @@ fn steps(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
     }
 
     const allocator = builder.allocator;
-    for (builder.top_level_steps.items) |top_level_step| {
+    for (builder.top_level_steps.values()) |top_level_step| {
         const name = if (&top_level_step.step == builder.default_step)
             try fmt.allocPrint(allocator, "{s} (default)", .{top_level_step.step.name})
         else
@@ -374,7 +413,7 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
     );
 }
 
-fn usageAndErr(builder: *std.Build, already_ran_build: bool, out_stream: anytype) void {
+fn usageAndErr(builder: *std.Build, already_ran_build: bool, out_stream: anytype) noreturn {
     usage(builder, already_ran_build, out_stream) catch {};
     process.exit(1);
 }

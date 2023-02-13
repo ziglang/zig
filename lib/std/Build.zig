@@ -67,7 +67,7 @@ invalid_user_input: bool,
 zig_exe: []const u8,
 default_step: *Step,
 env_map: *EnvMap,
-top_level_steps: ArrayList(*TopLevelStep),
+top_level_steps: std.StringArrayHashMapUnmanaged(*TopLevelStep),
 install_prefix: []const u8,
 dest_dir: ?[]const u8,
 lib_dir: []const u8,
@@ -217,7 +217,7 @@ pub fn create(
         .user_input_options = UserInputOptionsMap.init(allocator),
         .available_options_map = AvailableOptionsMap.init(allocator),
         .available_options_list = ArrayList(AvailableOption).init(allocator),
-        .top_level_steps = ArrayList(*TopLevelStep).init(allocator),
+        .top_level_steps = .{},
         .default_step = undefined,
         .env_map = env_map,
         .search_prefixes = ArrayList([]const u8).init(allocator),
@@ -241,8 +241,8 @@ pub fn create(
         .host = host,
         .modules = std.StringArrayHashMap(*Module).init(allocator),
     };
-    try self.top_level_steps.append(&self.install_tls);
-    try self.top_level_steps.append(&self.uninstall_tls);
+    try self.top_level_steps.put(allocator, self.install_tls.step.name, &self.install_tls);
+    try self.top_level_steps.put(allocator, self.uninstall_tls.step.name, &self.uninstall_tls);
     self.default_step = &self.install_tls.step;
     return self;
 }
@@ -288,7 +288,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .zig_exe = parent.zig_exe,
         .default_step = undefined,
         .env_map = parent.env_map,
-        .top_level_steps = ArrayList(*TopLevelStep).init(allocator),
+        .top_level_steps = .{},
         .install_prefix = undefined,
         .dest_dir = parent.dest_dir,
         .lib_dir = parent.lib_dir,
@@ -316,8 +316,8 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = std.StringArrayHashMap(*Module).init(allocator),
     };
-    try child.top_level_steps.append(&child.install_tls);
-    try child.top_level_steps.append(&child.uninstall_tls);
+    try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
+    try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
     child.default_step = &child.install_tls.step;
     return child;
 }
@@ -389,10 +389,10 @@ fn applyArgs(b: *Build, args: anytype) !void {
     b.resolveInstallPrefix(install_prefix, .{});
 }
 
-pub fn destroy(self: *Build) void {
-    self.env_map.deinit();
-    self.top_level_steps.deinit();
-    self.allocator.destroy(self);
+pub fn destroy(b: *Build) void {
+    b.env_map.deinit();
+    b.top_level_steps.deinit(b.allocator);
+    b.allocator.destroy(b);
 }
 
 /// This function is intended to be called by lib/build_runner.zig, not a build.zig file.
@@ -698,24 +698,6 @@ pub fn addTranslateC(self: *Build, options: TranslateCStep.Options) *TranslateCS
     return TranslateCStep.create(self, options);
 }
 
-pub fn make(self: *Build, step_names: []const []const u8) !void {
-    var wanted_steps = ArrayList(*Step).init(self.allocator);
-    defer wanted_steps.deinit();
-
-    if (step_names.len == 0) {
-        try wanted_steps.append(self.default_step);
-    } else {
-        for (step_names) |step_name| {
-            const s = try self.getTopLevelStepByName(step_name);
-            try wanted_steps.append(s);
-        }
-    }
-
-    for (wanted_steps.items) |s| {
-        try self.makeOneStep(s);
-    }
-}
-
 pub fn getInstallStep(self: *Build) *Step {
     return &self.install_tls.step;
 }
@@ -737,37 +719,6 @@ fn makeUninstall(uninstall_step: *Step) anyerror!void {
     }
 
     // TODO remove empty directories
-}
-
-fn makeOneStep(self: *Build, s: *Step) anyerror!void {
-    if (s.loop_flag) {
-        log.err("Dependency loop detected:\n  {s}", .{s.name});
-        return error.DependencyLoopDetected;
-    }
-    s.loop_flag = true;
-
-    for (s.dependencies.items) |dep| {
-        self.makeOneStep(dep) catch |err| {
-            if (err == error.DependencyLoopDetected) {
-                log.err("  {s}", .{s.name});
-            }
-            return err;
-        };
-    }
-
-    s.loop_flag = false;
-
-    try s.make();
-}
-
-fn getTopLevelStepByName(self: *Build, name: []const u8) !*Step {
-    for (self.top_level_steps.items) |top_level_step| {
-        if (mem.eql(u8, top_level_step.step.name, name)) {
-            return &top_level_step.step;
-        }
-    }
-    log.err("Cannot run step '{s}' because it does not exist", .{name});
-    return error.InvalidStepName;
 }
 
 pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_raw: []const u8) ?T {
@@ -910,7 +861,7 @@ pub fn step(self: *Build, name: []const u8, description: []const u8) *Step {
         .step = Step.initNoOp(.top_level, name, self.allocator),
         .description = self.dupe(description),
     };
-    self.top_level_steps.append(step_info) catch @panic("OOM");
+    self.top_level_steps.put(self.allocator, step_info.step.name, step_info) catch @panic("OOM");
     return &step_info.step;
 }
 
