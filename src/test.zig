@@ -4,14 +4,14 @@ const Allocator = std.mem.Allocator;
 const CrossTarget = std.zig.CrossTarget;
 const print = std.debug.print;
 const assert = std.debug.assert;
+const ThreadPool = std.Thread.Pool;
+const WaitGroup = std.Thread.WaitGroup;
 
 const link = @import("link.zig");
 const Compilation = @import("Compilation.zig");
 const Package = @import("Package.zig");
 const introspect = @import("introspect.zig");
 const build_options = @import("build_options");
-const ThreadPool = @import("ThreadPool.zig");
-const WaitGroup = @import("WaitGroup.zig");
 const zig_h = link.File.C.zig_h;
 
 const enable_qemu: bool = build_options.enable_qemu;

@@ -7,6 +7,8 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.compilation);
 const Target = std.Target;
+const ThreadPool = std.Thread.Pool;
+const WaitGroup = std.Thread.WaitGroup;
 
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
@@ -30,8 +32,6 @@ const Cache = std.Build.Cache;
 const translate_c = @import("translate_c.zig");
 const clang = @import("clang.zig");
 const c_codegen = @import("codegen/c.zig");
-const ThreadPool = @import("ThreadPool.zig");
-const WaitGroup = @import("WaitGroup.zig");
 const libtsan = @import("libtsan.zig");
 const Zir = @import("Zir.zig");
 const Autodoc = @import("Autodoc.zig");

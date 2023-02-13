@@ -8,11 +8,11 @@ const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.package);
 const main = @import("main.zig");
+const ThreadPool = std.Thread.Pool;
+const WaitGroup = std.Thread.WaitGroup;
 
 const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
-const ThreadPool = @import("ThreadPool.zig");
-const WaitGroup = @import("WaitGroup.zig");
 const Cache = std.Build.Cache;
 const build_options = @import("build_options");
 const Manifest = @import("Manifest.zig");

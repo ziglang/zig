@@ -9,6 +9,7 @@ const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const Ast = std.zig.Ast;
 const warn = std.log.warn;
+const ThreadPool = std.Thread.Pool;
 
 const tracy = @import("tracy.zig");
 const Compilation = @import("Compilation.zig");
@@ -22,7 +23,6 @@ const translate_c = @import("translate_c.zig");
 const clang = @import("clang.zig");
 const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
-const ThreadPool = @import("ThreadPool.zig");
 const crash_report = @import("crash_report.zig");
 
 pub const std_options = struct {

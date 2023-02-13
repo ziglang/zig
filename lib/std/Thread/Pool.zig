@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const ThreadPool = @This();
+const Pool = @This();
 const WaitGroup = @import("WaitGroup.zig");
 
 mutex: std.Thread.Mutex = .{},
@@ -17,7 +17,7 @@ const Runnable = struct {
 
 const RunProto = *const fn (*Runnable) void;
 
-pub fn init(pool: *ThreadPool, allocator: std.mem.Allocator) !void {
+pub fn init(pool: *Pool, allocator: std.mem.Allocator) !void {
     pool.* = .{
         .allocator = allocator,
         .threads = &[_]std.Thread{},
@@ -41,12 +41,12 @@ pub fn init(pool: *ThreadPool, allocator: std.mem.Allocator) !void {
     }
 }
 
-pub fn deinit(pool: *ThreadPool) void {
+pub fn deinit(pool: *Pool) void {
     pool.join(pool.threads.len); // kill and join all threads.
     pool.* = undefined;
 }
 
-fn join(pool: *ThreadPool, spawned: usize) void {
+fn join(pool: *Pool, spawned: usize) void {
     if (builtin.single_threaded) {
         return;
     }
@@ -69,7 +69,7 @@ fn join(pool: *ThreadPool, spawned: usize) void {
     pool.allocator.free(pool.threads);
 }
 
-pub fn spawn(pool: *ThreadPool, comptime func: anytype, args: anytype) !void {
+pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
     if (builtin.single_threaded) {
         @call(.auto, func, args);
         return;
@@ -78,7 +78,7 @@ pub fn spawn(pool: *ThreadPool, comptime func: anytype, args: anytype) !void {
     const Args = @TypeOf(args);
     const Closure = struct {
         arguments: Args,
-        pool: *ThreadPool,
+        pool: *Pool,
         run_node: RunQueue.Node = .{ .data = .{ .runFn = runFn } },
 
         fn runFn(runnable: *Runnable) void {
@@ -112,7 +112,7 @@ pub fn spawn(pool: *ThreadPool, comptime func: anytype, args: anytype) !void {
     pool.cond.signal();
 }
 
-fn worker(pool: *ThreadPool) void {
+fn worker(pool: *Pool) void {
     pool.mutex.lock();
     defer pool.mutex.unlock();
 
@@ -135,7 +135,7 @@ fn worker(pool: *ThreadPool) void {
     }
 }
 
-pub fn waitAndWork(pool: *ThreadPool, wait_group: *WaitGroup) void {
+pub fn waitAndWork(pool: *Pool, wait_group: *WaitGroup) void {
     while (!wait_group.isDone()) {
         if (blk: {
             pool.mutex.lock();
