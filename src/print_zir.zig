@@ -332,7 +332,6 @@ const Writer = struct {
             .float_cast,
             .int_cast,
             .ptr_cast,
-            .qual_cast,
             .truncate,
             .align_cast,
             .div_exact,
@@ -507,6 +506,8 @@ const Writer = struct {
             .reify,
             .c_va_copy,
             .c_va_end,
+            .const_cast,
+            .volatile_cast,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 const src = LazySrcLoc.nodeOffset(inst_data.node);

@@ -8129,6 +8129,13 @@ test "main" {
       {#code_end#}
       {#header_close#}
 
+      {#header_open|@constCast#}
+      <pre>{#syntax#}@constCast(value: anytype) DestType{#endsyntax#}</pre>
+      <p>
+      Remove {#syntax#}const{#endsyntax#} qualifier from a pointer.
+      </p>
+      {#header_close#}
+
       {#header_open|@ctz#}
       <pre>{#syntax#}@ctz(operand: anytype){#endsyntax#}</pre>
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type or an integer vector type.</p>
@@ -8814,7 +8821,8 @@ pub const PrefetchOptions = struct {
       {#syntax#}@ptrCast{#endsyntax#} cannot be used for:
       </p>
       <ul>
-          <li>Removing {#syntax#}const{#endsyntax#} or {#syntax#}volatile{#endsyntax#} qualifier, use {#link|@qualCast#}.</li>
+          <li>Removing {#syntax#}const{#endsyntax#} qualifier, use {#link|@constCast#}.</li>
+          <li>Removing {#syntax#}volatile{#endsyntax#} qualifier, use {#link|@volatileCast#}.</li>
           <li>Changing pointer address space, use {#link|@addrSpaceCast#}.</li>
           <li>Increasing pointer alignment, use {#link|@alignCast#}.</li>
           <li>Casting a non-slice pointer to a slice, use slicing syntax {#syntax#}ptr[start..end]{#endsyntax#}.</li>
@@ -8829,13 +8837,6 @@ pub const PrefetchOptions = struct {
       </p>
       <p>To convert the other way, use {#link|@intToPtr#}</p>
 
-      {#header_close#}
-
-      {#header_open|@qualCast#}
-      <pre>{#syntax#}@qualCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
-      <p>
-      Remove {#syntax#}const{#endsyntax#} or {#syntax#}volatile{#endsyntax#} qualifier from a pointer.
-      </p>
       {#header_close#}
 
       {#header_open|@rem#}
@@ -9524,6 +9525,13 @@ fn foo(comptime T: type, ptr: *T) T {
       {#header_open|@Vector#}
       <pre>{#syntax#}@Vector(len: comptime_int, Element: type) type{#endsyntax#}</pre>
       <p>Creates {#link|Vectors#}.</p>
+      {#header_close#}
+
+      {#header_open|@volatileCast#}
+      <pre>{#syntax#}@volatileCast(value: anytype) DestType{#endsyntax#}</pre>
+      <p>
+      Remove {#syntax#}volatile{#endsyntax#} qualifier from a pointer.
+      </p>
       {#header_close#}
       {#header_close#}
 

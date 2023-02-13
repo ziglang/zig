@@ -857,9 +857,6 @@ pub const Inst = struct {
         /// Implements the `@ptrCast` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
         ptr_cast,
-        /// Implements the `@qualCast` builtin.
-        /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
-        qual_cast,
         /// Implements the `@truncate` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
         truncate,
@@ -1198,7 +1195,6 @@ pub const Inst = struct {
                 .float_cast,
                 .int_cast,
                 .ptr_cast,
-                .qual_cast,
                 .truncate,
                 .align_cast,
                 .has_field,
@@ -1488,7 +1484,6 @@ pub const Inst = struct {
                 .float_cast,
                 .int_cast,
                 .ptr_cast,
-                .qual_cast,
                 .truncate,
                 .align_cast,
                 .has_field,
@@ -1760,7 +1755,6 @@ pub const Inst = struct {
                 .float_cast = .pl_node,
                 .int_cast = .pl_node,
                 .ptr_cast = .pl_node,
-                .qual_cast = .pl_node,
                 .truncate = .pl_node,
                 .align_cast = .pl_node,
                 .typeof_builtin = .pl_node,
@@ -2004,6 +1998,12 @@ pub const Inst = struct {
         /// Implement builtin `@cVaStart`.
         /// `operand` is `src_node: i32`.
         c_va_start,
+        /// Implements the `@constCast` builtin.
+        /// `operand` is payload index to `UnNode`.
+        const_cast,
+        /// Implements the `@volatileCast` builtin.
+        /// `operand` is payload index to `UnNode`.
+        volatile_cast,
 
         pub const InstData = struct {
             opcode: Extended,

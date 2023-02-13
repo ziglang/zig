@@ -1015,7 +1015,6 @@ fn analyzeBodyInner(
             .float_cast                   => try sema.zirFloatCast(block, inst),
             .int_cast                     => try sema.zirIntCast(block, inst),
             .ptr_cast                     => try sema.zirPtrCast(block, inst),
-            .qual_cast                    => try sema.zirQualCast(block, inst),
             .truncate                     => try sema.zirTruncate(block, inst),
             .align_cast                   => try sema.zirAlignCast(block, inst),
             .has_decl                     => try sema.zirHasDecl(block, inst),
@@ -1147,6 +1146,8 @@ fn analyzeBodyInner(
                     .c_va_copy             => try sema.zirCVaCopy(           block, extended),
                     .c_va_end              => try sema.zirCVaEnd(            block, extended),
                     .c_va_start            => try sema.zirCVaStart(          block, extended),
+                    .const_cast,           => try sema.zirConstCast(         block, extended),
+                    .volatile_cast,        => try sema.zirVolatileCast(      block, extended),
                     // zig fmt: on
 
                     .fence => {
@@ -19545,7 +19546,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             const msg = try sema.errMsg(block, src, "cast discards const qualifier", .{});
             errdefer msg.destroy(sema.gpa);
 
-            try sema.errNote(block, src, msg, "consider using '@qualCast'", .{});
+            try sema.errNote(block, src, msg, "consider using '@constCast'", .{});
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
@@ -19555,7 +19556,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             const msg = try sema.errMsg(block, src, "cast discards volatile qualifier", .{});
             errdefer msg.destroy(sema.gpa);
 
-            try sema.errNote(block, src, msg, "consider using '@qualCast'", .{});
+            try sema.errNote(block, src, msg, "consider using '@volatileCast'", .{});
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
@@ -19660,40 +19661,37 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     return block.addBitCast(aligned_dest_ty, ptr);
 }
 
-fn zirQualCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
-    const operand = try sema.resolveInst(extra.rhs);
+fn zirConstCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const operand = try sema.resolveInst(extra.operand);
     const operand_ty = sema.typeOf(operand);
-
-    try sema.checkPtrType(block, dest_ty_src, dest_ty);
     try sema.checkPtrOperand(block, operand_src, operand_ty);
 
-    var operand_payload = operand_ty.ptrInfo();
-    var dest_info = dest_ty.ptrInfo();
+    var ptr_info = operand_ty.ptrInfo().data;
+    ptr_info.mutable = true;
+    const dest_ty = try Type.ptr(sema.arena, sema.mod, ptr_info);
 
-    operand_payload.data.mutable = dest_info.data.mutable;
-    operand_payload.data.@"volatile" = dest_info.data.@"volatile";
-
-    const altered_operand_ty = Type.initPayload(&operand_payload.base);
-    if (!altered_operand_ty.eql(dest_ty, sema.mod)) {
-        const msg = msg: {
-            const msg = try sema.errMsg(block, src, "'@qualCast' can only modify 'const' and 'volatile' qualifiers", .{});
-            errdefer msg.destroy(sema.gpa);
-
-            dest_info.data.mutable = !operand_ty.isConstPtr();
-            dest_info.data.@"volatile" = operand_ty.isVolatilePtr();
-            const altered_dest_ty = Type.initPayload(&dest_info.base);
-            try sema.errNote(block, src, msg, "expected type '{}'", .{altered_dest_ty.fmt(sema.mod)});
-            try sema.errNote(block, src, msg, "got type '{}'", .{operand_ty.fmt(sema.mod)});
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(msg);
+    if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
+        return sema.addConstant(dest_ty, operand_val);
     }
+
+    try sema.requireRuntimeBlock(block, src, null);
+    return block.addBitCast(dest_ty, operand);
+}
+
+fn zirVolatileCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const operand = try sema.resolveInst(extra.operand);
+    const operand_ty = sema.typeOf(operand);
+    try sema.checkPtrOperand(block, operand_src, operand_ty);
+
+    var ptr_info = operand_ty.ptrInfo().data;
+    ptr_info.@"volatile" = false;
+    const dest_ty = try Type.ptr(sema.arena, sema.mod, ptr_info);
 
     if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
         return sema.addConstant(dest_ty, operand_val);
