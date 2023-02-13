@@ -2,6 +2,45 @@
 //! This is not a general-purpose cache. It is designed to be fast and simple,
 //! not to withstand attacks using specially-crafted input.
 
+pub const Directory = struct {
+    /// This field is redundant for operations that can act on the open directory handle
+    /// directly, but it is needed when passing the directory to a child process.
+    /// `null` means cwd.
+    path: ?[]const u8,
+    handle: std.fs.Dir,
+
+    pub fn join(self: Directory, allocator: Allocator, paths: []const []const u8) ![]u8 {
+        if (self.path) |p| {
+            // TODO clean way to do this with only 1 allocation
+            const part2 = try std.fs.path.join(allocator, paths);
+            defer allocator.free(part2);
+            return std.fs.path.join(allocator, &[_][]const u8{ p, part2 });
+        } else {
+            return std.fs.path.join(allocator, paths);
+        }
+    }
+
+    pub fn joinZ(self: Directory, allocator: Allocator, paths: []const []const u8) ![:0]u8 {
+        if (self.path) |p| {
+            // TODO clean way to do this with only 1 allocation
+            const part2 = try std.fs.path.join(allocator, paths);
+            defer allocator.free(part2);
+            return std.fs.path.joinZ(allocator, &[_][]const u8{ p, part2 });
+        } else {
+            return std.fs.path.joinZ(allocator, paths);
+        }
+    }
+
+    /// Whether or not the handle should be closed, or the path should be freed
+    /// is determined by usage, however this function is provided for convenience
+    /// if it happens to be what the caller needs.
+    pub fn closeAndFree(self: *Directory, gpa: Allocator) void {
+        self.handle.close();
+        if (self.path) |p| gpa.free(p);
+        self.* = undefined;
+    }
+};
+
 gpa: Allocator,
 manifest_dir: fs.Dir,
 hash: HashHelper = .{},
@@ -14,8 +53,10 @@ mutex: std.Thread.Mutex = .{},
 /// are replaced with single-character indicators. This is not to save
 /// space but to eliminate absolute file paths. This improves portability
 /// and usefulness of the cache for advanced use cases.
-prefixes_buffer: [3]Compilation.Directory = undefined,
+prefixes_buffer: [4]Directory = undefined,
 prefixes_len: usize = 0,
+
+pub const DepTokenizer = @import("Cache/DepTokenizer.zig");
 
 const Cache = @This();
 const std = @import("std");
@@ -27,13 +68,9 @@ const testing = std.testing;
 const mem = std.mem;
 const fmt = std.fmt;
 const Allocator = std.mem.Allocator;
-const Compilation = @import("Compilation.zig");
 const log = std.log.scoped(.cache);
 
-pub fn addPrefix(cache: *Cache, directory: Compilation.Directory) void {
-    if (directory.path) |p| {
-        log.debug("Cache.addPrefix {d} {s}", .{ cache.prefixes_len, p });
-    }
+pub fn addPrefix(cache: *Cache, directory: Directory) void {
     cache.prefixes_buffer[cache.prefixes_len] = directory;
     cache.prefixes_len += 1;
 }
@@ -49,7 +86,7 @@ pub fn obtain(cache: *Cache) Manifest {
     };
 }
 
-pub fn prefixes(cache: *const Cache) []const Compilation.Directory {
+pub fn prefixes(cache: *const Cache) []const Directory {
     return cache.prefixes_buffer[0..cache.prefixes_len];
 }
 
@@ -80,8 +117,6 @@ fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
                 .prefix = @intCast(u8, i),
                 .sub_path = sub_path,
             };
-        } else {
-            log.debug("'{s}' does not start with '{s}'", .{ resolved_path, p });
         }
     }
 
@@ -135,8 +170,6 @@ pub const File = struct {
 pub const HashHelper = struct {
     hasher: Hasher = hasher_init,
 
-    const EmitLoc = Compilation.EmitLoc;
-
     /// Record a slice of bytes as an dependency of the process being cached
     pub fn addBytes(hh: *HashHelper, bytes: []const u8) void {
         hh.hasher.update(mem.asBytes(&bytes.len));
@@ -146,15 +179,6 @@ pub const HashHelper = struct {
     pub fn addOptionalBytes(hh: *HashHelper, optional_bytes: ?[]const u8) void {
         hh.add(optional_bytes != null);
         hh.addBytes(optional_bytes orelse return);
-    }
-
-    pub fn addEmitLoc(hh: *HashHelper, emit_loc: EmitLoc) void {
-        hh.addBytes(emit_loc.basename);
-    }
-
-    pub fn addOptionalEmitLoc(hh: *HashHelper, optional_emit_loc: ?EmitLoc) void {
-        hh.add(optional_emit_loc != null);
-        hh.addEmitLoc(optional_emit_loc orelse return);
     }
 
     pub fn addListOfBytes(hh: *HashHelper, list_of_bytes: []const []const u8) void {
@@ -290,10 +314,6 @@ pub const Manifest = struct {
         const prefixed_path = try self.cache.findPrefix(file_path);
         errdefer gpa.free(prefixed_path.sub_path);
 
-        log.debug("Manifest.addFile {s} -> {d} {s}", .{
-            file_path, prefixed_path.prefix, prefixed_path.sub_path,
-        });
-
         self.files.addOneAssumeCapacity().* = .{
             .prefixed_path = prefixed_path,
             .contents = null,
@@ -306,24 +326,6 @@ pub const Manifest = struct {
         self.hash.addBytes(prefixed_path.sub_path);
 
         return self.files.items.len - 1;
-    }
-
-    pub fn hashCSource(self: *Manifest, c_source: Compilation.CSourceFile) !void {
-        _ = try self.addFile(c_source.src_path, null);
-        // Hash the extra flags, with special care to call addFile for file parameters.
-        // TODO this logic can likely be improved by utilizing clang_options_data.zig.
-        const file_args = [_][]const u8{"-include"};
-        var arg_i: usize = 0;
-        while (arg_i < c_source.extra_flags.len) : (arg_i += 1) {
-            const arg = c_source.extra_flags[arg_i];
-            self.hash.addBytes(arg);
-            for (file_args) |file_arg| {
-                if (mem.eql(u8, file_arg, arg) and arg_i + 1 < c_source.extra_flags.len) {
-                    arg_i += 1;
-                    _ = try self.addFile(c_source.extra_flags[arg_i], null);
-                }
-            }
-        }
     }
 
     pub fn addOptionalFile(self: *Manifest, optional_file_path: ?[]const u8) !void {
@@ -676,10 +678,6 @@ pub const Manifest = struct {
         const prefixed_path = try self.cache.findPrefix(file_path);
         errdefer gpa.free(prefixed_path.sub_path);
 
-        log.debug("Manifest.addFilePostFetch {s} -> {d} {s}", .{
-            file_path, prefixed_path.prefix, prefixed_path.sub_path,
-        });
-
         const new_ch_file = try self.files.addOne(gpa);
         new_ch_file.* = .{
             .prefixed_path = prefixed_path,
@@ -705,10 +703,6 @@ pub const Manifest = struct {
         const gpa = self.cache.gpa;
         const prefixed_path = try self.cache.findPrefix(file_path);
         errdefer gpa.free(prefixed_path.sub_path);
-
-        log.debug("Manifest.addFilePost {s} -> {d} {s}", .{
-            file_path, prefixed_path.prefix, prefixed_path.sub_path,
-        });
 
         const new_ch_file = try self.files.addOne(gpa);
         new_ch_file.* = .{
@@ -737,14 +731,8 @@ pub const Manifest = struct {
         const ch_file = try self.files.addOne(gpa);
         errdefer self.files.shrinkRetainingCapacity(self.files.items.len - 1);
 
-        log.debug("Manifest.addFilePostContents resolved_path={s}", .{resolved_path});
-
         const prefixed_path = try self.cache.findPrefixResolved(resolved_path);
         errdefer gpa.free(prefixed_path.sub_path);
-
-        log.debug("Manifest.addFilePostContents -> {d} {s}", .{
-            prefixed_path.prefix, prefixed_path.sub_path,
-        });
 
         ch_file.* = .{
             .prefixed_path = prefixed_path,
@@ -778,7 +766,7 @@ pub const Manifest = struct {
         var error_buf = std.ArrayList(u8).init(self.cache.gpa);
         defer error_buf.deinit();
 
-        var it: @import("DepTokenizer.zig") = .{ .bytes = dep_file_contents };
+        var it: DepTokenizer = .{ .bytes = dep_file_contents };
 
         // Skip first token: target.
         switch (it.next() orelse return) { // Empty dep file OK.

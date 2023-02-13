@@ -26,7 +26,7 @@ const wasi_libc = @import("wasi_libc.zig");
 const fatal = @import("main.zig").fatal;
 const clangMain = @import("main.zig").clangMain;
 const Module = @import("Module.zig");
-const Cache = @import("Cache.zig");
+const Cache = std.Build.Cache;
 const translate_c = @import("translate_c.zig");
 const clang = @import("clang.zig");
 const c_codegen = @import("codegen/c.zig");
@@ -807,44 +807,7 @@ pub const AllErrors = struct {
     }
 };
 
-pub const Directory = struct {
-    /// This field is redundant for operations that can act on the open directory handle
-    /// directly, but it is needed when passing the directory to a child process.
-    /// `null` means cwd.
-    path: ?[]const u8,
-    handle: std.fs.Dir,
-
-    pub fn join(self: Directory, allocator: Allocator, paths: []const []const u8) ![]u8 {
-        if (self.path) |p| {
-            // TODO clean way to do this with only 1 allocation
-            const part2 = try std.fs.path.join(allocator, paths);
-            defer allocator.free(part2);
-            return std.fs.path.join(allocator, &[_][]const u8{ p, part2 });
-        } else {
-            return std.fs.path.join(allocator, paths);
-        }
-    }
-
-    pub fn joinZ(self: Directory, allocator: Allocator, paths: []const []const u8) ![:0]u8 {
-        if (self.path) |p| {
-            // TODO clean way to do this with only 1 allocation
-            const part2 = try std.fs.path.join(allocator, paths);
-            defer allocator.free(part2);
-            return std.fs.path.joinZ(allocator, &[_][]const u8{ p, part2 });
-        } else {
-            return std.fs.path.joinZ(allocator, paths);
-        }
-    }
-
-    /// Whether or not the handle should be closed, or the path should be freed
-    /// is determined by usage, however this function is provided for convenience
-    /// if it happens to be what the caller needs.
-    pub fn closeAndFree(self: *Directory, gpa: Allocator) void {
-        self.handle.close();
-        if (self.path) |p| gpa.free(p);
-        self.* = undefined;
-    }
-};
+pub const Directory = Cache.Directory;
 
 pub const EmitLoc = struct {
     /// If this is `null` it means the file will be output to the cache directory.
@@ -852,6 +815,35 @@ pub const EmitLoc = struct {
     directory: ?Compilation.Directory,
     /// This may not have sub-directories in it.
     basename: []const u8,
+};
+
+pub const cache_helpers = struct {
+    pub fn addEmitLoc(hh: *Cache.HashHelper, emit_loc: EmitLoc) void {
+        hh.addBytes(emit_loc.basename);
+    }
+
+    pub fn addOptionalEmitLoc(hh: *Cache.HashHelper, optional_emit_loc: ?EmitLoc) void {
+        hh.add(optional_emit_loc != null);
+        addEmitLoc(hh, optional_emit_loc orelse return);
+    }
+
+    pub fn hashCSource(self: *Cache.Manifest, c_source: Compilation.CSourceFile) !void {
+        _ = try self.addFile(c_source.src_path, null);
+        // Hash the extra flags, with special care to call addFile for file parameters.
+        // TODO this logic can likely be improved by utilizing clang_options_data.zig.
+        const file_args = [_][]const u8{"-include"};
+        var arg_i: usize = 0;
+        while (arg_i < c_source.extra_flags.len) : (arg_i += 1) {
+            const arg = c_source.extra_flags[arg_i];
+            self.hash.addBytes(arg);
+            for (file_args) |file_arg| {
+                if (mem.eql(u8, file_arg, arg) and arg_i + 1 < c_source.extra_flags.len) {
+                    arg_i += 1;
+                    _ = try self.addFile(c_source.extra_flags[arg_i], null);
+                }
+            }
+        }
+    }
 };
 
 pub const ClangPreprocessorMode = enum {
@@ -1523,8 +1515,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(link_libunwind);
         cache.hash.add(options.output_mode);
         cache.hash.add(options.machine_code_model);
-        cache.hash.addOptionalEmitLoc(options.emit_bin);
-        cache.hash.addOptionalEmitLoc(options.emit_implib);
+        cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_bin);
+        cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_implib);
         cache.hash.addBytes(options.root_name);
         if (options.target.os.tag == .wasi) cache.hash.add(wasi_exec_model);
         // TODO audit this and make sure everything is in it
@@ -2638,11 +2630,11 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
         man.hash.addListOfBytes(key.src.extra_flags);
     }
 
-    man.hash.addOptionalEmitLoc(comp.emit_asm);
-    man.hash.addOptionalEmitLoc(comp.emit_llvm_ir);
-    man.hash.addOptionalEmitLoc(comp.emit_llvm_bc);
-    man.hash.addOptionalEmitLoc(comp.emit_analysis);
-    man.hash.addOptionalEmitLoc(comp.emit_docs);
+    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_asm);
+    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
+    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_bc);
+    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_analysis);
+    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_docs);
 
     man.hash.addListOfBytes(comp.clang_argv);
 
@@ -3961,11 +3953,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     defer man.deinit();
 
     man.hash.add(comp.clang_preprocessor_mode);
-    man.hash.addOptionalEmitLoc(comp.emit_asm);
-    man.hash.addOptionalEmitLoc(comp.emit_llvm_ir);
-    man.hash.addOptionalEmitLoc(comp.emit_llvm_bc);
+    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_asm);
+    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
+    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_bc);
 
-    try man.hashCSource(c_object.src);
+    try cache_helpers.hashCSource(&man, c_object.src);
 
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();

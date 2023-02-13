@@ -13,7 +13,7 @@ const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
 const ThreadPool = @import("ThreadPool.zig");
 const WaitGroup = @import("WaitGroup.zig");
-const Cache = @import("Cache.zig");
+const Cache = std.Build.Cache;
 const build_options = @import("build_options");
 const Manifest = @import("Manifest.zig");
 

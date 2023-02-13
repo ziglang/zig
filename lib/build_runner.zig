@@ -43,13 +43,40 @@ pub fn main() !void {
 
     const host = try std.zig.system.NativeTargetInfo.detect(.{});
 
+    const build_root_directory: std.Build.Cache.Directory = .{
+        .path = build_root,
+        .handle = try std.fs.cwd().openDir(build_root, .{}),
+    };
+
+    const local_cache_directory: std.Build.Cache.Directory = .{
+        .path = cache_root,
+        .handle = try std.fs.cwd().makeOpenPath(cache_root, .{}),
+    };
+
+    const global_cache_directory: std.Build.Cache.Directory = .{
+        .path = global_cache_root,
+        .handle = try std.fs.cwd().makeOpenPath(global_cache_root, .{}),
+    };
+
+    var cache: std.Build.Cache = .{
+        .gpa = allocator,
+        .manifest_dir = try local_cache_directory.handle.makeOpenPath("h", .{}),
+    };
+    cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
+    cache.addPrefix(build_root_directory);
+    cache.addPrefix(local_cache_directory);
+    cache.addPrefix(global_cache_directory);
+
+    //cache.hash.addBytes(builtin.zig_version);
+
     const builder = try std.Build.create(
         allocator,
         zig_exe,
-        build_root,
-        cache_root,
-        global_cache_root,
+        build_root_directory,
+        local_cache_directory,
+        global_cache_directory,
         host,
+        &cache,
     );
     defer builder.destroy();
 
@@ -138,7 +165,7 @@ pub fn main() !void {
                     return usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
-                builder.override_lib_dir = nextArg(args, &arg_idx) orelse {
+                builder.zig_lib_dir = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after --zig-lib-dir\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };

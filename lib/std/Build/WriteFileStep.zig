@@ -85,8 +85,8 @@ fn make(step: *Step) !void {
         .{std.fmt.fmtSliceHexLower(&digest)},
     ) catch unreachable;
 
-    const output_dir = try fs.path.join(self.builder.allocator, &[_][]const u8{
-        self.builder.cache_root, "o", &hash_basename,
+    const output_dir = try self.builder.cache_root.join(self.builder.allocator, &.{
+        "o", &hash_basename,
     });
     var dir = fs.cwd().makeOpenPath(output_dir, .{}) catch |err| {
         std.debug.print("unable to make path {s}: {s}\n", .{ output_dir, @errorName(err) });

@@ -234,26 +234,20 @@ fn make(step: *Step) !void {
         );
     }
 
-    const options_directory = self.builder.pathFromRoot(
-        try fs.path.join(
-            self.builder.allocator,
-            &[_][]const u8{ self.builder.cache_root, "options" },
-        ),
-    );
+    var options_dir = try self.builder.cache_root.handle.makeOpenPath("options", .{});
+    defer options_dir.close();
 
-    try fs.cwd().makePath(options_directory);
+    const basename = self.hashContentsToFileName();
 
-    const options_file = try fs.path.join(
-        self.builder.allocator,
-        &[_][]const u8{ options_directory, &self.hashContentsToFileName() },
-    );
+    try options_dir.writeFile(&basename, self.contents.items);
 
-    try fs.cwd().writeFile(options_file, self.contents.items);
-
-    self.generated_file.path = options_file;
+    self.generated_file.path = try self.builder.cache_root.join(self.builder.allocator, &.{
+        "options", &basename,
+    });
 }
 
 fn hashContentsToFileName(self: *OptionsStep) [64]u8 {
+    // TODO update to use the cache system instead of this
     // This implementation is copied from `WriteFileStep.make`
 
     var hash = std.crypto.hash.blake2.Blake2b384.init(.{});
@@ -289,13 +283,19 @@ test "OptionsStep" {
 
     const host = try std.zig.system.NativeTargetInfo.detect(.{});
 
+    var cache: std.Build.Cache = .{
+        .gpa = arena.allocator(),
+        .manifest_dir = std.fs.cwd(),
+    };
+
     var builder = try std.Build.create(
         arena.allocator(),
         "test",
-        "test",
-        "test",
-        "test",
+        .{ .path = "test", .handle = std.fs.cwd() },
+        .{ .path = "test", .handle = std.fs.cwd() },
+        .{ .path = "test", .handle = std.fs.cwd() },
         host,
+        &cache,
     );
     defer builder.destroy();
 

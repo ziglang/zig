@@ -11,7 +11,7 @@ const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
-const Cache = @import("Cache.zig");
+const Cache = std.Build.Cache;
 const Package = @import("Package.zig");
 
 pub const Lib = struct {
