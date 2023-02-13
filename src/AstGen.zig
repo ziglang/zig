@@ -1730,7 +1730,8 @@ fn structInitExprRlNone(
                 .container_type = ty_inst,
                 .name_start = str_index,
             }) } }
-        else .{ .rl = .none };
+        else
+            .{ .rl = .none };
         setExtra(astgen, extra_index, Zir.Inst.StructInitAnon.Item{
             .field_name = str_index,
             .init = try expr(gz, scope, sub_ri, field_init),
