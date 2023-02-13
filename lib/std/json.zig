@@ -1678,17 +1678,14 @@ fn parseInternal(
                             if (ptrInfo.child != u8) return error.UnexpectedToken;
                             const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
                             const len = stringToken.decodedLength();
-                            const output = try allocator.alloc(u8, len + @boolToInt(ptrInfo.sentinel != null));
+                            const output = if (ptrInfo.sentinel) |sentinel_ptr|
+                                try allocator.allocSentinel(u8, len, @ptrCast(*const u8, sentinel_ptr).*)
+                            else
+                                try allocator.alloc(u8, len);
                             errdefer allocator.free(output);
                             switch (stringToken.escapes) {
                                 .None => mem.copy(u8, output, source_slice),
                                 .Some => try unescapeValidString(output, source_slice),
-                            }
-
-                            if (ptrInfo.sentinel) |some| {
-                                const char = @ptrCast(*const u8, some).*;
-                                output[len] = char;
-                                return output[0..len :char];
                             }
 
                             return output;
@@ -2683,4 +2680,17 @@ test "encodesTo" {
     try testing.expectEqual(true, encodesTo("ą", "\\u0105"));
     try testing.expectEqual(true, encodesTo("😂", "\\ud83d\\ude02"));
     try testing.expectEqual(true, encodesTo("withąunicode😂", "with\\u0105unicode\\ud83d\\ude02"));
+}
+
+test "issue 14600" {
+    const json = "\"\\n\"";
+    var token_stream = std.json.TokenStream.init(json);
+    const options = ParseOptions{ .allocator = std.testing.allocator };
+
+    // Pre-fix, this line would panic:
+    const result = try std.json.parse([:0]const u8, &token_stream, options);
+    defer std.json.parseFree([:0]const u8, result, options);
+
+    // Double-check that we're getting the right result
+    try testing.expect(mem.eql(u8, result, "\n"));
 }
