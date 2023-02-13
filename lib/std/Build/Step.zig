@@ -4,7 +4,13 @@ makeFn: *const fn (self: *Step) anyerror!void,
 dependencies: std.ArrayList(*Step),
 /// Used only during a pre-check for dependency loops.
 loop_tag: enum { unstarted, started, done },
-done_flag: bool,
+result: union(enum) {
+    not_done,
+    success,
+    failure: struct {
+        err_code: anyerror,
+    },
+},
 
 pub const Id = enum {
     top_level,
@@ -62,7 +68,7 @@ pub fn init(
         .makeFn = makeFn,
         .dependencies = std.ArrayList(*Step).init(allocator),
         .loop_tag = .unstarted,
-        .done_flag = false,
+        .result = .not_done,
     };
 }
 
@@ -71,10 +77,8 @@ pub fn initNoOp(id: Id, name: []const u8, allocator: Allocator) Step {
 }
 
 pub fn make(self: *Step) !void {
-    if (self.done_flag) return;
-
+    assert(self.result == .not_done);
     try self.makeFn(self);
-    self.done_flag = true;
 }
 
 pub fn dependOn(self: *Step, other: *Step) void {
@@ -96,3 +100,4 @@ const Step = @This();
 const std = @import("../std.zig");
 const Build = std.Build;
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;

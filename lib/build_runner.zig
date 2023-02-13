@@ -14,10 +14,14 @@ pub fn main() !void {
     // Here we use an ArenaAllocator backed by a DirectAllocator because a build is a short-lived,
     // one shot program. We don't need to waste time freeing memory and finding places to squish
     // bytes into. So we free everything all at once at the very end.
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
+    var single_threaded_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer single_threaded_arena.deinit();
 
-    const allocator = arena.allocator();
+    var thread_safe_arena: std.heap.ThreadSafeAllocator = .{
+        .child_allocator = single_threaded_arena.allocator(),
+    };
+    const allocator = thread_safe_arena.allocator();
+
     var args = try process.argsAlloc(allocator);
     defer process.argsFree(allocator, args);
 
@@ -245,71 +249,127 @@ pub fn main() !void {
     if (builder.validateUserInputDidItFail())
         usageAndErr(builder, true, stderr_stream);
 
-    make(builder, targets.items) catch |err| {
+    runStepNames(builder, targets.items) catch |err| {
         switch (err) {
             error.UncleanExit => process.exit(1),
-            // This error is intended to indicate that the step has already
-            // logged an error message and so printing the error return trace
-            // here would be unwanted extra information, unless the user opts
-            // into it with a debug flag.
-            error.StepFailed => process.exit(1),
             else => return err,
         }
     };
 }
 
-fn make(b: *std.Build, step_names: []const []const u8) !void {
-    var wanted_steps = ArrayList(*std.Build.Step).init(b.allocator);
-    defer wanted_steps.deinit();
+fn runStepNames(b: *std.Build, step_names: []const []const u8) !void {
+    var step_stack = ArrayList(*std.Build.Step).init(b.allocator);
+    defer step_stack.deinit();
 
     if (step_names.len == 0) {
-        try wanted_steps.append(b.default_step);
+        try step_stack.append(b.default_step);
     } else {
-        for (step_names) |step_name| {
+        try step_stack.resize(step_names.len);
+
+        for (step_names) |step_name, i| {
             const s = b.top_level_steps.get(step_name) orelse {
                 std.debug.print("no step named '{s}'. Access the help menu with 'zig build -h'\n", .{step_name});
                 process.exit(1);
             };
-            try wanted_steps.append(&s.step);
+            step_stack.items[step_names.len - i - 1] = &s.step;
         }
     }
 
-    for (wanted_steps.items) |s| {
-        checkForDependencyLoop(b, s) catch |err| switch (err) {
+    const starting_steps = step_stack.items;
+    for (starting_steps) |s| {
+        checkForDependencyLoop(b, s, &step_stack) catch |err| switch (err) {
             error.DependencyLoopDetected => return error.UncleanExit,
             else => |e| return e,
         };
     }
 
-    for (wanted_steps.items) |s| {
-        try makeOneStep(b, s);
+    var thread_pool: std.Thread.Pool = undefined;
+    try thread_pool.init(b.allocator);
+    defer thread_pool.deinit();
+
+    {
+        var wait_group: std.Thread.WaitGroup = .{};
+        defer wait_group.wait();
+        var i = step_stack.items.len;
+
+        while (i > 0) {
+            i -= 1;
+            const step = step_stack.items[i];
+
+            wait_group.start();
+            thread_pool.spawn(workerMakeOneStep, .{ &wait_group, b, step }) catch
+                @panic("unhandled error");
+        }
+    }
+
+    var any_failed = false;
+
+    for (step_stack.items) |s| {
+        switch (s.result) {
+            .not_done => unreachable,
+            .success => continue,
+            .failure => |f| {
+                any_failed = true;
+                std.debug.print("{s}: {s}\n", .{
+                    s.name, @errorName(f.err_code),
+                });
+            },
+        }
+    }
+
+    if (any_failed) {
+        process.exit(1);
     }
 }
 
-fn checkForDependencyLoop(b: *std.Build, s: *std.Build.Step) !void {
-    if (s.loop_tag == .started) {
-        std.debug.print("dependency loop detected:\n  {s}\n", .{s.name});
-        return error.DependencyLoopDetected;
-    }
-    s.loop_tag = .started;
+fn checkForDependencyLoop(
+    b: *std.Build,
+    s: *std.Build.Step,
+    step_stack: *ArrayList(*std.Build.Step),
+) !void {
+    switch (s.loop_tag) {
+        .started => {
+            std.debug.print("dependency loop detected:\n  {s}\n", .{s.name});
+            return error.DependencyLoopDetected;
+        },
+        .unstarted => {
+            s.loop_tag = .started;
 
-    for (s.dependencies.items) |dep| {
-        checkForDependencyLoop(b, dep) catch |err| {
-            if (err == error.DependencyLoopDetected) {
-                std.debug.print("  {s}\n", .{s.name});
+            try step_stack.append(s);
+
+            for (s.dependencies.items) |dep| {
+                checkForDependencyLoop(b, dep, step_stack) catch |err| {
+                    if (err == error.DependencyLoopDetected) {
+                        std.debug.print("  {s}\n", .{s.name});
+                    }
+                    return err;
+                };
             }
-            return err;
-        };
-    }
 
-    s.loop_tag = .done;
+            s.loop_tag = .done;
+        },
+        .done => {},
+    }
+}
+
+fn workerMakeOneStep(wg: *std.Thread.WaitGroup, b: *std.Build, s: *std.Build.Step) void {
+    defer wg.finish();
+
+    _ = b;
+
+    if (s.make()) |_| {
+        s.result = .success;
+    } else |err| {
+        s.result = .{ .failure = .{
+            .err_code = err,
+        } };
+    }
 }
 
 fn makeOneStep(b: *std.Build, s: *std.Build.Step) anyerror!void {
     for (s.dependencies.items) |dep| {
         try makeOneStep(b, dep);
     }
-
     try s.make();
 }
 
