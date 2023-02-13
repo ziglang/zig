@@ -4034,7 +4034,7 @@ test "access variable after block scope" {
     x += 1;
 }
       {#code_end#}
-      <p>Blocks are expressions. When labeled, {#syntax#}break{#endsyntax#} can be used
+      <p>Blocks are statements, not expressions. When labeled, {#syntax#}break{#endsyntax#} can be used
       to return a value from the block:
       </p>
       {#code_begin|test|test_labeled_break#}
