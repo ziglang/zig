@@ -497,6 +497,11 @@ pub fn decodeZstandardFrameBlocksArrayList(
             &consumed_count,
             frame_context.block_size_max,
         );
+        if (frame_context.content_size) |size| {
+            if (dest.items.len - initial_len > size) {
+                return error.BadContentSize;
+            }
+        }
         if (written_size > 0) {
             const written_slice = ring_buffer.sliceLast(written_size);
             try dest.appendSlice(written_slice.first);
@@ -508,9 +513,8 @@ pub fn decodeZstandardFrameBlocksArrayList(
         }
         if (block_header.last_block) break;
     }
-    const added_len = dest.items.len - initial_len;
     if (frame_context.content_size) |size| {
-        if (added_len != size) {
+        if (dest.items.len - initial_len != size) {
             return error.BadContentSize;
         }
     }

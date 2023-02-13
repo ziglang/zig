@@ -177,9 +177,14 @@ pub fn ZstandardStream(
                 ) catch
                     return error.MalformedBlock;
 
+                if (self.frame_context.content_size) |size| {
+                    if (self.current_frame_decompressed_size > size) return error.MalformedFrame;
+                }
+
+                const size = self.buffer.len();
+                self.current_frame_decompressed_size += size;
+
                 if (self.frame_context.hasher_opt) |*hasher| {
-                    const size = self.buffer.len();
-                    self.current_frame_decompressed_size += size;
                     if (size > 0) {
                         const written_slice = self.buffer.sliceLast(size);
                         hasher.update(written_slice.first);
