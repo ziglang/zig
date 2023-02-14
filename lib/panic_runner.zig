@@ -1,13 +1,12 @@
 //! Panic test runner
+//! assume: process spawning + IPC capabilities to keep things simple and test behavior = code behavior
 //! Control starts itself as Runner as childprocess as
 //! [test_runner_exe_path, test_nr, msg_pipe handle].
 //! Runner writes
 //! [passed, skipped, failed, panic_type]
-//! into msg_pipe to TC.
-//! TODO: clarify, if a timeout should be offered as available opt-in functionality.
+//! into msg_pipe to Control.
 
-// TODO async signal safety => reads can fail
-// or be interrupted
+// TODO async signal safety => reads can fail or be interrupted
 const std = @import("std");
 const io = std.io;
 const builtin = @import("builtin");
@@ -49,10 +48,6 @@ const PanicT = enum(u8) {
 /// This function is only working correctly inside test blocks. It writes an
 /// expected panic message to a global buffer only available in panic_testrunner.zig,
 /// which is compared by the Runner in the panic handler once it is called.
-/// TODO: This has workaround semantics for an always called missing exit handler
-/// or set of functions to assert that the panic is always called.
-/// This would include catching all signals (SIGSEV etc), but may not be desired
-/// by the user, since user may rely on signaling for runtime behavior of tests.
 pub fn writeExpectedPanicMsg(panic_msg: []const u8) void {
     // do bounds checks for first and last element manually, but omit the others.
     std.debug.assert(panic_msg.len < global.buf_panic_msg.len);
@@ -62,8 +57,11 @@ pub fn writeExpectedPanicMsg(panic_msg: []const u8) void {
     global.buf_panic_msg_fill = panic_msg.len;
 }
 
-// Overwritten panic routine
-// TODO: synchronization etc
+/// Overwritten panic routine
+/// This function handles signals installed for the platform in start.zig and
+/// direct calls to `@panic`, but it can be modified by installing and removing
+/// signal handler on the platform.
+/// TODO: make this signal safe
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     @setCold(true);
     _ = stack_trace;
@@ -173,13 +171,20 @@ pub fn main() !void {
 
                     try child_proc.spawn();
                 }
+                const stderr = std.io.getStdErr();
                 const ret_term = try child_proc.wait();
                 std.debug.print("ret_term: {any}\n", .{ret_term.Exited});
                 if (ret_term.Exited != @enumToInt(ChildProcess.Term.Exited)) {
-                    @panic("TODO: handle printing message for exit reason.");
+                    try stderr.writeAll("Worker did stop due to other reason than exit");
+                    std.os.exit(1);
                 }
                 if (ret_term.Exited != 0) {
-                    @panic("TODO: handle printing message for non-0 return code.");
+                    try stderr.writeAll("Worker did stop with exit code: ");
+                    var exit_buf: [10]u8 = undefined;
+                    const exit_buf_s = std.fmt.bufPrint(&exit_buf, "{d}", .{ret_term.Exited}) catch unreachable;
+                    try stderr.writeAll(exit_buf_s);
+                    try stderr.writeAll("\n");
+                    std.os.exit(1);
                 }
 
                 var file = std.fs.File{
@@ -213,7 +218,6 @@ pub fn main() !void {
                     .unexpected_panic => {
                         // clean exit with writing total count status
                         // error message has been already written by child process
-                        const stderr = std.io.getStdErr();
                         stderr.writeAll("FAIL: unexpected panic: ") catch {};
                         writeInt(stderr, global.passed) catch {};
                         stderr.writeAll(" passed; ") catch {};
