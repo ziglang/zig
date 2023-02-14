@@ -318,8 +318,8 @@ fn runStepNames(b: *std.Build, step_names: []const []const u8) !void {
             .success => continue,
             .failure => {
                 any_failed = true;
-                std.debug.print("{s}: {s}\n", .{
-                    s.name, @errorName(s.result.err_code),
+                std.debug.print("{s}: {s}\n{s}", .{
+                    s.name, @errorName(s.result.err_code), s.result.stderr,
                 });
             },
         }
@@ -404,9 +404,7 @@ fn workerMakeOneStep(
     // *Build object in install header steps that might be able to be removed
     // by passing the *Build object through the make() functions.
     s.make() catch |err| {
-        s.result = .{
-            .err_code = err,
-        };
+        s.result.err_code = err;
         @atomicStore(Step.State, &s.state, .failure, .SeqCst);
         return;
     };

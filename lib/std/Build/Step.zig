@@ -9,6 +9,7 @@ state: State,
 /// Populated only if state is success.
 result: struct {
     err_code: anyerror,
+    stderr: []u8,
 },
 
 pub const State = enum {
@@ -78,7 +79,10 @@ pub fn init(
         .dependencies = std.ArrayList(*Step).init(allocator),
         .dependants = .{},
         .state = .precheck_unstarted,
-        .result = undefined,
+        .result = .{
+            .err_code = undefined,
+            .stderr = &.{},
+        },
     };
 }
 

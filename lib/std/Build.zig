@@ -1133,17 +1133,24 @@ pub fn spawnChild(self: *Build, argv: []const []const u8) !void {
     return self.spawnChildEnvMap(null, self.env_map, argv);
 }
 
-fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
-    if (cwd) |yes_cwd| std.debug.print("cd {s} && ", .{yes_cwd});
+fn allocPrintCmd(ally: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) ![]u8 {
+    var buf = ArrayList(u8).init(ally);
+    if (opt_cwd) |cwd| try buf.writer().print("cd {s} && ", .{cwd});
     for (argv) |arg| {
-        std.debug.print("{s} ", .{arg});
+        try buf.writer().print("{s} ", .{arg});
     }
-    std.debug.print("\n", .{});
+    try buf.append('\n');
+    return buf.toOwnedSlice();
+}
+
+fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
+    const text = allocPrintCmd(ally, cwd, argv) catch @panic("OOM");
+    std.debug.print("{s}", .{text});
 }
 
 pub fn spawnChildEnvMap(self: *Build, cwd: ?[]const u8, env_map: *const EnvMap, argv: []const []const u8) !void {
     if (self.verbose) {
-        printCmd(cwd, argv);
+        printCmd(self.allocator, cwd, argv);
     }
 
     if (!std.process.can_spawn)
@@ -1162,13 +1169,13 @@ pub fn spawnChildEnvMap(self: *Build, cwd: ?[]const u8, env_map: *const EnvMap, 
         .Exited => |code| {
             if (code != 0) {
                 log.err("The following command exited with error code {}:", .{code});
-                printCmd(cwd, argv);
+                printCmd(self.allocator, cwd, argv);
                 return error.UncleanExit;
             }
         },
         else => {
             log.err("The following command terminated unexpectedly:", .{});
-            printCmd(cwd, argv);
+            printCmd(self.allocator, cwd, argv);
 
             return error.UncleanExit;
         },
@@ -1381,57 +1388,91 @@ pub fn execAllowFail(
     }
 }
 
-pub fn execFromStep(self: *Build, argv: []const []const u8, src_step: ?*Step) ![]u8 {
+pub fn execFromStep(b: *Build, argv: []const []const u8, s: *Step) ![]u8 {
     assert(argv.len != 0);
 
-    if (self.verbose) {
-        printCmd(null, argv);
+    if (b.verbose) {
+        printCmd(b.allocator, null, argv);
     }
 
     if (!std.process.can_spawn) {
-        if (src_step) |s| log.err("{s}...", .{s.name});
-        log.err("Unable to spawn the following command: cannot spawn child process", .{});
-        printCmd(null, argv);
-        std.os.abort();
+        s.result.stderr = b.fmt("Unable to spawn the following command: cannot spawn child processes\n{s}", .{
+            try allocPrintCmd(b.allocator, null, argv),
+        });
+        return error.CannotSpawnProcesses;
     }
 
     var code: u8 = undefined;
-    return self.execAllowFail(argv, &code, .Inherit) catch |err| switch (err) {
-        error.ExecNotSupported => {
-            if (src_step) |s| log.err("{s}...", .{s.name});
-            log.err("Unable to spawn the following command: cannot spawn child process", .{});
-            printCmd(null, argv);
-            std.os.abort();
-        },
+    const result = unwrapExecResult(&code, std.ChildProcess.exec(.{
+        .allocator = b.allocator,
+        .argv = argv,
+        .env_map = b.env_map,
+        .max_output_bytes = 10 * 1024 * 1024,
+    })) catch |err| switch (err) {
         error.FileNotFound => {
-            if (src_step) |s| log.err("{s}...", .{s.name});
-            log.err("Unable to spawn the following command: file not found", .{});
-            printCmd(null, argv);
-            std.os.exit(@truncate(u8, code));
+            s.result.stderr = b.fmt("unable to spawn the following command: file not found\n{s}", .{
+                try allocPrintCmd(b.allocator, null, argv),
+            });
+            return error.ExecFailed;
         },
         error.ExitCodeFailure => {
-            if (src_step) |s| log.err("{s}...", .{s.name});
-            if (self.prominent_compile_errors) {
-                log.err("The step exited with error code {d}", .{code});
-            } else {
-                log.err("The following command exited with error code {d}:", .{code});
-                printCmd(null, argv);
-            }
-
-            std.os.exit(@truncate(u8, code));
+            s.result.stderr = b.fmt("the following command exited with error code {d}:\n{s}", .{
+                code, try allocPrintCmd(b.allocator, null, argv),
+            });
+            return error.ExecFailed;
         },
         error.ProcessTerminated => {
-            if (src_step) |s| log.err("{s}...", .{s.name});
-            log.err("The following command terminated unexpectedly:", .{});
-            printCmd(null, argv);
-            std.os.exit(@truncate(u8, code));
+            s.result.stderr = b.fmt("the following command terminated unexpectedly:\n{s}", .{
+                try allocPrintCmd(b.allocator, null, argv),
+            });
+            return error.ExecFailed;
         },
         else => |e| return e,
     };
+
+    s.result.stderr = result.stderr;
+    return result.stdout;
 }
 
-pub fn exec(self: *Build, argv: []const []const u8) ![]u8 {
-    return self.execFromStep(argv, null);
+fn unwrapExecResult(
+    code_ptr: *u8,
+    wrapped: std.ChildProcess.ExecError!std.ChildProcess.ExecResult,
+) !std.ChildProcess.ExecResult {
+    const result = try wrapped;
+    switch (result.term) {
+        .Exited => |code| {
+            code_ptr.* = code;
+            if (code != 0) {
+                return error.ExitCodeFailure;
+            }
+            return result;
+        },
+        .Signal, .Stopped, .Unknown => |code| {
+            _ = code;
+            return error.ProcessTerminated;
+        },
+    }
+}
+
+/// This is a helper function to be called from build.zig scripts, *not* from
+/// inside step make() functions. If any errors occur, it fails the build with
+/// a helpful message.
+pub fn exec(b: *Build, argv: []const []const u8) []u8 {
+    if (!std.process.can_spawn) {
+        std.debug.print("unable to spawn the following command: cannot spawn child process\n{s}", .{
+            try allocPrintCmd(b.allocator, null, argv),
+        });
+        process.exit(1);
+    }
+
+    var code: u8 = undefined;
+    return b.execAllowFail(argv, &code, .Inherit) catch |err| {
+        const printed_cmd = allocPrintCmd(b.allocator, null, argv) catch @panic("OOM");
+        std.debug.print("unable to spawn the following command: {s}\n{s}", .{
+            @errorName(err), printed_cmd,
+        });
+        process.exit(1);
+    };
 }
 
 pub fn addSearchPrefix(self: *Build, search_prefix: []const u8) void {
