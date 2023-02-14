@@ -1635,9 +1635,24 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             } else main_pkg;
             errdefer if (options.is_test) root_pkg.destroy(gpa);
 
+            const compiler_rt_pkg = if (include_compiler_rt and options.output_mode == .Obj) compiler_rt_pkg: {
+                break :compiler_rt_pkg try Package.createWithDir(
+                    gpa,
+                    "compiler_rt",
+                    options.zig_lib_directory,
+                    null,
+                    "compiler_rt.zig",
+                );
+            } else null;
+            errdefer if (compiler_rt_pkg) |p| p.destroy(gpa);
+
             try main_pkg.addAndAdopt(gpa, builtin_pkg);
             try main_pkg.add(gpa, root_pkg);
             try main_pkg.addAndAdopt(gpa, std_pkg);
+
+            if (compiler_rt_pkg) |p| {
+                try main_pkg.addAndAdopt(gpa, p);
+            }
 
             const main_pkg_is_std = m: {
                 const std_path = try std.fs.path.resolve(arena, &[_][]const u8{
@@ -2355,6 +2370,10 @@ pub fn update(comp: *Compilation) !void {
             _ = try module.importPkg(module.main_pkg);
         }
 
+        if (module.main_pkg.table.get("compiler_rt")) |compiler_rt_pkg| {
+            _ = try module.importPkg(compiler_rt_pkg);
+        }
+
         // Put a work item in for every known source file to detect if
         // it changed, and, if so, re-compute ZIR and then queue the job
         // to update it.
@@ -2378,6 +2397,10 @@ pub fn update(comp: *Compilation) !void {
         try comp.work_queue.writeItem(.{ .analyze_pkg = std_pkg });
         if (comp.bin_file.options.is_test) {
             try comp.work_queue.writeItem(.{ .analyze_pkg = module.main_pkg });
+        }
+
+        if (module.main_pkg.table.get("compiler_rt")) |compiler_rt_pkg| {
+            try comp.work_queue.writeItem(.{ .analyze_pkg = compiler_rt_pkg });
         }
     }
 
