@@ -31,6 +31,7 @@ pub fn ZstandardStream(
 
         pub const Error = ReaderType.Error || error{
             ChecksumFailure,
+            DictionaryIdFlagUnsupported,
             MalformedBlock,
             MalformedFrame,
             OutOfMemory,
@@ -144,6 +145,7 @@ pub fn ZstandardStream(
                 while (self.state == .NewFrame) {
                     const initial_count = self.source.bytes_read;
                     self.frameInit() catch |err| switch (err) {
+                        error.DictionaryIdFlagUnsupported => return error.DictionaryIdFlagUnsupported,
                         error.EndOfStream => return if (self.source.bytes_read == initial_count)
                             0
                         else
