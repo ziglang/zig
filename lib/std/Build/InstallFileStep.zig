@@ -24,7 +24,11 @@ pub fn init(
     builder.pushInstalledFile(dir, dest_rel_path);
     return InstallFileStep{
         .builder = builder,
-        .step = Step.init(.install_file, builder.fmt("install {s} to {s}", .{ source.getDisplayName(), dest_rel_path }), builder.allocator, make),
+        .step = Step.init(builder.allocator, .{
+            .id = .install_file,
+            .name = builder.fmt("install {s} to {s}", .{ source.getDisplayName(), dest_rel_path }),
+            .makeFn = make,
+        }),
         .source = source.dupe(builder),
         .dir = dir.dupe(builder),
         .dest_rel_path = builder.dupePath(dest_rel_path),

@@ -45,9 +45,13 @@ pub fn init(
     options: Options,
 ) InstallDirStep {
     builder.pushInstalledFile(options.install_dir, options.install_subdir);
-    return InstallDirStep{
+    return .{
         .builder = builder,
-        .step = Step.init(.install_dir, builder.fmt("install {s}/", .{options.source_dir}), builder.allocator, make),
+        .step = Step.init(builder.allocator, .{
+            .id = .install_dir,
+            .name = builder.fmt("install {s}/", .{options.source_dir}),
+            .makeFn = make,
+        }),
         .options = options.dupe(builder),
     };
 }

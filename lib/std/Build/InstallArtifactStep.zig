@@ -19,7 +19,11 @@ pub fn create(builder: *std.Build, artifact: *CompileStep) *InstallArtifactStep 
     const self = builder.allocator.create(InstallArtifactStep) catch @panic("OOM");
     self.* = InstallArtifactStep{
         .builder = builder,
-        .step = Step.init(.install_artifact, builder.fmt("install {s}", .{artifact.step.name}), builder.allocator, make),
+        .step = Step.init(builder.allocator, .{
+            .id = base_id,
+            .name = builder.fmt("install {s}", .{artifact.step.name}),
+            .makeFn = make,
+        }),
         .artifact = artifact,
         .dest_dir = artifact.override_dest_dir orelse switch (artifact.kind) {
             .obj => @panic("Cannot install a .obj build artifact."),

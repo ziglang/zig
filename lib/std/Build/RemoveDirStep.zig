@@ -13,7 +13,11 @@ dir_path: []const u8,
 pub fn init(builder: *std.Build, dir_path: []const u8) RemoveDirStep {
     return RemoveDirStep{
         .builder = builder,
-        .step = Step.init(.remove_dir, builder.fmt("RemoveDir {s}", .{dir_path}), builder.allocator, make),
+        .step = Step.init(builder.allocator, .{
+            .id = .remove_dir,
+            .name = builder.fmt("RemoveDir {s}", .{dir_path}),
+            .makeFn = make,
+        }),
         .dir_path = builder.dupePath(dir_path),
     };
 }

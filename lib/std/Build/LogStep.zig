@@ -12,7 +12,11 @@ data: []const u8,
 pub fn init(builder: *std.Build, data: []const u8) LogStep {
     return LogStep{
         .builder = builder,
-        .step = Step.init(.log, builder.fmt("log {s}", .{data}), builder.allocator, make),
+        .step = Step.init(builder.allocator, .{
+            .id = .log,
+            .name = builder.fmt("log {s}", .{data}),
+            .makeFn = make,
+        }),
         .data = builder.dupe(data),
     };
 }

@@ -30,7 +30,11 @@ pub fn create(builder: *std.Build, options: Options) *TranslateCStep {
     const self = builder.allocator.create(TranslateCStep) catch @panic("OOM");
     const source = options.source_file.dupe(builder);
     self.* = TranslateCStep{
-        .step = Step.init(.translate_c, "translate-c", builder.allocator, make),
+        .step = Step.init(builder.allocator, .{
+            .id = .translate_c,
+            .name = "translate-c",
+            .makeFn = make,
+        }),
         .builder = builder,
         .source = source,
         .include_dirs = std.ArrayList([]const u8).init(builder.allocator),

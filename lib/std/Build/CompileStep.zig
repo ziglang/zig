@@ -326,7 +326,11 @@ pub fn create(builder: *std.Build, options: Options) *CompileStep {
         .root_src = root_src,
         .name = name,
         .frameworks = StringHashMap(FrameworkLinkInfo).init(builder.allocator),
-        .step = Step.init(base_id, name, builder.allocator, make),
+        .step = Step.init(builder.allocator, .{
+            .id = base_id,
+            .name = name,
+            .makeFn = make,
+        }),
         .version = options.version,
         .out_filename = undefined,
         .out_h_filename = builder.fmt("{s}.h", .{name}),

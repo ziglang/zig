@@ -858,7 +858,11 @@ pub const StackTracesContext = struct {
             const allocator = context.b.allocator;
             const ptr = allocator.create(RunAndCompareStep) catch unreachable;
             ptr.* = RunAndCompareStep{
-                .step = Step.init(.custom, "StackTraceCompareOutputStep", allocator, make),
+                .step = Step.init(allocator, .{
+                    .id = .custom,
+                    .name = "StackTraceCompareOutputStep",
+                    .makeFn = make,
+                }),
                 .context = context,
                 .exe = exe,
                 .name = name,
@@ -1194,7 +1198,11 @@ pub const GenHContext = struct {
             const allocator = context.b.allocator;
             const ptr = allocator.create(GenHCmpOutputStep) catch unreachable;
             ptr.* = GenHCmpOutputStep{
-                .step = Step.init(.Custom, "ParseCCmpOutput", allocator, make),
+                .step = Step.init(allocator, .{
+                    .id = .custom,
+                    .name = "ParseCCmpOutput",
+                    .makeFn = make,
+                }),
                 .context = context,
                 .obj = obj,
                 .name = name,

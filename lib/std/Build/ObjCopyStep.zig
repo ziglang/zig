@@ -44,12 +44,11 @@ pub fn create(
 ) *ObjCopyStep {
     const self = builder.allocator.create(ObjCopyStep) catch @panic("OOM");
     self.* = ObjCopyStep{
-        .step = Step.init(
-            base_id,
-            builder.fmt("objcopy {s}", .{file_source.getDisplayName()}),
-            builder.allocator,
-            make,
-        ),
+        .step = Step.init(builder.allocator, .{
+            .id = base_id,
+            .name = builder.fmt("objcopy {s}", .{file_source.getDisplayName()}),
+            .makeFn = make,
+        }),
         .builder = builder,
         .file_source = file_source,
         .basename = options.basename orelse file_source.getDisplayName(),

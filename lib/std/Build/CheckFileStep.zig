@@ -21,7 +21,11 @@ pub fn create(
     const self = builder.allocator.create(CheckFileStep) catch @panic("OOM");
     self.* = CheckFileStep{
         .builder = builder,
-        .step = Step.init(.check_file, "CheckFile", builder.allocator, make),
+        .step = Step.init(builder.allocator, .{
+            .id = .check_file,
+            .name = "CheckFile",
+            .makeFn = make,
+        }),
         .source = source.dupe(builder),
         .expected_matches = builder.dupeStrings(expected_matches),
     };

@@ -27,7 +27,11 @@ pub fn create(builder: *std.Build, source: std.Build.FileSource, obj_format: std
     const self = gpa.create(CheckObjectStep) catch @panic("OOM");
     self.* = .{
         .builder = builder,
-        .step = Step.init(.check_file, "CheckObject", gpa, make),
+        .step = Step.init(gpa, .{
+            .id = .check_file,
+            .name = "CheckObject",
+            .makeFn = make,
+        }),
         .source = source.dupe(builder),
         .checks = std.ArrayList(Check).init(gpa),
         .obj_format = obj_format,

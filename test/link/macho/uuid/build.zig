@@ -90,10 +90,13 @@ const InstallWithRename = struct {
         const self = builder.allocator.create(InstallWithRename) catch @panic("OOM");
         self.* = InstallWithRename{
             .builder = builder,
-            .step = Step.init(.custom, builder.fmt("install and rename: {s} -> {s}", .{
-                source.getDisplayName(),
-                name,
-            }), builder.allocator, make),
+            .step = Step.init(builder.allocator, .{
+                .id = .custom,
+                .name = builder.fmt("install and rename: {s} -> {s}", .{
+                    source.getDisplayName(), name,
+                }),
+                .makeFn = make,
+            }),
             .source = source,
             .name = builder.dupe(name),
         };
@@ -123,15 +126,14 @@ const CompareUuid = struct {
         const self = builder.allocator.create(CompareUuid) catch @panic("OOM");
         self.* = CompareUuid{
             .builder = builder,
-            .step = Step.init(
-                .custom,
-                builder.fmt("compare uuid: {s} and {s}", .{
+            .step = Step.init(builder.allocator, .{
+                .id = .custom,
+                .name = builder.fmt("compare uuid: {s} and {s}", .{
                     lhs,
                     rhs,
                 }),
-                builder.allocator,
-                make,
-            ),
+                .makeFn = make,
+            }),
             .lhs = lhs,
             .rhs = rhs,
         };

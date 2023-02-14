@@ -227,12 +227,19 @@ pub fn create(
         .h_dir = undefined,
         .dest_dir = env_map.get("DESTDIR"),
         .installed_files = ArrayList(InstalledFile).init(allocator),
-        .install_tls = TopLevelStep{
-            .step = Step.initNoOp(.top_level, "install", allocator),
+        .install_tls = .{
+            .step = Step.init(allocator, .{
+                .id = .top_level,
+                .name = "install",
+            }),
             .description = "Copy build artifacts to prefix path",
         },
-        .uninstall_tls = TopLevelStep{
-            .step = Step.init(.top_level, "uninstall", allocator, makeUninstall),
+        .uninstall_tls = .{
+            .step = Step.init(allocator, .{
+                .id = .top_level,
+                .name = "uninstall",
+                .makeFn = makeUninstall,
+            }),
             .description = "Remove build artifacts from prefix path",
         },
         .zig_lib_dir = null,
@@ -264,11 +271,18 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
     child.* = .{
         .allocator = allocator,
         .install_tls = .{
-            .step = Step.initNoOp(.top_level, "install", allocator),
+            .step = Step.init(allocator, .{
+                .id = .top_level,
+                .name = "install",
+            }),
             .description = "Copy build artifacts to prefix path",
         },
         .uninstall_tls = .{
-            .step = Step.init(.top_level, "uninstall", allocator, makeUninstall),
+            .step = Step.init(allocator, .{
+                .id = .top_level,
+                .name = "uninstall",
+                .makeFn = makeUninstall,
+            }),
             .description = "Remove build artifacts from prefix path",
         },
         .user_input_options = UserInputOptionsMap.init(allocator),
@@ -634,7 +648,11 @@ pub fn addConfigHeader(
     options: ConfigHeaderStep.Options,
     values: anytype,
 ) *ConfigHeaderStep {
-    const config_header_step = ConfigHeaderStep.create(b, options);
+    var options_copy = options;
+    if (options_copy.first_ret_addr == null)
+        options_copy.first_ret_addr = @returnAddress();
+
+    const config_header_step = ConfigHeaderStep.create(b, options_copy);
     config_header_step.addValues(values);
     return config_header_step;
 }
@@ -858,7 +876,10 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
 pub fn step(self: *Build, name: []const u8, description: []const u8) *Step {
     const step_info = self.allocator.create(TopLevelStep) catch @panic("OOM");
     step_info.* = TopLevelStep{
-        .step = Step.initNoOp(.top_level, name, self.allocator),
+        .step = Step.init(self.allocator, .{
+            .id = .top_level,
+            .name = name,
+        }),
         .description = self.dupe(description),
     };
     self.top_level_steps.put(self.allocator, step_info.step.name, step_info) catch @panic("OOM");
@@ -1153,7 +1174,7 @@ pub fn spawnChildEnvMap(self: *Build, cwd: ?[]const u8, env_map: *const EnvMap, 
         printCmd(self.allocator, cwd, argv);
     }
 
-    if (!std.process.can_spawn)
+    if (!process.can_spawn)
         return error.ExecNotSupported;
 
     var child = std.ChildProcess.init(argv, self.allocator);
@@ -1355,7 +1376,7 @@ pub fn execAllowFail(
 ) ExecError![]u8 {
     assert(argv.len != 0);
 
-    if (!std.process.can_spawn)
+    if (!process.can_spawn)
         return error.ExecNotSupported;
 
     const max_output_size = 400 * 1024;
@@ -1395,7 +1416,7 @@ pub fn execFromStep(b: *Build, argv: []const []const u8, s: *Step) ![]u8 {
         printCmd(b.allocator, null, argv);
     }
 
-    if (!std.process.can_spawn) {
+    if (!process.can_spawn) {
         s.result.stderr = b.fmt("Unable to spawn the following command: cannot spawn child processes\n{s}", .{
             try allocPrintCmd(b.allocator, null, argv),
         });
@@ -1458,7 +1479,7 @@ fn unwrapExecResult(
 /// inside step make() functions. If any errors occur, it fails the build with
 /// a helpful message.
 pub fn exec(b: *Build, argv: []const []const u8) []u8 {
-    if (!std.process.can_spawn) {
+    if (!process.can_spawn) {
         std.debug.print("unable to spawn the following command: cannot spawn child process\n{s}", .{
             try allocPrintCmd(b.allocator, null, argv),
         });
@@ -1539,7 +1560,7 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
 
     const full_path = b.pathFromRoot("build.zig.zon");
     std.debug.print("no dependency named '{s}' in '{s}'. All packages used in build.zig must be declared in this file.\n", .{ name, full_path });
-    std.process.exit(1);
+    process.exit(1);
 }
 
 fn dependencyInner(
@@ -1555,7 +1576,7 @@ fn dependencyInner(
             std.debug.print("unable to open '{s}': {s}\n", .{
                 build_root_string, @errorName(err),
             });
-            std.process.exit(1);
+            process.exit(1);
         },
     };
     const sub_builder = b.createChild(name, build_root, args) catch @panic("unhandled error");
@@ -1599,7 +1620,7 @@ pub const GeneratedFile = struct {
 
     pub fn getPath(self: GeneratedFile) []const u8 {
         return self.path orelse std.debug.panic(
-            "getPath() was called on a GeneratedFile that wasn't build yet. Is there a missing Step dependency on step '{s}'?",
+            "getPath() was called on a GeneratedFile that wasn't built yet. Is there a missing Step dependency on step '{s}'?",
             .{self.step.name},
         );
     }
@@ -1639,12 +1660,16 @@ pub const FileSource = union(enum) {
     }
 
     /// Should only be called during make(), returns a path relative to the build root or absolute.
-    pub fn getPath(self: FileSource, builder: *Build) []const u8 {
-        const path = switch (self) {
-            .path => |p| builder.pathFromRoot(p),
-            .generated => |gen| gen.getPath(),
-        };
-        return path;
+    pub fn getPath(self: FileSource, src_builder: *Build) []const u8 {
+        switch (self) {
+            .path => |p| return src_builder.pathFromRoot(p),
+            .generated => |gen| return gen.path orelse {
+                std.debug.getStderrMutex().lock();
+                const stderr = std.io.getStdErr();
+                dumpBadGetPathHelp(gen.step, stderr, src_builder) catch {};
+                @panic("unable to get path");
+            },
+        }
     }
 
     /// Duplicates the file source for a given builder.
@@ -1655,6 +1680,27 @@ pub const FileSource = union(enum) {
         };
     }
 };
+
+fn dumpBadGetPathHelp(s: *Step, stderr: fs.File, src_builder: *Build) anyerror!void {
+    try stderr.writer().print(
+        \\getPath() was called on a GeneratedFile that wasn't built yet.
+        \\  source package path: {s}
+        \\  Is there a missing Step dependency on step '{s}'?
+        \\    The step was created by this stack trace:
+        \\
+    , .{
+        src_builder.build_root.path orelse ".",
+        s.name,
+    });
+    const debug_info = std.debug.getSelfDebugInfo() catch |err| {
+        try stderr.writer().print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
+        return;
+    };
+    std.debug.writeStackTrace(s.getStackTrace(), stderr.writer(), debug_info.allocator, debug_info, std.debug.detectTTYConfig(stderr)) catch |err| {
+        try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
+        return;
+    };
+}
 
 /// Allocates a new string for assigning a value to a named macro.
 /// If the value is omitted, it is set to 1.

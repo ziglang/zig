@@ -56,7 +56,11 @@ pub fn create(builder: *std.Build, name: []const u8, artifact: *CompileStep) *Em
 
     self.* = .{
         .builder = builder,
-        .step = Step.init(.emulatable_run, name, builder.allocator, make),
+        .step = Step.init(builder.allocator, .{
+            .id = .emulatable_run,
+            .name = name,
+            .makeFn = make,
+        }),
         .exe = artifact,
         .env_map = null,
         .cwd = null,

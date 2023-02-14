@@ -22,7 +22,11 @@ pub fn create(builder: *std.Build) *OptionsStep {
     const self = builder.allocator.create(OptionsStep) catch @panic("OOM");
     self.* = .{
         .builder = builder,
-        .step = Step.init(.options, "options", builder.allocator, make),
+        .step = Step.init(builder.allocator, .{
+            .id = base_id,
+            .name = "options",
+            .makeFn = make,
+        }),
         .generated_file = undefined,
         .contents = std.ArrayList(u8).init(builder.allocator),
         .artifact_args = std.ArrayList(OptionArtifactArg).init(builder.allocator),

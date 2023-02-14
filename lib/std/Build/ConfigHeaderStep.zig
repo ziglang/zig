@@ -46,6 +46,7 @@ pub const Options = struct {
     style: Style = .blank,
     max_bytes: usize = 2 * 1024 * 1024,
     include_path: ?[]const u8 = null,
+    first_ret_addr: ?usize = null,
 };
 
 pub fn create(builder: *std.Build, options: Options) *ConfigHeaderStep {
@@ -56,7 +57,12 @@ pub fn create(builder: *std.Build, options: Options) *ConfigHeaderStep {
         builder.fmt("configure {s} header", .{@tagName(options.style)});
     self.* = .{
         .builder = builder,
-        .step = Step.init(base_id, name, builder.allocator, make),
+        .step = Step.init(builder.allocator, .{
+            .id = base_id,
+            .name = name,
+            .makeFn = make,
+            .first_ret_addr = options.first_ret_addr orelse @returnAddress(),
+        }),
         .style = options.style,
         .values = std.StringArrayHashMap(Value).init(builder.allocator),
 

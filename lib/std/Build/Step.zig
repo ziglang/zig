@@ -11,6 +11,11 @@ result: struct {
     err_code: anyerror,
     stderr: []u8,
 },
+/// The return addresss associated with creation of this step that can be useful
+/// to print along with debugging messages.
+debug_stack_trace: [n_debug_stack_frames]usize,
+
+const n_debug_stack_frames = 4;
 
 pub const State = enum {
     precheck_unstarted,
@@ -66,16 +71,26 @@ pub const Id = enum {
     }
 };
 
-pub fn init(
+pub const Options = struct {
     id: Id,
     name: []const u8,
-    allocator: Allocator,
-    makeFn: *const fn (self: *Step) anyerror!void,
-) Step {
-    return Step{
-        .id = id,
-        .name = allocator.dupe(u8, name) catch @panic("OOM"),
-        .makeFn = makeFn,
+    makeFn: *const fn (self: *Step) anyerror!void = makeNoOp,
+    first_ret_addr: ?usize = null,
+};
+
+pub fn init(allocator: Allocator, options: Options) Step {
+    var addresses = [1]usize{0} ** n_debug_stack_frames;
+    const first_ret_addr = options.first_ret_addr orelse @returnAddress();
+    var stack_trace = std.builtin.StackTrace{
+        .instruction_addresses = &addresses,
+        .index = 0,
+    };
+    std.debug.captureStackTrace(first_ret_addr, &stack_trace);
+
+    return .{
+        .id = options.id,
+        .name = allocator.dupe(u8, options.name) catch @panic("OOM"),
+        .makeFn = options.makeFn,
         .dependencies = std.ArrayList(*Step).init(allocator),
         .dependants = .{},
         .state = .precheck_unstarted,
@@ -83,11 +98,8 @@ pub fn init(
             .err_code = undefined,
             .stderr = &.{},
         },
+        .debug_stack_trace = addresses,
     };
-}
-
-pub fn initNoOp(id: Id, name: []const u8, allocator: Allocator) Step {
-    return init(id, name, allocator, makeNoOp);
 }
 
 pub fn make(self: *Step) !void {
@@ -96,6 +108,18 @@ pub fn make(self: *Step) !void {
 
 pub fn dependOn(self: *Step, other: *Step) void {
     self.dependencies.append(other) catch @panic("OOM");
+}
+
+pub fn getStackTrace(s: *Step) std.builtin.StackTrace {
+    const stack_addresses = &s.debug_stack_trace;
+    var len: usize = 0;
+    while (len < n_debug_stack_frames and stack_addresses[len] != 0) {
+        len += 1;
+    }
+    return .{
+        .instruction_addresses = stack_addresses,
+        .index = len,
+    };
 }
 
 fn makeNoOp(self: *Step) anyerror!void {

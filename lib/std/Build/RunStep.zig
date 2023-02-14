@@ -69,9 +69,13 @@ pub const Arg = union(enum) {
 
 pub fn create(builder: *std.Build, name: []const u8) *RunStep {
     const self = builder.allocator.create(RunStep) catch @panic("OOM");
-    self.* = RunStep{
+    self.* = .{
         .builder = builder,
-        .step = Step.init(base_id, name, builder.allocator, make),
+        .step = Step.init(builder.allocator, .{
+            .id = base_id,
+            .name = name,
+            .makeFn = make,
+        }),
         .argv = ArrayList(Arg).init(builder.allocator),
         .cwd = null,
         .env_map = null,
