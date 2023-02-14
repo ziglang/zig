@@ -7,6 +7,7 @@ const mem = std.mem;
 const process = std.process;
 const ArrayList = std.ArrayList;
 const File = std.fs.File;
+const Step = std.Build.Step;
 
 pub const dependencies = @import("@dependencies");
 
@@ -258,7 +259,7 @@ pub fn main() !void {
 }
 
 fn runStepNames(b: *std.Build, step_names: []const []const u8) !void {
-    var step_stack = ArrayList(*std.Build.Step).init(b.allocator);
+    var step_stack = ArrayList(*Step).init(b.allocator);
     defer step_stack.deinit();
 
     if (step_names.len == 0) {
@@ -290,28 +291,35 @@ fn runStepNames(b: *std.Build, step_names: []const []const u8) !void {
     {
         var wait_group: std.Thread.WaitGroup = .{};
         defer wait_group.wait();
-        var i = step_stack.items.len;
 
+        // Here we spawn the initial set of tasks with a nice heuristic -
+        // dependency order. Each worker when it finishes a step will then
+        // check whether it should run any dependants.
+        var i = step_stack.items.len;
         while (i > 0) {
             i -= 1;
             const step = step_stack.items[i];
 
             wait_group.start();
-            thread_pool.spawn(workerMakeOneStep, .{ &wait_group, b, step }) catch
-                @panic("unhandled error");
+            thread_pool.spawn(workerMakeOneStep, .{ &wait_group, &thread_pool, b, step }) catch
+                @panic("OOM");
         }
     }
 
     var any_failed = false;
 
     for (step_stack.items) |s| {
-        switch (s.result) {
-            .not_done => unreachable,
+        switch (s.state) {
+            .precheck_unstarted => unreachable,
+            .precheck_started => unreachable,
+            .precheck_done => unreachable,
+            .running => unreachable,
+            .dependency_failure => continue,
             .success => continue,
-            .failure => |f| {
+            .failure => {
                 any_failed = true;
                 std.debug.print("{s}: {s}\n", .{
-                    s.name, @errorName(f.err_code),
+                    s.name, @errorName(s.result.err_code),
                 });
             },
         }
@@ -324,20 +332,20 @@ fn runStepNames(b: *std.Build, step_names: []const []const u8) !void {
 
 fn checkForDependencyLoop(
     b: *std.Build,
-    s: *std.Build.Step,
-    step_stack: *ArrayList(*std.Build.Step),
+    s: *Step,
+    step_stack: *ArrayList(*Step),
 ) !void {
-    switch (s.loop_tag) {
-        .started => {
+    switch (s.state) {
+        .precheck_started => {
             std.debug.print("dependency loop detected:\n  {s}\n", .{s.name});
             return error.DependencyLoopDetected;
         },
-        .unstarted => {
-            s.loop_tag = .started;
-
-            try step_stack.append(s);
+        .precheck_unstarted => {
+            s.state = .precheck_started;
 
             for (s.dependencies.items) |dep| {
+                try step_stack.append(dep);
+                try dep.dependants.append(b.allocator, s);
                 checkForDependencyLoop(b, dep, step_stack) catch |err| {
                     if (err == error.DependencyLoopDetected) {
                         std.debug.print("  {s}\n", .{s.name});
@@ -346,31 +354,70 @@ fn checkForDependencyLoop(
                 };
             }
 
-            s.loop_tag = .done;
+            s.state = .precheck_done;
         },
-        .done => {},
+        .precheck_done => {},
+
+        // These don't happen until we actually run the step graph.
+        .dependency_failure => unreachable,
+        .running => unreachable,
+        .success => unreachable,
+        .failure => unreachable,
     }
 }
 
-fn workerMakeOneStep(wg: *std.Thread.WaitGroup, b: *std.Build, s: *std.Build.Step) void {
+fn workerMakeOneStep(
+    wg: *std.Thread.WaitGroup,
+    thread_pool: *std.Thread.Pool,
+    b: *std.Build,
+    s: *Step,
+) void {
     defer wg.finish();
 
-    _ = b;
-
-    if (s.make()) |_| {
-        s.result = .success;
-    } else |err| {
-        s.result = .{ .failure = .{
-            .err_code = err,
-        } };
-    }
-}
-
-fn makeOneStep(b: *std.Build, s: *std.Build.Step) anyerror!void {
+    // First, check the conditions for running this step. If they are not met,
+    // then we return without doing the step, relying on another worker to
+    // queue this step up again when dependencies are met.
     for (s.dependencies.items) |dep| {
-        try makeOneStep(b, dep);
+        switch (@atomicLoad(Step.State, &dep.state, .SeqCst)) {
+            .success => continue,
+            .failure, .dependency_failure => {
+                @atomicStore(Step.State, &s.state, .dependency_failure, .SeqCst);
+                return;
+            },
+            .precheck_done, .running => {
+                // dependency is not finished yet.
+                return;
+            },
+            .precheck_unstarted => unreachable,
+            .precheck_started => unreachable,
+        }
     }
-    try s.make();
+
+    // Avoid running steps twice.
+    if (@cmpxchgStrong(Step.State, &s.state, .precheck_done, .running, .SeqCst, .SeqCst) != null) {
+        // Another worker got the job.
+        return;
+    }
+
+    // I suspect we will want to pass `b` to make() in a future modification.
+    // For example, CompileStep does some sus things with modifying the saved
+    // *Build object in install header steps that might be able to be removed
+    // by passing the *Build object through the make() functions.
+    s.make() catch |err| {
+        s.result = .{
+            .err_code = err,
+        };
+        @atomicStore(Step.State, &s.state, .failure, .SeqCst);
+        return;
+    };
+
+    @atomicStore(Step.State, &s.state, .success, .SeqCst);
+
+    // Successful completion of a step, so we queue up its dependants as well.
+    for (s.dependants.items) |dep| {
+        wg.start();
+        thread_pool.spawn(workerMakeOneStep, .{ wg, thread_pool, b, dep }) catch @panic("OOM");
+    }
 }
 
 fn steps(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !void {

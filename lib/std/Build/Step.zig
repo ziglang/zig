@@ -2,15 +2,24 @@ id: Id,
 name: []const u8,
 makeFn: *const fn (self: *Step) anyerror!void,
 dependencies: std.ArrayList(*Step),
-/// Used only during a pre-check for dependency loops.
-loop_tag: enum { unstarted, started, done },
-result: union(enum) {
-    not_done,
-    success,
-    failure: struct {
-        err_code: anyerror,
-    },
+/// This field is empty during execution of the user's build script, and
+/// then populated during dependency loop checking in the build runner.
+dependants: std.ArrayListUnmanaged(*Step),
+state: State,
+/// Populated only if state is success.
+result: struct {
+    err_code: anyerror,
 },
+
+pub const State = enum {
+    precheck_unstarted,
+    precheck_started,
+    precheck_done,
+    running,
+    dependency_failure,
+    success,
+    failure,
+};
 
 pub const Id = enum {
     top_level,
@@ -67,8 +76,9 @@ pub fn init(
         .name = allocator.dupe(u8, name) catch @panic("OOM"),
         .makeFn = makeFn,
         .dependencies = std.ArrayList(*Step).init(allocator),
-        .loop_tag = .unstarted,
-        .result = .not_done,
+        .dependants = .{},
+        .state = .precheck_unstarted,
+        .result = undefined,
     };
 }
 
@@ -77,7 +87,6 @@ pub fn initNoOp(id: Id, name: []const u8, allocator: Allocator) Step {
 }
 
 pub fn make(self: *Step) !void {
-    assert(self.result == .not_done);
     try self.makeFn(self);
 }
 
