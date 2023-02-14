@@ -38,7 +38,7 @@ pub fn init(
 fn make(step: *Step) !void {
     const self = @fieldParentPtr(InstallFileStep, "step", step);
     const src_builder = self.override_source_builder orelse self.builder;
-    const full_src_path = self.source.getPath(src_builder);
+    const full_src_path = self.source.getPath2(src_builder, step);
     const full_dest_path = self.builder.getInstallPath(self.dir, self.dest_rel_path);
     try self.builder.updateFile(full_src_path, full_dest_path);
 }

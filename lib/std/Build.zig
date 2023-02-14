@@ -1661,13 +1661,20 @@ pub const FileSource = union(enum) {
 
     /// Should only be called during make(), returns a path relative to the build root or absolute.
     pub fn getPath(self: FileSource, src_builder: *Build) []const u8 {
+        return getPath2(self, src_builder, null);
+    }
+
+    /// Should only be called during make(), returns a path relative to the build root or absolute.
+    /// asking_step is only used for debugging purposes; it's the step being run that is asking for
+    /// the path.
+    pub fn getPath2(self: FileSource, src_builder: *Build, asking_step: ?*Step) []const u8 {
         switch (self) {
             .path => |p| return src_builder.pathFromRoot(p),
             .generated => |gen| return gen.path orelse {
                 std.debug.getStderrMutex().lock();
                 const stderr = std.io.getStdErr();
-                dumpBadGetPathHelp(gen.step, stderr, src_builder) catch {};
-                @panic("unable to get path");
+                dumpBadGetPathHelp(gen.step, stderr, src_builder, asking_step) catch {};
+                @panic("misconfigured build script");
             },
         }
     }
@@ -1681,25 +1688,52 @@ pub const FileSource = union(enum) {
     }
 };
 
-fn dumpBadGetPathHelp(s: *Step, stderr: fs.File, src_builder: *Build) anyerror!void {
-    try stderr.writer().print(
+/// In this function the stderr mutex has already been locked.
+fn dumpBadGetPathHelp(
+    s: *Step,
+    stderr: fs.File,
+    src_builder: *Build,
+    asking_step: ?*Step,
+) anyerror!void {
+    const w = stderr.writer();
+    try w.print(
         \\getPath() was called on a GeneratedFile that wasn't built yet.
         \\  source package path: {s}
         \\  Is there a missing Step dependency on step '{s}'?
-        \\    The step was created by this stack trace:
         \\
     , .{
         src_builder.build_root.path orelse ".",
         s.name,
     });
+
+    const tty_config = std.debug.detectTTYConfig(stderr);
+    tty_config.setColor(w, .Red) catch {};
+    try stderr.writeAll("    The step was created by this stack trace:\n");
+    tty_config.setColor(w, .Reset) catch {};
+
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
-        try stderr.writer().print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
+        try w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         return;
     };
-    std.debug.writeStackTrace(s.getStackTrace(), stderr.writer(), debug_info.allocator, debug_info, std.debug.detectTTYConfig(stderr)) catch |err| {
+    const ally = debug_info.allocator;
+    std.debug.writeStackTrace(s.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
         try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
         return;
     };
+    if (asking_step) |as| {
+        tty_config.setColor(w, .Red) catch {};
+        try stderr.writeAll("    The step that is missing a dependency on the above step was created by this stack trace:\n");
+        tty_config.setColor(w, .Reset) catch {};
+
+        std.debug.writeStackTrace(as.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
+            try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
+            return;
+        };
+    }
+
+    tty_config.setColor(w, .Red) catch {};
+    try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
+    tty_config.setColor(w, .Reset) catch {};
 }
 
 /// Allocates a new string for assigning a value to a named macro.
