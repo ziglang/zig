@@ -2128,23 +2128,26 @@ pub const File = struct {
         file.multi_pkg = true;
         file.status = .astgen_failure;
 
-        std.debug.assert(file.zir_loaded);
-        const imports_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.imports)];
-        if (imports_index == 0) return;
-        const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
+        // We can only mark children as failed if the ZIR is loaded, which may not
+        // be the case if there were other astgen failures in this file
+        if (file.zir_loaded) {
+            const imports_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.imports)];
+            if (imports_index == 0) return;
+            const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
 
-        var import_i: u32 = 0;
-        var extra_index = extra.end;
-        while (import_i < extra.data.imports_len) : (import_i += 1) {
-            const item = file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
-            extra_index = item.end;
+            var import_i: u32 = 0;
+            var extra_index = extra.end;
+            while (import_i < extra.data.imports_len) : (import_i += 1) {
+                const item = file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
+                extra_index = item.end;
 
-            const import_path = file.zir.nullTerminatedString(item.data.name);
-            if (mem.eql(u8, import_path, "builtin")) continue;
+                const import_path = file.zir.nullTerminatedString(item.data.name);
+                if (mem.eql(u8, import_path, "builtin")) continue;
 
-            const res = mod.importFile(file, import_path) catch continue;
-            if (!res.is_pkg and !res.file.multi_pkg) {
-                res.file.recursiveMarkMultiPkg(mod);
+                const res = mod.importFile(file, import_path) catch continue;
+                if (!res.is_pkg and !res.file.multi_pkg) {
+                    res.file.recursiveMarkMultiPkg(mod);
+                }
             }
         }
     }
