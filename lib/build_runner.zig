@@ -428,16 +428,21 @@ fn workerMakeOneStep(
     // For example, CompileStep does some sus things with modifying the saved
     // *Build object in install header steps that might be able to be removed
     // by passing the *Build object through the make() functions.
-    s.make() catch |err| {
-        s.result.err_code = err;
-        @atomicStore(Step.State, &s.state, .failure, .SeqCst);
+    const make_result = s.make();
 
+    // No matter the result, we want to display error/warning messages.
+    if (s.result.error_msgs.items.len > 0) {
         sub_prog_node.context.lock_stderr();
         defer sub_prog_node.context.unlock_stderr();
 
         for (s.result.error_msgs.items) |msg| {
-            std.io.getStdErr().writeAll(msg) catch return;
+            std.io.getStdErr().writeAll(msg) catch break;
         }
+    }
+
+    make_result catch |err| {
+        s.result.err_code = err;
+        @atomicStore(Step.State, &s.state, .failure, .SeqCst);
         return;
     };
 
