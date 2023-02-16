@@ -1730,7 +1730,8 @@ fn structInitExprRlNone(
                 .container_type = ty_inst,
                 .name_start = str_index,
             }) } }
-        else .{ .rl = .none };
+        else
+            .{ .rl = .none };
         setExtra(astgen, extra_index, Zir.Inst.StructInitAnon.Item{
             .field_name = str_index,
             .init = try expr(gz, scope, sub_ri, field_init),
@@ -2530,7 +2531,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .bit_size_of,
             .typeof_log2_int_type,
             .ptr_to_int,
-            .qual_cast,
             .align_of,
             .bool_to_int,
             .embed_file,
@@ -8038,7 +8038,6 @@ fn builtinCall(
         .float_cast   => return typeCast(gz, scope, ri, node, params[0], params[1], .float_cast),
         .int_cast     => return typeCast(gz, scope, ri, node, params[0], params[1], .int_cast),
         .ptr_cast     => return typeCast(gz, scope, ri, node, params[0], params[1], .ptr_cast),
-        .qual_cast    => return typeCast(gz, scope, ri, node, params[0], params[1], .qual_cast),
         .truncate     => return typeCast(gz, scope, ri, node, params[0], params[1], .truncate),
         // zig fmt: on
 
@@ -8111,6 +8110,22 @@ fn builtinCall(
                 .lhs = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .address_space_type } }, params[0]),
                 .rhs = try expr(gz, scope, .{ .rl = .none }, params[1]),
                 .node = gz.nodeIndexToRelative(node),
+            });
+            return rvalue(gz, ri, result, node);
+        },
+        .const_cast => {
+            const operand = try expr(gz, scope, .{ .rl = .none }, params[0]);
+            const result = try gz.addExtendedPayload(.const_cast, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = operand,
+            });
+            return rvalue(gz, ri, result, node);
+        },
+        .volatile_cast => {
+            const operand = try expr(gz, scope, .{ .rl = .none }, params[0]);
+            const result = try gz.addExtendedPayload(.volatile_cast, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = operand,
             });
             return rvalue(gz, ri, result, node);
         },

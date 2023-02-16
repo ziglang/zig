@@ -1015,7 +1015,6 @@ fn analyzeBodyInner(
             .float_cast                   => try sema.zirFloatCast(block, inst),
             .int_cast                     => try sema.zirIntCast(block, inst),
             .ptr_cast                     => try sema.zirPtrCast(block, inst),
-            .qual_cast                    => try sema.zirQualCast(block, inst),
             .truncate                     => try sema.zirTruncate(block, inst),
             .align_cast                   => try sema.zirAlignCast(block, inst),
             .has_decl                     => try sema.zirHasDecl(block, inst),
@@ -1147,6 +1146,8 @@ fn analyzeBodyInner(
                     .c_va_copy             => try sema.zirCVaCopy(           block, extended),
                     .c_va_end              => try sema.zirCVaEnd(            block, extended),
                     .c_va_start            => try sema.zirCVaStart(          block, extended),
+                    .const_cast,           => try sema.zirConstCast(         block, extended),
+                    .volatile_cast,        => try sema.zirVolatileCast(      block, extended),
                     // zig fmt: on
 
                     .fence => {
@@ -7669,17 +7670,21 @@ fn zirErrorUnionType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
             error_set.fmt(sema.mod),
         });
     }
-    if (payload.zigTypeTag() == .Opaque) {
-        return sema.fail(block, rhs_src, "error union with payload of opaque type '{}' not allowed", .{
-            payload.fmt(sema.mod),
-        });
-    } else if (payload.zigTypeTag() == .ErrorSet) {
-        return sema.fail(block, rhs_src, "error union with payload of error set type '{}' not allowed", .{
-            payload.fmt(sema.mod),
-        });
-    }
+    try sema.validateErrorUnionPayloadType(block, payload, rhs_src);
     const err_union_ty = try Type.errorUnion(sema.arena, error_set, payload, sema.mod);
     return sema.addType(err_union_ty);
+}
+
+fn validateErrorUnionPayloadType(sema: *Sema, block: *Block, payload_ty: Type, payload_src: LazySrcLoc) !void {
+    if (payload_ty.zigTypeTag() == .Opaque) {
+        return sema.fail(block, payload_src, "error union with payload of opaque type '{}' not allowed", .{
+            payload_ty.fmt(sema.mod),
+        });
+    } else if (payload_ty.zigTypeTag() == .ErrorSet) {
+        return sema.fail(block, payload_src, "error union with payload of error set type '{}' not allowed", .{
+            payload_ty.fmt(sema.mod),
+        });
+    }
 }
 
 fn zirErrorValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -8639,6 +8644,7 @@ fn funcCommon(
         const return_type = if (!inferred_error_set or ret_poison)
             bare_return_type
         else blk: {
+            try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
             const node = try sema.gpa.create(Module.Fn.InferredErrorSetListNode);
             node.data = .{ .func = new_func };
             maybe_inferred_error_set_node = node;
@@ -8650,15 +8656,15 @@ fn funcCommon(
             });
         };
 
-        if (!bare_return_type.isValidReturnType()) {
-            const opaque_str = if (bare_return_type.zigTypeTag() == .Opaque) "opaque " else "";
+        if (!return_type.isValidReturnType()) {
+            const opaque_str = if (return_type.zigTypeTag() == .Opaque) "opaque " else "";
             const msg = msg: {
                 const msg = try sema.errMsg(block, ret_ty_src, "{s}return type '{}' not allowed", .{
-                    opaque_str, bare_return_type.fmt(sema.mod),
+                    opaque_str, return_type.fmt(sema.mod),
                 });
                 errdefer msg.destroy(sema.gpa);
 
-                try sema.addDeclaredHereNote(msg, bare_return_type);
+                try sema.addDeclaredHereNote(msg, return_type);
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(msg);
@@ -19540,7 +19546,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             const msg = try sema.errMsg(block, src, "cast discards const qualifier", .{});
             errdefer msg.destroy(sema.gpa);
 
-            try sema.errNote(block, src, msg, "consider using '@qualCast'", .{});
+            try sema.errNote(block, src, msg, "consider using '@constCast'", .{});
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
@@ -19550,7 +19556,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             const msg = try sema.errMsg(block, src, "cast discards volatile qualifier", .{});
             errdefer msg.destroy(sema.gpa);
 
-            try sema.errNote(block, src, msg, "consider using '@qualCast'", .{});
+            try sema.errNote(block, src, msg, "consider using '@volatileCast'", .{});
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
@@ -19655,40 +19661,37 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     return block.addBitCast(aligned_dest_ty, ptr);
 }
 
-fn zirQualCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
-    const operand = try sema.resolveInst(extra.rhs);
+fn zirConstCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const operand = try sema.resolveInst(extra.operand);
     const operand_ty = sema.typeOf(operand);
-
-    try sema.checkPtrType(block, dest_ty_src, dest_ty);
     try sema.checkPtrOperand(block, operand_src, operand_ty);
 
-    var operand_payload = operand_ty.ptrInfo();
-    var dest_info = dest_ty.ptrInfo();
+    var ptr_info = operand_ty.ptrInfo().data;
+    ptr_info.mutable = true;
+    const dest_ty = try Type.ptr(sema.arena, sema.mod, ptr_info);
 
-    operand_payload.data.mutable = dest_info.data.mutable;
-    operand_payload.data.@"volatile" = dest_info.data.@"volatile";
-
-    const altered_operand_ty = Type.initPayload(&operand_payload.base);
-    if (!altered_operand_ty.eql(dest_ty, sema.mod)) {
-        const msg = msg: {
-            const msg = try sema.errMsg(block, src, "'@qualCast' can only modify 'const' and 'volatile' qualifiers", .{});
-            errdefer msg.destroy(sema.gpa);
-
-            dest_info.data.mutable = !operand_ty.isConstPtr();
-            dest_info.data.@"volatile" = operand_ty.isVolatilePtr();
-            const altered_dest_ty = Type.initPayload(&dest_info.base);
-            try sema.errNote(block, src, msg, "expected type '{}'", .{altered_dest_ty.fmt(sema.mod)});
-            try sema.errNote(block, src, msg, "got type '{}'", .{operand_ty.fmt(sema.mod)});
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(msg);
+    if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
+        return sema.addConstant(dest_ty, operand_val);
     }
+
+    try sema.requireRuntimeBlock(block, src, null);
+    return block.addBitCast(dest_ty, operand);
+}
+
+fn zirVolatileCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const operand = try sema.resolveInst(extra.operand);
+    const operand_ty = sema.typeOf(operand);
+    try sema.checkPtrOperand(block, operand_src, operand_ty);
+
+    var ptr_info = operand_ty.ptrInfo().data;
+    ptr_info.@"volatile" = false;
+    const dest_ty = try Type.ptr(sema.arena, sema.mod, ptr_info);
 
     if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
         return sema.addConstant(dest_ty, operand_val);
@@ -21930,7 +21933,7 @@ fn zirCUndef(
     const src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
 
     const name = try sema.resolveConstString(block, src, extra.operand, "name of macro being undefined must be comptime-known");
-    try block.c_import_buf.?.writer().print("#undefine {s}\n", .{name});
+    try block.c_import_buf.?.writer().print("#undef {s}\n", .{name});
     return Air.Inst.Ref.void_value;
 }
 
@@ -29753,6 +29756,25 @@ fn resolvePeerTypes(
             .ErrorUnion => {
                 const payload_ty = chosen_ty.errorUnionPayload();
                 if ((try sema.coerceInMemoryAllowed(block, payload_ty, candidate_ty, false, target, src, src)) == .ok) {
+                    continue;
+                }
+            },
+            .ErrorSet => {
+                chosen = candidate;
+                chosen_i = candidate_i + 1;
+                if (err_set_ty) |chosen_set_ty| {
+                    if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, chosen_set_ty, chosen_ty, src, src)) {
+                        continue;
+                    }
+                    if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, chosen_ty, chosen_set_ty, src, src)) {
+                        err_set_ty = chosen_ty;
+                        continue;
+                    }
+
+                    err_set_ty = try chosen_set_ty.errorSetMerge(sema.arena, chosen_ty);
+                    continue;
+                } else {
+                    err_set_ty = chosen_ty;
                     continue;
                 }
             },

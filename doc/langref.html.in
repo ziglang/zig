@@ -5393,7 +5393,6 @@ pub fn parseU64(buf: []const u8, radix: u8) !u64 {
         // x *= radix
         var ov = @mulWithOverflow(x, radix);
         if (ov[1] != 0) return error.OverFlow;
-        
 
         // x += digit
         ov = @addWithOverflow(ov[0], digit);
@@ -6067,7 +6066,7 @@ struct Foo *do_a_thing(void) {
       <p>Zig code</p>
       {#syntax_block|zig|call_malloc_from_zig.zig#}
 // malloc prototype included for reference
-extern fn malloc(size: size_t) ?*u8;
+extern fn malloc(size: usize) ?*u8;
 
 fn doAThing() ?*Foo {
     const ptr = malloc(1234) orelse return null;
@@ -7479,64 +7478,66 @@ pub fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) usize {
       <p>
       Dissecting the syntax:
       </p>
-      {#syntax_block|zig|Assembly Syntax Explained#}
-// Inline assembly is an expression which returns a value.
-// the `asm` keyword begins the expression.
-_ = asm
-// `volatile` is an optional modifier that tells Zig this
-// inline assembly expression has side-effects. Without
-// `volatile`, Zig is allowed to delete the inline assembly
-// code if the result is unused.
-volatile (
-// Next is a comptime string which is the assembly code.
-// Inside this string one may use `%[ret]`, `%[number]`,
-// or `%[arg1]` where a register is expected, to specify
-// the register that Zig uses for the argument or return value,
-// if the register constraint strings are used. However in
-// the below code, this is not used. A literal `%` can be
-// obtained by escaping it with a double percent: `%%`.
-// Often multiline string syntax comes in handy here.
+      {#code_begin|syntax|Assembly Syntax Explained#}
+pub fn syscall1(number: usize, arg1: usize) usize {
+    // Inline assembly is an expression which returns a value.
+    // the `asm` keyword begins the expression.
+    return asm
+    // `volatile` is an optional modifier that tells Zig this
+    // inline assembly expression has side-effects. Without
+    // `volatile`, Zig is allowed to delete the inline assembly
+    // code if the result is unused.
+    volatile (
+    // Next is a comptime string which is the assembly code.
+    // Inside this string one may use `%[ret]`, `%[number]`,
+    // or `%[arg1]` where a register is expected, to specify
+    // the register that Zig uses for the argument or return value,
+    // if the register constraint strings are used. However in
+    // the below code, this is not used. A literal `%` can be
+    // obtained by escaping it with a double percent: `%%`.
+    // Often multiline string syntax comes in handy here.
     \\syscall
-// Next is the output. It is possible in the future Zig will
-// support multiple outputs, depending on how
-// https://github.com/ziglang/zig/issues/215 is resolved.
-// It is allowed for there to be no outputs, in which case
-// this colon would be directly followed by the colon for the inputs.
-    :
-// This specifies the name to be used in `%[ret]` syntax in
-// the above assembly string. This example does not use it,
-// but the syntax is mandatory.
-    [ret]
-// Next is the output constraint string. This feature is still
-// considered unstable in Zig, and so LLVM/GCC documentation
-// must be used to understand the semantics.
-// http://releases.llvm.org/10.0.0/docs/LangRef.html#inline-asm-constraint-string
-// https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html
-// In this example, the constraint string means "the result value of
-// this inline assembly instruction is whatever is in $rax".
-    "={rax}"
-// Next is either a value binding, or `->` and then a type. The
-// type is the result type of the inline assembly expression.
-// If it is a value binding, then `%[ret]` syntax would be used
-// to refer to the register bound to the value.
-    (-> usize)
-// Next is the list of inputs.
-// The constraint for these inputs means, "when the assembly code is
-// executed, $rax shall have the value of `number` and $rdi shall have
-// the value of `arg1`". Any number of input parameters is allowed,
-// including none.
-    : [number] "{rax}" (number),
-        [arg1] "{rdi}" (arg1)
-// Next is the list of clobbers. These declare a set of registers whose
-// values will not be preserved by the execution of this assembly code.
-// These do not include output or input registers. The special clobber
-// value of "memory" means that the assembly writes to arbitrary undeclared
-// memory locations - not only the memory pointed to by a declared indirect
-// output. In this example we list $rcx and $r11 because it is known the
-// kernel syscall does not preserve these registers.
-    : "rcx", "r11"
-);
-      {#end_syntax_block#}
+    // Next is the output. It is possible in the future Zig will
+    // support multiple outputs, depending on how
+    // https://github.com/ziglang/zig/issues/215 is resolved.
+    // It is allowed for there to be no outputs, in which case
+    // this colon would be directly followed by the colon for the inputs.
+        :
+    // This specifies the name to be used in `%[ret]` syntax in
+    // the above assembly string. This example does not use it,
+    // but the syntax is mandatory.
+        [ret]
+    // Next is the output constraint string. This feature is still
+    // considered unstable in Zig, and so LLVM/GCC documentation
+    // must be used to understand the semantics.
+    // http://releases.llvm.org/10.0.0/docs/LangRef.html#inline-asm-constraint-string
+    // https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html
+    // In this example, the constraint string means "the result value of
+    // this inline assembly instruction is whatever is in $rax".
+        "={rax}"
+    // Next is either a value binding, or `->` and then a type. The
+    // type is the result type of the inline assembly expression.
+    // If it is a value binding, then `%[ret]` syntax would be used
+    // to refer to the register bound to the value.
+        (-> usize)
+    // Next is the list of inputs.
+    // The constraint for these inputs means, "when the assembly code is
+    // executed, $rax shall have the value of `number` and $rdi shall have
+    // the value of `arg1`". Any number of input parameters is allowed,
+    // including none.
+        : [number] "{rax}" (number),
+            [arg1] "{rdi}" (arg1)
+    // Next is the list of clobbers. These declare a set of registers whose
+    // values will not be preserved by the execution of this assembly code.
+    // These do not include output or input registers. The special clobber
+    // value of "memory" means that the assembly writes to arbitrary undeclared
+    // memory locations - not only the memory pointed to by a declared indirect
+    // output. In this example we list $rcx and $r11 because it is known the
+    // kernel syscall does not preserve these registers.
+        : "rcx", "r11"
+    );
+}
+      {#code_end#}
       <p>
       For x86 and x86_64 targets, the syntax is AT&amp;T syntax, rather than the more
       popular Intel syntax. This is due to technical constraints; assembly parsing is
@@ -7892,7 +7893,7 @@ fn add(a: i32, b: i32) i32 {
       {#syntax#}@call{#endsyntax#} allows more flexibility than normal function call syntax does. The
       {#syntax#}CallModifier{#endsyntax#} enum is reproduced here:
       </p>
-      {#syntax_block|zig|builtin.CallModifier struct#}
+      {#code_begin|syntax|builtin.CallModifier struct#}
 pub const CallModifier = enum {
     /// Equivalent to function call syntax.
     auto,
@@ -7926,7 +7927,7 @@ pub const CallModifier = enum {
     /// compile-time, a compile error is emitted instead.
     compile_time,
 };
-      {#end_syntax_block#}
+      {#code_end#}
       {#header_close#}
 
       {#header_open|@cDefine#}
@@ -8126,6 +8127,13 @@ test "main" {
     print("Runtime in main, num1 = {}.\n", .{num1});
 }
       {#code_end#}
+      {#header_close#}
+
+      {#header_open|@constCast#}
+      <pre>{#syntax#}@constCast(value: anytype) DestType{#endsyntax#}</pre>
+      <p>
+      Remove {#syntax#}const{#endsyntax#} qualifier from a pointer.
+      </p>
       {#header_close#}
 
       {#header_open|@ctz#}
@@ -8813,7 +8821,8 @@ pub const PrefetchOptions = struct {
       {#syntax#}@ptrCast{#endsyntax#} cannot be used for:
       </p>
       <ul>
-          <li>Removing {#syntax#}const{#endsyntax#} or {#syntax#}volatile{#endsyntax#} qualifier, use {#link|@qualCast#}.</li>
+          <li>Removing {#syntax#}const{#endsyntax#} qualifier, use {#link|@constCast#}.</li>
+          <li>Removing {#syntax#}volatile{#endsyntax#} qualifier, use {#link|@volatileCast#}.</li>
           <li>Changing pointer address space, use {#link|@addrSpaceCast#}.</li>
           <li>Increasing pointer alignment, use {#link|@alignCast#}.</li>
           <li>Casting a non-slice pointer to a slice, use slicing syntax {#syntax#}ptr[start..end]{#endsyntax#}.</li>
@@ -8828,13 +8837,6 @@ pub const PrefetchOptions = struct {
       </p>
       <p>To convert the other way, use {#link|@intToPtr#}</p>
 
-      {#header_close#}
-
-      {#header_open|@qualCast#}
-      <pre>{#syntax#}@qualCast(comptime DestType: type, value: anytype) DestType{#endsyntax#}</pre>
-      <p>
-      Remove {#syntax#}const{#endsyntax#} or {#syntax#}volatile{#endsyntax#} qualifier from a pointer.
-      </p>
       {#header_close#}
 
       {#header_open|@rem#}
@@ -9523,6 +9525,13 @@ fn foo(comptime T: type, ptr: *T) T {
       {#header_open|@Vector#}
       <pre>{#syntax#}@Vector(len: comptime_int, Element: type) type{#endsyntax#}</pre>
       <p>Creates {#link|Vectors#}.</p>
+      {#header_close#}
+
+      {#header_open|@volatileCast#}
+      <pre>{#syntax#}@volatileCast(value: anytype) DestType{#endsyntax#}</pre>
+      <p>
+      Remove {#syntax#}volatile{#endsyntax#} qualifier from a pointer.
+      </p>
       {#header_close#}
       {#header_close#}
 

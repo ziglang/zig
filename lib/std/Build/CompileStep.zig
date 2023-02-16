@@ -83,7 +83,7 @@ max_memory: ?u64 = null,
 shared_memory: bool = false,
 global_base: ?u64 = null,
 c_std: std.Build.CStd,
-override_lib_dir: ?[]const u8,
+zig_lib_dir: ?[]const u8,
 main_pkg_path: ?[]const u8,
 exec_cmd_args: ?[]const ?[]const u8,
 name_prefix: []const u8,
@@ -344,7 +344,7 @@ pub fn create(builder: *std.Build, options: Options) *CompileStep {
         .installed_headers = ArrayList(*Step).init(builder.allocator),
         .object_src = undefined,
         .c_std = std.Build.CStd.C99,
-        .override_lib_dir = null,
+        .zig_lib_dir = null,
         .main_pkg_path = null,
         .exec_cmd_args = null,
         .name_prefix = "",
@@ -506,26 +506,11 @@ pub fn installLibraryHeaders(a: *CompileStep, l: *CompileStep) void {
     a.installed_headers.appendSlice(l.installed_headers.items) catch @panic("OOM");
 }
 
-/// Creates a `RunStep` with an executable built with `addExecutable`.
-/// Add command line arguments with `addArg`.
+/// Deprecated: use `std.Build.addRunArtifact`
+/// This function will run in the context of the package that created the executable,
+/// which is undesirable when running an executable provided by a dependency package.
 pub fn run(exe: *CompileStep) *RunStep {
-    assert(exe.kind == .exe or exe.kind == .test_exe);
-
-    // It doesn't have to be native. We catch that if you actually try to run it.
-    // Consider that this is declarative; the run step may not be run unless a user
-    // option is supplied.
-    const run_step = RunStep.create(exe.builder, exe.builder.fmt("run {s}", .{exe.step.name}));
-    run_step.addArtifactArg(exe);
-
-    if (exe.kind == .test_exe) {
-        run_step.addArg(exe.builder.zig_exe);
-    }
-
-    if (exe.vcpkg_bin_path) |path| {
-        run_step.addPathDir(path);
-    }
-
-    return run_step;
+    return exe.builder.addRunArtifact(exe);
 }
 
 /// Creates an `EmulatableRunStep` with an executable built with `addExecutable`.
@@ -872,7 +857,7 @@ pub fn setVerboseCC(self: *CompileStep, value: bool) void {
 }
 
 pub fn overrideZigLibDir(self: *CompileStep, dir_path: []const u8) void {
-    self.override_lib_dir = self.builder.dupePath(dir_path);
+    self.zig_lib_dir = self.builder.dupePath(dir_path);
 }
 
 pub fn setMainPkgPath(self: *CompileStep, dir_path: []const u8) void {
@@ -1365,10 +1350,10 @@ fn make(step: *Step) !void {
     }
 
     try zig_args.append("--cache-dir");
-    try zig_args.append(builder.pathFromRoot(builder.cache_root));
+    try zig_args.append(builder.cache_root.path orelse ".");
 
     try zig_args.append("--global-cache-dir");
-    try zig_args.append(builder.pathFromRoot(builder.global_cache_root));
+    try zig_args.append(builder.global_cache_root.path orelse ".");
 
     try zig_args.append("--name");
     try zig_args.append(self.name);
@@ -1718,12 +1703,12 @@ fn make(step: *Step) !void {
     try addFlag(&zig_args, "each-lib-rpath", self.each_lib_rpath);
     try addFlag(&zig_args, "build-id", self.build_id);
 
-    if (self.override_lib_dir) |dir| {
+    if (self.zig_lib_dir) |dir| {
         try zig_args.append("--zig-lib-dir");
         try zig_args.append(builder.pathFromRoot(dir));
-    } else if (builder.override_lib_dir) |dir| {
+    } else if (builder.zig_lib_dir) |dir| {
         try zig_args.append("--zig-lib-dir");
-        try zig_args.append(builder.pathFromRoot(dir));
+        try zig_args.append(dir);
     }
 
     if (self.main_pkg_path) |dir| {
@@ -1760,23 +1745,15 @@ fn make(step: *Step) !void {
         args_length += arg.len + 1; // +1 to account for null terminator
     }
     if (args_length >= 30 * 1024) {
-        const args_dir = try fs.path.join(
-            builder.allocator,
-            &[_][]const u8{ builder.pathFromRoot("zig-cache"), "args" },
-        );
-        try std.fs.cwd().makePath(args_dir);
-
-        var args_arena = std.heap.ArenaAllocator.init(builder.allocator);
-        defer args_arena.deinit();
+        try builder.cache_root.handle.makePath("args");
 
         const args_to_escape = zig_args.items[2..];
-        var escaped_args = try ArrayList([]const u8).initCapacity(args_arena.allocator(), args_to_escape.len);
-
+        var escaped_args = try ArrayList([]const u8).initCapacity(builder.allocator, args_to_escape.len);
         arg_blk: for (args_to_escape) |arg| {
             for (arg) |c, arg_idx| {
                 if (c == '\\' or c == '"') {
                     // Slow path for arguments that need to be escaped. We'll need to allocate and copy
-                    var escaped = try ArrayList(u8).initCapacity(args_arena.allocator(), arg.len + 1);
+                    var escaped = try ArrayList(u8).initCapacity(builder.allocator, arg.len + 1);
                     const writer = escaped.writer();
                     try writer.writeAll(arg[0..arg_idx]);
                     for (arg[arg_idx..]) |to_escape| {
@@ -1804,11 +1781,16 @@ fn make(step: *Step) !void {
             .{std.fmt.fmtSliceHexLower(&args_hash)},
         );
 
-        const args_file = try fs.path.join(builder.allocator, &[_][]const u8{ args_dir, args_hex_hash[0..] });
-        try std.fs.cwd().writeFile(args_file, args);
+        const args_file = "args" ++ fs.path.sep_str ++ args_hex_hash;
+        try builder.cache_root.handle.writeFile(args_file, args);
+
+        const resolved_args_file = try mem.concat(builder.allocator, u8, &.{
+            "@",
+            try builder.cache_root.join(builder.allocator, &.{args_file}),
+        });
 
         zig_args.shrinkRetainingCapacity(2);
-        try zig_args.append(try std.mem.concat(builder.allocator, u8, &[_][]const u8{ "@", args_file }));
+        try zig_args.append(resolved_args_file);
     }
 
     const output_dir_nl = try builder.execFromStep(zig_args.items, &self.step);

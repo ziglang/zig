@@ -1164,7 +1164,7 @@ fn windowsCreateProcessPathExt(
         var app_name_unicode_string = windows.UNICODE_STRING{
             .Length = app_name_len_bytes,
             .MaximumLength = app_name_len_bytes,
-            .Buffer = @qualCast([*:0]u16, app_name_wildcard.ptr),
+            .Buffer = @constCast(app_name_wildcard.ptr),
         };
         const rc = windows.ntdll.NtQueryDirectoryFile(
             dir.fd,
@@ -1261,7 +1261,7 @@ fn windowsCreateProcessPathExt(
         var app_name_unicode_string = windows.UNICODE_STRING{
             .Length = app_name_len_bytes,
             .MaximumLength = app_name_len_bytes,
-            .Buffer = @qualCast([*:0]u16, app_name_appended.ptr),
+            .Buffer = @constCast(app_name_appended.ptr),
         };
 
         // Re-use the directory handle but this time we call with the appended app name

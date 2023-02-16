@@ -46,6 +46,7 @@ pub const auth = struct {
 /// Core functions, that should rarely be used directly by applications.
 pub const core = struct {
     pub const aes = @import("crypto/aes.zig");
+    pub const Ascon = @import("crypto/ascon.zig").State;
     pub const Gimli = @import("crypto/gimli.zig").State;
     pub const Xoodoo = @import("crypto/xoodoo.zig").State;
 
@@ -205,7 +206,9 @@ test {
     _ = auth.siphash;
 
     _ = core.aes;
+    _ = core.Ascon;
     _ = core.Gimli;
+    _ = core.Xoodoo;
     _ = core.modes;
 
     _ = dh.X25519;

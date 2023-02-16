@@ -2273,7 +2273,9 @@ pub const Object = struct {
 
                 const full_di_fields: [2]*llvm.DIType =
                     if (layout.tag_align >= layout.payload_align)
-                .{ tag_di, payload_di } else .{ payload_di, tag_di };
+                    .{ tag_di, payload_di }
+                else
+                    .{ payload_di, tag_di };
 
                 const full_di_ty = dib.createStructType(
                     compile_unit_scope,
@@ -4159,6 +4161,10 @@ pub const DeclGen = struct {
         // `bar` is just an alias and we actually want to lower a reference to `foo`.
         const decl = self.module.declPtr(decl_index);
         if (decl.val.castTag(.function)) |func| {
+            if (func.data.owner_decl != decl_index) {
+                return self.lowerDeclRefValue(tv, func.data.owner_decl);
+            }
+        } else if (decl.val.castTag(.extern_fn)) |func| {
             if (func.data.owner_decl != decl_index) {
                 return self.lowerDeclRefValue(tv, func.data.owner_decl);
             }

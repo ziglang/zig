@@ -19,6 +19,8 @@ const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Build = @This();
 
+pub const Cache = @import("Build/Cache.zig");
+
 /// deprecated: use `CompileStep`.
 pub const LibExeObjStep = CompileStep;
 /// deprecated: use `Build`.
@@ -77,11 +79,12 @@ search_prefixes: ArrayList([]const u8),
 libc_file: ?[]const u8 = null,
 installed_files: ArrayList(InstalledFile),
 /// Path to the directory containing build.zig.
-build_root: []const u8,
-cache_root: []const u8,
-global_cache_root: []const u8,
-/// zig lib dir
-override_lib_dir: ?[]const u8,
+build_root: Cache.Directory,
+cache_root: Cache.Directory,
+global_cache_root: Cache.Directory,
+cache: *Cache,
+/// If non-null, overrides the default zig lib dir.
+zig_lib_dir: ?[]const u8,
 vcpkg_root: VcpkgRoot = .unattempted,
 pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
 args: ?[][]const u8 = null,
@@ -185,10 +188,11 @@ pub const DirList = struct {
 pub fn create(
     allocator: Allocator,
     zig_exe: []const u8,
-    build_root: []const u8,
-    cache_root: []const u8,
-    global_cache_root: []const u8,
+    build_root: Cache.Directory,
+    cache_root: Cache.Directory,
+    global_cache_root: Cache.Directory,
     host: NativeTargetInfo,
+    cache: *Cache,
 ) !*Build {
     const env_map = try allocator.create(EnvMap);
     env_map.* = try process.getEnvMap(allocator);
@@ -197,8 +201,9 @@ pub fn create(
     self.* = Build{
         .zig_exe = zig_exe,
         .build_root = build_root,
-        .cache_root = try fs.path.relative(allocator, build_root, cache_root),
+        .cache_root = cache_root,
         .global_cache_root = global_cache_root,
+        .cache = cache,
         .verbose = false,
         .verbose_link = false,
         .verbose_cc = false,
@@ -230,7 +235,7 @@ pub fn create(
             .step = Step.init(.top_level, "uninstall", allocator, makeUninstall),
             .description = "Remove build artifacts from prefix path",
         },
-        .override_lib_dir = null,
+        .zig_lib_dir = null,
         .install_path = undefined,
         .args = null,
         .host = host,
@@ -245,7 +250,7 @@ pub fn create(
 fn createChild(
     parent: *Build,
     dep_name: []const u8,
-    build_root: []const u8,
+    build_root: Cache.Directory,
     args: anytype,
 ) !*Build {
     const child = try createChildOnly(parent, dep_name, build_root);
@@ -253,7 +258,7 @@ fn createChild(
     return child;
 }
 
-fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: []const u8) !*Build {
+fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Directory) !*Build {
     const allocator = parent.allocator;
     const child = try allocator.create(Build);
     child.* = .{
@@ -297,7 +302,8 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: []const u8)
         .build_root = build_root,
         .cache_root = parent.cache_root,
         .global_cache_root = parent.global_cache_root,
-        .override_lib_dir = parent.override_lib_dir,
+        .cache = parent.cache,
+        .zig_lib_dir = parent.zig_lib_dir,
         .debug_log_scopes = parent.debug_log_scopes,
         .debug_compile_errors = parent.debug_compile_errors,
         .enable_darling = parent.enable_darling,
@@ -348,7 +354,7 @@ fn applyArgs(b: *Build, args: anytype) !void {
                         .used = false,
                     });
                 },
-                .Enum => {
+                .Enum, .EnumLiteral => {
                     try b.user_input_options.put(field.name, .{
                         .name = field.name,
                         .value = .{ .scalar = @tagName(v) },
@@ -379,7 +385,7 @@ fn applyArgs(b: *Build, args: anytype) !void {
     _ = std.fmt.bufPrint(&hash_basename, "{s}", .{std.fmt.fmtSliceHexLower(&digest)}) catch
         unreachable;
 
-    const install_prefix = b.pathJoin(&.{ b.cache_root, "i", &hash_basename });
+    const install_prefix = try b.cache_root.join(b.allocator, &.{ "i", &hash_basename });
     b.resolveInstallPrefix(install_prefix, .{});
 }
 
@@ -396,7 +402,7 @@ pub fn resolveInstallPrefix(self: *Build, install_prefix: ?[]const u8, dir_list:
         self.install_path = self.pathJoin(&.{ dest_dir, self.install_prefix });
     } else {
         self.install_prefix = install_prefix orelse
-            (self.pathJoin(&.{ self.build_root, "zig-out" }));
+            (self.build_root.join(self.allocator, &.{"zig-out"}) catch @panic("unhandled error"));
         self.install_path = self.install_prefix;
     }
 
@@ -599,6 +605,28 @@ pub fn addSystemCommand(self: *Build, argv: []const []const u8) *RunStep {
     return run_step;
 }
 
+/// Creates a `RunStep` with an executable built with `addExecutable`.
+/// Add command line arguments with methods of `RunStep`.
+pub fn addRunArtifact(b: *Build, exe: *CompileStep) *RunStep {
+    assert(exe.kind == .exe or exe.kind == .test_exe);
+
+    // It doesn't have to be native. We catch that if you actually try to run it.
+    // Consider that this is declarative; the run step may not be run unless a user
+    // option is supplied.
+    const run_step = RunStep.create(b, b.fmt("run {s}", .{exe.step.name}));
+    run_step.addArtifactArg(exe);
+
+    if (exe.kind == .test_exe) {
+        run_step.addArg(b.zig_exe);
+    }
+
+    if (exe.vcpkg_bin_path) |path| {
+        run_step.addPathDir(path);
+    }
+
+    return run_step;
+}
+
 /// Using the `values` provided, produces a C header file, possibly based on a
 /// template input file (e.g. config.h.in).
 /// When an input template file is provided, this function will fail the build
@@ -674,8 +702,6 @@ pub fn addTranslateC(self: *Build, options: TranslateCStep.Options) *TranslateCS
 }
 
 pub fn make(self: *Build, step_names: []const []const u8) !void {
-    try self.makePath(self.cache_root);
-
     var wanted_steps = ArrayList(*Step).init(self.allocator);
     defer wanted_steps.deinit();
 
@@ -906,7 +932,7 @@ pub fn standardOptimizeOption(self: *Build, options: StandardOptimizeOptionOptio
         return self.option(
             std.builtin.Mode,
             "optimize",
-            "prioritize performance, safety, or binary size (-O flag)",
+            "Prioritize performance, safety, or binary size (-O flag)",
         ) orelse .Debug;
     }
 }
@@ -1201,13 +1227,6 @@ pub fn spawnChildEnvMap(self: *Build, cwd: ?[]const u8, env_map: *const EnvMap, 
     }
 }
 
-pub fn makePath(self: *Build, path: []const u8) !void {
-    fs.cwd().makePath(self.pathFromRoot(path)) catch |err| {
-        log.err("Unable to create path {s}: {s}", .{ path, @errorName(err) });
-        return err;
-    };
-}
-
 pub fn installArtifact(self: *Build, artifact: *CompileStep) void {
     self.getInstallStep().dependOn(&self.addInstallArtifact(artifact).step);
 }
@@ -1322,8 +1341,8 @@ pub fn truncateFile(self: *Build, dest_path: []const u8) !void {
     src_file.close();
 }
 
-pub fn pathFromRoot(self: *Build, rel_path: []const u8) []u8 {
-    return fs.path.resolve(self.allocator, &[_][]const u8{ self.build_root, rel_path }) catch @panic("OOM");
+pub fn pathFromRoot(b: *Build, p: []const u8) []u8 {
+    return fs.path.resolve(b.allocator, &.{ b.build_root.path orelse ".", p }) catch @panic("OOM");
 }
 
 pub fn pathJoin(self: *Build, paths: []const []const u8) []u8 {
@@ -1544,10 +1563,19 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
 fn dependencyInner(
     b: *Build,
     name: []const u8,
-    build_root: []const u8,
+    build_root_string: []const u8,
     comptime build_zig: type,
     args: anytype,
 ) *Dependency {
+    const build_root: std.Build.Cache.Directory = .{
+        .path = build_root_string,
+        .handle = std.fs.cwd().openDir(build_root_string, .{}) catch |err| {
+            std.debug.print("unable to open '{s}': {s}\n", .{
+                build_root_string, @errorName(err),
+            });
+            std.process.exit(1);
+        },
+    };
     const sub_builder = b.createChild(name, build_root, args) catch @panic("unhandled error");
     sub_builder.runBuild(build_zig) catch @panic("unhandled error");
 
@@ -1566,26 +1594,6 @@ pub fn runBuild(b: *Build, build_zig: anytype) anyerror!void {
         .ErrorUnion => try build_zig.build(b),
         else => @compileError("expected return type of build to be 'void' or '!void'"),
     }
-}
-
-test "builder.findProgram compiles" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-
-    const host = try NativeTargetInfo.detect(.{});
-
-    const builder = try Build.create(
-        arena.allocator(),
-        "zig",
-        "zig-cache",
-        "zig-cache",
-        "zig-cache",
-        host,
-    );
-    defer builder.destroy();
-    _ = builder.findProgram(&[_][]const u8{}, &[_][]const u8{}) catch null;
 }
 
 pub const Module = struct {
@@ -1616,7 +1624,6 @@ pub const GeneratedFile = struct {
 };
 
 /// A file source is a reference to an existing or future file.
-///
 pub const FileSource = union(enum) {
     /// A plain file path, relative to build root or absolute.
     path: []const u8,

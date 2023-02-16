@@ -20,7 +20,7 @@ const trace = @import("../../tracy.zig").trace;
 const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
 const Atom = @import("ZldAtom.zig");
-const Cache = @import("../../Cache.zig");
+const Cache = std.Build.Cache;
 const CodeSignature = @import("CodeSignature.zig");
 const Compilation = @import("../../Compilation.zig");
 const DwarfInfo = @import("DwarfInfo.zig");
@@ -1065,7 +1065,13 @@ pub const Zld = struct {
                 assert(offsets.items.len > 0);
 
                 const object_id = @intCast(u16, self.objects.items.len);
-                const object = try archive.parseObject(gpa, cpu_arch, offsets.items[0]);
+                const object = archive.parseObject(gpa, cpu_arch, offsets.items[0]) catch |e| switch (e) {
+                    error.MismatchedCpuArchitecture => {
+                        log.err("CPU architecture mismatch found in {s}", .{archive.name});
+                        return e;
+                    },
+                    else => return e,
+                };
                 try self.objects.append(gpa, object);
                 try self.resolveSymbolsInObject(object_id, resolver);
 
