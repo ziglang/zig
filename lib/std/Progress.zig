@@ -192,32 +192,28 @@ pub fn refresh(self: *Progress) void {
     return self.refreshWithHeldLock();
 }
 
-fn refreshWithHeldLock(self: *Progress) void {
-    const is_dumb = !self.supports_ansi_escape_codes and !self.is_windows_terminal;
-    if (is_dumb and self.dont_print_on_dumb) return;
-
-    const file = self.terminal orelse return;
-
-    var end: usize = 0;
-    if (self.columns_written > 0) {
+fn clearWithHeldLock(p: *Progress, end_ptr: *usize) void {
+    const file = p.terminal orelse return;
+    var end = end_ptr.*;
+    if (p.columns_written > 0) {
         // restore the cursor position by moving the cursor
         // `columns_written` cells to the left, then clear the rest of the
         // line
-        if (self.supports_ansi_escape_codes) {
-            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[{d}D", .{self.columns_written}) catch unreachable).len;
-            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len;
+        if (p.supports_ansi_escape_codes) {
+            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[{d}D", .{p.columns_written}) catch unreachable).len;
+            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len;
         } else if (builtin.os.tag == .windows) winapi: {
-            std.debug.assert(self.is_windows_terminal);
+            std.debug.assert(p.is_windows_terminal);
 
             var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
             if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE) {
                 // stop trying to write to this file
-                self.terminal = null;
+                p.terminal = null;
                 break :winapi;
             }
 
             var cursor_pos = windows.COORD{
-                .X = info.dwCursorPosition.X - @intCast(windows.SHORT, self.columns_written),
+                .X = info.dwCursorPosition.X - @intCast(windows.SHORT, p.columns_written),
                 .Y = info.dwCursorPosition.Y,
             };
 
@@ -235,7 +231,7 @@ fn refreshWithHeldLock(self: *Progress) void {
                 &written,
             ) != windows.TRUE) {
                 // stop trying to write to this file
-                self.terminal = null;
+                p.terminal = null;
                 break :winapi;
             }
             if (windows.kernel32.FillConsoleOutputCharacterW(
@@ -246,22 +242,33 @@ fn refreshWithHeldLock(self: *Progress) void {
                 &written,
             ) != windows.TRUE) {
                 // stop trying to write to this file
-                self.terminal = null;
+                p.terminal = null;
                 break :winapi;
             }
             if (windows.kernel32.SetConsoleCursorPosition(file.handle, cursor_pos) != windows.TRUE) {
                 // stop trying to write to this file
-                self.terminal = null;
+                p.terminal = null;
                 break :winapi;
             }
         } else {
             // we are in a "dumb" terminal like in acme or writing to a file
-            self.output_buffer[end] = '\n';
+            p.output_buffer[end] = '\n';
             end += 1;
         }
 
-        self.columns_written = 0;
+        p.columns_written = 0;
     }
+    end_ptr.* = end;
+}
+
+fn refreshWithHeldLock(self: *Progress) void {
+    const is_dumb = !self.supports_ansi_escape_codes and !self.is_windows_terminal;
+    if (is_dumb and self.dont_print_on_dumb) return;
+
+    const file = self.terminal orelse return;
+
+    var end: usize = 0;
+    clearWithHeldLock(self, &end);
 
     if (!self.done) {
         var need_ellipse = false;
@@ -316,6 +323,26 @@ pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
         return;
     };
     self.columns_written = 0;
+}
+
+/// Allows the caller to freely write to stderr until unlock_stderr() is called.
+/// During the lock, the progress information is cleared from the terminal.
+pub fn lock_stderr(p: *Progress) void {
+    p.update_mutex.lock();
+    if (p.terminal) |file| {
+        var end: usize = 0;
+        clearWithHeldLock(p, &end);
+        _ = file.write(p.output_buffer[0..end]) catch {
+            // stop trying to write to this file
+            p.terminal = null;
+        };
+    }
+    std.debug.getStderrMutex().lock();
+}
+
+pub fn unlock_stderr(p: *Progress) void {
+    std.debug.getStderrMutex().unlock();
+    p.update_mutex.unlock();
 }
 
 fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: anytype) void {
