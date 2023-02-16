@@ -9,7 +9,7 @@ state: State,
 /// Populated only if state is success.
 result: struct {
     err_code: anyerror,
-    stderr: []u8,
+    error_msgs: std.ArrayListUnmanaged([]const u8),
 },
 /// The return addresss associated with creation of this step that can be useful
 /// to print along with debugging messages.
@@ -96,7 +96,7 @@ pub fn init(allocator: Allocator, options: Options) Step {
         .state = .precheck_unstarted,
         .result = .{
             .err_code = undefined,
-            .stderr = &.{},
+            .error_msgs = .{},
         },
         .debug_stack_trace = addresses,
     };
@@ -131,6 +131,28 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
         return @fieldParentPtr(T, "step", step);
     }
     return null;
+}
+
+/// For debugging purposes, prints identifying information about this Step.
+pub fn dump(step: *Step) void {
+    std.debug.getStderrMutex().lock();
+    defer std.debug.getStderrMutex().unlock();
+
+    const stderr = std.io.getStdErr();
+    const w = stderr.writer();
+    const tty_config = std.debug.detectTTYConfig(stderr);
+    const debug_info = std.debug.getSelfDebugInfo() catch |err| {
+        w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
+            @errorName(err),
+        }) catch {};
+        return;
+    };
+    const ally = debug_info.allocator;
+    w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
+    std.debug.writeStackTrace(step.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
+        stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
+        return;
+    };
 }
 
 const Step = @This();

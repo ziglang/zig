@@ -243,14 +243,22 @@ pub fn main() !void {
         }
     }
 
+    var progress: std.Progress = .{};
+    const main_progress_node = progress.start("", 0);
+    defer main_progress_node.end();
+
     builder.debug_log_scopes = debug_log_scopes.items;
     builder.resolveInstallPrefix(install_prefix, dir_list);
-    try builder.runBuild(root);
+    {
+        var prog_node = main_progress_node.start("user build.zig logic", 0);
+        defer prog_node.end();
+        try builder.runBuild(root);
+    }
 
     if (builder.validateUserInputDidItFail())
         usageAndErr(builder, true, stderr_stream);
 
-    runStepNames(builder, targets.items) catch |err| {
+    runStepNames(builder, targets.items, main_progress_node) catch |err| {
         switch (err) {
             error.UncleanExit => process.exit(1),
             else => return err,
@@ -258,7 +266,11 @@ pub fn main() !void {
     };
 }
 
-fn runStepNames(b: *std.Build, step_names: []const []const u8) !void {
+fn runStepNames(
+    b: *std.Build,
+    step_names: []const []const u8,
+    parent_prog_node: *std.Progress.Node,
+) !void {
     var step_stack = ArrayList(*Step).init(b.allocator);
     defer step_stack.deinit();
 
@@ -289,6 +301,9 @@ fn runStepNames(b: *std.Build, step_names: []const []const u8) !void {
     defer thread_pool.deinit();
 
     {
+        var step_prog = parent_prog_node.start("run steps", step_stack.items.len);
+        defer step_prog.end();
+
         var wait_group: std.Thread.WaitGroup = .{};
         defer wait_group.wait();
 
@@ -301,8 +316,9 @@ fn runStepNames(b: *std.Build, step_names: []const []const u8) !void {
             const step = step_stack.items[i];
 
             wait_group.start();
-            thread_pool.spawn(workerMakeOneStep, .{ &wait_group, &thread_pool, b, step }) catch
-                @panic("OOM");
+            thread_pool.spawn(workerMakeOneStep, .{
+                &wait_group, &thread_pool, b, step, &step_prog,
+            }) catch @panic("OOM");
         }
     }
 
@@ -312,14 +328,18 @@ fn runStepNames(b: *std.Build, step_names: []const []const u8) !void {
         switch (s.state) {
             .precheck_unstarted => unreachable,
             .precheck_started => unreachable,
-            .precheck_done => unreachable,
             .running => unreachable,
-            .dependency_failure => continue,
+            // precheck_done is equivalent to dependency_failure in the case of
+            // transitive dependencies. For example:
+            // A -> B -> C (failure)
+            // B will be marked as dependency_failure, while A may never be queued, and thus
+            // remain in the initial state of precheck_done.
+            .dependency_failure, .precheck_done => continue,
             .success => continue,
             .failure => {
                 any_failed = true;
-                std.debug.print("{s}: {s}\n{s}", .{
-                    s.name, @errorName(s.result.err_code), s.result.stderr,
+                std.debug.print("{s}: {s}\n", .{
+                    s.name, @errorName(s.result.err_code),
                 });
             },
         }
@@ -371,6 +391,7 @@ fn workerMakeOneStep(
     thread_pool: *std.Thread.Pool,
     b: *std.Build,
     s: *Step,
+    prog_node: *std.Progress.Node,
 ) void {
     defer wg.finish();
 
@@ -399,6 +420,10 @@ fn workerMakeOneStep(
         return;
     }
 
+    var sub_prog_node = prog_node.start(s.name, 0);
+    sub_prog_node.activate();
+    defer sub_prog_node.end();
+
     // I suspect we will want to pass `b` to make() in a future modification.
     // For example, CompileStep does some sus things with modifying the saved
     // *Build object in install header steps that might be able to be removed
@@ -406,6 +431,13 @@ fn workerMakeOneStep(
     s.make() catch |err| {
         s.result.err_code = err;
         @atomicStore(Step.State, &s.state, .failure, .SeqCst);
+
+        sub_prog_node.context.lock_stderr();
+        defer sub_prog_node.context.unlock_stderr();
+
+        for (s.result.error_msgs.items) |msg| {
+            std.io.getStdErr().writeAll(msg) catch return;
+        }
         return;
     };
 
@@ -414,7 +446,9 @@ fn workerMakeOneStep(
     // Successful completion of a step, so we queue up its dependants as well.
     for (s.dependants.items) |dep| {
         wg.start();
-        thread_pool.spawn(workerMakeOneStep, .{ wg, thread_pool, b, dep }) catch @panic("OOM");
+        thread_pool.spawn(workerMakeOneStep, .{
+            wg, thread_pool, b, dep, prog_node,
+        }) catch @panic("OOM");
     }
 }
 

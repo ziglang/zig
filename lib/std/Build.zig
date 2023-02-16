@@ -1417,59 +1417,43 @@ pub fn execFromStep(b: *Build, argv: []const []const u8, s: *Step) ![]u8 {
     }
 
     if (!process.can_spawn) {
-        s.result.stderr = b.fmt("Unable to spawn the following command: cannot spawn child processes\n{s}", .{
+        try s.result.error_msgs.append(b.allocator, b.fmt("Unable to spawn the following command: cannot spawn child processes\n{s}", .{
             try allocPrintCmd(b.allocator, null, argv),
-        });
+        }));
         return error.CannotSpawnProcesses;
     }
 
-    var code: u8 = undefined;
-    const result = unwrapExecResult(&code, std.ChildProcess.exec(.{
+    const result = std.ChildProcess.exec(.{
         .allocator = b.allocator,
         .argv = argv,
         .env_map = b.env_map,
         .max_output_bytes = 10 * 1024 * 1024,
-    })) catch |err| switch (err) {
-        error.FileNotFound => {
-            s.result.stderr = b.fmt("unable to spawn the following command: file not found\n{s}", .{
-                try allocPrintCmd(b.allocator, null, argv),
-            });
-            return error.ExecFailed;
-        },
-        error.ExitCodeFailure => {
-            s.result.stderr = b.fmt("the following command exited with error code {d}:\n{s}", .{
-                code, try allocPrintCmd(b.allocator, null, argv),
-            });
-            return error.ExecFailed;
-        },
-        error.ProcessTerminated => {
-            s.result.stderr = b.fmt("the following command terminated unexpectedly:\n{s}", .{
-                try allocPrintCmd(b.allocator, null, argv),
-            });
-            return error.ExecFailed;
-        },
-        else => |e| return e,
+    }) catch |err| {
+        try s.result.error_msgs.append(b.allocator, b.fmt("unable to spawn the following command: {s}\n{s}", .{
+            @errorName(err), try allocPrintCmd(b.allocator, null, argv),
+        }));
+        return error.ExecFailed;
     };
 
-    s.result.stderr = result.stderr;
-    return result.stdout;
-}
+    if (result.stderr.len != 0) {
+        try s.result.error_msgs.append(b.allocator, result.stderr);
+    }
 
-fn unwrapExecResult(
-    code_ptr: *u8,
-    wrapped: std.ChildProcess.ExecError!std.ChildProcess.ExecResult,
-) !std.ChildProcess.ExecResult {
-    const result = try wrapped;
     switch (result.term) {
         .Exited => |code| {
-            code_ptr.* = code;
             if (code != 0) {
+                try s.result.error_msgs.append(b.allocator, b.fmt("the following command exited with error code {d}:\n{s}", .{
+                    code, try allocPrintCmd(b.allocator, null, argv),
+                }));
                 return error.ExitCodeFailure;
             }
-            return result;
+            return result.stdout;
         },
         .Signal, .Stopped, .Unknown => |code| {
             _ = code;
+            try s.result.error_msgs.append(b.allocator, b.fmt("the following command terminated unexpectedly:\n{s}", .{
+                try allocPrintCmd(b.allocator, null, argv),
+            }));
             return error.ProcessTerminated;
         },
     }
