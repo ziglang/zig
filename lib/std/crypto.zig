@@ -41,6 +41,7 @@ pub const auth = struct {
         pub const Aegis128LMac = @import("crypto/aegis.zig").Aegis128LMac;
         pub const Aegis256Mac = @import("crypto/aegis.zig").Aegis256Mac;
     };
+    pub const cmac = @import("crypto/cmac.zig");
 };
 
 /// Core functions, that should rarely be used directly by applications.
@@ -203,6 +204,7 @@ test {
     _ = aead.salsa_poly.XSalsa20Poly1305;
 
     _ = auth.hmac;
+    _ = auth.cmac;
     _ = auth.siphash;
 
     _ = core.aes;
