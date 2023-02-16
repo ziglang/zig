@@ -488,7 +488,6 @@ const usage_build_generic =
     \\  -fno-build-id                  (default) Saves a bit of time linking
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
-    \\  --no-undefined                 Alias of -z defs
     \\  -z [arg]                       Set linker extension flags
     \\    nodelete                     Indicate that the object cannot be deleted from a process
     \\    notext                       Permit read-only relocations in read-only segments
