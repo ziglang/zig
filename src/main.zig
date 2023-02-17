@@ -2055,6 +2055,14 @@ fn buildOutputType(
                     // This option does not do anything.
                 } else if (mem.eql(u8, arg, "--export-all-symbols")) {
                     rdynamic = true;
+                } else if (mem.eql(u8, arg, "--color-diagnostics") or
+                    mem.eql(u8, arg, "--color-diagnostics=always"))
+                {
+                    color = .on;
+                } else if (mem.eql(u8, arg, "--no-color-diagnostics") or
+                    mem.eql(u8, arg, "--color-diagnostics=never"))
+                {
+                    color = .off;
                 } else if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--strip-all") or
                     mem.eql(u8, arg, "-S") or mem.eql(u8, arg, "--strip-debug"))
                 {
