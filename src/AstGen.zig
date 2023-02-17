@@ -88,7 +88,6 @@ fn setExtra(astgen: *AstGen, index: usize, extra: anytype) void {
             Zir.Inst.BuiltinCall.Flags => @bitCast(u32, @field(extra, field.name)),
             Zir.Inst.SwitchBlock.Bits => @bitCast(u32, @field(extra, field.name)),
             Zir.Inst.FuncFancy.Bits => @bitCast(u32, @field(extra, field.name)),
-            Zir.Inst.ElemPtrImm.Bits => @bitCast(u32, @field(extra, field.name)),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -1566,9 +1565,7 @@ fn arrayInitExprRlPtrInner(
     for (elements) |elem_init, i| {
         const elem_ptr = try gz.addPlNode(.elem_ptr_imm, elem_init, Zir.Inst.ElemPtrImm{
             .ptr = result_ptr,
-            .bits = .{
-                .index = @intCast(u31, i),
-            },
+            .index = @intCast(u32, i),
         });
         astgen.extra.items[extra_index] = refToIndex(elem_ptr).?;
         extra_index += 1;
@@ -2601,6 +2598,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .field_base_ptr,
             .ret_ptr,
             .ret_type,
+            .for_len,
             .@"try",
             .try_ptr,
             //.try_inline,
@@ -2669,7 +2667,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .validate_deref,
             .save_err_ret_index,
             .restore_err_ret_index,
-            .for_check_lens,
             => break :b true,
 
             .@"defer" => unreachable,
@@ -6305,23 +6302,26 @@ fn forExpr(
     const node_data = tree.nodes.items(.data);
     const gpa = astgen.gpa;
 
-    const allocs = try gpa.alloc(Zir.Inst.Ref, for_full.ast.inputs.len);
-    defer gpa.free(allocs);
+    // For counters, this is the start value; for indexables, this is the base
+    // pointer that can be used with elem_ptr and similar instructions.
+    // Special value `none` means that this is a counter and its start value is
+    // zero, indicating that the main index counter can be used directly.
+    const indexables = try gpa.alloc(Zir.Inst.Ref, for_full.ast.inputs.len);
+    defer gpa.free(indexables);
     // elements of this array can be `none`, indicating no length check.
     const lens = try gpa.alloc(Zir.Inst.Ref, for_full.ast.inputs.len);
     defer gpa.free(lens);
 
-    const alloc_tag: Zir.Inst.Tag = if (is_inline) .alloc_comptime_mut else .alloc_mut;
+    // We will use a single zero-based counter no matter how many indexables there are.
+    const index_ptr = blk: {
+        const alloc_tag: Zir.Inst.Tag = if (is_inline) .alloc_comptime_mut else .alloc;
+        const index_ptr = try parent_gz.addUnNode(alloc_tag, .usize_type, node);
+        // initialize to zero
+        _ = try parent_gz.addBin(.store, index_ptr, .zero_usize);
+        break :blk index_ptr;
+    };
 
-    // Tracks the index of allocs/lens that has a length to be checked and is
-    // used for the end value.
-    // If this is null, there are no len checks.
-    var end_input_index: ?u32 = null;
-    // This is a value to use to find out if the for loop has reached the end
-    // yet. It prefers to use a counter since the end value is provided directly,
-    // and otherwise falls back to adding ptr+len of a slice to compute end.
-    // Corresponds to end_input_index and will be .none in case that value is null.
-    var cond_end_val: Zir.Inst.Ref = .none;
+    var any_len_checks = false;
 
     {
         var capture_token = for_full.payload_token;
@@ -6341,10 +6341,8 @@ fn forExpr(
                 if (capture_is_ref) {
                     return astgen.failTok(ident_tok, "cannot capture reference to range", .{});
                 }
-                const counter_ptr = try parent_gz.addUnNode(alloc_tag, .usize_type, node);
                 const start_node = node_data[input].lhs;
                 const start_val = try expr(parent_gz, scope, .{ .rl = .none }, start_node);
-                _ = try parent_gz.addBin(.store, counter_ptr, start_val);
 
                 const end_node = node_data[input].rhs;
                 const end_val = if (end_node != 0)
@@ -6352,7 +6350,8 @@ fn forExpr(
                 else
                     .none;
 
-                const range_len = if (end_val == .none or nodeIsTriviallyZero(tree, start_node))
+                const start_is_zero = nodeIsTriviallyZero(tree, start_node);
+                const range_len = if (end_val == .none or start_is_zero)
                     end_val
                 else
                     try parent_gz.addPlNode(.sub, input, Zir.Inst.Bin{
@@ -6360,61 +6359,33 @@ fn forExpr(
                         .rhs = start_val,
                     });
 
-                if (range_len != .none and cond_end_val == .none) {
-                    end_input_index = i;
-                    cond_end_val = end_val;
-                }
-
-                allocs[i] = counter_ptr;
+                any_len_checks = any_len_checks or range_len != .none;
+                indexables[i] = if (start_is_zero) .none else start_val;
                 lens[i] = range_len;
             } else {
                 const indexable = try expr(parent_gz, scope, .{ .rl = .none }, input);
-                // This instruction has nice compile errors so we put it before the other ones
-                // even though it is not needed until later in the block.
-                const ptr_len = try parent_gz.addUnNode(.indexable_ptr_len, indexable, input);
-                const base_ptr = try parent_gz.addPlNode(.elem_ptr_imm, input, Zir.Inst.ElemPtrImm{
-                    .ptr = indexable,
-                    .bits = .{
-                        .index = 0,
-                        .manyptr = true,
-                    },
-                });
-                const alloc_ty_inst = try parent_gz.addUnNode(.typeof, base_ptr, node);
-                const alloc = try parent_gz.addUnNode(alloc_tag, alloc_ty_inst, node);
-                _ = try parent_gz.addBin(.store, alloc, base_ptr);
+                const indexable_len = try parent_gz.addUnNode(.indexable_ptr_len, indexable, input);
 
-                if (end_input_index == null) {
-                    end_input_index = i;
-                    assert(cond_end_val == .none);
-                }
-
-                allocs[i] = alloc;
-                lens[i] = ptr_len;
+                any_len_checks = true;
+                indexables[i] = indexable;
+                lens[i] = indexable_len;
             }
-        }
-    }
-
-    // In case there are no counters which already have an end computed, we
-    // compute an end from base pointer plus length.
-    if (end_input_index) |i| {
-        if (cond_end_val == .none) {
-            cond_end_val = try parent_gz.addPlNode(.add, for_full.ast.inputs[i], Zir.Inst.Bin{
-                .lhs = allocs[i],
-                .rhs = lens[i],
-            });
         }
     }
 
     // We use a dedicated ZIR instruction to assert the lengths to assist with
     // nicer error reporting as well as fewer ZIR bytes emitted.
-    if (end_input_index != null) {
+    const len: Zir.Inst.Ref = len: {
+        if (!any_len_checks) break :len .none;
+
         const lens_len = @intCast(u32, lens.len);
         try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.MultiOp).Struct.fields.len + lens_len);
-        _ = try parent_gz.addPlNode(.for_check_lens, node, Zir.Inst.MultiOp{
+        const len = try parent_gz.addPlNode(.for_len, node, Zir.Inst.MultiOp{
             .operands_len = lens_len,
         });
         appendRefsAssumeCapacity(astgen, lens);
-    }
+        break :len len;
+    };
 
     const loop_tag: Zir.Inst.Tag = if (is_inline) .block_inline else .loop;
     const loop_block = try parent_gz.makeBlockInst(loop_tag, node);
@@ -6429,22 +6400,14 @@ fn forExpr(
     var cond_scope = parent_gz.makeSubBlock(&loop_scope.base);
     defer cond_scope.unstack();
 
-    // Load all the iterables.
-    const loaded_ptrs = try gpa.alloc(Zir.Inst.Ref, allocs.len);
-    defer gpa.free(loaded_ptrs);
-    for (allocs) |alloc, i| {
-        loaded_ptrs[i] = try cond_scope.addUnNode(.load, alloc, for_full.ast.inputs[i]);
-    }
-
     // Check the condition.
-    const input_index = end_input_index orelse {
+    if (!any_len_checks) {
         return astgen.failNode(node, "TODO: handle infinite for loop", .{});
-    };
-    assert(cond_end_val != .none);
-
-    const cond = try cond_scope.addPlNode(.cmp_neq, for_full.ast.inputs[input_index], Zir.Inst.Bin{
-        .lhs = loaded_ptrs[input_index],
-        .rhs = cond_end_val,
+    }
+    const index = try cond_scope.addUnNode(.load, index_ptr, node);
+    const cond = try cond_scope.addPlNode(.cmp_lt, node, Zir.Inst.Bin{
+        .lhs = index,
+        .rhs = len,
     });
 
     const condbr_tag: Zir.Inst.Tag = if (is_inline) .condbr_inline else .condbr;
@@ -6455,14 +6418,12 @@ fn forExpr(
     // cond_block unstacked now, can add new instructions to loop_scope
     try loop_scope.instructions.append(gpa, cond_block);
 
-    // Increment the loop variables.
-    for (allocs) |alloc, i| {
-        const incremented = try loop_scope.addPlNode(.add, node, Zir.Inst.Bin{
-            .lhs = loaded_ptrs[i],
-            .rhs = .one_usize,
-        });
-        _ = try loop_scope.addBin(.store, alloc, incremented);
-    }
+    // Increment the index variable.
+    const index_plus_one = try loop_scope.addPlNode(.add, node, Zir.Inst.Bin{
+        .lhs = index,
+        .rhs = .one_usize,
+    });
+    _ = try loop_scope.addBin(.store, index_ptr, index_plus_one);
     const repeat_tag: Zir.Inst.Tag = if (is_inline) .repeat_inline else .repeat;
     _ = try loop_scope.addNode(repeat_tag, node);
 
@@ -6500,21 +6461,43 @@ fn forExpr(
             const name_str_index = try astgen.identAsString(ident_tok);
             try astgen.detectLocalShadowing(capture_sub_scope, name_str_index, ident_tok, capture_name, .capture);
 
-            const loaded = if (capture_is_ref)
-                loaded_ptrs[i]
-            else
-                try then_scope.addUnNode(.load, loaded_ptrs[i], input);
+            const capture_inst = inst: {
+                const is_counter = node_tags[input] == .for_range;
+
+                if (indexables[i] == .none) {
+                    // Special case: the main index can be used directly.
+                    assert(is_counter);
+                    assert(!capture_is_ref);
+                    break :inst index;
+                }
+
+                // For counters, we add the index variable to the start value; for
+                // indexables, we use it as an element index. This is so similar
+                // that they can share the same code paths, branching only on the
+                // ZIR tag.
+                const switch_cond = (@as(u2, @boolToInt(capture_is_ref)) << 1) | @boolToInt(is_counter);
+                const tag: Zir.Inst.Tag = switch (switch_cond) {
+                    0b00 => .elem_val,
+                    0b01 => .add,
+                    0b10 => .elem_ptr,
+                    0b11 => unreachable, // compile error emitted already
+                };
+                break :inst try then_scope.addPlNode(tag, input, Zir.Inst.Bin{
+                    .lhs = indexables[i],
+                    .rhs = index,
+                });
+            };
 
             capture_scopes[i] = .{
                 .parent = capture_sub_scope,
                 .gen_zir = &then_scope,
                 .name = name_str_index,
-                .inst = loaded,
+                .inst = capture_inst,
                 .token_src = ident_tok,
                 .id_cat = .capture,
             };
 
-            try then_scope.addDbgVar(.dbg_var_val, name_str_index, loaded);
+            try then_scope.addDbgVar(.dbg_var_val, name_str_index, capture_inst);
             capture_sub_scope = &capture_scopes[i].base;
         }
 

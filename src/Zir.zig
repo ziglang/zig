@@ -79,7 +79,6 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, en
             Inst.BuiltinCall.Flags => @bitCast(Inst.BuiltinCall.Flags, code.extra[i]),
             Inst.SwitchBlock.Bits => @bitCast(Inst.SwitchBlock.Bits, code.extra[i]),
             Inst.FuncFancy.Bits => @bitCast(Inst.FuncFancy.Bits, code.extra[i]),
-            Inst.ElemPtrImm.Bits => @bitCast(Inst.ElemPtrImm.Bits, code.extra[i]),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -501,14 +500,14 @@ pub const Inst = struct {
         /// Uses the `node` field.
         repeat_inline,
         /// Asserts that all the lengths provided match. Used to build a for loop.
-        /// Return value is always void.
+        /// Return value is the length as a usize.
         /// Uses the `pl_node` field with payload `MultiOp`.
         /// There is exactly one item corresponding to each AST node inside the for
-        /// loop condition. Each item may be `none`, indicating an unbounded range.
+        /// loop condition. Any item may be `none`, indicating an unbounded range.
         /// Illegal behaviors:
         ///  * If all lengths are unbounded ranges (always a compile error).
         ///  * If any two lengths do not match each other.
-        for_check_lens,
+        for_len,
         /// Merge two error sets into one, `E1 || E2`.
         /// Uses the `pl_node` field with payload `Bin`.
         merge_error_sets,
@@ -1254,7 +1253,7 @@ pub const Inst = struct {
                 .defer_err_code,
                 .save_err_ret_index,
                 .restore_err_ret_index,
-                .for_check_lens,
+                .for_len,
                 => false,
 
                 .@"break",
@@ -1322,7 +1321,6 @@ pub const Inst = struct {
                 .memcpy,
                 .memset,
                 .check_comptime_control_flow,
-                .for_check_lens,
                 .@"defer",
                 .defer_err_code,
                 .restore_err_ret_index,
@@ -1547,6 +1545,7 @@ pub const Inst = struct {
                 .repeat_inline,
                 .panic,
                 .panic_comptime,
+                .for_len,
                 .@"try",
                 .try_ptr,
                 //.try_inline,
@@ -1602,7 +1601,7 @@ pub const Inst = struct {
                 .@"break" = .@"break",
                 .break_inline = .@"break",
                 .check_comptime_control_flow = .un_node,
-                .for_check_lens = .pl_node,
+                .for_len = .pl_node,
                 .call = .pl_node,
                 .cmp_lt = .pl_node,
                 .cmp_lte = .pl_node,
@@ -2975,13 +2974,7 @@ pub const Inst = struct {
 
     pub const ElemPtrImm = struct {
         ptr: Ref,
-        bits: Bits,
-
-        pub const Bits = packed struct(u32) {
-            index: u31,
-            /// Controls whether the type returned is `*T` or `[*]T`.
-            manyptr: bool = false,
-        };
+        index: u32,
     };
 
     /// 0. multi_cases_len: u32 // If has_multi_cases is set.

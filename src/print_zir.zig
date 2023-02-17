@@ -355,7 +355,7 @@ const Writer = struct {
             .array_type,
             => try self.writePlNodeBin(stream, inst),
 
-            .for_check_lens => try self.writePlNodeMultiOp(stream, inst),
+            .for_len => try self.writePlNodeMultiOp(stream, inst),
 
             .elem_ptr_imm => try self.writeElemPtrImm(stream, inst),
 
@@ -888,9 +888,7 @@ const Writer = struct {
         const extra = self.code.extraData(Zir.Inst.ElemPtrImm, inst_data.payload_index).data;
 
         try self.writeInstRef(stream, extra.ptr);
-        try stream.print(", {d}", .{extra.bits.index});
-        try self.writeFlag(stream, ", manyptr", extra.bits.manyptr);
-        try stream.writeAll(") ");
+        try stream.print(", {d}) ", .{extra.index});
         try self.writeSrc(stream, inst_data.src());
     }
 
