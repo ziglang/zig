@@ -497,6 +497,15 @@ pub const Inst = struct {
         /// Sends comptime control flow back to the beginning of the current block.
         /// Uses the `node` field.
         repeat_inline,
+        /// Asserts that all the lengths provided match. Used to build a for loop.
+        /// Return value is always void.
+        /// Uses the `pl_node` field with payload `MultiOp`.
+        /// There is exactly one item corresponding to each AST node inside the for
+        /// loop condition. Each item may be `none`, indicating an unbounded range.
+        /// Illegal behaviors:
+        ///  * If all lengths are unbounded ranges (always a compile error).
+        ///  * If any two lengths do not match each other.
+        for_check_lens,
         /// Merge two error sets into one, `E1 || E2`.
         /// Uses the `pl_node` field with payload `Bin`.
         merge_error_sets,
@@ -1242,6 +1251,7 @@ pub const Inst = struct {
                 .defer_err_code,
                 .save_err_ret_index,
                 .restore_err_ret_index,
+                .for_check_lens,
                 => false,
 
                 .@"break",
@@ -1309,6 +1319,7 @@ pub const Inst = struct {
                 .memcpy,
                 .memset,
                 .check_comptime_control_flow,
+                .for_check_lens,
                 .@"defer",
                 .defer_err_code,
                 .restore_err_ret_index,
@@ -1588,6 +1599,7 @@ pub const Inst = struct {
                 .@"break" = .@"break",
                 .break_inline = .@"break",
                 .check_comptime_control_flow = .un_node,
+                .for_check_lens = .pl_node,
                 .call = .pl_node,
                 .cmp_lt = .pl_node,
                 .cmp_lte = .pl_node,

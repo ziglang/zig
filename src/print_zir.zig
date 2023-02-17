@@ -355,6 +355,8 @@ const Writer = struct {
             .array_type,
             => try self.writePlNodeBin(stream, inst),
 
+            .for_check_lens => try self.writePlNodeMultiOp(stream, inst),
+
             .elem_ptr_imm => try self.writeElemPtrImm(stream, inst),
 
             .@"export" => try self.writePlNodeExport(stream, inst),
@@ -865,6 +867,19 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.rhs);
         try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writePlNodeMultiOp(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
+        const args = self.code.refSlice(extra.end, extra.data.operands_len);
+        try stream.writeAll("{");
+        for (args) |arg, i| {
+            if (i != 0) try stream.writeAll(", ");
+            try self.writeInstRef(stream, arg);
+        }
+        try stream.writeAll("}) ");
         try self.writeSrc(stream, inst_data.src());
     }
 

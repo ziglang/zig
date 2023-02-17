@@ -1386,6 +1386,11 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
+            .for_check_lens => {
+                try sema.zirForCheckLens(block, inst);
+                i += 1;
+                continue;
+            },
 
             // Special case instructions to handle comptime control flow.
             .@"break" => {
@@ -17094,6 +17099,16 @@ fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index)
 
     const operand = try sema.resolveInst(inst_data.operand);
     return sema.popErrorReturnTrace(start_block, src, operand, saved_index);
+}
+
+fn zirForCheckLens(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
+    const args = sema.code.refSlice(extra.end, extra.data.operands_len);
+    const src = inst_data.src();
+
+    _ = args;
+    return sema.fail(block, src, "TODO implement zirForCheckLens", .{});
 }
 
 fn addToInferredErrorSet(sema: *Sema, uncasted_operand: Air.Inst.Ref) !void {
