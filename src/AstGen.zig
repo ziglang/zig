@@ -88,6 +88,7 @@ fn setExtra(astgen: *AstGen, index: usize, extra: anytype) void {
             Zir.Inst.BuiltinCall.Flags => @bitCast(u32, @field(extra, field.name)),
             Zir.Inst.SwitchBlock.Bits => @bitCast(u32, @field(extra, field.name)),
             Zir.Inst.FuncFancy.Bits => @bitCast(u32, @field(extra, field.name)),
+            Zir.Inst.ElemPtrImm.Bits => @bitCast(u32, @field(extra, field.name)),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -1565,7 +1566,9 @@ fn arrayInitExprRlPtrInner(
     for (elements) |elem_init, i| {
         const elem_ptr = try gz.addPlNode(.elem_ptr_imm, elem_init, Zir.Inst.ElemPtrImm{
             .ptr = result_ptr,
-            .index = @intCast(u32, i),
+            .bits = .{
+                .index = @intCast(u31, i),
+            },
         });
         astgen.extra.items[extra_index] = refToIndex(elem_ptr).?;
         extra_index += 1;
@@ -6308,7 +6311,7 @@ fn forExpr(
     const lens = try gpa.alloc(Zir.Inst.Ref, for_full.ast.inputs.len);
     defer gpa.free(lens);
 
-    const counter_alloc_tag: Zir.Inst.Tag = if (is_inline) .alloc_comptime_mut else .alloc;
+    const alloc_tag: Zir.Inst.Tag = if (is_inline) .alloc_comptime_mut else .alloc_mut;
 
     // Tracks the index of allocs/lens that has a length to be checked and is
     // used for the end value.
@@ -6321,23 +6324,24 @@ fn forExpr(
     var cond_end_val: Zir.Inst.Ref = .none;
 
     {
-        var payload = for_full.payload_token;
+        var capture_token = for_full.payload_token;
         for (for_full.ast.inputs) |input, i_usize| {
             const i = @intCast(u32, i_usize);
-            const payload_is_ref = token_tags[payload] == .asterisk;
-            const ident_tok = payload + @boolToInt(payload_is_ref);
+            const capture_is_ref = token_tags[capture_token] == .asterisk;
+            const ident_tok = capture_token + @boolToInt(capture_is_ref);
 
-            if (mem.eql(u8, tree.tokenSlice(ident_tok), "_") and payload_is_ref) {
-                return astgen.failTok(payload, "pointer modifier invalid on discard", .{});
+            if (mem.eql(u8, tree.tokenSlice(ident_tok), "_") and capture_is_ref) {
+                return astgen.failTok(capture_token, "pointer modifier invalid on discard", .{});
             }
-            payload = ident_tok + @as(u32, 2);
+            // Skip over the comma, and on to the next capture (or the ending pipe character).
+            capture_token = ident_tok + 2;
 
             try emitDbgNode(parent_gz, input);
             if (node_tags[input] == .for_range) {
-                if (payload_is_ref) {
+                if (capture_is_ref) {
                     return astgen.failTok(ident_tok, "cannot capture reference to range", .{});
                 }
-                const counter_ptr = try parent_gz.addUnNode(counter_alloc_tag, .usize_type, node);
+                const counter_ptr = try parent_gz.addUnNode(alloc_tag, .usize_type, node);
                 const start_node = node_data[input].lhs;
                 const start_val = try expr(parent_gz, scope, .{ .rl = .none }, start_node);
                 _ = try parent_gz.addBin(.store, counter_ptr, start_val);
@@ -6364,20 +6368,28 @@ fn forExpr(
                 allocs[i] = counter_ptr;
                 lens[i] = range_len;
             } else {
-                const cond_ri: ResultInfo = .{ .rl = if (payload_is_ref) .ref else .none };
-                const indexable = try expr(parent_gz, scope, cond_ri, input);
+                const indexable = try expr(parent_gz, scope, .{ .rl = .none }, input);
+                // This instruction has nice compile errors so we put it before the other ones
+                // even though it is not needed until later in the block.
+                const ptr_len = try parent_gz.addUnNode(.indexable_ptr_len, indexable, input);
                 const base_ptr = try parent_gz.addPlNode(.elem_ptr_imm, input, Zir.Inst.ElemPtrImm{
                     .ptr = indexable,
-                    .index = 0,
+                    .bits = .{
+                        .index = 0,
+                        .manyptr = true,
+                    },
                 });
+                const alloc_ty_inst = try parent_gz.addUnNode(.typeof, base_ptr, node);
+                const alloc = try parent_gz.addUnNode(alloc_tag, alloc_ty_inst, node);
+                _ = try parent_gz.addBin(.store, alloc, base_ptr);
 
                 if (end_input_index == null) {
                     end_input_index = i;
                     assert(cond_end_val == .none);
                 }
 
-                allocs[i] = base_ptr;
-                lens[i] = try parent_gz.addUnNode(.indexable_ptr_len, indexable, input);
+                allocs[i] = alloc;
+                lens[i] = ptr_len;
             }
         }
     }
@@ -6467,62 +6479,47 @@ fn forExpr(
     var then_scope = parent_gz.makeSubBlock(&cond_scope.base);
     defer then_scope.unstack();
 
-    const then_sub_scope = &then_scope.base;
+    try then_scope.addDbgBlockBegin();
 
-    // try then_scope.addDbgBlockBegin();
-    // var payload_val_scope: Scope.LocalVal = undefined;
-    // var index_scope: Scope.LocalPtr = undefined;
-    // const then_sub_scope = blk: {
-    //     const payload_token = for_full.payload_token.?;
-    //     const ident = if (token_tags[payload_token] == .asterisk)
-    //         payload_token + 1
-    //     else
-    //         payload_token;
-    //     const is_ptr = ident != payload_token;
-    //     const value_name = tree.tokenSlice(ident);
-    //     var payload_sub_scope: *Scope = undefined;
-    //     if (!mem.eql(u8, value_name, "_")) {
-    //         const name_str_index = try astgen.identAsString(ident);
-    //         const tag: Zir.Inst.Tag = if (is_ptr) .elem_ptr else .elem_val;
-    //         const payload_inst = try then_scope.addPlNode(tag, for_full.ast.cond_expr, Zir.Inst.Bin{
-    //             .lhs = array_ptr,
-    //             .rhs = index,
-    //         });
-    //         try astgen.detectLocalShadowing(&then_scope.base, name_str_index, ident, value_name, .capture);
-    //         payload_val_scope = .{
-    //             .parent = &then_scope.base,
-    //             .gen_zir = &then_scope,
-    //             .name = name_str_index,
-    //             .inst = payload_inst,
-    //             .token_src = ident,
-    //             .id_cat = .capture,
-    //         };
-    //         try then_scope.addDbgVar(.dbg_var_val, name_str_index, payload_inst);
-    //         payload_sub_scope = &payload_val_scope.base;
-    //     } else if (is_ptr) {
-    //     } else {
-    //         payload_sub_scope = &then_scope.base;
-    //     }
+    const capture_scopes = try gpa.alloc(Scope.LocalVal, for_full.ast.inputs.len);
+    defer gpa.free(capture_scopes);
 
-    //     const index_token = if (token_tags[ident + 1] == .comma)
-    //         ident + 2
-    //     else
-    //         break :blk payload_sub_scope;
-    //     const token_bytes = tree.tokenSlice(index_token);
-    //     const index_name = try astgen.identAsString(index_token);
-    //     try astgen.detectLocalShadowing(payload_sub_scope, index_name, index_token, token_bytes, .@"loop index capture");
-    //     index_scope = .{
-    //         .parent = payload_sub_scope,
-    //         .gen_zir = &then_scope,
-    //         .name = index_name,
-    //         .ptr = index_ptr,
-    //         .token_src = index_token,
-    //         .maybe_comptime = is_inline,
-    //         .id_cat = .@"loop index capture",
-    //     };
-    //     try then_scope.addDbgVar(.dbg_var_val, index_name, index_ptr);
-    //     break :blk &index_scope.base;
-    // };
+    const then_sub_scope = blk: {
+        var capture_token = for_full.payload_token;
+        var capture_sub_scope: *Scope = &then_scope.base;
+        for (for_full.ast.inputs) |input, i_usize| {
+            const i = @intCast(u32, i_usize);
+            const capture_is_ref = token_tags[capture_token] == .asterisk;
+            const ident_tok = capture_token + @boolToInt(capture_is_ref);
+            const capture_name = tree.tokenSlice(ident_tok);
+            // Skip over the comma, and on to the next capture (or the ending pipe character).
+            capture_token = ident_tok + 2;
+
+            if (mem.eql(u8, capture_name, "_")) continue;
+
+            const name_str_index = try astgen.identAsString(ident_tok);
+            try astgen.detectLocalShadowing(capture_sub_scope, name_str_index, ident_tok, capture_name, .capture);
+
+            const loaded = if (capture_is_ref)
+                loaded_ptrs[i]
+            else
+                try then_scope.addUnNode(.load, loaded_ptrs[i], input);
+
+            capture_scopes[i] = .{
+                .parent = capture_sub_scope,
+                .gen_zir = &then_scope,
+                .name = name_str_index,
+                .inst = loaded,
+                .token_src = ident_tok,
+                .id_cat = .capture,
+            };
+
+            try then_scope.addDbgVar(.dbg_var_val, name_str_index, loaded);
+            capture_sub_scope = &capture_scopes[i].base;
+        }
+
+        break :blk capture_sub_scope;
+    };
 
     const then_result = try expr(&then_scope, then_sub_scope, .{ .rl = .none }, for_full.ast.then_expr);
     _ = try addEnsureResult(&then_scope, then_result, for_full.ast.then_expr);

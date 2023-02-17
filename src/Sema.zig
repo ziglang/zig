@@ -9649,7 +9649,7 @@ fn zirElemPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const array_ptr = try sema.resolveInst(extra.lhs);
     const elem_index = try sema.resolveInst(extra.rhs);
-    return sema.elemPtr(block, src, array_ptr, elem_index, src, false);
+    return sema.elemPtr(block, src, array_ptr, elem_index, src, false, .One);
 }
 
 fn zirElemPtrNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9662,7 +9662,7 @@ fn zirElemPtrNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const array_ptr = try sema.resolveInst(extra.lhs);
     const elem_index = try sema.resolveInst(extra.rhs);
-    return sema.elemPtr(block, src, array_ptr, elem_index, elem_index_src, false);
+    return sema.elemPtr(block, src, array_ptr, elem_index, elem_index_src, false, .One);
 }
 
 fn zirElemPtrImm(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9673,8 +9673,9 @@ fn zirElemPtrImm(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.ElemPtrImm, inst_data.payload_index).data;
     const array_ptr = try sema.resolveInst(extra.ptr);
-    const elem_index = try sema.addIntUnsigned(Type.usize, extra.index);
-    return sema.elemPtr(block, src, array_ptr, elem_index, src, true);
+    const elem_index = try sema.addIntUnsigned(Type.usize, extra.bits.index);
+    const size: std.builtin.Type.Pointer.Size = if (extra.bits.manyptr) .Many else .One;
+    return sema.elemPtr(block, src, array_ptr, elem_index, src, true, size);
 }
 
 fn zirSliceStart(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -22905,7 +22906,7 @@ fn panicSentinelMismatch(
     const actual_sentinel = if (ptr_ty.isSlice())
         try parent_block.addBinOp(.slice_elem_val, ptr, sentinel_index)
     else blk: {
-        const elem_ptr_ty = try sema.elemPtrType(ptr_ty, null);
+        const elem_ptr_ty = try sema.elemPtrType(ptr_ty, null, .One);
         const sentinel_ptr = try parent_block.addPtrElemPtr(ptr, sentinel_index, elem_ptr_ty);
         break :blk try parent_block.addTyOp(.load, sentinel_ty, sentinel_ptr);
     };
@@ -24072,6 +24073,7 @@ fn elemPtr(
     elem_index: Air.Inst.Ref,
     elem_index_src: LazySrcLoc,
     init: bool,
+    size: std.builtin.Type.Pointer.Size,
 ) CompileError!Air.Inst.Ref {
     const indexable_ptr_src = src; // TODO better source location
     const indexable_ptr_ty = sema.typeOf(indexable_ptr);
@@ -24098,13 +24100,12 @@ fn elemPtr(
                         const index_val = maybe_index_val orelse break :rs elem_index_src;
                         const index = @intCast(usize, index_val.toUnsignedInt(target));
                         const elem_ptr = try ptr_val.elemPtr(indexable_ty, sema.arena, index, sema.mod);
-                        const result_ty = try sema.elemPtrType(indexable_ty, index);
-                        return sema.addConstant(result_ty, elem_ptr);
+                        const elem_ptr_ty = try sema.elemPtrType(indexable_ty, index, size);
+                        return sema.addConstant(elem_ptr_ty, elem_ptr);
                     };
-                    const result_ty = try sema.elemPtrType(indexable_ty, null);
-
+                    const elem_ptr_ty = try sema.elemPtrType(indexable_ty, null, size);
                     try sema.requireRuntimeBlock(block, src, runtime_src);
-                    return block.addPtrElemPtr(indexable, elem_index, result_ty);
+                    return block.addPtrElemPtr(indexable, elem_index, elem_ptr_ty);
                 },
                 .One => {
                     assert(indexable_ty.childType().zigTypeTag() == .Array); // Guaranteed by isIndexable
@@ -24166,7 +24167,7 @@ fn elemVal(
             },
             .One => {
                 assert(indexable_ty.childType().zigTypeTag() == .Array); // Guaranteed by isIndexable
-                const elem_ptr = try sema.elemPtr(block, indexable_src, indexable, elem_index, elem_index_src, false);
+                const elem_ptr = try sema.elemPtr(block, indexable_src, indexable, elem_index, elem_index_src, false, .One);
                 return sema.analyzeLoad(block, indexable_src, elem_ptr, elem_index_src);
             },
         },
@@ -24404,7 +24405,7 @@ fn elemPtrArray(
         break :o index;
     } else null;
 
-    const elem_ptr_ty = try sema.elemPtrType(array_ptr_ty, offset);
+    const elem_ptr_ty = try sema.elemPtrType(array_ptr_ty, offset, .One);
 
     if (maybe_undef_array_ptr_val) |array_ptr_val| {
         if (array_ptr_val.isUndef()) {
@@ -24509,7 +24510,7 @@ fn elemPtrSlice(
         break :o index;
     } else null;
 
-    const elem_ptr_ty = try sema.elemPtrType(slice_ty, offset);
+    const elem_ptr_ty = try sema.elemPtrType(slice_ty, offset, .One);
 
     if (maybe_undef_slice_val) |slice_val| {
         if (slice_val.isUndef()) {
@@ -26239,7 +26240,7 @@ fn storePtr2(
             const elem_src = operand_src; // TODO better source location
             const elem = try sema.tupleField(block, operand_src, uncasted_operand, elem_src, i);
             const elem_index = try sema.addIntUnsigned(Type.usize, i);
-            const elem_ptr = try sema.elemPtr(block, ptr_src, ptr, elem_index, elem_src, false);
+            const elem_ptr = try sema.elemPtr(block, ptr_src, ptr, elem_index, elem_src, false, .One);
             try sema.storePtr2(block, src, elem_ptr, elem_src, elem, elem_src, .store);
         }
         return;
@@ -33276,7 +33277,12 @@ fn compareVector(
 /// For []T, returns *T
 /// Handles const-ness and address spaces in particular.
 /// This code is duplicated in `analyzePtrArithmetic`.
-fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
+fn elemPtrType(
+    sema: *Sema,
+    ptr_ty: Type,
+    offset: ?usize,
+    size: std.builtin.Type.Pointer.Size,
+) !Type {
     const ptr_info = ptr_ty.ptrInfo().data;
     const elem_ty = ptr_ty.elemType2();
     const allow_zero = ptr_info.@"allowzero" and (offset orelse 0) == 0;
@@ -33321,6 +33327,7 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
         break :a new_align;
     };
     return try Type.ptr(sema.arena, sema.mod, .{
+        .size = size,
         .pointee_type = elem_ty,
         .mutable = ptr_info.mutable,
         .@"addrspace" = ptr_info.@"addrspace",

@@ -79,6 +79,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, en
             Inst.BuiltinCall.Flags => @bitCast(Inst.BuiltinCall.Flags, code.extra[i]),
             Inst.SwitchBlock.Bits => @bitCast(Inst.SwitchBlock.Bits, code.extra[i]),
             Inst.FuncFancy.Bits => @bitCast(Inst.FuncFancy.Bits, code.extra[i]),
+            Inst.ElemPtrImm.Bits => @bitCast(Inst.ElemPtrImm.Bits, code.extra[i]),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -388,6 +389,8 @@ pub const Inst = struct {
         /// as a reference to another ZIR instruction.
         /// Uses the `pl_node` union field. AST node is an element inside array initialization
         /// syntax. Payload is `ElemPtrImm`.
+        /// This instruction has a way to set the result type to be a
+        /// single-pointer or a many-pointer.
         elem_ptr_imm,
         /// Given an array, slice, or pointer, returns the element at the provided index.
         /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
@@ -2972,7 +2975,13 @@ pub const Inst = struct {
 
     pub const ElemPtrImm = struct {
         ptr: Ref,
-        index: u32,
+        bits: Bits,
+
+        pub const Bits = packed struct(u32) {
+            index: u31,
+            /// Controls whether the type returned is `*T` or `[*]T`.
+            manyptr: bool = false,
+        };
     };
 
     /// 0. multi_cases_len: u32 // If has_multi_cases is set.

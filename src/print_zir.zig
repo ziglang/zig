@@ -888,7 +888,9 @@ const Writer = struct {
         const extra = self.code.extraData(Zir.Inst.ElemPtrImm, inst_data.payload_index).data;
 
         try self.writeInstRef(stream, extra.ptr);
-        try stream.print(", {d}) ", .{extra.index});
+        try stream.print(", {d}", .{extra.bits.index});
+        try self.writeFlag(stream, ", manyptr", extra.bits.manyptr);
+        try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
 
