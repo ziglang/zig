@@ -817,8 +817,10 @@ pub const CType = extern union {
                 .Struct, .Union => |zig_tag| if (ty.isTupleOrAnonStruct()) {
                     if (lookup.isMutable()) {
                         for (0..ty.structFieldCount()) |field_i| {
-                            if (ty.structFieldIsComptime(field_i)) continue;
-                            _ = try lookup.typeToIndex(ty.structFieldType(field_i), switch (kind) {
+                            const field_ty = ty.structFieldType(field_i);
+                            if (ty.structFieldIsComptime(field_i) or
+                                !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
+                            _ = try lookup.typeToIndex(field_ty, switch (kind) {
                                 .forward, .complete, .parameter => .complete,
                                 .global => .global,
                             });
@@ -842,16 +844,13 @@ pub const CType = extern union {
                                     .Union => ty.cast(Type.Payload.Union).?.data.fields.count(),
                                     else => unreachable,
                                 }) |field_i| {
-                                    if (zig_tag == .Struct and ty.structFieldIsComptime(field_i))
-                                        continue;
-                                    _ = try lookup.typeToIndex(
-                                        ty.structFieldType(field_i),
-                                        switch (kind) {
-                                            .forward => unreachable,
-                                            .complete, .parameter => .complete,
-                                            .global => .global,
-                                        },
-                                    );
+                                    const field_ty = ty.structFieldType(field_i);
+                                    if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
+                                    _ = try lookup.typeToIndex(field_ty, switch (kind) {
+                                        .forward => unreachable,
+                                        .complete, .parameter => .complete,
+                                        .global => .global,
+                                    });
                                 }
                                 _ = try lookup.typeToIndex(ty, .forward);
                             }
@@ -953,9 +952,9 @@ pub const CType = extern union {
                             .forward => .forward,
                             .complete, .parameter, .global => .complete,
                         });
-                        for (info.param_types, 0..) |param_ty, param_i| {
-                            if (info.paramIsComptime(param_i)) continue;
-                            _ = try lookup.typeToIndex(param_ty, switch (kind) {
+                        for (info.param_types) |param_type| {
+                            if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
+                            _ = try lookup.typeToIndex(param_type, switch (kind) {
                                 .forward => .forward,
                                 .complete, .parameter, .global => unreachable,
                             });
@@ -1118,28 +1117,28 @@ pub const CType = extern union {
 
                         var c_fields_len: usize = 0;
                         for (0..fields_len) |field_i| {
-                            if (ty.structFieldIsComptime(field_i)) continue;
+                            const field_ty = ty.structFieldType(field_i);
+                            if (ty.structFieldIsComptime(field_i) or
+                                !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
                             c_fields_len += 1;
                         }
 
                         const fields_pl = try arena.alloc(Payload.Fields.Field, c_fields_len);
                         var c_field_i: usize = 0;
                         for (0..fields_len) |field_i| {
-                            if (ty.structFieldIsComptime(field_i)) continue;
+                            const field_ty = ty.structFieldType(field_i);
+                            if (ty.structFieldIsComptime(field_i) or
+                                !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                             fields_pl[c_field_i] = .{
                                 .name = try if (ty.isSimpleTuple())
                                     std.fmt.allocPrintZ(arena, "f{}", .{field_i})
                                 else
                                     arena.dupeZ(u8, ty.structFieldName(field_i)),
-                                .type = store.set.typeToIndex(
-                                    ty.structFieldType(field_i),
-                                    target,
-                                    switch (kind) {
-                                        .forward, .complete, .parameter => .complete,
-                                        .global => .global,
-                                    },
-                                ).?,
+                                .type = store.set.typeToIndex(field_ty, target, switch (kind) {
+                                    .forward, .complete, .parameter => .complete,
+                                    .global => .global,
+                                }).?,
                                 .alignas = ty.structFieldAlign(field_i, target),
                             };
                             c_field_i += 1;
@@ -1211,16 +1210,16 @@ pub const CType = extern union {
                     };
 
                     var c_params_len: usize = 0;
-                    for (0..info.param_types.len) |param_i| {
-                        if (info.paramIsComptime(param_i)) continue;
+                    for (info.param_types) |param_type| {
+                        if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
                         c_params_len += 1;
                     }
 
                     const params_pl = try arena.alloc(Index, c_params_len);
                     var c_param_i: usize = 0;
-                    for (info.param_types, 0..) |param_ty, param_i| {
-                        if (info.paramIsComptime(param_i)) continue;
-                        params_pl[c_param_i] = store.set.typeToIndex(param_ty, target, recurse_kind).?;
+                    for (info.param_types) |param_type| {
+                        if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
+                        params_pl[c_param_i] = store.set.typeToIndex(param_type, target, recurse_kind).?;
                         c_param_i += 1;
                     }
 
@@ -1294,7 +1293,9 @@ pub const CType = extern union {
 
                             var c_field_i: usize = 0;
                             for (0..ty.structFieldCount()) |field_i| {
-                                if (ty.structFieldIsComptime(field_i)) continue;
+                                const field_ty = ty.structFieldType(field_i);
+                                if (ty.structFieldIsComptime(field_i) or
+                                    !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                                 const c_field = &c_fields[c_field_i];
                                 c_field_i += 1;
@@ -1344,10 +1345,9 @@ pub const CType = extern union {
                             if (info.param_types.len != data.param_types.len or
                                 !self.eqlRecurse(info.return_type, data.return_type, recurse_kind))
                                 return false;
-                            for (info.param_types, data.param_types, 0..) |param_ty, param_cty, param_i| {
-                                if (info.paramIsComptime(param_i)) continue;
-                                if (!self.eqlRecurse(param_ty, param_cty, recurse_kind))
-                                    return false;
+                            for (info.param_types, data.param_types) |param_ty, param_cty| {
+                                if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
+                                if (!self.eqlRecurse(param_ty, param_cty, recurse_kind)) return false;
                             }
                             return true;
                         },
@@ -1389,7 +1389,9 @@ pub const CType = extern union {
                                 std.fmt.count("f{}", .{std.math.maxInt(usize)})
                             ]u8 = undefined;
                             for (0..ty.structFieldCount()) |field_i| {
-                                if (ty.structFieldIsComptime(field_i)) continue;
+                                const field_ty = ty.structFieldType(field_i);
+                                if (ty.structFieldIsComptime(field_i) or
+                                    !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                                 self.updateHasherRecurse(
                                     hasher,
@@ -1423,9 +1425,9 @@ pub const CType = extern union {
                             };
 
                             self.updateHasherRecurse(hasher, info.return_type, recurse_kind);
-                            for (info.param_types, 0..) |param_ty, param_i| {
-                                if (info.paramIsComptime(param_i)) continue;
-                                self.updateHasherRecurse(hasher, param_ty, recurse_kind);
+                            for (info.param_types) |param_type| {
+                                if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
+                                self.updateHasherRecurse(hasher, param_type, recurse_kind);
                             }
                         },
 
