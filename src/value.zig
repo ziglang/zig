@@ -1442,9 +1442,6 @@ pub const Value = extern union {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
                 .Extern => unreachable, // Handled in non-packed writeToMemory
                 .Packed => {
-                    if (ty.unionTagType() == null)
-                        @panic("TODO implement writeToPackedMemory for tagged unions");
-
                     const field_index = ty.unionTagFieldIndex(val.unionTag(), mod);
                     const field_type = ty.unionFields().values()[field_index.?].ty;
                     const field_val = val.fieldValue(field_type, field_index.?);
