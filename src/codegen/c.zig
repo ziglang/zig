@@ -1954,8 +1954,288 @@ pub const DeclGen = struct {
         return name;
     }
 
+    fn indexToCType(dg: *DeclGen, idx: CType.Index) CType {
+        return dg.ctypes.indexToCType(idx);
+    }
     fn typeToCType(dg: *DeclGen, ty: Type) !CType {
         return dg.ctypes.typeToCType(dg.gpa, ty, dg.module);
+    }
+    fn typeToIndex(dg: *DeclGen, ty: Type) !CType.Index {
+        return dg.ctypes.typeToIndex(dg.gpa, ty, dg.module);
+    }
+
+    const CTypeFix = enum { prefix, suffix };
+    const CQualifiers = std.enums.EnumSet(enum { @"const", @"volatile", restrict });
+    const CTypeRenderTrailing = enum {
+        no_space,
+        maybe_space,
+
+        pub fn format(
+            self: @This(),
+            comptime fmt: []const u8,
+            _: std.fmt.FormatOptions,
+            w: anytype,
+        ) @TypeOf(w).Error!void {
+            if (fmt.len != 0)
+                @compileError("invalid format string '" ++ fmt ++ "' for type '" ++
+                    @typeName(@This()) ++ "'");
+            comptime assert(fmt.len == 0);
+            switch (self) {
+                .no_space => {},
+                .maybe_space => try w.writeByte(' '),
+            }
+        }
+    };
+    fn renderTypePrefix(
+        dg: *DeclGen,
+        w: anytype,
+        idx: CType.Index,
+        parent_fix: CTypeFix,
+        qualifiers: CQualifiers,
+    ) @TypeOf(w).Error!CTypeRenderTrailing {
+        var trailing = CTypeRenderTrailing.maybe_space;
+
+        const cty = dg.indexToCType(idx);
+        switch (cty.tag()) {
+            .void,
+            .char,
+            .@"signed char",
+            .short,
+            .int,
+            .long,
+            .@"long long",
+            ._Bool,
+            .@"unsigned char",
+            .@"unsigned short",
+            .@"unsigned int",
+            .@"unsigned long",
+            .@"unsigned long long",
+            .float,
+            .double,
+            .@"long double",
+            .bool,
+            .size_t,
+            .ptrdiff_t,
+            .zig_u8,
+            .zig_i8,
+            .zig_u16,
+            .zig_i16,
+            .zig_u32,
+            .zig_i32,
+            .zig_u64,
+            .zig_i64,
+            .zig_u128,
+            .zig_i128,
+            .zig_f16,
+            .zig_f32,
+            .zig_f64,
+            .zig_f80,
+            .zig_f128,
+            => |tag| try w.writeAll(@tagName(tag)),
+
+            .pointer,
+            .pointer_const,
+            .pointer_volatile,
+            .pointer_const_volatile,
+            => |tag| {
+                const child_idx = cty.cast(CType.Payload.Child).?.data;
+                try w.print("{}*", .{try dg.renderTypePrefix(w, child_idx, .prefix, CQualifiers.init(.{
+                    .@"const" = switch (tag) {
+                        .pointer, .pointer_volatile => false,
+                        .pointer_const, .pointer_const_volatile => true,
+                        else => unreachable,
+                    },
+                    .@"volatile" = switch (tag) {
+                        .pointer, .pointer_const => false,
+                        .pointer_volatile, .pointer_const_volatile => true,
+                        else => unreachable,
+                    },
+                }))});
+                trailing = .no_space;
+            },
+
+            .array,
+            .vector,
+            => {
+                const child_idx = cty.cast(CType.Payload.Sequence).?.data.elem_type;
+                const child_trailing = try dg.renderTypePrefix(w, child_idx, .suffix, qualifiers);
+                switch (parent_fix) {
+                    .prefix => {
+                        try w.print("{}(", .{child_trailing});
+                        return .no_space;
+                    },
+                    .suffix => return child_trailing,
+                }
+            },
+
+            .fwd_struct,
+            .fwd_union,
+            .anon_struct,
+            .packed_anon_struct,
+            => |tag| try w.print("{s} {}__{d}", .{
+                switch (tag) {
+                    .fwd_struct,
+                    .anon_struct,
+                    .packed_anon_struct,
+                    => "struct",
+                    .fwd_union => "union",
+                    else => unreachable,
+                },
+                fmtIdent(switch (tag) {
+                    .fwd_struct,
+                    .fwd_union,
+                    => mem.span(dg.module.declPtr(cty.cast(CType.Payload.FwdDecl).?.data).name),
+                    .anon_struct,
+                    .packed_anon_struct,
+                    => "anon",
+                    else => unreachable,
+                }),
+                idx,
+            }),
+
+            .@"struct",
+            .packed_struct,
+            .@"union",
+            .packed_union,
+            => return dg.renderTypePrefix(
+                w,
+                cty.cast(CType.Payload.Aggregate).?.data.fwd_decl,
+                parent_fix,
+                qualifiers,
+            ),
+
+            .function,
+            .varargs_function,
+            => {
+                const child_trailing = try dg.renderTypePrefix(
+                    w,
+                    cty.cast(CType.Payload.Function).?.data.return_type,
+                    .suffix,
+                    CQualifiers.initEmpty(),
+                );
+                switch (parent_fix) {
+                    .prefix => {
+                        try w.print("{}(", .{child_trailing});
+                        return .no_space;
+                    },
+                    .suffix => return child_trailing,
+                }
+            },
+        }
+
+        var qualifier_it = qualifiers.iterator();
+        while (qualifier_it.next()) |qualifier| {
+            try w.print("{}{s}", .{ trailing, @tagName(qualifier) });
+            trailing = .maybe_space;
+        }
+
+        return trailing;
+    }
+    fn renderTypeSuffix(
+        dg: *DeclGen,
+        w: anytype,
+        idx: CType.Index,
+        parent_fix: CTypeFix,
+    ) @TypeOf(w).Error!void {
+        const cty = dg.indexToCType(idx);
+        switch (cty.tag()) {
+            .void,
+            .char,
+            .@"signed char",
+            .short,
+            .int,
+            .long,
+            .@"long long",
+            ._Bool,
+            .@"unsigned char",
+            .@"unsigned short",
+            .@"unsigned int",
+            .@"unsigned long",
+            .@"unsigned long long",
+            .float,
+            .double,
+            .@"long double",
+            .bool,
+            .size_t,
+            .ptrdiff_t,
+            .zig_u8,
+            .zig_i8,
+            .zig_u16,
+            .zig_i16,
+            .zig_u32,
+            .zig_i32,
+            .zig_u64,
+            .zig_i64,
+            .zig_u128,
+            .zig_i128,
+            .zig_f16,
+            .zig_f32,
+            .zig_f64,
+            .zig_f80,
+            .zig_f128,
+            => {},
+
+            .pointer,
+            .pointer_const,
+            .pointer_volatile,
+            .pointer_const_volatile,
+            => try dg.renderTypeSuffix(w, cty.cast(CType.Payload.Child).?.data, .prefix),
+
+            .array,
+            .vector,
+            => {
+                switch (parent_fix) {
+                    .prefix => try w.writeByte(')'),
+                    .suffix => {},
+                }
+
+                try w.print("[{}]", .{cty.cast(CType.Payload.Sequence).?.data.len});
+                try dg.renderTypeSuffix(w, cty.cast(CType.Payload.Sequence).?.data.elem_type, .suffix);
+            },
+
+            .fwd_struct,
+            .fwd_union,
+            .anon_struct,
+            .packed_anon_struct,
+            .@"struct",
+            .@"union",
+            .packed_struct,
+            .packed_union,
+            => {},
+
+            .function,
+            .varargs_function,
+            => |tag| {
+                switch (parent_fix) {
+                    .prefix => try w.writeByte(')'),
+                    .suffix => {},
+                }
+
+                const data = cty.cast(CType.Payload.Function).?.data;
+
+                try w.writeByte('(');
+                var need_comma = false;
+                for (data.param_types) |param_type| {
+                    if (need_comma) try w.writeAll(", ");
+                    need_comma = true;
+                    _ = try dg.renderTypePrefix(w, param_type, .suffix, CQualifiers.initEmpty());
+                    try dg.renderTypeSuffix(w, param_type, .suffix);
+                }
+                switch (tag) {
+                    .function => {},
+                    .varargs_function => {
+                        if (need_comma) try w.writeAll(", ");
+                        need_comma = true;
+                        try w.writeAll("...");
+                    },
+                    else => unreachable,
+                }
+                if (!need_comma) try w.writeAll("void");
+                try w.writeByte(')');
+
+                try dg.renderTypeSuffix(w, data.return_type, .suffix);
+            },
+        }
     }
 
     /// Renders a type as a single identifier, generating intermediate typedefs
@@ -1968,277 +2248,17 @@ pub const DeclGen = struct {
     ///   |---------------------|-----------------|---------------------|
     ///   | `renderTypecast`    | "uint8_t *"     | "uint8_t *[10]"     |
     ///   | `renderTypeAndName` | "uint8_t *name" | "uint8_t *name[10]" |
-    ///   | `renderType`        | "uint8_t *"     | "zig_A_uint8_t_10"  |
+    ///   | `renderType`        | "uint8_t *"     | "uint8_t *[10]"     |
     ///
     fn renderType(
         dg: *DeclGen,
         w: anytype,
         t: Type,
-        kind: TypedefKind,
+        _: TypedefKind,
     ) error{ OutOfMemory, AnalysisFail }!void {
-        _ = try dg.typeToCType(t);
-
-        const target = dg.module.getTarget();
-
-        switch (t.zigTypeTag()) {
-            .Void => try w.writeAll("void"),
-            .Bool => try w.writeAll("bool"),
-            .NoReturn, .Float => {
-                try w.writeAll("zig_");
-                try t.print(w, dg.module);
-            },
-            .Int => {
-                if (t.isNamedInt()) {
-                    try w.writeAll("zig_");
-                    try t.print(w, dg.module);
-                } else {
-                    return renderTypeUnnamed(dg, w, t, kind);
-                }
-            },
-            .ErrorSet => {
-                return renderTypeUnnamed(dg, w, t, kind);
-            },
-            .Pointer => {
-                const ptr_info = t.ptrInfo().data;
-                if (ptr_info.size == .Slice) {
-                    var slice_pl = Type.Payload.ElemType{
-                        .base = .{ .tag = if (t.ptrIsMutable()) .mut_slice else .const_slice },
-                        .data = ptr_info.pointee_type,
-                    };
-                    const slice_ty = Type.initPayload(&slice_pl.base);
-
-                    const name = dg.getTypedefName(slice_ty) orelse
-                        try dg.renderSliceTypedef(slice_ty);
-
-                    return w.writeAll(name);
-                }
-
-                if (ptr_info.pointee_type.zigTypeTag() == .Fn) {
-                    const name = dg.getTypedefName(ptr_info.pointee_type) orelse
-                        try dg.renderPtrToFnTypedef(ptr_info.pointee_type);
-
-                    return w.writeAll(name);
-                }
-
-                if (ptr_info.host_size != 0) {
-                    var host_pl = Type.Payload.Bits{
-                        .base = .{ .tag = .int_unsigned },
-                        .data = ptr_info.host_size * 8,
-                    };
-                    const host_ty = Type.initPayload(&host_pl.base);
-
-                    try dg.renderType(w, host_ty, .Forward);
-                } else if (t.isCPtr() and ptr_info.pointee_type.eql(Type.u8, dg.module) and
-                    (dg.decl.val.tag() == .extern_fn or
-                    std.mem.eql(u8, std.mem.span(dg.decl.name), "main")))
-                {
-                    // This is a hack, since the c compiler expects a lot of external
-                    // library functions to have char pointers in their signatures, but
-                    // u8 and i8 produce unsigned char and signed char respectively,
-                    // which in C are (not very usefully) different than char.
-                    try w.writeAll("char");
-                } else try dg.renderType(w, switch (ptr_info.pointee_type.tag()) {
-                    .anyopaque => Type.void,
-                    else => ptr_info.pointee_type,
-                }, .Forward);
-                if (t.isConstPtr()) try w.writeAll(" const");
-                if (t.isVolatilePtr()) try w.writeAll(" volatile");
-                return w.writeAll(" *");
-            },
-            .Array, .Vector => {
-                var array_pl = Type.Payload.Array{ .base = .{ .tag = .array }, .data = .{
-                    .len = t.arrayLenIncludingSentinel(),
-                    .elem_type = t.childType(),
-                } };
-                const array_ty = Type.initPayload(&array_pl.base);
-
-                const name = dg.getTypedefName(array_ty) orelse
-                    try dg.renderArrayTypedef(array_ty);
-
-                return w.writeAll(name);
-            },
-            .Optional => {
-                var opt_buf: Type.Payload.ElemType = undefined;
-                const child_ty = t.optionalChild(&opt_buf);
-
-                if (!child_ty.hasRuntimeBitsIgnoreComptime())
-                    return dg.renderType(w, Type.bool, kind);
-
-                if (t.optionalReprIsPayload())
-                    return dg.renderType(w, child_ty, kind);
-
-                switch (kind) {
-                    .Complete => {
-                        const name = dg.getTypedefName(t) orelse
-                            try dg.renderOptionalTypedef(t);
-
-                        try w.writeAll(name);
-                    },
-                    .Forward => {
-                        var ptr_pl = Type.Payload.ElemType{
-                            .base = .{ .tag = .single_const_pointer },
-                            .data = t,
-                        };
-                        const ptr_ty = Type.initPayload(&ptr_pl.base);
-
-                        const name = dg.getTypedefName(ptr_ty) orelse
-                            try dg.renderFwdTypedef(ptr_ty);
-
-                        try w.writeAll(name);
-                    },
-                }
-            },
-            .ErrorUnion => {
-                const payload_ty = t.errorUnionPayload();
-
-                if (!payload_ty.hasRuntimeBitsIgnoreComptime())
-                    return dg.renderType(w, Type.anyerror, kind);
-
-                var error_union_pl = Type.Payload.ErrorUnion{
-                    .data = .{ .error_set = Type.anyerror, .payload = payload_ty },
-                };
-                const error_union_ty = Type.initPayload(&error_union_pl.base);
-
-                switch (kind) {
-                    .Complete => {
-                        const name = dg.getTypedefName(error_union_ty) orelse
-                            try dg.renderErrorUnionTypedef(error_union_ty);
-
-                        try w.writeAll(name);
-                    },
-                    .Forward => {
-                        var ptr_pl = Type.Payload.ElemType{
-                            .base = .{ .tag = .single_const_pointer },
-                            .data = error_union_ty,
-                        };
-                        const ptr_ty = Type.initPayload(&ptr_pl.base);
-
-                        const name = dg.getTypedefName(ptr_ty) orelse
-                            try dg.renderFwdTypedef(ptr_ty);
-
-                        try w.writeAll(name);
-                    },
-                }
-            },
-            .Struct, .Union => |tag| if (t.containerLayout() == .Packed) {
-                if (t.castTag(.@"struct")) |struct_obj| {
-                    try dg.renderType(w, struct_obj.data.backing_int_ty, kind);
-                } else {
-                    var buf: Type.Payload.Bits = .{
-                        .base = .{ .tag = .int_unsigned },
-                        .data = @intCast(u16, t.bitSize(target)),
-                    };
-                    try dg.renderType(w, Type.initPayload(&buf.base), kind);
-                }
-            } else if (t.isSimpleTupleOrAnonStruct()) {
-                const ExpectedContents = struct { types: [8]Type, values: [8]Value };
-                var stack align(@alignOf(ExpectedContents)) =
-                    std.heap.stackFallback(@sizeOf(ExpectedContents), dg.gpa);
-                const allocator = stack.get();
-
-                var tuple_storage = std.MultiArrayList(struct { type: Type, value: Value }){};
-                defer tuple_storage.deinit(allocator);
-                try tuple_storage.ensureTotalCapacity(allocator, t.structFieldCount());
-
-                const fields = t.tupleFields();
-                for (fields.values, 0..) |value, index|
-                    if (value.tag() == .unreachable_value)
-                        tuple_storage.appendAssumeCapacity(.{
-                            .type = fields.types[index],
-                            .value = value,
-                        });
-
-                const tuple_slice = tuple_storage.slice();
-                var tuple_pl = Type.Payload.Tuple{ .data = .{
-                    .types = tuple_slice.items(.type),
-                    .values = tuple_slice.items(.value),
-                } };
-                const tuple_ty = Type.initPayload(&tuple_pl.base);
-
-                const name = dg.getTypedefName(tuple_ty) orelse
-                    try dg.renderTupleTypedef(tuple_ty);
-
-                try w.writeAll(name);
-            } else switch (kind) {
-                .Complete => {
-                    const name = dg.getTypedefName(t) orelse switch (tag) {
-                        .Struct => try dg.renderStructTypedef(t),
-                        .Union => try dg.renderUnionTypedef(t),
-                        else => unreachable,
-                    };
-
-                    try w.writeAll(name);
-                },
-                .Forward => {
-                    var ptr_pl = Type.Payload.ElemType{
-                        .base = .{ .tag = .single_const_pointer },
-                        .data = t,
-                    };
-                    const ptr_ty = Type.initPayload(&ptr_pl.base);
-
-                    const name = dg.getTypedefName(ptr_ty) orelse
-                        try dg.renderFwdTypedef(ptr_ty);
-
-                    try w.writeAll(name);
-                },
-            },
-            .Enum => {
-                // For enums, we simply use the integer tag type.
-                var int_tag_buf: Type.Payload.Bits = undefined;
-                const int_tag_ty = t.intTagType(&int_tag_buf);
-
-                try dg.renderType(w, int_tag_ty, kind);
-            },
-            .Opaque => switch (t.tag()) {
-                .@"opaque" => {
-                    const name = dg.getTypedefName(t) orelse
-                        try dg.renderOpaqueTypedef(t);
-
-                    try w.writeAll(name);
-                },
-                else => unreachable,
-            },
-
-            .Frame,
-            .AnyFrame,
-            => |tag| return dg.fail("TODO: C backend: implement value of type {s}", .{
-                @tagName(tag),
-            }),
-
-            .Fn => unreachable, // This is a function body, not a function pointer.
-
-            .Null,
-            .Undefined,
-            .EnumLiteral,
-            .ComptimeFloat,
-            .ComptimeInt,
-            .Type,
-            => unreachable, // must be const or comptime
-        }
-    }
-
-    fn renderTypeUnnamed(
-        dg: *DeclGen,
-        w: anytype,
-        t: Type,
-        kind: TypedefKind,
-    ) error{ OutOfMemory, AnalysisFail }!void {
-        const target = dg.module.getTarget();
-        const int_info = t.intInfo(target);
-        if (toCIntBits(int_info.bits)) |c_bits|
-            return w.print("zig_{c}{d}", .{ signAbbrev(int_info.signedness), c_bits })
-        else if (loweredArrayInfo(t, target)) |array_info| {
-            assert(array_info.sentinel == null);
-            var array_pl = Type.Payload.Array{
-                .base = .{ .tag = .array },
-                .data = .{ .len = array_info.len, .elem_type = array_info.elem_type },
-            };
-            const array_ty = Type.initPayload(&array_pl.base);
-
-            return dg.renderType(w, array_ty, kind);
-        } else return dg.fail("C backend: Unable to lower unnamed integer type {}", .{
-            t.fmt(dg.module),
-        });
+        const idx = try dg.typeToIndex(t);
+        _ = try dg.renderTypePrefix(w, idx, .suffix, CQualifiers.initEmpty());
+        try dg.renderTypeSuffix(w, idx, .suffix);
     }
 
     const IntCastContext = union(enum) {
@@ -2348,10 +2368,10 @@ pub const DeclGen = struct {
     ///   |---------------------|-----------------|---------------------|
     ///   | `renderTypecast`    | "uint8_t *"     | "uint8_t *[10]"     |
     ///   | `renderTypeAndName` | "uint8_t *name" | "uint8_t *name[10]" |
-    ///   | `renderType`        | "uint8_t *"     | "zig_A_uint8_t_10"  |
+    ///   | `renderType`        | "uint8_t *"     | "uint8_t *[10]"     |
     ///
     fn renderTypecast(dg: *DeclGen, w: anytype, ty: Type) error{ OutOfMemory, AnalysisFail }!void {
-        return renderTypeAndName(dg, w, ty, .{ .bytes = "" }, .Mut, 0, .Complete);
+        try dg.renderType(w, ty, undefined);
     }
 
     /// Renders a type and name in field declaration/definition format.
@@ -2361,7 +2381,7 @@ pub const DeclGen = struct {
     ///   |---------------------|-----------------|---------------------|
     ///   | `renderTypecast`    | "uint8_t *"     | "uint8_t *[10]"     |
     ///   | `renderTypeAndName` | "uint8_t *name" | "uint8_t *name[10]" |
-    ///   | `renderType`        | "uint8_t *"     | "zig_A_uint8_t_10"  |
+    ///   | `renderType`        | "uint8_t *"     | "uint8_t *[10]"     |
     ///
     fn renderTypeAndName(
         dg: *DeclGen,
@@ -2370,46 +2390,26 @@ pub const DeclGen = struct {
         name: CValue,
         mutability: Mutability,
         alignment: u32,
-        kind: TypedefKind,
+        _: TypedefKind,
     ) error{ OutOfMemory, AnalysisFail }!void {
-        var suffix = std.ArrayList(u8).init(dg.gpa);
-        defer suffix.deinit();
-        const suffix_writer = suffix.writer();
-
-        // Any top-level array types are rendered here as a suffix, which
-        // avoids creating typedefs for every array type
-        const target = dg.module.getTarget();
-        var render_ty = ty;
-        var depth: u32 = 0;
-        while (loweredArrayInfo(render_ty, target)) |array_info| {
-            const c_len = array_info.len + @boolToInt(array_info.sentinel != null);
-            var c_len_pl: Value.Payload.U64 = .{ .base = .{ .tag = .int_u64 }, .data = c_len };
-            const c_len_val = Value.initPayload(&c_len_pl.base);
-
-            try suffix_writer.writeByte('[');
-            if (mutability == .ConstArgument and depth == 0) try suffix_writer.writeAll("zig_const_arr ");
-            try suffix.writer().print("{}]", .{try dg.fmtIntLiteral(Type.usize, c_len_val)});
-            render_ty = array_info.elem_type;
-            depth += 1;
-        }
-
         if (alignment != 0) {
-            const abi_alignment = ty.abiAlignment(target);
+            const abi_alignment = ty.abiAlignment(dg.module.getTarget());
             if (alignment < abi_alignment) {
                 try w.print("zig_under_align({}) ", .{alignment});
             } else if (alignment > abi_alignment) {
                 try w.print("zig_align({}) ", .{alignment});
             }
         }
-        try dg.renderType(w, render_ty, kind);
 
-        const const_prefix = switch (mutability) {
-            .Const, .ConstArgument => "const ",
-            .Mut => "",
-        };
-        try w.print(" {s}", .{const_prefix});
+        const idx = try dg.typeToIndex(ty);
+        try w.print("{}", .{try dg.renderTypePrefix(w, idx, .suffix, CQualifiers.init(.{
+            .@"const" = switch (mutability) {
+                .Const, .ConstArgument => true,
+                .Mut => false,
+            },
+        }))});
         try dg.writeCValue(w, name);
-        try w.writeAll(suffix.items);
+        try dg.renderTypeSuffix(w, idx, .suffix);
     }
 
     fn renderTagNameFn(dg: *DeclGen, enum_ty: Type) error{ OutOfMemory, AnalysisFail }![]const u8 {
