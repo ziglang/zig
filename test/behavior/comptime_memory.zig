@@ -394,3 +394,21 @@ test "accessing reinterpreted memory of parent object" {
         try testing.expect(b == expected);
     }
 }
+
+test "bitcast packed union to integer" {
+    const U = packed union {
+        x: u1,
+        y: u2,
+    };
+
+    comptime {
+        const a = U{ .x = 1 };
+        const b = U{ .y = 2 };
+        const cast_a = @bitCast(u2, a);
+        const cast_b = @bitCast(u2, b);
+
+        // truncated because the upper bit is garbage memory that we don't care about
+        try testing.expectEqual(@as(u1, 1), @truncate(u1, cast_a));
+        try testing.expectEqual(@as(u2, 2), cast_b);
+    }
+}

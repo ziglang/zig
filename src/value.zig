@@ -1340,6 +1340,14 @@ pub const Value = extern union {
                 const int = mod.global_error_set.get(val.castTag(.@"error").?.data.name).?;
                 std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], @intCast(Int, int), endian);
             },
+            .Union => switch (ty.containerLayout()) {
+                .Auto => unreachable,
+                .Extern => @panic("TODO implement writeToMemory for extern unions"),
+                .Packed => {
+                    const byte_count = (@intCast(usize, ty.bitSize(target)) + 7) / 8;
+                    writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
+                },
+            },
             else => @panic("TODO implement writeToMemory for more types"),
         }
     }
@@ -1428,6 +1436,20 @@ pub const Value = extern union {
                         field_vals[i].writeToPackedMemory(field.ty, mod, buffer, bit_offset + bits);
                         bits += field_bits;
                     }
+                },
+            },
+            .Union => switch (ty.containerLayout()) {
+                .Auto => unreachable, // Sema is supposed to have emitted a compile error already
+                .Extern => unreachable, // Handled in non-packed writeToMemory
+                .Packed => {
+                    if (ty.unionTagType() == null)
+                        @panic("TODO implement writeToPackedMemory for tagged unions");
+
+                    const field_index = ty.unionTagFieldIndex(val.unionTag(), mod);
+                    const field_type = ty.unionFields().values()[field_index.?].ty;
+                    const field_val = val.fieldValue(field_type, field_index.?);
+
+                    field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
                 },
             },
             else => @panic("TODO implement writeToPackedMemory for more types"),
