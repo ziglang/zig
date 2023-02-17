@@ -3098,8 +3098,18 @@ pub fn performAllTheWork(
     }
 
     if (comp.bin_file.options.module) |mod| {
+        // Some cases can give you a whole bunch of multi-package errors, which it's not helpful to print all of, so we'll cap the number of these to emit.
+        var num_errors: u32 = 0;
+        const max_errors: u32 = 5;
+        // Attach the "some omitted" note to the final error message
+        var last_err: ?*Module.ErrorMsg = null;
+
         for (mod.import_table.values()) |file| {
             if (!file.multi_pkg) continue;
+
+            num_errors += 1;
+            if (num_errors > max_errors) continue;
+
             const err = err_blk: {
                 const notes = try mod.gpa.alloc(Module.ErrorMsg, file.references.items.len);
                 errdefer mod.gpa.free(notes);
@@ -3134,6 +3144,25 @@ pub fn performAllTheWork(
             };
             errdefer err.destroy(mod.gpa);
             try mod.failed_files.putNoClobber(mod.gpa, file, err);
+            last_err = err;
+        }
+
+        // If we emitted the maximum number of errors, add a note saying there were more
+        if (num_errors > max_errors) {
+            const err = last_err.?;
+
+            // There isn't really any meaningful place to put this note, so just attach it to the last failed file
+            var note = try Module.ErrorMsg.init(
+                mod.gpa,
+                .{ .file_scope = err.src_loc.file_scope, .parent_decl_node = 0, .lazy = .entire_file },
+                "{} more errors omitted",
+                .{num_errors - max_errors},
+            );
+            errdefer note.deinit(mod.gpa);
+
+            const i = err.notes.len;
+            err.notes = try mod.gpa.realloc(err.notes, i + 1);
+            err.notes[i] = note;
         }
 
         // Now that we've reported the errors, we need to deal with
