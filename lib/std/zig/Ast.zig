@@ -207,7 +207,7 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
             return stream.writeAll("declarations are not allowed between container fields");
         },
         .expected_block => {
-            return stream.print("expected block or field, found '{s}'", .{
+            return stream.print("expected block, found '{s}'", .{
                 token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
