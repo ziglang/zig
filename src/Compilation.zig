@@ -989,6 +989,7 @@ pub const InitOptions = struct {
     linker_optimization: ?u8 = null,
     linker_compress_debug_sections: ?link.CompressDebugSections = null,
     linker_module_definition_file: ?[]const u8 = null,
+    linker_sort_section: ?link.SortSection = null,
     major_subsystem_version: ?u32 = null,
     minor_subsystem_version: ?u32 = null,
     clang_passthrough_mode: bool = false,
@@ -1853,6 +1854,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
             .compress_debug_sections = options.linker_compress_debug_sections orelse .none,
             .module_definition_file = options.linker_module_definition_file,
+            .sort_section = options.linker_sort_section,
             .import_memory = options.linker_import_memory orelse false,
             .import_symbols = options.linker_import_symbols,
             .import_table = options.linker_import_table,
@@ -2684,6 +2686,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.hash_style);
     man.hash.add(comp.bin_file.options.compress_debug_sections);
     man.hash.add(comp.bin_file.options.include_compiler_rt);
+    man.hash.addOptional(comp.bin_file.options.sort_section);
     if (comp.bin_file.options.link_libc) {
         man.hash.add(comp.bin_file.options.libc_installation != null);
         if (comp.bin_file.options.libc_installation) |libc_installation| {

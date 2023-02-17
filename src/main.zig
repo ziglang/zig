@@ -492,6 +492,7 @@ const usage_build_generic =
     \\    nodelete                     Indicate that the object cannot be deleted from a process
     \\    notext                       Permit read-only relocations in read-only segments
     \\    defs                         Force a fatal error if any undefined symbols remain
+    \\    undefs                       Reverse of -z defs
     \\    origin                       Indicate that the object must have its origin processed
     \\    nocopyreloc                  Disable the creation of copy relocations
     \\    now                          (default) Force all relocations to be processed on load
@@ -508,6 +509,7 @@ const usage_build_generic =
     \\      zlib                       Compression with deflate/inflate
     \\  --gc-sections                  Force removal of functions and data that are unreachable by the entry point or exported symbols
     \\  --no-gc-sections               Don't force removal of unreachable functions and data
+    \\  --sort-section=[value]         Sort wildcard section patterns by 'name' or 'alignment'
     \\  --subsystem [subsystem]        (Windows) /SUBSYSTEM:<subsystem> to the linker
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
@@ -730,6 +732,7 @@ fn buildOutputType(
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
     var disable_c_depfile = false;
+    var linker_sort_section: ?link.SortSection = null;
     var linker_gc_sections: ?bool = null;
     var linker_compress_debug_sections: ?link.CompressDebugSections = null;
     var linker_allow_shlib_undefined: ?bool = null;
@@ -1333,6 +1336,8 @@ fn buildOutputType(
                             linker_z_notext = true;
                         } else if (mem.eql(u8, z_arg, "defs")) {
                             linker_z_defs = true;
+                        } else if (mem.eql(u8, z_arg, "undefs")) {
+                            linker_z_defs = false;
                         } else if (mem.eql(u8, z_arg, "origin")) {
                             linker_z_origin = true;
                         } else if (mem.eql(u8, z_arg, "nocopyreloc")) {
@@ -1350,7 +1355,7 @@ fn buildOutputType(
                         } else if (mem.startsWith(u8, z_arg, "max-page-size=")) {
                             linker_z_max_page_size = parseIntSuffix(z_arg, "max-page-size=".len);
                         } else {
-                            warn("unsupported linker extension flag: -z {s}", .{z_arg});
+                            fatal("unsupported linker extension flag: -z {s}", .{z_arg});
                         }
                     } else if (mem.eql(u8, arg, "--import-memory")) {
                         linker_import_memory = true;
@@ -1614,6 +1619,10 @@ fn buildOutputType(
                                         build_id = true;
                                         warn("ignoring build-id style argument: '{s}'", .{value});
                                         continue;
+                                    } else if (mem.eql(u8, key, "--sort-common")) {
+                                        // this ignores --sort=common=<anything>; ignoring plain --sort-common
+                                        // is done below.
+                                        continue;
                                     }
                                     try linker_args.append(key);
                                     try linker_args.append(value);
@@ -1626,6 +1635,9 @@ fn buildOutputType(
                                 needed = true;
                             } else if (mem.eql(u8, linker_arg, "-no-pie")) {
                                 want_pie = false;
+                            } else if (mem.eql(u8, linker_arg, "--sort-common")) {
+                                // from ld.lld(1): --sort-common is ignored for GNU compatibility,
+                                // this ignores plain --sort-common
                             } else if (mem.eql(u8, linker_arg, "--whole-archive") or
                                 mem.eql(u8, linker_arg, "-whole-archive"))
                             {
@@ -1879,6 +1891,8 @@ fn buildOutputType(
                     linker_gc_sections = true;
                 } else if (mem.eql(u8, arg, "-dead_strip_dylibs")) {
                     dead_strip_dylibs = true;
+                } else if (mem.eql(u8, arg, "--no-undefined")) {
+                    linker_z_defs = true;
                 } else if (mem.eql(u8, arg, "--gc-sections")) {
                     linker_gc_sections = true;
                 } else if (mem.eql(u8, arg, "--no-gc-sections")) {
@@ -1889,6 +1903,15 @@ fn buildOutputType(
                     linker_print_icf_sections = true;
                 } else if (mem.eql(u8, arg, "--print-map")) {
                     linker_print_map = true;
+                } else if (mem.eql(u8, arg, "--sort-section")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    const arg1 = linker_args.items[i];
+                    linker_sort_section = std.meta.stringToEnum(link.SortSection, arg1) orelse {
+                        fatal("expected [name|alignment] after --sort-section, found '{s}'", .{arg1});
+                    };
                 } else if (mem.eql(u8, arg, "--allow-shlib-undefined") or
                     mem.eql(u8, arg, "-allow-shlib-undefined"))
                 {
@@ -1944,6 +1967,8 @@ fn buildOutputType(
                         linker_z_notext = true;
                     } else if (mem.eql(u8, z_arg, "defs")) {
                         linker_z_defs = true;
+                    } else if (mem.eql(u8, z_arg, "undefs")) {
+                        linker_z_defs = false;
                     } else if (mem.eql(u8, z_arg, "origin")) {
                         linker_z_origin = true;
                     } else if (mem.eql(u8, z_arg, "nocopyreloc")) {
@@ -1968,7 +1993,7 @@ fn buildOutputType(
                     } else if (mem.startsWith(u8, z_arg, "max-page-size=")) {
                         linker_z_max_page_size = parseIntSuffix(z_arg, "max-page-size=".len);
                     } else {
-                        warn("unsupported linker extension flag: -z {s}", .{z_arg});
+                        fatal("unsupported linker extension flag: -z {s}", .{z_arg});
                     }
                 } else if (mem.eql(u8, arg, "--major-image-version")) {
                     i += 1;
@@ -2030,6 +2055,14 @@ fn buildOutputType(
                     // This option does not do anything.
                 } else if (mem.eql(u8, arg, "--export-all-symbols")) {
                     rdynamic = true;
+                } else if (mem.eql(u8, arg, "--color-diagnostics") or
+                    mem.eql(u8, arg, "--color-diagnostics=always"))
+                {
+                    color = .on;
+                } else if (mem.eql(u8, arg, "--no-color-diagnostics") or
+                    mem.eql(u8, arg, "--color-diagnostics=never"))
+                {
+                    color = .off;
                 } else if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--strip-all") or
                     mem.eql(u8, arg, "-S") or mem.eql(u8, arg, "--strip-debug"))
                 {
@@ -2193,7 +2226,7 @@ fn buildOutputType(
 
                     have_version = true;
                 } else {
-                    warn("unsupported linker arg: {s}", .{arg});
+                    fatal("unsupported linker arg: {s}", .{arg});
                 }
             }
 
@@ -3063,6 +3096,7 @@ fn buildOutputType(
         .version_script = version_script,
         .disable_c_depfile = disable_c_depfile,
         .soname = resolved_soname,
+        .linker_sort_section = linker_sort_section,
         .linker_gc_sections = linker_gc_sections,
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
