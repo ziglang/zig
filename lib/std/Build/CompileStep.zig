@@ -955,7 +955,10 @@ pub fn addFrameworkPath(self: *CompileStep, dir_path: []const u8) void {
 /// package's module table using `name`.
 pub fn addModule(cs: *CompileStep, name: []const u8, module: *Module) void {
     cs.modules.put(cs.builder.dupe(name), module) catch @panic("OOM");
-    cs.addRecursiveBuildDeps(module);
+
+    var done = std.AutoHashMap(*Module, void).init(cs.builder.allocator);
+    defer done.deinit();
+    cs.addRecursiveBuildDeps(module, &done) catch @panic("OOM");
 }
 
 /// Adds a module to be used with `@import` without exposing it in the current
@@ -969,10 +972,12 @@ pub fn addOptions(cs: *CompileStep, module_name: []const u8, options: *OptionsSt
     addModule(cs, module_name, options.createModule());
 }
 
-fn addRecursiveBuildDeps(cs: *CompileStep, module: *Module) void {
+fn addRecursiveBuildDeps(cs: *CompileStep, module: *Module, done: *std.AutoHashMap(*Module, void)) !void {
+    if (done.contains(module)) return;
+    try done.put(module, {});
     module.source_file.addStepDependencies(&cs.step);
     for (module.dependencies.values()) |dep| {
-        cs.addRecursiveBuildDeps(dep);
+        try cs.addRecursiveBuildDeps(dep, done);
     }
 }
 
@@ -1031,22 +1036,110 @@ fn linkLibraryOrObject(self: *CompileStep, other: *CompileStep) void {
 fn appendModuleArgs(
     cs: *CompileStep,
     zig_args: *ArrayList([]const u8),
-    name: []const u8,
-    module: *Module,
 ) error{OutOfMemory}!void {
-    try zig_args.append("--pkg-begin");
-    try zig_args.append(name);
-    try zig_args.append(module.builder.pathFromRoot(module.source_file.getPath(module.builder)));
+    // First, traverse the whole dependency graph and give every module a unique name, ideally one
+    // named after what it's called somewhere in the graph. It will help here to have both a mapping
+    // from module to name and a set of all the currently-used names.
+    var mod_names = std.AutoHashMap(*Module, []const u8).init(cs.builder.allocator);
+    var names = std.StringHashMap(void).init(cs.builder.allocator);
 
+    var to_name = std.ArrayList(struct {
+        name: []const u8,
+        mod: *Module,
+    }).init(cs.builder.allocator);
     {
-        const keys = module.dependencies.keys();
-        for (module.dependencies.values(), 0..) |sub_module, i| {
-            const sub_name = keys[i];
-            try cs.appendModuleArgs(zig_args, sub_name, sub_module);
+        var it = cs.modules.iterator();
+        while (it.next()) |kv| {
+            // While we're traversing the root dependencies, let's make sure that no module names
+            // have colons in them, since the CLI forbids it. We handle this for transitive
+            // dependencies further down.
+            if (std.mem.indexOfScalar(u8, kv.key_ptr.*, ':') != null) {
+                @panic("Module names cannot contain colons");
+            }
+            try to_name.append(.{
+                .name = kv.key_ptr.*,
+                .mod = kv.value_ptr.*,
+            });
         }
     }
 
-    try zig_args.append("--pkg-end");
+    while (to_name.popOrNull()) |dep| {
+        if (mod_names.contains(dep.mod)) continue;
+
+        // We'll use this buffer to store the name we decide on
+        var buf = try cs.builder.allocator.alloc(u8, dep.name.len + 32);
+        // First, try just the exposed dependency name
+        std.mem.copy(u8, buf, dep.name);
+        var name = buf[0..dep.name.len];
+        var n: usize = 0;
+        while (names.contains(name)) {
+            // If that failed, append an incrementing number to the end
+            name = std.fmt.bufPrint(buf, "{s}{}", .{ dep.name, n }) catch unreachable;
+            n += 1;
+        }
+
+        try mod_names.put(dep.mod, name);
+        try names.put(name, {});
+
+        var it = dep.mod.dependencies.iterator();
+        while (it.next()) |kv| {
+            // Same colon-in-name check as above, but for transitive dependencies.
+            if (std.mem.indexOfScalar(u8, kv.key_ptr.*, ':') != null) {
+                @panic("Module names cannot contain colons");
+            }
+            try to_name.append(.{
+                .name = kv.key_ptr.*,
+                .mod = kv.value_ptr.*,
+            });
+        }
+    }
+
+    // Since the module names given to the CLI are based off of the exposed names, we already know
+    // that none of the CLI names have colons in them, so there's no need to check that explicitly.
+
+    // Every module in the graph is now named; output their definitions
+    {
+        var it = mod_names.iterator();
+        while (it.next()) |kv| {
+            const mod = kv.key_ptr.*;
+            const name = kv.value_ptr.*;
+
+            const deps_str = try constructDepString(cs.builder.allocator, mod_names, mod.dependencies);
+            const src = mod.builder.pathFromRoot(mod.source_file.getPath(mod.builder));
+            try zig_args.append("--mod");
+            try zig_args.append(try std.fmt.allocPrint(cs.builder.allocator, "{s}:{s}:{s}", .{ name, deps_str, src }));
+        }
+    }
+
+    // Lastly, output the root dependencies
+    const deps_str = try constructDepString(cs.builder.allocator, mod_names, cs.modules);
+    if (deps_str.len > 0) {
+        try zig_args.append("--deps");
+        try zig_args.append(deps_str);
+    }
+}
+
+fn constructDepString(
+    allocator: std.mem.Allocator,
+    mod_names: std.AutoHashMap(*Module, []const u8),
+    deps: std.StringArrayHashMap(*Module),
+) ![]const u8 {
+    var deps_str = std.ArrayList(u8).init(allocator);
+    var it = deps.iterator();
+    while (it.next()) |kv| {
+        const expose = kv.key_ptr.*;
+        const name = mod_names.get(kv.value_ptr.*).?;
+        if (std.mem.eql(u8, expose, name)) {
+            try deps_str.writer().print("{s},", .{name});
+        } else {
+            try deps_str.writer().print("{s}={s},", .{ expose, name });
+        }
+    }
+    if (deps_str.items.len > 0) {
+        return deps_str.items[0 .. deps_str.items.len - 1]; // omit trailing comma
+    } else {
+        return "";
+    }
 }
 
 fn make(step: *Step) !void {
@@ -1573,13 +1666,7 @@ fn make(step: *Step) !void {
         try zig_args.append("--test-no-exec");
     }
 
-    {
-        const keys = self.modules.keys();
-        for (self.modules.values(), 0..) |module, i| {
-            const name = keys[i];
-            try self.appendModuleArgs(&zig_args, name, module);
-        }
-    }
+    try self.appendModuleArgs(&zig_args);
 
     for (self.include_dirs.items) |include_dir| {
         switch (include_dir) {
