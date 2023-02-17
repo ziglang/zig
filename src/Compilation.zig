@@ -1596,36 +1596,53 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             const builtin_pkg = try Package.createWithDir(
                 gpa,
-                "builtin",
                 zig_cache_artifact_directory,
                 null,
                 "builtin.zig",
             );
             errdefer builtin_pkg.destroy(gpa);
 
-            const std_pkg = try Package.createWithDir(
-                gpa,
-                "std",
-                options.zig_lib_directory,
-                "std",
-                "std.zig",
-            );
-            errdefer std_pkg.destroy(gpa);
+            // When you're testing std, the main module is std. In that case, we'll just set the std
+            // module to the main one, since avoiding the errors caused by duplicating it is more
+            // effort than it's worth.
+            const main_pkg_is_std = m: {
+                const std_path = try std.fs.path.resolve(arena, &[_][]const u8{
+                    options.zig_lib_directory.path orelse ".",
+                    "std",
+                    "std.zig",
+                });
+                defer arena.free(std_path);
+                const main_path = try std.fs.path.resolve(arena, &[_][]const u8{
+                    main_pkg.root_src_directory.path orelse ".",
+                    main_pkg.root_src_path,
+                });
+                defer arena.free(main_path);
+                break :m mem.eql(u8, main_path, std_path);
+            };
+
+            const std_pkg = if (main_pkg_is_std)
+                main_pkg
+            else
+                try Package.createWithDir(
+                    gpa,
+                    options.zig_lib_directory,
+                    "std",
+                    "std.zig",
+                );
+
+            errdefer if (!main_pkg_is_std) std_pkg.destroy(gpa);
 
             const root_pkg = if (options.is_test) root_pkg: {
-                // TODO: we currently have two packages named 'root' here, which is weird. This
-                // should be changed as part of the resolution of #12201
                 const test_pkg = if (options.test_runner_path) |test_runner| test_pkg: {
                     const test_dir = std.fs.path.dirname(test_runner);
                     const basename = std.fs.path.basename(test_runner);
-                    const pkg = try Package.create(gpa, "root", test_dir, basename);
+                    const pkg = try Package.create(gpa, test_dir, basename);
 
                     // copy package table from main_pkg to root_pkg
                     pkg.table = try main_pkg.table.clone(gpa);
                     break :test_pkg pkg;
                 } else try Package.createWithDir(
                     gpa,
-                    "root",
                     options.zig_lib_directory,
                     null,
                     "test_runner.zig",
@@ -1639,7 +1656,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             const compiler_rt_pkg = if (include_compiler_rt and options.output_mode == .Obj) compiler_rt_pkg: {
                 break :compiler_rt_pkg try Package.createWithDir(
                     gpa,
-                    "compiler_rt",
                     options.zig_lib_directory,
                     null,
                     "compiler_rt.zig",
@@ -1647,27 +1663,13 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             } else null;
             errdefer if (compiler_rt_pkg) |p| p.destroy(gpa);
 
-            try main_pkg.addAndAdopt(gpa, builtin_pkg);
-            try main_pkg.add(gpa, root_pkg);
-            try main_pkg.addAndAdopt(gpa, std_pkg);
+            try main_pkg.add(gpa, "builtin", builtin_pkg);
+            try main_pkg.add(gpa, "root", root_pkg);
+            try main_pkg.add(gpa, "std", std_pkg);
 
             if (compiler_rt_pkg) |p| {
-                try main_pkg.addAndAdopt(gpa, p);
+                try main_pkg.add(gpa, "compiler_rt", p);
             }
-
-            const main_pkg_is_std = m: {
-                const std_path = try std.fs.path.resolve(arena, &[_][]const u8{
-                    std_pkg.root_src_directory.path orelse ".",
-                    std_pkg.root_src_path,
-                });
-                defer arena.free(std_path);
-                const main_path = try std.fs.path.resolve(arena, &[_][]const u8{
-                    main_pkg.root_src_directory.path orelse ".",
-                    main_pkg.root_src_path,
-                });
-                defer arena.free(main_path);
-                break :m mem.eql(u8, main_path, std_path);
-            };
 
             // Pre-open the directory handles for cached ZIR code so that it does not need
             // to redundantly happen for each AstGen operation.
@@ -1705,7 +1707,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .gpa = gpa,
                 .comp = comp,
                 .main_pkg = main_pkg,
-                .main_pkg_is_std = main_pkg_is_std,
                 .root_pkg = root_pkg,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
                 .global_zir_cache = global_zir_cache,
@@ -3107,18 +3108,26 @@ pub fn performAllTheWork(
                 for (notes, 0..) |*note, i| {
                     errdefer for (notes[0..i]) |*n| n.deinit(mod.gpa);
                     note.* = switch (file.references.items[i]) {
-                        .import => |loc| try Module.ErrorMsg.init(
-                            mod.gpa,
-                            loc,
-                            "imported from package {s}",
-                            .{loc.file_scope.pkg.name},
-                        ),
-                        .root => |pkg| try Module.ErrorMsg.init(
-                            mod.gpa,
-                            .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
-                            "root of package {s}",
-                            .{pkg.name},
-                        ),
+                        .import => |loc| blk: {
+                            const name = try loc.file_scope.pkg.getName(mod.gpa, mod.*);
+                            defer mod.gpa.free(name);
+                            break :blk try Module.ErrorMsg.init(
+                                mod.gpa,
+                                loc,
+                                "imported from package {s}",
+                                .{name},
+                            );
+                        },
+                        .root => |pkg| blk: {
+                            const name = try pkg.getName(mod.gpa, mod.*);
+                            defer mod.gpa.free(name);
+                            break :blk try Module.ErrorMsg.init(
+                                mod.gpa,
+                                .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
+                                "root of package {s}",
+                                .{name},
+                            );
+                        },
                     };
                 }
                 errdefer for (notes) |*n| n.deinit(mod.gpa);
@@ -5408,7 +5417,6 @@ fn buildOutputFromZig(
     var main_pkg: Package = .{
         .root_src_directory = comp.zig_lib_directory,
         .root_src_path = src_basename,
-        .name = "root",
     };
     defer main_pkg.deinitTable(comp.gpa);
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];

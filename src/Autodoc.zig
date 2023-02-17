@@ -860,17 +860,9 @@ fn walkInstruction(
             const str_tok = data[inst_index].str_tok;
             var path = str_tok.get(file.zir);
 
-            const maybe_other_package: ?*Package = blk: {
-                if (self.module.main_pkg_is_std and std.mem.eql(u8, path, "std")) {
-                    path = "std";
-                    break :blk self.module.main_pkg;
-                } else {
-                    break :blk file.pkg.table.get(path);
-                }
-            };
             // importFile cannot error out since all files
             // are already loaded at this point
-            if (maybe_other_package) |other_package| {
+            if (file.pkg.table.get(path)) |other_package| {
                 const result = try self.packages.getOrPut(self.arena, other_package);
 
                 // Immediately add this package to the import table of our

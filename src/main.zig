@@ -403,8 +403,11 @@ const usage_build_generic =
     \\    ReleaseFast             Optimizations on, safety off
     \\    ReleaseSafe             Optimizations on, safety on
     \\    ReleaseSmall            Optimize for small binary, safety off
-    \\  --pkg-begin [name] [path] Make pkg available to import and push current pkg
-    \\  --pkg-end                 Pop current pkg
+    \\  --mod [name]:[deps]:[src] Make a module available for dependency under the given name
+    \\      deps: [dep],[dep],...
+    \\      dep:  [[import=]name]
+    \\  --deps [dep],[dep],...    Set dependency names for the root package
+    \\      dep:  [[import=]name]
     \\  --main-pkg-path           Set the directory of the root package
     \\  -fPIC                     Force-enable Position Independent Code
     \\  -fno-PIC                  Force-disable Position Independent Code
@@ -858,15 +861,21 @@ fn buildOutputType(
     var linker_export_symbol_names = std.ArrayList([]const u8).init(gpa);
     defer linker_export_symbol_names.deinit();
 
-    // This package only exists to clean up the code parsing --pkg-begin and
-    // --pkg-end flags. Use dummy values that are safe for the destroy call.
-    var pkg_tree_root: Package = .{
-        .root_src_directory = .{ .path = null, .handle = fs.cwd() },
-        .root_src_path = &[0]u8{},
-        .name = &[0]u8{},
-    };
-    defer freePkgTree(gpa, &pkg_tree_root, false);
-    var cur_pkg: *Package = &pkg_tree_root;
+    // Contains every module specified via --mod. The dependencies are added
+    // after argument parsing is completed. We use a StringArrayHashMap to make
+    // error output consistent.
+    var modules = std.StringArrayHashMap(struct {
+        mod: *Package,
+        deps_str: []const u8, // still in CLI arg format
+    }).init(gpa);
+    defer {
+        var it = modules.iterator();
+        while (it.next()) |kv| kv.value_ptr.mod.destroy(gpa);
+        modules.deinit();
+    }
+
+    // The dependency string for the root package
+    var root_deps_str: ?[]const u8 = null;
 
     // before arg parsing, check for the NO_COLOR environment variable
     // if it exists, default the color setting to .off
@@ -943,34 +952,44 @@ fn buildOutputType(
                         } else {
                             fatal("unexpected end-of-parameter mark: --", .{});
                         }
-                    } else if (mem.eql(u8, arg, "--pkg-begin")) {
-                        const opt_pkg_name = args_iter.next();
-                        const opt_pkg_path = args_iter.next();
-                        if (opt_pkg_name == null or opt_pkg_path == null)
-                            fatal("Expected 2 arguments after {s}", .{arg});
+                    } else if (mem.eql(u8, arg, "--mod")) {
+                        const info = args_iter.nextOrFatal();
+                        var info_it = mem.split(u8, info, ":");
+                        const mod_name = info_it.next() orelse fatal("expected non-empty argument after {s}", .{arg});
+                        const deps_str = info_it.next() orelse fatal("expected 'name:deps:path' after {s}", .{arg});
+                        const root_src_orig = info_it.rest();
+                        if (root_src_orig.len == 0) fatal("expected 'name:deps:path' after {s}", .{arg});
+                        if (mod_name.len == 0) fatal("empty name for module at '{s}'", .{root_src_orig});
 
-                        const pkg_name = opt_pkg_name.?;
-                        const pkg_path = try introspect.resolvePath(arena, opt_pkg_path.?);
+                        const root_src = try introspect.resolvePath(arena, root_src_orig);
 
-                        const new_cur_pkg = Package.create(
-                            gpa,
-                            pkg_name,
-                            fs.path.dirname(pkg_path),
-                            fs.path.basename(pkg_path),
-                        ) catch |err| {
-                            fatal("Failed to add package at path {s}: {s}", .{ pkg_path, @errorName(err) });
-                        };
-
-                        if (mem.eql(u8, pkg_name, "std") or mem.eql(u8, pkg_name, "root") or mem.eql(u8, pkg_name, "builtin")) {
-                            fatal("unable to add package '{s}' -> '{s}': conflicts with builtin package", .{ pkg_name, pkg_path });
-                        } else if (cur_pkg.table.get(pkg_name)) |prev| {
-                            fatal("unable to add package '{s}' -> '{s}': already exists as '{s}", .{ pkg_name, pkg_path, prev.root_src_path });
+                        for ([_][]const u8{ "std", "root", "builtin" }) |name| {
+                            if (mem.eql(u8, mod_name, name)) {
+                                fatal("unable to add module '{s}' -> '{s}': conflicts with builtin module", .{ mod_name, root_src });
+                            }
                         }
-                        try cur_pkg.addAndAdopt(gpa, new_cur_pkg);
-                        cur_pkg = new_cur_pkg;
-                    } else if (mem.eql(u8, arg, "--pkg-end")) {
-                        cur_pkg = cur_pkg.parent orelse
-                            fatal("encountered --pkg-end with no matching --pkg-begin", .{});
+
+                        var mod_it = modules.iterator();
+                        while (mod_it.next()) |kv| {
+                            if (std.mem.eql(u8, mod_name, kv.key_ptr.*)) {
+                                fatal("unable to add module '{s}' -> '{s}': already exists as '{s}'", .{ mod_name, root_src, kv.value_ptr.mod.root_src_path });
+                            }
+                        }
+
+                        try modules.ensureUnusedCapacity(1);
+                        modules.put(mod_name, .{
+                            .mod = try Package.create(
+                                gpa,
+                                fs.path.dirname(root_src),
+                                fs.path.basename(root_src),
+                            ),
+                            .deps_str = deps_str,
+                        }) catch unreachable;
+                    } else if (mem.eql(u8, arg, "--deps")) {
+                        if (root_deps_str != null) {
+                            fatal("only one --deps argument is allowed", .{});
+                        }
+                        root_deps_str = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--main-pkg-path")) {
                         main_pkg_path = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-cflags")) {
@@ -2307,6 +2326,31 @@ fn buildOutputType(
         },
     }
 
+    {
+        // Resolve module dependencies
+        var it = modules.iterator();
+        while (it.next()) |kv| {
+            const deps_str = kv.value_ptr.deps_str;
+            var deps_it = ModuleDepIterator.init(deps_str);
+            while (deps_it.next()) |dep| {
+                if (dep.expose.len == 0) {
+                    fatal("module '{s}' depends on '{s}' with a blank name", .{ kv.key_ptr.*, dep.name });
+                }
+
+                for ([_][]const u8{ "std", "root", "builtin" }) |name| {
+                    if (mem.eql(u8, dep.expose, name)) {
+                        fatal("unable to add module '{s}' under name '{s}': conflicts with builtin module", .{ dep.name, dep.expose });
+                    }
+                }
+
+                const dep_mod = modules.get(dep.name) orelse
+                    fatal("module '{s}' depends on module '{s}' which does not exist", .{ kv.key_ptr.*, dep.name });
+
+                try kv.value_ptr.mod.add(gpa, dep.expose, dep_mod.mod);
+            }
+        }
+    }
+
     if (arg_mode == .build and optimize_mode == .ReleaseSmall and strip == null)
         strip = true;
 
@@ -2886,14 +2930,14 @@ fn buildOutputType(
         if (main_pkg_path) |unresolved_main_pkg_path| {
             const p = try introspect.resolvePath(arena, unresolved_main_pkg_path);
             if (p.len == 0) {
-                break :blk try Package.create(gpa, "root", null, src_path);
+                break :blk try Package.create(gpa, null, src_path);
             } else {
                 const rel_src_path = try fs.path.relative(arena, p, src_path);
-                break :blk try Package.create(gpa, "root", p, rel_src_path);
+                break :blk try Package.create(gpa, p, rel_src_path);
             }
         } else {
             const root_src_dir_path = fs.path.dirname(src_path);
-            break :blk Package.create(gpa, "root", root_src_dir_path, fs.path.basename(src_path)) catch |err| {
+            break :blk Package.create(gpa, root_src_dir_path, fs.path.basename(src_path)) catch |err| {
                 if (root_src_dir_path) |p| {
                     fatal("unable to open '{s}': {s}", .{ p, @errorName(err) });
                 } else {
@@ -2904,23 +2948,24 @@ fn buildOutputType(
     } else null;
     defer if (main_pkg) |p| p.destroy(gpa);
 
-    // Transfer packages added with --pkg-begin/--pkg-end to the root package
-    if (main_pkg) |pkg| {
-        var it = pkg_tree_root.table.valueIterator();
-        while (it.next()) |p| {
-            if (p.*.parent == &pkg_tree_root) {
-                p.*.parent = pkg;
+    // Transfer packages added with --deps to the root package
+    if (main_pkg) |mod| {
+        var it = ModuleDepIterator.init(root_deps_str orelse "");
+        while (it.next()) |dep| {
+            if (dep.expose.len == 0) {
+                fatal("root module depends on '{s}' with a blank name", .{dep.name});
             }
-        }
-        pkg.table = pkg_tree_root.table;
-        pkg_tree_root.table = .{};
-    } else {
-        // Remove any dangling pointers just in case.
-        var it = pkg_tree_root.table.valueIterator();
-        while (it.next()) |p| {
-            if (p.*.parent == &pkg_tree_root) {
-                p.*.parent = null;
+
+            for ([_][]const u8{ "std", "root", "builtin" }) |name| {
+                if (mem.eql(u8, dep.expose, name)) {
+                    fatal("unable to add module '{s}' under name '{s}': conflicts with builtin module", .{ dep.name, dep.expose });
+                }
             }
+
+            const dep_mod = modules.get(dep.name) orelse
+                fatal("root module depends on module '{s}' which does not exist", .{dep.name});
+
+            try mod.add(gpa, dep.expose, dep_mod.mod);
         }
     }
 
@@ -3400,6 +3445,32 @@ fn buildOutputType(
     return cleanExit();
 }
 
+const ModuleDepIterator = struct {
+    split: mem.SplitIterator(u8),
+
+    fn init(deps_str: []const u8) ModuleDepIterator {
+        return .{ .split = mem.split(u8, deps_str, ",") };
+    }
+
+    const Dependency = struct {
+        expose: []const u8,
+        name: []const u8,
+    };
+
+    fn next(it: *ModuleDepIterator) ?Dependency {
+        if (it.split.buffer.len == 0) return null; // don't return "" for the first iteration on ""
+        const str = it.split.next() orelse return null;
+        if (mem.indexOfScalar(u8, str, '=')) |i| {
+            return .{
+                .expose = str[0..i],
+                .name = str[i + 1 ..],
+            };
+        } else {
+            return .{ .expose = str, .name = str };
+        }
+    }
+};
+
 fn parseCrossTargetOrReportFatalError(
     allocator: Allocator,
     opts: std.zig.CrossTarget.ParseOptions,
@@ -3623,18 +3694,6 @@ fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void
                 _ = try cache_dir.updateFile(src_pdb_path, cwd, dst_pdb_path, .{});
             }
         },
-    }
-}
-
-fn freePkgTree(gpa: Allocator, pkg: *Package, free_parent: bool) void {
-    {
-        var it = pkg.table.valueIterator();
-        while (it.next()) |value| {
-            freePkgTree(gpa, value.*, true);
-        }
-    }
-    if (free_parent) {
-        pkg.destroy(gpa);
     }
 }
 
@@ -4141,7 +4200,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         var main_pkg: Package = .{
             .root_src_directory = zig_lib_directory,
             .root_src_path = "build_runner.zig",
-            .name = "root",
         };
 
         if (!build_options.omit_pkg_fetching_code) {
@@ -4184,22 +4242,20 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
             const deps_pkg = try Package.createFilePkg(
                 gpa,
-                "@dependencies",
                 local_cache_directory,
                 "dependencies.zig",
                 dependencies_source.items,
             );
 
             mem.swap(Package.Table, &main_pkg.table, &deps_pkg.table);
-            try main_pkg.addAndAdopt(gpa, deps_pkg);
+            try main_pkg.add(gpa, "@dependencies", deps_pkg);
         }
 
         var build_pkg: Package = .{
             .root_src_directory = build_directory,
             .root_src_path = build_zig_basename,
-            .name = "@build",
         };
-        try main_pkg.addAndAdopt(gpa, &build_pkg);
+        try main_pkg.add(gpa, "@build", &build_pkg);
 
         const comp = Compilation.create(gpa, .{
             .zig_lib_directory = zig_lib_directory,
@@ -4434,7 +4490,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                 .root_decl = .none,
             };
 
-            file.pkg = try Package.create(gpa, "root", null, file.sub_file_path);
+            file.pkg = try Package.create(gpa, null, file.sub_file_path);
             defer file.pkg.destroy(gpa);
 
             file.zir = try AstGen.generate(gpa, file.tree);
@@ -4645,7 +4701,7 @@ fn fmtPathFile(
             .root_decl = .none,
         };
 
-        file.pkg = try Package.create(fmt.gpa, "root", null, file.sub_file_path);
+        file.pkg = try Package.create(fmt.gpa, null, file.sub_file_path);
         defer file.pkg.destroy(fmt.gpa);
 
         if (stat.size > max_src_size)
@@ -5357,7 +5413,7 @@ pub fn cmdAstCheck(
         file.stat.size = source.len;
     }
 
-    file.pkg = try Package.create(gpa, "root", null, file.sub_file_path);
+    file.pkg = try Package.create(gpa, null, file.sub_file_path);
     defer file.pkg.destroy(gpa);
 
     file.tree = try Ast.parse(gpa, file.source, .zig);
@@ -5476,7 +5532,7 @@ pub fn cmdChangelist(
         .root_decl = .none,
     };
 
-    file.pkg = try Package.create(gpa, "root", null, file.sub_file_path);
+    file.pkg = try Package.create(gpa, null, file.sub_file_path);
     defer file.pkg.destroy(gpa);
 
     const source = try arena.allocSentinel(u8, @intCast(usize, stat.size), 0);

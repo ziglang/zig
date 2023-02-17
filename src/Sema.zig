@@ -5311,7 +5311,6 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     }
     const c_import_pkg = Package.create(
         sema.gpa,
-        "c_import", // TODO: should we make this unique?
         null,
         c_import_res.out_zig_path,
     ) catch |err| switch (err) {
@@ -11793,8 +11792,9 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return sema.fail(block, operand_src, "import of file outside package path: '{s}'", .{operand});
         },
         error.PackageNotFound => {
-            const cur_pkg = block.getFileScope().pkg;
-            return sema.fail(block, operand_src, "no package named '{s}' available within package '{s}'", .{ operand, cur_pkg.name });
+            const name = try block.getFileScope().pkg.getName(sema.gpa, mod.*);
+            defer sema.gpa.free(name);
+            return sema.fail(block, operand_src, "no package named '{s}' available within package '{s}'", .{ operand, name });
         },
         else => {
             // TODO: these errors are file system errors; make sure an update() will
