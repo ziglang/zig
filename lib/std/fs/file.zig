@@ -1380,29 +1380,15 @@ pub const File = struct {
         }
     }
 
-    pub const Reader = io.Reader(File, ReadError, read);
+    pub const Reader = io.SeekableReader(File, ReadError, read);
 
     pub fn reader(file: File) Reader {
         return .{ .context = file };
     }
 
-    pub const Writer = io.Writer(File, WriteError, write);
+    pub const Writer = io.SeekableWriter(File, WriteError, write);
 
     pub fn writer(file: File) Writer {
-        return .{ .context = file };
-    }
-
-    pub const SeekableStream = io.SeekableStream(
-        File,
-        SeekError,
-        GetSeekPosError,
-        seekTo,
-        seekBy,
-        getPos,
-        getEndPos,
-    );
-
-    pub fn seekableStream(file: File) SeekableStream {
         return .{ .context = file };
     }
 
