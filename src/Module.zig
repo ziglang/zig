@@ -2462,6 +2462,13 @@ pub const SrcLoc = struct {
                 };
                 return nodeToSpan(tree, src_node);
             },
+            .for_input => |for_input| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(for_input.for_node_offset);
+                const for_full = tree.fullFor(node).?;
+                const src_node = for_full.ast.inputs[for_input.input_index];
+                return nodeToSpan(tree, src_node);
+            },
             .node_offset_bin_lhs => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -3114,6 +3121,14 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to the RHS of an assignment.
     /// The Decl is determined contextually.
     node_offset_store_operand: i32,
+    /// The source location points to a for loop input.
+    /// The Decl is determined contextually.
+    for_input: struct {
+        /// Points to the for loop AST node.
+        for_node_offset: i32,
+        /// Picks one of the inputs from the condition.
+        input_index: u32,
+    },
 
     pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
 
@@ -3200,6 +3215,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_init_ty,
             .node_offset_store_ptr,
             .node_offset_store_operand,
+            .for_input,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,

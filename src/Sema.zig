@@ -3910,14 +3910,15 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
     var len: Air.Inst.Ref = .none;
     var len_val: ?Value = null;
-    var len_idx: usize = undefined;
+    var len_idx: u32 = undefined;
     var any_runtime = false;
 
     const runtime_arg_lens = try gpa.alloc(Air.Inst.Ref, args.len);
     defer gpa.free(runtime_arg_lens);
 
     // First pass to look for comptime values.
-    for (args, 0..) |zir_arg, i| {
+    for (args, 0..) |zir_arg, i_usize| {
+        const i = @intCast(u32, i_usize);
         runtime_arg_lens[i] = .none;
         if (zir_arg == .none) continue;
         const object = try sema.resolveInst(zir_arg);
@@ -3941,8 +3942,26 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         if (try sema.resolveDefinedValue(block, src, arg_len)) |arg_val| {
             if (len_val) |v| {
                 if (!(try sema.valuesEqual(arg_val, v, Type.usize))) {
-                    // TODO error notes for each arg stating the differing values
-                    return sema.fail(block, src, "non-matching for loop lengths", .{});
+                    const msg = msg: {
+                        const msg = try sema.errMsg(block, src, "non-matching for loop lengths", .{});
+                        errdefer msg.destroy(gpa);
+                        const a_src: LazySrcLoc = .{ .for_input = .{
+                            .for_node_offset = inst_data.src_node,
+                            .input_index = len_idx,
+                        } };
+                        const b_src: LazySrcLoc = .{ .for_input = .{
+                            .for_node_offset = inst_data.src_node,
+                            .input_index = i,
+                        } };
+                        try sema.errNote(block, a_src, msg, "length {} here", .{
+                            v.fmtValue(Type.usize, sema.mod),
+                        });
+                        try sema.errNote(block, b_src, msg, "length {} here", .{
+                            arg_val.fmtValue(Type.usize, sema.mod),
+                        });
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(msg);
                 }
             } else {
                 len = arg_len;
