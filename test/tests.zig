@@ -958,7 +958,7 @@ pub const StackTracesContext = struct {
                     // locate delims/anchor
                     const delims = [_][]const u8{ ":", ":", ":", " in ", "(", ")" };
                     var marks = [_]usize{0} ** delims.len;
-                    for (delims) |delim, i| {
+                    for (delims, 0..) |delim, i| {
                         marks[i] = mem.indexOfPos(u8, line, pos, delim) orelse {
                             // unexpected pattern: emit raw line and cont
                             try buf.appendSlice(line);

@@ -211,7 +211,7 @@ fn first8Words(words: [16]u32) [8]u32 {
 
 fn wordsFromLittleEndianBytes(comptime count: usize, bytes: [count * 4]u8) [count]u32 {
     var words: [count]u32 = undefined;
-    for (words) |*word, i| {
+    for (&words) |*word, i| {
         word.* = mem.readIntSliceLittle(u32, bytes[4 * i ..]);
     }
     return words;

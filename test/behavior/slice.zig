@@ -99,7 +99,7 @@ test "comptime slice of slice preserves comptime var" {
 test "slice of type" {
     comptime {
         var types_array = [_]type{ i32, f64, type };
-        for (types_array) |T, i| {
+        for (types_array, 0..) |T, i| {
             switch (i) {
                 0 => try expect(T == i32),
                 1 => try expect(T == f64),
@@ -107,7 +107,7 @@ test "slice of type" {
                 else => unreachable,
             }
         }
-        for (types_array[0..]) |T, i| {
+        for (types_array[0..], 0..) |T, i| {
             switch (i) {
                 0 => try expect(T == i32),
                 1 => try expect(T == f64),

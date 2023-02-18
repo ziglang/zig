@@ -55,9 +55,9 @@ fn testContinueOuter() !void {
 }
 
 test "ignore lval with underscore (for loop)" {
-    for ([_]void{}) |_, i| {
+    for ([_]void{}, 0..) |_, i| {
         _ = i;
-        for ([_]void{}) |_, j| {
+        for ([_]void{}, 0..) |_, j| {
             _ = j;
             break;
         }
@@ -81,7 +81,7 @@ test "basic for loop" {
         buffer[buf_index] = item;
         buf_index += 1;
     }
-    for (array) |item, index| {
+    for (array, 0..) |item, index| {
         _ = item;
         buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
@@ -91,7 +91,7 @@ test "basic for loop" {
         buffer[buf_index] = item;
         buf_index += 1;
     }
-    for (array_ptr) |item, index| {
+    for (array_ptr, 0..) |item, index| {
         _ = item;
         buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
@@ -101,7 +101,7 @@ test "basic for loop" {
         buffer[buf_index] = item;
         buf_index += 1;
     }
-    for (unknown_size) |_, index| {
+    for (unknown_size, 0..) |_, index| {
         buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
     }
@@ -163,11 +163,11 @@ test "for loop with pointer elem var" {
     mangleString(target[0..]);
     try expect(mem.eql(u8, &target, "bcdefgh"));
 
-    for (source) |*c, i| {
+    for (source, 0..) |*c, i| {
         _ = i;
         try expect(@TypeOf(c) == *const u8);
     }
-    for (target) |*c, i| {
+    for (&target, 0..) |*c, i| {
         _ = i;
         try expect(@TypeOf(c) == *u8);
     }
@@ -186,7 +186,7 @@ test "for copies its payload" {
     const S = struct {
         fn doTheTest() !void {
             var x = [_]usize{ 1, 2, 3 };
-            for (x) |value, i| {
+            for (x, 0..) |value, i| {
                 // Modify the original array
                 x[i] += 99;
                 try expect(value == i + 1);
@@ -206,8 +206,8 @@ test "for on slice with allowzero ptr" {
     const S = struct {
         fn doTheTest(slice: []const u8) !void {
             var ptr = @ptrCast([*]allowzero const u8, slice.ptr)[0..slice.len];
-            for (ptr) |x, i| try expect(x == i + 1);
-            for (ptr) |*x, i| try expect(x.* == i + 1);
+            for (ptr, 0..) |x, i| try expect(x == i + 1);
+            for (ptr, 0..) |*x, i| try expect(x.* == i + 1);
         }
     };
     try S.doTheTest(&[_]u8{ 1, 2, 3, 4 });

@@ -12,7 +12,7 @@ test "strlit to vector" {
     const strlit = "0123456789abcdef0123456789ABCDEF";
     const vec_from_strlit: @Vector(32, u8) = strlit.*;
     const arr_from_vec = @as([32]u8, vec_from_strlit);
-    for (strlit) |c, i|
+    for (strlit, 0..) |c, i|
         try std.testing.expect(c == arr_from_vec[i]);
     try std.testing.expectEqualSlices(u8, strlit, &arr_from_vec);
 }

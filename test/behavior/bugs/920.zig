@@ -23,13 +23,13 @@ fn ZigTableGen(comptime is_symmetric: bool, comptime r: f64, comptime v: f64, co
     tables.x[0] = v / f(r);
     tables.x[1] = r;
 
-    for (tables.x[2..256]) |*entry, i| {
+    for (tables.x[2..256], 0..) |*entry, i| {
         const last = tables.x[2 + i - 1];
         entry.* = f_inv(v / last + f(last));
     }
     tables.x[256] = 0;
 
-    for (tables.f[0..]) |*entry, i| {
+    for (tables.f[0..], 0..) |*entry, i| {
         entry.* = f(tables.x[i]);
     }
 
@@ -67,7 +67,7 @@ test "bug 920 fixed" {
         break :blk ZigTableGen(true, norm_r, norm_v, norm_f, norm_f_inv, norm_zero_case);
     };
 
-    for (NormalDist1.f) |_, i| {
+    for (NormalDist1.f, 0..) |_, i| {
         // Here we use `expectApproxEqAbs` instead of `expectEqual` to account for the small
         // differences in math functions of different libcs. For example, if the compiler
         // links against glibc, but the target is musl libc, then these values might be
