@@ -6381,11 +6381,10 @@ fn forExpr(
                 lens[i] = range_len;
             } else {
                 const indexable = try expr(parent_gz, scope, .{ .rl = .none }, input);
-                const indexable_len = try parent_gz.addUnNode(.indexable_ptr_len, indexable, input);
 
                 any_len_checks = true;
                 indexables[i] = indexable;
-                lens[i] = indexable_len;
+                lens[i] = indexable;
             }
         }
     }

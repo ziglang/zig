@@ -3378,26 +3378,7 @@ fn zirIndexablePtrLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     else
         object_ty;
 
-    if (!array_ty.isIndexable()) {
-        const msg = msg: {
-            const msg = try sema.errMsg(
-                block,
-                src,
-                "type '{}' does not support indexing",
-                .{array_ty.fmt(sema.mod)},
-            );
-            errdefer msg.destroy(sema.gpa);
-            try sema.errNote(
-                block,
-                src,
-                msg,
-                "for loop operand must be an array, slice, tuple, or vector",
-                .{},
-            );
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(msg);
-    }
+    try checkIndexable(sema, block, src, array_ty);
 
     return sema.fieldVal(block, src, object, "len", src);
 }
@@ -3921,13 +3902,70 @@ fn zirFieldBasePtr(
 }
 
 fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
     const args = sema.code.refSlice(extra.end, extra.data.operands_len);
     const src = inst_data.src();
 
-    _ = args;
-    return sema.fail(block, src, "TODO implement zirForCheckLens", .{});
+    var len: Air.Inst.Ref = .none;
+    var len_val: ?Value = null;
+    var len_idx: usize = undefined;
+    var any_runtime = false;
+
+    const runtime_arg_lens = try gpa.alloc(Air.Inst.Ref, args.len);
+    defer gpa.free(runtime_arg_lens);
+
+    // First pass to look for comptime values.
+    for (args) |zir_arg, i| {
+        runtime_arg_lens[i] = .none;
+        if (zir_arg == .none) continue;
+        const object = try sema.resolveInst(zir_arg);
+        const object_ty = sema.typeOf(object);
+        // Each arg could be an indexable, or a range, in which case the length
+        // is passed directly as an integer.
+        const arg_len = if (object_ty.zigTypeTag() == .Int) object else l: {
+            try checkIndexable(sema, block, src, object_ty);
+            if (!object_ty.indexableHasLen()) continue;
+
+            break :l try sema.fieldVal(block, src, object, "len", src);
+        };
+        if (len == .none) {
+            len = arg_len;
+            len_idx = i;
+        }
+        if (try sema.resolveDefinedValue(block, src, arg_len)) |arg_val| {
+            if (len_val) |v| {
+                if (!(try sema.valuesEqual(arg_val, v, Type.usize))) {
+                    // TODO error notes for each arg stating the differing values
+                    return sema.fail(block, src, "non-matching for loop lengths", .{});
+                }
+            } else {
+                len = arg_len;
+                len_val = arg_val;
+                len_idx = i;
+            }
+            continue;
+        }
+        runtime_arg_lens[i] = arg_len;
+        any_runtime = true;
+    }
+
+    if (len == .none) {
+        return sema.fail(block, src, "non-obvious infinite loop", .{});
+    }
+
+    // Now for the runtime checks.
+    if (any_runtime and block.wantSafety()) {
+        for (runtime_arg_lens) |arg_len, i| {
+            if (arg_len == .none) continue;
+            if (i == len_idx) continue;
+            const ok = try block.addBinOp(.cmp_eq, len, arg_len);
+            try sema.addSafetyCheck(block, ok, .for_len_mismatch);
+        }
+    }
+
+    return len;
 }
 
 fn validateArrayInitTy(
@@ -9655,7 +9693,7 @@ fn zirElemPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const array_ptr = try sema.resolveInst(extra.lhs);
     const elem_index = try sema.resolveInst(extra.rhs);
-    return sema.elemPtr(block, src, array_ptr, elem_index, src, false);
+    return sema.elemPtrOneLayerOnly(block, src, array_ptr, elem_index, src, false);
 }
 
 fn zirElemPtrNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -22687,6 +22725,7 @@ pub const PanicId = enum {
     unwrap_error,
     index_out_of_bounds,
     start_index_greater_than_end,
+    for_len_mismatch,
 };
 
 fn addSafetyCheck(
@@ -24076,21 +24115,46 @@ fn elemPtr(
         .Pointer => indexable_ptr_ty.elemType(),
         else => return sema.fail(block, indexable_ptr_src, "expected pointer, found '{}'", .{indexable_ptr_ty.fmt(sema.mod)}),
     };
+    switch (indexable_ty.zigTypeTag()) {
+        .Array, .Vector => return sema.elemPtrArray(block, src, indexable_ptr_src, indexable_ptr, elem_index_src, elem_index, init),
+        .Struct => {
+            // Tuple field access.
+            const index_val = try sema.resolveConstValue(block, elem_index_src, elem_index, "tuple field access index must be comptime-known");
+            const index = @intCast(u32, index_val.toUnsignedInt(target));
+            return sema.tupleFieldPtr(block, src, indexable_ptr, elem_index_src, index, init);
+        },
+        else => {
+            const indexable = try sema.analyzeLoad(block, indexable_ptr_src, indexable_ptr, indexable_ptr_src);
+            return elemPtrOneLayerOnly(sema, block, src, indexable, elem_index, elem_index_src, init);
+        },
+    }
+}
+
+fn elemPtrOneLayerOnly(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    indexable: Air.Inst.Ref,
+    elem_index: Air.Inst.Ref,
+    elem_index_src: LazySrcLoc,
+    init: bool,
+) CompileError!Air.Inst.Ref {
+    const indexable_src = src; // TODO better source location
+    const indexable_ty = sema.typeOf(indexable);
     if (!indexable_ty.isIndexable()) {
         return sema.fail(block, src, "element access of non-indexable type '{}'", .{indexable_ty.fmt(sema.mod)});
     }
+    const target = sema.mod.getTarget();
 
     switch (indexable_ty.zigTypeTag()) {
         .Pointer => {
-            // In all below cases, we have to deref the ptr operand to get the actual indexable pointer.
-            const indexable = try sema.analyzeLoad(block, indexable_ptr_src, indexable_ptr, indexable_ptr_src);
             switch (indexable_ty.ptrSize()) {
-                .Slice => return sema.elemPtrSlice(block, src, indexable_ptr_src, indexable, elem_index_src, elem_index),
+                .Slice => return sema.elemPtrSlice(block, src, indexable_src, indexable, elem_index_src, elem_index),
                 .Many, .C => {
-                    const maybe_ptr_val = try sema.resolveDefinedValue(block, indexable_ptr_src, indexable);
+                    const maybe_ptr_val = try sema.resolveDefinedValue(block, indexable_src, indexable);
                     const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
                     const runtime_src = rs: {
-                        const ptr_val = maybe_ptr_val orelse break :rs indexable_ptr_src;
+                        const ptr_val = maybe_ptr_val orelse break :rs indexable_src;
                         const index_val = maybe_index_val orelse break :rs elem_index_src;
                         const index = @intCast(usize, index_val.toUnsignedInt(target));
                         const elem_ptr = try ptr_val.elemPtr(indexable_ty, sema.arena, index, sema.mod);
@@ -24104,18 +24168,16 @@ fn elemPtr(
                 },
                 .One => {
                     assert(indexable_ty.childType().zigTypeTag() == .Array); // Guaranteed by isIndexable
-                    return sema.elemPtrArray(block, src, indexable_ptr_src, indexable, elem_index_src, elem_index, init);
+                    return sema.elemPtrArray(block, src, indexable_src, indexable, elem_index_src, elem_index, init);
                 },
             }
         },
-        .Array, .Vector => return sema.elemPtrArray(block, src, indexable_ptr_src, indexable_ptr, elem_index_src, elem_index, init),
-        .Struct => {
-            // Tuple field access.
-            const index_val = try sema.resolveConstValue(block, elem_index_src, elem_index, "tuple field access index must be comptime-known");
-            const index = @intCast(u32, index_val.toUnsignedInt(target));
-            return sema.tupleFieldPtr(block, src, indexable_ptr, elem_index_src, index, init);
+        else => {
+            // TODO add note pointing at corresponding for loop input and suggest using '&'
+            return sema.fail(block, indexable_src, "pointer capture of non pointer type '{}'", .{
+                indexable_ty.fmt(sema.mod),
+            });
         },
-        else => unreachable,
     }
 }
 
@@ -30199,6 +30261,29 @@ fn checkBackingIntType(sema: *Sema, block: *Block, src: LazySrcLoc, backing_int_
             "backing integer type '{}' has bit size {} but the struct fields have a total bit size of {}",
             .{ backing_int_ty.fmt(sema.mod), backing_int_ty.bitSize(target), fields_bit_sum },
         );
+    }
+}
+
+fn checkIndexable(sema: *Sema, block: *Block, src: LazySrcLoc, array_ty: Type) !void {
+    if (!array_ty.isIndexable()) {
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                src,
+                "type '{}' does not support indexing",
+                .{array_ty.fmt(sema.mod)},
+            );
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(
+                block,
+                src,
+                msg,
+                "for loop operand must be an array, slice, tuple, or vector",
+                .{},
+            );
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
 }
 

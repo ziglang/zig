@@ -5326,6 +5326,19 @@ pub const Type = extern union {
         };
     }
 
+    pub fn indexableHasLen(ty: Type) bool {
+        return switch (ty.zigTypeTag()) {
+            .Array, .Vector => true,
+            .Pointer => switch (ty.ptrSize()) {
+                .Many, .C => false,
+                .Slice => true,
+                .One => ty.elemType().zigTypeTag() == .Array,
+            },
+            .Struct => ty.isTuple(),
+            else => false,
+        };
+    }
+
     /// Returns null if the type has no namespace.
     pub fn getNamespace(self: Type) ?*Module.Namespace {
         return switch (self.tag()) {
