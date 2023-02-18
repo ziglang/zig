@@ -583,6 +583,11 @@ pub const TestContext = struct {
         path: []const u8,
     };
 
+    pub const DepModule = struct {
+        name: []const u8,
+        path: []const u8,
+    };
+
     pub const Backend = enum {
         stage1,
         stage2,
@@ -611,11 +616,19 @@ pub const TestContext = struct {
         link_libc: bool = false,
 
         files: std.ArrayList(File),
+        deps: std.ArrayList(DepModule),
 
         result: anyerror!void = {},
 
         pub fn addSourceFile(case: *Case, name: []const u8, src: [:0]const u8) void {
             case.files.append(.{ .path = name, .src = src }) catch @panic("out of memory");
+        }
+
+        pub fn addDepModule(case: *Case, name: []const u8, path: []const u8) void {
+            case.deps.append(.{
+                .name = name,
+                .path = path,
+            }) catch @panic("out of memory");
         }
 
         /// Adds a subcase in which the module is updated with `src`, and a C
@@ -767,6 +780,7 @@ pub const TestContext = struct {
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
             .files = std.ArrayList(File).init(ctx.arena),
+            .deps = std.ArrayList(DepModule).init(ctx.arena),
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
@@ -787,6 +801,7 @@ pub const TestContext = struct {
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
             .files = std.ArrayList(File).init(ctx.arena),
+            .deps = std.ArrayList(DepModule).init(ctx.arena),
             .link_libc = true,
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
@@ -801,6 +816,7 @@ pub const TestContext = struct {
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
             .files = std.ArrayList(File).init(ctx.arena),
+            .deps = std.ArrayList(DepModule).init(ctx.arena),
             .backend = .llvm,
             .link_libc = true,
         }) catch @panic("out of memory");
@@ -818,6 +834,7 @@ pub const TestContext = struct {
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Obj,
             .files = std.ArrayList(File).init(ctx.arena),
+            .deps = std.ArrayList(DepModule).init(ctx.arena),
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
@@ -834,6 +851,7 @@ pub const TestContext = struct {
             .output_mode = .Exe,
             .is_test = true,
             .files = std.ArrayList(File).init(ctx.arena),
+            .deps = std.ArrayList(DepModule).init(ctx.arena),
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
@@ -858,6 +876,7 @@ pub const TestContext = struct {
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Obj,
             .files = std.ArrayList(File).init(ctx.arena),
+            .deps = std.ArrayList(DepModule).init(ctx.arena),
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
     }
@@ -1145,6 +1164,7 @@ pub const TestContext = struct {
                                 .output_mode = output_mode,
                                 .link_libc = backend == .llvm,
                                 .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
+                                .deps = std.ArrayList(DepModule).init(ctx.cases.allocator),
                             });
                             try cases.append(next);
                         }
@@ -1498,7 +1518,24 @@ pub const TestContext = struct {
             .root_src_directory = .{ .path = tmp_dir_path, .handle = tmp.dir },
             .root_src_path = tmp_src_path,
         };
-        defer main_pkg.table.deinit(allocator);
+        defer {
+            var it = main_pkg.table.iterator();
+            while (it.next()) |kv| {
+                allocator.free(kv.key_ptr.*);
+                kv.value_ptr.*.destroy(allocator);
+            }
+            main_pkg.table.deinit(allocator);
+        }
+
+        for (case.deps.items) |dep| {
+            var pkg = try Package.create(
+                allocator,
+                tmp_dir_path,
+                dep.path,
+            );
+            errdefer pkg.destroy(allocator);
+            try main_pkg.add(allocator, dep.name, pkg);
+        }
 
         const bin_name = try std.zig.binNameAlloc(arena, .{
             .root_name = "test_case",
