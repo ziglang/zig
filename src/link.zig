@@ -10,7 +10,7 @@ const wasi_libc = @import("wasi_libc.zig");
 
 const Air = @import("Air.zig");
 const Allocator = std.mem.Allocator;
-const Cache = @import("Cache.zig");
+const Cache = std.Build.Cache;
 const Compilation = @import("Compilation.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const Liveness = @import("Liveness.zig");
@@ -24,6 +24,8 @@ pub const SystemLib = struct {
     needed: bool = false,
     weak: bool = false,
 };
+
+pub const SortSection = enum { name, alignment };
 
 pub const CacheMode = enum { incremental, whole };
 
@@ -159,6 +161,7 @@ pub const Options = struct {
     disable_lld_caching: bool,
     is_test: bool,
     hash_style: HashStyle,
+    sort_section: ?SortSection,
     major_subsystem_version: ?u32,
     minor_subsystem_version: ?u32,
     gc_sections: ?bool = null,

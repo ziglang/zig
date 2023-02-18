@@ -68,7 +68,7 @@ const Page = struct {
     start: RecordIndex,
     count: u16,
     page_encodings: [max_compact_encodings]RecordIndex = undefined,
-    page_encodings_count: u8 = 0,
+    page_encodings_count: u9 = 0,
 
     fn appendPageEncoding(page: *Page, record_id: RecordIndex) void {
         assert(page.page_encodings_count <= max_compact_encodings);
@@ -81,13 +81,13 @@ const Page = struct {
         info: *const UnwindInfo,
         enc: macho.compact_unwind_encoding_t,
     ) ?u8 {
-        comptime var index: u8 = 0;
+        comptime var index: u9 = 0;
         inline while (index < max_compact_encodings) : (index += 1) {
             if (index >= page.page_encodings_count) return null;
             const record_id = page.page_encodings[index];
             const record = info.records.items[record_id];
             if (record.compactUnwindEncoding == enc) {
-                return index;
+                return @intCast(u8, index);
             }
         }
         return null;
@@ -703,15 +703,11 @@ pub fn parseRelocTarget(
     } else return sym_loc;
 }
 
-fn getRelocs(
-    zld: *Zld,
-    object_id: u32,
-    record_id: usize,
-) []align(1) const macho.relocation_info {
+fn getRelocs(zld: *Zld, object_id: u32, record_id: usize) []const macho.relocation_info {
     const object = &zld.objects.items[object_id];
     assert(object.hasUnwindRecords());
     const rel_pos = object.unwind_relocs_lookup[record_id].reloc;
-    const relocs = object.getRelocs(object.unwind_info_sect.?);
+    const relocs = object.getRelocs(object.unwind_info_sect_id.?);
     return relocs[rel_pos.start..][0..rel_pos.len];
 }
 

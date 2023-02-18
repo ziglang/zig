@@ -739,6 +739,7 @@ pub const Tokenizer = struct {
                     },
                     0 => {
                         if (self.index == self.buffer.len) {
+                            result.tag = .invalid;
                             break;
                         } else {
                             self.checkLiteralCharacter();
@@ -1326,7 +1327,7 @@ test "newline in string literal" {
     try testTokenize(
         \\"
         \\"
-    , &.{ .invalid, .string_literal });
+    , &.{ .invalid, .invalid });
 }
 
 test "code point literal with unicode escapes" {

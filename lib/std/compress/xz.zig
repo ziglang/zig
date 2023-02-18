@@ -118,7 +118,7 @@ pub fn Decompress(comptime ReaderType: type) type {
                 var hasher = std.compress.hashedReader(self.in_reader, Crc32.init());
                 const hashed_reader = hasher.reader();
 
-                const backward_size = (try hashed_reader.readIntLittle(u32) + 1) * 4;
+                const backward_size = (@as(u64, try hashed_reader.readIntLittle(u32)) + 1) * 4;
                 if (backward_size != index_size)
                     return error.CorruptInput;
 

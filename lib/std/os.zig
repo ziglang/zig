@@ -4513,7 +4513,7 @@ pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16, mode: u32, flags: u32
     var nt_name = windows.UNICODE_STRING{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
-        .Buffer = @qualCast([*:0]u16, sub_path_w),
+        .Buffer = @constCast(sub_path_w),
     };
     var attr = windows.OBJECT_ATTRIBUTES{
         .Length = @sizeOf(windows.OBJECT_ATTRIBUTES),

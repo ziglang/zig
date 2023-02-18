@@ -74,8 +74,10 @@ fn castPtr(comptime DestType: type, target: anytype) DestType {
     const dest = ptrInfo(DestType);
     const source = ptrInfo(@TypeOf(target));
 
-    if (source.is_const and !dest.is_const or source.is_volatile and !dest.is_volatile)
-        return @qualCast(DestType, target)
+    if (source.is_const and !dest.is_const)
+        return @constCast(target)
+    else if (source.is_volatile and !dest.is_volatile)
+        return @volatileCast(target)
     else if (@typeInfo(dest.child) == .Opaque)
         // dest.alignment would error out
         return @ptrCast(DestType, target)

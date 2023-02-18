@@ -332,7 +332,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
     @compileError("Unable to derive a sentinel pointer type from " ++ @typeName(T));
 }
 
-const assumeSentinel = @compileError("This function has been removed, consider using std.mem.sliceTo() or if needed a @ptrCast()");
+pub const assumeSentinel = @compileError("This function has been removed, consider using std.mem.sliceTo() or if needed a @ptrCast()");
 
 pub fn containerLayout(comptime T: type) Type.ContainerLayout {
     return switch (@typeInfo(T)) {

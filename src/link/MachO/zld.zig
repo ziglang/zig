@@ -20,7 +20,7 @@ const trace = @import("../../tracy.zig").trace;
 const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
 const Atom = @import("ZldAtom.zig");
-const Cache = @import("../../Cache.zig");
+const Cache = std.Build.Cache;
 const CodeSignature = @import("CodeSignature.zig");
 const Compilation = @import("../../Compilation.zig");
 const DwarfInfo = @import("DwarfInfo.zig");
@@ -1065,7 +1065,13 @@ pub const Zld = struct {
                 assert(offsets.items.len > 0);
 
                 const object_id = @intCast(u16, self.objects.items.len);
-                const object = try archive.parseObject(gpa, cpu_arch, offsets.items[0]);
+                const object = archive.parseObject(gpa, cpu_arch, offsets.items[0]) catch |e| switch (e) {
+                    error.MismatchedCpuArchitecture => {
+                        log.err("CPU architecture mismatch found in {s}", .{archive.name});
+                        return e;
+                    },
+                    else => return e,
+                };
                 try self.objects.append(gpa, object);
                 try self.resolveSymbolsInObject(object_id, resolver);
 
@@ -2391,22 +2397,20 @@ pub const Zld = struct {
         const text_sect_header = self.sections.items(.header)[text_sect_id];
 
         for (self.objects.items) |object| {
-            const dice = object.parseDataInCode() orelse continue;
+            if (!object.hasDataInCode()) continue;
+            const dice = object.data_in_code.items;
             try out_dice.ensureUnusedCapacity(dice.len);
 
-            for (object.atoms.items) |atom_index| {
+            for (object.exec_atoms.items) |atom_index| {
                 const atom = self.getAtom(atom_index);
                 const sym = self.getSymbol(atom.getSymbolWithLoc());
-                const sect_id = sym.n_sect - 1;
-                if (sect_id != text_sect_id) {
-                    continue;
-                }
+                if (sym.n_desc == N_DEAD) continue;
 
                 const source_addr = if (object.getSourceSymbol(atom.sym_index)) |source_sym|
                     source_sym.n_value
                 else blk: {
                     const nbase = @intCast(u32, object.in_symtab.?.len);
-                    const source_sect_id = @intCast(u16, atom.sym_index - nbase);
+                    const source_sect_id = @intCast(u8, atom.sym_index - nbase);
                     break :blk object.getSourceSection(source_sect_id).addr;
                 };
                 const filtered_dice = filterDataInCode(dice, source_addr, source_addr + atom.size);
@@ -2699,12 +2703,12 @@ pub const Zld = struct {
                     // Exclude region comprising all symbol stabs.
                     const nlocals = self.dysymtab_cmd.nlocalsym;
 
-                    const locals_buf = try self.gpa.alloc(u8, nlocals * @sizeOf(macho.nlist_64));
-                    defer self.gpa.free(locals_buf);
+                    const locals = try self.gpa.alloc(macho.nlist_64, nlocals);
+                    defer self.gpa.free(locals);
 
+                    const locals_buf = @ptrCast([*]u8, locals.ptr)[0 .. @sizeOf(macho.nlist_64) * nlocals];
                     const amt = try self.file.preadAll(locals_buf, self.symtab_cmd.symoff);
                     if (amt != locals_buf.len) return error.InputOutput;
-                    const locals = @ptrCast([*]macho.nlist_64, @alignCast(@alignOf(macho.nlist_64), locals_buf))[0..nlocals];
 
                     const istab: usize = for (locals) |local, i| {
                         if (local.stab()) break i;

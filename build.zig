@@ -40,15 +40,11 @@ pub fn build(b: *std.Build) !void {
     });
     docgen_exe.single_threaded = single_threaded;
 
-    const rel_zig_exe = try fs.path.relative(b.allocator, b.build_root, b.zig_exe);
-    const langref_out_path = fs.path.join(
-        b.allocator,
-        &[_][]const u8{ b.cache_root, "langref.html" },
-    ) catch unreachable;
+    const langref_out_path = try b.cache_root.join(b.allocator, &.{"langref.html"});
     const docgen_cmd = docgen_exe.run();
     docgen_cmd.addArgs(&[_][]const u8{
         "--zig",
-        rel_zig_exe,
+        b.zig_exe,
         "doc" ++ fs.path.sep_str ++ "langref.html.in",
         langref_out_path,
     });
@@ -133,6 +129,8 @@ pub fn build(b: *std.Build) !void {
                 "compress-gettysburg.txt",
                 "compress-pi.txt",
                 "rfc1951.txt",
+                // exclude files from lib/std/compress/lzma/testdata
+                ".lzma",
                 // exclude files from lib/std/compress/xz/testdata
                 ".xz",
                 // exclude files from lib/std/tz/
@@ -219,7 +217,7 @@ pub fn build(b: *std.Build) !void {
 
         var code: u8 = undefined;
         const git_describe_untrimmed = b.execAllowFail(&[_][]const u8{
-            "git", "-C", b.build_root, "describe", "--match", "*.*.*", "--tags",
+            "git", "-C", b.build_root.path orelse ".", "describe", "--match", "*.*.*", "--tags",
         }, &code, .Ignore) catch {
             break :v version_string;
         };

@@ -570,7 +570,7 @@ pub fn addCliTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []co
     const run_cmd = exe.run();
     run_cmd.addArgs(&[_][]const u8{
         fs.realpathAlloc(b.allocator, b.zig_exe) catch unreachable,
-        b.pathFromRoot(b.cache_root),
+        b.pathFromRoot(b.cache_root.path orelse "."),
     });
 
     step.dependOn(&run_cmd.step);
@@ -1059,7 +1059,7 @@ pub const StandaloneContext = struct {
         }
 
         var zig_args = ArrayList([]const u8).init(b.allocator);
-        const rel_zig_exe = fs.path.relative(b.allocator, b.build_root, b.zig_exe) catch unreachable;
+        const rel_zig_exe = fs.path.relative(b.allocator, b.build_root.path orelse ".", b.zig_exe) catch unreachable;
         zig_args.append(rel_zig_exe) catch unreachable;
         zig_args.append("build") catch unreachable;
 

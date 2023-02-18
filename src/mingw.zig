@@ -8,7 +8,7 @@ const log = std.log.scoped(.mingw);
 const builtin = @import("builtin");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
-const Cache = @import("Cache.zig");
+const Cache = std.Build.Cache;
 
 pub const CRTFile = enum {
     crt2_o,

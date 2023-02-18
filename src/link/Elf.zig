@@ -21,7 +21,7 @@ const trace = @import("../tracy.zig").trace;
 const Air = @import("../Air.zig");
 const Allocator = std.mem.Allocator;
 pub const Atom = @import("Elf/Atom.zig");
-const Cache = @import("../Cache.zig");
+const Cache = std.Build.Cache;
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
 const File = link.File;
@@ -1324,6 +1324,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.addOptionalBytes(self.base.options.entry);
         man.hash.addOptional(self.base.options.image_base_override);
         man.hash.add(gc_sections);
+        man.hash.addOptional(self.base.options.sort_section);
         man.hash.add(self.base.options.eh_frame_hdr);
         man.hash.add(self.base.options.emit_relocs);
         man.hash.add(self.base.options.rdynamic);
@@ -1486,6 +1487,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         if (self.base.options.linker_script) |linker_script| {
             try argv.append("-T");
             try argv.append(linker_script);
+        }
+
+        if (self.base.options.sort_section) |how| {
+            const arg = try std.fmt.allocPrint(arena, "--sort-section={s}", .{@tagName(how)});
+            try argv.append(arg);
         }
 
         if (gc_sections) {

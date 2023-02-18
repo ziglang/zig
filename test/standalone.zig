@@ -27,6 +27,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.add("test/standalone/noreturn_call/inline.zig");
     cases.add("test/standalone/noreturn_call/as_arg.zig");
     cases.addBuildFile("test/standalone/test_runner_path/build.zig", .{ .requires_stage2 = true });
+    cases.addBuildFile("test/standalone/issue_13970/build.zig", .{});
     cases.addBuildFile("test/standalone/main_pkg_path/build.zig", .{});
     cases.addBuildFile("test/standalone/shared_library/build.zig", .{});
     cases.addBuildFile("test/standalone/mix_o_files/build.zig", .{});
@@ -102,4 +103,5 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/issue_13030/build.zig", .{ .build_modes = true });
     cases.addBuildFile("test/standalone/emit_asm_and_bin/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_12588/build.zig", .{});
+    cases.addBuildFile("test/standalone/embed_generated_file/build.zig", .{});
 }

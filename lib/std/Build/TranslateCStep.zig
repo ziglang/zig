@@ -15,7 +15,6 @@ builder: *std.Build,
 source: std.Build.FileSource,
 include_dirs: std.ArrayList([]const u8),
 c_macros: std.ArrayList([]const u8),
-output_dir: ?[]const u8,
 out_basename: []const u8,
 target: CrossTarget,
 optimize: std.builtin.OptimizeMode,
@@ -36,7 +35,6 @@ pub fn create(builder: *std.Build, options: Options) *TranslateCStep {
         .source = source,
         .include_dirs = std.ArrayList([]const u8).init(builder.allocator),
         .c_macros = std.ArrayList([]const u8).init(builder.allocator),
-        .output_dir = null,
         .out_basename = undefined,
         .target = options.target,
         .optimize = options.optimize,
@@ -122,15 +120,10 @@ fn make(step: *Step) !void {
     const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
 
     self.out_basename = fs.path.basename(output_path);
-    if (self.output_dir) |output_dir| {
-        const full_dest = try fs.path.join(self.builder.allocator, &[_][]const u8{ output_dir, self.out_basename });
-        try self.builder.updateFile(output_path, full_dest);
-    } else {
-        self.output_dir = fs.path.dirname(output_path).?;
-    }
+    const output_dir = fs.path.dirname(output_path).?;
 
     self.output_file.path = try fs.path.join(
         self.builder.allocator,
-        &[_][]const u8{ self.output_dir.?, self.out_basename },
+        &[_][]const u8{ output_dir, self.out_basename },
     );
 }
