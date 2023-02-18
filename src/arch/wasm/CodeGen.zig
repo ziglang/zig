@@ -2896,7 +2896,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             const struct_obj = ty.castTag(.@"struct").?.data;
             assert(struct_obj.layout == .Packed);
             var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
-            val.writeToPackedMemory(ty, func.bin_file.base.options.module.?, &buf, 0);
+            val.writeToPackedMemory(ty, func.bin_file.base.options.module.?, &buf, 0) catch unreachable;
             var payload: Value.Payload.U64 = .{
                 .base = .{ .tag = .int_u64 },
                 .data = std.mem.readIntLittle(u64, &buf),
@@ -2907,7 +2907,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         .Vector => {
             assert(determineSimdStoreStrategy(ty, target) == .direct);
             var buf: [16]u8 = undefined;
-            val.writeToMemory(ty, func.bin_file.base.options.module.?, &buf);
+            val.writeToMemory(ty, func.bin_file.base.options.module.?, &buf) catch unreachable;
             return func.storeSimdImmd(buf);
         },
         else => |zig_type| return func.fail("Wasm TODO: LowerConstant for zigTypeTag {}", .{zig_type}),
