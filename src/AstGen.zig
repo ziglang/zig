@@ -6346,8 +6346,9 @@ fn forExpr(
             const i = @intCast(u32, i_usize);
             const capture_is_ref = token_tags[capture_token] == .asterisk;
             const ident_tok = capture_token + @boolToInt(capture_is_ref);
+            const is_discard = mem.eql(u8, tree.tokenSlice(ident_tok), "_");
 
-            if (mem.eql(u8, tree.tokenSlice(ident_tok), "_") and capture_is_ref) {
+            if (is_discard and capture_is_ref) {
                 return astgen.failTok(capture_token, "pointer modifier invalid on discard", .{});
             }
             // Skip over the comma, and on to the next capture (or the ending pipe character).
@@ -6366,6 +6367,10 @@ fn forExpr(
                     try expr(parent_gz, scope, .{ .rl = .none }, node_data[input].rhs)
                 else
                     .none;
+
+                if (end_val == .none and is_discard) {
+                    return astgen.failTok(ident_tok, "discard of unbounded counter", .{});
+                }
 
                 const start_is_zero = nodeIsTriviallyZero(tree, start_node);
                 const range_len = if (end_val == .none or start_is_zero)
