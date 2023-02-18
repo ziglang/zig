@@ -6413,6 +6413,8 @@ fn forExpr(
     defer loop_scope.unstack();
     defer loop_scope.labeled_breaks.deinit(gpa);
 
+    const index = try loop_scope.addUnNode(.load, index_ptr, node);
+
     var cond_scope = parent_gz.makeSubBlock(&loop_scope.base);
     defer cond_scope.unstack();
 
@@ -6420,7 +6422,6 @@ fn forExpr(
     if (!any_len_checks) {
         return astgen.failNode(node, "TODO: handle infinite for loop", .{});
     }
-    const index = try cond_scope.addUnNode(.load, index_ptr, node);
     const cond = try cond_scope.addPlNode(.cmp_lt, node, Zir.Inst.Bin{
         .lhs = index,
         .rhs = len,
@@ -10695,7 +10696,6 @@ const Scope = struct {
         @"function parameter",
         @"local constant",
         @"local variable",
-        @"loop index capture",
         @"switch tag capture",
         capture,
     };
