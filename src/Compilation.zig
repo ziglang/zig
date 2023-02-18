@@ -4242,6 +4242,13 @@ pub fn addCCArgs(
 ) !void {
     const target = comp.getTarget();
 
+    // As of Clang 16.x, it will by default read extra flags from /etc/clang.
+    // I'm sure the person who implemented this means well, but they have a lot
+    // to learn about abstractions and where the appropriate boundaries between
+    // them are. The road to hell is paved with good intentions. Fortunately it
+    // can be disabled.
+    try argv.append("--no-default-config");
+
     if (ext == .cpp) {
         try argv.append("-nostdinc++");
     }
