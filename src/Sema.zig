@@ -29297,7 +29297,40 @@ fn analyzeSlice(
                     array_ty = double_child_ty;
                     elem_ty = double_child_ty.childType();
                 } else {
-                    return sema.fail(block, src, "slice of single-item pointer", .{});
+                    const emit_note = emit_note: {
+                        const start_val = try sema.resolveDefinedValue(block, start_src, uncasted_start) orelse {
+                            break :emit_note false;
+                        };
+                        const start = start_val.toUnsignedInt(sema.mod.getTarget());
+                        const end = end: {
+                            if (uncasted_end_opt == .none) {
+                                break :end 1;
+                            } else {
+                                const end_val = try sema.resolveDefinedValue(block, end_src, uncasted_end_opt) orelse {
+                                    break :emit_note false;
+                                };
+                                break :end end_val.toUnsignedInt(sema.mod.getTarget());
+                            }
+                        };
+                        break :emit_note (start == 0) and (end == 1);
+                    };
+                    if (emit_note) {
+                        const msg = msg: {
+                            const msg = try sema.errMsg(block, src, "slice of single-item pointer", .{});
+                            errdefer msg.destroy(sema.gpa);
+                            try sema.errNote(
+                                block,
+                                src,
+                                msg,
+                                "perhaps you want to coerce using '@as(*[1]{}, ptr)'?",
+                                .{ptr_ptr_child_ty.childType().fmt(mod)},
+                            );
+                            break :msg msg;
+                        };
+                        return sema.failWithOwnedErrorMsg(msg);
+                    } else {
+                        return sema.fail(block, src, "slice of single-item pointer", .{});
+                    }
                 }
             },
             .Many, .C => {
