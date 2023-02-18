@@ -3929,11 +3929,15 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             .Int, .ComptimeInt => true,
             else => false,
         };
+        const arg_src: LazySrcLoc = .{ .for_input = .{
+            .for_node_offset = inst_data.src_node,
+            .input_index = i,
+        } };
         const arg_len = if (is_int) object else l: {
-            try checkIndexable(sema, block, src, object_ty);
+            try checkIndexable(sema, block, arg_src, object_ty);
             if (!object_ty.indexableHasLen()) continue;
 
-            break :l try sema.fieldVal(block, src, object, "len", src);
+            break :l try sema.fieldVal(block, arg_src, object, "len", arg_src);
         };
         if (len == .none) {
             len = arg_len;
@@ -3949,14 +3953,10 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                             .for_node_offset = inst_data.src_node,
                             .input_index = len_idx,
                         } };
-                        const b_src: LazySrcLoc = .{ .for_input = .{
-                            .for_node_offset = inst_data.src_node,
-                            .input_index = i,
-                        } };
                         try sema.errNote(block, a_src, msg, "length {} here", .{
                             v.fmtValue(Type.usize, sema.mod),
                         });
-                        try sema.errNote(block, b_src, msg, "length {} here", .{
+                        try sema.errNote(block, arg_src, msg, "length {} here", .{
                             arg_val.fmtValue(Type.usize, sema.mod),
                         });
                         break :msg msg;
