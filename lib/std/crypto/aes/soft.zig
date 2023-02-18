@@ -420,7 +420,7 @@ const powx = init: {
     var array: [16]u8 = undefined;
 
     var value = 1;
-    for (array) |*power| {
+    for (&array) |*power| {
         power.* = value;
         value = mul(value, 2);
     }

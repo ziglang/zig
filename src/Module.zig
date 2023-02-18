@@ -2469,6 +2469,48 @@ pub const SrcLoc = struct {
                 const src_node = for_full.ast.inputs[for_input.input_index];
                 return nodeToSpan(tree, src_node);
             },
+            .for_capture_from_input => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const token_tags = tree.tokens.items(.tag);
+                const input_node = src_loc.declRelativeToNodeIndex(node_off);
+                // We have to actually linear scan the whole AST to find the for loop
+                // that contains this input.
+                const node_tags = tree.nodes.items(.tag);
+                for (node_tags, 0..) |node_tag, node_usize| {
+                    const node = @intCast(Ast.Node.Index, node_usize);
+                    switch (node_tag) {
+                        .for_simple, .@"for" => {
+                            const for_full = tree.fullFor(node).?;
+                            for (for_full.ast.inputs, 0..) |input, input_index| {
+                                if (input_node == input) {
+                                    var count = input_index;
+                                    var tok = for_full.payload_token;
+                                    while (true) {
+                                        switch (token_tags[tok]) {
+                                            .comma => {
+                                                count -= 1;
+                                                tok += 1;
+                                            },
+                                            .identifier => {
+                                                if (count == 0)
+                                                    return tokensToSpan(tree, tok, tok + 1, tok);
+                                                tok += 1;
+                                            },
+                                            .asterisk => {
+                                                if (count == 0)
+                                                    return tokensToSpan(tree, tok, tok + 2, tok);
+                                                tok += 1;
+                                            },
+                                            else => unreachable,
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        else => continue,
+                    }
+                } else unreachable;
+            },
             .node_offset_bin_lhs => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -3129,6 +3171,12 @@ pub const LazySrcLoc = union(enum) {
         /// Picks one of the inputs from the condition.
         input_index: u32,
     },
+    /// The source location points to one of the captures of a for loop, found
+    /// by taking this AST node index offset from the containing
+    /// Decl AST node, which points to one of the input nodes of a for loop.
+    /// Next, navigate to the corresponding capture.
+    /// The Decl is determined contextually.
+    for_capture_from_input: i32,
 
     pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
 
@@ -3216,6 +3264,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_store_ptr,
             .node_offset_store_operand,
             .for_input,
+            .for_capture_from_input,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,

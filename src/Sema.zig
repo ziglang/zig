@@ -9716,6 +9716,21 @@ fn zirElemPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const array_ptr = try sema.resolveInst(extra.lhs);
     const elem_index = try sema.resolveInst(extra.rhs);
+    const indexable_ty = sema.typeOf(array_ptr);
+    if (indexable_ty.zigTypeTag() != .Pointer) {
+        const capture_src: LazySrcLoc = .{ .for_capture_from_input = inst_data.src_node };
+        const msg = msg: {
+            const msg = try sema.errMsg(block, capture_src, "pointer capture of non pointer type '{}'", .{
+                indexable_ty.fmt(sema.mod),
+            });
+            errdefer msg.destroy(sema.gpa);
+            if (indexable_ty.zigTypeTag() == .Array) {
+                try sema.errNote(block, src, msg, "consider using '&' here", .{});
+            }
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
     return sema.elemPtrOneLayerOnly(block, src, array_ptr, elem_index, src, false);
 }
 
@@ -24195,12 +24210,7 @@ fn elemPtrOneLayerOnly(
                 },
             }
         },
-        else => {
-            // TODO add note pointing at corresponding for loop input and suggest using '&'
-            return sema.fail(block, indexable_src, "pointer capture of non pointer type '{}'", .{
-                indexable_ty.fmt(sema.mod),
-            });
-        },
+        else => unreachable,
     }
 }
 
