@@ -527,7 +527,7 @@ pub fn generateSymbol(
                             .fail => |em| return Result{ .fail = em },
                         }
                     } else {
-                        field_val.writeToPackedMemory(field_ty, mod, code.items[current_pos..], bits);
+                        field_val.writeToPackedMemory(field_ty, mod, code.items[current_pos..], bits) catch unreachable;
                     }
                     bits += @intCast(u16, field_ty.bitSize(target));
                 }

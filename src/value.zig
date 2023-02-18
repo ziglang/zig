@@ -1249,11 +1249,22 @@ pub const Value = extern union {
         };
     }
 
+    fn isDeclRef(val: Value) bool {
+        var check = val;
+        while (true) switch (check.tag()) {
+            .variable, .decl_ref, .decl_ref_mut, .comptime_field_ptr => return true,
+            .field_ptr => check = check.castTag(.field_ptr).?.data.container_ptr,
+            .elem_ptr => check = check.castTag(.elem_ptr).?.data.array_ptr,
+            .eu_payload_ptr, .opt_payload_ptr => check = check.cast(Value.Payload.PayloadPtr).?.data.container_ptr,
+            else => return false,
+        };
+    }
+
     /// Write a Value's contents to `buffer`.
     ///
     /// Asserts that buffer.len >= ty.abiSize(). The buffer is allowed to extend past
     /// the end of the value in memory.
-    pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) void {
+    pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) error{ReinterpretDeclRef}!void {
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
         if (val.isUndef()) {
@@ -1309,7 +1320,7 @@ pub const Value = extern union {
                 var buf_off: usize = 0;
                 while (elem_i < len) : (elem_i += 1) {
                     const elem_val = val.elemValueBuffer(mod, elem_i, &elem_value_buf);
-                    elem_val.writeToMemory(elem_ty, mod, buffer[buf_off..]);
+                    try elem_val.writeToMemory(elem_ty, mod, buffer[buf_off..]);
                     buf_off += elem_size;
                 }
             },
@@ -1317,7 +1328,7 @@ pub const Value = extern union {
                 // We use byte_count instead of abi_size here, so that any padding bytes
                 // follow the data bytes, on both big- and little-endian systems.
                 const byte_count = (@intCast(usize, ty.bitSize(target)) + 7) / 8;
-                writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
+                return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
             },
             .Struct => switch (ty.containerLayout()) {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
@@ -1326,12 +1337,12 @@ pub const Value = extern union {
                     const field_vals = val.castTag(.aggregate).?.data;
                     for (fields) |field, i| {
                         const off = @intCast(usize, ty.structFieldOffset(i, target));
-                        writeToMemory(field_vals[i], field.ty, mod, buffer[off..]);
+                        try writeToMemory(field_vals[i], field.ty, mod, buffer[off..]);
                     }
                 },
                 .Packed => {
                     const byte_count = (@intCast(usize, ty.bitSize(target)) + 7) / 8;
-                    writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
+                    return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
                 },
             },
             .ErrorSet => {
@@ -1345,8 +1356,13 @@ pub const Value = extern union {
                 .Extern => @panic("TODO implement writeToMemory for extern unions"),
                 .Packed => {
                     const byte_count = (@intCast(usize, ty.bitSize(target)) + 7) / 8;
-                    writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
+                    return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
                 },
+            },
+            .Pointer => {
+                assert(!ty.isSlice()); // No well defined layout.
+                if (val.isDeclRef()) return error.ReinterpretDeclRef;
+                return val.writeToMemory(Type.usize, mod, buffer);
             },
             else => @panic("TODO implement writeToMemory for more types"),
         }
@@ -1356,7 +1372,7 @@ pub const Value = extern union {
     ///
     /// Both the start and the end of the provided buffer must be tight, since
     /// big-endian packed memory layouts start at the end of the buffer.
-    pub fn writeToPackedMemory(val: Value, ty: Type, mod: *Module, buffer: []u8, bit_offset: usize) void {
+    pub fn writeToPackedMemory(val: Value, ty: Type, mod: *Module, buffer: []u8, bit_offset: usize) error{ReinterpretDeclRef}!void {
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
         if (val.isUndef()) {
@@ -1420,7 +1436,7 @@ pub const Value = extern union {
                     // On big-endian systems, LLVM reverses the element order of vectors by default
                     const tgt_elem_i = if (endian == .Big) len - elem_i - 1 else elem_i;
                     const elem_val = val.elemValueBuffer(mod, tgt_elem_i, &elem_value_buf);
-                    elem_val.writeToPackedMemory(elem_ty, mod, buffer, bit_offset + bits);
+                    try elem_val.writeToPackedMemory(elem_ty, mod, buffer, bit_offset + bits);
                     bits += elem_bit_size;
                 }
             },
@@ -1433,7 +1449,7 @@ pub const Value = extern union {
                     const field_vals = val.castTag(.aggregate).?.data;
                     for (fields) |field, i| {
                         const field_bits = @intCast(u16, field.ty.bitSize(target));
-                        field_vals[i].writeToPackedMemory(field.ty, mod, buffer, bit_offset + bits);
+                        try field_vals[i].writeToPackedMemory(field.ty, mod, buffer, bit_offset + bits);
                         bits += field_bits;
                     }
                 },
@@ -1446,8 +1462,13 @@ pub const Value = extern union {
                     const field_type = ty.unionFields().values()[field_index.?].ty;
                     const field_val = val.fieldValue(field_type, field_index.?);
 
-                    field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
+                    return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
                 },
+            },
+            .Pointer => {
+                assert(!ty.isSlice()); // No well defined layout.
+                if (val.isDeclRef()) return error.ReinterpretDeclRef;
+                return val.writeToPackedMemory(Type.usize, mod, buffer, bit_offset);
             },
             else => @panic("TODO implement writeToPackedMemory for more types"),
         }
@@ -1553,6 +1574,10 @@ pub const Value = extern union {
                 };
                 return Value.initPayload(&payload.base);
             },
+            .Pointer => {
+                assert(!ty.isSlice()); // No well defined layout.
+                return readFromMemory(Type.usize, mod, buffer, arena);
+            },
             else => @panic("TODO implement readFromMemory for more types"),
         }
     }
@@ -1639,6 +1664,10 @@ pub const Value = extern union {
                     }
                     return Tag.aggregate.create(arena, field_vals);
                 },
+            },
+            .Pointer => {
+                assert(!ty.isSlice()); // No well defined layout.
+                return readFromPackedMemory(Type.usize, mod, buffer, bit_offset, arena);
             },
             else => @panic("TODO implement readFromPackedMemory for more types"),
         }
