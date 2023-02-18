@@ -475,7 +475,7 @@ pub fn Decimal(comptime T: type) type {
             const x = pow2_to_pow5_table[shift];
 
             // Compare leading digits of current to check if lexicographically less than cutoff.
-            for (x.cutoff) |p5, i| {
+            for (x.cutoff, 0..) |p5, i| {
                 if (i >= self.num_digits) {
                     return x.delta - 1;
                 } else if (self.digits[i] == p5 - '0') { // digits are stored as integers

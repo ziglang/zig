@@ -89,7 +89,7 @@ pub fn VectorCount(comptime VectorType: type) type {
 pub inline fn iota(comptime T: type, comptime len: usize) @Vector(len, T) {
     comptime {
         var out: [len]T = undefined;
-        for (out) |*element, i| {
+        for (&out, 0..) |*element, i| {
             element.* = switch (@typeInfo(T)) {
                 .Int => @intCast(T, i),
                 .Float => @intToFloat(T, i),

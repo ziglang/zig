@@ -1064,7 +1064,7 @@ pub const DwarfInfo = struct {
             .has_children = table_entry.has_children,
         };
         try result.attrs.resize(allocator, table_entry.attrs.items.len);
-        for (table_entry.attrs.items) |attr, i| {
+        for (table_entry.attrs.items, 0..) |attr, i| {
             result.attrs.items[i] = Die.Attr{
                 .id = attr.attr_id,
                 .value = try parseFormValue(

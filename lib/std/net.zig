@@ -325,7 +325,7 @@ pub const Ip6Address = extern struct {
         var index: u8 = 0;
         var scope_id = false;
         var abbrv = false;
-        for (buf) |c, i| {
+        for (buf, 0..) |c, i| {
             if (scope_id) {
                 if (c >= '0' and c <= '9') {
                     const digit = c - '0';
@@ -444,7 +444,7 @@ pub const Ip6Address = extern struct {
         var scope_id_value: [os.IFNAMESIZE - 1]u8 = undefined;
         var scope_id_index: usize = 0;
 
-        for (buf) |c, i| {
+        for (buf, 0..) |c, i| {
             if (scope_id) {
                 // Handling of percent-encoding should be for an URI library.
                 if ((c >= '0' and c <= '9') or
@@ -602,7 +602,7 @@ pub const Ip6Address = extern struct {
             .Big => big_endian_parts.*,
             .Little => blk: {
                 var buf: [8]u16 = undefined;
-                for (big_endian_parts) |part, i| {
+                for (big_endian_parts, 0..) |part, i| {
                     buf[i] = mem.bigToNative(u16, part);
                 }
                 break :blk buf;
@@ -909,7 +909,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
             result.canon_name = try canon.toOwnedSlice();
         }
 
-        for (lookup_addrs.items) |lookup_addr, i| {
+        for (lookup_addrs.items, 0..) |lookup_addr, i| {
             result.addrs[i] = lookup_addr.addr;
             assert(result.addrs[i].getPort() == port);
         }
@@ -989,7 +989,7 @@ fn linuxLookupName(
     // So far the label/precedence table cannot be customized.
     // This implementation is ported from musl libc.
     // A more idiomatic "ziggy" implementation would be welcome.
-    for (addrs.items) |*addr, i| {
+    for (addrs.items, 0..) |*addr, i| {
         var key: i32 = 0;
         var sa6: os.sockaddr.in6 = undefined;
         @memset(@ptrCast([*]u8, &sa6), 0, @sizeOf(os.sockaddr.in6));
@@ -1118,7 +1118,7 @@ const defined_policies = [_]Policy{
 };
 
 fn policyOf(a: [16]u8) *const Policy {
-    for (defined_policies) |*policy| {
+    for (&defined_policies) |*policy| {
         if (!mem.eql(u8, a[0..policy.len], policy.addr[0..policy.len])) continue;
         if ((a[policy.len] & policy.mask) != policy.addr[policy.len]) continue;
         return policy;
@@ -1502,7 +1502,7 @@ fn resMSendRc(
     try ns_list.resize(rc.ns.items.len);
     const ns = ns_list.items;
 
-    for (rc.ns.items) |iplit, i| {
+    for (rc.ns.items, 0..) |iplit, i| {
         ns[i] = iplit.addr;
         assert(ns[i].getPort() == 53);
         if (iplit.addr.any.family != os.AF.INET) {

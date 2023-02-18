@@ -335,7 +335,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
             // "If one of the classes is MEMORY, the whole argument is passed in memory"
             // "If X87UP is not preceded by X87, the whole argument is passed in memory."
             var found_sseup = false;
-            for (result) |item, i| switch (item) {
+            for (result, 0..) |item, i| switch (item) {
                 .memory => return memory_class,
                 .x87up => if (i == 0 or result[i - 1] != .x87) return memory_class,
                 .sseup => found_sseup = true,
@@ -347,7 +347,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
             if (ty_size > 16 and (result[0] != .sse or !found_sseup)) return memory_class;
 
             // "If SSEUP is not preceded by SSE or SSEUP, it is converted to SSE."
-            for (result) |*item, i| {
+            for (&result, 0..) |*item, i| {
                 if (item.* == .sseup) switch (result[i - 1]) {
                     .sse, .sseup => continue,
                     else => item.* = .sse,
@@ -379,7 +379,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                 }
                 // Combine this field with the previous one.
                 const field_class = classifySystemV(field.ty, target, .other);
-                for (result) |*result_item, i| {
+                for (&result, 0..) |*result_item, i| {
                     const field_item = field_class[i];
                     // "If both classes are equal, this is the resulting class."
                     if (result_item.* == field_item) {
@@ -431,7 +431,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
             // "If one of the classes is MEMORY, the whole argument is passed in memory"
             // "If X87UP is not preceded by X87, the whole argument is passed in memory."
             var found_sseup = false;
-            for (result) |item, i| switch (item) {
+            for (result, 0..) |item, i| switch (item) {
                 .memory => return memory_class,
                 .x87up => if (i == 0 or result[i - 1] != .x87) return memory_class,
                 .sseup => found_sseup = true,
@@ -443,7 +443,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
             if (ty_size > 16 and (result[0] != .sse or !found_sseup)) return memory_class;
 
             // "If SSEUP is not preceded by SSE or SSEUP, it is converted to SSE."
-            for (result) |*item, i| {
+            for (&result, 0..) |*item, i| {
                 if (item.* == .sseup) switch (result[i - 1]) {
                     .sse, .sseup => continue,
                     else => item.* = .sse,

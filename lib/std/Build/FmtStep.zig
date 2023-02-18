@@ -19,7 +19,7 @@ pub fn create(builder: *std.Build, paths: []const []const u8) *FmtStep {
 
     self.argv[0] = builder.zig_exe;
     self.argv[1] = "fmt";
-    for (paths) |path, i| {
+    for (paths, 0..) |path, i| {
         self.argv[2 + i] = builder.pathFromRoot(path);
     }
     return self;

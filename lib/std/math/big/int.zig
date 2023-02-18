@@ -1478,11 +1478,11 @@ pub const Mutable = struct {
         // const x_trailing = std.mem.indexOfScalar(Limb, x.limbs[0..x.len], 0).?;
         // const y_trailing = std.mem.indexOfScalar(Limb, y.limbs[0..y.len], 0).?;
 
-        const x_trailing = for (x.limbs[0..x.len]) |xi, i| {
+        const x_trailing = for (x.limbs[0..x.len], 0..) |xi, i| {
             if (xi != 0) break i;
         } else unreachable;
 
-        const y_trailing = for (y.limbs[0..y.len]) |yi, i| {
+        const y_trailing = for (y.limbs[0..y.len], 0..) |yi, i| {
             if (yi != 0) break i;
         } else unreachable;
 
@@ -2108,7 +2108,7 @@ pub const Const = struct {
                 if (@sizeOf(UT) <= @sizeOf(Limb)) {
                     r = @intCast(UT, self.limbs[0]);
                 } else {
-                    for (self.limbs[0..self.limbs.len]) |_, ri| {
+                    for (self.limbs[0..self.limbs.len], 0..) |_, ri| {
                         const limb = self.limbs[self.limbs.len - ri - 1];
                         r <<= limb_bits;
                         r |= limb;
@@ -3594,7 +3594,7 @@ fn lldiv1(quo: []Limb, rem: *Limb, a: []const Limb, b: Limb) void {
     assert(quo.len >= a.len);
 
     rem.* = 0;
-    for (a) |_, ri| {
+    for (a, 0..) |_, ri| {
         const i = a.len - ri - 1;
         const pdiv = ((@as(DoubleLimb, rem.*) << limb_bits) | a[i]);
 
@@ -3620,7 +3620,7 @@ fn lldiv0p5(quo: []Limb, rem: *Limb, a: []const Limb, b: HalfLimb) void {
     assert(quo.len >= a.len);
 
     rem.* = 0;
-    for (a) |_, ri| {
+    for (a, 0..) |_, ri| {
         const i = a.len - ri - 1;
         const ai_high = a[i] >> half_limb_bits;
         const ai_low = a[i] & ((1 << half_limb_bits) - 1);
@@ -4028,7 +4028,7 @@ fn llsquareBasecase(r: []Limb, x: []const Limb) void {
     //  - Each mixed-product term appears twice for each column,
     //  - Squares are always in the 2k (0 <= k < N) column
 
-    for (x_norm) |v, i| {
+    for (x_norm, 0..) |v, i| {
         // Accumulate all the x[i]*x[j] (with x!=j) products
         const overflow = llmulLimb(.add, r[2 * i + 1 ..], x_norm[i + 1 ..], v);
         assert(!overflow);
@@ -4037,7 +4037,7 @@ fn llsquareBasecase(r: []Limb, x: []const Limb) void {
     // Each product appears twice, multiply by 2
     llshl(r, r[0 .. 2 * x_norm.len], 1);
 
-    for (x_norm) |v, i| {
+    for (x_norm, 0..) |v, i| {
         // Compute and add the squares
         const overflow = llmulLimb(.add, r[2 * i ..], x[i .. i + 1], v);
         assert(!overflow);

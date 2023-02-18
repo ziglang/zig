@@ -875,7 +875,7 @@ const Writer = struct {
         const extra = self.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
         const args = self.code.refSlice(extra.end, extra.data.operands_len);
         try stream.writeAll("{");
-        for (args) |arg, i| {
+        for (args, 0..) |arg, i| {
             if (i != 0) try stream.writeAll(", ");
             try self.writeInstRef(stream, arg);
         }
@@ -1068,7 +1068,7 @@ const Writer = struct {
         const src = LazySrcLoc.nodeOffset(extra.data.src_node);
         const operands = self.code.refSlice(extra.end, extended.small);
 
-        for (operands) |operand, i| {
+        for (operands, 0..) |operand, i| {
             if (i != 0) try stream.writeAll(", ");
             try self.writeInstRef(stream, operand);
         }
@@ -1392,7 +1392,7 @@ const Writer = struct {
             try stream.writeAll("{\n");
             self.indent += 2;
 
-            for (fields) |field, i| {
+            for (fields, 0..) |field, i| {
                 try self.writeDocComment(stream, field.doc_comment_index);
                 try stream.writeByteNTimes(' ', self.indent);
                 try self.writeFlag(stream, "comptime ", field.is_comptime);
@@ -1959,7 +1959,7 @@ const Writer = struct {
                 try stream.writeByteNTimes(' ', self.indent);
                 if (is_inline) try stream.writeAll("inline ");
 
-                for (items) |item_ref, item_i| {
+                for (items, 0..) |item_ref, item_i| {
                     if (item_i != 0) try stream.writeAll(", ");
                     try self.writeInstRef(stream, item_ref);
                 }
@@ -2275,7 +2275,7 @@ const Writer = struct {
         try self.writeBracedBody(stream, body);
         try stream.writeAll(",[");
         const args = self.code.refSlice(extra.end, extended.small);
-        for (args) |arg, i| {
+        for (args, 0..) |arg, i| {
             if (i != 0) try stream.writeAll(", ");
             try self.writeInstRef(stream, arg);
         }
@@ -2334,7 +2334,7 @@ const Writer = struct {
 
         try self.writeInstRef(stream, args[0]);
         try stream.writeAll("{");
-        for (args[1..]) |arg, i| {
+        for (args[1..], 0..) |arg, i| {
             if (i != 0) try stream.writeAll(", ");
             try self.writeInstRef(stream, arg);
         }
@@ -2349,7 +2349,7 @@ const Writer = struct {
         const args = self.code.refSlice(extra.end, extra.data.operands_len);
 
         try stream.writeAll("{");
-        for (args) |arg, i| {
+        for (args, 0..) |arg, i| {
             if (i != 0) try stream.writeAll(", ");
             try self.writeInstRef(stream, arg);
         }
@@ -2369,7 +2369,7 @@ const Writer = struct {
         try stream.writeAll(", ");
 
         try stream.writeAll(".{");
-        for (elems) |elem, i| {
+        for (elems, 0..) |elem, i| {
             if (i != 0) try stream.writeAll(", ");
             try self.writeInstRef(stream, elem);
         }

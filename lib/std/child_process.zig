@@ -604,7 +604,7 @@ pub const ChildProcess = struct {
         const arena = arena_allocator.allocator();
 
         const argv_buf = try arena.allocSentinel(?[*:0]u8, self.argv.len, null);
-        for (self.argv) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
+        for (self.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
 
         const envp = if (self.env_map) |env_map| m: {
             const envp_buf = try createNullDelimitedEnvMap(arena, env_map);
@@ -712,7 +712,7 @@ pub const ChildProcess = struct {
         // Therefore, we do all the allocation for the execve() before the fork().
         // This means we must do the null-termination of argv and env vars here.
         const argv_buf = try arena.allocSentinel(?[*:0]u8, self.argv.len, null);
-        for (self.argv) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
+        for (self.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
 
         const envp = m: {
             if (self.env_map) |env_map| {
@@ -1424,7 +1424,7 @@ fn windowsCreateCommandLine(allocator: mem.Allocator, argv: []const []const u8) 
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
-    for (argv) |arg, arg_i| {
+    for (argv, 0..) |arg, arg_i| {
         if (arg_i != 0) try buf.append(' ');
         if (mem.indexOfAny(u8, arg, " \t\n\"") == null) {
             try buf.appendSlice(arg);

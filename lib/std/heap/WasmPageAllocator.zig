@@ -62,7 +62,7 @@ const FreeBlock = struct {
 
     fn useRecycled(self: FreeBlock, num_pages: usize, log2_align: u8) usize {
         @setCold(true);
-        for (self.data) |segment, i| {
+        for (self.data, 0..) |segment, i| {
             const spills_into_next = @bitCast(i128, segment) < 0;
             const has_enough_bits = @popCount(segment) >= num_pages;
 

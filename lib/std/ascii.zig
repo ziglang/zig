@@ -272,7 +272,7 @@ test "ASCII character classes" {
 /// Asserts `output.len >= ascii_string.len`.
 pub fn lowerString(output: []u8, ascii_string: []const u8) []u8 {
     std.debug.assert(output.len >= ascii_string.len);
-    for (ascii_string) |c, i| {
+    for (ascii_string, 0..) |c, i| {
         output[i] = toLower(c);
     }
     return output[0..ascii_string.len];
@@ -301,7 +301,7 @@ test "allocLowerString" {
 /// Asserts `output.len >= ascii_string.len`.
 pub fn upperString(output: []u8, ascii_string: []const u8) []u8 {
     std.debug.assert(output.len >= ascii_string.len);
-    for (ascii_string) |c, i| {
+    for (ascii_string, 0..) |c, i| {
         output[i] = toUpper(c);
     }
     return output[0..ascii_string.len];
@@ -329,7 +329,7 @@ test "allocUpperString" {
 /// Compares strings `a` and `b` case-insensitively and returns whether they are equal.
 pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
-    for (a) |a_c, i| {
+    for (a, 0..) |a_c, i| {
         if (toLower(a_c) != toLower(b[i])) return false;
     }
     return true;

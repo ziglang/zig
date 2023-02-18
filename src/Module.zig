@@ -268,7 +268,7 @@ pub const MemoizedCall = struct {
         if (a.func != b.func) return false;
 
         assert(a.args.len == b.args.len);
-        for (a.args) |a_arg, arg_i| {
+        for (a.args, 0..) |a_arg, arg_i| {
             const b_arg = b.args[arg_i];
             if (!a_arg.eql(b_arg, ctx.module)) {
                 return false;
@@ -1082,7 +1082,7 @@ pub const Struct = struct {
         assert(s.layout == .Packed);
         assert(s.haveLayout());
         var bit_sum: u64 = 0;
-        for (s.fields.values()) |field, i| {
+        for (s.fields.values(), 0..) |field, i| {
             if (i == index) {
                 return @intCast(u16, bit_sum);
             }
@@ -1341,7 +1341,7 @@ pub const Union = struct {
         assert(u.haveFieldTypes());
         var most_alignment: u32 = 0;
         var most_index: usize = undefined;
-        for (u.fields.values()) |field, i| {
+        for (u.fields.values(), 0..) |field, i| {
             if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = field.normalAlignment(target);
@@ -1405,7 +1405,7 @@ pub const Union = struct {
         var payload_size: u64 = 0;
         var payload_align: u32 = 0;
         const fields = u.fields.values();
-        for (fields) |field, i| {
+        for (fields, 0..) |field, i| {
             if (!field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
             const field_align = a: {
@@ -3553,7 +3553,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
             }
             if (data_has_safety_tag) {
                 const tags = zir.instructions.items(.tag);
-                for (zir.instructions.items(.data)) |*data, i| {
+                for (zir.instructions.items(.data), 0..) |*data, i| {
                     const union_tag = Zir.Inst.Tag.data_tags[@enumToInt(tags[i])];
                     const as_struct = @ptrCast(*HackDataLayout, data);
                     as_struct.* = .{
@@ -3740,7 +3740,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         @ptrCast([*]const u8, file.zir.instructions.items(.data).ptr);
     if (data_has_safety_tag) {
         // The `Data` union has a safety tag but in the file format we store it without.
-        for (file.zir.instructions.items(.data)) |*data, i| {
+        for (file.zir.instructions.items(.data), 0..) |*data, i| {
             const as_struct = @ptrCast(*const HackDataLayout, data);
             safety_buffer[i] = as_struct.data;
         }
@@ -6293,7 +6293,7 @@ pub fn populateTestFunctions(
         // Add a dependency on each test name and function pointer.
         try array_decl.dependencies.ensureUnusedCapacity(gpa, test_fn_vals.len * 2);
 
-        for (mod.test_functions.keys()) |test_decl_index, i| {
+        for (mod.test_functions.keys(), 0..) |test_decl_index, i| {
             const test_decl = mod.declPtr(test_decl_index);
             const test_name_slice = mem.sliceTo(test_decl.name, 0);
             const test_name_decl_index = n: {

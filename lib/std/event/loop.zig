@@ -278,7 +278,7 @@ pub const Loop = struct {
 
                 const empty_kevs = &[0]os.Kevent{};
 
-                for (self.eventfd_resume_nodes) |*eventfd_node, i| {
+                for (self.eventfd_resume_nodes, 0..) |*eventfd_node, i| {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{
@@ -343,7 +343,7 @@ pub const Loop = struct {
 
                 const empty_kevs = &[0]os.Kevent{};
 
-                for (self.eventfd_resume_nodes) |*eventfd_node, i| {
+                for (self.eventfd_resume_nodes, 0..) |*eventfd_node, i| {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{

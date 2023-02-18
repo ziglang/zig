@@ -21,7 +21,7 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs_list: anytype) type {
                 return a.key.len < b.key.len;
             }
         }).lenAsc;
-        for (kvs_list) |kv, i| {
+        for (kvs_list, 0..) |kv, i| {
             if (V != void) {
                 sorted_kvs[i] = .{ .key = kv.@"0", .value = kv.@"1" };
             } else {

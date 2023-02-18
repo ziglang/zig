@@ -895,7 +895,7 @@ test "Futex - signaling" {
     var threads = [_]std.Thread{undefined} ** num_threads;
 
     // Create a circle of paddles which hit each other
-    for (threads) |*t, i| {
+    for (&threads, 0..) |*t, i| {
         const paddle = &paddles[i];
         const hit_to = &paddles[(i + 1) % paddles.len];
         t.* = try std.Thread.spawn(.{}, Paddle.run, .{ paddle, hit_to });
@@ -950,14 +950,14 @@ test "Futex - broadcasting" {
         threads: [num_threads]std.Thread = undefined,
 
         fn run(self: *@This()) !void {
-            for (self.barriers) |*barrier| {
+            for (&self.barriers) |*barrier| {
                 try barrier.wait();
             }
         }
     };
 
     var broadcast = Broadcast{};
-    for (broadcast.threads) |*t| t.* = try std.Thread.spawn(.{}, Broadcast.run, .{&broadcast});
+    for (&broadcast.threads) |*t| t.* = try std.Thread.spawn(.{}, Broadcast.run, .{&broadcast});
     for (broadcast.threads) |t| t.join();
 }
 

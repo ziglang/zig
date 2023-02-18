@@ -79,7 +79,7 @@ pub fn spans(self: *RangeSet, first: Value, last: Value, ty: Type) !bool {
     const target = self.module.getTarget();
 
     // look for gaps
-    for (self.ranges.items[1..]) |cur, i| {
+    for (self.ranges.items[1..], 0..) |cur, i| {
         // i starts counting from the second item.
         const prev = self.ranges.items[i];
 

@@ -1033,7 +1033,7 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
-    for (result) |*elem, i| {
+    for (&result, 0..) |*elem, i| {
         elem.index = i;
         elem.name = ti.Enum.fields[i].name;
     }

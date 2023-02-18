@@ -6158,7 +6158,7 @@ fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
         std.debug.print("errors found: {any}\n", .{tree.errors});
         return err;
     };
-    for (expected_errors) |expected, i| {
+    for (expected_errors, 0..) |expected, i| {
         try std.testing.expectEqual(expected, tree.errors[i].tag);
     }
 }

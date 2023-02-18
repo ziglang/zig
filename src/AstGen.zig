@@ -1505,7 +1505,7 @@ fn arrayInitExprInner(
         extra_index += 1;
     }
 
-    for (elements) |elem_init, i| {
+    for (elements, 0..) |elem_init, i| {
         const ri = if (elem_ty != .none)
             ResultInfo{ .rl = .{ .coerced_ty = elem_ty } }
         else if (array_ty_inst != .none and nodeMayNeedMemoryLocation(astgen.tree, elem_init, true)) ri: {
@@ -1562,7 +1562,7 @@ fn arrayInitExprRlPtrInner(
     });
     var extra_index = try reserveExtra(astgen, elements.len);
 
-    for (elements) |elem_init, i| {
+    for (elements, 0..) |elem_init, i| {
         const elem_ptr = try gz.addPlNode(.elem_ptr_imm, elem_init, Zir.Inst.ElemPtrImm{
             .ptr = result_ptr,
             .index = @intCast(u32, i),
@@ -6342,7 +6342,7 @@ fn forExpr(
 
     {
         var capture_token = for_full.payload_token;
-        for (for_full.ast.inputs) |input, i_usize| {
+        for (for_full.ast.inputs, 0..) |input, i_usize| {
             const i = @intCast(u32, i_usize);
             const capture_is_ref = token_tags[capture_token] == .asterisk;
             const ident_tok = capture_token + @boolToInt(capture_is_ref);
@@ -6464,7 +6464,7 @@ fn forExpr(
     const then_sub_scope = blk: {
         var capture_token = for_full.payload_token;
         var capture_sub_scope: *Scope = &then_scope.base;
-        for (for_full.ast.inputs) |input, i_usize| {
+        for (for_full.ast.inputs, 0..) |input, i_usize| {
             const i = @intCast(u32, i_usize);
             const capture_is_ref = token_tags[capture_token] == .asterisk;
             const ident_tok = capture_token + @boolToInt(capture_is_ref);
@@ -6974,7 +6974,7 @@ fn switchExpr(
     zir_datas[switch_block].pl_node.payload_index = payload_index;
 
     const strat = ri.rl.strategy(&block_scope);
-    for (payloads.items[case_table_start..case_table_end]) |start_index, i| {
+    for (payloads.items[case_table_start..case_table_end], 0..) |start_index, i| {
         var body_len_index = start_index;
         var end_index = start_index;
         const table_index = case_table_start + i;
@@ -7638,7 +7638,7 @@ fn asmExpr(
 
     var output_type_bits: u32 = 0;
 
-    for (full.outputs) |output_node, i| {
+    for (full.outputs, 0..) |output_node, i| {
         const symbolic_name = main_tokens[output_node];
         const name = try astgen.identAsString(symbolic_name);
         const constraint_token = symbolic_name + 2;
@@ -7675,7 +7675,7 @@ fn asmExpr(
     var inputs_buffer: [32]Zir.Inst.Asm.Input = undefined;
     const inputs = inputs_buffer[0..full.inputs.len];
 
-    for (full.inputs) |input_node, i| {
+    for (full.inputs, 0..) |input_node, i| {
         const symbolic_name = main_tokens[input_node];
         const name = try astgen.identAsString(symbolic_name);
         const constraint_token = symbolic_name + 2;
@@ -7848,7 +7848,7 @@ fn typeOf(
     var typeof_scope = gz.makeSubBlock(scope);
     typeof_scope.force_comptime = false;
 
-    for (args) |arg, i| {
+    for (args, 0..) |arg, i| {
         const param_ref = try reachableExpr(&typeof_scope, &typeof_scope.base, .{ .rl = .none }, arg, node);
         astgen.extra.items[args_index + i] = @enumToInt(param_ref);
     }

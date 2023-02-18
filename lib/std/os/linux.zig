@@ -1245,7 +1245,7 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
         // see https://www.openwall.com/lists/musl/2014/06/07/5
         const kvlen = if (vlen > IOV_MAX) IOV_MAX else vlen; // matches kernel
         var next_unsent: usize = 0;
-        for (msgvec[0..kvlen]) |*msg, i| {
+        for (msgvec[0..kvlen], 0..) |*msg, i| {
             var size: i32 = 0;
             const msg_iovlen = @intCast(usize, msg.msg_hdr.msg_iovlen); // kernel side this is treated as unsigned
             for (msg.msg_hdr.msg_iov[0..msg_iovlen]) |iov| {

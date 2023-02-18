@@ -3684,10 +3684,10 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool) !void
         const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, clang_args_len + 1);
         new_argv_with_sentinel[clang_args_len] = null;
         const new_argv = new_argv_with_sentinel[0..clang_args_len :null];
-        for (argv.items) |arg, i| {
+        for (argv.items, 0..) |arg, i| {
             new_argv[i] = try arena.dupeZ(u8, arg);
         }
-        for (c_source_file.extra_flags) |arg, i| {
+        for (c_source_file.extra_flags, 0..) |arg, i| {
             new_argv[argv.items.len + i] = try arena.dupeZ(u8, arg);
         }
 
@@ -4816,7 +4816,7 @@ extern "c" fn ZigLlvmAr_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 
 fn argsCopyZ(alloc: Allocator, args: []const []const u8) ![:null]?[*:0]u8 {
     var argv = try alloc.allocSentinel(?[*:0]u8, args.len, null);
-    for (args) |arg, i| {
+    for (args, 0..) |arg, i| {
         argv[i] = try alloc.dupeZ(u8, arg); // TODO If there was an argsAllocZ we could avoid this allocation.
     }
     return argv;

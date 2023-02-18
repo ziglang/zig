@@ -213,7 +213,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
         var addr_buf_stack: [32]usize = undefined;
         const addr_buf = if (addr_buf_stack.len > addrs.len) addr_buf_stack[0..] else addrs;
         const n = walkStackWindows(addr_buf[0..]);
-        const first_index = for (addr_buf[0..n]) |addr, i| {
+        const first_index = for (addr_buf[0..n], 0..) |addr, i| {
             if (addr == first_addr) {
                 break i;
             }
@@ -224,13 +224,13 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
         const end_index = math.min(first_index + addrs.len, n);
         const slice = addr_buf[first_index..end_index];
         // We use a for loop here because slice and addrs may alias.
-        for (slice) |addr, i| {
+        for (slice, 0..) |addr, i| {
             addrs[i] = addr;
         }
         stack_trace.index = slice.len;
     } else {
         var it = StackIterator.init(first_address, null);
-        for (stack_trace.instruction_addresses) |*addr, i| {
+        for (stack_trace.instruction_addresses, 0..) |*addr, i| {
             addr.* = it.next() orelse {
                 stack_trace.index = i;
                 return;
@@ -621,7 +621,7 @@ pub fn writeCurrentStackTraceWindows(
     const n = walkStackWindows(addr_buf[0..]);
     const addrs = addr_buf[0..n];
     var start_i: usize = if (start_addr) |saddr| blk: {
-        for (addrs) |addr, i| {
+        for (addrs, 0..) |addr, i| {
             if (addr == saddr) break :blk i;
         }
         return;
@@ -2138,7 +2138,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
                 ) catch return;
                 return;
             };
-            for (t.addrs[0..end]) |frames_array, i| {
+            for (t.addrs[0..end], 0..) |frames_array, i| {
                 stderr.print("{s}:\n", .{t.notes[i]}) catch return;
                 var frames_array_mutable = frames_array;
                 const frames = mem.sliceTo(frames_array_mutable[0..], 0);

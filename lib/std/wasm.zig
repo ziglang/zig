@@ -636,7 +636,7 @@ pub const Type = struct {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
         _ = opt;
         try writer.writeByte('(');
-        for (self.params) |param, i| {
+        for (self.params, 0..) |param, i| {
             try writer.print("{s}", .{@tagName(param)});
             if (i + 1 != self.params.len) {
                 try writer.writeAll(", ");
@@ -646,7 +646,7 @@ pub const Type = struct {
         if (self.returns.len == 0) {
             try writer.writeAll("nil");
         } else {
-            for (self.returns) |return_ty, i| {
+            for (self.returns, 0..) |return_ty, i| {
                 try writer.print("{s}", .{@tagName(return_ty)});
                 if (i + 1 != self.returns.len) {
                     try writer.writeAll(", ");

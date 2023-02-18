@@ -1407,7 +1407,7 @@ fn renderBuiltinCall(
         // Render all on one line, no trailing comma.
         try renderToken(ais, tree, builtin_token + 1, .none); // (
 
-        for (params) |param_node, i| {
+        for (params, 0..) |param_node, i| {
             const first_param_token = tree.firstToken(param_node);
             if (token_tags[first_param_token] == .multiline_string_literal_line or
                 hasSameLineComment(tree, first_param_token - 1))
@@ -1739,7 +1739,7 @@ fn renderBlock(
         try renderToken(ais, tree, lbrace, .none);
     } else {
         try renderToken(ais, tree, lbrace, .newline);
-        for (statements) |stmt, i| {
+        for (statements, 0..) |stmt, i| {
             if (i != 0) try renderExtraNewline(ais, tree, stmt);
             switch (node_tags[stmt]) {
                 .global_var_decl,
@@ -1902,7 +1902,7 @@ fn renderArrayInit(
         const section_end = sec_end: {
             var this_line_first_expr: usize = 0;
             var this_line_size = rowSize(tree, row_exprs, rbrace);
-            for (row_exprs) |expr, i| {
+            for (row_exprs, 0..) |expr, i| {
                 // Ignore comment on first line of this section.
                 if (i == 0) continue;
                 const expr_last_token = tree.lastToken(expr);
@@ -1941,7 +1941,7 @@ fn renderArrayInit(
         var column_counter: usize = 0;
         var single_line = true;
         var contains_newline = false;
-        for (section_exprs) |expr, i| {
+        for (section_exprs, 0..) |expr, i| {
             const start = sub_expr_buffer.items.len;
             sub_expr_buffer_starts[i] = start;
 
@@ -1983,7 +1983,7 @@ fn renderArrayInit(
 
         // Render exprs in current section.
         column_counter = 0;
-        for (section_exprs) |expr, i| {
+        for (section_exprs, 0..) |expr, i| {
             const start = sub_expr_buffer_starts[i];
             const end = sub_expr_buffer_starts[i + 1];
             const expr_text = sub_expr_buffer.items[start..end];
@@ -2140,7 +2140,7 @@ fn renderContainerDecl(
     if (token_tags[lbrace + 1] == .container_doc_comment) {
         try renderContainerDocComments(ais, tree, lbrace + 1);
     }
-    for (container_decl.ast.members) |member, i| {
+    for (container_decl.ast.members, 0..) |member, i| {
         if (i != 0) try renderExtraNewline(ais, tree, member);
         switch (tree.nodes.items(.tag)[member]) {
             // For container fields, ensure a trailing comma is added if necessary.
@@ -2226,7 +2226,7 @@ fn renderAsm(
         try renderToken(ais, tree, colon1, .space); // :
 
         ais.pushIndent();
-        for (asm_node.outputs) |asm_output, i| {
+        for (asm_node.outputs, 0..) |asm_output, i| {
             if (i + 1 < asm_node.outputs.len) {
                 const next_asm_output = asm_node.outputs[i + 1];
                 try renderAsmOutput(gpa, ais, tree, asm_output, .none);
@@ -2258,7 +2258,7 @@ fn renderAsm(
     } else colon3: {
         try renderToken(ais, tree, colon2, .space); // :
         ais.pushIndent();
-        for (asm_node.inputs) |asm_input, i| {
+        for (asm_node.inputs, 0..) |asm_input, i| {
             if (i + 1 < asm_node.inputs.len) {
                 const next_asm_input = asm_node.inputs[i + 1];
                 try renderAsmInput(gpa, ais, tree, asm_input, .none);
@@ -2352,7 +2352,7 @@ fn renderParamList(
     if (token_tags[after_last_param_tok] == .comma) {
         ais.pushIndentNextLine();
         try renderToken(ais, tree, lparen, .newline); // (
-        for (params) |param_node, i| {
+        for (params, 0..) |param_node, i| {
             if (i + 1 < params.len) {
                 try renderExpression(gpa, ais, tree, param_node, .none);
 
@@ -2377,7 +2377,7 @@ fn renderParamList(
 
     try renderToken(ais, tree, lparen, .none); // (
 
-    for (params) |param_node, i| {
+    for (params, 0..) |param_node, i| {
         const first_param_token = tree.firstToken(param_node);
         if (token_tags[first_param_token] == .multiline_string_literal_line or
             hasSameLineComment(tree, first_param_token - 1))
@@ -3015,7 +3015,7 @@ fn rowSize(tree: Ast, exprs: []const Ast.Node.Index, rtoken: Ast.TokenIndex) usi
     }
 
     var count: usize = 1;
-    for (exprs) |expr, i| {
+    for (exprs, 0..) |expr, i| {
         if (i + 1 < exprs.len) {
             const expr_last_token = tree.lastToken(expr) + 1;
             if (!tree.tokensOnSameLine(expr_last_token, tree.firstToken(exprs[i + 1]))) return count;

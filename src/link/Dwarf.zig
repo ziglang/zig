@@ -339,7 +339,7 @@ pub const DeclState = struct {
                         try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(module)});
 
                         const fields = ty.tupleFields();
-                        for (fields.types) |field, field_index| {
+                        for (fields.types, 0..) |field, field_index| {
                             // DW.AT.member
                             try dbg_info_buffer.append(@enumToInt(AbbrevKind.struct_member));
                             // DW.AT.name, DW.FORM.string
@@ -367,7 +367,7 @@ pub const DeclState = struct {
                         }
 
                         const fields = ty.structFields();
-                        for (fields.keys()) |field_name, field_index| {
+                        for (fields.keys(), 0..) |field_name, field_index| {
                             const field = fields.get(field_name).?;
                             if (!field.ty.hasRuntimeBits()) continue;
                             // DW.AT.member
@@ -409,7 +409,7 @@ pub const DeclState = struct {
                     .enum_numbered => ty.castTag(.enum_numbered).?.data.values,
                     else => unreachable,
                 };
-                for (fields.keys()) |field_name, field_i| {
+                for (fields.keys(), 0..) |field_name, field_i| {
                     // DW.AT.enumerator
                     try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2 + @sizeOf(u64));
                     dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.enum_variant));
@@ -2252,14 +2252,14 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
         1, // `DW.LNS.set_isa`
     });
 
-    for (paths.dirs) |dir, i| {
+    for (paths.dirs, 0..) |dir, i| {
         log.debug("adding new include dir at {d} of '{s}'", .{ i + 1, dir });
         di_buf.appendSliceAssumeCapacity(dir);
         di_buf.appendAssumeCapacity(0);
     }
     di_buf.appendAssumeCapacity(0); // include directories sentinel
 
-    for (paths.files) |file, i| {
+    for (paths.files, 0..) |file, i| {
         const dir_index = paths.files_dirs_indexes[i];
         log.debug("adding new file name at {d} of '{s}' referencing directory {d}", .{ i + 1, file, dir_index + 1 });
         di_buf.appendSliceAssumeCapacity(file);

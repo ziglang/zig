@@ -31,7 +31,7 @@ fn blockCopy(dst: []align(16) u32, src: []align(16) const u32, n: usize) void {
 }
 
 fn blockXor(dst: []align(16) u32, src: []align(16) const u32, n: usize) void {
-    for (src[0 .. n * 16]) |v, i| {
+    for (src[0 .. n * 16], 0..) |v, i| {
         dst[i] ^= v;
     }
 }
@@ -90,7 +90,7 @@ fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16)
     var x = @alignCast(16, xy[0 .. 32 * r]);
     var y = @alignCast(16, xy[32 * r ..]);
 
-    for (x) |*v1, j| {
+    for (x, 0..) |*v1, j| {
         v1.* = mem.readIntSliceLittle(u32, b[4 * j ..]);
     }
 
@@ -115,7 +115,7 @@ fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16)
         blockMix(&tmp, y, x, r);
     }
 
-    for (x) |v1, j| {
+    for (x, 0..) |v1, j| {
         mem.writeIntLittle(u32, b[4 * j ..][0..4], v1);
     }
 }
@@ -350,7 +350,7 @@ const crypt_format = struct {
 
             fn intDecode(comptime T: type, src: *const [(@bitSizeOf(T) + 5) / 6]u8) !T {
                 var v: T = 0;
-                for (src) |x, i| {
+                for (src, 0..) |x, i| {
                     const vi = mem.indexOfScalar(u8, &map64, x) orelse return EncodingError.InvalidEncoding;
                     v |= @intCast(T, vi) << @intCast(math.Log2Int(T), i * 6);
                 }
@@ -365,10 +365,10 @@ const crypt_format = struct {
                 }
                 const leftover = src[i * 4 ..];
                 var v: u24 = 0;
-                for (leftover) |_, j| {
+                for (leftover, 0..) |_, j| {
                     v |= @as(u24, try intDecode(u6, leftover[j..][0..1])) << @intCast(u5, j * 6);
                 }
-                for (dst[i * 3 ..]) |*x, j| {
+                for (dst[i * 3 ..], 0..) |*x, j| {
                     x.* = @truncate(u8, v >> @intCast(u5, j * 8));
                 }
             }
@@ -381,7 +381,7 @@ const crypt_format = struct {
                 }
                 const leftover = src[i * 3 ..];
                 var v: u24 = 0;
-                for (leftover) |x, j| {
+                for (leftover, 0..) |x, j| {
                     v |= @as(u24, x) << @intCast(u5, j * 8);
                 }
                 intEncode(dst[i * 4 ..], v);

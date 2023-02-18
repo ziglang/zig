@@ -1045,7 +1045,7 @@ pub const all_features = blk: {
         }),
     };
     const ti = @typeInfo(Feature);
-    for (result) |*elem, i| {
+    for (&result, 0..) |*elem, i| {
         elem.index = i;
         elem.name = ti.Enum.fields[i].name;
     }

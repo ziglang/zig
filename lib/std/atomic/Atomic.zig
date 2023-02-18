@@ -548,7 +548,7 @@ test "Atomic.bitSet" {
             var x = Atomic(Int).init(0);
             const bit_array = @as([@bitSizeOf(Int)]void, undefined);
 
-            for (bit_array) |_, bit_index| {
+            for (bit_array, 0..) |_, bit_index| {
                 const bit = @intCast(std.math.Log2Int(Int), bit_index);
                 const mask = @as(Int, 1) << bit;
 
@@ -562,7 +562,7 @@ test "Atomic.bitSet" {
                 try testing.expect(x.load(.SeqCst) & mask != 0);
 
                 // all the previous bits should have not changed (still be set)
-                for (bit_array[0..bit_index]) |_, prev_bit_index| {
+                for (bit_array[0..bit_index], 0..) |_, prev_bit_index| {
                     const prev_bit = @intCast(std.math.Log2Int(Int), prev_bit_index);
                     const prev_mask = @as(Int, 1) << prev_bit;
                     try testing.expect(x.load(.SeqCst) & prev_mask != 0);
@@ -578,7 +578,7 @@ test "Atomic.bitReset" {
             var x = Atomic(Int).init(0);
             const bit_array = @as([@bitSizeOf(Int)]void, undefined);
 
-            for (bit_array) |_, bit_index| {
+            for (bit_array, 0..) |_, bit_index| {
                 const bit = @intCast(std.math.Log2Int(Int), bit_index);
                 const mask = @as(Int, 1) << bit;
                 x.storeUnchecked(x.loadUnchecked() | mask);
@@ -593,7 +593,7 @@ test "Atomic.bitReset" {
                 try testing.expect(x.load(.SeqCst) & mask == 0);
 
                 // all the previous bits should have not changed (still be reset)
-                for (bit_array[0..bit_index]) |_, prev_bit_index| {
+                for (bit_array[0..bit_index], 0..) |_, prev_bit_index| {
                     const prev_bit = @intCast(std.math.Log2Int(Int), prev_bit_index);
                     const prev_mask = @as(Int, 1) << prev_bit;
                     try testing.expect(x.load(.SeqCst) & prev_mask == 0);
@@ -609,7 +609,7 @@ test "Atomic.bitToggle" {
             var x = Atomic(Int).init(0);
             const bit_array = @as([@bitSizeOf(Int)]void, undefined);
 
-            for (bit_array) |_, bit_index| {
+            for (bit_array, 0..) |_, bit_index| {
                 const bit = @intCast(std.math.Log2Int(Int), bit_index);
                 const mask = @as(Int, 1) << bit;
 
@@ -623,7 +623,7 @@ test "Atomic.bitToggle" {
                 try testing.expect(x.load(.SeqCst) & mask == 0);
 
                 // all the previous bits should have not changed (still be toggled back)
-                for (bit_array[0..bit_index]) |_, prev_bit_index| {
+                for (bit_array[0..bit_index], 0..) |_, prev_bit_index| {
                     const prev_bit = @intCast(std.math.Log2Int(Int), prev_bit_index);
                     const prev_mask = @as(Int, 1) << prev_bit;
                     try testing.expect(x.load(.SeqCst) & prev_mask == 0);

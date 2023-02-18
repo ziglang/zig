@@ -18,7 +18,7 @@ pub fn timingSafeEql(comptime T: type, a: T, b: T) bool {
                 @compileError("Elements to be compared must be integers");
             }
             var acc = @as(C, 0);
-            for (a) |x, i| {
+            for (a, 0..) |x, i| {
                 acc |= x ^ b[i];
             }
             const s = @typeInfo(C).Int.bits;
@@ -64,7 +64,7 @@ pub fn timingSafeCompare(comptime T: type, a: []const T, b: []const T, endian: E
             eq &= @truncate(T, (@as(Cext, (x2 ^ x1)) -% 1) >> bits);
         }
     } else {
-        for (a) |x1, i| {
+        for (a, 0..) |x1, i| {
             const x2 = b[i];
             gt |= @truncate(T, (@as(Cext, x2) -% @as(Cext, x1)) >> bits) & eq;
             eq &= @truncate(T, (@as(Cext, (x2 ^ x1)) -% 1) >> bits);

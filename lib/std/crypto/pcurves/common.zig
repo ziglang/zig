@@ -65,7 +65,7 @@ pub fn Field(comptime params: FieldParams) type {
         /// Swap the endianness of an encoded element.
         pub fn orderSwap(s: [encoded_length]u8) [encoded_length]u8 {
             var t = s;
-            for (s) |x, i| t[t.len - 1 - i] = x;
+            for (s, 0..) |x, i| t[t.len - 1 - i] = x;
             return t;
         }
 

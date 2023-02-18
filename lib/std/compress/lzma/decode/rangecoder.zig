@@ -174,8 +174,8 @@ pub const LenDecoder = struct {
     pub fn reset(self: *LenDecoder) void {
         self.choice = 0x400;
         self.choice2 = 0x400;
-        for (self.low_coder) |*t| t.reset();
-        for (self.mid_coder) |*t| t.reset();
+        for (&self.low_coder) |*t| t.reset();
+        for (&self.mid_coder) |*t| t.reset();
         self.high_coder.reset();
     }
 };

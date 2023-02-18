@@ -53,7 +53,7 @@ test "Once executes its function just once" {
         var threads: [10]std.Thread = undefined;
         defer for (threads) |handle| handle.join();
 
-        for (threads) |*handle| {
+        for (&threads) |*handle| {
             handle.* = try std.Thread.spawn(.{}, struct {
                 fn thread_fn(x: u8) void {
                     _ = x;

@@ -161,7 +161,7 @@ pub fn flush(self: Module, file: std.fs.File) !void {
 
     var iovc_buffers: [buffers.len]std.os.iovec_const = undefined;
     var file_size: u64 = 0;
-    for (iovc_buffers) |*iovc, i| {
+    for (&iovc_buffers, 0..) |*iovc, i| {
         // Note, since spir-v supports both little and big endian we can ignore byte order here and
         // just treat the words as a sequence of bytes.
         const bytes = std.mem.sliceAsBytes(buffers[i]);
@@ -389,7 +389,7 @@ fn decorateStruct(self: *Module, target: IdRef, info: *const Type.Payload.Struct
     // Decorations for the struct members.
     const extra = info.member_decoration_extra;
     var extra_i: u32 = 0;
-    for (info.members) |member, i| {
+    for (info.members, 0..) |member, i| {
         const d = member.decorations;
         const index = @intCast(Word, i);
         switch (d.matrix_layout) {

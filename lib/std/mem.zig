@@ -169,7 +169,7 @@ test "Allocator.resize" {
         var values = try testing.allocator.alloc(T, 100);
         defer testing.allocator.free(values);
 
-        for (values) |*v, i| v.* = @intCast(T, i);
+        for (values, 0..) |*v, i| v.* = @intCast(T, i);
         if (!testing.allocator.resize(values, values.len + 10)) return error.OutOfMemory;
         values = values.ptr[0 .. values.len + 10];
         try testing.expect(values.len == 110);
@@ -185,7 +185,7 @@ test "Allocator.resize" {
         var values = try testing.allocator.alloc(T, 100);
         defer testing.allocator.free(values);
 
-        for (values) |*v, i| v.* = @intToFloat(T, i);
+        for (values, 0..) |*v, i| v.* = @intToFloat(T, i);
         if (!testing.allocator.resize(values, values.len + 10)) return error.OutOfMemory;
         values = values.ptr[0 .. values.len + 10];
         try testing.expect(values.len == 110);
@@ -201,7 +201,7 @@ pub fn copy(comptime T: type, dest: []T, source: []const T) void {
     // this and automatically omit safety checks for loops
     @setRuntimeSafety(false);
     assert(dest.len >= source.len);
-    for (source) |s, i|
+    for (source, 0..) |s, i|
         dest[i] = s;
 }
 
@@ -445,7 +445,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
 
                     var value: T = undefined;
 
-                    inline for (struct_info.fields) |field, i| {
+                    inline for (struct_info.fields, 0..) |field, i| {
                         if (field.is_comptime) {
                             continue;
                         }
@@ -611,7 +611,7 @@ test "lessThan" {
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (a.len != b.len) return false;
     if (a.ptr == b.ptr) return true;
-    for (a) |item, index| {
+    for (a, 0..) |item, index| {
         if (b[index] != item) return false;
     }
     return true;
@@ -1261,7 +1261,7 @@ pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) 
         },
         .Little => {
             const ShiftType = math.Log2Int(ReturnType);
-            for (bytes) |b, index| {
+            for (bytes, 0..) |b, index| {
                 result = result | (@as(ReturnType, b) << @intCast(ShiftType, index * 8));
             }
         },
@@ -1328,7 +1328,7 @@ pub fn readVarPackedInt(
         },
         .Little => {
             int = read_bytes[0] >> bit_shift;
-            for (read_bytes[1..]) |elem, i| {
+            for (read_bytes[1..], 0..) |elem, i| {
                 int |= (@as(uN, elem) << @intCast(Log2N, (8 * (i + 1) - bit_shift)));
             }
         },
@@ -2907,7 +2907,7 @@ pub fn indexOfMin(comptime T: type, slice: []const T) usize {
     assert(slice.len > 0);
     var best = slice[0];
     var index: usize = 0;
-    for (slice[1..]) |item, i| {
+    for (slice[1..], 0..) |item, i| {
         if (item < best) {
             best = item;
             index = i + 1;
@@ -2928,7 +2928,7 @@ pub fn indexOfMax(comptime T: type, slice: []const T) usize {
     assert(slice.len > 0);
     var best = slice[0];
     var index: usize = 0;
-    for (slice[1..]) |item, i| {
+    for (slice[1..], 0..) |item, i| {
         if (item > best) {
             best = item;
             index = i + 1;
@@ -2952,7 +2952,7 @@ pub fn indexOfMinMax(comptime T: type, slice: []const T) struct { index_min: usi
     var maxVal = slice[0];
     var minIdx: usize = 0;
     var maxIdx: usize = 0;
-    for (slice[1..]) |item, i| {
+    for (slice[1..], 0..) |item, i| {
         if (item < minVal) {
             minVal = item;
             minIdx = i + 1;
@@ -3117,7 +3117,7 @@ test "replace" {
 
 /// Replace all occurences of `needle` with `replacement`.
 pub fn replaceScalar(comptime T: type, slice: []T, needle: T, replacement: T) void {
-    for (slice) |e, i| {
+    for (slice, 0..) |e, i| {
         if (e == needle) {
             slice[i] = replacement;
         }
@@ -3372,7 +3372,7 @@ test "asBytes" {
     try testing.expect(eql(u8, asBytes(&deadbeef), deadbeef_bytes));
 
     var codeface = @as(u32, 0xC0DEFACE);
-    for (asBytes(&codeface).*) |*b|
+    for (asBytes(&codeface)) |*b|
         b.* = 0;
     try testing.expect(codeface == 0);
 

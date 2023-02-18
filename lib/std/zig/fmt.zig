@@ -25,7 +25,7 @@ pub fn fmtId(bytes: []const u8) std.fmt.Formatter(formatId) {
 pub fn isValidId(bytes: []const u8) bool {
     if (bytes.len == 0) return false;
     if (mem.eql(u8, bytes, "_")) return false;
-    for (bytes) |c, i| {
+    for (bytes, 0..) |c, i| {
         switch (c) {
             '_', 'a'...'z', 'A'...'Z' => {},
             '0'...'9' => if (i == 0) return false,

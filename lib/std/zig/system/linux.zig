@@ -223,7 +223,7 @@ const ArmCpuinfoImpl = struct {
         };
 
         var known_models: [self.cores.len]?*const Target.Cpu.Model = undefined;
-        for (self.cores[0..self.core_no]) |core, i| {
+        for (self.cores[0..self.core_no], 0..) |core, i| {
             known_models[i] = cpu_models.isKnown(.{
                 .architecture = core.architecture,
                 .implementer = core.implementer,

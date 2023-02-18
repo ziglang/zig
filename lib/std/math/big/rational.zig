@@ -70,7 +70,7 @@ pub const Rational = struct {
             start += 1;
         }
 
-        for (str) |c, i| {
+        for (str, 0..) |c, i| {
             switch (state) {
                 State.Integer => {
                     switch (c) {

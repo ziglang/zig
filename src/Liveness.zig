@@ -384,7 +384,7 @@ pub fn categorizeOperand(
             const args = @ptrCast([]const Air.Inst.Ref, air.extra[extra.end..][0..extra.data.args_len]);
             if (args.len + 1 <= bpi - 1) {
                 if (callee == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
-                for (args) |arg, i| {
+                for (args, 0..) |arg, i| {
                     if (arg == operand_ref) return matchOperandSmallIndex(l, inst, @intCast(OperandInt, i + 1), .write);
                 }
                 return .write;
@@ -436,7 +436,7 @@ pub fn categorizeOperand(
             const elements = @ptrCast([]const Air.Inst.Ref, air.extra[ty_pl.payload..][0..len]);
 
             if (elements.len <= bpi - 1) {
-                for (elements) |elem, i| {
+                for (elements, 0..) |elem, i| {
                     if (elem == operand_ref) return matchOperandSmallIndex(l, inst, @intCast(OperandInt, i), .none);
                 }
                 return .none;
@@ -1272,12 +1272,12 @@ fn analyzeInst(
             defer for (case_deaths) |*cd| cd.deinit(gpa);
 
             var total_deaths: u32 = 0;
-            for (case_tables) |*ct, i| {
+            for (case_tables, 0..) |*ct, i| {
                 total_deaths += ct.count();
                 var it = ct.keyIterator();
                 while (it.next()) |key| {
                     const case_death = key.*;
-                    for (case_tables) |*ct_inner, j| {
+                    for (case_tables, 0..) |*ct_inner, j| {
                         if (i == j) continue;
                         if (!ct_inner.contains(case_death)) {
                             // instruction is not referenced in this case

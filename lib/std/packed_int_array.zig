@@ -215,7 +215,7 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: Endian, comptim
         /// or, more likely, an array literal.
         pub fn init(ints: [int_count]Int) Self {
             var self = @as(Self, undefined);
-            for (ints) |int, i| self.set(i, int);
+            for (ints, 0..) |int, i| self.set(i, int);
             return self;
         }
 

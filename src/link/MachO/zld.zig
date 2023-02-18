@@ -321,7 +321,7 @@ pub const Zld = struct {
         syslibroot: ?[]const u8,
         dependent_libs: anytype,
     ) !void {
-        for (lib_names) |lib, i| {
+        for (lib_names, 0..) |lib, i| {
             const lib_info = lib_infos[i];
             log.debug("parsing lib path '{s}'", .{lib});
             if (try self.parseDylib(lib, dependent_libs, .{
@@ -1092,7 +1092,7 @@ pub const Zld = struct {
             const sym = self.getSymbolPtr(global);
             const sym_name = self.getSymbolName(global);
 
-            for (self.dylibs.items) |dylib, id| {
+            for (self.dylibs.items, 0..) |dylib, id| {
                 if (!dylib.symbols.contains(sym_name)) continue;
 
                 const dylib_id = @intCast(u16, id);
@@ -1223,7 +1223,7 @@ pub const Zld = struct {
         const global = SymbolWithLoc{ .sym_index = sym_index };
         try self.globals.append(gpa, global);
 
-        for (self.dylibs.items) |dylib, id| {
+        for (self.dylibs.items, 0..) |dylib, id| {
             if (!dylib.symbols.contains(sym_name)) continue;
 
             const dylib_id = @intCast(u16, id);
@@ -1311,7 +1311,7 @@ pub const Zld = struct {
             });
         }
 
-        for (self.sections.items(.header)) |header, sect_id| {
+        for (self.sections.items(.header), 0..) |header, sect_id| {
             if (header.size == 0) continue; // empty section
 
             const segname = header.segName();
@@ -1385,7 +1385,7 @@ pub const Zld = struct {
         const gpa = self.gpa;
         const slice = self.sections.slice();
 
-        for (slice.items(.first_atom_index)) |first_atom_index, sect_id| {
+        for (slice.items(.first_atom_index), 0..) |first_atom_index, sect_id| {
             const header = slice.items(.header)[sect_id];
             var atom_index = first_atom_index;
 
@@ -1525,7 +1525,7 @@ pub const Zld = struct {
 
     fn calcSectionSizes(self: *Zld) !void {
         const slice = self.sections.slice();
-        for (slice.items(.header)) |*header, sect_id| {
+        for (slice.items(.header), 0..) |*header, sect_id| {
             if (header.size == 0) continue;
             if (self.requiresThunks()) {
                 if (header.isCode() and !(header.type() == macho.S_SYMBOL_STUBS) and !mem.eql(u8, header.sectName(), "__stub_helper")) continue;
@@ -1556,7 +1556,7 @@ pub const Zld = struct {
         }
 
         if (self.requiresThunks()) {
-            for (slice.items(.header)) |header, sect_id| {
+            for (slice.items(.header), 0..) |header, sect_id| {
                 if (!header.isCode()) continue;
                 if (header.type() == macho.S_SYMBOL_STUBS) continue;
                 if (mem.eql(u8, header.sectName(), "__stub_helper")) continue;
@@ -1568,7 +1568,7 @@ pub const Zld = struct {
     }
 
     fn allocateSegments(self: *Zld) !void {
-        for (self.segments.items) |*segment, segment_index| {
+        for (self.segments.items, 0..) |*segment, segment_index| {
             const is_text_segment = mem.eql(u8, segment.segName(), "__TEXT");
             const base_size = if (is_text_segment) try load_commands.calcMinHeaderPad(self.gpa, self.options, .{
                 .segments = self.segments.items,
@@ -1606,7 +1606,7 @@ pub const Zld = struct {
         var start = init_size;
 
         const slice = self.sections.slice();
-        for (slice.items(.header)[indexes.start..indexes.end]) |*header, sect_id| {
+        for (slice.items(.header)[indexes.start..indexes.end], 0..) |*header, sect_id| {
             const alignment = try math.powi(u32, 2, header.@"align");
             const start_aligned = mem.alignForwardGeneric(u64, start, alignment);
             const n_sect = @intCast(u8, indexes.start + sect_id + 1);
@@ -1750,7 +1750,7 @@ pub const Zld = struct {
     }
 
     fn writeSegmentHeaders(self: *Zld, writer: anytype) !void {
-        for (self.segments.items) |seg, i| {
+        for (self.segments.items, 0..) |seg, i| {
             const indexes = self.getSectionIndexes(@intCast(u8, i));
             var out_seg = seg;
             out_seg.cmdsize = @sizeOf(macho.segment_command_64);
@@ -1852,7 +1852,7 @@ pub const Zld = struct {
         }
 
         // Finally, unpack the rest.
-        for (slice.items(.header)) |header, sect_id| {
+        for (slice.items(.header), 0..) |header, sect_id| {
             switch (header.type()) {
                 macho.S_LITERAL_POINTERS,
                 macho.S_REGULAR,
@@ -1989,7 +1989,7 @@ pub const Zld = struct {
 
         // Finally, unpack the rest.
         const slice = self.sections.slice();
-        for (slice.items(.header)) |header, sect_id| {
+        for (slice.items(.header), 0..) |header, sect_id| {
             switch (header.type()) {
                 macho.S_LITERAL_POINTERS,
                 macho.S_REGULAR,
@@ -2710,7 +2710,7 @@ pub const Zld = struct {
                     const amt = try self.file.preadAll(locals_buf, self.symtab_cmd.symoff);
                     if (amt != locals_buf.len) return error.InputOutput;
 
-                    const istab: usize = for (locals) |local, i| {
+                    const istab: usize = for (locals, 0..) |local, i| {
                         if (local.stab()) break i;
                     } else locals.len;
                     const nstabs = locals.len - istab;
@@ -2897,7 +2897,7 @@ pub const Zld = struct {
     }
 
     fn getSegmentByName(self: Zld, segname: []const u8) ?u8 {
-        for (self.segments.items) |seg, i| {
+        for (self.segments.items, 0..) |seg, i| {
             if (mem.eql(u8, segname, seg.segName())) return @intCast(u8, i);
         } else return null;
     }
@@ -2921,7 +2921,7 @@ pub const Zld = struct {
 
     pub fn getSectionByName(self: Zld, segname: []const u8, sectname: []const u8) ?u8 {
         // TODO investigate caching with a hashmap
-        for (self.sections.items(.header)) |header, i| {
+        for (self.sections.items(.header), 0..) |header, i| {
             if (mem.eql(u8, header.segName(), segname) and mem.eql(u8, header.sectName(), sectname))
                 return @intCast(u8, i);
         } else return null;
@@ -2929,7 +2929,7 @@ pub const Zld = struct {
 
     pub fn getSectionIndexes(self: Zld, segment_index: u8) struct { start: u8, end: u8 } {
         var start: u8 = 0;
-        const nsects = for (self.segments.items) |seg, i| {
+        const nsects = for (self.segments.items, 0..) |seg, i| {
             if (i == segment_index) break @intCast(u8, seg.nsects);
             start += @intCast(u8, seg.nsects);
         } else 0;
@@ -3220,7 +3220,7 @@ pub const Zld = struct {
 
     fn logSegments(self: *Zld) void {
         log.debug("segments:", .{});
-        for (self.segments.items) |segment, i| {
+        for (self.segments.items, 0..) |segment, i| {
             log.debug("  segment({d}): {s} @{x} ({x}), sizeof({x})", .{
                 i,
                 segment.segName(),
@@ -3233,7 +3233,7 @@ pub const Zld = struct {
 
     fn logSections(self: *Zld) void {
         log.debug("sections:", .{});
-        for (self.sections.items(.header)) |header, i| {
+        for (self.sections.items(.header), 0..) |header, i| {
             log.debug("  sect({d}): {s},{s} @{x} ({x}), sizeof({x})", .{
                 i + 1,
                 header.segName(),
@@ -3271,10 +3271,10 @@ pub const Zld = struct {
         const scoped_log = std.log.scoped(.symtab);
 
         scoped_log.debug("locals:", .{});
-        for (self.objects.items) |object, id| {
+        for (self.objects.items, 0..) |object, id| {
             scoped_log.debug("  object({d}): {s}", .{ id, object.name });
             if (object.in_symtab == null) continue;
-            for (object.symtab) |sym, sym_id| {
+            for (object.symtab, 0..) |sym, sym_id| {
                 mem.set(u8, &buf, '_');
                 scoped_log.debug("    %{d}: {s} @{x} in sect({d}), {s}", .{
                     sym_id,
@@ -3286,7 +3286,7 @@ pub const Zld = struct {
             }
         }
         scoped_log.debug("  object(-1)", .{});
-        for (self.locals.items) |sym, sym_id| {
+        for (self.locals.items, 0..) |sym, sym_id| {
             if (sym.undf()) continue;
             scoped_log.debug("    %{d}: {s} @{x} in sect({d}), {s}", .{
                 sym_id,
@@ -3298,7 +3298,7 @@ pub const Zld = struct {
         }
 
         scoped_log.debug("exports:", .{});
-        for (self.globals.items) |global, i| {
+        for (self.globals.items, 0..) |global, i| {
             const sym = self.getSymbol(global);
             if (sym.undf()) continue;
             if (sym.n_desc == N_DEAD) continue;
@@ -3313,7 +3313,7 @@ pub const Zld = struct {
         }
 
         scoped_log.debug("imports:", .{});
-        for (self.globals.items) |global, i| {
+        for (self.globals.items, 0..) |global, i| {
             const sym = self.getSymbol(global);
             if (!sym.undf()) continue;
             if (sym.n_desc == N_DEAD) continue;
@@ -3328,7 +3328,7 @@ pub const Zld = struct {
         }
 
         scoped_log.debug("GOT entries:", .{});
-        for (self.got_entries.items) |entry, i| {
+        for (self.got_entries.items, 0..) |entry, i| {
             const atom_sym = entry.getAtomSymbol(self);
             const target_sym = entry.getTargetSymbol(self);
             const target_sym_name = entry.getTargetSymbolName(self);
@@ -3350,7 +3350,7 @@ pub const Zld = struct {
         }
 
         scoped_log.debug("__thread_ptrs entries:", .{});
-        for (self.tlv_ptr_entries.items) |entry, i| {
+        for (self.tlv_ptr_entries.items, 0..) |entry, i| {
             const atom_sym = entry.getAtomSymbol(self);
             const target_sym = entry.getTargetSymbol(self);
             const target_sym_name = entry.getTargetSymbolName(self);
@@ -3363,7 +3363,7 @@ pub const Zld = struct {
         }
 
         scoped_log.debug("stubs entries:", .{});
-        for (self.stubs.items) |entry, i| {
+        for (self.stubs.items, 0..) |entry, i| {
             const atom_sym = entry.getAtomSymbol(self);
             const target_sym = entry.getTargetSymbol(self);
             const target_sym_name = entry.getTargetSymbolName(self);
@@ -3376,9 +3376,9 @@ pub const Zld = struct {
         }
 
         scoped_log.debug("thunks:", .{});
-        for (self.thunks.items) |thunk, i| {
+        for (self.thunks.items, 0..) |thunk, i| {
             scoped_log.debug("  thunk({d})", .{i});
-            for (thunk.lookup.keys()) |target, j| {
+            for (thunk.lookup.keys(), 0..) |target, j| {
                 const target_sym = self.getSymbol(target);
                 const atom = self.getAtom(thunk.lookup.get(target).?);
                 const atom_sym = self.getSymbol(atom.getSymbolWithLoc());
@@ -3395,7 +3395,7 @@ pub const Zld = struct {
     fn logAtoms(self: *Zld) void {
         log.debug("atoms:", .{});
         const slice = self.sections.slice();
-        for (slice.items(.first_atom_index)) |first_atom_index, sect_id| {
+        for (slice.items(.first_atom_index), 0..) |first_atom_index, sect_id| {
             var atom_index = first_atom_index;
             if (atom_index == 0) continue;
 
@@ -3980,7 +3980,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             .unresolved = std.AutoArrayHashMap(u32, void).init(arena),
         };
 
-        for (zld.objects.items) |_, object_id| {
+        for (zld.objects.items, 0..) |_, object_id| {
             try zld.resolveSymbolsInObject(@intCast(u32, object_id), &resolver);
         }
 
@@ -4010,7 +4010,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             zld.entry_index = global_index;
         }
 
-        for (zld.objects.items) |*object, object_id| {
+        for (zld.objects.items, 0..) |*object, object_id| {
             try object.splitIntoAtoms(&zld, @intCast(u32, object_id));
         }
 

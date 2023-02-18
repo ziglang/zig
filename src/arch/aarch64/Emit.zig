@@ -80,7 +80,7 @@ pub fn emitMir(
     try emit.lowerBranches();
 
     // Emit machine code
-    for (mir_tags) |tag, index| {
+    for (mir_tags, 0..) |tag, index| {
         const inst = @intCast(u32, index);
         switch (tag) {
             .add_immediate => try emit.mirAddSubtractImmediate(inst),
@@ -323,7 +323,7 @@ fn lowerBranches(emit: *Emit) !void {
     //
     // TODO optimization opportunity: do this in codegen while
     // generating MIR
-    for (mir_tags) |tag, index| {
+    for (mir_tags, 0..) |tag, index| {
         const inst = @intCast(u32, index);
         if (isBranch(tag)) {
             const target_inst = emit.branchTarget(inst);
@@ -368,7 +368,7 @@ fn lowerBranches(emit: *Emit) !void {
         all_branches_lowered = true;
         var current_code_offset: usize = 0;
 
-        for (mir_tags) |tag, index| {
+        for (mir_tags, 0..) |tag, index| {
             const inst = @intCast(u32, index);
 
             // If this instruction contained in the code offset

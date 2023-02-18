@@ -720,7 +720,7 @@ pub const Target = struct {
                 /// Adds the specified feature set but not its dependencies.
                 pub fn addFeatureSet(set: *Set, other_set: Set) void {
                     if (builtin.zig_backend == .stage2_c) {
-                        for (set.ints) |*int, i| int.* |= other_set.ints[i];
+                        for (&set.ints, 0..) |*int, i| int.* |= other_set.ints[i];
                     } else {
                         set.ints = @as(@Vector(usize_count, usize), set.ints) | @as(@Vector(usize_count, usize), other_set.ints);
                     }
@@ -736,7 +736,7 @@ pub const Target = struct {
                 /// Removes the specified feature but not its dependents.
                 pub fn removeFeatureSet(set: *Set, other_set: Set) void {
                     if (builtin.zig_backend == .stage2_c) {
-                        for (set.ints) |*int, i| int.* &= ~other_set.ints[i];
+                        for (&set.ints, 0..) |*int, i| int.* &= ~other_set.ints[i];
                     } else {
                         set.ints = @as(@Vector(usize_count, usize), set.ints) & ~@as(@Vector(usize_count, usize), other_set.ints);
                     }
@@ -747,7 +747,7 @@ pub const Target = struct {
 
                     var old = set.ints;
                     while (true) {
-                        for (all_features_list) |feature, index_usize| {
+                        for (all_features_list, 0..) |feature, index_usize| {
                             const index = @intCast(Index, index_usize);
                             if (set.isEnabled(index)) {
                                 set.addFeatureSet(feature.dependencies);
@@ -1330,7 +1330,7 @@ pub const Target = struct {
             fn allCpusFromDecls(comptime cpus: type) []const *const Cpu.Model {
                 const decls = @typeInfo(cpus).Struct.decls;
                 var array: [decls.len]*const Cpu.Model = undefined;
-                for (decls) |decl, i| {
+                for (decls, 0..) |decl, i| {
                     array[i] = &@field(cpus, decl.name);
                 }
                 return &array;

@@ -136,7 +136,7 @@ pub fn tokenLocation(self: Ast, start_offset: ByteOffset, token_index: TokenInde
         .line_end = self.source.len,
     };
     const token_start = self.tokens.items(.start)[token_index];
-    for (self.source[start_offset..]) |c, i| {
+    for (self.source[start_offset..], 0..) |c, i| {
         if (i + start_offset == token_start) {
             loc.line_end = i + start_offset;
             while (loc.line_end < self.source.len and self.source[loc.line_end] != '\n') {
@@ -179,7 +179,7 @@ pub fn tokenSlice(tree: Ast, token_index: TokenIndex) []const u8 {
 pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
     const fields = std.meta.fields(T);
     var result: T = undefined;
-    inline for (fields) |field, i| {
+    inline for (fields, 0..) |field, i| {
         comptime assert(field.type == Node.Index);
         @field(result, field.name) = tree.extra_data[index + i];
     }
@@ -2183,7 +2183,7 @@ fn fullAsmComponents(tree: Ast, info: full.Asm.Components) full.Asm {
     if (token_tags[info.asm_token + 1] == .keyword_volatile) {
         result.volatile_token = info.asm_token + 1;
     }
-    const outputs_end: usize = for (info.items) |item, i| {
+    const outputs_end: usize = for (info.items, 0..) |item, i| {
         switch (node_tags[item]) {
             .asm_output => continue,
             else => break i,

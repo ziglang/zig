@@ -46,11 +46,11 @@ pub fn Hmac(comptime Hash: type) type {
                 mem.copy(u8, scratch[0..], key);
             }
 
-            for (ctx.o_key_pad) |*b, i| {
+            for (&ctx.o_key_pad, 0..) |*b, i| {
                 b.* = scratch[i] ^ 0x5c;
             }
 
-            for (i_key_pad) |*b, i| {
+            for (&i_key_pad, 0..) |*b, i| {
                 b.* = scratch[i] ^ 0x36;
             }
 

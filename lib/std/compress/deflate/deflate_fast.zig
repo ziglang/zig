@@ -264,7 +264,7 @@ pub const DeflateFast = struct {
             var a = src[@intCast(usize, s)..@intCast(usize, s1)];
             b = b[0..a.len];
             // Extend the match to be as long as possible.
-            for (a) |_, i| {
+            for (a, 0..) |_, i| {
                 if (a[i] != b[i]) {
                     return @intCast(i32, i);
                 }
@@ -285,7 +285,7 @@ pub const DeflateFast = struct {
             b = b[0..a.len];
         }
         a = a[0..b.len];
-        for (b) |_, i| {
+        for (b, 0..) |_, i| {
             if (a[i] != b[i]) {
                 return @intCast(i32, i);
             }
@@ -301,7 +301,7 @@ pub const DeflateFast = struct {
         // Continue looking for more matches in the current block.
         a = src[@intCast(usize, s + n)..@intCast(usize, s1)];
         b = src[0..a.len];
-        for (a) |_, i| {
+        for (a, 0..) |_, i| {
             if (a[i] != b[i]) {
                 return @intCast(i32, i) + n;
             }
@@ -330,7 +330,7 @@ pub const DeflateFast = struct {
     fn shiftOffsets(self: *Self) void {
         if (self.prev_len == 0) {
             // We have no history; just clear the table.
-            for (self.table) |_, i| {
+            for (self.table, 0..) |_, i| {
                 self.table[i] = TableEntry{ .val = 0, .offset = 0 };
             }
             self.cur = max_match_offset + 1;
@@ -338,7 +338,7 @@ pub const DeflateFast = struct {
         }
 
         // Shift down everything in the table that isn't already too far away.
-        for (self.table) |_, i| {
+        for (self.table, 0..) |_, i| {
             var v = self.table[i].offset - self.cur + max_match_offset + 1;
             if (v < 0) {
                 // We want to reset self.cur to max_match_offset + 1, so we need to shift
