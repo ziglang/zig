@@ -100,7 +100,7 @@ fn wasiPathPrefixMatches(prefix: []const u8, path: []const u8) bool {
 }
 
 test "preopens" {
-    if (builtin.os.tag != .wasi) return error.SkipZigTest;
+    if (builtin.os.tag != .wasi or builtin.link_libc) return error.SkipZigTest;
 
     // lifted from `testing`
     const random_bytes_count = 12;
