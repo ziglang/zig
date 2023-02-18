@@ -1060,15 +1060,16 @@ fn analyzeBodyInner(
             .error_set_decl_anon => try sema.zirErrorSetDecl(block, inst, .anon),
             .error_set_decl_func => try sema.zirErrorSetDecl(block, inst, .func),
 
-            .add       => try sema.zirArithmetic(block, inst, .add),
-            .addwrap   => try sema.zirArithmetic(block, inst, .addwrap),
-            .add_sat   => try sema.zirArithmetic(block, inst, .add_sat),
-            .mul       => try sema.zirArithmetic(block, inst, .mul),
-            .mulwrap   => try sema.zirArithmetic(block, inst, .mulwrap),
-            .mul_sat   => try sema.zirArithmetic(block, inst, .mul_sat),
-            .sub       => try sema.zirArithmetic(block, inst, .sub),
-            .subwrap   => try sema.zirArithmetic(block, inst, .subwrap),
-            .sub_sat   => try sema.zirArithmetic(block, inst, .sub_sat),
+            .add       => try sema.zirArithmetic(block, inst, .add,        true),
+            .addwrap   => try sema.zirArithmetic(block, inst, .addwrap,    true),
+            .add_sat   => try sema.zirArithmetic(block, inst, .add_sat,    true),
+            .add_unsafe=> try sema.zirArithmetic(block, inst, .add_unsafe, false),
+            .mul       => try sema.zirArithmetic(block, inst, .mul,        true),
+            .mulwrap   => try sema.zirArithmetic(block, inst, .mulwrap,    true),
+            .mul_sat   => try sema.zirArithmetic(block, inst, .mul_sat,    true),
+            .sub       => try sema.zirArithmetic(block, inst, .sub,        true),
+            .subwrap   => try sema.zirArithmetic(block, inst, .subwrap,    true),
+            .sub_sat   => try sema.zirArithmetic(block, inst, .sub_sat,    true),
 
             .div       => try sema.zirDiv(block, inst),
             .div_exact => try sema.zirDivExact(block, inst),
@@ -12887,6 +12888,7 @@ fn zirArithmetic(
     block: *Block,
     inst: Zir.Inst.Index,
     zir_tag: Zir.Inst.Tag,
+    safety: bool,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -12899,7 +12901,7 @@ fn zirArithmetic(
     const lhs = try sema.resolveInst(extra.lhs);
     const rhs = try sema.resolveInst(extra.rhs);
 
-    return sema.analyzeArithmetic(block, zir_tag, lhs, rhs, sema.src, lhs_src, rhs_src, true);
+    return sema.analyzeArithmetic(block, zir_tag, lhs, rhs, sema.src, lhs_src, rhs_src, safety);
 }
 
 fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -14250,7 +14252,7 @@ fn analyzeArithmetic(
     const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(casted_rhs);
     const rs: struct { src: LazySrcLoc, air_tag: Air.Inst.Tag } = rs: {
         switch (zir_tag) {
-            .add => {
+            .add, .add_unsafe => {
                 // For integers:intAddSat
                 // If either of the operands are zero, then the other operand is
                 // returned, even if it is undefined.

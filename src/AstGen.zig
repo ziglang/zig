@@ -2400,6 +2400,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .add,
             .addwrap,
             .add_sat,
+            .add_unsafe,
             .param,
             .param_comptime,
             .param_anytype,
@@ -6440,7 +6441,7 @@ fn forExpr(
     try loop_scope.instructions.append(gpa, cond_block);
 
     // Increment the index variable.
-    const index_plus_one = try loop_scope.addPlNode(.add, node, Zir.Inst.Bin{
+    const index_plus_one = try loop_scope.addPlNode(.add_unsafe, node, Zir.Inst.Bin{
         .lhs = index,
         .rhs = .one_usize,
     });

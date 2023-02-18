@@ -137,6 +137,8 @@ pub const Inst = struct {
         /// Saturating addition.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         add_sat,
+        /// The same as `add` except no safety check.
+        add_unsafe,
         /// Arithmetic subtraction. Asserts no integer overflow.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         sub,
@@ -1023,6 +1025,7 @@ pub const Inst = struct {
                 .add,
                 .addwrap,
                 .add_sat,
+                .add_unsafe,
                 .alloc,
                 .alloc_mut,
                 .alloc_comptime_mut,
@@ -1338,6 +1341,7 @@ pub const Inst = struct {
                 .add,
                 .addwrap,
                 .add_sat,
+                .add_unsafe,
                 .alloc,
                 .alloc_mut,
                 .alloc_comptime_mut,
@@ -1570,6 +1574,7 @@ pub const Inst = struct {
                 .add = .pl_node,
                 .addwrap = .pl_node,
                 .add_sat = .pl_node,
+                .add_unsafe = .pl_node,
                 .sub = .pl_node,
                 .subwrap = .pl_node,
                 .sub_sat = .pl_node,
