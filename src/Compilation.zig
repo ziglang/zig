@@ -2773,6 +2773,111 @@ fn emitOthers(comp: *Compilation) void {
     }
 }
 
+fn reportMultiModuleErrors(mod: *Module) !void {
+    // Some cases can give you a whole bunch of multi-module errors, which it's not helpful to
+    // print all of, so we'll cap the number of these to emit.
+    var num_errors: u32 = 0;
+    const max_errors = 5;
+    // Attach the "some omitted" note to the final error message
+    var last_err: ?*Module.ErrorMsg = null;
+
+    for (mod.import_table.values()) |file| {
+        if (!file.multi_pkg) continue;
+
+        num_errors += 1;
+        if (num_errors > max_errors) continue;
+
+        const err = err_blk: {
+            // Like with errors, let's cap the number of notes to prevent a huge error spew.
+            const max_notes = 5;
+            const omitted = file.references.items.len -| max_notes;
+            const num_notes = file.references.items.len - omitted;
+
+            const notes = try mod.gpa.alloc(Module.ErrorMsg, if (omitted > 0) num_notes + 1 else num_notes);
+            errdefer mod.gpa.free(notes);
+
+            for (notes[0..num_notes], file.references.items[0..num_notes], 0..) |*note, ref, i| {
+                errdefer for (notes[0..i]) |*n| n.deinit(mod.gpa);
+                note.* = switch (ref) {
+                    .import => |loc| blk: {
+                        const name = try loc.file_scope.pkg.getName(mod.gpa, mod.*);
+                        defer mod.gpa.free(name);
+                        break :blk try Module.ErrorMsg.init(
+                            mod.gpa,
+                            loc,
+                            "imported from module {s}",
+                            .{name},
+                        );
+                    },
+                    .root => |pkg| blk: {
+                        const name = try pkg.getName(mod.gpa, mod.*);
+                        defer mod.gpa.free(name);
+                        break :blk try Module.ErrorMsg.init(
+                            mod.gpa,
+                            .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
+                            "root of module {s}",
+                            .{name},
+                        );
+                    },
+                };
+            }
+            errdefer for (notes[0..num_notes]) |*n| n.deinit(mod.gpa);
+
+            if (omitted > 0) {
+                notes[num_notes] = try Module.ErrorMsg.init(
+                    mod.gpa,
+                    .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
+                    "{} more references omitted",
+                    .{omitted},
+                );
+            }
+            errdefer if (omitted > 0) notes[num_notes].deinit(mod.gpa);
+
+            const err = try Module.ErrorMsg.create(
+                mod.gpa,
+                .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
+                "file exists in multiple modules",
+                .{},
+            );
+            err.notes = notes;
+            break :err_blk err;
+        };
+        errdefer err.destroy(mod.gpa);
+        try mod.failed_files.putNoClobber(mod.gpa, file, err);
+        last_err = err;
+    }
+
+    // If we omitted any errors, add a note saying that
+    if (num_errors > max_errors) {
+        const err = last_err.?;
+
+        // There isn't really any meaningful place to put this note, so just attach it to the
+        // last failed file
+        var note = try Module.ErrorMsg.init(
+            mod.gpa,
+            err.src_loc,
+            "{} more errors omitted",
+            .{num_errors - max_errors},
+        );
+        errdefer note.deinit(mod.gpa);
+
+        const i = err.notes.len;
+        err.notes = try mod.gpa.realloc(err.notes, i + 1);
+        err.notes[i] = note;
+    }
+
+    // Now that we've reported the errors, we need to deal with
+    // dependencies. Any file referenced by a multi_pkg file should also be
+    // marked multi_pkg and have its status set to astgen_failure, as it's
+    // ambiguous which package they should be analyzed as a part of. We need
+    // to add this flag after reporting the errors however, as otherwise
+    // we'd get an error for every single downstream file, which wouldn't be
+    // very useful.
+    for (mod.import_table.values()) |file| {
+        if (file.multi_pkg) file.recursiveMarkMultiPkg(mod);
+    }
+}
+
 /// Having the file open for writing is problematic as far as executing the
 /// binary is concerned. This will remove the write flag, or close the file,
 /// or whatever is needed so that it can be executed.
@@ -3099,62 +3204,7 @@ pub fn performAllTheWork(
     }
 
     if (comp.bin_file.options.module) |mod| {
-        for (mod.import_table.values()) |file| {
-            if (!file.multi_pkg) continue;
-            const err = err_blk: {
-                const notes = try mod.gpa.alloc(Module.ErrorMsg, file.references.items.len);
-                errdefer mod.gpa.free(notes);
-
-                for (notes, 0..) |*note, i| {
-                    errdefer for (notes[0..i]) |*n| n.deinit(mod.gpa);
-                    note.* = switch (file.references.items[i]) {
-                        .import => |loc| blk: {
-                            const name = try loc.file_scope.pkg.getName(mod.gpa, mod.*);
-                            defer mod.gpa.free(name);
-                            break :blk try Module.ErrorMsg.init(
-                                mod.gpa,
-                                loc,
-                                "imported from package {s}",
-                                .{name},
-                            );
-                        },
-                        .root => |pkg| blk: {
-                            const name = try pkg.getName(mod.gpa, mod.*);
-                            defer mod.gpa.free(name);
-                            break :blk try Module.ErrorMsg.init(
-                                mod.gpa,
-                                .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
-                                "root of package {s}",
-                                .{name},
-                            );
-                        },
-                    };
-                }
-                errdefer for (notes) |*n| n.deinit(mod.gpa);
-
-                const err = try Module.ErrorMsg.create(
-                    mod.gpa,
-                    .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
-                    "file exists in multiple packages",
-                    .{},
-                );
-                err.notes = notes;
-                break :err_blk err;
-            };
-            errdefer err.destroy(mod.gpa);
-            try mod.failed_files.putNoClobber(mod.gpa, file, err);
-        }
-
-        // Now that we've reported the errors, we need to deal with
-        // dependencies. Any file referenced by a multi_pkg file should also be
-        // marked multi_pkg and have its status set to astgen_failure, as it's
-        // ambiguous which package they should be analyzed as a part of. We need
-        // to add this flag after reporting the errors however, as otherwise
-        // we'd get an error for every single downstream file, which wouldn't be
-        // very useful.
-        for (mod.import_table.values()) |file| {
-            if (file.multi_pkg) file.recursiveMarkMultiPkg(mod);
-        }
+        try reportMultiModuleErrors(mod);
     }
 
     {

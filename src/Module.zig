@@ -1946,7 +1946,7 @@ pub const File = struct {
     prev_zir: ?*Zir = null,
 
     /// A single reference to a file.
-    const Reference = union(enum) {
+    pub const Reference = union(enum) {
         /// The file is imported directly (i.e. not as a package) with @import.
         import: SrcLoc,
         /// The file is the root of a package.
@@ -2144,7 +2144,10 @@ pub const File = struct {
         file.multi_pkg = true;
         file.status = .astgen_failure;
 
-        std.debug.assert(file.zir_loaded);
+        // We can only mark children as failed if the ZIR is loaded, which may not
+        // be the case if there were other astgen failures in this file
+        if (!file.zir_loaded) return;
+
         const imports_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.imports)];
         if (imports_index == 0) return;
         const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
