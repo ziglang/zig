@@ -261,3 +261,16 @@ test "count over fixed range" {
 
     try expect(sum == 15);
 }
+
+test "two counters" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    var sum: usize = 0;
+    for (0..10, 10..20) |i, j| {
+        sum += 1;
+        try expect(i + 10 == j);
+    }
+
+    try expect(sum == 10);
+}
