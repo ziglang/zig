@@ -1,6 +1,6 @@
 export fn returns() void {
-    for ([_]void{}) |_, i| {
-        for ([_]void{}) |_, j| {
+    for ([_]void{}, 0..) |_, i| {
+        for ([_]void{}, 0..) |_, j| {
             return _;
         }
     }
