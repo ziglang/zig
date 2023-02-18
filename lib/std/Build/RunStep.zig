@@ -188,6 +188,10 @@ fn stdIoActionToBehavior(action: StdIoAction) std.ChildProcess.StdIo {
 }
 
 fn needOutputCheck(self: RunStep) bool {
+    switch (self.condition) {
+        .always => return false,
+        .output_outdated => {},
+    }
     if (self.extra_file_dependencies.len > 0) return true;
 
     for (self.argv.items) |arg| switch (arg) {
@@ -195,10 +199,7 @@ fn needOutputCheck(self: RunStep) bool {
         else => continue,
     };
 
-    return switch (self.condition) {
-        .always => false,
-        .output_outdated => true,
-    };
+    return false;
 }
 
 fn make(step: *Step) !void {
