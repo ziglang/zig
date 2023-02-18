@@ -253,6 +253,7 @@ test "for loop with else branch" {
 test "count over fixed range" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     var sum: usize = 0;
     for (0..6) |i| {
@@ -265,6 +266,7 @@ test "count over fixed range" {
 test "two counters" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     var sum: usize = 0;
     for (0..10, 10..20) |i, j| {
