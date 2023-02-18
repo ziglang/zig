@@ -249,3 +249,15 @@ test "for loop with else branch" {
         try expect(q == 4);
     }
 }
+
+test "count over fixed range" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    var sum: usize = 0;
+    for (0..6) |i| {
+        sum += i;
+    }
+
+    try expect(sum == 15);
+}

@@ -3924,7 +3924,11 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         const object_ty = sema.typeOf(object);
         // Each arg could be an indexable, or a range, in which case the length
         // is passed directly as an integer.
-        const arg_len = if (object_ty.zigTypeTag() == .Int) object else l: {
+        const is_int = switch (object_ty.zigTypeTag()) {
+            .Int, .ComptimeInt => true,
+            else => false,
+        };
+        const arg_len = if (is_int) object else l: {
             try checkIndexable(sema, block, src, object_ty);
             if (!object_ty.indexableHasLen()) continue;
 
