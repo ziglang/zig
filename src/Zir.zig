@@ -382,7 +382,9 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
         elem_ptr_node,
         /// Same as `elem_ptr_node` but used only for for loop.
-        /// Uses the `pl_node` union field. AST node is the condition of a for loop. Payload is `Bin`.
+        /// Uses the `pl_node` union field. AST node is the condition of a for loop.
+        /// Payload is `Bin`.
+        /// No OOB safety check is emitted.
         elem_ptr,
         /// Same as `elem_ptr_node` except the index is stored immediately rather than
         /// as a reference to another ZIR instruction.
@@ -395,7 +397,9 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
         elem_val_node,
         /// Same as `elem_val_node` but used only for for loop.
-        /// Uses the `pl_node` union field. AST node is the condition of a for loop. Payload is `Bin`.
+        /// Uses the `pl_node` union field. AST node is the condition of a for loop.
+        /// Payload is `Bin`.
+        /// No OOB safety check is emitted.
         elem_val,
         /// Emits a compile error if the operand is not `void`.
         /// Uses the `un_node` field.
