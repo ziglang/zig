@@ -3975,7 +3975,31 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     }
 
     if (len == .none) {
-        return sema.fail(block, src, "non-obvious infinite loop", .{});
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "unbounded for loop", .{});
+            errdefer msg.destroy(gpa);
+            for (args, 0..) |zir_arg, i_usize| {
+                const i = @intCast(u32, i_usize);
+                if (zir_arg == .none) continue;
+                const object = try sema.resolveInst(zir_arg);
+                const object_ty = sema.typeOf(object);
+                // Each arg could be an indexable, or a range, in which case the length
+                // is passed directly as an integer.
+                switch (object_ty.zigTypeTag()) {
+                    .Int, .ComptimeInt => continue,
+                    else => {},
+                }
+                const arg_src: LazySrcLoc = .{ .for_input = .{
+                    .for_node_offset = inst_data.src_node,
+                    .input_index = i,
+                } };
+                try sema.errNote(block, arg_src, msg, "type '{}' has no upper bound", .{
+                    object_ty.fmt(sema.mod),
+                });
+            }
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     // Now for the runtime checks.

@@ -378,3 +378,22 @@ test "raw pointer and slice" {
     try expect(buf[2] == 'a');
     try expect(buf[3] == 'h');
 }
+
+test "raw pointer and counter" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    var buf: [10]u8 = undefined;
+    const ptr: [*]u8 = &buf;
+
+    for (ptr, 0..4) |*a, b| {
+        a.* = @intCast(u8, 'A' + b);
+    }
+
+    try expect(buf[0] == 'A');
+    try expect(buf[1] == 'B');
+    try expect(buf[2] == 'C');
+    try expect(buf[3] == 'D');
+}

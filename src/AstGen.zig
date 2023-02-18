@@ -6394,11 +6394,13 @@ fn forExpr(
         }
     }
 
+    if (!any_len_checks) {
+        return astgen.failNode(node, "unbounded for loop", .{});
+    }
+
     // We use a dedicated ZIR instruction to assert the lengths to assist with
     // nicer error reporting as well as fewer ZIR bytes emitted.
     const len: Zir.Inst.Ref = len: {
-        if (!any_len_checks) break :len .none;
-
         const lens_len = @intCast(u32, lens.len);
         try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.MultiOp).Struct.fields.len + lens_len);
         const len = try parent_gz.addPlNode(.for_len, node, Zir.Inst.MultiOp{
@@ -6424,9 +6426,6 @@ fn forExpr(
     defer cond_scope.unstack();
 
     // Check the condition.
-    if (!any_len_checks) {
-        return astgen.failNode(node, "TODO: handle infinite for loop", .{});
-    }
     const cond = try cond_scope.addPlNode(.cmp_lt, node, Zir.Inst.Bin{
         .lhs = index,
         .rhs = len,
