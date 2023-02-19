@@ -21,11 +21,3 @@ pub fn __gehf2(a: f16, b: f16) callconv(.C) i32 {
 pub fn __gthf2(a: f16, b: f16) callconv(.C) i32 {
     return __gehf2(a, b);
 }
-
-fn __aeabi_fcmpge(a: f16, b: f16) callconv(.AAPCS) i32 {
-    return @boolToInt(comparef.cmpf2(f16, comparef.GE, a, b) != .Less);
-}
-
-fn __aeabi_fcmpgt(a: f16, b: f16) callconv(.AAPCS) i32 {
-    return @boolToInt(comparef.cmpf2(f16, comparef.LE, a, b) == .Greater);
-}

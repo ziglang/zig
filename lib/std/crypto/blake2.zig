@@ -133,7 +133,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
             mem.set(u8, d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
-            for (d.h) |*x| x.* = mem.nativeToLittle(u32, x.*);
+            for (&d.h) |*x| x.* = mem.nativeToLittle(u32, x.*);
             mem.copy(u8, out[0..], @ptrCast(*[digest_length]u8, &d.h));
         }
 
@@ -141,7 +141,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
             var m: [16]u32 = undefined;
             var v: [16]u32 = undefined;
 
-            for (m) |*r, i| {
+            for (&m, 0..) |*r, i| {
                 r.* = mem.readIntLittle(u32, b[4 * i ..][0..4]);
             }
 
@@ -180,7 +180,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
                 }
             }
 
-            for (d.h) |*r, i| {
+            for (&d.h, 0..) |*r, i| {
                 r.* ^= v[i] ^ v[i + 8];
             }
         }
@@ -568,7 +568,7 @@ pub fn Blake2b(comptime out_bits: usize) type {
             mem.set(u8, d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
-            for (d.h) |*x| x.* = mem.nativeToLittle(u64, x.*);
+            for (&d.h) |*x| x.* = mem.nativeToLittle(u64, x.*);
             mem.copy(u8, out[0..], @ptrCast(*[digest_length]u8, &d.h));
         }
 
@@ -576,7 +576,7 @@ pub fn Blake2b(comptime out_bits: usize) type {
             var m: [16]u64 = undefined;
             var v: [16]u64 = undefined;
 
-            for (m) |*r, i| {
+            for (&m, 0..) |*r, i| {
                 r.* = mem.readIntLittle(u64, b[8 * i ..][0..8]);
             }
 
@@ -615,7 +615,7 @@ pub fn Blake2b(comptime out_bits: usize) type {
                 }
             }
 
-            for (d.h) |*r, i| {
+            for (&d.h, 0..) |*r, i| {
                 r.* ^= v[i] ^ v[i + 8];
             }
         }

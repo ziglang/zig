@@ -123,7 +123,7 @@ pub fn hexDigest(digest: [Hash.digest_length]u8) [multihash_len * 2]u8 {
     result[2] = hex_charset[Hash.digest_length >> 4];
     result[3] = hex_charset[Hash.digest_length & 15];
 
-    for (digest) |byte, i| {
+    for (digest, 0..) |byte, i| {
         result[4 + i * 2] = hex_charset[byte >> 4];
         result[5 + i * 2] = hex_charset[byte & 15];
     }

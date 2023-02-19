@@ -349,7 +349,7 @@ pub const Secp256k1 = struct {
 
     fn slide(s: [32]u8) [2 * 32 + 1]i8 {
         var e: [2 * 32 + 1]i8 = undefined;
-        for (s) |x, i| {
+        for (s, 0..) |x, i| {
             e[i * 2 + 0] = @as(i8, @truncate(u4, x));
             e[i * 2 + 1] = @as(i8, @truncate(u4, x >> 4));
         }

@@ -535,7 +535,7 @@ pub const RegisterList = struct {
     const Self = @This();
 
     fn getIndexForReg(registers: []const Register, reg: Register) BitSet.MaskInt {
-        for (registers) |cpreg, i| {
+        for (registers, 0..) |cpreg, i| {
             if (reg.id() == cpreg.id()) return @intCast(u32, i);
         }
         unreachable; // register not in input register list!

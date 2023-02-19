@@ -175,7 +175,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
             // May truncate for possible 224 output
             const rr = d.s[0 .. params.digest_bits / 32];
 
-            for (rr) |s, j| {
+            for (rr, 0..) |s, j| {
                 mem.writeIntBig(u32, out[4 * j ..][0..4], s);
             }
         }
@@ -199,7 +199,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
 
         fn round(d: *Self, b: *const [64]u8) void {
             var s: [64]u32 align(16) = undefined;
-            for (@ptrCast(*align(1) const [16]u32, b)) |*elem, i| {
+            for (@ptrCast(*align(1) const [16]u32, b), 0..) |*elem, i| {
                 s[i] = mem.readIntBig(u32, mem.asBytes(elem));
             }
 
@@ -665,7 +665,7 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             // May truncate for possible 384 output
             const rr = d.s[0 .. params.digest_bits / 64];
 
-            for (rr) |s, j| {
+            for (rr, 0..) |s, j| {
                 mem.writeIntBig(u64, out[8 * j ..][0..8], s);
             }
         }

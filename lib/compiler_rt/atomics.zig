@@ -151,7 +151,7 @@ fn __atomic_compare_exchange(
     _ = failure;
     var sl = spinlocks.get(@ptrToInt(ptr));
     defer sl.release();
-    for (ptr[0..size]) |b, i| {
+    for (ptr[0..size], 0..) |b, i| {
         if (expected[i] != b) break;
     } else {
         // The two objects, ptr and expected, are equal

@@ -165,7 +165,7 @@ const HuffmanDecoder = struct {
             }
         }
 
-        for (lengths) |n, li| {
+        for (lengths, 0..) |n, li| {
             if (n == 0) {
                 continue;
             }
@@ -213,7 +213,7 @@ const HuffmanDecoder = struct {
             // Above we've sanity checked that we never overwrote
             // an existing entry. Here we additionally check that
             // we filled the tables completely.
-            for (self.chunks) |chunk, i| {
+            for (self.chunks, 0..) |chunk, i| {
                 // As an exception, in the degenerate
                 // single-code case, we allow odd
                 // chunks to be missing.

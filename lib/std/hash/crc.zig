@@ -35,7 +35,7 @@ pub fn Crc(comptime W: type, comptime algorithm: Algorithm(W)) type {
                 @as(I, algorithm.polynomial) << (@bitSizeOf(I) - @bitSizeOf(W));
 
             var table: [256]I = undefined;
-            for (table) |*e, i| {
+            for (&table, 0..) |*e, i| {
                 var crc: I = i;
                 if (algorithm.reflect_input) {
                     var j: usize = 0;
@@ -124,7 +124,7 @@ pub fn Crc32WithPoly(comptime poly: Polynomial) type {
             @setEvalBranchQuota(20000);
             var tables: [8][256]u32 = undefined;
 
-            for (tables[0]) |*e, i| {
+            for (&tables[0], 0..) |*e, i| {
                 var crc = @intCast(u32, i);
                 var j: usize = 0;
                 while (j < 8) : (j += 1) {
@@ -217,7 +217,7 @@ pub fn Crc32SmallWithPoly(comptime poly: Polynomial) type {
         const lookup_table = block: {
             var table: [16]u32 = undefined;
 
-            for (table) |*e, i| {
+            for (&table, 0..) |*e, i| {
                 var crc = @intCast(u32, i * 16);
                 var j: usize = 0;
                 while (j < 8) : (j += 1) {

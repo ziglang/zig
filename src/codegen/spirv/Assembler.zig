@@ -392,7 +392,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
         .OpTypeFunction => blk: {
             const param_operands = operands[2..];
             const param_types = try self.spv.arena.alloc(SpvType.Ref, param_operands.len);
-            for (param_types) |*param, i| {
+            for (param_types, 0..) |*param, i| {
                 param.* = try self.resolveTypeRef(param_operands[i].ref_id);
             }
             const payload = try self.spv.arena.create(SpvType.Payload.Function);

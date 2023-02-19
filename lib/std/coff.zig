@@ -1223,7 +1223,7 @@ pub const Coff = struct {
     pub fn getSectionHeadersAlloc(self: *const Coff, allocator: mem.Allocator) ![]SectionHeader {
         const section_headers = self.getSectionHeaders();
         const out_buff = try allocator.alloc(SectionHeader, section_headers.len);
-        for (out_buff) |*section_header, i| {
+        for (out_buff, 0..) |*section_header, i| {
             section_header.* = section_headers[i];
         }
 

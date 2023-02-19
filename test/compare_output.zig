@@ -196,7 +196,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\
         \\    c.qsort(@ptrCast(?*anyopaque, &array), @intCast(c_ulong, array.len), @sizeOf(i32), compare_fn);
         \\
-        \\    for (array) |item, i| {
+        \\    for (array, 0..) |item, i| {
         \\        if (item != i) {
         \\            c.abort();
         \\        }
@@ -535,4 +535,13 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\debug: free - len: 5
         \\
     );
+
+    cases.add("valid carriage return example", "const io = @import(\"std\").io;\r\n" ++ // Testing CRLF line endings are valid
+        "\r\n" ++
+        "pub \r fn main() void {\r\n" ++ // Testing isolated carriage return as whitespace is valid
+        "    const stdout = io.getStdOut().writer();\r\n" ++
+        "    stdout.print(\\\\A Multiline\r\n" ++ // testing CRLF at end of multiline string line is valid and normalises to \n in the output
+        "                 \\\\String\r\n" ++
+        "                 , .{}) catch unreachable;\r\n" ++
+        "}\r\n", "A Multiline\nString");
 }

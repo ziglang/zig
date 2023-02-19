@@ -1,4 +1,4 @@
-//! An set of array and slice types that bit-pack integer elements. A normal [12]u3
+//! A set of array and slice types that bit-pack integer elements. A normal [12]u3
 //! takes up 12 bytes of memory since u3's alignment is 1. PackedArray(u3, 12) only
 //! takes up 4 bytes of memory.
 
@@ -215,7 +215,7 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: Endian, comptim
         /// or, more likely, an array literal.
         pub fn init(ints: [int_count]Int) Self {
             var self = @as(Self, undefined);
-            for (ints) |int, i| self.set(i, int);
+            for (ints, 0..) |int, i| self.set(i, int);
             return self;
         }
 

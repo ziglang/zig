@@ -5,7 +5,7 @@ const builtin = @import("builtin");
 const a = [_]u8{ 1, 2, 3 };
 
 fn checkAddress(s: []const u8) !void {
-    for (s) |*i, j| {
+    for (s, 0..) |*i, j| {
         try testing.expect(i == &a[j]);
     }
 }

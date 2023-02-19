@@ -325,7 +325,7 @@ test "generic function instantiation non-duplicates" {
     const S = struct {
         fn copy(comptime T: type, dest: []T, source: []const T) void {
             @export(foo, .{ .name = "test_generic_instantiation_non_dupe" });
-            for (source) |s, i| dest[i] = s;
+            for (source, 0..) |s, i| dest[i] = s;
         }
 
         fn foo() callconv(.C) void {}

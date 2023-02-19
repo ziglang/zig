@@ -437,7 +437,7 @@ pub fn bcrypt(
     }
 
     var ct: [ct_length]u8 = undefined;
-    for (cdata) |c, i| {
+    for (cdata, 0..) |c, i| {
         mem.writeIntBig(u32, ct[i * 4 ..][0..4], c);
     }
     return ct[0..dk_length].*;
@@ -505,7 +505,7 @@ const pbkdf_prf = struct {
 
         // copy out
         var out: [32]u8 = undefined;
-        for (cdata) |v, i| {
+        for (cdata, 0..) |v, i| {
             std.mem.writeIntLittle(u32, out[4 * i ..][0..4], v);
         }
 

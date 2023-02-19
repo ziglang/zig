@@ -317,7 +317,7 @@ pub fn parse(args: ParseOptions) !CrossTarget {
                 index += 1;
             }
             const feature_name = cpu_features[start..index];
-            for (all_features) |feature, feat_index_usize| {
+            for (all_features, 0..) |feature, feat_index_usize| {
                 const feat_index = @intCast(Target.Cpu.Feature.Set.Index, feat_index_usize);
                 if (mem.eql(u8, feature_name, feature.name)) {
                     set.addFeature(feat_index);

@@ -138,7 +138,7 @@ pub fn pbkdf2(dk: []u8, password: []const u8, salt: []const u8, rounds: u32, com
             mem.copy(u8, prev_block[0..], new_block[0..]);
 
             // F (P, S, c, i) = U_1 \xor U_2 \xor ... \xor U_c
-            for (dk_block) |_, j| {
+            for (dk_block, 0..) |_, j| {
                 dk_block[j] ^= new_block[j];
             }
         }

@@ -197,7 +197,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize) type {
 
         fn hchacha20(input: [16]u8, key: [32]u8) [32]u8 {
             var c: [4]u32 = undefined;
-            for (c) |_, i| {
+            for (c, 0..) |_, i| {
                 c[i] = mem.readIntLittle(u32, input[4 * i ..][0..4]);
             }
             const ctx = initContext(keyToWords(key), c);
@@ -338,7 +338,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
 
         fn hchacha20(input: [16]u8, key: [32]u8) [32]u8 {
             var c: [4]u32 = undefined;
-            for (c) |_, i| {
+            for (c, 0..) |_, i| {
                 c[i] = mem.readIntLittle(u32, input[4 * i ..][0..4]);
             }
             const ctx = initContext(keyToWords(key), c);
@@ -543,7 +543,7 @@ fn ChaChaPoly1305(comptime rounds_nb: usize) type {
             mac.final(computedTag[0..]);
 
             var acc: u8 = 0;
-            for (computedTag) |_, i| {
+            for (computedTag, 0..) |_, i| {
                 acc |= computedTag[i] ^ tag[i];
             }
             if (acc != 0) {

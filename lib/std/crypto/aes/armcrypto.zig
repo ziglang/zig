@@ -250,7 +250,7 @@ fn KeySchedule(comptime Aes: type) type {
         fn expand128(t1: *Block) Self {
             var round_keys: [11]Block = undefined;
             const rcs = [_]u8{ 1, 2, 4, 8, 16, 32, 64, 128, 27, 54 };
-            inline for (rcs) |rc, round| {
+            inline for (rcs, 0..) |rc, round| {
                 round_keys[round] = t1.*;
                 t1.repr = drc128(rc, t1.repr);
             }
@@ -262,7 +262,7 @@ fn KeySchedule(comptime Aes: type) type {
             var round_keys: [15]Block = undefined;
             const rcs = [_]u8{ 1, 2, 4, 8, 16, 32 };
             round_keys[0] = t1.*;
-            inline for (rcs) |rc, round| {
+            inline for (rcs, 0..) |rc, round| {
                 round_keys[round * 2 + 1] = t2.*;
                 t1.repr = drc256(false, rc, t2.repr, t1.repr);
                 round_keys[round * 2 + 2] = t1.*;

@@ -486,7 +486,7 @@ fn growSectionVM(self: *Coff, sect_id: u32, needed_size: u32) !void {
 
     // TODO: enforce order by increasing VM addresses in self.sections container.
     // This is required by the loader anyhow as far as I can tell.
-    for (self.sections.items(.header)[sect_id + 1 ..]) |*next_header, next_sect_id| {
+    for (self.sections.items(.header)[sect_id + 1 ..], 0..) |*next_header, next_sect_id| {
         const maybe_last_atom_index = self.sections.items(.last_atom_index)[sect_id + 1 + next_sect_id];
         next_header.virtual_address += diff;
 
@@ -2191,7 +2191,7 @@ fn logSymtab(self: *Coff) void {
 
     log.debug("symtab:", .{});
     log.debug("  object(null)", .{});
-    for (self.locals.items) |*sym, sym_id| {
+    for (self.locals.items, 0..) |*sym, sym_id| {
         const where = if (sym.section_number == .UNDEFINED) "ord" else "sect";
         const def_index: u16 = switch (sym.section_number) {
             .UNDEFINED => 0, // TODO
@@ -2216,7 +2216,7 @@ fn logSymtab(self: *Coff) void {
     }
 
     log.debug("GOT entries:", .{});
-    for (self.got_entries.items) |entry, i| {
+    for (self.got_entries.items, 0..) |entry, i| {
         const got_sym = self.getSymbol(.{ .sym_index = entry.sym_index, .file = null });
         const target_sym = self.getSymbol(entry.target);
         if (target_sym.section_number == .UNDEFINED) {

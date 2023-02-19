@@ -44,7 +44,7 @@ pub fn emitMir(emit: *Emit) InnerError!void {
     // before we emit the function body when lowering MIR
     try emit.emitLocals();
 
-    for (mir_tags) |tag, index| {
+    for (mir_tags, 0..) |tag, index| {
         const inst = @intCast(u32, index);
         switch (tag) {
             // block instructions

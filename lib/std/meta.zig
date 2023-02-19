@@ -117,7 +117,7 @@ pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
         const kvs = comptime build_kvs: {
             const EnumKV = struct { []const u8, T };
             var kvs_array: [@typeInfo(T).Enum.fields.len]EnumKV = undefined;
-            inline for (@typeInfo(T).Enum.fields) |enumField, i| {
+            inline for (@typeInfo(T).Enum.fields, 0..) |enumField, i| {
                 kvs_array[i] = .{ enumField.name, @field(T, enumField.name) };
             }
             break :build_kvs kvs_array[0..];
@@ -552,7 +552,7 @@ pub fn fieldNames(comptime T: type) *const [fields(T).len][]const u8 {
     comptime {
         const fieldInfos = fields(T);
         var names: [fieldInfos.len][]const u8 = undefined;
-        for (fieldInfos) |field, i| {
+        for (fieldInfos, 0..) |field, i| {
             names[i] = field.name;
         }
         return &names;
@@ -593,7 +593,7 @@ pub fn tags(comptime T: type) *const [fields(T).len]T {
     comptime {
         const fieldInfos = fields(T);
         var res: [fieldInfos.len]T = undefined;
-        for (fieldInfos) |field, i| {
+        for (fieldInfos, 0..) |field, i| {
             res[i] = @field(T, field.name);
         }
         return &res;
@@ -631,7 +631,7 @@ pub fn FieldEnum(comptime T: type) type {
 
     if (@typeInfo(T) == .Union) {
         if (@typeInfo(T).Union.tag_type) |tag_type| {
-            for (std.enums.values(tag_type)) |v, i| {
+            for (std.enums.values(tag_type), 0..) |v, i| {
                 if (@enumToInt(v) != i) break; // enum values not consecutive
                 if (!std.mem.eql(u8, @tagName(v), field_infos[i].name)) break; // fields out of order
             } else {
@@ -642,7 +642,7 @@ pub fn FieldEnum(comptime T: type) type {
 
     var enumFields: [field_infos.len]std.builtin.Type.EnumField = undefined;
     var decls = [_]std.builtin.Type.Declaration{};
-    inline for (field_infos) |field, i| {
+    inline for (field_infos, 0..) |field, i| {
         enumFields[i] = .{
             .name = field.name,
             .value = i,
@@ -672,7 +672,7 @@ fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
         const expected_fields = @typeInfo(expected).Enum.fields;
         const actual_fields = @typeInfo(actual).Enum.fields;
         if (expected_fields.len != actual_fields.len) return error.FailedTest;
-        for (expected_fields) |expected_field, i| {
+        for (expected_fields, 0..) |expected_field, i| {
             const actual_field = actual_fields[i];
             try testing.expectEqual(expected_field.value, actual_field.value);
             try testing.expectEqualStrings(expected_field.name, actual_field.name);
@@ -682,7 +682,7 @@ fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
         const expected_decls = @typeInfo(expected).Enum.decls;
         const actual_decls = @typeInfo(actual).Enum.decls;
         if (expected_decls.len != actual_decls.len) return error.FailedTest;
-        for (expected_decls) |expected_decl, i| {
+        for (expected_decls, 0..) |expected_decl, i| {
             const actual_decl = actual_decls[i];
             try testing.expectEqual(expected_decl.is_pub, actual_decl.is_pub);
             try testing.expectEqualStrings(expected_decl.name, actual_decl.name);
@@ -716,7 +716,7 @@ pub fn DeclEnum(comptime T: type) type {
     const fieldInfos = std.meta.declarations(T);
     var enumDecls: [fieldInfos.len]std.builtin.Type.EnumField = undefined;
     var decls = [_]std.builtin.Type.Declaration{};
-    inline for (fieldInfos) |field, i| {
+    inline for (fieldInfos, 0..) |field, i| {
         enumDecls[i] = .{ .name = field.name, .value = i };
     }
     return @Type(.{
@@ -870,7 +870,7 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
         },
         .Array => {
             if (a.len != b.len) return false;
-            for (a) |e, i|
+            for (a, 0..) |e, i|
                 if (!eql(e, b[i])) return false;
             return true;
         },
@@ -988,7 +988,7 @@ pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTa
 /// Given a type and a name, return the field index according to source order.
 /// Returns `null` if the field is not found.
 pub fn fieldIndex(comptime T: type, comptime name: []const u8) ?comptime_int {
-    inline for (fields(T)) |field, i| {
+    inline for (fields(T), 0..) |field, i| {
         if (mem.eql(u8, field.name, name))
             return i;
     }
@@ -1008,7 +1008,7 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
     comptime {
         const decls = declarations(Namespace);
         var array: [decls.len]*const Decl = undefined;
-        for (decls) |decl, i| {
+        for (decls, 0..) |decl, i| {
             array[i] = &@field(Namespace, decl.name);
         }
         std.sort.sort(*const Decl, &array, {}, S.declNameLessThan);
@@ -1069,7 +1069,7 @@ pub fn ArgsTuple(comptime Function: type) type {
         @compileError("Cannot create ArgsTuple for variadic function");
 
     var argument_field_list: [function_info.params.len]type = undefined;
-    inline for (function_info.params) |arg, i| {
+    inline for (function_info.params, 0..) |arg, i| {
         const T = arg.type.?;
         argument_field_list[i] = T;
     }
@@ -1090,7 +1090,7 @@ pub fn Tuple(comptime types: []const type) type {
 
 fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
     var tuple_fields: [types.len]std.builtin.Type.StructField = undefined;
-    inline for (types) |T, i| {
+    inline for (types, 0..) |T, i| {
         @setEvalBranchQuota(10_000);
         var num_buf: [128]u8 = undefined;
         tuple_fields[i] = .{
@@ -1129,7 +1129,7 @@ const TupleTester = struct {
         if (expected.len != fields_list.len)
             @compileError("Argument count mismatch");
 
-        inline for (fields_list) |fld, i| {
+        inline for (fields_list, 0..) |fld, i| {
             if (expected[i] != fld.type) {
                 @compileError("Field " ++ fld.name ++ " expected to be type " ++ @typeName(expected[i]) ++ ", but was type " ++ @typeName(fld.type));
             }

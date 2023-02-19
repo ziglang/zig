@@ -187,7 +187,7 @@ const ScalarDouble = struct {
 
         var s = s_;
         if (endian == .Big) {
-            for (s_) |x, i| s[s.len - 1 - i] = x;
+            for (s_, 0..) |x, i| s[s.len - 1 - i] = x;
         }
         var t = ScalarDouble{ .x1 = undefined, .x2 = Fe.zero, .x3 = Fe.zero };
         {

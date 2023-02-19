@@ -11,6 +11,6 @@ pub fn main() void {
 }
 
 // run
-// backend=stage2,llvm
+// backend=llvm
 // target=x86_64-linux,x86_64-macos
 //

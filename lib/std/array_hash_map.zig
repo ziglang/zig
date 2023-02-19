@@ -715,7 +715,7 @@ pub fn ArrayHashMapUnmanaged(
                 const slice = self.entries.slice();
                 const hashes_array = slice.items(.hash);
                 const keys_array = slice.items(.key);
-                for (keys_array) |*item_key, i| {
+                for (keys_array, 0..) |*item_key, i| {
                     if (hashes_array[i] == h and checkedEql(ctx, key, item_key.*, i)) {
                         return GetOrPutResult{
                             .key_ptr = item_key,
@@ -946,7 +946,7 @@ pub fn ArrayHashMapUnmanaged(
                 const slice = self.entries.slice();
                 const hashes_array = slice.items(.hash);
                 const keys_array = slice.items(.key);
-                for (keys_array) |*item_key, i| {
+                for (keys_array, 0..) |*item_key, i| {
                     if (hashes_array[i] == h and checkedEql(ctx, key, item_key.*, i)) {
                         return i;
                     }
@@ -1285,7 +1285,7 @@ pub fn ArrayHashMapUnmanaged(
                 const slice = self.entries.slice();
                 const hashes_array = if (store_hash) slice.items(.hash) else {};
                 const keys_array = slice.items(.key);
-                for (keys_array) |*item_key, i| {
+                for (keys_array, 0..) |*item_key, i| {
                     const hash_match = if (store_hash) hashes_array[i] == key_hash else true;
                     if (hash_match and key_ctx.eql(key, item_key.*, i)) {
                         const removed_entry: KV = .{
@@ -1326,7 +1326,7 @@ pub fn ArrayHashMapUnmanaged(
                 const slice = self.entries.slice();
                 const hashes_array = if (store_hash) slice.items(.hash) else {};
                 const keys_array = slice.items(.key);
-                for (keys_array) |*item_key, i| {
+                for (keys_array, 0..) |*item_key, i| {
                     const hash_match = if (store_hash) hashes_array[i] == key_hash else true;
                     if (hash_match and key_ctx.eql(key, item_key.*, i)) {
                         switch (removal_type) {
@@ -1634,7 +1634,7 @@ pub fn ArrayHashMapUnmanaged(
             const items = if (store_hash) slice.items(.hash) else slice.items(.key);
             const indexes = header.indexes(I);
 
-            entry_loop: for (items) |key, i| {
+            entry_loop: for (items, 0..) |key, i| {
                 const h = if (store_hash) key else checkedHash(ctx, key);
                 const start_index = safeTruncate(usize, h);
                 const end_index = start_index +% indexes.len;
@@ -1730,7 +1730,7 @@ pub fn ArrayHashMapUnmanaged(
             const indexes = header.indexes(I);
             if (indexes.len == 0) return;
             var is_empty = false;
-            for (indexes) |idx, i| {
+            for (indexes, 0..) |idx, i| {
                 if (idx.isEmpty()) {
                     is_empty = true;
                 } else {
@@ -1826,7 +1826,7 @@ const min_bit_index = 5;
 const max_capacity = (1 << max_bit_index) - 1;
 const index_capacities = blk: {
     var caps: [max_bit_index + 1]u32 = undefined;
-    for (caps[0..max_bit_index]) |*item, i| {
+    for (caps[0..max_bit_index], 0..) |*item, i| {
         item.* = (1 << i) * 3 / 5;
     }
     caps[max_bit_index] = max_capacity;
@@ -2025,7 +2025,7 @@ test "iterator hash map" {
     try testing.expect(count == 3);
     try testing.expect(it.next() == null);
 
-    for (buffer) |_, i| {
+    for (buffer, 0..) |_, i| {
         try testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
     }
 
@@ -2037,7 +2037,7 @@ test "iterator hash map" {
         if (count >= 2) break;
     }
 
-    for (buffer[0..2]) |_, i| {
+    for (buffer[0..2], 0..) |_, i| {
         try testing.expect(buffer[@intCast(usize, keys[i])] == values[i]);
     }
 
@@ -2299,7 +2299,7 @@ test "sort" {
     map.sort(C{ .keys = map.keys() });
 
     var x: i32 = 1;
-    for (map.keys()) |key, i| {
+    for (map.keys(), 0..) |key, i| {
         try testing.expect(key == x);
         try testing.expect(map.values()[i] == x * 3);
         x += 1;

@@ -349,7 +349,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         /// Emits log messages for leaks and then returns whether there were any leaks.
         pub fn detectLeaks(self: *Self) bool {
             var leaks = false;
-            for (self.buckets) |optional_bucket, bucket_i| {
+            for (self.buckets, 0..) |optional_bucket, bucket_i| {
                 const first_bucket = optional_bucket orelse continue;
                 const size_class = @as(usize, 1) << @intCast(math.Log2Int(usize), bucket_i);
                 const used_bits_count = usedBitsCount(size_class);

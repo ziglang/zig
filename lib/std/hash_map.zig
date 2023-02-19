@@ -2119,7 +2119,7 @@ test "std.hash_map getOrPutAdapted" {
 
     var real_keys: [keys.len]u64 = undefined;
 
-    inline for (keys) |key_str, i| {
+    inline for (keys, 0..) |key_str, i| {
         const result = try map.getOrPutAdapted(key_str, AdaptedContext{});
         try testing.expect(!result.found_existing);
         real_keys[i] = std.fmt.parseInt(u64, key_str, 10) catch unreachable;
@@ -2129,7 +2129,7 @@ test "std.hash_map getOrPutAdapted" {
 
     try testing.expectEqual(map.count(), keys.len);
 
-    inline for (keys) |key_str, i| {
+    inline for (keys, 0..) |key_str, i| {
         const result = try map.getOrPutAdapted(key_str, AdaptedContext{});
         try testing.expect(result.found_existing);
         try testing.expectEqual(real_keys[i], result.key_ptr.*);

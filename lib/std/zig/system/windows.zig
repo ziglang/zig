@@ -34,7 +34,7 @@ pub fn detectRuntimeVersion() WindowsVersion {
         // checking the build number against a known set of
         // values
         var last_idx: usize = 0;
-        for (WindowsVersion.known_win10_build_numbers) |build, i| {
+        for (WindowsVersion.known_win10_build_numbers, 0..) |build, i| {
             if (version_info.dwBuildNumber >= build)
                 last_idx = i;
         }
@@ -92,7 +92,7 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
 
     var tmp_bufs: [fields_info.len][max_value_len]u8 align(@alignOf(std.os.windows.UNICODE_STRING)) = undefined;
 
-    inline for (fields_info) |field, i| {
+    inline for (fields_info, 0..) |field, i| {
         const ctx: *anyopaque = blk: {
             switch (@field(args, field.name).value_type) {
                 REG.SZ,
@@ -153,7 +153,7 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
     );
     switch (res) {
         .SUCCESS => {
-            inline for (fields_info) |field, i| switch (@field(args, field.name).value_type) {
+            inline for (fields_info, 0..) |field, i| switch (@field(args, field.name).value_type) {
                 REG.SZ,
                 REG.EXPAND_SZ,
                 REG.MULTI_SZ,

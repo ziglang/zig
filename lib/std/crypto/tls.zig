@@ -344,7 +344,7 @@ pub inline fn array(comptime elem_size: comptime_int, bytes: anytype) [2 + bytes
 pub inline fn enum_array(comptime E: type, comptime tags: []const E) [2 + @sizeOf(E) * tags.len]u8 {
     assert(@sizeOf(E) == 2);
     var result: [tags.len * 2]u8 = undefined;
-    for (tags) |elem, i| {
+    for (tags, 0..) |elem, i| {
         result[i * 2] = @truncate(u8, @enumToInt(elem) >> 8);
         result[i * 2 + 1] = @truncate(u8, @enumToInt(elem));
     }

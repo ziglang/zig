@@ -40,7 +40,7 @@ test "tuple multiplication" {
             {
                 const t = .{ 1, 2, 3 } ** 4;
                 try expect(@typeInfo(@TypeOf(t)).Struct.fields.len == 12);
-                inline for (t) |x, i| try expect(x == 1 + i % 3);
+                inline for (t, 0..) |x, i| try expect(x == 1 + i % 3);
             }
         }
     };

@@ -18,7 +18,7 @@ test "best speed" {
     var abcabc = try testing.allocator.alloc(u8, 131_072);
     defer testing.allocator.free(abcabc);
 
-    for (abcabc) |_, i| {
+    for (abcabc, 0..) |_, i| {
         abcabc[i] = @intCast(u8, i % 128);
     }
 

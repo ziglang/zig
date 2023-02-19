@@ -452,11 +452,11 @@ pub const Instruction = union(enum) {
             const masks = comptime blk: {
                 const base_mask: u32 = std.math.maxInt(u8);
                 var result = [_]u32{0} ** 16;
-                for (result) |*mask, i| mask.* = std.math.rotr(u32, base_mask, 2 * i);
+                for (&result, 0..) |*mask, i| mask.* = std.math.rotr(u32, base_mask, 2 * i);
                 break :blk result;
             };
 
-            return for (masks) |mask, i| {
+            return for (masks, 0..) |mask, i| {
                 if (x & mask == x) {
                     break Operand{
                         .immediate = .{

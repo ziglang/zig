@@ -137,6 +137,8 @@ pub const Inst = struct {
         /// Saturating addition.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         add_sat,
+        /// The same as `add` except no safety check.
+        add_unsafe,
         /// Arithmetic subtraction. Asserts no integer overflow.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         sub,
@@ -382,18 +384,24 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
         elem_ptr_node,
         /// Same as `elem_ptr_node` but used only for for loop.
-        /// Uses the `pl_node` union field. AST node is the condition of a for loop. Payload is `Bin`.
+        /// Uses the `pl_node` union field. AST node is the condition of a for loop.
+        /// Payload is `Bin`.
+        /// No OOB safety check is emitted.
         elem_ptr,
         /// Same as `elem_ptr_node` except the index is stored immediately rather than
         /// as a reference to another ZIR instruction.
         /// Uses the `pl_node` union field. AST node is an element inside array initialization
         /// syntax. Payload is `ElemPtrImm`.
+        /// This instruction has a way to set the result type to be a
+        /// single-pointer or a many-pointer.
         elem_ptr_imm,
         /// Given an array, slice, or pointer, returns the element at the provided index.
         /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
         elem_val_node,
         /// Same as `elem_val_node` but used only for for loop.
-        /// Uses the `pl_node` union field. AST node is the condition of a for loop. Payload is `Bin`.
+        /// Uses the `pl_node` union field. AST node is the condition of a for loop.
+        /// Payload is `Bin`.
+        /// No OOB safety check is emitted.
         elem_val,
         /// Emits a compile error if the operand is not `void`.
         /// Uses the `un_node` field.
@@ -497,6 +505,15 @@ pub const Inst = struct {
         /// Sends comptime control flow back to the beginning of the current block.
         /// Uses the `node` field.
         repeat_inline,
+        /// Asserts that all the lengths provided match. Used to build a for loop.
+        /// Return value is the length as a usize.
+        /// Uses the `pl_node` field with payload `MultiOp`.
+        /// There is exactly one item corresponding to each AST node inside the for
+        /// loop condition. Any item may be `none`, indicating an unbounded range.
+        /// Illegal behaviors:
+        ///  * If all lengths are unbounded ranges (always a compile error).
+        ///  * If any two lengths do not match each other.
+        for_len,
         /// Merge two error sets into one, `E1 || E2`.
         /// Uses the `pl_node` field with payload `Bin`.
         merge_error_sets,
@@ -1008,6 +1025,7 @@ pub const Inst = struct {
                 .add,
                 .addwrap,
                 .add_sat,
+                .add_unsafe,
                 .alloc,
                 .alloc_mut,
                 .alloc_comptime_mut,
@@ -1242,6 +1260,7 @@ pub const Inst = struct {
                 .defer_err_code,
                 .save_err_ret_index,
                 .restore_err_ret_index,
+                .for_len,
                 => false,
 
                 .@"break",
@@ -1322,6 +1341,7 @@ pub const Inst = struct {
                 .add,
                 .addwrap,
                 .add_sat,
+                .add_unsafe,
                 .alloc,
                 .alloc_mut,
                 .alloc_comptime_mut,
@@ -1533,6 +1553,7 @@ pub const Inst = struct {
                 .repeat_inline,
                 .panic,
                 .panic_comptime,
+                .for_len,
                 .@"try",
                 .try_ptr,
                 //.try_inline,
@@ -1553,6 +1574,7 @@ pub const Inst = struct {
                 .add = .pl_node,
                 .addwrap = .pl_node,
                 .add_sat = .pl_node,
+                .add_unsafe = .pl_node,
                 .sub = .pl_node,
                 .subwrap = .pl_node,
                 .sub_sat = .pl_node,
@@ -1588,6 +1610,7 @@ pub const Inst = struct {
                 .@"break" = .@"break",
                 .break_inline = .@"break",
                 .check_comptime_control_flow = .un_node,
+                .for_len = .pl_node,
                 .call = .pl_node,
                 .cmp_lt = .pl_node,
                 .cmp_lte = .pl_node,

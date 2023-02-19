@@ -110,7 +110,7 @@ pub const Md5 = struct {
 
         d.round(d.buf[0..]);
 
-        for (d.s) |s, j| {
+        for (d.s, 0..) |s, j| {
             mem.writeIntLittle(u32, out[4 * j ..][0..4], s);
         }
     }

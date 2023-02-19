@@ -1092,7 +1092,7 @@ pub const rsa = struct {
             if (exponent_elem.identifier.tag != .integer) return error.CertificateFieldHasWrongDataType;
             // Skip over meaningless zeroes in the modulus.
             const modulus_raw = pub_key[modulus_elem.slice.start..modulus_elem.slice.end];
-            const modulus_offset = for (modulus_raw) |byte, i| {
+            const modulus_offset = for (modulus_raw, 0..) |byte, i| {
                 if (byte != 0) break i;
             } else modulus_raw.len;
             return .{

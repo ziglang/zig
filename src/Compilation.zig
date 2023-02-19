@@ -641,7 +641,7 @@ pub const AllErrors = struct {
         }
 
         const reference_trace = try allocator.alloc(Message, module_err_msg.reference_trace.len);
-        for (reference_trace) |*reference, i| {
+        for (reference_trace, 0..) |*reference, i| {
             const module_reference = module_err_msg.reference_trace[i];
             if (module_reference.hidden != 0) {
                 reference.* = .{ .plain = .{ .msg = undefined, .count = module_reference.hidden } };
@@ -714,7 +714,7 @@ pub const AllErrors = struct {
                 const block = file.zir.extraData(Zir.Inst.Block, item.data.notes);
                 const body = file.zir.extra[block.end..][0..block.data.body_len];
                 notes = try arena.alloc(Message, body.len);
-                for (notes) |*note, i| {
+                for (notes, 0..) |*note, i| {
                     const note_item = file.zir.extraData(Zir.Inst.CompileErrors.Item, body[i]);
                     const msg = file.zir.nullTerminatedString(note_item.data.msg);
                     const span = blk: {
@@ -786,7 +786,7 @@ pub const AllErrors = struct {
 
     fn dupeList(list: []const Message, arena: Allocator) Allocator.Error![]Message {
         const duped_list = try arena.alloc(Message, list.len);
-        for (list) |item, i| {
+        for (list, 0..) |item, i| {
             duped_list[i] = switch (item) {
                 .src => |src| .{ .src = .{
                     .msg = try arena.dupe(u8, src.msg),
@@ -1441,7 +1441,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const llvm_cpu_features: ?[*:0]const u8 = if (build_options.have_llvm and use_llvm) blk: {
             var buf = std.ArrayList(u8).init(arena);
-            for (options.target.cpu.arch.allFeaturesList()) |feature, index_usize| {
+            for (options.target.cpu.arch.allFeaturesList(), 0..) |feature, index_usize| {
                 const index = @intCast(Target.Cpu.Feature.Set.Index, index_usize);
                 const is_enabled = options.target.cpu.features.isEnabled(index);
 
@@ -1818,7 +1818,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         var system_libs: std.StringArrayHashMapUnmanaged(SystemLib) = .{};
         errdefer system_libs.deinit(gpa);
         try system_libs.ensureTotalCapacity(gpa, options.system_lib_names.len);
-        for (options.system_lib_names) |lib_name, i| {
+        for (options.system_lib_names, 0..) |lib_name, i| {
             system_libs.putAssumeCapacity(lib_name, options.system_lib_infos[i]);
         }
 
@@ -2880,7 +2880,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
     }
     for (self.lld_errors.items) |lld_error| {
         const notes = try arena_allocator.alloc(AllErrors.Message, lld_error.context_lines.len);
-        for (lld_error.context_lines) |context_line, i| {
+        for (lld_error.context_lines, 0..) |context_line, i| {
             notes[i] = .{ .plain = .{
                 .msg = try arena_allocator.dupe(u8, context_line),
             } };
@@ -3007,7 +3007,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             };
             defer self.gpa.free(err_msg.notes);
 
-            for (keys[1..]) |key, i| {
+            for (keys[1..], 0..) |key, i| {
                 const note_decl = module.declPtr(key);
                 err_msg.notes[i] = .{
                     .src_loc = note_decl.nodeOffsetSrcLoc(values[i + 1]),
@@ -3104,7 +3104,7 @@ pub fn performAllTheWork(
                 const notes = try mod.gpa.alloc(Module.ErrorMsg, file.references.items.len);
                 errdefer mod.gpa.free(notes);
 
-                for (notes) |*note, i| {
+                for (notes, 0..) |*note, i| {
                     errdefer for (notes[0..i]) |*n| n.deinit(mod.gpa);
                     note.* = switch (file.references.items[i]) {
                         .import => |loc| try Module.ErrorMsg.init(
@@ -3740,7 +3740,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8) !CImportResult {
         const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
         new_argv_with_sentinel[argv.items.len] = null;
         const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
-        for (argv.items) |arg, i| {
+        for (argv.items, 0..) |arg, i| {
             new_argv[i] = try arena.dupeZ(u8, arg);
         }
 
@@ -4382,7 +4382,7 @@ pub fn addCCArgs(
             // It would be really nice if there was a more compact way to communicate this info to Clang.
             const all_features_list = target.cpu.arch.allFeaturesList();
             try argv.ensureUnusedCapacity(all_features_list.len * 4);
-            for (all_features_list) |feature, index_usize| {
+            for (all_features_list, 0..) |feature, index_usize| {
                 const index = @intCast(std.Target.Cpu.Feature.Set.Index, index_usize);
                 const is_enabled = target.cpu.features.isEnabled(index);
 
@@ -5210,7 +5210,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         std.zig.fmtId(generic_arch_name),
     });
 
-    for (target.cpu.arch.allFeaturesList()) |feature, index_usize| {
+    for (target.cpu.arch.allFeaturesList(), 0..) |feature, index_usize| {
         const index = @intCast(std.Target.Cpu.Feature.Set.Index, index_usize);
         const is_enabled = target.cpu.features.isEnabled(index);
         if (is_enabled) {

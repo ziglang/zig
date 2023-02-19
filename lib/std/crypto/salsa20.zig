@@ -157,7 +157,7 @@ fn SalsaVecImpl(comptime rounds: comptime_int) type {
 
         fn hsalsa(input: [16]u8, key: [32]u8) [32]u8 {
             var c: [4]u32 = undefined;
-            for (c) |_, i| {
+            for (c, 0..) |_, i| {
                 c[i] = mem.readIntLittle(u32, input[4 * i ..][0..4]);
             }
             const ctx = initContext(keyToWords(key), c);
@@ -240,7 +240,7 @@ fn SalsaNonVecImpl(comptime rounds: comptime_int) type {
         }
 
         fn hashToBytes(out: *[64]u8, x: BlockVec) void {
-            for (x) |w, i| {
+            for (x, 0..) |w, i| {
                 mem.writeIntLittle(u32, out[i * 4 ..][0..4], w);
             }
         }
@@ -282,7 +282,7 @@ fn SalsaNonVecImpl(comptime rounds: comptime_int) type {
 
         fn hsalsa(input: [16]u8, key: [32]u8) [32]u8 {
             var c: [4]u32 = undefined;
-            for (c) |_, i| {
+            for (c, 0..) |_, i| {
                 c[i] = mem.readIntLittle(u32, input[4 * i ..][0..4]);
             }
             const ctx = initContext(keyToWords(key), c);
@@ -413,7 +413,7 @@ pub const XSalsa20Poly1305 = struct {
         var computedTag: [tag_length]u8 = undefined;
         mac.final(&computedTag);
         var acc: u8 = 0;
-        for (computedTag) |_, i| {
+        for (computedTag, 0..) |_, i| {
             acc |= computedTag[i] ^ tag[i];
         }
         if (acc != 0) {

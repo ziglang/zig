@@ -298,7 +298,7 @@ fn cloneAir(air: Air, gpa: Allocator, air_arena: Allocator) !Air {
     const values = try gpa.alloc(Value, air.values.len);
     errdefer gpa.free(values);
 
-    for (values) |*value, i| {
+    for (values, 0..) |*value, i| {
         value.* = try air.values[i].copy(air_arena);
     }
 
@@ -308,7 +308,7 @@ fn cloneAir(air: Air, gpa: Allocator, air_arena: Allocator) !Air {
     const air_tags = instructions.items(.tag);
     const air_datas = instructions.items(.data);
 
-    for (air_tags) |tag, i| {
+    for (air_tags, 0..) |tag, i| {
         switch (tag) {
             .alloc, .ret_ptr, .const_ty => air_datas[i].ty = try air_datas[i].ty.copy(air_arena),
             else => {},

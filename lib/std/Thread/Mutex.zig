@@ -245,7 +245,7 @@ const NonAtomicCounter = struct {
     }
 
     fn inc(self: *NonAtomicCounter) void {
-        for (@bitCast([2]u64, self.get() + 1)) |v, i| {
+        for (@bitCast([2]u64, self.get() + 1), 0..) |v, i| {
             @ptrCast(*volatile u64, &self.value[i]).* = v;
         }
     }
@@ -277,7 +277,7 @@ test "Mutex - many uncontended" {
     };
 
     var runners = [_]Runner{.{}} ** num_threads;
-    for (runners) |*r| r.thread = try Thread.spawn(.{}, Runner.run, .{r});
+    for (&runners) |*r| r.thread = try Thread.spawn(.{}, Runner.run, .{r});
     for (runners) |r| r.thread.join();
     for (runners) |r| try testing.expectEqual(r.counter.get(), num_increments);
 }
@@ -312,7 +312,7 @@ test "Mutex - many contended" {
     var runner = Runner{};
 
     var threads: [num_threads]Thread = undefined;
-    for (threads) |*t| t.* = try Thread.spawn(.{}, Runner.run, .{&runner});
+    for (&threads) |*t| t.* = try Thread.spawn(.{}, Runner.run, .{&runner});
     for (threads) |t| t.join();
 
     try testing.expectEqual(runner.counter.get(), num_increments * num_threads);

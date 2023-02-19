@@ -383,7 +383,7 @@ fn finalizeDwarfSegment(self: *DebugSymbols, macho_file: *MachO) void {
 fn writeSegmentHeaders(self: *DebugSymbols, macho_file: *MachO, writer: anytype) !void {
     // Write segment/section headers from the binary file first.
     const end = macho_file.linkedit_segment_cmd_index.?;
-    for (macho_file.segments.items[0..end]) |seg, i| {
+    for (macho_file.segments.items[0..end], 0..) |seg, i| {
         const indexes = macho_file.getSectionIndexes(@intCast(u8, i));
         var out_seg = seg;
         out_seg.fileoff = 0;
@@ -412,7 +412,7 @@ fn writeSegmentHeaders(self: *DebugSymbols, macho_file: *MachO, writer: anytype)
         }
     }
     // Next, commit DSYM's __LINKEDIT and __DWARF segments headers.
-    for (self.segments.items) |seg, i| {
+    for (self.segments.items, 0..) |seg, i| {
         const indexes = self.getSectionIndexes(@intCast(u8, i));
         try writer.writeStruct(seg);
         for (self.sections.items[indexes.start..indexes.end]) |header| {
@@ -477,7 +477,7 @@ fn writeSymtab(self: *DebugSymbols, macho_file: *MachO) !void {
     var locals = std.ArrayList(macho.nlist_64).init(gpa);
     defer locals.deinit();
 
-    for (macho_file.locals.items) |sym, sym_id| {
+    for (macho_file.locals.items, 0..) |sym, sym_id| {
         if (sym.n_strx == 0) continue; // no name, skip
         const sym_loc = MachO.SymbolWithLoc{ .sym_index = @intCast(u32, sym_id), .file = null };
         if (macho_file.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
@@ -547,7 +547,7 @@ fn writeStrtab(self: *DebugSymbols) !void {
 
 pub fn getSectionIndexes(self: *DebugSymbols, segment_index: u8) struct { start: u8, end: u8 } {
     var start: u8 = 0;
-    const nsects = for (self.segments.items) |seg, i| {
+    const nsects = for (self.segments.items, 0..) |seg, i| {
         if (i == segment_index) break @intCast(u8, seg.nsects);
         start += @intCast(u8, seg.nsects);
     } else 0;

@@ -251,7 +251,7 @@ fn renderEnumerant(writer: anytype, enumerant: g.Enumerant) !void {
         .int => |int| try writer.print("{}", .{int}),
     }
     try writer.writeAll(", .parameters = &[_]OperandKind{");
-    for (enumerant.parameters) |param, i| {
+    for (enumerant.parameters, 0..) |param, i| {
         if (i != 0)
             try writer.writeAll(", ");
         // Note, param.quantifier will always be one.
@@ -272,7 +272,7 @@ fn renderOpcodes(
     var aliases = std.ArrayList(struct { inst: usize, alias: usize }).init(allocator);
     try aliases.ensureTotalCapacity(instructions.len);
 
-    for (instructions) |inst, i| {
+    for (instructions, 0..) |inst, i| {
         if (std.mem.eql(u8, inst.class.?, "@exclude")) {
             continue;
         }
@@ -397,7 +397,7 @@ fn renderValueEnum(
     var aliases = std.ArrayList(struct { enumerant: usize, alias: usize }).init(allocator);
     try aliases.ensureTotalCapacity(enumerants.len);
 
-    for (enumerants) |enumerant, i| {
+    for (enumerants, 0..) |enumerant, i| {
         const result = enum_map.getOrPutAssumeCapacity(enumerant.value.int);
         if (!result.found_existing) {
             result.value_ptr.* = i;
@@ -468,7 +468,7 @@ fn renderBitEnum(
     var aliases = std.ArrayList(struct { flag: usize, alias: u5 }).init(allocator);
     try aliases.ensureTotalCapacity(enumerants.len);
 
-    for (enumerants) |enumerant, i| {
+    for (enumerants, 0..) |enumerant, i| {
         if (enumerant.value != .bitflag) return error.InvalidRegistry;
         const value = try parseHexInt(enumerant.value.bitflag);
         if (value == 0) {
@@ -494,7 +494,7 @@ fn renderBitEnum(
         }
     }
 
-    for (flags_by_bitpos) |maybe_flag_index, bitpos| {
+    for (flags_by_bitpos, 0..) |maybe_flag_index, bitpos| {
         if (maybe_flag_index) |flag_index| {
             try writer.print("{}", .{std.zig.fmtId(enumerants[flag_index].enumerant)});
         } else {
@@ -521,7 +521,7 @@ fn renderBitEnum(
 
     try writer.print("\npub const Extended = struct {{\n", .{});
 
-    for (flags_by_bitpos) |maybe_flag_index, bitpos| {
+    for (flags_by_bitpos, 0..) |maybe_flag_index, bitpos| {
         const flag_index = maybe_flag_index orelse {
             try writer.print("_reserved_bit_{}: bool = false,\n", .{bitpos});
             continue;
@@ -570,7 +570,7 @@ fn renderOperand(
 
     try writer.writeAll("struct{");
 
-    for (parameters) |param, j| {
+    for (parameters, 0..) |param, j| {
         if (j != 0) {
             try writer.writeAll(", ");
         }
@@ -642,7 +642,7 @@ fn renderFieldName(writer: anytype, operands: []const g.Operand, field_index: us
 
     // Translate to snake case.
     name_buffer.len = 0;
-    for (operand.kind) |c, i| {
+    for (operand.kind, 0..) |c, i| {
         switch (c) {
             'a'...'z', '0'...'9' => try name_buffer.append(c),
             'A'...'Z' => if (i > 0 and std.ascii.isLower(operand.kind[i - 1])) {
@@ -658,7 +658,7 @@ fn renderFieldName(writer: anytype, operands: []const g.Operand, field_index: us
 
     // For fields derived from type name, there could be any amount.
     // Simply check against all other fields, and if another similar one exists, add a number.
-    const need_extra_index = for (operands) |other_operand, i| {
+    const need_extra_index = for (operands, 0..) |other_operand, i| {
         if (i != field_index and std.mem.eql(u8, operand.kind, other_operand.kind)) {
             break true;
         }

@@ -312,7 +312,7 @@ const BinaryElfOutput = struct {
 
         std.sort.sort(*BinaryElfSegment, self.segments.items, {}, segmentSortCompare);
 
-        for (self.segments.items) |firstSegment, i| {
+        for (self.segments.items, 0..) |firstSegment, i| {
             if (firstSegment.firstSection) |firstSection| {
                 const diff = firstSection.elfOffset - firstSegment.elfOffset;
 

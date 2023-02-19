@@ -350,7 +350,7 @@ fn render_blank(
     try output.appendSlice("\n");
 
     const values = defines.values();
-    for (defines.keys()) |name, i| {
+    for (defines.keys(), 0..) |name, i| {
         try renderValueC(output, name, values[i]);
     }
 
@@ -361,7 +361,7 @@ fn render_blank(
 
 fn render_nasm(output: *std.ArrayList(u8), defines: std.StringArrayHashMap(Value)) !void {
     const values = defines.values();
-    for (defines.keys()) |name, i| {
+    for (defines.keys(), 0..) |name, i| {
         try renderValueNasm(output, name, values[i]);
     }
 }

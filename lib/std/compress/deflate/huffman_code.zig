@@ -71,7 +71,7 @@ pub const HuffmanEncoder = struct {
         // Number of non-zero literals
         var count: u32 = 0;
         // Set list to be the set of all non-zero literals and their frequencies
-        for (freq) |f, i| {
+        for (freq, 0..) |f, i| {
             if (f != 0) {
                 list[count] = LiteralNode{ .literal = @intCast(u16, i), .freq = f };
                 count += 1;
@@ -86,7 +86,7 @@ pub const HuffmanEncoder = struct {
         if (count <= 2) {
             // Handle the small cases here, because they are awkward for the general case code. With
             // two or fewer literals, everything has bit length 1.
-            for (list) |node, i| {
+            for (list, 0..) |node, i| {
                 // "list" is in order of increasing literal value.
                 self.codes[node.literal].set(@intCast(u16, i), 1);
             }
@@ -103,7 +103,7 @@ pub const HuffmanEncoder = struct {
 
     pub fn bitLength(self: *HuffmanEncoder, freq: []u16) u32 {
         var total: u32 = 0;
-        for (freq) |f, i| {
+        for (freq, 0..) |f, i| {
             if (f != 0) {
                 total += @intCast(u32, f) * @intCast(u32, self.codes[i].len);
             }
@@ -258,7 +258,7 @@ pub const HuffmanEncoder = struct {
         var code = @as(u16, 0);
         var list = list_arg;
 
-        for (bit_count) |bits, n| {
+        for (bit_count, 0..) |bits, n| {
             code <<= 1;
             if (n == 0 or bits == 0) {
                 continue;
@@ -340,7 +340,7 @@ pub fn generateFixedLiteralEncoding(allocator: Allocator) !HuffmanEncoder {
 pub fn generateFixedOffsetEncoding(allocator: Allocator) !HuffmanEncoder {
     var h = try newHuffmanEncoder(allocator, 30);
     var codes = h.codes;
-    for (codes) |_, ch| {
+    for (codes, 0..) |_, ch| {
         codes[ch] = HuffCode{ .code = bu.bitReverse(u16, @intCast(u16, ch), 5), .len = 5 };
     }
     return h;

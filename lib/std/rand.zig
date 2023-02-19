@@ -414,7 +414,7 @@ pub const Random = struct {
         std.debug.assert(point < sum);
 
         var accumulator: T = 0;
-        for (proportions) |p, index| {
+        for (proportions, 0..) |p, index| {
             accumulator += p;
             if (point < accumulator) return index;
         }

@@ -513,7 +513,7 @@ fn gen(self: *Self) !void {
             self.ret_mcv = MCValue{ .stack_offset = stack_offset };
         }
 
-        for (self.args) |*arg, arg_index| {
+        for (self.args, 0..) |*arg, arg_index| {
             // Copy register arguments to the stack
             switch (arg.*) {
                 .register => |reg| {
@@ -3105,14 +3105,14 @@ fn allocRegs(
     var reused_read_arg: ?usize = null;
 
     // Lock all args which are already allocated to registers
-    for (read_args) |arg, i| {
+    for (read_args, 0..) |arg, i| {
         const mcv = try arg.bind.resolveToMcv(self);
         if (mcv == .register) {
             read_locks[i] = self.register_manager.lockReg(mcv.register);
         }
     }
 
-    for (write_args) |arg, i| {
+    for (write_args, 0..) |arg, i| {
         if (arg.bind == .reg) {
             write_locks[i] = self.register_manager.lockReg(arg.bind.reg);
         }
@@ -3120,7 +3120,7 @@ fn allocRegs(
 
     // Allocate registers for all args which aren't allocated to
     // registers yet
-    for (read_args) |arg, i| {
+    for (read_args, 0..) |arg, i| {
         const mcv = try arg.bind.resolveToMcv(self);
         if (mcv == .register) {
             arg.reg.* = mcv.register;
@@ -3141,7 +3141,7 @@ fn allocRegs(
         if (arg.bind == .reg) {
             arg.reg.* = arg.bind.reg;
         } else {
-            reuse_operand: for (read_args) |read_arg, i| {
+            reuse_operand: for (read_args, 0..) |read_arg, i| {
                 if (read_arg.bind == .inst) {
                     const operand = read_arg.bind.inst;
                     const mcv = try self.resolveInst(operand);
@@ -3161,7 +3161,7 @@ fn allocRegs(
             }
         }
     } else {
-        for (write_args) |arg, i| {
+        for (write_args, 0..) |arg, i| {
             if (arg.bind == .reg) {
                 arg.reg.* = arg.bind.reg;
             } else {
@@ -3173,7 +3173,7 @@ fn allocRegs(
 
     // For all read_args which need to be moved from non-register to
     // register, perform the move
-    for (read_args) |arg, i| {
+    for (read_args, 0..) |arg, i| {
         if (reused_read_arg) |j| {
             // Check whether this read_arg was reused
             if (i == j) continue;
@@ -4217,7 +4217,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     // Make space for the arguments passed via the stack
     self.max_end_stack += info.stack_byte_count;
 
-    for (info.args) |mc_arg, arg_i| {
+    for (info.args, 0..) |mc_arg, arg_i| {
         const arg = args[arg_i];
         const arg_ty = self.air.typeOf(arg);
         const arg_mcv = try self.resolveInst(args[arg_i]);
@@ -4669,7 +4669,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const else_slice = else_branch.inst_table.entries.slice();
     const else_keys = else_slice.items(.key);
     const else_values = else_slice.items(.value);
-    for (else_keys) |else_key, else_idx| {
+    for (else_keys, 0..) |else_key, else_idx| {
         const else_value = else_values[else_idx];
         const canon_mcv = if (saved_then_branch.inst_table.fetchSwapRemove(else_key)) |then_entry| blk: {
             // The instruction's MCValue is overridden in both branches.
@@ -4702,7 +4702,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const then_slice = saved_then_branch.inst_table.entries.slice();
     const then_keys = then_slice.items(.key);
     const then_values = then_slice.items(.value);
-    for (then_keys) |then_key, then_idx| {
+    for (then_keys, 0..) |then_key, then_idx| {
         const then_value = then_values[then_idx];
         // We already deleted the items from this table that matched the else_branch.
         // So these are all instructions that are only overridden in the then branch.
@@ -4991,7 +4991,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         const branch_into_prong_relocs = try self.gpa.alloc(u32, items.len);
         defer self.gpa.free(branch_into_prong_relocs);
 
-        for (items) |item, idx| {
+        for (items, 0..) |item, idx| {
             const cmp_result = try self.cmp(.{ .inst = pl_op.operand }, .{ .inst = item }, condition_ty, .neq);
             branch_into_prong_relocs[idx] = try self.condBr(cmp_result);
         }
@@ -6296,7 +6296,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 }
             }
 
-            for (param_types) |ty, i| {
+            for (param_types, 0..) |ty, i| {
                 if (ty.abiAlignment(self.target.*) == 8)
                     ncrn = std.mem.alignForwardGeneric(usize, ncrn, 2);
 
@@ -6346,7 +6346,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
             var stack_offset: u32 = 0;
 
-            for (param_types) |ty, i| {
+            for (param_types, 0..) |ty, i| {
                 if (ty.abiSize(self.target.*) > 0) {
                     const param_size = @intCast(u32, ty.abiSize(self.target.*));
                     const param_alignment = ty.abiAlignment(self.target.*);

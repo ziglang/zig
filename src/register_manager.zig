@@ -82,7 +82,7 @@ pub fn RegisterManager(
             comptime registers: []const Register,
             reg: Register,
         ) ?std.math.IntFittingRange(0, registers.len - 1) {
-            inline for (tracked_registers) |cpreg, i| {
+            inline for (tracked_registers, 0..) |cpreg, i| {
                 if (reg.id() == cpreg.id()) return i;
             }
             return null;
@@ -153,7 +153,7 @@ pub fn RegisterManager(
             regs: [count]Register,
         ) [count]RegisterLock {
             var buf: [count]RegisterLock = undefined;
-            for (regs) |reg, i| {
+            for (regs, 0..) |reg, i| {
                 buf[i] = self.lockRegAssumeUnused(reg);
             }
             return buf;
@@ -207,7 +207,7 @@ pub fn RegisterManager(
             }
             assert(i == count);
 
-            for (regs) |reg, j| {
+            for (regs, 0..) |reg, j| {
                 self.markRegAllocated(reg);
 
                 if (insts[j]) |inst| {

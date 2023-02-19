@@ -66,7 +66,7 @@ pub const LibCInstallation = struct {
             var line_it = std.mem.split(u8, line, "=");
             const name = line_it.first();
             const value = line_it.rest();
-            inline for (fields) |field, i| {
+            inline for (fields, 0..) |field, i| {
                 if (std.mem.eql(u8, name, field.name)) {
                     found_keys[i].found = true;
                     if (value.len == 0) {
@@ -79,7 +79,7 @@ pub const LibCInstallation = struct {
                 }
             }
         }
-        inline for (fields) |field, i| {
+        inline for (fields, 0..) |field, i| {
             if (!found_keys[i].found) {
                 log.err("missing field: {s}\n", .{field.name});
                 return error.ParseError;
@@ -640,7 +640,7 @@ fn printVerboseInvocation(
     } else {
         std.debug.print("Zig attempted to find the path to native system libc headers by executing this command:\n", .{});
     }
-    for (argv) |arg, i| {
+    for (argv, 0..) |arg, i| {
         if (i != 0) std.debug.print(" ", .{});
         std.debug.print("{s}", .{arg});
     }

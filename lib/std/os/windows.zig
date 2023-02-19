@@ -2858,7 +2858,7 @@ pub const GUID = extern struct {
         assert(s[18] == '-');
         assert(s[23] == '-');
         var bytes: [16]u8 = undefined;
-        for (hex_offsets) |hex_offset, i| {
+        for (hex_offsets, 0..) |hex_offset, i| {
             bytes[i] = (try std.fmt.charToDigit(s[hex_offset], 16)) << 4 |
                 try std.fmt.charToDigit(s[hex_offset + 1], 16);
         }

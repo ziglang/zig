@@ -21,7 +21,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
         pub const ActiveFields = std.enums.EnumFieldStruct(FieldEnum, bool, false);
         pub const FieldValues = blk: {
             comptime var fields: [bit_count]Type.StructField = undefined;
-            inline for (@typeInfo(Fields).Struct.fields) |struct_field, i| {
+            inline for (@typeInfo(Fields).Struct.fields, 0..) |struct_field, i| {
                 fields[i] = Type.StructField{
                     .name = struct_field.name,
                     .type = ?struct_field.type,
@@ -61,7 +61,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
         /// `fields` is a boolean struct where each active field is set to `true`
         pub fn init(fields: ActiveFields) Self {
             var self: Self = .{ .bits = 0 };
-            inline for (@typeInfo(Fields).Struct.fields) |field, i| {
+            inline for (@typeInfo(Fields).Struct.fields, 0..) |field, i| {
                 if (@field(fields, field.name))
                     self.bits |= 1 << i;
             }
@@ -70,7 +70,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
 
         /// `fields` is a struct with each field set to an optional value
         pub fn setMany(self: Self, p: [*]align(@alignOf(Fields)) u8, fields: FieldValues) void {
-            inline for (@typeInfo(Fields).Struct.fields) |field, i| {
+            inline for (@typeInfo(Fields).Struct.fields, 0..) |field, i| {
                 if (@field(fields, field.name)) |value|
                     self.set(p, @intToEnum(FieldEnum, i), value);
             }
@@ -101,7 +101,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
 
         pub fn offset(self: Self, comptime field: FieldEnum) usize {
             var off: usize = 0;
-            inline for (@typeInfo(Fields).Struct.fields) |field_info, i| {
+            inline for (@typeInfo(Fields).Struct.fields, 0..) |field_info, i| {
                 const active = (self.bits & (1 << i)) != 0;
                 if (i == @enumToInt(field)) {
                     assert(active);
@@ -119,7 +119,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
 
         pub fn sizeInBytes(self: Self) usize {
             var off: usize = 0;
-            inline for (@typeInfo(Fields).Struct.fields) |field, i| {
+            inline for (@typeInfo(Fields).Struct.fields, 0..) |field, i| {
                 if (@sizeOf(field.type) == 0)
                     continue;
                 if ((self.bits & (1 << i)) != 0) {

@@ -344,7 +344,7 @@ pub const Ed25519 = struct {
         var a_batch: [count]Curve = undefined;
         var expected_r_batch: [count]Curve = undefined;
 
-        for (signature_batch) |signature, i| {
+        for (signature_batch, 0..) |signature, i| {
             const r = signature.sig.r;
             const s = signature.sig.s;
             try Curve.scalar.rejectNonCanonical(s);
@@ -360,7 +360,7 @@ pub const Ed25519 = struct {
         }
 
         var hram_batch: [count]Curve.scalar.CompressedScalar = undefined;
-        for (signature_batch) |signature, i| {
+        for (signature_batch, 0..) |signature, i| {
             var h = Sha512.init(.{});
             h.update(&r_batch[i]);
             h.update(&signature.public_key.bytes);
@@ -371,20 +371,20 @@ pub const Ed25519 = struct {
         }
 
         var z_batch: [count]Curve.scalar.CompressedScalar = undefined;
-        for (z_batch) |*z| {
+        for (&z_batch) |*z| {
             crypto.random.bytes(z[0..16]);
             mem.set(u8, z[16..], 0);
         }
 
         var zs_sum = Curve.scalar.zero;
-        for (z_batch) |z, i| {
+        for (z_batch, 0..) |z, i| {
             const zs = Curve.scalar.mul(z, s_batch[i]);
             zs_sum = Curve.scalar.add(zs_sum, zs);
         }
         zs_sum = Curve.scalar.mul8(zs_sum);
 
         var zhs: [count]Curve.scalar.CompressedScalar = undefined;
-        for (z_batch) |z, i| {
+        for (z_batch, 0..) |z, i| {
             zhs[i] = Curve.scalar.mul(z, hram_batch[i]);
         }
 

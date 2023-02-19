@@ -650,7 +650,7 @@ pub fn dupe(self: *Build, bytes: []const u8) []u8 {
 /// Duplicates an array of strings without the need to handle out of memory.
 pub fn dupeStrings(self: *Build, strings: []const []const u8) [][]u8 {
     const array = self.allocator.alloc([]u8, strings.len) catch @panic("OOM");
-    for (strings) |s, i| {
+    for (strings, 0..) |s, i| {
         array[i] = self.dupe(s);
     }
     return array;
@@ -1051,7 +1051,7 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
             const all_features = whitelist_cpu.arch.allFeaturesList();
             var populated_cpu_features = whitelist_cpu.model.features;
             populated_cpu_features.populateDependencies(all_features);
-            for (all_features) |feature, i_usize| {
+            for (all_features, 0..) |feature, i_usize| {
                 const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
                 const in_cpu_set = populated_cpu_features.isEnabled(i);
                 if (in_cpu_set) {
@@ -1059,7 +1059,7 @@ pub fn standardTargetOptions(self: *Build, args: StandardTargetOptionsArgs) Cros
                 }
             }
             log.err("  Remove: ", .{});
-            for (all_features) |feature, i_usize| {
+            for (all_features, 0..) |feature, i_usize| {
                 const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
                 const in_cpu_set = populated_cpu_features.isEnabled(i);
                 const in_actual_set = selected_cpu.features.isEnabled(i);
@@ -1748,7 +1748,7 @@ pub fn serializeCpu(allocator: Allocator, cpu: std.Target.Cpu) ![]const u8 {
         var mcpu_buffer = ArrayList(u8).init(allocator);
         try mcpu_buffer.appendSlice(cpu.model.name);
 
-        for (all_features) |feature, i_usize| {
+        for (all_features, 0..) |feature, i_usize| {
             const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
             const in_cpu_set = populated_cpu_features.isEnabled(i);
             const in_actual_set = cpu.features.isEnabled(i);

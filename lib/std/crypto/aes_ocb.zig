@@ -155,7 +155,7 @@ fn AesOcb(comptime Aes: anytype) type {
                 xorWith(&offset, lx.star);
                 var pad = offset;
                 aes_enc_ctx.encrypt(&pad, &pad);
-                for (m[i * 16 ..]) |x, j| {
+                for (m[i * 16 ..], 0..) |x, j| {
                     c[i * 16 + j] = pad[j] ^ x;
                 }
                 var e = [_]u8{0} ** 16;
@@ -220,7 +220,7 @@ fn AesOcb(comptime Aes: anytype) type {
                 xorWith(&offset, lx.star);
                 var pad = offset;
                 aes_enc_ctx.encrypt(&pad, &pad);
-                for (c[i * 16 ..]) |x, j| {
+                for (c[i * 16 ..], 0..) |x, j| {
                     m[i * 16 + j] = pad[j] ^ x;
                 }
                 var e = [_]u8{0} ** 16;
@@ -242,14 +242,14 @@ fn AesOcb(comptime Aes: anytype) type {
 
 inline fn xorBlocks(x: Block, y: Block) Block {
     var z: Block = x;
-    for (z) |*v, i| {
+    for (&z, 0..) |*v, i| {
         v.* = x[i] ^ y[i];
     }
     return z;
 }
 
 inline fn xorWith(x: *Block, y: Block) void {
-    for (x) |*v, i| {
+    for (x, 0..) |*v, i| {
         v.* ^= y[i];
     }
 }

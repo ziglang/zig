@@ -494,14 +494,14 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// Flips all bits in this bit set which are present
         /// in the toggles bit set.
         pub fn toggleSet(self: *Self, toggles: Self) void {
-            for (self.masks) |*mask, i| {
+            for (&self.masks, 0..) |*mask, i| {
                 mask.* ^= toggles.masks[i];
             }
         }
 
         /// Flips every bit in the bit set.
         pub fn toggleAll(self: *Self) void {
-            for (self.masks) |*mask| {
+            for (&self.masks) |*mask| {
                 mask.* = ~mask.*;
             }
 
@@ -515,7 +515,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// result in the first one.  Bits in the result are
         /// set if the corresponding bits were set in either input.
         pub fn setUnion(self: *Self, other: Self) void {
-            for (self.masks) |*mask, i| {
+            for (&self.masks, 0..) |*mask, i| {
                 mask.* |= other.masks[i];
             }
         }
@@ -524,7 +524,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// the result in the first one.  Bits in the result are
         /// set if the corresponding bits were set in both inputs.
         pub fn setIntersection(self: *Self, other: Self) void {
-            for (self.masks) |*mask, i| {
+            for (&self.masks, 0..) |*mask, i| {
                 mask.* &= other.masks[i];
             }
         }
@@ -544,7 +544,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// If no bits are set, returns null.
         pub fn toggleFirstSet(self: *Self) ?usize {
             var offset: usize = 0;
-            const mask = for (self.masks) |*mask| {
+            const mask = for (&self.masks) |*mask| {
                 if (mask.* != 0) break mask;
                 offset += @bitSizeOf(MaskInt);
             } else return null;
@@ -869,7 +869,7 @@ pub const DynamicBitSetUnmanaged = struct {
     pub fn toggleSet(self: *Self, toggles: Self) void {
         assert(toggles.bit_length == self.bit_length);
         const num_masks = numMasks(self.bit_length);
-        for (self.masks[0..num_masks]) |*mask, i| {
+        for (self.masks[0..num_masks], 0..) |*mask, i| {
             mask.* ^= toggles.masks[i];
         }
     }
@@ -897,7 +897,7 @@ pub const DynamicBitSetUnmanaged = struct {
     pub fn setUnion(self: *Self, other: Self) void {
         assert(other.bit_length == self.bit_length);
         const num_masks = numMasks(self.bit_length);
-        for (self.masks[0..num_masks]) |*mask, i| {
+        for (self.masks[0..num_masks], 0..) |*mask, i| {
             mask.* |= other.masks[i];
         }
     }
@@ -909,7 +909,7 @@ pub const DynamicBitSetUnmanaged = struct {
     pub fn setIntersection(self: *Self, other: Self) void {
         assert(other.bit_length == self.bit_length);
         const num_masks = numMasks(self.bit_length);
-        for (self.masks[0..num_masks]) |*mask, i| {
+        for (self.masks[0..num_masks], 0..) |*mask, i| {
             mask.* &= other.masks[i];
         }
     }

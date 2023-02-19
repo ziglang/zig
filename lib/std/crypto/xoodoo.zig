@@ -66,7 +66,7 @@ pub const State = struct {
     /// XOR bytes into the beginning of the state.
     pub fn addBytes(self: *State, bytes: []const u8) void {
         self.endianSwap();
-        for (self.asBytes()[0..bytes.len]) |*byte, i| {
+        for (self.asBytes()[0..bytes.len], 0..) |*byte, i| {
             byte.* ^= bytes[i];
         }
         self.endianSwap();

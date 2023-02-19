@@ -1647,7 +1647,7 @@ fn walkInstruction(
             std.debug.assert(operands.len > 0);
             var array_type = try self.walkRef(file, parent_scope, parent_src, operands[0], false);
 
-            for (operands[1..]) |op, idx| {
+            for (operands[1..], 0..) |op, idx| {
                 const wr = try self.walkRef(file, parent_scope, parent_src, op, false);
                 const expr_index = self.exprs.items.len;
                 try self.exprs.append(self.arena, wr.expr);
@@ -1665,7 +1665,7 @@ fn walkInstruction(
             const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
             const array_data = try self.arena.alloc(usize, operands.len);
 
-            for (operands) |op, idx| {
+            for (operands, 0..) |op, idx| {
                 const wr = try self.walkRef(file, parent_scope, parent_src, op, false);
                 const expr_index = self.exprs.items.len;
                 try self.exprs.append(self.arena, wr.expr);
@@ -1686,7 +1686,7 @@ fn walkInstruction(
             std.debug.assert(operands.len > 0);
             var array_type = try self.walkRef(file, parent_scope, parent_src, operands[0], false);
 
-            for (operands[1..]) |op, idx| {
+            for (operands[1..], 0..) |op, idx| {
                 const wr = try self.walkRef(file, parent_scope, parent_src, op, false);
                 const expr_index = self.exprs.items.len;
                 try self.exprs.append(self.arena, wr.expr);
@@ -1715,7 +1715,7 @@ fn walkInstruction(
             const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
             const array_data = try self.arena.alloc(usize, operands.len);
 
-            for (operands) |op, idx| {
+            for (operands, 0..) |op, idx| {
                 const wr = try self.walkRef(file, parent_scope, parent_src, op, false);
                 const expr_index = self.exprs.items.len;
                 try self.exprs.append(self.arena, wr.expr);
@@ -2386,7 +2386,7 @@ fn walkInstruction(
                     const array_data = try self.arena.alloc(usize, args.len);
 
                     var array_type: ?DocData.Expr = null;
-                    for (args) |arg, idx| {
+                    for (args, 0..) |arg, idx| {
                         const wr = try self.walkRef(file, parent_scope, parent_src, arg, idx == 0);
                         if (idx == 0) {
                             array_type = wr.typeRef;
@@ -3470,7 +3470,7 @@ fn tryResolveRefPath(
                         }
                     }
 
-                    for (self.ast_nodes.items[t_enum.src].fields.?) |ast_node, idx| {
+                    for (self.ast_nodes.items[t_enum.src].fields.?, 0..) |ast_node, idx| {
                         const name = self.ast_nodes.items[ast_node].name.?;
                         if (std.mem.eql(u8, name, child_string)) {
                             // TODO: should we really create an artificial
@@ -3517,7 +3517,7 @@ fn tryResolveRefPath(
                         }
                     }
 
-                    for (self.ast_nodes.items[t_union.src].fields.?) |ast_node, idx| {
+                    for (self.ast_nodes.items[t_union.src].fields.?, 0..) |ast_node, idx| {
                         const name = self.ast_nodes.items[ast_node].name.?;
                         if (std.mem.eql(u8, name, child_string)) {
                             // TODO: should we really create an artificial
@@ -3564,7 +3564,7 @@ fn tryResolveRefPath(
                         }
                     }
 
-                    for (self.ast_nodes.items[t_struct.src].fields.?) |ast_node, idx| {
+                    for (self.ast_nodes.items[t_struct.src].fields.?, 0..) |ast_node, idx| {
                         const name = self.ast_nodes.items[ast_node].name.?;
                         if (std.mem.eql(u8, name, child_string)) {
                             // TODO: should we really create an artificial

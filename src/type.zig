@@ -628,7 +628,7 @@ pub const Type = extern union {
                 const a_set = a.errorSetNames();
                 const b_set = b.errorSetNames();
                 if (a_set.len != b_set.len) return false;
-                for (a_set) |a_item, i| {
+                for (a_set, 0..) |a_item, i| {
                     const b_item = b_set[i];
                     if (!std.mem.eql(u8, a_item, b_item)) return false;
                 }
@@ -675,7 +675,7 @@ pub const Type = extern union {
                 if (a_info.param_types.len != b_info.param_types.len)
                     return false;
 
-                for (a_info.param_types) |a_param_ty, i| {
+                for (a_info.param_types, 0..) |a_param_ty, i| {
                     const b_param_ty = b_info.param_types[i];
                     if (a_info.comptime_params[i] != b_info.comptime_params[i])
                         return false;
@@ -824,12 +824,12 @@ pub const Type = extern union {
 
                 if (a_tuple.types.len != b_tuple.types.len) return false;
 
-                for (a_tuple.types) |a_ty, i| {
+                for (a_tuple.types, 0..) |a_ty, i| {
                     const b_ty = b_tuple.types[i];
                     if (!eql(a_ty, b_ty, mod)) return false;
                 }
 
-                for (a_tuple.values) |a_val, i| {
+                for (a_tuple.values, 0..) |a_val, i| {
                     const ty = a_tuple.types[i];
                     const b_val = b_tuple.values[i];
                     if (a_val.tag() == .unreachable_value) {
@@ -855,17 +855,17 @@ pub const Type = extern union {
 
                 if (a_struct_obj.types.len != b_struct_obj.types.len) return false;
 
-                for (a_struct_obj.names) |a_name, i| {
+                for (a_struct_obj.names, 0..) |a_name, i| {
                     const b_name = b_struct_obj.names[i];
                     if (!std.mem.eql(u8, a_name, b_name)) return false;
                 }
 
-                for (a_struct_obj.types) |a_ty, i| {
+                for (a_struct_obj.types, 0..) |a_ty, i| {
                     const b_ty = b_struct_obj.types[i];
                     if (!eql(a_ty, b_ty, mod)) return false;
                 }
 
-                for (a_struct_obj.values) |a_val, i| {
+                for (a_struct_obj.values, 0..) |a_val, i| {
                     const ty = a_struct_obj.types[i];
                     const b_val = b_struct_obj.values[i];
                     if (a_val.tag() == .unreachable_value) {
@@ -1073,7 +1073,7 @@ pub const Type = extern union {
                 std.hash.autoHash(hasher, fn_info.noalias_bits);
 
                 std.hash.autoHash(hasher, fn_info.param_types.len);
-                for (fn_info.param_types) |param_ty, i| {
+                for (fn_info.param_types, 0..) |param_ty, i| {
                     std.hash.autoHash(hasher, fn_info.paramIsComptime(i));
                     if (param_ty.tag() == .generic_poison) continue;
                     hashWithHasher(param_ty, hasher, mod);
@@ -1175,7 +1175,7 @@ pub const Type = extern union {
                 const tuple = ty.tupleFields();
                 std.hash.autoHash(hasher, tuple.types.len);
 
-                for (tuple.types) |field_ty, i| {
+                for (tuple.types, 0..) |field_ty, i| {
                     hashWithHasher(field_ty, hasher, mod);
                     const field_val = tuple.values[i];
                     if (field_val.tag() == .unreachable_value) continue;
@@ -1187,7 +1187,7 @@ pub const Type = extern union {
                 std.hash.autoHash(hasher, std.builtin.TypeId.Struct);
                 std.hash.autoHash(hasher, struct_obj.types.len);
 
-                for (struct_obj.types) |field_ty, i| {
+                for (struct_obj.types, 0..) |field_ty, i| {
                     const field_name = struct_obj.names[i];
                     const field_val = struct_obj.values[i];
                     hasher.update(field_name);
@@ -1403,10 +1403,10 @@ pub const Type = extern union {
                 const payload = self.castTag(.tuple).?.data;
                 const types = try allocator.alloc(Type, payload.types.len);
                 const values = try allocator.alloc(Value, payload.values.len);
-                for (payload.types) |ty, i| {
+                for (payload.types, 0..) |ty, i| {
                     types[i] = try ty.copy(allocator);
                 }
-                for (payload.values) |val, i| {
+                for (payload.values, 0..) |val, i| {
                     values[i] = try val.copy(allocator);
                 }
                 return Tag.tuple.create(allocator, .{
@@ -1419,13 +1419,13 @@ pub const Type = extern union {
                 const names = try allocator.alloc([]const u8, payload.names.len);
                 const types = try allocator.alloc(Type, payload.types.len);
                 const values = try allocator.alloc(Value, payload.values.len);
-                for (payload.names) |name, i| {
+                for (payload.names, 0..) |name, i| {
                     names[i] = try allocator.dupe(u8, name);
                 }
-                for (payload.types) |ty, i| {
+                for (payload.types, 0..) |ty, i| {
                     types[i] = try ty.copy(allocator);
                 }
-                for (payload.values) |val, i| {
+                for (payload.values, 0..) |val, i| {
                     values[i] = try val.copy(allocator);
                 }
                 return Tag.anon_struct.create(allocator, .{
@@ -1437,7 +1437,7 @@ pub const Type = extern union {
             .function => {
                 const payload = self.castTag(.function).?.data;
                 const param_types = try allocator.alloc(Type, payload.param_types.len);
-                for (payload.param_types) |param_ty, i| {
+                for (payload.param_types, 0..) |param_ty, i| {
                     param_types[i] = try param_ty.copy(allocator);
                 }
                 const other_comptime_params = payload.comptime_params[0..payload.param_types.len];
@@ -1678,7 +1678,7 @@ pub const Type = extern union {
                 .function => {
                     const payload = ty.castTag(.function).?.data;
                     try writer.writeAll("fn(");
-                    for (payload.param_types) |param_type, i| {
+                    for (payload.param_types, 0..) |param_type, i| {
                         if (i != 0) try writer.writeAll(", ");
                         try param_type.dump("", .{}, writer);
                     }
@@ -1739,7 +1739,7 @@ pub const Type = extern union {
                 .tuple => {
                     const tuple = ty.castTag(.tuple).?.data;
                     try writer.writeAll("tuple{");
-                    for (tuple.types) |field_ty, i| {
+                    for (tuple.types, 0..) |field_ty, i| {
                         if (i != 0) try writer.writeAll(", ");
                         const val = tuple.values[i];
                         if (val.tag() != .unreachable_value) {
@@ -1756,7 +1756,7 @@ pub const Type = extern union {
                 .anon_struct => {
                     const anon_struct = ty.castTag(.anon_struct).?.data;
                     try writer.writeAll("struct{");
-                    for (anon_struct.types) |field_ty, i| {
+                    for (anon_struct.types, 0..) |field_ty, i| {
                         if (i != 0) try writer.writeAll(", ");
                         const val = anon_struct.values[i];
                         if (val.tag() != .unreachable_value) {
@@ -1892,7 +1892,7 @@ pub const Type = extern union {
                 .error_set => {
                     const names = ty.castTag(.error_set).?.data.names.keys();
                     try writer.writeAll("error{");
-                    for (names) |name, i| {
+                    for (names, 0..) |name, i| {
                         if (i != 0) try writer.writeByte(',');
                         try writer.writeAll(name);
                     }
@@ -1908,7 +1908,7 @@ pub const Type = extern union {
                 .error_set_merged => {
                     const names = ty.castTag(.error_set_merged).?.data.keys();
                     try writer.writeAll("error{");
-                    for (names) |name, i| {
+                    for (names, 0..) |name, i| {
                         if (i != 0) try writer.writeByte(',');
                         try writer.writeAll(name);
                     }
@@ -2063,7 +2063,7 @@ pub const Type = extern union {
             .function => {
                 const fn_info = ty.fnInfo();
                 try writer.writeAll("fn(");
-                for (fn_info.param_types) |param_ty, i| {
+                for (fn_info.param_types, 0..) |param_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
                     if (fn_info.paramIsComptime(i)) {
                         try writer.writeAll("comptime ");
@@ -2137,7 +2137,7 @@ pub const Type = extern union {
                 const tuple = ty.castTag(.tuple).?.data;
 
                 try writer.writeAll("tuple{");
-                for (tuple.types) |field_ty, i| {
+                for (tuple.types, 0..) |field_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
                     const val = tuple.values[i];
                     if (val.tag() != .unreachable_value) {
@@ -2154,7 +2154,7 @@ pub const Type = extern union {
                 const anon_struct = ty.castTag(.anon_struct).?.data;
 
                 try writer.writeAll("struct{");
-                for (anon_struct.types) |field_ty, i| {
+                for (anon_struct.types, 0..) |field_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
                     const val = anon_struct.values[i];
                     if (val.tag() != .unreachable_value) {
@@ -2253,7 +2253,7 @@ pub const Type = extern union {
             .error_set => {
                 const names = ty.castTag(.error_set).?.data.names.keys();
                 try writer.writeAll("error{");
-                for (names) |name, i| {
+                for (names, 0..) |name, i| {
                     if (i != 0) try writer.writeByte(',');
                     try writer.writeAll(name);
                 }
@@ -2266,7 +2266,7 @@ pub const Type = extern union {
             .error_set_merged => {
                 const names = ty.castTag(.error_set_merged).?.data.keys();
                 try writer.writeAll("error{");
-                for (names) |name, i| {
+                for (names, 0..) |name, i| {
                     if (i != 0) try writer.writeByte(',');
                     try writer.writeAll(name);
                 }
@@ -2568,7 +2568,7 @@ pub const Type = extern union {
 
             .tuple, .anon_struct => {
                 const tuple = ty.tupleFields();
-                for (tuple.types) |field_ty, i| {
+                for (tuple.types, 0..) |field_ty, i| {
                     const val = tuple.values[i];
                     if (val.tag() != .unreachable_value) continue; // comptime field
                     if (try field_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, strat)) return true;
@@ -3125,7 +3125,7 @@ pub const Type = extern union {
             .tuple, .anon_struct => {
                 const tuple = ty.tupleFields();
                 var big_align: u32 = 0;
-                for (tuple.types) |field_ty, i| {
+                for (tuple.types, 0..) |field_ty, i| {
                     const val = tuple.values[i];
                     if (val.tag() != .unreachable_value) continue; // comptime field
                     if (!(field_ty.hasRuntimeBits())) continue;
@@ -5044,7 +5044,7 @@ pub const Type = extern union {
 
             .tuple, .anon_struct => {
                 const tuple = ty.tupleFields();
-                for (tuple.values) |val, i| {
+                for (tuple.values, 0..) |val, i| {
                     const is_comptime = val.tag() != .unreachable_value;
                     if (is_comptime) continue;
                     if (tuple.types[i].onePossibleValue() != null) continue;
@@ -5256,7 +5256,7 @@ pub const Type = extern union {
 
             .tuple, .anon_struct => {
                 const tuple = ty.tupleFields();
-                for (tuple.types) |field_ty, i| {
+                for (tuple.types, 0..) |field_ty, i| {
                     const have_comptime_val = tuple.values[i].tag() != .unreachable_value;
                     if (!have_comptime_val and field_ty.comptimeOnly()) return true;
                 }
@@ -5319,6 +5319,19 @@ pub const Type = extern union {
             .Array, .Vector => true,
             .Pointer => switch (ty.ptrSize()) {
                 .Slice, .Many, .C => true,
+                .One => ty.elemType().zigTypeTag() == .Array,
+            },
+            .Struct => ty.isTuple(),
+            else => false,
+        };
+    }
+
+    pub fn indexableHasLen(ty: Type) bool {
+        return switch (ty.zigTypeTag()) {
+            .Array, .Vector => true,
+            .Pointer => switch (ty.ptrSize()) {
+                .Many, .C => false,
+                .Slice => true,
                 .One => ty.elemType().zigTypeTag() == .Array,
             },
             .Struct => ty.isTuple(),
@@ -5740,7 +5753,7 @@ pub const Type = extern union {
         var bit_offset: u16 = undefined;
         var elem_size_bits: u16 = undefined;
         var running_bits: u16 = 0;
-        for (struct_obj.fields.values()) |f, i| {
+        for (struct_obj.fields.values(), 0..) |f, i| {
             if (!f.ty.hasRuntimeBits()) continue;
 
             const field_bits = @intCast(u16, f.ty.bitSize(target));
@@ -5821,7 +5834,7 @@ pub const Type = extern union {
                 var offset: u64 = 0;
                 var big_align: u32 = 0;
 
-                for (tuple.types) |field_ty, i| {
+                for (tuple.types, 0..) |field_ty, i| {
                     const field_val = tuple.values[i];
                     if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) {
                         // comptime field

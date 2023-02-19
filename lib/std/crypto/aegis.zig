@@ -170,7 +170,7 @@ pub const Aegis128L = struct {
         }
         const computed_tag = state.mac(ad.len, m.len);
         var acc: u8 = 0;
-        for (computed_tag) |_, j| {
+        for (computed_tag, 0..) |_, j| {
             acc |= (computed_tag[j] ^ tag[j]);
         }
         if (acc != 0) {
@@ -339,7 +339,7 @@ pub const Aegis256 = struct {
         }
         const computed_tag = state.mac(ad.len, m.len);
         var acc: u8 = 0;
-        for (computed_tag) |_, j| {
+        for (computed_tag, 0..) |_, j| {
             acc |= (computed_tag[j] ^ tag[j]);
         }
         if (acc != 0) {
@@ -562,7 +562,7 @@ test "Aegis256 test vector 3" {
 test "Aegis MAC" {
     const key = [_]u8{0x00} ** Aegis128LMac.key_length;
     var msg: [64]u8 = undefined;
-    for (msg) |*m, i| {
+    for (&msg, 0..) |*m, i| {
         m.* = @truncate(u8, i);
     }
     const st_init = Aegis128LMac.init(&key);

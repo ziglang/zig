@@ -2367,7 +2367,7 @@ test "iterate over an array" {
 var some_integers: [100]i32 = undefined;
 
 test "modify an array" {
-    for (some_integers) |*item, i| {
+    for (&some_integers, 0..) |*item, i| {
         item.* = @intCast(i32, i);
     }
     try expect(some_integers[10] == 10);
@@ -2408,7 +2408,7 @@ comptime {
 // use compile-time code to initialize an array
 var fancy_array = init: {
     var initial_value: [10]Point = undefined;
-    for (initial_value) |*pt, i| {
+    for (&initial_value, 0..) |*pt, i| {
         pt.* = Point{
             .x = @intCast(i32, i),
             .y = @intCast(i32, i) * 2,
@@ -2461,8 +2461,8 @@ test "multidimensional arrays" {
     try expect(mat4x4[1][1] == 1.0);
 
     // Here we iterate with for loops.
-    for (mat4x4) |row, row_index| {
-        for (row) |cell, column_index| {
+    for (mat4x4, 0..) |row, row_index| {
+        for (row, 0..) |cell, column_index| {
             if (row_index == column_index) {
                 try expect(cell == 1.0);
             }
@@ -3579,7 +3579,7 @@ test "tuple" {
     } ++ .{false} ** 2;
     try expect(values[0] == 1234);
     try expect(values[4] == false);
-    inline for (values) |v, i| {
+    inline for (values, 0..) |v, i| {
         if (i != 2) continue;
         try expect(v);
     }
@@ -4659,10 +4659,10 @@ test "for basics" {
     }
     try expect(sum == 20);
 
-    // To access the index of iteration, specify a second capture value.
-    // This is zero-indexed.
+    // To access the index of iteration, specify a second condition as well
+    // as a second capture value.
     var sum2: i32 = 0;
-    for (items) |_, i| {
+    for (items, 0..) |_, i| {
         try expect(@TypeOf(i) == usize);
         sum2 += @intCast(i32, i);
     }
@@ -4674,7 +4674,7 @@ test "for reference" {
 
     // Iterate over the slice by reference by
     // specifying that the capture value is a pointer.
-    for (items) |*value| {
+    for (&items) |*value| {
         value.* += 1;
     }
 
@@ -5659,7 +5659,7 @@ fn genFoos(allocator: Allocator, num: usize) ![]Foo {
     var foos = try allocator.alloc(Foo, num);
     errdefer allocator.free(foos);
 
-    for(foos) |*foo, i| {
+    for (foos, 0..) |*foo, i| {
         foo.data = try allocator.create(u32);
         // This errdefer does not last between iterations
         errdefer allocator.destroy(foo.data);
@@ -5700,14 +5700,14 @@ fn genFoos(allocator: Allocator, num: usize) ![]Foo {
     // Used to track how many foos have been initialized
     // (including their data being allocated)
     var num_allocated: usize = 0;
-    errdefer for(foos[0..num_allocated]) |foo| {
+    errdefer for (foos[0..num_allocated]) |foo| {
         allocator.destroy(foo.data);
     };
-    for(foos) |*foo, i| {
+    for (foos, 0..) |*foo, i| {
         foo.data = try allocator.create(u32);
         num_allocated += 1;
 
-        if(i >= 3) return error.TooManyFoos;
+        if (i >= 3) return error.TooManyFoos;
 
         foo.data.* = try getData();
     }
@@ -7265,7 +7265,7 @@ const Writer = struct {
         comptime var state = State.start;
         comptime var next_arg: usize = 0;
 
-        inline for (format) |c, i| {
+        inline for (format, 0..) |c, i| {
             switch (state) {
                 State.start => switch (c) {
                     '{' => {
@@ -8629,7 +8629,7 @@ test "integer cast panic" {
       This function is a low level intrinsic with no safety mechanisms. Most code
       should not use this function, instead using something like this:
       </p>
-      <pre>{#syntax#}for (source[0..byte_count]) |b, i| dest[i] = b;{#endsyntax#}</pre>
+      <pre>{#syntax#}for (dest, source[0..byte_count]) |*d, s| d.* = s;{#endsyntax#}</pre>
       <p>
       The optimizer is intelligent enough to turn the above snippet into a memcpy.
       </p>
@@ -11116,7 +11116,7 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(gpa);
     defer std.process.argsFree(gpa, args);
 
-    for (args) |arg, i| {
+    for (args, 0..) |arg, i| {
         std.debug.print("{}: {s}\n", .{ i, arg });
     }
 }
@@ -11142,7 +11142,7 @@ pub fn main() !void {
 
     const preopens = try fs.wasi.preopensAlloc(arena);
 
-    for (preopens.names) |preopen, i| {
+    for (preopens.names, 0..) |preopen, i| {
         std.debug.print("{}: {s}\n", .{ i, preopen });
     }
 }
@@ -11551,7 +11551,8 @@ fn readU32Be() u32 {}
       </p>
       <p>
       Each LF may be immediately preceded by a single CR (byte value 0x0d, code point U+000d, {#syntax#}'\r'{#endsyntax#})
-      to form a Windows style line ending, but this is discouraged.
+      to form a Windows style line ending, but this is discouraged. Note that in mulitline strings, CRLF sequences will
+      be encoded as LF when compiled into a zig program.
       A CR in any other context is not allowed.
       </p>
       <p>

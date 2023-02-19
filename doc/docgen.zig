@@ -239,7 +239,7 @@ const Tokenizer = struct {
             .line_start = 0,
             .line_end = 0,
         };
-        for (self.buffer) |c, i| {
+        for (self.buffer, 0..) |c, i| {
             if (i == token.start) {
                 loc.line_end = i;
                 while (loc.line_end < self.buffer.len and self.buffer[loc.line_end] != '\n') : (loc.line_end += 1) {}

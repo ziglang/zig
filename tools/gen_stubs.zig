@@ -45,7 +45,7 @@ const MultiSym = struct {
     visib: elf.STV,
 
     fn allPresent(ms: MultiSym) bool {
-        for (arches) |_, i| {
+        for (arches, 0..) |_, i| {
             if (!ms.present[i]) {
                 return false;
             }
@@ -65,7 +65,7 @@ const MultiSym = struct {
 
     fn commonSize(ms: MultiSym) ?u64 {
         var size: ?u64 = null;
-        for (arches) |_, i| {
+        for (arches, 0..) |_, i| {
             if (!ms.present[i]) continue;
             if (size) |s| {
                 if (ms.size[i] != s) {
@@ -80,7 +80,7 @@ const MultiSym = struct {
 
     fn commonBinding(ms: MultiSym) ?u4 {
         var binding: ?u4 = null;
-        for (arches) |_, i| {
+        for (arches, 0..) |_, i| {
             if (!ms.present[i]) continue;
             if (binding) |b| {
                 if (ms.binding[i] != b) {
@@ -268,7 +268,7 @@ pub fn main() !void {
 
     var prev_section: u16 = std.math.maxInt(u16);
     var prev_pp_state: enum { none, ptr32, special } = .none;
-    for (sym_table.values()) |multi_sym, sym_index| {
+    for (sym_table.values(), 0..) |multi_sym, sym_index| {
         const name = sym_table.keys()[sym_index];
 
         if (multi_sym.section != prev_section) {
@@ -309,7 +309,7 @@ pub fn main() !void {
             var first = true;
             try stdout.writeAll("#if ");
 
-            for (arches) |arch, i| {
+            for (arches, 0..) |arch, i| {
                 if (multi_sym.present[i]) continue;
 
                 if (!first) try stdout.writeAll(" && ");
@@ -333,7 +333,7 @@ pub fn main() !void {
         } else if (multi_sym.isWeak64()) {
             try stdout.print("WEAK64 {s}\n", .{name});
         } else {
-            for (arches) |arch, i| {
+            for (arches, 0..) |arch, i| {
                 log.info("symbol '{s}' binding on {s}: {d}", .{
                     name, @tagName(arch), multi_sym.binding[i],
                 });
@@ -355,7 +355,7 @@ pub fn main() !void {
                 } else if (multi_sym.isPtr2Size()) {
                     try stdout.print(".size {s}, PTR2_SIZE_BYTES\n", .{name});
                 } else {
-                    for (arches) |arch, i| {
+                    for (arches, 0..) |arch, i| {
                         log.info("symbol '{s}' size on {s}: {d}", .{
                             name, @tagName(arch), multi_sym.size[i],
                         });
@@ -415,7 +415,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
 
     // Find the offset of the dynamic symbol table.
     var dynsym_index: u16 = 0;
-    for (shdrs) |shdr, i| {
+    for (shdrs, 0..) |shdr, i| {
         const sh_name = try arena.dupe(u8, mem.sliceTo(shstrtab[s(shdr.sh_name)..], 0));
         log.debug("found section: {s}", .{sh_name});
         if (mem.eql(u8, sh_name, ".dynsym")) {
@@ -566,7 +566,7 @@ fn archIndex(arch: std.Target.Cpu.Arch) u8 {
 }
 
 fn archSetName(arch_set: [arches.len]bool) []const u8 {
-    for (arches) |arch, i| {
+    for (arches, 0..) |arch, i| {
         if (arch_set[i]) {
             return @tagName(arch);
         }

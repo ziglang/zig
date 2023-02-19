@@ -321,7 +321,7 @@ pub const P384 = struct {
 
     fn slide(s: [48]u8) [2 * 48 + 1]i8 {
         var e: [2 * 48 + 1]i8 = undefined;
-        for (s) |x, i| {
+        for (s, 0..) |x, i| {
             e[i * 2 + 0] = @as(i8, @truncate(u4, x));
             e[i * 2 + 1] = @as(i8, @truncate(u4, x >> 4));
         }

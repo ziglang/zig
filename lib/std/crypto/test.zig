@@ -13,7 +13,7 @@ pub fn assertEqualHash(comptime Hasher: anytype, comptime expected_hex: *const [
 // Assert `expected` == hex(`input`) where `input` is a bytestring
 pub fn assertEqual(comptime expected_hex: [:0]const u8, input: []const u8) !void {
     var expected_bytes: [expected_hex.len / 2]u8 = undefined;
-    for (expected_bytes) |*r, i| {
+    for (&expected_bytes, 0..) |*r, i| {
         r.* = fmt.parseInt(u8, expected_hex[2 * i .. 2 * i + 2], 16) catch unreachable;
     }
 

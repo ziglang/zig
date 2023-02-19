@@ -311,7 +311,7 @@ test "function pointers" {
         &fn3,
         &fn4,
     };
-    for (fns) |f, i| {
+    for (fns, 0..) |f, i| {
         try expect(f() == @intCast(u32, i) + 5);
     }
 }

@@ -171,7 +171,7 @@ test "deflate/inflate" {
     var large_data_chunk = try testing.allocator.alloc(u8, 100_000);
     defer testing.allocator.free(large_data_chunk);
     // fill with random data
-    for (large_data_chunk) |_, i| {
+    for (large_data_chunk, 0..) |_, i| {
         large_data_chunk[i] = @truncate(u8, i) *% @truncate(u8, i);
     }
     try testToFromWithLimit(large_data_chunk, limits);
@@ -205,7 +205,7 @@ test "very long sparse chunk" {
                 n -= cur - s.l;
                 cur = s.l;
             }
-            for (b[0..n]) |_, i| {
+            for (b[0..n], 0..) |_, i| {
                 if (s.cur + i >= s.l -| (1 << 16)) {
                     b[i] = 1;
                 } else {
@@ -451,7 +451,7 @@ test "inflate reset" {
     defer compressed_strings[0].deinit();
     defer compressed_strings[1].deinit();
 
-    for (strings) |s, i| {
+    for (strings, 0..) |s, i| {
         var comp = try compressor(
             testing.allocator,
             compressed_strings[i].writer(),
@@ -498,7 +498,7 @@ test "inflate reset dictionary" {
     defer compressed_strings[0].deinit();
     defer compressed_strings[1].deinit();
 
-    for (strings) |s, i| {
+    for (strings, 0..) |s, i| {
         var comp = try compressor(
             testing.allocator,
             compressed_strings[i].writer(),

@@ -183,7 +183,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
                 mem.copy(T, range, new_items);
                 const after_subrange = start + new_items.len;
 
-                for (self.items[after_range..]) |item, i| {
+                for (self.items[after_range..], 0..) |item, i| {
                     self.items[after_subrange..][i] = item;
                 }
 
@@ -216,7 +216,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             if (newlen == i) return self.pop();
 
             const old_item = self.items[i];
-            for (self.items[i..newlen]) |*b, j| b.* = self.items[i + 1 + j];
+            for (self.items[i..newlen], 0..) |*b, j| b.* = self.items[i + 1 + j];
             self.items[newlen] = undefined;
             self.items.len = newlen;
             return old_item;
@@ -666,7 +666,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             if (newlen == i) return self.pop();
 
             const old_item = self.items[i];
-            for (self.items[i..newlen]) |*b, j| b.* = self.items[i + 1 + j];
+            for (self.items[i..newlen], 0..) |*b, j| b.* = self.items[i + 1 + j];
             self.items[newlen] = undefined;
             self.items.len = newlen;
             return old_item;
@@ -1069,7 +1069,7 @@ test "std.ArrayList/ArrayListUnmanaged.basic" {
             }
         }
 
-        for (list.items) |v, i| {
+        for (list.items, 0..) |v, i| {
             try testing.expect(v == @intCast(i32, i + 1));
         }
 
@@ -1119,7 +1119,7 @@ test "std.ArrayList/ArrayListUnmanaged.basic" {
             }
         }
 
-        for (list.items) |v, i| {
+        for (list.items, 0..) |v, i| {
             try testing.expect(v == @intCast(i32, i + 1));
         }
 

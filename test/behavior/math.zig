@@ -1221,7 +1221,7 @@ test "quad hex float literal parsing accurate" {
                 0xb6a0000000000000,
             };
 
-            for (exp2ft) |x, i| {
+            for (exp2ft, 0..) |x, i| {
                 try expect(@bitCast(u64, x) == answers[i]);
             }
         }

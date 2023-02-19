@@ -420,7 +420,7 @@ const powx = init: {
     var array: [16]u8 = undefined;
 
     var value = 1;
-    for (array) |*power| {
+    for (&array) |*power| {
         power.* = value;
         value = mul(value, 2);
     }
@@ -471,7 +471,7 @@ fn generateSbox(invert: bool) [256]u8 {
 fn generateTable(invert: bool) [4][256]u32 {
     var table: [4][256]u32 = undefined;
 
-    for (generateSbox(invert)) |value, index| {
+    for (generateSbox(invert), 0..) |value, index| {
         table[0][index] = mul(value, if (invert) 0xb else 0x3);
         table[0][index] |= math.shl(u32, mul(value, if (invert) 0xd else 0x1), 8);
         table[0][index] |= math.shl(u32, mul(value, if (invert) 0x9 else 0x1), 16);

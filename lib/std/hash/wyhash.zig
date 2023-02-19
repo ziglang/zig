@@ -207,7 +207,7 @@ test "test vectors streaming" {
 
 test "iterative non-divisible update" {
     var buf: [8192]u8 = undefined;
-    for (buf) |*e, i| {
+    for (&buf, 0..) |*e, i| {
         e.* = @truncate(u8, i);
     }
 

@@ -2717,7 +2717,7 @@ test "string copy option" {
     const copy_addr = &obj_copy.get("noescape").?.String[0];
 
     var found_nocopy = false;
-    for (input) |_, index| {
+    for (input, 0..) |_, index| {
         try testing.expect(copy_addr != &input[index]);
         if (nocopy_addr == &input[index]) {
             found_nocopy = true;

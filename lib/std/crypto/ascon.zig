@@ -74,7 +74,7 @@ pub fn State(comptime endian: builtin.Endian) type {
 
         /// Byte-swap the entire state if the architecture doesn't match the required endianness.
         pub fn endianSwap(self: *Self) void {
-            for (self.st) |*w| {
+            for (&self.st) |*w| {
                 w.* = mem.toNative(u64, w.*, endian);
             }
         }
