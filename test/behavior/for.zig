@@ -397,3 +397,65 @@ test "raw pointer and counter" {
     try expect(buf[2] == 'C');
     try expect(buf[3] == 'D');
 }
+
+test "inline for with slice as the comptime-known" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const comptime_slice = "hello";
+    var runtime_i: usize = 3;
+
+    const S = struct {
+        var ok: usize = 0;
+        fn check(comptime a: u8, b: usize) !void {
+            if (a == 'l') {
+                try expect(b == 3);
+                ok += 1;
+            } else if (a == 'o') {
+                try expect(b == 4);
+                ok += 1;
+            } else {
+                @compileError("fail");
+            }
+        }
+    };
+
+    inline for (comptime_slice[3..5], runtime_i..5) |a, b| {
+        try S.check(a, b);
+    }
+
+    try expect(S.ok == 2);
+}
+
+test "inline for with counter as the comptime-known" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    var runtime_slice = "hello";
+    var runtime_i: usize = 3;
+
+    const S = struct {
+        var ok: usize = 0;
+        fn check(a: u8, comptime b: usize) !void {
+            if (b == 3) {
+                try expect(a == 'l');
+                ok += 1;
+            } else if (b == 4) {
+                try expect(a == 'o');
+                ok += 1;
+            } else {
+                @compileError("fail");
+            }
+        }
+    };
+
+    inline for (runtime_slice[runtime_i..5], 3..5) |a, b| {
+        try S.check(a, b);
+    }
+
+    try expect(S.ok == 2);
+}

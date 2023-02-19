@@ -3934,12 +3934,13 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             .for_node_offset = inst_data.src_node,
             .input_index = i,
         } };
-        const arg_len = if (is_int) object else l: {
+        const arg_len_uncoerced = if (is_int) object else l: {
             try checkIndexable(sema, block, arg_src, object_ty);
             if (!object_ty.indexableHasLen()) continue;
 
             break :l try sema.fieldVal(block, arg_src, object, "len", arg_src);
         };
+        const arg_len = try sema.coerce(block, Type.usize, arg_len_uncoerced, arg_src);
         if (len == .none) {
             len = arg_len;
             len_idx = i;
