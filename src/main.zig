@@ -2999,7 +2999,7 @@ fn buildOutputType(
     defer zig_lib_directory.handle.close();
 
     var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(gpa);
+    try thread_pool.init(.{ .allocator = gpa });
     defer thread_pool.deinit();
 
     var libc_installation: ?LibCInstallation = null;
@@ -4201,7 +4201,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .basename = exe_basename,
         };
         var thread_pool: ThreadPool = undefined;
-        try thread_pool.init(gpa);
+        try thread_pool.init(.{ .allocator = gpa });
         defer thread_pool.deinit();
 
         var cleanup_build_runner_dir: ?fs.Dir = null;

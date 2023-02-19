@@ -87,6 +87,7 @@ pub fn main() !void {
 
     var targets = ArrayList([]const u8).init(allocator);
     var debug_log_scopes = ArrayList([]const u8).init(allocator);
+    var thread_pool_options: std.Thread.Pool.Options = .{ .allocator = allocator };
 
     const stderr_stream = io.getStdErr().writer();
     const stdout_stream = io.getStdOut().writer();
@@ -231,6 +232,19 @@ pub fn main() !void {
                 };
             } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
                 builder.reference_trace = null;
+            } else if (mem.startsWith(u8, arg, "-j")) {
+                const num = arg["-j".len..];
+                const n_jobs = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
+                    std.debug.print("unable to parse jobs count '{s}': {s}", .{
+                        num, @errorName(err),
+                    });
+                    process.exit(1);
+                };
+                if (n_jobs < 1) {
+                    std.debug.print("number of jobs must be at least 1\n", .{});
+                    process.exit(1);
+                }
+                thread_pool_options.n_jobs = n_jobs;
             } else if (mem.eql(u8, arg, "--")) {
                 builder.args = argsRest(args, arg_idx);
                 break;
@@ -258,7 +272,7 @@ pub fn main() !void {
     if (builder.validateUserInputDidItFail())
         usageAndErr(builder, true, stderr_stream);
 
-    runStepNames(builder, targets.items, main_progress_node) catch |err| {
+    runStepNames(builder, targets.items, main_progress_node, thread_pool_options) catch |err| {
         switch (err) {
             error.UncleanExit => process.exit(1),
             else => return err,
@@ -270,6 +284,7 @@ fn runStepNames(
     b: *std.Build,
     step_names: []const []const u8,
     parent_prog_node: *std.Progress.Node,
+    thread_pool_options: std.Thread.Pool.Options,
 ) !void {
     var step_stack = ArrayList(*Step).init(b.allocator);
     defer step_stack.deinit();
@@ -297,7 +312,7 @@ fn runStepNames(
     }
 
     var thread_pool: std.Thread.Pool = undefined;
-    try thread_pool.init(b.allocator);
+    try thread_pool.init(thread_pool_options);
     defer thread_pool.deinit();
 
     {
@@ -523,6 +538,7 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\  --verbose                    Print commands before executing them
         \\  --color [auto|off|on]        Enable or disable colored error messages
         \\  --prominent-compile-errors   Output compile errors formatted for a human to read
+        \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
         \\
         \\Project-Specific Options:
         \\

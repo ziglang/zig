@@ -17,7 +17,14 @@ const Runnable = struct {
 
 const RunProto = *const fn (*Runnable) void;
 
-pub fn init(pool: *Pool, allocator: std.mem.Allocator) !void {
+pub const Options = struct {
+    allocator: std.mem.Allocator,
+    n_jobs: ?u32 = null,
+};
+
+pub fn init(pool: *Pool, options: Options) !void {
+    const allocator = options.allocator;
+
     pool.* = .{
         .allocator = allocator,
         .threads = &[_]std.Thread{},
@@ -27,7 +34,7 @@ pub fn init(pool: *Pool, allocator: std.mem.Allocator) !void {
         return;
     }
 
-    const thread_count = std.math.max(1, std.Thread.getCpuCount() catch 1);
+    const thread_count = options.n_jobs orelse @max(1, std.Thread.getCpuCount() catch 1);
     pool.threads = try allocator.alloc(std.Thread, thread_count);
     errdefer allocator.free(pool.threads);
 
