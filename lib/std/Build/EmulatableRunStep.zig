@@ -26,7 +26,7 @@ builder: *std.Build,
 exe: *CompileStep,
 
 /// Set this to `null` to ignore the exit code for the purpose of determining a successful execution
-expected_exit_code: ?u8 = 0,
+expected_term: ?std.ChildProcess.Term = .{ .Exited = 0 },
 
 /// Override this field to modify the environment
 env_map: ?*EnvMap,
@@ -131,7 +131,7 @@ fn make(step: *Step) !void {
     try RunStep.runCommand(
         argv_list.items,
         self.builder,
-        self.expected_exit_code,
+        self.expected_term,
         self.stdout_action,
         self.stderr_action,
         .Inherit,

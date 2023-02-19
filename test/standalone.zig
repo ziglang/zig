@@ -84,6 +84,9 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         cases.addBuildFile("test/standalone/pie/build.zig", .{});
     }
     cases.addBuildFile("test/standalone/issue_12706/build.zig", .{});
+    if (std.os.have_sigpipe_support) {
+        cases.addBuildFile("test/standalone/sigpipe/build.zig", .{});
+    }
 
     // Ensure the development tools are buildable. Alphabetically sorted.
     // No need to build `tools/spirv/grammar.zig`.

@@ -35,7 +35,7 @@ stderr_action: StdIoAction = .inherit,
 stdin_behavior: std.ChildProcess.StdIo = .Inherit,
 
 /// Set this to `null` to ignore the exit code for the purpose of determining a successful execution
-expected_exit_code: ?u8 = 0,
+expected_term: ?std.ChildProcess.Term = .{ .Exited = 0 },
 
 /// Print the command before running it
 print: bool,
@@ -290,7 +290,7 @@ fn make(step: *Step) !void {
     try runCommand(
         argv_list.items,
         self.builder,
-        self.expected_exit_code,
+        self.expected_term,
         self.stdout_action,
         self.stderr_action,
         self.stdin_behavior,
@@ -304,10 +304,55 @@ fn make(step: *Step) !void {
     }
 }
 
+fn formatTerm(
+    term: ?std.ChildProcess.Term,
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = fmt;
+    _ = options;
+    if (term) |t| switch (t) {
+        .Exited => |code| try writer.print("exited with code {}", .{code}),
+        .Signal => |sig| try writer.print("terminated with signal {}", .{sig}),
+        .Stopped => |sig| try writer.print("stopped with signal {}", .{sig}),
+        .Unknown => |code| try writer.print("terminated for unknown reason with code {}", .{code}),
+    } else {
+        try writer.writeAll("exited with any code");
+    }
+}
+fn fmtTerm(term: ?std.ChildProcess.Term) std.fmt.Formatter(formatTerm) {
+    return .{ .data = term };
+}
+
+fn termMatches(expected: ?std.ChildProcess.Term, actual: std.ChildProcess.Term) bool {
+    return if (expected) |e| switch (e) {
+        .Exited => |expected_code| switch (actual) {
+            .Exited => |actual_code| expected_code == actual_code,
+            else => false,
+        },
+        .Signal => |expected_sig| switch (actual) {
+            .Signal => |actual_sig| expected_sig == actual_sig,
+            else => false,
+        },
+        .Stopped => |expected_sig| switch (actual) {
+            .Stopped => |actual_sig| expected_sig == actual_sig,
+            else => false,
+        },
+        .Unknown => |expected_code| switch (actual) {
+            .Unknown => |actual_code| expected_code == actual_code,
+            else => false,
+        },
+    } else switch (actual) {
+        .Exited => true,
+        else => false,
+    };
+}
+
 pub fn runCommand(
     argv: []const []const u8,
     builder: *std.Build,
-    expected_exit_code: ?u8,
+    expected_term: ?std.ChildProcess.Term,
     stdout_action: StdIoAction,
     stderr_action: StdIoAction,
     stdin_behavior: std.ChildProcess.StdIo,
@@ -369,32 +414,14 @@ pub fn runCommand(
         return err;
     };
 
-    switch (term) {
-        .Exited => |code| blk: {
-            const expected_code = expected_exit_code orelse break :blk;
-
-            if (code != expected_code) {
-                if (builder.prominent_compile_errors) {
-                    std.debug.print("Run step exited with error code {} (expected {})\n", .{
-                        code,
-                        expected_code,
-                    });
-                } else {
-                    std.debug.print("The following command exited with error code {} (expected {}):\n", .{
-                        code,
-                        expected_code,
-                    });
-                    printCmd(cwd, argv);
-                }
-
-                return error.UnexpectedExitCode;
-            }
-        },
-        else => {
-            std.debug.print("The following command terminated unexpectedly:\n", .{});
+    if (!termMatches(expected_term, term)) {
+        if (builder.prominent_compile_errors) {
+            std.debug.print("Run step {} (expected {})\n", .{ fmtTerm(term), fmtTerm(expected_term) });
+        } else {
+            std.debug.print("The following command {} (expected {}):\n", .{ fmtTerm(term), fmtTerm(expected_term) });
             printCmd(cwd, argv);
-            return error.UncleanExit;
-        },
+        }
+        return error.UnexpectedExit;
     }
 
     switch (stderr_action) {
