@@ -1955,12 +1955,15 @@ fn buildOutputType(
                     linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, arg1) orelse {
                         fatal("expected [none|zlib] after --compress-debug-sections, found '{s}'", .{arg1});
                     };
-                } else if (mem.eql(u8, arg, "-z")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker extension flag after '{s}'", .{arg});
+                } else if (mem.startsWith(u8, arg, "-z")) {
+                    var z_arg = mem.trimLeft(u8, arg, "-z");
+                    if (z_arg.len == 0) {
+                        i += 1;
+                        if (i >= linker_args.items.len) {
+                            fatal("expected linker extension flag after '{s}'", .{arg});
+                        }
+                        z_arg = linker_args.items[i];
                     }
-                    const z_arg = linker_args.items[i];
                     if (mem.eql(u8, z_arg, "nodelete")) {
                         linker_z_nodelete = true;
                     } else if (mem.eql(u8, z_arg, "notext")) {
