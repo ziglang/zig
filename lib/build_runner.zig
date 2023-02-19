@@ -279,7 +279,7 @@ fn runStepNames(
     } else {
         try step_stack.resize(step_names.len);
 
-        for (step_names) |step_name, i| {
+        for (step_names, 0..) |step_name, i| {
             const s = b.top_level_steps.get(step_name) orelse {
                 std.debug.print("no step named '{s}'. Access the help menu with 'zig build -h'\n", .{step_name});
                 process.exit(1);
