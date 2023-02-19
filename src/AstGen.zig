@@ -10491,14 +10491,16 @@ fn strLitNodeAsString(astgen: *AstGen, node: Ast.Node.Index) !IndexSlice {
     var tok_i = start;
     {
         const slice = tree.tokenSlice(tok_i);
-        const line_bytes = slice[2 .. slice.len - 1];
+        const carriage_return_ending: usize = if (slice[slice.len - 2] == '\r') 2 else 1;
+        const line_bytes = slice[2 .. slice.len - carriage_return_ending];
         try string_bytes.appendSlice(gpa, line_bytes);
         tok_i += 1;
     }
     // Following lines: each line prepends a newline.
     while (tok_i <= end) : (tok_i += 1) {
         const slice = tree.tokenSlice(tok_i);
-        const line_bytes = slice[2 .. slice.len - 1];
+        const carriage_return_ending: usize = if (slice[slice.len - 2] == '\r') 2 else 1;
+        const line_bytes = slice[2 .. slice.len - carriage_return_ending];
         try string_bytes.ensureUnusedCapacity(gpa, line_bytes.len + 1);
         string_bytes.appendAssumeCapacity('\n');
         string_bytes.appendSliceAssumeCapacity(line_bytes);

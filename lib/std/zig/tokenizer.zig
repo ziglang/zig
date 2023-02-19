@@ -406,6 +406,38 @@ pub const Tokenizer = struct {
         saw_at_sign,
     };
 
+    /// This is a workaround to the fact that the tokenizer can queue up
+    /// 'pending_invalid_token's when parsing literals, which means that we need
+    /// to scan from the start of the current line to find a matching tag - just
+    /// in case it was an invalid character generated during literal
+    /// tokenization. Ideally this processing of this would be pushed to the AST
+    /// parser or another later stage, both to give more useful error messages
+    /// with that extra context and in order to be able to remove this
+    /// workaround.
+    pub fn findTagAtCurrentIndex(self: *Tokenizer, tag: Token.Tag) Token {
+        if (tag == .invalid) {
+            const target_index = self.index;
+            var starting_index = target_index;
+            while (starting_index > 0) {
+                if (self.buffer[starting_index] == '\n') {
+                    break;
+                }
+                starting_index -= 1;
+            }
+
+            self.index = starting_index;
+            while (self.index <= target_index or self.pending_invalid_token != null) {
+                const result = self.next();
+                if (result.loc.start == target_index and result.tag == tag) {
+                    return result;
+                }
+            }
+            unreachable;
+        } else {
+            return self.next();
+        }
+    }
+
     pub fn next(self: *Tokenizer) Token {
         if (self.pending_invalid_token) |token| {
             self.pending_invalid_token = null;
@@ -1127,7 +1159,7 @@ pub const Tokenizer = struct {
                         state = .start;
                         result.loc.start = self.index + 1;
                     },
-                    '\t', '\r' => state = .line_comment,
+                    '\t' => state = .line_comment,
                     else => {
                         state = .line_comment;
                         self.checkLiteralCharacter();
@@ -1141,7 +1173,7 @@ pub const Tokenizer = struct {
                         result.tag = .doc_comment;
                         break;
                     },
-                    '\t', '\r' => {
+                    '\t' => {
                         state = .doc_comment;
                         result.tag = .doc_comment;
                     },
@@ -1163,12 +1195,12 @@ pub const Tokenizer = struct {
                         state = .start;
                         result.loc.start = self.index + 1;
                     },
-                    '\t', '\r' => {},
+                    '\t' => {},
                     else => self.checkLiteralCharacter(),
                 },
                 .doc_comment => switch (c) {
                     0, '\n' => break,
-                    '\t', '\r' => {},
+                    '\t' => {},
                     else => self.checkLiteralCharacter(),
                 },
                 .int => switch (c) {
@@ -1239,7 +1271,15 @@ pub const Tokenizer = struct {
     fn getInvalidCharacterLength(self: *Tokenizer) u3 {
         const c0 = self.buffer[self.index];
         if (std.ascii.isASCII(c0)) {
-            if (std.ascii.isControl(c0)) {
+            if (c0 == '\r') {
+                if (self.index + 1 < self.buffer.len and self.buffer[self.index + 1] == '\n') {
+                    // Carriage returns are *only* allowed just before a linefeed as part of a CRLF pair, otherwise
+                    // they constitute an illegal byte!
+                    return 0;
+                } else {
+                    return 1;
+                }
+            } else if (std.ascii.isControl(c0)) {
                 // ascii control codes are never allowed
                 // (note that \n was checked before we got here)
                 return 1;
