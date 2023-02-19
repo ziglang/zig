@@ -1956,7 +1956,7 @@ fn buildOutputType(
                         fatal("expected [none|zlib] after --compress-debug-sections, found '{s}'", .{arg1});
                     };
                 } else if (mem.startsWith(u8, arg, "-z")) {
-                    var z_arg = mem.trimLeft(u8, arg, "-z");
+                    var z_arg = arg[2..];
                     if (z_arg.len == 0) {
                         i += 1;
                         if (i >= linker_args.items.len) {
