@@ -1555,7 +1555,9 @@ fn make(step: *Step) !void {
                     try zig_args.append("--test-cmd");
                     try zig_args.append(bin_name);
                     try zig_args.append("--test-cmd");
-                    try zig_args.append("--dir=.");
+                    try zig_args.append("--mapdir=/::.");
+                    try zig_args.append("--test-cmd");
+                    try zig_args.append("--mapdir=/tmp::/tmp");
                     try zig_args.append("--test-cmd-bin");
                 } else {
                     try zig_args.append("--test-no-exec");
