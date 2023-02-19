@@ -290,11 +290,11 @@ pub const CType = extern union {
             }
         };
 
-        const Promoted = struct {
+        pub const Promoted = struct {
             arena: std.heap.ArenaAllocator,
             set: Set,
 
-            fn gpa(self: *Promoted) Allocator {
+            pub fn gpa(self: *Promoted) Allocator {
                 return self.arena.child_allocator;
             }
 
@@ -345,11 +345,11 @@ pub const CType = extern union {
             }
         };
 
-        fn promote(self: Store, gpa: Allocator) Promoted {
+        pub fn promote(self: Store, gpa: Allocator) Promoted {
             return .{ .arena = self.arena.promote(gpa), .set = self.set };
         }
 
-        fn demote(self: *Store, promoted: Promoted) void {
+        pub fn demote(self: *Store, promoted: Promoted) void {
             self.arena = promoted.arena.state;
             self.set = promoted.set;
         }
@@ -382,15 +382,15 @@ pub const CType = extern union {
             _ = promoted.arena.reset(.retain_capacity);
         }
 
-        pub fn shrinkToFit(self: *Store, gpa: Allocator) void {
-            self.map.shrinkAndFree(gpa, self.map.entries.len);
-        }
-
-        pub fn shrinkAndFree(self: *Store, gpa: Allocator) void {
+        pub fn clearAndFree(self: *Store, gpa: Allocator) void {
             var promoted = self.promote(gpa);
             defer self.demote(promoted);
             promoted.set.map.clearAndFree(gpa);
             _ = promoted.arena.reset(.free_all);
+        }
+
+        pub fn shrinkToFit(self: *Store, gpa: Allocator) void {
+            self.set.map.shrinkAndFree(gpa, self.set.map.count());
         }
 
         pub fn move(self: *Store) Store {
@@ -1252,8 +1252,8 @@ pub const CType = extern union {
     pub const HashContext64 = struct {
         store: *const Store.Set,
 
-        pub fn hash(_: @This(), cty: CType) u64 {
-            return cty.hash();
+        pub fn hash(self: @This(), cty: CType) u64 {
+            return cty.hash(self.store.*);
         }
         pub fn eql(_: @This(), lhs: CType, rhs: CType) bool {
             return lhs.eql(rhs);

@@ -3277,14 +3277,9 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                         .decl = decl,
                         .fwd_decl = fwd_decl.toManaged(gpa),
                         .ctypes = .{},
-                        .typedefs = c_codegen.TypedefMap.initContext(gpa, .{ .mod = module }),
-                        .typedefs_arena = ctypes_arena.allocator(),
                     };
                     defer {
-                        for (dg.typedefs.values()) |typedef| {
-                            module.gpa.free(typedef.rendered);
-                        }
-                        dg.typedefs.deinit();
+                        dg.ctypes.deinit(gpa);
                         dg.fwd_decl.deinit();
                     }
 
