@@ -218,6 +218,8 @@ pub fn RegisterManager(
                 }
             }
 
+            log.debug("allocated registers {any} for insts {any}", .{ regs, insts });
+
             return regs;
         }
 
@@ -323,6 +325,15 @@ pub fn RegisterManager(
                     self.freeReg(reg);
                 }
             }
+        }
+
+        /// Returns tracked AIR instruction for the specified register if
+        /// one has been allocated and is tracking.
+        pub fn getTrackedInst(self: *Self, reg: Register) ?Air.Inst.Index {
+            const index = indexOfRegIntoTracked(reg) orelse return null;
+            log.debug("getTrackedInst for {}", .{reg});
+            if (self.isRegFree(reg)) return null;
+            return self.registers[index];
         }
 
         /// Allocates the specified register with the specified

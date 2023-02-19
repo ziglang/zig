@@ -275,6 +275,10 @@ pub fn generate(
     }
     try branch_stack.append(.{});
 
+    const name = try fn_owner_decl.getFullyQualifiedName(mod);
+    defer mod.gpa.free(name);
+    log.debug("generating {s}", .{name});
+
     var function = Self{
         .gpa = bin_file.allocator,
         .air = air,
@@ -818,10 +822,23 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     branch.inst_table.putAssumeCapacity(inst, .dead);
     switch (prev_value) {
         .register => |reg| {
-            self.register_manager.freeReg(reg.to64());
+            // For some instructions such as bit_cast it is possible that we will track the same MCValue
+            // for two different instructions. In this case, if either instruction dies before another,
+            // we do not want to free the MCValue prematurely.
+            // TODO we can either do this or we should re-implement AIR instruction implementations for
+            // bit_cast, ptr_to_int, etc. to actually have those instructions assigned a new MCValue.
+            if (self.register_manager.getTrackedInst(reg.to64())) |tracked_inst| {
+                if (inst == tracked_inst) {
+                    self.register_manager.freeReg(reg.to64());
+                }
+            }
         },
         .register_overflow => |ro| {
-            self.register_manager.freeReg(ro.reg.to64());
+            if (self.register_manager.getTrackedInst(ro.reg.to64())) |tracked_inst| {
+                if (inst == tracked_inst) {
+                    self.register_manager.freeReg(ro.reg.to64());
+                }
+            }
             self.eflags_inst = null;
         },
         .eflags => {
@@ -990,7 +1007,7 @@ fn revertState(self: *Self, state: State) void {
 
 pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void {
     const stack_mcv = try self.allocRegOrMem(inst, false);
-    log.debug("spilling {d} to stack mcv {any}", .{ inst, stack_mcv });
+    log.debug("spilling %{d} to stack mcv {any}", .{ inst, stack_mcv });
     const reg_mcv = self.getResolvedInstValue(inst);
     switch (reg_mcv) {
         .register => |other| {
@@ -1016,7 +1033,7 @@ pub fn spillEflagsIfOccupied(self: *Self) !void {
         };
 
         try self.setRegOrMem(self.air.typeOfIndex(inst_to_save), new_mcv, mcv);
-        log.debug("spilling {d} to mcv {any}", .{ inst_to_save, new_mcv });
+        log.debug("spilling %{d} to mcv {any}", .{ inst_to_save, new_mcv });
 
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         try branch.inst_table.put(self.gpa, inst_to_save, new_mcv);
@@ -2114,6 +2131,7 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
         };
         break :result dst_mcv;
     };
+    log.debug("airSliceLen(%{d}): {}", .{ inst, result });
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -2658,6 +2676,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
+        log.debug("airLoad(%{d}): {} <- {}", .{ inst, dst_mcv, ptr });
         try self.load(dst_mcv, ptr, self.air.typeOf(ty_op.operand));
         break :result dst_mcv;
     };
@@ -2902,6 +2921,7 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
     const ptr_ty = self.air.typeOf(bin_op.lhs);
     const value = try self.resolveInst(bin_op.rhs);
     const value_ty = self.air.typeOf(bin_op.rhs);
+    log.debug("airStore(%{d}): {} <- {}", .{ inst, ptr, value });
     try self.store(ptr, value, ptr_ty, value_ty);
     return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
 }
@@ -6322,6 +6342,7 @@ fn airPtrToInt(self: *Self, inst: Air.Inst.Index) !void {
 fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result = try self.resolveInst(ty_op.operand);
+    log.debug("airBitCast(%{d}): {}", .{ inst, result });
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
