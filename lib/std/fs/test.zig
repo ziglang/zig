@@ -13,11 +13,6 @@ const File = std.fs.File;
 const tmpDir = testing.tmpDir;
 const tmpIterableDir = testing.tmpIterableDir;
 
-// ensure tests for fs/wasi.zig are run
-comptime {
-    _ = std.fs.wasi;
-}
-
 test "Dir.readLink" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
