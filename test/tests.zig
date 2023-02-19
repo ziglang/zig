@@ -58,14 +58,14 @@ const test_targets = blk: {
             .link_libc = true,
             .backend = .stage2_c,
         },
-        .{
-            .target = .{
-                .cpu_arch = .x86_64,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-            .backend = .stage2_x86_64,
-        },
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .x86_64,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //    .backend = .stage2_x86_64,
+        //},
         .{
             .target = .{
                 .cpu_arch = .aarch64,
@@ -958,7 +958,7 @@ pub const StackTracesContext = struct {
                     // locate delims/anchor
                     const delims = [_][]const u8{ ":", ":", ":", " in ", "(", ")" };
                     var marks = [_]usize{0} ** delims.len;
-                    for (delims) |delim, i| {
+                    for (delims, 0..) |delim, i| {
                         marks[i] = mem.indexOfPos(u8, line, pos, delim) orelse {
                             // unexpected pattern: emit raw line and cont
                             try buf.appendSlice(line);

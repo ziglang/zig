@@ -30,7 +30,7 @@ test "parse and render IPv6 addresses" {
         "ff01::fb",
         "::ffff:123.5.123.5",
     };
-    for (ips) |ip, i| {
+    for (ips, 0..) |ip, i| {
         var addr = net.Address.parseIp6(ip, 0) catch unreachable;
         var newIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
         try std.testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));

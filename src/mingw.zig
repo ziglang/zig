@@ -72,7 +72,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
 
         .mingw32_lib => {
             var c_source_files: [mingw32_lib_deps.len]Compilation.CSourceFile = undefined;
-            for (mingw32_lib_deps) |dep, i| {
+            for (mingw32_lib_deps, 0..) |dep, i| {
                 var args = std.ArrayList([]const u8).init(arena);
                 try args.appendSlice(&[_][]const u8{
                     "-DHAVE_CONFIG_H",
@@ -236,7 +236,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 }),
             });
             var c_source_files: [uuid_src.len]Compilation.CSourceFile = undefined;
-            for (uuid_src) |dep, i| {
+            for (uuid_src, 0..) |dep, i| {
                 c_source_files[i] = .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "mingw", "libsrc", dep,

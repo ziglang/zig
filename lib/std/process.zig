@@ -874,7 +874,7 @@ pub fn argsAlloc(allocator: Allocator) ![][:0]u8 {
     mem.copy(u8, result_contents, contents_slice);
 
     var contents_index: usize = 0;
-    for (slice_sizes) |len, i| {
+    for (slice_sizes, 0..) |len, i| {
         const new_index = contents_index + len;
         result_slice_list[i] = result_contents[contents_index..new_index :0];
         contents_index = new_index + 1;
@@ -1148,7 +1148,7 @@ pub fn execve(
     const arena = arena_allocator.allocator();
 
     const argv_buf = try arena.allocSentinel(?[*:0]u8, argv.len, null);
-    for (argv) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
+    for (argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
 
     const envp = m: {
         if (env_map) |m| {

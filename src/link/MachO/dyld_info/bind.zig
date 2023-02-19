@@ -51,7 +51,7 @@ pub fn Bind(comptime Ctx: type, comptime Target: type) type {
 
             var start: usize = 0;
             var seg_id: ?u8 = null;
-            for (self.entries.items) |entry, i| {
+            for (self.entries.items, 0..) |entry, i| {
                 if (seg_id != null and seg_id.? == entry.segment_id) continue;
                 try finalizeSegment(self.entries.items[start..i], ctx, writer);
                 seg_id = entry.segment_id;

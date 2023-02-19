@@ -1219,9 +1219,9 @@ fn testStableSort() !void {
             IdAndValue{ .id = 2, .value = 0 },
         },
     };
-    for (cases) |*case| {
+    for (&cases) |*case| {
         insertionSort(IdAndValue, (case.*)[0..], {}, cmpByValue);
-        for (case.*) |item, i| {
+        for (case.*, 0..) |item, i| {
             try testing.expect(item.id == expected[i].id);
             try testing.expect(item.value == expected[i].value);
         }
@@ -1373,7 +1373,7 @@ fn fuzzTest(rng: std.rand.Random) !void {
     var array = try testing.allocator.alloc(IdAndValue, array_size);
     defer testing.allocator.free(array);
     // populate with random data
-    for (array) |*item, index| {
+    for (array, 0..) |*item, index| {
         item.id = index;
         item.value = rng.intRangeLessThan(i32, 0, 100);
     }
@@ -1401,7 +1401,7 @@ pub fn argMin(
 
     var smallest = items[0];
     var smallest_index: usize = 0;
-    for (items[1..]) |item, i| {
+    for (items[1..], 0..) |item, i| {
         if (lessThan(context, item, smallest)) {
             smallest = item;
             smallest_index = i + 1;
@@ -1453,7 +1453,7 @@ pub fn argMax(
 
     var biggest = items[0];
     var biggest_index: usize = 0;
-    for (items[1..]) |item, i| {
+    for (items[1..], 0..) |item, i| {
         if (lessThan(context, biggest, item)) {
             biggest = item;
             biggest_index = i + 1;

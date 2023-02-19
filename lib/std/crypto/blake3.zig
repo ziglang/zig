@@ -192,7 +192,7 @@ const CompressGeneric = struct {
         for (MSG_SCHEDULE) |schedule| {
             round(&state, block_words, schedule);
         }
-        for (chaining_value) |_, i| {
+        for (chaining_value, 0..) |_, i| {
             state[i] ^= state[i + 8];
             state[i + 8] ^= chaining_value[i];
         }
@@ -211,7 +211,7 @@ fn first8Words(words: [16]u32) [8]u32 {
 
 fn wordsFromLittleEndianBytes(comptime count: usize, bytes: [count * 4]u8) [count]u32 {
     var words: [count]u32 = undefined;
-    for (words) |*word, i| {
+    for (&words, 0..) |*word, i| {
         word.* = mem.readIntSliceLittle(u32, bytes[4 * i ..]);
     }
     return words;
@@ -658,7 +658,7 @@ fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) !void {
 
     // Setup input pattern
     var input_pattern: [251]u8 = undefined;
-    for (input_pattern) |*e, i| e.* = @truncate(u8, i);
+    for (&input_pattern, 0..) |*e, i| e.* = @truncate(u8, i);
 
     // Write repeating input pattern to hasher
     var input_counter = input_len;

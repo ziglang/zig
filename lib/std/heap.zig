@@ -724,7 +724,7 @@ pub fn testAllocator(base_allocator: mem.Allocator) !void {
 
     var slice = try allocator.alloc(*i32, 100);
     try testing.expect(slice.len == 100);
-    for (slice) |*item, i| {
+    for (slice, 0..) |*item, i| {
         item.* = try allocator.create(i32);
         item.*.* = @intCast(i32, i);
     }
@@ -732,7 +732,7 @@ pub fn testAllocator(base_allocator: mem.Allocator) !void {
     slice = try allocator.realloc(slice, 20000);
     try testing.expect(slice.len == 20000);
 
-    for (slice[0..100]) |item, i| {
+    for (slice[0..100], 0..) |item, i| {
         try testing.expect(item.* == @intCast(i32, i));
         allocator.destroy(item);
     }

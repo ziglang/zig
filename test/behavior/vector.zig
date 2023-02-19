@@ -456,20 +456,20 @@ test "vector division operators" {
         fn doTheTestDiv(comptime T: type, x: @Vector(4, T), y: @Vector(4, T)) !void {
             if (!comptime std.meta.trait.isSignedInt(T)) {
                 const d0 = x / y;
-                for (@as([4]T, d0)) |v, i| {
+                for (@as([4]T, d0), 0..) |v, i| {
                     try expect(x[i] / y[i] == v);
                 }
             }
             const d1 = @divExact(x, y);
-            for (@as([4]T, d1)) |v, i| {
+            for (@as([4]T, d1), 0..) |v, i| {
                 try expect(@divExact(x[i], y[i]) == v);
             }
             const d2 = @divFloor(x, y);
-            for (@as([4]T, d2)) |v, i| {
+            for (@as([4]T, d2), 0..) |v, i| {
                 try expect(@divFloor(x[i], y[i]) == v);
             }
             const d3 = @divTrunc(x, y);
-            for (@as([4]T, d3)) |v, i| {
+            for (@as([4]T, d3), 0..) |v, i| {
                 try expect(@divTrunc(x[i], y[i]) == v);
             }
         }
@@ -477,16 +477,16 @@ test "vector division operators" {
         fn doTheTestMod(comptime T: type, x: @Vector(4, T), y: @Vector(4, T)) !void {
             if ((!comptime std.meta.trait.isSignedInt(T)) and @typeInfo(T) != .Float) {
                 const r0 = x % y;
-                for (@as([4]T, r0)) |v, i| {
+                for (@as([4]T, r0), 0..) |v, i| {
                     try expect(x[i] % y[i] == v);
                 }
             }
             const r1 = @mod(x, y);
-            for (@as([4]T, r1)) |v, i| {
+            for (@as([4]T, r1), 0..) |v, i| {
                 try expect(@mod(x[i], y[i]) == v);
             }
             const r2 = @rem(x, y);
-            for (@as([4]T, r2)) |v, i| {
+            for (@as([4]T, r2), 0..) |v, i| {
                 try expect(@rem(x[i], y[i]) == v);
             }
         }
@@ -538,7 +538,7 @@ test "vector bitwise not operator" {
     const S = struct {
         fn doTheTestNot(comptime T: type, x: @Vector(4, T)) !void {
             var y = ~x;
-            for (@as([4]T, y)) |v, i| {
+            for (@as([4]T, y), 0..) |v, i| {
                 try expect(~x[i] == v);
             }
         }
@@ -577,11 +577,11 @@ test "vector shift operators" {
             var yv = @as(@Vector(N, TY), y);
 
             var z0 = xv >> yv;
-            for (@as([N]TX, z0)) |v, i| {
+            for (@as([N]TX, z0), 0..) |v, i| {
                 try expect(x[i] >> y[i] == v);
             }
             var z1 = xv << yv;
-            for (@as([N]TX, z1)) |v, i| {
+            for (@as([N]TX, z1), 0..) |v, i| {
                 try expect(x[i] << y[i] == v);
             }
         }
@@ -594,7 +594,7 @@ test "vector shift operators" {
             var yv = @as(@Vector(N, TY), y);
 
             var z = if (dir == .Left) @shlExact(xv, yv) else @shrExact(xv, yv);
-            for (@as([N]TX, z)) |v, i| {
+            for (@as([N]TX, z), 0..) |v, i| {
                 const check = if (dir == .Left) x[i] << y[i] else x[i] >> y[i];
                 try expect(check == v);
             }

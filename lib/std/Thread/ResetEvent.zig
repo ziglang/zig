@@ -274,7 +274,7 @@ test "ResetEvent - broadcast" {
     var ctx = Context{};
     var threads: [num_threads - 1]std.Thread = undefined;
 
-    for (threads) |*t| t.* = try std.Thread.spawn(.{}, Context.run, .{&ctx});
+    for (&threads) |*t| t.* = try std.Thread.spawn(.{}, Context.run, .{&ctx});
     defer for (threads) |t| t.join();
 
     ctx.run();

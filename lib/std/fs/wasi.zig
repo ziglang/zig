@@ -15,7 +15,7 @@ pub const Preopens = struct {
     names: []const []const u8,
 
     pub fn find(p: Preopens, name: []const u8) ?os.fd_t {
-        for (p.names) |elem_name, i| {
+        for (p.names, 0..) |elem_name, i| {
             if (mem.eql(u8, elem_name, name)) {
                 return @intCast(os.fd_t, i);
             }

@@ -83,13 +83,13 @@ fn ZigTableGen(
     tables.x[0] = v / f(r);
     tables.x[1] = r;
 
-    for (tables.x[2..256]) |*entry, i| {
+    for (tables.x[2..256], 0..) |*entry, i| {
         const last = tables.x[2 + i - 1];
         entry.* = f_inv(v / last + f(last));
     }
     tables.x[256] = 0;
 
-    for (tables.f[0..]) |*entry, i| {
+    for (tables.f[0..], 0..) |*entry, i| {
         entry.* = f(tables.x[i]);
     }
 

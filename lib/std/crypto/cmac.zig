@@ -46,19 +46,19 @@ pub fn Cmac(comptime BlockCipher: type) type {
             const left = block_length - self.pos;
             var m = msg;
             if (m.len > left) {
-                for (self.buf[self.pos..]) |*b, i| b.* ^= m[i];
+                for (self.buf[self.pos..], 0..) |*b, i| b.* ^= m[i];
                 m = m[left..];
                 self.cipher_ctx.encrypt(&self.buf, &self.buf);
                 self.pos = 0;
             }
             while (m.len > block_length) {
-                for (self.buf[0..block_length]) |*b, i| b.* ^= m[i];
+                for (self.buf[0..block_length], 0..) |*b, i| b.* ^= m[i];
                 m = m[block_length..];
                 self.cipher_ctx.encrypt(&self.buf, &self.buf);
                 self.pos = 0;
             }
             if (m.len > 0) {
-                for (self.buf[self.pos..][0..m.len]) |*b, i| b.* ^= m[i];
+                for (self.buf[self.pos..][0..m.len], 0..) |*b, i| b.* ^= m[i];
                 self.pos += m.len;
             }
         }
@@ -69,7 +69,7 @@ pub fn Cmac(comptime BlockCipher: type) type {
                 mac = self.k2;
                 mac[self.pos] ^= 0x80;
             }
-            for (mac) |*b, i| b.* ^= self.buf[i];
+            for (&mac, 0..) |*b, i| b.* ^= self.buf[i];
             self.cipher_ctx.encrypt(out, &mac);
         }
 

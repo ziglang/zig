@@ -186,7 +186,7 @@ const Branch = struct {
         _ = options;
         comptime assert(unused_format_string.len == 0);
         try writer.writeAll("Branch {\n");
-        for (ctx.insts) |inst, i| {
+        for (ctx.insts, 0..) |inst, i| {
             const mcv = ctx.mcvs[i];
             try writer.print("  %{d} => {}\n", .{ inst, mcv });
         }
@@ -3951,7 +3951,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     };
     defer if (ret_reg_lock) |lock| self.register_manager.unlockReg(lock);
 
-    for (args) |arg, arg_i| {
+    for (args, 0..) |arg, arg_i| {
         const mc_arg = info.args[arg_i];
         const arg_ty = self.air.typeOf(arg);
         const arg_mcv = try self.resolveInst(args[arg_i]);
@@ -4912,7 +4912,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         var relocs = try self.gpa.alloc(u32, items.len);
         defer self.gpa.free(relocs);
 
-        for (items) |item, item_i| {
+        for (items, 0..) |item, item_i| {
             const item_mcv = try self.resolveInst(item);
             relocs[item_i] = try self.genCondSwitchMir(condition_ty, condition, item_mcv);
         }
@@ -4974,7 +4974,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     for (self.branch_stack.items) |bs| {
         log.debug("{}", .{bs.fmtDebug()});
     }
-    for (branch_stack.items) |bs, i| {
+    for (branch_stack.items, 0..) |bs, i| {
         log.debug("Case-{d} branch: {}", .{ i, bs.fmtDebug() });
     }
 
@@ -4999,7 +4999,7 @@ fn canonicaliseBranches(self: *Self, parent_branch: *Branch, canon_branch: *Bran
     const target_keys = target_slice.items(.key);
     const target_values = target_slice.items(.value);
 
-    for (target_keys) |target_key, target_idx| {
+    for (target_keys, 0..) |target_key, target_idx| {
         const target_value = target_values[target_idx];
         const canon_mcv = if (canon_branch.inst_table.fetchSwapRemove(target_key)) |canon_entry| blk: {
             // The instruction's MCValue is overridden in both branches.
@@ -5032,7 +5032,7 @@ fn canonicaliseBranches(self: *Self, parent_branch: *Branch, canon_branch: *Bran
     const canon_slice = canon_branch.inst_table.entries.slice();
     const canon_keys = canon_slice.items(.key);
     const canon_values = canon_slice.items(.value);
-    for (canon_keys) |canon_key, canon_idx| {
+    for (canon_keys, 0..) |canon_key, canon_idx| {
         const canon_value = canon_values[canon_idx];
         // We already deleted the items from this table that matched the target_branch.
         // So these are all instructions that are only overridden in the canon branch.
@@ -6571,7 +6571,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
         switch (result_ty.zigTypeTag()) {
             .Struct => {
                 const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
-                for (elements) |elem, elem_i| {
+                for (elements, 0..) |elem, elem_i| {
                     if (result_ty.structFieldValueComptime(elem_i) != null) continue; // comptime elem
 
                     const elem_ty = result_ty.structFieldType(elem_i);
@@ -6586,7 +6586,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                 const elem_ty = result_ty.childType();
                 const elem_size = @intCast(u32, elem_ty.abiSize(self.target.*));
 
-                for (elements) |elem, elem_i| {
+                for (elements, 0..) |elem, elem_i| {
                     const elem_mcv = try self.resolveInst(elem);
                     const elem_off = @intCast(i32, elem_size * elem_i);
                     try self.genSetStack(elem_ty, stack_offset - elem_off, elem_mcv, .{});
@@ -6963,7 +6963,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 else => 0,
             };
 
-            for (param_types) |ty, i| {
+            for (param_types, 0..) |ty, i| {
                 assert(ty.hasRuntimeBits());
 
                 const classes: []const abi.Class = switch (self.target.os.tag) {
@@ -7039,7 +7039,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 else => 0,
             };
 
-            for (param_types) |ty, i| {
+            for (param_types, 0..) |ty, i| {
                 if (!ty.hasRuntimeBits()) {
                     result.args[i] = .{ .none = {} };
                     continue;

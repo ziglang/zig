@@ -570,7 +570,7 @@ pub fn formatType(
                     return writer.writeAll("{ ... }");
                 }
                 try writer.writeAll("{");
-                inline for (info.fields) |f, i| {
+                inline for (info.fields, 0..) |f, i| {
                     if (i == 0) {
                         try writer.writeAll(" ");
                     } else {
@@ -585,7 +585,7 @@ pub fn formatType(
                 return writer.writeAll("{ ... }");
             }
             try writer.writeAll("{");
-            inline for (info.fields) |f, i| {
+            inline for (info.fields, 0..) |f, i| {
                 if (i == 0) {
                     try writer.writeAll(" .");
                 } else {
@@ -612,7 +612,7 @@ pub fn formatType(
                         }
                     }
                     if (comptime std.meta.trait.isZigString(info.child)) {
-                        for (value) |item, i| {
+                        for (value, 0..) |item, i| {
                             comptime checkTextFmt(actual_fmt);
                             if (i != 0) try formatBuf(", ", options, writer);
                             try formatBuf(item, options, writer);
@@ -659,7 +659,7 @@ pub fn formatType(
                     }
                 }
                 try writer.writeAll("{ ");
-                for (value) |elem, i| {
+                for (value, 0..) |elem, i| {
                     try formatType(elem, actual_fmt, options, writer, max_depth - 1);
                     if (i != value.len - 1) {
                         try writer.writeAll(", ");
@@ -684,7 +684,7 @@ pub fn formatType(
                 }
             }
             try writer.writeAll("{ ");
-            for (value) |elem, i| {
+            for (value, 0..) |elem, i| {
                 try formatType(elem, actual_fmt, options, writer, max_depth - 1);
                 if (i < value.len - 1) {
                     try writer.writeAll(", ");

@@ -196,7 +196,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\
         \\    c.qsort(@ptrCast(?*anyopaque, &array), @intCast(c_ulong, array.len), @sizeOf(i32), compare_fn);
         \\
-        \\    for (array) |item, i| {
+        \\    for (array, 0..) |item, i| {
         \\        if (item != i) {
         \\            c.abort();
         \\        }

@@ -329,7 +329,7 @@ fn createThunkAtom(zld: *Zld) !AtomIndex {
 fn getThunkIndex(zld: *Zld, atom_index: AtomIndex) ?ThunkIndex {
     const atom = zld.getAtom(atom_index);
     const sym = zld.getSymbol(atom.getSymbolWithLoc());
-    for (zld.thunks.items) |thunk, i| {
+    for (zld.thunks.items, 0..) |thunk, i| {
         if (thunk.len == 0) continue;
 
         const thunk_atom_index = thunk.getStartAtomIndex();

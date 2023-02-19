@@ -384,7 +384,7 @@ fn SliceDiffer(comptime T: type) type {
         const Self = @This();
 
         pub fn write(self: Self, writer: anytype) !void {
-            for (self.expected) |value, i| {
+            for (self.expected, 0..) |value, i| {
                 var full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
                 if (diff) try self.ttyconf.setColor(writer, .Red);
@@ -405,7 +405,7 @@ const BytesDiffer = struct {
         while (expected_iterator.next()) |chunk| {
             // to avoid having to calculate diffs twice per chunk
             var diffs: std.bit_set.IntegerBitSet(16) = .{ .mask = 0 };
-            for (chunk) |byte, i| {
+            for (chunk, 0..) |byte, i| {
                 var absolute_byte_index = (expected_iterator.index - chunk.len) + i;
                 const diff = if (absolute_byte_index < self.actual.len) self.actual[absolute_byte_index] != byte else true;
                 if (diff) diffs.set(i);
@@ -418,7 +418,7 @@ const BytesDiffer = struct {
                 if (chunk.len < 8) missing_columns += 1;
                 try writer.writeByteNTimes(' ', missing_columns);
             }
-            for (chunk) |byte, i| {
+            for (chunk, 0..) |byte, i| {
                 const byte_to_print = if (std.ascii.isPrint(byte)) byte else '.';
                 try self.writeByteDiff(writer, "{c}", byte_to_print, diffs.isSet(i));
             }
@@ -1059,7 +1059,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
     // Setup the tuple that will actually be used with @call (we'll need to insert
     // the failing allocator in field @"0" before each @call)
     var args: ArgsTuple = undefined;
-    inline for (@typeInfo(@TypeOf(extra_args)).Struct.fields) |field, i| {
+    inline for (@typeInfo(@TypeOf(extra_args)).Struct.fields, 0..) |field, i| {
         const arg_i_str = comptime str: {
             var str_buf: [100]u8 = undefined;
             const args_i = i + 1;

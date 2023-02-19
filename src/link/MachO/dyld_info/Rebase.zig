@@ -45,7 +45,7 @@ pub fn finalize(rebase: *Rebase, gpa: Allocator) !void {
 
     var start: usize = 0;
     var seg_id: ?u8 = null;
-    for (rebase.entries.items) |entry, i| {
+    for (rebase.entries.items, 0..) |entry, i| {
         if (seg_id != null and seg_id.? == entry.segment_id) continue;
         try finalizeSegment(rebase.entries.items[start..i], writer);
         seg_id = entry.segment_id;

@@ -195,7 +195,7 @@ fn writeContextDependentNumber(section: *Section, operand: spec.LiteralContextDe
 
 fn writeExtendedMask(section: *Section, comptime Operand: type, operand: Operand) void {
     var mask: Word = 0;
-    inline for (@typeInfo(Operand).Struct.fields) |field, bit| {
+    inline for (@typeInfo(Operand).Struct.fields, 0..) |field, bit| {
         switch (@typeInfo(field.type)) {
             .Optional => if (@field(operand, field.name) != null) {
                 mask |= 1 << @intCast(u5, bit);

@@ -207,7 +207,7 @@ pub fn fetchAndAddDependencies(
 
     var any_error = false;
     const deps_list = manifest.dependencies.values();
-    for (manifest.dependencies.keys()) |name, i| {
+    for (manifest.dependencies.keys(), 0..) |name, i| {
         const dep = deps_list[i];
 
         const sub_prefix = try std.fmt.allocPrint(arena, "{s}{s}.", .{ name_prefix, name });

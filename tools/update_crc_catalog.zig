@@ -116,7 +116,7 @@ pub fn main() anyerror!void {
         defer buf.deinit();
 
         var prev: u8 = 0;
-        for (snakecase) |c, i| {
+        for (snakecase, 0..) |c, i| {
             if (c == '_') {
                 // do nothing
             } else if (i == 0) {

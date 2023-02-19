@@ -1,7 +1,7 @@
 extern fn ext() usize;
 var bytes: [ext()]u8 = undefined;
 export fn f() void {
-    for (bytes) |*b, i| {
+    for (&bytes, 0..) |*b, i| {
         b.* = @as(u8, i);
     }
 }

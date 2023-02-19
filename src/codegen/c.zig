@@ -253,7 +253,7 @@ fn formatIdent(
     if (solo and isReservedIdent(ident)) {
         try writer.writeAll("zig_e_");
     }
-    for (ident) |c, i| {
+    for (ident, 0..) |c, i| {
         switch (c) {
             'a'...'z', 'A'...'Z', '_' => try writer.writeByte(c),
             '.' => try writer.writeByte('_'),
@@ -361,7 +361,7 @@ pub const Function = struct {
         _ = mutability;
 
         if (f.getFreeLocals().getPtrContext(ty, f.tyHashCtx())) |locals_list| {
-            for (locals_list.items) |local_index, i| {
+            for (locals_list.items, 0..) |local_index, i| {
                 const local = &f.locals.items[local_index];
                 if (local.alignment >= alignment) {
                     local.loop_depth = @intCast(LoopDepth, f.free_locals_stack.items.len - 1);
@@ -1283,7 +1283,7 @@ pub const DeclGen = struct {
 
                     try writer.writeByte('{');
                     var empty = true;
-                    for (field_vals) |field_val, field_index| {
+                    for (field_vals, 0..) |field_val, field_index| {
                         const field_ty = ty.structFieldType(field_index);
                         if (!field_ty.hasRuntimeBits()) continue;
 
@@ -1309,7 +1309,7 @@ pub const DeclGen = struct {
                     const bit_offset_val = Value.initPayload(&bit_offset_val_pl.base);
 
                     var eff_num_fields: usize = 0;
-                    for (field_vals) |_, index| {
+                    for (field_vals, 0..) |_, index| {
                         const field_ty = ty.structFieldType(index);
                         if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
@@ -1331,7 +1331,7 @@ pub const DeclGen = struct {
 
                         var eff_index: usize = 0;
                         var needs_closing_paren = false;
-                        for (field_vals) |field_val, index| {
+                        for (field_vals, 0..) |field_val, index| {
                             const field_ty = ty.structFieldType(index);
                             if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
@@ -1359,7 +1359,7 @@ pub const DeclGen = struct {
                         try writer.writeByte('(');
                         // a << a_off | b << b_off | c << c_off
                         var empty = true;
-                        for (field_vals) |field_val, index| {
+                        for (field_vals, 0..) |field_val, index| {
                             const field_ty = ty.structFieldType(index);
                             if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
@@ -1719,7 +1719,7 @@ pub const DeclGen = struct {
         {
             const fields = t.tupleFields();
             var field_id: usize = 0;
-            for (fields.types) |field_ty, i| {
+            for (fields.types, 0..) |field_ty, i| {
                 if (!field_ty.hasRuntimeBits() or fields.values[i].tag() != .unreachable_value) continue;
 
                 try buffer.append(' ');
@@ -2130,7 +2130,7 @@ pub const DeclGen = struct {
                 try tuple_storage.ensureTotalCapacity(allocator, t.structFieldCount());
 
                 const fields = t.tupleFields();
-                for (fields.values) |value, index|
+                for (fields.values, 0..) |value, index|
                     if (value.tag() == .unreachable_value)
                         tuple_storage.appendAssumeCapacity(.{
                             .type = fields.types[index],
@@ -2415,7 +2415,7 @@ pub const DeclGen = struct {
         const name_end = buffer.items.len - "(".len;
         try dg.renderTypeAndName(bw, enum_ty, .{ .identifier = "tag" }, .Const, 0, .Complete);
         try buffer.appendSlice(") {\n switch (tag) {\n");
-        for (enum_ty.enumFields().keys()) |name, index| {
+        for (enum_ty.enumFields().keys(), 0..) |name, index| {
             const name_z = try dg.typedefs.allocator.dupeZ(u8, name);
             defer dg.typedefs.allocator.free(name_z);
             const name_bytes = name_z[0 .. name_z.len + 1];
@@ -2681,7 +2681,7 @@ pub fn genErrDecls(o: *Object) !void {
     try writer.writeAll("enum {\n");
     o.indent_writer.pushIndent();
     var max_name_len: usize = 0;
-    for (o.dg.module.error_name_list.items) |name, value| {
+    for (o.dg.module.error_name_list.items, 0..) |name, value| {
         max_name_len = std.math.max(name.len, max_name_len);
         var err_pl = Value.Payload.Error{ .data = .{ .name = name } };
         try o.dg.renderValue(writer, Type.anyerror, Value.initPayload(&err_pl.base), .Other);
@@ -2724,7 +2724,7 @@ pub fn genErrDecls(o: *Object) !void {
     try writer.writeAll("static ");
     try o.dg.renderTypeAndName(writer, name_array_ty, .{ .identifier = name_prefix }, .Const, 0, .Complete);
     try writer.writeAll(" = {");
-    for (o.dg.module.error_name_list.items) |name, value| {
+    for (o.dg.module.error_name_list.items, 0..) |name, value| {
         if (value != 0) try writer.writeByte(',');
 
         var len_pl = Value.Payload.U64{ .base = .{ .tag = .int_u64 }, .data = name.len };
@@ -2742,7 +2742,7 @@ fn genExports(o: *Object) !void {
     defer tracy.end();
 
     const fwd_decl_writer = o.dg.fwd_decl.writer();
-    if (o.dg.module.decl_exports.get(o.dg.decl_index)) |exports| for (exports.items[1..]) |@"export", i| {
+    if (o.dg.module.decl_exports.get(o.dg.decl_index)) |exports| for (exports.items[1..], 0..) |@"export", i| {
         try fwd_decl_writer.writeAll("zig_export(");
         try o.dg.renderFunctionSignature(fwd_decl_writer, .Forward, @intCast(u32, 1 + i));
         try fwd_decl_writer.print(", {s}, {s});\n", .{
@@ -2800,7 +2800,7 @@ pub fn genFunc(f: *Function) !void {
     // alignment, descending.
     const free_locals = f.getFreeLocals();
     const values = f.allocs.values();
-    for (f.allocs.keys()) |local_index, i| {
+    for (f.allocs.keys(), 0..) |local_index, i| {
         if (values[i]) continue; // static
         const local = f.locals.items[local_index];
         log.debug("inserting local {d} into free_locals", .{local_index});
@@ -4238,7 +4238,7 @@ fn airCall(
 
     const resolved_args = try gpa.alloc(CValue, args.len);
     defer gpa.free(resolved_args);
-    for (args) |arg, i| {
+    for (args, 0..) |arg, i| {
         resolved_args[i] = try f.resolveInst(arg);
     }
 
@@ -4303,7 +4303,7 @@ fn airCall(
 
     try writer.writeByte('(');
     var args_written: usize = 0;
-    for (args) |arg, arg_i| {
+    for (args, 0..) |arg, arg_i| {
         const ty = f.air.typeOf(arg);
         if (!ty.hasRuntimeBitsIgnoreComptime()) continue;
         if (args_written != 0) {
@@ -5043,7 +5043,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         extra_i = constraints_extra_begin;
         var locals_index = locals_begin;
         try writer.writeByte(':');
-        for (outputs) |output, index| {
+        for (outputs, 0..) |output, index| {
             const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
             const constraint = std.mem.sliceTo(extra_bytes, 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
@@ -5067,7 +5067,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             try writer.writeByte(')');
         }
         try writer.writeByte(':');
-        for (inputs) |input, index| {
+        for (inputs, 0..) |input, index| {
             const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
             const constraint = std.mem.sliceTo(extra_bytes, 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
@@ -5426,7 +5426,7 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
     };
     const field_loc = switch (struct_ty.tag()) {
         .@"struct" => switch (struct_ty.containerLayout()) {
-            .Auto, .Extern => for (struct_ty.structFields().values()[index..]) |field, offset| {
+            .Auto, .Extern => for (struct_ty.structFields().values()[index..], 0..) |field, offset| {
                 if (field.ty.hasRuntimeBitsIgnoreComptime()) break FieldLoc{ .field = .{
                     .identifier = struct_ty.structFieldName(index + offset),
                 } };
@@ -5469,7 +5469,7 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
             if (tuple.values[index].tag() != .unreachable_value) return CValue.none;
 
             var id: usize = 0;
-            break :field_name for (tuple.values) |value, i| {
+            break :field_name for (tuple.values, 0..) |value, i| {
                 if (value.tag() != .unreachable_value) continue;
                 if (!tuple.types[i].hasRuntimeBitsIgnoreComptime()) continue;
                 if (i >= index) break FieldLoc{ .field = .{ .field = id } };
@@ -6687,7 +6687,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const gpa = f.object.dg.gpa;
     const resolved_elements = try gpa.alloc(CValue, elements.len);
     defer gpa.free(resolved_elements);
-    for (elements) |element, i| {
+    for (elements, 0..) |element, i| {
         resolved_elements[i] = try f.resolveInst(element);
     }
     {
@@ -6706,7 +6706,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
     switch (inst_ty.zigTypeTag()) {
         .Array, .Vector => {
             const elem_ty = inst_ty.childType();
-            for (resolved_elements) |element, i| {
+            for (resolved_elements, 0..) |element, i| {
                 try f.writeCValue(writer, local, .Other);
                 try writer.print("[{d}] = ", .{i});
                 try f.writeCValue(writer, element, .Other);
@@ -6727,7 +6727,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 try writer.writeAll(")");
                 try writer.writeByte('{');
                 var empty = true;
-                for (elements) |element, index| {
+                for (elements, 0..) |element, index| {
                     if (inst_ty.structFieldValueComptime(index)) |_| continue;
 
                     if (!empty) try writer.writeAll(", ");
@@ -6746,7 +6746,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 try writer.writeAll("};\n");
 
                 var field_id: usize = 0;
-                for (elements) |element, index| {
+                for (elements, 0..) |element, index| {
                     if (inst_ty.structFieldValueComptime(index)) |_| continue;
 
                     const element_ty = f.air.typeOf(element);
@@ -6784,7 +6784,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 const bit_offset_val = Value.initPayload(&bit_offset_val_pl.base);
 
                 var empty = true;
-                for (elements) |_, index| {
+                for (elements, 0..) |_, index| {
                     const field_ty = inst_ty.structFieldType(index);
                     if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
@@ -6796,7 +6796,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                     empty = false;
                 }
                 empty = true;
-                for (resolved_elements) |element, index| {
+                for (resolved_elements, 0..) |element, index| {
                     const field_ty = inst_ty.structFieldType(index);
                     if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
@@ -7608,7 +7608,7 @@ fn deinitFreeLocalsMap(gpa: mem.Allocator, map: *LocalsMap) void {
 }
 
 fn noticeBranchFrees(f: *Function, pre_locals_len: LocalIndex, inst: Air.Inst.Index) !void {
-    for (f.locals.items[pre_locals_len..]) |*local, local_offset| {
+    for (f.locals.items[pre_locals_len..], 0..) |*local, local_offset| {
         const local_index = pre_locals_len + @intCast(LocalIndex, local_offset);
         if (f.allocs.contains(local_index)) continue; // allocs are not freeable
 

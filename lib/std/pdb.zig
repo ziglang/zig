@@ -922,7 +922,7 @@ const Msf = struct {
         }
 
         const streams = try allocator.alloc(MsfStream, stream_count);
-        for (streams) |*stream, i| {
+        for (streams, 0..) |*stream, i| {
             const size = stream_sizes[i];
             if (size == 0) {
                 stream.* = MsfStream{

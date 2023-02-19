@@ -55,9 +55,9 @@ fn testContinueOuter() !void {
 }
 
 test "ignore lval with underscore (for loop)" {
-    for ([_]void{}) |_, i| {
+    for ([_]void{}, 0..) |_, i| {
         _ = i;
-        for ([_]void{}) |_, j| {
+        for ([_]void{}, 0..) |_, j| {
             _ = j;
             break;
         }
@@ -81,7 +81,7 @@ test "basic for loop" {
         buffer[buf_index] = item;
         buf_index += 1;
     }
-    for (array) |item, index| {
+    for (array, 0..) |item, index| {
         _ = item;
         buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
@@ -91,7 +91,7 @@ test "basic for loop" {
         buffer[buf_index] = item;
         buf_index += 1;
     }
-    for (array_ptr) |item, index| {
+    for (array_ptr, 0..) |item, index| {
         _ = item;
         buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
@@ -101,7 +101,7 @@ test "basic for loop" {
         buffer[buf_index] = item;
         buf_index += 1;
     }
-    for (unknown_size) |_, index| {
+    for (unknown_size, 0..) |_, index| {
         buffer[buf_index] = @intCast(u8, index);
         buf_index += 1;
     }
@@ -163,11 +163,11 @@ test "for loop with pointer elem var" {
     mangleString(target[0..]);
     try expect(mem.eql(u8, &target, "bcdefgh"));
 
-    for (source) |*c, i| {
+    for (source, 0..) |*c, i| {
         _ = i;
         try expect(@TypeOf(c) == *const u8);
     }
-    for (target) |*c, i| {
+    for (&target, 0..) |*c, i| {
         _ = i;
         try expect(@TypeOf(c) == *u8);
     }
@@ -186,7 +186,7 @@ test "for copies its payload" {
     const S = struct {
         fn doTheTest() !void {
             var x = [_]usize{ 1, 2, 3 };
-            for (x) |value, i| {
+            for (x, 0..) |value, i| {
                 // Modify the original array
                 x[i] += 99;
                 try expect(value == i + 1);
@@ -206,8 +206,8 @@ test "for on slice with allowzero ptr" {
     const S = struct {
         fn doTheTest(slice: []const u8) !void {
             var ptr = @ptrCast([*]allowzero const u8, slice.ptr)[0..slice.len];
-            for (ptr) |x, i| try expect(x == i + 1);
-            for (ptr) |*x, i| try expect(x.* == i + 1);
+            for (ptr, 0..) |x, i| try expect(x == i + 1);
+            for (ptr, 0..) |*x, i| try expect(x.* == i + 1);
         }
     };
     try S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
@@ -248,4 +248,214 @@ test "for loop with else branch" {
         } else @panic("");
         try expect(q == 4);
     }
+}
+
+test "count over fixed range" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    var sum: usize = 0;
+    for (0..6) |i| {
+        sum += i;
+    }
+
+    try expect(sum == 15);
+}
+
+test "two counters" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    var sum: usize = 0;
+    for (0..10, 10..20) |i, j| {
+        sum += 1;
+        try expect(i + 10 == j);
+    }
+
+    try expect(sum == 10);
+}
+
+test "1-based counter and ptr to array" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    var ok: usize = 0;
+
+    for (1..6, "hello") |i, b| {
+        if (i == 1) {
+            try expect(b == 'h');
+            ok += 1;
+        }
+        if (i == 2) {
+            try expect(b == 'e');
+            ok += 1;
+        }
+        if (i == 3) {
+            try expect(b == 'l');
+            ok += 1;
+        }
+        if (i == 4) {
+            try expect(b == 'l');
+            ok += 1;
+        }
+        if (i == 5) {
+            try expect(b == 'o');
+            ok += 1;
+        }
+    }
+
+    try expect(ok == 5);
+}
+
+test "slice and two counters, one is offset and one is runtime" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const slice: []const u8 = "blah";
+    var start: usize = 0;
+
+    for (slice, start..4, 1..5) |a, b, c| {
+        if (a == 'b') {
+            try expect(b == 0);
+            try expect(c == 1);
+        }
+        if (a == 'l') {
+            try expect(b == 1);
+            try expect(c == 2);
+        }
+        if (a == 'a') {
+            try expect(b == 2);
+            try expect(c == 3);
+        }
+        if (a == 'h') {
+            try expect(b == 3);
+            try expect(c == 4);
+        }
+    }
+}
+
+test "two slices, one captured by-ref" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    var buf: [10]u8 = undefined;
+    const slice1: []const u8 = "blah";
+    const slice2: []u8 = buf[0..4];
+
+    for (slice1, slice2) |a, *b| {
+        b.* = a;
+    }
+
+    try expect(slice2[0] == 'b');
+    try expect(slice2[1] == 'l');
+    try expect(slice2[2] == 'a');
+    try expect(slice2[3] == 'h');
+}
+
+test "raw pointer and slice" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    var buf: [10]u8 = undefined;
+    const slice: []const u8 = "blah";
+    const ptr: [*]u8 = buf[0..4];
+
+    for (ptr, slice) |*a, b| {
+        a.* = b;
+    }
+
+    try expect(buf[0] == 'b');
+    try expect(buf[1] == 'l');
+    try expect(buf[2] == 'a');
+    try expect(buf[3] == 'h');
+}
+
+test "raw pointer and counter" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    var buf: [10]u8 = undefined;
+    const ptr: [*]u8 = &buf;
+
+    for (ptr, 0..4) |*a, b| {
+        a.* = @intCast(u8, 'A' + b);
+    }
+
+    try expect(buf[0] == 'A');
+    try expect(buf[1] == 'B');
+    try expect(buf[2] == 'C');
+    try expect(buf[3] == 'D');
+}
+
+test "inline for with slice as the comptime-known" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const comptime_slice = "hello";
+    var runtime_i: usize = 3;
+
+    const S = struct {
+        var ok: usize = 0;
+        fn check(comptime a: u8, b: usize) !void {
+            if (a == 'l') {
+                try expect(b == 3);
+                ok += 1;
+            } else if (a == 'o') {
+                try expect(b == 4);
+                ok += 1;
+            } else {
+                @compileError("fail");
+            }
+        }
+    };
+
+    inline for (comptime_slice[3..5], runtime_i..5) |a, b| {
+        try S.check(a, b);
+    }
+
+    try expect(S.ok == 2);
+}
+
+test "inline for with counter as the comptime-known" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    var runtime_slice = "hello";
+    var runtime_i: usize = 3;
+
+    const S = struct {
+        var ok: usize = 0;
+        fn check(a: u8, comptime b: usize) !void {
+            if (b == 3) {
+                try expect(a == 'l');
+                ok += 1;
+            } else if (b == 4) {
+                try expect(a == 'o');
+                ok += 1;
+            } else {
+                @compileError("fail");
+            }
+        }
+    };
+
+    inline for (runtime_slice[runtime_i..5], 3..5) |a, b| {
+        try S.check(a, b);
+    }
+
+    try expect(S.ok == 2);
 }

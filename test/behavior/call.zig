@@ -364,7 +364,7 @@ test "Enum constructed by @Type passed as generic argument" {
             try expect(@enumToInt(a) == b);
         }
     };
-    inline for (@typeInfo(S.E).Enum.fields) |_, i| {
+    inline for (@typeInfo(S.E).Enum.fields, 0..) |_, i| {
         try S.foo(@intToEnum(S.E, i), i);
     }
 }

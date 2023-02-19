@@ -130,7 +130,7 @@ pub fn main() !void {
         \\
     );
 
-    for (versions) |ver, i| {
+    for (versions, 0..) |ver, i| {
         try w.print(
             \\    result[@enumToInt(Feature.v{0}_{1})] = .{{
             \\        .llvm_name = null,
@@ -203,7 +203,7 @@ pub fn main() !void {
 
     try w.writeAll(
         \\    const ti = @typeInfo(Feature);
-        \\    for (result) |*elem, i| {
+        \\    for (&result, 0..) |*elem, i| {
         \\        elem.index = i;
         \\        elem.name = ti.Enum.fields[i].name;
         \\    }

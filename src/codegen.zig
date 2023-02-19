@@ -511,7 +511,7 @@ pub fn generateSymbol(
                 try code.resize(current_pos + abi_size);
                 var bits: u16 = 0;
 
-                for (field_vals) |field_val, index| {
+                for (field_vals, 0..) |field_val, index| {
                     const field_ty = fields[index].ty;
                     // pointer may point to a decl which must be marked used
                     // but can also result in a relocation. Therefore we handle those seperately.
@@ -537,7 +537,7 @@ pub fn generateSymbol(
 
             const struct_begin = code.items.len;
             const field_vals = typed_value.val.castTag(.aggregate).?.data;
-            for (field_vals) |field_val, index| {
+            for (field_vals, 0..) |field_val, index| {
                 const field_ty = typed_value.ty.structFieldType(index);
                 if (!field_ty.hasRuntimeBits()) continue;
 

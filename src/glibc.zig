@@ -698,7 +698,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
     const metadata = try loadMetaData(comp.gpa, abilists_contents);
     defer metadata.destroy(comp.gpa);
 
-    const target_targ_index = for (metadata.all_targets) |targ, i| {
+    const target_targ_index = for (metadata.all_targets, 0..) |targ, i| {
         if (targ.arch == target.cpu.arch and
             targ.os == target.os.tag and
             targ.abi == target.abi)
@@ -709,7 +709,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
         unreachable; // target_util.available_libcs prevents us from getting here
     };
 
-    const target_ver_index = for (metadata.all_versions) |ver, i| {
+    const target_ver_index = for (metadata.all_versions, 0..) |ver, i| {
         switch (ver.order(target_version)) {
             .eq => break i,
             .lt => continue,
@@ -743,7 +743,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
     var stubs_asm = std.ArrayList(u8).init(comp.gpa);
     defer stubs_asm.deinit();
 
-    for (libs) |lib, lib_i| {
+    for (libs, 0..) |lib, lib_i| {
         stubs_asm.shrinkRetainingCapacity(0);
         try stubs_asm.appendSlice(".text\n");
 

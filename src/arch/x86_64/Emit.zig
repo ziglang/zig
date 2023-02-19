@@ -61,7 +61,7 @@ const Reloc = struct {
 pub fn lowerMir(emit: *Emit) InnerError!void {
     const mir_tags = emit.mir.instructions.items(.tag);
 
-    for (mir_tags) |tag, index| {
+    for (mir_tags, 0..) |tag, index| {
         const inst = @intCast(u32, index);
         try emit.code_offset_mapping.putNoClobber(emit.bin_file.allocator, inst, emit.code.items.len);
         switch (tag) {
@@ -1544,7 +1544,7 @@ const OpCode = struct {
     fn init(comptime in_bytes: []const u8) OpCode {
         comptime assert(in_bytes.len <= 3);
         comptime var bytes: [3]u8 = undefined;
-        inline for (in_bytes) |x, i| {
+        inline for (in_bytes, 0..) |x, i| {
             bytes[i] = x;
         }
         return .{ .bytes = bytes, .count = in_bytes.len };

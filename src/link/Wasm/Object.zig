@@ -882,7 +882,7 @@ pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_b
         list.deinit();
     } else symbol_for_segment.deinit();
 
-    for (object.symtable) |symbol, symbol_index| {
+    for (object.symtable, 0..) |symbol, symbol_index| {
         switch (symbol.tag) {
             .function, .data, .section => if (!symbol.isUndefined()) {
                 const gop = try symbol_for_segment.getOrPut(.{ .kind = symbol.tag, .index = symbol.index });
@@ -896,7 +896,7 @@ pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_b
         }
     }
 
-    for (object.relocatable_data) |relocatable_data, index| {
+    for (object.relocatable_data, 0..) |relocatable_data, index| {
         const final_index = (try wasm_bin.getMatchingSegment(object_index, @intCast(u32, index))) orelse {
             continue; // found unknown section, so skip parsing into atom as we do not know how to handle it.
         };

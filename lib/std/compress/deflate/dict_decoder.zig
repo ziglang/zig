@@ -378,7 +378,7 @@ test "dictionary decoder" {
     _ = try want.write(".");
 
     var str = poem;
-    for (poem_refs) |ref, i| {
+    for (poem_refs, 0..) |ref, i| {
         _ = i;
         if (ref.dist == 0) {
             try util.writeString(&dd, got, str[0..ref.length]);

@@ -201,7 +201,7 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
     var sorted_all_syms = try std.ArrayList(SymbolAtIndex).initCapacity(allocator, self.in_symtab.?.len);
     defer sorted_all_syms.deinit();
 
-    for (self.in_symtab.?) |_, index| {
+    for (self.in_symtab.?, 0..) |_, index| {
         sorted_all_syms.appendAssumeCapacity(.{ .index = @intCast(u32, index) });
     }
 
@@ -211,7 +211,7 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
     // is kind enough to specify the symbols in the correct order.
     sort.sort(SymbolAtIndex, sorted_all_syms.items, self, SymbolAtIndex.lessThan);
 
-    for (sorted_all_syms.items) |sym_id, i| {
+    for (sorted_all_syms.items, 0..) |sym_id, i| {
         const sym = sym_id.getSymbol(self);
 
         if (sym.sect() and self.source_section_index_lookup[sym.n_sect - 1] == -1) {
@@ -380,7 +380,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
     const gpa = zld.gpa;
 
     const sections = self.getSourceSections();
-    for (sections) |sect, id| {
+    for (sections, 0..) |sect, id| {
         if (sect.isDebug()) continue;
         const out_sect_id = (try zld.getOutputSection(sect)) orelse {
             log.debug("  unhandled section '{s},{s}'", .{ sect.segName(), sect.sectName() });
@@ -400,7 +400,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
     }
 
     if (self.in_symtab == null) {
-        for (sections) |sect, id| {
+        for (sections, 0..) |sect, id| {
             if (sect.isDebug()) continue;
             const out_sect_id = (try zld.getOutputSection(sect)) orelse continue;
             if (sect.size == 0) continue;
@@ -446,7 +446,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
     var sorted_sections = try gpa.alloc(SortedSection, sections.len);
     defer gpa.free(sorted_sections);
 
-    for (sections) |sect, id| {
+    for (sections, 0..) |sect, id| {
         sorted_sections[id] = .{ .header = sect, .id = @intCast(u8, id) };
     }
 
@@ -804,7 +804,7 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
     try self.parseRelocs(gpa, sect_id);
     const relocs = self.getRelocs(sect_id);
 
-    for (unwind_records) |record, record_id| {
+    for (unwind_records, 0..) |record, record_id| {
         const offset = record_id * @sizeOf(macho.compact_unwind_entry);
         const rel_pos = filterRelocs(
             relocs,
@@ -857,7 +857,7 @@ pub fn getSourceSectionByName(self: Object, segname: []const u8, sectname: []con
 
 pub fn getSourceSectionIndexByName(self: Object, segname: []const u8, sectname: []const u8) ?u8 {
     const sections = self.getSourceSections();
-    for (sections) |sect, i| {
+    for (sections, 0..) |sect, i| {
         if (mem.eql(u8, segname, sect.segName()) and mem.eql(u8, sectname, sect.sectName()))
             return @intCast(u8, i);
     } else return null;

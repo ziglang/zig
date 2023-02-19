@@ -68,7 +68,7 @@ const Writer = struct {
     indent: usize,
 
     fn writeAllConstants(w: *Writer, s: anytype) @TypeOf(s).Error!void {
-        for (w.air.instructions.items(.tag)) |tag, i| {
+        for (w.air.instructions.items(.tag), 0..) |tag, i| {
             const inst = @intCast(u32, i);
             switch (tag) {
                 .constant, .const_ty => {
@@ -388,7 +388,7 @@ const Writer = struct {
 
         try w.writeType(s, vector_ty);
         try s.writeAll(", [");
-        for (elements) |elem, i| {
+        for (elements, 0..) |elem, i| {
             if (i != 0) try s.writeAll(", ");
             try w.writeOperand(s, inst, i, elem);
         }
@@ -682,7 +682,7 @@ const Writer = struct {
         const args = @ptrCast([]const Air.Inst.Ref, w.air.extra[extra.end..][0..extra.data.args_len]);
         try w.writeOperand(s, inst, 0, pl_op.operand);
         try s.writeAll(", [");
-        for (args) |arg, i| {
+        for (args, 0..) |arg, i| {
             if (i != 0) try s.writeAll(", ");
             try w.writeOperand(s, inst, 1 + i, arg);
         }
@@ -743,7 +743,7 @@ const Writer = struct {
 
         if (liveness_condbr.then_deaths.len != 0) {
             try s.writeByteNTimes(' ', w.indent);
-            for (liveness_condbr.then_deaths) |operand, i| {
+            for (liveness_condbr.then_deaths, 0..) |operand, i| {
                 if (i != 0) try s.writeAll(" ");
                 try s.print("%{d}!", .{operand});
             }
@@ -756,7 +756,7 @@ const Writer = struct {
 
         if (liveness_condbr.else_deaths.len != 0) {
             try s.writeByteNTimes(' ', w.indent);
-            for (liveness_condbr.else_deaths) |operand, i| {
+            for (liveness_condbr.else_deaths, 0..) |operand, i| {
                 if (i != 0) try s.writeAll(" ");
                 try s.print("%{d}!", .{operand});
             }
@@ -790,7 +790,7 @@ const Writer = struct {
             extra_index = case.end + case.data.items_len + case_body.len;
 
             try s.writeAll(", [");
-            for (items) |item, item_i| {
+            for (items, 0..) |item, item_i| {
                 if (item_i != 0) try s.writeAll(", ");
                 try w.writeInstRef(s, item, false);
             }
@@ -800,7 +800,7 @@ const Writer = struct {
             const deaths = liveness.deaths[case_i];
             if (deaths.len != 0) {
                 try s.writeByteNTimes(' ', w.indent);
-                for (deaths) |operand, i| {
+                for (deaths, 0..) |operand, i| {
                     if (i != 0) try s.writeAll(" ");
                     try s.print("%{d}!", .{operand});
                 }
@@ -821,7 +821,7 @@ const Writer = struct {
             const deaths = liveness.deaths[liveness.deaths.len - 1];
             if (deaths.len != 0) {
                 try s.writeByteNTimes(' ', w.indent);
-                for (deaths) |operand, i| {
+                for (deaths, 0..) |operand, i| {
                     if (i != 0) try s.writeAll(" ");
                     try s.print("%{d}!", .{operand});
                 }

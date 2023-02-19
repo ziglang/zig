@@ -33,7 +33,7 @@ pub fn main() void {
     async_frame_buffer = &[_]u8{};
 
     var leaks: usize = 0;
-    for (test_fn_list) |test_fn, i| {
+    for (test_fn_list, 0..) |test_fn, i| {
         std.testing.allocator_instance = .{};
         defer {
             if (std.testing.allocator_instance.deinit()) {

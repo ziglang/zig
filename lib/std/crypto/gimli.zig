@@ -45,7 +45,7 @@ pub const State = struct {
     }
 
     inline fn endianSwap(self: *Self) void {
-        for (self.data) |*w| {
+        for (&self.data) |*w| {
             w.* = mem.littleToNative(u32, w.*);
         }
     }
@@ -228,7 +228,7 @@ pub const Hash = struct {
         while (in.len > 0) {
             const left = State.RATE - self.buf_off;
             const ps = math.min(in.len, left);
-            for (buf[self.buf_off .. self.buf_off + ps]) |*p, i| {
+            for (buf[self.buf_off .. self.buf_off + ps], 0..) |*p, i| {
                 p.* ^= in[i];
             }
             self.buf_off += ps;
@@ -329,12 +329,12 @@ pub const Aead = struct {
             // exactly one final non-full block, in the same way as Gimli-Hash.
             var data = ad;
             while (data.len >= State.RATE) : (data = data[State.RATE..]) {
-                for (buf[0..State.RATE]) |*p, i| {
+                for (buf[0..State.RATE], 0..) |*p, i| {
                     p.* ^= data[i];
                 }
                 state.permute();
             }
-            for (buf[0..data.len]) |*p, i| {
+            for (buf[0..data.len], 0..) |*p, i| {
                 p.* ^= data[i];
             }
 
@@ -371,13 +371,13 @@ pub const Aead = struct {
             in = in[State.RATE..];
             out = out[State.RATE..];
         }) {
-            for (in[0..State.RATE]) |v, i| {
+            for (in[0..State.RATE], 0..) |v, i| {
                 buf[i] ^= v;
             }
             mem.copy(u8, out[0..State.RATE], buf[0..State.RATE]);
             state.permute();
         }
-        for (in[0..]) |v, i| {
+        for (in[0..], 0..) |v, i| {
             buf[i] ^= v;
             out[i] = buf[i];
         }
@@ -414,13 +414,13 @@ pub const Aead = struct {
             out = out[State.RATE..];
         }) {
             const d = in[0..State.RATE].*;
-            for (d) |v, i| {
+            for (d, 0..) |v, i| {
                 out[i] = buf[i] ^ v;
             }
             mem.copy(u8, buf[0..State.RATE], d[0..State.RATE]);
             state.permute();
         }
-        for (buf[0..in.len]) |*p, i| {
+        for (buf[0..in.len], 0..) |*p, i| {
             const d = in[i];
             out[i] = p.* ^ d;
             p.* = d;

@@ -16,7 +16,7 @@ const Zld = @import("zld.zig").Zld;
 pub fn scanRelocs(zld: *Zld) !void {
     const gpa = zld.gpa;
 
-    for (zld.objects.items) |*object, object_id| {
+    for (zld.objects.items, 0..) |*object, object_id| {
         var cies = std.AutoHashMap(u32, void).init(gpa);
         defer cies.deinit();
 
@@ -108,7 +108,7 @@ pub fn write(zld: *Zld, unwind_info: *UnwindInfo) !void {
 
     var eh_frame_offset: u32 = 0;
 
-    for (zld.objects.items) |*object, object_id| {
+    for (zld.objects.items, 0..) |*object, object_id| {
         try eh_records.ensureUnusedCapacity(2 * @intCast(u32, object.exec_atoms.items.len));
 
         var cies = std.AutoHashMap(u32, u32).init(gpa);
@@ -407,7 +407,7 @@ pub fn EhFrameRecord(comptime is_mutable: bool) type {
             var creader = std.io.countingReader(stream.reader());
             const reader = creader.reader();
 
-            for (aug_str) |ch, i| switch (ch) {
+            for (aug_str, 0..) |ch, i| switch (ch) {
                 'z' => if (i > 0) {
                     return error.BadDwarfCfi;
                 } else {
@@ -467,7 +467,7 @@ pub fn EhFrameRecord(comptime is_mutable: bool) type {
             var creader = std.io.countingReader(stream.reader());
             const reader = creader.reader();
 
-            for (aug_str) |ch, i| switch (ch) {
+            for (aug_str, 0..) |ch, i| switch (ch) {
                 'z' => if (i > 0) {
                     return error.BadDwarfCfi;
                 } else {

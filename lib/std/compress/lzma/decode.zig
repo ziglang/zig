@@ -143,7 +143,7 @@ pub const DecoderState = struct {
         }
 
         self.lzma_props = new_props;
-        for (self.pos_slot_decoder) |*t| t.reset();
+        for (&self.pos_slot_decoder) |*t| t.reset();
         self.align_decoder.reset();
         self.pos_decoders = .{0x400} ** 115;
         self.is_match = .{0x400} ** 192;

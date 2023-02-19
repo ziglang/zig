@@ -1126,7 +1126,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 const buf = try gpa.alloc(elf.Elf32_Phdr, self.program_headers.items.len);
                 defer gpa.free(buf);
 
-                for (buf) |*phdr, i| {
+                for (buf, 0..) |*phdr, i| {
                     phdr.* = progHeaderTo32(self.program_headers.items[i]);
                     if (foreign_endian) {
                         mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
@@ -1138,7 +1138,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 const buf = try gpa.alloc(elf.Elf64_Phdr, self.program_headers.items.len);
                 defer gpa.free(buf);
 
-                for (buf) |*phdr, i| {
+                for (buf, 0..) |*phdr, i| {
                     phdr.* = self.program_headers.items[i];
                     if (foreign_endian) {
                         mem.byteSwapAllFields(elf.Elf64_Phdr, phdr);
@@ -1193,7 +1193,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 const buf = try gpa.alloc(elf.Elf32_Shdr, slice.len);
                 defer gpa.free(buf);
 
-                for (buf) |*shdr, i| {
+                for (buf, 0..) |*shdr, i| {
                     shdr.* = sectHeaderTo32(slice.items(.shdr)[i]);
                     log.debug("writing section {?s}: {}", .{ self.shstrtab.get(shdr.sh_name), shdr.* });
                     if (foreign_endian) {
@@ -1207,7 +1207,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 const buf = try gpa.alloc(elf.Elf64_Shdr, slice.len);
                 defer gpa.free(buf);
 
-                for (buf) |*shdr, i| {
+                for (buf, 0..) |*shdr, i| {
                     shdr.* = slice.items(.shdr)[i];
                     log.debug("writing section {?s}: {}", .{ self.shstrtab.get(shdr.sh_name), shdr.* });
                     if (foreign_endian) {
@@ -1732,7 +1732,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             argv.appendAssumeCapacity("--as-needed");
             var as_needed = true;
 
-            for (system_libs) |link_lib, i| {
+            for (system_libs, 0..) |link_lib, i| {
                 const lib_as_needed = !system_libs_values[i].needed;
                 switch ((@as(u2, @boolToInt(lib_as_needed)) << 1) | @boolToInt(as_needed)) {
                     0b00, 0b11 => {},
@@ -2909,7 +2909,7 @@ fn writeAllGlobalSymbols(self: *Elf) !void {
             const buf = try self.base.allocator.alloc(elf.Elf32_Sym, self.global_symbols.items.len);
             defer self.base.allocator.free(buf);
 
-            for (buf) |*sym, i| {
+            for (buf, 0..) |*sym, i| {
                 const global = self.global_symbols.items[i];
                 sym.* = .{
                     .st_name = global.st_name,
@@ -2929,7 +2929,7 @@ fn writeAllGlobalSymbols(self: *Elf) !void {
             const buf = try self.base.allocator.alloc(elf.Elf64_Sym, self.global_symbols.items.len);
             defer self.base.allocator.free(buf);
 
-            for (buf) |*sym, i| {
+            for (buf, 0..) |*sym, i| {
                 const global = self.global_symbols.items[i];
                 sym.* = .{
                     .st_name = global.st_name,
@@ -3238,11 +3238,11 @@ const CsuObjects = struct {
 
 fn logSymtab(self: Elf) void {
     log.debug("locals:", .{});
-    for (self.local_symbols.items) |sym, id| {
+    for (self.local_symbols.items, 0..) |sym, id| {
         log.debug("  {d}: {?s}: @{x} in {d}", .{ id, self.shstrtab.get(sym.st_name), sym.st_value, sym.st_shndx });
     }
     log.debug("globals:", .{});
-    for (self.global_symbols.items) |sym, id| {
+    for (self.global_symbols.items, 0..) |sym, id| {
         log.debug("  {d}: {?s}: @{x} in {d}", .{ id, self.shstrtab.get(sym.st_name), sym.st_value, sym.st_shndx });
     }
 }

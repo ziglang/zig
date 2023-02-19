@@ -104,6 +104,8 @@ fn warnMsg(p: *Parse, msg: Ast.Error) error{OutOfMemory}!void {
         .expected_comma_after_param,
         .expected_comma_after_initializer,
         .expected_comma_after_switch_prong,
+        .expected_comma_after_for_operand,
+        .expected_comma_after_capture,
         .expected_semi_or_else,
         .expected_semi_or_lbrace,
         .expected_token,
@@ -1149,22 +1151,18 @@ fn parseLoopStatement(p: *Parse) !Node.Index {
     return p.fail(.expected_inlinable);
 }
 
-/// ForPrefix <- KEYWORD_for LPAREN Expr RPAREN PtrIndexPayload
-///
 /// ForStatement
 ///     <- ForPrefix BlockExpr ( KEYWORD_else Statement )?
 ///      / ForPrefix AssignExpr ( SEMICOLON / KEYWORD_else Statement )
 fn parseForStatement(p: *Parse) !Node.Index {
     const for_token = p.eatToken(.keyword_for) orelse return null_node;
-    _ = try p.expectToken(.l_paren);
-    const array_expr = try p.expectExpr();
-    _ = try p.expectToken(.r_paren);
-    const found_payload = try p.parsePtrIndexPayload();
-    if (found_payload == 0) try p.warn(.expected_loop_payload);
 
-    // TODO propose to change the syntax so that semicolons are always required
-    // inside while statements, even if there is an `else`.
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+    const inputs = try p.forPrefix();
+
     var else_required = false;
+    var seen_semicolon = false;
     const then_expr = blk: {
         const block_expr = try p.parseBlockExpr();
         if (block_expr != 0) break :blk block_expr;
@@ -1173,39 +1171,40 @@ fn parseForStatement(p: *Parse) !Node.Index {
             return p.fail(.expected_block_or_assignment);
         }
         if (p.eatToken(.semicolon)) |_| {
-            return p.addNode(.{
-                .tag = .for_simple,
-                .main_token = for_token,
-                .data = .{
-                    .lhs = array_expr,
-                    .rhs = assign_expr,
-                },
-            });
+            seen_semicolon = true;
+            break :blk assign_expr;
         }
         else_required = true;
         break :blk assign_expr;
     };
-    _ = p.eatToken(.keyword_else) orelse {
-        if (else_required) {
-            try p.warn(.expected_semi_or_else);
-        }
+    var has_else = false;
+    if (!seen_semicolon and p.eatToken(.keyword_else) != null) {
+        try p.scratch.append(p.gpa, then_expr);
+        const else_stmt = try p.expectStatement(false);
+        try p.scratch.append(p.gpa, else_stmt);
+        has_else = true;
+    } else if (inputs == 1) {
+        if (else_required) try p.warn(.expected_semi_or_else);
         return p.addNode(.{
             .tag = .for_simple,
             .main_token = for_token,
             .data = .{
-                .lhs = array_expr,
+                .lhs = p.scratch.items[scratch_top],
                 .rhs = then_expr,
             },
         });
-    };
+    } else {
+        if (else_required) try p.warn(.expected_semi_or_else);
+        try p.scratch.append(p.gpa, then_expr);
+    }
     return p.addNode(.{
         .tag = .@"for",
         .main_token = for_token,
         .data = .{
-            .lhs = array_expr,
-            .rhs = try p.addExtra(Node.If{
-                .then_expr = then_expr,
-                .else_expr = try p.expectStatement(false),
+            .lhs = (try p.listToSpan(p.scratch.items[scratch_top..])).start,
+            .rhs = @bitCast(u32, Node.For{
+                .inputs = @intCast(u31, inputs),
+                .has_else = has_else,
             }),
         },
     });
@@ -2056,40 +2055,119 @@ fn parseBlock(p: *Parse) !Node.Index {
     }
 }
 
-/// ForPrefix <- KEYWORD_for LPAREN Expr RPAREN PtrIndexPayload
-///
 /// ForExpr <- ForPrefix Expr (KEYWORD_else Expr)?
 fn parseForExpr(p: *Parse) !Node.Index {
     const for_token = p.eatToken(.keyword_for) orelse return null_node;
-    _ = try p.expectToken(.l_paren);
-    const array_expr = try p.expectExpr();
-    _ = try p.expectToken(.r_paren);
-    const found_payload = try p.parsePtrIndexPayload();
-    if (found_payload == 0) try p.warn(.expected_loop_payload);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+    const inputs = try p.forPrefix();
 
     const then_expr = try p.expectExpr();
-    _ = p.eatToken(.keyword_else) orelse {
+    var has_else = false;
+    if (p.eatToken(.keyword_else)) |_| {
+        try p.scratch.append(p.gpa, then_expr);
+        const else_expr = try p.expectExpr();
+        try p.scratch.append(p.gpa, else_expr);
+        has_else = true;
+    } else if (inputs == 1) {
         return p.addNode(.{
             .tag = .for_simple,
             .main_token = for_token,
             .data = .{
-                .lhs = array_expr,
+                .lhs = p.scratch.items[scratch_top],
                 .rhs = then_expr,
             },
         });
-    };
-    const else_expr = try p.expectExpr();
+    } else {
+        try p.scratch.append(p.gpa, then_expr);
+    }
     return p.addNode(.{
         .tag = .@"for",
         .main_token = for_token,
         .data = .{
-            .lhs = array_expr,
-            .rhs = try p.addExtra(Node.If{
-                .then_expr = then_expr,
-                .else_expr = else_expr,
+            .lhs = (try p.listToSpan(p.scratch.items[scratch_top..])).start,
+            .rhs = @bitCast(u32, Node.For{
+                .inputs = @intCast(u31, inputs),
+                .has_else = has_else,
             }),
         },
     });
+}
+
+/// ForPrefix <- KEYWORD_for LPAREN ForInput (COMMA ForInput)* COMMA? RPAREN ForPayload
+///
+/// ForInput <- Expr (DOT2 Expr?)?
+///
+/// ForPayload <- PIPE ASTERISK? IDENTIFIER (COMMA ASTERISK? IDENTIFIER)* PIPE
+fn forPrefix(p: *Parse) Error!usize {
+    const start = p.scratch.items.len;
+    _ = try p.expectToken(.l_paren);
+
+    while (true) {
+        var input = try p.expectExpr();
+        if (p.eatToken(.ellipsis2)) |ellipsis| {
+            input = try p.addNode(.{
+                .tag = .for_range,
+                .main_token = ellipsis,
+                .data = .{
+                    .lhs = input,
+                    .rhs = try p.parseExpr(),
+                },
+            });
+        }
+
+        try p.scratch.append(p.gpa, input);
+        switch (p.token_tags[p.tok_i]) {
+            .comma => p.tok_i += 1,
+            .r_paren => {
+                p.tok_i += 1;
+                break;
+            },
+            .colon, .r_brace, .r_bracket => return p.failExpected(.r_paren),
+            // Likely just a missing comma; give error but continue parsing.
+            else => try p.warn(.expected_comma_after_for_operand),
+        }
+        if (p.eatToken(.r_paren)) |_| break;
+    }
+    const inputs = p.scratch.items.len - start;
+
+    _ = p.eatToken(.pipe) orelse {
+        try p.warn(.expected_loop_payload);
+        return inputs;
+    };
+
+    var warned_excess = false;
+    var captures: u32 = 0;
+    while (true) {
+        _ = p.eatToken(.asterisk);
+        const identifier = try p.expectToken(.identifier);
+        captures += 1;
+        if (!warned_excess and inputs == 1 and captures == 2) {
+            // TODO remove the above condition after 0.11.0 release. this silences
+            // the error so that zig fmt can fix it.
+        } else if (captures > inputs and !warned_excess) {
+            try p.warnMsg(.{ .tag = .extra_for_capture, .token = identifier });
+            warned_excess = true;
+        }
+        switch (p.token_tags[p.tok_i]) {
+            .comma => p.tok_i += 1,
+            .pipe => {
+                p.tok_i += 1;
+                break;
+            },
+            // Likely just a missing comma; give error but continue parsing.
+            else => try p.warn(.expected_comma_after_capture),
+        }
+        if (p.eatToken(.pipe)) |_| break;
+    }
+
+    if (captures < inputs) {
+        const index = p.scratch.items.len - captures;
+        const input = p.nodes.items(.main_token)[p.scratch.items[index]];
+        try p.warnMsg(.{ .tag = .for_input_not_captured, .token = input });
+    }
+    return inputs;
 }
 
 /// WhilePrefix <- KEYWORD_while LPAREN Expr RPAREN PtrPayload? WhileContinueExpr?
@@ -2752,37 +2830,41 @@ fn expectPrimaryTypeExpr(p: *Parse) !Node.Index {
     return node;
 }
 
-/// ForPrefix <- KEYWORD_for LPAREN Expr RPAREN PtrIndexPayload
-///
 /// ForTypeExpr <- ForPrefix TypeExpr (KEYWORD_else TypeExpr)?
 fn parseForTypeExpr(p: *Parse) !Node.Index {
     const for_token = p.eatToken(.keyword_for) orelse return null_node;
-    _ = try p.expectToken(.l_paren);
-    const array_expr = try p.expectExpr();
-    _ = try p.expectToken(.r_paren);
-    const found_payload = try p.parsePtrIndexPayload();
-    if (found_payload == 0) try p.warn(.expected_loop_payload);
+
+    const scratch_top = p.scratch.items.len;
+    defer p.scratch.shrinkRetainingCapacity(scratch_top);
+    const inputs = try p.forPrefix();
 
     const then_expr = try p.expectTypeExpr();
-    _ = p.eatToken(.keyword_else) orelse {
+    var has_else = false;
+    if (p.eatToken(.keyword_else)) |_| {
+        try p.scratch.append(p.gpa, then_expr);
+        const else_expr = try p.expectTypeExpr();
+        try p.scratch.append(p.gpa, else_expr);
+        has_else = true;
+    } else if (inputs == 1) {
         return p.addNode(.{
             .tag = .for_simple,
             .main_token = for_token,
             .data = .{
-                .lhs = array_expr,
+                .lhs = p.scratch.items[scratch_top],
                 .rhs = then_expr,
             },
         });
-    };
-    const else_expr = try p.expectTypeExpr();
+    } else {
+        try p.scratch.append(p.gpa, then_expr);
+    }
     return p.addNode(.{
         .tag = .@"for",
         .main_token = for_token,
         .data = .{
-            .lhs = array_expr,
-            .rhs = try p.addExtra(Node.If{
-                .then_expr = then_expr,
-                .else_expr = else_expr,
+            .lhs = (try p.listToSpan(p.scratch.items[scratch_top..])).start,
+            .rhs = @bitCast(u32, Node.For{
+                .inputs = @intCast(u31, inputs),
+                .has_else = has_else,
             }),
         },
     });

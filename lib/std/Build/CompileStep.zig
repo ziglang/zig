@@ -1016,7 +1016,7 @@ pub fn addVcpkgPaths(self: *CompileStep, linkage: CompileStep.Linkage) !void {
 pub fn setExecCmd(self: *CompileStep, args: []const ?[]const u8) void {
     assert(self.kind == .@"test");
     const duped_args = self.builder.allocator.alloc(?[]u8, args.len) catch @panic("OOM");
-    for (args) |arg, i| {
+    for (args, 0..) |arg, i| {
         duped_args[i] = if (arg) |a| self.builder.dupe(a) else null;
     }
     self.exec_cmd_args = duped_args;
@@ -1040,7 +1040,7 @@ fn appendModuleArgs(
 
     {
         const keys = module.dependencies.keys();
-        for (module.dependencies.values()) |sub_module, i| {
+        for (module.dependencies.values(), 0..) |sub_module, i| {
             const sub_name = keys[i];
             try cs.appendModuleArgs(zig_args, sub_name, sub_module);
         }
@@ -1575,7 +1575,7 @@ fn make(step: *Step) !void {
 
     {
         const keys = self.modules.keys();
-        for (self.modules.values()) |module, i| {
+        for (self.modules.values(), 0..) |module, i| {
             const name = keys[i];
             try self.appendModuleArgs(&zig_args, name, module);
         }
@@ -1750,7 +1750,7 @@ fn make(step: *Step) !void {
         const args_to_escape = zig_args.items[2..];
         var escaped_args = try ArrayList([]const u8).initCapacity(builder.allocator, args_to_escape.len);
         arg_blk: for (args_to_escape) |arg| {
-            for (arg) |c, arg_idx| {
+            for (arg, 0..) |c, arg_idx| {
                 if (c == '\\' or c == '"') {
                     // Slow path for arguments that need to be escaped. We'll need to allocate and copy
                     var escaped = try ArrayList(u8).initCapacity(builder.allocator, arg.len + 1);

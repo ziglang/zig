@@ -61,7 +61,7 @@ pub const DevicePathProtocol = extern struct {
         // The same as new.getPath(), but not const as we're filling it in.
         var ptr = @ptrCast([*:0]align(1) u16, @ptrCast([*]u8, new) + @sizeOf(MediaDevicePath.FilePathDevicePath));
 
-        for (path) |s, i|
+        for (path, 0..) |s, i|
             ptr[i] = s;
 
         ptr[path.len] = 0;

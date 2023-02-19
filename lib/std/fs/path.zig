@@ -48,7 +48,7 @@ fn joinSepMaybeZ(allocator: Allocator, separator: u8, comptime sepPredicate: fn 
 
     // Find first non-empty path index.
     const first_path_index = blk: {
-        for (paths) |path, index| {
+        for (paths, 0..) |path, index| {
             if (path.len == 0) continue else break :blk index;
         }
 
@@ -476,7 +476,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
     var drive_kind = WindowsPath.Kind.None;
     var have_abs_path = false;
     var first_index: usize = 0;
-    for (paths) |p, i| {
+    for (paths, 0..) |p, i| {
         const parsed = windowsParsePath(p);
         if (parsed.is_abs) {
             have_abs_path = true;
@@ -504,7 +504,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
         first_index = 0;
         var correct_disk_designator = false;
 
-        for (paths) |p, i| {
+        for (paths, 0..) |p, i| {
             const parsed = windowsParsePath(p);
             if (parsed.kind != WindowsPath.Kind.None) {
                 if (parsed.kind == drive_kind) {

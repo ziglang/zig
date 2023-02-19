@@ -188,13 +188,13 @@ fn initBlocks(
 
         mem.writeIntLittle(u32, h0[Blake2b512.digest_length..][0..4], 0);
         blake2bLong(&block0, h0);
-        for (blocks.items[j + 0]) |*v, i| {
+        for (&blocks.items[j + 0], 0..) |*v, i| {
             v.* = mem.readIntLittle(u64, block0[i * 8 ..][0..8]);
         }
 
         mem.writeIntLittle(u32, h0[Blake2b512.digest_length..][0..4], 1);
         blake2bLong(&block0, h0);
-        for (blocks.items[j + 1]) |*v, i| {
+        for (&blocks.items[j + 1], 0..) |*v, i| {
             v.* = mem.readIntLittle(u64, block0[i * 8 ..][0..8]);
         }
     }
@@ -352,7 +352,7 @@ fn processBlockGeneric(
     comptime xor: bool,
 ) void {
     var t: [block_length]u64 = undefined;
-    for (t) |*v, i| {
+    for (&t, 0..) |*v, i| {
         v.* = in1[i] ^ in2[i];
     }
     var i: usize = 0;
@@ -375,11 +375,11 @@ fn processBlockGeneric(
         }
     }
     if (xor) {
-        for (t) |v, j| {
+        for (t, 0..) |v, j| {
             out[j] ^= in1[j] ^ in2[j] ^ v;
         }
     } else {
-        for (t) |v, j| {
+        for (t, 0..) |v, j| {
             out[j] = in1[j] ^ in2[j] ^ v;
         }
     }
@@ -428,12 +428,12 @@ fn finalize(
     const lanes = memory / threads;
     var lane: u24 = 0;
     while (lane < threads - 1) : (lane += 1) {
-        for (blocks.items[(lane * lanes) + lanes - 1]) |v, i| {
+        for (blocks.items[(lane * lanes) + lanes - 1], 0..) |v, i| {
             blocks.items[memory - 1][i] ^= v;
         }
     }
     var block: [1024]u8 = undefined;
-    for (blocks.items[memory - 1]) |v, i| {
+    for (blocks.items[memory - 1], 0..) |v, i| {
         mem.writeIntLittle(u64, block[i * 8 ..][0..8], v);
     }
     blake2bLong(out, &block);

@@ -339,7 +339,7 @@ test "siphash64-2-4 sanity" {
     const siphash = SipHash64(2, 4);
 
     var buffer: [64]u8 = undefined;
-    for (vectors) |vector, i| {
+    for (vectors, 0..) |vector, i| {
         buffer[i] = @intCast(u8, i);
 
         var out: [siphash.mac_length]u8 = undefined;
@@ -419,7 +419,7 @@ test "siphash128-2-4 sanity" {
     const siphash = SipHash128(2, 4);
 
     var buffer: [64]u8 = undefined;
-    for (vectors) |vector, i| {
+    for (vectors, 0..) |vector, i| {
         buffer[i] = @intCast(u8, i);
 
         var out: [siphash.mac_length]u8 = undefined;
@@ -430,7 +430,7 @@ test "siphash128-2-4 sanity" {
 
 test "iterative non-divisible update" {
     var buf: [1024]u8 = undefined;
-    for (buf) |*e, i| {
+    for (&buf, 0..) |*e, i| {
         e.* = @truncate(u8, i);
     }
 

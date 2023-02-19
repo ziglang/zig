@@ -26,7 +26,7 @@ fn foo(args: [][]const u8) !void {
 fn bar(argc: usize) !void {
     var args_buffer: [10][]const u8 = undefined;
     const args = args_buffer[0..argc];
-    for (args) |_, i| {
+    for (args, 0..) |_, i| {
         const ptr = argv[i];
         args[i] = ptr[0..strlen(ptr)];
     }
@@ -41,7 +41,7 @@ fn strlen(ptr: [*]const u8) usize {
 
 fn streql(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
-    for (a) |item, index| {
+    for (a, 0..) |item, index| {
         if (b[index] != item) return false;
     }
     return true;

@@ -268,7 +268,7 @@ pub const MemoizedCall = struct {
         if (a.func != b.func) return false;
 
         assert(a.args.len == b.args.len);
-        for (a.args) |a_arg, arg_i| {
+        for (a.args, 0..) |a_arg, arg_i| {
             const b_arg = b.args[arg_i];
             if (!a_arg.eql(b_arg, ctx.module)) {
                 return false;
@@ -1082,7 +1082,7 @@ pub const Struct = struct {
         assert(s.layout == .Packed);
         assert(s.haveLayout());
         var bit_sum: u64 = 0;
-        for (s.fields.values()) |field, i| {
+        for (s.fields.values(), 0..) |field, i| {
             if (i == index) {
                 return @intCast(u16, bit_sum);
             }
@@ -1341,7 +1341,7 @@ pub const Union = struct {
         assert(u.haveFieldTypes());
         var most_alignment: u32 = 0;
         var most_index: usize = undefined;
-        for (u.fields.values()) |field, i| {
+        for (u.fields.values(), 0..) |field, i| {
             if (!field.ty.hasRuntimeBits()) continue;
 
             const field_align = field.normalAlignment(target);
@@ -1405,7 +1405,7 @@ pub const Union = struct {
         var payload_size: u64 = 0;
         var payload_align: u32 = 0;
         const fields = u.fields.values();
-        for (fields) |field, i| {
+        for (fields, 0..) |field, i| {
             if (!field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
             const field_align = a: {
@@ -2462,6 +2462,55 @@ pub const SrcLoc = struct {
                 };
                 return nodeToSpan(tree, src_node);
             },
+            .for_input => |for_input| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(for_input.for_node_offset);
+                const for_full = tree.fullFor(node).?;
+                const src_node = for_full.ast.inputs[for_input.input_index];
+                return nodeToSpan(tree, src_node);
+            },
+            .for_capture_from_input => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const token_tags = tree.tokens.items(.tag);
+                const input_node = src_loc.declRelativeToNodeIndex(node_off);
+                // We have to actually linear scan the whole AST to find the for loop
+                // that contains this input.
+                const node_tags = tree.nodes.items(.tag);
+                for (node_tags, 0..) |node_tag, node_usize| {
+                    const node = @intCast(Ast.Node.Index, node_usize);
+                    switch (node_tag) {
+                        .for_simple, .@"for" => {
+                            const for_full = tree.fullFor(node).?;
+                            for (for_full.ast.inputs, 0..) |input, input_index| {
+                                if (input_node == input) {
+                                    var count = input_index;
+                                    var tok = for_full.payload_token;
+                                    while (true) {
+                                        switch (token_tags[tok]) {
+                                            .comma => {
+                                                count -= 1;
+                                                tok += 1;
+                                            },
+                                            .identifier => {
+                                                if (count == 0)
+                                                    return tokensToSpan(tree, tok, tok + 1, tok);
+                                                tok += 1;
+                                            },
+                                            .asterisk => {
+                                                if (count == 0)
+                                                    return tokensToSpan(tree, tok, tok + 2, tok);
+                                                tok += 1;
+                                            },
+                                            else => unreachable,
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        else => continue,
+                    }
+                } else unreachable;
+            },
             .node_offset_bin_lhs => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -3114,6 +3163,20 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to the RHS of an assignment.
     /// The Decl is determined contextually.
     node_offset_store_operand: i32,
+    /// The source location points to a for loop input.
+    /// The Decl is determined contextually.
+    for_input: struct {
+        /// Points to the for loop AST node.
+        for_node_offset: i32,
+        /// Picks one of the inputs from the condition.
+        input_index: u32,
+    },
+    /// The source location points to one of the captures of a for loop, found
+    /// by taking this AST node index offset from the containing
+    /// Decl AST node, which points to one of the input nodes of a for loop.
+    /// Next, navigate to the corresponding capture.
+    /// The Decl is determined contextually.
+    for_capture_from_input: i32,
 
     pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
 
@@ -3200,6 +3263,8 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_init_ty,
             .node_offset_store_ptr,
             .node_offset_store_operand,
+            .for_input,
+            .for_capture_from_input,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,
@@ -3553,7 +3618,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
             }
             if (data_has_safety_tag) {
                 const tags = zir.instructions.items(.tag);
-                for (zir.instructions.items(.data)) |*data, i| {
+                for (zir.instructions.items(.data), 0..) |*data, i| {
                     const union_tag = Zir.Inst.Tag.data_tags[@enumToInt(tags[i])];
                     const as_struct = @ptrCast(*HackDataLayout, data);
                     as_struct.* = .{
@@ -3740,7 +3805,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         @ptrCast([*]const u8, file.zir.instructions.items(.data).ptr);
     if (data_has_safety_tag) {
         // The `Data` union has a safety tag but in the file format we store it without.
-        for (file.zir.instructions.items(.data)) |*data, i| {
+        for (file.zir.instructions.items(.data), 0..) |*data, i| {
             const as_struct = @ptrCast(*const HackDataLayout, data);
             safety_buffer[i] = as_struct.data;
         }
@@ -6293,7 +6358,7 @@ pub fn populateTestFunctions(
         // Add a dependency on each test name and function pointer.
         try array_decl.dependencies.ensureUnusedCapacity(gpa, test_fn_vals.len * 2);
 
-        for (mod.test_functions.keys()) |test_decl_index, i| {
+        for (mod.test_functions.keys(), 0..) |test_decl_index, i| {
             const test_decl = mod.declPtr(test_decl_index);
             const test_name_slice = mem.sliceTo(test_decl.name, 0);
             const test_name_decl_index = n: {

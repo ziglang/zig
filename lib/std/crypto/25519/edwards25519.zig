@@ -161,7 +161,7 @@ pub const Edwards25519 = struct {
     fn slide(s: [32]u8) [2 * 32]i8 {
         const reduced = if ((s[s.len - 1] & 0x80) == 0) s else scalar.reduce(s);
         var e: [2 * 32]i8 = undefined;
-        for (reduced) |x, i| {
+        for (reduced, 0..) |x, i| {
             e[i * 2 + 0] = @as(i8, @truncate(u4, x));
             e[i * 2 + 1] = @as(i8, @truncate(u4, x >> 4));
         }
@@ -308,7 +308,7 @@ pub const Edwards25519 = struct {
         var bpc: [9]Edwards25519 = undefined;
         mem.copy(Edwards25519, bpc[0..], basePointPc[0..bpc.len]);
 
-        for (ps) |p, i| {
+        for (ps, 0..) |p, i| {
             if (p.is_base) {
                 pcs[i] = bpc;
             } else {
@@ -317,13 +317,13 @@ pub const Edwards25519 = struct {
             }
         }
         var es: [count][2 * 32]i8 = undefined;
-        for (ss) |s, i| {
+        for (ss, 0..) |s, i| {
             es[i] = slide(s);
         }
         var q = Edwards25519.identityElement;
         var pos: usize = 2 * 32 - 1;
         while (true) : (pos -= 1) {
-            for (es) |e, i| {
+            for (es, 0..) |e, i| {
                 const slot = e[pos];
                 if (slot > 0) {
                     q = q.add(pcs[i][@intCast(usize, slot)]);

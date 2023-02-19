@@ -99,7 +99,7 @@ pub fn cmdTargets(
         for (arch.allCpuModels()) |model| {
             try jws.objectField(model.name);
             try jws.beginArray();
-            for (arch.allFeaturesList()) |feature, i| {
+            for (arch.allFeaturesList(), 0..) |feature, i| {
                 if (model.features.isEnabled(@intCast(u8, i))) {
                     try jws.arrayElem();
                     try jws.emitString(feature.name);
@@ -145,7 +145,7 @@ pub fn cmdTargets(
         {
             try jws.objectField("features");
             try jws.beginArray();
-            for (native_target.cpu.arch.allFeaturesList()) |feature, i_usize| {
+            for (native_target.cpu.arch.allFeaturesList(), 0..) |feature, i_usize| {
                 const index = @intCast(Target.Cpu.Feature.Set.Index, i_usize);
                 if (cpu.features.isEnabled(index)) {
                     try jws.arrayElem();

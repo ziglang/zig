@@ -197,7 +197,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             lit_enc: *hm_code.HuffmanEncoder,
             off_enc: *hm_code.HuffmanEncoder,
         ) void {
-            for (self.codegen_freq) |_, i| {
+            for (self.codegen_freq, 0..) |_, i| {
                 self.codegen_freq[i] = 0;
             }
 
@@ -208,12 +208,12 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             var codegen = self.codegen; // cache
             // Copy the concatenated code sizes to codegen. Put a marker at the end.
             var cgnl = codegen[0..num_literals];
-            for (cgnl) |_, i| {
+            for (cgnl, 0..) |_, i| {
                 cgnl[i] = @intCast(u8, lit_enc.codes[i].len);
             }
 
             cgnl = codegen[num_literals .. num_literals + num_offsets];
-            for (cgnl) |_, i| {
+            for (cgnl, 0..) |_, i| {
                 cgnl[i] = @intCast(u8, off_enc.codes[i].len);
             }
             codegen[num_literals + num_offsets] = bad_code;
@@ -600,10 +600,10 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             var num_literals: u32 = 0;
             var num_offsets: u32 = 0;
 
-            for (self.literal_freq) |_, i| {
+            for (self.literal_freq, 0..) |_, i| {
                 self.literal_freq[i] = 0;
             }
-            for (self.offset_freq) |_, i| {
+            for (self.offset_freq, 0..) |_, i| {
                 self.offset_freq[i] = 0;
             }
 
@@ -691,7 +691,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
             }
 
             // Clear histogram
-            for (self.literal_freq) |_, i| {
+            for (self.literal_freq, 0..) |_, i| {
                 self.literal_freq[i] = 0;
             }
 

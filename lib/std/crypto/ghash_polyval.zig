@@ -320,7 +320,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
             if (st.leftover > 0) {
                 const want = math.min(block_length - st.leftover, mb.len);
                 const mc = mb[0..want];
-                for (mc) |x, i| {
+                for (mc, 0..) |x, i| {
                     st.buf[st.leftover + i] = x;
                 }
                 mb = mb[want..];
@@ -337,7 +337,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
                 mb = mb[want..];
             }
             if (mb.len > 0) {
-                for (mb) |x, i| {
+                for (mb, 0..) |x, i| {
                     st.buf[st.leftover + i] = x;
                 }
                 st.leftover += mb.len;

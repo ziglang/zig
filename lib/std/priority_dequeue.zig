@@ -430,7 +430,7 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
             const print = std.debug.print;
             print("{{ ", .{});
             print("items: ", .{});
-            for (self.items) |e, i| {
+            for (self.items, 0..) |e, i| {
                 if (i >= self.len) break;
                 print("{}, ", .{e});
             }

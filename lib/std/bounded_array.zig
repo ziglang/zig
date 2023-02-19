@@ -169,7 +169,7 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
             } else {
                 mem.copy(T, range, new_items);
                 const after_subrange = start + new_items.len;
-                for (self.constSlice()[after_range..]) |item, i| {
+                for (self.constSlice()[after_range..], 0..) |item, i| {
                     self.slice()[after_subrange..][i] = item;
                 }
                 self.len -= len - new_items.len;
@@ -197,7 +197,7 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
             const newlen = self.len - 1;
             if (newlen == i) return self.pop();
             const old_item = self.get(i);
-            for (self.slice()[i..newlen]) |*b, j| b.* = self.get(i + 1 + j);
+            for (self.slice()[i..newlen], 0..) |*b, j| b.* = self.get(i + 1 + j);
             self.set(newlen, undefined);
             self.len = newlen;
             return old_item;

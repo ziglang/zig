@@ -38,7 +38,7 @@ pub fn emitMir(
     const mir_tags = emit.mir.instructions.items(.tag);
 
     // Emit machine code
-    for (mir_tags) |tag, index| {
+    for (mir_tags, 0..) |tag, index| {
         const inst = @intCast(u32, index);
         switch (tag) {
             .add => try emit.mirRType(inst),

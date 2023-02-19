@@ -98,7 +98,7 @@ pub const Type = extern union {
                 const struct_b = b.payload(.@"struct");
                 if (struct_a.members.len != struct_b.members.len)
                     return false;
-                for (struct_a.members) |mem_a, i| {
+                for (struct_a.members, 0..) |mem_a, i| {
                     if (!std.meta.eql(mem_a, struct_b.members[i]))
                         return false;
                 }

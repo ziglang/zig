@@ -84,14 +84,14 @@ fn testShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, c
 
     var table = Table.create();
     var node_buffer: [node_count]Table.Node = undefined;
-    for (node_buffer) |*node, i| {
+    for (&node_buffer, 0..) |*node, i| {
         const key = @intCast(Key, i);
         try expect(table.get(key) == null);
         node.init(key, {});
         table.put(node);
     }
 
-    for (node_buffer) |*node, i| {
+    for (&node_buffer, 0..) |*node, i| {
         try expect(table.get(@intCast(Key, i)) == node);
     }
 }

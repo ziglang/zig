@@ -418,7 +418,7 @@ pub const DeclGen = struct {
 
                     const elem_refs = try self.gpa.alloc(IdRef, vector_len);
                     defer self.gpa.free(elem_refs);
-                    for (elem_refs) |*elem, i| {
+                    for (elem_refs, 0..) |*elem, i| {
                         elem.* = try self.genConstant(elem_ty, elem_vals[i]);
                     }
                     try section.emit(self.spv.gpa, .OpConstantComposite, .{
@@ -498,7 +498,7 @@ pub const DeclGen = struct {
                     return self.fail("VarArgs functions are unsupported for SPIR-V", .{});
 
                 const param_types = try self.spv.arena.alloc(SpvType.Ref, ty.fnParamLen());
-                for (param_types) |*param, i| {
+                for (param_types, 0..) |*param, i| {
                     param.* = try self.resolveType(ty.fnParamType(i));
                 }
 

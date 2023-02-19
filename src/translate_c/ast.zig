@@ -1765,7 +1765,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             _ = try c.addToken(.l_brace, "{");
             var cases = try c.gpa.alloc(NodeIndex, payload.cases.len);
             defer c.gpa.free(cases);
-            for (payload.cases) |case, i| {
+            for (payload.cases, 0..) |case, i| {
                 cases[i] = try renderNode(c, case);
                 _ = try c.addToken(.comma, ",");
             }
@@ -1800,7 +1800,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             var items = try c.gpa.alloc(NodeIndex, std.math.max(payload.cases.len, 1));
             defer c.gpa.free(items);
             items[0] = 0;
-            for (payload.cases) |item, i| {
+            for (payload.cases, 0..) |item, i| {
                 if (i != 0) _ = try c.addToken(.comma, ",");
                 items[i] = try renderNode(c, item);
             }
@@ -1950,7 +1950,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             defer c.gpa.free(inits);
             inits[0] = 0;
             inits[1] = 0;
-            for (payload) |init, i| {
+            for (payload, 0..) |init, i| {
                 if (i != 0) _ = try c.addToken(.comma, ",");
                 inits[i] = try renderNode(c, init);
             }
@@ -1984,7 +1984,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             defer c.gpa.free(inits);
             inits[0] = 0;
             inits[1] = 0;
-            for (payload) |init, i| {
+            for (payload, 0..) |init, i| {
                 _ = try c.addToken(.period, ".");
                 _ = try c.addIdentifier(init.name);
                 _ = try c.addToken(.equal, "=");
@@ -2022,7 +2022,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             var inits = try c.gpa.alloc(NodeIndex, std.math.max(payload.inits.len, 1));
             defer c.gpa.free(inits);
             inits[0] = 0;
-            for (payload.inits) |init, i| {
+            for (payload.inits, 0..) |init, i| {
                 _ = try c.addToken(.period, ".");
                 _ = try c.addIdentifier(init.name);
                 _ = try c.addToken(.equal, "=");
@@ -2080,7 +2080,7 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
     members[0] = 0;
     members[1] = 0;
 
-    for (payload.fields) |field, i| {
+    for (payload.fields, 0..) |field, i| {
         const name_tok = try c.addTokenFmt(.identifier, "{s}", .{std.zig.fmtId(field.name)});
         _ = try c.addToken(.colon, ":");
         const type_expr = try renderNode(c, field.type);
@@ -2116,10 +2116,10 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
         });
         _ = try c.addToken(.comma, ",");
     }
-    for (payload.variables) |variable, i| {
+    for (payload.variables, 0..) |variable, i| {
         members[payload.fields.len + i] = try renderNode(c, variable);
     }
-    for (payload.functions) |function, i| {
+    for (payload.functions, 0..) |function, i| {
         members[payload.fields.len + num_vars + i] = try renderNode(c, function);
     }
     _ = try c.addToken(.r_brace, "}");
@@ -2171,7 +2171,7 @@ fn renderArrayInit(c: *Context, lhs: NodeIndex, inits: []const Node) !NodeIndex 
     var rendered = try c.gpa.alloc(NodeIndex, std.math.max(inits.len, 1));
     defer c.gpa.free(rendered);
     rendered[0] = 0;
-    for (inits) |init, i| {
+    for (inits, 0..) |init, i| {
         rendered[i] = try renderNode(c, init);
         _ = try c.addToken(.comma, ",");
     }
@@ -2539,7 +2539,7 @@ fn renderCall(c: *Context, lhs: NodeIndex, args: []const Node) !NodeIndex {
             var rendered = try c.gpa.alloc(NodeIndex, args.len);
             defer c.gpa.free(rendered);
 
-            for (args) |arg, i| {
+            for (args, 0..) |arg, i| {
                 if (i != 0) _ = try c.addToken(.comma, ",");
                 rendered[i] = try renderNode(c, arg);
             }
@@ -2879,7 +2879,7 @@ fn renderParams(c: *Context, params: []Payload.Param, is_var_args: bool) !std.Ar
     var rendered = try std.ArrayList(NodeIndex).initCapacity(c.gpa, std.math.max(params.len, 1));
     errdefer rendered.deinit();
 
-    for (params) |param, i| {
+    for (params, 0..) |param, i| {
         if (i != 0) _ = try c.addToken(.comma, ",");
         if (param.is_noalias) _ = try c.addToken(.keyword_noalias, "noalias");
         if (param.name) |some| {

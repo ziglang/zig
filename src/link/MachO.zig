@@ -962,7 +962,7 @@ pub fn parseLibs(
     syslibroot: ?[]const u8,
     dependent_libs: anytype,
 ) !void {
-    for (lib_names) |lib, i| {
+    for (lib_names, 0..) |lib, i| {
         const lib_info = lib_infos[i];
         log.debug("parsing lib path '{s}'", .{lib});
         if (try self.parseDylib(lib, dependent_libs, .{
@@ -1584,7 +1584,7 @@ pub fn resolveSymbolsInDylibs(self: *MachO) !void {
         const sym = self.getSymbolPtr(global);
         const sym_name = self.getSymbolName(global);
 
-        for (self.dylibs.items) |dylib, id| {
+        for (self.dylibs.items, 0..) |dylib, id| {
             if (!dylib.symbols.contains(sym_name)) continue;
 
             const dylib_id = @intCast(u16, id);
@@ -1686,7 +1686,7 @@ pub fn resolveDyldStubBinder(self: *MachO) !void {
     gop.value_ptr.* = sym_loc;
     const global = gop.value_ptr.*;
 
-    for (self.dylibs.items) |dylib, id| {
+    for (self.dylibs.items, 0..) |dylib, id| {
         if (!dylib.symbols.contains(sym_name)) continue;
 
         const dylib_id = @intCast(u16, id);
@@ -2852,7 +2852,7 @@ fn moveSectionInVirtualMemory(self: *MachO, sect_id: u8, needed_size: u64) !void
     });
 
     // TODO: enforce order by increasing VM addresses in self.sections container.
-    for (self.sections.items(.header)[sect_id + 1 ..]) |*next_header, next_sect_id| {
+    for (self.sections.items(.header)[sect_id + 1 ..], 0..) |*next_header, next_sect_id| {
         const index = @intCast(u8, sect_id + 1 + next_sect_id);
         const next_segment = self.getSegmentPtr(index);
         next_header.addr += diff;
@@ -3082,7 +3082,7 @@ pub fn initSection(self: *MachO, segname: []const u8, sectname: []const u8, opts
 fn insertSection(self: *MachO, segment_index: u8, header: macho.section_64) !u8 {
     const precedence = getSectionPrecedence(header);
     const indexes = self.getSectionIndexes(segment_index);
-    const insertion_index = for (self.sections.items(.header)[indexes.start..indexes.end]) |hdr, i| {
+    const insertion_index = for (self.sections.items(.header)[indexes.start..indexes.end], 0..) |hdr, i| {
         if (getSectionPrecedence(hdr) > precedence) break @intCast(u8, i + indexes.start);
     } else indexes.end;
     log.debug("inserting section '{s},{s}' at index {d}", .{
@@ -3133,7 +3133,7 @@ pub fn getGlobalSymbol(self: *MachO, name: []const u8) !u32 {
 }
 
 fn writeSegmentHeaders(self: *MachO, writer: anytype) !void {
-    for (self.segments.items) |seg, i| {
+    for (self.segments.items, 0..) |seg, i| {
         const indexes = self.getSectionIndexes(@intCast(u8, i));
         try writer.writeStruct(seg);
         for (self.sections.items(.header)[indexes.start..indexes.end]) |header| {
@@ -3147,7 +3147,7 @@ fn writeLinkeditSegmentData(self: *MachO) !void {
     seg.filesize = 0;
     seg.vmsize = 0;
 
-    for (self.segments.items) |segment, id| {
+    for (self.segments.items, 0..) |segment, id| {
         if (self.linkedit_segment_cmd_index.? == @intCast(u8, id)) continue;
         if (seg.vmaddr < segment.vmaddr + segment.vmsize) {
             seg.vmaddr = mem.alignForwardGeneric(u64, segment.vmaddr + segment.vmsize, self.page_size);
@@ -3167,7 +3167,7 @@ fn collectRebaseData(self: *MachO, rebase: *Rebase) !void {
     const gpa = self.base.allocator;
     const slice = self.sections.slice();
 
-    for (self.rebases.keys()) |atom_index, i| {
+    for (self.rebases.keys(), 0..) |atom_index, i| {
         const atom = self.getAtom(atom_index);
         log.debug("  ATOM(%{?d}, '{s}')", .{ atom.getSymbolIndex(), atom.getName(self) });
 
@@ -3197,7 +3197,7 @@ fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
     const gpa = self.base.allocator;
     const slice = self.sections.slice();
 
-    for (raw_bindings.keys()) |atom_index, i| {
+    for (raw_bindings.keys(), 0..) |atom_index, i| {
         const atom = self.getAtom(atom_index);
         log.debug("  ATOM(%{?d}, '{s}')", .{ atom.getSymbolIndex(), atom.getName(self) });
 
@@ -3417,7 +3417,7 @@ fn writeSymtab(self: *MachO) !SymtabCtx {
     var locals = std.ArrayList(macho.nlist_64).init(gpa);
     defer locals.deinit();
 
-    for (self.locals.items) |sym, sym_id| {
+    for (self.locals.items, 0..) |sym, sym_id| {
         if (sym.n_strx == 0) continue; // no name, skip
         const sym_loc = SymbolWithLoc{ .sym_index = @intCast(u32, sym_id), .file = null };
         if (self.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
@@ -3736,7 +3736,7 @@ pub fn makeStaticString(bytes: []const u8) [16]u8 {
 }
 
 fn getSegmentByName(self: MachO, segname: []const u8) ?u8 {
-    for (self.segments.items) |seg, i| {
+    for (self.segments.items, 0..) |seg, i| {
         if (mem.eql(u8, segname, seg.segName())) return @intCast(u8, i);
     } else return null;
 }
@@ -3758,7 +3758,7 @@ pub fn getLinkeditSegmentPtr(self: *MachO) *macho.segment_command_64 {
 
 pub fn getSectionByName(self: MachO, segname: []const u8, sectname: []const u8) ?u8 {
     // TODO investigate caching with a hashmap
-    for (self.sections.items(.header)) |header, i| {
+    for (self.sections.items(.header), 0..) |header, i| {
         if (mem.eql(u8, header.segName(), segname) and mem.eql(u8, header.sectName(), sectname))
             return @intCast(u8, i);
     } else return null;
@@ -3766,7 +3766,7 @@ pub fn getSectionByName(self: MachO, segname: []const u8, sectname: []const u8) 
 
 pub fn getSectionIndexes(self: MachO, segment_index: u8) struct { start: u8, end: u8 } {
     var start: u8 = 0;
-    const nsects = for (self.segments.items) |seg, i| {
+    const nsects = for (self.segments.items, 0..) |seg, i| {
         if (i == segment_index) break @intCast(u8, seg.nsects);
         start += @intCast(u8, seg.nsects);
     } else 0;
@@ -4160,7 +4160,7 @@ pub fn findFirst(comptime T: type, haystack: []align(1) const T, start: usize, p
 
 pub fn logSections(self: *MachO) void {
     log.debug("sections:", .{});
-    for (self.sections.items(.header)) |header, i| {
+    for (self.sections.items(.header), 0..) |header, i| {
         log.debug("  sect({d}): {s},{s} @{x}, sizeof({x})", .{
             i + 1,
             header.segName(),
@@ -4197,7 +4197,7 @@ pub fn logSymtab(self: *MachO) void {
     var buf: [4]u8 = undefined;
 
     log.debug("symtab:", .{});
-    for (self.locals.items) |sym, sym_id| {
+    for (self.locals.items, 0..) |sym, sym_id| {
         const where = if (sym.undf() and !sym.tentative()) "ord" else "sect";
         const def_index = if (sym.undf() and !sym.tentative())
             @divTrunc(sym.n_desc, macho.N_SYMBOL_RESOLVER)
@@ -4220,7 +4220,7 @@ pub fn logSymtab(self: *MachO) void {
     }
 
     log.debug("GOT entries:", .{});
-    for (self.got_entries.items) |entry, i| {
+    for (self.got_entries.items, 0..) |entry, i| {
         const atom_sym = entry.getSymbol(self);
         const target_sym = self.getSymbol(entry.target);
         if (target_sym.undf()) {
@@ -4241,7 +4241,7 @@ pub fn logSymtab(self: *MachO) void {
     }
 
     log.debug("stubs entries:", .{});
-    for (self.stubs.items) |entry, i| {
+    for (self.stubs.items, 0..) |entry, i| {
         const target_sym = self.getSymbol(entry.target);
         const atom_sym = entry.getSymbol(self);
         assert(target_sym.undf());
@@ -4257,7 +4257,7 @@ pub fn logAtoms(self: *MachO) void {
     log.debug("atoms:", .{});
 
     const slice = self.sections.slice();
-    for (slice.items(.last_atom_index)) |last_atom_index, i| {
+    for (slice.items(.last_atom_index), 0..) |last_atom_index, i| {
         var atom_index = last_atom_index orelse continue;
         const header = slice.items(.header)[i];
 

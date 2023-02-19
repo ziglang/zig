@@ -29,7 +29,7 @@ fn tokenize(input: []const u8) !ArrayList(Token) {
     var tok_begin: usize = undefined;
     var state = State.Start;
 
-    for (input) |b, i| {
+    for (input, 0..) |b, i| {
         switch (state) {
             .Start => switch (b) {
                 'a'...'z', 'A'...'Z' => {
@@ -159,7 +159,7 @@ fn expandString(input: []const u8, output: *ArrayList(u8)) !void {
     try expandNode(root, &result_list);
 
     try output.resize(0);
-    for (result_list.items) |buf, i| {
+    for (result_list.items, 0..) |buf, i| {
         if (i != 0) {
             try output.append(' ');
         }

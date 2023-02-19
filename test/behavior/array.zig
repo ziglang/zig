@@ -185,7 +185,7 @@ test "nested arrays of strings" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const array_of_strings = [_][]const u8{ "hello", "this", "is", "my", "thing" };
-    for (array_of_strings) |s, i| {
+    for (array_of_strings, 0..) |s, i| {
         if (i == 0) try expect(mem.eql(u8, s, "hello"));
         if (i == 1) try expect(mem.eql(u8, s, "this"));
         if (i == 2) try expect(mem.eql(u8, s, "is"));

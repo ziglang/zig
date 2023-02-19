@@ -590,7 +590,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
     const object: Object = wasm.objects.items[object_index];
     log.debug("Resolving symbols in object: '{s}'", .{object.name});
 
-    for (object.symtable) |symbol, i| {
+    for (object.symtable, 0..) |symbol, i| {
         const sym_index = @intCast(u32, i);
         const location: SymbolLoc = .{
             .file = object_index,
@@ -794,7 +794,7 @@ fn validateFeatures(
 
     // extract all the used, disallowed and required features from each
     // linked object file so we can test them.
-    for (wasm.objects.items) |object, object_index| {
+    for (wasm.objects.items, 0..) |object, object_index| {
         for (object.features) |feature| {
             const value = @intCast(u16, object_index) << 1 | @as(u1, 1);
             switch (feature.prefix) {
@@ -815,7 +815,7 @@ fn validateFeatures(
     // when we infer the features, we allow each feature found in the 'used' set
     // and insert it into the 'allowed' set. When features are not inferred,
     // we validate that a used feature is allowed.
-    for (used) |used_set, used_index| {
+    for (used, 0..) |used_set, used_index| {
         const is_enabled = @truncate(u1, used_set) != 0;
         if (infer) {
             allowed[used_index] = is_enabled;
@@ -849,7 +849,7 @@ fn validateFeatures(
         }
 
         // validate the linked object file has each required feature
-        for (required) |required_feature, feature_index| {
+        for (required, 0..) |required_feature, feature_index| {
             const is_required = @truncate(u1, required_feature) != 0;
             if (is_required and !object_used_features[feature_index]) {
                 log.err("feature '{s}' is required but not used in linked object", .{(@intToEnum(types.Feature.Tag, feature_index)).toString()});
@@ -1818,7 +1818,7 @@ fn sortDataSegments(wasm: *Wasm) !void {
 /// original functions and their types. We need to know the type to verify it doesn't
 /// contain any parameters.
 fn setupInitFunctions(wasm: *Wasm) !void {
-    for (wasm.objects.items) |object, file_index| {
+    for (wasm.objects.items, 0..) |object, file_index| {
         try wasm.init_funcs.ensureUnusedCapacity(wasm.base.allocator, object.init_funcs.len);
         for (object.init_funcs) |init_func| {
             const symbol = object.symtable[init_func.symbol_index];
@@ -2717,7 +2717,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
 
     try wasm.parseInputFiles(positionals.items);
 
-    for (wasm.objects.items) |_, object_index| {
+    for (wasm.objects.items, 0..) |_, object_index| {
         try wasm.resolveSymbolsInObject(@intCast(u16, object_index));
     }
 
@@ -2732,7 +2732,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     try wasm.setupStart();
     try wasm.setupImports();
 
-    for (wasm.objects.items) |*object, object_index| {
+    for (wasm.objects.items, 0..) |*object, object_index| {
         try object.parseIntoAtoms(gpa, @intCast(u16, object_index), wasm);
     }
 
@@ -2801,7 +2801,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
 
     try wasm.parseInputFiles(positionals.items);
 
-    for (wasm.objects.items) |_, object_index| {
+    for (wasm.objects.items, 0..) |_, object_index| {
         try wasm.resolveSymbolsInObject(@intCast(u16, object_index));
     }
 
@@ -2850,7 +2850,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         }
     }
 
-    for (wasm.objects.items) |*object, object_index| {
+    for (wasm.objects.items, 0..) |*object, object_index| {
         try object.parseIntoAtoms(wasm.base.allocator, @intCast(u16, object_index), wasm);
     }
 
@@ -3362,7 +3362,7 @@ fn emitFeaturesSection(binary_bytes: *std.ArrayList(u8), enabled_features: []con
     try writer.writeAll(target_features);
 
     try leb.writeULEB128(writer, features_count);
-    for (enabled_features) |enabled, feature_index| {
+    for (enabled_features, 0..) |enabled, feature_index| {
         if (enabled) {
             const feature: types.Feature = .{ .prefix = .used, .tag = @intToEnum(types.Feature.Tag, feature_index) };
             try leb.writeULEB128(writer, @enumToInt(feature.prefix));

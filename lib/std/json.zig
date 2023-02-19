@@ -1280,7 +1280,7 @@ fn parsedEqual(a: anytype, b: @TypeOf(a)) bool {
             }
         },
         .Array => {
-            for (a) |e, i|
+            for (a, 0..) |e, i|
                 if (!parsedEqual(e, b[i])) return false;
             return true;
         },
@@ -1294,7 +1294,7 @@ fn parsedEqual(a: anytype, b: @TypeOf(a)) bool {
             .One => return parsedEqual(a.*, b.*),
             .Slice => {
                 if (a.len != b.len) return false;
-                for (a) |e, i|
+                for (a, 0..) |e, i|
                     if (!parsedEqual(e, b[i])) return false;
                 return true;
             },
@@ -1518,7 +1518,7 @@ fn parseInternal(
             var r: T = undefined;
             var fields_seen = [_]bool{false} ** structInfo.fields.len;
             errdefer {
-                inline for (structInfo.fields) |field, i| {
+                inline for (structInfo.fields, 0..) |field, i| {
                     if (fields_seen[i] and !field.is_comptime) {
                         parseFree(field.type, @field(r, field.name), options);
                     }
@@ -1533,7 +1533,7 @@ fn parseInternal(
                         var child_options = options;
                         child_options.allow_trailing_data = true;
                         var found = false;
-                        inline for (structInfo.fields) |field, i| {
+                        inline for (structInfo.fields, 0..) |field, i| {
                             // TODO: using switches here segfault the compiler (#2727?)
                             if ((stringToken.escapes == .None and mem.eql(u8, field.name, key_source_slice)) or (stringToken.escapes == .Some and (field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)))) {
                                 // if (switch (stringToken.escapes) {
@@ -1584,7 +1584,7 @@ fn parseInternal(
                     else => return error.UnexpectedToken,
                 }
             }
-            inline for (structInfo.fields) |field, i| {
+            inline for (structInfo.fields, 0..) |field, i| {
                 if (!fields_seen[i]) {
                     if (field.default_value) |default_ptr| {
                         if (!field.is_comptime) {
@@ -2367,7 +2367,7 @@ pub fn stringify(
                 if (child_options.whitespace) |*whitespace| {
                     whitespace.indent_level += 1;
                 }
-                for (value) |x, i| {
+                for (value, 0..) |x, i| {
                     if (i != 0) {
                         try out_stream.writeByte(',');
                     }
