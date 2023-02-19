@@ -264,6 +264,42 @@ const Branch = struct {
         self.inst_table.deinit(gpa);
         self.* = undefined;
     }
+
+    const FormatContext = struct {
+        insts: []const Air.Inst.Index,
+        mcvs: []const MCValue,
+    };
+
+    fn fmt(
+        ctx: FormatContext,
+        comptime unused_format_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        _ = options;
+        comptime assert(unused_format_string.len == 0);
+        try writer.writeAll("Branch {\n");
+        for (ctx.insts, 0..) |inst, i| {
+            const mcv = ctx.mcvs[i];
+            try writer.print("  %{d} => {}\n", .{ inst, mcv });
+        }
+        try writer.writeAll("}");
+    }
+
+    fn format(branch: Branch, comptime unused_format_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = branch;
+        _ = unused_format_string;
+        _ = options;
+        _ = writer;
+        @compileError("do not format Branch directly; use ty.fmtDebug()");
+    }
+
+    fn fmtDebug(self: @This()) std.fmt.Formatter(fmt) {
+        return .{ .data = .{
+            .insts = self.inst_table.keys(),
+            .mcvs = self.inst_table.values(),
+        } };
+    }
 };
 
 const StackAllocation = struct {
@@ -916,10 +952,23 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     branch.inst_table.putAssumeCapacity(inst, .dead);
     switch (prev_value) {
         .register => |reg| {
-            self.register_manager.freeReg(reg);
+            // For some instructions such as bit_cast it is possible that we will track the same MCValue
+            // for two different instructions. In this case, if either instruction dies before another,
+            // we do not want to free the MCValue prematurely.
+            // TODO we can either do this or we should re-implement AIR instruction implementations for
+            // bit_cast, ptr_to_int, etc. to actually have those instructions assigned a new MCValue.
+            if (self.register_manager.getTrackedInst(reg)) |tracked_inst| {
+                if (inst == tracked_inst) {
+                    self.register_manager.freeReg(reg);
+                }
+            }
         },
         .register_with_overflow => |rwo| {
-            self.register_manager.freeReg(rwo.reg);
+            if (self.register_manager.getTrackedInst(rwo.reg)) |tracked_inst| {
+                if (inst == tracked_inst) {
+                    self.register_manager.freeReg(rwo.reg);
+                }
+            }
             self.compare_flags_inst = null;
         },
         .compare_flags => {

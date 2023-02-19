@@ -726,7 +726,16 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     branch.inst_table.putAssumeCapacity(inst, .dead);
     switch (prev_value) {
         .register => |reg| {
-            self.register_manager.freeReg(reg);
+            // For some instructions such as bit_cast it is possible that we will track the same MCValue
+            // for two different instructions. In this case, if either instruction dies before another,
+            // we do not want to free the MCValue prematurely.
+            // TODO we can either do this or we should re-implement AIR instruction implementations for
+            // bit_cast, ptr_to_int, etc. to actually have those instructions assigned a new MCValue.
+            if (self.register_manager.getTrackedInst(reg)) |tracked_inst| {
+                if (inst == tracked_inst) {
+                    self.register_manager.freeReg(reg);
+                }
+            }
         },
         else => {}, // TODO process stack allocation death
     }
