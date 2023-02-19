@@ -1067,6 +1067,10 @@ pub const StandaloneContext = struct {
         zig_args.append(rel_zig_exe) catch unreachable;
         zig_args.append("build") catch unreachable;
 
+        // TODO: fix the various non-concurrency-safe issues in zig's standalone tests,
+        // and then remove this!
+        zig_args.append("-j1") catch @panic("OOM");
+
         zig_args.append("--build-file") catch unreachable;
         zig_args.append(b.pathFromRoot(build_file)) catch unreachable;
 
