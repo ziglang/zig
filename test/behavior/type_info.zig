@@ -603,3 +603,9 @@ test "@typeInfo decls ignore dependency loops" {
     };
     _ = S.foo;
 }
+
+test "type info of tuple of string literal default value" {
+    const struct_field = @typeInfo(@TypeOf(.{"hi"})).Struct.fields[0];
+    const value = @ptrCast(*align(1) const *const [2:0]u8, struct_field.default_value.?).*;
+    comptime std.debug.assert(value[0] == 'h');
+}

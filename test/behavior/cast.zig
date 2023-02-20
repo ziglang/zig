@@ -1568,3 +1568,12 @@ test "@volatileCast without a result location" {
     try expect(@TypeOf(z) == *i32);
     try expect(z.* == 1234);
 }
+
+test "coercion from single-item pointer to @as to slice" {
+    var x: u32 = 1;
+
+    // Why the following line gets a compile error?
+    const t: []u32 = @as(*[1]u32, &x);
+
+    try expect(t[0] == 1);
+}
