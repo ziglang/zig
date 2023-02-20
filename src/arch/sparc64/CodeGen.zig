@@ -1254,7 +1254,7 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
 
                         try self.genStoreASI(reg, .sp, off_reg, abi_size, opposite_endian_asi);
                         try self.genLoad(reg, .sp, Register, off_reg, abi_size);
-                        break :result reg;
+                        break :result .{ .register = reg };
                     },
                     .memory => {
                         if (int_info.bits > 64 or @popCount(int_info.bits) != 1)
@@ -1264,7 +1264,7 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
                         const dst_reg = try self.register_manager.allocReg(null, gp);
 
                         try self.genLoadASI(dst_reg, addr_reg, .g0, abi_size, opposite_endian_asi);
-                        break :result dst_reg;
+                        break :result .{ .register = dst_reg };
                     },
                     .stack_offset => |off| {
                         if (int_info.bits > 64 or @popCount(int_info.bits) != 1)
@@ -1274,7 +1274,7 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
                         const dst_reg = try self.register_manager.allocReg(null, gp);
 
                         try self.genLoadASI(dst_reg, .sp, off_reg, abi_size, opposite_endian_asi);
-                        break :result dst_reg;
+                        break :result .{ .register = dst_reg };
                     },
                     else => unreachable,
                 }
