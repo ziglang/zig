@@ -2973,6 +2973,11 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const field_ptr = try self.resolveInst(extra.field_ptr);
         const struct_ty = self.air.getRefType(ty_pl.ty).childType();
+
+        if (struct_ty.zigTypeTag() == .Union) {
+            return self.fail("TODO implement @fieldParentPtr codegen for unions", .{});
+        }
+
         const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(extra.field_index, self.target.*));
         switch (field_ptr) {
             .ptr_stack_offset => |off| {
