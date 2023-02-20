@@ -4944,8 +4944,8 @@ fn airFieldParentPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     if (func.liveness.isUnused(inst)) return func.finishAir(inst, .none, &.{extra.field_ptr});
 
     const field_ptr = try func.resolveInst(extra.field_ptr);
-    const struct_ty = func.air.getRefType(ty_pl.ty).childType();
-    const field_offset = struct_ty.structFieldOffset(extra.field_index, func.target);
+    const parent_ty = func.air.getRefType(ty_pl.ty).childType();
+    const field_offset = parent_ty.structFieldOffset(extra.field_index, func.target);
 
     const result = if (field_offset != 0) result: {
         const base = try func.buildPointerOffset(field_ptr, 0, .new);
