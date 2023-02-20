@@ -1143,3 +1143,17 @@ test "orelse coercion as function argument" {
     var foo = Container.init(optional orelse .{});
     try expect(foo.a.?.start == -1);
 }
+
+test "runtime-known globals initialized with undefined" {
+    const S = struct {
+        var array: [10]u32 = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+        var vp: [*]u32 = undefined;
+        var s: []u32 = undefined;
+    };
+
+    S.vp = &S.array;
+    S.s = S.vp[0..5];
+
+    try expect(S.s[0] == 1);
+    try expect(S.s[4] == 5);
+}
