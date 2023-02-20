@@ -2765,7 +2765,9 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
 
             switch (value) {
                 .dead => unreachable,
-                .undef => unreachable,
+                .undef => {
+                    try self.genSetReg(value_ty, addr_reg, value);
+                },
                 .register => |value_reg| {
                     try self.genStrRegister(value_reg, addr_reg, value_ty);
                 },
@@ -5816,7 +5818,24 @@ fn airPtrToInt(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result = try self.resolveInst(ty_op.operand);
+    const result = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand = try self.resolveInst(ty_op.operand);
+        if (self.reuseOperand(inst, ty_op.operand, 0, operand)) break :result operand;
+
+        const operand_lock = switch (operand) {
+            .register,
+            .register_c_flag,
+            .register_v_flag,
+            => |reg| self.register_manager.lockReg(reg),
+            else => null,
+        };
+        defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const dest_ty = self.air.typeOfIndex(inst);
+        const dest = try self.allocRegOrMem(dest_ty, true, inst);
+        try self.setRegOrMem(dest_ty, dest, operand);
+        break :result dest;
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
