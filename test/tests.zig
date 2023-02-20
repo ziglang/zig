@@ -58,14 +58,14 @@ const test_targets = blk: {
             .link_libc = true,
             .backend = .stage2_c,
         },
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .x86_64,
-        //        .os_tag = .linux,
-        //        .abi = .none,
-        //    },
-        //    .backend = .stage2_x86_64,
-        //},
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            .backend = .stage2_x86_64,
+        },
         .{
             .target = .{
                 .cpu_arch = .aarch64,

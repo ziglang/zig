@@ -920,9 +920,6 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
         const mod = self.bin_file.options.module.?;
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
     };
-    const abi_align = elem_ty.abiAlignment(self.target.*);
-    if (abi_align > self.stack_align)
-        self.stack_align = abi_align;
 
     if (reg_ok) {
         switch (elem_ty.zigTypeTag()) {
@@ -951,6 +948,10 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
             },
         }
     }
+
+    const abi_align = elem_ty.abiAlignment(self.target.*);
+    if (abi_align > self.stack_align)
+        self.stack_align = abi_align;
     const stack_offset = try self.allocMem(inst, abi_size, abi_align);
     return MCValue{ .stack_offset = @intCast(i32, stack_offset) };
 }
@@ -990,7 +991,7 @@ fn revertState(self: *Self, state: State) void {
 
 pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void {
     const stack_mcv = try self.allocRegOrMem(inst, false);
-    log.debug("spilling {d} to stack mcv {any}", .{ inst, stack_mcv });
+    log.debug("spilling %{d} to stack mcv {any}", .{ inst, stack_mcv });
     const reg_mcv = self.getResolvedInstValue(inst);
     switch (reg_mcv) {
         .register => |other| {
@@ -1016,7 +1017,7 @@ pub fn spillEflagsIfOccupied(self: *Self) !void {
         };
 
         try self.setRegOrMem(self.air.typeOfIndex(inst_to_save), new_mcv, mcv);
-        log.debug("spilling {d} to mcv {any}", .{ inst_to_save, new_mcv });
+        log.debug("spilling %{d} to mcv {any}", .{ inst_to_save, new_mcv });
 
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         try branch.inst_table.put(self.gpa, inst_to_save, new_mcv);
@@ -2114,6 +2115,7 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
         };
         break :result dst_mcv;
     };
+    log.debug("airSliceLen(%{d}): {}", .{ inst, result });
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -2641,6 +2643,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
 fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const elem_ty = self.air.typeOfIndex(inst);
+    const elem_size = elem_ty.abiSize(self.target.*);
     const result: MCValue = result: {
         if (!elem_ty.hasRuntimeBitsIgnoreComptime())
             break :result MCValue.none;
@@ -2651,13 +2654,14 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
             break :result MCValue.dead;
 
         const dst_mcv: MCValue = blk: {
-            if (self.reuseOperand(inst, ty_op.operand, 0, ptr)) {
+            if (elem_size <= 8 and self.reuseOperand(inst, ty_op.operand, 0, ptr)) {
                 // The MCValue that holds the pointer can be re-used as the value.
                 break :blk ptr;
             } else {
                 break :blk try self.allocRegOrMem(inst, true);
             }
         };
+        log.debug("airLoad(%{d}): {} <- {}", .{ inst, dst_mcv, ptr });
         try self.load(dst_mcv, ptr, self.air.typeOf(ty_op.operand));
         break :result dst_mcv;
     };
@@ -2728,10 +2732,12 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
 
             switch (value) {
                 .none => unreachable,
-                .undef => unreachable,
                 .dead => unreachable,
                 .unreach => unreachable,
                 .eflags => unreachable,
+                .undef => {
+                    try self.genSetReg(value_ty, reg, value);
+                },
                 .immediate => |imm| {
                     switch (abi_size) {
                         1, 2, 4 => {
@@ -2773,6 +2779,30 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 .register => |src_reg| {
                     try self.genInlineMemcpyRegisterRegister(value_ty, reg, src_reg, 0);
                 },
+                .register_overflow => |ro| {
+                    const ro_reg_lock = self.register_manager.lockReg(ro.reg);
+                    defer if (ro_reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+                    const wrapped_ty = value_ty.structFieldType(0);
+                    try self.genInlineMemcpyRegisterRegister(wrapped_ty, reg, ro.reg, 0);
+
+                    const overflow_bit_ty = value_ty.structFieldType(1);
+                    const overflow_bit_offset = value_ty.structFieldOffset(1, self.target.*);
+                    const tmp_reg = try self.register_manager.allocReg(null, gp);
+                    _ = try self.addInst(.{
+                        .tag = .cond_set_byte,
+                        .ops = Mir.Inst.Ops.encode(.{
+                            .reg1 = tmp_reg.to8(),
+                        }),
+                        .data = .{ .cc = ro.eflags },
+                    });
+                    try self.genInlineMemcpyRegisterRegister(
+                        overflow_bit_ty,
+                        reg,
+                        tmp_reg,
+                        -@intCast(i32, overflow_bit_offset),
+                    );
+                },
                 .linker_load,
                 .memory,
                 .stack_offset,
@@ -2787,8 +2817,9 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         .dest_stack_base = reg.to64(),
                     });
                 },
-                else => |other| {
-                    return self.fail("TODO implement set pointee with {}", .{other});
+                .ptr_stack_offset => {
+                    const tmp_reg = try self.copyToTmpRegister(value_ty, value);
+                    return self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                 },
             }
         },
@@ -2902,6 +2933,7 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
     const ptr_ty = self.air.typeOf(bin_op.lhs);
     const value = try self.resolveInst(bin_op.rhs);
     const value_ty = self.air.typeOf(bin_op.rhs);
+    log.debug("airStore(%{d}): {} <- {}", .{ inst, ptr, value });
     try self.store(ptr, value, ptr_ty, value_ty);
     return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
 }
@@ -6321,7 +6353,22 @@ fn airPtrToInt(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result = try self.resolveInst(ty_op.operand);
+    const result = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand = try self.resolveInst(ty_op.operand);
+        if (self.reuseOperand(inst, ty_op.operand, 0, operand)) break :result operand;
+
+        const operand_lock = switch (operand) {
+            .register => |reg| self.register_manager.lockReg(reg),
+            .register_overflow => |ro| self.register_manager.lockReg(ro.reg),
+            else => null,
+        };
+        defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const dest = try self.allocRegOrMem(inst, true);
+        try self.setRegOrMem(self.air.typeOfIndex(inst), dest, operand);
+        break :result dest;
+    };
+    log.debug("airBitCast(%{d}): {}", .{ inst, result });
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
