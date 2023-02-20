@@ -453,8 +453,7 @@ pub const DecodeState = struct {
                 self.written_count += len;
             },
             .rle => {
-                var i: usize = 0;
-                while (i < len) : (i += 1) {
+                for (0..len) |i| {
                     dest[i] = self.literal_streams.one[0];
                 }
                 self.literal_written_count += len;
@@ -471,8 +470,7 @@ pub const DecodeState = struct {
                 var bits_read: u4 = 0;
                 var huffman_tree_index: usize = huffman_tree.symbol_count_minus_one;
                 var bit_count_to_read: u4 = starting_bit_count;
-                var i: usize = 0;
-                while (i < len) : (i += 1) {
+                for (0..len) |i| {
                     var prefix: u16 = 0;
                     while (true) {
                         const new_bits = self.readLiteralsBits(bit_count_to_read) catch |err| {
@@ -528,8 +526,7 @@ pub const DecodeState = struct {
                 self.written_count += len;
             },
             .rle => {
-                var i: usize = 0;
-                while (i < len) : (i += 1) {
+                for (0..len) |_| {
                     dest.writeAssumeCapacity(self.literal_streams.one[0]);
                 }
                 self.literal_written_count += len;
@@ -546,8 +543,7 @@ pub const DecodeState = struct {
                 var bits_read: u4 = 0;
                 var huffman_tree_index: usize = huffman_tree.symbol_count_minus_one;
                 var bit_count_to_read: u4 = starting_bit_count;
-                var i: usize = 0;
-                while (i < len) : (i += 1) {
+                for (0..len) |_| {
                     var prefix: u16 = 0;
                     while (true) {
                         const new_bits = try self.readLiteralsBits(bit_count_to_read);
@@ -630,8 +626,7 @@ pub fn decodeBlock(
         .rle => {
             if (src.len < 1) return error.MalformedRleBlock;
             if (dest[written_count..].len < block_size) return error.DestTooSmall;
-            var write_pos: usize = written_count;
-            while (write_pos < block_size + written_count) : (write_pos += 1) {
+            for (written_count..block_size + written_count) |write_pos| {
                 dest[write_pos] = src[0];
             }
             consumed_count.* += 1;
@@ -664,8 +659,7 @@ pub fn decodeBlock(
                         return error.MalformedCompressedBlock;
 
                     var sequence_size_limit = block_size_max;
-                    var i: usize = 0;
-                    while (i < sequences_header.sequence_count) : (i += 1) {
+                    for (0..sequences_header.sequence_count) |i| {
                         const write_pos = written_count + bytes_written;
                         const decompressed_size = decode_state.decodeSequenceSlice(
                             dest,
@@ -734,8 +728,7 @@ pub fn decodeBlockRingBuffer(
         },
         .rle => {
             if (src.len < 1) return error.MalformedRleBlock;
-            var write_pos: usize = 0;
-            while (write_pos < block_size) : (write_pos += 1) {
+            for (0..block_size) |_| {
                 dest.writeAssumeCapacity(src[0]);
             }
             consumed_count.* += 1;
@@ -768,8 +761,7 @@ pub fn decodeBlockRingBuffer(
                         return error.MalformedCompressedBlock;
 
                     var sequence_size_limit = block_size_max;
-                    var i: usize = 0;
-                    while (i < sequences_header.sequence_count) : (i += 1) {
+                    for (0..sequences_header.sequence_count) |i| {
                         const decompressed_size = decode_state.decodeSequenceRingBuffer(
                             dest,
                             &bit_stream,
@@ -840,8 +832,7 @@ pub fn decodeBlockReader(
         },
         .rle => {
             const byte = try source.readByte();
-            var i: usize = 0;
-            while (i < block_size) : (i += 1) {
+            for (0..block_size) |_| {
                 dest.writeAssumeCapacity(byte);
             }
             decode_state.written_count += block_size;
@@ -866,8 +857,7 @@ pub fn decodeBlockReader(
                         return error.MalformedCompressedBlock;
 
                     var sequence_size_limit = block_size_max;
-                    var i: usize = 0;
-                    while (i < sequences_header.sequence_count) : (i += 1) {
+                    for (0..sequences_header.sequence_count) |i| {
                         const decompressed_size = decode_state.decodeSequenceRingBuffer(
                             dest,
                             &bit_stream,

@@ -47,8 +47,7 @@ pub fn decodeFseTable(
             while (true) {
                 const repeat_flag = try bit_reader.readBitsNoEof(u2, 2);
                 if (repeat_flag + value_count > 256) return error.MalformedFseTable;
-                var i: usize = 0;
-                while (i < repeat_flag) : (i += 1) {
+                for (0..repeat_flag) |_| {
                     values[value_count] = 1;
                     value_count += 1;
                 }
@@ -75,7 +74,7 @@ fn buildFseTable(values: []const u16, entries: []Table.Fse) !void {
     assert(total_probability <= 1 << 9);
 
     var less_than_one_count: usize = 0;
-    for (values) |value, i| {
+    for (values, 0..) |value, i| {
         if (value == 0) {
             entries[entries.len - 1 - less_than_one_count] = Table.Fse{
                 .symbol = @intCast(u8, i),
@@ -88,7 +87,7 @@ fn buildFseTable(values: []const u16, entries: []Table.Fse) !void {
 
     var position: usize = 0;
     var temp_states: [1 << 9]u16 = undefined;
-    for (values) |value, symbol| {
+    for (values, 0..) |value, symbol| {
         if (value == 0 or value == 1) continue;
         const probability = value - 1;
 
@@ -99,8 +98,7 @@ fn buildFseTable(values: []const u16, entries: []Table.Fse) !void {
         const single_state_count = probability - double_state_count;
         const share_size_log = std.math.log2_int(u16, share_size);
 
-        var i: u16 = 0;
-        while (i < probability) : (i += 1) {
+        for (0..probability) |i| {
             temp_states[i] = @intCast(u16, position);
             position += (entries.len >> 1) + (entries.len >> 3) + 3;
             position &= entries.len - 1;
@@ -110,16 +108,15 @@ fn buildFseTable(values: []const u16, entries: []Table.Fse) !void {
             }
         }
         std.sort.sort(u16, temp_states[0..probability], {}, std.sort.asc(u16));
-        i = 0;
-        while (i < probability) : (i += 1) {
+        for (0..probability) |i| {
             entries[temp_states[i]] = if (i < double_state_count) Table.Fse{
                 .symbol = @intCast(u8, symbol),
                 .bits = share_size_log + 1,
-                .baseline = single_state_count * share_size + i * 2 * share_size,
+                .baseline = single_state_count * share_size + @intCast(u16, i) * 2 * share_size,
             } else Table.Fse{
                 .symbol = @intCast(u8, symbol),
                 .bits = share_size_log,
-                .baseline = (i - double_state_count) * share_size,
+                .baseline = (@intCast(u16, i) - double_state_count) * share_size,
             };
         }
     }

@@ -214,9 +214,8 @@ pub fn ZstandardStream(
             }
 
             const size = @min(self.buffer.len(), buffer.len);
-            var count: usize = 0;
-            while (count < size) : (count += 1) {
-                buffer[count] = self.buffer.read().?;
+            for (0..size) |i| {
+                buffer[i] = self.buffer.read().?;
             }
             if (self.state == .LastBlock and self.buffer.len() == 0) {
                 self.state = .NewFrame;
@@ -227,7 +226,7 @@ pub fn ZstandardStream(
                 self.allocator.free(self.sequence_buffer);
                 self.buffer.deinit(self.allocator);
             }
-            return count;
+            return size;
         }
     };
 }

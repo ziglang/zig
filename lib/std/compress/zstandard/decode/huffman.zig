@@ -95,8 +95,7 @@ fn assignWeights(huff_bits: *readers.ReverseBitReader, accuracy_log: usize, entr
 
 fn decodeDirectHuffmanTree(source: anytype, encoded_symbol_count: usize, weights: *[256]u4) !usize {
     const weights_byte_count = (encoded_symbol_count + 1) / 2;
-    var i: usize = 0;
-    while (i < weights_byte_count) : (i += 1) {
+    for (0..weights_byte_count) |i| {
         const byte = try source.readByte();
         weights[2 * i] = @intCast(u4, byte >> 4);
         weights[2 * i + 1] = @intCast(u4, byte & 0xF);
@@ -105,7 +104,7 @@ fn decodeDirectHuffmanTree(source: anytype, encoded_symbol_count: usize, weights
 }
 
 fn assignSymbols(weight_sorted_prefixed_symbols: []LiteralsSection.HuffmanTree.PrefixedSymbol, weights: [256]u4) usize {
-    for (weight_sorted_prefixed_symbols) |_, i| {
+    for (0..weight_sorted_prefixed_symbols.len) |i| {
         weight_sorted_prefixed_symbols[i] = .{
             .symbol = @intCast(u8, i),
             .weight = undefined,
