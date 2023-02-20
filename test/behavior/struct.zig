@@ -1578,3 +1578,38 @@ test "directly initiating tuple like struct" {
     const a = struct { u8 }{8};
     try expect(a[0] == 8);
 }
+
+test "instantiate struct with comptime field" {
+    {
+        var things = struct {
+            comptime foo: i8 = 1,
+        }{};
+
+        comptime std.debug.assert(things.foo == 1);
+    }
+
+    {
+        const T = struct {
+            comptime foo: i8 = 1,
+        };
+        var things = T{};
+
+        comptime std.debug.assert(things.foo == 1);
+    }
+
+    {
+        var things: struct {
+            comptime foo: i8 = 1,
+        } = .{};
+
+        comptime std.debug.assert(things.foo == 1);
+    }
+
+    {
+        var things: struct {
+            comptime foo: i8 = 1,
+        } = undefined; // Segmentation fault at address 0x0
+
+        comptime std.debug.assert(things.foo == 1);
+    }
+}
