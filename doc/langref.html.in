@@ -518,6 +518,14 @@ pub fn main() void {
       {#see_also|Values|@import|Errors|Root Source File|Source Encoding#}
       {#header_close#}
       {#header_open|Comments#}
+      <p>
+      Zig supports 3 types of comments. Normal comments are ignored, but doc comments
+      and top-level doc comments are used by the compiler to generate the package documentation.
+      </p>
+      <p>
+      The generated documentation is still experimental, and can be produced with:
+      </p>
+      {#shell_samp#}zig test -femit-docs main.zig{#end_shell_samp#}
       {#code_begin|exe|comments#}
 const print = @import("std").debug.print;
 
@@ -535,7 +543,7 @@ pub fn main() void {
       comments in C).  This helps allow Zig to have the property that each line
       of code can be tokenized out of context.
       </p>
-      {#header_open|Doc comments#}
+      {#header_open|Doc Comments#}
       <p>
       A doc comment is one that begins with exactly three slashes (i.e.
       {#syntax#}///{#endsyntax#} but not {#syntax#}////{#endsyntax#});
@@ -562,21 +570,44 @@ const Timestamp = struct {
 };
       {#code_end#}
       <p>
-      Doc comments are only allowed in certain places; eventually, it will
-      become a compile error to have a doc comment in an unexpected place, such as
-      in the middle of an expression, or just before a non-doc comment.
+      Doc comments are only allowed in certain places; it is a compile error to
+      have a doc comment in an unexpected place, such as in the middle of an expression,
+      or just before a non-doc comment.
+      </p>
+      {#code_begin|obj_err|invalid_doc-comment|expected type expression, found 'a document comment'#}
+/// doc-comment
+//! top-level doc-comment
+const std = @import("std");
+      {#code_end#}
+      {#code_begin|obj_err|unattached_doc-comment|unattached documentation comment#}
+pub fn main() void {}
+
+/// End of file
+      {#code_end#}
+      <p>
+      Doc comments can be interleaved with normal comments. Currently, when producing
+      the package documentation, normal comments are merged with doc comments.
       </p>
       {#header_close#}
       {#header_open|Top-Level Doc Comments#}
-      <p>User documentation that doesn't belong to whatever
-      immediately follows it, like {#link|container|Containers#}-level documentation, goes
-      in top-level doc comments. A top-level doc comment is one that
-      begins with two slashes and an exclamation point:
-      {#syntax#}//!{#endsyntax#}.</p>
+      <p>
+      A top-level doc comment is one that begins with two slashes and an exclamation
+      point: {#syntax#}//!{#endsyntax#}; it documents the current module.
+      </p>
+      <p>
+      It is a compile error if a top-level doc comment is not placed at the start
+      of a {#link|container|Containers#}, before any expressions.
+      </p>
       {#code_begin|syntax|tldoc_comments#}
 //! This module provides functions for retrieving the current date and
 //! time with varying degrees of precision and accuracy. It does not
 //! depend on libc, but will use functions from it if available.
+
+const S = struct {
+    //! Top level comments are allowed inside a container other than a module,
+    //! but it is not very useful.  Currently, when producing the package
+    //! documentation, these comments are ignored.
+};
       {#code_end#}
       {#header_close#}
       {#header_close#}
