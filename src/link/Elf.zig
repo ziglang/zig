@@ -2166,7 +2166,7 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
     // First we look for an appropriately sized free list node.
     // The list is unordered. We'll just take the first thing that works.
     const vaddr = blk: {
-        var i: usize = 0;
+        var i: usize = if (self.base.child_pid == null) 0 else free_list.items.len;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
             const big_atom = self.getAtom(big_atom_index);
@@ -2397,7 +2397,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     const atom = self.getAtom(atom_index);
 
     const shdr_index = decl_metadata.shdr;
-    if (atom.getSymbol(self).st_size != 0) {
+    if (atom.getSymbol(self).st_size != 0 and self.base.child_pid == null) {
         const local_sym = atom.getSymbolPtr(self);
         local_sym.st_name = try self.shstrtab.insert(gpa, decl_name);
         local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
