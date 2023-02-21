@@ -2,9 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const expectEqual = std.testing.expectEqual;
 
-inline fn rotl(comptime count: comptime_int, value: anytype) @TypeOf(value) {
-    return (value << count) | (value >> (@bitSizeOf(@TypeOf(value)) - count));
-}
+const rotl = std.math.rotl;
 
 pub const XxHash64 = struct {
     acc1: u64,
@@ -71,7 +69,7 @@ pub const XxHash64 = struct {
 
     inline fn round(acc: u64, lane: u64) u64 {
         const a = acc +% (lane *% prime_2);
-        const b = rotl(31, a);
+        const b = rotl(u64, a, 31);
         return b *% prime_1;
     }
 
@@ -81,7 +79,8 @@ pub const XxHash64 = struct {
         if (self.byte_count < 32) {
             acc = self.seed +% prime_5;
         } else {
-            acc = rotl(1, self.acc1) +% rotl(7, self.acc2) +% rotl(12, self.acc3) +% rotl(18, self.acc4);
+            acc = rotl(u64, self.acc1, 1) +% rotl(u64, self.acc2, 7) +%
+                rotl(u64, self.acc3, 12) +% rotl(u64, self.acc4, 18);
             acc = mergeAccumulator(acc, self.acc1);
             acc = mergeAccumulator(acc, self.acc2);
             acc = mergeAccumulator(acc, self.acc3);
@@ -94,14 +93,14 @@ pub const XxHash64 = struct {
         while (pos + 8 <= self.buf_len) : (pos += 8) {
             const lane = mem.readIntLittle(u64, self.buf[pos..][0..8]);
             acc ^= round(0, lane);
-            acc = rotl(27, acc) *% prime_1;
+            acc = rotl(u64, acc, 27) *% prime_1;
             acc +%= prime_4;
         }
 
         if (pos + 4 <= self.buf_len) {
             const lane = @as(u64, mem.readIntLittle(u32, self.buf[pos..][0..4]));
             acc ^= lane *% prime_1;
-            acc = rotl(23, acc) *% prime_2;
+            acc = rotl(u64, acc, 23) *% prime_2;
             acc +%= prime_3;
             pos += 4;
         }
@@ -109,7 +108,7 @@ pub const XxHash64 = struct {
         while (pos < self.buf_len) : (pos += 1) {
             const lane = @as(u64, self.buf[pos]);
             acc ^= lane *% prime_5;
-            acc = rotl(11, acc) *% prime_1;
+            acc = rotl(u64, acc, 11) *% prime_1;
         }
 
         acc ^= acc >> 33;
@@ -199,7 +198,7 @@ pub const XxHash32 = struct {
 
     inline fn round(acc: u32, lane: u32) u32 {
         const a = acc +% (lane *% prime_2);
-        const b = rotl(13, a);
+        const b = rotl(u32, a, 13);
         return b *% prime_1;
     }
 
@@ -209,7 +208,8 @@ pub const XxHash32 = struct {
         if (self.byte_count < 16) {
             acc = self.seed +% prime_5;
         } else {
-            acc = rotl(1, self.acc1) +% rotl(7, self.acc2) +% rotl(12, self.acc3) +% rotl(18, self.acc4);
+            acc = rotl(u32, self.acc1, 1) +% rotl(u32, self.acc2, 7) +%
+                rotl(u32, self.acc3, 12) +% rotl(u32, self.acc4, 18);
         }
 
         acc = acc +% @intCast(u32, self.byte_count) +% @intCast(u32, self.buf_len);
@@ -218,13 +218,13 @@ pub const XxHash32 = struct {
         while (pos + 4 <= self.buf_len) : (pos += 4) {
             const lane = mem.readIntLittle(u32, self.buf[pos..][0..4]);
             acc +%= lane *% prime_3;
-            acc = rotl(17, acc) *% prime_4;
+            acc = rotl(u32, acc, 17) *% prime_4;
         }
 
         while (pos < self.buf_len) : (pos += 1) {
             const lane = @as(u32, self.buf[pos]);
             acc +%= lane *% prime_5;
-            acc = rotl(11, acc) *% prime_1;
+            acc = rotl(u32, acc, 11) *% prime_1;
         }
 
         acc ^= acc >> 15;
