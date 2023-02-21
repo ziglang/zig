@@ -1476,6 +1476,7 @@ pub const DeclGen = struct {
         }
         if (dg.decl.?.val.castTag(.function)) |func_payload|
             if (func_payload.data.is_cold) try w.writeAll("zig_cold ");
+        if (fn_info.return_type.tag() == .noreturn) try w.writeAll("zig_noreturn ");
 
         const trailing = try renderTypePrefix(
             dg.decl_index,
@@ -2289,7 +2290,7 @@ fn renderTypeSuffix(
                     w,
                     param_type,
                     .suffix,
-                    CQualifiers.init(.{}),
+                    CQualifiers.init(.{ .@"const" = true }),
                 );
                 try w.print("{}a{d}", .{ trailing, param_i });
                 try renderTypeSuffix(decl, store, mod, w, param_type, .suffix);
@@ -5737,26 +5738,28 @@ fn airArrayToSlice(f: *Function, inst: Air.Inst.Index) !CValue {
     const inst_ty = f.air.typeOfIndex(inst);
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
-    try f.writeCValue(writer, local, .Other);
-    const array_len = f.air.typeOf(ty_op.operand).elemType().arrayLen();
+    const array_ty = f.air.typeOf(ty_op.operand).childType();
 
-    try writer.writeAll(".ptr = ");
+    try f.writeCValueMember(writer, local, .{ .identifier = "ptr" });
+    try writer.writeAll(" = ");
+    // Unfortunately, C does not support any equivalent to
+    // &(*(void *)p)[0], although LLVM does via GetElementPtr
     if (operand == .undef) {
-        // Unfortunately, C does not support any equivalent to
-        // &(*(void *)p)[0], although LLVM does via GetElementPtr
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
         try f.writeCValue(writer, CValue{ .undef = inst_ty.slicePtrFieldType(&buf) }, .Initializer);
-    } else {
+    } else if (array_ty.hasRuntimeBitsIgnoreComptime()) {
         try writer.writeAll("&(");
         try f.writeCValueDeref(writer, operand);
         try writer.print(")[{}]", .{try f.fmtIntLiteral(Type.usize, Value.zero)});
-    }
+    } else try f.writeCValue(writer, operand, .Initializer);
+    try writer.writeAll("; ");
 
+    const array_len = array_ty.arrayLen();
     var len_pl: Value.Payload.U64 = .{ .base = .{ .tag = .int_u64 }, .data = array_len };
     const len_val = Value.initPayload(&len_pl.base);
-    try writer.writeAll("; ");
-    try f.writeCValue(writer, local, .Other);
-    try writer.print(".len = {};\n", .{try f.fmtIntLiteral(Type.usize, len_val)});
+    try f.writeCValueMember(writer, local, .{ .identifier = "len" });
+    try writer.print(" = {};\n", .{try f.fmtIntLiteral(Type.usize, len_val)});
+
     return local;
 }
 

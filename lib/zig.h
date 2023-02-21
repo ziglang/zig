@@ -288,13 +288,13 @@ typedef char bool;
 #endif
 
 #if __STDC_VERSION__ >= 201112L
-#define zig_noreturn _Noreturn void
+#define zig_noreturn _Noreturn
 #elif zig_has_attribute(noreturn) || defined(zig_gnuc)
-#define zig_noreturn __attribute__((noreturn)) void
+#define zig_noreturn __attribute__((noreturn))
 #elif _MSC_VER
-#define zig_noreturn __declspec(noreturn) void
+#define zig_noreturn __declspec(noreturn)
 #else
-#define zig_noreturn void
+#define zig_noreturn
 #endif
 
 #define zig_bitSizeOf(T) (CHAR_BIT * sizeof(T))
