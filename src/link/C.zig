@@ -117,7 +117,7 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
                 .gpa = gpa,
                 .module = module,
                 .error_msg = null,
-                .decl_index = decl_index,
+                .decl_index = decl_index.toOptional(),
                 .decl = module.declPtr(decl_index),
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctypes = ctypes.*,
@@ -146,7 +146,7 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
     code.* = function.object.code.moveToUnmanaged();
 
     // Free excess allocated memory for this Decl.
-    ctypes.shrinkToFit(gpa);
+    ctypes.shrinkAndFree(gpa, ctypes.count());
     lazy_fns.shrinkAndFree(gpa, lazy_fns.count());
     fwd_decl.shrinkAndFree(gpa, fwd_decl.items.len);
     code.shrinkAndFree(gpa, code.items.len);
@@ -176,7 +176,7 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
             .gpa = gpa,
             .module = module,
             .error_msg = null,
-            .decl_index = decl_index,
+            .decl_index = decl_index.toOptional(),
             .decl = decl,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
@@ -204,7 +204,7 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
     code.* = object.code.moveToUnmanaged();
 
     // Free excess allocated memory for this Decl.
-    ctypes.shrinkToFit(gpa);
+    ctypes.shrinkAndFree(gpa, ctypes.count());
     fwd_decl.shrinkAndFree(gpa, fwd_decl.items.len);
     code.shrinkAndFree(gpa, code.items.len);
 }
@@ -247,8 +247,8 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
 
     const abi_define = abiDefine(comp);
 
-    // Covers defines, zig.h, ctypes, asm.
-    try f.all_buffers.ensureUnusedCapacity(gpa, 4);
+    // Covers defines, zig.h, ctypes, asm, lazy fwd, lazy code.
+    try f.all_buffers.ensureUnusedCapacity(gpa, 6);
 
     if (abi_define) |buf| f.appendBufAssumeCapacity(buf);
     f.appendBufAssumeCapacity(zig_h);
@@ -258,15 +258,15 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
 
     {
         var asm_buf = f.asm_buf.toManaged(gpa);
-        defer asm_buf.deinit();
-
-        try codegen.genGlobalAsm(module, &asm_buf);
-
-        f.asm_buf = asm_buf.moveToUnmanaged();
-        f.appendBufAssumeCapacity(f.asm_buf.items);
+        defer f.asm_buf = asm_buf.moveToUnmanaged();
+        try codegen.genGlobalAsm(module, asm_buf.writer());
+        f.appendBufAssumeCapacity(asm_buf.items);
     }
 
-    try self.flushErrDecls(&f);
+    const lazy_indices = f.all_buffers.items.len;
+    f.all_buffers.items.len += 2;
+
+    try self.flushErrDecls(&f.lazy_db);
 
     // `CType`s, forward decls, and non-functions first.
     // Unlike other backends, the .c code we are emitting is order-dependent. Therefore
@@ -295,6 +295,30 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
         }
     }
 
+    {
+        // We need to flush lazy ctypes after flushing all decls but before flushing any decl ctypes.
+        assert(f.ctypes.count() == 0);
+        try self.flushCTypes(&f, .none, f.lazy_db.ctypes);
+
+        var it = self.decl_table.iterator();
+        while (it.next()) |entry|
+            try self.flushCTypes(&f, entry.key_ptr.toOptional(), entry.value_ptr.ctypes);
+    }
+
+    {
+        f.all_buffers.items[lazy_indices + 0] = .{
+            .iov_base = if (f.lazy_db.fwd_decl.items.len > 0) f.lazy_db.fwd_decl.items.ptr else "",
+            .iov_len = f.lazy_db.fwd_decl.items.len,
+        };
+        f.file_size += f.lazy_db.fwd_decl.items.len;
+
+        f.all_buffers.items[lazy_indices + 1] = .{
+            .iov_base = if (f.lazy_db.code.items.len > 0) f.lazy_db.code.items.ptr else "",
+            .iov_len = f.lazy_db.code.items.len,
+        };
+        f.file_size += f.lazy_db.code.items.len;
+    }
+
     f.all_buffers.items[ctypes_index] = .{
         .iov_base = if (f.ctypes_buf.items.len > 0) f.ctypes_buf.items.ptr else "",
         .iov_len = f.ctypes_buf.items.len,
@@ -318,17 +342,17 @@ const Flush = struct {
     ctypes_map: std.ArrayListUnmanaged(codegen.CType.Index) = .{},
     ctypes_buf: std.ArrayListUnmanaged(u8) = .{},
 
-    err_decls: DeclBlock = .{},
-
+    lazy_db: DeclBlock = .{},
     lazy_fns: LazyFns = .{},
 
     asm_buf: std.ArrayListUnmanaged(u8) = .{},
+
     /// We collect a list of buffers to write, and write them all at once with pwritev 😎
     all_buffers: std.ArrayListUnmanaged(std.os.iovec_const) = .{},
     /// Keeps track of the total bytes of `all_buffers`.
     file_size: u64 = 0,
 
-    const LazyFns = std.AutoHashMapUnmanaged(codegen.LazyFnKey, DeclBlock);
+    const LazyFns = std.AutoHashMapUnmanaged(codegen.LazyFnKey, void);
 
     fn appendBufAssumeCapacity(f: *Flush, buf: []const u8) void {
         if (buf.len == 0) return;
@@ -338,10 +362,9 @@ const Flush = struct {
 
     fn deinit(f: *Flush, gpa: Allocator) void {
         f.all_buffers.deinit(gpa);
-        var lazy_fns_it = f.lazy_fns.valueIterator();
-        while (lazy_fns_it.next()) |db| db.deinit(gpa);
+        f.asm_buf.deinit(gpa);
         f.lazy_fns.deinit(gpa);
-        f.err_decls.deinit(gpa);
+        f.lazy_db.deinit(gpa);
         f.ctypes_buf.deinit(gpa);
         f.ctypes_map.deinit(gpa);
         f.ctypes.deinit(gpa);
@@ -353,26 +376,106 @@ const FlushDeclError = error{
     OutOfMemory,
 };
 
-fn flushCTypes(self: *C, f: *Flush, ctypes: codegen.CType.Store) FlushDeclError!void {
-    _ = self;
-    _ = f;
-    _ = ctypes;
+fn flushCTypes(
+    self: *C,
+    f: *Flush,
+    decl_index: Module.Decl.OptionalIndex,
+    decl_ctypes: codegen.CType.Store,
+) FlushDeclError!void {
+    const gpa = self.base.allocator;
+    const mod = self.base.options.module.?;
+
+    const decl_ctypes_len = decl_ctypes.count();
+    f.ctypes_map.clearRetainingCapacity();
+    try f.ctypes_map.ensureTotalCapacity(gpa, decl_ctypes_len);
+
+    var global_ctypes = f.ctypes.promote(gpa);
+    defer f.ctypes.demote(global_ctypes);
+
+    var ctypes_buf = f.ctypes_buf.toManaged(gpa);
+    defer f.ctypes_buf = ctypes_buf.moveToUnmanaged();
+    const writer = ctypes_buf.writer();
+
+    const slice = decl_ctypes.set.map.entries.slice();
+    for (slice.items(.key), 0..) |decl_cty, decl_i| {
+        const Context = struct {
+            arena: Allocator,
+            ctypes_map: []codegen.CType.Index,
+            cached_hash: codegen.CType.Store.Set.Map.Hash,
+            idx: codegen.CType.Index,
+
+            pub fn hash(ctx: @This(), _: codegen.CType) codegen.CType.Store.Set.Map.Hash {
+                return ctx.cached_hash;
+            }
+            pub fn eql(ctx: @This(), lhs: codegen.CType, rhs: codegen.CType, _: usize) bool {
+                return lhs.eqlContext(rhs, ctx);
+            }
+            pub fn eqlIndex(
+                ctx: @This(),
+                lhs_idx: codegen.CType.Index,
+                rhs_idx: codegen.CType.Index,
+            ) bool {
+                if (lhs_idx < codegen.CType.Tag.no_payload_count or
+                    rhs_idx < codegen.CType.Tag.no_payload_count) return lhs_idx == rhs_idx;
+                const lhs_i = lhs_idx - codegen.CType.Tag.no_payload_count;
+                if (lhs_i >= ctx.ctypes_map.len) return false;
+                return ctx.ctypes_map[lhs_i] == rhs_idx;
+            }
+            pub fn copyIndex(ctx: @This(), idx: codegen.CType.Index) codegen.CType.Index {
+                if (idx < codegen.CType.Tag.no_payload_count) return idx;
+                return ctx.ctypes_map[idx - codegen.CType.Tag.no_payload_count];
+            }
+        };
+        const decl_idx = @intCast(codegen.CType.Index, codegen.CType.Tag.no_payload_count + decl_i);
+        const ctx = Context{
+            .arena = global_ctypes.arena.allocator(),
+            .ctypes_map = f.ctypes_map.items,
+            .cached_hash = decl_ctypes.indexToHash(decl_idx),
+            .idx = decl_idx,
+        };
+        const gop = try global_ctypes.set.map.getOrPutContextAdapted(gpa, decl_cty, ctx, .{
+            .store = &global_ctypes.set,
+        });
+        const global_idx =
+            @intCast(codegen.CType.Index, codegen.CType.Tag.no_payload_count + gop.index);
+        f.ctypes_map.appendAssumeCapacity(global_idx);
+        if (!gop.found_existing) {
+            errdefer _ = global_ctypes.set.map.pop();
+            gop.key_ptr.* = try decl_cty.copyContext(ctx);
+        }
+        if (std.debug.runtime_safety) {
+            const global_cty = &global_ctypes.set.map.entries.items(.key)[gop.index];
+            assert(global_cty == gop.key_ptr);
+            assert(decl_cty.eqlContext(global_cty.*, ctx));
+            assert(decl_cty.hash(decl_ctypes.set) == global_cty.hash(global_ctypes.set));
+        }
+        try codegen.genTypeDecl(
+            mod,
+            writer,
+            global_ctypes.set,
+            global_idx,
+            decl_index,
+            decl_ctypes.set,
+            decl_idx,
+            gop.found_existing,
+        );
+    }
 }
 
-fn flushErrDecls(self: *C, f: *Flush) FlushDeclError!void {
+fn flushErrDecls(self: *C, db: *DeclBlock) FlushDeclError!void {
     const gpa = self.base.allocator;
 
-    const fwd_decl = &f.err_decls.fwd_decl;
-    const ctypes = &f.err_decls.ctypes;
-    const code = &f.err_decls.code;
+    const fwd_decl = &db.fwd_decl;
+    const ctypes = &db.ctypes;
+    const code = &db.code;
 
     var object = codegen.Object{
         .dg = .{
             .gpa = gpa,
             .module = self.base.options.module.?,
             .error_msg = null,
-            .decl_index = undefined,
-            .decl = undefined,
+            .decl_index = .none,
+            .decl = null,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
         },
@@ -394,19 +497,9 @@ fn flushErrDecls(self: *C, f: *Flush) FlushDeclError!void {
     fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
     ctypes.* = object.dg.ctypes.move();
     code.* = object.code.moveToUnmanaged();
-
-    try self.flushCTypes(f, ctypes.*);
-    try f.all_buffers.ensureUnusedCapacity(gpa, 2);
-    f.appendBufAssumeCapacity(fwd_decl.items);
-    f.appendBufAssumeCapacity(code.items);
 }
 
-fn flushLazyFn(
-    self: *C,
-    f: *Flush,
-    db: *DeclBlock,
-    lazy_fn: codegen.LazyFnMap.Entry,
-) FlushDeclError!void {
+fn flushLazyFn(self: *C, db: *DeclBlock, lazy_fn: codegen.LazyFnMap.Entry) FlushDeclError!void {
     const gpa = self.base.allocator;
 
     const fwd_decl = &db.fwd_decl;
@@ -418,8 +511,8 @@ fn flushLazyFn(
             .gpa = gpa,
             .module = self.base.options.module.?,
             .error_msg = null,
-            .decl_index = undefined,
-            .decl = undefined,
+            .decl_index = .none,
+            .decl = null,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctypes = ctypes.*,
         },
@@ -441,11 +534,6 @@ fn flushLazyFn(
     fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
     ctypes.* = object.dg.ctypes.move();
     code.* = object.code.moveToUnmanaged();
-
-    try self.flushCTypes(f, ctypes.*);
-    try f.all_buffers.ensureUnusedCapacity(gpa, 2);
-    f.appendBufAssumeCapacity(fwd_decl.items);
-    f.appendBufAssumeCapacity(code.items);
 }
 
 fn flushLazyFns(self: *C, f: *Flush, lazy_fns: codegen.LazyFnMap) FlushDeclError!void {
@@ -456,8 +544,8 @@ fn flushLazyFns(self: *C, f: *Flush, lazy_fns: codegen.LazyFnMap) FlushDeclError
     while (it.next()) |entry| {
         const gop = f.lazy_fns.getOrPutAssumeCapacity(entry.key_ptr.*);
         if (gop.found_existing) continue;
-        gop.value_ptr.* = .{};
-        try self.flushLazyFn(f, gop.value_ptr, entry);
+        gop.value_ptr.* = {};
+        try self.flushLazyFn(&f.lazy_db, entry);
     }
 }
 
@@ -481,7 +569,6 @@ fn flushDecl(
 
     const decl_block = self.decl_table.getPtr(decl_index).?;
 
-    try self.flushCTypes(f, decl_block.ctypes);
     try self.flushLazyFns(f, decl_block.lazy_fns);
     try f.all_buffers.ensureUnusedCapacity(gpa, 1);
     if (!(decl.isExtern() and export_names.contains(mem.span(decl.name))))

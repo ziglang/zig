@@ -3273,7 +3273,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                         .gpa = gpa,
                         .module = module,
                         .error_msg = null,
-                        .decl_index = decl_index,
+                        .decl_index = decl_index.toOptional(),
                         .decl = decl,
                         .fwd_decl = fwd_decl.toManaged(gpa),
                         .ctypes = .{},
