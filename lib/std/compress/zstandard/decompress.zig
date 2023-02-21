@@ -64,7 +64,7 @@ pub const HeaderError = error{ BadMagic, EndOfStream, ReservedBitSet };
 ///   - `error.EndOfStream` if `source` contains fewer than 4 bytes
 ///   - `error.ReservedBitSet` if the frame is a Zstandard frame and any of the
 ///     reserved bits are set
-pub fn decodeFrameHeader(source: anytype) HeaderError!FrameHeader {
+pub fn decodeFrameHeader(source: anytype) (@TypeOf(source).Error || HeaderError)!FrameHeader {
     const magic = try source.readIntLittle(u32);
     const frame_type = try frameType(magic);
     switch (frame_type) {
@@ -596,7 +596,9 @@ pub fn frameWindowSize(header: ZstandardHeader) ?u64 {
 /// Errors returned:
 ///   - `error.ReservedBitSet` if any of the reserved bits of the header are set
 ///   - `error.EndOfStream` if `source` does not contain a complete header
-pub fn decodeZstandardHeader(source: anytype) error{ EndOfStream, ReservedBitSet }!ZstandardHeader {
+pub fn decodeZstandardHeader(
+    source: anytype,
+) (@TypeOf(source).Error || error{ EndOfStream, ReservedBitSet })!ZstandardHeader {
     const descriptor = @bitCast(ZstandardHeader.Descriptor, try source.readByte());
 
     if (descriptor.reserved) return error.ReservedBitSet;
