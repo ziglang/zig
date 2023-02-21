@@ -33,7 +33,7 @@ os_version_max: ?OsVersion = null,
 
 /// `null` means default when cross compiling, or native when os_tag is native.
 /// If `isGnuLibC()` is `false`, this must be `null` and is ignored.
-glibc_version: ?SemVer = null,
+glibc_version: ?SemanticVersion = null,
 
 /// `null` means the native C ABI, if `os_tag` is native, otherwise it means the default C ABI.
 abi: ?Target.Abi = null,
@@ -61,11 +61,11 @@ pub const CpuModel = union(enum) {
 
 pub const OsVersion = union(enum) {
     none: void,
-    semver: SemVer,
+    semver: SemanticVersion,
     windows: Target.Os.WindowsVersion,
 };
 
-pub const SemVer = std.builtin.Version;
+pub const SemanticVersion = std.SemanticVersion;
 
 pub const DynamicLinker = Target.DynamicLinker;
 
@@ -266,9 +266,8 @@ pub fn parse(args: ParseOptions) !CrossTarget {
         const abi_ver_text = abi_it.rest();
         if (abi_it.next() != null) {
             if (result.isGnuLibC()) {
-                result.glibc_version = SemVer.parse(abi_ver_text) catch |err| switch (err) {
+                result.glibc_version = parseVersion(abi_ver_text) catch |err| switch (err) {
                     error.Overflow => return error.InvalidAbiVersion,
-                    error.InvalidCharacter => return error.InvalidAbiVersion,
                     error.InvalidVersion => return error.InvalidAbiVersion,
                 };
             } else {
@@ -351,6 +350,31 @@ pub fn parseCpuArch(args: ParseOptions) ?Target.Cpu.Arch {
     } else {
         return std.meta.stringToEnum(Target.Cpu.Arch, arch_name);
     }
+}
+
+/// Parses a version with an omitted patch component, such as "1.0",
+/// which SemanticVersion.parse is not capable of.
+fn parseVersion(ver: []const u8) !SemanticVersion {
+    const parseVersionComponent = struct {
+        fn parseVersionComponent(component: []const u8) !usize {
+            return std.fmt.parseUnsigned(usize, component, 10) catch |err| {
+                switch (err) {
+                    error.InvalidCharacter => return error.InvalidVersion,
+                    error.Overflow => return error.Overflow,
+                }
+            };
+        }
+    }.parseVersionComponent;
+    var version_components = mem.split(u8, ver, ".");
+    const major = version_components.first();
+    const minor = version_components.next() orelse return error.InvalidVersion;
+    const patch = version_components.next() orelse "0";
+    if (version_components.next() != null) return error.InvalidVersion;
+    return .{
+        .major = try parseVersionComponent(major),
+        .minor = try parseVersionComponent(minor),
+        .patch = try parseVersionComponent(patch),
+    };
 }
 
 /// TODO deprecated, use `std.zig.system.NativeTargetInfo.detect`.
@@ -534,6 +558,16 @@ pub fn isNative(self: CrossTarget) bool {
     return self.isNativeCpu() and self.isNativeOs() and self.isNativeAbi();
 }
 
+/// Formats a version with the patch component omitted if it is zero,
+/// unlike SemanticVersion.format which formats all its version components regardless.
+fn formatVersion(version: SemanticVersion, writer: anytype) !void {
+    if (version.patch == 0) {
+        try writer.print("{d}.{d}", .{ version.major, version.minor });
+    } else {
+        try writer.print("{d}.{d}.{d}", .{ version.major, version.minor, version.patch });
+    }
+}
+
 pub fn zigTriple(self: CrossTarget, allocator: mem.Allocator) error{OutOfMemory}![]u8 {
     if (self.isNative()) {
         return allocator.dupe(u8, "native");
@@ -552,20 +586,27 @@ pub fn zigTriple(self: CrossTarget, allocator: mem.Allocator) error{OutOfMemory}
     if (self.os_version_min != null or self.os_version_max != null) {
         switch (self.getOsVersionMin()) {
             .none => {},
-            .semver => |v| try result.writer().print(".{}", .{v}),
+            .semver => |v| {
+                try result.writer().writeAll(".");
+                try formatVersion(v, result.writer());
+            },
             .windows => |v| try result.writer().print("{s}", .{v}),
         }
     }
     if (self.os_version_max) |max| {
         switch (max) {
             .none => {},
-            .semver => |v| try result.writer().print("...{}", .{v}),
+            .semver => |v| {
+                try result.writer().writeAll("...");
+                try formatVersion(v, result.writer());
+            },
             .windows => |v| try result.writer().print("..{s}", .{v}),
         }
     }
 
     if (self.glibc_version) |v| {
-        try result.writer().print("-{s}.{}", .{ @tagName(self.getAbi()), v });
+        try result.writer().print("-{s}.", .{@tagName(self.getAbi())});
+        try formatVersion(v, result.writer());
     } else if (self.abi) |abi| {
         try result.writer().print("-{s}", .{@tagName(abi)});
     }
@@ -630,7 +671,7 @@ pub fn isGnuLibC(self: CrossTarget) bool {
 
 pub fn setGnuLibCVersion(self: *CrossTarget, major: u32, minor: u32, patch: u32) void {
     assert(self.isGnuLibC());
-    self.glibc_version = SemVer{ .major = major, .minor = minor, .patch = patch };
+    self.glibc_version = SemanticVersion{ .major = major, .minor = minor, .patch = patch };
 }
 
 pub fn getObjectFormat(self: CrossTarget) Target.ObjectFormat {
@@ -709,17 +750,15 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
             var range_it = mem.splitSequence(u8, version_text, "...");
 
             const min_text = range_it.next().?;
-            const min_ver = SemVer.parse(min_text) catch |err| switch (err) {
+            const min_ver = parseVersion(min_text) catch |err| switch (err) {
                 error.Overflow => return error.InvalidOperatingSystemVersion,
-                error.InvalidCharacter => return error.InvalidOperatingSystemVersion,
                 error.InvalidVersion => return error.InvalidOperatingSystemVersion,
             };
             result.os_version_min = .{ .semver = min_ver };
 
             const max_text = range_it.next() orelse return;
-            const max_ver = SemVer.parse(max_text) catch |err| switch (err) {
+            const max_ver = parseVersion(max_text) catch |err| switch (err) {
                 error.Overflow => return error.InvalidOperatingSystemVersion,
-                error.InvalidCharacter => return error.InvalidOperatingSystemVersion,
                 error.InvalidVersion => return error.InvalidOperatingSystemVersion,
             };
             result.os_version_max = .{ .semver = max_ver };

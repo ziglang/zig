@@ -38,6 +38,7 @@ const want_fork_safety = os_has_fork and !os_has_arc4random and
 const maybe_have_wipe_on_fork = builtin.os.isAtLeast(.linux, .{
     .major = 4,
     .minor = 14,
+    .patch = 0,
 }) orelse true;
 const is_haiku = builtin.os.tag == .haiku;
 

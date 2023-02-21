@@ -541,7 +541,7 @@ test "memfd_create" {
     switch (native_os) {
         .linux => {},
         .freebsd => {
-            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0 }) == .lt)
+            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0, .patch = 0 }) == .lt)
                 return error.SkipZigTest;
         },
         else => return error.SkipZigTest,

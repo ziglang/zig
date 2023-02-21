@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const Target = std.Target;
-const Version = std.builtin.Version;
+const Version = std.SemanticVersion;
 
 pub const macos = @import("darwin/macos.zig");
 
@@ -69,6 +69,7 @@ pub fn getDarwinSDK(allocator: Allocator, target: Target) ?DarwinSDK {
         const version = Version.parse(raw_version) catch Version{
             .major = 0,
             .minor = 0,
+            .patch = 0,
         };
         break :version version;
     };

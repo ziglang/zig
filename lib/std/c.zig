@@ -20,7 +20,7 @@ pub const Tokenizer = tokenizer.Tokenizer;
 /// If linking gnu libc (glibc), the `ok` value will be true if the target
 /// version is greater than or equal to `glibc_version`.
 /// If linking a libc other than these, returns `false`.
-pub fn versionCheck(comptime glibc_version: std.builtin.Version) type {
+pub fn versionCheck(comptime glibc_version: std.SemanticVersion) type {
     return struct {
         pub const ok = blk: {
             if (!builtin.link_libc) break :blk false;

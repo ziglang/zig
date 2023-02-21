@@ -724,9 +724,9 @@ fn buildOutputType(
     var dll_export_fns: ?bool = null;
     var single_threaded: ?bool = null;
     var root_src_file: ?[]const u8 = null;
-    var version: std.builtin.Version = .{ .major = 0, .minor = 0, .patch = 0 };
+    var version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 };
     var have_version = false;
-    var compatibility_version: ?std.builtin.Version = null;
+    var compatibility_version: ?std.SemanticVersion = null;
     var strip: ?bool = null;
     var formatted_panics: ?bool = null;
     var function_sections = false;
@@ -1121,7 +1121,7 @@ fn buildOutputType(
                         try cssan.addIncludePath(.iframework, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "--version")) {
                         const next_arg = args_iter.nextOrFatal();
-                        version = std.builtin.Version.parse(next_arg) catch |err| {
+                        version = std.SemanticVersion.parse(next_arg) catch |err| {
                             fatal("unable to parse --version '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
                         have_version = true;
@@ -2152,12 +2152,12 @@ fn buildOutputType(
                     try system_libs.put(linker_args_it.nextOrFatal(), .{ .weak = true });
                 } else if (mem.eql(u8, arg, "-compatibility_version")) {
                     const compat_version = linker_args_it.nextOrFatal();
-                    compatibility_version = std.builtin.Version.parse(compat_version) catch |err| {
+                    compatibility_version = std.SemanticVersion.parse(compat_version) catch |err| {
                         fatal("unable to parse -compatibility_version '{s}': {s}", .{ compat_version, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "-current_version")) {
                     const curr_version = linker_args_it.nextOrFatal();
-                    version = std.builtin.Version.parse(curr_version) catch |err| {
+                    version = std.SemanticVersion.parse(curr_version) catch |err| {
                         fatal("unable to parse -current_version '{s}': {s}", .{ curr_version, @errorName(err) });
                     };
                     have_version = true;
@@ -2207,10 +2207,9 @@ fn buildOutputType(
                 } else if (mem.startsWith(u8, arg, "/version:")) {
                     var split_it = mem.splitBackwardsScalar(u8, arg, ':');
                     const version_arg = split_it.first();
-                    version = std.builtin.Version.parse(version_arg) catch |err| {
+                    version = std.SemanticVersion.parse(version_arg) catch |err| {
                         fatal("unable to parse /version '{s}': {s}", .{ arg, @errorName(err) });
                     };
-
                     have_version = true;
                 } else {
                     fatal("unsupported linker arg: {s}", .{arg});
