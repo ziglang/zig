@@ -8,10 +8,14 @@ pub const compressed_block = types.compressed_block;
 
 pub const decompress = @import("zstandard/decompress.zig");
 
+pub const DecompressStreamOptions = struct {
+    verify_checksum: bool = true,
+    window_size_max: usize = 1 << 23, // 8MiB default maximum window size,
+};
+
 pub fn DecompressStream(
     comptime ReaderType: type,
-    comptime verify_checksum: bool,
-    comptime window_size_max: usize,
+    comptime options: DecompressStreamOptions,
 ) type {
     return struct {
         const Self = @This();
@@ -27,7 +31,7 @@ pub fn DecompressStream(
         offset_fse_buffer: []types.compressed_block.Table.Fse,
         literals_buffer: []u8,
         sequence_buffer: []u8,
-        checksum: if (verify_checksum) ?u32 else void,
+        checksum: if (options.verify_checksum) ?u32 else void,
         current_frame_decompressed_size: usize,
 
         pub const Error = ReaderType.Error || error{
@@ -69,8 +73,8 @@ pub fn DecompressStream(
                     const frame_context = context: {
                         break :context try decompress.FrameContext.init(
                             header,
-                            window_size_max,
-                            verify_checksum,
+                            options.window_size_max,
+                            options.verify_checksum,
                         );
                     };
 
@@ -99,10 +103,10 @@ pub fn DecompressStream(
                     );
                     const buffer = try RingBuffer.init(self.allocator, frame_context.window_size);
 
-                    const literals_data = try self.allocator.alloc(u8, window_size_max);
+                    const literals_data = try self.allocator.alloc(u8, options.window_size_max);
                     errdefer self.allocator.free(literals_data);
 
-                    const sequence_data = try self.allocator.alloc(u8, window_size_max);
+                    const sequence_data = try self.allocator.alloc(u8, options.window_size_max);
                     errdefer self.allocator.free(sequence_data);
 
                     self.literal_fse_buffer = literal_fse_buffer;
@@ -116,7 +120,7 @@ pub fn DecompressStream(
                     self.decode_state = decode_state;
                     self.frame_context = frame_context;
 
-                    self.checksum = if (verify_checksum) null else {};
+                    self.checksum = if (options.verify_checksum) null else {};
                     self.current_frame_decompressed_size = 0;
 
                     self.state = .InFrame;
@@ -199,7 +203,7 @@ pub fn DecompressStream(
                     if (self.frame_context.has_checksum) {
                         const checksum = source_reader.readIntLittle(u32) catch
                             return error.MalformedFrame;
-                        if (comptime verify_checksum) {
+                        if (comptime options.verify_checksum) {
                             if (self.frame_context.hasher_opt) |*hasher| {
                                 if (checksum != decompress.computeChecksum(hasher))
                                     return error.ChecksumFailure;
@@ -232,17 +236,24 @@ pub fn DecompressStream(
     };
 }
 
+pub fn decompressStreamOptions(
+    allocator: Allocator,
+    reader: anytype,
+    comptime options: DecompressStreamOptions,
+) DecompressStream(@TypeOf(reader, options)) {
+    return DecompressStream(@TypeOf(reader), options).init(allocator, reader);
+}
+
 pub fn decompressStream(
     allocator: Allocator,
     reader: anytype,
-    comptime window_size_max: usize,
-) DecompressStream(@TypeOf(reader), true, window_size_max) {
-    return DecompressStream(@TypeOf(reader), true, 8 * (1 << 20)).init(allocator, reader);
+) DecompressStream(@TypeOf(reader), .{}) {
+    return DecompressStream(@TypeOf(reader), .{}).init(allocator, reader);
 }
 
 fn testDecompress(data: []const u8) ![]u8 {
     var in_stream = std.io.fixedBufferStream(data);
-    var zstd_stream = decompressStream(std.testing.allocator, in_stream.reader(), 1 << 23);
+    var zstd_stream = decompressStream(std.testing.allocator, in_stream.reader());
     defer zstd_stream.deinit();
     const result = zstd_stream.reader().readAllAlloc(std.testing.allocator, std.math.maxInt(usize));
     return result;
