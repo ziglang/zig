@@ -8,7 +8,7 @@ pub const compressed_block = types.compressed_block;
 const RingBuffer = @import("zstandard/RingBuffer.zig");
 pub const decompress = @import("zstandard/decompress.zig");
 
-pub fn ZstandardStream(
+pub fn DecompressStream(
     comptime ReaderType: type,
     comptime verify_checksum: bool,
     comptime window_size_max: usize,
@@ -232,19 +232,19 @@ pub fn ZstandardStream(
     };
 }
 
-pub fn zstandardStream(
+pub fn decompressStream(
     allocator: Allocator,
     reader: anytype,
     comptime window_size_max: usize,
-) ZstandardStream(@TypeOf(reader), true, window_size_max) {
-    return ZstandardStream(@TypeOf(reader), true, 8 * (1 << 20)).init(allocator, reader);
+) DecompressStream(@TypeOf(reader), true, window_size_max) {
+    return DecompressStream(@TypeOf(reader), true, 8 * (1 << 20)).init(allocator, reader);
 }
 
 fn testDecompress(data: []const u8) ![]u8 {
     var in_stream = std.io.fixedBufferStream(data);
-    var stream = zstandardStream(std.testing.allocator, in_stream.reader(), 1 << 23);
-    defer stream.deinit();
-    const result = stream.reader().readAllAlloc(std.testing.allocator, std.math.maxInt(usize));
+    var zstd_stream = decompressStream(std.testing.allocator, in_stream.reader(), 1 << 23);
+    defer zstd_stream.deinit();
+    const result = zstd_stream.reader().readAllAlloc(std.testing.allocator, std.math.maxInt(usize));
     return result;
 }
 
