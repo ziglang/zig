@@ -2058,6 +2058,7 @@ fn renderTypePrefix(
         .zig_f64,
         .zig_f80,
         .zig_f128,
+        .zig_c_longdouble,
         => |tag| try w.writeAll(@tagName(tag)),
 
         .pointer,
@@ -2225,6 +2226,7 @@ fn renderTypeSuffix(
         .zig_f64,
         .zig_f80,
         .zig_f128,
+        .zig_c_longdouble,
         => {},
 
         .pointer,
@@ -3062,6 +3064,7 @@ fn airPtrElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
         return CValue.none;
     }
 
+    const inst_ty = f.air.typeOfIndex(inst);
     const ptr_ty = f.air.typeOf(bin_op.lhs);
     const child_ty = ptr_ty.childType();
 
@@ -3076,7 +3079,9 @@ fn airPtrElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, f.air.typeOfIndex(inst));
     try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(" = &(");
+    try writer.writeAll(" = (");
+    try f.renderTypecast(writer, inst_ty);
+    try writer.writeAll(")&(");
     if (ptr_ty.ptrSize() == .One) {
         // It's a pointer to an array, so we need to de-reference.
         try f.writeCValueDeref(writer, ptr);
@@ -3902,32 +3907,31 @@ fn airPtrAddSub(f: *Function, inst: Air.Inst.Index, operator: u8) !CValue {
     try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
 
     const inst_ty = f.air.typeOfIndex(inst);
-    const elem_ty = switch (inst_ty.ptrSize()) {
-        .One => blk: {
-            const array_ty = inst_ty.childType();
-            break :blk array_ty.childType();
-        },
-        else => inst_ty.childType(),
-    };
+    const elem_ty = inst_ty.elemType2();
 
-    // We must convert to and from integer types to prevent UB if the operation
-    // results in a NULL pointer, or if LHS is NULL. The operation is only UB
-    // if the result is NULL and then dereferenced.
     const local = try f.allocLocal(inst, inst_ty);
     const writer = f.object.writer();
     try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(" = (");
-    try f.renderTypecast(writer, inst_ty);
-    try writer.writeAll(")(((uintptr_t)");
-    try f.writeCValue(writer, lhs, .Other);
-    try writer.writeAll(") ");
-    try writer.writeByte(operator);
-    try writer.writeAll(" (");
-    try f.writeCValue(writer, rhs, .Other);
-    try writer.writeAll("*sizeof(");
-    try f.renderTypecast(writer, elem_ty);
-    try writer.writeAll(")));\n");
+    try writer.writeAll(" = ");
 
+    if (elem_ty.hasRuntimeBitsIgnoreComptime()) {
+        // We must convert to and from integer types to prevent UB if the operation
+        // results in a NULL pointer, or if LHS is NULL. The operation is only UB
+        // if the result is NULL and then dereferenced.
+        try writer.writeByte('(');
+        try f.renderTypecast(writer, inst_ty);
+        try writer.writeAll(")(((uintptr_t)");
+        try f.writeCValue(writer, lhs, .Other);
+        try writer.writeAll(") ");
+        try writer.writeByte(operator);
+        try writer.writeAll(" (");
+        try f.writeCValue(writer, rhs, .Other);
+        try writer.writeAll("*sizeof(");
+        try f.renderTypecast(writer, elem_ty);
+        try writer.writeAll(")))");
+    } else try f.writeCValue(writer, lhs, .Initializer);
+
+    try writer.writeAll(";\n");
     return local;
 }
 
@@ -5264,21 +5268,21 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
         else => unreachable,
     };
 
-    try writer.writeByte('&');
-    switch (field_loc) {
-        .begin, .end => {
-            try writer.writeByte('(');
-            try f.writeCValue(writer, struct_ptr, .Other);
-            try writer.print(")[{}]", .{
-                @boolToInt(field_loc == .end and struct_ty.hasRuntimeBitsIgnoreComptime()),
-            });
-        },
-        .field => |field| if (extra_name != .none) {
-            try f.writeCValueDerefMember(writer, struct_ptr, extra_name);
-            try writer.writeByte('.');
-            try f.writeCValue(writer, field, .Other);
-        } else try f.writeCValueDerefMember(writer, struct_ptr, field),
-    }
+    if (struct_ty.hasRuntimeBitsIgnoreComptime()) {
+        try writer.writeByte('&');
+        switch (field_loc) {
+            .begin, .end => {
+                try writer.writeByte('(');
+                try f.writeCValue(writer, struct_ptr, .Other);
+                try writer.print(")[{}]", .{@boolToInt(field_loc == .end)});
+            },
+            .field => |field| if (extra_name != .none) {
+                try f.writeCValueDerefMember(writer, struct_ptr, extra_name);
+                try writer.writeByte('.');
+                try f.writeCValue(writer, field, .Other);
+            } else try f.writeCValueDerefMember(writer, struct_ptr, field),
+        }
+    } else try f.writeCValue(writer, struct_ptr, .Other);
     try writer.writeAll(";\n");
     return local;
 }

@@ -316,7 +316,7 @@ zig_extern void *memset (void *, int, size_t);
 
 /* ===================== 8/16/32/64-bit Integer Support ===================== */
 
-#if __STDC_VERSION__ >= 199901L
+#if __STDC_VERSION__ >= 199901L || _MSC_VER
 #include <stdint.h>
 #else
 
@@ -1923,6 +1923,7 @@ typedef double zig_f16;
 #define zig_make_f16(fp, repr) fp
 #elif LDBL_MANT_DIG == 11
 #define zig_bitSizeOf_c_longdouble 16
+typedef uint16_t zig_repr_c_longdouble;
 typedef long double zig_f16;
 #define zig_make_f16(fp, repr) fp##l
 #elif FLT16_MANT_DIG == 11 && (zig_has_builtin(inff16) || defined(zig_gnuc))
@@ -1959,6 +1960,7 @@ typedef double zig_f32;
 #define zig_make_f32(fp, repr) fp
 #elif LDBL_MANT_DIG == 24
 #define zig_bitSizeOf_c_longdouble 32
+typedef uint32_t zig_repr_c_longdouble;
 typedef long double zig_f32;
 #define zig_make_f32(fp, repr) fp##l
 #elif FLT32_MANT_DIG == 24
@@ -1982,6 +1984,7 @@ typedef int32_t zig_f32;
 #if _MSC_VER
 #ifdef ZIG_TARGET_ABI_MSVC
 #define zig_bitSizeOf_c_longdouble 64
+typedef uint64_t zig_repr_c_longdouble;
 #endif
 #define zig_make_special_constant_f64(sign, name, arg, repr) sign zig_make_f64(zig_msvc_flt_##name, )
 #else /* _MSC_VER */
@@ -1995,6 +1998,7 @@ typedef double zig_f64;
 #define zig_make_f64(fp, repr) fp
 #elif LDBL_MANT_DIG == 53
 #define zig_bitSizeOf_c_longdouble 64
+typedef uint64_t zig_repr_c_longdouble;
 typedef long double zig_f64;
 #define zig_make_f64(fp, repr) fp##l
 #elif FLT64_MANT_DIG == 53
@@ -2027,6 +2031,7 @@ typedef double zig_f80;
 #define zig_make_f80(fp, repr) fp
 #elif LDBL_MANT_DIG == 64
 #define zig_bitSizeOf_c_longdouble 80
+typedef zig_u128 zig_repr_c_longdouble;
 typedef long double zig_f80;
 #define zig_make_f80(fp, repr) fp##l
 #elif FLT80_MANT_DIG == 64
@@ -2062,6 +2067,7 @@ typedef double zig_f128;
 #define zig_make_f128(fp, repr) fp
 #elif LDBL_MANT_DIG == 113
 #define zig_bitSizeOf_c_longdouble 128
+typedef zig_u128 zig_repr_c_longdouble;
 typedef long double zig_f128;
 #define zig_make_f128(fp, repr) fp##l
 #elif FLT128_MANT_DIG == 113
@@ -2099,9 +2105,10 @@ typedef zig_i128 zig_f128;
 #ifdef zig_bitSizeOf_c_longdouble
 
 #ifdef ZIG_TARGET_ABI_MSVC
-typedef double zig_c_longdouble;
 #undef zig_bitSizeOf_c_longdouble
 #define zig_bitSizeOf_c_longdouble 64
+typedef uint64_t zig_repr_c_longdouble;
+typedef zig_f64 zig_c_longdouble;
 #define zig_make_c_longdouble(fp, repr) fp
 #else
 typedef long double zig_c_longdouble;
@@ -2113,6 +2120,7 @@ typedef long double zig_c_longdouble;
 #undef zig_has_c_longdouble
 #define zig_has_c_longdouble 0
 #define zig_bitSizeOf_c_longdouble 80
+typedef zig_u128 zig_repr_c_longdouble;
 #define zig_compiler_rt_abbrev_c_longdouble zig_compiler_rt_abbrev_f80
 #define zig_bitSizeOf_repr_c_longdouble 128
 typedef zig_i128 zig_c_longdouble;
@@ -2126,21 +2134,18 @@ typedef zig_i128 zig_c_longdouble;
 
 #if !zig_has_float_builtins
 #define zig_float_from_repr(Type, ReprType) \
-    static inline zig_##Type zig_float_from_repr_##Type(zig_##ReprType repr) { \
-        return *((zig_##Type*)&repr); \
+    static inline zig_##Type zig_float_from_repr_##Type(ReprType repr) { \
+        zig_##Type result; \
+        memcpy(&result, &repr, sizeof(result)); \
+        return result; \
     }
 
-zig_float_from_repr(f16, u16)
-zig_float_from_repr(f32, u32)
-zig_float_from_repr(f64, u64)
-zig_float_from_repr(f80, u128)
-zig_float_from_repr(f128, u128)
-#if zig_bitSizeOf_c_longdouble == 80
-zig_float_from_repr(c_longdouble, u128)
-#else
-#define zig_expand_float_from_repr(Type, ReprType) zig_float_from_repr(Type, ReprType)
-zig_expand_float_from_repr(c_longdouble, zig_expand_concat(u, zig_bitSizeOf_c_longdouble))
-#endif
+zig_float_from_repr(f16, uint16_t)
+zig_float_from_repr(f32, uint32_t)
+zig_float_from_repr(f64, uint64_t)
+zig_float_from_repr(f80, zig_u128)
+zig_float_from_repr(f128, zig_u128)
+zig_float_from_repr(c_longdouble, zig_repr_c_longdouble)
 #endif
 
 #define zig_cast_f16 (zig_f16)
@@ -2288,98 +2293,98 @@ zig_float_builtins(c_longdouble)
 
 // TODO: zig_msvc_atomic_load should load 32 bit without interlocked on x86, and load 64 bit without interlocked on x64
 
-#define zig_msvc_atomics(Type, suffix) \
-    static inline bool zig_msvc_cmpxchg_##Type(zig_##Type volatile* obj, zig_##Type* expected, zig_##Type desired) { \
-        zig_##Type comparand = *expected; \
-        zig_##Type initial = _InterlockedCompareExchange##suffix(obj, desired, comparand); \
+#define zig_msvc_atomics(ZigType, Type, suffix) \
+    static inline bool zig_msvc_cmpxchg_##ZigType(Type volatile* obj, Type* expected, Type desired) { \
+        Type comparand = *expected; \
+        Type initial = _InterlockedCompareExchange##suffix(obj, desired, comparand); \
         bool exchanged = initial == comparand; \
         if (!exchanged) { \
             *expected = initial; \
         } \
         return exchanged; \
     } \
-    static inline zig_##Type zig_msvc_atomicrmw_xchg_##Type(zig_##Type volatile* obj, zig_##Type value) { \
+    static inline Type zig_msvc_atomicrmw_xchg_##ZigType(Type volatile* obj, Type value) { \
         return _InterlockedExchange##suffix(obj, value); \
     } \
-    static inline zig_##Type zig_msvc_atomicrmw_add_##Type(zig_##Type volatile* obj, zig_##Type value) { \
+    static inline Type zig_msvc_atomicrmw_add_##ZigType(Type volatile* obj, Type value) { \
         return _InterlockedExchangeAdd##suffix(obj, value); \
     } \
-    static inline zig_##Type zig_msvc_atomicrmw_sub_##Type(zig_##Type volatile* obj, zig_##Type value) { \
+    static inline Type zig_msvc_atomicrmw_sub_##ZigType(Type volatile* obj, Type value) { \
         bool success = false; \
-        zig_##Type new; \
-        zig_##Type prev; \
+        Type new; \
+        Type prev; \
         while (!success) { \
             prev = *obj; \
             new = prev - value; \
-            success = zig_msvc_cmpxchg_##Type(obj, &prev, new); \
+            success = zig_msvc_cmpxchg_##ZigType(obj, &prev, new); \
         } \
         return prev; \
     } \
-    static inline zig_##Type zig_msvc_atomicrmw_or_##Type(zig_##Type volatile* obj, zig_##Type value) { \
+    static inline Type zig_msvc_atomicrmw_or_##ZigType(Type volatile* obj, Type value) { \
         return _InterlockedOr##suffix(obj, value); \
     } \
-    static inline zig_##Type zig_msvc_atomicrmw_xor_##Type(zig_##Type volatile* obj, zig_##Type value) { \
+    static inline Type zig_msvc_atomicrmw_xor_##ZigType(Type volatile* obj, Type value) { \
         return _InterlockedXor##suffix(obj, value); \
     } \
-    static inline zig_##Type zig_msvc_atomicrmw_and_##Type(zig_##Type volatile* obj, zig_##Type value) { \
+    static inline Type zig_msvc_atomicrmw_and_##ZigType(Type volatile* obj, Type value) { \
         return _InterlockedAnd##suffix(obj, value); \
     } \
-    static inline zig_##Type zig_msvc_atomicrmw_nand_##Type(zig_##Type volatile* obj, zig_##Type value) { \
+    static inline Type zig_msvc_atomicrmw_nand_##ZigType(Type volatile* obj, Type value) { \
         bool success = false; \
-        zig_##Type new; \
-        zig_##Type prev; \
+        Type new; \
+        Type prev; \
         while (!success) { \
             prev = *obj; \
             new = ~(prev & value); \
-            success = zig_msvc_cmpxchg_##Type(obj, &prev, new); \
+            success = zig_msvc_cmpxchg_##ZigType(obj, &prev, new); \
         } \
         return prev; \
     } \
-    static inline zig_##Type zig_msvc_atomicrmw_min_##Type(zig_##Type volatile* obj, zig_##Type value) { \
+    static inline Type zig_msvc_atomicrmw_min_##ZigType(Type volatile* obj, Type value) { \
         bool success = false; \
-        zig_##Type new; \
-        zig_##Type prev; \
+        Type new; \
+        Type prev; \
         while (!success) { \
             prev = *obj; \
             new = value < prev ? value : prev; \
-            success = zig_msvc_cmpxchg_##Type(obj, &prev, new); \
+            success = zig_msvc_cmpxchg_##ZigType(obj, &prev, new); \
         } \
         return prev; \
     } \
-    static inline zig_##Type zig_msvc_atomicrmw_max_##Type(zig_##Type volatile* obj, zig_##Type value) { \
+    static inline Type zig_msvc_atomicrmw_max_##ZigType(Type volatile* obj, Type value) { \
         bool success = false; \
-        zig_##Type new; \
-        zig_##Type prev; \
+        Type new; \
+        Type prev; \
         while (!success) { \
             prev = *obj; \
             new = value > prev ? value : prev; \
-            success = zig_msvc_cmpxchg_##Type(obj, &prev, new); \
+            success = zig_msvc_cmpxchg_##ZigType(obj, &prev, new); \
         } \
         return prev; \
     } \
-    static inline void zig_msvc_atomic_store_##Type(zig_##Type volatile* obj, zig_##Type value) { \
+    static inline void zig_msvc_atomic_store_##ZigType(Type volatile* obj, Type value) { \
         _InterlockedExchange##suffix(obj, value); \
     } \
-    static inline zig_##Type zig_msvc_atomic_load_##Type(zig_##Type volatile* obj) { \
+    static inline Type zig_msvc_atomic_load_##ZigType(Type volatile* obj) { \
         return _InterlockedOr##suffix(obj, 0); \
     }
 
-zig_msvc_atomics(u8, 8)
-zig_msvc_atomics(i8, 8)
-zig_msvc_atomics(u16, 16)
-zig_msvc_atomics(i16, 16)
-zig_msvc_atomics(u32, )
-zig_msvc_atomics(i32, )
+zig_msvc_atomics( u8,  uint8_t,  8)
+zig_msvc_atomics( i8,   int8_t,  8)
+zig_msvc_atomics(u16, uint16_t, 16)
+zig_msvc_atomics(i16,  int16_t, 16)
+zig_msvc_atomics(u32, uint32_t,   )
+zig_msvc_atomics(i32,  int32_t,   )
 
 #if _M_X64
-zig_msvc_atomics(u64, 64)
-zig_msvc_atomics(i64, 64)
+zig_msvc_atomics(u64, uint64_t, 64)
+zig_msvc_atomics(i64,  int64_t, 64)
 #endif
 
 #define zig_msvc_flt_atomics(Type, ReprType, suffix) \
     static inline bool zig_msvc_cmpxchg_##Type(zig_##Type volatile* obj, zig_##Type* expected, zig_##Type desired) { \
-        zig_##ReprType comparand = *((zig_##ReprType*)expected); \
-        zig_##ReprType initial = _InterlockedCompareExchange##suffix((zig_##ReprType volatile*)obj, *((zig_##ReprType*)&desired), comparand); \
+        ReprType comparand = *((ReprType*)expected); \
+        ReprType initial = _InterlockedCompareExchange##suffix((ReprType volatile*)obj, *((ReprType*)&desired), comparand); \
         bool exchanged = initial == comparand; \
         if (!exchanged) { \
             *expected = *((zig_##Type*)&initial); \
@@ -2387,35 +2392,35 @@ zig_msvc_atomics(i64, 64)
         return exchanged; \
     } \
     static inline zig_##Type zig_msvc_atomicrmw_xchg_##Type(zig_##Type volatile* obj, zig_##Type value) { \
-        zig_##ReprType initial = _InterlockedExchange##suffix((zig_##ReprType volatile*)obj, *((zig_##ReprType*)&value)); \
+        ReprType initial = _InterlockedExchange##suffix((ReprType volatile*)obj, *((ReprType*)&value)); \
         return *((zig_##Type*)&initial); \
     } \
     static inline zig_##Type zig_msvc_atomicrmw_add_##Type(zig_##Type volatile* obj, zig_##Type value) { \
         bool success = false; \
-        zig_##ReprType new; \
+        ReprType new; \
         zig_##Type prev; \
         while (!success) { \
             prev = *obj; \
             new = prev + value; \
-            success = zig_msvc_cmpxchg_##Type(obj, &prev, *((zig_##ReprType*)&new)); \
+            success = zig_msvc_cmpxchg_##Type(obj, &prev, *((ReprType*)&new)); \
         } \
         return prev; \
     } \
     static inline zig_##Type zig_msvc_atomicrmw_sub_##Type(zig_##Type volatile* obj, zig_##Type value) { \
         bool success = false; \
-        zig_##ReprType new; \
+        ReprType new; \
         zig_##Type prev; \
         while (!success) { \
             prev = *obj; \
             new = prev - value; \
-            success = zig_msvc_cmpxchg_##Type(obj, &prev, *((zig_##ReprType*)&new)); \
+            success = zig_msvc_cmpxchg_##Type(obj, &prev, *((ReprType*)&new)); \
         } \
         return prev; \
     }
 
-zig_msvc_flt_atomics(f32, u32, )
+zig_msvc_flt_atomics(f32, uint32_t,   )
 #if _M_X64
-zig_msvc_flt_atomics(f64, u64, 64)
+zig_msvc_flt_atomics(f64, uint64_t, 64)
 #endif
 
 #if _M_IX86
@@ -2426,11 +2431,11 @@ static inline void zig_msvc_atomic_barrier() {
     }
 }
 
-static inline void* zig_msvc_atomicrmw_xchg_p32(void** obj, uint32_t* arg) {
+static inline void* zig_msvc_atomicrmw_xchg_p32(void** obj, void* arg) {
     return _InterlockedExchangePointer(obj, arg);
 }
 
-static inline void zig_msvc_atomic_store_p32(void** obj, uint32_t* arg) {
+static inline void zig_msvc_atomic_store_p32(void** obj, void* arg) {
     _InterlockedExchangePointer(obj, arg);
 }
 
@@ -2448,11 +2453,11 @@ static inline bool zig_msvc_cmpxchg_p32(void** obj, void** expected, void* desir
     return exchanged;
 }
 #else /* _M_IX86 */
-static inline void* zig_msvc_atomicrmw_xchg_p64(void** obj, uint64_t* arg) {
+static inline void* zig_msvc_atomicrmw_xchg_p64(void** obj, void* arg) {
     return _InterlockedExchangePointer(obj, arg);
 }
 
-static inline void zig_msvc_atomic_store_p64(void** obj, uint64_t* arg) {
+static inline void zig_msvc_atomic_store_p64(void** obj, void* arg) {
     _InterlockedExchangePointer(obj, arg);
 }
 

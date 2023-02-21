@@ -102,6 +102,7 @@ pub const CType = extern union {
         zig_f64,
         zig_f80,
         zig_f128,
+        zig_c_longdouble, // Keep last_no_payload_tag updated!
 
         // After this, the tag requires a payload.
         pointer,
@@ -127,7 +128,7 @@ pub const CType = extern union {
         function,
         varargs_function,
 
-        pub const last_no_payload_tag = Tag.zig_f128;
+        pub const last_no_payload_tag = Tag.zig_c_longdouble;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
         pub fn hasPayload(self: Tag) bool {
@@ -177,6 +178,7 @@ pub const CType = extern union {
                 .zig_f64,
                 .zig_f80,
                 .zig_f128,
+                .zig_c_longdouble,
                 => @compileError("Type Tag " ++ @tagName(self) ++ " has no payload"),
 
                 .pointer,
@@ -557,6 +559,7 @@ pub const CType = extern union {
             .zig_f64,
             .zig_f80,
             .zig_f128,
+            .zig_c_longdouble,
             => false,
 
             .pointer,
@@ -674,6 +677,7 @@ pub const CType = extern union {
             .zig_f64,
             .zig_f80,
             .zig_f128,
+            .zig_c_longdouble,
             => {},
 
             .pointer,
@@ -980,7 +984,7 @@ pub const CType = extern union {
                     .f64 => .zig_f64,
                     .f80 => .zig_f80,
                     .f128 => .zig_f128,
-                    .c_longdouble => .@"long double",
+                    .c_longdouble => .zig_c_longdouble,
                     else => unreachable,
                 }),
 
@@ -1374,6 +1378,7 @@ pub const CType = extern union {
             .zig_f64,
             .zig_f80,
             .zig_f128,
+            .zig_c_longdouble,
             => return self,
 
             .pointer,
