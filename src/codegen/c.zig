@@ -752,7 +752,7 @@ pub const DeclGen = struct {
 
                     try writer.writeAll("zig_cast_");
                     try dg.renderTypeForBuiltinFnName(writer, ty);
-                    try writer.writeAll(" zig_as_");
+                    try writer.writeAll(" zig_make_");
                     try dg.renderTypeForBuiltinFnName(writer, ty);
                     try writer.writeByte('(');
                     switch (bits) {
@@ -962,7 +962,7 @@ pub const DeclGen = struct {
                 try writer.writeByte(' ');
                 var empty = true;
                 if (std.math.isFinite(f128_val)) {
-                    try writer.writeAll("zig_as_");
+                    try writer.writeAll("zig_make_");
                     try dg.renderTypeForBuiltinFnName(writer, ty);
                     try writer.writeByte('(');
                     switch (bits) {
@@ -997,7 +997,7 @@ pub const DeclGen = struct {
                         //     return dg.fail("Only quiet nans are supported in global variable initializers", .{});
                     }
 
-                    try writer.writeAll("zig_as_special_");
+                    try writer.writeAll("zig_make_special_");
                     if (location == .StaticInitializer) try writer.writeAll("constant_");
                     try dg.renderTypeForBuiltinFnName(writer, ty);
                     try writer.writeByte('(');
@@ -2016,14 +2016,16 @@ pub const DeclGen = struct {
             .bool,
             .size_t,
             .ptrdiff_t,
-            .zig_u8,
-            .zig_i8,
-            .zig_u16,
-            .zig_i16,
-            .zig_u32,
-            .zig_i32,
-            .zig_u64,
-            .zig_i64,
+            .uint8_t,
+            .int8_t,
+            .uint16_t,
+            .int16_t,
+            .uint32_t,
+            .int32_t,
+            .uint64_t,
+            .int64_t,
+            .uintptr_t,
+            .intptr_t,
             .zig_u128,
             .zig_i128,
             .zig_f16,
@@ -2158,14 +2160,16 @@ pub const DeclGen = struct {
             .bool,
             .size_t,
             .ptrdiff_t,
-            .zig_u8,
-            .zig_i8,
-            .zig_u16,
-            .zig_i16,
-            .zig_u32,
-            .zig_i32,
-            .zig_u64,
-            .zig_i64,
+            .uint8_t,
+            .int8_t,
+            .uint16_t,
+            .int16_t,
+            .uint32_t,
+            .int32_t,
+            .uint64_t,
+            .int64_t,
+            .uintptr_t,
+            .intptr_t,
             .zig_u128,
             .zig_i128,
             .zig_f16,
@@ -2285,16 +2289,16 @@ pub const DeclGen = struct {
     /// Renders a cast to an int type, from either an int or a pointer.
     ///
     /// Some platforms don't have 128 bit integers, so we need to use
-    /// the zig_as_ and zig_lo_ macros in those cases.
+    /// the zig_make_ and zig_lo_ macros in those cases.
     ///
     ///   | Dest type bits   | Src type         | Result
     ///   |------------------|------------------|---------------------------|
     ///   | < 64 bit integer | pointer          | (zig_<dest_ty>)(zig_<u|i>size)src
     ///   | < 64 bit integer | < 64 bit integer | (zig_<dest_ty>)src
     ///   | < 64 bit integer | > 64 bit integer | zig_lo(src)
-    ///   | > 64 bit integer | pointer          | zig_as_<dest_ty>(0, (zig_<u|i>size)src)
-    ///   | > 64 bit integer | < 64 bit integer | zig_as_<dest_ty>(0, src)
-    ///   | > 64 bit integer | > 64 bit integer | zig_as_<dest_ty>(zig_hi_<src_ty>(src), zig_lo_<src_ty>(src))
+    ///   | > 64 bit integer | pointer          | zig_make_<dest_ty>(0, (zig_<u|i>size)src)
+    ///   | > 64 bit integer | < 64 bit integer | zig_make_<dest_ty>(0, src)
+    ///   | > 64 bit integer | > 64 bit integer | zig_make_<dest_ty>(zig_hi_<src_ty>(src), zig_lo_<src_ty>(src))
     fn renderIntCast(dg: *DeclGen, w: anytype, dest_ty: Type, context: IntCastContext, src_ty: Type, location: ValueRenderLocation) !void {
         const target = dg.module.getTarget();
         const dest_bits = dest_ty.bitSize(target);
@@ -2332,7 +2336,7 @@ pub const DeclGen = struct {
             try context.writeValue(dg, w, src_ty, .FunctionArgument);
             try w.writeByte(')');
         } else if (dest_bits > 64 and src_bits <= 64) {
-            try w.writeAll("zig_as_");
+            try w.writeAll("zig_make_");
             try dg.renderTypeForBuiltinFnName(w, dest_ty);
             try w.writeAll("(0, "); // TODO: Should the 0 go through fmtIntLiteral?
             if (src_is_ptr) {
@@ -2344,7 +2348,7 @@ pub const DeclGen = struct {
             try w.writeByte(')');
         } else {
             assert(!src_is_ptr);
-            try w.writeAll("zig_as_");
+            try w.writeAll("zig_make_");
             try dg.renderTypeForBuiltinFnName(w, dest_ty);
             try w.writeAll("(zig_hi_");
             try dg.renderTypeForBuiltinFnName(w, src_eff_ty);
@@ -3858,7 +3862,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
         const cant_cast = host_ty.isInt() and host_ty.bitSize(target) > 64;
         if (cant_cast) {
             if (src_ty.bitSize(target) > 64) return f.fail("TODO: C backend: implement casting between types > 64 bits", .{});
-            try writer.writeAll("zig_as_");
+            try writer.writeAll("zig_make_");
             try f.object.dg.renderTypeForBuiltinFnName(writer, host_ty);
             try writer.writeAll("(0, ");
         } else {
@@ -7355,7 +7359,7 @@ fn formatIntLiteral(
                 use_twos_comp = true;
             } else {
                 // TODO: Use fmtIntLiteral for 0?
-                try writer.print("zig_sub_{c}{d}(zig_as_{c}{d}(0, 0), ", .{ signAbbrev(int_info.signedness), c_bits, signAbbrev(int_info.signedness), c_bits });
+                try writer.print("zig_sub_{c}{d}(zig_make_{c}{d}(0, 0), ", .{ signAbbrev(int_info.signedness), c_bits, signAbbrev(int_info.signedness), c_bits });
             }
         } else {
             try writer.writeByte('-');
@@ -7365,11 +7369,16 @@ fn formatIntLiteral(
     switch (data.ty.tag()) {
         .c_short, .c_ushort, .c_int, .c_uint, .c_long, .c_ulong, .c_longlong, .c_ulonglong => {},
         else => {
-            if (int_info.bits > 64 and data.location != null and data.location.? == .StaticInitializer) {
+            if (int_info.bits <= 64) {
+                try writer.print("{s}INT{d}_C(", .{ switch (int_info.signedness) {
+                    .signed => "",
+                    .unsigned => "U",
+                }, c_bits });
+            } else if (data.location != null and data.location.? == .StaticInitializer) {
                 // MSVC treats casting the struct initializer as not constant (C2099), so an alternate form is used in global initializers
-                try writer.print("zig_as_constant_{c}{d}(", .{ signAbbrev(int_info.signedness), c_bits });
+                try writer.print("zig_make_constant_{c}{d}(", .{ signAbbrev(int_info.signedness), c_bits });
             } else {
-                try writer.print("zig_as_{c}{d}(", .{ signAbbrev(int_info.signedness), c_bits });
+                try writer.print("zig_make_{c}{d}(", .{ signAbbrev(int_info.signedness), c_bits });
             }
         },
     }
