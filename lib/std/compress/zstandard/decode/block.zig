@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const RingBuffer = std.RingBuffer;
 
 const types = @import("../types.zig");
 const frame = types.frame;
@@ -8,9 +9,6 @@ const LiteralsSection = types.compressed_block.LiteralsSection;
 const SequencesSection = types.compressed_block.SequencesSection;
 
 const huffman = @import("huffman.zig");
-
-const RingBuffer = @import("../RingBuffer.zig");
-
 const readers = @import("../readers.zig");
 
 const decodeFseTable = @import("fse.zig").decodeFseTable;

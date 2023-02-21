@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const RingBuffer = std.RingBuffer;
 
 const types = @import("types.zig");
 const frame = types.frame;
@@ -11,8 +12,6 @@ const ZstandardHeader = types.frame.Zstandard.Header;
 const Table = types.compressed_block.Table;
 
 pub const block = @import("decode/block.zig");
-
-pub const RingBuffer = @import("RingBuffer.zig");
 
 const readers = @import("readers.zig");
 
