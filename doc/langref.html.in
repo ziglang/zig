@@ -1091,6 +1091,11 @@ test "expect addOne adds one to 41" {
     try std.testing.expect(addOne(41) == 42);
 }
 
+test addOne {
+    // A test name can also be written using an identifier.
+    try std.testing.expect(addOne(41) == 42);
+}
+
 /// The function `addOne` adds one to the number given as its argument.
 fn addOne(number: i32) i32 {
     return number + 1;
@@ -1118,20 +1123,25 @@ fn addOne(number: i32) i32 {
         printed to standard error by the default test runner:
       </p>
       <dl>
-        <dt><samp>Test [1/1] test "expect addOne adds one to 41"...</samp></dt>
+        <dt><samp>Test [1/2] test.expect addOne adds one to 41...</samp></dt>
         <dd>Lines like this indicate which test, out of the total number of tests, is being run.
-          In this case, <samp>[1/1]</samp> indicates that the first test, out of a total of
-          one test, is being run. Note that, when the test runner program's standard error is output
+          In this case, <samp>[1/2]</samp> indicates that the first test, out of a total of
+          two test, is being run. Note that, when the test runner program's standard error is output
           to the terminal, these lines are cleared when a test succeeds.
         </dd>
-        <dt><samp>All 1 tests passed.</samp></dt>
+        <dt><samp>Test [2/2] decltest.addOne...</samp></dt>
+        <dd>When the test name is an identifier, the default test runner uses the text
+          decltest instead of test.
+        </dd>
+        <dt><samp>All 2 tests passed.</samp></dt>
         <dd>This line indicates the total number of tests that have passed.</dd>
       </dl>
       {#header_open|Test Declarations#}
       <p>
         Test declarations contain the {#link|keyword|Keyword Reference#} {#syntax#}test{#endsyntax#}, followed by an
-        optional name written as a {#link|string literal|String Literals and Unicode Code Point Literals#}, followed
-        by a {#link|block|Blocks#} containing any valid Zig code that is allowed in a {#link|function|Functions#}.
+        optional name written as a {#link|string literal|String Literals and Unicode Code Point Literals#} or an
+        {#link|identifier|Identifiers#}, followed by a {#link|block|Blocks#} containing any valid Zig code that
+        is allowed in a {#link|function|Functions#}.
       </p>
       <aside>
         By convention, non-named tests should only be used to {#link|make other tests run|Nested Container Tests#}.
