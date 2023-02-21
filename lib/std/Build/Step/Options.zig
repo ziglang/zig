@@ -76,23 +76,6 @@ fn addOptionFallible(self: *Options, comptime T: type, name: []const u8, value: 
             }
             return;
         },
-        std.builtin.Version => {
-            try out.print(
-                \\pub const {}: @import("std").builtin.Version = .{{
-                \\    .major = {d},
-                \\    .minor = {d},
-                \\    .patch = {d},
-                \\}};
-                \\
-            , .{
-                std.zig.fmtId(name),
-
-                value.major,
-                value.minor,
-                value.patch,
-            });
-            return;
-        },
         std.SemanticVersion => {
             try out.print(
                 \\pub const {}: @import("std").SemanticVersion = .{{
@@ -367,7 +350,6 @@ test Options {
     options.addOption([2][2]u16, "nested_array", nested_array);
     options.addOption([]const []const u16, "nested_slice", nested_slice);
     //options.addOption(KeywordEnum, "keyword_enum", .@"0.8.1");
-    options.addOption(std.builtin.Version, "version", try std.builtin.Version.parse("0.1.2"));
     options.addOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
 
     try std.testing.expectEqualStrings(
@@ -401,11 +383,6 @@ test Options {
         //\\    @"0.8.1",
         //\\};
         //\\pub const keyword_enum: KeywordEnum = KeywordEnum.@"0.8.1";
-        \\pub const version: @import("std").builtin.Version = .{
-        \\    .major = 0,
-        \\    .minor = 1,
-        \\    .patch = 2,
-        \\};
         \\pub const semantic_version: @import("std").SemanticVersion = .{
         \\    .major = 0,
         \\    .minor = 1,

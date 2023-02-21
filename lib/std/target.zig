@@ -1,7 +1,7 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const mem = std.mem;
-const Version = std.builtin.Version;
+const Version = std.SemanticVersion;
 
 /// TODO Nearly all the functions in this namespace would be
 /// better off if https://github.com/ziglang/zig/issues/425
@@ -272,75 +272,75 @@ pub const Target = struct {
 
                     .freebsd => return .{
                         .semver = Version.Range{
-                            .min = .{ .major = 12, .minor = 0 },
-                            .max = .{ .major = 13, .minor = 1 },
+                            .min = .{ .major = 12, .minor = 0, .patch = 0 },
+                            .max = .{ .major = 13, .minor = 1, .patch = 0 },
                         },
                     },
                     .macos => return switch (arch) {
                         .aarch64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 3 },
+                                .max = .{ .major = 13, .minor = 3, .patch = 0 },
                             },
                         },
                         .x86_64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 3 },
+                                .max = .{ .major = 13, .minor = 3, .patch = 0 },
                             },
                         },
                         else => unreachable,
                     },
                     .ios => return .{
                         .semver = .{
-                            .min = .{ .major = 12, .minor = 0 },
+                            .min = .{ .major = 12, .minor = 0, .patch = 0 },
                             .max = .{ .major = 13, .minor = 4, .patch = 0 },
                         },
                     },
                     .watchos => return .{
                         .semver = .{
-                            .min = .{ .major = 6, .minor = 0 },
+                            .min = .{ .major = 6, .minor = 0, .patch = 0 },
                             .max = .{ .major = 6, .minor = 2, .patch = 0 },
                         },
                     },
                     .tvos => return .{
                         .semver = .{
-                            .min = .{ .major = 13, .minor = 0 },
+                            .min = .{ .major = 13, .minor = 0, .patch = 0 },
                             .max = .{ .major = 13, .minor = 4, .patch = 0 },
                         },
                     },
                     .netbsd => return .{
                         .semver = .{
-                            .min = .{ .major = 8, .minor = 0 },
-                            .max = .{ .major = 10, .minor = 0 },
+                            .min = .{ .major = 8, .minor = 0, .patch = 0 },
+                            .max = .{ .major = 10, .minor = 0, .patch = 0 },
                         },
                     },
                     .openbsd => return .{
                         .semver = .{
-                            .min = .{ .major = 6, .minor = 8 },
-                            .max = .{ .major = 7, .minor = 2 },
+                            .min = .{ .major = 6, .minor = 8, .patch = 0 },
+                            .max = .{ .major = 7, .minor = 2, .patch = 0 },
                         },
                     },
                     .dragonfly => return .{
                         .semver = .{
-                            .min = .{ .major = 5, .minor = 8 },
-                            .max = .{ .major = 6, .minor = 4 },
+                            .min = .{ .major = 5, .minor = 8, .patch = 0 },
+                            .max = .{ .major = 6, .minor = 4, .patch = 0 },
                         },
                     },
                     .solaris => return .{
                         .semver = .{
-                            .min = .{ .major = 5, .minor = 11 },
-                            .max = .{ .major = 5, .minor = 11 },
+                            .min = .{ .major = 5, .minor = 11, .patch = 0 },
+                            .max = .{ .major = 5, .minor = 11, .patch = 0 },
                         },
                     },
 
                     .linux => return .{
                         .linux = .{
                             .range = .{
-                                .min = .{ .major = 3, .minor = 16 },
+                                .min = .{ .major = 3, .minor = 16, .patch = 0 },
                                 .max = .{ .major = 5, .minor = 10, .patch = 81 },
                             },
-                            .glibc = .{ .major = 2, .minor = 19 },
+                            .glibc = .{ .major = 2, .minor = 19, .patch = 0 },
                         },
                     },
 

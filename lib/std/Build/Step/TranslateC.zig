@@ -47,7 +47,7 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
 
 pub const AddExecutableOptions = struct {
     name: ?[]const u8 = null,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     target: ?CrossTarget = null,
     optimize: ?std.builtin.Mode = null,
     linkage: ?Step.Compile.Linkage = null,

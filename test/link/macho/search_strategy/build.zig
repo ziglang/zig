@@ -61,7 +61,7 @@ fn createScenario(
 
     const dylib = b.addSharedLibrary(.{
         .name = name,
-        .version = .{ .major = 1, .minor = 0 },
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
         .optimize = optimize,
         .target = target,
     });
