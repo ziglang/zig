@@ -413,7 +413,7 @@ pub fn main() !void {
       <p>
         The code sample shows the contents of a file named <code class="file">hello.zig</code>. Files storing Zig
         source code are {#link|UTF-8 encoded|Source Encoding#} text files. The files storing
-        Zig source code are usually named with the <code class="file"><em>.zig</em></code> extension.
+        Zig source code must be named with the <code class="file"><em>.zig</em></code> extension.
       </p>
       <p>
         Following the <code class="file">hello.zig</code> Zig code sample, the {#link|Zig Build System#} is used
@@ -487,7 +487,7 @@ pub fn main() !void {
         purposely written to show how to perform {#link|string|String Literals and Unicode Code Point Literals#}
         substitution in the {#syntax#}print{#endsyntax#} function. The curly-braces inside of the first argument
         are substituted with the compile-time known value inside of the second argument
-        (known as an {#link|tuple|Tuples#}). The <code>\n</code>
+        (known as a {#link|tuple|Tuples#}). The <code>\n</code>
         inside of the double-quotes of the first argument is the {#link|escape sequence|Escape Sequences#} for the
         newline character. The {#link|try#} expression evaluates the result of {#syntax#}stdout.print{#endsyntax#}.
         If the result is an error, then the {#syntax#}try{#endsyntax#} expression will return from
