@@ -113,8 +113,11 @@ pub fn build(b: *std.Build) !void {
                 ".gz",
                 ".z.0",
                 ".z.9",
+                ".zstd.3",
+                ".zstd.19",
                 "rfc1951.txt",
                 "rfc1952.txt",
+                "rfc8478.txt",
                 // exclude files from lib/std/compress/deflate/testdata
                 ".expect",
                 ".expect-noinput",

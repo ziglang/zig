@@ -32,6 +32,10 @@ pub const CityHash64 = cityhash.CityHash64;
 const wyhash = @import("hash/wyhash.zig");
 pub const Wyhash = wyhash.Wyhash;
 
+const xxhash = @import("hash/xxhash.zig");
+pub const XxHash64 = xxhash.XxHash64;
+pub const XxHash32 = xxhash.XxHash32;
+
 test "hash" {
     _ = adler;
     _ = auto_hash;
@@ -40,4 +44,5 @@ test "hash" {
     _ = murmur;
     _ = cityhash;
     _ = wyhash;
+    _ = xxhash;
 }
