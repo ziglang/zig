@@ -748,7 +748,8 @@ set(BUILD_ZIG2_ARGS
   build-exe src/main.zig -ofmt=c -lc
   -OReleaseSmall
   --name zig2 -femit-bin="${ZIG2_C_SOURCE}"
-  --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}" --pkg-end
+  --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
+  --deps build_options
   -target "${HOST_TARGET_TRIPLE}"
 )
  
@@ -765,7 +766,8 @@ set(BUILD_COMPILER_RT_ARGS
   build-obj lib/compiler_rt.zig -ofmt=c
   -OReleaseSmall
   --name compiler_rt -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
-  --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}" --pkg-end
+  --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
+  --deps build_options
   -target "${HOST_TARGET_TRIPLE}"
 )
  

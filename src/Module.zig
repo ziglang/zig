@@ -144,10 +144,6 @@ stage1_flags: packed struct {
 } = .{},
 
 job_queued_update_builtin_zig: bool = true,
-/// This makes it so that we can run `zig test` on the standard library.
-/// Otherwise, the logic for scanning test decls skips all of them because
-/// `main_pkg != std_pkg`.
-main_pkg_is_std: bool,
 
 compile_log_text: ArrayListUnmanaged(u8) = .{},
 
@@ -1950,7 +1946,7 @@ pub const File = struct {
     prev_zir: ?*Zir = null,
 
     /// A single reference to a file.
-    const Reference = union(enum) {
+    pub const Reference = union(enum) {
         /// The file is imported directly (i.e. not as a package) with @import.
         import: SrcLoc,
         /// The file is the root of a package.
@@ -2113,7 +2109,27 @@ pub const File = struct {
 
     /// Add a reference to this file during AstGen.
     pub fn addReference(file: *File, mod: Module, ref: Reference) !void {
-        try file.references.append(mod.gpa, ref);
+        // Don't add the same module root twice. Note that since we always add module roots at the
+        // front of the references array (see below), this loop is actually O(1) on valid code.
+        if (ref == .root) {
+            for (file.references.items) |other| {
+                switch (other) {
+                    .root => |r| if (ref.root == r) return,
+                    else => break, // reached the end of the "is-root" references
+                }
+            }
+        }
+
+        switch (ref) {
+            // We put root references at the front of the list both to make the above loop fast and
+            // to make multi-module errors more helpful (since "root-of" notes are generally more
+            // informative than "imported-from" notes). This path is hit very rarely, so the speed
+            // of the insert operation doesn't matter too much.
+            .root => try file.references.insert(mod.gpa, 0, ref),
+
+            // Other references we'll just put at the end.
+            else => try file.references.append(mod.gpa, ref),
+        }
 
         const pkg = switch (ref) {
             .import => |loc| loc.file_scope.pkg,
@@ -2128,7 +2144,10 @@ pub const File = struct {
         file.multi_pkg = true;
         file.status = .astgen_failure;
 
-        std.debug.assert(file.zir_loaded);
+        // We can only mark children as failed if the ZIR is loaded, which may not
+        // be the case if there were other astgen failures in this file
+        if (!file.zir_loaded) return;
+
         const imports_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.imports)];
         if (imports_index == 0) return;
         const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
@@ -3323,10 +3342,19 @@ pub fn deinit(mod: *Module) void {
     // The callsite of `Compilation.create` owns the `main_pkg`, however
     // Module owns the builtin and std packages that it adds.
     if (mod.main_pkg.table.fetchRemove("builtin")) |kv| {
+        gpa.free(kv.key);
         kv.value.destroy(gpa);
     }
     if (mod.main_pkg.table.fetchRemove("std")) |kv| {
-        kv.value.destroy(gpa);
+        gpa.free(kv.key);
+        // It's possible for main_pkg to be std when running 'zig test'! In this case, we must not
+        // destroy it, since it would lead to a double-free.
+        if (kv.value != mod.main_pkg) {
+            kv.value.destroy(gpa);
+        }
+    }
+    if (mod.main_pkg.table.fetchRemove("root")) |kv| {
+        gpa.free(kv.key);
     }
     if (mod.root_pkg != mod.main_pkg) {
         mod.root_pkg.destroy(gpa);
@@ -4808,11 +4836,14 @@ pub fn importPkg(mod: *Module, pkg: *Package) !ImportFileResult {
 
     const gop = try mod.import_table.getOrPut(gpa, resolved_path);
     errdefer _ = mod.import_table.pop();
-    if (gop.found_existing) return ImportFileResult{
-        .file = gop.value_ptr.*,
-        .is_new = false,
-        .is_pkg = true,
-    };
+    if (gop.found_existing) {
+        try gop.value_ptr.*.addReference(mod.*, .{ .root = pkg });
+        return ImportFileResult{
+            .file = gop.value_ptr.*,
+            .is_new = false,
+            .is_pkg = true,
+        };
+    }
 
     const sub_file_path = try gpa.dupe(u8, pkg.root_src_path);
     errdefer gpa.free(sub_file_path);
@@ -5208,22 +5239,14 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
                 // test decl with no name. Skip the part where we check against
                 // the test name filter.
                 if (!comp.bin_file.options.is_test) break :blk false;
-                if (decl_pkg != mod.main_pkg) {
-                    if (!mod.main_pkg_is_std) break :blk false;
-                    const std_pkg = mod.main_pkg.table.get("std").?;
-                    if (std_pkg != decl_pkg) break :blk false;
-                }
+                if (decl_pkg != mod.main_pkg) break :blk false;
                 try mod.test_functions.put(gpa, new_decl_index, {});
                 break :blk true;
             },
             else => blk: {
                 if (!is_named_test) break :blk false;
                 if (!comp.bin_file.options.is_test) break :blk false;
-                if (decl_pkg != mod.main_pkg) {
-                    if (!mod.main_pkg_is_std) break :blk false;
-                    const std_pkg = mod.main_pkg.table.get("std").?;
-                    if (std_pkg != decl_pkg) break :blk false;
-                }
+                if (decl_pkg != mod.main_pkg) break :blk false;
                 if (comp.test_filter) |test_filter| {
                     if (mem.indexOf(u8, decl_name, test_filter) == null) {
                         break :blk false;

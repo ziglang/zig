@@ -97,6 +97,7 @@ pub fn addPtx(
         .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
         .output_mode = .Obj,
         .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
+        .deps = std.ArrayList(TestContext.DepModule).init(ctx.cases.allocator),
         .link_libc = false,
         .backend = .llvm,
         // Bug in Debug mode

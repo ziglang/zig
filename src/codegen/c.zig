@@ -5367,12 +5367,18 @@ fn airFieldParentPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     }
 
     const struct_ptr_ty = f.air.typeOfIndex(inst);
+
     const field_ptr_ty = f.air.typeOf(extra.field_ptr);
     const field_ptr_val = try f.resolveInst(extra.field_ptr);
     try reap(f, inst, &.{extra.field_ptr});
 
     const target = f.object.dg.module.getTarget();
     const struct_ty = struct_ptr_ty.childType();
+
+    if (struct_ty.zigTypeTag() == .Union) {
+        return f.fail("TODO: CBE: @fieldParentPtr for unions", .{});
+    }
+
     const field_offset = struct_ty.structFieldOffset(extra.field_index, target);
 
     var field_offset_pl = Value.Payload.I64{
