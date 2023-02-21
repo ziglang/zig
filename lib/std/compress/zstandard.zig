@@ -2,10 +2,11 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const types = @import("zstandard/types.zig");
+pub const frame = types.frame;
+pub const compressed_block = types.compressed_block;
 
 const RingBuffer = @import("zstandard/RingBuffer.zig");
 pub const decompress = @import("zstandard/decompress.zig");
-pub usingnamespace @import("zstandard/types.zig");
 
 pub fn ZstandardStream(
     comptime ReaderType: type,
