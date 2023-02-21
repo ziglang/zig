@@ -27,6 +27,8 @@ const Mutability = enum { Const, ConstArgument, Mut };
 const BigIntLimb = std.math.big.Limb;
 const BigInt = std.math.big.int;
 
+pub const CType = @import("c/type.zig").CType;
+
 pub const CValue = union(enum) {
     none: void,
     local: LocalIndex,
@@ -446,7 +448,8 @@ pub const Function = struct {
         return f.object.dg.fmtIntLiteral(ty, val);
     }
 
-    pub fn deinit(f: *Function, gpa: mem.Allocator) void {
+    pub fn deinit(f: *Function) void {
+        const gpa = f.object.dg.gpa;
         f.allocs.deinit(gpa);
         f.locals.deinit(gpa);
         for (f.free_locals_stack.items) |*free_locals| {
@@ -460,6 +463,7 @@ pub const Function = struct {
             gpa.free(typedef.rendered);
         }
         f.object.dg.typedefs.deinit();
+        f.object.dg.ctypes.deinit(gpa);
         f.object.dg.fwd_decl.deinit();
         f.arena.deinit();
     }
@@ -487,6 +491,7 @@ pub const DeclGen = struct {
     decl_index: Decl.Index,
     fwd_decl: std.ArrayList(u8),
     error_msg: ?*Module.ErrorMsg,
+    ctypes: CType.Store,
     /// The key of this map is Type which has references to typedefs_arena.
     typedefs: TypedefMap,
     typedefs_arena: std.mem.Allocator,
@@ -1949,6 +1954,10 @@ pub const DeclGen = struct {
         return name;
     }
 
+    fn typeToCType(dg: *DeclGen, ty: Type) !CType {
+        return dg.ctypes.typeToCType(dg.gpa, ty, dg.module);
+    }
+
     /// Renders a type as a single identifier, generating intermediate typedefs
     /// if necessary.
     ///
@@ -1967,6 +1976,8 @@ pub const DeclGen = struct {
         t: Type,
         kind: TypedefKind,
     ) error{ OutOfMemory, AnalysisFail }!void {
+        _ = try dg.typeToCType(t);
+
         const target = dg.module.getTarget();
 
         switch (t.zigTypeTag()) {

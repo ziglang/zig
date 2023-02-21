@@ -3266,8 +3266,8 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                     const decl_emit_h = emit_h.declPtr(decl_index);
                     const fwd_decl = &decl_emit_h.fwd_decl;
                     fwd_decl.shrinkRetainingCapacity(0);
-                    var typedefs_arena = std.heap.ArenaAllocator.init(gpa);
-                    defer typedefs_arena.deinit();
+                    var ctypes_arena = std.heap.ArenaAllocator.init(gpa);
+                    defer ctypes_arena.deinit();
 
                     var dg: c_codegen.DeclGen = .{
                         .gpa = gpa,
@@ -3276,8 +3276,9 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                         .decl_index = decl_index,
                         .decl = decl,
                         .fwd_decl = fwd_decl.toManaged(gpa),
+                        .ctypes = .{},
                         .typedefs = c_codegen.TypedefMap.initContext(gpa, .{ .mod = module }),
-                        .typedefs_arena = typedefs_arena.allocator(),
+                        .typedefs_arena = ctypes_arena.allocator(),
                     };
                     defer {
                         for (dg.typedefs.values()) |typedef| {

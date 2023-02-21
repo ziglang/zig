@@ -30,6 +30,7 @@ arena: std.heap.ArenaAllocator,
 const DeclBlock = struct {
     code: std.ArrayListUnmanaged(u8) = .{},
     fwd_decl: std.ArrayListUnmanaged(u8) = .{},
+    ctypes: codegen.CType.Store = .{},
     /// Each Decl stores a mapping of Zig Types to corresponding C types, for every
     /// Zig Type used by the Decl. In flush(), we iterate over each Decl
     /// and emit the typedef code for all types, making sure to not emit the same thing twice.
@@ -37,12 +38,13 @@ const DeclBlock = struct {
     typedefs: codegen.TypedefMap.Unmanaged = .{},
 
     fn deinit(db: *DeclBlock, gpa: Allocator) void {
-        db.code.deinit(gpa);
-        db.fwd_decl.deinit(gpa);
         for (db.typedefs.values()) |typedef| {
             gpa.free(typedef.rendered);
         }
         db.typedefs.deinit(gpa);
+        db.ctypes.deinit(gpa);
+        db.fwd_decl.deinit(gpa);
+        db.code.deinit(gpa);
         db.* = undefined;
     }
 };
@@ -105,9 +107,11 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
         gop.value_ptr.* = .{};
     }
     const fwd_decl = &gop.value_ptr.fwd_decl;
+    const ctypes = &gop.value_ptr.ctypes;
     const typedefs = &gop.value_ptr.typedefs;
     const code = &gop.value_ptr.code;
     fwd_decl.shrinkRetainingCapacity(0);
+    ctypes.clearRetainingCapacity(module.gpa);
     for (typedefs.values()) |typedef| {
         module.gpa.free(typedef.rendered);
     }
@@ -127,6 +131,7 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
                 .decl_index = decl_index,
                 .decl = module.declPtr(decl_index),
                 .fwd_decl = fwd_decl.toManaged(module.gpa),
+                .ctypes = ctypes.*,
                 .typedefs = typedefs.promoteContext(module.gpa, .{ .mod = module }),
                 .typedefs_arena = self.arena.allocator(),
             },
@@ -137,7 +142,7 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
     };
 
     function.object.indent_writer = .{ .underlying_writer = function.object.code.writer() };
-    defer function.deinit(module.gpa);
+    defer function.deinit();
 
     codegen.genFunc(&function) catch |err| switch (err) {
         error.AnalysisFail => {
@@ -148,6 +153,7 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
     };
 
     fwd_decl.* = function.object.dg.fwd_decl.moveToUnmanaged();
+    ctypes.* = function.object.dg.ctypes.move();
     typedefs.* = function.object.dg.typedefs.unmanaged;
     function.object.dg.typedefs.unmanaged = .{};
     code.* = function.object.code.moveToUnmanaged();
@@ -155,6 +161,7 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
     // Free excess allocated memory for this Decl.
     fwd_decl.shrinkAndFree(module.gpa, fwd_decl.items.len);
     code.shrinkAndFree(module.gpa, code.items.len);
+    ctypes.shrinkAndFree(module.gpa);
 }
 
 pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !void {
@@ -166,9 +173,11 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
         gop.value_ptr.* = .{};
     }
     const fwd_decl = &gop.value_ptr.fwd_decl;
+    const ctypes = &gop.value_ptr.ctypes;
     const typedefs = &gop.value_ptr.typedefs;
     const code = &gop.value_ptr.code;
     fwd_decl.shrinkRetainingCapacity(0);
+    ctypes.clearRetainingCapacity(module.gpa);
     for (typedefs.values()) |value| {
         module.gpa.free(value.rendered);
     }
@@ -185,6 +194,7 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
             .decl_index = decl_index,
             .decl = decl,
             .fwd_decl = fwd_decl.toManaged(module.gpa),
+            .ctypes = ctypes.*,
             .typedefs = typedefs.promoteContext(module.gpa, .{ .mod = module }),
             .typedefs_arena = self.arena.allocator(),
         },
@@ -198,6 +208,7 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
             module.gpa.free(typedef.rendered);
         }
         object.dg.typedefs.deinit();
+        object.dg.ctypes.deinit(object.dg.gpa);
         object.dg.fwd_decl.deinit();
     }
 
@@ -210,6 +221,8 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
     };
 
     fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
+    ctypes.* = object.dg.ctypes;
+    object.dg.ctypes = .{};
     typedefs.* = object.dg.typedefs.unmanaged;
     object.dg.typedefs.unmanaged = .{};
     code.* = object.code.moveToUnmanaged();
@@ -217,6 +230,7 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
     // Free excess allocated memory for this Decl.
     fwd_decl.shrinkAndFree(module.gpa, fwd_decl.items.len);
     code.shrinkAndFree(module.gpa, code.items.len);
+    ctypes.shrinkAndFree(module.gpa);
 }
 
 pub fn updateDeclLineNumber(self: *C, module: *Module, decl_index: Module.Decl.Index) !void {
@@ -326,6 +340,8 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
 const Flush = struct {
     err_decls: DeclBlock = .{},
     remaining_decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, void) = .{},
+
+    ctypes: CTypes = .{},
     typedefs: Typedefs = .{},
     typedef_buf: std.ArrayListUnmanaged(u8) = .{},
     asm_buf: std.ArrayListUnmanaged(u8) = .{},
@@ -333,6 +349,13 @@ const Flush = struct {
     all_buffers: std.ArrayListUnmanaged(std.os.iovec_const) = .{},
     /// Keeps track of the total bytes of `all_buffers`.
     file_size: u64 = 0,
+
+    const CTypes = std.ArrayHashMapUnmanaged(
+        codegen.CType,
+        void,
+        codegen.CType.HashContext32,
+        true,
+    );
 
     const Typedefs = std.HashMapUnmanaged(
         Type,
@@ -351,6 +374,7 @@ const Flush = struct {
         f.all_buffers.deinit(gpa);
         f.typedef_buf.deinit(gpa);
         f.typedefs.deinit(gpa);
+        f.ctypes.deinit(gpa);
         f.remaining_decls.deinit(gpa);
         f.err_decls.deinit(gpa);
     }
@@ -383,6 +407,7 @@ fn flushErrDecls(self: *C, f: *Flush) FlushDeclError!void {
     const module = self.base.options.module.?;
 
     const fwd_decl = &f.err_decls.fwd_decl;
+    const ctypes = &f.err_decls.ctypes;
     const typedefs = &f.err_decls.typedefs;
     const code = &f.err_decls.code;
 
@@ -394,6 +419,7 @@ fn flushErrDecls(self: *C, f: *Flush) FlushDeclError!void {
             .decl_index = undefined,
             .decl = undefined,
             .fwd_decl = fwd_decl.toManaged(module.gpa),
+            .ctypes = ctypes.*,
             .typedefs = typedefs.promoteContext(module.gpa, .{ .mod = module }),
             .typedefs_arena = self.arena.allocator(),
         },
@@ -403,6 +429,7 @@ fn flushErrDecls(self: *C, f: *Flush) FlushDeclError!void {
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
         object.code.deinit();
+        object.dg.ctypes.deinit(module.gpa);
         for (object.dg.typedefs.values()) |typedef| {
             module.gpa.free(typedef.rendered);
         }
