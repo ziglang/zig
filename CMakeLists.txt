@@ -612,7 +612,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/tapi.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi/Tokenizer.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi/parse.zig"
-    "${CMAKE_SOURCE_DIR}/src/link/tapi/parse/test.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi/yaml.zig"
     "${CMAKE_SOURCE_DIR}/src/main.zig"
     "${CMAKE_SOURCE_DIR}/src/mingw.zig"
