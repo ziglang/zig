@@ -3325,24 +3325,20 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                     const decl_emit_h = emit_h.declPtr(decl_index);
                     const fwd_decl = &decl_emit_h.fwd_decl;
                     fwd_decl.shrinkRetainingCapacity(0);
-                    var typedefs_arena = std.heap.ArenaAllocator.init(gpa);
-                    defer typedefs_arena.deinit();
+                    var ctypes_arena = std.heap.ArenaAllocator.init(gpa);
+                    defer ctypes_arena.deinit();
 
                     var dg: c_codegen.DeclGen = .{
                         .gpa = gpa,
                         .module = module,
                         .error_msg = null,
-                        .decl_index = decl_index,
+                        .decl_index = decl_index.toOptional(),
                         .decl = decl,
                         .fwd_decl = fwd_decl.toManaged(gpa),
-                        .typedefs = c_codegen.TypedefMap.initContext(gpa, .{ .mod = module }),
-                        .typedefs_arena = typedefs_arena.allocator(),
+                        .ctypes = .{},
                     };
                     defer {
-                        for (dg.typedefs.values()) |typedef| {
-                            module.gpa.free(typedef.rendered);
-                        }
-                        dg.typedefs.deinit();
+                        dg.ctypes.deinit(gpa);
                         dg.fwd_decl.deinit();
                     }
 

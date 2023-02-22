@@ -7,6 +7,7 @@ const is_x86_64_linux = builtin.cpu.arch == .x86_64 and builtin.os.tag == .linux
 comptime {
     if (builtin.zig_backend != .stage2_arm and
         builtin.zig_backend != .stage2_aarch64 and
+        !(builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) and // MSVC doesn't support inline assembly
         is_x86_64_linux)
     {
         asm (
@@ -23,7 +24,8 @@ test "module level assembly" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // MSVC doesn't support inline assembly
 
     if (is_x86_64_linux) {
         try expect(this_is_my_alias() == 1234);
@@ -36,7 +38,8 @@ test "output constraint modifiers" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // MSVC doesn't support inline assembly
 
     // This is only testing compilation.
     var a: u32 = 3;
@@ -58,7 +61,8 @@ test "alternative constraints" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // MSVC doesn't support inline assembly
 
     // Make sure we allow commas as a separator for alternative constraints.
     var a: u32 = 3;
@@ -75,7 +79,8 @@ test "sized integer/float in asm input" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // MSVC doesn't support inline assembly
 
     asm volatile (""
         :
@@ -125,7 +130,8 @@ test "struct/array/union types as input values" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // MSVC doesn't support inline assembly
 
     asm volatile (""
         :
@@ -150,6 +156,8 @@ export fn derp() i32 {
 test "asm modifiers (AArch64)" {
     if (builtin.target.cpu.arch != .aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // MSVC doesn't support inline assembly
 
     var x: u32 = 15;
     const double = asm ("add %[ret:w], %[in:w], %[in:w]"
