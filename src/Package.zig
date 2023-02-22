@@ -625,6 +625,7 @@ fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
 fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void {
     var buf: [8000]u8 = undefined;
     var file = try dir.openFile(hashed_file.path, .{});
+    defer file.close();
     var hasher = Manifest.Hash.init(.{});
     hasher.update(hashed_file.path);
     hasher.update(&.{ 0, @boolToInt(try isExecutable(file)) });
