@@ -9,7 +9,7 @@ pub fn binarySearch(
     key: anytype,
     items: []const T,
     context: anytype,
-    comptime compareFn: fn (context: @TypeOf(context), key: @TypeOf(key), mid: T) math.Order,
+    comptime compareFn: fn (context: @TypeOf(context), key: @TypeOf(key), item: T) math.Order,
 ) ?usize {
     var left: usize = 0;
     var right: usize = items.len;
