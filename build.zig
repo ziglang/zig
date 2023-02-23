@@ -509,35 +509,8 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     run_opt.addArg("-o");
     run_opt.addFileSourceArg(.{ .path = "stage1/zig1.wasm" });
 
-    const CopyFileStep = struct {
-        const Step = std.Build.Step;
-        const FileSource = std.Build.FileSource;
-        const CopyFileStep = @This();
-
-        step: Step,
-        builder: *std.Build,
-        source: FileSource,
-        dest_rel_path: []const u8,
-
-        pub fn init(builder: *std.Build, source: FileSource, dest_rel_path: []const u8) CopyFileStep {
-            return CopyFileStep{
-                .builder = builder,
-                .step = Step.init(.custom, builder.fmt("install {s} to {s}", .{ source.getDisplayName(), dest_rel_path }), builder.allocator, make),
-                .source = source.dupe(builder),
-                .dest_rel_path = builder.dupePath(dest_rel_path),
-            };
-        }
-
-        fn make(step: *Step) !void {
-            const self = @fieldParentPtr(CopyFileStep, "step", step);
-            const full_src_path = self.source.getPath(self.builder);
-            const full_dest_path = self.builder.pathFromRoot(self.dest_rel_path);
-            try self.builder.updateFile(full_src_path, full_dest_path);
-        }
-    };
-
-    const copy_zig_h = try b.allocator.create(CopyFileStep);
-    copy_zig_h.* = CopyFileStep.init(b, .{ .path = "lib/zig.h" }, "stage1/zig.h");
+    const copy_zig_h = b.addWriteFiles();
+    copy_zig_h.addCopyFileToSource(.{ .path = "lib/zig.h" }, "stage1/zig.h");
 
     const update_zig1_step = b.step("update-zig1", "Update stage1/zig1.wasm");
     update_zig1_step.dependOn(&run_opt.step);
