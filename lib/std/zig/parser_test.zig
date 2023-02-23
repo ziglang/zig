@@ -5639,6 +5639,72 @@ test "zig fmt: no space before newline before multiline string" {
     );
 }
 
+test "zig fmt: reset indentation" {
+    try testCanonical(
+        \\pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
+        \\    if (alignment) |a| {
+        \\        if (a == @alignOf(T)) {
+        \\            return ArrayListAligned(T, null);
+        \\        }
+        \\    }
+        \\    return struct {
+        \\        // zig fmt: reset indentation
+        \\
+        \\const Self = @This();
+        \\
+        \\items: Slice,
+        \\capacity: usize,
+        \\allocator: Allocator,
+        \\
+        \\pub const Slice = if (alignment) |a| ([]align(a) T) else []T;
+        \\
+        \\pub fn init(allocator: Allocator) Self {
+        \\    return Self{
+        \\        .items = &[_]T{},
+        \\        .capacity = 0,
+        \\        .allocator = allocator,
+        \\    };
+        \\}
+        \\    };
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: reset indentation twice" {
+    try testCanonical(
+        \\pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
+        \\    if (alignment) |a| {
+        \\        if (a == @alignOf(T)) {
+        \\            return ArrayListAligned(T, null);
+        \\        }
+        \\    }
+        \\    return struct {
+        \\        // zig fmt: reset indentation
+        \\
+        \\const Self = @This();
+        \\
+        \\items: Slice,
+        \\capacity: usize,
+        \\allocator: Allocator,
+        \\
+        \\pub const Slice = if (alignment) |a| ([]align(a) T) else []T;
+        \\
+        \\pub fn init(allocator: Allocator) Self {
+        \\    // This has no effect:
+        \\    // zig fmt: reset indentation
+        \\    return Self{
+        \\        .items = &[_]T{},
+        \\        .capacity = 0,
+        \\        .allocator = allocator,
+        \\    };
+        \\}
+        \\    };
+        \\}
+        \\
+    );
+}
+
 // Normalize \xNN and \u{NN} escapes and unicode inside @"" escapes.
 test "zig fmt: canonicalize symbols (character escapes)" {
     try testTransform(

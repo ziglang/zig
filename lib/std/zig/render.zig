@@ -2782,7 +2782,7 @@ fn renderComments(ais: *Ais, tree: Ast, start: usize, end: usize) Error!bool {
         const comment_content = mem.trimLeft(u8, trimmed_comment["//".len..], &std.ascii.whitespace);
         if (ais.disabled_offset != null and mem.eql(u8, comment_content, "zig fmt: on")) {
             // Write the source for which formatting was disabled directly
-            // to the underlying writer, fixing up invaild whitespace.
+            // to the underlying writer, fixing up invalid whitespace.
             const disabled_source = tree.source[ais.disabled_offset.?..comment_start];
             try writeFixingWhitespace(ais.underlying_writer, disabled_source);
             // Write with the canonical single space.
@@ -2792,6 +2792,12 @@ fn renderComments(ais: *Ais, tree: Ast, start: usize, end: usize) Error!bool {
             // Write with the canonical single space.
             try ais.writer().writeAll("// zig fmt: off\n");
             ais.disabled_offset = index;
+        } else if (ais.indent_count_reset_at == null and
+            mem.eql(u8, comment_content, "zig fmt: reset indentation"))
+        {
+            // Write with the canonical single space.
+            try ais.writer().writeAll("// zig fmt: reset indentation\n");
+            ais.resetIndentation();
         } else {
             // Write the comment minus trailing whitespace.
             try ais.writer().print("{s}\n", .{trimmed_comment});
@@ -3046,6 +3052,11 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         disabled_offset: ?usize = null,
 
         indent_count: usize = 0,
+
+        /// The value of `indent_count` when we encountered a `zig fmt: reset indentation` comment.
+        /// The indentation reset lasts until `indent_count` falls below this value.
+        indent_count_reset_at: ?usize = null,
+
         indent_delta: usize,
         current_line_empty: bool = true,
         /// automatically popped when applied
@@ -3134,9 +3145,20 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             self.pushIndent();
         }
 
+        fn reduceIndentCountBy(self: *Self, diff: usize) void {
+            self.indent_count -= diff;
+
+            // A `reset indentation` comment lasts until `indent_count < indent_count_reset_at`.
+            if (self.indent_count_reset_at) |reset_at| {
+                if (self.indent_count < reset_at) {
+                    self.indent_count_reset_at = null;
+                }
+            }
+        }
+
         pub fn popIndent(self: *Self) void {
             assert(self.indent_count != 0);
-            self.indent_count -= 1;
+            self.reduceIndentCountBy(1);
 
             if (self.indent_next_line > 0)
                 self.indent_next_line -= 1;
@@ -3152,7 +3174,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
                 self.applied_indent = current_indent;
             }
 
-            self.indent_count -= self.indent_one_shot_count;
+            self.reduceIndentCountBy(self.indent_one_shot_count);
             self.indent_one_shot_count = 0;
             self.current_line_empty = false;
         }
@@ -3166,10 +3188,19 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         fn currentIndent(self: *Self) usize {
             var indent_current: usize = 0;
             if (self.indent_count > 0) {
-                const indent_count = self.indent_count - self.indent_next_line;
+                const indent_count = self.indent_count -
+                    self.indent_next_line -
+                    (self.indent_count_reset_at orelse 0);
                 indent_current = indent_count * self.indent_delta;
             }
             return indent_current;
+        }
+
+        /// Triggered by a `zig fmt: reset indentation` comment.
+        /// Resets indentation to 0 until the current indentation level is popped.
+        pub fn resetIndentation(self: *Self) void {
+            assert(self.indent_count_reset_at == null);
+            self.indent_count_reset_at = self.indent_count;
         }
     };
 }
