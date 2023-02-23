@@ -211,6 +211,15 @@ const reserved_idents = std.ComptimeStringMap(void, .{
     .{ "volatile", {} },
     .{ "while ", {} },
 
+    // stdarg.h
+    .{ "va_start", {} },
+    .{ "va_arg", {} },
+    .{ "va_end", {} },
+    .{ "va_copy", {} },
+
+    // stddef.h
+    .{ "offsetof", {} },
+
     // windows.h
     .{ "max", {} },
     .{ "min", {} },
@@ -2952,10 +2961,10 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .error_set_has_value => return f.fail("TODO: C backend: implement error_set_has_value", .{}),
             .vector_store_elem => return f.fail("TODO: C backend: implement vector_store_elem", .{}),
 
-            .c_va_arg => return f.fail("TODO implement c_va_arg", .{}),
-            .c_va_copy => return f.fail("TODO implement c_va_copy", .{}),
-            .c_va_end => return f.fail("TODO implement c_va_end", .{}),
-            .c_va_start => return f.fail("TODO implement c_va_start", .{}),
+            .c_va_start => try airCVaStart(f, inst),
+            .c_va_arg => try airCVaArg(f, inst),
+            .c_va_end => try airCVaEnd(f, inst),
+            .c_va_copy => try airCVaCopy(f, inst),
             // zig fmt: on
         };
         if (result_value == .new_local) {
@@ -6858,6 +6867,82 @@ fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, mulend2, .FunctionArgument);
     try writer.writeAll(", ");
     try f.writeCValue(writer, addend, .FunctionArgument);
+    try writer.writeAll(");\n");
+    return local;
+}
+
+fn airCVaStart(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return .none;
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const fn_cty = try f.typeToCType(f.object.dg.decl.?.ty, .complete);
+
+    const param_len = fn_cty.castTag(.varargs_function).?.data.param_types.len;
+    if (param_len == 0)
+        return f.fail("CBE: C requires at least one runtime argument for varargs functions", .{});
+
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst, inst_ty);
+    try writer.writeAll("va_start(*(va_list *)&");
+    try f.writeCValue(writer, local, .Other);
+    try writer.writeAll(", ");
+    try f.writeCValue(writer, .{ .arg = param_len - 1 }, .FunctionArgument);
+    try writer.writeAll(");\n");
+    return local;
+}
+
+fn airCVaArg(f: *Function, inst: Air.Inst.Index) !CValue {
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    if (f.liveness.isUnused(inst)) {
+        try reap(f, inst, &.{ty_op.operand});
+        return .none;
+    }
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const va_list = try f.resolveInst(ty_op.operand);
+    try reap(f, inst, &.{ty_op.operand});
+
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst, inst_ty);
+    try f.writeCValue(writer, local, .Other);
+    try writer.writeAll(" = va_arg(*(va_list *)");
+    try f.writeCValue(writer, va_list, .Other);
+    try writer.writeAll(", ");
+    try f.renderType(writer, f.air.getRefType(ty_op.ty));
+    try writer.writeAll(");\n");
+    return local;
+}
+
+fn airCVaEnd(f: *Function, inst: Air.Inst.Index) !CValue {
+    const un_op = f.air.instructions.items(.data)[inst].un_op;
+
+    const va_list = try f.resolveInst(un_op);
+    try reap(f, inst, &.{un_op});
+
+    const writer = f.object.writer();
+    try writer.writeAll("va_end(*(va_list *)");
+    try f.writeCValue(writer, va_list, .Other);
+    try writer.writeAll(");\n");
+    return .none;
+}
+
+fn airCVaCopy(f: *Function, inst: Air.Inst.Index) !CValue {
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    if (f.liveness.isUnused(inst)) {
+        try reap(f, inst, &.{ty_op.operand});
+        return .none;
+    }
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const va_list = try f.resolveInst(ty_op.operand);
+    try reap(f, inst, &.{ty_op.operand});
+
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst, inst_ty);
+    try writer.writeAll("va_copy(*(va_list *)&");
+    try f.writeCValue(writer, local, .Other);
+    try writer.writeAll(", *(va_list *)");
+    try f.writeCValue(writer, va_list, .Other);
     try writer.writeAll(");\n");
     return local;
 }
