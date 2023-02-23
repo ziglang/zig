@@ -79,14 +79,14 @@ test "binarySearch" {
             return @This(){ .b = b, .e = e };
         }
 
-        fn order(context: void, key: i32, mid: @This()) math.Order {
+        fn order(context: void, key: i32, item: @This()) math.Order {
             _ = context;
 
-            if (key < mid.b) {
+            if (key < item.b) {
                 return .lt;
             }
 
-            if (key > mid.e) {
+            if (key > item.e) {
                 return .gt;
             }
 
