@@ -235,7 +235,7 @@ pub fn buildTsan(comp: *Compilation) !void {
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.updateSubCompilation();
+    try comp.updateSubCompilation(sub_compilation, .libtsan);
 
     assert(comp.tsan_static_lib == null);
     comp.tsan_static_lib = Compilation.CRTFile{

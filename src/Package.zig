@@ -225,7 +225,7 @@ pub fn fetchAndAddDependencies(
     dependencies_source: *std.ArrayList(u8),
     build_roots_source: *std.ArrayList(u8),
     name_prefix: []const u8,
-    color: main.Color,
+    error_bundle: *std.zig.ErrorBundle,
     all_modules: *AllModules,
 ) !void {
     const max_bytes = 10 * 1024 * 1024;
@@ -250,7 +250,7 @@ pub fn fetchAndAddDependencies(
 
     if (ast.errors.len > 0) {
         const file_path = try directory.join(arena, &.{Manifest.basename});
-        try main.printErrsMsgToStdErr(gpa, arena, ast, file_path, color);
+        try main.putAstErrorsIntoBundle(gpa, ast, file_path, error_bundle);
         return error.PackageFetchFailed;
     }
 
@@ -258,23 +258,18 @@ pub fn fetchAndAddDependencies(
     defer manifest.deinit(gpa);
 
     if (manifest.errors.len > 0) {
-        const ttyconf: std.debug.TTY.Config = switch (color) {
-            .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
-            .on => .escape_codes,
-            .off => .no_color,
-        };
         const file_path = try directory.join(arena, &.{Manifest.basename});
         for (manifest.errors) |msg| {
-            Report.renderErrorMessage(ast, file_path, ttyconf, msg, &.{});
+            try Report.addErrorMessage(gpa, ast, file_path, error_bundle, 0, msg);
         }
         return error.PackageFetchFailed;
     }
 
     const report: Report = .{
+        .gpa = gpa,
         .ast = &ast,
         .directory = directory,
-        .color = color,
-        .arena = arena,
+        .error_bundle = error_bundle,
     };
 
     var any_error = false;
@@ -307,7 +302,7 @@ pub fn fetchAndAddDependencies(
             dependencies_source,
             build_roots_source,
             sub_prefix,
-            color,
+            error_bundle,
             all_modules,
         );
 
@@ -348,10 +343,10 @@ pub fn createFilePkg(
 }
 
 const Report = struct {
+    gpa: Allocator,
     ast: *const std.zig.Ast,
     directory: Compilation.Directory,
-    color: main.Color,
-    arena: Allocator,
+    error_bundle: *std.zig.ErrorBundle,
 
     fn fail(
         report: Report,
@@ -359,52 +354,48 @@ const Report = struct {
         comptime fmt_string: []const u8,
         fmt_args: anytype,
     ) error{ PackageFetchFailed, OutOfMemory } {
-        return failWithNotes(report, &.{}, tok, fmt_string, fmt_args);
-    }
+        const gpa = report.gpa;
 
-    fn failWithNotes(
-        report: Report,
-        notes: []const Compilation.AllErrors.Message,
-        tok: std.zig.Ast.TokenIndex,
-        comptime fmt_string: []const u8,
-        fmt_args: anytype,
-    ) error{ PackageFetchFailed, OutOfMemory } {
-        const ttyconf: std.debug.TTY.Config = switch (report.color) {
-            .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
-            .on => .escape_codes,
-            .off => .no_color,
-        };
-        const file_path = try report.directory.join(report.arena, &.{Manifest.basename});
-        renderErrorMessage(report.ast.*, file_path, ttyconf, .{
+        const file_path = try report.directory.join(gpa, &.{Manifest.basename});
+        defer gpa.free(file_path);
+
+        const msg = try std.fmt.allocPrint(gpa, fmt_string, fmt_args);
+        defer gpa.free(msg);
+
+        try addErrorMessage(report.gpa, report.ast.*, file_path, report.error_bundle, 0, .{
             .tok = tok,
             .off = 0,
-            .msg = try std.fmt.allocPrint(report.arena, fmt_string, fmt_args),
-        }, notes);
+            .msg = msg,
+        });
+
         return error.PackageFetchFailed;
     }
 
-    fn renderErrorMessage(
+    fn addErrorMessage(
+        gpa: Allocator,
         ast: std.zig.Ast,
         file_path: []const u8,
-        ttyconf: std.debug.TTY.Config,
+        eb: *std.zig.ErrorBundle,
+        notes_len: u32,
         msg: Manifest.ErrorMessage,
-        notes: []const Compilation.AllErrors.Message,
-    ) void {
+    ) error{OutOfMemory}!void {
         const token_starts = ast.tokens.items(.start);
         const start_loc = ast.tokenLocation(0, msg.tok);
-        Compilation.AllErrors.Message.renderToStdErr(.{ .src = .{
-            .msg = msg.msg,
-            .src_path = file_path,
-            .line = @intCast(u32, start_loc.line),
-            .column = @intCast(u32, start_loc.column),
-            .span = .{
-                .start = token_starts[msg.tok],
-                .end = @intCast(u32, token_starts[msg.tok] + ast.tokenSlice(msg.tok).len),
-                .main = token_starts[msg.tok] + msg.off,
-            },
-            .source_line = ast.source[start_loc.line_start..start_loc.line_end],
-            .notes = notes,
-        } }, ttyconf);
+
+        try eb.addErrorMessage(gpa, .{
+            .msg = try eb.addString(gpa, msg.msg),
+            .src_loc = try eb.addSourceLocation(gpa, .{
+                .src_path = try eb.addString(gpa, file_path),
+                .span_start = token_starts[msg.tok],
+                .span_end = @intCast(u32, token_starts[msg.tok] + ast.tokenSlice(msg.tok).len),
+                .span_main = token_starts[msg.tok] + msg.off,
+                .line = @intCast(u32, start_loc.line),
+                .column = @intCast(u32, start_loc.column),
+                .source_line = try eb.addString(gpa, ast.source[start_loc.line_start..start_loc.line_end]),
+            }),
+            .notes_len = notes_len,
+        });
+        eb.incrementCount(1);
     }
 };
 
@@ -504,9 +495,7 @@ fn fetchAndUnpack(
             // by default, so the same logic applies for buffering the reader as for gzip.
             try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.xz);
         } else {
-            return report.fail(dep.url_tok, "unknown file extension for path '{s}'", .{
-                uri.path,
-            });
+            return report.fail(dep.url_tok, "unknown file extension for path '{s}'", .{uri.path});
         }
 
         // TODO: delete files not included in the package prior to computing the package hash.
@@ -533,10 +522,19 @@ fn fetchAndUnpack(
             });
         }
     } else {
-        const notes: [1]Compilation.AllErrors.Message = .{.{ .plain = .{
-            .msg = try std.fmt.allocPrint(report.arena, "expected .hash = \"{s}\",", .{&actual_hex}),
-        } }};
-        return report.failWithNotes(&notes, dep.url_tok, "url field is missing corresponding hash field", .{});
+        const file_path = try report.directory.join(gpa, &.{Manifest.basename});
+        defer gpa.free(file_path);
+
+        const eb = report.error_bundle;
+        try Report.addErrorMessage(gpa, report.ast.*, file_path, eb, 1, .{
+            .tok = dep.url_tok,
+            .off = 0,
+            .msg = "url field is missing corresponding hash field",
+        });
+        try eb.addErrorMessage(gpa, .{
+            .msg = try eb.printString(gpa, "expected .hash = \"{s}\",", .{&actual_hex}),
+        });
+        return error.PackageFetchFailed;
     }
 
     const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});

@@ -33,7 +33,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             try args.appendSlice(&[_][]const u8{
                 "-Qunused-arguments",
             });
-            return comp.build_crt_file("crti", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("crti", .Obj, .@"musl crti.o", &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crti.s"),
                     .extra_flags = args.items,
@@ -46,7 +46,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             try args.appendSlice(&[_][]const u8{
                 "-Qunused-arguments",
             });
-            return comp.build_crt_file("crtn", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("crtn", .Obj, .@"musl crtn.o", &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crtn.s"),
                     .extra_flags = args.items,
@@ -60,7 +60,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-fno-stack-protector",
                 "-DCRT",
             });
-            return comp.build_crt_file("crt1", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("crt1", .Obj, .@"musl crt1.o", &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "musl", "crt", "crt1.c",
@@ -77,7 +77,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-fno-stack-protector",
                 "-DCRT",
             });
-            return comp.build_crt_file("rcrt1", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("rcrt1", .Obj, .@"musl rcrt1.o", &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "musl", "crt", "rcrt1.c",
@@ -94,7 +94,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-fno-stack-protector",
                 "-DCRT",
             });
-            return comp.build_crt_file("Scrt1", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("Scrt1", .Obj, .@"musl Scrt1.o", &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "musl", "crt", "Scrt1.c",
@@ -187,7 +187,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .extra_flags = args.items,
                 };
             }
-            return comp.build_crt_file("c", .Lib, c_source_files.items);
+            return comp.build_crt_file("c", .Lib, .@"musl libc.a", c_source_files.items);
         },
         .libc_so => {
             const target = comp.getTarget();
@@ -241,7 +241,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             });
             defer sub_compilation.destroy();
 
-            try sub_compilation.updateSubCompilation();
+            try comp.updateSubCompilation(sub_compilation, .@"musl libc.so");
 
             try comp.crt_files.ensureUnusedCapacity(comp.gpa, 1);
 

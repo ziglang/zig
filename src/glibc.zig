@@ -196,7 +196,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-DASSEMBLER",
                 "-Wa,--noexecstack",
             });
-            return comp.build_crt_file("crti", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("crti", .Obj, .@"glibc crti.o", &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crti.S"),
                     .cache_exempt_flags = args.items,
@@ -215,7 +215,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-DASSEMBLER",
                 "-Wa,--noexecstack",
             });
-            return comp.build_crt_file("crtn", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("crtn", .Obj, .@"glibc crtn.o", &[1]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crtn.S"),
                     .cache_exempt_flags = args.items,
@@ -265,7 +265,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .cache_exempt_flags = args.items,
                 };
             };
-            return comp.build_crt_file("Scrt1", .Obj, &[_]Compilation.CSourceFile{ start_o, abi_note_o });
+            return comp.build_crt_file("Scrt1", .Obj, .@"glibc Scrt1.o", &[_]Compilation.CSourceFile{ start_o, abi_note_o });
         },
         .libc_nonshared_a => {
             const s = path.sep_str;
@@ -366,7 +366,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 files_index += 1;
             }
             const files = files_buf[0..files_index];
-            return comp.build_crt_file("c_nonshared", .Lib, files);
+            return comp.build_crt_file("c_nonshared", .Lib, .@"glibc libc_nonshared.a", files);
         },
     }
 }
@@ -1105,7 +1105,7 @@ fn buildSharedLib(
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.updateSubCompilation();
+    try comp.updateSubCompilation(sub_compilation, .@"glibc shared object");
 }
 
 // Return true if glibc has crti/crtn sources for that architecture.

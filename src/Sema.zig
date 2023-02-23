@@ -2211,29 +2211,26 @@ pub fn fail(
 
 fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
     @setCold(true);
+    const gpa = sema.gpa;
 
     if (crash_report.is_enabled and sema.mod.comp.debug_compile_errors) {
         if (err_msg.src_loc.lazy == .unneeded) return error.NeededSourceLocation;
-        var arena = std.heap.ArenaAllocator.init(sema.gpa);
-        errdefer arena.deinit();
-        var errors = std.ArrayList(Compilation.AllErrors.Message).init(sema.gpa);
-        defer errors.deinit();
-
-        Compilation.AllErrors.add(sema.mod, &arena, &errors, err_msg.*) catch unreachable;
-
+        var errors: std.zig.ErrorBundle = undefined;
+        errors.init(gpa) catch unreachable;
+        Compilation.addModuleErrorMsg(gpa, &errors, err_msg.*) catch unreachable;
         std.debug.print("compile error during Sema:\n", .{});
-        Compilation.AllErrors.Message.renderToStdErr(errors.items[0], .no_color);
+        errors.renderToStdErr(.no_color);
         crash_report.compilerPanic("unexpected compile error occurred", null, null);
     }
 
     const mod = sema.mod;
     ref: {
-        errdefer err_msg.destroy(mod.gpa);
+        errdefer err_msg.destroy(gpa);
         if (err_msg.src_loc.lazy == .unneeded) {
             return error.NeededSourceLocation;
         }
-        try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
-        try mod.failed_files.ensureUnusedCapacity(mod.gpa, 1);
+        try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
+        try mod.failed_files.ensureUnusedCapacity(gpa, 1);
 
         const max_references = blk: {
             if (sema.mod.comp.reference_trace) |num| break :blk num;
@@ -2243,11 +2240,11 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
         };
 
         var referenced_by = if (sema.func) |some| some.owner_decl else sema.owner_decl_index;
-        var reference_stack = std.ArrayList(Module.ErrorMsg.Trace).init(sema.gpa);
+        var reference_stack = std.ArrayList(Module.ErrorMsg.Trace).init(gpa);
         defer reference_stack.deinit();
 
         // Avoid infinite loops.
-        var seen = std.AutoHashMap(Module.Decl.Index, void).init(sema.gpa);
+        var seen = std.AutoHashMap(Module.Decl.Index, void).init(gpa);
         defer seen.deinit();
 
         var cur_reference_trace: u32 = 0;
@@ -2288,7 +2285,7 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
     if (gop.found_existing) {
         // If there are multiple errors for the same Decl, prefer the first one added.
         sema.err = null;
-        err_msg.destroy(mod.gpa);
+        err_msg.destroy(gpa);
     } else {
         sema.err = err_msg;
         gop.value_ptr.* = err_msg;

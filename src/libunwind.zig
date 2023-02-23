@@ -130,7 +130,7 @@ pub fn buildStaticLib(comp: *Compilation) !void {
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.updateSubCompilation();
+    try comp.updateSubCompilation(sub_compilation, .libunwind);
 
     assert(comp.libunwind_static_lib == null);
 

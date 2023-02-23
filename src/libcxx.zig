@@ -258,7 +258,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.updateSubCompilation();
+    try comp.updateSubCompilation(sub_compilation, .libcxx);
 
     assert(comp.libcxx_static_lib == null);
     comp.libcxx_static_lib = Compilation.CRTFile{
@@ -418,7 +418,7 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.updateSubCompilation();
+    try comp.updateSubCompilation(sub_compilation, .libcxxabi);
 
     assert(comp.libcxxabi_static_lib == null);
     comp.libcxxabi_static_lib = Compilation.CRTFile{

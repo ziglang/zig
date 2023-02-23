@@ -133,6 +133,8 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     try astgen.extra.ensureTotalCapacity(gpa, tree.nodes.len + reserved_count);
     astgen.extra.items.len += reserved_count;
 
+    try lowerAstErrors(&astgen);
+
     var top_scope: Scope.Top = .{};
 
     var gz_instructions: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
@@ -10401,27 +10403,11 @@ fn appendErrorTokNotes(
     args: anytype,
     notes: []const u32,
 ) !void {
-    @setCold(true);
-    const string_bytes = &astgen.string_bytes;
-    const msg = @intCast(u32, string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
-    const notes_index: u32 = if (notes.len != 0) blk: {
-        const notes_start = astgen.extra.items.len;
-        try astgen.extra.ensureTotalCapacity(astgen.gpa, notes_start + 1 + notes.len);
-        astgen.extra.appendAssumeCapacity(@intCast(u32, notes.len));
-        astgen.extra.appendSliceAssumeCapacity(notes);
-        break :blk @intCast(u32, notes_start);
-    } else 0;
-    try astgen.compile_errors.append(astgen.gpa, .{
-        .msg = msg,
-        .node = 0,
-        .token = token,
-        .byte_offset = 0,
-        .notes = notes_index,
-    });
+    return appendErrorTokNotesOff(astgen, token, 0, format, args, notes);
 }
 
-/// Same as `fail`, except given an absolute byte offset.
+/// Same as `fail`, except given a token plus an offset from its starting byte
+/// offset.
 fn failOff(
     astgen: *AstGen,
     token: Ast.TokenIndex,
@@ -10429,33 +10415,52 @@ fn failOff(
     comptime format: []const u8,
     args: anytype,
 ) InnerError {
-    try appendErrorOff(astgen, token, byte_offset, format, args);
+    try appendErrorTokNotesOff(astgen, token, byte_offset, format, args, &.{});
     return error.AnalysisFail;
 }
 
-fn appendErrorOff(
+fn appendErrorTokNotesOff(
     astgen: *AstGen,
     token: Ast.TokenIndex,
     byte_offset: u32,
     comptime format: []const u8,
     args: anytype,
-) Allocator.Error!void {
+    notes: []const u32,
+) !void {
     @setCold(true);
+    const gpa = astgen.gpa;
     const string_bytes = &astgen.string_bytes;
     const msg = @intCast(u32, string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
-    try astgen.compile_errors.append(astgen.gpa, .{
+    try string_bytes.writer(gpa).print(format ++ "\x00", args);
+    const notes_index: u32 = if (notes.len != 0) blk: {
+        const notes_start = astgen.extra.items.len;
+        try astgen.extra.ensureTotalCapacity(gpa, notes_start + 1 + notes.len);
+        astgen.extra.appendAssumeCapacity(@intCast(u32, notes.len));
+        astgen.extra.appendSliceAssumeCapacity(notes);
+        break :blk @intCast(u32, notes_start);
+    } else 0;
+    try astgen.compile_errors.append(gpa, .{
         .msg = msg,
         .node = 0,
         .token = token,
         .byte_offset = byte_offset,
-        .notes = 0,
+        .notes = notes_index,
     });
 }
 
 fn errNoteTok(
     astgen: *AstGen,
     token: Ast.TokenIndex,
+    comptime format: []const u8,
+    args: anytype,
+) Allocator.Error!u32 {
+    return errNoteTokOff(astgen, token, 0, format, args);
+}
+
+fn errNoteTokOff(
+    astgen: *AstGen,
+    token: Ast.TokenIndex,
+    byte_offset: u32,
     comptime format: []const u8,
     args: anytype,
 ) Allocator.Error!u32 {
@@ -10467,7 +10472,7 @@ fn errNoteTok(
         .msg = msg,
         .node = 0,
         .token = token,
-        .byte_offset = 0,
+        .byte_offset = byte_offset,
         .notes = 0,
     });
 }
@@ -12633,4 +12638,43 @@ fn emitDbgStmt(gz: *GenZir, line: u32, column: u32) !void {
             .column = column,
         },
     } });
+}
+
+fn lowerAstErrors(astgen: *AstGen) !void {
+    const tree = astgen.tree;
+    if (tree.errors.len == 0) return;
+
+    const gpa = astgen.gpa;
+    const parse_err = tree.errors[0];
+
+    var msg: std.ArrayListUnmanaged(u8) = .{};
+    defer msg.deinit(gpa);
+
+    const token_starts = tree.tokens.items(.start);
+    const token_tags = tree.tokens.items(.tag);
+
+    var notes: std.ArrayListUnmanaged(u32) = .{};
+    defer notes.deinit(gpa);
+
+    if (token_tags[parse_err.token + @boolToInt(parse_err.token_is_prev)] == .invalid) {
+        const tok = parse_err.token + @boolToInt(parse_err.token_is_prev);
+        const bad_off = @intCast(u32, tree.tokenSlice(parse_err.token + @boolToInt(parse_err.token_is_prev)).len);
+        const byte_abs = token_starts[parse_err.token + @boolToInt(parse_err.token_is_prev)] + bad_off;
+        try notes.append(gpa, try astgen.errNoteTokOff(tok, bad_off, "invalid byte: '{'}'", .{
+            std.zig.fmtEscapes(tree.source[byte_abs..][0..1]),
+        }));
+    }
+
+    for (tree.errors[1..]) |note| {
+        if (!note.is_note) break;
+
+        msg.clearRetainingCapacity();
+        try tree.renderError(note, msg.writer(gpa));
+        try notes.append(gpa, try astgen.errNoteTok(note.token, "{s}", .{msg.items}));
+    }
+
+    const extra_offset = tree.errorOffset(parse_err);
+    msg.clearRetainingCapacity();
+    try tree.renderError(parse_err, msg.writer(gpa));
+    try astgen.appendErrorTokNotesOff(parse_err.token, extra_offset, "{s}", .{msg.items}, notes.items);
 }
