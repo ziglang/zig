@@ -1296,19 +1296,21 @@ pub const CType = extern union {
 
                 .Fn => {
                     const info = ty.fnInfo();
-                    if (lookup.isMutable()) {
-                        const param_kind: Kind = switch (kind) {
-                            .forward, .forward_parameter => .forward_parameter,
-                            .complete, .parameter, .global => .parameter,
-                            .payload => unreachable,
-                        };
-                        _ = try lookup.typeToIndex(info.return_type, param_kind);
-                        for (info.param_types) |param_type| {
-                            if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
-                            _ = try lookup.typeToIndex(param_type, param_kind);
+                    if (!info.is_generic) {
+                        if (lookup.isMutable()) {
+                            const param_kind: Kind = switch (kind) {
+                                .forward, .forward_parameter => .forward_parameter,
+                                .complete, .parameter, .global => .parameter,
+                                .payload => unreachable,
+                            };
+                            _ = try lookup.typeToIndex(info.return_type, param_kind);
+                            for (info.param_types) |param_type| {
+                                if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
+                                _ = try lookup.typeToIndex(param_type, param_kind);
+                            }
                         }
-                    }
-                    self.init(if (info.is_var_args) .varargs_function else .function);
+                        self.init(if (info.is_var_args) .varargs_function else .function);
+                    } else self.init(.void);
                 },
             }
         }
@@ -1619,6 +1621,7 @@ pub const CType = extern union {
                 .varargs_function,
                 => {
                     const info = ty.fnInfo();
+                    assert(!info.is_generic);
                     const param_kind: Kind = switch (kind) {
                         .forward, .forward_parameter => .forward_parameter,
                         .complete, .parameter, .global => .parameter,
@@ -1764,6 +1767,7 @@ pub const CType = extern union {
                             if (ty.zigTypeTag() != .Fn) return false;
 
                             const info = ty.fnInfo();
+                            assert(!info.is_generic);
                             const data = cty.cast(Payload.Function).?.data;
                             const param_kind: Kind = switch (self.kind) {
                                 .forward, .forward_parameter => .forward_parameter,
@@ -1878,6 +1882,7 @@ pub const CType = extern union {
                         .varargs_function,
                         => {
                             const info = ty.fnInfo();
+                            assert(!info.is_generic);
                             const param_kind: Kind = switch (self.kind) {
                                 .forward, .forward_parameter => .forward_parameter,
                                 .complete, .parameter, .global => .parameter,
