@@ -78,6 +78,32 @@ typedef char bool;
 #define zig_cold
 #endif
 
+#if zig_has_attribute(flatten)
+#define zig_maybe_flatten __attribute__((flatten))
+#else
+#define zig_maybe_flatten
+#endif
+
+#if zig_has_attribute(noinline)
+#define zig_never_inline __attribute__((noinline)) zig_maybe_flatten
+#elif defined(_MSC_VER)
+#define zig_never_inline __declspec(noinline) zig_maybe_flatten
+#else
+#define zig_never_inline zig_never_inline_unavailable
+#endif
+
+#if zig_has_attribute(not_tail_called)
+#define zig_never_tail __attribute__((not_tail_called)) zig_never_inline
+#else
+#define zig_never_tail zig_never_tail_unavailable
+#endif
+
+#if zig_has_attribute(always_inline)
+#define zig_always_tail __attribute__((musttail))
+#else
+#define zig_always_tail zig_always_tail_unavailable
+#endif
+
 #if __STDC_VERSION__ >= 199901L
 #define zig_restrict restrict
 #elif defined(__GNUC__)

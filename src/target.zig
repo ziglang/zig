@@ -723,6 +723,7 @@ pub fn supportsFunctionAlignment(target: std.Target) bool {
 pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend) bool {
     switch (backend) {
         .stage1, .stage2_llvm => return @import("codegen/llvm.zig").supportsTailCall(target),
+        .stage2_c => return true,
         else => return false,
     }
 }
