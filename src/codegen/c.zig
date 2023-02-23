@@ -882,14 +882,14 @@ pub const DeclGen = struct {
                         var literal = stringLiteral(writer);
                         try literal.start();
                         const c_len = ty.arrayLenIncludingSentinel();
-                        var index: usize = 0;
+                        var index: u64 = 0;
                         while (index < c_len) : (index += 1)
                             try literal.writeChar(0xaa);
                         return literal.end();
                     } else {
                         try writer.writeByte('{');
                         const c_len = ty.arrayLenIncludingSentinel();
-                        var index: usize = 0;
+                        var index: u64 = 0;
                         while (index < c_len) : (index += 1) {
                             if (index > 0) try writer.writeAll(", ");
                             try dg.renderValue(writer, ty.childType(), val, initializer_type);
@@ -1089,8 +1089,8 @@ pub const DeclGen = struct {
                 // First try specific tag representations for more efficiency.
                 switch (val.tag()) {
                     .undef, .empty_struct_value, .empty_array => {
-                        try writer.writeByte('{');
                         const ai = ty.arrayInfo();
+                        try writer.writeByte('{');
                         if (ai.sentinel) |s| {
                             try dg.renderValue(writer, ai.elem_type, s, initializer_type);
                         } else {
@@ -1098,13 +1098,19 @@ pub const DeclGen = struct {
                         }
                         try writer.writeByte('}');
                     },
-                    .bytes => {
-                        try writer.print("{s}", .{fmtStringLiteral(val.castTag(.bytes).?.data)});
-                    },
-                    .str_lit => {
-                        const str_lit = val.castTag(.str_lit).?.data;
-                        const bytes = dg.module.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                        try writer.print("{s}", .{fmtStringLiteral(bytes)});
+                    .bytes, .str_lit => |t| {
+                        const bytes = switch (t) {
+                            .bytes => val.castTag(.bytes).?.data,
+                            .str_lit => bytes: {
+                                const str_lit = val.castTag(.str_lit).?.data;
+                                break :bytes dg.module.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                            },
+                            else => unreachable,
+                        };
+                        const sentinel = if (ty.sentinel()) |sentinel| @intCast(u8, sentinel.toUnsignedInt(target)) else null;
+                        try writer.print("{s}", .{
+                            fmtStringLiteral(bytes[0..@intCast(usize, ty.arrayLen())], sentinel),
+                        });
                     },
                     else => {
                         // Fall back to generic implementation.
@@ -1128,7 +1134,7 @@ pub const DeclGen = struct {
                                 }
                                 if (ai.sentinel) |s| {
                                     const s_u8 = @intCast(u8, s.toUnsignedInt(target));
-                                    try literal.writeChar(s_u8);
+                                    if (s_u8 != 0) try literal.writeChar(s_u8);
                                 }
                                 try literal.end();
                             } else {
@@ -1638,6 +1644,11 @@ pub const DeclGen = struct {
             try context.writeValue(dg, w, src_ty, location);
         } else if (dest_bits <= 64 and src_bits > 64) {
             assert(!src_is_ptr);
+            if (dest_bits < 64) {
+                try w.writeByte('(');
+                try dg.renderType(w, dest_ty);
+                try w.writeByte(')');
+            }
             try w.writeAll("zig_lo_");
             try dg.renderTypeForBuiltinFnName(w, src_eff_ty);
             try w.writeByte('(');
@@ -2380,9 +2391,7 @@ pub fn genTypeDecl(
 
 pub fn genGlobalAsm(mod: *Module, writer: anytype) !void {
     var it = mod.global_assembly.valueIterator();
-    while (it.next()) |asm_source| {
-        try writer.print("__asm({s});\n", .{fmtStringLiteral(asm_source.*)});
-    }
+    while (it.next()) |asm_source| try writer.print("__asm({s});\n", .{fmtStringLiteral(asm_source.*, null)});
 }
 
 pub fn genErrDecls(o: *Object) !void {
@@ -2400,22 +2409,20 @@ pub fn genErrDecls(o: *Object) !void {
     o.indent_writer.popIndent();
     try writer.writeAll("};\n");
 
-    const name_prefix = "zig_errorName";
-    const name_buf = try o.dg.gpa.alloc(u8, name_prefix.len + "_".len + max_name_len + 1);
+    const array_identifier = "zig_errorName";
+    const name_prefix = array_identifier ++ "_";
+    const name_buf = try o.dg.gpa.alloc(u8, name_prefix.len + max_name_len);
     defer o.dg.gpa.free(name_buf);
 
-    std.mem.copy(u8, name_buf, name_prefix ++ "_");
+    std.mem.copy(u8, name_buf, name_prefix);
     for (o.dg.module.error_name_list.items) |name| {
-        std.mem.copy(u8, name_buf[name_prefix.len + "_".len ..], name);
-        name_buf[name_prefix.len + "_".len + name.len] = 0;
-
-        const identifier = name_buf[0 .. name_prefix.len + "_".len + name.len :0];
-        const name_z = identifier[name_prefix.len + "_".len ..];
+        std.mem.copy(u8, name_buf[name_prefix.len..], name);
+        const identifier = name_buf[0 .. name_prefix.len + name.len];
 
         var name_ty_pl = Type.Payload.Len{ .base = .{ .tag = .array_u8_sentinel_0 }, .data = name.len };
         const name_ty = Type.initPayload(&name_ty_pl.base);
 
-        var name_pl = Value.Payload.Bytes{ .base = .{ .tag = .bytes }, .data = name_z };
+        var name_pl = Value.Payload.Bytes{ .base = .{ .tag = .bytes }, .data = name };
         const name_val = Value.initPayload(&name_pl.base);
 
         try writer.writeAll("static ");
@@ -2432,7 +2439,7 @@ pub fn genErrDecls(o: *Object) !void {
     const name_array_ty = Type.initPayload(&name_array_ty_pl.base);
 
     try writer.writeAll("static ");
-    try o.dg.renderTypeAndName(writer, name_array_ty, .{ .identifier = name_prefix }, Const, 0, .complete);
+    try o.dg.renderTypeAndName(writer, name_array_ty, .{ .identifier = array_identifier }, Const, 0, .complete);
     try writer.writeAll(" = {");
     for (o.dg.module.error_name_list.items, 0..) |name, value| {
         if (value != 0) try writer.writeByte(',');
@@ -2440,7 +2447,7 @@ pub fn genErrDecls(o: *Object) !void {
         var len_pl = Value.Payload.U64{ .base = .{ .tag = .int_u64 }, .data = name.len };
         const len_val = Value.initPayload(&len_pl.base);
 
-        try writer.print("{{" ++ name_prefix ++ "_{}, {}}}", .{
+        try writer.print("{{" ++ name_prefix ++ "{}, {}}}", .{
             fmtIdent(name), try o.dg.fmtIntLiteral(Type.usize, len_val),
         });
     }
@@ -2457,8 +2464,8 @@ fn genExports(o: *Object) !void {
             try fwd_decl_writer.writeAll("zig_export(");
             try o.dg.renderFunctionSignature(fwd_decl_writer, o.dg.decl_index.unwrap().?, .forward, .{ .export_index = @intCast(u32, i) });
             try fwd_decl_writer.print(", {s}, {s});\n", .{
-                fmtStringLiteral(exports.items[0].options.name),
-                fmtStringLiteral(@"export".options.name),
+                fmtStringLiteral(exports.items[0].options.name, null),
+                fmtStringLiteral(@"export".options.name, null),
             });
         }
     }
@@ -2483,10 +2490,6 @@ pub fn genLazyFn(o: *Object, lazy_fn: LazyFnMap.Entry) !void {
             try o.dg.renderTypeAndName(w, enum_ty, .{ .identifier = "tag" }, Const, 0, .complete);
             try w.writeAll(") {\n switch (tag) {\n");
             for (enum_ty.enumFields().keys(), 0..) |name, index| {
-                const name_z = try o.dg.gpa.dupeZ(u8, name);
-                defer o.dg.gpa.free(name_z);
-                const name_bytes = name_z[0 .. name_z.len + 1];
-
                 var tag_pl: Value.Payload.U32 = .{
                     .base = .{ .tag = .enum_field_index },
                     .data = @intCast(u32, index),
@@ -2499,7 +2502,7 @@ pub fn genLazyFn(o: *Object, lazy_fn: LazyFnMap.Entry) !void {
                 var name_ty_pl = Type.Payload.Len{ .base = .{ .tag = .array_u8_sentinel_0 }, .data = name.len };
                 const name_ty = Type.initPayload(&name_ty_pl.base);
 
-                var name_pl = Value.Payload.Bytes{ .base = .{ .tag = .bytes }, .data = name_bytes };
+                var name_pl = Value.Payload.Bytes{ .base = .{ .tag = .bytes }, .data = name };
                 const name_val = Value.initPayload(&name_pl.base);
 
                 var len_pl = Value.Payload.U64{ .base = .{ .tag = .int_u64 }, .data = name.len };
@@ -3459,15 +3462,17 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(" = ");
 
+    if (dest_c_bits < 64) {
+        try writer.writeByte('(');
+        try f.renderType(writer, inst_ty);
+        try writer.writeByte(')');
+    }
+
     const needs_lo = operand_int_info.bits > 64 and dest_bits <= 64;
     if (needs_lo) {
         try writer.writeAll("zig_lo_");
         try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
         try writer.writeByte('(');
-    } else if (dest_c_bits <= 64) {
-        try writer.writeByte('(');
-        try f.renderType(writer, inst_ty);
-        try writer.writeByte(')');
     }
 
     if (dest_bits >= 8 and std.math.isPowerOfTwo(dest_bits)) {
@@ -4228,8 +4233,9 @@ fn airBlock(f: *Function, inst: Air.Inst.Index) !CValue {
 
     try genBodyInner(f, body);
     try f.object.indent_writer.insertNewline();
+    // label might be unused, add a dummy goto
     // label must be followed by an expression, add an empty one.
-    try writer.print("zig_block_{d}:;\n", .{block_id});
+    try writer.print("goto zig_block_{d};\nzig_block_{d}: (void)0;\n", .{ block_id, block_id });
     return result;
 }
 
@@ -4608,8 +4614,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     const last_case_i = switch_br.data.cases_len - @boolToInt(switch_br.data.else_body_len == 0);
 
     var extra_index: usize = switch_br.end;
-    var case_i: u32 = 0;
-    while (case_i < switch_br.data.cases_len) : (case_i += 1) {
+    for (0..switch_br.data.cases_len) |case_i| {
         const case = f.air.extraData(Air.SwitchBr.Case, extra_index);
         const items = @ptrCast([]const Air.Inst.Ref, f.air.extra[case.end..][0..case.data.items_len]);
         const case_body = f.air.extra[case.end + items.len ..][0..case.data.body_len];
@@ -4789,14 +4794,11 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 try writer.writeAll(";\n");
             }
         }
-        {
-            var clobber_i: u32 = 0;
-            while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
-                // This equation accounts for the fact that even if we have exactly 4 bytes
-                // for the string, we still use the next u32 for the null terminator.
-                extra_i += clobber.len / 4 + 1;
-            }
+        for (0..clobbers_len) |_| {
+            const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += clobber.len / 4 + 1;
         }
 
         {
@@ -4851,7 +4853,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
             try writer.writeAll("__asm");
             if (is_volatile) try writer.writeAll(" volatile");
-            try writer.print("({s}", .{fmtStringLiteral(fixed_asm_source[0..dst_i])});
+            try writer.print("({s}", .{fmtStringLiteral(fixed_asm_source[0..dst_i], null)});
         }
 
         extra_i = constraints_extra_begin;
@@ -4869,7 +4871,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             try writer.writeByte(' ');
             if (!std.mem.eql(u8, name, "_")) try writer.print("[{s}]", .{name});
             const is_reg = constraint[1] == '{';
-            try writer.print("{s}(", .{fmtStringLiteral(if (is_reg) "=r" else constraint)});
+            try writer.print("{s}(", .{fmtStringLiteral(if (is_reg) "=r" else constraint, null)});
             if (is_reg) {
                 try f.writeCValue(writer, .{ .local = locals_index }, .Other);
                 locals_index += 1;
@@ -4895,7 +4897,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
             const is_reg = constraint[0] == '{';
             const input_val = try f.resolveInst(input);
-            try writer.print("{s}(", .{fmtStringLiteral(if (is_reg) "r" else constraint)});
+            try writer.print("{s}(", .{fmtStringLiteral(if (is_reg) "r" else constraint, null)});
             try f.writeCValue(writer, if (asmInputNeedsLocal(constraint, input_val)) local: {
                 const input_local = CValue{ .local = locals_index };
                 locals_index += 1;
@@ -4904,19 +4906,16 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             try writer.writeByte(')');
         }
         try writer.writeByte(':');
-        {
-            var clobber_i: u32 = 0;
-            while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
-                // This equation accounts for the fact that even if we have exactly 4 bytes
-                // for the string, we still use the next u32 for the null terminator.
-                extra_i += clobber.len / 4 + 1;
+        for (0..clobbers_len) |clobber_i| {
+            const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += clobber.len / 4 + 1;
 
-                if (clobber.len == 0) continue;
+            if (clobber.len == 0) continue;
 
-                if (clobber_i > 0) try writer.writeByte(',');
-                try writer.print(" {s}", .{fmtStringLiteral(clobber)});
-            }
+            if (clobber_i > 0) try writer.writeByte(',');
+            try writer.print(" {s}", .{fmtStringLiteral(clobber, null)});
         }
         try writer.writeAll(");\n");
 
@@ -5340,8 +5339,9 @@ fn fieldPtr(
             try writer.print(" + {})", .{try f.fmtIntLiteral(Type.usize, byte_offset_val)});
         },
         .end => {
+            try writer.writeByte('(');
             try f.writeCValue(writer, container_ptr_val, .Other);
-            try writer.print(" + {}", .{try f.fmtIntLiteral(Type.usize, Value.one)});
+            try writer.print(" + {})", .{try f.fmtIntLiteral(Type.usize, Value.one)});
         },
     }
 
@@ -6448,10 +6448,9 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
     //
     // Equivalent to:
     //   reduce: {
-    //     var i: usize = 0;
     //     var accum: T = init;
-    //     while (i < vec.len) : (i += 1) {
-    //       accum = func(accum, vec[i]);
+    //     for (vec) : (elem) {
+    //       accum = func(accum, elem);
     //     }
     //     break :reduce accum;
     //   }
@@ -7162,8 +7161,9 @@ fn stringLiteral(child_stream: anytype) StringLiteral(@TypeOf(child_stream)) {
     return .{ .counting_writer = std.io.countingWriter(child_stream) };
 }
 
+const FormatStringContext = struct { str: []const u8, sentinel: ?u8 };
 fn formatStringLiteral(
-    str: []const u8,
+    data: FormatStringContext,
     comptime fmt: []const u8,
     _: std.fmt.FormatOptions,
     writer: anytype,
@@ -7172,13 +7172,13 @@ fn formatStringLiteral(
 
     var literal = stringLiteral(writer);
     try literal.start();
-    for (str) |c|
-        try literal.writeChar(c);
+    for (data.str) |c| try literal.writeChar(c);
+    if (data.sentinel) |sentinel| if (sentinel != 0) try literal.writeChar(sentinel);
     try literal.end();
 }
 
-fn fmtStringLiteral(str: []const u8) std.fmt.Formatter(formatStringLiteral) {
-    return .{ .data = str };
+fn fmtStringLiteral(str: []const u8, sentinel: ?u8) std.fmt.Formatter(formatStringLiteral) {
+    return .{ .data = .{ .str = str, .sentinel = sentinel } };
 }
 
 fn undefPattern(comptime IntType: type) IntType {

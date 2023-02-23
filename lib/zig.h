@@ -1076,7 +1076,7 @@ static inline void zig_vmulo_i16(uint8_t *ov, int16_t *res, int n,
 \
     static inline int##w##_t zig_shls_i##w(int##w##_t lhs, int##w##_t rhs, uint8_t bits) { \
         int##w##_t res; \
-        if ((uint##w##_t)rhs < (uint##w##_t)bits && !zig_shlo_i##w(&res, lhs, rhs, bits)) return res; \
+        if ((uint##w##_t)rhs < (uint##w##_t)bits && !zig_shlo_i##w(&res, lhs, (uint8_t)rhs, bits)) return res; \
         return lhs < INT##w##_C(0) ? zig_minInt_i(w, bits) : zig_maxInt_i(w, bits); \
     } \
 \
@@ -2410,39 +2410,47 @@ zig_msvc_atomics(i64,  int64_t, 64)
 
 #define zig_msvc_flt_atomics(Type, ReprType, suffix) \
     static inline bool zig_msvc_cmpxchg_##Type(zig_##Type volatile* obj, zig_##Type* expected, zig_##Type desired) { \
-        ReprType comparand = *((ReprType*)expected); \
-        ReprType initial = _InterlockedCompareExchange##suffix((ReprType volatile*)obj, *((ReprType*)&desired), comparand); \
-        bool exchanged = initial == comparand; \
-        if (!exchanged) { \
-            *expected = *((zig_##Type*)&initial); \
-        } \
-        return exchanged; \
+        ReprType exchange; \
+        ReprType comparand; \
+        ReprType initial; \
+        bool success; \
+        memcpy(&comparand, expected, sizeof(comparand)); \
+        memcpy(&exchange, &desired, sizeof(exchange)); \
+        initial = _InterlockedCompareExchange##suffix((ReprType volatile*)obj, exchange, comparand); \
+        success = initial == comparand; \
+        if (!success) memcpy(expected, &initial, sizeof(*expected)); \
+        return success; \
     } \
     static inline zig_##Type zig_msvc_atomicrmw_xchg_##Type(zig_##Type volatile* obj, zig_##Type value) { \
-        ReprType initial = _InterlockedExchange##suffix((ReprType volatile*)obj, *((ReprType*)&value)); \
-        return *((zig_##Type*)&initial); \
+        ReprType repr; \
+        ReprType initial; \
+        zig_##Type result; \
+        memcpy(&repr, &value, sizeof(repr)); \
+        initial = _InterlockedExchange##suffix((ReprType volatile*)obj, repr); \
+        memcpy(&result, &initial, sizeof(result)); \
+        return result; \
     } \
     static inline zig_##Type zig_msvc_atomicrmw_add_##Type(zig_##Type volatile* obj, zig_##Type value) { \
-        bool success = false; \
-        ReprType new; \
-        zig_##Type prev; \
-        while (!success) { \
-            prev = *obj; \
-            new = prev + value; \
-            success = zig_msvc_cmpxchg_##Type(obj, &prev, *((ReprType*)&new)); \
-        } \
-        return prev; \
+        ReprType repr; \
+        zig_##Type expected; \
+        zig_##Type desired; \
+        repr = *(ReprType volatile*)obj; \
+        memcpy(&expected, &repr, sizeof(expected)); \
+        do { \
+            desired = expected + value; \
+        } while (!zig_msvc_cmpxchg_##Type(obj, &expected, desired)); \
+        return expected; \
     } \
     static inline zig_##Type zig_msvc_atomicrmw_sub_##Type(zig_##Type volatile* obj, zig_##Type value) { \
-        bool success = false; \
-        ReprType new; \
-        zig_##Type prev; \
-        while (!success) { \
-            prev = *obj; \
-            new = prev - value; \
-            success = zig_msvc_cmpxchg_##Type(obj, &prev, *((ReprType*)&new)); \
-        } \
-        return prev; \
+        ReprType repr; \
+        zig_##Type expected; \
+        zig_##Type desired; \
+        repr = *(ReprType volatile*)obj; \
+        memcpy(&expected, &repr, sizeof(expected)); \
+        do { \
+            desired = expected - value; \
+        } while (!zig_msvc_cmpxchg_##Type(obj, &expected, desired)); \
+        return expected; \
     }
 
 zig_msvc_flt_atomics(f32, uint32_t,   )
