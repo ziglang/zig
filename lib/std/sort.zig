@@ -1069,8 +1069,8 @@ fn binaryFirst(
         const offset = size % 2;
 
         size /= 2;
-        const mid = items[curr + size];
-        if (lessThan(context, mid, value)) {
+        const mid_item = items[curr + size];
+        if (lessThan(context, mid_item, value)) {
             curr += size + offset;
         }
     }
@@ -1092,8 +1092,8 @@ fn binaryLast(
         const offset = size % 2;
 
         size /= 2;
-        const mid = items[curr + size];
-        if (!lessThan(context, value, mid)) {
+        const mid_item = items[curr + size];
+        if (!lessThan(context, value, mid_item)) {
             curr += size + offset;
         }
     }
