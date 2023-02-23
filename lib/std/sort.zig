@@ -9,7 +9,7 @@ pub fn binarySearch(
     key: anytype,
     items: []const T,
     context: anytype,
-    comptime compareFn: fn (context: @TypeOf(context), key: @TypeOf(key), item: T) math.Order,
+    comptime compareFn: fn (context: @TypeOf(context), key: @TypeOf(key), mid_item: T) math.Order,
 ) ?usize {
     var left: usize = 0;
     var right: usize = items.len;
@@ -79,14 +79,14 @@ test "binarySearch" {
             return @This(){ .b = b, .e = e };
         }
 
-        fn order(context: void, key: i32, item: @This()) math.Order {
+        fn order(context: void, key: i32, mid_item: @This()) math.Order {
             _ = context;
 
-            if (key < item.b) {
+            if (key < mid_item.b) {
                 return .lt;
             }
 
-            if (key > item.e) {
+            if (key > mid_item.e) {
                 return .gt;
             }
 
