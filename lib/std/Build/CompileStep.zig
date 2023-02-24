@@ -21,7 +21,7 @@ const VcpkgRoot = std.Build.VcpkgRoot;
 const InstallDir = std.Build.InstallDir;
 const InstallArtifactStep = std.Build.InstallArtifactStep;
 const GeneratedFile = std.Build.GeneratedFile;
-const InstallRawStep = std.Build.InstallRawStep;
+const ObjCopyStep = std.Build.ObjCopyStep;
 const EmulatableRunStep = std.Build.EmulatableRunStep;
 const CheckObjectStep = std.Build.CheckObjectStep;
 const RunStep = std.Build.RunStep;
@@ -432,10 +432,6 @@ pub fn install(self: *CompileStep) void {
     self.builder.installArtifact(self);
 }
 
-pub fn installRaw(self: *CompileStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) *InstallRawStep {
-    return self.builder.installRaw(self, dest_filename, options);
-}
-
 pub fn installHeader(a: *CompileStep, src_path: []const u8, dest_rel_path: []const u8) void {
     const install_file = a.builder.addInstallHeaderFile(src_path, dest_rel_path);
     a.builder.getInstallStep().dependOn(&install_file.step);
@@ -504,6 +500,18 @@ pub fn installLibraryHeaders(a: *CompileStep, l: *CompileStep) void {
         install_step.dependOn(step_copy);
     }
     a.installed_headers.appendSlice(l.installed_headers.items) catch @panic("OOM");
+}
+
+pub fn addObjCopy(cs: *CompileStep, options: ObjCopyStep.Options) *ObjCopyStep {
+    var copy = options;
+    if (copy.basename == null) {
+        if (options.format) |f| {
+            copy.basename = cs.builder.fmt("{s}.{s}", .{ cs.name, @tagName(f) });
+        } else {
+            copy.basename = cs.name;
+        }
+    }
+    return cs.builder.addObjCopy(cs.getOutputSource(), copy);
 }
 
 /// Deprecated: use `std.Build.addRunArtifact`

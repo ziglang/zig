@@ -37,7 +37,7 @@ pub const FmtStep = @import("Build/FmtStep.zig");
 pub const InstallArtifactStep = @import("Build/InstallArtifactStep.zig");
 pub const InstallDirStep = @import("Build/InstallDirStep.zig");
 pub const InstallFileStep = @import("Build/InstallFileStep.zig");
-pub const InstallRawStep = @import("Build/InstallRawStep.zig");
+pub const ObjCopyStep = @import("Build/ObjCopyStep.zig");
 pub const CompileStep = @import("Build/CompileStep.zig");
 pub const LogStep = @import("Build/LogStep.zig");
 pub const OptionsStep = @import("Build/OptionsStep.zig");
@@ -1254,11 +1254,8 @@ pub fn installLibFile(self: *Build, src_path: []const u8, dest_rel_path: []const
     self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .lib, dest_rel_path).step);
 }
 
-/// Output format (BIN vs Intel HEX) determined by filename
-pub fn installRaw(self: *Build, artifact: *CompileStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) *InstallRawStep {
-    const raw = self.addInstallRaw(artifact, dest_filename, options);
-    self.getInstallStep().dependOn(&raw.step);
-    return raw;
+pub fn addObjCopy(b: *Build, source: FileSource, options: ObjCopyStep.Options) *ObjCopyStep {
+    return ObjCopyStep.create(b, source, options);
 }
 
 ///`dest_rel_path` is relative to install prefix path
@@ -1278,10 +1275,6 @@ pub fn addInstallLibFile(self: *Build, source: FileSource, dest_rel_path: []cons
 
 pub fn addInstallHeaderFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) *InstallFileStep {
     return b.addInstallFileWithDir(.{ .path = src_path }, .header, dest_rel_path);
-}
-
-pub fn addInstallRaw(self: *Build, artifact: *CompileStep, dest_filename: []const u8, options: InstallRawStep.CreateOptions) *InstallRawStep {
-    return InstallRawStep.create(self, artifact, dest_filename, options);
 }
 
 pub fn addInstallFileWithDir(
@@ -1771,7 +1764,7 @@ test {
     _ = InstallArtifactStep;
     _ = InstallDirStep;
     _ = InstallFileStep;
-    _ = InstallRawStep;
+    _ = ObjCopyStep;
     _ = CompileStep;
     _ = LogStep;
     _ = OptionsStep;
