@@ -2215,11 +2215,12 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
 
     if (crash_report.is_enabled and sema.mod.comp.debug_compile_errors) {
         if (err_msg.src_loc.lazy == .unneeded) return error.NeededSourceLocation;
-        var errors: std.zig.ErrorBundle = undefined;
-        errors.init(gpa) catch unreachable;
-        Compilation.addModuleErrorMsg(gpa, &errors, err_msg.*) catch unreachable;
+        var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+        wip_errors.init(gpa) catch unreachable;
+        Compilation.addModuleErrorMsg(&wip_errors, err_msg.*) catch unreachable;
         std.debug.print("compile error during Sema:\n", .{});
-        errors.renderToStdErr(.no_color);
+        var error_bundle = wip_errors.toOwnedBundle() catch unreachable;
+        error_bundle.renderToStdErr(.no_color);
         crash_report.compilerPanic("unexpected compile error occurred", null, null);
     }
 

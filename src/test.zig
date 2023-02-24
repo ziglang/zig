@@ -1242,7 +1242,7 @@ pub const TestContext = struct {
         defer self.gpa.free(zig_lib_directory.path.?);
 
         var aux_thread_pool: ThreadPool = undefined;
-        try aux_thread_pool.init(self.gpa);
+        try aux_thread_pool.init(.{ .allocator = self.gpa });
         defer aux_thread_pool.deinit();
 
         // Use the same global cache dir for all the tests, such that we for example don't have to
@@ -1614,23 +1614,8 @@ pub const TestContext = struct {
             if (update.case != .Error) {
                 var all_errors = try comp.getAllErrorsAlloc();
                 defer all_errors.deinit(allocator);
-                if (all_errors.list.len != 0) {
-                    print(
-                        "\nCase '{s}': unexpected errors at update_index={d}:\n{s}\n",
-                        .{ case.name, update_index, hr },
-                    );
-                    for (all_errors.list) |err_msg| {
-                        switch (err_msg) {
-                            .src => |src| {
-                                print("{s}:{d}:{d}: error: {s}\n{s}\n", .{
-                                    src.src_path, src.line + 1, src.column + 1, src.msg, hr,
-                                });
-                            },
-                            .plain => |plain| {
-                                print("error: {s}\n{s}\n", .{ plain.msg, hr });
-                            },
-                        }
-                    }
+                if (all_errors.errorMessageCount() > 0) {
+                    all_errors.renderToStdErr(std.debug.detectTTYConfig(std.io.getStdErr()));
                     // TODO print generated C code
                     return error.UnexpectedCompileErrors;
                 }

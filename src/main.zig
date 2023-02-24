@@ -4436,9 +4436,9 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             var all_modules: Package.AllModules = .{};
             defer all_modules.deinit(gpa);
 
-            var errors: std.zig.ErrorBundle = undefined;
-            try errors.init(gpa);
-            defer errors.deinit(gpa);
+            var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+            try wip_errors.init(gpa);
+            defer wip_errors.deinit();
 
             // Here we borrow main package's table and will replace it with a fresh
             // one after this process completes.
@@ -4453,15 +4453,17 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 &dependencies_source,
                 &build_roots_source,
                 "",
-                &errors,
+                &wip_errors,
                 &all_modules,
             );
-            if (errors.errorMessageCount() > 0) {
+            if (wip_errors.root_list.items.len > 0) {
                 const ttyconf: std.debug.TTY.Config = switch (color) {
                     .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
                     .on => .escape_codes,
                     .off => .no_color,
                 };
+                var errors = try wip_errors.toOwnedBundle();
+                defer errors.deinit(gpa);
                 errors.renderToStdErr(ttyconf);
                 process.exit(1);
             }
@@ -4721,16 +4723,18 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
             defer file.zir.deinit(gpa);
 
             if (file.zir.hasCompileErrors()) {
-                var errors: std.zig.ErrorBundle = undefined;
-                try errors.init(gpa);
-                defer errors.deinit(gpa);
-                try Compilation.addZirErrorMessages(gpa, &errors, &file);
+                var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+                try wip_errors.init(gpa);
+                defer wip_errors.deinit();
+                try Compilation.addZirErrorMessages(&wip_errors, &file);
                 const ttyconf: std.debug.TTY.Config = switch (color) {
                     .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
                     .on => .escape_codes,
                     .off => .no_color,
                 };
-                errors.renderToStdErr(ttyconf);
+                var error_bundle = try wip_errors.toOwnedBundle();
+                defer error_bundle.deinit(gpa);
+                error_bundle.renderToStdErr(ttyconf);
                 has_ast_error = true;
             }
         }
@@ -4930,16 +4934,18 @@ fn fmtPathFile(
         defer file.zir.deinit(gpa);
 
         if (file.zir.hasCompileErrors()) {
-            var errors: std.zig.ErrorBundle = undefined;
-            try errors.init(gpa);
-            defer errors.deinit(gpa);
-            try Compilation.addZirErrorMessages(gpa, &errors, &file);
+            var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+            try wip_errors.init(gpa);
+            defer wip_errors.deinit();
+            try Compilation.addZirErrorMessages(&wip_errors, &file);
             const ttyconf: std.debug.TTY.Config = switch (fmt.color) {
                 .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
                 .on => .escape_codes,
                 .off => .no_color,
             };
-            errors.renderToStdErr(ttyconf);
+            var error_bundle = try wip_errors.toOwnedBundle();
+            defer error_bundle.deinit(gpa);
+            error_bundle.renderToStdErr(ttyconf);
             fmt.any_error = true;
         }
     }
@@ -4968,17 +4974,19 @@ fn fmtPathFile(
 }
 
 fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Color) !void {
-    var error_bundle: std.zig.ErrorBundle = undefined;
-    try error_bundle.init(gpa);
-    defer error_bundle.deinit(gpa);
+    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+    try wip_errors.init(gpa);
+    defer wip_errors.deinit();
 
-    try putAstErrorsIntoBundle(gpa, tree, path, &error_bundle);
+    try putAstErrorsIntoBundle(gpa, tree, path, &wip_errors);
 
     const ttyconf: std.debug.TTY.Config = switch (color) {
         .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
         .on => .escape_codes,
         .off => .no_color,
     };
+    var error_bundle = try wip_errors.toOwnedBundle();
+    defer error_bundle.deinit(gpa);
     error_bundle.renderToStdErr(ttyconf);
 }
 
@@ -4986,7 +4994,7 @@ pub fn putAstErrorsIntoBundle(
     gpa: Allocator,
     tree: Ast,
     path: []const u8,
-    error_bundle: *std.zig.ErrorBundle,
+    wip_errors: *std.zig.ErrorBundle.Wip,
 ) !void {
     var file: Module.File = .{
         .status = .never_loaded,
@@ -5013,7 +5021,7 @@ pub fn putAstErrorsIntoBundle(
     file.zir_loaded = true;
     defer file.zir.deinit(gpa);
 
-    try Compilation.addZirErrorMessages(gpa, error_bundle, &file);
+    try Compilation.addZirErrorMessages(wip_errors, &file);
 }
 
 pub const info_zen =
@@ -5595,16 +5603,18 @@ pub fn cmdAstCheck(
     defer file.zir.deinit(gpa);
 
     if (file.zir.hasCompileErrors()) {
-        var errors: std.zig.ErrorBundle = undefined;
-        try errors.init(gpa);
-        defer errors.deinit(gpa);
-        try Compilation.addZirErrorMessages(gpa, &errors, &file);
+        var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+        try wip_errors.init(gpa);
+        defer wip_errors.deinit();
+        try Compilation.addZirErrorMessages(&wip_errors, &file);
         const ttyconf: std.debug.TTY.Config = switch (color) {
             .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
             .on => .escape_codes,
             .off => .no_color,
         };
-        errors.renderToStdErr(ttyconf);
+        var error_bundle = try wip_errors.toOwnedBundle();
+        defer error_bundle.deinit(gpa);
+        error_bundle.renderToStdErr(ttyconf);
         process.exit(1);
     }
 
@@ -5719,12 +5729,14 @@ pub fn cmdChangelist(
     defer file.zir.deinit(gpa);
 
     if (file.zir.hasCompileErrors()) {
-        var errors: std.zig.ErrorBundle = undefined;
-        try errors.init(gpa);
-        defer errors.deinit(gpa);
-        try Compilation.addZirErrorMessages(gpa, &errors, &file);
+        var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+        try wip_errors.init(gpa);
+        defer wip_errors.deinit();
+        try Compilation.addZirErrorMessages(&wip_errors, &file);
         const ttyconf = std.debug.detectTTYConfig(std.io.getStdErr());
-        errors.renderToStdErr(ttyconf);
+        var error_bundle = try wip_errors.toOwnedBundle();
+        defer error_bundle.deinit(gpa);
+        error_bundle.renderToStdErr(ttyconf);
         process.exit(1);
     }
 
@@ -5758,12 +5770,14 @@ pub fn cmdChangelist(
     file.zir_loaded = true;
 
     if (file.zir.hasCompileErrors()) {
-        var errors: std.zig.ErrorBundle = undefined;
-        try errors.init(gpa);
-        defer errors.deinit(gpa);
-        try Compilation.addZirErrorMessages(gpa, &errors, &file);
+        var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+        try wip_errors.init(gpa);
+        defer wip_errors.deinit();
+        try Compilation.addZirErrorMessages(&wip_errors, &file);
         const ttyconf = std.debug.detectTTYConfig(std.io.getStdErr());
-        errors.renderToStdErr(ttyconf);
+        var error_bundle = try wip_errors.toOwnedBundle();
+        defer error_bundle.deinit(gpa);
+        error_bundle.renderToStdErr(ttyconf);
         process.exit(1);
     }
 

@@ -2546,9 +2546,9 @@ pub fn totalErrorCount(self: *Compilation) u32 {
 pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
     const gpa = self.gpa;
 
-    var bundle: ErrorBundle = undefined;
+    var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(gpa);
-    errdefer bundle.deinit(gpa);
+    defer bundle.deinit();
 
     {
         var it = self.failed_c_objects.iterator();
@@ -2557,12 +2557,10 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             const err_msg = entry.value_ptr.*;
             // TODO these fields will need to be adjusted when we have proper
             // C error reporting bubbling up.
-            try bundle.addErrorMessage(gpa, .{
-                .msg = try bundle.printString(gpa, "unable to build C object: {s}", .{
-                    err_msg.msg,
-                }),
-                .src_loc = try bundle.addSourceLocation(gpa, .{
-                    .src_path = try bundle.addString(gpa, c_object.src.src_path),
+            try bundle.addRootErrorMessage(.{
+                .msg = try bundle.printString("unable to build C object: {s}", .{err_msg.msg}),
+                .src_loc = try bundle.addSourceLocation(.{
+                    .src_path = try bundle.addString(c_object.src.src_path),
                     .span_start = 0,
                     .span_main = 0,
                     .span_end = 1,
@@ -2571,49 +2569,46 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
                     .source_line = 0, // TODO
                 }),
             });
-            bundle.incrementCount(1);
         }
     }
 
     for (self.lld_errors.items) |lld_error| {
-        try bundle.addErrorMessage(gpa, .{
-            .msg = try bundle.addString(gpa, lld_error.msg),
-            .notes_len = @intCast(u32, lld_error.context_lines.len),
-        });
-        bundle.incrementCount(1);
+        const notes_len = @intCast(u32, lld_error.context_lines.len);
 
-        for (lld_error.context_lines) |context_line| {
-            try bundle.addErrorMessage(gpa, .{
-                .msg = try bundle.addString(gpa, context_line),
-            });
+        try bundle.addRootErrorMessage(.{
+            .msg = try bundle.addString(lld_error.msg),
+            .notes_len = notes_len,
+        });
+        const notes_start = try bundle.reserveNotes(notes_len);
+        for (notes_start.., lld_error.context_lines) |note, context_line| {
+            bundle.extra.items[note] = @enumToInt(bundle.addErrorMessageAssumeCapacity(.{
+                .msg = try bundle.addString(context_line),
+            }));
         }
     }
     for (self.misc_failures.values()) |*value| {
-        try bundle.addErrorMessage(gpa, .{
-            .msg = try bundle.addString(gpa, value.msg),
+        try bundle.addRootErrorMessage(.{
+            .msg = try bundle.addString(value.msg),
             .notes_len = if (value.children) |b| b.errorMessageCount() else 0,
         });
-        if (value.children) |b| try bundle.addBundle(gpa, b);
-        bundle.incrementCount(1);
+        if (value.children) |b| try bundle.addBundle(b);
     }
     if (self.alloc_failure_occurred) {
-        try bundle.addErrorMessage(gpa, .{
-            .msg = try bundle.addString(gpa, "memory allocation failure"),
+        try bundle.addRootErrorMessage(.{
+            .msg = try bundle.addString("memory allocation failure"),
         });
-        bundle.incrementCount(1);
     }
     if (self.bin_file.options.module) |module| {
         {
             var it = module.failed_files.iterator();
             while (it.next()) |entry| {
                 if (entry.value_ptr.*) |msg| {
-                    try addModuleErrorMsg(gpa, &bundle, msg.*);
+                    try addModuleErrorMsg(&bundle, msg.*);
                 } else {
-                    // Must be ZIR errors. In order for ZIR errors to exist, the parsing
-                    // must have completed successfully.
-                    const tree = try entry.key_ptr.*.getTree(module.gpa);
-                    assert(tree.errors.len == 0);
-                    try addZirErrorMessages(gpa, &bundle, entry.key_ptr.*);
+                    // Must be ZIR errors. Note that this may include AST errors.
+                    // addZirErrorMessages asserts that the tree is loaded.
+                    _ = try entry.key_ptr.*.getTree(gpa);
+                    try addZirErrorMessages(&bundle, entry.key_ptr.*);
                 }
             }
         }
@@ -2621,7 +2616,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             var it = module.failed_embed_files.iterator();
             while (it.next()) |entry| {
                 const msg = entry.value_ptr.*;
-                try addModuleErrorMsg(gpa, &bundle, msg.*);
+                try addModuleErrorMsg(&bundle, msg.*);
             }
         }
         {
@@ -2631,21 +2626,20 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
                 if (decl.getFileScope().okToReportErrors()) {
-                    try addModuleErrorMsg(gpa, &bundle, entry.value_ptr.*.*);
+                    try addModuleErrorMsg(&bundle, entry.value_ptr.*.*);
                     if (module.cimport_errors.get(entry.key_ptr.*)) |cimport_errors| for (cimport_errors) |c_error| {
-                        try bundle.addErrorMessage(gpa, .{
-                            .msg = try bundle.addString(gpa, std.mem.span(c_error.msg)),
-                            .src_loc = if (c_error.path) |some| try bundle.addSourceLocation(gpa, .{
-                                .src_path = try bundle.addString(gpa, std.mem.span(some)),
+                        try bundle.addRootErrorMessage(.{
+                            .msg = try bundle.addString(std.mem.span(c_error.msg)),
+                            .src_loc = if (c_error.path) |some| try bundle.addSourceLocation(.{
+                                .src_path = try bundle.addString(std.mem.span(some)),
                                 .span_start = c_error.offset,
                                 .span_main = c_error.offset,
                                 .span_end = c_error.offset + 1,
                                 .line = c_error.line,
                                 .column = c_error.column,
-                                .source_line = if (c_error.source_line) |line| try bundle.addString(gpa, std.mem.span(line)) else 0,
-                            }) else 0,
+                                .source_line = if (c_error.source_line) |line| try bundle.addString(std.mem.span(line)) else 0,
+                            }) else .none,
                         });
-                        bundle.incrementCount(1);
                     };
                 }
             }
@@ -2657,40 +2651,39 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
                 if (decl.getFileScope().okToReportErrors()) {
-                    try addModuleErrorMsg(gpa, &bundle, entry.value_ptr.*.*);
+                    try addModuleErrorMsg(&bundle, entry.value_ptr.*.*);
                 }
             }
         }
         for (module.failed_exports.values()) |value| {
-            try addModuleErrorMsg(gpa, &bundle, value.*);
+            try addModuleErrorMsg(&bundle, value.*);
         }
     }
 
-    if (bundle.errorMessageCount() == 0) {
+    if (bundle.root_list.items.len == 0) {
         if (self.link_error_flags.no_entry_point_found) {
-            try bundle.addErrorMessage(gpa, .{
-                .msg = try bundle.addString(gpa, "no entry point found"),
+            try bundle.addRootErrorMessage(.{
+                .msg = try bundle.addString("no entry point found"),
             });
-            bundle.incrementCount(1);
         }
     }
 
     if (self.link_error_flags.missing_libc) {
-        try bundle.addErrorMessage(gpa, .{
-            .msg = try bundle.addString(gpa, "libc not available"),
+        try bundle.addRootErrorMessage(.{
+            .msg = try bundle.addString("libc not available"),
             .notes_len = 2,
         });
-        try bundle.addErrorMessage(gpa, .{
-            .msg = try bundle.addString(gpa, "run 'zig libc -h' to learn about libc installations"),
-        });
-        try bundle.addErrorMessage(gpa, .{
-            .msg = try bundle.addString(gpa, "run 'zig targets' to see the targets for which zig can always provide libc"),
-        });
-        bundle.incrementCount(1);
+        const notes_start = try bundle.reserveNotes(2);
+        bundle.extra.items[notes_start + 0] = @enumToInt(try bundle.addErrorMessage(.{
+            .msg = try bundle.addString("run 'zig libc -h' to learn about libc installations"),
+        }));
+        bundle.extra.items[notes_start + 1] = @enumToInt(try bundle.addErrorMessage(.{
+            .msg = try bundle.addString("run 'zig targets' to see the targets for which zig can always provide libc"),
+        }));
     }
 
     if (self.bin_file.options.module) |module| {
-        if (bundle.errorMessageCount() == 0 and module.compile_log_decls.count() != 0) {
+        if (bundle.root_list.items.len == 0 and module.compile_log_decls.count() != 0) {
             const keys = module.compile_log_decls.keys();
             const values = module.compile_log_decls.values();
             // First one will be the error; subsequent ones will be notes.
@@ -2699,9 +2692,9 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             const err_msg = Module.ErrorMsg{
                 .src_loc = src_loc,
                 .msg = "found compile log statement",
-                .notes = try self.gpa.alloc(Module.ErrorMsg, module.compile_log_decls.count() - 1),
+                .notes = try gpa.alloc(Module.ErrorMsg, module.compile_log_decls.count() - 1),
             };
-            defer self.gpa.free(err_msg.notes);
+            defer gpa.free(err_msg.notes);
 
             for (keys[1..], 0..) |key, i| {
                 const note_decl = module.declPtr(key);
@@ -2711,25 +2704,26 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
                 };
             }
 
-            try addModuleErrorMsg(gpa, &bundle, err_msg);
+            try addModuleErrorMsg(&bundle, err_msg);
         }
     }
 
-    assert(self.totalErrorCount() == bundle.errorMessageCount());
+    assert(self.totalErrorCount() == bundle.root_list.items.len);
 
-    return bundle;
+    return bundle.toOwnedBundle();
 }
 
 pub const ErrorNoteHashContext = struct {
-    eb: *const ErrorBundle,
+    eb: *const ErrorBundle.Wip,
 
     pub fn hash(ctx: ErrorNoteHashContext, key: ErrorBundle.ErrorMessage) u32 {
         var hasher = std.hash.Wyhash.init(0);
+        const eb = ctx.eb.tmpBundle();
 
-        hasher.update(ctx.eb.nullTerminatedString(key.msg));
-        if (key.src_loc != 0) {
-            const src = ctx.eb.getSourceLocation(key.src_loc);
-            hasher.update(ctx.eb.nullTerminatedString(src.src_path));
+        hasher.update(eb.nullTerminatedString(key.msg));
+        if (key.src_loc != .none) {
+            const src = eb.getSourceLocation(key.src_loc);
+            hasher.update(eb.nullTerminatedString(src.src_path));
             std.hash.autoHash(&hasher, src.line);
             std.hash.autoHash(&hasher, src.column);
             std.hash.autoHash(&hasher, src.span_main);
@@ -2745,17 +2739,18 @@ pub const ErrorNoteHashContext = struct {
         b_index: usize,
     ) bool {
         _ = b_index;
-        const msg_a = ctx.eb.nullTerminatedString(a.msg);
-        const msg_b = ctx.eb.nullTerminatedString(b.msg);
+        const eb = ctx.eb.tmpBundle();
+        const msg_a = eb.nullTerminatedString(a.msg);
+        const msg_b = eb.nullTerminatedString(b.msg);
         if (!std.mem.eql(u8, msg_a, msg_b)) return false;
 
-        if (a.src_loc == 0 and b.src_loc == 0) return true;
-        if (a.src_loc == 0 or b.src_loc == 0) return false;
-        const src_a = ctx.eb.getSourceLocation(a.src_loc);
-        const src_b = ctx.eb.getSourceLocation(b.src_loc);
+        if (a.src_loc == .none and b.src_loc == .none) return true;
+        if (a.src_loc == .none or b.src_loc == .none) return false;
+        const src_a = eb.getSourceLocation(a.src_loc);
+        const src_b = eb.getSourceLocation(b.src_loc);
 
-        const src_path_a = ctx.eb.nullTerminatedString(src_a.src_path);
-        const src_path_b = ctx.eb.nullTerminatedString(src_b.src_path);
+        const src_path_a = eb.nullTerminatedString(src_a.src_path);
+        const src_path_b = eb.nullTerminatedString(src_b.src_path);
 
         return std.mem.eql(u8, src_path_a, src_path_b) and
             src_a.line == src_b.line and
@@ -2764,16 +2759,16 @@ pub const ErrorNoteHashContext = struct {
     }
 };
 
-pub fn addModuleErrorMsg(gpa: Allocator, eb: *ErrorBundle, module_err_msg: Module.ErrorMsg) !void {
+pub fn addModuleErrorMsg(eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) !void {
+    const gpa = eb.gpa;
     const err_source = module_err_msg.src_loc.file_scope.getSource(gpa) catch |err| {
         const file_path = try module_err_msg.src_loc.file_scope.fullPath(gpa);
         defer gpa.free(file_path);
-        try eb.addErrorMessage(gpa, .{
-            .msg = try eb.printString(gpa, "unable to load '{s}': {s}", .{
+        try eb.addRootErrorMessage(.{
+            .msg = try eb.printString("unable to load '{s}': {s}", .{
                 file_path, @errorName(err),
             }),
         });
-        eb.incrementCount(1);
         return;
     };
     const err_span = try module_err_msg.src_loc.span(gpa);
@@ -2788,13 +2783,13 @@ pub fn addModuleErrorMsg(gpa: Allocator, eb: *ErrorBundle, module_err_msg: Modul
         if (module_reference.hidden != 0) {
             try ref_traces.append(gpa, .{
                 .decl_name = module_reference.hidden,
-                .src_loc = 0,
+                .src_loc = .none,
             });
             break;
         } else if (module_reference.decl == null) {
             try ref_traces.append(gpa, .{
                 .decl_name = 0,
-                .src_loc = 0,
+                .src_loc = .none,
             });
             break;
         }
@@ -2804,9 +2799,9 @@ pub fn addModuleErrorMsg(gpa: Allocator, eb: *ErrorBundle, module_err_msg: Modul
         const rt_file_path = try module_reference.src_loc.file_scope.fullPath(gpa);
         defer gpa.free(rt_file_path);
         try ref_traces.append(gpa, .{
-            .decl_name = try eb.addString(gpa, std.mem.sliceTo(module_reference.decl.?, 0)),
-            .src_loc = try eb.addSourceLocation(gpa, .{
-                .src_path = try eb.addString(gpa, rt_file_path),
+            .decl_name = try eb.addString(std.mem.sliceTo(module_reference.decl.?, 0)),
+            .src_loc = try eb.addSourceLocation(.{
+                .src_path = try eb.addString(rt_file_path),
                 .span_start = span.start,
                 .span_main = span.main,
                 .span_end = span.end,
@@ -2817,8 +2812,8 @@ pub fn addModuleErrorMsg(gpa: Allocator, eb: *ErrorBundle, module_err_msg: Modul
         });
     }
 
-    const src_loc = try eb.addSourceLocation(gpa, .{
-        .src_path = try eb.addString(gpa, file_path),
+    const src_loc = try eb.addSourceLocation(.{
+        .src_path = try eb.addString(file_path),
         .span_start = err_span.start,
         .span_main = err_span.main,
         .span_end = err_span.end,
@@ -2827,12 +2822,12 @@ pub fn addModuleErrorMsg(gpa: Allocator, eb: *ErrorBundle, module_err_msg: Modul
         .source_line = if (module_err_msg.src_loc.lazy == .entire_file)
             0
         else
-            try eb.addString(gpa, err_loc.source_line),
+            try eb.addString(err_loc.source_line),
         .reference_trace_len = @intCast(u32, ref_traces.items.len),
     });
 
     for (ref_traces.items) |rt| {
-        try eb.addReferenceTrace(gpa, rt);
+        try eb.addReferenceTrace(rt);
     }
 
     // De-duplicate error notes. The main use case in mind for this is
@@ -2848,15 +2843,15 @@ pub fn addModuleErrorMsg(gpa: Allocator, eb: *ErrorBundle, module_err_msg: Modul
         defer gpa.free(note_file_path);
 
         const gop = try notes.getOrPutContext(gpa, .{
-            .msg = try eb.addString(gpa, module_note.msg),
-            .src_loc = try eb.addSourceLocation(gpa, .{
-                .src_path = try eb.addString(gpa, note_file_path),
+            .msg = try eb.addString(module_note.msg),
+            .src_loc = try eb.addSourceLocation(.{
+                .src_path = try eb.addString(note_file_path),
                 .span_start = span.start,
                 .span_main = span.main,
                 .span_end = span.end,
                 .line = @intCast(u32, loc.line),
                 .column = @intCast(u32, loc.column),
-                .source_line = if (err_loc.eql(loc)) 0 else try eb.addString(gpa, loc.source_line),
+                .source_line = if (err_loc.eql(loc)) 0 else try eb.addString(loc.source_line),
             }),
         }, .{ .eb = eb });
         if (gop.found_existing) {
@@ -2864,24 +2859,28 @@ pub fn addModuleErrorMsg(gpa: Allocator, eb: *ErrorBundle, module_err_msg: Modul
         }
     }
 
-    try eb.addErrorMessage(gpa, .{
-        .msg = try eb.addString(gpa, module_err_msg.msg),
-        .src_loc = src_loc,
-        .notes_len = @intCast(u32, notes.entries.len),
-    });
-    eb.incrementCount(1);
+    const notes_len = @intCast(u32, notes.entries.len);
 
-    for (notes.keys()) |note| {
-        try eb.addErrorMessage(gpa, note);
+    try eb.addRootErrorMessage(.{
+        .msg = try eb.addString(module_err_msg.msg),
+        .src_loc = src_loc,
+        .notes_len = notes_len,
+    });
+
+    const notes_start = try eb.reserveNotes(notes_len);
+
+    for (notes_start.., notes.keys()) |i, note| {
+        eb.extra.items[i] = @enumToInt(try eb.addErrorMessage(note));
     }
 }
 
-pub fn addZirErrorMessages(gpa: Allocator, eb: *ErrorBundle, file: *Module.File) !void {
+pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Module.File) !void {
     assert(file.zir_loaded);
     assert(file.tree_loaded);
     assert(file.source_loaded);
     const payload_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.compile_errors)];
     assert(payload_index != 0);
+    const gpa = eb.gpa;
 
     const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
     const items_len = header.data.items_len;
@@ -2900,14 +2899,30 @@ pub fn addZirErrorMessages(gpa: Allocator, eb: *ErrorBundle, file: *Module.File)
         };
         const err_loc = std.zig.findLineColumn(file.source, err_span.main);
 
-        var notes: []ErrorBundle.ErrorMessage = &.{};
-        defer gpa.free(notes);
+        {
+            const msg = file.zir.nullTerminatedString(item.data.msg);
+            const src_path = try file.fullPath(gpa);
+            defer gpa.free(src_path);
+            try eb.addRootErrorMessage(.{
+                .msg = try eb.addString(msg),
+                .src_loc = try eb.addSourceLocation(.{
+                    .src_path = try eb.addString(src_path),
+                    .span_start = err_span.start,
+                    .span_main = err_span.main,
+                    .span_end = err_span.end,
+                    .line = @intCast(u32, err_loc.line),
+                    .column = @intCast(u32, err_loc.column),
+                    .source_line = try eb.addString(err_loc.source_line),
+                }),
+                .notes_len = item.data.notes,
+            });
+        }
 
         if (item.data.notes != 0) {
+            const notes_start = try eb.reserveNotes(item.data.notes);
             const block = file.zir.extraData(Zir.Inst.Block, item.data.notes);
             const body = file.zir.extra[block.end..][0..block.data.body_len];
-            notes = try gpa.alloc(ErrorBundle.ErrorMessage, body.len);
-            for (notes, body) |*note, body_elem| {
+            for (notes_start.., body) |note_i, body_elem| {
                 const note_item = file.zir.extraData(Zir.Inst.CompileErrors.Item, body_elem);
                 const msg = file.zir.nullTerminatedString(note_item.data.msg);
                 const span = blk: {
@@ -2923,10 +2938,10 @@ pub fn addZirErrorMessages(gpa: Allocator, eb: *ErrorBundle, file: *Module.File)
                 const src_path = try file.fullPath(gpa);
                 defer gpa.free(src_path);
 
-                note.* = .{
-                    .msg = try eb.addString(gpa, msg),
-                    .src_loc = try eb.addSourceLocation(gpa, .{
-                        .src_path = try eb.addString(gpa, src_path),
+                eb.extra.items[note_i] = @enumToInt(try eb.addErrorMessage(.{
+                    .msg = try eb.addString(msg),
+                    .src_loc = try eb.addSourceLocation(.{
+                        .src_path = try eb.addString(src_path),
                         .span_start = span.start,
                         .span_main = span.main,
                         .span_end = span.end,
@@ -2935,35 +2950,13 @@ pub fn addZirErrorMessages(gpa: Allocator, eb: *ErrorBundle, file: *Module.File)
                         .source_line = if (loc.eql(err_loc))
                             0
                         else
-                            try eb.addString(gpa, loc.source_line),
+                            try eb.addString(loc.source_line),
                     }),
                     .notes_len = 0, // TODO rework this function to be recursive
-                };
+                }));
             }
         }
-
-        const msg = file.zir.nullTerminatedString(item.data.msg);
-        const src_path = try file.fullPath(gpa);
-        defer gpa.free(src_path);
-        try eb.addErrorMessage(gpa, .{
-            .msg = try eb.addString(gpa, msg),
-            .src_loc = try eb.addSourceLocation(gpa, .{
-                .src_path = try eb.addString(gpa, src_path),
-                .span_start = err_span.start,
-                .span_main = err_span.main,
-                .span_end = err_span.end,
-                .line = @intCast(u32, err_loc.line),
-                .column = @intCast(u32, err_loc.column),
-                .source_line = try eb.addString(gpa, err_loc.source_line),
-            }),
-            .notes_len = @intCast(u32, notes.len),
-        });
-
-        for (notes) |note| {
-            try eb.addErrorMessage(gpa, note);
-        }
     }
-    eb.incrementCount(items_len);
 }
 
 pub fn getCompileLogOutput(self: *Compilation) []const u8 {
