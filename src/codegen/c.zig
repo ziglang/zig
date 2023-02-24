@@ -54,8 +54,6 @@ pub const CValue = union(enum) {
     /// Render these bytes literally.
     /// TODO make this a [*:0]const u8 to save memory
     bytes: []const u8,
-    /// A deferred call_always_tail
-    call_always_tail: void,
 };
 
 const BlockData = struct {
@@ -1751,7 +1749,6 @@ pub const DeclGen = struct {
                 fmtIdent(ident),
             }),
             .bytes => |bytes| return w.writeAll(bytes),
-            .call_always_tail => return dg.fail("CBE: the result of @call(.always_tail, ...) must be returned directly", .{}),
         }
     }
 
@@ -1785,7 +1782,6 @@ pub const DeclGen = struct {
                 try w.writeAll(bytes);
                 return w.writeByte(')');
             },
-            .call_always_tail => return dg.writeCValue(w, c_value),
         }
     }
 
@@ -1798,16 +1794,7 @@ pub const DeclGen = struct {
     fn writeCValueDerefMember(dg: *DeclGen, writer: anytype, c_value: CValue, member: CValue) !void {
         switch (c_value) {
             .none, .constant, .field, .undef => unreachable,
-            .new_local,
-            .local,
-            .arg,
-            .arg_array,
-            .decl,
-            .identifier,
-            .payload_identifier,
-            .bytes,
-            .call_always_tail,
-            => {
+            .new_local, .local, .arg, .arg_array, .decl, .identifier, .payload_identifier, .bytes => {
                 try dg.writeCValue(writer, c_value);
                 try writer.writeAll("->");
             },
@@ -2910,7 +2897,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             => .none,
 
             .call              => try airCall(f, inst, .auto),
-            .call_always_tail  => .call_always_tail,
+            .call_always_tail  => .none,
             .call_never_tail   => try airCall(f, inst, .never_tail),
             .call_never_inline => try airCall(f, inst, .never_inline),
 
@@ -3365,20 +3352,15 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
     const un_op = f.air.instructions.items(.data)[inst].un_op;
     const writer = f.object.writer();
     const target = f.object.dg.module.getTarget();
+    const op_inst = Air.refToIndex(un_op);
     const op_ty = f.air.typeOf(un_op);
     const ret_ty = if (is_ptr) op_ty.childType() else op_ty;
     var lowered_ret_buf: LowerFnRetTyBuffer = undefined;
     const lowered_ret_ty = lowerFnRetTy(ret_ty, &lowered_ret_buf, target);
 
-    const is_naked = if (f.object.dg.decl) |decl| decl.ty.fnCallingConvention() == .Naked else false;
-    const peek_operand = f.value_map.get(un_op);
-    if (if (peek_operand) |operand| operand == .call_always_tail else false) {
+    if (op_inst != null and f.air.instructions.items(.tag)[op_inst.?] == .call_always_tail) {
         try reap(f, inst, &.{un_op});
-        if (is_naked) {
-            try f.writeCValue(writer, peek_operand.?, .Other);
-            unreachable;
-        }
-        _ = try airCall(f, Air.refToIndex(un_op).?, .always_tail);
+        _ = try airCall(f, op_inst.?, .always_tail);
     } else if (lowered_ret_ty.hasRuntimeBitsIgnoreComptime()) {
         const operand = try f.resolveInst(un_op);
         try reap(f, inst, &.{un_op});
@@ -3412,7 +3394,8 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
     } else {
         try reap(f, inst, &.{un_op});
         // Not even allowed to return void in a naked function.
-        if (!is_naked) try writer.writeAll("return;\n");
+        if (if (f.object.dg.decl) |decl| decl.ty.fnCallingConvention() != .Naked else true)
+            try writer.writeAll("return;\n");
     }
     return .none;
 }
