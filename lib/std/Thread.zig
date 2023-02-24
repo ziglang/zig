@@ -179,10 +179,6 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
                     else => |e| return os.unexpectedErrno(e),
                 }
             } else {
-                if (target.abi.isMusl()) {
-                    // musl doesn't provide pthread_getname_np and there's no way to retrieve the thread id of an arbitrary thread.
-                    return error.Unsupported;
-                }
                 const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
                 switch (err) {
                     .SUCCESS => return std.mem.sliceTo(buffer, 0),
@@ -1133,16 +1129,7 @@ test "setName, getName" {
             error.Unsupported => return error.SkipZigTest,
             else => return err,
         },
-        else => |tag| if (tag == .linux and use_pthreads and comptime target.abi.isMusl()) {
-            try thread.setName("foobar");
-
-            var name_buffer: [max_name_len:0]u8 = undefined;
-            const res = thread.getName(&name_buffer);
-
-            try std.testing.expectError(error.Unsupported, res);
-        } else {
-            try testThreadName(&thread);
-        },
+        else => try testThreadName(&thread),
     }
 
     context.thread_done_event.set();
