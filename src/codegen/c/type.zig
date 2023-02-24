@@ -1056,7 +1056,7 @@ pub const CType = extern union {
                     }
                 },
 
-                .Struct, .Union => |zig_tag| if (ty.containerLayout() == .Packed) {
+                .Struct, .Union => |zig_ty_tag| if (ty.containerLayout() == .Packed) {
                     if (ty.castTag(.@"struct")) |struct_obj| {
                         try self.initType(struct_obj.data.backing_int_ty, kind, lookup);
                     } else {
@@ -1068,9 +1068,13 @@ pub const CType = extern union {
                     }
                 } else if (ty.isTupleOrAnonStruct()) {
                     if (lookup.isMutable()) {
-                        for (0..ty.structFieldCount()) |field_i| {
+                        for (0..switch (zig_ty_tag) {
+                            .Struct => ty.structFieldCount(),
+                            .Union => ty.unionFields().count(),
+                            else => unreachable,
+                        }) |field_i| {
                             const field_ty = ty.structFieldType(field_i);
-                            if (ty.structFieldIsComptime(field_i) or
+                            if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
                                 !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
                             _ = try lookup.typeToIndex(field_ty, switch (kind) {
                                 .forward, .forward_parameter => .forward,
@@ -1086,14 +1090,22 @@ pub const CType = extern union {
                         }
                     }
                     self.init(switch (kind) {
-                        .forward, .forward_parameter => .fwd_anon_struct,
-                        .complete, .parameter, .global => .anon_struct,
+                        .forward, .forward_parameter => switch (zig_ty_tag) {
+                            .Struct => .fwd_anon_struct,
+                            .Union => .fwd_anon_union,
+                            else => unreachable,
+                        },
+                        .complete, .parameter, .global => switch (zig_ty_tag) {
+                            .Struct => .anon_struct,
+                            .Union => .anon_union,
+                            else => unreachable,
+                        },
                         .payload => unreachable,
                     });
                 } else {
                     const tag_ty = ty.unionTagTypeSafety();
                     const is_tagged_union_wrapper = kind != .payload and tag_ty != null;
-                    const is_struct = zig_tag == .Struct or is_tagged_union_wrapper;
+                    const is_struct = zig_ty_tag == .Struct or is_tagged_union_wrapper;
                     switch (kind) {
                         .forward, .forward_parameter => {
                             self.storage = .{ .fwd = .{
@@ -1138,7 +1150,7 @@ pub const CType = extern union {
                             self.init(.void);
                         } else {
                             var is_packed = false;
-                            for (0..switch (zig_tag) {
+                            for (0..switch (zig_ty_tag) {
                                 .Struct => ty.structFieldCount(),
                                 .Union => ty.unionFields().count(),
                                 else => unreachable,
@@ -1181,10 +1193,10 @@ pub const CType = extern union {
                     }
                 },
 
-                .Array, .Vector => |zig_tag| {
+                .Array, .Vector => |zig_ty_tag| {
                     switch (kind) {
                         .forward, .complete, .global => {
-                            const t: Tag = switch (zig_tag) {
+                            const t: Tag = switch (zig_ty_tag) {
                                 .Array => .array,
                                 .Vector => .vector,
                                 else => unreachable,
@@ -1501,120 +1513,88 @@ pub const CType = extern union {
                 .@"union",
                 .packed_struct,
                 .packed_union,
-                => switch (ty.zigTypeTag()) {
-                    .Struct => {
-                        const fields_len = ty.structFieldCount();
+                => {
+                    const zig_ty_tag = ty.zigTypeTag();
+                    const fields_len = switch (zig_ty_tag) {
+                        .Struct => ty.structFieldCount(),
+                        .Union => ty.unionFields().count(),
+                        else => unreachable,
+                    };
 
-                        var c_fields_len: usize = 0;
-                        for (0..fields_len) |field_i| {
-                            const field_ty = ty.structFieldType(field_i);
-                            if (ty.structFieldIsComptime(field_i) or
-                                !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
-                            c_fields_len += 1;
-                        }
+                    var c_fields_len: usize = 0;
+                    for (0..fields_len) |field_i| {
+                        const field_ty = ty.structFieldType(field_i);
+                        if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
+                            !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
+                        c_fields_len += 1;
+                    }
 
-                        const fields_pl = try arena.alloc(Payload.Fields.Field, c_fields_len);
-                        var c_field_i: usize = 0;
-                        for (0..fields_len) |field_i| {
-                            const field_ty = ty.structFieldType(field_i);
-                            if (ty.structFieldIsComptime(field_i) or
-                                !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
+                    const fields_pl = try arena.alloc(Payload.Fields.Field, c_fields_len);
+                    var c_field_i: usize = 0;
+                    for (0..fields_len) |field_i| {
+                        const field_ty = ty.structFieldType(field_i);
+                        if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
+                            !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
-                            fields_pl[c_field_i] = .{
-                                .name = try if (ty.isSimpleTuple())
-                                    std.fmt.allocPrintZ(arena, "f{}", .{field_i})
-                                else
-                                    arena.dupeZ(u8, ty.structFieldName(field_i)),
-                                .type = store.set.typeToIndex(field_ty, target, switch (kind) {
-                                    .forward, .forward_parameter => .forward,
-                                    .complete, .parameter => .complete,
-                                    .global => .global,
-                                    .payload => unreachable,
-                                }).?,
-                                .alignas = Payload.Fields.AlignAs.fieldAlign(ty, field_i, target),
-                            };
-                            c_field_i += 1;
-                        }
+                        defer c_field_i += 1;
+                        fields_pl[c_field_i] = .{
+                            .name = try if (ty.isSimpleTuple())
+                                std.fmt.allocPrintZ(arena, "f{}", .{field_i})
+                            else
+                                arena.dupeZ(u8, switch (zig_ty_tag) {
+                                    .Struct => ty.structFieldName(field_i),
+                                    .Union => ty.unionFields().keys()[field_i],
+                                    else => unreachable,
+                                }),
+                            .type = store.set.typeToIndex(field_ty, target, switch (kind) {
+                                .forward, .forward_parameter => .forward,
+                                .complete, .parameter, .payload => .complete,
+                                .global => .global,
+                            }).?,
+                            .alignas = Payload.Fields.AlignAs.fieldAlign(ty, field_i, target),
+                        };
+                    }
 
-                        switch (t) {
-                            .fwd_anon_struct => {
-                                const anon_pl = try arena.create(Payload.Fields);
-                                anon_pl.* = .{ .base = .{ .tag = t }, .data = fields_pl };
-                                return initPayload(anon_pl);
-                            },
+                    switch (t) {
+                        .fwd_anon_struct,
+                        .fwd_anon_union,
+                        => {
+                            const anon_pl = try arena.create(Payload.Fields);
+                            anon_pl.* = .{ .base = .{ .tag = t }, .data = fields_pl };
+                            return initPayload(anon_pl);
+                        },
 
-                            .anon_struct,
-                            .@"struct",
-                            .@"union",
-                            .packed_struct,
-                            .packed_union,
-                            => {
-                                const struct_pl = try arena.create(Payload.Aggregate);
-                                struct_pl.* = .{ .base = .{ .tag = t }, .data = .{
-                                    .fields = fields_pl,
-                                    .fwd_decl = store.set.typeToIndex(ty, target, .forward).?,
-                                } };
-                                return initPayload(struct_pl);
-                            },
+                        .unnamed_struct,
+                        .unnamed_union,
+                        .packed_unnamed_struct,
+                        .packed_unnamed_union,
+                        => {
+                            const unnamed_pl = try arena.create(Payload.Unnamed);
+                            unnamed_pl.* = .{ .base = .{ .tag = t }, .data = .{
+                                .fields = fields_pl,
+                                .owner_decl = ty.getOwnerDecl(),
+                                .id = if (ty.unionTagTypeSafety()) |_| 0 else unreachable,
+                            } };
+                            return initPayload(unnamed_pl);
+                        },
 
-                            else => unreachable,
-                        }
-                    },
+                        .anon_struct,
+                        .anon_union,
+                        .@"struct",
+                        .@"union",
+                        .packed_struct,
+                        .packed_union,
+                        => {
+                            const struct_pl = try arena.create(Payload.Aggregate);
+                            struct_pl.* = .{ .base = .{ .tag = t }, .data = .{
+                                .fields = fields_pl,
+                                .fwd_decl = store.set.typeToIndex(ty, target, .forward).?,
+                            } };
+                            return initPayload(struct_pl);
+                        },
 
-                    .Union => {
-                        const union_fields = ty.unionFields();
-                        const fields_len = union_fields.count();
-
-                        var c_fields_len: usize = 0;
-                        for (0..fields_len) |field_i| {
-                            const field_ty = ty.structFieldType(field_i);
-                            if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
-                            c_fields_len += 1;
-                        }
-
-                        const fields_pl = try arena.alloc(Payload.Fields.Field, c_fields_len);
-                        var field_i: usize = 0;
-                        var c_field_i: usize = 0;
-                        var field_it = union_fields.iterator();
-                        while (field_it.next()) |field| {
-                            defer field_i += 1;
-                            if (!field.value_ptr.ty.hasRuntimeBitsIgnoreComptime()) continue;
-
-                            fields_pl[c_field_i] = .{
-                                .name = try arena.dupeZ(u8, field.key_ptr.*),
-                                .type = store.set.typeToIndex(field.value_ptr.ty, target, switch (kind) {
-                                    .forward, .forward_parameter => unreachable,
-                                    .complete, .parameter, .payload => .complete,
-                                    .global => .global,
-                                }).?,
-                                .alignas = Payload.Fields.AlignAs.fieldAlign(ty, field_i, target),
-                            };
-                            c_field_i += 1;
-                        }
-
-                        switch (kind) {
-                            .forward, .forward_parameter => unreachable,
-                            .complete, .parameter, .global => {
-                                const union_pl = try arena.create(Payload.Aggregate);
-                                union_pl.* = .{ .base = .{ .tag = t }, .data = .{
-                                    .fields = fields_pl,
-                                    .fwd_decl = store.set.typeToIndex(ty, target, .forward).?,
-                                } };
-                                return initPayload(union_pl);
-                            },
-                            .payload => if (ty.unionTagTypeSafety()) |_| {
-                                const union_pl = try arena.create(Payload.Unnamed);
-                                union_pl.* = .{ .base = .{ .tag = t }, .data = .{
-                                    .fields = fields_pl,
-                                    .owner_decl = ty.getOwnerDecl(),
-                                    .id = 0,
-                                } };
-                                return initPayload(union_pl);
-                            } else unreachable,
-                        }
-                    },
-
-                    else => unreachable,
+                        else => unreachable,
+                    }
                 },
 
                 .function,
@@ -1710,14 +1690,19 @@ pub const CType = extern union {
                             ]u8 = undefined;
                             const c_fields = cty.cast(Payload.Fields).?.data;
 
+                            const zig_ty_tag = ty.zigTypeTag();
                             var c_field_i: usize = 0;
-                            for (0..ty.structFieldCount()) |field_i| {
+                            for (0..switch (zig_ty_tag) {
+                                .Struct => ty.structFieldCount(),
+                                .Union => ty.unionFields().count(),
+                                else => unreachable,
+                            }) |field_i| {
                                 const field_ty = ty.structFieldType(field_i);
-                                if (ty.structFieldIsComptime(field_i) or
+                                if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
                                     !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
+                                defer c_field_i += 1;
                                 const c_field = &c_fields[c_field_i];
-                                c_field_i += 1;
 
                                 if (!self.eqlRecurse(field_ty, c_field.type, switch (self.kind) {
                                     .forward, .forward_parameter => .forward,
@@ -1728,8 +1713,11 @@ pub const CType = extern union {
                                     u8,
                                     if (ty.isSimpleTuple())
                                         std.fmt.bufPrint(&name_buf, "f{}", .{field_i}) catch unreachable
-                                    else
-                                        ty.structFieldName(field_i),
+                                    else switch (zig_ty_tag) {
+                                        .Struct => ty.structFieldName(field_i),
+                                        .Union => ty.unionFields().keys()[field_i],
+                                        else => unreachable,
+                                    },
                                     mem.span(c_field.name),
                                 ) or Payload.Fields.AlignAs.fieldAlign(ty, field_i, target).@"align" !=
                                     c_field.alignas.@"align") return false;
@@ -1828,29 +1816,30 @@ pub const CType = extern union {
                             var name_buf: [
                                 std.fmt.count("f{}", .{std.math.maxInt(usize)})
                             ]u8 = undefined;
+
+                            const zig_ty_tag = ty.zigTypeTag();
                             for (0..switch (ty.zigTypeTag()) {
                                 .Struct => ty.structFieldCount(),
                                 .Union => ty.unionFields().count(),
                                 else => unreachable,
                             }) |field_i| {
                                 const field_ty = ty.structFieldType(field_i);
-                                if (ty.structFieldIsComptime(field_i) or
+                                if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
                                     !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
-                                self.updateHasherRecurse(
-                                    hasher,
-                                    ty.structFieldType(field_i),
-                                    switch (self.kind) {
-                                        .forward, .forward_parameter => .forward,
-                                        .complete, .parameter => .complete,
-                                        .global => .global,
-                                        .payload => unreachable,
-                                    },
-                                );
+                                self.updateHasherRecurse(hasher, field_ty, switch (self.kind) {
+                                    .forward, .forward_parameter => .forward,
+                                    .complete, .parameter => .complete,
+                                    .global => .global,
+                                    .payload => unreachable,
+                                });
                                 hasher.update(if (ty.isSimpleTuple())
                                     std.fmt.bufPrint(&name_buf, "f{}", .{field_i}) catch unreachable
-                                else
-                                    ty.structFieldName(field_i));
+                                else switch (zig_ty_tag) {
+                                    .Struct => ty.structFieldName(field_i),
+                                    .Union => ty.unionFields().keys()[field_i],
+                                    else => unreachable,
+                                });
                                 autoHash(
                                     hasher,
                                     Payload.Fields.AlignAs.fieldAlign(ty, field_i, target).@"align",
