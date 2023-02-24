@@ -6876,17 +6876,16 @@ fn airCVaStart(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const inst_ty = f.air.typeOfIndex(inst);
     const fn_cty = try f.typeToCType(f.object.dg.decl.?.ty, .complete);
-
     const param_len = fn_cty.castTag(.varargs_function).?.data.param_types.len;
-    if (param_len == 0)
-        return f.fail("CBE: C requires at least one runtime argument for varargs functions", .{});
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
     try writer.writeAll("va_start(*(va_list *)&");
     try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(", ");
-    try f.writeCValue(writer, .{ .arg = param_len - 1 }, .FunctionArgument);
+    if (param_len > 0) {
+        try writer.writeAll(", ");
+        try f.writeCValue(writer, .{ .arg = param_len - 1 }, .FunctionArgument);
+    }
     try writer.writeAll(");\n");
     return local;
 }
