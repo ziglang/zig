@@ -5356,11 +5356,6 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
     // Ensure complete type definition is visible before accessing fields.
     _ = try f.typeToIndex(struct_ty, .complete);
 
-    const extra_name: CValue = switch (struct_ty.tag()) {
-        .union_tagged, .union_safety_tagged => .{ .identifier = "payload" },
-        else => .none,
-    };
-
     const field_name: CValue = switch (struct_ty.tag()) {
         .tuple, .anon_struct, .@"struct" => switch (struct_ty.containerLayout()) {
             .Auto, .Extern => if (struct_ty.isSimpleTuple())
@@ -5458,31 +5453,29 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
             }
 
             return local;
-        } else .{
-            .identifier = struct_ty.unionFields().keys()[extra.field_index],
+        } else field_name: {
+            const name = struct_ty.unionFields().keys()[extra.field_index];
+            break :field_name if (struct_ty.unionTagTypeSafety()) |_|
+                .{ .payload_identifier = name }
+            else
+                .{ .identifier = name };
         },
         else => unreachable,
     };
 
-    const is_array = lowersToArray(inst_ty, target);
     const local = try f.allocLocal(inst, inst_ty);
-    if (is_array) {
+    if (lowersToArray(inst_ty, target)) {
         try writer.writeAll("memcpy(");
         try f.writeCValue(writer, local, .FunctionArgument);
         try writer.writeAll(", ");
-    } else {
-        try f.writeCValue(writer, local, .Other);
-        try writer.writeAll(" = ");
-    }
-    if (extra_name != .none) {
-        try f.writeCValueMember(writer, struct_byval, extra_name);
-        try writer.writeByte('.');
-        try f.writeCValue(writer, field_name, .Other);
-    } else try f.writeCValueMember(writer, struct_byval, field_name);
-    if (is_array) {
+        try f.writeCValueMember(writer, struct_byval, field_name);
         try writer.writeAll(", sizeof(");
         try f.renderType(writer, inst_ty);
         try writer.writeAll("))");
+    } else {
+        try f.writeCValue(writer, local, .Other);
+        try writer.writeAll(" = ");
+        try f.writeCValueMember(writer, struct_byval, field_name);
     }
     try writer.writeAll(";\n");
     return local;
@@ -6700,7 +6693,7 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
         return local;
     }
 
-    if (union_ty.unionTagTypeSafety()) |tag_ty| {
+    const field: CValue = if (union_ty.unionTagTypeSafety()) |tag_ty| field: {
         const layout = union_ty.unionGetLayout(target);
         if (layout.tag_size != 0) {
             const field_index = tag_ty.enumFieldIndex(field_name).?;
@@ -6717,18 +6710,13 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
             try f.writeCValue(writer, local, .Other);
             try writer.print(".tag = {}; ", .{try f.fmtIntLiteral(tag_ty, int_val)});
         }
-        try f.writeCValue(writer, local, .Other);
-        try writer.print(".payload.{ } = ", .{fmtIdent(field_name)});
-        try f.writeCValue(writer, payload, .Other);
-        try writer.writeAll(";\n");
-        return local;
-    }
+        break :field .{ .payload_identifier = field_name };
+    } else .{ .identifier = field_name };
 
-    try f.writeCValue(writer, local, .Other);
-    try writer.print(".{ } = ", .{fmtIdent(field_name)});
+    try f.writeCValueMember(writer, local, field);
+    try writer.writeAll(" = ");
     try f.writeCValue(writer, payload, .Other);
     try writer.writeAll(";\n");
-
     return local;
 }
 
