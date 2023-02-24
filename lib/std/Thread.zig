@@ -18,7 +18,6 @@ pub const Condition = @import("Thread/Condition.zig");
 pub const RwLock = @import("Thread/RwLock.zig");
 
 pub const use_pthreads = target.os.tag != .windows and target.os.tag != .wasi and builtin.link_libc;
-const is_gnu = target.abi.isGnu();
 
 const Thread = @This();
 const Impl = if (target.os.tag == .windows)
@@ -171,21 +170,27 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
     var buffer: [:0]u8 = buffer_ptr;
 
     switch (target.os.tag) {
-        .linux => if (use_pthreads and is_gnu) {
-            const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
-            switch (err) {
-                .SUCCESS => return std.mem.sliceTo(buffer, 0),
-                .RANGE => unreachable,
-                else => |e| return os.unexpectedErrno(e),
+        .linux => if (use_pthreads) {
+            if (self.getHandle() == std.c.pthread_self()) {
+                // Get the name of the calling thread (no thread id required).
+                const err = try os.prctl(.GET_NAME, .{@ptrToInt(buffer.ptr)});
+                switch (@intToEnum(os.E, err)) {
+                    .SUCCESS => return std.mem.sliceTo(buffer, 0),
+                    else => |e| return os.unexpectedErrno(e),
+                }
+            } else {
+                if (target.abi.isMusl()) {
+                    // musl doesn't provide pthread_getname_np and there's no way to retrieve the thread id of an arbitrary thread.
+                    return error.Unsupported;
+                }
+                const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
+                switch (err) {
+                    .SUCCESS => return std.mem.sliceTo(buffer, 0),
+                    .RANGE => unreachable,
+                    else => |e| return os.unexpectedErrno(e),
+                }
             }
-        } else if (use_pthreads and self.getHandle() == std.c.pthread_self()) {
-            // Get the name of the calling thread (no thread id required).
-            const err = try os.prctl(.GET_NAME, .{@ptrToInt(buffer.ptr)});
-            switch (@intToEnum(os.E, err)) {
-                .SUCCESS => return std.mem.sliceTo(buffer, 0),
-                else => |e| return os.unexpectedErrno(e),
-            }
-        } else if (!use_pthreads) {
+        } else {
             var buf: [32]u8 = undefined;
             const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
 
@@ -195,9 +200,6 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             const data_len = try file.reader().readAll(buffer_ptr[0 .. max_name_len + 1]);
 
             return if (data_len >= 1) buffer[0 .. data_len - 1] else null;
-        } else {
-            // musl doesn't provide pthread_getname_np and there's no way to retrieve the thread id of an arbitrary thread.
-            return error.Unsupported;
         },
         .windows => {
             const buf_capacity = @sizeOf(os.windows.UNICODE_STRING) + (@sizeOf(u16) * max_name_len);
