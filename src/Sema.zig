@@ -349,6 +349,16 @@ pub const Block = struct {
         /// if we need to add type coercion at the end of block analysis.
         /// Same indexes, capacity, length as `results`.
         br_list: std.ArrayListUnmanaged(Air.Inst.Index),
+        /// Keeps the source location of the rhs operand of the break instruction,
+        /// to enable more precise compile errors.
+        /// Same indexes, capacity, length as `results`.
+        src_locs: std.ArrayListUnmanaged(?LazySrcLoc),
+
+        pub fn deinit(merges: *@This(), allocator: mem.Allocator) void {
+            merges.results.deinit(allocator);
+            merges.br_list.deinit(allocator);
+            merges.src_locs.deinit(allocator);
+        }
     };
 
     /// For debugging purposes.
@@ -722,8 +732,7 @@ const LabeledBlock = struct {
 
     fn destroy(lb: *LabeledBlock, gpa: Allocator) void {
         lb.block.instructions.deinit(gpa);
-        lb.label.merges.results.deinit(gpa);
-        lb.label.merges.br_list.deinit(gpa);
+        lb.label.merges.deinit(gpa);
         gpa.destroy(lb);
     }
 };
@@ -777,8 +786,9 @@ fn analyzeBodyRuntimeBreak(sema: *Sema, block: *Block, body: []const Zir.Inst.In
         error.ComptimeBreak => {
             const zir_datas = sema.code.instructions.items(.data);
             const break_data = zir_datas[sema.comptime_break_inst].@"break";
+            const extra = sema.code.extraData(Zir.Inst.Break, break_data.payload_index).data;
             try sema.addRuntimeBreak(block, .{
-                .block_inst = break_data.block_inst,
+                .block_inst = extra.block_inst,
                 .operand = break_data.operand,
                 .inst = sema.comptime_break_inst,
             });
@@ -817,8 +827,9 @@ pub fn analyzeBodyBreak(
         sema.typeOf(Air.indexToRef(block.instructions.items[block.instructions.items.len - 1])).isNoReturn())
         return null;
     const break_data = sema.code.instructions.items(.data)[break_inst].@"break";
+    const extra = sema.code.extraData(Zir.Inst.Break, break_data.payload_index).data;
     return BreakData{
-        .block_inst = break_data.block_inst,
+        .block_inst = extra.block_inst,
         .operand = break_data.operand,
         .inst = break_inst,
     };
@@ -5238,6 +5249,7 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
     var label: Block.Label = .{
         .zir_block = inst,
         .merges = .{
+            .src_locs = .{},
             .results = .{},
             .br_list = .{},
             .block_inst = block_inst,
@@ -5251,8 +5263,7 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
     const merges = &child_block.label.?.merges;
 
     defer child_block.instructions.deinit(gpa);
-    defer merges.results.deinit(gpa);
-    defer merges.br_list.deinit(gpa);
+    defer merges.deinit(gpa);
 
     var loop_block = child_block.makeSubBlock();
     defer loop_block.instructions.deinit(gpa);
@@ -5422,6 +5433,7 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErro
     var label: Block.Label = .{
         .zir_block = inst,
         .merges = .{
+            .src_locs = .{},
             .results = .{},
             .br_list = .{},
             .block_inst = block_inst,
@@ -5450,8 +5462,7 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErro
     };
 
     defer child_block.instructions.deinit(gpa);
-    defer label.merges.results.deinit(gpa);
-    defer label.merges.br_list.deinit(gpa);
+    defer label.merges.deinit(gpa);
 
     return sema.resolveBlockBody(parent_block, src, &child_block, body, inst, &label.merges);
 }
@@ -5480,7 +5491,8 @@ fn resolveBlockBody(
 
                 const break_inst = sema.comptime_break_inst;
                 const break_data = sema.code.instructions.items(.data)[break_inst].@"break";
-                if (break_data.block_inst == body_inst) {
+                const extra = sema.code.extraData(Zir.Inst.Break, break_data.payload_index).data;
+                if (extra.block_inst == body_inst) {
                     return try sema.resolveInst(break_data.operand);
                 } else {
                     return error.ComptimeBreak;
@@ -5533,7 +5545,7 @@ fn analyzeBlockBody(
     // Need to set the type and emit the Block instruction. This allows machine code generation
     // to emit a jump instruction to after the block when it encounters the break.
     try parent_block.instructions.append(gpa, merges.block_inst);
-    const resolved_ty = try sema.resolvePeerTypes(parent_block, src, merges.results.items, .none);
+    const resolved_ty = try sema.resolvePeerTypes(parent_block, src, merges.results.items, .{ .override = merges.src_locs.items });
     // TODO add note "missing else causes void value"
 
     const type_src = src; // TODO: better source location
@@ -5842,14 +5854,20 @@ fn zirBreak(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) CompileError
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].@"break";
+    const extra = sema.code.extraData(Zir.Inst.Break, inst_data.payload_index).data;
     const operand = try sema.resolveInst(inst_data.operand);
-    const zir_block = inst_data.block_inst;
+    const zir_block = extra.block_inst;
 
     var block = start_block;
     while (true) {
         if (block.label) |label| {
             if (label.zir_block == zir_block) {
                 const br_ref = try start_block.addBr(label.merges.block_inst, operand);
+                const src_loc = if (extra.operand_src_node != Zir.Inst.Break.no_src_node)
+                    LazySrcLoc.nodeOffset(extra.operand_src_node)
+                else
+                    null;
+                try label.merges.src_locs.append(sema.gpa, src_loc);
                 try label.merges.results.append(sema.gpa, operand);
                 try label.merges.br_list.append(sema.gpa, Air.refToIndex(br_ref).?);
                 block.runtime_index.increment();
@@ -6643,6 +6661,7 @@ fn analyzeCall(
             .func = null,
             .comptime_result = undefined,
             .merges = .{
+                .src_locs = .{},
                 .results = .{},
                 .br_list = .{},
                 .block_inst = block_inst,
@@ -6692,8 +6711,7 @@ fn analyzeCall(
         const merges = &child_block.inlining.?.merges;
 
         defer child_block.instructions.deinit(gpa);
-        defer merges.results.deinit(gpa);
-        defer merges.br_list.deinit(gpa);
+        defer merges.deinit(gpa);
 
         // If it's a comptime function call, we need to memoize it as long as no external
         // comptime memory is mutated.
@@ -10780,6 +10798,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     var label: Block.Label = .{
         .zir_block = inst,
         .merges = .{
+            .src_locs = .{},
             .results = .{},
             .br_list = .{},
             .block_inst = block_inst,
@@ -10807,8 +10826,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     };
     const merges = &child_block.label.?.merges;
     defer child_block.instructions.deinit(gpa);
-    defer merges.results.deinit(gpa);
-    defer merges.br_list.deinit(gpa);
+    defer merges.deinit(gpa);
 
     if (try sema.resolveDefinedValue(&child_block, src, operand)) |operand_val| {
         var extra_index: usize = special.end;
@@ -12298,7 +12316,7 @@ fn zirBitwise(
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
-    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{ .override = &[_]LazySrcLoc{ lhs_src, rhs_src } });
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{ .override = &[_]?LazySrcLoc{ lhs_src, rhs_src } });
     const scalar_type = resolved_type.scalarType();
     const scalar_tag = scalar_type.zigTypeTag();
 
@@ -12502,7 +12520,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             try trash_block.addBitCast(rhs_info.elem_type, .void_value),
         };
         break :t try sema.resolvePeerTypes(block, src, &instructions, .{
-            .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+            .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
         });
     };
 
@@ -13002,7 +13020,7 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
-        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+        .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
     });
 
     const is_vector = resolved_type.zigTypeTag() == .Vector;
@@ -13162,7 +13180,7 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
-        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+        .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
     });
 
     const is_vector = resolved_type.zigTypeTag() == .Vector;
@@ -13325,7 +13343,7 @@ fn zirDivFloor(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
-        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+        .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
     });
 
     const is_vector = resolved_type.zigTypeTag() == .Vector;
@@ -13441,7 +13459,7 @@ fn zirDivTrunc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
-        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+        .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
     });
 
     const is_vector = resolved_type.zigTypeTag() == .Vector;
@@ -13683,7 +13701,7 @@ fn zirModRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
-        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+        .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
     });
 
     const is_vector = resolved_type.zigTypeTag() == .Vector;
@@ -13866,7 +13884,7 @@ fn zirMod(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
-        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+        .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
     });
 
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
@@ -13968,7 +13986,7 @@ fn zirRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
-        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+        .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
     });
 
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
@@ -14081,7 +14099,7 @@ fn zirOverflowArithmetic(
         lhs_ty
     else
         try sema.resolvePeerTypes(block, src, instructions, .{
-            .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+            .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
         });
 
     const rhs_dest_ty = if (zir_tag == .shl_with_overflow)
@@ -14312,7 +14330,7 @@ fn analyzeArithmetic(
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
-        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+        .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
     });
 
     const is_vector = resolved_type.zigTypeTag() == .Vector;
@@ -15200,7 +15218,7 @@ fn analyzeCmp(
         return sema.cmpSelf(block, src, lhs, casted_rhs, op, lhs_src, rhs_src);
     }
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
-    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{ .override = &[_]LazySrcLoc{ lhs_src, rhs_src } });
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{ .override = &[_]?LazySrcLoc{ lhs_src, rhs_src } });
     if (!resolved_type.isSelfComparable(is_equality_cmp)) {
         return sema.fail(block, src, "operator {s} not allowed for type '{}'", .{
             compareOperatorName(op), resolved_type.fmt(sema.mod),
@@ -17024,6 +17042,7 @@ fn addRuntimeBreak(sema: *Sema, child_block: *Block, break_data: BreakData) !voi
             .label = .{
                 .zir_block = break_data.block_inst,
                 .merges = .{
+                    .src_locs = .{},
                     .results = .{},
                     .br_list = .{},
                     .block_inst = new_block_inst,
@@ -20605,7 +20624,7 @@ fn checkSimdBinOp(
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
     var vec_len: ?usize = if (lhs_ty.zigTypeTag() == .Vector) lhs_ty.vectorLen() else null;
     const result_ty = try sema.resolvePeerTypes(block, src, &.{ uncasted_lhs, uncasted_rhs }, .{
-        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+        .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
     });
     const lhs = try sema.coerce(block, result_ty, uncasted_lhs, lhs_src);
     const rhs = try sema.coerce(block, result_ty, uncasted_rhs, rhs_src);
