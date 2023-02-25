@@ -493,6 +493,11 @@ fn fetchAndUnpack(
         // apply those rules directly to the filesystem right here. This ensures that files
         // not protected by the hash are not present on the file system.
 
+        // TODO: raise an error for files that have illegal paths on some operating systems.
+        // For example, on Linux a path with a backslash should raise an error here.
+        // Of course, if the ignore rules above omit the file from the package, then everything
+        // is fine and no error should be raised.
+
         break :a try computePackageHash(thread_pool, .{ .dir = tmp_directory.handle });
     };
 
@@ -546,7 +551,8 @@ fn unpackTarball(
 }
 
 const HashedFile = struct {
-    path: []const u8,
+    fs_path: []const u8,
+    normalized_path: []const u8,
     hash: [Manifest.Hash.digest_length]u8,
     failure: Error!void,
 
@@ -554,7 +560,7 @@ const HashedFile = struct {
 
     fn lessThan(context: void, lhs: *const HashedFile, rhs: *const HashedFile) bool {
         _ = context;
-        return mem.lessThan(u8, lhs.path, rhs.path);
+        return mem.lessThan(u8, lhs.normalized_path, rhs.normalized_path);
     }
 };
 
@@ -590,8 +596,10 @@ fn computePackageHash(
                 else => return error.IllegalFileTypeInPackage,
             }
             const hashed_file = try arena.create(HashedFile);
+            const fs_path = try arena.dupe(u8, entry.path);
             hashed_file.* = .{
-                .path = try arena.dupe(u8, entry.path),
+                .fs_path = fs_path,
+                .normalized_path = try normalizePath(arena, fs_path),
                 .hash = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
             };
@@ -609,12 +617,30 @@ fn computePackageHash(
     for (all_files.items) |hashed_file| {
         hashed_file.failure catch |err| {
             any_failures = true;
-            std.log.err("unable to hash '{s}': {s}", .{ hashed_file.path, @errorName(err) });
+            std.log.err("unable to hash '{s}': {s}", .{ hashed_file.fs_path, @errorName(err) });
         };
         hasher.update(&hashed_file.hash);
     }
     if (any_failures) return error.PackageHashUnavailable;
     return hasher.finalResult();
+}
+
+/// Make a file system path identical independently of operating system path inconsistencies.
+/// This converts backslashes into forward slashes.
+fn normalizePath(arena: Allocator, fs_path: []const u8) ![]const u8 {
+    const canonical_sep = '/';
+
+    if (fs.path.sep == canonical_sep)
+        return fs_path;
+
+    const normalized = try arena.dupe(u8, fs_path);
+    for (normalized) |*byte| {
+        switch (byte.*) {
+            fs.path.sep => byte.* = canonical_sep,
+            else => continue,
+        }
+    }
+    return normalized;
 }
 
 fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
@@ -624,10 +650,10 @@ fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
 
 fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void {
     var buf: [8000]u8 = undefined;
-    var file = try dir.openFile(hashed_file.path, .{});
+    var file = try dir.openFile(hashed_file.fs_path, .{});
     defer file.close();
     var hasher = Manifest.Hash.init(.{});
-    hasher.update(hashed_file.path);
+    hasher.update(hashed_file.normalized_path);
     hasher.update(&.{ 0, @boolToInt(try isExecutable(file)) });
     while (true) {
         const bytes_read = try file.read(&buf);
