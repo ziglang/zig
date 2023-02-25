@@ -454,6 +454,7 @@ pub fn installConfigHeader(
         options.install_dir,
         dest_rel_path,
     );
+    install_file.step.dependOn(&config_header.step);
     cs.builder.getInstallStep().dependOn(&install_file.step);
     cs.installed_headers.append(&install_file.step) catch @panic("OOM");
 }
