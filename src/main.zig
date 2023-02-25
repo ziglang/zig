@@ -5284,9 +5284,8 @@ fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
 /// zig processes to run concurrently with each other, without clobbering each other.
 fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
     if (!@hasDecl(std.os.system, "rlimit")) return;
-    const posix = std.os;
 
-    var lim = posix.getrlimit(.NOFILE) catch return; // Oh well; we tried.
+    var lim = std.os.posix.getrlimit(.NOFILE) catch return; // Oh well; we tried.
     if (comptime builtin.target.isDarwin()) {
         // On Darwin, `NOFILE` is bounded by a hardcoded value `OPEN_MAX`.
         // According to the man pages for setrlimit():
@@ -5298,17 +5297,17 @@ fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
     if (lim.cur == lim.max) return;
 
     // Do a binary search for the limit.
-    var min: posix.rlim_t = lim.cur;
-    var max: posix.rlim_t = 1 << 20;
+    var min: std.os.rlim_t = lim.cur;
+    var max: std.os.rlim_t = 1 << 20;
     // But if there's a defined upper bound, don't search, just set it.
-    if (lim.max != posix.RLIM.INFINITY) {
+    if (lim.max != std.os.RLIM.INFINITY) {
         min = lim.max;
         max = lim.max;
     }
 
     while (true) {
         lim.cur = min + @divTrunc(max - min, 2); // on freebsd rlim_t is signed
-        if (posix.setrlimit(.NOFILE, lim)) |_| {
+        if (std.os.posix.setrlimit(.NOFILE, lim)) |_| {
             min = lim.cur;
         } else |_| {
             max = lim.cur;

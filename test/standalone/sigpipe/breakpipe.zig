@@ -8,7 +8,7 @@ pub const std_options = if (build_options.keep_sigpipe) struct {
 };
 
 pub fn main() !void {
-    const pipe = try std.os.pipe();
+    const pipe = try std.os.posix.pipe();
     std.os.close(pipe[0]);
     _ = std.os.write(pipe[1], "a") catch |err| switch (err) {
         error.BrokenPipe => {

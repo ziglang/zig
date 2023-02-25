@@ -434,11 +434,11 @@ test "sigaltstack" {
     if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
 
     var st: os.stack_t = undefined;
-    try os.sigaltstack(null, &st);
+    try os.posix.sigaltstack(null, &st);
     // Setting a stack size less than MINSIGSTKSZ returns ENOMEM
     st.flags = 0;
     st.size = 1;
-    try testing.expectError(error.SizeTooSmall, os.sigaltstack(&st, null));
+    try testing.expectError(error.SizeTooSmall, os.posix.sigaltstack(&st, null));
 }
 
 // If the type is not available use void to avoid erroring out when `iter_fn` is
@@ -506,7 +506,7 @@ test "pipe" {
     if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
-    var fds = try os.pipe();
+    var fds = try os.posix.pipe();
     try expect((try os.write(fds[1], "hello")) == 5);
     var buf: [16]u8 = undefined;
     try expect((try os.read(fds[0], buf[0..])) == 5);
@@ -555,7 +555,7 @@ test "mmap" {
 
     // Simple mmap() call with non page-aligned size
     {
-        const data = try os.mmap(
+        const data = try os.posix.mmap(
             null,
             1234,
             os.PROT.READ | os.PROT.WRITE,
@@ -563,7 +563,7 @@ test "mmap" {
             -1,
             0,
         );
-        defer os.munmap(data);
+        defer os.posix.munmap(data);
 
         try testing.expectEqual(@as(usize, 1234), data.len);
 
@@ -597,7 +597,7 @@ test "mmap" {
         const file = try tmp.dir.openFile(test_out_file, .{});
         defer file.close();
 
-        const data = try os.mmap(
+        const data = try os.posix.mmap(
             null,
             alloc_size,
             os.PROT.READ,
@@ -605,7 +605,7 @@ test "mmap" {
             file.handle,
             0,
         );
-        defer os.munmap(data);
+        defer os.posix.munmap(data);
 
         var mem_stream = io.fixedBufferStream(data);
         const stream = mem_stream.reader();
@@ -621,7 +621,7 @@ test "mmap" {
         const file = try tmp.dir.openFile(test_out_file, .{});
         defer file.close();
 
-        const data = try os.mmap(
+        const data = try os.posix.mmap(
             null,
             alloc_size / 2,
             os.PROT.READ,
@@ -629,7 +629,7 @@ test "mmap" {
             file.handle,
             alloc_size / 2,
         );
-        defer os.munmap(data);
+        defer os.posix.munmap(data);
 
         var mem_stream = io.fixedBufferStream(data);
         const stream = mem_stream.reader();
@@ -668,17 +668,17 @@ test "fcntl" {
 
     // Note: The test assumes createFile opens the file with O.CLOEXEC
     {
-        const flags = try os.fcntl(file.handle, os.F.GETFD, 0);
+        const flags = try os.posix.fcntl(file.handle, os.F.GETFD, 0);
         try expect((flags & os.FD_CLOEXEC) != 0);
     }
     {
-        _ = try os.fcntl(file.handle, os.F.SETFD, 0);
-        const flags = try os.fcntl(file.handle, os.F.GETFD, 0);
+        _ = try os.posix.fcntl(file.handle, os.F.SETFD, 0);
+        const flags = try os.posix.fcntl(file.handle, os.F.GETFD, 0);
         try expect((flags & os.FD_CLOEXEC) == 0);
     }
     {
-        _ = try os.fcntl(file.handle, os.F.SETFD, os.FD_CLOEXEC);
-        const flags = try os.fcntl(file.handle, os.F.GETFD, 0);
+        _ = try os.posix.fcntl(file.handle, os.F.SETFD, os.FD_CLOEXEC);
+        const flags = try os.posix.fcntl(file.handle, os.F.GETFD, 0);
         try expect((flags & os.FD_CLOEXEC) != 0);
     }
 }
@@ -736,7 +736,7 @@ test "getrlimit and setrlimit" {
 
     inline for (std.meta.fields(os.rlimit_resource)) |field| {
         const resource = @intToEnum(os.rlimit_resource, field.value);
-        const limit = try os.getrlimit(resource);
+        const limit = try os.posix.getrlimit(resource);
 
         // On 32 bit MIPS musl includes a fix which changes limits greater than -1UL/2 to RLIM_INFINITY.
         // See http://git.musl-libc.org/cgit/musl/commit/src/misc/getrlimit.c?id=8258014fd1e34e942a549c88c7e022a00445c352
@@ -745,10 +745,10 @@ test "getrlimit and setrlimit" {
         // In that case the following the limit would be RLIM_INFINITY and the following setrlimit fails with EPERM.
         if (comptime builtin.cpu.arch.isMIPS() and builtin.link_libc) {
             if (limit.cur != os.linux.RLIM.INFINITY) {
-                try os.setrlimit(resource, limit);
+                try os.posix.setrlimit(resource, limit);
             }
         } else {
-            try os.setrlimit(resource, limit);
+            try os.posix.setrlimit(resource, limit);
         }
     }
 }
@@ -807,10 +807,10 @@ test "sigaction" {
     var old_sa: os.Sigaction = undefined;
 
     // Install the new signal handler.
-    try os.sigaction(os.SIG.USR1, &sa, null);
+    try os.posix.sigaction(os.SIG.USR1, &sa, null);
 
     // Check that we can read it back correctly.
-    try os.sigaction(os.SIG.USR1, null, &old_sa);
+    try os.posix.sigaction(os.SIG.USR1, null, &old_sa);
     try testing.expectEqual(&S.handler, old_sa.handler.sigaction.?);
     try testing.expect((old_sa.flags & os.SA.SIGINFO) != 0);
 
@@ -819,26 +819,26 @@ test "sigaction" {
     try testing.expect(S.handler_called_count == 1);
 
     // Check if passing RESETHAND correctly reset the handler to SIG_DFL
-    try os.sigaction(os.SIG.USR1, null, &old_sa);
+    try os.posix.sigaction(os.SIG.USR1, null, &old_sa);
     try testing.expectEqual(os.SIG.DFL, old_sa.handler.handler);
 
     // Reinstall the signal w/o RESETHAND and re-raise
     sa.flags = os.SA.SIGINFO;
-    try os.sigaction(os.SIG.USR1, &sa, null);
+    try os.posix.sigaction(os.SIG.USR1, &sa, null);
     try os.raise(os.SIG.USR1);
     try testing.expect(S.handler_called_count == 2);
 
     // Now set the signal to ignored
     sa.handler = .{ .handler = os.SIG.IGN };
     sa.flags = 0;
-    try os.sigaction(os.SIG.USR1, &sa, null);
+    try os.posix.sigaction(os.SIG.USR1, &sa, null);
 
     // Re-raise to ensure handler is actually ignored
     try os.raise(os.SIG.USR1);
     try testing.expect(S.handler_called_count == 2);
 
     // Ensure that ignored state is returned when querying
-    try os.sigaction(os.SIG.USR1, null, &old_sa);
+    try os.posix.sigaction(os.SIG.USR1, null, &old_sa);
     try testing.expectEqual(os.SIG.IGN, old_sa.handler.handler.?);
 }
 
@@ -855,13 +855,13 @@ test "dup & dup2" {
         var file = try tmp.dir.createFile("os_dup_test", .{});
         defer file.close();
 
-        var duped = std.fs.File{ .handle = try os.dup(file.handle) };
+        var duped = std.fs.File{ .handle = try std.os.posix.dup(file.handle) };
         defer duped.close();
         try duped.writeAll("dup");
 
         // Tests aren't run in parallel so using the next fd shouldn't be an issue.
         const new_fd = duped.handle + 1;
-        try os.dup2(file.handle, new_fd);
+        try std.os.posix.dup2(file.handle, new_fd);
         var dup2ed = std.fs.File{ .handle = new_fd };
         defer dup2ed.close();
         try dup2ed.writeAll("dup2");
@@ -909,27 +909,27 @@ test "POSIX file locking with fcntl" {
     const fd = file.handle;
 
     // Place an exclusive lock on the first byte, and a shared lock on the second byte:
-    var struct_flock = std.mem.zeroInit(os.Flock, .{ .type = os.F.WRLCK });
-    _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
+    var struct_flock = std.mem.zeroInit(std.os.Flock, .{ .type = std.os.F.WRLCK });
+    _ = try std.os.posix.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
     struct_flock.start = 1;
-    struct_flock.type = os.F.RDLCK;
-    _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
+    struct_flock.type = std.os.F.RDLCK;
+    _ = try std.os.posix.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
 
     // Check the locks in a child process:
-    const pid = try os.fork();
+    const pid = try std.os.posix.fork();
     if (pid == 0) {
         // child expects be denied the exclusive lock:
         struct_flock.start = 0;
-        struct_flock.type = os.F.WRLCK;
-        try expectError(error.Locked, os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock)));
+        struct_flock.type = std.os.F.WRLCK;
+        try expectError(error.Locked, std.os.posix.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock)));
         // child expects to get the shared lock:
         struct_flock.start = 1;
-        struct_flock.type = os.F.RDLCK;
-        _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
+        struct_flock.type = std.os.F.RDLCK;
+        _ = try std.os.posix.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
         // child waits for the exclusive lock in order to test deadlock:
         struct_flock.start = 0;
-        struct_flock.type = os.F.WRLCK;
-        _ = try os.fcntl(fd, os.F.SETLKW, @ptrToInt(&struct_flock));
+        struct_flock.type = std.os.F.WRLCK;
+        _ = try std.os.posix.fcntl(fd, std.os.F.SETLKW, @ptrToInt(&struct_flock));
         // child exits without continuing:
         os.exit(0);
     } else {
@@ -937,18 +937,18 @@ test "POSIX file locking with fcntl" {
         std.time.sleep(1 * std.time.ns_per_ms);
         // parent expects deadlock when attempting to upgrade the shared lock to exclusive:
         struct_flock.start = 1;
-        struct_flock.type = os.F.WRLCK;
-        try expectError(error.DeadLock, os.fcntl(fd, os.F.SETLKW, @ptrToInt(&struct_flock)));
+        struct_flock.type = std.os.F.WRLCK;
+        try expectError(error.DeadLock, std.os.posix.fcntl(fd, std.os.F.SETLKW, @ptrToInt(&struct_flock)));
         // parent releases exclusive lock:
         struct_flock.start = 0;
-        struct_flock.type = os.F.UNLCK;
-        _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
+        struct_flock.type = std.os.F.UNLCK;
+        _ = try std.os.posix.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
         // parent releases shared lock:
         struct_flock.start = 1;
-        struct_flock.type = os.F.UNLCK;
-        _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
+        struct_flock.type = std.os.F.UNLCK;
+        _ = try std.os.posix.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
         // parent waits for child:
-        const result = os.waitpid(pid, 0);
+        const result = std.os.posix.waitpid(pid, 0);
         try expect(result.status == 0 * 256);
     }
 }
@@ -1189,10 +1189,10 @@ test "fchmodat smoke test" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    try expectError(error.FileNotFound, os.fchmodat(tmp.dir.fd, "foo.txt", 0o666, 0));
+    try expectError(error.FileNotFound, os.posix.fchmodat(tmp.dir.fd, "foo.txt", 0o666, 0));
     const fd = try os.openat(tmp.dir.fd, "foo.txt", os.O.RDWR | os.O.CREAT | os.O.EXCL, 0o666);
     os.close(fd);
-    try os.fchmodat(tmp.dir.fd, "foo.txt", 0o755, 0);
+    try os.posix.fchmodat(tmp.dir.fd, "foo.txt", 0o755, 0);
     const st = try os.fstatat(tmp.dir.fd, "foo.txt", 0);
     try expectEqual(@as(os.mode_t, 0o755), st.mode & 0b111_111_111);
 }

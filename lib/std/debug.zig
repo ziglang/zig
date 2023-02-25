@@ -482,9 +482,9 @@ pub const StackIterator = struct {
 
         if (native_os != .windows) {
             if (native_os != .wasi) {
-                os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
+                os.posix.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
                     switch (err) {
-                        os.MSyncError.UnmappedMemory => {
+                        os.posix.MSyncError.UnmappedMemory => {
                             return false;
                         },
                         else => unreachable,
@@ -1222,7 +1222,7 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
         defer file.close();
 
         const file_len = math.cast(usize, try file.getEndPos()) orelse math.maxInt(usize);
-        const mapped_mem = try os.mmap(
+        const mapped_mem = try os.posix.mmap(
             null,
             file_len,
             os.PROT.READ,
@@ -1230,7 +1230,7 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
             file.handle,
             0,
         );
-        errdefer os.munmap(mapped_mem);
+        errdefer os.posix.munmap(mapped_mem);
 
         return mapped_mem;
     }
@@ -1491,7 +1491,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             }
             self.ofiles.deinit();
             allocator.free(self.symbols);
-            os.munmap(self.mapped_memory);
+            os.posix.munmap(self.mapped_memory);
         }
 
         fn loadOFile(self: *@This(), allocator: mem.Allocator, o_file_path: []const u8) !OFileInfo {
@@ -1798,7 +1798,7 @@ pub const ModuleDebugInfo = switch (native_os) {
 
         fn deinit(self: *@This(), allocator: mem.Allocator) void {
             self.dwarf.deinit(allocator);
-            os.munmap(self.mapped_memory);
+            os.posix.munmap(self.mapped_memory);
         }
 
         pub fn getSymbolAtAddress(self: *@This(), allocator: mem.Allocator, address: usize) !SymbolInfo {
@@ -1880,10 +1880,10 @@ pub fn maybeEnableSegfaultHandler() void {
 var windows_segfault_handle: ?windows.HANDLE = null;
 
 pub fn updateSegfaultHandler(act: ?*const os.Sigaction) error{OperationNotSupported}!void {
-    try os.sigaction(os.SIG.SEGV, act, null);
-    try os.sigaction(os.SIG.ILL, act, null);
-    try os.sigaction(os.SIG.BUS, act, null);
-    try os.sigaction(os.SIG.FPE, act, null);
+    try os.posix.sigaction(os.SIG.SEGV, act, null);
+    try os.posix.sigaction(os.SIG.ILL, act, null);
+    try os.posix.sigaction(os.SIG.BUS, act, null);
+    try os.posix.sigaction(os.SIG.FPE, act, null);
 }
 
 /// Attaches a global SIGSEGV handler which calls @panic("segmentation fault");

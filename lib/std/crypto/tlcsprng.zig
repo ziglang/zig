@@ -75,7 +75,7 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
         if (want_fork_safety and maybe_have_wipe_on_fork or is_haiku) {
             // Allocate a per-process page, madvise operates with page
             // granularity.
-            wipe_mem = os.mmap(
+            wipe_mem = os.posix.mmap(
                 null,
                 @sizeOf(Context),
                 os.PROT.READ | os.PROT.WRITE,
@@ -111,11 +111,11 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
                 // Qemu user-mode emulation ignores any valid/invalid madvise
                 // hint and returns success. Check if this is the case by
                 // passing bogus parameters, we expect EINVAL as result.
-                if (os.madvise(wipe_mem.ptr, 0, 0xffffffff)) |_| {
+                if (os.posix.madvise(wipe_mem.ptr, 0, 0xffffffff)) |_| {
                     break :wof;
                 } else |_| {}
 
-                if (os.madvise(wipe_mem.ptr, wipe_mem.len, os.MADV.WIPEONFORK)) |_| {
+                if (os.posix.madvise(wipe_mem.ptr, wipe_mem.len, os.MADV.WIPEONFORK)) |_| {
                     return initAndFill(buffer);
                 } else |_| {}
             }

@@ -12,7 +12,7 @@ pub fn build(b: *std.build.Builder) !void {
             .mask = os.empty_sigset,
             .flags = 0,
         };
-        try os.sigaction(os.SIG.PIPE, &act, null);
+        try os.posix.sigaction(os.SIG.PIPE, &act, null);
     }
 
     for ([_]bool{ false, true }) |keep_sigpipe| {

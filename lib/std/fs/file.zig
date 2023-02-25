@@ -399,17 +399,17 @@ pub const File = struct {
         return Stat.fromSystem(st);
     }
 
-    pub const ChmodError = std.os.FChmodError;
+    pub const ChmodError = std.os.posix.FChmodError;
 
     /// Changes the mode of the file.
     /// The process must have the correct privileges in order to do this
     /// successfully, or must have the effective user ID matching the owner
     /// of the file.
     pub fn chmod(self: File, new_mode: Mode) ChmodError!void {
-        try os.fchmod(self.handle, new_mode);
+        try os.posix.fchmod(self.handle, new_mode);
     }
 
-    pub const ChownError = std.os.FChownError;
+    pub const ChownError = std.os.posix.FChownError;
 
     /// Changes the owner and group of the file.
     /// The process must have the correct privileges in order to do this
@@ -417,7 +417,7 @@ pub const File = struct {
     /// any group of which the owner is a member. If the owner or group is
     /// specified as `null`, the ID is not changed.
     pub fn chown(self: File, owner: ?Uid, group: ?Gid) ChownError!void {
-        try os.fchown(self.handle, owner, group);
+        try os.posix.fchown(self.handle, owner, group);
     }
 
     /// Cross-platform representation of permissions on a file.
@@ -899,7 +899,7 @@ pub const File = struct {
         };
     }
 
-    pub const UpdateTimesError = os.FutimensError || windows.SetFileTimeError;
+    pub const UpdateTimesError = os.posix.FutimensError || windows.SetFileTimeError;
 
     /// The underlying file system may have a different granularity than nanoseconds,
     /// and therefore this function cannot guarantee any precision will be stored.
@@ -928,7 +928,7 @@ pub const File = struct {
                 .tv_nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) orelse maxInt(isize),
             },
         };
-        try os.futimens(self.handle, &times);
+        try os.posix.futimens(self.handle, &times);
     }
 
     /// Reads all the bytes from the current position to the end of the file.

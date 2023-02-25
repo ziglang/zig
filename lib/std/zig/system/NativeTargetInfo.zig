@@ -39,7 +39,7 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
     if (cross_target.os_tag == null) {
         switch (builtin.target.os.tag) {
             .linux => {
-                const uts = std.os.uname();
+                const uts = std.os.posix.uname();
                 const release = mem.sliceTo(&uts.release, 0);
                 // The release field sometimes has a weird format,
                 // `Version.parse` will attempt to find some meaningful interpretation.
@@ -53,7 +53,7 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
                 }
             },
             .solaris => {
-                const uts = std.os.uname();
+                const uts = std.os.posix.uname();
                 const release = mem.sliceTo(&uts.release, 0);
                 if (std.builtin.Version.parse(release)) |ver| {
                     os.version_range.semver.min = ver;

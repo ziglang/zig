@@ -1194,7 +1194,7 @@ pub const Dir = struct {
         }
 
         if (has_flock_open_flags and flags.lock_nonblocking) {
-            var fl_flags = os.fcntl(fd, os.F.GETFL, 0) catch |err| switch (err) {
+            var fl_flags = os.posix.fcntl(fd, os.F.GETFL, 0) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
@@ -1203,7 +1203,7 @@ pub const Dir = struct {
                 else => |e| return e,
             };
             fl_flags &= ~@as(usize, os.O.NONBLOCK);
-            _ = os.fcntl(fd, os.F.SETFL, fl_flags) catch |err| switch (err) {
+            _ = os.posix.fcntl(fd, os.F.SETFL, fl_flags) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
@@ -1350,7 +1350,7 @@ pub const Dir = struct {
         }
 
         if (has_flock_open_flags and flags.lock_nonblocking) {
-            var fl_flags = os.fcntl(fd, os.F.GETFL, 0) catch |err| switch (err) {
+            var fl_flags = os.posix.fcntl(fd, os.F.GETFL, 0) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
@@ -1359,7 +1359,7 @@ pub const Dir = struct {
                 else => |e| return e,
             };
             fl_flags &= ~@as(usize, os.O.NONBLOCK);
-            _ = os.fcntl(fd, os.F.SETFL, fl_flags) catch |err| switch (err) {
+            _ = os.posix.fcntl(fd, os.F.SETFL, fl_flags) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,

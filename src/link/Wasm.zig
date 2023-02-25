@@ -3942,7 +3942,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             // report a nice error here with the file path if it fails instead of
             // just returning the error code.
             // chmod does not interact with umask, so we use a conservative -rwxr--r-- here.
-            try std.os.fchmodat(fs.cwd().fd, full_out_path, 0o744, 0);
+            try std.os.posix.fchmodat(fs.cwd().fd, full_out_path, 0o744, 0);
         }
     }
 

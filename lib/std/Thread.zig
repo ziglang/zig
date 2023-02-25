@@ -946,7 +946,7 @@ const LinuxThreadImpl = struct {
         // map all memory needed without read/write permissions
         // to avoid committing the whole region right away
         // anonymous mapping ensures file descriptor limits are not exceeded
-        const mapped = os.mmap(
+        const mapped = os.posix.mmap(
             null,
             map_bytes,
             os.PROT.NONE,
@@ -962,7 +962,7 @@ const LinuxThreadImpl = struct {
             else => |e| return e,
         };
         assert(mapped.len >= map_bytes);
-        errdefer os.munmap(mapped);
+        errdefer os.posix.munmap(mapped);
 
         // map everything but the guard page as read/write
         os.mprotect(
@@ -1035,7 +1035,7 @@ const LinuxThreadImpl = struct {
     }
 
     fn join(self: Impl) void {
-        defer os.munmap(self.thread.mapped);
+        defer os.posix.munmap(self.thread.mapped);
 
         var spin: u8 = 10;
         while (true) {

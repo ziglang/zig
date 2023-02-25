@@ -1097,7 +1097,7 @@ pub const SubmissionQueue = struct {
             p.sq_off.array + p.sq_entries * @sizeOf(u32),
             p.cq_off.cqes + p.cq_entries * @sizeOf(linux.io_uring_cqe),
         );
-        const mmap = try os.mmap(
+        const mmap = try os.posix.mmap(
             null,
             size,
             os.PROT.READ | os.PROT.WRITE,
@@ -1105,13 +1105,13 @@ pub const SubmissionQueue = struct {
             fd,
             linux.IORING_OFF_SQ_RING,
         );
-        errdefer os.munmap(mmap);
+        errdefer os.posix.munmap(mmap);
         assert(mmap.len == size);
 
         // The motivation for the `sqes` and `array` indirection is to make it possible for the
         // application to preallocate static linux.io_uring_sqe entries and then replay them when needed.
         const size_sqes = p.sq_entries * @sizeOf(linux.io_uring_sqe);
-        const mmap_sqes = try os.mmap(
+        const mmap_sqes = try os.posix.mmap(
             null,
             size_sqes,
             os.PROT.READ | os.PROT.WRITE,
@@ -1119,7 +1119,7 @@ pub const SubmissionQueue = struct {
             fd,
             linux.IORING_OFF_SQES,
         );
-        errdefer os.munmap(mmap_sqes);
+        errdefer os.posix.munmap(mmap_sqes);
         assert(mmap_sqes.len == size_sqes);
 
         const array = @ptrCast([*]u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.array]));
@@ -1144,8 +1144,8 @@ pub const SubmissionQueue = struct {
     }
 
     pub fn deinit(self: *SubmissionQueue) void {
-        os.munmap(self.mmap_sqes);
-        os.munmap(self.mmap);
+        os.posix.munmap(self.mmap_sqes);
+        os.posix.munmap(self.mmap);
     }
 };
 

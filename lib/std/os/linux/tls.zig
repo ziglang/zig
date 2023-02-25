@@ -318,7 +318,7 @@ pub fn initStaticTLS(phdrs: []elf.Phdr) void {
             break :blk main_thread_tls_buffer[0..tls_image.alloc_size];
         }
 
-        const alloc_tls_area = os.mmap(
+        const alloc_tls_area = os.posix.mmap(
             null,
             tls_image.alloc_size + tls_image.alloc_align - 1,
             os.PROT.READ | os.PROT.WRITE,

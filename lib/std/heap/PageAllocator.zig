@@ -31,7 +31,7 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
     }
 
     const hint = @atomicLoad(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, .Unordered);
-    const slice = os.mmap(
+    const slice = os.posix.mmap(
         hint,
         aligned_len,
         os.PROT.READ | os.PROT.WRITE,
@@ -87,7 +87,7 @@ fn resize(
     if (new_size_aligned < buf_aligned_len) {
         const ptr = @alignCast(mem.page_size, buf_unaligned.ptr + new_size_aligned);
         // TODO: if the next_mmap_addr_hint is within the unmapped range, update it
-        os.munmap(ptr[0 .. buf_aligned_len - new_size_aligned]);
+        os.posix.munmap(ptr[0 .. buf_aligned_len - new_size_aligned]);
         return true;
     }
 
@@ -105,6 +105,6 @@ fn free(_: *anyopaque, slice: []u8, log2_buf_align: u8, return_address: usize) v
     } else {
         const buf_aligned_len = mem.alignForward(slice.len, mem.page_size);
         const ptr = @alignCast(mem.page_size, slice.ptr);
-        os.munmap(ptr[0..buf_aligned_len]);
+        os.posix.munmap(ptr[0..buf_aligned_len]);
     }
 }

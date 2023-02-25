@@ -471,7 +471,7 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
                 const wanted_stack_size = phdr.p_memsz;
                 assert(wanted_stack_size % std.mem.page_size == 0);
 
-                std.os.setrlimit(.STACK, .{
+                std.os.posix.setrlimit(.STACK, .{
                     .cur = wanted_stack_size,
                     .max = wanted_stack_size,
                 }) catch {

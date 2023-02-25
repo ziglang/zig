@@ -123,7 +123,7 @@ pub const ElfDynLib = struct {
 
         // This one is to read the ELF info. We do more mmapping later
         // corresponding to the actual LOAD sections.
-        const file_bytes = try os.mmap(
+        const file_bytes = try os.posix.mmap(
             null,
             mem.alignForward(size, mem.page_size),
             os.PROT.READ,
@@ -131,7 +131,7 @@ pub const ElfDynLib = struct {
             fd,
             0,
         );
-        defer os.munmap(file_bytes);
+        defer os.posix.munmap(file_bytes);
 
         const eh = @ptrCast(*elf.Ehdr, file_bytes.ptr);
         if (!mem.eql(u8, eh.e_ident[0..4], elf.MAGIC)) return error.NotElfFile;
@@ -161,7 +161,7 @@ pub const ElfDynLib = struct {
         const dynv = maybe_dynv orelse return error.MissingDynamicLinkingInformation;
 
         // Reserve the entire range (with no permissions) so that we can do MAP.FIXED below.
-        const all_loaded_mem = try os.mmap(
+        const all_loaded_mem = try os.posix.mmap(
             null,
             virt_addr_end,
             os.PROT.NONE,
@@ -169,7 +169,7 @@ pub const ElfDynLib = struct {
             -1,
             0,
         );
-        errdefer os.munmap(all_loaded_mem);
+        errdefer os.posix.munmap(all_loaded_mem);
 
         const base = @ptrToInt(all_loaded_mem.ptr);
 
@@ -193,7 +193,7 @@ pub const ElfDynLib = struct {
                         const prot = elfToMmapProt(ph.p_flags);
                         if ((ph.p_flags & elf.PF_W) == 0) {
                             // If it does not need write access, it can be mapped from the fd.
-                            _ = try os.mmap(
+                            _ = try os.posix.mmap(
                                 ptr,
                                 extended_memsz,
                                 prot,
@@ -202,7 +202,7 @@ pub const ElfDynLib = struct {
                                 ph.p_offset - extra_bytes,
                             );
                         } else {
-                            const sect_mem = try os.mmap(
+                            const sect_mem = try os.posix.mmap(
                                 ptr,
                                 extended_memsz,
                                 prot,
@@ -256,7 +256,7 @@ pub const ElfDynLib = struct {
 
     /// Trusts the file
     pub fn close(self: *ElfDynLib) void {
-        os.munmap(self.memory);
+        os.posix.munmap(self.memory);
         self.* = undefined;
     }
 

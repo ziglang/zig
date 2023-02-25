@@ -5,6 +5,7 @@ const unicode = std.unicode;
 const io = std.io;
 const fs = std.fs;
 const os = std.os;
+const posix = os.posix;
 const process = std.process;
 const File = std.fs.File;
 const windows = os.windows;
@@ -70,7 +71,7 @@ pub const ChildProcess = struct {
     /// Darwin-only. Start child process in suspended state as if SIGSTOP was sent.
     start_suspended: bool = false,
 
-    pub const Arg0Expand = os.Arg0Expand;
+    pub const Arg0Expand = os.posix.Arg0Expand;
 
     pub const SpawnError = error{
         OutOfMemory,
@@ -86,8 +87,8 @@ pub const ChildProcess = struct {
         /// Windows-only. `cwd` was provided, but the path did not exist when spawning the child process.
         CurrentWorkingDirectoryUnlinked,
     } ||
-        os.ExecveError ||
-        os.SetIdError ||
+        os.posix.ExecveError ||
+        os.posix.SetIdError ||
         os.ChangeCurDirError ||
         windows.CreateProcessError ||
         windows.WaitForSingleObjectError;
@@ -179,7 +180,7 @@ pub const ChildProcess = struct {
             self.cleanupStreams();
             return term;
         }
-        try os.kill(self.id, os.SIG.TERM);
+        try posix.kill(self.pid, os.SIG.TERM);
         try self.waitUnwrapped();
         return self.term.?;
     }
@@ -309,7 +310,7 @@ pub const ChildProcess = struct {
             return term;
         }
 
-        try self.waitUnwrapped();
+        try self.waitUnwrappedPosix();
         return self.term.?;
     }
 
@@ -331,8 +332,8 @@ pub const ChildProcess = struct {
         return result;
     }
 
-    fn waitUnwrapped(self: *ChildProcess) !void {
-        const res: os.WaitPidResult = os.waitpid(self.id, 0);
+    fn waitUnwrappedPosix(self: *ChildProcess) !void {
+        const res: os.posix.WaitPidResult = os.posix.waitpid(self.id, 0);
         const status = res.status;
         self.cleanupStreams();
         self.handleWaitResult(status);
@@ -410,17 +411,17 @@ pub const ChildProcess = struct {
 
     fn spawnPosix(self: *ChildProcess) SpawnError!void {
         const pipe_flags = if (io.is_async) os.O.NONBLOCK else 0;
-        const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
+        const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.posix.pipe2(pipe_flags) else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             destroyPipe(stdin_pipe);
         };
 
-        const stdout_pipe = if (self.stdout_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
+        const stdout_pipe = if (self.stdout_behavior == StdIo.Pipe) try os.posix.pipe2(pipe_flags) else undefined;
         errdefer if (self.stdout_behavior == StdIo.Pipe) {
             destroyPipe(stdout_pipe);
         };
 
-        const stderr_pipe = if (self.stderr_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
+        const stderr_pipe = if (self.stderr_behavior == StdIo.Pipe) try os.posix.pipe2(pipe_flags) else undefined;
         errdefer if (self.stderr_behavior == StdIo.Pipe) {
             destroyPipe(stderr_pipe);
         };
@@ -485,12 +486,12 @@ pub const ChildProcess = struct {
                 // end with eventfd
                 break :blk [2]os.fd_t{ fd, fd };
             } else {
-                break :blk try os.pipe2(os.O.CLOEXEC);
+                break :blk try os.posix.pipe2(os.O.CLOEXEC);
             }
         };
         errdefer destroyPipe(err_pipe);
 
-        const pid_result = try os.fork();
+        const pid_result = try os.posix.fork();
         if (pid_result == 0) {
             // we are the child
             setUpChildIo(self.stdin_behavior, stdin_pipe[0], os.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
@@ -517,16 +518,16 @@ pub const ChildProcess = struct {
             }
 
             if (self.gid) |gid| {
-                os.setregid(gid, gid) catch |err| forkChildErrReport(err_pipe[1], err);
+                os.posix.setregid(gid, gid) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 
             if (self.uid) |uid| {
-                os.setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
+                os.posix.setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 
             const err = switch (self.expand_arg0) {
-                .expand => os.execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
-                .no_expand => os.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
+                .expand => os.posix.execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
+                .no_expand => os.posix.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
             };
             forkChildErrReport(err_pipe[1], err);
         }
@@ -832,10 +833,10 @@ pub const ChildProcess = struct {
 
     fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) !void {
         switch (stdio) {
-            .Pipe => try os.dup2(pipe_fd, std_fileno),
+            .Pipe => try os.posix.dup2(pipe_fd, std_fileno),
             .Close => os.close(std_fileno),
             .Inherit => {},
-            .Ignore => try os.dup2(dev_null_fd, std_fileno),
+            .Ignore => try os.posix.dup2(dev_null_fd, std_fileno),
         }
     }
 };

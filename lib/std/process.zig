@@ -1115,7 +1115,7 @@ pub const can_spawn = switch (builtin.os.tag) {
     else => true,
 };
 
-pub const ExecvError = std.os.ExecveError || error{OutOfMemory};
+pub const ExecvError = std.os.posix.ExecveError || error{OutOfMemory};
 
 /// Replaces the current process image with the executed process.
 /// This function must allocate memory to add a null terminating bytes on path and each arg.
@@ -1167,5 +1167,5 @@ pub fn execve(
         }
     };
 
-    return os.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp);
+    return os.posix.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp);
 }
