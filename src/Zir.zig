@@ -2599,8 +2599,8 @@ pub const Inst = struct {
             }
         },
         @"break": struct {
-            block_inst: Index,
             operand: Ref,
+            payload_index: u32,
         },
         switch_capture: struct {
             switch_inst: Index,
@@ -2684,6 +2684,13 @@ pub const Inst = struct {
             save_err_ret_index,
             restore_err_ret_index,
         };
+    };
+
+    pub const Break = struct {
+        pub const no_src_node = std.math.maxInt(i32);
+
+        block_inst: Index,
+        operand_src_node: i32,
     };
 
     /// Trailing:

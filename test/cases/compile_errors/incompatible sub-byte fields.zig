@@ -25,3 +25,5 @@ export fn entry() void {
 // target=native
 //
 // :14:17: error: incompatible types: '*align(1:0:1) u2' and '*align(2:8:2) u2'
+// :15:14: note: type '*align(1:0:1) u2' here
+// :16:14: note: type '*align(2:8:2) u2' here

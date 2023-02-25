@@ -10,3 +10,5 @@ export fn entry() void {
 // target=native
 //
 // :5:11: error: incompatible types: 'void' and 'comptime_int'
+// :5:11: note: type 'void' here
+// :5:17: note: type 'comptime_int' here
