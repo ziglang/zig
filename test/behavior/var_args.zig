@@ -96,10 +96,9 @@ fn doNothingWithFirstArg(args: anytype) void {
 test "simple variadic function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos and builtin.zig_backend == .stage2_llvm) {
+    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos) {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
     }
@@ -107,6 +106,12 @@ test "simple variadic function" {
 
     const S = struct {
         fn simple(...) callconv(.C) c_int {
+            var ap = @cVaStart();
+            defer @cVaEnd(&ap);
+            return @cVaArg(&ap, c_int);
+        }
+
+        fn compatible(_: c_int, ...) callconv(.C) c_int {
             var ap = @cVaStart();
             defer @cVaEnd(&ap);
             return @cVaArg(&ap, c_int);
@@ -124,8 +129,13 @@ test "simple variadic function" {
         }
     };
 
-    try std.testing.expectEqual(@as(c_int, 0), S.simple(@as(c_int, 0)));
-    try std.testing.expectEqual(@as(c_int, 1024), S.simple(@as(c_int, 1024)));
+    if (builtin.zig_backend != .stage2_c) {
+        // pre C23 doesn't support varargs without a preceding runtime arg.
+        try std.testing.expectEqual(@as(c_int, 0), S.simple(@as(c_int, 0)));
+        try std.testing.expectEqual(@as(c_int, 1024), S.simple(@as(c_int, 1024)));
+    }
+    try std.testing.expectEqual(@as(c_int, 0), S.compatible(undefined, @as(c_int, 0)));
+    try std.testing.expectEqual(@as(c_int, 1024), S.compatible(undefined, @as(c_int, 1024)));
     try std.testing.expectEqual(@as(c_int, 0), S.add(0));
     try std.testing.expectEqual(@as(c_int, 1), S.add(1, @as(c_int, 1)));
     try std.testing.expectEqual(@as(c_int, 3), S.add(2, @as(c_int, 1), @as(c_int, 2)));
@@ -134,10 +144,9 @@ test "simple variadic function" {
 test "variadic functions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos and builtin.zig_backend == .stage2_llvm) {
+    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos) {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
     }
@@ -178,10 +187,9 @@ test "variadic functions" {
 test "copy VaList" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos and builtin.zig_backend == .stage2_llvm) {
+    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos) {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
     }
