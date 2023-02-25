@@ -251,38 +251,6 @@ pub const CType = extern union {
                 type: Index,
                 alignas: AlignAs,
             };
-            pub const AlignAs = struct {
-                @"align": std.math.Log2Int(u32),
-                abi: std.math.Log2Int(u32),
-
-                pub fn init(alignment: u32, abi_alignment: u32) AlignAs {
-                    assert(std.math.isPowerOfTwo(alignment));
-                    assert(std.math.isPowerOfTwo(abi_alignment));
-                    return .{
-                        .@"align" = std.math.log2_int(u32, alignment),
-                        .abi = std.math.log2_int(u32, abi_alignment),
-                    };
-                }
-                pub fn abiAlign(ty: Type, target: Target) AlignAs {
-                    const abi_align = ty.abiAlignment(target);
-                    return init(abi_align, abi_align);
-                }
-                pub fn fieldAlign(struct_ty: Type, field_i: usize, target: Target) AlignAs {
-                    return init(
-                        struct_ty.structFieldAlign(field_i, target),
-                        struct_ty.structFieldType(field_i).abiAlignment(target),
-                    );
-                }
-                pub fn unionPayloadAlign(union_ty: Type, target: Target) AlignAs {
-                    const union_obj = union_ty.cast(Type.Payload.Union).?.data;
-                    const union_payload_align = union_obj.abiAlignment(target, false);
-                    return init(union_payload_align, union_payload_align);
-                }
-
-                pub fn getAlign(self: AlignAs) u32 {
-                    return @as(u32, 1) << self.@"align";
-                }
-            };
         };
 
         pub const Unnamed = struct {
@@ -311,13 +279,57 @@ pub const CType = extern union {
         };
     };
 
+    pub const AlignAs = struct {
+        @"align": std.math.Log2Int(u32),
+        abi: std.math.Log2Int(u32),
+
+        pub fn init(alignment: u32, abi_alignment: u32) AlignAs {
+            const actual_align = if (alignment != 0) alignment else abi_alignment;
+            assert(std.math.isPowerOfTwo(actual_align));
+            assert(std.math.isPowerOfTwo(abi_alignment));
+            return .{
+                .@"align" = std.math.log2_int(u32, actual_align),
+                .abi = std.math.log2_int(u32, abi_alignment),
+            };
+        }
+        pub fn abiAlign(ty: Type, target: Target) AlignAs {
+            const abi_align = ty.abiAlignment(target);
+            return init(abi_align, abi_align);
+        }
+        pub fn fieldAlign(struct_ty: Type, field_i: usize, target: Target) AlignAs {
+            return init(
+                struct_ty.structFieldAlign(field_i, target),
+                struct_ty.structFieldType(field_i).abiAlignment(target),
+            );
+        }
+        pub fn unionPayloadAlign(union_ty: Type, target: Target) AlignAs {
+            const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+            const union_payload_align = union_obj.abiAlignment(target, false);
+            return init(union_payload_align, union_payload_align);
+        }
+
+        pub fn getAlign(self: AlignAs) u32 {
+            return @as(u32, 1) << self.@"align";
+        }
+    };
+
     pub const Index = u32;
     pub const Store = struct {
         arena: std.heap.ArenaAllocator.State = .{},
         set: Set = .{},
 
         pub const Set = struct {
-            pub const Map = std.ArrayHashMapUnmanaged(CType, void, HashContext32, true);
+            pub const Map = std.ArrayHashMapUnmanaged(CType, void, HashContext, true);
+            const HashContext = struct {
+                store: *const Set,
+
+                pub fn hash(self: @This(), cty: CType) Map.Hash {
+                    return @truncate(Map.Hash, cty.hash(self.store.*));
+                }
+                pub fn eql(_: @This(), lhs: CType, rhs: CType, _: usize) bool {
+                    return lhs.eql(rhs);
+                }
+            };
 
             map: Map = .{},
 
@@ -328,7 +340,7 @@ pub const CType = extern union {
 
             pub fn indexToHash(self: Set, index: Index) Map.Hash {
                 if (index < Tag.no_payload_count)
-                    return (HashContext32{ .store = &self }).hash(self.indexToCType(index));
+                    return (HashContext{ .store = &self }).hash(self.indexToCType(index));
                 return self.map.entries.items(.hash)[index - Tag.no_payload_count];
             }
 
@@ -905,7 +917,7 @@ pub const CType = extern union {
                     self.storage.anon.fields[0] = .{
                         .name = "array",
                         .type = array_idx,
-                        .alignas = Payload.Fields.AlignAs.abiAlign(ty, lookup.getTarget()),
+                        .alignas = AlignAs.abiAlign(ty, lookup.getTarget()),
                     };
                     self.initAnon(kind, fwd_idx, 1);
                 } else self.init(switch (kind) {
@@ -1004,12 +1016,12 @@ pub const CType = extern union {
                                     self.storage.anon.fields[0] = .{
                                         .name = "ptr",
                                         .type = ptr_idx,
-                                        .alignas = Payload.Fields.AlignAs.abiAlign(ptr_ty, target),
+                                        .alignas = AlignAs.abiAlign(ptr_ty, target),
                                     };
                                     self.storage.anon.fields[1] = .{
                                         .name = "len",
                                         .type = Tag.uintptr_t.toIndex(),
-                                        .alignas = Payload.Fields.AlignAs.abiAlign(Type.usize, target),
+                                        .alignas = AlignAs.abiAlign(Type.usize, target),
                                     };
                                     self.initAnon(kind, fwd_idx, 2);
                                 } else self.init(switch (kind) {
@@ -1125,7 +1137,7 @@ pub const CType = extern union {
                                     self.storage.anon.fields[field_count] = .{
                                         .name = "payload",
                                         .type = payload_idx.?,
-                                        .alignas = Payload.Fields.AlignAs.unionPayloadAlign(ty, target),
+                                        .alignas = AlignAs.unionPayloadAlign(ty, target),
                                     };
                                     field_count += 1;
                                 }
@@ -1133,7 +1145,7 @@ pub const CType = extern union {
                                     self.storage.anon.fields[field_count] = .{
                                         .name = "tag",
                                         .type = tag_idx.?,
-                                        .alignas = Payload.Fields.AlignAs.abiAlign(tag_ty.?, target),
+                                        .alignas = AlignAs.abiAlign(tag_ty.?, target),
                                     };
                                     field_count += 1;
                                 }
@@ -1158,11 +1170,7 @@ pub const CType = extern union {
                                 const field_ty = ty.structFieldType(field_i);
                                 if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
-                                const field_align = Payload.Fields.AlignAs.fieldAlign(
-                                    ty,
-                                    field_i,
-                                    target,
-                                );
+                                const field_align = AlignAs.fieldAlign(ty, field_i, target);
                                 if (field_align.@"align" < field_align.abi) {
                                     is_packed = true;
                                     if (!lookup.isMutable()) break;
@@ -1235,12 +1243,12 @@ pub const CType = extern union {
                                 self.storage.anon.fields[0] = .{
                                     .name = "payload",
                                     .type = payload_idx,
-                                    .alignas = Payload.Fields.AlignAs.abiAlign(payload_ty, target),
+                                    .alignas = AlignAs.abiAlign(payload_ty, target),
                                 };
                                 self.storage.anon.fields[1] = .{
                                     .name = "is_null",
                                     .type = Tag.bool.toIndex(),
-                                    .alignas = Payload.Fields.AlignAs.abiAlign(Type.bool, target),
+                                    .alignas = AlignAs.abiAlign(Type.bool, target),
                                 };
                                 self.initAnon(kind, fwd_idx, 2);
                             } else self.init(switch (kind) {
@@ -1273,12 +1281,12 @@ pub const CType = extern union {
                                 self.storage.anon.fields[0] = .{
                                     .name = "payload",
                                     .type = payload_idx,
-                                    .alignas = Payload.Fields.AlignAs.abiAlign(payload_ty, target),
+                                    .alignas = AlignAs.abiAlign(payload_ty, target),
                                 };
                                 self.storage.anon.fields[1] = .{
                                     .name = "error",
                                     .type = error_idx,
-                                    .alignas = Payload.Fields.AlignAs.abiAlign(error_ty, target),
+                                    .alignas = AlignAs.abiAlign(error_ty, target),
                                 };
                                 self.initAnon(kind, fwd_idx, 2);
                             } else self.init(switch (kind) {
@@ -1551,7 +1559,7 @@ pub const CType = extern union {
                                 .complete, .parameter, .payload => .complete,
                                 .global => .global,
                             }).?,
-                            .alignas = Payload.Fields.AlignAs.fieldAlign(ty, field_i, target),
+                            .alignas = AlignAs.fieldAlign(ty, field_i, target),
                         };
                     }
 
@@ -1635,28 +1643,6 @@ pub const CType = extern union {
         }
     }
 
-    pub const HashContext64 = struct {
-        store: *const Store.Set,
-
-        pub fn hash(self: @This(), cty: CType) u64 {
-            return cty.hash(self.store.*);
-        }
-        pub fn eql(_: @This(), lhs: CType, rhs: CType) bool {
-            return lhs.eql(rhs);
-        }
-    };
-
-    pub const HashContext32 = struct {
-        store: *const Store.Set,
-
-        pub fn hash(self: @This(), cty: CType) u32 {
-            return @truncate(u32, cty.hash(self.store.*));
-        }
-        pub fn eql(_: @This(), lhs: CType, rhs: CType, _: usize) bool {
-            return lhs.eql(rhs);
-        }
-    };
-
     pub const TypeAdapter64 = struct {
         kind: Kind,
         lookup: Convert.Lookup,
@@ -1719,7 +1705,7 @@ pub const CType = extern union {
                                         else => unreachable,
                                     },
                                     mem.span(c_field.name),
-                                ) or Payload.Fields.AlignAs.fieldAlign(ty, field_i, target).@"align" !=
+                                ) or AlignAs.fieldAlign(ty, field_i, target).@"align" !=
                                     c_field.alignas.@"align") return false;
                             }
                             return true;
@@ -1840,10 +1826,7 @@ pub const CType = extern union {
                                     .Union => ty.unionFields().keys()[field_i],
                                     else => unreachable,
                                 });
-                                autoHash(
-                                    hasher,
-                                    Payload.Fields.AlignAs.fieldAlign(ty, field_i, target).@"align",
-                                );
+                                autoHash(hasher, AlignAs.fieldAlign(ty, field_i, target).@"align");
                             }
                         },
 
