@@ -94,7 +94,7 @@ const Local = struct {
 
 const LocalIndex = u16;
 const LocalType = struct { cty_idx: CType.Index, alignas: CType.AlignAs };
-const LocalsList = std.ArrayListUnmanaged(LocalIndex);
+const LocalsList = std.AutoArrayHashMapUnmanaged(LocalIndex, void);
 const LocalsMap = std.AutoArrayHashMapUnmanaged(LocalType, LocalsList);
 const LocalsStack = std.ArrayListUnmanaged(LocalsMap);
 
@@ -362,10 +362,10 @@ pub const Function = struct {
             .cty_idx = try f.typeToIndex(ty, .complete),
             .alignas = CType.AlignAs.init(alignment, ty.abiAlignment(target)),
         })) |locals_list| {
-            if (locals_list.popOrNull()) |local_index| {
-                const local = &f.locals.items[local_index];
+            if (locals_list.popOrNull()) |local_entry| {
+                const local = &f.locals.items[local_entry.key];
                 local.loop_depth = @intCast(LoopDepth, f.free_locals_stack.items.len - 1);
-                return .{ .new_local = local_index };
+                return .{ .new_local = local_entry.key };
             }
         }
 
@@ -2606,7 +2606,7 @@ pub fn genFunc(f: *Function) !void {
         log.debug("inserting local {d} into free_locals", .{local_index});
         const gop = try free_locals.getOrPut(gpa, local.getType());
         if (!gop.found_existing) gop.value_ptr.* = .{};
-        try gop.value_ptr.append(gpa, local_index);
+        try gop.value_ptr.putNoClobber(gpa, local_index, {});
     }
 
     const SortContext = struct {
@@ -2622,7 +2622,7 @@ pub fn genFunc(f: *Function) !void {
 
     const w = o.code_header.writer();
     for (free_locals.values()) |list| {
-        for (list.items) |local_index| {
+        for (list.keys()) |local_index| {
             const local = f.locals.items[local_index];
             try o.dg.renderCTypeAndName(w, local.cty_idx, .{ .local = local_index }, .{}, local.alignas);
             try w.writeAll(";\n ");
@@ -4494,11 +4494,11 @@ fn airLoop(f: *Function, inst: Air.Inst.Index) !CValue {
     while (it.next()) |entry| {
         const gop = try old_free_locals.getOrPut(gpa, entry.key_ptr.*);
         if (gop.found_existing) {
-            try gop.value_ptr.appendSlice(gpa, entry.value_ptr.items);
-        } else {
-            gop.value_ptr.* = entry.value_ptr.*;
-            entry.value_ptr.* = .{};
-        }
+            try gop.value_ptr.ensureUnusedCapacity(gpa, entry.value_ptr.count());
+            for (entry.value_ptr.keys()) |local_index| {
+                gop.value_ptr.putAssumeCapacityNoClobber(local_index, {});
+            }
+        } else gop.value_ptr.* = entry.value_ptr.move();
     }
     deinitFreeLocalsMap(gpa, new_free_locals);
     new_free_locals.* = old_free_locals.move();
@@ -7458,14 +7458,13 @@ fn freeLocal(f: *Function, inst: Air.Inst.Index, local_index: LocalIndex, ref_in
     const gop = try f.free_locals_stack.items[local.loop_depth].getOrPut(gpa, local.getType());
     if (!gop.found_existing) gop.value_ptr.* = .{};
     if (std.debug.runtime_safety) {
-        // If this trips, it means a local is being inserted into the
-        // free_locals map while it already exists in the map, which is not
-        // allowed.
-        assert(mem.indexOfScalar(LocalIndex, gop.value_ptr.items, local_index) == null);
         // If this trips, an unfreeable allocation was attempted to be freed.
         assert(!f.allocs.contains(local_index));
     }
-    try gop.value_ptr.append(gpa, local_index);
+    // If this trips, it means a local is being inserted into the
+    // free_locals map while it already exists in the map, which is not
+    // allowed.
+    try gop.value_ptr.putNoClobber(gpa, local_index, {});
 }
 
 const BigTomb = struct {
@@ -7528,7 +7527,7 @@ fn noticeBranchFrees(
             if (std.debug.runtime_safety) {
                 // new allocs are no longer freeable, so make sure they aren't in the free list
                 if (free_locals.getPtr(local.getType())) |locals_list| {
-                    assert(mem.indexOfScalar(LocalIndex, locals_list.items, local_index) == null);
+                    assert(!locals_list.contains(local_index));
                 }
             }
             continue;
@@ -7544,10 +7543,6 @@ fn noticeBranchFrees(
         const local_index = @intCast(LocalIndex, local_i);
         const local = &f.locals.items[local_index];
         // new allocs are no longer freeable, so remove them from the free list
-        if (free_locals.getPtr(local.getType())) |locals_list| {
-            if (mem.indexOfScalar(LocalIndex, locals_list.items, local_index)) |i| {
-                _ = locals_list.swapRemove(i);
-            }
-        }
+        if (free_locals.getPtr(local.getType())) |locals_list| _ = locals_list.swapRemove(local_index);
     }
 }
