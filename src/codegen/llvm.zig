@@ -2214,11 +2214,16 @@ pub const Object = struct {
                     ));
                 }
 
-                const union_name = if (layout.tag_size == 0) name.ptr else "AnonUnion";
+                var union_name_buf: ?[:0]const u8 = null;
+                defer if (union_name_buf) |buf| gpa.free(buf);
+                const union_name = if (layout.tag_size == 0) name else name: {
+                    union_name_buf = try std.fmt.allocPrintZ(gpa, "{s}:Payload", .{name});
+                    break :name union_name_buf.?;
+                };
 
                 const union_di_ty = dib.createUnionType(
                     compile_unit_scope,
-                    union_name,
+                    union_name.ptr,
                     null, // file
                     0, // line
                     ty.abiSize(target) * 8, // size in bits
