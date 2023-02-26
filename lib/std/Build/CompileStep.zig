@@ -984,6 +984,35 @@ fn addRecursiveBuildDeps(cs: *CompileStep, module: *Module, done: *std.AutoHashM
     if (done.contains(module)) return;
     try done.put(module, {});
     module.source_file.addStepDependencies(&cs.step);
+
+    for (module.include_dirs.items) |include_dir| {
+        cs.include_dirs.append(include_dir) catch @panic("OOM");
+    }
+
+    for (module.lib_paths.items) |lib_path| {
+        cs.addLibraryPath(lib_path);
+    }
+
+    for (module.config_headers.items) |config_header| {
+        cs.addConfigHeader(config_header);
+    }
+
+    for (module.libs.items) |lib| {
+        cs.linkLibrary(lib);
+    }
+
+    for (module.system_libs.items) |system_lib| {
+        cs.linkSystemLibrary(system_lib);
+    }
+
+    if (module.link_libc) {
+        cs.linkLibC();
+    }
+
+    if (module.link_libcpp) {
+        cs.linkLibCpp();
+    }
+
     for (module.dependencies.values()) |dep| {
         try cs.addRecursiveBuildDeps(dep, done);
     }
