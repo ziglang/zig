@@ -3827,8 +3827,10 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
 }
 
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {
-    const arg_index = self.arg_index;
-    self.arg_index += 1;
+    // skip zero-bit arguments as they don't have a corresponding arg instruction
+    var arg_index = self.arg_index;
+    while (self.args[arg_index] == .none) arg_index += 1;
+    self.arg_index = arg_index + 1;
 
     const ty = self.air.typeOfIndex(inst);
     const mcv = self.args[arg_index];
