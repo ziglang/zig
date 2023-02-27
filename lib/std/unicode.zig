@@ -255,6 +255,69 @@ pub const Utf8View = struct {
             .i = 0,
         };
     }
+
+    pub fn iteratorAtBack(s: Utf8View) Utf8Iterator {
+        return Utf8Iterator{
+            .bytes = s.bytes,
+            .i = s.bytes.len,
+        };
+    }
+
+    /// Removes all codepoints from the start of this view where `shouldBeStripped`
+    /// returns true. `shouldBeStripped` will only be called with valid codepoints.
+    pub fn trimLeft(
+        s: Utf8View,
+        context: anytype,
+        comptime shouldBeStripped: fn (context: @TypeOf(context), codepoint: []const u8) bool,
+    ) Utf8View {
+        var it = s.iterator();
+        while (it.peekCodepointSliceForwards()) |codepoint| : (it.i += codepoint.len) {
+            if (!shouldBeStripped(context, codepoint)) {
+                return initUnchecked(s.bytes[it.i..]);
+            }
+        } else return initUnchecked("");
+    }
+
+    /// Removes all codepoints from the end of this view where `shouldBeStripped`
+    /// returns true. `shouldBeStripped` will only be called with valid codepoints.
+    pub fn trimRight(
+        s: Utf8View,
+        context: anytype,
+        comptime shouldBeStripped: fn (context: @TypeOf(context), codepoint: []const u8) bool,
+    ) Utf8View {
+        var it = s.iteratorAtBack();
+        while (it.peekCodepointSliceBackwards()) |codepoint| : (it.i -= codepoint.len) {
+            if (!shouldBeStripped(context, codepoint)) {
+                return initUnchecked(s.bytes[0..it.i]);
+            }
+        } else return initUnchecked("");
+    }
+
+    /// Removes all codepoints from the start and the end where `shouldBeStripped`
+    /// returns true. `shouldBeStripped` will only be called with valid codepoints.
+    pub fn trim(
+        s: Utf8View,
+        context: anytype,
+        comptime shouldBeStripped: fn (context: @TypeOf(context), codepoint: []const u8) bool,
+    ) Utf8View {
+        const trimmed_left = trimLeft(s, context, shouldBeStripped);
+        return trimRight(trimmed_left, context, shouldBeStripped);
+    }
+
+    /// Returns true iff `matches` returns true for all codepoints.
+    pub fn containsOnlyMatchingCodepoints(
+        s: Utf8View,
+        context: anytype,
+        comptime matches: fn (context: @TypeOf(context), codepoint: []const u8) bool,
+    ) bool {
+        var it = s.iterator();
+        while (it.nextCodepointSlice()) |codepoint| {
+            if (!matches(context, codepoint)) {
+                return false;
+            }
+        }
+        return true;
+    }
 };
 
 pub const Utf8Iterator = struct {
@@ -262,13 +325,9 @@ pub const Utf8Iterator = struct {
     i: usize,
 
     pub fn nextCodepointSlice(it: *Utf8Iterator) ?[]const u8 {
-        if (it.i >= it.bytes.len) {
-            return null;
-        }
-
-        const cp_len = utf8ByteSequenceLength(it.bytes[it.i]) catch unreachable;
-        it.i += cp_len;
-        return it.bytes[it.i - cp_len .. it.i];
+        const cp = it.peekCodepointSliceForwards() orelse return null;
+        it.i += cp.len;
+        return cp;
     }
 
     pub fn nextCodepoint(it: *Utf8Iterator) ?u21 {
@@ -278,18 +337,80 @@ pub const Utf8Iterator = struct {
 
     /// Look ahead at the next n codepoints without advancing the iterator.
     /// If fewer than n codepoints are available, then return the remainder of the string.
-    pub fn peek(it: *Utf8Iterator, n: usize) []const u8 {
-        const original_i = it.i;
-        defer it.i = original_i;
+    pub fn peek(it: Utf8Iterator, n: usize) []const u8 {
+        var end_it = Utf8Iterator{
+            .bytes = it.bytes,
+            .i = it.i,
+        };
 
-        var end_ix = original_i;
         var found: usize = 0;
         while (found < n) : (found += 1) {
-            const next_codepoint = it.nextCodepointSlice() orelse return it.bytes[original_i..];
-            end_ix += next_codepoint.len;
+            _ = end_it.nextCodepointSlice() orelse return it.bytes[it.i..];
         }
 
-        return it.bytes[original_i..end_ix];
+        return it.bytes[it.i..end_it.i];
+    }
+
+    /// Look ahead at the next codepoint without advancing the iterator.
+    /// If the iterator is at the end, then null is returned.
+    pub fn peekCodepointSliceForwards(it: Utf8Iterator) ?[]const u8 {
+        if (it.i >= it.bytes.len) {
+            return null;
+        }
+
+        const cp_len = utf8ByteSequenceLength(it.bytes[it.i]) catch unreachable;
+        return it.bytes[it.i .. it.i + cp_len];
+    }
+
+    /// Look ahead at the next codepoint without advancing the iterator.
+    /// If the iterator is at the end, then null is returned.
+    pub fn peekCodepointForwards(it: Utf8Iterator) ?u21 {
+        const slice = it.peekCodepointSliceForwards() orelse return null;
+        return utf8Decode(slice) catch unreachable;
+    }
+
+    /// Look at the previous codepoint without advancing the iterator.
+    /// If the iterator is at the start, then null is returned.
+    pub fn peekCodepointSliceBackwards(it: Utf8Iterator) ?[]const u8 {
+        if (it.i == 0) {
+            return null;
+        }
+
+        var start = it.i - 1;
+        while (it.bytes[start] & 0xC0 == 0x80) : (start -= 1) {}
+        return it.bytes[start..it.i];
+    }
+
+    /// Look at the previous codepoint without advancing the iterator.
+    /// If the iterator is at the start, then null is returned.
+    pub fn peekCodepointBackwards(it: Utf8Iterator) ?u21 {
+        const slice = it.peekCodepointSliceBackwards() orelse return null;
+        return utf8Decode(slice) catch unreachable;
+    }
+
+    /// Returns the previous codepoint and advances the iterator backwards.
+    pub fn prevCodepointSlice(it: *Utf8Iterator) ?[]const u8 {
+        const cp = it.peekCodepointSliceBackwards() orelse return null;
+        it.i -= cp.len;
+        return cp;
+    }
+
+    /// Returns the previous codepoint and advances the iterator backwards.
+    pub fn prevCodepoint(it: *Utf8Iterator) ?u21 {
+        const slice = it.prevCodepointSlice() orelse return null;
+        return utf8Decode(slice) catch unreachable;
+    }
+
+    /// Resets the current position to the first codepoint of the string.
+    /// `prevCodepoint` will return null.
+    pub fn resetToFront(it: *Utf8Iterator) void {
+        it.i = 0;
+    }
+
+    /// Resets the current position to the last codepoint of the string.
+    /// `nextCodepoint` will return null.
+    pub fn resetToBack(it: *Utf8Iterator) void {
+        it.i = it.bytes.len;
     }
 };
 
@@ -406,17 +527,26 @@ test "utf8 iterator on ascii" {
 fn testUtf8IteratorOnAscii() !void {
     const s = Utf8View.initComptime("abc");
 
-    var it1 = s.iterator();
-    try testing.expect(std.mem.eql(u8, "a", it1.nextCodepointSlice().?));
-    try testing.expect(std.mem.eql(u8, "b", it1.nextCodepointSlice().?));
-    try testing.expect(std.mem.eql(u8, "c", it1.nextCodepointSlice().?));
-    try testing.expect(it1.nextCodepointSlice() == null);
+    var it = s.iterator();
+    try testing.expect(std.mem.eql(u8, "a", it.nextCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "b", it.nextCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "c", it.nextCodepointSlice().?));
+    try testing.expect(it.nextCodepointSlice() == null);
 
-    var it2 = s.iterator();
-    try testing.expect(it2.nextCodepoint().? == 'a');
-    try testing.expect(it2.nextCodepoint().? == 'b');
-    try testing.expect(it2.nextCodepoint().? == 'c');
-    try testing.expect(it2.nextCodepoint() == null);
+    try testing.expect(std.mem.eql(u8, "c", it.prevCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "b", it.prevCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "a", it.prevCodepointSlice().?));
+    try testing.expect(it.prevCodepointSlice() == null);
+
+    try testing.expect(it.nextCodepoint().? == 'a');
+    try testing.expect(it.nextCodepoint().? == 'b');
+    try testing.expect(it.nextCodepoint().? == 'c');
+    try testing.expect(it.nextCodepoint() == null);
+
+    try testing.expect(it.prevCodepoint().? == 'c');
+    try testing.expect(it.prevCodepoint().? == 'b');
+    try testing.expect(it.prevCodepoint().? == 'a');
+    try testing.expect(it.prevCodepoint() == null);
 }
 
 test "utf8 view bad" {
@@ -436,17 +566,26 @@ test "utf8 view ok" {
 fn testUtf8ViewOk() !void {
     const s = Utf8View.initComptime("東京市");
 
-    var it1 = s.iterator();
-    try testing.expect(std.mem.eql(u8, "東", it1.nextCodepointSlice().?));
-    try testing.expect(std.mem.eql(u8, "京", it1.nextCodepointSlice().?));
-    try testing.expect(std.mem.eql(u8, "市", it1.nextCodepointSlice().?));
-    try testing.expect(it1.nextCodepointSlice() == null);
+    var it = s.iterator();
+    try testing.expect(std.mem.eql(u8, "東", it.nextCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "京", it.nextCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "市", it.nextCodepointSlice().?));
+    try testing.expect(it.nextCodepointSlice() == null);
 
-    var it2 = s.iterator();
-    try testing.expect(it2.nextCodepoint().? == 0x6771);
-    try testing.expect(it2.nextCodepoint().? == 0x4eac);
-    try testing.expect(it2.nextCodepoint().? == 0x5e02);
-    try testing.expect(it2.nextCodepoint() == null);
+    try testing.expect(std.mem.eql(u8, "市", it.prevCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "京", it.prevCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "東", it.prevCodepointSlice().?));
+    try testing.expect(it.prevCodepointSlice() == null);
+
+    try testing.expect(it.nextCodepoint().? == 0x6771);
+    try testing.expect(it.nextCodepoint().? == 0x4eac);
+    try testing.expect(it.nextCodepoint().? == 0x5e02);
+    try testing.expect(it.nextCodepoint() == null);
+
+    try testing.expect(it.prevCodepoint().? == 0x5e02);
+    try testing.expect(it.prevCodepoint().? == 0x4eac);
+    try testing.expect(it.prevCodepoint().? == 0x6771);
+    try testing.expect(it.prevCodepoint() == null);
 }
 
 test "bad utf8 slice" {
@@ -562,6 +701,172 @@ fn testUtf8Peeking() !void {
     try testing.expect(it.nextCodepointSlice() == null);
 
     try testing.expect(std.mem.eql(u8, &[_]u8{}, it.peek(1)));
+}
+
+test "utf8 iterator peeking codepoint slice" {
+    comptime try testUtf8PeekingCodepointSlice();
+    try testUtf8PeekingCodepointSlice();
+}
+
+fn testUtf8PeekingCodepointSlice() !void {
+    const s = Utf8View.initComptime("a€ö");
+    var it = s.iterator();
+
+    try testing.expect(std.mem.eql(u8, "a", it.peekCodepointSliceForwards().?));
+    try testing.expect(std.mem.eql(u8, "a", it.nextCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "€", it.peekCodepointSliceForwards().?));
+    try testing.expect(std.mem.eql(u8, "€", it.nextCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "ö", it.peekCodepointSliceForwards().?));
+    try testing.expect(std.mem.eql(u8, "ö", it.nextCodepointSlice().?));
+    try testing.expect(it.peekCodepointSliceForwards() == null);
+
+    try testing.expect(std.mem.eql(u8, "ö", it.peekCodepointSliceBackwards().?));
+    try testing.expect(std.mem.eql(u8, "ö", it.prevCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "€", it.peekCodepointSliceBackwards().?));
+    try testing.expect(std.mem.eql(u8, "€", it.prevCodepointSlice().?));
+    try testing.expect(std.mem.eql(u8, "a", it.peekCodepointSliceBackwards().?));
+    try testing.expect(std.mem.eql(u8, "a", it.prevCodepointSlice().?));
+    try testing.expect(it.peekCodepointSliceBackwards() == null);
+}
+
+test "utf8 iterator peeking codepoint" {
+    comptime try testUtf8PeekingCodepoint();
+    try testUtf8PeekingCodepoint();
+}
+
+fn testUtf8PeekingCodepoint() !void {
+    const s = Utf8View.initComptime("😁ö€r");
+    var it = s.iterator();
+
+    try testing.expect(it.peekCodepointForwards().? == '😁');
+    try testing.expect(it.nextCodepoint().? == '😁');
+    try testing.expect(it.peekCodepointForwards().? == 'ö');
+    try testing.expect(it.nextCodepoint().? == 'ö');
+    try testing.expect(it.peekCodepointForwards().? == '€');
+    try testing.expect(it.nextCodepoint().? == '€');
+    try testing.expect(it.peekCodepointForwards().? == 'r');
+    try testing.expect(it.nextCodepoint().? == 'r');
+    try testing.expect(it.peekCodepointForwards() == null);
+
+    try testing.expect(it.peekCodepointBackwards().? == 'r');
+    try testing.expect(it.prevCodepoint().? == 'r');
+    try testing.expect(it.peekCodepointBackwards().? == '€');
+    try testing.expect(it.prevCodepoint().? == '€');
+    try testing.expect(it.peekCodepointBackwards().? == 'ö');
+    try testing.expect(it.prevCodepoint().? == 'ö');
+    try testing.expect(it.peekCodepointBackwards().? == '😁');
+    try testing.expect(it.prevCodepoint().? == '😁');
+    try testing.expect(it.peekCodepointBackwards() == null);
+}
+
+test "utf8 interator reset" {
+    comptime try testUtf8IteratorReset();
+    try testUtf8IteratorReset();
+}
+
+fn testUtf8IteratorReset() !void {
+    const s = Utf8View.initComptime("aé€");
+    var it = s.iteratorAtBack();
+
+    try testing.expect(it.peekCodepointBackwards().? == '€');
+    try testing.expect(it.peekCodepointForwards() == null);
+
+    it.resetToFront();
+    try testing.expect(it.peekCodepointBackwards() == null);
+    try testing.expect(it.peekCodepointForwards().? == 'a');
+
+    it.resetToBack();
+    try testing.expect(it.peekCodepointBackwards().? == '€');
+    try testing.expect(it.peekCodepointForwards() == null);
+}
+
+test "utf8 trim left" {
+    comptime try testUtf8TrimLeft();
+    try testUtf8TrimLeft();
+}
+
+fn testUtf8TrimLeft() !void {
+    try testTrimLeft("", "");
+    try testTrimLeft("€", "");
+    try testTrimLeft("G€LD", "G€LD");
+    try testTrimLeft("€uro", "uro");
+    try testTrimLeft("\r\nlin€", "lin€");
+}
+
+fn testTrimLeft(comptime bytes: []const u8, expected: []const u8) !void {
+    const s = Utf8View.initComptime(bytes);
+    const actual = s.trimLeft({}, isNotAsciiPrintable);
+    try testing.expectEqualStrings(expected, actual.bytes);
+}
+
+test "utf8 trim right" {
+    comptime try testUtf8TrimRight();
+    try testUtf8TrimRight();
+}
+
+fn testUtf8TrimRight() !void {
+    try testTrimRight("", "");
+    try testTrimRight("ÄÄ", "");
+    try testTrimRight("G€LD", "G€LD");
+    try testTrimRight("Ägäis", "Ägäis");
+    try testTrimRight("lin€\n", "lin");
+}
+
+fn testTrimRight(comptime bytes: []const u8, expected: []const u8) !void {
+    const s = Utf8View.initComptime(bytes);
+    const actual = s.trimRight({}, isNotAsciiPrintable);
+    try testing.expectEqualStrings(expected, actual.bytes);
+}
+
+test "utf8 trim" {
+    comptime try testUtf8Trim();
+    try testUtf8Trim();
+}
+
+fn testUtf8Trim() !void {
+    try testTrim("", "");
+    try testTrim("é", "");
+    try testTrim("G€LD", "G€LD");
+    try testTrim("°K", "K");
+    try testTrim("“quote”", "quote");
+    try testTrim("line\n", "line");
+}
+
+fn testTrim(comptime bytes: []const u8, expected: []const u8) !void {
+    const s = Utf8View.initComptime(bytes);
+    const actual = s.trim({}, isNotAsciiPrintable);
+    try testing.expectEqualStrings(expected, actual.bytes);
+}
+
+test "utf8 contains only matching codepoints" {
+    comptime try testUtf8ContainsOnlyMatchingCodepoints();
+    try testUtf8ContainsOnlyMatchingCodepoints();
+}
+
+fn testUtf8ContainsOnlyMatchingCodepoints() !void {
+    try testContainsOnlyMatchingCodepoints("", true);
+    try testContainsOnlyMatchingCodepoints("a", false);
+    try testContainsOnlyMatchingCodepoints("ö", true);
+    try testContainsOnlyMatchingCodepoints("é€e", false);
+    try testContainsOnlyMatchingCodepoints("é€ë", true);
+    try testContainsOnlyMatchingCodepoints("abc", false);
+}
+
+fn testContainsOnlyMatchingCodepoints(
+    comptime bytes: []const u8,
+    expected: bool,
+) !void {
+    const s = Utf8View.initComptime(bytes);
+    const actual = s.containsOnlyMatchingCodepoints({}, isNotAsciiPrintable);
+    try testing.expect(actual == expected);
+}
+
+fn isNotAsciiPrintable(ctx: void, codepoint: []const u8) bool {
+    _ = ctx;
+    return switch (utf8Decode(codepoint) catch unreachable) {
+        0x20...0x7E => false,
+        else => true,
+    };
 }
 
 fn testError(bytes: []const u8, expected_err: anyerror) !void {
