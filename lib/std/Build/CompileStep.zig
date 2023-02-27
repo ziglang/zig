@@ -994,6 +994,14 @@ fn addRecursiveBuildDeps(cs: *CompileStep, module: *Module, done: *std.AutoHashM
         cs.addLibraryPath(lib_path);
     }
 
+    for (module.framework_dirs.items) |framework_dir| {
+        cs.addFrameworkPath(framework_dir);
+    }
+
+    for (module.rpaths.items) |rpath| {
+        cs.addRPath(rpath);
+    }
+
     for (module.config_headers.items) |config_header| {
         cs.addConfigHeader(config_header);
     }

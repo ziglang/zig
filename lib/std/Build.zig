@@ -1593,6 +1593,8 @@ pub const Module = struct {
     dependencies: std.StringArrayHashMap(*Module),
     include_dirs: std.ArrayList(CompileStep.IncludeDir),
     lib_paths: std.ArrayList([]const u8),
+    rpaths: std.ArrayList([]const u8),
+    framework_dirs: std.ArrayList([]const u8),
     system_libs: std.ArrayList(CompileStep.SystemLib),
     libs: std.ArrayList(*CompileStep),
     config_headers: std.ArrayList(*ConfigHeaderStep),
@@ -1619,6 +1621,8 @@ pub const Module = struct {
             .dependencies = moduleDependenciesToArrayHashMap(arena, dependencies),
             .include_dirs = std.ArrayList(CompileStep.IncludeDir).init(arena),
             .lib_paths = std.ArrayList([]const u8).init(arena),
+            .rpaths = std.ArrayList([]const u8).init(arena),
+            .framework_dirs = std.ArrayList([]const u8).init(arena),
             .system_libs = std.ArrayList(CompileStep.SystemLib).init(arena),
             .libs = std.ArrayList(*CompileStep).init(arena),
             .config_headers = std.ArrayList(*ConfigHeaderStep).init(arena),
@@ -1639,6 +1643,8 @@ pub const Module = struct {
         m.dependencies.deinit();
         m.include_dirs.deinit();
         m.lib_paths.deinit();
+        m.rpaths.deinit();
+        m.framework_dirs.deinit();
         m.system_libs.deinit();
         m.libs.deinit();
         m.config_headers.deinit();
@@ -1653,12 +1659,26 @@ pub const Module = struct {
         ) catch @panic("OOM");
     }
 
-    pub fn addConfigHeader(m: *Module, config_header: *Build.ConfigHeaderStep) void {
-        m.config_headers.append(config_header) catch @panic("OOM");
+    pub fn addSystemIncludePath(m: *Module, path: []const u8) void {
+        m.include_dirs.append(
+            CompileStep.IncludeDir{ .raw_path_system = m.builder.dupe(path) },
+        ) catch @panic("OOM");
+    }
+
+    pub fn addRPath(m: *Module, path: []const u8) void {
+        m.rpaths.append(m.builder.dupe(path)) catch @panic("OOM");
+    }
+
+    pub fn addFrameworkPath(m: *Module, dir_path: []const u8) void {
+        m.framework_dirs.append(m.builder.dupe(dir_path)) catch @panic("OOM");
     }
 
     pub fn addLibraryPath(m: *Module, library_path: []const u8) void {
         m.lib_paths.append(m.builder.dupe(library_path)) catch @panic("OOM");
+    }
+
+    pub fn addConfigHeader(m: *Module, config_header: *Build.ConfigHeaderStep) void {
+        m.config_headers.append(config_header) catch @panic("OOM");
     }
 
     pub fn linkLibC(m: *Module) void {
@@ -1724,6 +1744,24 @@ pub const Module = struct {
             .needed = false,
             .weak = true,
             .use_pkg_config = .no,
+        }) catch @panic("OOM");
+    }
+
+    pub fn linkSystemLibraryPkgConfigOnly(m: *Module, lib_name: []const u8) void {
+        m.system_libs.append(.{
+            .name = m.builder.dupe(lib_name),
+            .needed = false,
+            .weak = false,
+            .use_pkg_config = .force,
+        }) catch @panic("OOM");
+    }
+
+    pub fn linkSystemLibraryNeededPkgConfigOnly(m: *Module, lib_name: []const u8) void {
+        m.system_libs.append(.{
+            .name = m.builder.dupe(lib_name),
+            .needed = true,
+            .weak = false,
+            .use_pkg_config = .force,
         }) catch @panic("OOM");
     }
 
