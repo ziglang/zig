@@ -1002,15 +1002,18 @@ fn addRecursiveBuildDeps(cs: *CompileStep, module: *Module, done: *std.AutoHashM
     }
 
     for (module.system_libs.items) |system_lib| {
-        cs.linkSystemLibrary(system_lib);
+        cs.link_objects.append(.{
+            .system_lib = system_lib,
+        }) catch @panic("OOM");
     }
 
-    if (module.link_libc) {
-        cs.linkLibC();
-    }
-
-    if (module.link_libcpp) {
-        cs.linkLibCpp();
+    for (module.installed_headers.items) |installed_header| {
+        switch (installed_header) {
+            .header => |header| cs.installHeader(header.source_path, header.dest_rel_path),
+            .header_dir_step => |header_dir_step| cs.installHeadersDirectoryOptions(header_dir_step),
+            .config_header => |config_header| cs.installConfigHeader(config_header.step, config_header.options),
+            .lib_step => |lib_step| cs.installLibraryHeaders(lib_step),
+        }
     }
 
     for (module.dependencies.values()) |dep| {

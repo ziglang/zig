@@ -579,20 +579,13 @@ pub const CreateModuleOptions = struct {
 /// packages which depend on this package.
 pub fn createModule(b: *Build, options: CreateModuleOptions) *Module {
     const module = b.allocator.create(Module) catch @panic("OOM");
-    module.* = .{
-        .builder = b,
-        .source_file = options.source_file,
-        .dependencies = moduleDependenciesToArrayHashMap(b.allocator, options.dependencies),
-    };
+    module.* = Module.init(
+        b.allocator,
+        b,
+        options.source_file,
+        options.dependencies,
+    );
     return module;
-}
-
-fn moduleDependenciesToArrayHashMap(arena: Allocator, deps: []const ModuleDependency) std.StringArrayHashMap(*Module) {
-    var result = std.StringArrayHashMap(*Module).init(arena);
-    for (deps) |dep| {
-        result.put(dep.name, dep.module) catch @panic("OOM");
-    }
-    return result;
 }
 
 /// Initializes a RunStep with argv, which must at least have the path to the
@@ -1598,17 +1591,61 @@ pub const Module = struct {
     /// file of directory of files which constitute the module.
     source_file: FileSource,
     dependencies: std.StringArrayHashMap(*Module),
-    include_dirs: std.ArrayListUnmanaged(CompileStep.IncludeDir) = .{},
-    lib_paths: std.ArrayListUnmanaged([]const u8) = .{},
-    system_libs: std.ArrayListUnmanaged([]const u8) = .{},
-    libs: std.ArrayListUnmanaged(*Build.CompileStep) = .{},
-    config_headers: std.ArrayListUnmanaged(*Build.ConfigHeaderStep) = .{},
-    link_libc: bool = false,
-    link_libcpp: bool = false,
+    include_dirs: std.ArrayList(CompileStep.IncludeDir),
+    lib_paths: std.ArrayList([]const u8),
+    system_libs: std.ArrayList(CompileStep.SystemLib),
+    libs: std.ArrayList(*CompileStep),
+    config_headers: std.ArrayList(*ConfigHeaderStep),
+    installed_headers: std.ArrayList(InstalledHeader),
+
+    const InstalledHeader = union(enum) {
+        header: struct {
+            source_path: []const u8,
+            dest_rel_path: []const u8,
+        },
+        header_dir_step: InstallDirStep.Options,
+        config_header: struct {
+            step: *ConfigHeaderStep,
+            options: CompileStep.InstallConfigHeaderOptions,
+        },
+        lib_step: *CompileStep,
+    };
+
+    pub fn init(arena: Allocator, builder: *Builder, source_file: FileSource, dependencies: []const ModuleDependency) Module {
+        return .{
+            .builder = builder,
+            .source_file = source_file,
+            .dependencies = moduleDependenciesToArrayHashMap(arena, dependencies),
+            .include_dirs = std.ArrayList(CompileStep.IncludeDir).init(arena),
+            .lib_paths = std.ArrayList([]const u8).init(arena),
+            .system_libs = std.ArrayList(CompileStep.SystemLib).init(arena),
+            .libs = std.ArrayList(*CompileStep).init(arena),
+            .config_headers = std.ArrayList(*ConfigHeaderStep).init(arena),
+            .installed_headers = std.ArrayList(InstalledHeader).init(arena),
+        };
+    }
+
+    fn moduleDependenciesToArrayHashMap(arena: Allocator, deps: []const ModuleDependency) std.StringArrayHashMap(*Module) {
+        var result = std.StringArrayHashMap(*Module).init(arena);
+        for (deps) |dep| {
+            result.put(dep.name, dep.module) catch @panic("OOM");
+        }
+        return result;
+    }
+
+    pub fn deinit(m: *Module) void {
+        m.dependencies.deinit();
+        m.include_dirs.deinit();
+        m.lib_paths.deinit();
+        m.system_libs.deinit();
+        m.libs.deinit();
+        m.config_headers.deinit();
+        m.installed_headers.deinit();
+        m.* = undefined;
+    }
 
     pub fn addIncludePath(m: *Module, path: []const u8) void {
         m.include_dirs.append(
-            m.builder.allocator,
             CompileStep.IncludeDir{ .raw_path = m.builder.dupe(path) },
         ) catch @panic("OOM");
     }
@@ -1622,20 +1659,118 @@ pub const Module = struct {
     }
 
     pub fn linkLibC(m: *Module) void {
-        m.link_libc = true;
+        m.system_libs.append("c") catch @panic("OOM");
     }
 
     pub fn linkLibCpp(m: *Module) void {
-        m.link_libcpp = true;
+        m.system_libs.append("c++") catch @panic("OOM");
     }
 
-    pub fn linkLibrary(m: *Module, lib: *Build.CompileStep) void {
-        m.libs.append(m.builder.allocator, lib) catch @panic("OOM");
+    pub fn linkLibrary(m: *Module, lib: *CompileStep) void {
+        m.libs.append(lib) catch @panic("OOM");
     }
 
-    pub fn linkSystemLibrary(m: *Module, lib: []const u8) void {
-        // TODO: Ignoring `needed` and `weak` variants for now.
-        m.system_libs.append(m.builder.allocator, m.builder.dupe(lib)) catch @panic("OOM");
+    pub fn linkSystemLibrary(m: *Module, name: []const u8) void {
+        m.system_libs.append(.{
+            .name = m.builder.dupe(name),
+            .needed = false,
+            .weak = false,
+            .use_pkg_config = .yes,
+        }) catch @panic("OOM");
+    }
+
+    pub fn linkSystemLibraryNeeded(m: *Module, name: []const u8) void {
+        m.system_libs.append(.{
+            .name = m.builder.dupe(name),
+            .needed = true,
+            .weak = false,
+            .use_pkg_config = .yes,
+        }) catch @panic("OOM");
+    }
+
+    pub fn linkSystemLibraryWeak(m: *Module, name: []const u8) void {
+        m.system_libs.append(.{
+            .name = m.builder.dupe(name),
+            .needed = false,
+            .weak = true,
+            .use_pkg_config = .yes,
+        }) catch @panic("OOM");
+    }
+
+    pub fn linkSystemLibraryName(m: *Module, name: []const u8) void {
+        m.system_libs.append(.{
+            .name = m.builder.dupe(name),
+            .needed = false,
+            .weak = false,
+            .use_pkg_config = .no,
+        }) catch @panic("OOM");
+    }
+
+    pub fn linkSystemLibraryNeededName(m: *Module, name: []const u8) void {
+        m.system_libs.append(.{
+            .name = m.builder.dupe(name),
+            .needed = true,
+            .weak = false,
+            .use_pkg_config = .no,
+        }) catch @panic("OOM");
+    }
+
+    pub fn linkSystemLibraryWeakName(m: *Module, name: []const u8) void {
+        m.system_libs.append(.{
+            .name = m.builder.dupe(name),
+            .needed = false,
+            .weak = true,
+            .use_pkg_config = .no,
+        }) catch @panic("OOM");
+    }
+
+    pub fn installHeader(m: *Module, src_path: []const u8, dest_rel_path: []const u8) void {
+        m.installed_headers.append(.{
+            .header = .{
+                .source_path = src_path,
+                .dest_rel_path = dest_rel_path,
+            }
+        }) catch @panic("OOM");
+    }
+
+    pub fn installConfigHeader(
+        m: *Module,
+        config_header: *ConfigHeaderStep,
+        options: CompileStep.InstallConfigHeaderOptions,
+    ) void {
+        m.installed_headers.append(.{
+            .config_header = .{
+                .config_header = config_header,
+                .options = options,
+            }
+        }) catch @panic("OOM");
+    }
+
+    pub fn installHeadersDirectory(
+        m: *Module,
+        src_dir_path: []const u8,
+        dest_rel_path: []const u8,
+    ) void {
+        return m.installHeadersDirectoryOptions(.{
+            .source_dir = src_dir_path,
+            .install_dir = .header,
+            .install_subdir = dest_rel_path,
+        });
+    }
+
+    pub fn installHeadersDirectoryOptions(
+        m: *Module,
+        options: InstallDirStep.Options,
+    ) void {
+        m.installed_headers.append(.{
+            .header_dir_step = options,
+        }) catch @panic("OOM");
+    }
+
+    pub fn installLibraryHeaders(m: *Module, l: *CompileStep) void {
+        m.installed_headers.append(.{
+            .lib_step = l,
+        }) catch @panic("OOM");
     }
 };
 
