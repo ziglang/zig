@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Log2Int = std.math.Log2Int;
-const native_endian = builtin.cpu.arch.endian();
 const common = @import("common.zig");
 
 pub const panic = common.panic;
@@ -27,39 +26,24 @@ comptime {
     }
 }
 
-fn Dwords(comptime T: type, comptime signed_half: bool) type {
-    return extern union {
-        const bits = @divExact(@typeInfo(T).Int.bits, 2);
-        const HalfTU = std.meta.Int(.unsigned, bits);
-        const HalfTS = std.meta.Int(.signed, bits);
-        const HalfT = if (signed_half) HalfTS else HalfTU;
-
-        all: T,
-        s: if (native_endian == .Little)
-            extern struct { low: HalfT, high: HalfT }
-        else
-            extern struct { high: HalfT, low: HalfT },
-    };
-}
-
 // Arithmetic shift left: shift in 0 from right to left
 // Precondition: 0 <= b < bits_in_dword
 inline fn ashlXi3(comptime T: type, a: T, b: i32) T {
-    const dwords = Dwords(T, false);
-    const S = Log2Int(dwords.HalfT);
+    const word_t = common.HalveInt(T, false);
+    const S = Log2Int(word_t.HalfT);
 
-    const input = dwords{ .all = a };
-    var output: dwords = undefined;
+    const input = word_t{ .all = a };
+    var output: word_t = undefined;
 
-    if (b >= dwords.bits) {
+    if (b >= word_t.bits) {
         output.s.low = 0;
-        output.s.high = input.s.low << @intCast(S, b - dwords.bits);
+        output.s.high = input.s.low << @intCast(S, b - word_t.bits);
     } else if (b == 0) {
         return a;
     } else {
         output.s.low = input.s.low << @intCast(S, b);
         output.s.high = input.s.high << @intCast(S, b);
-        output.s.high |= input.s.low >> @intCast(S, dwords.bits - b);
+        output.s.high |= input.s.low >> @intCast(S, word_t.bits - b);
     }
 
     return output.all;
@@ -68,24 +52,24 @@ inline fn ashlXi3(comptime T: type, a: T, b: i32) T {
 // Arithmetic shift right: shift in 1 from left to right
 // Precondition: 0 <= b < T.bit_count
 inline fn ashrXi3(comptime T: type, a: T, b: i32) T {
-    const dwords = Dwords(T, true);
-    const S = Log2Int(dwords.HalfT);
+    const word_t = common.HalveInt(T, true);
+    const S = Log2Int(word_t.HalfT);
 
-    const input = dwords{ .all = a };
-    var output: dwords = undefined;
+    const input = word_t{ .all = a };
+    var output: word_t = undefined;
 
-    if (b >= dwords.bits) {
-        output.s.high = input.s.high >> (dwords.bits - 1);
-        output.s.low = input.s.high >> @intCast(S, b - dwords.bits);
+    if (b >= word_t.bits) {
+        output.s.high = input.s.high >> (word_t.bits - 1);
+        output.s.low = input.s.high >> @intCast(S, b - word_t.bits);
     } else if (b == 0) {
         return a;
     } else {
         output.s.high = input.s.high >> @intCast(S, b);
-        output.s.low = input.s.high << @intCast(S, dwords.bits - b);
+        output.s.low = input.s.high << @intCast(S, word_t.bits - b);
         // Avoid sign-extension here
         output.s.low |= @bitCast(
-            dwords.HalfT,
-            @bitCast(dwords.HalfTU, input.s.low) >> @intCast(S, b),
+            word_t.HalfT,
+            @bitCast(word_t.HalfTU, input.s.low) >> @intCast(S, b),
         );
     }
 
@@ -95,20 +79,20 @@ inline fn ashrXi3(comptime T: type, a: T, b: i32) T {
 // Logical shift right: shift in 0 from left to right
 // Precondition: 0 <= b < T.bit_count
 inline fn lshrXi3(comptime T: type, a: T, b: i32) T {
-    const dwords = Dwords(T, false);
-    const S = Log2Int(dwords.HalfT);
+    const word_t = common.HalveInt(T, false);
+    const S = Log2Int(word_t.HalfT);
 
-    const input = dwords{ .all = a };
-    var output: dwords = undefined;
+    const input = word_t{ .all = a };
+    var output: word_t = undefined;
 
-    if (b >= dwords.bits) {
+    if (b >= word_t.bits) {
         output.s.high = 0;
-        output.s.low = input.s.high >> @intCast(S, b - dwords.bits);
+        output.s.low = input.s.high >> @intCast(S, b - word_t.bits);
     } else if (b == 0) {
         return a;
     } else {
         output.s.high = input.s.high >> @intCast(S, b);
-        output.s.low = input.s.high << @intCast(S, dwords.bits - b);
+        output.s.low = input.s.high << @intCast(S, word_t.bits - b);
         output.s.low |= input.s.low >> @intCast(S, b);
     }
 

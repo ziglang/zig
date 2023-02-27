@@ -21,7 +21,7 @@ pub const Id = enum {
     check_file,
     check_object,
     config_header,
-    install_raw,
+    objcopy,
     options,
     custom,
 
@@ -42,7 +42,7 @@ pub const Id = enum {
             .check_file => Build.CheckFileStep,
             .check_object => Build.CheckObjectStep,
             .config_header => Build.ConfigHeaderStep,
-            .install_raw => Build.InstallRawStep,
+            .objcopy => Build.ObjCopyStep,
             .options => Build.OptionsStep,
             .custom => @compileError("no type available for custom step"),
         };

@@ -178,7 +178,7 @@ pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime
     const sig = try key_pair.sign(&msg, null);
 
     var batch: [64]Signature.BatchElement = undefined;
-    for (batch) |*element| {
+    for (&batch) |*element| {
         element.* = Signature.BatchElement{ .sig = sig, .msg = &msg, .public_key = key_pair.public_key };
     }
 

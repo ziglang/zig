@@ -7,4 +7,4 @@ export fn foo(a: *i32) *Foo {
 // backend=llvm
 // target=native
 //
-// :3:28: error: expected struct type, found 'i32'
+// :3:28: error: expected struct or union type, found 'i32'

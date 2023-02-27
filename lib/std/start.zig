@@ -496,6 +496,7 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     std.os.environ = envp;
 
     std.debug.maybeEnableSegfaultHandler();
+    std.os.maybeIgnoreSigpipe();
 
     return initEventLoopAndCallMain();
 }

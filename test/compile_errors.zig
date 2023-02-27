@@ -288,4 +288,26 @@ pub fn addCases(ctx: *TestContext) !void {
     //, &[_][]const u8{
     //    "tmp.zig:4:1: error: unable to inline function",
     //});
+
+    {
+        const case = ctx.obj("file in multiple modules", .{});
+        case.backend = .stage2;
+
+        case.addSourceFile("foo.zig",
+            \\const dummy = 0;
+        );
+
+        case.addDepModule("foo", "foo.zig");
+
+        case.addError(
+            \\comptime {
+            \\    _ = @import("foo");
+            \\    _ = @import("foo.zig");
+            \\}
+        , &[_][]const u8{
+            ":1:1: error: file exists in multiple modules",
+            ":1:1: note: root of module root.foo",
+            ":3:17: note: imported from module root",
+        });
+    }
 }

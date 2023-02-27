@@ -31,6 +31,7 @@ pub const PackedIntSliceEndian = @import("packed_int_array.zig").PackedIntSliceE
 pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
 pub const PriorityDequeue = @import("priority_dequeue.zig").PriorityDequeue;
 pub const Progress = @import("Progress.zig");
+pub const RingBuffer = @import("RingBuffer.zig");
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SemanticVersion = @import("SemanticVersion.zig");
 pub const SinglyLinkedList = @import("linked_list.zig").SinglyLinkedList;
@@ -165,6 +166,22 @@ pub const options = struct {
 
     pub const crypto_always_getrandom: bool = if (@hasDecl(options_override, "crypto_always_getrandom"))
         options_override.crypto_always_getrandom
+    else
+        false;
+
+    /// By default Zig disables SIGPIPE by setting a "no-op" handler for it.  Set this option
+    /// to `true` to prevent that.
+    ///
+    /// Note that we use a "no-op" handler instead of SIG_IGN because it will not be inherited by
+    /// any child process.
+    ///
+    /// SIGPIPE is triggered when a process attempts to write to a broken pipe. By default, SIGPIPE
+    /// will terminate the process instead of exiting.  It doesn't trigger the panic handler so in many
+    /// cases it's unclear why the process was terminated.  By capturing SIGPIPE instead, functions that
+    /// write to broken pipes will return the EPIPE error (error.BrokenPipe) and the program can handle
+    /// it like any other error.
+    pub const keep_sigpipe: bool = if (@hasDecl(options_override, "keep_sigpipe"))
+        options_override.keep_sigpipe
     else
         false;
 };

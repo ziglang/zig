@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) void {
         exe.dead_strip_dylibs = true;
 
         const run_cmd = exe.run();
-        run_cmd.expected_exit_code = @bitCast(u8, @as(i8, -2)); // should fail
+        run_cmd.expected_term = .{ .Exited = @bitCast(u8, @as(i8, -2)) }; // should fail
         test_step.dependOn(&run_cmd.step);
     }
 }

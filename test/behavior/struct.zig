@@ -1330,7 +1330,6 @@ test "struct field init value is size of the struct" {
 }
 
 test "under-aligned struct field" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -1577,4 +1576,39 @@ test "struct fields get automatically reordered" {
 test "directly initiating tuple like struct" {
     const a = struct { u8 }{8};
     try expect(a[0] == 8);
+}
+
+test "instantiate struct with comptime field" {
+    {
+        var things = struct {
+            comptime foo: i8 = 1,
+        }{};
+
+        comptime std.debug.assert(things.foo == 1);
+    }
+
+    {
+        const T = struct {
+            comptime foo: i8 = 1,
+        };
+        var things = T{};
+
+        comptime std.debug.assert(things.foo == 1);
+    }
+
+    {
+        var things: struct {
+            comptime foo: i8 = 1,
+        } = .{};
+
+        comptime std.debug.assert(things.foo == 1);
+    }
+
+    {
+        var things: struct {
+            comptime foo: i8 = 1,
+        } = undefined; // Segmentation fault at address 0x0
+
+        comptime std.debug.assert(things.foo == 1);
+    }
 }

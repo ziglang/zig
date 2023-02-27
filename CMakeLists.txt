@@ -434,13 +434,12 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/log10.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/log2.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/modti3.zig"
+    "${CMAKE_SOURCE_DIR}/lib/compiler_rt/mulXi3.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/muldf3.zig"
-    "${CMAKE_SOURCE_DIR}/lib/compiler_rt/muldi3.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/mulf3.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/mulo.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/mulsf3.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/multf3.zig"
-    "${CMAKE_SOURCE_DIR}/lib/compiler_rt/multi3.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/mulxf3.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/negXi2.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/negv.zig"
@@ -569,6 +568,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/clang_options_data.zig"
     "${CMAKE_SOURCE_DIR}/src/codegen.zig"
     "${CMAKE_SOURCE_DIR}/src/codegen/c.zig"
+    "${CMAKE_SOURCE_DIR}/src/codegen/c/type.zig"
     "${CMAKE_SOURCE_DIR}/src/codegen/llvm.zig"
     "${CMAKE_SOURCE_DIR}/src/codegen/llvm/bindings.zig"
     "${CMAKE_SOURCE_DIR}/src/glibc.zig"
@@ -612,7 +612,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/tapi.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi/Tokenizer.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi/parse.zig"
-    "${CMAKE_SOURCE_DIR}/src/link/tapi/parse/test.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi/yaml.zig"
     "${CMAKE_SOURCE_DIR}/src/main.zig"
     "${CMAKE_SOURCE_DIR}/src/mingw.zig"
@@ -748,10 +747,11 @@ set(BUILD_ZIG2_ARGS
   build-exe src/main.zig -ofmt=c -lc
   -OReleaseSmall
   --name zig2 -femit-bin="${ZIG2_C_SOURCE}"
-  --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}" --pkg-end
+  --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
+  --deps build_options
   -target "${HOST_TARGET_TRIPLE}"
 )
- 
+
 add_custom_command(
   OUTPUT "${ZIG2_C_SOURCE}"
   COMMAND zig1 ${BUILD_ZIG2_ARGS}
@@ -765,10 +765,11 @@ set(BUILD_COMPILER_RT_ARGS
   build-obj lib/compiler_rt.zig -ofmt=c
   -OReleaseSmall
   --name compiler_rt -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
-  --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}" --pkg-end
+  --mod "build_options::${ZIG_CONFIG_ZIG_OUT}"
+  --deps build_options
   -target "${HOST_TARGET_TRIPLE}"
 )
- 
+
 add_custom_command(
   OUTPUT "${ZIG_COMPILER_RT_C_SOURCE}"
   COMMAND zig1 ${BUILD_COMPILER_RT_ARGS}
@@ -782,7 +783,7 @@ set_target_properties(zig2 PROPERTIES
   COMPILE_FLAGS ${ZIG2_COMPILE_FLAGS}
   LINK_FLAGS ${ZIG2_LINK_FLAGS}
 )
-target_include_directories(zig2 PUBLIC "${CMAKE_SOURCE_DIR}/lib")
+target_include_directories(zig2 PUBLIC "${CMAKE_SOURCE_DIR}/stage1")
 target_link_libraries(zig2 LINK_PUBLIC zigcpp)
 
 if(MSVC)

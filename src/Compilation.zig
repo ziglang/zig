@@ -1596,36 +1596,53 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             const builtin_pkg = try Package.createWithDir(
                 gpa,
-                "builtin",
                 zig_cache_artifact_directory,
                 null,
                 "builtin.zig",
             );
             errdefer builtin_pkg.destroy(gpa);
 
-            const std_pkg = try Package.createWithDir(
-                gpa,
-                "std",
-                options.zig_lib_directory,
-                "std",
-                "std.zig",
-            );
-            errdefer std_pkg.destroy(gpa);
+            // When you're testing std, the main module is std. In that case, we'll just set the std
+            // module to the main one, since avoiding the errors caused by duplicating it is more
+            // effort than it's worth.
+            const main_pkg_is_std = m: {
+                const std_path = try std.fs.path.resolve(arena, &[_][]const u8{
+                    options.zig_lib_directory.path orelse ".",
+                    "std",
+                    "std.zig",
+                });
+                defer arena.free(std_path);
+                const main_path = try std.fs.path.resolve(arena, &[_][]const u8{
+                    main_pkg.root_src_directory.path orelse ".",
+                    main_pkg.root_src_path,
+                });
+                defer arena.free(main_path);
+                break :m mem.eql(u8, main_path, std_path);
+            };
+
+            const std_pkg = if (main_pkg_is_std)
+                main_pkg
+            else
+                try Package.createWithDir(
+                    gpa,
+                    options.zig_lib_directory,
+                    "std",
+                    "std.zig",
+                );
+
+            errdefer if (!main_pkg_is_std) std_pkg.destroy(gpa);
 
             const root_pkg = if (options.is_test) root_pkg: {
-                // TODO: we currently have two packages named 'root' here, which is weird. This
-                // should be changed as part of the resolution of #12201
                 const test_pkg = if (options.test_runner_path) |test_runner| test_pkg: {
                     const test_dir = std.fs.path.dirname(test_runner);
                     const basename = std.fs.path.basename(test_runner);
-                    const pkg = try Package.create(gpa, "root", test_dir, basename);
+                    const pkg = try Package.create(gpa, test_dir, basename);
 
                     // copy package table from main_pkg to root_pkg
                     pkg.table = try main_pkg.table.clone(gpa);
                     break :test_pkg pkg;
                 } else try Package.createWithDir(
                     gpa,
-                    "root",
                     options.zig_lib_directory,
                     null,
                     "test_runner.zig",
@@ -1639,7 +1656,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             const compiler_rt_pkg = if (include_compiler_rt and options.output_mode == .Obj) compiler_rt_pkg: {
                 break :compiler_rt_pkg try Package.createWithDir(
                     gpa,
-                    "compiler_rt",
                     options.zig_lib_directory,
                     null,
                     "compiler_rt.zig",
@@ -1647,27 +1663,13 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             } else null;
             errdefer if (compiler_rt_pkg) |p| p.destroy(gpa);
 
-            try main_pkg.addAndAdopt(gpa, builtin_pkg);
-            try main_pkg.add(gpa, root_pkg);
-            try main_pkg.addAndAdopt(gpa, std_pkg);
+            try main_pkg.add(gpa, "builtin", builtin_pkg);
+            try main_pkg.add(gpa, "root", root_pkg);
+            try main_pkg.add(gpa, "std", std_pkg);
 
             if (compiler_rt_pkg) |p| {
-                try main_pkg.addAndAdopt(gpa, p);
+                try main_pkg.add(gpa, "compiler_rt", p);
             }
-
-            const main_pkg_is_std = m: {
-                const std_path = try std.fs.path.resolve(arena, &[_][]const u8{
-                    std_pkg.root_src_directory.path orelse ".",
-                    std_pkg.root_src_path,
-                });
-                defer arena.free(std_path);
-                const main_path = try std.fs.path.resolve(arena, &[_][]const u8{
-                    main_pkg.root_src_directory.path orelse ".",
-                    main_pkg.root_src_path,
-                });
-                defer arena.free(main_path);
-                break :m mem.eql(u8, main_path, std_path);
-            };
 
             // Pre-open the directory handles for cached ZIR code so that it does not need
             // to redundantly happen for each AstGen operation.
@@ -1705,7 +1707,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .gpa = gpa,
                 .comp = comp,
                 .main_pkg = main_pkg,
-                .main_pkg_is_std = main_pkg_is_std,
                 .root_pkg = root_pkg,
                 .zig_cache_artifact_directory = zig_cache_artifact_directory,
                 .global_zir_cache = global_zir_cache,
@@ -2772,6 +2773,111 @@ fn emitOthers(comp: *Compilation) void {
     }
 }
 
+fn reportMultiModuleErrors(mod: *Module) !void {
+    // Some cases can give you a whole bunch of multi-module errors, which it's not helpful to
+    // print all of, so we'll cap the number of these to emit.
+    var num_errors: u32 = 0;
+    const max_errors = 5;
+    // Attach the "some omitted" note to the final error message
+    var last_err: ?*Module.ErrorMsg = null;
+
+    for (mod.import_table.values()) |file| {
+        if (!file.multi_pkg) continue;
+
+        num_errors += 1;
+        if (num_errors > max_errors) continue;
+
+        const err = err_blk: {
+            // Like with errors, let's cap the number of notes to prevent a huge error spew.
+            const max_notes = 5;
+            const omitted = file.references.items.len -| max_notes;
+            const num_notes = file.references.items.len - omitted;
+
+            const notes = try mod.gpa.alloc(Module.ErrorMsg, if (omitted > 0) num_notes + 1 else num_notes);
+            errdefer mod.gpa.free(notes);
+
+            for (notes[0..num_notes], file.references.items[0..num_notes], 0..) |*note, ref, i| {
+                errdefer for (notes[0..i]) |*n| n.deinit(mod.gpa);
+                note.* = switch (ref) {
+                    .import => |loc| blk: {
+                        const name = try loc.file_scope.pkg.getName(mod.gpa, mod.*);
+                        defer mod.gpa.free(name);
+                        break :blk try Module.ErrorMsg.init(
+                            mod.gpa,
+                            loc,
+                            "imported from module {s}",
+                            .{name},
+                        );
+                    },
+                    .root => |pkg| blk: {
+                        const name = try pkg.getName(mod.gpa, mod.*);
+                        defer mod.gpa.free(name);
+                        break :blk try Module.ErrorMsg.init(
+                            mod.gpa,
+                            .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
+                            "root of module {s}",
+                            .{name},
+                        );
+                    },
+                };
+            }
+            errdefer for (notes[0..num_notes]) |*n| n.deinit(mod.gpa);
+
+            if (omitted > 0) {
+                notes[num_notes] = try Module.ErrorMsg.init(
+                    mod.gpa,
+                    .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
+                    "{} more references omitted",
+                    .{omitted},
+                );
+            }
+            errdefer if (omitted > 0) notes[num_notes].deinit(mod.gpa);
+
+            const err = try Module.ErrorMsg.create(
+                mod.gpa,
+                .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
+                "file exists in multiple modules",
+                .{},
+            );
+            err.notes = notes;
+            break :err_blk err;
+        };
+        errdefer err.destroy(mod.gpa);
+        try mod.failed_files.putNoClobber(mod.gpa, file, err);
+        last_err = err;
+    }
+
+    // If we omitted any errors, add a note saying that
+    if (num_errors > max_errors) {
+        const err = last_err.?;
+
+        // There isn't really any meaningful place to put this note, so just attach it to the
+        // last failed file
+        var note = try Module.ErrorMsg.init(
+            mod.gpa,
+            err.src_loc,
+            "{} more errors omitted",
+            .{num_errors - max_errors},
+        );
+        errdefer note.deinit(mod.gpa);
+
+        const i = err.notes.len;
+        err.notes = try mod.gpa.realloc(err.notes, i + 1);
+        err.notes[i] = note;
+    }
+
+    // Now that we've reported the errors, we need to deal with
+    // dependencies. Any file referenced by a multi_pkg file should also be
+    // marked multi_pkg and have its status set to astgen_failure, as it's
+    // ambiguous which package they should be analyzed as a part of. We need
+    // to add this flag after reporting the errors however, as otherwise
+    // we'd get an error for every single downstream file, which wouldn't be
+    // very useful.
+    for (mod.import_table.values()) |file| {
+        if (file.multi_pkg) file.recursiveMarkMultiPkg(mod);
+    }
+}
+
 /// Having the file open for writing is problematic as far as executing the
 /// binary is concerned. This will remove the write flag, or close the file,
 /// or whatever is needed so that it can be executed.
@@ -3098,54 +3204,7 @@ pub fn performAllTheWork(
     }
 
     if (comp.bin_file.options.module) |mod| {
-        for (mod.import_table.values()) |file| {
-            if (!file.multi_pkg) continue;
-            const err = err_blk: {
-                const notes = try mod.gpa.alloc(Module.ErrorMsg, file.references.items.len);
-                errdefer mod.gpa.free(notes);
-
-                for (notes, 0..) |*note, i| {
-                    errdefer for (notes[0..i]) |*n| n.deinit(mod.gpa);
-                    note.* = switch (file.references.items[i]) {
-                        .import => |loc| try Module.ErrorMsg.init(
-                            mod.gpa,
-                            loc,
-                            "imported from package {s}",
-                            .{loc.file_scope.pkg.name},
-                        ),
-                        .root => |pkg| try Module.ErrorMsg.init(
-                            mod.gpa,
-                            .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
-                            "root of package {s}",
-                            .{pkg.name},
-                        ),
-                    };
-                }
-                errdefer for (notes) |*n| n.deinit(mod.gpa);
-
-                const err = try Module.ErrorMsg.create(
-                    mod.gpa,
-                    .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
-                    "file exists in multiple packages",
-                    .{},
-                );
-                err.notes = notes;
-                break :err_blk err;
-            };
-            errdefer err.destroy(mod.gpa);
-            try mod.failed_files.putNoClobber(mod.gpa, file, err);
-        }
-
-        // Now that we've reported the errors, we need to deal with
-        // dependencies. Any file referenced by a multi_pkg file should also be
-        // marked multi_pkg and have its status set to astgen_failure, as it's
-        // ambiguous which package they should be analyzed as a part of. We need
-        // to add this flag after reporting the errors however, as otherwise
-        // we'd get an error for every single downstream file, which wouldn't be
-        // very useful.
-        for (mod.import_table.values()) |file| {
-            if (file.multi_pkg) file.recursiveMarkMultiPkg(mod);
-        }
+        try reportMultiModuleErrors(mod);
     }
 
     {
@@ -3266,24 +3325,20 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                     const decl_emit_h = emit_h.declPtr(decl_index);
                     const fwd_decl = &decl_emit_h.fwd_decl;
                     fwd_decl.shrinkRetainingCapacity(0);
-                    var typedefs_arena = std.heap.ArenaAllocator.init(gpa);
-                    defer typedefs_arena.deinit();
+                    var ctypes_arena = std.heap.ArenaAllocator.init(gpa);
+                    defer ctypes_arena.deinit();
 
                     var dg: c_codegen.DeclGen = .{
                         .gpa = gpa,
                         .module = module,
                         .error_msg = null,
-                        .decl_index = decl_index,
+                        .decl_index = decl_index.toOptional(),
                         .decl = decl,
                         .fwd_decl = fwd_decl.toManaged(gpa),
-                        .typedefs = c_codegen.TypedefMap.initContext(gpa, .{ .mod = module }),
-                        .typedefs_arena = typedefs_arena.allocator(),
+                        .ctypes = .{},
                     };
                     defer {
-                        for (dg.typedefs.values()) |typedef| {
-                            module.gpa.free(typedef.rendered);
-                        }
-                        dg.typedefs.deinit();
+                        dg.ctypes.deinit(gpa);
                         dg.fwd_decl.deinit();
                     }
 
@@ -5415,7 +5470,6 @@ fn buildOutputFromZig(
     var main_pkg: Package = .{
         .root_src_directory = comp.zig_lib_directory,
         .root_src_path = src_basename,
-        .name = "root",
     };
     defer main_pkg.deinitTable(comp.gpa);
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];

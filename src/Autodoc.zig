@@ -860,17 +860,9 @@ fn walkInstruction(
             const str_tok = data[inst_index].str_tok;
             var path = str_tok.get(file.zir);
 
-            const maybe_other_package: ?*Package = blk: {
-                if (self.module.main_pkg_is_std and std.mem.eql(u8, path, "std")) {
-                    path = "std";
-                    break :blk self.module.main_pkg;
-                } else {
-                    break :blk file.pkg.table.get(path);
-                }
-            };
             // importFile cannot error out since all files
             // are already loaded at this point
-            if (maybe_other_package) |other_package| {
+            if (file.pkg.table.get(path)) |other_package| {
                 const result = try self.packages.getOrPut(self.arena, other_package);
 
                 // Immediately add this package to the import table of our
@@ -3629,7 +3621,7 @@ fn tryResolveRefPath(
     }
 
     if (self.pending_ref_paths.get(&path[path.len - 1])) |waiter_list| {
-        // It's important to de-register oureslves as pending before
+        // It's important to de-register ourselves as pending before
         // attempting to resolve any other decl.
         _ = self.pending_ref_paths.remove(&path[path.len - 1]);
 

@@ -22,17 +22,16 @@ pub const Table = std.StringHashMapUnmanaged(*Package);
 root_src_directory: Compilation.Directory,
 /// Relative to `root_src_directory`. May contain path separators.
 root_src_path: []const u8,
+/// The dependency table of this module. Shared dependencies such as 'std', 'builtin', and 'root'
+/// are not specified in every dependency table, but instead only in the table of `main_pkg`.
+/// `Module.importFile` is responsible for detecting these names and using the correct package.
 table: Table = .{},
-parent: ?*Package = null,
 /// Whether to free `root_src_directory` on `destroy`.
 root_src_directory_owned: bool = false,
-/// This information can be recovered from 'table', but it's more convenient to store on the package.
-name: []const u8,
 
 /// Allocate a Package. No references to the slices passed are kept.
 pub fn create(
     gpa: Allocator,
-    name: []const u8,
     /// Null indicates the current working directory
     root_src_dir_path: ?[]const u8,
     /// Relative to root_src_dir_path
@@ -47,9 +46,6 @@ pub fn create(
     const owned_src_path = try gpa.dupe(u8, root_src_path);
     errdefer gpa.free(owned_src_path);
 
-    const owned_name = try gpa.dupe(u8, name);
-    errdefer gpa.free(owned_name);
-
     ptr.* = .{
         .root_src_directory = .{
             .path = owned_dir_path,
@@ -57,7 +53,6 @@ pub fn create(
         },
         .root_src_path = owned_src_path,
         .root_src_directory_owned = true,
-        .name = owned_name,
     };
 
     return ptr;
@@ -65,7 +60,6 @@ pub fn create(
 
 pub fn createWithDir(
     gpa: Allocator,
-    name: []const u8,
     directory: Compilation.Directory,
     /// Relative to `directory`. If null, means `directory` is the root src dir
     /// and is owned externally.
@@ -79,9 +73,6 @@ pub fn createWithDir(
     const owned_src_path = try gpa.dupe(u8, root_src_path);
     errdefer gpa.free(owned_src_path);
 
-    const owned_name = try gpa.dupe(u8, name);
-    errdefer gpa.free(owned_name);
-
     if (root_src_dir_path) |p| {
         const owned_dir_path = try directory.join(gpa, &[1][]const u8{p});
         errdefer gpa.free(owned_dir_path);
@@ -93,14 +84,12 @@ pub fn createWithDir(
             },
             .root_src_directory_owned = true,
             .root_src_path = owned_src_path,
-            .name = owned_name,
         };
     } else {
         ptr.* = .{
             .root_src_directory = directory,
             .root_src_directory_owned = false,
             .root_src_path = owned_src_path,
-            .name = owned_name,
         };
     }
     return ptr;
@@ -110,7 +99,6 @@ pub fn createWithDir(
 /// inside its table; the caller is responsible for calling destroy() on them.
 pub fn destroy(pkg: *Package, gpa: Allocator) void {
     gpa.free(pkg.root_src_path);
-    gpa.free(pkg.name);
 
     if (pkg.root_src_directory_owned) {
         // If root_src_directory.path is null then the handle is the cwd()
@@ -130,15 +118,97 @@ pub fn deinitTable(pkg: *Package, gpa: Allocator) void {
     pkg.table.deinit(gpa);
 }
 
-pub fn add(pkg: *Package, gpa: Allocator, package: *Package) !void {
+pub fn add(pkg: *Package, gpa: Allocator, name: []const u8, package: *Package) !void {
     try pkg.table.ensureUnusedCapacity(gpa, 1);
-    pkg.table.putAssumeCapacityNoClobber(package.name, package);
+    const name_dupe = try gpa.dupe(u8, name);
+    pkg.table.putAssumeCapacityNoClobber(name_dupe, package);
 }
 
-pub fn addAndAdopt(parent: *Package, gpa: Allocator, child: *Package) !void {
-    assert(child.parent == null); // make up your mind, who is the parent??
-    child.parent = parent;
-    return parent.add(gpa, child);
+/// Compute a readable name for the package. The returned name should be freed from gpa. This
+/// function is very slow, as it traverses the whole package hierarchy to find a path to this
+/// package. It should only be used for error output.
+pub fn getName(target: *const Package, gpa: Allocator, mod: Module) ![]const u8 {
+    // we'll do a breadth-first search from the root module to try and find a short name for this
+    // module, using a TailQueue of module/parent pairs. note that the "parent" there is just the
+    // first-found shortest path - a module may be children of arbitrarily many other modules.
+    // also, this path may vary between executions due to hashmap iteration order, but that doesn't
+    // matter too much.
+    var node_arena = std.heap.ArenaAllocator.init(gpa);
+    defer node_arena.deinit();
+    const Parented = struct {
+        parent: ?*const @This(),
+        mod: *const Package,
+    };
+    const Queue = std.TailQueue(Parented);
+    var to_check: Queue = .{};
+
+    {
+        const new = try node_arena.allocator().create(Queue.Node);
+        new.* = .{ .data = .{ .parent = null, .mod = mod.root_pkg } };
+        to_check.prepend(new);
+    }
+
+    if (mod.main_pkg != mod.root_pkg) {
+        const new = try node_arena.allocator().create(Queue.Node);
+        // TODO: once #12201 is resolved, we may want a way of indicating a different name for this
+        new.* = .{ .data = .{ .parent = null, .mod = mod.main_pkg } };
+        to_check.prepend(new);
+    }
+
+    // set of modules we've already checked to prevent loops
+    var checked = std.AutoHashMap(*const Package, void).init(gpa);
+    defer checked.deinit();
+
+    const linked = while (to_check.pop()) |node| {
+        const check = &node.data;
+
+        if (checked.contains(check.mod)) continue;
+        try checked.put(check.mod, {});
+
+        if (check.mod == target) break check;
+
+        var it = check.mod.table.iterator();
+        while (it.next()) |kv| {
+            var new = try node_arena.allocator().create(Queue.Node);
+            new.* = .{ .data = .{
+                .parent = check,
+                .mod = kv.value_ptr.*,
+            } };
+            to_check.prepend(new);
+        }
+    } else {
+        // this can happen for e.g. @cImport packages
+        return gpa.dupe(u8, "<unnamed>");
+    };
+
+    // we found a path to the module! unfortunately, we can only traverse *up* it, so we have to put
+    // all the names into a buffer so we can then print them in order.
+    var names = std.ArrayList([]const u8).init(gpa);
+    defer names.deinit();
+
+    var cur: *const Parented = linked;
+    while (cur.parent) |parent| : (cur = parent) {
+        // find cur's name in parent
+        var it = parent.mod.table.iterator();
+        const name = while (it.next()) |kv| {
+            if (kv.value_ptr.* == cur.mod) {
+                break kv.key_ptr.*;
+            }
+        } else unreachable;
+        try names.append(name);
+    }
+
+    // finally, print the names into a buffer!
+    var buf = std.ArrayList(u8).init(gpa);
+    defer buf.deinit();
+    try buf.writer().writeAll("root");
+    var i: usize = names.items.len;
+    while (i > 0) {
+        i -= 1;
+        try buf.writer().print(".{s}", .{names.items[i]});
+    }
+
+    return buf.toOwnedSlice();
 }
 
 pub const build_zig_basename = "build.zig";
@@ -236,7 +306,7 @@ pub fn fetchAndAddDependencies(
             color,
         );
 
-        try addAndAdopt(pkg, gpa, sub_pkg);
+        try add(pkg, gpa, fqn, sub_pkg);
 
         try dependencies_source.writer().print("    pub const {s} = @import(\"{}\");\n", .{
             std.zig.fmtId(fqn), std.zig.fmtEscapes(fqn),
@@ -248,7 +318,6 @@ pub fn fetchAndAddDependencies(
 
 pub fn createFilePkg(
     gpa: Allocator,
-    name: []const u8,
     cache_directory: Compilation.Directory,
     basename: []const u8,
     contents: []const u8,
@@ -269,7 +338,7 @@ pub fn createFilePkg(
     const o_dir_sub_path = "o" ++ fs.path.sep_str ++ hex_digest;
     try renameTmpIntoCache(cache_directory.handle, tmp_dir_sub_path, o_dir_sub_path);
 
-    return createWithDir(gpa, name, cache_directory, o_dir_sub_path, basename);
+    return createWithDir(gpa, cache_directory, o_dir_sub_path, basename);
 }
 
 const Report = struct {
@@ -363,9 +432,6 @@ fn fetchAndUnpack(
         const owned_src_path = try gpa.dupe(u8, build_zig_basename);
         errdefer gpa.free(owned_src_path);
 
-        const owned_name = try gpa.dupe(u8, fqn);
-        errdefer gpa.free(owned_name);
-
         const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
         errdefer gpa.free(build_root);
 
@@ -380,7 +446,6 @@ fn fetchAndUnpack(
             },
             .root_src_directory_owned = true,
             .root_src_path = owned_src_path,
-            .name = owned_name,
         };
 
         return ptr;
@@ -428,6 +493,11 @@ fn fetchAndUnpack(
         // apply those rules directly to the filesystem right here. This ensures that files
         // not protected by the hash are not present on the file system.
 
+        // TODO: raise an error for files that have illegal paths on some operating systems.
+        // For example, on Linux a path with a backslash should raise an error here.
+        // Of course, if the ignore rules above omit the file from the package, then everything
+        // is fine and no error should be raised.
+
         break :a try computePackageHash(thread_pool, .{ .dir = tmp_directory.handle });
     };
 
@@ -455,7 +525,7 @@ fn fetchAndUnpack(
         std.zig.fmtId(fqn), std.zig.fmtEscapes(build_root),
     });
 
-    return createWithDir(gpa, fqn, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
+    return createWithDir(gpa, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
 }
 
 fn unpackTarball(
@@ -481,7 +551,8 @@ fn unpackTarball(
 }
 
 const HashedFile = struct {
-    path: []const u8,
+    fs_path: []const u8,
+    normalized_path: []const u8,
     hash: [Manifest.Hash.digest_length]u8,
     failure: Error!void,
 
@@ -489,7 +560,7 @@ const HashedFile = struct {
 
     fn lessThan(context: void, lhs: *const HashedFile, rhs: *const HashedFile) bool {
         _ = context;
-        return mem.lessThan(u8, lhs.path, rhs.path);
+        return mem.lessThan(u8, lhs.normalized_path, rhs.normalized_path);
     }
 };
 
@@ -525,8 +596,10 @@ fn computePackageHash(
                 else => return error.IllegalFileTypeInPackage,
             }
             const hashed_file = try arena.create(HashedFile);
+            const fs_path = try arena.dupe(u8, entry.path);
             hashed_file.* = .{
-                .path = try arena.dupe(u8, entry.path),
+                .fs_path = fs_path,
+                .normalized_path = try normalizePath(arena, fs_path),
                 .hash = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
             };
@@ -544,12 +617,30 @@ fn computePackageHash(
     for (all_files.items) |hashed_file| {
         hashed_file.failure catch |err| {
             any_failures = true;
-            std.log.err("unable to hash '{s}': {s}", .{ hashed_file.path, @errorName(err) });
+            std.log.err("unable to hash '{s}': {s}", .{ hashed_file.fs_path, @errorName(err) });
         };
         hasher.update(&hashed_file.hash);
     }
     if (any_failures) return error.PackageHashUnavailable;
     return hasher.finalResult();
+}
+
+/// Make a file system path identical independently of operating system path inconsistencies.
+/// This converts backslashes into forward slashes.
+fn normalizePath(arena: Allocator, fs_path: []const u8) ![]const u8 {
+    const canonical_sep = '/';
+
+    if (fs.path.sep == canonical_sep)
+        return fs_path;
+
+    const normalized = try arena.dupe(u8, fs_path);
+    for (normalized) |*byte| {
+        switch (byte.*) {
+            fs.path.sep => byte.* = canonical_sep,
+            else => continue,
+        }
+    }
+    return normalized;
 }
 
 fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
@@ -559,9 +650,10 @@ fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
 
 fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void {
     var buf: [8000]u8 = undefined;
-    var file = try dir.openFile(hashed_file.path, .{});
+    var file = try dir.openFile(hashed_file.fs_path, .{});
+    defer file.close();
     var hasher = Manifest.Hash.init(.{});
-    hasher.update(hashed_file.path);
+    hasher.update(hashed_file.normalized_path);
     hasher.update(&.{ 0, @boolToInt(try isExecutable(file)) });
     while (true) {
         const bytes_read = try file.read(&buf);

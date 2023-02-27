@@ -6025,8 +6025,8 @@ pub const FuncGen = struct {
         const field_ptr = try self.resolveInst(extra.field_ptr);
 
         const target = self.dg.module.getTarget();
-        const struct_ty = self.air.getRefType(ty_pl.ty).childType();
-        const field_offset = struct_ty.structFieldOffset(extra.field_index, target);
+        const parent_ty = self.air.getRefType(ty_pl.ty).childType();
+        const field_offset = parent_ty.structFieldOffset(extra.field_index, target);
 
         const res_ty = try self.dg.lowerType(self.air.getRefType(ty_pl.ty));
         if (field_offset == 0) {

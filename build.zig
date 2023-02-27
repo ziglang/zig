@@ -118,8 +118,11 @@ pub fn build(b: *std.Build) !void {
                 ".gz",
                 ".z.0",
                 ".z.9",
+                ".zstd.3",
+                ".zstd.19",
                 "rfc1951.txt",
                 "rfc1952.txt",
+                "rfc8478.txt",
                 // exclude files from lib/std/compress/deflate/testdata
                 ".expect",
                 ".expect-noinput",
@@ -513,8 +516,12 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     run_opt.addArg("-o");
     run_opt.addFileSourceArg(.{ .path = "stage1/zig1.wasm" });
 
+    const copy_zig_h = b.addWriteFiles();
+    copy_zig_h.addCopyFileToSource(.{ .path = "lib/zig.h" }, "stage1/zig.h");
+
     const update_zig1_step = b.step("update-zig1", "Update stage1/zig1.wasm");
     update_zig1_step.dependOn(&run_opt.step);
+    update_zig1_step.dependOn(&copy_zig_h.step);
 }
 
 fn addCompilerStep(

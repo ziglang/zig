@@ -7056,3 +7056,21 @@ pub fn timerfd_gettime(fd: i32) TimerFdGetError!linux.itimerspec {
         else => |err| return unexpectedErrno(err),
     };
 }
+
+pub const have_sigpipe_support = @hasDecl(@This(), "SIG") and @hasDecl(SIG, "PIPE");
+
+fn noopSigHandler(_: c_int) callconv(.C) void {}
+
+pub fn maybeIgnoreSigpipe() void {
+    if (have_sigpipe_support and !std.options.keep_sigpipe) {
+        const act = Sigaction{
+            // We set handler to a noop function instead of SIG.IGN so we don't leak our
+            // signal disposition to a child process
+            .handler = .{ .handler = noopSigHandler },
+            .mask = empty_sigset,
+            .flags = 0,
+        };
+        sigaction(SIG.PIPE, &act, null) catch |err|
+            std.debug.panic("failed to install noop SIGPIPE handler with '{s}'", .{@errorName(err)});
+    }
+}

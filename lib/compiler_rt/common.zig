@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const native_endian = builtin.cpu.arch.endian();
 
 pub const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
 /// Determines the symbol's visibility to other objects.
@@ -220,4 +221,21 @@ pub inline fn fneg(a: anytype) @TypeOf(a) {
     const sign_bit_mask = @as(U, 1) << (bits - 1);
     const negated = @bitCast(U, a) ^ sign_bit_mask;
     return @bitCast(F, negated);
+}
+
+/// Allows to access underlying bits as two equally sized lower and higher
+/// signed or unsigned integers.
+pub fn HalveInt(comptime T: type, comptime signed_half: bool) type {
+    return extern union {
+        pub const bits = @divExact(@typeInfo(T).Int.bits, 2);
+        pub const HalfTU = std.meta.Int(.unsigned, bits);
+        pub const HalfTS = std.meta.Int(.signed, bits);
+        pub const HalfT = if (signed_half) HalfTS else HalfTU;
+
+        all: T,
+        s: if (native_endian == .Little)
+            extern struct { low: HalfT, high: HalfT }
+        else
+            extern struct { high: HalfT, low: HalfT },
+    };
 }

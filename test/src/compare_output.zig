@@ -168,7 +168,7 @@ pub const CompareOutputContext = struct {
                 run.addArgs(case.cli_args);
                 run.stderr_action = .ignore;
                 run.stdout_action = .ignore;
-                run.expected_exit_code = 126;
+                run.expected_term = .{ .Exited = 126 };
 
                 self.step.dependOn(&run.step);
             },

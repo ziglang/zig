@@ -22,27 +22,22 @@ base: link.File,
 /// Instead, it tracks all declarations in this table, and iterates over it
 /// in the flush function, stitching pre-rendered pieces of C code together.
 decl_table: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclBlock) = .{},
-/// Stores Type/Value data for `typedefs` to reference.
-/// Accumulates allocations and then there is a periodic garbage collection after flush().
-arena: std.heap.ArenaAllocator,
 
 /// Per-declaration data.
 const DeclBlock = struct {
     code: std.ArrayListUnmanaged(u8) = .{},
     fwd_decl: std.ArrayListUnmanaged(u8) = .{},
-    /// Each Decl stores a mapping of Zig Types to corresponding C types, for every
-    /// Zig Type used by the Decl. In flush(), we iterate over each Decl
-    /// and emit the typedef code for all types, making sure to not emit the same thing twice.
-    /// Any arena memory the Type points to lives in the `arena` field of `C`.
-    typedefs: codegen.TypedefMap.Unmanaged = .{},
+    /// Each `Decl` stores a set of used `CType`s.  In `flush()`, we iterate
+    /// over each `Decl` and generate the definition for each used `CType` once.
+    ctypes: codegen.CType.Store = .{},
+    /// Key and Value storage use the ctype arena.
+    lazy_fns: codegen.LazyFnMap = .{},
 
     fn deinit(db: *DeclBlock, gpa: Allocator) void {
-        db.code.deinit(gpa);
+        db.lazy_fns.deinit(gpa);
+        db.ctypes.deinit(gpa);
         db.fwd_decl.deinit(gpa);
-        for (db.typedefs.values()) |typedef| {
-            gpa.free(typedef.rendered);
-        }
-        db.typedefs.deinit(gpa);
+        db.code.deinit(gpa);
         db.* = undefined;
     }
 };
@@ -64,7 +59,6 @@ pub fn openPath(gpa: Allocator, sub_path: []const u8, options: link.Options) !*C
     errdefer gpa.destroy(c_file);
 
     c_file.* = C{
-        .arena = std.heap.ArenaAllocator.init(gpa),
         .base = .{
             .tag = .c,
             .options = options,
@@ -83,8 +77,6 @@ pub fn deinit(self: *C) void {
         db.deinit(gpa);
     }
     self.decl_table.deinit(gpa);
-
-    self.arena.deinit();
 }
 
 pub fn freeDecl(self: *C, decl_index: Module.Decl.Index) void {
@@ -99,124 +91,122 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = self.base.allocator;
+
     const decl_index = func.owner_decl;
-    const gop = try self.decl_table.getOrPut(self.base.allocator, decl_index);
+    const gop = try self.decl_table.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
+    const ctypes = &gop.value_ptr.ctypes;
+    const lazy_fns = &gop.value_ptr.lazy_fns;
     const fwd_decl = &gop.value_ptr.fwd_decl;
-    const typedefs = &gop.value_ptr.typedefs;
     const code = &gop.value_ptr.code;
+    ctypes.clearRetainingCapacity(gpa);
+    lazy_fns.clearRetainingCapacity();
     fwd_decl.shrinkRetainingCapacity(0);
-    for (typedefs.values()) |typedef| {
-        module.gpa.free(typedef.rendered);
-    }
-    typedefs.clearRetainingCapacity();
     code.shrinkRetainingCapacity(0);
 
     var function: codegen.Function = .{
-        .value_map = codegen.CValueMap.init(module.gpa),
+        .value_map = codegen.CValueMap.init(gpa),
         .air = air,
         .liveness = liveness,
         .func = func,
         .object = .{
             .dg = .{
-                .gpa = module.gpa,
+                .gpa = gpa,
                 .module = module,
                 .error_msg = null,
-                .decl_index = decl_index,
+                .decl_index = decl_index.toOptional(),
                 .decl = module.declPtr(decl_index),
-                .fwd_decl = fwd_decl.toManaged(module.gpa),
-                .typedefs = typedefs.promoteContext(module.gpa, .{ .mod = module }),
-                .typedefs_arena = self.arena.allocator(),
+                .fwd_decl = fwd_decl.toManaged(gpa),
+                .ctypes = ctypes.*,
             },
-            .code = code.toManaged(module.gpa),
+            .code = code.toManaged(gpa),
             .indent_writer = undefined, // set later so we can get a pointer to object.code
         },
-        .arena = std.heap.ArenaAllocator.init(module.gpa),
+        .lazy_fns = lazy_fns.*,
+        .arena = std.heap.ArenaAllocator.init(gpa),
     };
 
     function.object.indent_writer = .{ .underlying_writer = function.object.code.writer() };
-    defer function.deinit(module.gpa);
+    defer function.deinit();
 
     codegen.genFunc(&function) catch |err| switch (err) {
         error.AnalysisFail => {
-            try module.failed_decls.put(module.gpa, decl_index, function.object.dg.error_msg.?);
+            try module.failed_decls.put(gpa, decl_index, function.object.dg.error_msg.?);
             return;
         },
         else => |e| return e,
     };
 
+    ctypes.* = function.object.dg.ctypes.move();
+    lazy_fns.* = function.lazy_fns.move();
     fwd_decl.* = function.object.dg.fwd_decl.moveToUnmanaged();
-    typedefs.* = function.object.dg.typedefs.unmanaged;
-    function.object.dg.typedefs.unmanaged = .{};
     code.* = function.object.code.moveToUnmanaged();
 
     // Free excess allocated memory for this Decl.
-    fwd_decl.shrinkAndFree(module.gpa, fwd_decl.items.len);
-    code.shrinkAndFree(module.gpa, code.items.len);
+    ctypes.shrinkAndFree(gpa, ctypes.count());
+    lazy_fns.shrinkAndFree(gpa, lazy_fns.count());
+    fwd_decl.shrinkAndFree(gpa, fwd_decl.items.len);
+    code.shrinkAndFree(gpa, code.items.len);
 }
 
 pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gop = try self.decl_table.getOrPut(self.base.allocator, decl_index);
+    const gpa = self.base.allocator;
+
+    const gop = try self.decl_table.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
+    const ctypes = &gop.value_ptr.ctypes;
     const fwd_decl = &gop.value_ptr.fwd_decl;
-    const typedefs = &gop.value_ptr.typedefs;
     const code = &gop.value_ptr.code;
+    ctypes.clearRetainingCapacity(gpa);
     fwd_decl.shrinkRetainingCapacity(0);
-    for (typedefs.values()) |value| {
-        module.gpa.free(value.rendered);
-    }
-    typedefs.clearRetainingCapacity();
     code.shrinkRetainingCapacity(0);
 
     const decl = module.declPtr(decl_index);
 
     var object: codegen.Object = .{
         .dg = .{
-            .gpa = module.gpa,
+            .gpa = gpa,
             .module = module,
             .error_msg = null,
-            .decl_index = decl_index,
+            .decl_index = decl_index.toOptional(),
             .decl = decl,
-            .fwd_decl = fwd_decl.toManaged(module.gpa),
-            .typedefs = typedefs.promoteContext(module.gpa, .{ .mod = module }),
-            .typedefs_arena = self.arena.allocator(),
+            .fwd_decl = fwd_decl.toManaged(gpa),
+            .ctypes = ctypes.*,
         },
-        .code = code.toManaged(module.gpa),
+        .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
     };
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
         object.code.deinit();
-        for (object.dg.typedefs.values()) |typedef| {
-            module.gpa.free(typedef.rendered);
-        }
-        object.dg.typedefs.deinit();
+        object.dg.ctypes.deinit(object.dg.gpa);
         object.dg.fwd_decl.deinit();
     }
 
     codegen.genDecl(&object) catch |err| switch (err) {
         error.AnalysisFail => {
-            try module.failed_decls.put(module.gpa, decl_index, object.dg.error_msg.?);
+            try module.failed_decls.put(gpa, decl_index, object.dg.error_msg.?);
             return;
         },
         else => |e| return e,
     };
 
+    ctypes.* = object.dg.ctypes.move();
     fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
-    typedefs.* = object.dg.typedefs.unmanaged;
-    object.dg.typedefs.unmanaged = .{};
     code.* = object.code.moveToUnmanaged();
 
     // Free excess allocated memory for this Decl.
-    fwd_decl.shrinkAndFree(module.gpa, fwd_decl.items.len);
-    code.shrinkAndFree(module.gpa, code.items.len);
+    ctypes.shrinkAndFree(gpa, ctypes.count());
+    fwd_decl.shrinkAndFree(gpa, fwd_decl.items.len);
+    code.shrinkAndFree(gpa, code.items.len);
 }
 
 pub fn updateDeclLineNumber(self: *C, module: *Module, decl_index: Module.Decl.Index) !void {
@@ -246,7 +236,7 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    const gpa = comp.gpa;
+    const gpa = self.base.allocator;
     const module = self.base.options.module.?;
 
     // This code path happens exclusively with -ofmt=c. The flush logic for
@@ -257,30 +247,28 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
 
     const abi_define = abiDefine(comp);
 
-    // Covers defines, zig.h, typedef, and asm.
-    var buf_count: usize = 2;
-    if (abi_define != null) buf_count += 1;
-    try f.all_buffers.ensureUnusedCapacity(gpa, buf_count);
+    // Covers defines, zig.h, ctypes, asm, lazy fwd.
+    try f.all_buffers.ensureUnusedCapacity(gpa, 5);
 
     if (abi_define) |buf| f.appendBufAssumeCapacity(buf);
     f.appendBufAssumeCapacity(zig_h);
 
-    const typedef_index = f.all_buffers.items.len;
+    const ctypes_index = f.all_buffers.items.len;
     f.all_buffers.items.len += 1;
 
     {
-        var asm_buf = f.asm_buf.toManaged(module.gpa);
-        defer asm_buf.deinit();
-
-        try codegen.genGlobalAsm(module, &asm_buf);
-
-        f.asm_buf = asm_buf.moveToUnmanaged();
-        f.appendBufAssumeCapacity(f.asm_buf.items);
+        var asm_buf = f.asm_buf.toManaged(gpa);
+        defer f.asm_buf = asm_buf.moveToUnmanaged();
+        try codegen.genGlobalAsm(module, asm_buf.writer());
+        f.appendBufAssumeCapacity(asm_buf.items);
     }
 
-    try self.flushErrDecls(&f);
+    const lazy_index = f.all_buffers.items.len;
+    f.all_buffers.items.len += 1;
 
-    // Typedefs, forward decls, and non-functions first.
+    try self.flushErrDecls(&f.lazy_db);
+
+    // `CType`s, forward decls, and non-functions first.
     // Unlike other backends, the .c code we are emitting is order-dependent. Therefore
     // we must traverse the set of Decls that we are emitting according to their dependencies.
     // Our strategy is to populate a set of remaining decls, pop Decls one by one,
@@ -307,16 +295,33 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
         }
     }
 
-    f.all_buffers.items[typedef_index] = .{
-        .iov_base = if (f.typedef_buf.items.len > 0) f.typedef_buf.items.ptr else "",
-        .iov_len = f.typedef_buf.items.len,
+    {
+        // We need to flush lazy ctypes after flushing all decls but before flushing any decl ctypes.
+        // This ensures that every lazy CType.Index exactly matches the global CType.Index.
+        assert(f.ctypes.count() == 0);
+        try self.flushCTypes(&f, .none, f.lazy_db.ctypes);
+
+        var it = self.decl_table.iterator();
+        while (it.next()) |entry|
+            try self.flushCTypes(&f, entry.key_ptr.toOptional(), entry.value_ptr.ctypes);
+    }
+
+    f.all_buffers.items[ctypes_index] = .{
+        .iov_base = if (f.ctypes_buf.items.len > 0) f.ctypes_buf.items.ptr else "",
+        .iov_len = f.ctypes_buf.items.len,
     };
-    f.file_size += f.typedef_buf.items.len;
+    f.file_size += f.ctypes_buf.items.len;
+
+    f.all_buffers.items[lazy_index] = .{
+        .iov_base = if (f.lazy_db.fwd_decl.items.len > 0) f.lazy_db.fwd_decl.items.ptr else "",
+        .iov_len = f.lazy_db.fwd_decl.items.len,
+    };
+    f.file_size += f.lazy_db.fwd_decl.items.len;
 
     // Now the code.
-    try f.all_buffers.ensureUnusedCapacity(gpa, decl_values.len);
-    for (decl_values) |decl|
-        f.appendBufAssumeCapacity(decl.code.items);
+    try f.all_buffers.ensureUnusedCapacity(gpa, 1 + decl_values.len);
+    f.appendBufAssumeCapacity(f.lazy_db.code.items);
+    for (decl_values) |decl| f.appendBufAssumeCapacity(decl.code.items);
 
     const file = self.base.file.?;
     try file.setEndPos(f.file_size);
@@ -324,22 +329,23 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
 }
 
 const Flush = struct {
-    err_decls: DeclBlock = .{},
     remaining_decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, void) = .{},
-    typedefs: Typedefs = .{},
-    typedef_buf: std.ArrayListUnmanaged(u8) = .{},
+
+    ctypes: codegen.CType.Store = .{},
+    ctypes_map: std.ArrayListUnmanaged(codegen.CType.Index) = .{},
+    ctypes_buf: std.ArrayListUnmanaged(u8) = .{},
+
+    lazy_db: DeclBlock = .{},
+    lazy_fns: LazyFns = .{},
+
     asm_buf: std.ArrayListUnmanaged(u8) = .{},
+
     /// We collect a list of buffers to write, and write them all at once with pwritev 😎
     all_buffers: std.ArrayListUnmanaged(std.os.iovec_const) = .{},
     /// Keeps track of the total bytes of `all_buffers`.
     file_size: u64 = 0,
 
-    const Typedefs = std.HashMapUnmanaged(
-        Type,
-        void,
-        Type.HashContext64,
-        std.hash_map.default_max_load_percentage,
-    );
+    const LazyFns = std.AutoHashMapUnmanaged(codegen.LazyFnKey, void);
 
     fn appendBufAssumeCapacity(f: *Flush, buf: []const u8) void {
         if (buf.len == 0) return;
@@ -349,10 +355,13 @@ const Flush = struct {
 
     fn deinit(f: *Flush, gpa: Allocator) void {
         f.all_buffers.deinit(gpa);
-        f.typedef_buf.deinit(gpa);
-        f.typedefs.deinit(gpa);
+        f.asm_buf.deinit(gpa);
+        f.lazy_fns.deinit(gpa);
+        f.lazy_db.deinit(gpa);
+        f.ctypes_buf.deinit(gpa);
+        f.ctypes_map.deinit(gpa);
+        f.ctypes.deinit(gpa);
         f.remaining_decls.deinit(gpa);
-        f.err_decls.deinit(gpa);
     }
 };
 
@@ -360,53 +369,116 @@ const FlushDeclError = error{
     OutOfMemory,
 };
 
-fn flushTypedefs(self: *C, f: *Flush, typedefs: codegen.TypedefMap.Unmanaged) FlushDeclError!void {
-    if (typedefs.count() == 0) return;
+fn flushCTypes(
+    self: *C,
+    f: *Flush,
+    decl_index: Module.Decl.OptionalIndex,
+    decl_ctypes: codegen.CType.Store,
+) FlushDeclError!void {
     const gpa = self.base.allocator;
-    const module = self.base.options.module.?;
+    const mod = self.base.options.module.?;
 
-    try f.typedefs.ensureUnusedCapacityContext(gpa, @intCast(u32, typedefs.count()), .{
-        .mod = module,
-    });
-    var it = typedefs.iterator();
-    while (it.next()) |new| {
-        const gop = f.typedefs.getOrPutAssumeCapacityContext(new.key_ptr.*, .{
-            .mod = module,
+    const decl_ctypes_len = decl_ctypes.count();
+    f.ctypes_map.clearRetainingCapacity();
+    try f.ctypes_map.ensureTotalCapacity(gpa, decl_ctypes_len);
+
+    var global_ctypes = f.ctypes.promote(gpa);
+    defer f.ctypes.demote(global_ctypes);
+
+    var ctypes_buf = f.ctypes_buf.toManaged(gpa);
+    defer f.ctypes_buf = ctypes_buf.moveToUnmanaged();
+    const writer = ctypes_buf.writer();
+
+    const slice = decl_ctypes.set.map.entries.slice();
+    for (slice.items(.key), 0..) |decl_cty, decl_i| {
+        const Context = struct {
+            arena: Allocator,
+            ctypes_map: []codegen.CType.Index,
+            cached_hash: codegen.CType.Store.Set.Map.Hash,
+            idx: codegen.CType.Index,
+
+            pub fn hash(ctx: @This(), _: codegen.CType) codegen.CType.Store.Set.Map.Hash {
+                return ctx.cached_hash;
+            }
+            pub fn eql(ctx: @This(), lhs: codegen.CType, rhs: codegen.CType, _: usize) bool {
+                return lhs.eqlContext(rhs, ctx);
+            }
+            pub fn eqlIndex(
+                ctx: @This(),
+                lhs_idx: codegen.CType.Index,
+                rhs_idx: codegen.CType.Index,
+            ) bool {
+                if (lhs_idx < codegen.CType.Tag.no_payload_count or
+                    rhs_idx < codegen.CType.Tag.no_payload_count) return lhs_idx == rhs_idx;
+                const lhs_i = lhs_idx - codegen.CType.Tag.no_payload_count;
+                if (lhs_i >= ctx.ctypes_map.len) return false;
+                return ctx.ctypes_map[lhs_i] == rhs_idx;
+            }
+            pub fn copyIndex(ctx: @This(), idx: codegen.CType.Index) codegen.CType.Index {
+                if (idx < codegen.CType.Tag.no_payload_count) return idx;
+                return ctx.ctypes_map[idx - codegen.CType.Tag.no_payload_count];
+            }
+        };
+        const decl_idx = @intCast(codegen.CType.Index, codegen.CType.Tag.no_payload_count + decl_i);
+        const ctx = Context{
+            .arena = global_ctypes.arena.allocator(),
+            .ctypes_map = f.ctypes_map.items,
+            .cached_hash = decl_ctypes.indexToHash(decl_idx),
+            .idx = decl_idx,
+        };
+        const gop = try global_ctypes.set.map.getOrPutContextAdapted(gpa, decl_cty, ctx, .{
+            .store = &global_ctypes.set,
         });
+        const global_idx =
+            @intCast(codegen.CType.Index, codegen.CType.Tag.no_payload_count + gop.index);
+        f.ctypes_map.appendAssumeCapacity(global_idx);
         if (!gop.found_existing) {
-            try f.typedef_buf.appendSlice(gpa, new.value_ptr.rendered);
+            errdefer _ = global_ctypes.set.map.pop();
+            gop.key_ptr.* = try decl_cty.copyContext(ctx);
         }
+        if (std.debug.runtime_safety) {
+            const global_cty = &global_ctypes.set.map.entries.items(.key)[gop.index];
+            assert(global_cty == gop.key_ptr);
+            assert(decl_cty.eqlContext(global_cty.*, ctx));
+            assert(decl_cty.hash(decl_ctypes.set) == global_cty.hash(global_ctypes.set));
+        }
+        try codegen.genTypeDecl(
+            mod,
+            writer,
+            global_ctypes.set,
+            global_idx,
+            decl_index,
+            decl_ctypes.set,
+            decl_idx,
+            gop.found_existing,
+        );
     }
 }
 
-fn flushErrDecls(self: *C, f: *Flush) FlushDeclError!void {
-    const module = self.base.options.module.?;
+fn flushErrDecls(self: *C, db: *DeclBlock) FlushDeclError!void {
+    const gpa = self.base.allocator;
 
-    const fwd_decl = &f.err_decls.fwd_decl;
-    const typedefs = &f.err_decls.typedefs;
-    const code = &f.err_decls.code;
+    const fwd_decl = &db.fwd_decl;
+    const ctypes = &db.ctypes;
+    const code = &db.code;
 
     var object = codegen.Object{
         .dg = .{
-            .gpa = module.gpa,
-            .module = module,
+            .gpa = gpa,
+            .module = self.base.options.module.?,
             .error_msg = null,
-            .decl_index = undefined,
-            .decl = undefined,
-            .fwd_decl = fwd_decl.toManaged(module.gpa),
-            .typedefs = typedefs.promoteContext(module.gpa, .{ .mod = module }),
-            .typedefs_arena = self.arena.allocator(),
+            .decl_index = .none,
+            .decl = null,
+            .fwd_decl = fwd_decl.toManaged(gpa),
+            .ctypes = ctypes.*,
         },
-        .code = code.toManaged(module.gpa),
+        .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
     };
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
         object.code.deinit();
-        for (object.dg.typedefs.values()) |typedef| {
-            module.gpa.free(typedef.rendered);
-        }
-        object.dg.typedefs.deinit();
+        object.dg.ctypes.deinit(gpa);
         object.dg.fwd_decl.deinit();
     }
 
@@ -416,14 +488,58 @@ fn flushErrDecls(self: *C, f: *Flush) FlushDeclError!void {
     };
 
     fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
-    typedefs.* = object.dg.typedefs.unmanaged;
-    object.dg.typedefs.unmanaged = .{};
+    ctypes.* = object.dg.ctypes.move();
     code.* = object.code.moveToUnmanaged();
+}
 
-    try self.flushTypedefs(f, typedefs.*);
-    try f.all_buffers.ensureUnusedCapacity(self.base.allocator, 1);
-    f.appendBufAssumeCapacity(fwd_decl.items);
-    f.appendBufAssumeCapacity(code.items);
+fn flushLazyFn(self: *C, db: *DeclBlock, lazy_fn: codegen.LazyFnMap.Entry) FlushDeclError!void {
+    const gpa = self.base.allocator;
+
+    const fwd_decl = &db.fwd_decl;
+    const ctypes = &db.ctypes;
+    const code = &db.code;
+
+    var object = codegen.Object{
+        .dg = .{
+            .gpa = gpa,
+            .module = self.base.options.module.?,
+            .error_msg = null,
+            .decl_index = .none,
+            .decl = null,
+            .fwd_decl = fwd_decl.toManaged(gpa),
+            .ctypes = ctypes.*,
+        },
+        .code = code.toManaged(gpa),
+        .indent_writer = undefined, // set later so we can get a pointer to object.code
+    };
+    object.indent_writer = .{ .underlying_writer = object.code.writer() };
+    defer {
+        object.code.deinit();
+        object.dg.ctypes.deinit(gpa);
+        object.dg.fwd_decl.deinit();
+    }
+
+    codegen.genLazyFn(&object, lazy_fn) catch |err| switch (err) {
+        error.AnalysisFail => unreachable,
+        else => |e| return e,
+    };
+
+    fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
+    ctypes.* = object.dg.ctypes.move();
+    code.* = object.code.moveToUnmanaged();
+}
+
+fn flushLazyFns(self: *C, f: *Flush, lazy_fns: codegen.LazyFnMap) FlushDeclError!void {
+    const gpa = self.base.allocator;
+    try f.lazy_fns.ensureUnusedCapacity(gpa, @intCast(Flush.LazyFns.Size, lazy_fns.count()));
+
+    var it = lazy_fns.iterator();
+    while (it.next()) |entry| {
+        const gop = f.lazy_fns.getOrPutAssumeCapacity(entry.key_ptr.*);
+        if (gop.found_existing) continue;
+        gop.value_ptr.* = {};
+        try self.flushLazyFn(&f.lazy_db, entry);
+    }
 }
 
 /// Assumes `decl` was in the `remaining_decls` set, and has already been removed.
@@ -433,8 +549,8 @@ fn flushDecl(
     decl_index: Module.Decl.Index,
     export_names: std.StringHashMapUnmanaged(void),
 ) FlushDeclError!void {
-    const module = self.base.options.module.?;
-    const decl = module.declPtr(decl_index);
+    const gpa = self.base.allocator;
+    const decl = self.base.options.module.?.declPtr(decl_index);
     // Before flushing any particular Decl we must ensure its
     // dependencies are already flushed, so that the order in the .c
     // file comes out correctly.
@@ -445,10 +561,9 @@ fn flushDecl(
     }
 
     const decl_block = self.decl_table.getPtr(decl_index).?;
-    const gpa = self.base.allocator;
 
-    try self.flushTypedefs(f, decl_block.typedefs);
-    try f.all_buffers.ensureUnusedCapacity(gpa, 2);
+    try self.flushLazyFns(f, decl_block.lazy_fns);
+    try f.all_buffers.ensureUnusedCapacity(gpa, 1);
     if (!(decl.isExtern() and export_names.contains(mem.span(decl.name))))
         f.appendBufAssumeCapacity(decl_block.fwd_decl.items);
 }

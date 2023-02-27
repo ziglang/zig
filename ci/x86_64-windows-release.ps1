@@ -87,7 +87,8 @@ CheckLastExitCode
   -OReleaseSmall `
   --name compiler_rt `
   -femit-bin="compiler_rt-x86_64-windows-msvc.c" `
-  --pkg-begin build_options config.zig --pkg-end `
+  --mod build_options::config.zig `
+  --deps build_options `
   -target x86_64-windows-msvc
 CheckLastExitCode
 

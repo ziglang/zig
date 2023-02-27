@@ -2896,7 +2896,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             const struct_obj = ty.castTag(.@"struct").?.data;
             assert(struct_obj.layout == .Packed);
             var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
-            val.writeToPackedMemory(ty, func.bin_file.base.options.module.?, &buf, 0);
+            val.writeToPackedMemory(ty, func.bin_file.base.options.module.?, &buf, 0) catch unreachable;
             var payload: Value.Payload.U64 = .{
                 .base = .{ .tag = .int_u64 },
                 .data = std.mem.readIntLittle(u64, &buf),
@@ -2907,7 +2907,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         .Vector => {
             assert(determineSimdStoreStrategy(ty, target) == .direct);
             var buf: [16]u8 = undefined;
-            val.writeToMemory(ty, func.bin_file.base.options.module.?, &buf);
+            val.writeToMemory(ty, func.bin_file.base.options.module.?, &buf) catch unreachable;
             return func.storeSimdImmd(buf);
         },
         else => |zig_type| return func.fail("Wasm TODO: LowerConstant for zigTypeTag {}", .{zig_type}),
@@ -4944,8 +4944,8 @@ fn airFieldParentPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     if (func.liveness.isUnused(inst)) return func.finishAir(inst, .none, &.{extra.field_ptr});
 
     const field_ptr = try func.resolveInst(extra.field_ptr);
-    const struct_ty = func.air.getRefType(ty_pl.ty).childType();
-    const field_offset = struct_ty.structFieldOffset(extra.field_index, func.target);
+    const parent_ty = func.air.getRefType(ty_pl.ty).childType();
+    const field_offset = parent_ty.structFieldOffset(extra.field_index, func.target);
 
     const result = if (field_offset != 0) result: {
         const base = try func.buildPointerOffset(field_ptr, 0, .new);

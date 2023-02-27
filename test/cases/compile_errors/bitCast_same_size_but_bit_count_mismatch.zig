@@ -7,4 +7,4 @@ export fn entry(byte: u8) void {
 // backend=stage2
 // target=native
 //
-// :2:29: error: @bitCast size mismatch: destination type 'u7' has 7 bits but source type 'u8' has 8 bits
+// :2:16: error: @bitCast size mismatch: destination type 'u7' has 7 bits but source type 'u8' has 8 bits

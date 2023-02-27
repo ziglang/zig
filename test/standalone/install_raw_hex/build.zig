@@ -3,6 +3,9 @@ const std = @import("std");
 const CheckFileStep = std.Build.CheckFileStep;
 
 pub fn build(b: *std.Build) void {
+    const test_step = b.step("test", "Test the program");
+    b.default_step.dependOn(test_step);
+
     const target = .{
         .cpu_arch = .thumb,
         .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_m4 },
@@ -19,12 +22,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const test_step = b.step("test", "Test the program");
-    b.default_step.dependOn(test_step);
-
-    const hex_step = b.addInstallRaw(elf, "hello.hex", .{});
+    const hex_step = elf.addObjCopy(.{
+        .basename = "hello.hex",
+    });
     test_step.dependOn(&hex_step.step);
 
-    const explicit_format_hex_step = b.addInstallRaw(elf, "hello.foo", .{ .format = .hex });
+    const explicit_format_hex_step = elf.addObjCopy(.{
+        .basename = "hello.foo",
+        .format = .hex,
+    });
     test_step.dependOn(&explicit_format_hex_step.step);
 }
