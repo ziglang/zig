@@ -1597,6 +1597,7 @@ pub const Module = struct {
     libs: std.ArrayList(*CompileStep),
     config_headers: std.ArrayList(*ConfigHeaderStep),
     installed_headers: std.ArrayList(InstalledHeader),
+    frameworks: std.StringArrayHashMap(CompileStep.FrameworkLinkInfo),
 
     const InstalledHeader = union(enum) {
         header: struct {
@@ -1622,6 +1623,7 @@ pub const Module = struct {
             .libs = std.ArrayList(*CompileStep).init(arena),
             .config_headers = std.ArrayList(*ConfigHeaderStep).init(arena),
             .installed_headers = std.ArrayList(InstalledHeader).init(arena),
+            .frameworks = std.StringArrayHashMap(CompileStep.FrameworkLinkInfo).init(arena),
         };
     }
 
@@ -1641,6 +1643,7 @@ pub const Module = struct {
         m.libs.deinit();
         m.config_headers.deinit();
         m.installed_headers.deinit();
+        m.frameworks.deinit();
         m.* = undefined;
     }
 
@@ -1721,6 +1724,22 @@ pub const Module = struct {
             .needed = false,
             .weak = true,
             .use_pkg_config = .no,
+        }) catch @panic("OOM");
+    }
+
+    pub fn linkFramework(m: *Module, framework_name: []const u8) void {
+        m.frameworks.put(m.builder.dupe(framework_name), .{}) catch @panic("OOM");
+    }
+
+    pub fn linkFrameworkNeeded(m: *Module, framework_name: []const u8) void {
+        m.frameworks.put(m.builder.dupe(framework_name), .{
+            .needed = true,
+        }) catch @panic("OOM");
+    }
+
+    pub fn linkFrameworkWeak(m: *Module, framework_name: []const u8) void {
+        m.frameworks.put(m.builder.dupe(framework_name), .{
+            .weak = true,
         }) catch @panic("OOM");
     }
 

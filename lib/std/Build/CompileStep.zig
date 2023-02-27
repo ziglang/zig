@@ -257,7 +257,7 @@ pub const SystemLib = struct {
     },
 };
 
-const FrameworkLinkInfo = struct {
+pub const FrameworkLinkInfo = struct {
     needed: bool = false,
     weak: bool = false,
 };
@@ -1000,6 +1000,10 @@ fn addRecursiveBuildDeps(cs: *CompileStep, module: *Module, done: *std.AutoHashM
 
     for (module.libs.items) |lib| {
         cs.linkLibrary(lib);
+    }
+
+    for (module.frameworks.keys(), module.frameworks.values()) |framework, link_options| {
+        cs.frameworks.put(cs.builder.dupe(framework), link_options) catch @panic("OOM");
     }
 
     for (module.system_libs.items) |system_lib| {
