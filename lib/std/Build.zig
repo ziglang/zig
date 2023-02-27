@@ -1729,7 +1729,7 @@ pub const Module = struct {
             .header = .{
                 .source_path = src_path,
                 .dest_rel_path = dest_rel_path,
-            }
+            },
         }) catch @panic("OOM");
     }
 
@@ -1742,7 +1742,7 @@ pub const Module = struct {
             .config_header = .{
                 .config_header = config_header,
                 .options = options,
-            }
+            },
         }) catch @panic("OOM");
     }
 

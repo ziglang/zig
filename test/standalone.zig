@@ -113,4 +113,9 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/dep_recursive/build.zig", .{});
     cases.addBuildFile("test/standalone/dep_mutually_recursive/build.zig", .{});
     cases.addBuildFile("test/standalone/dep_shared_builtin/build.zig", .{});
+
+    cases.addBuildFile("test/standalone/module_add_include_path/build.zig", .{});
+    cases.addBuildFile("test/standalone/module_link_library/build.zig", .{});
+    cases.addBuildFile("test/standalone/module_add_library_path/build.zig", .{});
+    cases.addBuildFile("test/standalone/module_install_header/build.zig", .{});
 }
