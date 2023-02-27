@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Value = @import("value.zig").Value;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -6694,4 +6695,33 @@ pub const Type = extern union {
     /// This is only used for comptime asserts. Bump this number when you make a change
     /// to packed struct layout to find out all the places in the codebase you need to edit!
     pub const packed_struct_layout_version = 2;
+
+    /// This function is used in the debugger pretty formatters in tools/ to fetch the
+    /// Tag to Payload mapping to facilitate fancy debug printing for this type.
+    fn dbHelper(self: *Type, tag_to_payload_map: *map: {
+        const tags = @typeInfo(Tag).Enum.fields;
+        var fields: [tags.len]std.builtin.Type.StructField = undefined;
+        for (&fields, tags) |*field, t| field.* = .{
+            .name = t.name,
+            .type = *if (t.value < Tag.no_payload_count) void else @field(Tag, t.name).Type(),
+            .default_value = null,
+            .is_comptime = false,
+            .alignment = 0,
+        };
+        break :map @Type(.{ .Struct = .{
+            .layout = .Extern,
+            .fields = &fields,
+            .decls = &.{},
+            .is_tuple = false,
+        } });
+    }) void {
+        _ = self;
+        _ = tag_to_payload_map;
+    }
+
+    comptime {
+        if (builtin.mode == .Debug) {
+            _ = dbHelper;
+        }
+    }
 };
