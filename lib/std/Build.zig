@@ -59,9 +59,6 @@ verbose_air: bool,
 verbose_llvm_ir: bool,
 verbose_cimport: bool,
 verbose_llvm_cpu_features: bool,
-/// The purpose of executing the command is for a human to read compile errors from the terminal
-prominent_compile_errors: bool,
-color: enum { auto, on, off } = .auto,
 reference_trace: ?u32 = null,
 invalid_user_input: bool,
 zig_exe: []const u8,
@@ -211,7 +208,6 @@ pub fn create(
         .verbose_llvm_ir = false,
         .verbose_cimport = false,
         .verbose_llvm_cpu_features = false,
-        .prominent_compile_errors = false,
         .invalid_user_input = false,
         .allocator = allocator,
         .user_input_options = UserInputOptionsMap.init(allocator),
@@ -295,8 +291,6 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .verbose_llvm_ir = parent.verbose_llvm_ir,
         .verbose_cimport = parent.verbose_cimport,
         .verbose_llvm_cpu_features = parent.verbose_llvm_cpu_features,
-        .prominent_compile_errors = parent.prominent_compile_errors,
-        .color = parent.color,
         .reference_trace = parent.reference_trace,
         .invalid_user_input = false,
         .zig_exe = parent.zig_exe,
@@ -1409,54 +1403,149 @@ pub fn execAllowFail(
     }
 }
 
-pub fn execFromStep(b: *Build, argv: []const []const u8, s: *Step) ![]u8 {
+/// This function is used exclusively for spawning and communicating with the zig compiler.
+/// TODO: move to build_runner.zig
+pub fn execFromStep(b: *Build, argv: []const []const u8, s: *Step) ![]const u8 {
     assert(argv.len != 0);
 
     if (b.verbose) {
-        printCmd(b.allocator, null, argv);
+        const text = try allocPrintCmd(b.allocator, null, argv);
+        try s.result_error_msgs.append(b.allocator, text);
     }
 
     if (!process.can_spawn) {
-        try s.result.error_msgs.append(b.allocator, b.fmt("Unable to spawn the following command: cannot spawn child processes\n{s}", .{
+        try s.result_error_msgs.append(b.allocator, b.fmt("Unable to spawn the following command: cannot spawn child processes\n{s}", .{
             try allocPrintCmd(b.allocator, null, argv),
         }));
-        return error.CannotSpawnProcesses;
+        return error.MakeFailed;
     }
 
-    const result = std.ChildProcess.exec(.{
-        .allocator = b.allocator,
-        .argv = argv,
-        .env_map = b.env_map,
-        .max_output_bytes = 10 * 1024 * 1024,
-    }) catch |err| {
-        try s.result.error_msgs.append(b.allocator, b.fmt("unable to spawn the following command: {s}\n{s}", .{
-            @errorName(err), try allocPrintCmd(b.allocator, null, argv),
-        }));
-        return error.ExecFailed;
-    };
+    var child = std.ChildProcess.init(argv, b.allocator);
+    child.env_map = b.env_map;
+    child.stdin_behavior = .Pipe;
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Pipe;
 
-    if (result.stderr.len != 0) {
-        try s.result.error_msgs.append(b.allocator, result.stderr);
+    try child.spawn();
+
+    var poller = std.io.poll(b.allocator, enum { stdout, stderr }, .{
+        .stdout = child.stdout.?,
+        .stderr = child.stderr.?,
+    });
+    defer poller.deinit();
+
+    try sendMessage(child.stdin.?, .update);
+    try sendMessage(child.stdin.?, .exit);
+
+    const Header = std.zig.Server.Message.Header;
+    var result: ?[]const u8 = null;
+
+    while (try poller.poll()) {
+        const stdout = poller.fifo(.stdout);
+        const buf = stdout.readableSlice(0);
+        assert(stdout.readableLength() == buf.len);
+        if (buf.len >= @sizeOf(Header)) {
+            const header = @ptrCast(*align(1) const Header, buf[0..@sizeOf(Header)]);
+            const header_and_msg_len = header.bytes_len + @sizeOf(Header);
+            if (buf.len >= header_and_msg_len) {
+                const body = buf[@sizeOf(Header)..];
+                switch (header.tag) {
+                    .zig_version => {
+                        if (!mem.eql(u8, builtin.zig_version_string, body)) {
+                            try s.result_error_msgs.append(
+                                b.allocator,
+                                b.fmt("zig version mismatch build runner vs compiler: '{s}' vs '{s}'", .{
+                                    builtin.zig_version_string, body,
+                                }),
+                            );
+                            return error.MakeFailed;
+                        }
+                    },
+                    .error_bundle => {
+                        const EbHdr = std.zig.Server.Message.ErrorBundle;
+                        const eb_hdr = @ptrCast(*align(1) const EbHdr, body);
+                        const extra_bytes =
+                            body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
+                        const string_bytes =
+                            body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
+                        // TODO: use @ptrCast when the compiler supports it
+                        const unaligned_extra = mem.bytesAsSlice(u32, extra_bytes);
+                        const extra_array = try b.allocator.alloc(u32, unaligned_extra.len);
+                        // TODO: use @memcpy when it supports slices
+                        for (extra_array, unaligned_extra) |*dst, src| dst.* = src;
+                        s.result_error_bundle = .{
+                            .string_bytes = try b.allocator.dupe(u8, string_bytes),
+                            .extra = extra_array,
+                        };
+                    },
+                    .progress => {
+                        @panic("TODO handle progress message");
+                    },
+                    .emit_bin_path => {
+                        @panic("TODO handle emit_bin_path message");
+                    },
+                    _ => {
+                        // Unrecognized message.
+                    },
+                }
+                stdout.discard(header_and_msg_len);
+            }
+        }
     }
 
-    switch (result.term) {
+    const stderr = poller.fifo(.stderr);
+    if (stderr.readableLength() > 0) {
+        try s.result_error_msgs.append(b.allocator, try stderr.toOwnedSlice());
+    }
+
+    // Send EOF to stdin.
+    child.stdin.?.close();
+    child.stdin = null;
+
+    const term = try child.wait();
+    switch (term) {
         .Exited => |code| {
             if (code != 0) {
-                try s.result.error_msgs.append(b.allocator, b.fmt("the following command exited with error code {d}:\n{s}", .{
+                try s.result_error_msgs.append(b.allocator, b.fmt("the following command exited with error code {d}:\n{s}", .{
                     code, try allocPrintCmd(b.allocator, null, argv),
                 }));
-                return error.ExitCodeFailure;
+                return error.MakeFailed;
             }
-            return result.stdout;
         },
         .Signal, .Stopped, .Unknown => |code| {
             _ = code;
-            try s.result.error_msgs.append(b.allocator, b.fmt("the following command terminated unexpectedly:\n{s}", .{
+            try s.result_error_msgs.append(b.allocator, b.fmt("the following command terminated unexpectedly:\n{s}", .{
                 try allocPrintCmd(b.allocator, null, argv),
             }));
-            return error.ProcessTerminated;
+            return error.MakeFailed;
         },
     }
+
+    if (s.result_error_bundle.errorMessageCount() > 0) {
+        try s.result_error_msgs.append(
+            b.allocator,
+            b.fmt("the following command failed with {d} compilation errors:\n{s}", .{
+                s.result_error_bundle.errorMessageCount(),
+                try allocPrintCmd(b.allocator, null, argv),
+            }),
+        );
+        return error.MakeFailed;
+    }
+
+    return result orelse {
+        try s.result_error_msgs.append(b.allocator, b.fmt("the following command failed to communicate the compilation result:\n{s}", .{
+            try allocPrintCmd(b.allocator, null, argv),
+        }));
+        return error.MakeFailed;
+    };
+}
+
+fn sendMessage(file: fs.File, tag: std.zig.Client.Message.Tag) !void {
+    const header: std.zig.Client.Message.Header = .{
+        .tag = tag,
+        .bytes_len = 0,
+    };
+    try file.writeAll(std.mem.asBytes(&header));
 }
 
 /// This is a helper function to be called from build.zig scripts, *not* from

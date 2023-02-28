@@ -1,6 +1,7 @@
 const root = @import("@build");
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const io = std.io;
 const fmt = std.fmt;
 const mem = std.mem;
@@ -71,8 +72,7 @@ pub fn main() !void {
     cache.addPrefix(build_root_directory);
     cache.addPrefix(local_cache_directory);
     cache.addPrefix(global_cache_directory);
-
-    //cache.hash.addBytes(builtin.zig_version);
+    cache.hash.addBytes(builtin.zig_version_string);
 
     const builder = try std.Build.create(
         allocator,
@@ -95,10 +95,8 @@ pub fn main() !void {
     var install_prefix: ?[]const u8 = null;
     var dir_list = std.Build.DirList{};
 
-    // before arg parsing, check for the NO_COLOR environment variable
-    // if it exists, default the color setting to .off
-    // explicit --color arguments will still override this setting.
-    builder.color = if (process.hasEnvVarConstant("NO_COLOR")) .off else .auto;
+    const Color = enum { auto, off, on };
+    var color: Color = .auto;
 
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-D")) {
@@ -166,7 +164,7 @@ pub fn main() !void {
                     std.debug.print("expected [auto|on|off] after --color", .{});
                     usageAndErr(builder, false, stderr_stream);
                 };
-                builder.color = std.meta.stringToEnum(@TypeOf(builder.color), next_arg) orelse {
+                color = std.meta.stringToEnum(Color, next_arg) orelse {
                     std.debug.print("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
                     usageAndErr(builder, false, stderr_stream);
                 };
@@ -200,8 +198,6 @@ pub fn main() !void {
                 builder.verbose_cc = true;
             } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
                 builder.verbose_llvm_cpu_features = true;
-            } else if (mem.eql(u8, arg, "--prominent-compile-errors")) {
-                builder.prominent_compile_errors = true;
             } else if (mem.eql(u8, arg, "-fwine")) {
                 builder.enable_wine = true;
             } else if (mem.eql(u8, arg, "-fno-wine")) {
@@ -257,6 +253,12 @@ pub fn main() !void {
         }
     }
 
+    const ttyconf: std.debug.TTY.Config = switch (color) {
+        .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
+        .on => .escape_codes,
+        .off => .no_color,
+    };
+
     var progress: std.Progress = .{};
     const main_progress_node = progress.start("", 0);
     defer main_progress_node.end();
@@ -272,11 +274,15 @@ pub fn main() !void {
     if (builder.validateUserInputDidItFail())
         usageAndErr(builder, true, stderr_stream);
 
-    runStepNames(builder, targets.items, main_progress_node, thread_pool_options) catch |err| {
-        switch (err) {
-            error.UncleanExit => process.exit(1),
-            else => return err,
-        }
+    runStepNames(
+        builder,
+        targets.items,
+        main_progress_node,
+        thread_pool_options,
+        ttyconf,
+    ) catch |err| switch (err) {
+        error.UncleanExit => process.exit(1),
+        else => return err,
     };
 }
 
@@ -285,6 +291,7 @@ fn runStepNames(
     step_names: []const []const u8,
     parent_prog_node: *std.Progress.Node,
     thread_pool_options: std.Thread.Pool.Options,
+    ttyconf: std.debug.TTY.Config,
 ) !void {
     var step_stack = ArrayList(*Step).init(b.allocator);
     defer step_stack.deinit();
@@ -332,12 +339,14 @@ fn runStepNames(
 
             wait_group.start();
             thread_pool.spawn(workerMakeOneStep, .{
-                &wait_group, &thread_pool, b, step, &step_prog,
+                &wait_group, &thread_pool, b, step, &step_prog, ttyconf,
             }) catch @panic("OOM");
         }
     }
 
-    var any_failed = false;
+    var success_count: usize = 0;
+    var failure_count: usize = 0;
+    var pending_count: usize = 0;
 
     for (step_stack.items) |s| {
         switch (s.state) {
@@ -349,20 +358,42 @@ fn runStepNames(
             // A -> B -> C (failure)
             // B will be marked as dependency_failure, while A may never be queued, and thus
             // remain in the initial state of precheck_done.
-            .dependency_failure, .precheck_done => continue,
-            .success => continue,
-            .failure => {
-                any_failed = true;
-                std.debug.print("{s}: {s}\n", .{
-                    s.name, @errorName(s.result.err_code),
-                });
-            },
+            .dependency_failure, .precheck_done => pending_count += 1,
+            .success => success_count += 1,
+            .failure => failure_count += 1,
         }
     }
 
-    if (any_failed) {
-        process.exit(1);
-    }
+    const stderr = std.io.getStdErr();
+
+    const total_count = success_count + failure_count + pending_count;
+    stderr.writer().print("build summary: {d}/{d} steps succeeded; {d} failed\n", .{
+        success_count, total_count, failure_count,
+    }) catch {};
+    if (failure_count == 0) return cleanExit();
+
+    for (step_stack.items) |s| switch (s.state) {
+        .failure => {
+            // TODO print the dep prefix too
+            ttyconf.setColor(stderr, .Bold) catch break;
+            stderr.writeAll(s.name) catch break;
+            ttyconf.setColor(stderr, .Reset) catch break;
+
+            if (s.result_error_bundle.errorMessageCount() > 0) {
+                stderr.writer().print(": {d} compilation errors:\n", .{
+                    s.result_error_bundle.errorMessageCount(),
+                }) catch break;
+                s.result_error_bundle.renderToStdErr(ttyconf);
+            } else {
+                stderr.writer().print(": {d} error messages (printed above)\n", .{
+                    s.result_error_msgs.items.len,
+                }) catch break;
+            }
+        },
+        else => continue,
+    };
+
+    process.exit(1);
 }
 
 fn checkForDependencyLoop(
@@ -407,6 +438,7 @@ fn workerMakeOneStep(
     b: *std.Build,
     s: *Step,
     prog_node: *std.Progress.Node,
+    ttyconf: std.debug.TTY.Config,
 ) void {
     defer wg.finish();
 
@@ -446,17 +478,26 @@ fn workerMakeOneStep(
     const make_result = s.make();
 
     // No matter the result, we want to display error/warning messages.
-    if (s.result.error_msgs.items.len > 0) {
+    if (s.result_error_msgs.items.len > 0) {
         sub_prog_node.context.lock_stderr();
         defer sub_prog_node.context.unlock_stderr();
 
-        for (s.result.error_msgs.items) |msg| {
-            std.io.getStdErr().writeAll(msg) catch break;
+        const stderr = std.io.getStdErr();
+
+        for (s.result_error_msgs.items) |msg| {
+            // TODO print the dep prefix too
+            ttyconf.setColor(stderr, .Bold) catch break;
+            stderr.writeAll(s.name) catch break;
+            stderr.writeAll(": ") catch break;
+            ttyconf.setColor(stderr, .Red) catch break;
+            stderr.writeAll("error: ") catch break;
+            ttyconf.setColor(stderr, .Reset) catch break;
+            stderr.writeAll(msg) catch break;
         }
     }
 
     make_result catch |err| {
-        s.result.err_code = err;
+        assert(err == error.MakeFailed);
         @atomicStore(Step.State, &s.state, .failure, .SeqCst);
         return;
     };
@@ -467,7 +508,7 @@ fn workerMakeOneStep(
     for (s.dependants.items) |dep| {
         wg.start();
         thread_pool.spawn(workerMakeOneStep, .{
-            wg, thread_pool, b, dep, prog_node,
+            wg, thread_pool, b, dep, prog_node, ttyconf,
         }) catch @panic("OOM");
     }
 }
@@ -600,4 +641,12 @@ fn nextArg(args: [][]const u8, idx: *usize) ?[]const u8 {
 fn argsRest(args: [][]const u8, idx: usize) ?[][]const u8 {
     if (idx >= args.len) return null;
     return args[idx..];
+}
+
+fn cleanExit() void {
+    if (builtin.mode == .Debug) {
+        return;
+    } else {
+        process.exit(0);
+    }
 }

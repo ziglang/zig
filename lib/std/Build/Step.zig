@@ -6,14 +6,12 @@ dependencies: std.ArrayList(*Step),
 /// then populated during dependency loop checking in the build runner.
 dependants: std.ArrayListUnmanaged(*Step),
 state: State,
-/// Populated only if state is success.
-result: struct {
-    err_code: anyerror,
-    error_msgs: std.ArrayListUnmanaged([]const u8),
-},
 /// The return addresss associated with creation of this step that can be useful
 /// to print along with debugging messages.
 debug_stack_trace: [n_debug_stack_frames]usize,
+
+result_error_msgs: std.ArrayListUnmanaged([]const u8),
+result_error_bundle: std.zig.ErrorBundle,
 
 const n_debug_stack_frames = 4;
 
@@ -94,16 +92,25 @@ pub fn init(allocator: Allocator, options: Options) Step {
         .dependencies = std.ArrayList(*Step).init(allocator),
         .dependants = .{},
         .state = .precheck_unstarted,
-        .result = .{
-            .err_code = undefined,
-            .error_msgs = .{},
-        },
         .debug_stack_trace = addresses,
+        .result_error_msgs = .{},
+        .result_error_bundle = std.zig.ErrorBundle.empty,
     };
 }
 
-pub fn make(self: *Step) !void {
-    try self.makeFn(self);
+/// If the Step's `make` function reports `error.MakeFailed`, it indicates they
+/// have already reported the error. Otherwise, we add a simple error report
+/// here.
+pub fn make(s: *Step) error{MakeFailed}!void {
+    return s.makeFn(s) catch |err| {
+        if (err != error.MakeFailed) {
+            const gpa = s.dependencies.allocator;
+            s.result_error_msgs.append(gpa, std.fmt.allocPrint(gpa, "{s} failed: {s}", .{
+                s.name, @errorName(err),
+            }) catch @panic("OOM")) catch @panic("OOM");
+        }
+        return error.MakeFailed;
+    };
 }
 
 pub fn dependOn(self: *Step, other: *Step) void {

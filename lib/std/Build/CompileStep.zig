@@ -1177,11 +1177,6 @@ fn make(step: *Step) !void {
     };
     try zig_args.append(cmd);
 
-    if (builder.color != .auto) {
-        try zig_args.append("--color");
-        try zig_args.append(@tagName(builder.color));
-    }
-
     if (builder.reference_trace) |some| {
         try zig_args.append(try std.fmt.allocPrint(builder.allocator, "-freference-trace={d}", .{some}));
     }
@@ -1834,6 +1829,7 @@ fn make(step: *Step) !void {
     }
 
     try zig_args.append("--enable-cache");
+    try zig_args.append("--listen=-");
 
     // Windows has an argument length limit of 32,766 characters, macOS 262,144 and Linux
     // 2,097,152. If our args exceed 30 KiB, we instead write them to a "response file" and

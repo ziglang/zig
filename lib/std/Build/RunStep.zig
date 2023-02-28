@@ -419,12 +419,8 @@ pub fn runCommand(
     };
 
     if (!termMatches(expected_term, term)) {
-        if (builder.prominent_compile_errors) {
-            std.debug.print("Run step {} (expected {})\n", .{ fmtTerm(term), fmtTerm(expected_term) });
-        } else {
-            std.debug.print("The following command {} (expected {}):\n", .{ fmtTerm(term), fmtTerm(expected_term) });
-            printCmd(cwd, argv);
-        }
+        std.debug.print("The following command {} (expected {}):\n", .{ fmtTerm(term), fmtTerm(expected_term) });
+        printCmd(cwd, argv);
         return error.UnexpectedExit;
     }
 
