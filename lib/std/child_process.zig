@@ -210,13 +210,7 @@ pub const ChildProcess = struct {
     ) !void {
         debug.assert(child.stdout_behavior == .Pipe);
         debug.assert(child.stderr_behavior == .Pipe);
-        if (builtin.os.tag == .haiku) {
-            const stdout_in = child.stdout.?.reader();
-            const stderr_in = child.stderr.?.reader();
-
-            try stdout_in.readAllArrayList(stdout, max_output_bytes);
-            try stderr_in.readAllArrayList(stderr, max_output_bytes);
-        } else if (builtin.os.tag == .windows) {
+        if (builtin.os.tag == .windows) {
             try collectOutputWindows(child, stdout, stderr, max_output_bytes);
         } else {
             try collectOutputPosix(child, stdout, stderr, max_output_bytes);
