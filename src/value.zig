@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Type = @import("type.zig").Type;
 const log2 = std.math.log2;
 const assert = std.debug.assert;
@@ -5584,6 +5585,35 @@ pub const Value = extern union {
             ri.* = @intToEnum(RuntimeIndex, @enumToInt(ri.*) + 1);
         }
     };
+
+    /// This function is used in the debugger pretty formatters in tools/ to fetch the
+    /// Tag to Payload mapping to facilitate fancy debug printing for this type.
+    fn dbHelper(self: *Value, tag_to_payload_map: *map: {
+        const tags = @typeInfo(Tag).Enum.fields;
+        var fields: [tags.len]std.builtin.Type.StructField = undefined;
+        for (&fields, tags) |*field, t| field.* = .{
+            .name = t.name,
+            .type = *if (t.value < Tag.no_payload_count) void else @field(Tag, t.name).Type(),
+            .default_value = null,
+            .is_comptime = false,
+            .alignment = 0,
+        };
+        break :map @Type(.{ .Struct = .{
+            .layout = .Extern,
+            .fields = &fields,
+            .decls = &.{},
+            .is_tuple = false,
+        } });
+    }) void {
+        _ = self;
+        _ = tag_to_payload_map;
+    }
+
+    comptime {
+        if (builtin.mode == .Debug) {
+            _ = dbHelper;
+        }
+    }
 };
 
 var negative_one_payload: Value.Payload.I64 = .{
