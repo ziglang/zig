@@ -383,6 +383,21 @@ pub fn LinearFifo(
                 self.discard(try dest_writer.write(self.readableSlice(0)));
             }
         }
+
+        pub fn toOwnedSlice(self: *Self) Allocator.Error![]T {
+            assert(self.head == 0);
+            assert(self.count <= self.buf.len);
+            const allocator = self.allocator;
+            if (allocator.resize(self.buf, self.count)) {
+                const result = self.buf[0..self.count];
+                self.* = Self.init(allocator);
+                return result;
+            }
+            const new_memory = try allocator.dupe(T, self.buf[0..self.count]);
+            allocator.free(self.buf);
+            self.* = Self.init(allocator);
+            return new_memory;
+        }
     };
 }
 
