@@ -182,6 +182,14 @@ pub fn main() !void {
                     std.debug.print("Expected argument after --glibc-runtimes\n\n", .{});
                     return usageAndErr(builder, false, stderr_stream);
                 };
+            } else if (mem.eql(u8, arg, "--dump-build-info")) {
+                builder.dump_build_info = .dry;
+            } else if (mem.startsWith(u8, arg, "--dump-build-info=")) {
+                const mode = arg["--dump-build-info=".len..];
+                builder.dump_build_info = std.meta.stringToEnum(@TypeOf(builder.dump_build_info), mode) orelse {
+                    std.debug.print("invalid dump_build_info mode '{s}': must be 'off', 'dry', or 'wet'\n\n", .{mode});
+                    process.exit(1);
+                };
             } else if (mem.eql(u8, arg, "--verbose-link")) {
                 builder.verbose_link = true;
             } else if (mem.eql(u8, arg, "--verbose-air")) {
@@ -363,6 +371,11 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\  --global-cache-dir [path]    Override path to global Zig cache directory
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
         \\  --debug-log [scope]          Enable debugging the compiler
+        \\  --dump-build-info[=...]      Dump zon-formatted module and step information to stdout
+        \\                                   off: Does not dump any build info
+        \\                                   dry: Only dumps build info, does not run any steps (default)
+        \\                                   wet: Runs build steps and then dumps build info
+        \\                                   
         \\  --verbose-link               Enable compiler debug output for linking
         \\  --verbose-air                Enable compiler debug output for Zig AIR
         \\  --verbose-llvm-ir            Enable compiler debug output for LLVM IR

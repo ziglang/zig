@@ -90,6 +90,9 @@ pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
 args: ?[][]const u8 = null,
 debug_log_scopes: []const []const u8 = &.{},
 debug_compile_errors: bool = false,
+/// Whether or not to dump build info in zon
+/// upon construction of the build graph
+dump_build_info: enum { off, dry, wet } = .off,
 
 /// Experimental. Use system Darling installation to run cross compiled macOS build artifacts.
 enable_darling: bool = false,
@@ -112,6 +115,7 @@ host: NativeTargetInfo,
 
 dep_prefix: []const u8 = "",
 
+dependencies: std.StringArrayHashMap(*Dependency),
 modules: std.StringArrayHashMap(*Module),
 
 pub const ExecError = error{
@@ -239,6 +243,7 @@ pub fn create(
         .install_path = undefined,
         .args = null,
         .host = host,
+        .dependencies = std.StringArrayHashMap(*Dependency).init(allocator),
         .modules = std.StringArrayHashMap(*Module).init(allocator),
     };
     try self.top_level_steps.append(&self.install_tls);
@@ -314,6 +319,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .glibc_runtimes_dir = parent.glibc_runtimes_dir,
         .host = parent.host,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
+        .dependencies = std.StringArrayHashMap(*Dependency).init(allocator),
         .modules = std.StringArrayHashMap(*Module).init(allocator),
     };
     try child.top_level_steps.append(&child.install_tls);
@@ -714,9 +720,93 @@ pub fn make(self: *Build, step_names: []const []const u8) !void {
         }
     }
 
-    for (wanted_steps.items) |s| {
-        try self.makeOneStep(s);
+    if (self.dump_build_info != .dry) {
+        for (wanted_steps.items) |s| {
+            try self.makeOneStep(s);
+        }
     }
+
+    if (self.dump_build_info != .off) {
+        const stdout_writer = std.io.getStdOut().writer();
+        var buffered_writer = std.io.bufferedWriter(stdout_writer);
+        try self.dumpBuildInfo(buffered_writer.writer(), 0);
+        try buffered_writer.flush();
+    }
+}
+
+fn indent(writer: anytype, indentation: usize) !void {
+    try writer.writeByteNTimes(' ', 4 * indentation);
+}
+
+fn dumpModules(mods: std.StringArrayHashMap(*Module), writer: anytype, indentation: usize) !void {
+    if (mods.count() == 0) {
+        try writer.writeAll(
+            \\.{}
+        );
+    } else {
+        try writer.writeAll(".{\n");
+
+        var module_iterator = mods.iterator();
+        while (module_iterator.next()) |entry| {
+            try indent(writer, indentation + 1);
+            try writer.print(".{s} = .{{\n", .{std.zig.fmtId(entry.key_ptr.*)});
+
+            try indent(writer, indentation + 2);
+            try writer.print(".path = \"{}\",\n", .{
+                std.zig.fmtEscapes(
+                    switch (entry.value_ptr.*.source_file) {
+                        .generated => |gen| gen.path orelse "generated",
+                        .path => |path| path,
+                    },
+                ),
+            });
+
+            try indent(writer, indentation + 2);
+            try writer.print(".dependencies = ", .{});
+            try dumpModules(entry.value_ptr.*.dependencies, writer, indentation + 2);
+            try writer.writeAll(",\n");
+
+            try indent(writer, indentation + 1);
+            try writer.writeAll("},\n");
+        }
+
+        try indent(writer, indentation);
+        try writer.writeAll("}");
+    }
+}
+
+pub fn dumpBuildInfo(self: *Build, writer: anytype, indentation: usize) !void {
+    try writer.writeAll(".{\n");
+
+    try indent(writer, indentation + 1);
+    try writer.print(".path = \"{}\",\n", .{std.zig.fmtEscapes(self.pathFromRoot("build.zig"))});
+
+    try indent(writer, indentation + 1);
+    try writer.writeAll(".dependencies = .{");
+
+    if (self.dependencies.count() == 0) {
+        try writer.writeAll("},\n");
+    } else {
+        try writer.writeAll("\n");
+
+        var dep_it = self.dependencies.iterator();
+        while (dep_it.next()) |entry| {
+            try indent(writer, indentation + 2);
+            try writer.print(".{s} = ", .{std.zig.fmtId(entry.key_ptr.*)});
+            try entry.value_ptr.*.builder.dumpBuildInfo(writer, indentation + 2);
+        }
+
+        try indent(writer, indentation + 1);
+        try writer.writeAll("},\n");
+    }
+
+    try indent(writer, indentation + 1);
+    try writer.writeAll(".modules = ");
+    try dumpModules(self.modules, writer, indentation + 1);
+    try writer.writeAll(",\n");
+
+    try indent(writer, indentation);
+    try writer.writeAll("}\n");
 }
 
 pub fn getInstallStep(self: *Build) *Step {
@@ -1537,6 +1627,9 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
 
+    if (b.dependencies.get(name)) |dep|
+        return dep;
+
     inline for (@typeInfo(deps.imports).Struct.decls) |decl| {
         if (mem.startsWith(u8, decl.name, b.dep_prefix) and
             mem.endsWith(u8, decl.name, name) and
@@ -1578,6 +1671,7 @@ fn dependencyInner(
 
     const dep = b.allocator.create(Dependency) catch @panic("OOM");
     dep.* = .{ .builder = sub_builder };
+    b.dependencies.put(name, dep) catch @panic("unhandled error");
     return dep;
 }
 
