@@ -183,11 +183,8 @@ pub fn poll(
             .count = 0,
         };
         result.poll_fds[i] = .{
-            .fd = @field(files, enum_fields[i].name).file.handle,
-            .events = switch (@field(files, enum_fields[i].name).direction) {
-                .in => os.POLL.IN,
-                .out => os.POLL.OUT,
-            },
+            .fd = @field(files, enum_fields[i].name).handle,
+            .events = os.POLL.IN,
             .revents = undefined,
         };
     }
@@ -200,11 +197,14 @@ pub fn Poller(comptime StreamEnum: type) type {
         const Fifo = std.fifo.LinearFifo(u8, .Dynamic);
 
         fifos: [enum_fields.len]Fifo,
-        //directions: [enum_fields.len]PollFile.Direction,
-        //handles: [enum_fields.len]std.fs.File.Handle,
         poll_fds: [enum_fields.len]std.os.pollfd,
 
         const Self = @This();
+
+        pub fn deinit(self: *Self) void {
+            inline for (&self.fifos) |*q| q.deinit();
+            self.* = undefined;
+        }
 
         pub fn poll(self: *Self) !void {
             if (builtin.os.tag == .windows) {
@@ -241,31 +241,22 @@ pub fn Poller(comptime StreamEnum: type) type {
             const events_len = try os.poll(&self.poll_fds, std.math.maxInt(i32));
             if (events_len == 0) return;
 
-            inline for (0..enum_fields.len) |i| {
+            inline for (&self.poll_fds, &self.fifos) |*poll_fd, *q| {
                 // Try reading whatever is available before checking the error
                 // conditions.
                 // It's still possible to read after a POLL.HUP is received,
                 // always check if there's some data waiting to be read first.
-                if (self.poll_fds[i].revents & os.POLL.IN != 0) {
-                    const q = &self.fifos[i];
+                if (poll_fd.revents & os.POLL.IN != 0) {
                     const buf = try q.writableWithSize(bump_amt);
-                    const amt = try os.read(self.poll_fds[i].fd, buf);
+                    const amt = try os.read(poll_fd.fd, buf);
                     q.update(amt);
-                    std.debug.print("read {d} bytes\n", .{amt});
                     if (amt == 0) {
                         // Remove the fd when the EOF condition is met.
-                        self.poll_fds[i].fd = -1;
+                        poll_fd.fd = -1;
                     }
-                } else if (self.poll_fds[i].revents & err_mask != 0) {
+                } else if (poll_fd.revents & err_mask != 0) {
                     // Exclude the fds that signaled an error.
-                    self.poll_fds[i].fd = -1;
-                } else if (self.poll_fds[i].revents & os.POLL.OUT != 0) {
-                    const q = &self.fifos[i];
-                    const amt = try os.write(self.poll_fds[i].fd, q.readableSlice(0));
-                    q.discard(amt);
-                    if (amt == 0) {
-                        self.poll_fds[i].fd = -1;
-                    }
+                    poll_fd.fd = -1;
                 }
             }
         }
@@ -280,10 +271,10 @@ pub fn PollFiles(comptime StreamEnum: type) type {
     for (&struct_fields, enum_fields) |*struct_field, enum_field| {
         struct_field.* = .{
             .name = enum_field.name,
-            .type = PollFile,
+            .type = fs.File,
             .default_value = null,
             .is_comptime = false,
-            .alignment = @alignOf(PollFile),
+            .alignment = @alignOf(fs.File),
         };
     }
     return @Type(.{ .Struct = .{
@@ -293,13 +284,6 @@ pub fn PollFiles(comptime StreamEnum: type) type {
         .is_tuple = false,
     } });
 }
-
-pub const PollFile = struct {
-    file: File,
-    direction: Direction,
-
-    pub const Direction = enum { in, out };
-};
 
 test {
     _ = @import("io/bit_reader.zig");
