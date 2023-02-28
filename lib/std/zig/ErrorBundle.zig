@@ -2,10 +2,20 @@
 //! so that they can be created and destroyed appropriately. This structure
 //! is used to collect all the errors from the various places into one
 //! convenient place for API users to consume.
+//!
+//! There is one special encoding for this data structure. If both arrays are
+//! empty, it means there are no errors. This special encoding exists so that
+//! heap allocation is not needed in the common case of no errors.
 
 string_bytes: []const u8,
 /// The first thing in this array is an `ErrorMessageList`.
 extra: []const u32,
+
+/// Special encoding when there are no errors.
+pub const empty: ErrorBundle = .{
+    .string_bytes = &.{},
+    .extra = &.{},
+};
 
 // An index into `extra` pointing at an `ErrorMessage`.
 pub const MessageIndex = enum(u32) {
@@ -72,6 +82,7 @@ pub fn deinit(eb: *ErrorBundle, gpa: Allocator) void {
 }
 
 pub fn errorMessageCount(eb: ErrorBundle) u32 {
+    if (eb.extra.len == 0) return 0;
     return eb.getErrorMessageList().len;
 }
 
@@ -313,6 +324,17 @@ pub const Wip = struct {
 
     pub fn toOwnedBundle(wip: *Wip) !ErrorBundle {
         const gpa = wip.gpa;
+        if (wip.root_list.items.len == 0) {
+            // Special encoding when there are no errors.
+            wip.deinit();
+            wip.* = .{
+                .gpa = gpa,
+                .string_bytes = .{},
+                .extra = .{},
+                .root_list = .{},
+            };
+            return empty;
+        }
         wip.setExtra(0, ErrorMessageList{
             .len = @intCast(u32, wip.root_list.items.len),
             .start = @intCast(u32, wip.extra.items.len),
