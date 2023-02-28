@@ -178,7 +178,7 @@ pub fn poll(
 
     if (builtin.os.tag == .windows) result.windows = .{
         .first_read_done = false,
-        .overlapped = [1]os.windows.OVERLAPPED {
+        .overlapped = [1]os.windows.OVERLAPPED{
             mem.zeroes(os.windows.OVERLAPPED),
         } ** enum_fields.len,
         .active = .{
@@ -227,7 +227,7 @@ pub fn Poller(comptime StreamEnum: type) type {
 
                 pub fn removeAt(self: *@This(), index: u32) void {
                     std.debug.assert(index < self.count);
-                    for (index + 1 .. self.count) |i| {
+                    for (index + 1..self.count) |i| {
                         self.handles_buf[i - 1] = self.handles_buf[i];
                         self.stream_map[i - 1] = self.stream_map[i];
                     }
@@ -241,7 +241,7 @@ pub fn Poller(comptime StreamEnum: type) type {
         pub fn deinit(self: *Self) void {
             if (builtin.os.tag == .windows) {
                 // cancel any pending IO to prevent clobbering OVERLAPPED value
-                for (self.windows.active.handles_buf[0 .. self.windows.active.count]) |h| {
+                for (self.windows.active.handles_buf[0..self.windows.active.count]) |h| {
                     _ = os.windows.kernel32.CancelIo(h);
                 }
             }
@@ -381,7 +381,7 @@ fn windowsAsyncRead(
     overlapped: *os.windows.OVERLAPPED,
     fifo: *PollFifo,
     bump_amt: usize,
-) !enum{ pending, closed } {
+) !enum { pending, closed } {
     while (true) {
         const buf = try fifo.writableWithSize(bump_amt);
         var read_bytes: u32 = undefined;
