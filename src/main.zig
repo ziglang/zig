@@ -4013,7 +4013,7 @@ pub const usage_build =
     \\   --cache-dir [path]            Override path to local Zig cache directory
     \\   --global-cache-dir [path]     Override path to global Zig cache directory
     \\   --zig-lib-dir [arg]           Override path to Zig lib directory
-    \\   --build-runner [path]         Override path to build runner
+    \\   --build-runner [file]         Override path to build runner
     \\   --prominent-compile-errors    Output compile errors formatted for a human to read
     \\   -h, --help                    Print this help and exit
     \\
@@ -4212,7 +4212,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 .root_src_directory = blk: {
                     if (std.fs.path.dirname(build_runner_path)) |dirname| {
                         const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
-                            fatal("unable to open directory to build file from argument 'build-runner', '{s}': {s}", .{ dirname, @errorName(err) });
+                            fatal("unable to open directory to build runner from argument 'build-runner', '{s}': {s}", .{ dirname, @errorName(err) });
                         };
                         cleanup_build_runner_dir = dir;
                         break :blk .{ .path = dirname, .handle = dir };

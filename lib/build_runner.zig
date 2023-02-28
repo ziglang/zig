@@ -362,6 +362,7 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\  --cache-dir [path]           Override path to local Zig cache directory
         \\  --global-cache-dir [path]    Override path to global Zig cache directory
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
+        \\  --build-runner [file]        Override path to build runner
         \\  --debug-log [scope]          Enable debugging the compiler
         \\  --verbose-link               Enable compiler debug output for linking
         \\  --verbose-air                Enable compiler debug output for Zig AIR
