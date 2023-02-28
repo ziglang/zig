@@ -183,9 +183,11 @@ pub fn main() !void {
                     return usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--dump-build-info")) {
-                builder.dump_build_info = .dry;
-            } else if (mem.startsWith(u8, arg, "--dump-build-info=")) {
-                const mode = arg["--dump-build-info=".len..];
+                const mode = nextArg(args, &arg_idx) orelse {
+                    std.debug.print("Expected argument after --dump-build-info\n\n", .{});
+                    return usageAndErr(builder, false, stderr_stream);
+                };
+
                 builder.dump_build_info = std.meta.stringToEnum(@TypeOf(builder.dump_build_info), mode) orelse {
                     std.debug.print("invalid dump_build_info mode '{s}': must be 'off', 'dry', or 'wet'\n\n", .{mode});
                     process.exit(1);
@@ -371,9 +373,9 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\  --global-cache-dir [path]    Override path to global Zig cache directory
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
         \\  --debug-log [scope]          Enable debugging the compiler
-        \\  --dump-build-info[=...]      Dump zon-formatted module and step information to stdout
-        \\                                   off: Does not dump any build info
-        \\                                   dry: Only dumps build info, does not run any steps (default)
+        \\  --dump-build-info [mode]     Dump zon-formatted module and step information to stdout
+        \\                                   off: Does not dump any build info (default)
+        \\                                   dry: Only dumps build info, does not run any steps
         \\                                   wet: Runs build steps and then dumps build info
         \\                                   
         \\  --verbose-link               Enable compiler debug output for linking
