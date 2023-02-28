@@ -644,9 +644,8 @@ fn argsRest(args: [][]const u8, idx: usize) ?[][]const u8 {
 }
 
 fn cleanExit() void {
-    if (builtin.mode == .Debug) {
-        return;
-    } else {
-        process.exit(0);
-    }
+    // Perhaps in the future there could be an Advanced Options flag such as
+    // --debug-build-runner-leaks which would make this function return instead
+    // of calling exit.
+    process.exit(0);
 }
