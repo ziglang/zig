@@ -21,7 +21,7 @@ pub fn create(builder: *std.Build, artifact: *CompileStep) *InstallArtifactStep 
         .builder = builder,
         .step = Step.init(builder.allocator, .{
             .id = base_id,
-            .name = builder.fmt("install {s}", .{artifact.step.name}),
+            .name = builder.fmt("install {s}", .{artifact.name}),
             .makeFn = make,
         }),
         .artifact = artifact,
