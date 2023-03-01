@@ -618,7 +618,7 @@ pub fn addRunArtifact(b: *Build, exe: *CompileStep) *RunStep {
     // It doesn't have to be native. We catch that if you actually try to run it.
     // Consider that this is declarative; the run step may not be run unless a user
     // option is supplied.
-    const run_step = RunStep.create(b, b.fmt("run {s}", .{exe.step.name}));
+    const run_step = RunStep.create(b, b.fmt("run {s}", .{exe.name}));
     run_step.addArtifactArg(exe);
 
     if (exe.kind == .test_exe) {
