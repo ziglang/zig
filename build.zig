@@ -175,7 +175,6 @@ pub fn build(b: *std.Build) !void {
         test_step.dependOn(&exe.step);
     }
 
-    b.default_step.dependOn(&exe.step);
     exe.single_threaded = single_threaded;
 
     if (target.isWindows() and target.getAbi() == .gnu) {
