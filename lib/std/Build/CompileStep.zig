@@ -1888,8 +1888,8 @@ fn make(step: *Step) !void {
         try zig_args.append(resolved_args_file);
     }
 
-    const output_dir_nl = try builder.execFromStep(zig_args.items, &self.step);
-    const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
+    const output_bin_path = try builder.execFromStep(zig_args.items, &self.step);
+    const build_output_dir = fs.path.dirname(output_bin_path).?;
 
     if (self.output_dir) |output_dir| {
         var src_dir = try std.fs.cwd().openIterableDir(build_output_dir, .{});

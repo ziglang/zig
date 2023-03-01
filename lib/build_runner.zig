@@ -364,12 +364,17 @@ fn runStepNames(
         }
     }
 
+    // A proper command line application defaults to silently succeeding.
+    // The user may request verbose mode if they have a different preference.
+    if (failure_count == 0 and !b.verbose) return cleanExit();
+
     const stderr = std.io.getStdErr();
 
     const total_count = success_count + failure_count + pending_count;
     stderr.writer().print("build summary: {d}/{d} steps succeeded; {d} failed\n", .{
         success_count, total_count, failure_count,
     }) catch {};
+
     if (failure_count == 0) return cleanExit();
 
     for (step_stack.items) |s| switch (s.state) {
@@ -493,6 +498,7 @@ fn workerMakeOneStep(
             stderr.writeAll("error: ") catch break;
             ttyconf.setColor(stderr, .Reset) catch break;
             stderr.writeAll(msg) catch break;
+            stderr.writeAll("\n") catch break;
         }
     }
 

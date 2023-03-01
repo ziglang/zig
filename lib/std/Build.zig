@@ -1154,13 +1154,12 @@ fn allocPrintCmd(ally: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8
     for (argv) |arg| {
         try buf.writer().print("{s} ", .{arg});
     }
-    try buf.append('\n');
     return buf.toOwnedSlice();
 }
 
 fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
     const text = allocPrintCmd(ally, cwd, argv) catch @panic("OOM");
-    std.debug.print("{s}", .{text});
+    std.debug.print("{s}\n", .{text});
 }
 
 pub fn spawnChildEnvMap(self: *Build, cwd: ?[]const u8, env_map: *const EnvMap, argv: []const []const u8) !void {
@@ -1482,7 +1481,7 @@ pub fn execFromStep(b: *Build, argv: []const []const u8, s: *Step) ![]const u8 {
                         @panic("TODO handle progress message");
                     },
                     .emit_bin_path => {
-                        @panic("TODO handle emit_bin_path message");
+                        result = try b.allocator.dupe(u8, body);
                     },
                     _ => {
                         // Unrecognized message.
@@ -1553,7 +1552,7 @@ fn sendMessage(file: fs.File, tag: std.zig.Client.Message.Tag) !void {
 /// a helpful message.
 pub fn exec(b: *Build, argv: []const []const u8) []u8 {
     if (!process.can_spawn) {
-        std.debug.print("unable to spawn the following command: cannot spawn child process\n{s}", .{
+        std.debug.print("unable to spawn the following command: cannot spawn child process\n{s}\n", .{
             try allocPrintCmd(b.allocator, null, argv),
         });
         process.exit(1);
@@ -1562,7 +1561,7 @@ pub fn exec(b: *Build, argv: []const []const u8) []u8 {
     var code: u8 = undefined;
     return b.execAllowFail(argv, &code, .Inherit) catch |err| {
         const printed_cmd = allocPrintCmd(b.allocator, null, argv) catch @panic("OOM");
-        std.debug.print("unable to spawn the following command: {s}\n{s}", .{
+        std.debug.print("unable to spawn the following command: {s}\n{s}\n", .{
             @errorName(err), printed_cmd,
         });
         process.exit(1);
