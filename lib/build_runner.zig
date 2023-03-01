@@ -424,6 +424,17 @@ const PrintNode = struct {
     last: bool = false,
 };
 
+fn printPrefix(node: *PrintNode, stderr: std.fs.File) !void {
+    const parent = node.parent orelse return;
+    if (parent.parent == null) return;
+    try printPrefix(parent, stderr);
+    if (parent.last) {
+        try stderr.writeAll("   ");
+    } else {
+        try stderr.writeAll("│  ");
+    }
+}
+
 fn printTreeStep(
     b: *std.Build,
     s: *Step,
@@ -431,15 +442,7 @@ fn printTreeStep(
     ttyconf: std.debug.TTY.Config,
     parent_node: *PrintNode,
 ) !void {
-    var opt_node: ?*PrintNode = parent_node.parent;
-    while (opt_node) |n| : (opt_node = n.parent) {
-        if (n.parent == null) break;
-        if (n.last) {
-            try stderr.writeAll("   ");
-        } else {
-            try stderr.writeAll("│  ");
-        }
-    }
+    try printPrefix(parent_node, stderr);
 
     if (parent_node.parent != null) {
         if (parent_node.last) {
