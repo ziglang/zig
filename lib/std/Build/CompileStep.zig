@@ -312,6 +312,12 @@ pub fn create(builder: *std.Build, options: Options) *CompileStep {
         panic("invalid name: '{s}'. It looks like a file path, but it is supposed to be the library or application name.", .{name});
     }
 
+    const step_name = builder.fmt("compile {s} {s} {s}", .{
+        name,
+        @tagName(options.optimize),
+        options.target.zigTriple(builder.allocator) catch @panic("OOM"),
+    });
+
     const self = builder.allocator.create(CompileStep) catch @panic("OOM");
     self.* = CompileStep{
         .strip = null,
@@ -328,7 +334,7 @@ pub fn create(builder: *std.Build, options: Options) *CompileStep {
         .frameworks = StringHashMap(FrameworkLinkInfo).init(builder.allocator),
         .step = Step.init(builder.allocator, .{
             .id = base_id,
-            .name = name,
+            .name = step_name,
             .makeFn = make,
         }),
         .version = options.version,
