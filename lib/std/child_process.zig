@@ -235,8 +235,7 @@ pub const ChildProcess = struct {
         });
         defer poller.deinit();
 
-        while (!poller.done()) {
-            try poller.poll();
+        while (try poller.poll()) {
             if (poller.fifo(.stdout).count > max_output_bytes)
                 return error.StdoutStreamTooLong;
             if (poller.fifo(.stderr).count > max_output_bytes)
