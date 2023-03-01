@@ -48,6 +48,11 @@ condition: enum { output_outdated, always } = .output_outdated,
 /// that the RunStep should be re-executed.
 extra_file_dependencies: []const []const u8 = &.{},
 
+/// After adding an output argument, this step will by default rename itself
+/// for a better display name in the build summary.
+/// This can be disabled by setting this to false.
+rename_step_with_output_arg: bool,
+
 pub const StdIoAction = union(enum) {
     inherit,
     ignore,
@@ -80,6 +85,7 @@ pub fn create(builder: *std.Build, name: []const u8) *RunStep {
         .cwd = null,
         .env_map = null,
         .print = builder.verbose,
+        .rename_step_with_output_arg = true,
     };
     return self;
 }
@@ -99,6 +105,11 @@ pub fn addOutputFileArg(rs: *RunStep, basename: []const u8) std.Build.FileSource
         .generated_file = generated_file,
         .basename = rs.builder.dupe(basename),
     } }) catch @panic("OOM");
+
+    if (rs.rename_step_with_output_arg) {
+        rs.rename_step_with_output_arg = false;
+        rs.step.name = rs.builder.fmt("{s} ({s})", .{ rs.step.name, basename });
+    }
 
     return .{ .generated = generated_file };
 }
@@ -207,7 +218,11 @@ fn needOutputCheck(self: RunStep) bool {
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    // Unfortunately we have no way to collect progress from arbitrary programs.
+    // Perhaps in the future Zig could offer some kind of opt-in IPC mechanism that
+    // processes could use to supply progress updates.
     _ = prog_node;
+
     const self = @fieldParentPtr(RunStep, "step", step);
     const need_output_check = self.needOutputCheck();
 
