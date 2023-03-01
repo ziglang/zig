@@ -1453,7 +1453,7 @@ pub fn execFromStep(b: *Build, argv: []const []const u8, s: *Step, prog_node: *s
             const header = @ptrCast(*align(1) const Header, buf[0..@sizeOf(Header)]);
             const header_and_msg_len = header.bytes_len + @sizeOf(Header);
             if (buf.len >= header_and_msg_len) {
-                const body = buf[@sizeOf(Header)..];
+                const body = buf[@sizeOf(Header)..][0..header.bytes_len];
                 switch (header.tag) {
                     .zig_version => {
                         if (!mem.eql(u8, builtin.zig_version_string, body)) {

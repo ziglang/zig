@@ -3287,10 +3287,6 @@ fn buildOutputType(
     if (show_builtin) {
         return std.io.getStdOut().writeAll(try comp.generateBuiltinZigSource(arena));
     }
-    if (arg_mode == .translate_c) {
-        return cmdTranslateC(comp, arena, have_enable_cache);
-    }
-
     switch (listen) {
         .none => {},
         .stdio => {
@@ -3330,6 +3326,10 @@ fn buildOutputType(
                 );
             }
         },
+    }
+
+    if (arg_mode == .translate_c) {
+        return cmdTranslateC(comp, arena, null);
     }
 
     const hook: AfterUpdateHook = blk: {
@@ -3532,12 +3532,7 @@ fn serve(
 ) !void {
     const gpa = comp.gpa;
 
-    try serveMessage(out, .{
-        .tag = .zig_version,
-        .bytes_len = build_options.version.len,
-    }, &.{
-        build_options.version,
-    });
+    try serveStringMessage(out, .zig_version, build_options.version);
 
     var child_pid: ?i32 = null;
     var receive_fifo = std.fifo.LinearFifo(u8, .Dynamic).init(gpa);
@@ -3570,6 +3565,17 @@ fn serve(
             .update => {
                 assert(main_progress_node.recently_updated_child == null);
                 tracy.frameMark();
+
+                if (arg_mode == .translate_c) {
+                    var arena_instance = std.heap.ArenaAllocator.init(gpa);
+                    defer arena_instance.deinit();
+                    const arena = arena_instance.allocator();
+                    var output_path: []const u8 = undefined;
+                    try cmdTranslateC(comp, arena, &output_path);
+                    try serveStringMessage(out, .emit_bin_path, output_path);
+                    continue;
+                }
+
                 if (comp.bin_file.options.output_mode == .Exe) {
                     try comp.makeBinFileWritable();
                 }
@@ -3746,14 +3752,15 @@ fn serveUpdateResults(out: fs.File, comp: *Compilation) !void {
     } else if (comp.bin_file.options.emit) |emit| {
         const full_path = try emit.directory.join(gpa, &.{emit.sub_path});
         defer gpa.free(full_path);
-
-        try serveMessage(out, .{
-            .tag = .emit_bin_path,
-            .bytes_len = @intCast(u32, full_path.len),
-        }, &.{
-            full_path,
-        });
+        try serveStringMessage(out, .emit_bin_path, full_path);
     }
+}
+
+fn serveStringMessage(out: fs.File, tag: std.zig.Server.Message.Tag, s: []const u8) !void {
+    try serveMessage(out, .{
+        .tag = tag,
+        .bytes_len = @intCast(u32, s.len),
+    }, &.{s});
 }
 
 fn receiveMessage(in: fs.File, fifo: *std.fifo.LinearFifo(u8, .Dynamic)) !std.zig.Client.Message.Header {
@@ -4100,7 +4107,7 @@ fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void
     }
 }
 
-fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool) !void {
+fn cmdTranslateC(comp: *Compilation, arena: Allocator, output_path: ?*[]const u8) !void {
     if (!build_options.have_llvm)
         fatal("cannot translate-c: compiler built without LLVM extensions", .{});
 
@@ -4111,7 +4118,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool) !void
 
     var man: Cache.Manifest = comp.obtainCObjectCacheManifest();
     man.want_shared_lock = false;
-    defer if (enable_cache) man.deinit();
+    defer if (output_path != null) man.deinit();
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
     Compilation.cache_helpers.hashCSource(&man, c_source_file) catch |err| {
@@ -4169,6 +4176,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool) !void
             error.OutOfMemory => return error.OutOfMemory,
             error.ASTUnitFailure => fatal("clang API returned errors but due to a clang bug, it is not exposing the errors for zig to see. For more details: https://github.com/ziglang/zig/issues/4455", .{}),
             error.SemanticAnalyzeFail => {
+                // TODO convert these to zig errors
                 for (clang_errors) |clang_err| {
                     std.debug.print("{s}:{d}:{d}: {s}\n", .{
                         if (clang_err.filename_ptr) |p| p[0..clang_err.filename_len] else "(no file)",
@@ -4213,12 +4221,11 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool) !void
         break :digest digest;
     };
 
-    if (enable_cache) {
+    if (output_path) |out_path| {
         const full_zig_path = try comp.local_cache_directory.join(arena, &[_][]const u8{
             "o", &digest, translated_zig_basename,
         });
-        try io.getStdOut().writer().print("{s}\n", .{full_zig_path});
-        return cleanExit();
+        out_path.* = full_zig_path;
     } else {
         const out_zig_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest, translated_zig_basename });
         const zig_file = comp.local_cache_directory.handle.openFile(out_zig_path, .{}) catch |err| {

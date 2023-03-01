@@ -97,6 +97,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try argv_list.append("-lc");
 
     try argv_list.append("--enable-cache");
+    try argv_list.append("--listen=-");
 
     if (!self.target.isNative()) {
         try argv_list.append("-target");
@@ -120,8 +121,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try argv_list.append(self.source.getPath(self.builder));
 
-    const output_path_nl = try self.builder.execFromStep(argv_list.items, &self.step, prog_node);
-    const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
+    const output_path = try self.builder.execFromStep(argv_list.items, &self.step, prog_node);
 
     self.out_basename = fs.path.basename(output_path);
     const output_dir = fs.path.dirname(output_path).?;
