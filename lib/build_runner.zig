@@ -309,7 +309,7 @@ fn runStepNames(
         }
     }
 
-    const starting_steps = step_stack.items;
+    const starting_steps = try b.allocator.dupe(*Step, step_stack.items);
     for (starting_steps) |s| {
         checkForDependencyLoop(b, s, &step_stack) catch |err| switch (err) {
             error.DependencyLoopDetected => return error.UncleanExit,
