@@ -165,10 +165,16 @@ pub fn KeccakF(comptime f: u11) type {
             st[0] ^= rc;
         }
 
-        /// Apply a reduced-round permutation to the state.
+        /// Apply a (possibly) reduced-round permutation to the state.
         pub fn permuteR(self: *Self, comptime rounds: u5) void {
-            for (RC[RC.len - rounds ..]) |r| {
-                self.round(@truncate(T, r));
+            var i = RC.len - rounds;
+            while (i < rounds - rounds % 3) : (i += 3) {
+                self.round(RC[i]);
+                self.round(RC[i + 1]);
+                self.round(RC[i + 2]);
+            }
+            while (i < rounds) : (i += 1) {
+                self.round(RC[i]);
             }
         }
 
