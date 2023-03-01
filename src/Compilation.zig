@@ -1847,8 +1847,15 @@ fn cleanupTmpArtifactDirectory(
     }
 }
 
+pub fn hotCodeSwap(comp: *Compilation, prog_node: *std.Progress.Node, pid: std.os.pid_t) !void {
+    comp.bin_file.child_pid = pid;
+    try comp.makeBinFileWritable();
+    try comp.update(prog_node);
+    try comp.makeBinFileExecutable();
+}
+
 /// Detect changes to source files, perform semantic analysis, and update the output files.
-pub fn update(comp: *Compilation) !void {
+pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
@@ -1993,21 +2000,6 @@ pub fn update(comp: *Compilation) !void {
         if (module.main_pkg.table.get("compiler_rt")) |compiler_rt_pkg| {
             try comp.work_queue.writeItem(.{ .analyze_pkg = compiler_rt_pkg });
         }
-    }
-
-    // If the terminal is dumb, we dont want to show the user all the output.
-    var progress: std.Progress = .{ .dont_print_on_dumb = true };
-    const main_progress_node = progress.start("", 0);
-    defer main_progress_node.end();
-    switch (comp.color) {
-        .off => {
-            progress.terminal = null;
-        },
-        .on => {
-            progress.terminal = std.io.getStdErr();
-            progress.supports_ansi_escape_codes = true;
-        },
-        .auto => {},
     }
 
     try comp.performAllTheWork(main_progress_node);
@@ -3057,11 +3049,11 @@ pub fn performAllTheWork(
     // backend, preventing anonymous Decls from being prematurely destroyed.
     while (true) {
         if (comp.work_queue.readItem()) |work_item| {
-            try processOneJob(comp, work_item);
+            try processOneJob(comp, work_item, main_progress_node);
             continue;
         }
         if (comp.anon_work_queue.readItem()) |work_item| {
-            try processOneJob(comp, work_item);
+            try processOneJob(comp, work_item, main_progress_node);
             continue;
         }
         break;
@@ -3069,16 +3061,16 @@ pub fn performAllTheWork(
 
     if (comp.job_queued_compiler_rt_lib) {
         comp.job_queued_compiler_rt_lib = false;
-        buildCompilerRtOneShot(comp, .Lib, &comp.compiler_rt_lib);
+        buildCompilerRtOneShot(comp, .Lib, &comp.compiler_rt_lib, main_progress_node);
     }
 
     if (comp.job_queued_compiler_rt_obj) {
         comp.job_queued_compiler_rt_obj = false;
-        buildCompilerRtOneShot(comp, .Obj, &comp.compiler_rt_obj);
+        buildCompilerRtOneShot(comp, .Obj, &comp.compiler_rt_obj, main_progress_node);
     }
 }
 
-fn processOneJob(comp: *Compilation, job: Job) !void {
+fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !void {
     switch (job) {
         .codegen_decl => |decl_index| {
             const module = comp.bin_file.options.module.?;
@@ -3230,7 +3222,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("glibc_crt_file");
             defer named_frame.end();
 
-            glibc.buildCRTFile(comp, crt_file) catch |err| {
+            glibc.buildCRTFile(comp, crt_file, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(.glibc_crt_file, "unable to build glibc CRT file: {s}", .{
                     @errorName(err),
@@ -3241,7 +3233,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("glibc_shared_objects");
             defer named_frame.end();
 
-            glibc.buildSharedObjects(comp) catch |err| {
+            glibc.buildSharedObjects(comp, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .glibc_shared_objects,
@@ -3254,7 +3246,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("musl_crt_file");
             defer named_frame.end();
 
-            musl.buildCRTFile(comp, crt_file) catch |err| {
+            musl.buildCRTFile(comp, crt_file, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .musl_crt_file,
@@ -3267,7 +3259,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("mingw_crt_file");
             defer named_frame.end();
 
-            mingw.buildCRTFile(comp, crt_file) catch |err| {
+            mingw.buildCRTFile(comp, crt_file, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .mingw_crt_file,
@@ -3294,7 +3286,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("libunwind");
             defer named_frame.end();
 
-            libunwind.buildStaticLib(comp) catch |err| {
+            libunwind.buildStaticLib(comp, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .libunwind,
@@ -3307,7 +3299,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("libcxx");
             defer named_frame.end();
 
-            libcxx.buildLibCXX(comp) catch |err| {
+            libcxx.buildLibCXX(comp, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .libcxx,
@@ -3320,7 +3312,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("libcxxabi");
             defer named_frame.end();
 
-            libcxx.buildLibCXXABI(comp) catch |err| {
+            libcxx.buildLibCXXABI(comp, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .libcxxabi,
@@ -3333,7 +3325,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("libtsan");
             defer named_frame.end();
 
-            libtsan.buildTsan(comp) catch |err| {
+            libtsan.buildTsan(comp, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .libtsan,
@@ -3346,7 +3338,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("wasi_libc_crt_file");
             defer named_frame.end();
 
-            wasi_libc.buildCRTFile(comp, crt_file) catch |err| {
+            wasi_libc.buildCRTFile(comp, crt_file, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .wasi_libc_crt_file,
@@ -3364,6 +3356,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                 .Lib,
                 &comp.libssp_static_lib,
                 .libssp,
+                prog_node,
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.SubCompilationFailed => return, // error reported already
@@ -3383,6 +3376,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                 .Lib,
                 &comp.libc_static_lib,
                 .zig_libc,
+                prog_node,
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.SubCompilationFailed => return, // error reported already
@@ -3723,8 +3717,15 @@ fn buildCompilerRtOneShot(
     comp: *Compilation,
     output_mode: std.builtin.OutputMode,
     out: *?CRTFile,
+    prog_node: *std.Progress.Node,
 ) void {
-    comp.buildOutputFromZig("compiler_rt.zig", output_mode, out, .compiler_rt) catch |err| switch (err) {
+    comp.buildOutputFromZig(
+        "compiler_rt.zig",
+        output_mode,
+        out,
+        .compiler_rt,
+        prog_node,
+    ) catch |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(
             .compiler_rt,
@@ -5248,8 +5249,15 @@ pub fn updateSubCompilation(
     parent_comp: *Compilation,
     sub_comp: *Compilation,
     misc_task: MiscTask,
+    prog_node: *std.Progress.Node,
 ) !void {
-    try sub_comp.update();
+    {
+        var sub_node = prog_node.start(@tagName(misc_task), 0);
+        sub_node.activate();
+        defer sub_node.end();
+
+        try sub_comp.update(prog_node);
+    }
 
     // Look for compilation errors in this sub compilation
     const gpa = parent_comp.gpa;
@@ -5276,6 +5284,7 @@ fn buildOutputFromZig(
     output_mode: std.builtin.OutputMode,
     out: *?CRTFile,
     misc_task_tag: MiscTask,
+    prog_node: *std.Progress.Node,
 ) !void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
@@ -5342,7 +5351,7 @@ fn buildOutputFromZig(
     });
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, misc_task_tag);
+    try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
     assert(out.* == null);
     out.* = Compilation.CRTFile{
@@ -5358,6 +5367,7 @@ pub fn build_crt_file(
     root_name: []const u8,
     output_mode: std.builtin.OutputMode,
     misc_task_tag: MiscTask,
+    prog_node: *std.Progress.Node,
     c_source_files: []const Compilation.CSourceFile,
 ) !void {
     const tracy_trace = trace(@src());
@@ -5418,7 +5428,7 @@ pub fn build_crt_file(
     });
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, misc_task_tag);
+    try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
     try comp.crt_files.ensureUnusedCapacity(comp.gpa, 1);
 
@@ -5469,11 +5479,4 @@ pub fn compilerRtStrip(comp: Compilation) bool {
     } else {
         return true;
     }
-}
-
-pub fn hotCodeSwap(comp: *Compilation, pid: std.os.pid_t) !void {
-    comp.bin_file.child_pid = pid;
-    try comp.makeBinFileWritable();
-    try comp.update();
-    try comp.makeBinFileExecutable();
 }

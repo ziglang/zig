@@ -3543,6 +3543,23 @@ fn serve(
     var receive_fifo = std.fifo.LinearFifo(u8, .Dynamic).init(gpa);
     defer receive_fifo.deinit();
 
+    var progress: std.Progress = .{
+        .terminal = null,
+        .root = .{
+            .context = undefined,
+            .parent = null,
+            .name = "",
+            .unprotected_estimated_total_items = 0,
+            .unprotected_completed_items = 0,
+        },
+        .columns_written = 0,
+        .prev_refresh_timestamp = 0,
+        .timer = null,
+        .done = false,
+    };
+    const main_progress_node = &progress.root;
+    main_progress_node.context = &progress;
+
     while (true) {
         const hdr = try receiveMessage(in, &receive_fifo);
 
@@ -3551,11 +3568,12 @@ fn serve(
                 return cleanExit();
             },
             .update => {
+                assert(main_progress_node.recently_updated_child == null);
                 tracy.frameMark();
                 if (comp.bin_file.options.output_mode == .Exe) {
                     try comp.makeBinFileWritable();
                 }
-                try comp.update();
+                try comp.update(main_progress_node);
                 try comp.makeBinFileExecutable();
                 try serveUpdateResults(out, comp);
             },
@@ -3581,14 +3599,15 @@ fn serve(
             },
             .hot_update => {
                 tracy.frameMark();
+                assert(main_progress_node.recently_updated_child == null);
                 if (child_pid) |pid| {
-                    try comp.hotCodeSwap(pid);
+                    try comp.hotCodeSwap(main_progress_node, pid);
                     try serveUpdateResults(out, comp);
                 } else {
                     if (comp.bin_file.options.output_mode == .Exe) {
                         try comp.makeBinFileWritable();
                     }
-                    try comp.update();
+                    try comp.update(main_progress_node);
                     try comp.makeBinFileExecutable();
                     try serveUpdateResults(out, comp);
 
@@ -3936,7 +3955,24 @@ const AfterUpdateHook = union(enum) {
 };
 
 fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void {
-    try comp.update();
+    {
+        // If the terminal is dumb, we dont want to show the user all the output.
+        var progress: std.Progress = .{ .dont_print_on_dumb = true };
+        const main_progress_node = progress.start("", 0);
+        defer main_progress_node.end();
+        switch (comp.color) {
+            .off => {
+                progress.terminal = null;
+            },
+            .on => {
+                progress.terminal = std.io.getStdErr();
+                progress.supports_ansi_escape_codes = true;
+            },
+            .auto => {},
+        }
+
+        try comp.update(main_progress_node);
+    }
 
     var errors = try comp.getAllErrorsAlloc();
     defer errors.deinit(comp.gpa);
@@ -4642,6 +4678,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         switch (term) {
             .Exited => |code| {
                 if (code == 0) return cleanExit();
+                // Indicates that the build runner has reported compile errors
+                // and this parent process does not need to report any further
+                // diagnostics.
+                if (code == 2) process.exit(2);
 
                 const cmd = try std.mem.join(arena, " ", child_argv);
                 fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
