@@ -22,10 +22,9 @@ pub fn main() !void {
     var thread_safe_arena: std.heap.ThreadSafeAllocator = .{
         .child_allocator = single_threaded_arena.allocator(),
     };
-    const allocator = thread_safe_arena.allocator();
+    const arena = thread_safe_arena.allocator();
 
-    var args = try process.argsAlloc(allocator);
-    defer process.argsFree(allocator, args);
+    var args = try process.argsAlloc(arena);
 
     // skip my own exe name
     var arg_idx: usize = 1;
@@ -65,7 +64,7 @@ pub fn main() !void {
     };
 
     var cache: std.Build.Cache = .{
-        .gpa = allocator,
+        .gpa = arena,
         .manifest_dir = try local_cache_directory.handle.makeOpenPath("h", .{}),
     };
     cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
@@ -75,7 +74,7 @@ pub fn main() !void {
     cache.hash.addBytes(builtin.zig_version_string);
 
     const builder = try std.Build.create(
-        allocator,
+        arena,
         zig_exe,
         build_root_directory,
         local_cache_directory,
@@ -85,9 +84,9 @@ pub fn main() !void {
     );
     defer builder.destroy();
 
-    var targets = ArrayList([]const u8).init(allocator);
-    var debug_log_scopes = ArrayList([]const u8).init(allocator);
-    var thread_pool_options: std.Thread.Pool.Options = .{ .allocator = allocator };
+    var targets = ArrayList([]const u8).init(arena);
+    var debug_log_scopes = ArrayList([]const u8).init(arena);
+    var thread_pool_options: std.Thread.Pool.Options = .{ .allocator = arena };
 
     const stderr_stream = io.getStdErr().writer();
     const stdout_stream = io.getStdOut().writer();
@@ -274,6 +273,7 @@ pub fn main() !void {
         usageAndErr(builder, true, stderr_stream);
 
     runStepNames(
+        arena,
         builder,
         targets.items,
         main_progress_node,
@@ -286,30 +286,32 @@ pub fn main() !void {
 }
 
 fn runStepNames(
+    arena: std.mem.Allocator,
     b: *std.Build,
     step_names: []const []const u8,
     parent_prog_node: *std.Progress.Node,
     thread_pool_options: std.Thread.Pool.Options,
     ttyconf: std.debug.TTY.Config,
 ) !void {
-    var step_stack = ArrayList(*Step).init(b.allocator);
-    defer step_stack.deinit();
+    const gpa = b.allocator;
+    var step_stack: std.AutoArrayHashMapUnmanaged(*Step, void) = .{};
+    defer step_stack.deinit(gpa);
 
     if (step_names.len == 0) {
-        try step_stack.append(b.default_step);
+        try step_stack.put(gpa, b.default_step, {});
     } else {
-        try step_stack.resize(step_names.len);
-
-        for (step_names, 0..) |step_name, i| {
+        try step_stack.ensureUnusedCapacity(gpa, step_names.len);
+        for (0..step_names.len) |i| {
+            const step_name = step_names[step_names.len - i - 1];
             const s = b.top_level_steps.get(step_name) orelse {
                 std.debug.print("no step named '{s}'. Access the help menu with 'zig build -h'\n", .{step_name});
                 process.exit(1);
             };
-            step_stack.items[step_names.len - i - 1] = &s.step;
+            step_stack.putAssumeCapacity(&s.step, {});
         }
     }
 
-    const starting_steps = try b.allocator.dupe(*Step, step_stack.items);
+    const starting_steps = try arena.dupe(*Step, step_stack.keys());
     for (starting_steps) |s| {
         checkForDependencyLoop(b, s, &step_stack) catch |err| switch (err) {
             error.DependencyLoopDetected => return error.UncleanExit,
@@ -324,7 +326,7 @@ fn runStepNames(
     {
         defer parent_prog_node.end();
 
-        var step_prog = parent_prog_node.start("run steps", step_stack.items.len);
+        var step_prog = parent_prog_node.start("run steps", step_stack.count());
         defer step_prog.end();
 
         var wait_group: std.Thread.WaitGroup = .{};
@@ -333,10 +335,9 @@ fn runStepNames(
         // Here we spawn the initial set of tasks with a nice heuristic -
         // dependency order. Each worker when it finishes a step will then
         // check whether it should run any dependants.
-        var i = step_stack.items.len;
-        while (i > 0) {
-            i -= 1;
-            const step = step_stack.items[i];
+        const steps_slice = step_stack.keys();
+        for (0..steps_slice.len) |i| {
+            const step = steps_slice[steps_slice.len - i - 1];
 
             wait_group.start();
             thread_pool.spawn(workerMakeOneStep, .{
@@ -350,7 +351,7 @@ fn runStepNames(
     var pending_count: usize = 0;
     var total_compile_errors: usize = 0;
 
-    for (step_stack.items) |s| {
+    for (step_stack.keys()) |s| {
         switch (s.state) {
             .precheck_unstarted => unreachable,
             .precheck_started => unreachable,
@@ -404,7 +405,7 @@ fn runStepNames(
 
     // Finally, render compile errors at the bottom of the terminal.
     if (total_compile_errors > 0) {
-        for (step_stack.items) |s| {
+        for (step_stack.keys()) |s| {
             if (s.result_error_bundle.errorMessageCount() > 0) {
                 s.result_error_bundle.renderToStdErr(ttyconf);
             }
@@ -498,7 +499,7 @@ fn printTreeStep(
 fn checkForDependencyLoop(
     b: *std.Build,
     s: *Step,
-    step_stack: *ArrayList(*Step),
+    step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
 ) !void {
     switch (s.state) {
         .precheck_started => {
@@ -508,8 +509,9 @@ fn checkForDependencyLoop(
         .precheck_unstarted => {
             s.state = .precheck_started;
 
+            try step_stack.ensureUnusedCapacity(b.allocator, s.dependencies.items.len);
             for (s.dependencies.items) |dep| {
-                try step_stack.append(dep);
+                try step_stack.put(b.allocator, dep, {});
                 try dep.dependants.append(b.allocator, s);
                 checkForDependencyLoop(b, dep, step_stack) catch |err| {
                     if (err == error.DependencyLoopDetected) {
