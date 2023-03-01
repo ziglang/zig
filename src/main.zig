@@ -5120,8 +5120,8 @@ fn fmtPathFile(
     var tree = try Ast.parse(gpa, source_code, .zig);
     defer tree.deinit(gpa);
 
-    try printAstErrorsToStderr(gpa, tree, file_path, fmt.color);
     if (tree.errors.len != 0) {
+        try printAstErrorsToStderr(gpa, tree, file_path, fmt.color);
         fmt.any_error = true;
         return;
     }
