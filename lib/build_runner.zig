@@ -507,7 +507,13 @@ fn printTreeStep(
             try printTreeStep(b, dep, stderr, ttyconf, &print_node, step_stack);
         }
     } else {
-        try stderr.writer().print(" ({d} repeated dependencies)\n", .{s.dependencies.items.len});
+        if (s.dependencies.items.len == 0) {
+            try stderr.writeAll(" (reused)\n");
+        } else {
+            try stderr.writer().print(" (+{d} more reused dependencies)\n", .{
+                s.dependencies.items.len,
+            });
+        }
         try ttyconf.setColor(stderr, .Reset);
     }
 }
