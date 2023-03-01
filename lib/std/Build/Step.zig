@@ -107,9 +107,7 @@ pub fn make(s: *Step, prog_node: *std.Progress.Node) error{MakeFailed}!void {
     return s.makeFn(s, prog_node) catch |err| {
         if (err != error.MakeFailed) {
             const gpa = s.dependencies.allocator;
-            s.result_error_msgs.append(gpa, std.fmt.allocPrint(gpa, "{s} failed: {s}", .{
-                s.name, @errorName(err),
-            }) catch @panic("OOM")) catch @panic("OOM");
+            s.result_error_msgs.append(gpa, @errorName(err)) catch @panic("OOM");
         }
         return error.MakeFailed;
     };
