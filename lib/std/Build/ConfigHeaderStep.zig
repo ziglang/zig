@@ -51,10 +51,30 @@ pub const Options = struct {
 
 pub fn create(builder: *std.Build, options: Options) *ConfigHeaderStep {
     const self = builder.allocator.create(ConfigHeaderStep) catch @panic("OOM");
+
+    var include_path: []const u8 = "config.h";
+
+    if (options.style.getFileSource()) |s| switch (s) {
+        .path => |p| {
+            const basename = std.fs.path.basename(p);
+            if (std.mem.endsWith(u8, basename, ".h.in")) {
+                include_path = basename[0 .. basename.len - 3];
+            }
+        },
+        else => {},
+    };
+
+    if (options.include_path) |p| {
+        include_path = p;
+    }
+
     const name = if (options.style.getFileSource()) |s|
-        builder.fmt("configure {s} header {s}", .{ @tagName(options.style), s.getDisplayName() })
+        builder.fmt("configure {s} header {s} to {s}", .{
+            @tagName(options.style), s.getDisplayName(), include_path,
+        })
     else
-        builder.fmt("configure {s} header", .{@tagName(options.style)});
+        builder.fmt("configure {s} header to {s}", .{@tagName(options.style), include_path});
+
     self.* = .{
         .builder = builder,
         .step = Step.init(builder.allocator, .{
@@ -67,23 +87,10 @@ pub fn create(builder: *std.Build, options: Options) *ConfigHeaderStep {
         .values = std.StringArrayHashMap(Value).init(builder.allocator),
 
         .max_bytes = options.max_bytes,
-        .include_path = "config.h",
+        .include_path = include_path,
         .output_file = .{ .step = &self.step },
     };
 
-    if (options.style.getFileSource()) |s| switch (s) {
-        .path => |p| {
-            const basename = std.fs.path.basename(p);
-            if (std.mem.endsWith(u8, basename, ".h.in")) {
-                self.include_path = basename[0 .. basename.len - 3];
-            }
-        },
-        else => {},
-    };
-
-    if (options.include_path) |include_path| {
-        self.include_path = include_path;
-    }
 
     return self;
 }
