@@ -261,7 +261,6 @@ pub fn main() !void {
 
     var progress: std.Progress = .{};
     const main_progress_node = progress.start("", 0);
-    defer main_progress_node.end();
 
     builder.debug_log_scopes = debug_log_scopes.items;
     builder.resolveInstallPrefix(install_prefix, dir_list);
@@ -323,6 +322,8 @@ fn runStepNames(
     defer thread_pool.deinit();
 
     {
+        defer parent_prog_node.end();
+
         var step_prog = parent_prog_node.start("run steps", step_stack.items.len);
         defer step_prog.end();
 
@@ -347,20 +348,28 @@ fn runStepNames(
     var success_count: usize = 0;
     var failure_count: usize = 0;
     var pending_count: usize = 0;
+    var total_compile_errors: usize = 0;
 
     for (step_stack.items) |s| {
         switch (s.state) {
             .precheck_unstarted => unreachable,
             .precheck_started => unreachable,
             .running => unreachable,
-            // precheck_done is equivalent to dependency_failure in the case of
-            // transitive dependencies. For example:
-            // A -> B -> C (failure)
-            // B will be marked as dependency_failure, while A may never be queued, and thus
-            // remain in the initial state of precheck_done.
-            .dependency_failure, .precheck_done => pending_count += 1,
+            .precheck_done => {
+                // precheck_done is equivalent to dependency_failure in the case of
+                // transitive dependencies. For example:
+                // A -> B -> C (failure)
+                // B will be marked as dependency_failure, while A may never be queued, and thus
+                // remain in the initial state of precheck_done.
+                s.state = .dependency_failure;
+                pending_count += 1;
+            },
+            .dependency_failure => pending_count += 1,
             .success => success_count += 1,
-            .failure => failure_count += 1,
+            .failure => {
+                failure_count += 1;
+                total_compile_errors += s.result_error_bundle.errorMessageCount();
+            },
         }
     }
 
@@ -371,34 +380,116 @@ fn runStepNames(
     const stderr = std.io.getStdErr();
 
     const total_count = success_count + failure_count + pending_count;
-    stderr.writer().print("build summary: {d}/{d} steps succeeded; {d} failed\n", .{
-        success_count, total_count, failure_count,
+    ttyconf.setColor(stderr, .Cyan) catch {};
+    stderr.writeAll("Build Summary: ") catch {};
+    ttyconf.setColor(stderr, .Reset) catch {};
+    stderr.writer().print("{d}/{d} steps succeeded; {d} failed; {d} total compile errors\n", .{
+        success_count, total_count, failure_count, total_compile_errors,
     }) catch {};
+
+    // Print a fancy tree with build results.
+    var print_node: PrintNode = .{ .parent = null };
+    if (step_names.len == 0) {
+        print_node.last = true;
+        printTreeStep(b, b.default_step, stderr, ttyconf, &print_node) catch {};
+    } else {
+        for (step_names, 0..) |step_name, i| {
+            const tls = b.top_level_steps.get(step_name).?;
+            print_node.last = i + 1 == b.top_level_steps.count();
+            printTreeStep(b, &tls.step, stderr, ttyconf, &print_node) catch {};
+        }
+    }
 
     if (failure_count == 0) return cleanExit();
 
-    for (step_stack.items) |s| switch (s.state) {
-        .failure => {
-            // TODO print the dep prefix too
-            ttyconf.setColor(stderr, .Bold) catch break;
-            stderr.writeAll(s.name) catch break;
-            ttyconf.setColor(stderr, .Reset) catch break;
-
+    // Finally, render compile errors at the bottom of the terminal.
+    if (total_compile_errors > 0) {
+        for (step_stack.items) |s| {
             if (s.result_error_bundle.errorMessageCount() > 0) {
-                stderr.writer().print(": {d} compilation errors:\n", .{
-                    s.result_error_bundle.errorMessageCount(),
-                }) catch break;
                 s.result_error_bundle.renderToStdErr(ttyconf);
-            } else {
-                stderr.writer().print(": {d} error messages (printed above)\n", .{
-                    s.result_error_msgs.items.len,
-                }) catch break;
             }
-        },
-        else => continue,
-    };
+        }
+
+        // Signal to parent process that we have printed compile errors. The
+        // parent process may choose to omit the "following command failed"
+        // line in this case.
+        process.exit(2);
+    }
 
     process.exit(1);
+}
+
+const PrintNode = struct {
+    parent: ?*PrintNode,
+    last: bool = false,
+};
+
+fn printTreeStep(
+    b: *std.Build,
+    s: *Step,
+    stderr: std.fs.File,
+    ttyconf: std.debug.TTY.Config,
+    parent_node: *PrintNode,
+) !void {
+    var opt_node: ?*PrintNode = parent_node.parent;
+    while (opt_node) |n| : (opt_node = n.parent) {
+        if (n.parent == null) break;
+        if (n.last) {
+            try stderr.writeAll("   ");
+        } else {
+            try stderr.writeAll("│  ");
+        }
+    }
+
+    if (parent_node.parent != null) {
+        if (parent_node.last) {
+            try stderr.writeAll("└─ ");
+        } else {
+            try stderr.writeAll("├─ ");
+        }
+    }
+
+    // TODO print the dep prefix too?
+    try stderr.writeAll(s.name);
+
+    switch (s.state) {
+        .precheck_unstarted => unreachable,
+        .precheck_started => unreachable,
+        .precheck_done => unreachable,
+        .running => unreachable,
+
+        .dependency_failure => {
+            try ttyconf.setColor(stderr, .Dim);
+            try stderr.writeAll(" transitive failure\n");
+            try ttyconf.setColor(stderr, .Reset);
+        },
+
+        .success => {
+            try ttyconf.setColor(stderr, .Green);
+            try stderr.writeAll(" success\n");
+            try ttyconf.setColor(stderr, .Reset);
+        },
+
+        .failure => {
+            try ttyconf.setColor(stderr, .Red);
+            if (s.result_error_bundle.errorMessageCount() > 0) {
+                try stderr.writer().print(" {d} errors\n", .{
+                    s.result_error_bundle.errorMessageCount(),
+                });
+            } else {
+                try stderr.writeAll(" failure\n");
+            }
+            try ttyconf.setColor(stderr, .Reset);
+        },
+    }
+
+    for (s.dependencies.items, 0..) |dep, i| {
+        var print_node: PrintNode = .{
+            .parent = parent_node,
+            .last = i == s.dependencies.items.len - 1,
+        };
+        try printTreeStep(b, dep, stderr, ttyconf, &print_node);
+    }
 }
 
 fn checkForDependencyLoop(
