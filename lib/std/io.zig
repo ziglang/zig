@@ -249,7 +249,7 @@ pub fn Poller(comptime StreamEnum: type) type {
             self.* = undefined;
         }
 
-        pub fn poll(self: *Self) !void {
+        pub fn poll(self: *Self) !bool {
             if (builtin.os.tag == .windows) {
                 return pollWindows(self);
             } else {
@@ -261,16 +261,7 @@ pub fn Poller(comptime StreamEnum: type) type {
             return &self.fifos[@enumToInt(which)];
         }
 
-        pub fn done(self: Self) bool {
-            if (builtin.os.tag == .windows)
-                return self.windows.first_read_done and self.windows.active.count == 0;
-
-            for (self.poll_fds) |poll_fd| {
-                if (poll_fd.fd != -1) return false;
-            } else return true;
-        }
-
-        fn pollWindows(self: *Self) !void {
+        fn pollWindows(self: *Self) !bool {
             const bump_amt = 512;
 
             if (!self.windows.first_read_done) {
@@ -295,7 +286,7 @@ pub fn Poller(comptime StreamEnum: type) type {
             }
 
             while (true) {
-                if (self.windows.active.count == 0) return;
+                if (self.windows.active.count == 0) return false;
 
                 const status = os.windows.kernel32.WaitForMultipleObjects(
                     self.windows.active.count,
@@ -338,11 +329,11 @@ pub fn Poller(comptime StreamEnum: type) type {
                     .pending => {},
                     .closed => self.windows.active.removeAt(active_idx),
                 }
-                return;
+                return true;
             }
         }
 
-        fn pollPosix(self: *Self) !void {
+        fn pollPosix(self: *Self) !bool {
             // We ask for ensureUnusedCapacity with this much extra space. This
             // has more of an effect on small reads because once the reads
             // start to get larger the amount of space an ArrayList will
@@ -352,8 +343,13 @@ pub fn Poller(comptime StreamEnum: type) type {
             const err_mask = os.POLL.ERR | os.POLL.NVAL | os.POLL.HUP;
 
             const events_len = try os.poll(&self.poll_fds, std.math.maxInt(i32));
-            if (events_len == 0) return;
+            if (events_len == 0) {
+                for (self.poll_fds) |poll_fd| {
+                    if (poll_fd.fd != -1) return true;
+                } else return false;
+            }
 
+            var keep_polling = false;
             inline for (&self.poll_fds, &self.fifos) |*poll_fd, *q| {
                 // Try reading whatever is available before checking the error
                 // conditions.
@@ -366,12 +362,17 @@ pub fn Poller(comptime StreamEnum: type) type {
                     if (amt == 0) {
                         // Remove the fd when the EOF condition is met.
                         poll_fd.fd = -1;
+                    } else {
+                        keep_polling = true;
                     }
                 } else if (poll_fd.revents & err_mask != 0) {
                     // Exclude the fds that signaled an error.
                     poll_fd.fd = -1;
+                } else if (poll_fd.fd != -1) {
+                    keep_polling = true;
                 }
             }
+            return keep_polling;
         }
     };
 }
