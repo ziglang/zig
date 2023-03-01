@@ -350,6 +350,8 @@ fn runStepNames(
     var failure_count: usize = 0;
     var pending_count: usize = 0;
     var total_compile_errors: usize = 0;
+    var compile_error_steps: std.ArrayListUnmanaged(*Step) = .{};
+    defer compile_error_steps.deinit(gpa);
 
     for (step_stack.keys()) |s| {
         switch (s.state) {
@@ -369,7 +371,11 @@ fn runStepNames(
             .success => success_count += 1,
             .failure => {
                 failure_count += 1;
-                total_compile_errors += s.result_error_bundle.errorMessageCount();
+                const compile_errors_len = s.result_error_bundle.errorMessageCount();
+                if (compile_errors_len > 0) {
+                    total_compile_errors += compile_errors_len;
+                    try compile_error_steps.append(gpa, s);
+                }
             },
         }
     }
@@ -392,20 +398,22 @@ fn runStepNames(
     var print_node: PrintNode = .{ .parent = null };
     if (step_names.len == 0) {
         print_node.last = true;
-        printTreeStep(b, b.default_step, stderr, ttyconf, &print_node) catch {};
+        printTreeStep(b, b.default_step, stderr, ttyconf, &print_node, &step_stack) catch {};
     } else {
         for (step_names, 0..) |step_name, i| {
             const tls = b.top_level_steps.get(step_name).?;
             print_node.last = i + 1 == b.top_level_steps.count();
-            printTreeStep(b, &tls.step, stderr, ttyconf, &print_node) catch {};
+            printTreeStep(b, &tls.step, stderr, ttyconf, &print_node, &step_stack) catch {};
         }
     }
 
     if (failure_count == 0) return cleanExit();
 
     // Finally, render compile errors at the bottom of the terminal.
+    // We use a separate compile_error_steps array list because step_stack is destructively
+    // mutated in printTreeStep above.
     if (total_compile_errors > 0) {
-        for (step_stack.keys()) |s| {
+        for (compile_error_steps.items) |s| {
             if (s.result_error_bundle.errorMessageCount() > 0) {
                 s.result_error_bundle.renderToStdErr(ttyconf);
             }
@@ -442,7 +450,10 @@ fn printTreeStep(
     stderr: std.fs.File,
     ttyconf: std.debug.TTY.Config,
     parent_node: *PrintNode,
+    step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
 ) !void {
+    const first = step_stack.swapRemove(s);
+    if (!first) try ttyconf.setColor(stderr, .Dim);
     try printPrefix(parent_node, stderr);
 
     if (parent_node.parent != null) {
@@ -456,43 +467,48 @@ fn printTreeStep(
     // TODO print the dep prefix too?
     try stderr.writeAll(s.name);
 
-    switch (s.state) {
-        .precheck_unstarted => unreachable,
-        .precheck_started => unreachable,
-        .precheck_done => unreachable,
-        .running => unreachable,
+    if (first) {
+        switch (s.state) {
+            .precheck_unstarted => unreachable,
+            .precheck_started => unreachable,
+            .precheck_done => unreachable,
+            .running => unreachable,
 
-        .dependency_failure => {
-            try ttyconf.setColor(stderr, .Dim);
-            try stderr.writeAll(" transitive failure\n");
-            try ttyconf.setColor(stderr, .Reset);
-        },
+            .dependency_failure => {
+                try ttyconf.setColor(stderr, .Dim);
+                try stderr.writeAll(" transitive failure\n");
+                try ttyconf.setColor(stderr, .Reset);
+            },
 
-        .success => {
-            try ttyconf.setColor(stderr, .Green);
-            try stderr.writeAll(" success\n");
-            try ttyconf.setColor(stderr, .Reset);
-        },
+            .success => {
+                try ttyconf.setColor(stderr, .Green);
+                try stderr.writeAll(" success\n");
+                try ttyconf.setColor(stderr, .Reset);
+            },
 
-        .failure => {
-            try ttyconf.setColor(stderr, .Red);
-            if (s.result_error_bundle.errorMessageCount() > 0) {
-                try stderr.writer().print(" {d} errors\n", .{
-                    s.result_error_bundle.errorMessageCount(),
-                });
-            } else {
-                try stderr.writeAll(" failure\n");
-            }
-            try ttyconf.setColor(stderr, .Reset);
-        },
-    }
+            .failure => {
+                try ttyconf.setColor(stderr, .Red);
+                if (s.result_error_bundle.errorMessageCount() > 0) {
+                    try stderr.writer().print(" {d} errors\n", .{
+                        s.result_error_bundle.errorMessageCount(),
+                    });
+                } else {
+                    try stderr.writeAll(" failure\n");
+                }
+                try ttyconf.setColor(stderr, .Reset);
+            },
+        }
 
-    for (s.dependencies.items, 0..) |dep, i| {
-        var print_node: PrintNode = .{
-            .parent = parent_node,
-            .last = i == s.dependencies.items.len - 1,
-        };
-        try printTreeStep(b, dep, stderr, ttyconf, &print_node);
+        for (s.dependencies.items, 0..) |dep, i| {
+            var print_node: PrintNode = .{
+                .parent = parent_node,
+                .last = i == s.dependencies.items.len - 1,
+            };
+            try printTreeStep(b, dep, stderr, ttyconf, &print_node, step_stack);
+        }
+    } else {
+        try stderr.writer().print(" ({d} repeated dependencies)\n", .{s.dependencies.items.len});
+        try ttyconf.setColor(stderr, .Reset);
     }
 }
 
