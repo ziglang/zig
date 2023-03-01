@@ -4244,6 +4244,9 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             var build_roots_source = std.ArrayList(u8).init(gpa);
             defer build_roots_source.deinit();
 
+            var all_modules: Package.AllModules = .{};
+            defer all_modules.deinit(gpa);
+
             // Here we borrow main package's table and will replace it with a fresh
             // one after this process completes.
             main_pkg.fetchAndAddDependencies(
@@ -4257,6 +4260,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 &build_roots_source,
                 "",
                 color,
+                &all_modules,
             ) catch |err| switch (err) {
                 error.PackageFetchFailed => process.exit(1),
                 else => |e| return e,
