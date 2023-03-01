@@ -29,7 +29,8 @@ pub fn create(builder: *std.Build, paths: []const []const u8) *FmtStep {
     return self;
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
     const self = @fieldParentPtr(FmtStep, "step", step);
 
     return self.builder.spawnChild(self.argv);

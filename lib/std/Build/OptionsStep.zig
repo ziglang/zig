@@ -219,7 +219,8 @@ pub fn getSource(self: *OptionsStep) FileSource {
     return .{ .generated = &self.generated_file };
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
     const self = @fieldParentPtr(OptionsStep, "step", step);
 
     for (self.artifact_args.items) |item| {

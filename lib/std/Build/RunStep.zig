@@ -206,7 +206,8 @@ fn needOutputCheck(self: RunStep) bool {
     return false;
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
     const self = @fieldParentPtr(RunStep, "step", step);
     const need_output_check = self.needOutputCheck();
 

@@ -88,7 +88,7 @@ pub fn defineCMacroRaw(self: *TranslateCStep, name_and_value: []const u8) void {
     self.c_macros.append(self.builder.dupe(name_and_value)) catch @panic("OOM");
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const self = @fieldParentPtr(TranslateCStep, "step", step);
 
     var argv_list = std.ArrayList([]const u8).init(self.builder.allocator);
@@ -120,7 +120,7 @@ fn make(step: *Step) !void {
 
     try argv_list.append(self.source.getPath(self.builder));
 
-    const output_path_nl = try self.builder.execFromStep(argv_list.items, &self.step);
+    const output_path_nl = try self.builder.execFromStep(argv_list.items, &self.step, prog_node);
     const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
 
     self.out_basename = fs.path.basename(output_path);

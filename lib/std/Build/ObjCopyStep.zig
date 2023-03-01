@@ -66,7 +66,8 @@ pub fn getOutputSource(self: *const ObjCopyStep) std.Build.FileSource {
     return .{ .generated = &self.output_file };
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
     const self = @fieldParentPtr(ObjCopyStep, "step", step);
     const b = self.builder;
 

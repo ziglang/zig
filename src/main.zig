@@ -3573,7 +3573,21 @@ fn serve(
                 if (comp.bin_file.options.output_mode == .Exe) {
                     try comp.makeBinFileWritable();
                 }
-                try comp.update(main_progress_node);
+
+                {
+                    var reset: std.Thread.ResetEvent = .{};
+
+                    var progress_thread = try std.Thread.spawn(.{}, progressThread, .{
+                        &progress, out, &reset,
+                    });
+                    defer {
+                        reset.set();
+                        progress_thread.join();
+                    }
+
+                    try comp.update(main_progress_node);
+                }
+
                 try comp.makeBinFileExecutable();
                 try serveUpdateResults(out, comp);
             },
@@ -3626,6 +3640,63 @@ fn serve(
                 @panic("TODO unrecognized message from client");
             },
         }
+    }
+}
+
+fn progressThread(progress: *std.Progress, out: fs.File, reset: *std.Thread.ResetEvent) void {
+    while (true) {
+        if (reset.timedWait(500 * std.time.ns_per_ms)) |_| {
+            // The Compilation update has completed.
+            return;
+        } else |err| switch (err) {
+            error.Timeout => {},
+        }
+
+        var buf: std.BoundedArray(u8, 160) = .{};
+
+        {
+            progress.update_mutex.lock();
+            defer progress.update_mutex.unlock();
+
+            var need_ellipse = false;
+            var maybe_node: ?*std.Progress.Node = &progress.root;
+            while (maybe_node) |node| {
+                if (need_ellipse) {
+                    buf.appendSlice("... ") catch {};
+                }
+                need_ellipse = false;
+                const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .Monotonic);
+                const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .Monotonic);
+                const current_item = completed_items + 1;
+                if (node.name.len != 0 or eti > 0) {
+                    if (node.name.len != 0) {
+                        buf.appendSlice(node.name) catch {};
+                        need_ellipse = true;
+                    }
+                    if (eti > 0) {
+                        if (need_ellipse) buf.appendSlice(" ") catch {};
+                        buf.writer().print("[{d}/{d}] ", .{ current_item, eti }) catch {};
+                        need_ellipse = false;
+                    } else if (completed_items != 0) {
+                        if (need_ellipse) buf.appendSlice(" ") catch {};
+                        buf.writer().print("[{d}] ", .{current_item}) catch {};
+                        need_ellipse = false;
+                    }
+                }
+                maybe_node = @atomicLoad(?*std.Progress.Node, &node.recently_updated_child, .Acquire);
+            }
+        }
+
+        const progress_string = buf.slice();
+
+        serveMessage(out, .{
+            .tag = .progress,
+            .bytes_len = @intCast(u32, progress_string.len),
+        }, &.{
+            progress_string,
+        }) catch |err| {
+            fatal("unable to write to client: {s}", .{@errorName(err)});
+        };
     }
 }
 

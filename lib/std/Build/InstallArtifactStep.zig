@@ -64,7 +64,8 @@ pub fn create(builder: *std.Build, artifact: *CompileStep) *InstallArtifactStep 
     return self;
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
     const self = @fieldParentPtr(InstallArtifactStep, "step", step);
     const builder = self.builder;
 

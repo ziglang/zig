@@ -56,7 +56,8 @@ pub fn init(
     };
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
     const self = @fieldParentPtr(InstallDirStep, "step", step);
     const dest_prefix = self.builder.getInstallPath(self.options.install_dir, self.options.install_subdir);
     const src_builder = self.override_source_builder orelse self.builder;

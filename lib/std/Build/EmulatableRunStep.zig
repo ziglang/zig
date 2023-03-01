@@ -71,7 +71,8 @@ pub fn create(builder: *std.Build, name: []const u8, artifact: *CompileStep) *Em
     return self;
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
     const self = @fieldParentPtr(EmulatableRunStep, "step", step);
     const host_info = self.builder.host;
 

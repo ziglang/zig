@@ -875,7 +875,8 @@ pub const StackTracesContext = struct {
             return ptr;
         }
 
-        fn make(step: *Step) !void {
+        fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+            _ = prog_node;
             const self = @fieldParentPtr(RunAndCompareStep, "step", step);
             const b = self.context.b;
 
@@ -1218,7 +1219,8 @@ pub const GenHContext = struct {
             return ptr;
         }
 
-        fn make(step: *Step) !void {
+        fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+            _ = prog_node;
             const self = @fieldParentPtr(GenHCmpOutputStep, "step", step);
             const b = self.context.b;
 

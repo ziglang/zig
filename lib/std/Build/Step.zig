@@ -1,6 +1,6 @@
 id: Id,
 name: []const u8,
-makeFn: *const fn (self: *Step) anyerror!void,
+makeFn: MakeFn,
 dependencies: std.ArrayList(*Step),
 /// This field is empty during execution of the user's build script, and
 /// then populated during dependency loop checking in the build runner.
@@ -12,6 +12,8 @@ debug_stack_trace: [n_debug_stack_frames]usize,
 
 result_error_msgs: std.ArrayListUnmanaged([]const u8),
 result_error_bundle: std.zig.ErrorBundle,
+
+pub const MakeFn = *const fn (self: *Step, prog_node: *std.Progress.Node) anyerror!void;
 
 const n_debug_stack_frames = 4;
 
@@ -72,7 +74,7 @@ pub const Id = enum {
 pub const Options = struct {
     id: Id,
     name: []const u8,
-    makeFn: *const fn (self: *Step) anyerror!void = makeNoOp,
+    makeFn: MakeFn = makeNoOp,
     first_ret_addr: ?usize = null,
 };
 
@@ -101,8 +103,8 @@ pub fn init(allocator: Allocator, options: Options) Step {
 /// If the Step's `make` function reports `error.MakeFailed`, it indicates they
 /// have already reported the error. Otherwise, we add a simple error report
 /// here.
-pub fn make(s: *Step) error{MakeFailed}!void {
-    return s.makeFn(s) catch |err| {
+pub fn make(s: *Step, prog_node: *std.Progress.Node) error{MakeFailed}!void {
+    return s.makeFn(s, prog_node) catch |err| {
         if (err != error.MakeFailed) {
             const gpa = s.dependencies.allocator;
             s.result_error_msgs.append(gpa, std.fmt.allocPrint(gpa, "{s} failed: {s}", .{
@@ -129,8 +131,9 @@ pub fn getStackTrace(s: *Step) std.builtin.StackTrace {
     };
 }
 
-fn makeNoOp(self: *Step) anyerror!void {
+fn makeNoOp(self: *Step, prog_node: *std.Progress.Node) anyerror!void {
     _ = self;
+    _ = prog_node;
 }
 
 pub fn cast(step: *Step, comptime T: type) ?*T {

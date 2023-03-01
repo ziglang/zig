@@ -99,7 +99,8 @@ pub fn getFileSource(wf: *WriteFileStep, sub_path: []const u8) ?std.Build.FileSo
     return null;
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
     const wf = @fieldParentPtr(WriteFileStep, "step", step);
 
     // Writing to source files is kind of an extra capability of this

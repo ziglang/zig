@@ -22,7 +22,8 @@ pub fn init(builder: *std.Build, dir_path: []const u8) RemoveDirStep {
     };
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
     const self = @fieldParentPtr(RemoveDirStep, "step", step);
 
     const full_path = self.builder.pathFromRoot(self.dir_path);

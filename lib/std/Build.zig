@@ -718,7 +718,8 @@ pub fn getUninstallStep(self: *Build) *Step {
     return &self.uninstall_tls.step;
 }
 
-fn makeUninstall(uninstall_step: *Step) anyerror!void {
+fn makeUninstall(uninstall_step: *Step, prog_node: *std.Progress.Node) anyerror!void {
+    _ = prog_node;
     const uninstall_tls = @fieldParentPtr(TopLevelStep, "step", uninstall_step);
     const self = @fieldParentPtr(Build, "uninstall_tls", uninstall_tls);
 
@@ -1404,7 +1405,7 @@ pub fn execAllowFail(
 
 /// This function is used exclusively for spawning and communicating with the zig compiler.
 /// TODO: move to build_runner.zig
-pub fn execFromStep(b: *Build, argv: []const []const u8, s: *Step) ![]const u8 {
+pub fn execFromStep(b: *Build, argv: []const []const u8, s: *Step, prog_node: *std.Progress.Node) ![]const u8 {
     assert(argv.len != 0);
 
     if (b.verbose) {
@@ -1438,6 +1439,11 @@ pub fn execFromStep(b: *Build, argv: []const []const u8, s: *Step) ![]const u8 {
 
     const Header = std.zig.Server.Message.Header;
     var result: ?[]const u8 = null;
+
+    var node_name: std.ArrayListUnmanaged(u8) = .{};
+    defer node_name.deinit(b.allocator);
+    var sub_prog_node: ?std.Progress.Node = null;
+    defer if (sub_prog_node) |*n| n.end();
 
     while (try poller.poll()) {
         const stdout = poller.fifo(.stdout);
@@ -1478,7 +1484,11 @@ pub fn execFromStep(b: *Build, argv: []const []const u8, s: *Step) ![]const u8 {
                         };
                     },
                     .progress => {
-                        @panic("TODO handle progress message");
+                        if (sub_prog_node) |*n| n.end();
+                        node_name.clearRetainingCapacity();
+                        try node_name.appendSlice(b.allocator, body);
+                        sub_prog_node = prog_node.start(node_name.items, 0);
+                        sub_prog_node.?.activate();
                     },
                     .emit_bin_path => {
                         result = try b.allocator.dupe(u8, body);

@@ -571,7 +571,7 @@ fn workerMakeOneStep(
     // For example, CompileStep does some sus things with modifying the saved
     // *Build object in install header steps that might be able to be removed
     // by passing the *Build object through the make() functions.
-    const make_result = s.make();
+    const make_result = s.make(&sub_prog_node);
 
     // No matter the result, we want to display error/warning messages.
     if (s.result_error_msgs.items.len > 0) {

@@ -300,7 +300,8 @@ pub fn checkComputeCompare(
     self.checks.append(new_check) catch @panic("OOM");
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
     const self = @fieldParentPtr(CheckObjectStep, "step", step);
 
     const gpa = self.builder.allocator;

@@ -1160,7 +1160,7 @@ fn constructDepString(
     }
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const self = @fieldParentPtr(CompileStep, "step", step);
     const builder = self.builder;
 
@@ -1718,7 +1718,7 @@ fn make(step: *Step) !void {
                 }
                 if (other.installed_headers.items.len > 0) {
                     for (other.installed_headers.items) |install_step| {
-                        try install_step.make();
+                        try install_step.make(prog_node);
                     }
                     try zig_args.append("-I");
                     try zig_args.append(builder.pathJoin(&.{
@@ -1894,7 +1894,7 @@ fn make(step: *Step) !void {
         try zig_args.append(resolved_args_file);
     }
 
-    const output_bin_path = try builder.execFromStep(zig_args.items, &self.step);
+    const output_bin_path = try builder.execFromStep(zig_args.items, &self.step, prog_node);
     const build_output_dir = fs.path.dirname(output_bin_path).?;
 
     if (self.output_dir) |output_dir| {

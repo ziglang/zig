@@ -21,7 +21,8 @@ pub fn init(builder: *std.Build, data: []const u8) LogStep {
     };
 }
 
-fn make(step: *Step) anyerror!void {
+fn make(step: *Step, prog_node: *std.Progress.Node) anyerror!void {
+    _ = prog_node;
     const self = @fieldParentPtr(LogStep, "step", step);
     log.info("{s}", .{self.data});
 }

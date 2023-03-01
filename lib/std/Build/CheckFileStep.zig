@@ -33,7 +33,8 @@ pub fn create(
     return self;
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
     const self = @fieldParentPtr(CheckFileStep, "step", step);
 
     const src_path = self.source.getPath(self.builder);

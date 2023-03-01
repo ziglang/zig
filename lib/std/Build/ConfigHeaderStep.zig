@@ -152,7 +152,8 @@ fn putValue(self: *ConfigHeaderStep, field_name: []const u8, comptime T: type, v
     }
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
     const self = @fieldParentPtr(ConfigHeaderStep, "step", step);
     const gpa = self.builder.allocator;
 
