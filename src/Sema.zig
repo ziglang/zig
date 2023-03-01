@@ -17328,11 +17328,11 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         break :blk abi_align;
     } else 0;
 
-    const address_space = if (inst_data.flags.has_addrspace) blk: {
+    const address_space: std.builtin.AddressSpace = if (inst_data.flags.has_addrspace) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
         break :blk try sema.analyzeAddressSpace(block, addrspace_src, ref, .pointer);
-    } else .generic;
+    } else if (elem_ty.zigTypeTag() == .Fn and target.cpu.arch == .avr) .flash else .generic;
 
     const bit_offset = if (inst_data.flags.has_bit_range) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
