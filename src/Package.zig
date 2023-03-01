@@ -225,6 +225,7 @@ pub fn fetchAndAddDependencies(
     build_roots_source: *std.ArrayList(u8),
     name_prefix: []const u8,
     color: main.Color,
+    all_modules: *AllModules,
 ) !void {
     const max_bytes = 10 * 1024 * 1024;
     const gpa = thread_pool.allocator;
@@ -291,6 +292,7 @@ pub fn fetchAndAddDependencies(
             report,
             build_roots_source,
             fqn,
+            all_modules,
         );
 
         try pkg.fetchAndAddDependencies(
@@ -304,6 +306,7 @@ pub fn fetchAndAddDependencies(
             build_roots_source,
             sub_prefix,
             color,
+            all_modules,
         );
 
         try add(pkg, gpa, fqn, sub_pkg);
@@ -402,6 +405,11 @@ const Report = struct {
     }
 };
 
+const hex_multihash_len = 2 * Manifest.multihash_len;
+const MultiHashHexDigest = [hex_multihash_len]u8;
+/// This is to avoid creating multiple modules for the same build.zig file.
+pub const AllModules = std.AutoHashMapUnmanaged(MultiHashHexDigest, *Package);
+
 fn fetchAndUnpack(
     thread_pool: *ThreadPool,
     http_client: *std.http.Client,
@@ -410,6 +418,7 @@ fn fetchAndUnpack(
     report: Report,
     build_roots_source: *std.ArrayList(u8),
     fqn: []const u8,
+    all_modules: *AllModules,
 ) !*Package {
     const gpa = http_client.allocator;
     const s = fs.path.sep_str;
@@ -417,9 +426,24 @@ fn fetchAndUnpack(
     // Check if the expected_hash is already present in the global package
     // cache, and thereby avoid both fetching and unpacking.
     if (dep.hash) |h| cached: {
-        const hex_multihash_len = 2 * Manifest.multihash_len;
         const hex_digest = h[0..hex_multihash_len];
         const pkg_dir_sub_path = "p" ++ s ++ hex_digest;
+
+        const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
+        errdefer gpa.free(build_root);
+
+        try build_roots_source.writer().print("    pub const {s} = \"{}\";\n", .{
+            std.zig.fmtId(fqn), std.zig.fmtEscapes(build_root),
+        });
+
+        // The compiler has a rule that a file must not be included in multiple modules,
+        // so we must detect if a module has been created for this package and reuse it.
+        const gop = try all_modules.getOrPut(gpa, hex_digest.*);
+        if (gop.found_existing) {
+            gpa.free(build_root);
+            return gop.value_ptr.*;
+        }
+
         var pkg_dir = global_cache_directory.handle.openDir(pkg_dir_sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => break :cached,
             else => |e| return e,
@@ -432,13 +456,6 @@ fn fetchAndUnpack(
         const owned_src_path = try gpa.dupe(u8, build_zig_basename);
         errdefer gpa.free(owned_src_path);
 
-        const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
-        errdefer gpa.free(build_root);
-
-        try build_roots_source.writer().print("    pub const {s} = \"{}\";\n", .{
-            std.zig.fmtId(fqn), std.zig.fmtEscapes(build_root),
-        });
-
         ptr.* = .{
             .root_src_directory = .{
                 .path = build_root,
@@ -448,6 +465,7 @@ fn fetchAndUnpack(
             .root_src_path = owned_src_path,
         };
 
+        gop.value_ptr.* = ptr;
         return ptr;
     }
 
