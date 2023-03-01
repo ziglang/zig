@@ -56,6 +56,7 @@ pub fn Keccak(comptime f: u11, comptime output_bits: u11, comptime delim: u8, co
 
         /// Return the hash of the absorbed bytes.
         pub fn final(self: *Self, out: *[digest_length]u8) void {
+            self.st.pad();
             self.st.squeeze(out[0..]);
         }
     };
@@ -73,6 +74,7 @@ pub fn Shake(comptime security_level: u11) type {
         st: State = .{},
         buf: [State.rate]u8 = undefined,
         offset: usize = 0,
+        padded: bool = false,
 
         /// The recommended output length, in bytes.
         pub const digest_length = security_level / 2;
@@ -103,6 +105,10 @@ pub fn Shake(comptime security_level: u11) type {
         /// Squeeze a slice of bytes from the state.
         /// `out` can be any length, and the function can be called multiple times.
         pub fn squeeze(self: *Self, out_: []u8) void {
+            if (!self.padded) {
+                self.st.pad();
+                self.padded = true;
+            }
             var out = out_;
             if (self.offset > 0) {
                 const left = self.buf.len - self.offset;
@@ -296,6 +302,21 @@ test "SHAKE-128 multisqueeze" {
     h.squeeze(out[0..4]);
     h.squeeze(out[4..]);
     try htest.assertEqual("1b85861510bc4d8e467d", &out);
+}
+
+test "SHAKE-128 multisqueeze with multiple blocks" {
+    var out: [100]u8 = undefined;
+    var out2: [100]u8 = undefined;
+
+    var h = Shake128.init(.{});
+    h.update("hello123");
+    h.squeeze(out[0..50]);
+    h.squeeze(out[50..]);
+
+    var h2 = Shake128.init(.{});
+    h2.update("hello123");
+    h2.squeeze(&out2);
+    try std.testing.expectEqualSlices(u8, &out, &out2);
 }
 
 test "SHAKE-256 single" {

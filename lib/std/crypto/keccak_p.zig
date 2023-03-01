@@ -223,13 +223,17 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime delim: u8, compti
             }
         }
 
-        /// Squeeze a slice of bytes from the sponge.
-        pub fn squeeze(self: *Self, out: []u8) void {
+        /// Mark the end of the input.
+        pub fn pad(self: *Self) void {
             self.st.addBytes(self.buf[0..self.offset]);
             self.st.addByte(delim, self.offset);
             self.st.addByte(0x80, rate - 1);
             self.st.permuteR(rounds);
+            self.offset = 0;
+        }
 
+        /// Squeeze a slice of bytes from the sponge.
+        pub fn squeeze(self: *Self, out: []u8) void {
             var i: usize = 0;
             while (i < out.len) : (i += rate) {
                 const left = math.min(rate, out.len - i);
