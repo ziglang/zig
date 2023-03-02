@@ -1078,9 +1078,11 @@ pub const File = struct {
                 log.warn("failed to save archive hash digest file: {s}", .{@errorName(err)});
             };
 
-            man.writeManifest() catch |err| {
-                log.warn("failed to write cache manifest when archiving: {s}", .{@errorName(err)});
-            };
+            if (man.have_exclusive_lock) {
+                man.writeManifest() catch |err| {
+                    log.warn("failed to write cache manifest when archiving: {s}", .{@errorName(err)});
+                };
+            }
 
             base.lock = man.toOwnedLock();
         }
