@@ -287,7 +287,7 @@ pub const Fe = struct {
         return _carry128(&r);
     }
 
-    inline fn _sq(a: Fe, comptime double: bool) Fe {
+    fn _sq(a: Fe, comptime double: bool) Fe {
         var ax: [5]u128 = undefined;
         var r: [5]u128 = undefined;
         comptime var i = 0;
