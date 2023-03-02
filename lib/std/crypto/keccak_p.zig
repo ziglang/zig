@@ -9,19 +9,6 @@ pub fn KeccakF(comptime f: u11) type {
     const T = std.meta.Int(.unsigned, f / 25);
     const Block = [25]T;
 
-    const RC = [_]u64{
-        0x0000000000000001, 0x0000000000008082, 0x800000000000808a, 0x8000000080008000,
-        0x000000000000808b, 0x0000000080000001, 0x8000000080008081, 0x8000000000008009,
-        0x000000000000008a, 0x0000000000000088, 0x0000000080008009, 0x000000008000000a,
-        0x000000008000808b, 0x800000000000008b, 0x8000000000008089, 0x8000000000008003,
-        0x8000000000008002, 0x8000000000000080, 0x000000000000800a, 0x800000008000000a,
-        0x8000000080008081, 0x8000000000008080, 0x0000000080000001, 0x8000000080008008,
-    };
-
-    const RHO = [_]u6{
-        1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14, 27, 41, 56, 8, 25, 43, 62, 18, 39, 61, 20, 44,
-    };
-
     const PI = [_]u5{
         10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4, 15, 23, 19, 13, 12, 2, 20, 14, 22, 9, 6, 1,
     };
@@ -31,6 +18,24 @@ pub fn KeccakF(comptime f: u11) type {
 
         /// Number of bytes in the state.
         pub const block_bytes = f / 8;
+
+        /// Maximum number of rounds for the given f parameter.
+        pub const max_rounds = 12 + 2 * math.log2(f / 25);
+
+        // Round constants
+        const RC = rc: {
+            const RC64 = [_]u64{
+                0x0000000000000001, 0x0000000000008082, 0x800000000000808a, 0x8000000080008000,
+                0x000000000000808b, 0x0000000080000001, 0x8000000080008081, 0x8000000000008009,
+                0x000000000000008a, 0x0000000000000088, 0x0000000080008009, 0x000000008000000a,
+                0x000000008000808b, 0x800000000000008b, 0x8000000000008089, 0x8000000000008003,
+                0x8000000000008002, 0x8000000000000080, 0x000000000000800a, 0x800000008000000a,
+                0x8000000080008081, 0x8000000000008080, 0x0000000080000001, 0x8000000080008008,
+            };
+            var rc: [max_rounds]T = undefined;
+            for (&rc, RC64[0..max_rounds]) |*t, c| t.* = @truncate(T, c);
+            break :rc rc;
+        };
 
         st: Block = [_]T{0} ** 25,
 
@@ -146,10 +151,12 @@ pub fn KeccakF(comptime f: u11) type {
 
             // rho+pi
             var last = st[1];
+            comptime var rotc = 0;
             inline for (0..24) |i| {
                 const x = PI[i];
                 const tmp = st[x];
-                st[x] = math.rotl(T, last, RHO[i]);
+                rotc = (rotc + i + 1) % @bitSizeOf(T);
+                st[x] = math.rotl(T, last, rotc);
                 last = tmp;
             }
             inline for (0..5) |i| {
@@ -180,7 +187,7 @@ pub fn KeccakF(comptime f: u11) type {
 
         /// Apply a full-round permutation to the state.
         pub fn permute(self: *Self) void {
-            self.permuteR(comptime 12 + 2 * math.log2(f / 25));
+            self.permuteR(max_rounds);
         }
     };
 }
@@ -248,4 +255,23 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime delim: u8, compti
             }
         }
     };
+}
+
+test "Keccak-f800" {
+    var st: KeccakF(800) = .{
+        .st = .{
+            0xE531D45D, 0xF404C6FB, 0x23A0BF99, 0xF1F8452F, 0x51FFD042, 0xE539F578, 0xF00B80A7,
+            0xAF973664, 0xBF5AF34C, 0x227A2424, 0x88172715, 0x9F685884, 0xB15CD054, 0x1BF4FC0E,
+            0x6166FA91, 0x1A9E599A, 0xA3970A1F, 0xAB659687, 0xAFAB8D68, 0xE74B1015, 0x34001A98,
+            0x4119EFF3, 0x930A0E76, 0x87B28070, 0x11EFE996,
+        },
+    };
+    st.permute();
+    const expected: [25]u32 = .{
+        0x75BF2D0D, 0x9B610E89, 0xC826AF40, 0x64CD84AB, 0xF905BDD6, 0xBC832835, 0x5F8001B9,
+        0x15662CCE, 0x8E38C95E, 0x701FE543, 0x1B544380, 0x89ACDEFF, 0x51EDB5DE, 0x0E9702D9,
+        0x6C19AA16, 0xA2913EEE, 0x60754E9A, 0x9819063C, 0xF4709254, 0xD09F9084, 0x772DA259,
+        0x1DB35DF7, 0x5AA60162, 0x358825D5, 0xB3783BAB,
+    };
+    try std.testing.expectEqualSlices(u32, &st.st, &expected);
 }
