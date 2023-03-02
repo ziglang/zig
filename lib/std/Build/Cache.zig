@@ -7,27 +7,27 @@ pub const Directory = struct {
     /// directly, but it is needed when passing the directory to a child process.
     /// `null` means cwd.
     path: ?[]const u8,
-    handle: std.fs.Dir,
+    handle: fs.Dir,
 
     pub fn join(self: Directory, allocator: Allocator, paths: []const []const u8) ![]u8 {
         if (self.path) |p| {
             // TODO clean way to do this with only 1 allocation
-            const part2 = try std.fs.path.join(allocator, paths);
+            const part2 = try fs.path.join(allocator, paths);
             defer allocator.free(part2);
-            return std.fs.path.join(allocator, &[_][]const u8{ p, part2 });
+            return fs.path.join(allocator, &[_][]const u8{ p, part2 });
         } else {
-            return std.fs.path.join(allocator, paths);
+            return fs.path.join(allocator, paths);
         }
     }
 
     pub fn joinZ(self: Directory, allocator: Allocator, paths: []const []const u8) ![:0]u8 {
         if (self.path) |p| {
             // TODO clean way to do this with only 1 allocation
-            const part2 = try std.fs.path.join(allocator, paths);
+            const part2 = try fs.path.join(allocator, paths);
             defer allocator.free(part2);
-            return std.fs.path.joinZ(allocator, &[_][]const u8{ p, part2 });
+            return fs.path.joinZ(allocator, &[_][]const u8{ p, part2 });
         } else {
-            return std.fs.path.joinZ(allocator, paths);
+            return fs.path.joinZ(allocator, paths);
         }
     }
 
@@ -38,6 +38,20 @@ pub const Directory = struct {
         self.handle.close();
         if (self.path) |p| gpa.free(p);
         self.* = undefined;
+    }
+
+    pub fn format(
+        self: Directory,
+        comptime fmt_string: []const u8,
+        options: fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = options;
+        if (fmt_string.len != 0) fmt.invalidFmtError(fmt, self);
+        if (self.path) |p| {
+            try writer.writeAll(p);
+            try writer.writeAll(fs.path.sep_str);
+        }
     }
 };
 
@@ -243,10 +257,10 @@ pub const HashHelper = struct {
         hh.hasher.final(&bin_digest);
 
         var out_digest: [hex_digest_len]u8 = undefined;
-        _ = std.fmt.bufPrint(
+        _ = fmt.bufPrint(
             &out_digest,
             "{s}",
-            .{std.fmt.fmtSliceHexLower(&bin_digest)},
+            .{fmt.fmtSliceHexLower(&bin_digest)},
         ) catch unreachable;
         return out_digest;
     }
@@ -365,10 +379,10 @@ pub const Manifest = struct {
         var bin_digest: BinDigest = undefined;
         self.hash.hasher.final(&bin_digest);
 
-        _ = std.fmt.bufPrint(
+        _ = fmt.bufPrint(
             &self.hex_digest,
             "{s}",
-            .{std.fmt.fmtSliceHexLower(&bin_digest)},
+            .{fmt.fmtSliceHexLower(&bin_digest)},
         ) catch unreachable;
 
         self.hash.hasher = hasher_init;
@@ -469,7 +483,7 @@ pub const Manifest = struct {
             cache_hash_file.stat.size = fmt.parseInt(u64, size, 10) catch return error.InvalidFormat;
             cache_hash_file.stat.inode = fmt.parseInt(fs.File.INode, inode, 10) catch return error.InvalidFormat;
             cache_hash_file.stat.mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
-            _ = std.fmt.hexToBytes(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
+            _ = fmt.hexToBytes(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
             const prefix = fmt.parseInt(u8, prefix_str, 10) catch return error.InvalidFormat;
             if (prefix >= self.cache.prefixes_len) return error.InvalidFormat;
 
@@ -806,10 +820,10 @@ pub const Manifest = struct {
         self.hash.hasher.final(&bin_digest);
 
         var out_digest: [hex_digest_len]u8 = undefined;
-        _ = std.fmt.bufPrint(
+        _ = fmt.bufPrint(
             &out_digest,
             "{s}",
-            .{std.fmt.fmtSliceHexLower(&bin_digest)},
+            .{fmt.fmtSliceHexLower(&bin_digest)},
         ) catch unreachable;
 
         return out_digest;
@@ -831,10 +845,10 @@ pub const Manifest = struct {
             var encoded_digest: [hex_digest_len]u8 = undefined;
 
             for (self.files.items) |file| {
-                _ = std.fmt.bufPrint(
+                _ = fmt.bufPrint(
                     &encoded_digest,
                     "{s}",
-                    .{std.fmt.fmtSliceHexLower(&file.bin_digest)},
+                    .{fmt.fmtSliceHexLower(&file.bin_digest)},
                 ) catch unreachable;
                 try writer.print("{d} {d} {d} {s} {d} {s}\n", .{
                     file.stat.size,
