@@ -1,84 +1,63 @@
-const std = @import("../std.zig");
-const mem = std.mem;
+const std = @import("std");
+const assert = std.debug.assert;
 const math = std.math;
-const debug = std.debug;
-const htest = @import("test.zig");
+const mem = std.mem;
 
-pub const Sha3_224 = Keccak(224, 0x06);
-pub const Sha3_256 = Keccak(256, 0x06);
-pub const Sha3_384 = Keccak(384, 0x06);
-pub const Sha3_512 = Keccak(512, 0x06);
-pub const Keccak_256 = Keccak(256, 0x01);
-pub const Keccak_512 = Keccak(512, 0x01);
+const KeccakState = std.crypto.core.keccak.State;
 
-fn Keccak(comptime bits: usize, comptime delim: u8) type {
+pub const Sha3_224 = Keccak(1600, 224, 0x06, 24);
+pub const Sha3_256 = Keccak(1600, 256, 0x06, 24);
+pub const Sha3_384 = Keccak(1600, 384, 0x06, 24);
+pub const Sha3_512 = Keccak(1600, 512, 0x06, 24);
+
+pub const Keccak256 = Keccak(1600, 256, 0x01, 24);
+pub const Keccak512 = Keccak(1600, 512, 0x01, 24);
+pub const Keccak_256 = @compileError("Deprecated: use `Keccak256` instead");
+pub const Keccak_512 = @compileError("Deprecated: use `Keccak512` instead");
+
+pub const Shake128 = Shake(128);
+pub const Shake256 = Shake(256);
+
+/// A generic Keccak hash function.
+pub fn Keccak(comptime f: u11, comptime output_bits: u11, comptime delim: u8, comptime rounds: u5) type {
+    comptime assert(output_bits > 0 and output_bits * 2 < f and output_bits % 8 == 0); // invalid output length
+
+    const State = KeccakState(f, output_bits * 2, delim, rounds);
+
     return struct {
         const Self = @This();
+
+        st: State = .{},
+
         /// The output length, in bytes.
-        pub const digest_length = bits / 8;
+        pub const digest_length = output_bits / 8;
         /// The block length, or rate, in bytes.
-        pub const block_length = 200 - bits / 4;
+        pub const block_length = State.rate;
         /// Keccak does not have any options.
         pub const Options = struct {};
 
-        s: [200]u8,
-        offset: usize,
-
+        /// Initialize a Keccak hash function.
         pub fn init(options: Options) Self {
             _ = options;
-            return Self{ .s = [_]u8{0} ** 200, .offset = 0 };
+            return Self{};
         }
 
-        pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
-            var d = Self.init(options);
-            d.update(b);
-            d.final(out);
+        /// Hash a slice of bytes.
+        pub fn hash(bytes: []const u8, out: *[digest_length]u8, options: Options) void {
+            var st = Self.init(options);
+            st.update(bytes);
+            st.final(out);
         }
 
-        pub fn update(d: *Self, b: []const u8) void {
-            var ip: usize = 0;
-            var len = b.len;
-            var rate = block_length - d.offset;
-            var offset = d.offset;
-
-            // absorb
-            while (len >= rate) {
-                for (d.s[offset .. offset + rate], 0..) |*r, i|
-                    r.* ^= b[ip..][i];
-
-                keccakF(1600, &d.s);
-
-                ip += rate;
-                len -= rate;
-                rate = block_length;
-                offset = 0;
-            }
-
-            for (d.s[offset .. offset + len], 0..) |*r, i|
-                r.* ^= b[ip..][i];
-
-            d.offset = offset + len;
+        /// Absorb a slice of bytes into the state.
+        pub fn update(self: *Self, bytes: []const u8) void {
+            self.st.absorb(bytes);
         }
 
-        pub fn final(d: *Self, out: *[digest_length]u8) void {
-            // padding
-            d.s[d.offset] ^= delim;
-            d.s[block_length - 1] ^= 0x80;
-
-            keccakF(1600, &d.s);
-
-            // squeeze
-            var op: usize = 0;
-            var len: usize = bits / 8;
-
-            while (len >= block_length) {
-                mem.copy(u8, out[op..], d.s[0..block_length]);
-                keccakF(1600, &d.s);
-                op += block_length;
-                len -= block_length;
-            }
-
-            mem.copy(u8, out[op..], d.s[0..len]);
+        /// Return the hash of the absorbed bytes.
+        pub fn final(self: *Self, out: *[digest_length]u8) void {
+            self.st.pad();
+            self.st.squeeze(out[0..]);
         }
 
         pub const Error = error{};
@@ -95,86 +74,100 @@ fn Keccak(comptime bits: usize, comptime delim: u8) type {
     };
 }
 
-const RC = [_]u64{
-    0x0000000000000001, 0x0000000000008082, 0x800000000000808a, 0x8000000080008000,
-    0x000000000000808b, 0x0000000080000001, 0x8000000080008081, 0x8000000000008009,
-    0x000000000000008a, 0x0000000000000088, 0x0000000080008009, 0x000000008000000a,
-    0x000000008000808b, 0x800000000000008b, 0x8000000000008089, 0x8000000000008003,
-    0x8000000000008002, 0x8000000000000080, 0x000000000000800a, 0x800000008000000a,
-    0x8000000080008081, 0x8000000000008080, 0x0000000080000001, 0x8000000080008008,
-};
+/// The SHAKE extendable output hash function.
+pub fn Shake(comptime security_level: u11) type {
+    const f = 1600;
+    const rounds = 24;
+    const State = KeccakState(f, security_level * 2, 0x1f, rounds);
 
-const ROTC = [_]usize{
-    1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14, 27, 41, 56, 8, 25, 43, 62, 18, 39, 61, 20, 44,
-};
+    return struct {
+        const Self = @This();
 
-const PIL = [_]usize{
-    10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4, 15, 23, 19, 13, 12, 2, 20, 14, 22, 9, 6, 1,
-};
+        st: State = .{},
+        buf: [State.rate]u8 = undefined,
+        offset: usize = 0,
+        padded: bool = false,
 
-const M5 = [_]usize{
-    0, 1, 2, 3, 4, 0, 1, 2, 3, 4,
-};
+        /// The recommended output length, in bytes.
+        pub const digest_length = security_level / 2;
+        /// The block length, or rate, in bytes.
+        pub const block_length = State.rate;
+        /// Keccak does not have any options.
+        pub const Options = struct {};
 
-fn keccakF(comptime F: usize, d: *[F / 8]u8) void {
-    const B = F / 25;
-    const no_rounds = comptime x: {
-        break :x 12 + 2 * math.log2(B);
+        /// Initialize a SHAKE extensible hash function.
+        pub fn init(options: Options) Self {
+            _ = options;
+            return Self{};
+        }
+
+        /// Hash a slice of bytes.
+        /// `out` can be any length.
+        pub fn hash(bytes: []const u8, out: []u8, options: Options) void {
+            var st = Self.init(options);
+            st.update(bytes);
+            st.squeeze(out);
+        }
+
+        /// Absorb a slice of bytes into the state.
+        pub fn update(self: *Self, bytes: []const u8) void {
+            self.st.absorb(bytes);
+        }
+
+        /// Squeeze a slice of bytes from the state.
+        /// `out` can be any length, and the function can be called multiple times.
+        pub fn squeeze(self: *Self, out_: []u8) void {
+            if (!self.padded) {
+                self.st.pad();
+                self.padded = true;
+            }
+            var out = out_;
+            if (self.offset > 0) {
+                const left = self.buf.len - self.offset;
+                if (left > 0) {
+                    const n = math.min(left, out.len);
+                    mem.copy(u8, out[0..n], self.buf[self.offset..][0..n]);
+                    out = out[n..];
+                    self.offset += n;
+                    if (out.len == 0) {
+                        return;
+                    }
+                }
+            }
+            const full_blocks = out[0 .. out.len - out.len % State.rate];
+            if (full_blocks.len > 0) {
+                self.st.squeeze(full_blocks);
+                out = out[full_blocks.len..];
+            }
+            if (out.len > 0) {
+                self.st.squeeze(self.buf[0..]);
+                mem.copy(u8, out[0..], self.buf[0..out.len]);
+                self.offset = out.len;
+            }
+        }
+
+        /// Return the hash of the absorbed bytes.
+        /// `out` can be of any length, but the function must not be called multiple times (use `squeeze` for that purpose instead).
+        pub fn final(self: *Self, out: []u8) void {
+            self.squeeze(out);
+            self.st.st.clear(0, State.rate);
+        }
+
+        pub const Error = error{};
+        pub const Writer = std.io.Writer(*Self, Error, write);
+
+        fn write(self: *Self, bytes: []const u8) Error!usize {
+            self.update(bytes);
+            return bytes.len;
+        }
+
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
     };
-
-    var s = [_]u64{0} ** 25;
-    var t = [_]u64{0} ** 1;
-    var c = [_]u64{0} ** 5;
-
-    for (&s, 0..) |*r, i| {
-        r.* = mem.readIntLittle(u64, d[8 * i ..][0..8]);
-    }
-
-    for (RC[0..no_rounds]) |round| {
-        // theta
-        comptime var x: usize = 0;
-        inline while (x < 5) : (x += 1) {
-            c[x] = s[x] ^ s[x + 5] ^ s[x + 10] ^ s[x + 15] ^ s[x + 20];
-        }
-        x = 0;
-        inline while (x < 5) : (x += 1) {
-            t[0] = c[M5[x + 4]] ^ math.rotl(u64, c[M5[x + 1]], @as(usize, 1));
-            comptime var y: usize = 0;
-            inline while (y < 5) : (y += 1) {
-                s[x + y * 5] ^= t[0];
-            }
-        }
-
-        // rho+pi
-        t[0] = s[1];
-        x = 0;
-        inline while (x < 24) : (x += 1) {
-            c[0] = s[PIL[x]];
-            s[PIL[x]] = math.rotl(u64, t[0], ROTC[x]);
-            t[0] = c[0];
-        }
-
-        // chi
-        comptime var y: usize = 0;
-        inline while (y < 5) : (y += 1) {
-            x = 0;
-            inline while (x < 5) : (x += 1) {
-                c[x] = s[x + y * 5];
-            }
-            x = 0;
-            inline while (x < 5) : (x += 1) {
-                s[x + y * 5] = c[x] ^ (~c[M5[x + 1]] & c[M5[x + 2]]);
-            }
-        }
-
-        // iota
-        s[0] ^= round;
-    }
-
-    for (s, 0..) |r, i| {
-        mem.writeIntLittle(u64, d[8 * i ..][0..8], r);
-    }
 }
+
+const htest = @import("test.zig");
 
 test "sha3-224 single" {
     try htest.assertEqualHash(Sha3_224, "6b4e03423667dbb73b6e15454f0eb1abd4597f9a1b078e3f5b5a6bc7", "");
@@ -309,13 +302,49 @@ test "sha3-512 aligned final" {
 }
 
 test "keccak-256 single" {
-    try htest.assertEqualHash(Keccak_256, "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470", "");
-    try htest.assertEqualHash(Keccak_256, "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45", "abc");
-    try htest.assertEqualHash(Keccak_256, "f519747ed599024f3882238e5ab43960132572b7345fbeb9a90769dafd21ad67", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+    try htest.assertEqualHash(Keccak256, "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470", "");
+    try htest.assertEqualHash(Keccak256, "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45", "abc");
+    try htest.assertEqualHash(Keccak256, "f519747ed599024f3882238e5ab43960132572b7345fbeb9a90769dafd21ad67", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "keccak-512 single" {
-    try htest.assertEqualHash(Keccak_512, "0eab42de4c3ceb9235fc91acffe746b29c29a8c366b7c60e4e67c466f36a4304c00fa9caf9d87976ba469bcbe06713b435f091ef2769fb160cdab33d3670680e", "");
-    try htest.assertEqualHash(Keccak_512, "18587dc2ea106b9a1563e32b3312421ca164c7f1f07bc922a9c83d77cea3a1e5d0c69910739025372dc14ac9642629379540c17e2a65b19d77aa511a9d00bb96", "abc");
-    try htest.assertEqualHash(Keccak_512, "ac2fb35251825d3aa48468a9948c0a91b8256f6d97d8fa4160faff2dd9dfcc24f3f1db7a983dad13d53439ccac0b37e24037e7b95f80f59f37a2f683c4ba4682", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+    try htest.assertEqualHash(Keccak512, "0eab42de4c3ceb9235fc91acffe746b29c29a8c366b7c60e4e67c466f36a4304c00fa9caf9d87976ba469bcbe06713b435f091ef2769fb160cdab33d3670680e", "");
+    try htest.assertEqualHash(Keccak512, "18587dc2ea106b9a1563e32b3312421ca164c7f1f07bc922a9c83d77cea3a1e5d0c69910739025372dc14ac9642629379540c17e2a65b19d77aa511a9d00bb96", "abc");
+    try htest.assertEqualHash(Keccak512, "ac2fb35251825d3aa48468a9948c0a91b8256f6d97d8fa4160faff2dd9dfcc24f3f1db7a983dad13d53439ccac0b37e24037e7b95f80f59f37a2f683c4ba4682", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+}
+
+test "SHAKE-128 single" {
+    var out: [10]u8 = undefined;
+    Shake128.hash("hello123", &out, .{});
+    try htest.assertEqual("1b85861510bc4d8e467d", &out);
+}
+
+test "SHAKE-128 multisqueeze" {
+    var out: [10]u8 = undefined;
+    var h = Shake128.init(.{});
+    h.update("hello123");
+    h.squeeze(out[0..4]);
+    h.squeeze(out[4..]);
+    try htest.assertEqual("1b85861510bc4d8e467d", &out);
+}
+
+test "SHAKE-128 multisqueeze with multiple blocks" {
+    var out: [100]u8 = undefined;
+    var out2: [100]u8 = undefined;
+
+    var h = Shake128.init(.{});
+    h.update("hello123");
+    h.squeeze(out[0..50]);
+    h.squeeze(out[50..]);
+
+    var h2 = Shake128.init(.{});
+    h2.update("hello123");
+    h2.squeeze(&out2);
+    try std.testing.expectEqualSlices(u8, &out, &out2);
+}
+
+test "SHAKE-256 single" {
+    var out: [10]u8 = undefined;
+    Shake256.hash("hello123", &out, .{});
+    try htest.assertEqual("ade612ba265f92de4a37", &out);
 }
