@@ -4926,6 +4926,22 @@ fn isAnyopaque(qt: clang.QualType) bool {
             const typedef_decl = typedef_ty.getDecl();
             return isAnyopaque(typedef_decl.getUnderlyingType());
         },
+        .Elaborated => {
+            const elaborated_ty = @ptrCast(*const clang.ElaboratedType, ty);
+            return isAnyopaque(elaborated_ty.getNamedType().getCanonicalType());
+        },
+        .Decayed => {
+            const decayed_ty = @ptrCast(*const clang.DecayedType, ty);
+            return isAnyopaque(decayed_ty.getDecayedType().getCanonicalType());
+        },
+        .Attributed => {
+            const attributed_ty = @ptrCast(*const clang.AttributedType, ty);
+            return isAnyopaque(attributed_ty.getEquivalentType().getCanonicalType());
+        },
+        .MacroQualified => {
+            const macroqualified_ty = @ptrCast(*const clang.MacroQualifiedType, ty);
+            return isAnyopaque(macroqualified_ty.getModifiedType().getCanonicalType());
+        },
         else => return false,
     }
 }
