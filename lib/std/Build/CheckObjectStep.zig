@@ -10,29 +10,31 @@ const CheckObjectStep = @This();
 
 const Allocator = mem.Allocator;
 const Step = std.Build.Step;
-const EmulatableRunStep = std.Build.EmulatableRunStep;
 
 pub const base_id = .check_object;
 
 step: Step,
-builder: *std.Build,
 source: std.Build.FileSource,
 max_bytes: usize = 20 * 1024 * 1024,
 checks: std.ArrayList(Check),
 dump_symtab: bool = false,
 obj_format: std.Target.ObjectFormat,
 
-pub fn create(builder: *std.Build, source: std.Build.FileSource, obj_format: std.Target.ObjectFormat) *CheckObjectStep {
-    const gpa = builder.allocator;
+pub fn create(
+    owner: *std.Build,
+    source: std.Build.FileSource,
+    obj_format: std.Target.ObjectFormat,
+) *CheckObjectStep {
+    const gpa = owner.allocator;
     const self = gpa.create(CheckObjectStep) catch @panic("OOM");
     self.* = .{
-        .builder = builder,
-        .step = Step.init(gpa, .{
+        .step = Step.init(.{
             .id = .check_file,
             .name = "CheckObject",
+            .owner = owner,
             .makeFn = make,
         }),
-        .source = source.dupe(builder),
+        .source = source.dupe(owner),
         .checks = std.ArrayList(Check).init(gpa),
         .obj_format = obj_format,
     };
@@ -42,14 +44,18 @@ pub fn create(builder: *std.Build, source: std.Build.FileSource, obj_format: std
 
 /// Runs and (optionally) compares the output of a binary.
 /// Asserts `self` was generated from an executable step.
-pub fn runAndCompare(self: *CheckObjectStep) *EmulatableRunStep {
+/// TODO this doesn't actually compare, and there's no apparent reason for it
+/// to depend on the check object step. I don't see why this function should exist,
+/// the caller could just add the run step directly.
+pub fn runAndCompare(self: *CheckObjectStep) *std.Build.RunStep {
     const dependencies_len = self.step.dependencies.items.len;
     assert(dependencies_len > 0);
     const exe_step = self.step.dependencies.items[dependencies_len - 1];
     const exe = exe_step.cast(std.Build.CompileStep).?;
-    const emulatable_step = EmulatableRunStep.create(self.builder, "EmulatableRun", exe);
-    emulatable_step.step.dependOn(&self.step);
-    return emulatable_step;
+    const run = self.step.owner.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
+    run.step.dependOn(&self.step);
+    return run;
 }
 
 /// There two types of actions currently suported:
@@ -253,7 +259,7 @@ const Check = struct {
 
 /// Creates a new sequence of actions with `phrase` as the first anchor searched phrase.
 pub fn checkStart(self: *CheckObjectStep, phrase: []const u8) void {
-    var new_check = Check.create(self.builder);
+    var new_check = Check.create(self.step.owner);
     new_check.match(phrase);
     self.checks.append(new_check) catch @panic("OOM");
 }
@@ -295,17 +301,18 @@ pub fn checkComputeCompare(
     program: []const u8,
     expected: ComputeCompareExpected,
 ) void {
-    var new_check = Check.create(self.builder);
+    var new_check = Check.create(self.step.owner);
     new_check.computeCmp(program, expected);
     self.checks.append(new_check) catch @panic("OOM");
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
+    const b = step.owner;
+    const gpa = b.allocator;
     const self = @fieldParentPtr(CheckObjectStep, "step", step);
 
-    const gpa = self.builder.allocator;
-    const src_path = self.source.getPath(self.builder);
+    const src_path = self.source.getPath(b);
     const contents = try fs.cwd().readFileAllocOptions(
         gpa,
         src_path,

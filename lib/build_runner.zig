@@ -93,6 +93,7 @@ pub fn main() !void {
 
     var install_prefix: ?[]const u8 = null;
     var dir_list = std.Build.DirList{};
+    var enable_summary: ?bool = null;
 
     const Color = enum { auto, off, on };
     var color: Color = .auto;
@@ -217,6 +218,10 @@ pub fn main() !void {
                 builder.enable_darling = true;
             } else if (mem.eql(u8, arg, "-fno-darling")) {
                 builder.enable_darling = false;
+            } else if (mem.eql(u8, arg, "-fsummary")) {
+                enable_summary = true;
+            } else if (mem.eql(u8, arg, "-fno-summary")) {
+                enable_summary = false;
             } else if (mem.eql(u8, arg, "-freference-trace")) {
                 builder.reference_trace = 256;
             } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
@@ -252,8 +257,9 @@ pub fn main() !void {
         }
     }
 
+    const stderr = std.io.getStdErr();
     const ttyconf: std.debug.TTY.Config = switch (color) {
-        .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
+        .auto => std.debug.detectTTYConfig(stderr),
         .on => .escape_codes,
         .off => .no_color,
     };
@@ -279,6 +285,8 @@ pub fn main() !void {
         main_progress_node,
         thread_pool_options,
         ttyconf,
+        stderr,
+        enable_summary,
     ) catch |err| switch (err) {
         error.UncleanExit => process.exit(1),
         else => return err,
@@ -292,6 +300,8 @@ fn runStepNames(
     parent_prog_node: *std.Progress.Node,
     thread_pool_options: std.Thread.Pool.Options,
     ttyconf: std.debug.TTY.Config,
+    stderr: std.fs.File,
+    enable_summary: ?bool,
 ) !void {
     const gpa = b.allocator;
     var step_stack: std.AutoArrayHashMapUnmanaged(*Step, void) = .{};
@@ -382,28 +392,35 @@ fn runStepNames(
 
     // A proper command line application defaults to silently succeeding.
     // The user may request verbose mode if they have a different preference.
-    if (failure_count == 0 and !b.verbose) return cleanExit();
+    if (failure_count == 0 and enable_summary != true) return cleanExit();
 
-    const stderr = std.io.getStdErr();
+    if (enable_summary != false) {
+        const total_count = success_count + failure_count + pending_count;
+        ttyconf.setColor(stderr, .Cyan) catch {};
+        stderr.writeAll("Build Summary:") catch {};
+        ttyconf.setColor(stderr, .Reset) catch {};
+        stderr.writer().print(" {d}/{d} steps succeeded; {d} failed", .{
+            success_count, total_count, failure_count,
+        }) catch {};
 
-    const total_count = success_count + failure_count + pending_count;
-    ttyconf.setColor(stderr, .Cyan) catch {};
-    stderr.writeAll("Build Summary: ") catch {};
-    ttyconf.setColor(stderr, .Reset) catch {};
-    stderr.writer().print("{d}/{d} steps succeeded; {d} failed; {d} total compile errors\n", .{
-        success_count, total_count, failure_count, total_compile_errors,
-    }) catch {};
+        if (enable_summary == null) {
+            ttyconf.setColor(stderr, .Dim) catch {};
+            stderr.writeAll(" (disable with -fno-summary)") catch {};
+            ttyconf.setColor(stderr, .Reset) catch {};
+        }
+        stderr.writeAll("\n") catch {};
 
-    // Print a fancy tree with build results.
-    var print_node: PrintNode = .{ .parent = null };
-    if (step_names.len == 0) {
-        print_node.last = true;
-        printTreeStep(b, b.default_step, stderr, ttyconf, &print_node, &step_stack) catch {};
-    } else {
-        for (step_names, 0..) |step_name, i| {
-            const tls = b.top_level_steps.get(step_name).?;
-            print_node.last = i + 1 == b.top_level_steps.count();
-            printTreeStep(b, &tls.step, stderr, ttyconf, &print_node, &step_stack) catch {};
+        // Print a fancy tree with build results.
+        var print_node: PrintNode = .{ .parent = null };
+        if (step_names.len == 0) {
+            print_node.last = true;
+            printTreeStep(b, b.default_step, stderr, ttyconf, &print_node, &step_stack) catch {};
+        } else {
+            for (step_names, 0..) |step_name, i| {
+                const tls = b.top_level_steps.get(step_name).?;
+                print_node.last = i + 1 == b.top_level_steps.count();
+                printTreeStep(b, &tls.step, stderr, ttyconf, &print_node, &step_stack) catch {};
+            }
         }
     }
 
@@ -453,9 +470,9 @@ fn printTreeStep(
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
 ) !void {
     const first = step_stack.swapRemove(s);
-    if (!first) try ttyconf.setColor(stderr, .Dim);
     try printPrefix(parent_node, stderr);
 
+    if (!first) try ttyconf.setColor(stderr, .Dim);
     if (parent_node.parent != null) {
         if (parent_node.last) {
             try stderr.writeAll("└─ ");
@@ -464,7 +481,7 @@ fn printTreeStep(
         }
     }
 
-    // TODO print the dep prefix too?
+    // dep_prefix omitted here because it is redundant with the tree.
     try stderr.writeAll(s.name);
 
     if (first) {
@@ -608,8 +625,10 @@ fn workerMakeOneStep(
         const stderr = std.io.getStdErr();
 
         for (s.result_error_msgs.items) |msg| {
-            // TODO print the dep prefix too
+            // Sometimes it feels like you just can't catch a break. Finally,
+            // with Zig, you can.
             ttyconf.setColor(stderr, .Bold) catch break;
+            stderr.writeAll(s.owner.dep_prefix) catch break;
             stderr.writeAll(s.name) catch break;
             stderr.writeAll(": ") catch break;
             ttyconf.setColor(stderr, .Red) catch break;
@@ -735,6 +754,8 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\Advanced Options:
         \\  -freference-trace[=num]      How many lines of reference trace should be shown per compile error
         \\  -fno-reference-trace         Disable reference trace
+        \\  -fsummary                    Print the build summary, even on success
+        \\  -fno-summary                 Omit the build summary, even on failure
         \\  --build-file [file]          Override path to build.zig
         \\  --cache-dir [path]           Override path to local Zig cache directory
         \\  --global-cache-dir [path]    Override path to global Zig cache directory

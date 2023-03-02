@@ -11,14 +11,11 @@ const EnvMap = process.EnvMap;
 const Allocator = mem.Allocator;
 const ExecError = std.Build.ExecError;
 
-const max_stdout_size = 1 * 1024 * 1024; // 1 MiB
-
 const RunStep = @This();
 
 pub const base_id: Step.Id = .run;
 
 step: Step,
-builder: *std.Build,
 
 /// See also addArg and addArgs to modifying this directly
 argv: ArrayList(Arg),
@@ -29,35 +26,68 @@ cwd: ?[]const u8,
 /// Override this field to modify the environment, or use setEnvironmentVariable
 env_map: ?*EnvMap,
 
-stdout_action: StdIoAction = .inherit,
-stderr_action: StdIoAction = .inherit,
-
-stdin_behavior: std.ChildProcess.StdIo = .Inherit,
-
-/// Set this to `null` to ignore the exit code for the purpose of determining a successful execution
-expected_term: ?std.ChildProcess.Term = .{ .Exited = 0 },
-
-/// Print the command before running it
-print: bool,
-/// Controls whether execution is skipped if the output file is up-to-date.
-/// The default is to always run if there is no output file, and to skip
-/// running if all output files are up-to-date.
-condition: enum { output_outdated, always } = .output_outdated,
+/// Configures whether the RunStep is considered to have side-effects, and also
+/// whether the RunStep will inherit stdio streams, forwarding them to the
+/// parent process, in which case will require a global lock to prevent other
+/// steps from interfering with stdio while the subprocess associated with this
+/// RunStep is running.
+/// If the RunStep is determined to not have side-effects, then execution will
+/// be skipped if all output files are up-to-date and input files are
+/// unchanged.
+stdio: StdIo = .infer_from_args,
 
 /// Additional file paths relative to build.zig that, when modified, indicate
 /// that the RunStep should be re-executed.
+/// If the RunStep is determined to have side-effects, this field is ignored
+/// and the RunStep is always executed when it appears in the build graph.
 extra_file_dependencies: []const []const u8 = &.{},
 
 /// After adding an output argument, this step will by default rename itself
 /// for a better display name in the build summary.
 /// This can be disabled by setting this to false.
-rename_step_with_output_arg: bool,
+rename_step_with_output_arg: bool = true,
 
-pub const StdIoAction = union(enum) {
+/// If this is true, a RunStep which is configured to check the output of the
+/// executed binary will not fail the build if the binary cannot be executed
+/// due to being for a foreign binary to the host system which is running the
+/// build graph.
+/// Command-line arguments such as -fqemu and -fwasmtime may affect whether a
+/// binary is detected as foreign, as well as system configuration such as
+/// Rosetta (macOS) and binfmt_misc (Linux).
+skip_foreign_checks: bool = false,
+
+/// If stderr or stdout exceeds this amount, the child process is killed and
+/// the step fails.
+max_stdio_size: usize = 10 * 1024 * 1024,
+
+pub const StdIo = union(enum) {
+    /// Whether the RunStep has side-effects will be determined by whether or not one
+    /// of the args is an output file (added with `addOutputFileArg`).
+    /// If the RunStep is determined to have side-effects, this is the same as `inherit`.
+    /// The step will fail if the subprocess crashes or returns a non-zero exit code.
+    infer_from_args,
+    /// Causes the RunStep to be considered to have side-effects, and therefore
+    /// always execute when it appears in the build graph.
+    /// It also means that this step will obtain a global lock to prevent other
+    /// steps from running in the meantime.
+    /// The step will fail if the subprocess crashes or returns a non-zero exit code.
     inherit,
-    ignore,
-    expect_exact: []const u8,
-    expect_matches: []const []const u8,
+    /// Causes the RunStep to be considered to *not* have side-effects. The
+    /// process will be re-executed if any of the input dependencies are
+    /// modified. The exit code and standard I/O streams will be checked for
+    /// certain conditions, and the step will succeed or fail based on these
+    /// conditions.
+    /// Note that an explicit check for exit code 0 needs to be added to this
+    /// list if such a check is desireable.
+    check: []const Check,
+
+    pub const Check = union(enum) {
+        expect_stderr_exact: []const u8,
+        expect_stderr_match: []const u8,
+        expect_stdout_exact: []const u8,
+        expect_stdout_match: []const u8,
+        expect_term: std.ChildProcess.Term,
+    };
 };
 
 pub const Arg = union(enum) {
@@ -72,20 +102,20 @@ pub const Arg = union(enum) {
     };
 };
 
-pub fn create(builder: *std.Build, name: []const u8) *RunStep {
-    const self = builder.allocator.create(RunStep) catch @panic("OOM");
+pub fn create(owner: *std.Build, name: []const u8) *RunStep {
+    const self = owner.allocator.create(RunStep) catch @panic("OOM");
     self.* = .{
-        .builder = builder,
-        .step = Step.init(builder.allocator, .{
+        .step = Step.init(.{
             .id = base_id,
             .name = name,
+            .owner = owner,
             .makeFn = make,
         }),
-        .argv = ArrayList(Arg).init(builder.allocator),
+        .argv = ArrayList(Arg).init(owner.allocator),
         .cwd = null,
         .env_map = null,
-        .print = builder.verbose,
         .rename_step_with_output_arg = true,
+        .max_stdio_size = 10 * 1024 * 1024,
     };
     return self;
 }
@@ -99,16 +129,17 @@ pub fn addArtifactArg(self: *RunStep, artifact: *CompileStep) void {
 /// run, and returns a FileSource which can be used as inputs to other APIs
 /// throughout the build system.
 pub fn addOutputFileArg(rs: *RunStep, basename: []const u8) std.Build.FileSource {
-    const generated_file = rs.builder.allocator.create(std.Build.GeneratedFile) catch @panic("OOM");
+    const b = rs.step.owner;
+    const generated_file = b.allocator.create(std.Build.GeneratedFile) catch @panic("OOM");
     generated_file.* = .{ .step = &rs.step };
     rs.argv.append(.{ .output = .{
         .generated_file = generated_file,
-        .basename = rs.builder.dupe(basename),
+        .basename = b.dupe(basename),
     } }) catch @panic("OOM");
 
     if (rs.rename_step_with_output_arg) {
         rs.rename_step_with_output_arg = false;
-        rs.step.name = rs.builder.fmt("{s} ({s})", .{ rs.step.name, basename });
+        rs.step.name = b.fmt("{s} ({s})", .{ rs.step.name, basename });
     }
 
     return .{ .generated = generated_file };
@@ -116,13 +147,13 @@ pub fn addOutputFileArg(rs: *RunStep, basename: []const u8) std.Build.FileSource
 
 pub fn addFileSourceArg(self: *RunStep, file_source: std.Build.FileSource) void {
     self.argv.append(Arg{
-        .file_source = file_source.dupe(self.builder),
+        .file_source = file_source.dupe(self.step.owner),
     }) catch @panic("OOM");
     file_source.addStepDependencies(&self.step);
 }
 
 pub fn addArg(self: *RunStep, arg: []const u8) void {
-    self.argv.append(Arg{ .bytes = self.builder.dupe(arg) }) catch @panic("OOM");
+    self.argv.append(Arg{ .bytes = self.step.owner.dupe(arg) }) catch @panic("OOM");
 }
 
 pub fn addArgs(self: *RunStep, args: []const []const u8) void {
@@ -132,13 +163,14 @@ pub fn addArgs(self: *RunStep, args: []const []const u8) void {
 }
 
 pub fn clearEnvironment(self: *RunStep) void {
-    const new_env_map = self.builder.allocator.create(EnvMap) catch @panic("OOM");
-    new_env_map.* = EnvMap.init(self.builder.allocator);
+    const b = self.step.owner;
+    const new_env_map = b.allocator.create(EnvMap) catch @panic("OOM");
+    new_env_map.* = EnvMap.init(b.allocator);
     self.env_map = new_env_map;
 }
 
 pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
-    addPathDirInternal(&self.step, self.builder, search_path);
+    addPathDirInternal(&self.step, self.step.owner, search_path);
 }
 
 /// For internal use only, users of `RunStep` should use `addPathDir` directly.
@@ -157,13 +189,12 @@ pub fn addPathDirInternal(step: *Step, builder: *std.Build, search_path: []const
 }
 
 pub fn getEnvMap(self: *RunStep) *EnvMap {
-    return getEnvMapInternal(&self.step, self.builder.allocator);
+    return getEnvMapInternal(&self.step, self.step.owner.allocator);
 }
 
 fn getEnvMapInternal(step: *Step, allocator: Allocator) *EnvMap {
     const maybe_env_map = switch (step.id) {
         .run => step.cast(RunStep).?.env_map,
-        .emulatable_run => step.cast(std.Build.EmulatableRunStep).?.env_map,
         else => unreachable,
     };
     return maybe_env_map orelse {
@@ -171,7 +202,6 @@ fn getEnvMapInternal(step: *Step, allocator: Allocator) *EnvMap {
         env_map.* = process.getEnvMap(allocator) catch @panic("unhandled error");
         switch (step.id) {
             .run => step.cast(RunStep).?.env_map = env_map,
-            .emulatable_run => step.cast(RunStep).?.env_map = env_map,
             else => unreachable,
         }
         return env_map;
@@ -179,41 +209,85 @@ fn getEnvMapInternal(step: *Step, allocator: Allocator) *EnvMap {
 }
 
 pub fn setEnvironmentVariable(self: *RunStep, key: []const u8, value: []const u8) void {
+    const b = self.step.owner;
     const env_map = self.getEnvMap();
-    env_map.put(
-        self.builder.dupe(key),
-        self.builder.dupe(value),
-    ) catch @panic("unhandled error");
+    env_map.put(b.dupe(key), b.dupe(value)) catch @panic("unhandled error");
 }
 
 pub fn expectStdErrEqual(self: *RunStep, bytes: []const u8) void {
-    self.stderr_action = .{ .expect_exact = self.builder.dupe(bytes) };
+    const new_check: StdIo.Check = .{ .expect_stderr_exact = self.step.owner.dupe(bytes) };
+    self.addCheck(new_check);
 }
 
 pub fn expectStdOutEqual(self: *RunStep, bytes: []const u8) void {
-    self.stdout_action = .{ .expect_exact = self.builder.dupe(bytes) };
+    const new_check: StdIo.Check = .{ .expect_stdout_exact = self.step.owner.dupe(bytes) };
+    self.addCheck(new_check);
 }
 
-fn stdIoActionToBehavior(action: StdIoAction) std.ChildProcess.StdIo {
-    return switch (action) {
-        .ignore => .Ignore,
-        .inherit => .Inherit,
-        .expect_exact, .expect_matches => .Pipe,
+pub fn expectExitCode(self: *RunStep, code: u8) void {
+    const new_check: StdIo.Check = .{ .expect_term = .{ .Exited = code } };
+    self.addCheck(new_check);
+}
+
+pub fn addCheck(self: *RunStep, new_check: StdIo.Check) void {
+    const arena = self.step.owner.allocator;
+    switch (self.stdio) {
+        .infer_from_args => {
+            const list = arena.create([1]StdIo.Check) catch @panic("OOM");
+            list.* = .{new_check};
+            self.stdio = .{ .check = list };
+        },
+        .check => |checks| {
+            const new_list = arena.alloc(StdIo.Check, checks.len + 1) catch @panic("OOM");
+            std.mem.copy(StdIo.Check, new_list, checks);
+            new_list[checks.len] = new_check;
+        },
+        else => @panic("illegal call to addCheck: conflicting helper method calls. Suggest to directly set stdio field of RunStep instead"),
+    }
+}
+
+/// Returns whether the RunStep has side effects *other than* updating the output arguments.
+fn hasSideEffects(self: RunStep) bool {
+    return switch (self.stdio) {
+        .infer_from_args => !self.hasAnyOutputArgs(),
+        .inherit => true,
+        .check => false,
     };
 }
 
-fn needOutputCheck(self: RunStep) bool {
-    switch (self.condition) {
-        .always => return false,
-        .output_outdated => {},
-    }
-    if (self.extra_file_dependencies.len > 0) return true;
-
+fn hasAnyOutputArgs(self: RunStep) bool {
     for (self.argv.items) |arg| switch (arg) {
         .output => return true,
         else => continue,
     };
+    return false;
+}
 
+fn checksContainStdout(checks: []const StdIo.Check) bool {
+    for (checks) |check| switch (check) {
+        .expect_stderr_exact,
+        .expect_stderr_match,
+        .expect_term,
+        => continue,
+
+        .expect_stdout_exact,
+        .expect_stdout_match,
+        => return true,
+    };
+    return false;
+}
+
+fn checksContainStderr(checks: []const StdIo.Check) bool {
+    for (checks) |check| switch (check) {
+        .expect_stdout_exact,
+        .expect_stdout_match,
+        .expect_term,
+        => continue,
+
+        .expect_stderr_exact,
+        .expect_stderr_match,
+        => return true,
+    };
     return false;
 }
 
@@ -223,16 +297,17 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     // processes could use to supply progress updates.
     _ = prog_node;
 
+    const b = step.owner;
     const self = @fieldParentPtr(RunStep, "step", step);
-    const need_output_check = self.needOutputCheck();
+    const has_side_effects = self.hasSideEffects();
 
-    var argv_list = ArrayList([]const u8).init(self.builder.allocator);
+    var argv_list = ArrayList([]const u8).init(b.allocator);
     var output_placeholders = ArrayList(struct {
         index: usize,
         output: Arg.Output,
-    }).init(self.builder.allocator);
+    }).init(b.allocator);
 
-    var man = self.builder.cache.obtain();
+    var man = b.cache.obtain();
     defer man.deinit();
 
     for (self.argv.items) |arg| {
@@ -242,7 +317,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 man.hash.addBytes(bytes);
             },
             .file_source => |file| {
-                const file_path = file.getPath(self.builder);
+                const file_path = file.getPath(b);
                 try argv_list.append(file_path);
                 _ = try man.addFile(file_path, null);
             },
@@ -252,7 +327,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     self.addPathForDynLibs(artifact);
                 }
                 const file_path = artifact.installed_path orelse
-                    artifact.getOutputSource().getPath(self.builder);
+                    artifact.getOutputSource().getPath(b);
 
                 try argv_list.append(file_path);
 
@@ -272,17 +347,17 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 
-    if (need_output_check) {
+    if (!has_side_effects) {
         for (self.extra_file_dependencies) |file_path| {
-            _ = try man.addFile(self.builder.pathFromRoot(file_path), null);
+            _ = try man.addFile(b.pathFromRoot(file_path), null);
         }
 
-        if (man.hit() catch |err| failWithCacheError(man, err)) {
+        if (try step.cacheHit(&man)) {
             // cache hit, skip running command
             const digest = man.final();
             for (output_placeholders.items) |placeholder| {
-                placeholder.output.generated_file.path = try self.builder.cache_root.join(
-                    self.builder.allocator,
+                placeholder.output.generated_file.path = try b.cache_root.join(
+                    b.allocator,
                     &.{ "o", &digest, placeholder.output.basename },
                 );
             }
@@ -292,8 +367,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         const digest = man.final();
 
         for (output_placeholders.items) |placeholder| {
-            const output_path = try self.builder.cache_root.join(
-                self.builder.allocator,
+            const output_path = try b.cache_root.join(
+                b.allocator,
                 &.{ "o", &digest, placeholder.output.basename },
             );
             const output_dir = fs.path.dirname(output_path).?;
@@ -308,18 +383,16 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     try runCommand(
-        argv_list.items,
-        self.builder,
-        self.expected_term,
-        self.stdout_action,
-        self.stderr_action,
-        self.stdin_behavior,
-        self.env_map,
+        step,
         self.cwd,
-        self.print,
+        argv_list.items,
+        self.env_map,
+        self.stdio,
+        has_side_effects,
+        self.max_stdio_size,
     );
 
-    if (need_output_check) {
+    if (!has_side_effects) {
         try man.writeManifest();
     }
 }
@@ -369,165 +442,171 @@ fn termMatches(expected: ?std.ChildProcess.Term, actual: std.ChildProcess.Term) 
     };
 }
 
-pub fn runCommand(
+fn runCommand(
+    step: *Step,
+    opt_cwd: ?[]const u8,
     argv: []const []const u8,
-    builder: *std.Build,
-    expected_term: ?std.ChildProcess.Term,
-    stdout_action: StdIoAction,
-    stderr_action: StdIoAction,
-    stdin_behavior: std.ChildProcess.StdIo,
     env_map: ?*EnvMap,
-    maybe_cwd: ?[]const u8,
-    print: bool,
+    stdio: StdIo,
+    has_side_effects: bool,
+    max_stdio_size: usize,
 ) !void {
-    const cwd = if (maybe_cwd) |cwd| builder.pathFromRoot(cwd) else builder.build_root.path;
+    const b = step.owner;
+    const arena = b.allocator;
+    const cwd = if (opt_cwd) |cwd| b.pathFromRoot(cwd) else b.build_root.path;
 
-    if (!std.process.can_spawn) {
-        const cmd = try std.mem.join(builder.allocator, " ", argv);
-        std.debug.print("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{
-            @tagName(builtin.os.tag), cmd,
-        });
-        builder.allocator.free(cmd);
-        return ExecError.ExecNotSupported;
-    }
+    try step.handleChildProcUnsupported(opt_cwd, argv);
+    try Step.handleVerbose(step.owner, opt_cwd, argv);
 
-    var child = std.ChildProcess.init(argv, builder.allocator);
+    var child = std.ChildProcess.init(argv, arena);
     child.cwd = cwd;
-    child.env_map = env_map orelse builder.env_map;
+    child.env_map = env_map orelse b.env_map;
 
-    child.stdin_behavior = stdin_behavior;
-    child.stdout_behavior = stdIoActionToBehavior(stdout_action);
-    child.stderr_behavior = stdIoActionToBehavior(stderr_action);
-
-    if (print)
-        printCmd(cwd, argv);
-
-    child.spawn() catch |err| {
-        std.debug.print("Unable to spawn {s}: {s}\n", .{ argv[0], @errorName(err) });
-        return err;
+    child.stdin_behavior = switch (stdio) {
+        .infer_from_args => if (has_side_effects) .Inherit else .Ignore,
+        .inherit => .Inherit,
+        .check => .Close,
+    };
+    child.stdout_behavior = switch (stdio) {
+        .infer_from_args => if (has_side_effects) .Inherit else .Ignore,
+        .inherit => .Inherit,
+        .check => |checks| if (checksContainStdout(checks)) .Pipe else .Ignore,
+    };
+    child.stderr_behavior = switch (stdio) {
+        .infer_from_args => if (has_side_effects) .Inherit else .Pipe,
+        .inherit => .Inherit,
+        .check => .Pipe,
     };
 
-    // TODO need to poll to read these streams to prevent a deadlock (or rely on evented I/O).
+    child.spawn() catch |err| return step.fail("unable to spawn {s}: {s}", .{
+        argv[0], @errorName(err),
+    });
 
-    var stdout: ?[]const u8 = null;
-    defer if (stdout) |s| builder.allocator.free(s);
+    var stdout_bytes: ?[]const u8 = null;
+    var stderr_bytes: ?[]const u8 = null;
 
-    switch (stdout_action) {
-        .expect_exact, .expect_matches => {
-            stdout = try child.stdout.?.reader().readAllAlloc(builder.allocator, max_stdout_size);
-        },
-        .inherit, .ignore => {},
+    if (child.stdout) |stdout| {
+        if (child.stderr) |stderr| {
+            var poller = std.io.poll(arena, enum { stdout, stderr }, .{
+                .stdout = stdout,
+                .stderr = stderr,
+            });
+            defer poller.deinit();
+
+            while (try poller.poll()) {
+                if (poller.fifo(.stdout).count > max_stdio_size)
+                    return error.StdoutStreamTooLong;
+                if (poller.fifo(.stderr).count > max_stdio_size)
+                    return error.StderrStreamTooLong;
+            }
+
+            stdout_bytes = try poller.fifo(.stdout).toOwnedSlice();
+            stderr_bytes = try poller.fifo(.stderr).toOwnedSlice();
+        } else {
+            stdout_bytes = try stdout.reader().readAllAlloc(arena, max_stdio_size);
+        }
+    } else if (child.stderr) |stderr| {
+        stderr_bytes = try stderr.reader().readAllAlloc(arena, max_stdio_size);
     }
 
-    var stderr: ?[]const u8 = null;
-    defer if (stderr) |s| builder.allocator.free(s);
-
-    switch (stderr_action) {
-        .expect_exact, .expect_matches => {
-            stderr = try child.stderr.?.reader().readAllAlloc(builder.allocator, max_stdout_size);
-        },
-        .inherit, .ignore => {},
-    }
+    if (stderr_bytes) |stderr| if (stderr.len > 0) {
+        const stderr_is_diagnostic = switch (stdio) {
+            .check => |checks| !checksContainStderr(checks),
+            else => true,
+        };
+        if (stderr_is_diagnostic) {
+            try step.result_error_msgs.append(arena, stderr);
+        }
+    };
 
     const term = child.wait() catch |err| {
-        std.debug.print("Unable to spawn {s}: {s}\n", .{ argv[0], @errorName(err) });
-        return err;
+        return step.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(err) });
     };
 
-    if (!termMatches(expected_term, term)) {
-        std.debug.print("The following command {} (expected {}):\n", .{ fmtTerm(term), fmtTerm(expected_term) });
-        printCmd(cwd, argv);
-        return error.UnexpectedExit;
-    }
-
-    switch (stderr_action) {
-        .inherit, .ignore => {},
-        .expect_exact => |expected_bytes| {
-            if (!mem.eql(u8, expected_bytes, stderr.?)) {
-                std.debug.print(
-                    \\
-                    \\========= Expected this stderr: =========
-                    \\{s}
-                    \\========= But found: ====================
-                    \\{s}
-                    \\
-                , .{ expected_bytes, stderr.? });
-                printCmd(cwd, argv);
-                return error.TestFailed;
-            }
+    switch (stdio) {
+        .check => |checks| for (checks) |check| switch (check) {
+            .expect_stderr_exact => |expected_bytes| {
+                if (!mem.eql(u8, expected_bytes, stderr_bytes.?)) {
+                    return step.fail(
+                        \\========= expected this stderr: =========
+                        \\{s}
+                        \\========= but found: ====================
+                        \\{s}
+                        \\========= from the following command: ===
+                        \\{s}
+                    , .{
+                        expected_bytes,
+                        stderr_bytes.?,
+                        try Step.allocPrintCmd(arena, opt_cwd, argv),
+                    });
+                }
+            },
+            .expect_stderr_match => |match| {
+                if (mem.indexOf(u8, stderr_bytes.?, match) == null) {
+                    return step.fail(
+                        \\========= expected to find in stderr: =========
+                        \\{s}
+                        \\========= but stderr does not contain it: =====
+                        \\{s}
+                        \\========= from the following command: =========
+                        \\{s}
+                    , .{
+                        match,
+                        stderr_bytes.?,
+                        try Step.allocPrintCmd(arena, opt_cwd, argv),
+                    });
+                }
+            },
+            .expect_stdout_exact => |expected_bytes| {
+                if (!mem.eql(u8, expected_bytes, stdout_bytes.?)) {
+                    return step.fail(
+                        \\========= expected this stdout: =========
+                        \\{s}
+                        \\========= but found: ====================
+                        \\{s}
+                        \\========= from the following command: ===
+                        \\{s}
+                    , .{
+                        expected_bytes,
+                        stdout_bytes.?,
+                        try Step.allocPrintCmd(arena, opt_cwd, argv),
+                    });
+                }
+            },
+            .expect_stdout_match => |match| {
+                if (mem.indexOf(u8, stdout_bytes.?, match) == null) {
+                    return step.fail(
+                        \\========= expected to find in stdout: =========
+                        \\{s}
+                        \\========= but stdout does not contain it: =====
+                        \\{s}
+                        \\========= from the following command: =========
+                        \\{s}
+                    , .{
+                        match,
+                        stdout_bytes.?,
+                        try Step.allocPrintCmd(arena, opt_cwd, argv),
+                    });
+                }
+            },
+            .expect_term => |expected_term| {
+                if (!termMatches(expected_term, term)) {
+                    return step.fail("the following command {} (expected {}):\n{s}", .{
+                        fmtTerm(term),
+                        fmtTerm(expected_term),
+                        try Step.allocPrintCmd(arena, opt_cwd, argv),
+                    });
+                }
+            },
         },
-        .expect_matches => |matches| for (matches) |match| {
-            if (mem.indexOf(u8, stderr.?, match) == null) {
-                std.debug.print(
-                    \\
-                    \\========= Expected to find in stderr: =========
-                    \\{s}
-                    \\========= But stderr does not contain it: =====
-                    \\{s}
-                    \\
-                , .{ match, stderr.? });
-                printCmd(cwd, argv);
-                return error.TestFailed;
-            }
+        else => {
+            try step.handleChildProcessTerm(term, opt_cwd, argv);
         },
     }
-
-    switch (stdout_action) {
-        .inherit, .ignore => {},
-        .expect_exact => |expected_bytes| {
-            if (!mem.eql(u8, expected_bytes, stdout.?)) {
-                std.debug.print(
-                    \\
-                    \\========= Expected this stdout: =========
-                    \\{s}
-                    \\========= But found: ====================
-                    \\{s}
-                    \\
-                , .{ expected_bytes, stdout.? });
-                printCmd(cwd, argv);
-                return error.TestFailed;
-            }
-        },
-        .expect_matches => |matches| for (matches) |match| {
-            if (mem.indexOf(u8, stdout.?, match) == null) {
-                std.debug.print(
-                    \\
-                    \\========= Expected to find in stdout: =========
-                    \\{s}
-                    \\========= But stdout does not contain it: =====
-                    \\{s}
-                    \\
-                , .{ match, stdout.? });
-                printCmd(cwd, argv);
-                return error.TestFailed;
-            }
-        },
-    }
-}
-
-fn failWithCacheError(man: std.Build.Cache.Manifest, err: anyerror) noreturn {
-    const i = man.failed_file_index orelse failWithSimpleError(err);
-    const pp = man.files.items[i].prefixed_path orelse failWithSimpleError(err);
-    const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
-    std.debug.print("{s}: {s}/{s}\n", .{ @errorName(err), prefix, pp.sub_path });
-    std.process.exit(1);
-}
-
-fn failWithSimpleError(err: anyerror) noreturn {
-    std.debug.print("{s}\n", .{@errorName(err)});
-    std.process.exit(1);
-}
-
-fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
-    if (cwd) |yes_cwd| std.debug.print("cd {s} && ", .{yes_cwd});
-    for (argv) |arg| {
-        std.debug.print("{s} ", .{arg});
-    }
-    std.debug.print("\n", .{});
 }
 
 fn addPathForDynLibs(self: *RunStep, artifact: *CompileStep) void {
-    addPathForDynLibsInternal(&self.step, self.builder, artifact);
+    addPathForDynLibsInternal(&self.step, self.step.owner, artifact);
 }
 
 /// This should only be used for internal usage, this is called automatically

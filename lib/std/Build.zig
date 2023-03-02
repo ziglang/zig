@@ -32,14 +32,12 @@ pub const Step = @import("Build/Step.zig");
 pub const CheckFileStep = @import("Build/CheckFileStep.zig");
 pub const CheckObjectStep = @import("Build/CheckObjectStep.zig");
 pub const ConfigHeaderStep = @import("Build/ConfigHeaderStep.zig");
-pub const EmulatableRunStep = @import("Build/EmulatableRunStep.zig");
 pub const FmtStep = @import("Build/FmtStep.zig");
 pub const InstallArtifactStep = @import("Build/InstallArtifactStep.zig");
 pub const InstallDirStep = @import("Build/InstallDirStep.zig");
 pub const InstallFileStep = @import("Build/InstallFileStep.zig");
 pub const ObjCopyStep = @import("Build/ObjCopyStep.zig");
 pub const CompileStep = @import("Build/CompileStep.zig");
-pub const LogStep = @import("Build/LogStep.zig");
 pub const OptionsStep = @import("Build/OptionsStep.zig");
 pub const RemoveDirStep = @import("Build/RemoveDirStep.zig");
 pub const RunStep = @import("Build/RunStep.zig");
@@ -195,7 +193,7 @@ pub fn create(
     env_map.* = try process.getEnvMap(allocator);
 
     const self = try allocator.create(Build);
-    self.* = Build{
+    self.* = .{
         .zig_exe = zig_exe,
         .build_root = build_root,
         .cache_root = cache_root,
@@ -224,16 +222,18 @@ pub fn create(
         .dest_dir = env_map.get("DESTDIR"),
         .installed_files = ArrayList(InstalledFile).init(allocator),
         .install_tls = .{
-            .step = Step.init(allocator, .{
+            .step = Step.init(.{
                 .id = .top_level,
                 .name = "install",
+                .owner = self,
             }),
             .description = "Copy build artifacts to prefix path",
         },
         .uninstall_tls = .{
-            .step = Step.init(allocator, .{
+            .step = Step.init(.{
                 .id = .top_level,
                 .name = "uninstall",
+                .owner = self,
                 .makeFn = makeUninstall,
             }),
             .description = "Remove build artifacts from prefix path",
@@ -267,16 +267,18 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
     child.* = .{
         .allocator = allocator,
         .install_tls = .{
-            .step = Step.init(allocator, .{
+            .step = Step.init(.{
                 .id = .top_level,
                 .name = "install",
+                .owner = child,
             }),
             .description = "Copy build artifacts to prefix path",
         },
         .uninstall_tls = .{
-            .step = Step.init(allocator, .{
+            .step = Step.init(.{
                 .id = .top_level,
                 .name = "uninstall",
+                .owner = child,
                 .makeFn = makeUninstall,
             }),
             .description = "Remove build artifacts from prefix path",
@@ -689,21 +691,14 @@ pub fn addWriteFiles(self: *Build) *WriteFileStep {
     return write_file_step;
 }
 
-pub fn addLog(self: *Build, comptime format: []const u8, args: anytype) *LogStep {
-    const data = self.fmt(format, args);
-    const log_step = self.allocator.create(LogStep) catch @panic("OOM");
-    log_step.* = LogStep.init(self, data);
-    return log_step;
-}
-
 pub fn addRemoveDirTree(self: *Build, dir_path: []const u8) *RemoveDirStep {
     const remove_dir_step = self.allocator.create(RemoveDirStep) catch @panic("OOM");
     remove_dir_step.* = RemoveDirStep.init(self, dir_path);
     return remove_dir_step;
 }
 
-pub fn addFmt(self: *Build, paths: []const []const u8) *FmtStep {
-    return FmtStep.create(self, paths);
+pub fn addFmt(b: *Build, options: FmtStep.Options) *FmtStep {
+    return FmtStep.create(b, options);
 }
 
 pub fn addTranslateC(self: *Build, options: TranslateCStep.Options) *TranslateCStep {
@@ -870,10 +865,11 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
 
 pub fn step(self: *Build, name: []const u8, description: []const u8) *Step {
     const step_info = self.allocator.create(TopLevelStep) catch @panic("OOM");
-    step_info.* = TopLevelStep{
-        .step = Step.init(self.allocator, .{
+    step_info.* = .{
+        .step = Step.init(.{
             .id = .top_level,
             .name = name,
+            .owner = self,
         }),
         .description = self.dupe(description),
     };
@@ -1145,10 +1141,6 @@ pub fn validateUserInputDidItFail(self: *Build) bool {
     return self.invalid_user_input;
 }
 
-pub fn spawnChild(self: *Build, argv: []const []const u8) !void {
-    return self.spawnChildEnvMap(null, self.env_map, argv);
-}
-
 fn allocPrintCmd(ally: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) ![]u8 {
     var buf = ArrayList(u8).init(ally);
     if (opt_cwd) |cwd| try buf.writer().print("cd {s} && ", .{cwd});
@@ -1161,40 +1153,6 @@ fn allocPrintCmd(ally: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8
 fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
     const text = allocPrintCmd(ally, cwd, argv) catch @panic("OOM");
     std.debug.print("{s}\n", .{text});
-}
-
-pub fn spawnChildEnvMap(self: *Build, cwd: ?[]const u8, env_map: *const EnvMap, argv: []const []const u8) !void {
-    if (self.verbose) {
-        printCmd(self.allocator, cwd, argv);
-    }
-
-    if (!process.can_spawn)
-        return error.ExecNotSupported;
-
-    var child = std.ChildProcess.init(argv, self.allocator);
-    child.cwd = cwd;
-    child.env_map = env_map;
-
-    const term = child.spawnAndWait() catch |err| {
-        log.err("Unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
-        return err;
-    };
-
-    switch (term) {
-        .Exited => |code| {
-            if (code != 0) {
-                log.err("The following command exited with error code {}:", .{code});
-                printCmd(self.allocator, cwd, argv);
-                return error.UncleanExit;
-            }
-        },
-        else => {
-            log.err("The following command terminated unexpectedly:", .{});
-            printCmd(self.allocator, cwd, argv);
-
-            return error.UncleanExit;
-        },
-    }
 }
 
 pub fn installArtifact(self: *Build, artifact: *CompileStep) void {
@@ -1401,160 +1359,6 @@ pub fn execAllowFail(
             return error.ProcessTerminated;
         },
     }
-}
-
-/// This function is used exclusively for spawning and communicating with the zig compiler.
-/// TODO: move to build_runner.zig
-pub fn execFromStep(b: *Build, argv: []const []const u8, s: *Step, prog_node: *std.Progress.Node) ![]const u8 {
-    assert(argv.len != 0);
-
-    if (b.verbose) {
-        const text = try allocPrintCmd(b.allocator, null, argv);
-        try s.result_error_msgs.append(b.allocator, text);
-    }
-
-    if (!process.can_spawn) {
-        try s.result_error_msgs.append(b.allocator, b.fmt("Unable to spawn the following command: cannot spawn child processes\n{s}", .{
-            try allocPrintCmd(b.allocator, null, argv),
-        }));
-        return error.MakeFailed;
-    }
-
-    var child = std.ChildProcess.init(argv, b.allocator);
-    child.env_map = b.env_map;
-    child.stdin_behavior = .Pipe;
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-
-    try child.spawn();
-
-    var poller = std.io.poll(b.allocator, enum { stdout, stderr }, .{
-        .stdout = child.stdout.?,
-        .stderr = child.stderr.?,
-    });
-    defer poller.deinit();
-
-    try sendMessage(child.stdin.?, .update);
-    try sendMessage(child.stdin.?, .exit);
-
-    const Header = std.zig.Server.Message.Header;
-    var result: ?[]const u8 = null;
-
-    var node_name: std.ArrayListUnmanaged(u8) = .{};
-    defer node_name.deinit(b.allocator);
-    var sub_prog_node: ?std.Progress.Node = null;
-    defer if (sub_prog_node) |*n| n.end();
-
-    while (try poller.poll()) {
-        const stdout = poller.fifo(.stdout);
-        const buf = stdout.readableSlice(0);
-        assert(stdout.readableLength() == buf.len);
-        if (buf.len >= @sizeOf(Header)) {
-            const header = @ptrCast(*align(1) const Header, buf[0..@sizeOf(Header)]);
-            const header_and_msg_len = header.bytes_len + @sizeOf(Header);
-            if (buf.len >= header_and_msg_len) {
-                const body = buf[@sizeOf(Header)..][0..header.bytes_len];
-                switch (header.tag) {
-                    .zig_version => {
-                        if (!mem.eql(u8, builtin.zig_version_string, body)) {
-                            try s.result_error_msgs.append(
-                                b.allocator,
-                                b.fmt("zig version mismatch build runner vs compiler: '{s}' vs '{s}'", .{
-                                    builtin.zig_version_string, body,
-                                }),
-                            );
-                            return error.MakeFailed;
-                        }
-                    },
-                    .error_bundle => {
-                        const EbHdr = std.zig.Server.Message.ErrorBundle;
-                        const eb_hdr = @ptrCast(*align(1) const EbHdr, body);
-                        const extra_bytes =
-                            body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
-                        const string_bytes =
-                            body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
-                        // TODO: use @ptrCast when the compiler supports it
-                        const unaligned_extra = mem.bytesAsSlice(u32, extra_bytes);
-                        const extra_array = try b.allocator.alloc(u32, unaligned_extra.len);
-                        // TODO: use @memcpy when it supports slices
-                        for (extra_array, unaligned_extra) |*dst, src| dst.* = src;
-                        s.result_error_bundle = .{
-                            .string_bytes = try b.allocator.dupe(u8, string_bytes),
-                            .extra = extra_array,
-                        };
-                    },
-                    .progress => {
-                        if (sub_prog_node) |*n| n.end();
-                        node_name.clearRetainingCapacity();
-                        try node_name.appendSlice(b.allocator, body);
-                        sub_prog_node = prog_node.start(node_name.items, 0);
-                        sub_prog_node.?.activate();
-                    },
-                    .emit_bin_path => {
-                        result = try b.allocator.dupe(u8, body);
-                    },
-                    _ => {
-                        // Unrecognized message.
-                    },
-                }
-                stdout.discard(header_and_msg_len);
-            }
-        }
-    }
-
-    const stderr = poller.fifo(.stderr);
-    if (stderr.readableLength() > 0) {
-        try s.result_error_msgs.append(b.allocator, try stderr.toOwnedSlice());
-    }
-
-    // Send EOF to stdin.
-    child.stdin.?.close();
-    child.stdin = null;
-
-    const term = try child.wait();
-    switch (term) {
-        .Exited => |code| {
-            if (code != 0) {
-                try s.result_error_msgs.append(b.allocator, b.fmt("the following command exited with error code {d}:\n{s}", .{
-                    code, try allocPrintCmd(b.allocator, null, argv),
-                }));
-                return error.MakeFailed;
-            }
-        },
-        .Signal, .Stopped, .Unknown => |code| {
-            _ = code;
-            try s.result_error_msgs.append(b.allocator, b.fmt("the following command terminated unexpectedly:\n{s}", .{
-                try allocPrintCmd(b.allocator, null, argv),
-            }));
-            return error.MakeFailed;
-        },
-    }
-
-    if (s.result_error_bundle.errorMessageCount() > 0) {
-        try s.result_error_msgs.append(
-            b.allocator,
-            b.fmt("the following command failed with {d} compilation errors:\n{s}", .{
-                s.result_error_bundle.errorMessageCount(),
-                try allocPrintCmd(b.allocator, null, argv),
-            }),
-        );
-        return error.MakeFailed;
-    }
-
-    return result orelse {
-        try s.result_error_msgs.append(b.allocator, b.fmt("the following command failed to communicate the compilation result:\n{s}", .{
-            try allocPrintCmd(b.allocator, null, argv),
-        }));
-        return error.MakeFailed;
-    };
-}
-
-fn sendMessage(file: fs.File, tag: std.zig.Client.Message.Tag) !void {
-    const header: std.zig.Client.Message.Header = .{
-        .tag = tag,
-        .bytes_len = 0,
-    };
-    try file.writeAll(std.mem.asBytes(&header));
 }
 
 /// This is a helper function to be called from build.zig scripts, *not* from
@@ -1910,14 +1714,12 @@ pub fn serializeCpu(allocator: Allocator, cpu: std.Target.Cpu) ![]const u8 {
 test {
     _ = CheckFileStep;
     _ = CheckObjectStep;
-    _ = EmulatableRunStep;
     _ = FmtStep;
     _ = InstallArtifactStep;
     _ = InstallDirStep;
     _ = InstallFileStep;
     _ = ObjCopyStep;
     _ = CompileStep;
-    _ = LogStep;
     _ = OptionsStep;
     _ = RemoveDirStep;
     _ = RunStep;

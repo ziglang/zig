@@ -21,7 +21,6 @@ pub const RawFormat = enum {
 };
 
 step: Step,
-builder: *std.Build,
 file_source: std.Build.FileSource,
 basename: []const u8,
 output_file: std.Build.GeneratedFile,
@@ -38,18 +37,18 @@ pub const Options = struct {
 };
 
 pub fn create(
-    builder: *std.Build,
+    owner: *std.Build,
     file_source: std.Build.FileSource,
     options: Options,
 ) *ObjCopyStep {
-    const self = builder.allocator.create(ObjCopyStep) catch @panic("OOM");
+    const self = owner.allocator.create(ObjCopyStep) catch @panic("OOM");
     self.* = ObjCopyStep{
-        .step = Step.init(builder.allocator, .{
+        .step = Step.init(.{
             .id = base_id,
-            .name = builder.fmt("objcopy {s}", .{file_source.getDisplayName()}),
+            .name = owner.fmt("objcopy {s}", .{file_source.getDisplayName()}),
+            .owner = owner,
             .makeFn = make,
         }),
-        .builder = builder,
         .file_source = file_source,
         .basename = options.basename orelse file_source.getDisplayName(),
         .output_file = std.Build.GeneratedFile{ .step = &self.step },
@@ -67,9 +66,8 @@ pub fn getOutputSource(self: *const ObjCopyStep) std.Build.FileSource {
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
-    _ = prog_node;
+    const b = step.owner;
     const self = @fieldParentPtr(ObjCopyStep, "step", step);
-    const b = self.builder;
 
     var man = b.cache.obtain();
     defer man.deinit();
@@ -84,7 +82,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     man.hash.addOptional(self.pad_to);
     man.hash.addOptional(self.format);
 
-    if (man.hit() catch |err| failWithCacheError(man, err)) {
+    if (try step.cacheHit(&man)) {
         // Cache hit, skip subprocess execution.
         const digest = man.final();
         self.output_file.path = try b.cache_root.join(b.allocator, &.{
@@ -116,23 +114,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     };
 
     try argv.appendSlice(&.{ full_src_path, full_dest_path });
-    _ = try self.builder.execFromStep(argv.items, &self.step);
+    _ = try step.spawnZigProcess(argv.items, prog_node);
 
     self.output_file.path = full_dest_path;
     try man.writeManifest();
-}
-
-/// TODO consolidate this with the same function in RunStep?
-/// Also properly deal with concurrency (see open PR)
-fn failWithCacheError(man: std.Build.Cache.Manifest, err: anyerror) noreturn {
-    const i = man.failed_file_index orelse failWithSimpleError(err);
-    const pp = man.files.items[i].prefixed_path orelse failWithSimpleError(err);
-    const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
-    std.debug.print("{s}: {s}/{s}\n", .{ @errorName(err), prefix, pp.sub_path });
-    std.process.exit(1);
-}
-
-fn failWithSimpleError(err: anyerror) noreturn {
-    std.debug.print("{s}\n", .{@errorName(err)});
-    std.process.exit(1);
 }

@@ -4419,6 +4419,8 @@ pub const usage_build =
     \\Options:
     \\   -freference-trace[=num]       How many lines of reference trace should be shown per compile error
     \\   -fno-reference-trace          Disable reference trace
+    \\   -fsummary                     Print the build summary, even on success
+    \\   -fno-summary                  Omit the build summary, even on failure
     \\   --build-file [file]           Override path to build.zig
     \\   --cache-dir [path]            Override path to local Zig cache directory
     \\   --global-cache-dir [path]     Override path to global Zig cache directory
@@ -4920,8 +4922,6 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
         };
         defer tree.deinit(gpa);
 
-        try printAstErrorsToStderr(gpa, tree, "<stdin>", color);
-        var has_ast_error = false;
         if (check_ast_flag) {
             var file: Module.File = .{
                 .status = .never_loaded,
@@ -4957,11 +4957,11 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                 var error_bundle = try wip_errors.toOwnedBundle();
                 defer error_bundle.deinit(gpa);
                 error_bundle.renderToStdErr(ttyconf);
-                has_ast_error = true;
+                process.exit(2);
             }
-        }
-        if (tree.errors.len != 0 or has_ast_error) {
-            process.exit(1);
+        } else if (tree.errors.len != 0) {
+            try printAstErrorsToStderr(gpa, tree, "<stdin>", color);
+            process.exit(2);
         }
         const formatted = try tree.render(gpa);
         defer gpa.free(formatted);

@@ -166,9 +166,7 @@ pub const CompareOutputContext = struct {
 
                 const run = exe.run();
                 run.addArgs(case.cli_args);
-                run.stderr_action = .ignore;
-                run.stdout_action = .ignore;
-                run.expected_term = .{ .Exited = 126 };
+                run.expectExitCode(126);
 
                 self.step.dependOn(&run.step);
             },

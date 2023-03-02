@@ -61,8 +61,6 @@ pub fn build(b: *std.Build) !void {
     test_cases.stack_size = stack_size;
     test_cases.single_threaded = single_threaded;
 
-    const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
-
     const skip_debug = b.option(bool, "skip-debug", "Main test suite skips debug builds") orelse false;
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
@@ -386,10 +384,24 @@ pub fn build(b: *std.Build) !void {
     }
     const optimization_modes = chosen_opt_modes_buf[0..chosen_mode_index];
 
-    // run stage1 `zig fmt` on this build.zig file just to make sure it works
-    test_step.dependOn(&fmt_build_zig.step);
-    const fmt_step = b.step("test-fmt", "Run zig fmt against build.zig to make sure it works");
-    fmt_step.dependOn(&fmt_build_zig.step);
+    const fmt_include_paths = &.{ "doc", "lib", "src", "test", "tools", "build.zig" };
+    const fmt_exclude_paths = &.{ "test/cases" };
+    const check_fmt = b.addFmt(.{
+        .paths = fmt_include_paths,
+        .exclude_paths = fmt_exclude_paths,
+        .check = true,
+    });
+    const do_fmt = b.addFmt(.{
+        .paths = fmt_include_paths,
+        .exclude_paths = fmt_exclude_paths,
+    });
+
+    const test_fmt_step = b.step("test-fmt", "Check whether source files have conforming formatting");
+    test_fmt_step.dependOn(&check_fmt.step);
+
+    const do_fmt_step = b.step("fmt", "Modify source files in place to have conforming formatting");
+    do_fmt_step.dependOn(&do_fmt.step);
+
 
     test_step.dependOn(tests.addPkgTests(
         b,

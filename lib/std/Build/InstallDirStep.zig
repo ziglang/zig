@@ -7,11 +7,10 @@ const InstallDirStep = @This();
 const log = std.log;
 
 step: Step,
-builder: *std.Build,
 options: Options,
 /// This is used by the build system when a file being installed comes from one
 /// package but is being installed by another.
-override_source_builder: ?*std.Build = null,
+dest_builder: *std.Build,
 
 pub const base_id = .install_dir;
 
@@ -40,27 +39,26 @@ pub const Options = struct {
     }
 };
 
-pub fn init(
-    builder: *std.Build,
-    options: Options,
-) InstallDirStep {
-    builder.pushInstalledFile(options.install_dir, options.install_subdir);
+pub fn init(owner: *std.Build, options: Options) InstallDirStep {
+    owner.pushInstalledFile(options.install_dir, options.install_subdir);
     return .{
-        .builder = builder,
-        .step = Step.init(builder.allocator, .{
+        .step = Step.init(.{
             .id = .install_dir,
-            .name = builder.fmt("install {s}/", .{options.source_dir}),
+            .name = owner.fmt("install {s}/", .{options.source_dir}),
+            .owner = owner,
             .makeFn = make,
         }),
-        .options = options.dupe(builder),
+        .options = options.dupe(owner),
+        .dest_builder = owner,
     };
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const self = @fieldParentPtr(InstallDirStep, "step", step);
-    const dest_prefix = self.builder.getInstallPath(self.options.install_dir, self.options.install_subdir);
-    const src_builder = self.override_source_builder orelse self.builder;
+    const dest_builder = self.dest_builder;
+    const dest_prefix = dest_builder.getInstallPath(self.options.install_dir, self.options.install_subdir);
+    const src_builder = self.step.owner;
     const full_src_dir = src_builder.pathFromRoot(self.options.source_dir);
     var src_dir = std.fs.cwd().openIterableDir(full_src_dir, .{}) catch |err| {
         log.err("InstallDirStep: unable to open source directory '{s}': {s}", .{
@@ -69,7 +67,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         return error.StepFailed;
     };
     defer src_dir.close();
-    var it = try src_dir.walk(self.builder.allocator);
+    var it = try src_dir.walk(dest_builder.allocator);
     next_entry: while (try it.next()) |entry| {
         for (self.options.exclude_extensions) |ext| {
             if (mem.endsWith(u8, entry.path, ext)) {
@@ -77,20 +75,20 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             }
         }
 
-        const full_path = self.builder.pathJoin(&.{ full_src_dir, entry.path });
-        const dest_path = self.builder.pathJoin(&.{ dest_prefix, entry.path });
+        const full_path = dest_builder.pathJoin(&.{ full_src_dir, entry.path });
+        const dest_path = dest_builder.pathJoin(&.{ dest_prefix, entry.path });
 
         switch (entry.kind) {
             .Directory => try fs.cwd().makePath(dest_path),
             .File => {
                 for (self.options.blank_extensions) |ext| {
                     if (mem.endsWith(u8, entry.path, ext)) {
-                        try self.builder.truncateFile(dest_path);
+                        try dest_builder.truncateFile(dest_path);
                         continue :next_entry;
                     }
                 }
 
-                try self.builder.updateFile(full_path, dest_path);
+                try dest_builder.updateFile(full_path, dest_path);
             },
             else => continue,
         }

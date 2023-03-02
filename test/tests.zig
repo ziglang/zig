@@ -858,10 +858,11 @@ pub const StackTracesContext = struct {
             const allocator = context.b.allocator;
             const ptr = allocator.create(RunAndCompareStep) catch unreachable;
             ptr.* = RunAndCompareStep{
-                .step = Step.init(allocator, .{
+                .step = Step.init(.{
                     .id = .custom,
                     .name = "StackTraceCompareOutputStep",
                     .makeFn = make,
+                    .owner = context.b,
                 }),
                 .context = context,
                 .exe = exe,
@@ -1121,10 +1122,7 @@ pub const StandaloneContext = struct {
             defer zig_args.resize(zig_args_base_len) catch unreachable;
 
             const run_cmd = b.addSystemCommand(zig_args.items);
-            const log_step = b.addLog("PASS {s} ({s})", .{ annotated_case_name, @tagName(optimize_mode) });
-            log_step.step.dependOn(&run_cmd.step);
-
-            self.step.dependOn(&log_step.step);
+            self.step.dependOn(&run_cmd.step);
         }
     }
 
@@ -1150,10 +1148,7 @@ pub const StandaloneContext = struct {
                 exe.linkSystemLibrary("c");
             }
 
-            const log_step = b.addLog("PASS {s}", .{annotated_case_name});
-            log_step.step.dependOn(&exe.step);
-
-            self.step.dependOn(&log_step.step);
+            self.step.dependOn(&exe.step);
         }
     }
 };
@@ -1203,9 +1198,10 @@ pub const GenHContext = struct {
             const allocator = context.b.allocator;
             const ptr = allocator.create(GenHCmpOutputStep) catch unreachable;
             ptr.* = GenHCmpOutputStep{
-                .step = Step.init(allocator, .{
+                .step = Step.init(.{
                     .id = .custom,
                     .name = "ParseCCmpOutput",
+                    .owner = context.b,
                     .makeFn = make,
                 }),
                 .context = context,

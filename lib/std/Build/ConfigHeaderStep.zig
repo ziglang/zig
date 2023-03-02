@@ -34,7 +34,6 @@ pub const Value = union(enum) {
 };
 
 step: Step,
-builder: *std.Build,
 values: std.StringArrayHashMap(Value),
 output_file: std.Build.GeneratedFile,
 
@@ -49,8 +48,8 @@ pub const Options = struct {
     first_ret_addr: ?usize = null,
 };
 
-pub fn create(builder: *std.Build, options: Options) *ConfigHeaderStep {
-    const self = builder.allocator.create(ConfigHeaderStep) catch @panic("OOM");
+pub fn create(owner: *std.Build, options: Options) *ConfigHeaderStep {
+    const self = owner.allocator.create(ConfigHeaderStep) catch @panic("OOM");
 
     var include_path: []const u8 = "config.h";
 
@@ -69,28 +68,27 @@ pub fn create(builder: *std.Build, options: Options) *ConfigHeaderStep {
     }
 
     const name = if (options.style.getFileSource()) |s|
-        builder.fmt("configure {s} header {s} to {s}", .{
+        owner.fmt("configure {s} header {s} to {s}", .{
             @tagName(options.style), s.getDisplayName(), include_path,
         })
     else
-        builder.fmt("configure {s} header to {s}", .{@tagName(options.style), include_path});
+        owner.fmt("configure {s} header to {s}", .{ @tagName(options.style), include_path });
 
     self.* = .{
-        .builder = builder,
-        .step = Step.init(builder.allocator, .{
+        .step = Step.init(.{
             .id = base_id,
             .name = name,
+            .owner = owner,
             .makeFn = make,
             .first_ret_addr = options.first_ret_addr orelse @returnAddress(),
         }),
         .style = options.style,
-        .values = std.StringArrayHashMap(Value).init(builder.allocator),
+        .values = std.StringArrayHashMap(Value).init(owner.allocator),
 
         .max_bytes = options.max_bytes,
         .include_path = include_path,
         .output_file = .{ .step = &self.step },
     };
-
 
     return self;
 }
@@ -161,8 +159,9 @@ fn putValue(self: *ConfigHeaderStep, field_name: []const u8, comptime T: type, v
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
+    const b = step.owner;
     const self = @fieldParentPtr(ConfigHeaderStep, "step", step);
-    const gpa = self.builder.allocator;
+    const gpa = b.allocator;
 
     // The cache is used here not really as a way to speed things up - because writing
     // the data to a file would probably be very fast - but as a way to find a canonical
@@ -191,13 +190,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     switch (self.style) {
         .autoconf => |file_source| {
             try output.appendSlice(c_generated_line);
-            const src_path = file_source.getPath(self.builder);
+            const src_path = file_source.getPath(b);
             const contents = try std.fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes);
             try render_autoconf(contents, &output, self.values, src_path);
         },
         .cmake => |file_source| {
             try output.appendSlice(c_generated_line);
-            const src_path = file_source.getPath(self.builder);
+            const src_path = file_source.getPath(b);
             const contents = try std.fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes);
             try render_cmake(contents, &output, self.values, src_path);
         },
@@ -222,7 +221,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         .{std.fmt.fmtSliceHexLower(&digest)},
     ) catch unreachable;
 
-    const output_dir = try self.builder.cache_root.join(gpa, &.{ "o", &hash_basename });
+    const output_dir = try b.cache_root.join(gpa, &.{ "o", &hash_basename });
 
     // If output_path has directory parts, deal with them.  Example:
     // output_dir is zig-cache/o/HASH
@@ -242,7 +241,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try dir.writeFile(std.fs.path.basename(self.include_path), output.items);
 
-    self.output_file.path = try std.fs.path.join(self.builder.allocator, &.{
+    self.output_file.path = try std.fs.path.join(b.allocator, &.{
         output_dir, self.include_path,
     });
 }
