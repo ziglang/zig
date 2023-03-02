@@ -59,6 +59,18 @@ pub fn Keccak(comptime f: u11, comptime output_bits: u11, comptime delim: u8, co
             self.st.pad();
             self.st.squeeze(out[0..]);
         }
+
+        pub const Error = error{};
+        pub const Writer = std.io.Writer(*Self, Error, write);
+
+        fn write(self: *Self, bytes: []const u8) Error!usize {
+            self.update(bytes);
+            return bytes.len;
+        }
+
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
     };
 }
 
@@ -139,6 +151,18 @@ pub fn Shake(comptime security_level: u11) type {
         pub fn final(self: *Self, out: []u8) void {
             self.squeeze(out);
             self.st.st.clear(0, State.rate);
+        }
+
+        pub const Error = error{};
+        pub const Writer = std.io.Writer(*Self, Error, write);
+
+        fn write(self: *Self, bytes: []const u8) Error!usize {
+            self.update(bytes);
+            return bytes.len;
+        }
+
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
         }
     };
 }
