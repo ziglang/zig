@@ -264,7 +264,7 @@ pub const Fe = struct {
     }
 
     /// Multiply two field elements
-    pub inline fn mul(a: Fe, b: Fe) Fe {
+    pub fn mul(a: Fe, b: Fe) Fe {
         var ax: [5]u128 = undefined;
         var bx: [5]u128 = undefined;
         var a19: [5]u128 = undefined;
