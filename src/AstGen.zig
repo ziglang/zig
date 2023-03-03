@@ -2631,6 +2631,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .repeat_inline,
             .panic,
             .panic_comptime,
+            .trap,
             .check_comptime_control_flow,
             => {
                 noreturn_src_node = statement;
@@ -8105,7 +8106,7 @@ fn builtinCall(
         .error_return_trace => return rvalue(gz, ri, try gz.addNodeExtended(.error_return_trace, node), node),
         .frame              => return rvalue(gz, ri, try gz.addNodeExtended(.frame,              node), node),
         .frame_address      => return rvalue(gz, ri, try gz.addNodeExtended(.frame_address,      node), node),
-        .breakpoint         => return rvalue(gz, ri, try gz.addNodeExtended(.breakpoint, node), node),
+        .breakpoint         => return rvalue(gz, ri, try gz.addNodeExtended(.breakpoint,         node), node),
 
         .type_info   => return simpleUnOpType(gz, scope, ri, node, params[0], .type_info),
         .size_of     => return simpleUnOpType(gz, scope, ri, node, params[0], .size_of),
@@ -8177,6 +8178,11 @@ fn builtinCall(
         .panic => {
             try emitDbgNode(gz, node);
             return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[0], if (gz.force_comptime) .panic_comptime else .panic);
+        },
+        .trap => {
+            try emitDbgNode(gz, node);
+            _ = try gz.addNode(.trap, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .error_to_int => {
             const operand = try expr(gz, scope, .{ .rl = .none }, params[0]);

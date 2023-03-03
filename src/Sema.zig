@@ -1101,6 +1101,7 @@ fn analyzeBodyInner(
             .@"unreachable" => break sema.zirUnreachable(block, inst),
             .panic          => break sema.zirPanic(block, inst, false),
             .panic_comptime => break sema.zirPanic(block, inst, true),
+            .trap           => break sema.zirTrap(block, inst),
             // zig fmt: on
 
             .extended => ext: {
@@ -5141,6 +5142,14 @@ fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index, force_comptime: bo
         return sema.fail(block, src, "encountered @panic at comptime", .{});
     }
     try sema.panicWithMsg(block, src, msg_inst);
+    return always_noreturn;
+}
+
+fn zirTrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
+    const src_node = sema.code.instructions.items(.data)[inst].node;
+    const src = LazySrcLoc.nodeOffset(src_node);
+    sema.src = src;
+    _ = try block.addNoOp(.trap);
     return always_noreturn;
 }
 

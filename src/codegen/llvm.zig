@@ -4590,6 +4590,7 @@ pub const FuncGen = struct {
                 .block          => try self.airBlock(inst),
                 .br             => try self.airBr(inst),
                 .switch_br      => try self.airSwitchBr(inst),
+                .trap           => try self.airTrap(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
                 .frame_addr     => try self.airFrameAddress(inst),
@@ -8254,6 +8255,13 @@ pub const FuncGen = struct {
             return ptr;
         }
         return fg.load(ptr, ptr_ty);
+    }
+
+    fn airTrap(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        _ = inst;
+        const llvm_fn = self.getIntrinsic("llvm.trap", &.{});
+        _ = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, undefined, 0, .Cold, .Auto, "");
+        return null;
     }
 
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {

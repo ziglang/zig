@@ -7818,12 +7818,14 @@ comptime {
       <p>
       This function inserts a platform-specific debug trap instruction which causes
       debuggers to break there.
+      Unlike for {#syntax#}@trap(){#endsyntax#}, execution may continue after this point if the program is resumed.
       </p>
       <p>
       This function is only valid within function scope.
       </p>
-
+      {#see_also|@trap#}
       {#header_close#}
+
       {#header_open|@mulAdd#}
       <pre>{#syntax#}@mulAdd(comptime T: type, a: T, b: T, c: T) T{#endsyntax#}</pre>
       <p>
@@ -9391,6 +9393,19 @@ fn List(comptime T: type) type {
       When {#syntax#}@This(){#endsyntax#} is used at file scope, it returns a reference to the
       struct that corresponds to the current file.
       </p>
+      {#header_close#}
+
+      {#header_open|@trap#}
+      <pre>{#syntax#}@trap() noreturn{#endsyntax#}</pre>
+      <p>
+      This function inserts a platform-specific trap/jam instruction which can be used to exit the program abnormally.
+      This may be implemented by explicitly emitting an invalid instruction which may cause an illegal instruction exception of some sort.
+      Unlike for {#syntax#}@breakpoint(){#endsyntax#}, execution does not continue after this point.
+      </p>
+      <p>
+      This function is only valid within function scope.
+      </p>
+      {#see_also|@breakpoint#}
       {#header_close#}
 
       {#header_open|@truncate#}

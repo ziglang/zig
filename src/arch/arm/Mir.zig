@@ -35,6 +35,8 @@ pub const Inst = struct {
         asr,
         /// Branch
         b,
+        /// Undefined instruction
+        undefined_instruction,
         /// Breakpoint
         bkpt,
         /// Branch with Link and Exchange

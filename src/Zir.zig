@@ -617,7 +617,7 @@ pub const Inst = struct {
         /// Uses the `un_node` field.
         typeof_log2_int_type,
         /// Asserts control-flow will not reach this instruction (`unreachable`).
-        /// Uses the `unreachable` union field.
+        /// Uses the `@"unreachable"` union field.
         @"unreachable",
         /// Bitwise XOR. `^`
         /// Uses the `pl_node` union field. Payload is `Bin`.
@@ -808,6 +808,9 @@ pub const Inst = struct {
         panic,
         /// Same as `panic` but forces comptime.
         panic_comptime,
+        /// Implements `@trap`.
+        /// Uses the `node` field.
+        trap,
         /// Implement builtin `@setRuntimeSafety`. Uses `un_node`.
         set_runtime_safety,
         /// Implement builtin `@sqrt`. Uses `un_node`.
@@ -1274,6 +1277,7 @@ pub const Inst = struct {
                 .repeat_inline,
                 .panic,
                 .panic_comptime,
+                .trap,
                 .check_comptime_control_flow,
                 => true,
             };
@@ -1549,6 +1553,7 @@ pub const Inst = struct {
                 .repeat_inline,
                 .panic,
                 .panic_comptime,
+                .trap,
                 .for_len,
                 .@"try",
                 .try_ptr,
@@ -1746,6 +1751,7 @@ pub const Inst = struct {
                 .error_name = .un_node,
                 .panic = .un_node,
                 .panic_comptime = .un_node,
+                .trap = .node,
                 .set_runtime_safety = .un_node,
                 .sqrt = .un_node,
                 .sin = .un_node,
@@ -1982,6 +1988,7 @@ pub const Inst = struct {
         err_set_cast,
         /// `operand` is payload index to `UnNode`.
         await_nosuspend,
+        /// Implements `@breakpoint`.
         /// `operand` is `src_node: i32`.
         breakpoint,
         /// Implements the `@select` builtin.
@@ -1995,7 +2002,7 @@ pub const Inst = struct {
         int_to_error,
         /// Implement builtin `@Type`.
         /// `operand` is payload index to `UnNode`.
-        /// `small` contains `NameStrategy
+        /// `small` contains `NameStrategy`.
         reify,
         /// Implements the `@asyncCall` builtin.
         /// `operand` is payload index to `AsyncCall`.

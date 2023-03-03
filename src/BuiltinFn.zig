@@ -109,6 +109,7 @@ pub const Tag = enum {
     sub_with_overflow,
     tag_name,
     This,
+    trap,
     truncate,
     Type,
     type_info,
@@ -912,6 +913,13 @@ pub const list = list: {
             "@This",
             .{
                 .tag = .This,
+                .param_count = 0,
+            },
+        },
+        .{
+            "@trap",
+            .{
+                .tag = .trap,
                 .param_count = 0,
             },
         },

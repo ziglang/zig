@@ -638,6 +638,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .bitcast         => try self.airBitCast(inst),
             .block           => try self.airBlock(inst),
             .br              => try self.airBr(inst),
+            .trap            => try self.airTrap(),
             .breakpoint      => try self.airBreakpoint(),
             .ret_addr        => try self.airRetAddr(inst),
             .frame_addr      => try self.airFrameAddress(inst),
@@ -3915,6 +3916,15 @@ fn genVarDbgInfo(
         .plan9 => {},
         .none => {},
     }
+}
+
+fn airTrap(self: *Self) !void {
+    _ = try self.addInst(.{
+        .tag = .ud,
+        .ops = Mir.Inst.Ops.encode(.{}),
+        .data = undefined,
+    });
+    return self.finishAirBookkeeping();
 }
 
 fn airBreakpoint(self: *Self) !void {
