@@ -7814,7 +7814,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@breakpoint#}
-      <pre>{#syntax#}@breakpoint(){#endsyntax#}</pre>
+      <pre>{#syntax#}@breakpoint() void{#endsyntax#}</pre>
       <p>
       This function inserts a platform-specific debug trap instruction which causes
       debuggers to break there.
@@ -7933,7 +7933,7 @@ pub const CallModifier = enum {
       {#header_close#}
 
       {#header_open|@cDefine#}
-      <pre>{#syntax#}@cDefine(comptime name: []u8, value){#endsyntax#}</pre>
+      <pre>{#syntax#}@cDefine(comptime name: []u8, value) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -7977,7 +7977,7 @@ pub const CallModifier = enum {
       {#see_also|Import from C Header File|@cInclude|@cDefine|@cUndef#}
       {#header_close#}
       {#header_open|@cInclude#}
-      <pre>{#syntax#}@cInclude(comptime path: []u8){#endsyntax#}</pre>
+      <pre>{#syntax#}@cInclude(comptime path: []u8) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -7989,7 +7989,7 @@ pub const CallModifier = enum {
       {#header_close#}
 
       {#header_open|@clz#}
-      <pre>{#syntax#}@clz(operand: anytype){#endsyntax#}</pre>
+      <pre>{#syntax#}@clz(operand: anytype) anytype{#endsyntax#}</pre>
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type or an integer vector type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>
@@ -8068,7 +8068,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@compileError#}
-      <pre>{#syntax#}@compileError(comptime msg: []u8){#endsyntax#}</pre>
+      <pre>{#syntax#}@compileError(comptime msg: []u8) noreturn{#endsyntax#}</pre>
       <p>
       This function, when semantically analyzed, causes a compile error with the
       message {#syntax#}msg{#endsyntax#}.
@@ -8081,7 +8081,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@compileLog#}
-      <pre>{#syntax#}@compileLog(args: ...){#endsyntax#}</pre>
+      <pre>{#syntax#}@compileLog(args: ...) void{#endsyntax#}</pre>
       <p>
       This function prints the arguments passed to it at compile-time.
       </p>
@@ -8139,7 +8139,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@ctz#}
-      <pre>{#syntax#}@ctz(operand: anytype){#endsyntax#}</pre>
+      <pre>{#syntax#}@ctz(operand: anytype) anytype{#endsyntax#}</pre>
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type or an integer vector type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>
@@ -8159,7 +8159,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@cUndef#}
-      <pre>{#syntax#}@cUndef(comptime name: []u8){#endsyntax#}</pre>
+      <pre>{#syntax#}@cUndef(comptime name: []u8) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -8370,7 +8370,7 @@ export fn @"A function name that is a complete sentence."() void {}
       {#header_close#}
 
       {#header_open|@fence#}
-      <pre>{#syntax#}@fence(order: AtomicOrder){#endsyntax#}</pre>
+      <pre>{#syntax#}@fence(order: AtomicOrder) void{#endsyntax#}</pre>
       <p>
       The {#syntax#}fence{#endsyntax#} function is used to introduce happens-before edges between operations.
       </p>
@@ -8622,7 +8622,7 @@ test "integer cast panic" {
       {#header_close#}
 
       {#header_open|@memcpy#}
-      <pre>{#syntax#}@memcpy(noalias dest: [*]u8, noalias source: [*]const u8, byte_count: usize){#endsyntax#}</pre>
+      <pre>{#syntax#}@memcpy(noalias dest: [*]u8, noalias source: [*]const u8, byte_count: usize) void{#endsyntax#}</pre>
       <p>
       This function copies bytes from one region of memory to another. {#syntax#}dest{#endsyntax#} and
           {#syntax#}source{#endsyntax#} are both pointers and must not overlap.
@@ -8641,7 +8641,7 @@ mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
       {#header_close#}
 
       {#header_open|@memset#}
-      <pre>{#syntax#}@memset(dest: [*]u8, c: u8, byte_count: usize){#endsyntax#}</pre>
+      <pre>{#syntax#}@memset(dest: [*]u8, c: u8, byte_count: usize) void{#endsyntax#}</pre>
       <p>
       This function sets a region of memory to {#syntax#}c{#endsyntax#}. {#syntax#}dest{#endsyntax#} is a pointer.
       </p>
@@ -8753,7 +8753,7 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@popCount#}
-      <pre>{#syntax#}@popCount(operand: anytype){#endsyntax#}</pre>
+      <pre>{#syntax#}@popCount(operand: anytype) anytype{#endsyntax#}</pre>
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>Counts the number of bits set in an integer.</p>
@@ -8767,7 +8767,7 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@prefetch#}
-      <pre>{#syntax#}@prefetch(ptr: anytype, comptime options: std.builtin.PrefetchOptions){#endsyntax#}</pre>
+      <pre>{#syntax#}@prefetch(ptr: anytype, comptime options: std.builtin.PrefetchOptions) void{#endsyntax#}</pre>
       <p>
       This builtin tells the compiler to emit a prefetch instruction if supported by the
       target CPU. If the target CPU does not support the requested prefetch instruction,
@@ -8881,21 +8881,21 @@ pub const PrefetchOptions = struct {
       {#header_close#}
 
       {#header_open|@setAlignStack#}
-      <pre>{#syntax#}@setAlignStack(comptime alignment: u29){#endsyntax#}</pre>
+      <pre>{#syntax#}@setAlignStack(comptime alignment: u29) void{#endsyntax#}</pre>
       <p>
       Ensures that a function will have a stack alignment of at least {#syntax#}alignment{#endsyntax#} bytes.
       </p>
       {#header_close#}
 
       {#header_open|@setCold#}
-      <pre>{#syntax#}@setCold(comptime is_cold: bool){#endsyntax#}</pre>
+      <pre>{#syntax#}@setCold(comptime is_cold: bool) void{#endsyntax#}</pre>
       <p>
       Tells the optimizer that a function is rarely called.
       </p>
       {#header_close#}
 
       {#header_open|@setEvalBranchQuota#}
-      <pre>{#syntax#}@setEvalBranchQuota(comptime new_quota: u32){#endsyntax#}</pre>
+      <pre>{#syntax#}@setEvalBranchQuota(comptime new_quota: u32) void{#endsyntax#}</pre>
       <p>
       Changes the maximum number of backwards branches that compile-time code
       execution can use before giving up and making a compile error.
@@ -8930,7 +8930,7 @@ test "foo" {
       {#header_close#}
 
       {#header_open|@setFloatMode#}
-      <pre>{#syntax#}@setFloatMode(comptime mode: @import("std").builtin.FloatMode){#endsyntax#}</pre>
+      <pre>{#syntax#}@setFloatMode(comptime mode: @import("std").builtin.FloatMode) void{#endsyntax#}</pre>
       <p>
       Sets the floating point mode of the current scope. Possible values are:
       </p>
