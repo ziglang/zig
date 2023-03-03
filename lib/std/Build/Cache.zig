@@ -956,11 +956,16 @@ fn hashFile(file: fs.File, bin_digest: *[Hasher.mac_length]u8) !void {
 
 // Create/Write a file, close it, then grab its stat.mtime timestamp.
 fn testGetCurrentFileTimestamp() !i128 {
-    var file = try fs.cwd().createFile("test-filetimestamp.tmp", .{
+    const test_out_file = "test-filetimestamp.tmp";
+
+    var file = try fs.cwd().createFile(test_out_file, .{
         .read = true,
         .truncate = true,
     });
-    defer file.close();
+    defer {
+        file.close();
+        fs.cwd().deleteFile(test_out_file) catch {};
+    }
 
     return (try file.stat()).mtime;
 }
