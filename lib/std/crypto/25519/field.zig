@@ -266,9 +266,9 @@ pub const Fe = struct {
 
     /// Multiply two field elements
     /// Inlining can result in large code generation, so do it conditionally.
-    pub fn mul(a: Fe, b: Fe) callconv(switch(builtin.mode) {
+    pub fn mul(a: Fe, b: Fe) callconv(switch (builtin.mode) {
         .ReleaseSafe, .ReleaseFast => .Inline,
-        .Debug, .ReleaseSmall => .Unspecified, 
+        .Debug, .ReleaseSmall => .Unspecified,
     }) Fe {
         var ax: [5]u128 = undefined;
         var bx: [5]u128 = undefined;
