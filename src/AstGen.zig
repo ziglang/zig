@@ -2342,10 +2342,10 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
 
             .while_simple,
             .while_cont,
-            .@"while", => _ = try whileExpr(gz, scope, .{ .rl = .discard }, inner_node, tree.fullWhile(inner_node).?, true),
+            .@"while", => _ = try whileExpr(gz, scope, .{ .rl = .none }, inner_node, tree.fullWhile(inner_node).?, true),
 
             .for_simple,
-            .@"for", => _ = try forExpr(gz, scope, .{ .rl = .discard }, inner_node, tree.fullFor(inner_node).?, true),
+            .@"for", => _ = try forExpr(gz, scope, .{ .rl = .none }, inner_node, tree.fullFor(inner_node).?, true),
 
             else => noreturn_src_node = try unusedResultExpr(gz, scope, inner_node),
             // zig fmt: on

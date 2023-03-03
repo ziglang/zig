@@ -1595,16 +1595,17 @@ pub fn HashMapUnmanaged(
             self.available = 0;
         }
 
-        /// This function is used in tools/zig-gdb.py to fetch the header type to facilitate
-        /// fancy debug printing for this type.
-        fn gdbHelper(self: *Self, hdr: *Header) void {
+        /// This function is used in the debugger pretty formatters in tools/ to fetch the
+        /// header type to facilitate fancy debug printing for this type.
+        fn dbHelper(self: *Self, hdr: *Header, entry: *Entry) void {
             _ = self;
             _ = hdr;
+            _ = entry;
         }
 
         comptime {
             if (builtin.mode == .Debug) {
-                _ = gdbHelper;
+                _ = dbHelper;
             }
         }
     };
