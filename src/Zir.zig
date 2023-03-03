@@ -808,8 +808,6 @@ pub const Inst = struct {
         panic,
         /// Same as `panic` but forces comptime.
         panic_comptime,
-        /// Implement builtin `@setCold`. Uses `un_node`.
-        set_cold,
         /// Implement builtin `@setRuntimeSafety`. Uses `un_node`.
         set_runtime_safety,
         /// Implement builtin `@sqrt`. Uses `un_node`.
@@ -1187,7 +1185,6 @@ pub const Inst = struct {
                 .bool_to_int,
                 .embed_file,
                 .error_name,
-                .set_cold,
                 .set_runtime_safety,
                 .sqrt,
                 .sin,
@@ -1323,7 +1320,6 @@ pub const Inst = struct {
                 .validate_deref,
                 .@"export",
                 .export_value,
-                .set_cold,
                 .set_runtime_safety,
                 .memcpy,
                 .memset,
@@ -1561,7 +1557,7 @@ pub const Inst = struct {
                 => false,
 
                 .extended => switch (data.extended.opcode) {
-                    .breakpoint, .fence => true,
+                    .fence, .set_cold, .breakpoint => true,
                     else => false,
                 },
             };
@@ -1750,7 +1746,6 @@ pub const Inst = struct {
                 .error_name = .un_node,
                 .panic = .un_node,
                 .panic_comptime = .un_node,
-                .set_cold = .un_node,
                 .set_runtime_safety = .un_node,
                 .sqrt = .un_node,
                 .sin = .un_node,
@@ -1979,6 +1974,9 @@ pub const Inst = struct {
         /// Implement builtin `@setAlignStack`.
         /// `operand` is payload index to `UnNode`.
         set_align_stack,
+        /// Implements `@setCold`.
+        /// `operand` is payload index to `UnNode`.
+        set_cold,
         /// Implements the `@errSetCast` builtin.
         /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
         err_set_cast,

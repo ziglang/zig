@@ -2609,8 +2609,9 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .extended => switch (gz.astgen.instructions.items(.data)[inst].extended.opcode) {
                 .breakpoint,
                 .fence,
-                .set_align_stack,
                 .set_float_mode,
+                .set_align_stack,
+                .set_cold,
                 => break :b true,
                 else => break :b false,
             },
@@ -2658,7 +2659,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .validate_struct_init_comptime,
             .validate_array_init,
             .validate_array_init_comptime,
-            .set_cold,
             .set_runtime_safety,
             .closure_capture,
             .memcpy,
@@ -8078,6 +8078,14 @@ fn builtinCall(
             });
             return rvalue(gz, ri, result, node);
         },
+        .set_cold => {
+            const order = try expr(gz, scope, ri, params[0]);
+            const result = try gz.addExtendedPayload(.set_cold, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = order,
+            });
+            return rvalue(gz, ri, result, node);
+        },
 
         .src => {
             const token_starts = tree.tokens.items(.start);
@@ -8111,7 +8119,6 @@ fn builtinCall(
         .bool_to_int           => return simpleUnOp(gz, scope, ri, node, bool_ri,                                    params[0], .bool_to_int),
         .embed_file            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[0], .embed_file),
         .error_name            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .anyerror_type } },       params[0], .error_name),
-        .set_cold              => return simpleUnOp(gz, scope, ri, node, bool_ri,                                    params[0], .set_cold),
         .set_runtime_safety    => return simpleUnOp(gz, scope, ri, node, bool_ri,                                    params[0], .set_runtime_safety),
         .sqrt                  => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .sqrt),
         .sin                   => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .sin),

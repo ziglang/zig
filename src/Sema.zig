@@ -1167,6 +1167,11 @@ fn analyzeBodyInner(
                         i += 1;
                         continue;
                     },
+                    .set_cold => {
+                        try sema.zirSetCold(block, extended);
+                        i += 1;
+                        continue;
+                    },
                     .breakpoint => {
                         if (!block.is_comptime) {
                             _ = try block.addNoOp(.breakpoint);
@@ -1301,11 +1306,6 @@ fn analyzeBodyInner(
             },
             .export_value => {
                 try sema.zirExportValue(block, inst);
-                i += 1;
-                continue;
-            },
-            .set_cold => {
-                try sema.zirSetCold(block, inst);
                 i += 1;
                 continue;
             },
@@ -5721,10 +5721,10 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     gop.value_ptr.* = .{ .alignment = alignment, .src = src };
 }
 
-fn zirSetCold(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const is_cold = try sema.resolveConstBool(block, operand_src, inst_data.operand, "operand to @setCold must be comptime-known");
+fn zirSetCold(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const is_cold = try sema.resolveConstBool(block, operand_src, extra.operand, "operand to @setCold must be comptime-known");
     const func = sema.func orelse return; // does nothing outside a function
     func.is_cold = is_cold;
 }
