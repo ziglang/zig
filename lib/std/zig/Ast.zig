@@ -1407,7 +1407,8 @@ pub fn containerField(tree: Ast, node: Node.Index) full.ContainerField {
         .type_expr = data.lhs,
         .value_expr = extra.value_expr,
         .align_expr = extra.align_expr,
-        .tuple_like = tree.tokens.items(.tag)[main_token + 1] != .colon,
+        .tuple_like = tree.tokens.items(.tag)[main_token] != .identifier or
+            tree.tokens.items(.tag)[main_token + 1] != .colon,
     });
 }
 
@@ -1420,7 +1421,8 @@ pub fn containerFieldInit(tree: Ast, node: Node.Index) full.ContainerField {
         .type_expr = data.lhs,
         .value_expr = data.rhs,
         .align_expr = 0,
-        .tuple_like = tree.tokens.items(.tag)[main_token + 1] != .colon,
+        .tuple_like = tree.tokens.items(.tag)[main_token] != .identifier or
+            tree.tokens.items(.tag)[main_token + 1] != .colon,
     });
 }
 
@@ -1433,7 +1435,8 @@ pub fn containerFieldAlign(tree: Ast, node: Node.Index) full.ContainerField {
         .type_expr = data.lhs,
         .value_expr = 0,
         .align_expr = data.rhs,
-        .tuple_like = tree.tokens.items(.tag)[main_token + 1] != .colon,
+        .tuple_like = tree.tokens.items(.tag)[main_token] != .identifier or
+            tree.tokens.items(.tag)[main_token + 1] != .colon,
     });
 }
 
