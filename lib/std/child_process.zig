@@ -19,8 +19,15 @@ const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
 
 pub const ChildProcess = struct {
-    pid: if (builtin.os.tag == .windows) void else i32,
-    handle: if (builtin.os.tag == .windows) windows.HANDLE else void,
+    pub const Id = switch (builtin.os.tag) {
+        .windows => windows.HANDLE,
+        else => os.pid_t,
+    };
+
+    /// Available after calling `spawn()`. This becomes `undefined` after calling `wait()`.
+    /// On Windows this is the hProcess.
+    /// On POSIX this is the pid.
+    id: Id,
     thread_handle: if (builtin.os.tag == .windows) windows.HANDLE else void,
 
     allocator: mem.Allocator,
@@ -105,8 +112,7 @@ pub const ChildProcess = struct {
         return .{
             .allocator = allocator,
             .argv = argv,
-            .pid = undefined,
-            .handle = undefined,
+            .id = undefined,
             .thread_handle = undefined,
             .err_pipe = null,
             .term = null,
@@ -131,6 +137,7 @@ pub const ChildProcess = struct {
     }
 
     /// On success must call `kill` or `wait`.
+    /// After spawning the `id` is available.
     pub fn spawn(self: *ChildProcess) SpawnError!void {
         if (!std.process.can_spawn) {
             @compileError("the target operating system cannot spawn processes");
@@ -167,7 +174,7 @@ pub const ChildProcess = struct {
             return term;
         }
 
-        try windows.TerminateProcess(self.handle, exit_code);
+        try windows.TerminateProcess(self.id, exit_code);
         try self.waitUnwrappedWindows();
         return self.term.?;
     }
@@ -177,18 +184,21 @@ pub const ChildProcess = struct {
             self.cleanupStreams();
             return term;
         }
-        try os.kill(self.pid, os.SIG.TERM);
+        try os.kill(self.id, os.SIG.TERM);
         try self.waitUnwrapped();
         return self.term.?;
     }
 
     /// Blocks until child process terminates and then cleans up all resources.
     pub fn wait(self: *ChildProcess) !Term {
-        if (builtin.os.tag == .windows) {
-            return self.waitWindows();
-        } else {
-            return self.waitPosix();
-        }
+        const term = if (builtin.os.tag == .windows)
+            try self.waitWindows()
+        else
+            try self.waitPosix();
+
+        self.id = undefined;
+
+        return term;
     }
 
     pub const ExecResult = struct {
@@ -246,6 +256,11 @@ pub const ChildProcess = struct {
         stderr.* = fifoToOwnedArrayList(poller.fifo(.stderr));
     }
 
+    pub const ExecError = os.GetCwdError || os.ReadError || SpawnError || os.PollError || error{
+        StdoutStreamTooLong,
+        StderrStreamTooLong,
+    };
+
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
     pub fn exec(args: struct {
@@ -256,7 +271,7 @@ pub const ChildProcess = struct {
         env_map: ?*const EnvMap = null,
         max_output_bytes: usize = 50 * 1024,
         expand_arg0: Arg0Expand = .no_expand,
-    }) !ExecResult {
+    }) ExecError!ExecResult {
         var child = ChildProcess.init(args.argv, args.allocator);
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
@@ -304,18 +319,18 @@ pub const ChildProcess = struct {
     }
 
     fn waitUnwrappedWindows(self: *ChildProcess) !void {
-        const result = windows.WaitForSingleObjectEx(self.handle, windows.INFINITE, false);
+        const result = windows.WaitForSingleObjectEx(self.id, windows.INFINITE, false);
 
         self.term = @as(SpawnError!Term, x: {
             var exit_code: windows.DWORD = undefined;
-            if (windows.kernel32.GetExitCodeProcess(self.handle, &exit_code) == 0) {
+            if (windows.kernel32.GetExitCodeProcess(self.id, &exit_code) == 0) {
                 break :x Term{ .Unknown = 0 };
             } else {
                 break :x Term{ .Exited = @truncate(u8, exit_code) };
             }
         });
 
-        os.close(self.handle);
+        os.close(self.id);
         os.close(self.thread_handle);
         self.cleanupStreams();
         return result;
@@ -323,9 +338,9 @@ pub const ChildProcess = struct {
 
     fn waitUnwrapped(self: *ChildProcess) !void {
         const res: os.WaitPidResult = if (comptime builtin.target.isDarwin())
-            try os.posix_spawn.waitpid(self.pid, 0)
+            try os.posix_spawn.waitpid(self.id, 0)
         else
-            os.waitpid(self.pid, 0);
+            os.waitpid(self.id, 0);
         const status = res.status;
         self.cleanupStreams();
         self.handleWaitResult(status);
@@ -483,7 +498,7 @@ pub const ChildProcess = struct {
             self.stderr = null;
         }
 
-        self.pid = pid;
+        self.id = pid;
         self.term = null;
 
         if (self.stdin_behavior == StdIo.Pipe) {
@@ -657,7 +672,7 @@ pub const ChildProcess = struct {
             self.stderr = null;
         }
 
-        self.pid = pid;
+        self.id = pid;
         self.err_pipe = err_pipe;
         self.term = null;
 
@@ -923,7 +938,7 @@ pub const ChildProcess = struct {
             self.stderr = null;
         }
 
-        self.handle = piProcInfo.hProcess;
+        self.id = piProcInfo.hProcess;
         self.thread_handle = piProcInfo.hThread;
         self.term = null;
 
