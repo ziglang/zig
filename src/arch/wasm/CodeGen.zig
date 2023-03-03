@@ -1162,7 +1162,7 @@ pub fn generate(
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: codegen.DebugInfoOutput,
-) codegen.GenerateSymbolError!codegen.Result {
+) codegen.CodeGenError!codegen.Result {
     _ = src_loc;
     var code_gen: CodeGen = .{
         .gpa = bin_file.allocator,

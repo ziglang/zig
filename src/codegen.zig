@@ -35,8 +35,6 @@ pub const CodeGenError = error{
     CodegenFail,
 };
 
-pub const GenerateSymbolError = CodeGenError;
-
 pub const DebugInfoOutput = union(enum) {
     dwarf: *link.File.Dwarf.DeclState,
     /// the plan9 debuginfo output is a bytecode with 4 opcodes
