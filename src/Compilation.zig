@@ -100,6 +100,7 @@ job_queued_compiler_rt_lib: bool = false,
 job_queued_compiler_rt_obj: bool = false,
 alloc_failure_occurred: bool = false,
 formatted_panics: bool = false,
+last_update_was_cache_hit: bool = false,
 
 c_source_files: []const CSourceFile,
 clang_argv: []const []const u8,
@@ -1860,6 +1861,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     defer tracy_trace.end();
 
     comp.clearMiscFailures();
+    comp.last_update_was_cache_hit = false;
 
     var man: Cache.Manifest = undefined;
     defer if (comp.whole_cache_manifest != null) man.deinit();
@@ -1887,6 +1889,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             return err;
         };
         if (is_hit) {
+            comp.last_update_was_cache_hit = true;
             log.debug("CacheMode.whole cache hit for {s}", .{comp.bin_file.options.root_name});
             const digest = man.final();
 

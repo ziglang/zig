@@ -3578,9 +3578,11 @@ fn serve(
                     var arena_instance = std.heap.ArenaAllocator.init(gpa);
                     defer arena_instance.deinit();
                     const arena = arena_instance.allocator();
-                    var output_path: []const u8 = undefined;
-                    try cmdTranslateC(comp, arena, &output_path);
-                    try serveStringMessage(out, .emit_bin_path, output_path);
+                    var output: TranslateCOutput = undefined;
+                    try cmdTranslateC(comp, arena, &output);
+                    try serveEmitBinPath(out, output.path, .{
+                        .flags = .{ .cache_hit = output.cache_hit },
+                    });
                     continue;
                 }
 
@@ -3760,8 +3762,24 @@ fn serveUpdateResults(out: fs.File, comp: *Compilation) !void {
     } else if (comp.bin_file.options.emit) |emit| {
         const full_path = try emit.directory.join(gpa, &.{emit.sub_path});
         defer gpa.free(full_path);
-        try serveStringMessage(out, .emit_bin_path, full_path);
+        try serveEmitBinPath(out, full_path, .{
+            .flags = .{ .cache_hit = comp.last_update_was_cache_hit },
+        });
     }
+}
+
+fn serveEmitBinPath(
+    out: fs.File,
+    fs_path: []const u8,
+    header: std.zig.Server.Message.EmitBinPath,
+) !void {
+    try serveMessage(out, .{
+        .tag = .emit_bin_path,
+        .bytes_len = @intCast(u32, fs_path.len + @sizeOf(std.zig.Server.Message.EmitBinPath)),
+    }, &.{
+        std.mem.asBytes(&header),
+        fs_path,
+    });
 }
 
 fn serveStringMessage(out: fs.File, tag: std.zig.Server.Message.Tag, s: []const u8) !void {
@@ -4115,7 +4133,12 @@ fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void
     }
 }
 
-fn cmdTranslateC(comp: *Compilation, arena: Allocator, output_path: ?*[]const u8) !void {
+const TranslateCOutput = struct {
+    path: []const u8,
+    cache_hit: bool,
+};
+
+fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*TranslateCOutput) !void {
     if (!build_options.have_llvm)
         fatal("cannot translate-c: compiler built without LLVM extensions", .{});
 
@@ -4126,14 +4149,16 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, output_path: ?*[]const u8
 
     var man: Cache.Manifest = comp.obtainCObjectCacheManifest();
     man.want_shared_lock = false;
-    defer if (output_path != null) man.deinit();
+    defer man.deinit();
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
     Compilation.cache_helpers.hashCSource(&man, c_source_file) catch |err| {
         fatal("unable to process '{s}': {s}", .{ c_source_file.src_path, @errorName(err) });
     };
 
+    if (fancy_output) |p| p.cache_hit = true;
     const digest = if (try man.hit()) man.final() else digest: {
+        if (fancy_output) |p| p.cache_hit = false;
         var argv = std.ArrayList([]const u8).init(arena);
         try argv.append(""); // argv[0] is program name, actual args start at [1]
 
@@ -4229,11 +4254,11 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, output_path: ?*[]const u8
         break :digest digest;
     };
 
-    if (output_path) |out_path| {
+    if (fancy_output) |p| {
         const full_zig_path = try comp.local_cache_directory.join(arena, &[_][]const u8{
             "o", &digest, translated_zig_basename,
         });
-        out_path.* = full_zig_path;
+        p.path = full_zig_path;
     } else {
         const out_zig_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest, translated_zig_basename });
         const zig_file = comp.local_cache_directory.handle.openFile(out_zig_path, .{}) catch |err| {

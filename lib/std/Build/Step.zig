@@ -234,10 +234,12 @@ pub fn evalZigProcess(
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
+    child.request_resource_usage_statistics = true;
 
     child.spawn() catch |err| return s.fail("unable to spawn {s}: {s}", .{
         argv[0], @errorName(err),
     });
+    var timer = try std.time.Timer.start();
 
     var poller = std.io.poll(gpa, enum { stdout, stderr }, .{
         .stdout = child.stdout.?,
@@ -301,7 +303,10 @@ pub fn evalZigProcess(
                     sub_prog_node.?.activate();
                 },
                 .emit_bin_path => {
-                    result = try arena.dupe(u8, body);
+                    const EbpHdr = std.zig.Server.Message.EmitBinPath;
+                    const ebp_hdr = @ptrCast(*align(1) const EbpHdr, body);
+                    s.result_cached = ebp_hdr.flags.cache_hit;
+                    result = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
                 },
                 _ => {
                     // Unrecognized message.
@@ -323,6 +328,9 @@ pub fn evalZigProcess(
     const term = child.wait() catch |err| {
         return s.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(err) });
     };
+    s.result_duration_ns = timer.read();
+    s.result_peak_rss = child.resource_usage_statistics.getMaxRss() orelse 0;
+
     try handleChildProcessTerm(s, term, null, argv);
 
     if (s.result_error_bundle.errorMessageCount() > 0) {
