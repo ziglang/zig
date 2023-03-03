@@ -733,8 +733,6 @@ const InnerError = error{
     OutOfMemory,
     /// An error occurred when trying to lower AIR to MIR.
     CodegenFail,
-    /// Can occur when dereferencing a pointer that points to a `Decl` of which the analysis has failed
-    AnalysisFail,
     /// Compiler implementation could not handle a large integer.
     Overflow,
 };

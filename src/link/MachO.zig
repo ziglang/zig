@@ -2089,7 +2089,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
             decl.analysis = .codegen_failure;
             try module.failed_decls.put(module.gpa, decl_index, em);
             log.err("{s}", .{em.msg});
-            return error.AnalysisFail;
+            return error.CodegenFail;
         },
     };
 

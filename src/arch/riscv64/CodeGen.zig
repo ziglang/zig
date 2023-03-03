@@ -21,10 +21,10 @@ const DW = std.dwarf;
 const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
+const codegen = @import("../../codegen.zig");
 
-const Result = @import("../../codegen.zig").Result;
-const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
+const Result = codegen.Result;
+const DebugInfoOutput = codegen.DebugInfoOutput;
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
@@ -35,11 +35,7 @@ const Instruction = abi.Instruction;
 const callee_preserved_regs = abi.callee_preserved_regs;
 const gp = abi.RegisterClass.gp;
 
-const InnerError = error{
-    OutOfMemory,
-    CodegenFail,
-    OutOfRegisters,
-};
+const InnerError = codegen.CodeGenError || error{OutOfRegisters};
 
 gpa: Allocator,
 air: Air,
@@ -225,7 +221,7 @@ pub fn generate(
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
-) GenerateSymbolError!Result {
+) codegen.CodeGenError!Result {
     if (build_options.skip_non_native and builtin.cpu.arch != bin_file.options.target.cpu.arch) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }

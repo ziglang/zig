@@ -41,11 +41,7 @@ const c_abi_int_param_regs = abi.c_abi_int_param_regs;
 const c_abi_int_return_regs = abi.c_abi_int_return_regs;
 const gp = abi.RegisterClass.gp;
 
-const InnerError = error{
-    OutOfMemory,
-    CodegenFail,
-    OutOfRegisters,
-};
+const InnerError = codegen.CodeGenError || error{OutOfRegisters};
 
 gpa: Allocator,
 air: Air,

@@ -38,11 +38,7 @@ const gp = abi.RegisterClass.gp;
 
 const Self = @This();
 
-const InnerError = error{
-    OutOfMemory,
-    CodegenFail,
-    OutOfRegisters,
-};
+const InnerError = codegen.CodeGenError || error{OutOfRegisters};
 
 const RegisterView = enum(u1) {
     caller,
