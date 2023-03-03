@@ -3298,6 +3298,7 @@ fn airTrap(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airBreakpoint(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // unsupported by wasm itfunc. Can be implemented once we support DWARF
     // for wasm
+    try func.addTag(.@"unreachable");
     func.finishAir(inst, .none, &.{});
 }
 
