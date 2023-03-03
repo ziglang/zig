@@ -2460,7 +2460,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
                     .iov_len = code.len,
                 }};
                 var remote_vec: [1]std.os.iovec_const = .{.{
-                    .iov_base = @intToPtr([*]u8, local_sym.st_value),
+                    .iov_base = @intToPtr([*]u8, @intCast(usize, local_sym.st_value)),
                     .iov_len = code.len,
                 }};
                 const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
@@ -2868,7 +2868,7 @@ fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
                             .iov_len = buf.len,
                         }};
                         var remote_vec: [1]std.os.iovec_const = .{.{
-                            .iov_base = @intToPtr([*]u8, vaddr),
+                            .iov_base = @intToPtr([*]u8, @intCast(usize, vaddr)),
                             .iov_len = buf.len,
                         }};
                         const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
