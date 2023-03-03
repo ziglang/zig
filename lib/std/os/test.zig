@@ -531,17 +531,17 @@ test "memfd_create" {
         else => return error.SkipZigTest,
     }
 
-    const fd = std.os.memfd_create("test", 0) catch |err| switch (err) {
+    const fd = os.memfd_create("test", 0) catch |err| switch (err) {
         // Related: https://github.com/ziglang/zig/issues/4019
         error.SystemOutdated => return error.SkipZigTest,
         else => |e| return e,
     };
-    defer std.os.close(fd);
-    try expect((try std.os.write(fd, "test")) == 4);
-    try std.os.lseek_SET(fd, 0);
+    defer os.close(fd);
+    try expect((try os.write(fd, "test")) == 4);
+    try os.lseek_SET(fd, 0);
 
     var buf: [10]u8 = undefined;
-    const bytes_read = try std.os.read(fd, &buf);
+    const bytes_read = try os.read(fd, &buf);
     try expect(bytes_read == 4);
     try expect(mem.eql(u8, buf[0..4], "test"));
 }
@@ -688,7 +688,7 @@ test "signalfd" {
         .linux, .solaris => {},
         else => return error.SkipZigTest,
     }
-    _ = std.os.signalfd;
+    _ = os.signalfd;
 }
 
 test "sync" {
@@ -757,11 +757,11 @@ test "shutdown socket" {
     if (native_os == .wasi)
         return error.SkipZigTest;
     if (native_os == .windows) {
-        _ = try std.os.windows.WSAStartup(2, 2);
+        _ = try os.windows.WSAStartup(2, 2);
     }
     defer {
         if (native_os == .windows) {
-            std.os.windows.WSACleanup() catch unreachable;
+            os.windows.WSACleanup() catch unreachable;
         }
     }
     const sock = try os.socket(os.AF.INET, os.SOCK.STREAM, 0);
@@ -855,13 +855,13 @@ test "dup & dup2" {
         var file = try tmp.dir.createFile("os_dup_test", .{});
         defer file.close();
 
-        var duped = std.fs.File{ .handle = try std.os.dup(file.handle) };
+        var duped = std.fs.File{ .handle = try os.dup(file.handle) };
         defer duped.close();
         try duped.writeAll("dup");
 
         // Tests aren't run in parallel so using the next fd shouldn't be an issue.
         const new_fd = duped.handle + 1;
-        try std.os.dup2(file.handle, new_fd);
+        try os.dup2(file.handle, new_fd);
         var dup2ed = std.fs.File{ .handle = new_fd };
         defer dup2ed.close();
         try dup2ed.writeAll("dup2");
@@ -909,46 +909,46 @@ test "POSIX file locking with fcntl" {
     const fd = file.handle;
 
     // Place an exclusive lock on the first byte, and a shared lock on the second byte:
-    var struct_flock = std.mem.zeroInit(std.os.Flock, .{ .type = std.os.F.WRLCK });
-    _ = try std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
+    var struct_flock = std.mem.zeroInit(os.Flock, .{ .type = os.F.WRLCK });
+    _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
     struct_flock.start = 1;
-    struct_flock.type = std.os.F.RDLCK;
-    _ = try std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
+    struct_flock.type = os.F.RDLCK;
+    _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
 
     // Check the locks in a child process:
-    const pid = try std.os.fork();
+    const pid = try os.fork();
     if (pid == 0) {
         // child expects be denied the exclusive lock:
         struct_flock.start = 0;
-        struct_flock.type = std.os.F.WRLCK;
-        try expectError(error.Locked, std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock)));
+        struct_flock.type = os.F.WRLCK;
+        try expectError(error.Locked, os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock)));
         // child expects to get the shared lock:
         struct_flock.start = 1;
-        struct_flock.type = std.os.F.RDLCK;
-        _ = try std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
+        struct_flock.type = os.F.RDLCK;
+        _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
         // child waits for the exclusive lock in order to test deadlock:
         struct_flock.start = 0;
-        struct_flock.type = std.os.F.WRLCK;
-        _ = try std.os.fcntl(fd, std.os.F.SETLKW, @ptrToInt(&struct_flock));
+        struct_flock.type = os.F.WRLCK;
+        _ = try os.fcntl(fd, os.F.SETLKW, @ptrToInt(&struct_flock));
         // child exits without continuing:
-        std.os.exit(0);
+        os.exit(0);
     } else {
         // parent waits for child to get shared lock:
         std.time.sleep(1 * std.time.ns_per_ms);
         // parent expects deadlock when attempting to upgrade the shared lock to exclusive:
         struct_flock.start = 1;
-        struct_flock.type = std.os.F.WRLCK;
-        try expectError(error.DeadLock, std.os.fcntl(fd, std.os.F.SETLKW, @ptrToInt(&struct_flock)));
+        struct_flock.type = os.F.WRLCK;
+        try expectError(error.DeadLock, os.fcntl(fd, os.F.SETLKW, @ptrToInt(&struct_flock)));
         // parent releases exclusive lock:
         struct_flock.start = 0;
-        struct_flock.type = std.os.F.UNLCK;
-        _ = try std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
+        struct_flock.type = os.F.UNLCK;
+        _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
         // parent releases shared lock:
         struct_flock.start = 1;
-        struct_flock.type = std.os.F.UNLCK;
-        _ = try std.os.fcntl(fd, std.os.F.SETLK, @ptrToInt(&struct_flock));
+        struct_flock.type = os.F.UNLCK;
+        _ = try os.fcntl(fd, os.F.SETLK, @ptrToInt(&struct_flock));
         // parent waits for child:
-        const result = std.os.waitpid(pid, 0);
+        const result = os.waitpid(pid, 0);
         try expect(result.status == 0 * 256);
     }
 }
@@ -1181,4 +1181,18 @@ test "pwrite with empty buffer" {
     var bytes = try allocator.alloc(u8, 0);
 
     _ = try os.pwrite(file.handle, bytes, 0);
+}
+
+test "fchmodat smoke test" {
+    if (!std.fs.has_executable_bit) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    try expectError(error.FileNotFound, os.fchmodat(tmp.dir.fd, "foo.txt", 0o666, 0));
+    const fd = try os.openat(tmp.dir.fd, "foo.txt", os.O.RDWR | os.O.CREAT | os.O.EXCL, 0o666);
+    os.close(fd);
+    try os.fchmodat(tmp.dir.fd, "foo.txt", 0o755, 0);
+    const st = try os.fstatat(tmp.dir.fd, "foo.txt", 0);
+    try expectEqual(@as(os.mode_t, 0o755), st.mode & 0b111_111_111);
 }
