@@ -1051,11 +1051,12 @@ pub fn genTypedValue(
         },
         .Int => {
             const info = typed_value.ty.intInfo(target);
-            if (info.bits <= ptr_bits and info.signedness == .signed) {
-                return GenResult.mcv(.{ .immediate = @bitCast(u64, typed_value.val.toSignedInt(target)) });
-            }
-            if (!(info.bits > ptr_bits or info.signedness == .signed)) {
-                return GenResult.mcv(.{ .immediate = typed_value.val.toUnsignedInt(target) });
+            if (info.bits <= ptr_bits) {
+                const unsigned = switch (info.signedness) {
+                    .signed => @bitCast(u64, typed_value.val.toSignedInt(target)),
+                    .unsigned => typed_value.val.toUnsignedInt(target),
+                };
+                return GenResult.mcv(.{ .immediate = unsigned });
             }
         },
         .Bool => {
