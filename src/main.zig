@@ -778,7 +778,7 @@ fn buildOutputType(
     var linker_z_max_page_size: ?u64 = null;
     var linker_tsaware = false;
     var linker_nxcompat = false;
-    var linker_dynamicbase = false;
+    var linker_dynamicbase = true;
     var linker_optimization: ?u8 = null;
     var linker_module_definition_file: ?[]const u8 = null;
     var test_evented_io = false;
@@ -1371,6 +1371,8 @@ fn buildOutputType(
                         linker_opt_bisect_limit = std.math.lossyCast(i32, parseIntSuffix(arg, "-fopt-bisect-limit=".len));
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
+                    } else if (mem.eql(u8, arg, "--no-dynamicbase")) {
+                        linker_dynamicbase = false;
                     } else if (mem.eql(u8, arg, "--emit-relocs")) {
                         link_emit_relocs = true;
                     } else if (mem.eql(u8, arg, "-fallow-shlib-undefined")) {
@@ -2105,8 +2107,8 @@ fn buildOutputType(
                     linker_tsaware = true;
                 } else if (mem.eql(u8, arg, "--nxcompat")) {
                     linker_nxcompat = true;
-                } else if (mem.eql(u8, arg, "--dynamicbase")) {
-                    linker_dynamicbase = true;
+                } else if (mem.eql(u8, arg, "--no-dynamicbase")) {
+                    linker_dynamicbase = false;
                 } else if (mem.eql(u8, arg, "--high-entropy-va")) {
                     // This option does not do anything.
                 } else if (mem.eql(u8, arg, "--export-all-symbols")) {

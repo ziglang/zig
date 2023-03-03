@@ -140,6 +140,8 @@ link_function_sections: bool = false,
 /// exported symbols.
 link_gc_sections: ?bool = null,
 
+linker_dynamicbase: ?bool = null,
+
 linker_allow_shlib_undefined: ?bool = null,
 
 /// Permit read-only relocations in read-only segments. Disallowed by default.
@@ -1473,6 +1475,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
     if (self.link_gc_sections) |x| {
         try zig_args.append(if (x) "--gc-sections" else "--no-gc-sections");
+    }
+    if (self.linker_dynamicbase) |x| {
+        if (!x) try zig_args.append("--no-dynamicbase");
     }
     if (self.linker_allow_shlib_undefined) |x| {
         try zig_args.append(if (x) "-fallow-shlib-undefined" else "-fno-allow-shlib-undefined");
