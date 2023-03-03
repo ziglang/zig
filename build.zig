@@ -192,7 +192,7 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(bool, "only_c", only_c);
-    exe_options.addOption(bool, "omit_pkg_fetching_code", false);
+    exe_options.addOption(bool, "omit_pkg_fetching_code", only_c);
 
     if (link_libc) {
         exe.linkLibC();

@@ -3295,6 +3295,7 @@ fn buildOutputType(
     switch (listen) {
         .none => {},
         .stdio => {
+            if (build_options.only_c) unreachable;
             try serve(
                 comp,
                 std.io.getStdIn(),
