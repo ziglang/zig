@@ -37,6 +37,14 @@ typedef char bool;
 #define zig_has_attribute(attribute) 0
 #endif
 
+#if __LITTLE_ENDIAN__ || _MSC_VER
+#define zig_little_endian 1
+#define zig_big_endian 0
+#else
+#define zig_little_endian 0
+#define zig_big_endian 1
+#endif
+
 #if __STDC_VERSION__ >= 201112L
 #define zig_threadlocal _Thread_local
 #elif defined(__GNUC__)
@@ -1379,7 +1387,7 @@ typedef   signed __int128 zig_i128;
 
 #else /* zig_has_int128 */
 
-#if __LITTLE_ENDIAN__ || _MSC_VER
+#if zig_little_endian
 typedef struct { zig_align(16) uint64_t lo; uint64_t hi; } zig_u128;
 typedef struct { zig_align(16) uint64_t lo; int64_t hi; } zig_i128;
 #else
@@ -1909,6 +1917,177 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, uint8_t bits) {
     return zig_bitcast_i128(zig_bit_reverse_u128(zig_bitcast_u128(val), bits));
 }
 
+/* ========================== Big Integer Support =========================== */
+
+static inline uint16_t zig_big_bytes(uint16_t bits) {
+    uint16_t bytes = (bits + CHAR_BIT - 1) / CHAR_BIT;
+    uint16_t alignment = 16;
+    while (alignment / 2 >= bytes) alignment /= 2;
+    return (bytes + alignment - 1) / alignment * alignment;
+}
+
+static inline int32_t zig_cmp_big(const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    const uint8_t *lhs_bytes = lhs;
+    const uint8_t *rhs_bytes = rhs;
+    uint16_t byte_offset = 0;
+    bool do_signed = is_signed;
+    uint16_t remaining_bytes = zig_big_bytes(bits);
+
+#if zig_little_endian
+    byte_offset = remaining_bytes;
+#endif
+
+    while (remaining_bytes >= 128 / CHAR_BIT) {
+        int32_t limb_cmp;
+
+#if zig_little_endian
+        byte_offset -= 128 / CHAR_BIT;
+#endif
+
+        if (do_signed) {
+            zig_i128 lhs_limb;
+            zig_i128 rhs_limb;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_cmp = zig_cmp_i128(lhs_limb, rhs_limb);
+            do_signed = false;
+        } else {
+            zig_u128 lhs_limb;
+            zig_u128 rhs_limb;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_cmp = zig_cmp_u128(lhs_limb, rhs_limb);
+        }
+
+        if (limb_cmp != 0) return limb_cmp;
+        remaining_bytes -= 128 / CHAR_BIT;
+
+#if zig_big_endian
+        byte_offset -= 128 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 64 / CHAR_BIT) {
+#if zig_little_endian
+        byte_offset -= 64 / CHAR_BIT;
+#endif
+
+        if (do_signed) {
+            int64_t lhs_limb;
+            int64_t rhs_limb;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            if (lhs_limb != rhs_limb) return (lhs_limb > rhs_limb) - (lhs_limb < rhs_limb);
+            do_signed = false;
+        } else {
+            uint64_t lhs_limb;
+            uint64_t rhs_limb;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            if (lhs_limb != rhs_limb) return (lhs_limb > rhs_limb) - (lhs_limb < rhs_limb);
+        }
+
+        remaining_bytes -= 64 / CHAR_BIT;
+
+#if zig_big_endian
+        byte_offset -= 64 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 32 / CHAR_BIT) {
+#if zig_little_endian
+        byte_offset -= 32 / CHAR_BIT;
+#endif
+
+        if (do_signed) {
+            int32_t lhs_limb;
+            int32_t rhs_limb;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            if (lhs_limb != rhs_limb) return (lhs_limb > rhs_limb) - (lhs_limb < rhs_limb);
+            do_signed = false;
+        } else {
+            uint32_t lhs_limb;
+            uint32_t rhs_limb;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            if (lhs_limb != rhs_limb) return (lhs_limb > rhs_limb) - (lhs_limb < rhs_limb);
+        }
+
+        remaining_bytes -= 32 / CHAR_BIT;
+
+#if zig_big_endian
+        byte_offset -= 32 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 16 / CHAR_BIT) {
+#if zig_little_endian
+        byte_offset -= 16 / CHAR_BIT;
+#endif
+
+        if (do_signed) {
+            int16_t lhs_limb;
+            int16_t rhs_limb;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            if (lhs_limb != rhs_limb) return (lhs_limb > rhs_limb) - (lhs_limb < rhs_limb);
+            do_signed = false;
+        } else {
+            uint16_t lhs_limb;
+            uint16_t rhs_limb;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            if (lhs_limb != rhs_limb) return (lhs_limb > rhs_limb) - (lhs_limb < rhs_limb);
+        }
+
+        remaining_bytes -= 16 / CHAR_BIT;
+
+#if zig_big_endian
+        byte_offset -= 16 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 8 / CHAR_BIT) {
+#if zig_little_endian
+        byte_offset -= 8 / CHAR_BIT;
+#endif
+
+        if (do_signed) {
+            int8_t lhs_limb;
+            int8_t rhs_limb;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            if (lhs_limb != rhs_limb) return (lhs_limb > rhs_limb) - (lhs_limb < rhs_limb);
+            do_signed = false;
+        } else {
+            uint8_t lhs_limb;
+            uint8_t rhs_limb;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            if (lhs_limb != rhs_limb) return (lhs_limb > rhs_limb) - (lhs_limb < rhs_limb);
+        }
+
+        remaining_bytes -= 8 / CHAR_BIT;
+
+#if zig_big_endian
+        byte_offset -= 8 / CHAR_BIT;
+#endif
+    }
+
+    return 0;
+}
+
 /* ========================= Floating Point Support ========================= */
 
 #if _MSC_VER
@@ -1933,7 +2112,6 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, uint8_t bits) {
 #define zig_make_special_f64(sign, name, arg, repr) sign zig_make_f64(__builtin_##name, )(arg)
 #define zig_make_special_f80(sign, name, arg, repr) sign zig_make_f80(__builtin_##name, )(arg)
 #define zig_make_special_f128(sign, name, arg, repr) sign zig_make_f128(__builtin_##name, )(arg)
-#define zig_make_special_c_longdouble(sign, name, arg, repr) sign zig_make_c_longdouble(__builtin_##name, )(arg)
 #else
 #define zig_has_float_builtins 0
 #define zig_make_special_f16(sign, name, arg, repr) zig_float_from_repr_f16(repr)
@@ -1941,13 +2119,13 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, uint8_t bits) {
 #define zig_make_special_f64(sign, name, arg, repr) zig_float_from_repr_f64(repr)
 #define zig_make_special_f80(sign, name, arg, repr) zig_float_from_repr_f80(repr)
 #define zig_make_special_f128(sign, name, arg, repr)  zig_float_from_repr_f128(repr)
-#define zig_make_special_c_longdouble(sign, name, arg, repr) zig_float_from_repr_c_longdouble(repr)
 #endif
 
 #define zig_has_f16 1
 #define zig_bitSizeOf_f16 16
+typedef int16_t zig_repr_f16;
 #define zig_libc_name_f16(name) __##name##h
-#define zig_make_special_constant_f16(sign, name, arg, repr) zig_make_special_f16(sign, name, arg, repr)
+#define zig_init_special_f16(sign, name, arg, repr) zig_make_special_f16(sign, name, arg, repr)
 #if FLT_MANT_DIG == 11
 typedef float zig_f16;
 #define zig_make_f16(fp, repr) fp##f
@@ -1956,7 +2134,9 @@ typedef double zig_f16;
 #define zig_make_f16(fp, repr) fp
 #elif LDBL_MANT_DIG == 11
 #define zig_bitSizeOf_c_longdouble 16
-typedef uint16_t zig_repr_c_longdouble;
+#ifndef ZIG_TARGET_ABI_MSVC
+typedef zig_repr_f16 zig_repr_c_longdouble;
+#endif
 typedef long double zig_f16;
 #define zig_make_f16(fp, repr) fp##l
 #elif FLT16_MANT_DIG == 11 && (zig_has_builtin(inff16) || defined(zig_gnuc))
@@ -1973,17 +2153,18 @@ typedef int16_t zig_f16;
 #define zig_make_f16(fp, repr) repr
 #undef zig_make_special_f16
 #define zig_make_special_f16(sign, name, arg, repr) repr
-#undef zig_make_special_constant_f16
-#define zig_make_special_constant_f16(sign, name, arg, repr) repr
+#undef zig_init_special_f16
+#define zig_init_special_f16(sign, name, arg, repr) repr
 #endif
 
 #define zig_has_f32 1
 #define zig_bitSizeOf_f32 32
+typedef int32_t zig_repr_f32;
 #define zig_libc_name_f32(name) name##f
 #if _MSC_VER
-#define zig_make_special_constant_f32(sign, name, arg, repr) sign zig_make_f32(zig_msvc_flt_##name, )
+#define zig_init_special_f32(sign, name, arg, repr) sign zig_make_f32(zig_msvc_flt_##name, )
 #else
-#define zig_make_special_constant_f32(sign, name, arg, repr) zig_make_special_f32(sign, name, arg, repr)
+#define zig_init_special_f32(sign, name, arg, repr) zig_make_special_f32(sign, name, arg, repr)
 #endif
 #if FLT_MANT_DIG == 24
 typedef float zig_f32;
@@ -1993,7 +2174,9 @@ typedef double zig_f32;
 #define zig_make_f32(fp, repr) fp
 #elif LDBL_MANT_DIG == 24
 #define zig_bitSizeOf_c_longdouble 32
-typedef uint32_t zig_repr_c_longdouble;
+#ifndef ZIG_TARGET_ABI_MSVC
+typedef zig_repr_f32 zig_repr_c_longdouble;
+#endif
 typedef long double zig_f32;
 #define zig_make_f32(fp, repr) fp##l
 #elif FLT32_MANT_DIG == 24
@@ -2007,21 +2190,24 @@ typedef int32_t zig_f32;
 #define zig_make_f32(fp, repr) repr
 #undef zig_make_special_f32
 #define zig_make_special_f32(sign, name, arg, repr) repr
-#undef zig_make_special_constant_f32
-#define zig_make_special_constant_f32(sign, name, arg, repr) repr
+#undef zig_init_special_f32
+#define zig_init_special_f32(sign, name, arg, repr) repr
 #endif
 
 #define zig_has_f64 1
 #define zig_bitSizeOf_f64 64
+typedef int64_t zig_repr_f64;
 #define zig_libc_name_f64(name) name
 #if _MSC_VER
 #ifdef ZIG_TARGET_ABI_MSVC
 #define zig_bitSizeOf_c_longdouble 64
-typedef uint64_t zig_repr_c_longdouble;
+#ifndef ZIG_TARGET_ABI_MSVC
+typedef zig_repr_f64 zig_repr_c_longdouble;
 #endif
-#define zig_make_special_constant_f64(sign, name, arg, repr) sign zig_make_f64(zig_msvc_flt_##name, )
+#endif
+#define zig_init_special_f64(sign, name, arg, repr) sign zig_make_f64(zig_msvc_flt_##name, )
 #else /* _MSC_VER */
-#define zig_make_special_constant_f64(sign, name, arg, repr) zig_make_special_f64(sign, name, arg, repr)
+#define zig_init_special_f64(sign, name, arg, repr) zig_make_special_f64(sign, name, arg, repr)
 #endif /* _MSC_VER */
 #if FLT_MANT_DIG == 53
 typedef float zig_f64;
@@ -2031,7 +2217,9 @@ typedef double zig_f64;
 #define zig_make_f64(fp, repr) fp
 #elif LDBL_MANT_DIG == 53
 #define zig_bitSizeOf_c_longdouble 64
-typedef uint64_t zig_repr_c_longdouble;
+#ifndef ZIG_TARGET_ABI_MSVC
+typedef zig_repr_f64 zig_repr_c_longdouble;
+#endif
 typedef long double zig_f64;
 #define zig_make_f64(fp, repr) fp##l
 #elif FLT64_MANT_DIG == 53
@@ -2048,14 +2236,15 @@ typedef int64_t zig_f64;
 #define zig_make_f64(fp, repr) repr
 #undef zig_make_special_f64
 #define zig_make_special_f64(sign, name, arg, repr) repr
-#undef zig_make_special_constant_f64
-#define zig_make_special_constant_f64(sign, name, arg, repr) repr
+#undef zig_init_special_f64
+#define zig_init_special_f64(sign, name, arg, repr) repr
 #endif
 
 #define zig_has_f80 1
 #define zig_bitSizeOf_f80 80
+typedef zig_i128 zig_repr_f80;
 #define zig_libc_name_f80(name) __##name##x
-#define zig_make_special_constant_f80(sign, name, arg, repr) zig_make_special_f80(sign, name, arg, repr)
+#define zig_init_special_f80(sign, name, arg, repr) zig_make_special_f80(sign, name, arg, repr)
 #if FLT_MANT_DIG == 64
 typedef float zig_f80;
 #define zig_make_f80(fp, repr) fp##f
@@ -2064,7 +2253,9 @@ typedef double zig_f80;
 #define zig_make_f80(fp, repr) fp
 #elif LDBL_MANT_DIG == 64
 #define zig_bitSizeOf_c_longdouble 80
-typedef zig_u128 zig_repr_c_longdouble;
+#ifndef ZIG_TARGET_ABI_MSVC
+typedef zig_repr_f80 zig_repr_c_longdouble;
+#endif
 typedef long double zig_f80;
 #define zig_make_f80(fp, repr) fp##l
 #elif FLT80_MANT_DIG == 64
@@ -2084,14 +2275,15 @@ typedef zig_i128 zig_f80;
 #define zig_make_f80(fp, repr) repr
 #undef zig_make_special_f80
 #define zig_make_special_f80(sign, name, arg, repr) repr
-#undef zig_make_special_constant_f80
-#define zig_make_special_constant_f80(sign, name, arg, repr) repr
+#undef zig_init_special_f80
+#define zig_init_special_f80(sign, name, arg, repr) repr
 #endif
 
 #define zig_has_f128 1
 #define zig_bitSizeOf_f128 128
+typedef zig_i128 zig_repr_f128;
 #define zig_libc_name_f128(name) name##q
-#define zig_make_special_constant_f128(sign, name, arg, repr) zig_make_special_f128(sign, name, arg, repr)
+#define zig_init_special_f128(sign, name, arg, repr) zig_make_special_f128(sign, name, arg, repr)
 #if FLT_MANT_DIG == 113
 typedef float zig_f128;
 #define zig_make_f128(fp, repr) fp##f
@@ -2100,7 +2292,9 @@ typedef double zig_f128;
 #define zig_make_f128(fp, repr) fp
 #elif LDBL_MANT_DIG == 113
 #define zig_bitSizeOf_c_longdouble 128
-typedef zig_u128 zig_repr_c_longdouble;
+#ifndef ZIG_TARGET_ABI_MSVC
+typedef zig_repr_f128 zig_repr_c_longdouble;
+#endif
 typedef long double zig_f128;
 #define zig_make_f128(fp, repr) fp##l
 #elif FLT128_MANT_DIG == 113
@@ -2122,63 +2316,44 @@ typedef zig_i128 zig_f128;
 #define zig_make_f128(fp, repr) repr
 #undef zig_make_special_f128
 #define zig_make_special_f128(sign, name, arg, repr) repr
-#undef zig_make_special_constant_f128
-#define zig_make_special_constant_f128(sign, name, arg, repr) repr
+#undef zig_init_special_f128
+#define zig_init_special_f128(sign, name, arg, repr) repr
 #endif
 
-#define zig_has_c_longdouble 1
-
-#ifdef ZIG_TARGET_ABI_MSVC
-#define zig_libc_name_c_longdouble(name) name
-#else
-#define zig_libc_name_c_longdouble(name) name##l
-#endif
-
-#define zig_make_special_constant_c_longdouble(sign, name, arg, repr) zig_make_special_c_longdouble(sign, name, arg, repr)
 #ifdef zig_bitSizeOf_c_longdouble
 
+#define zig_has_c_longdouble 1
 #ifdef ZIG_TARGET_ABI_MSVC
 #undef zig_bitSizeOf_c_longdouble
 #define zig_bitSizeOf_c_longdouble 64
-typedef uint64_t zig_repr_c_longdouble;
 typedef zig_f64 zig_c_longdouble;
-#define zig_make_c_longdouble(fp, repr) fp
+typedef zig_repr_f64 zig_repr_c_longdouble;
 #else
 typedef long double zig_c_longdouble;
-#define zig_make_c_longdouble(fp, repr) fp##l
 #endif
 
 #else /* zig_bitSizeOf_c_longdouble */
 
-#undef zig_has_c_longdouble
 #define zig_has_c_longdouble 0
-#define zig_bitSizeOf_c_longdouble 80
-typedef zig_u128 zig_repr_c_longdouble;
-#define zig_compiler_rt_abbrev_c_longdouble zig_compiler_rt_abbrev_f80
 #define zig_bitSizeOf_repr_c_longdouble 128
-typedef zig_i128 zig_c_longdouble;
-#define zig_make_c_longdouble(fp, repr) repr
-#undef zig_make_special_c_longdouble
-#define zig_make_special_c_longdouble(sign, name, arg, repr) repr
-#undef zig_make_special_constant_c_longdouble
-#define zig_make_special_constant_c_longdouble(sign, name, arg, repr) repr
+typedef zig_f128 zig_c_longdouble;
+typedef zig_repr_f128 zig_repr_c_longdouble;
 
 #endif /* zig_bitSizeOf_c_longdouble */
 
 #if !zig_has_float_builtins
-#define zig_float_from_repr(Type, ReprType) \
-    static inline zig_##Type zig_float_from_repr_##Type(ReprType repr) { \
+#define zig_float_from_repr(Type) \
+    static inline zig_##Type zig_float_from_repr_##Type(zig_repr_##Type repr) { \
         zig_##Type result; \
         memcpy(&result, &repr, sizeof(result)); \
         return result; \
     }
 
-zig_float_from_repr(f16, uint16_t)
-zig_float_from_repr(f32, uint32_t)
-zig_float_from_repr(f64, uint64_t)
-zig_float_from_repr(f80, zig_u128)
-zig_float_from_repr(f128, zig_u128)
-zig_float_from_repr(c_longdouble, zig_repr_c_longdouble)
+zig_float_from_repr(f16)
+zig_float_from_repr(f32)
+zig_float_from_repr(f64)
+zig_float_from_repr(f80)
+zig_float_from_repr(f128)
 #endif
 
 #define zig_cast_f16 (zig_f16)
@@ -2187,11 +2362,9 @@ zig_float_from_repr(c_longdouble, zig_repr_c_longdouble)
 
 #if _MSC_VER && !zig_has_f128
 #define zig_cast_f80
-#define zig_cast_c_longdouble
 #define zig_cast_f128
 #else
 #define zig_cast_f80 (zig_f80)
-#define zig_cast_c_longdouble (zig_c_longdouble)
 #define zig_cast_f128 (zig_f128)
 #endif
 
@@ -2320,7 +2493,6 @@ zig_float_builtins(f32)
 zig_float_builtins(f64)
 zig_float_builtins(f80)
 zig_float_builtins(f128)
-zig_float_builtins(c_longdouble)
 
 #if _MSC_VER && (_M_IX86 || _M_X64)
 
@@ -2562,6 +2734,29 @@ zig_msvc_atomics_128op(u128, max)
 #endif /* _M_IX86 */
 
 #endif /* _MSC_VER && (_M_IX86 || _M_X64) */
+
+/* ============================= Vector Support ============================= */
+
+#define zig_cmp_vec(operation, operator) \
+    static inline void zig_##operation##_vec(bool *result, const void *lhs, const void *rhs, uint32_t len, bool is_signed, uint16_t elem_bits) { \
+        uint32_t index = 0; \
+        const uint8_t *lhs_ptr = lhs; \
+        const uint8_t *rhs_ptr = rhs; \
+        uint16_t elem_bytes = zig_big_bytes(elem_bits); \
+ \
+        while (index < len) { \
+            result[index] = zig_cmp_big(lhs_ptr, rhs_ptr, is_signed, elem_bits) operator 0; \
+            lhs_ptr += elem_bytes; \
+            rhs_ptr += elem_bytes; \
+            index += 1; \
+        } \
+    }
+zig_cmp_vec(eq, ==)
+zig_cmp_vec(ne, !=)
+zig_cmp_vec(lt, < )
+zig_cmp_vec(le, <=)
+zig_cmp_vec(gt, > )
+zig_cmp_vec(ge, >=)
 
 /* ======================== Special Case Intrinsics ========================= */
 

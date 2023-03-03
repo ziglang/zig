@@ -112,11 +112,7 @@ const ValueRenderLocation = enum {
     }
 };
 
-const BuiltinInfo = enum {
-    None,
-    Range,
-    Bits,
-};
+const BuiltinInfo = enum { none, bits };
 
 const reserved_idents = std.ComptimeStringMap(void, .{
     // C language
@@ -438,6 +434,10 @@ pub const Function = struct {
 
     fn typeToCType(f: *Function, ty: Type, kind: CType.Kind) !CType {
         return f.object.dg.typeToCType(ty, kind);
+    }
+
+    fn byteSize(f: *Function, cty: CType) u64 {
+        return f.object.dg.byteSize(cty);
     }
 
     fn renderType(f: *Function, w: anytype, t: Type) !void {
@@ -1003,8 +1003,9 @@ pub const DeclGen = struct {
                         //     return dg.fail("Only quiet nans are supported in global variable initializers", .{});
                     }
 
-                    try writer.writeAll("zig_make_special_");
-                    if (location == .StaticInitializer) try writer.writeAll("constant_");
+                    try writer.writeAll("zig_");
+                    try writer.writeAll(if (location == .StaticInitializer) "init" else "make");
+                    try writer.writeAll("_special_");
                     try dg.renderTypeForBuiltinFnName(writer, ty);
                     try writer.writeByte('(');
                     if (std.math.signbit(f128_val)) try writer.writeByte('-');
@@ -1565,6 +1566,10 @@ pub const DeclGen = struct {
         return dg.ctypes.typeToCType(dg.gpa, ty, dg.module, kind);
     }
 
+    fn byteSize(dg: *DeclGen, cty: CType) u64 {
+        return cty.byteSize(dg.ctypes.set, dg.module.getTarget());
+    }
+
     /// Renders a type as a single identifier, generating intermediate typedefs
     /// if necessary.
     ///
@@ -1861,51 +1866,64 @@ pub const DeclGen = struct {
     }
 
     fn renderTypeForBuiltinFnName(dg: *DeclGen, writer: anytype, ty: Type) !void {
-        const target = dg.module.getTarget();
-        if (ty.isAbiInt()) {
-            const int_info = ty.intInfo(target);
-            const c_bits = toCIntBits(int_info.bits) orelse
-                return dg.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
-            try writer.print("{c}{d}", .{ signAbbrev(int_info.signedness), c_bits });
-        } else if (ty.isRuntimeFloat()) {
-            try ty.print(writer, dg.module);
-        } else if (ty.isPtrAtRuntime()) {
-            try writer.print("p{d}", .{ty.bitSize(target)});
-        } else if (ty.zigTypeTag() == .Bool) {
-            try writer.print("u8", .{});
-        } else return dg.fail("TODO: CBE: implement renderTypeForBuiltinFnName for type {}", .{
-            ty.fmt(dg.module),
-        });
+        try dg.renderCTypeForBuiltinFnName(writer, try dg.typeToCType(ty, .complete));
+    }
+
+    fn renderCTypeForBuiltinFnName(dg: *DeclGen, writer: anytype, cty: CType) !void {
+        switch (cty.tag()) {
+            else => try writer.print("{c}{d}", .{
+                if (cty.isBool())
+                    signAbbrev(.unsigned)
+                else if (cty.isInteger())
+                    signAbbrev(cty.signedness() orelse .unsigned)
+                else if (cty.isFloat())
+                    @as(u8, 'f')
+                else if (cty.isPointer())
+                    @as(u8, 'p')
+                else
+                    return dg.fail("TODO: CBE: implement renderTypeForBuiltinFnName for type {}", .{
+                        cty.tag(),
+                    }),
+                if (cty.isFloat()) cty.floatActiveBits(dg.module.getTarget()) else dg.byteSize(cty) * 8,
+            }),
+            .array => try writer.writeAll("big"),
+            .vector => try writer.writeAll("vec"),
+        }
     }
 
     fn renderBuiltinInfo(dg: *DeclGen, writer: anytype, ty: Type, info: BuiltinInfo) !void {
-        const target = dg.module.getTarget();
         switch (info) {
-            .None => {},
-            .Range => {
-                var arena = std.heap.ArenaAllocator.init(dg.gpa);
-                defer arena.deinit();
-
-                const ExpectedContents = union { u: Value.Payload.U64, i: Value.Payload.I64 };
-                var stack align(@alignOf(ExpectedContents)) =
-                    std.heap.stackFallback(@sizeOf(ExpectedContents), arena.allocator());
-
-                const int_info = ty.intInfo(target);
-                if (int_info.signedness == .signed) {
-                    const min_val = try ty.minInt(stack.get(), target);
-                    try writer.print(", {x}", .{try dg.fmtIntLiteral(ty, min_val, .Other)});
+            .none => {},
+            .bits => {
+                const cty = try dg.typeToCType(ty, .complete);
+                if (cty.castTag(.vector)) |pl| {
+                    var len_pl = Value.Payload.U64{ .base = .{ .tag = .int_u64 }, .data = pl.data.len };
+                    try writer.print(", {}", .{try dg.fmtIntLiteral(
+                        Type.u32,
+                        Value.initPayload(&len_pl.base),
+                        .FunctionArgument,
+                    )});
                 }
 
-                const max_val = try ty.maxInt(stack.get(), target);
-                try writer.print(", {x}", .{try dg.fmtIntLiteral(ty, max_val, .Other)});
-            },
-            .Bits => {
-                var bits_pl = Value.Payload.U64{
-                    .base = .{ .tag = .int_u64 },
-                    .data = ty.bitSize(target),
-                };
-                const bits_val = Value.initPayload(&bits_pl.base);
-                try writer.print(", {}", .{try dg.fmtIntLiteral(Type.u8, bits_val, .Other)});
+                const target = dg.module.getTarget();
+                const elem_ty = ty.shallowElemType();
+                const elem_info = if (elem_ty.isAbiInt())
+                    elem_ty.intInfo(target)
+                else
+                    std.builtin.Type.Int{
+                        .signedness = .unsigned,
+                        .bits = @intCast(u16, elem_ty.bitSize(target)),
+                    };
+                switch (cty.tag()) {
+                    else => {},
+                    .array, .vector => try writer.print(", {}", .{elem_info.signedness == .signed}),
+                }
+
+                var bits_pl = Value.Payload.U64{ .base = .{ .tag = .int_u64 }, .data = elem_info.bits };
+                try writer.print(", {}", .{try dg.fmtIntLiteral(switch (cty.tag()) {
+                    else => Type.u8,
+                    .array, .vector => Type.u16,
+                }, Value.initPayload(&bits_pl.base), .FunctionArgument)});
             },
         }
     }
@@ -2758,35 +2776,35 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
 
             // TODO use a different strategy for add, sub, mul, div
             // that communicates to the optimizer that wrapping is UB.
-            .add => try airBinOp(f, inst, "+", "add", .None),
-            .sub => try airBinOp(f, inst, "-", "sub", .None),
-            .mul => try airBinOp(f, inst, "*", "mul", .None),
+            .add => try airBinOp(f, inst, "+", "add", .none),
+            .sub => try airBinOp(f, inst, "-", "sub", .none),
+            .mul => try airBinOp(f, inst, "*", "mul", .none),
 
             .neg => try airFloatNeg(f, inst),
-            .div_float => try airBinBuiltinCall(f, inst, "div", .None),
+            .div_float => try airBinBuiltinCall(f, inst, "div", .none),
 
-            .div_trunc, .div_exact => try airBinOp(f, inst, "/", "div_trunc", .None),
+            .div_trunc, .div_exact => try airBinOp(f, inst, "/", "div_trunc", .none),
             .rem => blk: {
                 const bin_op = f.air.instructions.items(.data)[inst].bin_op;
                 const lhs_ty = f.air.typeOf(bin_op.lhs);
                 // For binary operations @TypeOf(lhs)==@TypeOf(rhs),
                 // so we only check one.
                 break :blk if (lhs_ty.isInt())
-                    try airBinOp(f, inst, "%", "rem", .None)
+                    try airBinOp(f, inst, "%", "rem", .none)
                 else
                     try airBinFloatOp(f, inst, "fmod");
             },
-            .div_floor => try airBinBuiltinCall(f, inst, "div_floor", .None),
-            .mod       => try airBinBuiltinCall(f, inst, "mod", .None),
+            .div_floor => try airBinBuiltinCall(f, inst, "div_floor", .none),
+            .mod       => try airBinBuiltinCall(f, inst, "mod", .none),
 
-            .addwrap => try airBinBuiltinCall(f, inst, "addw", .Bits),
-            .subwrap => try airBinBuiltinCall(f, inst, "subw", .Bits),
-            .mulwrap => try airBinBuiltinCall(f, inst, "mulw", .Bits),
+            .addwrap => try airBinBuiltinCall(f, inst, "addw", .bits),
+            .subwrap => try airBinBuiltinCall(f, inst, "subw", .bits),
+            .mulwrap => try airBinBuiltinCall(f, inst, "mulw", .bits),
 
-            .add_sat => try airBinBuiltinCall(f, inst, "adds", .Bits),
-            .sub_sat => try airBinBuiltinCall(f, inst, "subs", .Bits),
-            .mul_sat => try airBinBuiltinCall(f, inst, "muls", .Bits),
-            .shl_sat => try airBinBuiltinCall(f, inst, "shls", .Bits),
+            .add_sat => try airBinBuiltinCall(f, inst, "adds", .bits),
+            .sub_sat => try airBinBuiltinCall(f, inst, "subs", .bits),
+            .mul_sat => try airBinBuiltinCall(f, inst, "muls", .bits),
+            .shl_sat => try airBinBuiltinCall(f, inst, "shls", .bits),
 
             .sqrt        => try airUnFloatOp(f, inst, "sqrt"),
             .sin         => try airUnFloatOp(f, inst, "sin"),
@@ -2805,34 +2823,38 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
 
             .mul_add => try airMulAdd(f, inst),
 
-            .add_with_overflow => try airOverflow(f, inst, "add", .Bits),
-            .sub_with_overflow => try airOverflow(f, inst, "sub", .Bits),
-            .mul_with_overflow => try airOverflow(f, inst, "mul", .Bits),
-            .shl_with_overflow => try airOverflow(f, inst, "shl", .Bits),
+            .add_with_overflow => try airOverflow(f, inst, "add", .bits),
+            .sub_with_overflow => try airOverflow(f, inst, "sub", .bits),
+            .mul_with_overflow => try airOverflow(f, inst, "mul", .bits),
+            .shl_with_overflow => try airOverflow(f, inst, "shl", .bits),
 
             .min => try airMinMax(f, inst, '<', "fmin"),
             .max => try airMinMax(f, inst, '>', "fmax"),
 
             .slice => try airSlice(f, inst),
 
-            .cmp_gt  => try airCmpOp(f, inst, ">",  "gt"),
-            .cmp_gte => try airCmpOp(f, inst, ">=", "ge"),
-            .cmp_lt  => try airCmpOp(f, inst, "<",  "lt"),
-            .cmp_lte => try airCmpOp(f, inst, "<=", "le"),
+            .cmp_gt  => try airCmpOp(f, inst, .gt),
+            .cmp_gte => try airCmpOp(f, inst, .gte),
+            .cmp_lt  => try airCmpOp(f, inst, .lt),
+            .cmp_lte => try airCmpOp(f, inst, .lte),
 
-            .cmp_eq  => try airEquality(f, inst,  "((", "==", "eq"),
-            .cmp_neq => try airEquality(f, inst, "!((", "!=", "ne"),
+            .cmp_eq  => try airEquality(f, inst, .eq),
+            .cmp_neq => try airEquality(f, inst, .neq),
 
-            .cmp_vector => return f.fail("TODO: C backend: implement cmp_vector", .{}),
+            .cmp_vector => blk: {
+                const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+                const extra = f.air.extraData(Air.VectorCmp, ty_pl.payload).data;
+                break :blk try cmpBuiltinCall(f, inst, extra, extra.compareOperator(), .operator, .bits);
+            },
             .cmp_lt_errors_len => try airCmpLtErrorsLen(f, inst),
 
             // bool_and and bool_or are non-short-circuit operations
-            .bool_and, .bit_and => try airBinOp(f, inst, "&",  "and", .None),
-            .bool_or,  .bit_or  => try airBinOp(f, inst, "|",  "or",  .None),
-            .xor                => try airBinOp(f, inst, "^",  "xor", .None),
-            .shr, .shr_exact    => try airBinBuiltinCall(f, inst, "shr", .None),
-            .shl,               => try airBinBuiltinCall(f, inst, "shlw", .Bits),
-            .shl_exact          => try airBinOp(f, inst, "<<", "shl", .None),
+            .bool_and, .bit_and => try airBinOp(f, inst, "&",  "and", .none),
+            .bool_or,  .bit_or  => try airBinOp(f, inst, "|",  "or",  .none),
+            .xor                => try airBinOp(f, inst, "^",  "xor", .none),
+            .shr, .shr_exact    => try airBinBuiltinCall(f, inst, "shr", .none),
+            .shl,               => try airBinBuiltinCall(f, inst, "shlw", .bits),
+            .shl_exact          => try airBinOp(f, inst, "<<", "shl", .none),
             .not                => try airNot  (f, inst),
 
             .optional_payload         => try airOptionalPayload(f, inst),
@@ -2877,11 +2899,11 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .memcpy           => try airMemcpy(f, inst),
             .set_union_tag    => try airSetUnionTag(f, inst),
             .get_union_tag    => try airGetUnionTag(f, inst),
-            .clz              => try airUnBuiltinCall(f, inst, "clz", .Bits),
-            .ctz              => try airUnBuiltinCall(f, inst, "ctz", .Bits),
-            .popcount         => try airUnBuiltinCall(f, inst, "popcount", .Bits),
-            .byte_swap        => try airUnBuiltinCall(f, inst, "byte_swap", .Bits),
-            .bit_reverse      => try airUnBuiltinCall(f, inst, "bit_reverse", .Bits),
+            .clz              => try airUnBuiltinCall(f, inst, "clz", .bits),
+            .ctz              => try airUnBuiltinCall(f, inst, "ctz", .bits),
+            .popcount         => try airUnBuiltinCall(f, inst, "popcount", .bits),
+            .byte_swap        => try airUnBuiltinCall(f, inst, "byte_swap", .bits),
+            .bit_reverse      => try airUnBuiltinCall(f, inst, "bit_reverse", .bits),
             .tag_name         => try airTagName(f, inst),
             .error_name       => try airErrorName(f, inst),
             .splat            => try airSplat(f, inst),
@@ -3349,7 +3371,7 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
         try f.writeCValueDeref(writer, operand);
         try writer.print(", {})", .{try f.fmtIntLiteral(bit_offset_ty, bit_offset_val)});
         if (cant_cast) try writer.writeByte(')');
-        try f.object.dg.renderBuiltinInfo(writer, field_ty, .Bits);
+        try f.object.dg.renderBuiltinInfo(writer, field_ty, .bits);
         try writer.writeByte(')');
     } else {
         try f.writeCValue(writer, local, .Other);
@@ -3744,7 +3766,7 @@ fn airOverflow(f: *Function, inst: Air.Inst.Index, operation: []const u8, info: 
 fn airNot(f: *Function, inst: Air.Inst.Index) !CValue {
     const inst_ty = f.air.typeOfIndex(inst);
     if (inst_ty.tag() != .bool)
-        return try airUnBuiltinCall(f, inst, "not", .Bits);
+        return try airUnBuiltinCall(f, inst, "not", .bits);
 
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
 
@@ -3803,7 +3825,7 @@ fn airBinOp(
     return local;
 }
 
-fn airCmpOp(f: *Function, inst: Air.Inst.Index, operator: []const u8, operation: []const u8) !CValue {
+fn airCmpOp(f: *Function, inst: Air.Inst.Index, operator: std.math.CompareOperator) !CValue {
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
 
     if (f.liveness.isUnused(inst)) {
@@ -3813,10 +3835,11 @@ fn airCmpOp(f: *Function, inst: Air.Inst.Index, operator: []const u8, operation:
 
     const operand_ty = f.air.typeOf(bin_op.lhs);
     const target = f.object.dg.module.getTarget();
-    if (operand_ty.isInt() and operand_ty.bitSize(target) > 64)
-        return try cmpBuiltinCall(f, inst, operator, "cmp");
+    const operand_bits = operand_ty.bitSize(target);
+    if (operand_ty.isInt() and operand_bits > 64)
+        return cmpBuiltinCall(f, inst, bin_op, operator, .cmp, if (operand_bits > 128) .bits else .none);
     if (operand_ty.isRuntimeFloat())
-        return try cmpBuiltinCall(f, inst, operator, operation);
+        return cmpBuiltinCall(f, inst, bin_op, operator, .operator, .none);
 
     const inst_ty = f.air.typeOfIndex(inst);
     const lhs = try f.resolveInst(bin_op.lhs);
@@ -3829,7 +3852,7 @@ fn airCmpOp(f: *Function, inst: Air.Inst.Index, operator: []const u8, operation:
     try writer.writeAll(" = ");
     try f.writeCValue(writer, lhs, .Other);
     try writer.writeByte(' ');
-    try writer.writeAll(operator);
+    try writer.writeAll(compareOperatorC(operator));
     try writer.writeByte(' ');
     try f.writeCValue(writer, rhs, .Other);
     try writer.writeAll(";\n");
@@ -3840,9 +3863,7 @@ fn airCmpOp(f: *Function, inst: Air.Inst.Index, operator: []const u8, operation:
 fn airEquality(
     f: *Function,
     inst: Air.Inst.Index,
-    negate_prefix: []const u8,
-    operator: []const u8,
-    operation: []const u8,
+    operator: std.math.CompareOperator,
 ) !CValue {
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
 
@@ -3853,10 +3874,11 @@ fn airEquality(
 
     const operand_ty = f.air.typeOf(bin_op.lhs);
     const target = f.object.dg.module.getTarget();
-    if (operand_ty.isInt() and operand_ty.bitSize(target) > 64)
-        return try cmpBuiltinCall(f, inst, operator, "cmp");
+    const operand_bits = operand_ty.bitSize(target);
+    if (operand_ty.isInt() and operand_bits > 64)
+        return cmpBuiltinCall(f, inst, bin_op, operator, .cmp, if (operand_bits > 128) .bits else .none);
     if (operand_ty.isRuntimeFloat())
-        return try cmpBuiltinCall(f, inst, operator, operation);
+        return cmpBuiltinCall(f, inst, bin_op, operator, .operator, .none);
 
     const lhs = try f.resolveInst(bin_op.lhs);
     const rhs = try f.resolveInst(bin_op.rhs);
@@ -3872,7 +3894,12 @@ fn airEquality(
         // (A && B)  || (C && (A == B))
         // A = lhs.is_null  ;  B = rhs.is_null  ;  C = rhs.payload == lhs.payload
 
-        try writer.writeAll(negate_prefix);
+        switch (operator) {
+            .eq => {},
+            .neq => try writer.writeByte('!'),
+            else => unreachable,
+        }
+        try writer.writeAll("((");
         try f.writeCValue(writer, lhs, .Other);
         try writer.writeAll(".is_null && ");
         try f.writeCValue(writer, rhs, .Other);
@@ -3891,7 +3918,7 @@ fn airEquality(
 
     try f.writeCValue(writer, lhs, .Other);
     try writer.writeByte(' ');
-    try writer.writeAll(operator);
+    try writer.writeAll(compareOperatorC(operator));
     try writer.writeByte(' ');
     try f.writeCValue(writer, rhs, .Other);
     try writer.writeAll(";\n");
@@ -3972,7 +3999,7 @@ fn airMinMax(f: *Function, inst: Air.Inst.Index, operator: u8, operation: []cons
     const inst_ty = f.air.typeOfIndex(inst);
     const target = f.object.dg.module.getTarget();
     if (inst_ty.isInt() and inst_ty.bitSize(target) > 64)
-        return try airBinBuiltinCall(f, inst, operation[1..], .None);
+        return try airBinBuiltinCall(f, inst, operation[1..], .none);
     if (inst_ty.isRuntimeFloat())
         return try airBinFloatOp(f, inst, operation);
 
@@ -4418,12 +4445,35 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
 
     // Ensure padding bits have the expected value.
     if (dest_ty.isAbiInt()) {
+        const dest_cty = try f.typeToCType(dest_ty, .complete);
+        const dest_info = dest_ty.intInfo(target);
+        var wrap_ty_pl = Type.Payload.Bits{ .base = .{ .tag = switch (dest_info.signedness) {
+            .unsigned => .int_unsigned,
+            .signed => .int_signed,
+        } }, .data = dest_info.bits };
+
         try f.writeCValue(writer, local, .Other);
+        if (dest_cty.castTag(.array)) |pl| {
+            try writer.print("[{d}]", .{switch (target.cpu.arch.endian()) {
+                .Little => pl.data.len - 1,
+                .Big => 0,
+            }});
+            wrap_ty_pl.data -= 1;
+            wrap_ty_pl.data %= @intCast(u16, f.byteSize(f.indexToCType(pl.data.elem_type)) * 8);
+            wrap_ty_pl.data += 1;
+        }
+        const wrap_ty = Type.initPayload(&wrap_ty_pl.base);
         try writer.writeAll(" = zig_wrap_");
-        try f.object.dg.renderTypeForBuiltinFnName(writer, dest_ty);
+        try f.object.dg.renderTypeForBuiltinFnName(writer, wrap_ty);
         try writer.writeByte('(');
         try f.writeCValue(writer, local, .Other);
-        try f.object.dg.renderBuiltinInfo(writer, dest_ty, .Bits);
+        if (dest_cty.castTag(.array)) |pl| {
+            try writer.print("[{d}]", .{switch (target.cpu.arch.endian()) {
+                .Little => pl.data.len - 1,
+                .Big => 0,
+            }});
+        }
+        try f.object.dg.renderBuiltinInfo(writer, wrap_ty, .bits);
         try writer.writeAll(");\n");
     }
 
@@ -5438,7 +5488,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                 try f.object.dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
                 try writer.writeByte(')');
                 if (cant_cast) try writer.writeByte(')');
-                try f.object.dg.renderBuiltinInfo(writer, field_int_ty, .Bits);
+                try f.object.dg.renderBuiltinInfo(writer, field_int_ty, .bits);
                 try writer.writeAll(");\n");
                 if (inst_ty.eql(field_int_ty, f.object.dg.module)) return temp_local;
 
@@ -5871,7 +5921,7 @@ fn airFloatCast(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, operand, .FunctionArgument);
     try writer.writeByte(')');
     if (inst_ty.isInt() and operand_ty.isRuntimeFloat()) {
-        try f.object.dg.renderBuiltinInfo(writer, inst_ty, .Bits);
+        try f.object.dg.renderBuiltinInfo(writer, inst_ty, .bits);
         try writer.writeByte(')');
     }
     try writer.writeAll(";\n");
@@ -5972,29 +6022,46 @@ fn airBinBuiltinCall(
 fn cmpBuiltinCall(
     f: *Function,
     inst: Air.Inst.Index,
-    operator: []const u8,
-    operation: []const u8,
+    data: anytype,
+    operator: std.math.CompareOperator,
+    operation: enum { cmp, operator },
+    info: BuiltinInfo,
 ) !CValue {
     const inst_ty = f.air.typeOfIndex(inst);
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
-    const operand_ty = f.air.typeOf(bin_op.lhs);
+    const operand_ty = f.air.typeOf(data.lhs);
 
-    const lhs = try f.resolveInst(bin_op.lhs);
-    const rhs = try f.resolveInst(bin_op.rhs);
-    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
+    const lhs = try f.resolveInst(data.lhs);
+    const rhs = try f.resolveInst(data.rhs);
+    try reap(f, inst, &.{ data.lhs, data.rhs });
+
+    const ref_ret = inst_ty.tag() != .bool;
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
-    try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(" = zig_");
-    try writer.writeAll(operation);
-    try writer.writeByte('_');
+    if (!ref_ret) {
+        try f.writeCValue(writer, local, .Other);
+        try writer.writeAll(" = ");
+    }
+    try writer.print("zig_{s}_", .{switch (operation) {
+        else => @tagName(operation),
+        .operator => compareOperatorAbbrev(operator),
+    }});
     try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
     try writer.writeByte('(');
+    if (ref_ret) {
+        try f.writeCValue(writer, local, .FunctionArgument);
+        try writer.writeAll(", ");
+    }
     try f.writeCValue(writer, lhs, .FunctionArgument);
     try writer.writeAll(", ");
     try f.writeCValue(writer, rhs, .FunctionArgument);
-    try writer.print(") {s} {};\n", .{ operator, try f.fmtIntLiteral(Type.initTag(.i32), Value.zero) });
+    try f.object.dg.renderBuiltinInfo(writer, operand_ty, info);
+    try writer.writeByte(')');
+    if (!ref_ret) try writer.print(" {s} {}", .{
+        compareOperatorC(operator),
+        try f.fmtIntLiteral(Type.initTag(.i32), Value.zero),
+    });
+    try writer.writeAll(";\n");
     return local;
 }
 
@@ -6675,7 +6742,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
                     try writer.writeAll(", ");
                     try f.object.dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
-                    try f.object.dg.renderBuiltinInfo(writer, inst_ty, .Bits);
+                    try f.object.dg.renderBuiltinInfo(writer, inst_ty, .bits);
                     try writer.writeByte(')');
                     if (!empty) try writer.writeByte(')');
 
@@ -7094,6 +7161,28 @@ fn compilerRtAbbrev(ty: Type, target: std.Target) []const u8 {
     } else unreachable;
 }
 
+fn compareOperatorAbbrev(operator: std.math.CompareOperator) []const u8 {
+    return switch (operator) {
+        .lt => "lt",
+        .lte => "le",
+        .eq => "eq",
+        .gte => "ge",
+        .gt => "gt",
+        .neq => "ne",
+    };
+}
+
+fn compareOperatorC(operator: std.math.CompareOperator) []const u8 {
+    return switch (operator) {
+        .lt => "<",
+        .lte => "<=",
+        .eq => "==",
+        .gte => ">=",
+        .gt => ">",
+        .neq => "!=",
+    };
+}
+
 fn StringLiteral(comptime WriterType: type) type {
     // MSVC has a length limit of 16380 per string literal (before concatenation)
     const max_char_len = 4;
@@ -7239,14 +7328,6 @@ fn formatIntLiteral(
         .positive = undefined,
     };
     defer allocator.free(wrap.limbs);
-    if (wrap.addWrap(int, one, data.int_info.signedness, c_bits) or
-        data.int_info.signedness == .signed and wrap.subWrap(int, one, data.int_info.signedness, c_bits))
-        return writer.print("{s}_{s}", .{
-            data.cty.getStandardDefineAbbrev() orelse return writer.print("zig_{s}Int_{c}{d}", .{
-                if (int.positive) "max" else "min", signAbbrev(data.int_info.signedness), c_bits,
-            }),
-            if (int.positive) "MAX" else "MIN",
-        });
 
     const c_limb_info: struct {
         cty: CType,
@@ -7277,6 +7358,15 @@ fn formatIntLiteral(
         },
     };
     if (c_limb_info.count == 1) {
+        if (wrap.addWrap(int, one, data.int_info.signedness, c_bits) or
+            data.int_info.signedness == .signed and wrap.subWrap(int, one, data.int_info.signedness, c_bits))
+            return writer.print("{s}_{s}", .{
+                data.cty.getStandardDefineAbbrev() orelse return writer.print("zig_{s}Int_{c}{d}", .{
+                    if (int.positive) "max" else "min", signAbbrev(data.int_info.signedness), c_bits,
+                }),
+                if (int.positive) "MAX" else "MIN",
+            });
+
         if (!int.positive) try writer.writeByte('-');
         try data.cty.renderLiteralPrefix(writer, data.kind);
 
@@ -7310,7 +7400,7 @@ fn formatIntLiteral(
         try writer.writeAll(string);
     } else {
         try data.cty.renderLiteralPrefix(writer, data.kind);
-        wrap.convertToTwosComplement(int, .unsigned, data.int_info.bits);
+        wrap.convertToTwosComplement(int, data.int_info.signedness, c_bits);
         std.mem.set(BigIntLimb, wrap.limbs[wrap.len..], 0);
         wrap.len = wrap.limbs.len;
         const limbs_per_c_limb = @divExact(wrap.len, c_limb_info.count);
@@ -7343,7 +7433,7 @@ fn formatIntLiteral(
                 c_limb_cty = c_limb_info.cty.toSigned();
 
                 c_limb_mut.positive = wrap.positive;
-                c_limb_mut.convertToTwosComplement(
+                c_limb_mut.truncate(
                     c_limb_mut.toConst(),
                     .signed,
                     data.int_info.bits - limb_i * @bitSizeOf(BigIntLimb),

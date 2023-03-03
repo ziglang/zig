@@ -496,6 +496,116 @@ pub const CType = extern union {
         }
     };
 
+    pub fn isBool(self: CType) bool {
+        return switch (self.tag()) {
+            ._Bool,
+            .bool,
+            => true,
+            else => false,
+        };
+    }
+
+    pub fn isInteger(self: CType) bool {
+        return switch (self.tag()) {
+            .char,
+            .@"signed char",
+            .short,
+            .int,
+            .long,
+            .@"long long",
+            .@"unsigned char",
+            .@"unsigned short",
+            .@"unsigned int",
+            .@"unsigned long",
+            .@"unsigned long long",
+            .size_t,
+            .ptrdiff_t,
+            .uint8_t,
+            .int8_t,
+            .uint16_t,
+            .int16_t,
+            .uint32_t,
+            .int32_t,
+            .uint64_t,
+            .int64_t,
+            .uintptr_t,
+            .intptr_t,
+            .zig_u128,
+            .zig_i128,
+            => true,
+            else => false,
+        };
+    }
+
+    pub fn signedness(self: CType) ?std.builtin.Signedness {
+        return switch (self.tag()) {
+            .char => null, // unknown signedness
+            .@"signed char",
+            .short,
+            .int,
+            .long,
+            .@"long long",
+            .ptrdiff_t,
+            .int8_t,
+            .int16_t,
+            .int32_t,
+            .int64_t,
+            .intptr_t,
+            .zig_i128,
+            => .signed,
+            .@"unsigned char",
+            .@"unsigned short",
+            .@"unsigned int",
+            .@"unsigned long",
+            .@"unsigned long long",
+            .size_t,
+            .uint8_t,
+            .uint16_t,
+            .uint32_t,
+            .uint64_t,
+            .uintptr_t,
+            .zig_u128,
+            => .unsigned,
+            else => unreachable,
+        };
+    }
+
+    pub fn isFloat(self: CType) bool {
+        return switch (self.tag()) {
+            .float,
+            .double,
+            .@"long double",
+            .zig_f16,
+            .zig_f32,
+            .zig_f64,
+            .zig_f80,
+            .zig_f128,
+            .zig_c_longdouble,
+            => true,
+            else => false,
+        };
+    }
+
+    pub fn isPointer(self: CType) bool {
+        return switch (self.tag()) {
+            .pointer,
+            .pointer_const,
+            .pointer_volatile,
+            .pointer_const_volatile,
+            => true,
+            else => false,
+        };
+    }
+
+    pub fn isFunction(self: CType) bool {
+        return switch (self.tag()) {
+            .function,
+            .varargs_function,
+            => true,
+            else => false,
+        };
+    }
+
     pub fn toSigned(self: CType) CType {
         return CType.initTag(switch (self.tag()) {
             .char, .@"signed char", .@"unsigned char" => .@"signed char",
@@ -723,6 +833,20 @@ pub const CType = extern union {
             .varargs_function,
             => unreachable,
         }
+    }
+
+    pub fn floatActiveBits(self: CType, target: Target) u16 {
+        return switch (self.tag()) {
+            .float => target.c_type_bit_size(.float),
+            .double => target.c_type_bit_size(.double),
+            .@"long double", .zig_c_longdouble => target.c_type_bit_size(.longdouble),
+            .zig_f16 => 16,
+            .zig_f32 => 32,
+            .zig_f64 => 64,
+            .zig_f80 => 80,
+            .zig_f128 => 128,
+            else => unreachable,
+        };
     }
 
     pub fn byteSize(self: CType, store: Store.Set, target: Target) u64 {
