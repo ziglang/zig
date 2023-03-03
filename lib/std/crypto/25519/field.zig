@@ -7,11 +7,6 @@ const writeIntLittle = std.mem.writeIntLittle;
 const NonCanonicalError = crypto.errors.NonCanonicalError;
 const NotSquareError = crypto.errors.NotSquareError;
 
-const modifier = switch (builtin.mode) {
-    .Debug, .ReleaseSafe, .ReleaseFast => .always_inline,
-    .ReleaseSmall => .auto,
-};
-
 pub const Fe = struct {
     limbs: [5]u64,
 
@@ -270,11 +265,11 @@ pub const Fe = struct {
     }
 
     /// Multiply two field elements
-    pub inline fn mul(a: Fe, b:Fe) Fe {
-        return @call(modifier, _mul, .{a, b});
-    }
-
-    pub fn _mul(a: Fe, b: Fe) Fe {
+    /// Inlining can result in large code generation, so do it conditionally.
+    pub fn mul(a: Fe, b: Fe) callconv(switch(builtin.mode) {
+        .ReleaseSafe, .ReleaseFast => .Inline,
+        .Debug, .ReleaseSmall => .Unspecified, 
+    }) Fe {
         var ax: [5]u128 = undefined;
         var bx: [5]u128 = undefined;
         var a19: [5]u128 = undefined;
