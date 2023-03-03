@@ -23,12 +23,12 @@ pub fn build(b: *std.build.Builder) !void {
             .root_source_file = .{ .path = "breakpipe.zig" },
         });
         exe.addOptions("build_options", options);
-        const run = exe.run();
+        const run = b.addRunArtifact(exe);
         if (keep_sigpipe) {
-            run.expected_term = .{ .Signal = std.os.SIG.PIPE };
+            run.addCheck(.{ .expect_term = .{ .Signal = std.os.SIG.PIPE } });
         } else {
-            run.stdout_action = .{ .expect_exact = "BrokenPipe\n" };
-            run.expected_term = .{ .Exited = 123 };
+            run.addCheck(.{ .expect_stdout_exact = "BrokenPipe\n" });
+            run.addCheck(.{ .expect_term = .{ .Exited = 123 } });
         }
         test_step.dependOn(&run.step);
     }
