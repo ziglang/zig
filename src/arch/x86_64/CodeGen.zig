@@ -12,12 +12,12 @@ const trace = @import("../../tracy.zig").trace;
 
 const Air = @import("../../Air.zig");
 const Allocator = mem.Allocator;
+const CodeGenError = codegen.CodeGenError;
 const Compilation = @import("../../Compilation.zig");
 const DebugInfoOutput = codegen.DebugInfoOutput;
 const DW = std.dwarf;
 const ErrorMsg = Module.ErrorMsg;
 const Result = codegen.Result;
-const GenerateSymbolError = codegen.GenerateSymbolError;
 const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
 const Mir = @import("Mir.zig");
@@ -40,7 +40,7 @@ const Register = bits.Register;
 const gp = abi.RegisterClass.gp;
 const sse = abi.RegisterClass.sse;
 
-const InnerError = codegen.CodeGenError || error{OutOfRegisters};
+const InnerError = CodeGenError || error{OutOfRegisters};
 
 gpa: Allocator,
 air: Air,
@@ -253,7 +253,7 @@ pub fn generate(
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
-) GenerateSymbolError!Result {
+) CodeGenError!Result {
     if (build_options.skip_non_native and builtin.cpu.arch != bin_file.options.target.cpu.arch) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
