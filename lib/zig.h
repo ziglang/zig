@@ -1360,8 +1360,8 @@ typedef   signed __int128 zig_i128;
 
 #define zig_make_u128(hi, lo) ((zig_u128)(hi)<<64|(lo))
 #define zig_make_i128(hi, lo) ((zig_i128)zig_make_u128(hi, lo))
-#define zig_make_constant_u128(hi, lo) zig_make_u128(hi, lo)
-#define zig_make_constant_i128(hi, lo) zig_make_i128(hi, lo)
+#define zig_init_u128(hi, lo) zig_make_u128(hi, lo)
+#define zig_init_i128(hi, lo) zig_make_i128(hi, lo)
 #define zig_hi_u128(val) ((uint64_t)((val) >> 64))
 #define zig_lo_u128(val) ((uint64_t)((val) >>  0))
 #define zig_hi_i128(val) (( int64_t)((val) >> 64))
@@ -1391,11 +1391,11 @@ typedef struct { zig_align(16) int64_t hi; uint64_t lo; } zig_i128;
 #define zig_make_i128(hi, lo) ((zig_i128){ .h##i = (hi), .l##o = (lo) })
 
 #if _MSC_VER /* MSVC doesn't allow struct literals in constant expressions */
-#define zig_make_constant_u128(hi, lo) { .h##i = (hi), .l##o = (lo) }
-#define zig_make_constant_i128(hi, lo) { .h##i = (hi), .l##o = (lo) }
+#define zig_init_u128(hi, lo) { .h##i = (hi), .l##o = (lo) }
+#define zig_init_i128(hi, lo) { .h##i = (hi), .l##o = (lo) }
 #else /* But non-MSVC doesn't like the unprotected commas */
-#define zig_make_constant_u128(hi, lo) zig_make_u128(hi, lo)
-#define zig_make_constant_i128(hi, lo) zig_make_i128(hi, lo)
+#define zig_init_u128(hi, lo) zig_make_u128(hi, lo)
+#define zig_init_i128(hi, lo) zig_make_i128(hi, lo)
 #endif
 #define zig_hi_u128(val) ((val).hi)
 #define zig_lo_u128(val) ((val).lo)
