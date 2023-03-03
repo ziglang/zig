@@ -22,6 +22,8 @@ step: Step,
 argv: ArrayList(Arg),
 
 /// Set this to modify the current working directory
+/// TODO change this to a Build.Cache.Directory to better integrate with
+/// future child process cwd API.
 cwd: ?[]const u8,
 
 /// Override this field to modify the environment, or use setEnvironmentVariable
@@ -89,7 +91,7 @@ pub const StdIo = union(enum) {
         expect_stderr_match: []const u8,
         expect_stdout_exact: []const u8,
         expect_stdout_match: []const u8,
-        expect_term: std.ChildProcess.Term,
+        expect_term: std.process.Child.Term,
     };
 };
 
@@ -401,7 +403,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 }
 
 fn formatTerm(
-    term: ?std.ChildProcess.Term,
+    term: ?std.process.Child.Term,
     comptime fmt: []const u8,
     options: std.fmt.FormatOptions,
     writer: anytype,
@@ -417,11 +419,11 @@ fn formatTerm(
         try writer.writeAll("exited with any code");
     }
 }
-fn fmtTerm(term: ?std.ChildProcess.Term) std.fmt.Formatter(formatTerm) {
+fn fmtTerm(term: ?std.process.Child.Term) std.fmt.Formatter(formatTerm) {
     return .{ .data = term };
 }
 
-fn termMatches(expected: ?std.ChildProcess.Term, actual: std.ChildProcess.Term) bool {
+fn termMatches(expected: ?std.process.Child.Term, actual: std.process.Child.Term) bool {
     return if (expected) |e| switch (e) {
         .Exited => |expected_code| switch (actual) {
             .Exited => |actual_code| expected_code == actual_code,
@@ -453,10 +455,7 @@ fn runCommand(self: *RunStep, argv: []const []const u8, has_side_effects: bool) 
     try step.handleChildProcUnsupported(self.cwd, argv);
     try Step.handleVerbose(step.owner, self.cwd, argv);
 
-    var stdout_bytes: ?[]const u8 = null;
-    var stderr_bytes: ?[]const u8 = null;
-
-    const term = spawnChildAndCollect(self, argv, &stdout_bytes, &stderr_bytes, has_side_effects) catch |err| term: {
+    const result = spawnChildAndCollect(self, argv, has_side_effects) catch |err| term: {
         if (err == error.InvalidExe) interpret: {
             // TODO: learn the target from the binary directly rather than from
             // relying on it being a CompileStep. This will make this logic
@@ -571,11 +570,9 @@ fn runCommand(self: *RunStep, argv: []const []const u8, has_side_effects: bool) 
 
             try Step.handleVerbose(step.owner, self.cwd, interp_argv.items);
 
-            assert(stdout_bytes == null);
-            assert(stderr_bytes == null);
-            break :term spawnChildAndCollect(self, interp_argv.items, &stdout_bytes, &stderr_bytes, has_side_effects) catch |inner_err| {
+            break :term spawnChildAndCollect(self, interp_argv.items, has_side_effects) catch |e| {
                 return step.fail("unable to spawn {s}: {s}", .{
-                    interp_argv.items[0], @errorName(inner_err),
+                    interp_argv.items[0], @errorName(e),
                 });
             };
         }
@@ -586,7 +583,8 @@ fn runCommand(self: *RunStep, argv: []const []const u8, has_side_effects: bool) 
     switch (self.stdio) {
         .check => |checks| for (checks.items) |check| switch (check) {
             .expect_stderr_exact => |expected_bytes| {
-                if (!mem.eql(u8, expected_bytes, stderr_bytes.?)) {
+                assert(!result.stderr_null);
+                if (!mem.eql(u8, expected_bytes, result.stderr)) {
                     return step.fail(
                         \\
                         \\========= expected this stderr: =========
@@ -597,13 +595,14 @@ fn runCommand(self: *RunStep, argv: []const []const u8, has_side_effects: bool) 
                         \\{s}
                     , .{
                         expected_bytes,
-                        stderr_bytes.?,
+                        result.stderr,
                         try Step.allocPrintCmd(arena, self.cwd, argv),
                     });
                 }
             },
             .expect_stderr_match => |match| {
-                if (mem.indexOf(u8, stderr_bytes.?, match) == null) {
+                assert(!result.stderr_null);
+                if (mem.indexOf(u8, result.stderr, match) == null) {
                     return step.fail(
                         \\
                         \\========= expected to find in stderr: =========
@@ -614,13 +613,14 @@ fn runCommand(self: *RunStep, argv: []const []const u8, has_side_effects: bool) 
                         \\{s}
                     , .{
                         match,
-                        stderr_bytes.?,
+                        result.stderr,
                         try Step.allocPrintCmd(arena, self.cwd, argv),
                     });
                 }
             },
             .expect_stdout_exact => |expected_bytes| {
-                if (!mem.eql(u8, expected_bytes, stdout_bytes.?)) {
+                assert(!result.stdout_null);
+                if (!mem.eql(u8, expected_bytes, result.stdout)) {
                     return step.fail(
                         \\
                         \\========= expected this stdout: =========
@@ -631,13 +631,14 @@ fn runCommand(self: *RunStep, argv: []const []const u8, has_side_effects: bool) 
                         \\{s}
                     , .{
                         expected_bytes,
-                        stdout_bytes.?,
+                        result.stdout,
                         try Step.allocPrintCmd(arena, self.cwd, argv),
                     });
                 }
             },
             .expect_stdout_match => |match| {
-                if (mem.indexOf(u8, stdout_bytes.?, match) == null) {
+                assert(!result.stdout_null);
+                if (mem.indexOf(u8, result.stdout, match) == null) {
                     return step.fail(
                         \\
                         \\========= expected to find in stdout: =========
@@ -648,15 +649,15 @@ fn runCommand(self: *RunStep, argv: []const []const u8, has_side_effects: bool) 
                         \\{s}
                     , .{
                         match,
-                        stdout_bytes.?,
+                        result.stdout,
                         try Step.allocPrintCmd(arena, self.cwd, argv),
                     });
                 }
             },
             .expect_term => |expected_term| {
-                if (!termMatches(expected_term, term)) {
+                if (!termMatches(expected_term, result.term)) {
                     return step.fail("the following command {} (expected {}):\n{s}", .{
-                        fmtTerm(term),
+                        fmtTerm(result.term),
                         fmtTerm(expected_term),
                         try Step.allocPrintCmd(arena, self.cwd, argv),
                     });
@@ -664,24 +665,36 @@ fn runCommand(self: *RunStep, argv: []const []const u8, has_side_effects: bool) 
             },
         },
         else => {
-            try step.handleChildProcessTerm(term, self.cwd, argv);
+            try step.handleChildProcessTerm(result.term, self.cwd, argv);
         },
     }
 }
 
+const ChildProcResult = struct {
+    // These use boolean flags instead of optionals as a workaround for
+    // https://github.com/ziglang/zig/issues/14783
+    stdout: []const u8,
+    stderr: []const u8,
+    stdout_null: bool,
+    stderr_null: bool,
+    term: std.process.Child.Term,
+};
+
 fn spawnChildAndCollect(
     self: *RunStep,
     argv: []const []const u8,
-    stdout_bytes: *?[]const u8,
-    stderr_bytes: *?[]const u8,
     has_side_effects: bool,
-) !std.ChildProcess.Term {
+) !ChildProcResult {
     const b = self.step.owner;
     const arena = b.allocator;
-    const cwd = if (self.cwd) |cwd| b.pathFromRoot(cwd) else b.build_root.path;
 
-    var child = std.ChildProcess.init(argv, arena);
-    child.cwd = cwd;
+    var child = std.process.Child.init(argv, arena);
+    if (self.cwd) |cwd| {
+        child.cwd = b.pathFromRoot(cwd);
+    } else {
+        child.cwd = b.build_root.path;
+        child.cwd_dir = b.build_root.handle;
+    }
     child.env_map = self.env_map orelse b.env_map;
 
     child.stdin_behavior = switch (self.stdio) {
@@ -704,6 +717,13 @@ fn spawnChildAndCollect(
         argv[0], @errorName(err),
     });
 
+    // These are not optionals, as a workaround for
+    // https://github.com/ziglang/zig/issues/14783
+    var stdout_bytes: []const u8 = undefined;
+    var stderr_bytes: []const u8 = undefined;
+    var stdout_null = true;
+    var stderr_null = true;
+
     if (child.stdout) |stdout| {
         if (child.stderr) |stderr| {
             var poller = std.io.poll(arena, enum { stdout, stderr }, .{
@@ -719,26 +739,36 @@ fn spawnChildAndCollect(
                     return error.StderrStreamTooLong;
             }
 
-            stdout_bytes.* = try poller.fifo(.stdout).toOwnedSlice();
-            stderr_bytes.* = try poller.fifo(.stderr).toOwnedSlice();
+            stdout_bytes = try poller.fifo(.stdout).toOwnedSlice();
+            stderr_bytes = try poller.fifo(.stderr).toOwnedSlice();
+            stdout_null = false;
+            stderr_null = false;
         } else {
-            stdout_bytes.* = try stdout.reader().readAllAlloc(arena, self.max_stdio_size);
+            stdout_bytes = try stdout.reader().readAllAlloc(arena, self.max_stdio_size);
+            stdout_null = false;
         }
     } else if (child.stderr) |stderr| {
-        stderr_bytes.* = try stderr.reader().readAllAlloc(arena, self.max_stdio_size);
+        stderr_bytes = try stderr.reader().readAllAlloc(arena, self.max_stdio_size);
+        stderr_null = false;
     }
 
-    if (stderr_bytes.*) |stderr| if (stderr.len > 0) {
+    if (!stderr_null and stderr_bytes.len > 0) {
         const stderr_is_diagnostic = switch (self.stdio) {
             .check => |checks| !checksContainStderr(checks.items),
             else => true,
         };
         if (stderr_is_diagnostic) {
-            try self.step.result_error_msgs.append(arena, stderr);
+            try self.step.result_error_msgs.append(arena, stderr_bytes);
         }
-    };
+    }
 
-    return child.wait();
+    return .{
+        .stdout = stdout_bytes,
+        .stderr = stderr_bytes,
+        .stdout_null = stdout_null,
+        .stderr_null = stderr_null,
+        .term = try child.wait(),
+    };
 }
 
 fn addPathForDynLibs(self: *RunStep, artifact: *CompileStep) void {
