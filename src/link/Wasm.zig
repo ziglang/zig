@@ -345,7 +345,17 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     }
 
     // TODO: read the file and keep valid parts instead of truncating
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
+    const file = try options.emit.?.directory.handle.createFile(sub_path, .{
+        .truncate = true,
+        .read = true,
+        .mode = if (fs.has_executable_bit)
+            if (options.target.os.tag == .wasi and options.output_mode == .Exe)
+                fs.File.default_mode | 0b001_000_000
+            else
+                fs.File.default_mode
+        else
+            0,
+    });
     wasm_bin.base.file = file;
     wasm_bin.name = sub_path;
 
@@ -3750,10 +3760,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         if (wasm.base.options.import_symbols) {
             try argv.append("--allow-undefined");
         }
-        try argv.appendSlice(&[_][]const u8{
-            "-o",
-            full_out_path,
-        });
+        try argv.appendSlice(&.{ "-o", full_out_path });
 
         if (target.cpu.arch == .wasm64) {
             try argv.append("-mwasm64");
@@ -3888,6 +3895,21 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
                     return error.LLDReportedFailure;
                 }
             }
+        }
+
+        // Give +x to the .wasm file if it is an executable and the OS is WASI.
+        // Some systems may be configured to execute such binaries directly. Even if that
+        // is not the case, it means we will get "exec format error" when trying to run
+        // it, and then can react to that in the same way as trying to run an ELF file
+        // from a foreign CPU architecture.
+        if (fs.has_executable_bit and target.os.tag == .wasi and
+            wasm.base.options.output_mode == .Exe)
+        {
+            // TODO: what's our strategy for reporting linker errors from this function?
+            // report a nice error here with the file path if it fails instead of
+            // just returning the error code.
+            // chmod does not interact with umask, so we use a conservative -rwxr--r-- here.
+            try std.os.fchmodat(fs.cwd().fd, full_out_path, 0o744, 0);
         }
     }
 
