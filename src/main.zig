@@ -668,9 +668,13 @@ const ArgMode = union(enum) {
     run,
 };
 
+/// Avoid dragging networking into zig2.c because it adds dependencies on some
+/// linker symbols that are annoying to satisfy while bootstrapping.
+const Ip4Address = if (build_options.omit_pkg_fetching_code) void else std.net.Ip4Address;
+
 const Listen = union(enum) {
     none,
-    ip4: std.net.Ip4Address,
+    ip4: Ip4Address,
     stdio,
 };
 
@@ -1159,6 +1163,7 @@ fn buildOutputType(
                             listen = .stdio;
                             watch = true;
                         } else {
+                            if (build_options.omit_pkg_fetching_code) unreachable;
                             // example: --listen 127.0.0.1:9000
                             var it = std.mem.split(u8, next_arg, ":");
                             const host = it.next().?;
@@ -3303,6 +3308,8 @@ fn buildOutputType(
             return cleanExit();
         },
         .ip4 => |ip4_addr| {
+            if (build_options.omit_pkg_fetching_code) unreachable;
+
             var server = std.net.StreamServer.init(.{
                 .reuse_address = true,
             });
