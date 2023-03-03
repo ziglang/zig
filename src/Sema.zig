@@ -26625,6 +26625,23 @@ fn beginComptimePtrMutation(
                             });
                         }
                         const elem_ty = parent.ty.childType();
+
+                        // We might have a pointer to multiple elements of the array (e.g. a pointer
+                        // to a sub-array). In this case, we just have to reinterpret the relevant
+                        // bytes of the whole array rather than any single element.
+                        const elem_abi_size_u64 = try sema.typeAbiSize(elem_ptr.elem_ty);
+                        if (elem_abi_size_u64 < try sema.typeAbiSize(ptr_elem_ty)) {
+                            const elem_abi_size = try sema.usizeCast(block, src, elem_abi_size_u64);
+                            return .{
+                                .decl_ref_mut = parent.decl_ref_mut,
+                                .pointee = .{ .reinterpret = .{
+                                    .val_ptr = val_ptr,
+                                    .byte_offset = elem_abi_size * elem_ptr.index,
+                                } },
+                                .ty = parent.ty,
+                            };
+                        }
+
                         switch (val_ptr.tag()) {
                             .undef => {
                                 // An array has been initialized to undefined at comptime and now we
