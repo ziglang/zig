@@ -635,6 +635,7 @@ pub const TTY = struct {
     pub const Color = enum {
         Red,
         Green,
+        Yellow,
         Cyan,
         White,
         Dim,
@@ -659,6 +660,7 @@ pub const TTY = struct {
                     const color_string = switch (color) {
                         .Red => "\x1b[31;1m",
                         .Green => "\x1b[32;1m",
+                        .Yellow => "\x1b[33;1m",
                         .Cyan => "\x1b[36;1m",
                         .White => "\x1b[37;1m",
                         .Bold => "\x1b[1m",
@@ -671,6 +673,7 @@ pub const TTY = struct {
                     const attributes = switch (color) {
                         .Red => windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY,
                         .Green => windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY,
+                        .Yellow => windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY,
                         .Cyan => windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY,
                         .White, .Bold => windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY,
                         .Dim => windows.FOREGROUND_INTENSITY,
