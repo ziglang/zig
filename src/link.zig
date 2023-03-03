@@ -264,7 +264,7 @@ pub const File = struct {
     /// of this linking operation.
     lock: ?Cache.Lock = null,
 
-    child_pid: ?std.os.pid_t = null,
+    child_pid: ?std.ChildProcess.Id = null,
 
     /// Attempts incremental linking, if the file already exists. If
     /// incremental linking fails, falls back to truncating the file and
@@ -388,10 +388,14 @@ pub const File = struct {
                     });
                     try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, tmp_sub_path, .{});
                     try emit.directory.handle.rename(tmp_sub_path, emit.sub_path);
-
-                    switch (std.os.errno(std.os.linux.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0, 0))) {
-                        .SUCCESS => {},
-                        else => |errno| log.warn("ptrace failure: {s}", .{@tagName(errno)}),
+                    switch (builtin.os.tag) {
+                        .linux => {
+                            switch (std.os.errno(std.os.linux.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0, 0))) {
+                                .SUCCESS => {},
+                                else => |errno| log.warn("ptrace failure: {s}", .{@tagName(errno)}),
+                            }
+                        },
+                        else => return error.HotSwapUnavailableOnHostOperatingSystem,
                     }
                 }
                 base.file = try emit.directory.handle.createFile(emit.sub_path, .{
@@ -444,9 +448,14 @@ pub const File = struct {
                 base.file = null;
 
                 if (base.child_pid) |pid| {
-                    switch (std.os.errno(std.os.linux.ptrace(std.os.linux.PTRACE.DETACH, pid, 0, 0, 0))) {
-                        .SUCCESS => {},
-                        else => |errno| log.warn("ptrace failure: {s}", .{@tagName(errno)}),
+                    switch (builtin.os.tag) {
+                        .linux => {
+                            switch (std.os.errno(std.os.linux.ptrace(std.os.linux.PTRACE.DETACH, pid, 0, 0, 0))) {
+                                .SUCCESS => {},
+                                else => |errno| log.warn("ptrace failure: {s}", .{@tagName(errno)}),
+                            }
+                        },
+                        else => return error.HotSwapUnavailableOnHostOperatingSystem,
                     }
                 }
             },
@@ -487,6 +496,7 @@ pub const File = struct {
         NetNameDeleted,
         DeviceBusy,
         InvalidArgument,
+        HotSwapUnavailableOnHostOperatingSystem,
     };
 
     /// Called from within the CodeGen to lower a local variable instantion as an unnamed

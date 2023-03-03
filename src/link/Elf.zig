@@ -2453,18 +2453,23 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     const file_offset = self.sections.items(.shdr)[shdr_index].sh_offset + section_offset;
 
     if (self.base.child_pid) |pid| {
-        var code_vec: [1]std.os.iovec_const = .{.{
-            .iov_base = code.ptr,
-            .iov_len = code.len,
-        }};
-        var remote_vec: [1]std.os.iovec_const = .{.{
-            .iov_base = @intToPtr([*]u8, local_sym.st_value),
-            .iov_len = code.len,
-        }};
-        const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
-        switch (std.os.errno(rc)) {
-            .SUCCESS => assert(rc == code.len),
-            else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
+        switch (builtin.os.tag) {
+            .linux => {
+                var code_vec: [1]std.os.iovec_const = .{.{
+                    .iov_base = code.ptr,
+                    .iov_len = code.len,
+                }};
+                var remote_vec: [1]std.os.iovec_const = .{.{
+                    .iov_base = @intToPtr([*]u8, local_sym.st_value),
+                    .iov_len = code.len,
+                }};
+                const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
+                switch (std.os.errno(rc)) {
+                    .SUCCESS => assert(rc == code.len),
+                    else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
+                }
+            },
+            else => return error.HotSwapUnavailableOnHostOperatingSystem,
         }
     }
 
@@ -2856,18 +2861,23 @@ fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
             try self.base.file.?.pwriteAll(&buf, off);
 
             if (self.base.child_pid) |pid| {
-                var local_vec: [1]std.os.iovec_const = .{.{
-                    .iov_base = &buf,
-                    .iov_len = buf.len,
-                }};
-                var remote_vec: [1]std.os.iovec_const = .{.{
-                    .iov_base = @intToPtr([*]u8, vaddr),
-                    .iov_len = buf.len,
-                }};
-                const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
-                switch (std.os.errno(rc)) {
-                    .SUCCESS => assert(rc == buf.len),
-                    else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
+                switch (builtin.os.tag) {
+                    .linux => {
+                        var local_vec: [1]std.os.iovec_const = .{.{
+                            .iov_base = &buf,
+                            .iov_len = buf.len,
+                        }};
+                        var remote_vec: [1]std.os.iovec_const = .{.{
+                            .iov_base = @intToPtr([*]u8, vaddr),
+                            .iov_len = buf.len,
+                        }};
+                        const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
+                        switch (std.os.errno(rc)) {
+                            .SUCCESS => assert(rc == buf.len),
+                            else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
+                        }
+                    },
+                    else => return error.HotSwapUnavailableOnHostOperatingSystem,
                 }
             }
         },

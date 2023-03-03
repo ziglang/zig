@@ -1847,7 +1847,7 @@ fn cleanupTmpArtifactDirectory(
     }
 }
 
-pub fn hotCodeSwap(comp: *Compilation, prog_node: *std.Progress.Node, pid: std.os.pid_t) !void {
+pub fn hotCodeSwap(comp: *Compilation, prog_node: *std.Progress.Node, pid: std.ChildProcess.Id) !void {
     comp.bin_file.child_pid = pid;
     try comp.makeBinFileWritable();
     try comp.update(prog_node);

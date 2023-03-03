@@ -3534,7 +3534,7 @@ fn serve(
 
     try serveStringMessage(out, .zig_version, build_options.version);
 
-    var child_pid: ?i32 = null;
+    var child_pid: ?std.ChildProcess.Id = null;
     var receive_fifo = std.fifo.LinearFifo(u8, .Dynamic).init(gpa);
     defer receive_fifo.deinit();
 
@@ -3978,7 +3978,7 @@ fn runOrTestHotSwap(
     arg_mode: ArgMode,
     all_args: []const []const u8,
     runtime_args_start: ?usize,
-) !i32 {
+) !std.ChildProcess.Id {
     const exe_emit = comp.bin_file.options.emit.?;
     // A naive `directory.join` here will indeed get the correct path to the binary,
     // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
@@ -4023,7 +4023,7 @@ fn runOrTestHotSwap(
 
     try child.spawn();
 
-    return child.pid;
+    return child.id;
 }
 
 const AfterUpdateHook = union(enum) {
