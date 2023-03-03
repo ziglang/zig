@@ -515,6 +515,8 @@ fn printTreeStep(
                         try stderr.writer().print(" {d}s", .{ns / std.time.ns_per_s});
                     } else if (ns >= std.time.ns_per_ms) {
                         try stderr.writer().print(" {d}ms", .{ns / std.time.ns_per_ms});
+                    } else if (ns >= std.time.ns_per_us) {
+                        try stderr.writer().print(" {d}us", .{ns / std.time.ns_per_us});
                     } else {
                         try stderr.writer().print(" {d}ns", .{ns});
                     }
@@ -524,15 +526,15 @@ fn printTreeStep(
                     const rss = s.result_peak_rss;
                     try ttyconf.setColor(stderr, .Dim);
                     if (rss >= 1000_000_000_000) {
-                        try stderr.writer().print(" {d}G MaxRSS", .{rss / 1000_000_000_000});
+                        try stderr.writer().print(" MaxRSS:{d}G", .{rss / 1000_000_000_000});
                     } else if (rss >= 1000_000_000) {
-                        try stderr.writer().print(" {d}M MaxRSS", .{rss / 1000_000_000});
+                        try stderr.writer().print(" MaxRSS:{d}M", .{rss / 1000_000_000});
                     } else if (rss >= 1000_000) {
-                        try stderr.writer().print(" {d}M MaxRSS", .{rss / 1000_000});
+                        try stderr.writer().print(" MaxRSS:{d}M", .{rss / 1000_000});
                     } else if (rss >= 1000) {
-                        try stderr.writer().print(" {d}K MaxRSS", .{rss / 1000});
+                        try stderr.writer().print(" MaxRSS:{d}K", .{rss / 1000});
                     } else {
-                        try stderr.writer().print(" {d}B MaxRSS", .{rss});
+                        try stderr.writer().print(" MaxRSS:{d}B", .{rss});
                     }
                     try ttyconf.setColor(stderr, .Reset);
                 }
