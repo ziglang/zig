@@ -1921,7 +1921,7 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, uint8_t bits) {
 
 static inline uint16_t zig_int_bytes(uint16_t bits) {
     uint16_t bytes = (bits + CHAR_BIT - 1) / CHAR_BIT;
-    uint16_t alignment = 16;
+    uint16_t alignment = ZIG_TARGET_MAX_INT_ALIGNMENT;
     while (alignment / 2 >= bytes) alignment /= 2;
     return (bytes + alignment - 1) / alignment * alignment;
 }
