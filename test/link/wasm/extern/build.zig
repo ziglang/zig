@@ -11,7 +11,8 @@ pub fn build(b: *std.Build) void {
     exe.use_llvm = false;
     exe.use_lld = false;
 
-    const run = exe.runEmulatable();
+    const run = b.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
     run.expectStdOutEqual("Result: 30");
 
     const test_step = b.step("test", "Run linker test");

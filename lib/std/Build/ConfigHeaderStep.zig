@@ -192,13 +192,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             try output.appendSlice(c_generated_line);
             const src_path = file_source.getPath(b);
             const contents = try std.fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes);
-            try render_autoconf(contents, &output, self.values, src_path);
+            try render_autoconf(step, contents, &output, self.values, src_path);
         },
         .cmake => |file_source| {
             try output.appendSlice(c_generated_line);
             const src_path = file_source.getPath(b);
             const contents = try std.fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes);
-            try render_cmake(contents, &output, self.values, src_path);
+            try render_cmake(step, contents, &output, self.values, src_path);
         },
         .blank => {
             try output.appendSlice(c_generated_line);
@@ -234,8 +234,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         output_dir;
 
     var dir = std.fs.cwd().makeOpenPath(sub_dir_path, .{}) catch |err| {
-        std.debug.print("unable to make path {s}: {s}\n", .{ output_dir, @errorName(err) });
-        return err;
+        return step.fail("unable to make path '{s}': {s}", .{ output_dir, @errorName(err) });
     };
     defer dir.close();
 
@@ -247,6 +246,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 }
 
 fn render_autoconf(
+    step: *Step,
     contents: []const u8,
     output: *std.ArrayList(u8),
     values: std.StringArrayHashMap(Value),
@@ -273,7 +273,7 @@ fn render_autoconf(
         }
         const name = it.rest();
         const kv = values_copy.fetchSwapRemove(name) orelse {
-            std.debug.print("{s}:{d}: error: unspecified config header value: '{s}'\n", .{
+            try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
                 src_path, line_index + 1, name,
             });
             any_errors = true;
@@ -283,15 +283,17 @@ fn render_autoconf(
     }
 
     for (values_copy.keys()) |name| {
-        std.debug.print("{s}: error: config header value unused: '{s}'\n", .{ src_path, name });
+        try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
+        any_errors = true;
     }
 
     if (any_errors) {
-        return error.HeaderConfigFailed;
+        return error.MakeFailed;
     }
 }
 
 fn render_cmake(
+    step: *Step,
     contents: []const u8,
     output: *std.ArrayList(u8),
     values: std.StringArrayHashMap(Value),
@@ -317,14 +319,14 @@ fn render_cmake(
             continue;
         }
         const name = it.next() orelse {
-            std.debug.print("{s}:{d}: error: missing define name\n", .{
+            try step.addError("{s}:{d}: error: missing define name", .{
                 src_path, line_index + 1,
             });
             any_errors = true;
             continue;
         };
         const kv = values_copy.fetchSwapRemove(name) orelse {
-            std.debug.print("{s}:{d}: error: unspecified config header value: '{s}'\n", .{
+            try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
                 src_path, line_index + 1, name,
             });
             any_errors = true;
@@ -334,7 +336,8 @@ fn render_cmake(
     }
 
     for (values_copy.keys()) |name| {
-        std.debug.print("{s}: error: config header value unused: '{s}'\n", .{ src_path, name });
+        try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
+        any_errors = true;
     }
 
     if (any_errors) {

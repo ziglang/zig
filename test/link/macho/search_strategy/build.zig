@@ -27,7 +27,8 @@ pub fn build(b: *std.Build) void {
         const exe = createScenario(b, optimize, target);
         exe.search_strategy = .paths_first;
 
-        const run = std.Build.EmulatableRunStep.create(b, "run", exe);
+        const run = b.addRunArtifact(exe);
+        run.skip_foreign_checks = true;
         run.cwd = b.pathFromRoot(".");
         run.expectStdOutEqual("Hello world");
         test_step.dependOn(&run.step);

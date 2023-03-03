@@ -357,6 +357,7 @@ fn runStepNames(
     }
 
     var success_count: usize = 0;
+    var skipped_count: usize = 0;
     var failure_count: usize = 0;
     var pending_count: usize = 0;
     var total_compile_errors: usize = 0;
@@ -379,6 +380,7 @@ fn runStepNames(
             },
             .dependency_failure => pending_count += 1,
             .success => success_count += 1,
+            .skipped => skipped_count += 1,
             .failure => {
                 failure_count += 1;
                 const compile_errors_len = s.result_error_bundle.errorMessageCount();
@@ -395,13 +397,13 @@ fn runStepNames(
     if (failure_count == 0 and enable_summary != true) return cleanExit();
 
     if (enable_summary != false) {
-        const total_count = success_count + failure_count + pending_count;
+        const total_count = success_count + failure_count + pending_count + skipped_count;
         ttyconf.setColor(stderr, .Cyan) catch {};
         stderr.writeAll("Build Summary:") catch {};
         ttyconf.setColor(stderr, .Reset) catch {};
-        stderr.writer().print(" {d}/{d} steps succeeded; {d} failed", .{
-            success_count, total_count, failure_count,
-        }) catch {};
+        stderr.writer().print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
+        if (skipped_count > 0) stderr.writer().print("; {d} skipped", .{skipped_count}) catch {};
+        if (failure_count > 0) stderr.writer().print("; {d} failed", .{failure_count}) catch {};
 
         if (enable_summary == null) {
             ttyconf.setColor(stderr, .Dim) catch {};
@@ -503,6 +505,12 @@ fn printTreeStep(
                 try ttyconf.setColor(stderr, .Reset);
             },
 
+            .skipped => {
+                try ttyconf.setColor(stderr, .Yellow);
+                try stderr.writeAll(" skipped\n");
+                try ttyconf.setColor(stderr, .Reset);
+            },
+
             .failure => {
                 try ttyconf.setColor(stderr, .Red);
                 if (s.result_error_bundle.errorMessageCount() > 0) {
@@ -569,6 +577,7 @@ fn checkForDependencyLoop(
         .running => unreachable,
         .success => unreachable,
         .failure => unreachable,
+        .skipped => unreachable,
     }
 }
 
@@ -587,7 +596,7 @@ fn workerMakeOneStep(
     // queue this step up again when dependencies are met.
     for (s.dependencies.items) |dep| {
         switch (@atomicLoad(Step.State, &dep.state, .SeqCst)) {
-            .success => continue,
+            .success, .skipped => continue,
             .failure, .dependency_failure => {
                 @atomicStore(Step.State, &s.state, .dependency_failure, .SeqCst);
                 return;
@@ -639,13 +648,15 @@ fn workerMakeOneStep(
         }
     }
 
-    make_result catch |err| {
-        assert(err == error.MakeFailed);
-        @atomicStore(Step.State, &s.state, .failure, .SeqCst);
-        return;
-    };
-
-    @atomicStore(Step.State, &s.state, .success, .SeqCst);
+    if (make_result) |_| {
+        @atomicStore(Step.State, &s.state, .success, .SeqCst);
+    } else |err| switch (err) {
+        error.MakeFailed => {
+            @atomicStore(Step.State, &s.state, .failure, .SeqCst);
+            return;
+        },
+        error.MakeSkipped => @atomicStore(Step.State, &s.state, .skipped, .SeqCst),
+    }
 
     // Successful completion of a step, so we queue up its dependants as well.
     for (s.dependants.items) |dep| {

@@ -42,15 +42,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     for (self.expected_matches) |expected_match| {
         if (mem.indexOf(u8, contents, expected_match) == null) {
-            std.debug.print(
+            return step.fail(
                 \\
-                \\========= Expected to find: ===================
+                \\========= expected to find: ===================
                 \\{s}
-                \\========= But file does not contain it: =======
+                \\========= but file does not contain it: =======
                 \\{s}
                 \\
             , .{ expected_match, contents });
-            return error.TestFailed;
         }
     }
 }

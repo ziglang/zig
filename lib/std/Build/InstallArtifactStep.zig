@@ -12,6 +12,9 @@ artifact: *CompileStep,
 dest_dir: InstallDir,
 pdb_dir: ?InstallDir,
 h_dir: ?InstallDir,
+/// If non-null, adds additional path components relative to dest_dir, and
+/// overrides the basename of the CompileStep.
+dest_sub_path: ?[]const u8,
 
 pub fn create(owner: *std.Build, artifact: *CompileStep) *InstallArtifactStep {
     if (artifact.install_step) |s| return s;
@@ -40,6 +43,7 @@ pub fn create(owner: *std.Build, artifact: *CompileStep) *InstallArtifactStep {
             }
         } else null,
         .h_dir = if (artifact.kind == .lib and artifact.emit_h) .header else null,
+        .dest_sub_path = null,
     };
     self.step.dependOn(&artifact.step);
     artifact.install_step = self;
@@ -71,7 +75,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const self = @fieldParentPtr(InstallArtifactStep, "step", step);
     const dest_builder = self.dest_builder;
 
-    const full_dest_path = dest_builder.getInstallPath(self.dest_dir, self.artifact.out_filename);
+    const dest_sub_path = if (self.dest_sub_path) |sub_path| sub_path else self.artifact.out_filename;
+    const full_dest_path = dest_builder.getInstallPath(self.dest_dir, dest_sub_path);
+
     try src_builder.updateFile(
         self.artifact.getOutputSource().getPath(src_builder),
         full_dest_path,

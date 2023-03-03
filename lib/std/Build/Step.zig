@@ -26,6 +26,9 @@ pub const State = enum {
     dependency_failure,
     success,
     failure,
+    /// This state indicates that the step did not complete, however, it also did not fail,
+    /// and it is safe to continue executing its dependencies.
+    skipped,
 };
 
 pub const Id = enum {
@@ -106,13 +109,15 @@ pub fn init(options: Options) Step {
 /// If the Step's `make` function reports `error.MakeFailed`, it indicates they
 /// have already reported the error. Otherwise, we add a simple error report
 /// here.
-pub fn make(s: *Step, prog_node: *std.Progress.Node) error{MakeFailed}!void {
-    return s.makeFn(s, prog_node) catch |err| {
-        if (err != error.MakeFailed) {
+pub fn make(s: *Step, prog_node: *std.Progress.Node) error{ MakeFailed, MakeSkipped }!void {
+    return s.makeFn(s, prog_node) catch |err| switch (err) {
+        error.MakeFailed => return error.MakeFailed,
+        error.MakeSkipped => return error.MakeSkipped,
+        else => {
             const gpa = s.dependencies.allocator;
             s.result_error_msgs.append(gpa, @errorName(err)) catch @panic("OOM");
-        }
-        return error.MakeFailed;
+            return error.MakeFailed;
+        },
     };
 }
 
@@ -192,10 +197,14 @@ pub fn evalChildProcess(s: *Step, argv: []const []const u8) !void {
 }
 
 pub fn fail(step: *Step, comptime fmt: []const u8, args: anytype) error{ OutOfMemory, MakeFailed } {
+    try step.addError(fmt, args);
+    return error.MakeFailed;
+}
+
+pub fn addError(step: *Step, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
     const arena = step.owner.allocator;
     const msg = try std.fmt.allocPrint(arena, fmt, args);
     try step.result_error_msgs.append(arena, msg);
-    return error.MakeFailed;
 }
 
 /// Assumes that argv contains `--listen=-` and that the process being spawned
@@ -398,5 +407,5 @@ fn failWithCacheError(s: *Step, man: *const std.Build.Cache.Manifest, err: anyer
     const i = man.failed_file_index orelse return err;
     const pp = man.files.items[i].prefixed_path orelse return err;
     const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
-    return s.fail("{s}: {s}/{s}\n", .{ @errorName(err), prefix, pp.sub_path });
+    return s.fail("{s}: {s}/{s}", .{ @errorName(err), prefix, pp.sub_path });
 }

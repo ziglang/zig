@@ -17,6 +17,8 @@ pub fn build(b: *std.Build) void {
     // populate paths to the sysroot here.
     exe.linkFramework("Foundation");
 
-    const run_cmd = std.Build.EmulatableRunStep.create(b, "run", exe);
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.skip_foreign_checks = true;
+    run_cmd.expectStdOutEqual("");
     test_step.dependOn(&run_cmd.step);
 }

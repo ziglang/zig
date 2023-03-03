@@ -16,7 +16,8 @@ pub fn build(b: *std.Build) void {
     exe.addCSourceFile("empty.c", &[0][]const u8{});
     exe.linkLibC();
 
-    const run_cmd = std.Build.EmulatableRunStep.create(b, "run", exe);
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.skip_foreign_checks = true;
     run_cmd.expectStdOutEqual("Hello!\n");
     test_step.dependOn(&run_cmd.step);
 }

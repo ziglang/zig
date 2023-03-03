@@ -538,8 +538,7 @@ pub fn run(cs: *CompileStep) *RunStep {
 }
 
 pub fn checkObject(self: *CompileStep, obj_format: std.Target.ObjectFormat) *CheckObjectStep {
-    const b = self.step.owner;
-    return CheckObjectStep.create(b, self.getOutputSource(), obj_format);
+    return CheckObjectStep.create(self.step.owner, self.getOutputSource(), obj_format);
 }
 
 pub fn setLinkerScriptPath(self: *CompileStep, source: FileSource) void {

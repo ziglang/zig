@@ -21,5 +21,6 @@ pub fn build(b: *std.Build) void {
     check_exe.checkNext("stacksize 100000000");
 
     const run = check_exe.runAndCompare();
+    run.expectStdOutEqual("");
     test_step.dependOn(&run.step);
 }

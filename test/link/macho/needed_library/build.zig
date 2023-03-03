@@ -36,5 +36,6 @@ pub fn build(b: *std.Build) void {
     check.checkNext("name @rpath/liba.dylib");
 
     const run_cmd = check.runAndCompare();
+    run_cmd.expectStdOutEqual("");
     test_step.dependOn(&run_cmd.step);
 }

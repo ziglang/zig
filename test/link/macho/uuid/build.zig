@@ -1,5 +1,4 @@
 const std = @import("std");
-const Builder = std.Build.Builder;
 const CompileStep = std.Build.CompileStep;
 const FileSource = std.Build.FileSource;
 const Step = std.Build.Step;
@@ -38,13 +37,15 @@ fn testUuid(
     // stay the same across builds.
     {
         const dylib = simpleDylib(b, optimize, target);
-        const install_step = installWithRename(dylib, "test1.dylib");
+        const install_step = b.addInstallArtifact(dylib);
+        install_step.dest_sub_path = "test1.dylib";
         install_step.step.dependOn(&dylib.step);
     }
     {
         const dylib = simpleDylib(b, optimize, target);
         dylib.strip = true;
-        const install_step = installWithRename(dylib, "test2.dylib");
+        const install_step = b.addInstallArtifact(dylib);
+        install_step.dest_sub_path = "test2.dylib";
         install_step.step.dependOn(&dylib.step);
     }
 
@@ -68,70 +69,23 @@ fn simpleDylib(
     return dylib;
 }
 
-fn installWithRename(cs: *CompileStep, name: []const u8) *InstallWithRename {
-    const step = InstallWithRename.create(cs.builder, cs.getOutputSource(), name);
-    cs.builder.getInstallStep().dependOn(&step.step);
-    return step;
-}
-
-const InstallWithRename = struct {
-    pub const base_id = .custom;
-
-    step: Step,
-    builder: *Builder,
-    source: FileSource,
-    name: []const u8,
-
-    pub fn create(
-        builder: *Builder,
-        source: FileSource,
-        name: []const u8,
-    ) *InstallWithRename {
-        const self = builder.allocator.create(InstallWithRename) catch @panic("OOM");
-        self.* = InstallWithRename{
-            .builder = builder,
-            .step = Step.init(builder.allocator, .{
-                .id = .custom,
-                .name = builder.fmt("install and rename: {s} -> {s}", .{
-                    source.getDisplayName(), name,
-                }),
-                .makeFn = make,
-            }),
-            .source = source,
-            .name = builder.dupe(name),
-        };
-        return self;
-    }
-
-    fn make(step: *Step) anyerror!void {
-        const self = @fieldParentPtr(InstallWithRename, "step", step);
-        const source_path = self.source.getPath(self.builder);
-        const target_path = self.builder.getInstallPath(.lib, self.name);
-        self.builder.updateFile(source_path, target_path) catch |err| {
-            std.log.err("Unable to rename: {s} -> {s}", .{ source_path, target_path });
-            return err;
-        };
-    }
-};
-
 const CompareUuid = struct {
     pub const base_id = .custom;
 
     step: Step,
-    builder: *Builder,
     lhs: []const u8,
     rhs: []const u8,
 
-    pub fn create(builder: *Builder, lhs: []const u8, rhs: []const u8) *CompareUuid {
-        const self = builder.allocator.create(CompareUuid) catch @panic("OOM");
+    pub fn create(owner: *std.Build, lhs: []const u8, rhs: []const u8) *CompareUuid {
+        const self = owner.allocator.create(CompareUuid) catch @panic("OOM");
         self.* = CompareUuid{
-            .builder = builder,
-            .step = Step.init(builder.allocator, .{
-                .id = .custom,
-                .name = builder.fmt("compare uuid: {s} and {s}", .{
+            .step = Step.init(.{
+                .id = base_id,
+                .name = owner.fmt("compare uuid: {s} and {s}", .{
                     lhs,
                     rhs,
                 }),
+                .owner = owner,
                 .makeFn = make,
             }),
             .lhs = lhs,
@@ -140,16 +94,18 @@ const CompareUuid = struct {
         return self;
     }
 
-    fn make(step: *Step) anyerror!void {
+    fn make(step: *Step, prog_node: *std.Progress.Node) anyerror!void {
+        _ = prog_node;
+        const b = step.owner;
         const self = @fieldParentPtr(CompareUuid, "step", step);
-        const gpa = self.builder.allocator;
+        const gpa = b.allocator;
 
         var lhs_uuid: [16]u8 = undefined;
-        const lhs_path = self.builder.getInstallPath(.lib, self.lhs);
+        const lhs_path = b.getInstallPath(.lib, self.lhs);
         try parseUuid(gpa, lhs_path, &lhs_uuid);
 
         var rhs_uuid: [16]u8 = undefined;
-        const rhs_path = self.builder.getInstallPath(.lib, self.rhs);
+        const rhs_path = b.getInstallPath(.lib, self.rhs);
         try parseUuid(gpa, rhs_path, &rhs_uuid);
 
         try std.testing.expectEqualStrings(&lhs_uuid, &rhs_uuid);

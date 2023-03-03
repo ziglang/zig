@@ -385,7 +385,7 @@ pub fn build(b: *std.Build) !void {
     const optimization_modes = chosen_opt_modes_buf[0..chosen_mode_index];
 
     const fmt_include_paths = &.{ "doc", "lib", "src", "test", "tools", "build.zig" };
-    const fmt_exclude_paths = &.{ "test/cases" };
+    const fmt_exclude_paths = &.{"test/cases"};
     const check_fmt = b.addFmt(.{
         .paths = fmt_include_paths,
         .exclude_paths = fmt_exclude_paths,
@@ -401,7 +401,6 @@ pub fn build(b: *std.Build) !void {
 
     const do_fmt_step = b.step("fmt", "Modify source files in place to have conforming formatting");
     do_fmt_step.dependOn(&do_fmt.step);
-
 
     test_step.dependOn(tests.addPkgTests(
         b,

@@ -95,8 +95,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const full_dest_path = try b.cache_root.join(b.allocator, &.{ "o", &digest, self.basename });
     const cache_path = "o" ++ fs.path.sep_str ++ digest;
     b.cache_root.handle.makePath(cache_path) catch |err| {
-        std.debug.print("unable to make path {s}: {s}\n", .{ cache_path, @errorName(err) });
-        return err;
+        return step.fail("unable to make path {s}: {s}", .{ cache_path, @errorName(err) });
     };
 
     var argv = std.ArrayList([]const u8).init(b.allocator);

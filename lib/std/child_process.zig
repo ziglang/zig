@@ -185,7 +185,6 @@ pub const ChildProcess = struct {
     }
 
     /// Blocks until child process terminates and then cleans up all resources.
-    /// TODO: set the pid to undefined in this function.
     pub fn wait(self: *ChildProcess) !Term {
         const term = if (builtin.os.tag == .windows)
             try self.waitWindows()
