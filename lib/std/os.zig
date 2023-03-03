@@ -4000,8 +4000,28 @@ pub const WaitPidResult = struct {
 pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
     const Status = if (builtin.link_libc) c_int else u32;
     var status: Status = undefined;
+    const coerced_flags = if (builtin.link_libc) @intCast(c_int, flags) else flags;
     while (true) {
-        const rc = system.waitpid(pid, &status, if (builtin.link_libc) @intCast(c_int, flags) else flags);
+        const rc = system.waitpid(pid, &status, coerced_flags);
+        switch (errno(rc)) {
+            .SUCCESS => return .{
+                .pid = @intCast(pid_t, rc),
+                .status = @bitCast(u32, status),
+            },
+            .INTR => continue,
+            .CHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
+            .INVAL => unreachable, // Invalid flags.
+            else => unreachable,
+        }
+    }
+}
+
+pub fn wait4(pid: pid_t, flags: u32, ru: ?*rusage) WaitPidResult {
+    const Status = if (builtin.link_libc) c_int else u32;
+    var status: Status = undefined;
+    const coerced_flags = if (builtin.link_libc) @intCast(c_int, flags) else flags;
+    while (true) {
+        const rc = system.wait4(pid, &status, coerced_flags, ru);
         switch (errno(rc)) {
             .SUCCESS => return .{
                 .pid = @intCast(pid_t, rc),

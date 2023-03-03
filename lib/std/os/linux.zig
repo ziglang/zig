@@ -944,6 +944,16 @@ pub fn waitpid(pid: pid_t, status: *u32, flags: u32) usize {
     return syscall4(.wait4, @bitCast(usize, @as(isize, pid)), @ptrToInt(status), flags, 0);
 }
 
+pub fn wait4(pid: pid_t, status: *u32, flags: u32, usage: ?*rusage) usize {
+    return syscall4(
+        .wait4,
+        @bitCast(usize, @as(isize, pid)),
+        @ptrToInt(status),
+        flags,
+        @ptrToInt(usage),
+    );
+}
+
 pub fn waitid(id_type: P, id: i32, infop: *siginfo_t, flags: u32) usize {
     return syscall5(.waitid, @enumToInt(id_type), @bitCast(usize, @as(isize, id)), @ptrToInt(infop), flags, 0);
 }
