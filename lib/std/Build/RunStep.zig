@@ -375,6 +375,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     &.{ "o", &digest, placeholder.output.basename },
                 );
             }
+            step.result_cached = true;
             return;
         }
 
@@ -580,6 +581,9 @@ fn runCommand(self: *RunStep, argv: []const []const u8, has_side_effects: bool) 
         return step.fail("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
     };
 
+    step.result_duration_ns = result.elapsed_ns;
+    step.result_peak_rss = result.peak_rss;
+
     switch (self.stdio) {
         .check => |checks| for (checks.items) |check| switch (check) {
             .expect_stderr_exact => |expected_bytes| {
@@ -678,6 +682,8 @@ const ChildProcResult = struct {
     stdout_null: bool,
     stderr_null: bool,
     term: std.process.Child.Term,
+    elapsed_ns: u64,
+    peak_rss: usize,
 };
 
 fn spawnChildAndCollect(
@@ -696,6 +702,7 @@ fn spawnChildAndCollect(
         child.cwd_dir = b.build_root.handle;
     }
     child.env_map = self.env_map orelse b.env_map;
+    child.request_resource_usage_statistics = true;
 
     child.stdin_behavior = switch (self.stdio) {
         .infer_from_args => if (has_side_effects) .Inherit else .Ignore,
@@ -716,6 +723,7 @@ fn spawnChildAndCollect(
     child.spawn() catch |err| return self.step.fail("unable to spawn {s}: {s}", .{
         argv[0], @errorName(err),
     });
+    var timer = try std.time.Timer.start();
 
     // These are not optionals, as a workaround for
     // https://github.com/ziglang/zig/issues/14783
@@ -762,12 +770,17 @@ fn spawnChildAndCollect(
         }
     }
 
+    const term = try child.wait();
+    const elapsed_ns = timer.read();
+
     return .{
         .stdout = stdout_bytes,
         .stderr = stderr_bytes,
         .stdout_null = stdout_null,
         .stderr_null = stderr_null,
-        .term = try child.wait(),
+        .term = term,
+        .elapsed_ns = elapsed_ns,
+        .peak_rss = child.resource_usage_statistics.getMaxRss() orelse 0,
     };
 }
 
