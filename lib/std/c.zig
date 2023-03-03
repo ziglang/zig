@@ -171,7 +171,9 @@ pub extern "c" fn dup(fd: c.fd_t) c_int;
 pub extern "c" fn dup2(old_fd: c.fd_t, new_fd: c.fd_t) c_int;
 pub extern "c" fn readlink(noalias path: [*:0]const u8, noalias buf: [*]u8, bufsize: usize) isize;
 pub extern "c" fn readlinkat(dirfd: c.fd_t, noalias path: [*:0]const u8, noalias buf: [*]u8, bufsize: usize) isize;
+pub extern "c" fn chmod(path: [*:0]const u8, mode: c.mode_t) c_int;
 pub extern "c" fn fchmod(fd: c.fd_t, mode: c.mode_t) c_int;
+pub extern "c" fn fchmodat(fd: c.fd_t, path: [*:0]const u8, mode: c.mode_t, flags: c_uint) c_int;
 pub extern "c" fn fchown(fd: c.fd_t, owner: c.uid_t, group: c.gid_t) c_int;
 pub extern "c" fn umask(mode: c.mode_t) c.mode_t;
 
