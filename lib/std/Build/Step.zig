@@ -13,6 +13,10 @@ debug_stack_trace: [n_debug_stack_frames]usize,
 
 result_error_msgs: std.ArrayListUnmanaged([]const u8),
 result_error_bundle: std.zig.ErrorBundle,
+result_cached: bool,
+result_duration_ns: ?u64,
+/// 0 means unavailable or not reported.
+result_peak_rss: usize,
 
 pub const MakeFn = *const fn (self: *Step, prog_node: *std.Progress.Node) anyerror!void;
 
@@ -103,6 +107,9 @@ pub fn init(options: Options) Step {
         .debug_stack_trace = addresses,
         .result_error_msgs = .{},
         .result_error_bundle = std.zig.ErrorBundle.empty,
+        .result_cached = false,
+        .result_duration_ns = null,
+        .result_peak_rss = 0,
     };
 }
 

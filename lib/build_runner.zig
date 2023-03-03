@@ -501,8 +501,42 @@ fn printTreeStep(
 
             .success => {
                 try ttyconf.setColor(stderr, .Green);
-                try stderr.writeAll(" success\n");
+                if (s.result_cached) {
+                    try stderr.writeAll(" cached");
+                } else {
+                    try stderr.writeAll(" success");
+                }
                 try ttyconf.setColor(stderr, .Reset);
+                if (s.result_duration_ns) |ns| {
+                    try ttyconf.setColor(stderr, .Dim);
+                    if (ns >= std.time.ns_per_min) {
+                        try stderr.writer().print(" {d}m", .{ns / std.time.ns_per_min});
+                    } else if (ns >= std.time.ns_per_s) {
+                        try stderr.writer().print(" {d}s", .{ns / std.time.ns_per_s});
+                    } else if (ns >= std.time.ns_per_ms) {
+                        try stderr.writer().print(" {d}ms", .{ns / std.time.ns_per_ms});
+                    } else {
+                        try stderr.writer().print(" {d}ns", .{ns});
+                    }
+                    try ttyconf.setColor(stderr, .Reset);
+                }
+                if (s.result_peak_rss != 0) {
+                    const rss = s.result_peak_rss;
+                    try ttyconf.setColor(stderr, .Dim);
+                    if (rss >= 1000_000_000_000) {
+                        try stderr.writer().print(" {d}G MaxRSS", .{rss / 1000_000_000_000});
+                    } else if (rss >= 1000_000_000) {
+                        try stderr.writer().print(" {d}M MaxRSS", .{rss / 1000_000_000});
+                    } else if (rss >= 1000_000) {
+                        try stderr.writer().print(" {d}M MaxRSS", .{rss / 1000_000});
+                    } else if (rss >= 1000) {
+                        try stderr.writer().print(" {d}K MaxRSS", .{rss / 1000});
+                    } else {
+                        try stderr.writer().print(" {d}B MaxRSS", .{rss});
+                    }
+                    try ttyconf.setColor(stderr, .Reset);
+                }
+                try stderr.writeAll("\n");
             },
 
             .skipped => {
