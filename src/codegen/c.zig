@@ -2844,7 +2844,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .cmp_vector => blk: {
                 const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
                 const extra = f.air.extraData(Air.VectorCmp, ty_pl.payload).data;
-                break :blk try cmpBuiltinCall(f, inst, extra, extra.compareOperator(), .operator, .bits);
+                break :blk try airCmpBuiltinCall(f, inst, extra, extra.compareOperator(), .operator, .bits,);
             },
             .cmp_lt_errors_len => try airCmpLtErrorsLen(f, inst),
 
@@ -3837,9 +3837,16 @@ fn airCmpOp(f: *Function, inst: Air.Inst.Index, operator: std.math.CompareOperat
     const target = f.object.dg.module.getTarget();
     const operand_bits = operand_ty.bitSize(target);
     if (operand_ty.isInt() and operand_bits > 64)
-        return cmpBuiltinCall(f, inst, bin_op, operator, .cmp, if (operand_bits > 128) .bits else .none);
+        return airCmpBuiltinCall(
+            f,
+            inst,
+            bin_op,
+            operator,
+            .cmp,
+            if (operand_bits > 128) .bits else .none,
+        );
     if (operand_ty.isRuntimeFloat())
-        return cmpBuiltinCall(f, inst, bin_op, operator, .operator, .none);
+        return airCmpBuiltinCall(f, inst, bin_op, operator, .operator, .none);
 
     const inst_ty = f.air.typeOfIndex(inst);
     const lhs = try f.resolveInst(bin_op.lhs);
@@ -3876,9 +3883,16 @@ fn airEquality(
     const target = f.object.dg.module.getTarget();
     const operand_bits = operand_ty.bitSize(target);
     if (operand_ty.isInt() and operand_bits > 64)
-        return cmpBuiltinCall(f, inst, bin_op, operator, .cmp, if (operand_bits > 128) .bits else .none);
+        return airCmpBuiltinCall(
+            f,
+            inst,
+            bin_op,
+            operator,
+            .cmp,
+            if (operand_bits > 128) .bits else .none,
+        );
     if (operand_ty.isRuntimeFloat())
-        return cmpBuiltinCall(f, inst, bin_op, operator, .operator, .none);
+        return airCmpBuiltinCall(f, inst, bin_op, operator, .operator, .none);
 
     const lhs = try f.resolveInst(bin_op.lhs);
     const rhs = try f.resolveInst(bin_op.rhs);
@@ -5969,14 +5983,25 @@ fn airUnBuiltinCall(
     const inst_ty = f.air.typeOfIndex(inst);
     const operand_ty = f.air.typeOf(ty_op.operand);
 
+    const inst_cty = try f.typeToCType(inst_ty, .complete);
+    const ref_ret = switch (inst_cty.tag()) {
+        else => false,
+        .array, .vector => true,
+    };
+
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
-    try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(" = zig_");
-    try writer.writeAll(operation);
-    try writer.writeByte('_');
+    if (!ref_ret) {
+        try f.writeCValue(writer, local, .Other);
+        try writer.writeAll(" = ");
+    }
+    try writer.print("zig_{s}_", .{operation});
     try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
     try writer.writeByte('(');
+    if (ref_ret) {
+        try f.writeCValue(writer, local, .FunctionArgument);
+        try writer.writeAll(", ");
+    }
     try f.writeCValue(writer, operand, .FunctionArgument);
     try f.object.dg.renderBuiltinInfo(writer, operand_ty, info);
     try writer.writeAll(");\n");
@@ -6019,7 +6044,7 @@ fn airBinBuiltinCall(
     return local;
 }
 
-fn cmpBuiltinCall(
+fn airCmpBuiltinCall(
     f: *Function,
     inst: Air.Inst.Index,
     data: anytype,
@@ -6034,7 +6059,11 @@ fn cmpBuiltinCall(
     const rhs = try f.resolveInst(data.rhs);
     try reap(f, inst, &.{ data.lhs, data.rhs });
 
-    const ref_ret = inst_ty.tag() != .bool;
+    const inst_cty = try f.typeToCType(inst_ty, .complete);
+    const ref_ret = switch (inst_cty.tag()) {
+        else => false,
+        .array, .vector => true,
+    };
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);

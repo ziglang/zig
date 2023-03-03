@@ -1919,7 +1919,7 @@ static inline zig_i128 zig_bit_reverse_i128(zig_i128 val, uint8_t bits) {
 
 /* ========================== Big Integer Support =========================== */
 
-static inline uint16_t zig_big_bytes(uint16_t bits) {
+static inline uint16_t zig_int_bytes(uint16_t bits) {
     uint16_t bytes = (bits + CHAR_BIT - 1) / CHAR_BIT;
     uint16_t alignment = 16;
     while (alignment / 2 >= bytes) alignment /= 2;
@@ -1931,7 +1931,7 @@ static inline int32_t zig_cmp_big(const void *lhs, const void *rhs, bool is_sign
     const uint8_t *rhs_bytes = rhs;
     uint16_t byte_offset = 0;
     bool do_signed = is_signed;
-    uint16_t remaining_bytes = zig_big_bytes(bits);
+    uint16_t remaining_bytes = zig_int_bytes(bits);
 
 #if zig_little_endian
     byte_offset = remaining_bytes;
@@ -1965,7 +1965,7 @@ static inline int32_t zig_cmp_big(const void *lhs, const void *rhs, bool is_sign
         remaining_bytes -= 128 / CHAR_BIT;
 
 #if zig_big_endian
-        byte_offset -= 128 / CHAR_BIT;
+        byte_offset += 128 / CHAR_BIT;
 #endif
     }
 
@@ -1994,7 +1994,7 @@ static inline int32_t zig_cmp_big(const void *lhs, const void *rhs, bool is_sign
         remaining_bytes -= 64 / CHAR_BIT;
 
 #if zig_big_endian
-        byte_offset -= 64 / CHAR_BIT;
+        byte_offset += 64 / CHAR_BIT;
 #endif
     }
 
@@ -2023,7 +2023,7 @@ static inline int32_t zig_cmp_big(const void *lhs, const void *rhs, bool is_sign
         remaining_bytes -= 32 / CHAR_BIT;
 
 #if zig_big_endian
-        byte_offset -= 32 / CHAR_BIT;
+        byte_offset += 32 / CHAR_BIT;
 #endif
     }
 
@@ -2052,7 +2052,7 @@ static inline int32_t zig_cmp_big(const void *lhs, const void *rhs, bool is_sign
         remaining_bytes -= 16 / CHAR_BIT;
 
 #if zig_big_endian
-        byte_offset -= 16 / CHAR_BIT;
+        byte_offset += 16 / CHAR_BIT;
 #endif
     }
 
@@ -2081,11 +2081,366 @@ static inline int32_t zig_cmp_big(const void *lhs, const void *rhs, bool is_sign
         remaining_bytes -= 8 / CHAR_BIT;
 
 #if zig_big_endian
-        byte_offset -= 8 / CHAR_BIT;
+        byte_offset += 8 / CHAR_BIT;
 #endif
     }
 
     return 0;
+}
+
+static inline uint16_t zig_clz_big(const void *val, bool is_signed, uint16_t bits) {
+    const uint8_t *val_bytes = val;
+    uint16_t byte_offset = 0;
+    uint16_t remaining_bytes = zig_int_bytes(bits);
+    uint16_t skip_bits = remaining_bytes * 8 - bits;
+    uint16_t total_lz = 0;
+    uint16_t limb_lz;
+    (void)is_signed;
+
+#if zig_little_endian
+    byte_offset = remaining_bytes;
+#endif
+
+    while (remaining_bytes >= 128 / CHAR_BIT) {
+#if zig_little_endian
+        byte_offset -= 128 / CHAR_BIT;
+#endif
+
+        {
+            zig_u128 val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            limb_lz = zig_clz_u128(val_limb, 128 - skip_bits);
+        }
+
+        total_lz += limb_lz;
+        if (limb_lz < 128 - skip_bits) return total_lz;
+        skip_bits = 0;
+        remaining_bytes -= 128 / CHAR_BIT;
+
+#if zig_big_endian
+        byte_offset += 128 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 64 / CHAR_BIT) {
+#if zig_little_endian
+        byte_offset -= 64 / CHAR_BIT;
+#endif
+
+        {
+            uint64_t val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            limb_lz = zig_clz_u64(val_limb, 64 - skip_bits);
+        }
+
+        total_lz += limb_lz;
+        if (limb_lz < 64 - skip_bits) return total_lz;
+        skip_bits = 0;
+        remaining_bytes -= 64 / CHAR_BIT;
+
+#if zig_big_endian
+        byte_offset += 64 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 32 / CHAR_BIT) {
+#if zig_little_endian
+        byte_offset -= 32 / CHAR_BIT;
+#endif
+
+        {
+            uint32_t val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            limb_lz = zig_clz_u32(val_limb, 32 - skip_bits);
+        }
+
+        total_lz += limb_lz;
+        if (limb_lz < 32 - skip_bits) return total_lz;
+        skip_bits = 0;
+        remaining_bytes -= 32 / CHAR_BIT;
+
+#if zig_big_endian
+        byte_offset += 32 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 16 / CHAR_BIT) {
+#if zig_little_endian
+        byte_offset -= 16 / CHAR_BIT;
+#endif
+
+        {
+            uint16_t val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            limb_lz = zig_clz_u16(val_limb, 16 - skip_bits);
+        }
+
+        total_lz += limb_lz;
+        if (limb_lz < 16 - skip_bits) return total_lz;
+        skip_bits = 0;
+        remaining_bytes -= 16 / CHAR_BIT;
+
+#if zig_big_endian
+        byte_offset += 16 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 8 / CHAR_BIT) {
+#if zig_little_endian
+        byte_offset -= 8 / CHAR_BIT;
+#endif
+
+        {
+            uint8_t val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            limb_lz = zig_clz_u8(val_limb, 8 - skip_bits);
+        }
+
+        total_lz += limb_lz;
+        if (limb_lz < 8 - skip_bits) return total_lz;
+        skip_bits = 0;
+        remaining_bytes -= 8 / CHAR_BIT;
+
+#if zig_big_endian
+        byte_offset += 8 / CHAR_BIT;
+#endif
+    }
+
+    return total_lz;
+}
+
+static inline uint16_t zig_ctz_big(const void *val, bool is_signed, uint16_t bits) {
+    const uint8_t *val_bytes = val;
+    uint16_t byte_offset = 0;
+    uint16_t remaining_bytes = zig_int_bytes(bits);
+    uint16_t total_tz = 0;
+    uint16_t limb_tz;
+    (void)is_signed;
+
+#if zig_big_endian
+    byte_offset = remaining_bytes;
+#endif
+
+    while (remaining_bytes >= 128 / CHAR_BIT) {
+#if zig_big_endian
+        byte_offset -= 128 / CHAR_BIT;
+#endif
+
+        {
+            zig_u128 val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            limb_tz = zig_ctz_u128(val_limb, 128);
+        }
+
+        total_tz += limb_tz;
+        if (limb_tz < 128) return total_tz;
+        remaining_bytes -= 128 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 128 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 64 / CHAR_BIT) {
+#if zig_big_endian
+        byte_offset -= 64 / CHAR_BIT;
+#endif
+
+        {
+            uint64_t val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            limb_tz = zig_ctz_u64(val_limb, 64);
+        }
+
+        total_tz += limb_tz;
+        if (limb_tz < 64) return total_tz;
+        remaining_bytes -= 64 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 64 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 32 / CHAR_BIT) {
+#if zig_big_endian
+        byte_offset -= 32 / CHAR_BIT;
+#endif
+
+        {
+            uint32_t val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            limb_tz = zig_ctz_u32(val_limb, 32);
+        }
+
+        total_tz += limb_tz;
+        if (limb_tz < 32) return total_tz;
+        remaining_bytes -= 32 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 32 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 16 / CHAR_BIT) {
+#if zig_big_endian
+        byte_offset -= 16 / CHAR_BIT;
+#endif
+
+        {
+            uint16_t val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            limb_tz = zig_ctz_u16(val_limb, 16);
+        }
+
+        total_tz += limb_tz;
+        if (limb_tz < 16) return total_tz;
+        remaining_bytes -= 16 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 16 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 8 / CHAR_BIT) {
+#if zig_big_endian
+        byte_offset -= 8 / CHAR_BIT;
+#endif
+
+        {
+            uint8_t val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            limb_tz = zig_ctz_u8(val_limb, 8);
+        }
+
+        total_tz += limb_tz;
+        if (limb_tz < 8) return total_tz;
+        remaining_bytes -= 8 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 8 / CHAR_BIT;
+#endif
+    }
+
+    return total_tz;
+}
+
+static inline uint16_t zig_popcount_big(const void *val, bool is_signed, uint16_t bits) {
+    const uint8_t *val_bytes = val;
+    uint16_t byte_offset = 0;
+    uint16_t remaining_bytes = zig_int_bytes(bits);
+    uint16_t total_pc = 0;
+    (void)is_signed;
+
+#if zig_big_endian
+    byte_offset = remaining_bytes;
+#endif
+
+    while (remaining_bytes >= 128 / CHAR_BIT) {
+#if zig_big_endian
+        byte_offset -= 128 / CHAR_BIT;
+#endif
+
+        {
+            zig_u128 val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            total_pc += zig_popcount_u128(val_limb, 128);
+        }
+
+        remaining_bytes -= 128 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 128 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 64 / CHAR_BIT) {
+#if zig_big_endian
+        byte_offset -= 64 / CHAR_BIT;
+#endif
+
+        {
+            uint64_t val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            total_pc += zig_popcount_u64(val_limb, 64);
+        }
+
+        remaining_bytes -= 64 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 64 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 32 / CHAR_BIT) {
+#if zig_big_endian
+        byte_offset -= 32 / CHAR_BIT;
+#endif
+
+        {
+            uint32_t val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            total_pc += zig_popcount_u32(val_limb, 32);
+        }
+
+        remaining_bytes -= 32 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 32 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 16 / CHAR_BIT) {
+#if zig_big_endian
+        byte_offset -= 16 / CHAR_BIT;
+#endif
+
+        {
+            uint16_t val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            total_pc = zig_popcount_u16(val_limb, 16);
+        }
+
+        remaining_bytes -= 16 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 16 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 8 / CHAR_BIT) {
+#if zig_big_endian
+        byte_offset -= 8 / CHAR_BIT;
+#endif
+
+        {
+            uint8_t val_limb;
+
+            memcpy(&val_limb, &val_bytes[byte_offset], sizeof(val_limb));
+            total_pc = zig_popcount_u8(val_limb, 8);
+        }
+
+        remaining_bytes -= 8 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 8 / CHAR_BIT;
+#endif
+    }
+
+    return total_pc;
 }
 
 /* ========================= Floating Point Support ========================= */
@@ -2742,7 +3097,7 @@ zig_msvc_atomics_128op(u128, max)
         uint32_t index = 0; \
         const uint8_t *lhs_ptr = lhs; \
         const uint8_t *rhs_ptr = rhs; \
-        uint16_t elem_bytes = zig_big_bytes(elem_bits); \
+        uint16_t elem_bytes = zig_int_bytes(elem_bits); \
  \
         while (index < len) { \
             result[index] = zig_cmp_big(lhs_ptr, rhs_ptr, is_signed, elem_bits) operator 0; \
@@ -2757,6 +3112,57 @@ zig_cmp_vec(lt, < )
 zig_cmp_vec(le, <=)
 zig_cmp_vec(gt, > )
 zig_cmp_vec(ge, >=)
+
+static inline void zig_clz_vec(void *result, const void *val, uint32_t len, bool is_signed, uint16_t elem_bits) {
+    uint32_t index = 0;
+    const uint8_t *val_ptr = val;
+    uint16_t elem_bytes = zig_int_bytes(elem_bits);
+
+    while (index < len) {
+        uint16_t lz = zig_clz_big(val_ptr, is_signed, elem_bits);
+        if (elem_bits <= 128) {
+            ((uint8_t *)result)[index] = (uint8_t)lz;
+        } else {
+            ((uint16_t *)result)[index] = lz;
+        }
+        val_ptr += elem_bytes;
+        index += 1;
+    }
+}
+
+static inline void zig_ctz_vec(void *result, const void *val, uint32_t len, bool is_signed, uint16_t elem_bits) {
+    uint32_t index = 0;
+    const uint8_t *val_ptr = val;
+    uint16_t elem_bytes = zig_int_bytes(elem_bits);
+
+    while (index < len) {
+        uint16_t tz = zig_ctz_big(val_ptr, is_signed, elem_bits);
+        if (elem_bits <= 128) {
+            ((uint8_t *)result)[index] = (uint8_t)tz;
+        } else {
+            ((uint16_t *)result)[index] = tz;
+        }
+        val_ptr += elem_bytes;
+        index += 1;
+    }
+}
+
+static inline void zig_popcount_vec(void *result, const void *val, uint32_t len, bool is_signed, uint16_t elem_bits) {
+    uint32_t index = 0;
+    const uint8_t *val_ptr = val;
+    uint16_t elem_bytes = zig_int_bytes(elem_bits);
+
+    while (index < len) {
+        uint16_t pc = zig_popcount_big(val_ptr, is_signed, elem_bits);
+        if (elem_bits <= 128) {
+            ((uint8_t *)result)[index] = (uint8_t)pc;
+        } else {
+            ((uint16_t *)result)[index] = pc;
+        }
+        val_ptr += elem_bytes;
+        index += 1;
+    }
+}
 
 /* ======================== Special Case Intrinsics ========================= */
 
