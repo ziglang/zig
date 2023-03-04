@@ -1773,7 +1773,7 @@ pub const Object = struct {
                 if (ty.optionalReprIsPayload()) {
                     const ptr_di_ty = try o.lowerDebugType(child_ty, resolve);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(ptr_di_ty), .{ .mod = o.module });
+                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.init(ptr_di_ty, resolve), .{ .mod = o.module });
                     return ptr_di_ty;
                 }
 
