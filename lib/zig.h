@@ -193,7 +193,7 @@ typedef char bool;
 #elif defined(__i386__) || defined(__x86_64__)
 #define zig_trap() __asm__ volatile("ud2");
 #else
-#define zig_trap() raise(SIGILL)
+#define zig_trap() raise(SIGTRAP)
 #endif
 
 #if zig_has_builtin(debugtrap)
