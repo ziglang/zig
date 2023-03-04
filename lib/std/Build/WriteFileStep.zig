@@ -187,7 +187,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     if (try step.cacheHit(&man)) {
-        // Cache hit, skip writing file data.
         const digest = man.final();
         for (wf.files.items) |file| {
             file.generated_file.path = try b.cache_root.join(

@@ -1,9 +1,3 @@
-const std = @import("../std.zig");
-const ConfigHeaderStep = @This();
-const Step = std.Build.Step;
-
-pub const base_id: Step.Id = .config_header;
-
 pub const Style = union(enum) {
     /// The configure format supported by autotools. It uses `#undef foo` to
     /// mark lines that can be substituted with different values.
@@ -40,6 +34,8 @@ output_file: std.Build.GeneratedFile,
 style: Style,
 max_bytes: usize,
 include_path: []const u8,
+
+pub const base_id: Step.Id = .config_header;
 
 pub const Options = struct {
     style: Style = .blank,
@@ -162,23 +158,15 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
     const self = @fieldParentPtr(ConfigHeaderStep, "step", step);
     const gpa = b.allocator;
+    const arena = b.allocator;
 
-    // The cache is used here not really as a way to speed things up - because writing
-    // the data to a file would probably be very fast - but as a way to find a canonical
-    // location to put build artifacts.
+    var man = b.cache.obtain();
+    defer man.deinit();
 
-    // If, for example, a hard-coded path was used as the location to put ConfigHeaderStep
-    // files, then two ConfigHeaderStep executing in parallel might clobber each other.
-
-    // TODO port the cache system from the compiler to zig std lib. Until then
-    // we construct the path directly, and no "cache hit" detection happens;
-    // the files are always written.
-    // Note there is very similar code over in WriteFileStep
-    const Hasher = std.crypto.auth.siphash.SipHash128(1, 3);
     // Random bytes to make ConfigHeaderStep unique. Refresh this with new
     // random bytes when ConfigHeaderStep implementation is modified in a
     // non-backwards-compatible way.
-    var hash = Hasher.init("PGuDTpidxyMqnkGM");
+    man.hash.add(@as(u32, 0xdef08d23));
 
     var output = std.ArrayList(u8).init(gpa);
     defer output.deinit();
@@ -191,13 +179,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         .autoconf => |file_source| {
             try output.appendSlice(c_generated_line);
             const src_path = file_source.getPath(b);
-            const contents = try std.fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes);
+            const contents = try std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes);
             try render_autoconf(step, contents, &output, self.values, src_path);
         },
         .cmake => |file_source| {
             try output.appendSlice(c_generated_line);
             const src_path = file_source.getPath(b);
-            const contents = try std.fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes);
+            const contents = try std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes);
             try render_cmake(step, contents, &output, self.values, src_path);
         },
         .blank => {
@@ -210,39 +198,40 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         },
     }
 
-    hash.update(output.items);
+    man.hash.addBytes(output.items);
 
-    var digest: [16]u8 = undefined;
-    hash.final(&digest);
-    var hash_basename: [digest.len * 2]u8 = undefined;
-    _ = std.fmt.bufPrint(
-        &hash_basename,
-        "{s}",
-        .{std.fmt.fmtSliceHexLower(&digest)},
-    ) catch unreachable;
+    if (try step.cacheHit(&man)) {
+        const digest = man.final();
+        self.output_file.path = try b.cache_root.join(arena, &.{
+            "o", &digest, self.include_path,
+        });
+        return;
+    }
 
-    const output_dir = try b.cache_root.join(gpa, &.{ "o", &hash_basename });
+    const digest = man.final();
 
     // If output_path has directory parts, deal with them.  Example:
     // output_dir is zig-cache/o/HASH
     // output_path is libavutil/avconfig.h
     // We want to open directory zig-cache/o/HASH/libavutil/
     // but keep output_dir as zig-cache/o/HASH for -I include
-    const sub_dir_path = if (std.fs.path.dirname(self.include_path)) |d|
-        try std.fs.path.join(gpa, &.{ output_dir, d })
-    else
-        output_dir;
+    const sub_path = try std.fs.path.join(arena, &.{ "o", &digest, self.include_path });
+    const sub_path_dirname = std.fs.path.dirname(sub_path).?;
 
-    var dir = std.fs.cwd().makeOpenPath(sub_dir_path, .{}) catch |err| {
-        return step.fail("unable to make path '{s}': {s}", .{ output_dir, @errorName(err) });
+    b.cache_root.handle.makePath(sub_path_dirname) catch |err| {
+        return step.fail("unable to make path '{}{s}': {s}", .{
+            b.cache_root, sub_path_dirname, @errorName(err),
+        });
     };
-    defer dir.close();
 
-    try dir.writeFile(std.fs.path.basename(self.include_path), output.items);
+    b.cache_root.handle.writeFile(sub_path, output.items) catch |err| {
+        return step.fail("unable to write file '{}{s}': {s}", .{
+            b.cache_root, sub_path, @errorName(err),
+        });
+    };
 
-    self.output_file.path = try std.fs.path.join(b.allocator, &.{
-        output_dir, self.include_path,
-    });
+    self.output_file.path = try b.cache_root.join(arena, &.{sub_path});
+    try man.writeManifest();
 }
 
 fn render_autoconf(
@@ -442,3 +431,7 @@ fn renderValueNasm(output: *std.ArrayList(u8), name: []const u8, value: Value) !
         },
     }
 }
+
+const std = @import("../std.zig");
+const ConfigHeaderStep = @This();
+const Step = std.Build.Step;
