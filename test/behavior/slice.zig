@@ -747,3 +747,18 @@ test "slice decays to many pointer" {
     const p: [*:0]const u8 = buf[0..7 :0];
     try expectEqualStrings(buf[0..7], std.mem.span(p));
 }
+
+test "write through pointer to optional slice arg" {
+    const S = struct {
+        fn bar(foo: *?[]const u8) !void {
+            foo.* = try baz();
+        }
+
+        fn baz() ![]const u8 {
+            return "ok";
+        }
+    };
+    var foo: ?[]const u8 = null;
+    try S.bar(&foo);
+    try expectEqualStrings(foo.?, "ok");
+}
