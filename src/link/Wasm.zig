@@ -1265,7 +1265,7 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
             .fail => |em| {
                 decl.analysis = .codegen_failure;
                 try mod.failed_decls.put(mod.gpa, decl_index, em);
-                return error.AnalysisFail;
+                return error.CodegenFail;
             },
         };
     };

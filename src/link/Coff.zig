@@ -1060,7 +1060,7 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
             decl.analysis = .codegen_failure;
             try mod.failed_decls.put(mod.gpa, decl_index, em);
             log.err("{s}", .{em.msg});
-            return error.AnalysisFail;
+            return error.CodegenFail;
         },
     };
 

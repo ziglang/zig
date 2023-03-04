@@ -733,8 +733,6 @@ const InnerError = error{
     OutOfMemory,
     /// An error occurred when trying to lower AIR to MIR.
     CodegenFail,
-    /// Can occur when dereferencing a pointer that points to a `Decl` of which the analysis has failed
-    AnalysisFail,
     /// Compiler implementation could not handle a large integer.
     Overflow,
 };
@@ -1164,7 +1162,7 @@ pub fn generate(
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: codegen.DebugInfoOutput,
-) codegen.GenerateSymbolError!codegen.Result {
+) codegen.CodeGenError!codegen.Result {
     _ = src_loc;
     var code_gen: CodeGen = .{
         .gpa = bin_file.allocator,

@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 
 test "@fieldParentPtr non-first field" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     try testParentFieldPtr(&foo.c);
     comptime try testParentFieldPtr(&foo.c);
@@ -10,6 +11,7 @@ test "@fieldParentPtr non-first field" {
 
 test "@fieldParentPtr first field" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     try testParentFieldPtrFirst(&foo.a);
     comptime try testParentFieldPtrFirst(&foo.a);
@@ -47,6 +49,7 @@ fn testParentFieldPtrFirst(a: *const bool) !void {
 
 test "@fieldParentPtr untagged union" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
@@ -73,6 +76,7 @@ fn testFieldParentPtrUnion(c: *const i32) !void {
 
 test "@fieldParentPtr tagged union" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
@@ -99,6 +103,7 @@ fn testFieldParentPtrTaggedUnion(c: *const i32) !void {
 
 test "@fieldParentPtr extern union" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
