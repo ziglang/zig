@@ -9403,7 +9403,7 @@ fn List(comptime T: type) type {
       Unlike for {#syntax#}@breakpoint(){#endsyntax#}, execution does not continue after this point.
       </p>
       <p>
-      This function is only valid within function scope.
+      Outside function scope, this builtin causes a compile error.
       </p>
       {#see_also|@breakpoint#}
       {#header_close#}
