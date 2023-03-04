@@ -5668,7 +5668,15 @@ fn zirExportValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     };
     const decl_index = switch (operand.val.tag()) {
         .function => operand.val.castTag(.function).?.data.owner_decl,
-        else => return sema.fail(block, operand_src, "TODO implement exporting arbitrary Value objects", .{}), // TODO put this Value into an anonymous Decl and then export it.
+        else => blk: {
+            var anon_decl = try block.startAnonDecl();
+            defer anon_decl.deinit();
+            break :blk try anon_decl.finish(
+                try operand.ty.copy(anon_decl.arena()),
+                try operand.val.copy(anon_decl.arena()),
+                0,
+            );
+        },
     };
     try sema.analyzeExport(block, src, options, decl_index);
 }
@@ -5703,6 +5711,14 @@ pub fn analyzeExport(
         };
         return sema.failWithOwnedErrorMsg(msg);
     }
+
+    // TODO: some backends might support re-exporting extern decls
+    if (exported_decl.isExtern()) {
+        return sema.fail(block, src, "export target cannot be extern", .{});
+    }
+
+    // This decl is alive no matter what, since it's being exported
+    mod.markDeclAlive(exported_decl);
 
     const gpa = mod.gpa;
 
