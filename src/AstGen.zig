@@ -7976,6 +7976,9 @@ fn builtinCall(
             switch (node_tags[params[0]]) {
                 .identifier => {
                     const ident_token = main_tokens[params[0]];
+                    if (isPrimitive(tree.tokenSlice(ident_token))) {
+                        return astgen.failTok(ident_token, "unable to export primitive value", .{});
+                    }
                     decl_name = try astgen.identAsString(ident_token);
 
                     var s = scope;
@@ -8988,7 +8991,7 @@ const primitive_instrs = std.ComptimeStringMap(Zir.Inst.Ref, .{
 });
 
 comptime {
-    // These checks ensure that std.zig.primitives stays in synce with the primitive->Zir map.
+    // These checks ensure that std.zig.primitives stays in sync with the primitive->Zir map.
     const primitives = std.zig.primitives;
     for (primitive_instrs.kvs) |kv| {
         if (!primitives.isPrimitive(kv.key)) {
