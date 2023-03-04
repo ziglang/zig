@@ -415,7 +415,8 @@ pub fn allocPrintCmd(arena: Allocator, opt_cwd: ?[]const u8, argv: []const []con
 }
 
 pub fn cacheHit(s: *Step, man: *std.Build.Cache.Manifest) !bool {
-    return man.hit() catch |err| return failWithCacheError(s, man, err);
+    s.result_cached = man.hit() catch |err| return failWithCacheError(s, man, err);
+    return s.result_cached;
 }
 
 fn failWithCacheError(s: *Step, man: *const std.Build.Cache.Manifest, err: anyerror) anyerror {
