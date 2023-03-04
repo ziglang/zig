@@ -1646,7 +1646,9 @@ static inline zig_u128 zig_wrap_u128(zig_u128 val, uint8_t bits) {
 }
 
 static inline zig_i128 zig_wrap_i128(zig_i128 val, uint8_t bits) {
-    return zig_make_i128(zig_wrap_i64(zig_hi_i128(val), bits - UINT8_C(64)), zig_lo_i128(val));
+    if (bits > UINT8_C(64)) return zig_make_i128(zig_wrap_i64(zig_hi_i128(val), bits - UINT8_C(64)), zig_lo_i128(val));
+    int64_t lo = zig_wrap_i64((int64_t)zig_lo_i128(val), bits);
+    return zig_make_i128(zig_shr_i64(lo, 63), (uint64_t)lo);
 }
 
 static inline zig_u128 zig_shlw_u128(zig_u128 lhs, uint8_t rhs, uint8_t bits) {

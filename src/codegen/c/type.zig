@@ -651,6 +651,13 @@ pub const CType = extern union {
         });
     }
 
+    pub fn toSignedness(self: CType, s: std.builtin.Signedness) CType {
+        return switch (s) {
+            .unsigned => self.toUnsigned(),
+            .signed => self.toSigned(),
+        };
+    }
+
     pub fn getStandardDefineAbbrev(self: CType) ?[]const u8 {
         return switch (self.tag()) {
             .char => "CHAR",
