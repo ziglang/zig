@@ -5271,16 +5271,13 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     }
 }
 
-const size = switch(builtin.os.tag){
-    .windows => c_long,
-    else => isize,
-};
+const nanosize = if (is_windows) c_long else isize;
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
     var req = timespec{
         .tv_sec = math.cast(isize, seconds) orelse math.maxInt(isize),
-        .tv_nsec = math.cast(size, nanoseconds) orelse math.maxInt(size),
+        .tv_nsec = math.cast(nanosize, nanoseconds) orelse math.maxInt(nanosize),
     };
     var rem: timespec = undefined;
     while (true) {
