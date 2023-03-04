@@ -9565,9 +9565,10 @@ pub fn build(b: *std.Build) void {
       This causes these options to be available:
       </p>
       <dl>
-        <dt><kbd>-Drelease-safe=[bool]</kbd></dt><dd>Optimizations on and safety on</dd>
-        <dt><kbd>-Drelease-fast=[bool]</kbd></dt><dd>Optimizations on and safety off</dd>
-        <dt><kbd>-Drelease-small=[bool]</kbd></dt><dd>Size optimizations on and safety off</dd>
+        <dt><kbd>-Doptimize=Debug</kbd></dt><dd>Optimizations off and safety on (default)</dd>
+        <dt><kbd>-Doptimize=ReleaseSafe</kbd></dt><dd>Optimizations on and safety on</dd>
+        <dt><kbd>-Doptimize=ReleaseFast</kbd></dt><dd>Optimizations on and safety off</dd>
+        <dt><kbd>-Doptimize=ReleaseSmall</kbd></dt><dd>Size optimizations on and safety off</dd>
       </dl>
       {#header_open|Debug#}
       {#shell_samp#}$ zig build-exe example.zig{#end_shell_samp#}
