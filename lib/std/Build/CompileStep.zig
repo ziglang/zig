@@ -1,7 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("../std.zig");
 const mem = std.mem;
-const log = std.log;
 const fs = std.fs;
 const assert = std.debug.assert;
 const panic = std.debug.panic;
@@ -697,7 +696,7 @@ pub fn linkSystemLibraryNeededPkgConfigOnly(self: *CompileStep, lib_name: []cons
 
 /// Run pkg-config for the given library name and parse the output, returning the arguments
 /// that should be passed to zig to link the given library.
-pub fn runPkgConfig(self: *CompileStep, lib_name: []const u8) ![]const []const u8 {
+fn runPkgConfig(self: *CompileStep, lib_name: []const u8) ![]const []const u8 {
     const b = self.step.owner;
     const pkg_name = match: {
         // First we have to map the library name to pkg config name. Unfortunately,
@@ -783,8 +782,8 @@ pub fn runPkgConfig(self: *CompileStep, lib_name: []const u8) ![]const []const u
             try zig_args.appendSlice(&[_][]const u8{ "-D", macro });
         } else if (mem.startsWith(u8, tok, "-D")) {
             try zig_args.append(tok);
-        } else if (b.verbose) {
-            log.warn("Ignoring pkg-config flag '{s}'", .{tok});
+        } else if (b.debug_pkg_config) {
+            return self.step.fail("unknown pkg-config flag '{s}'", .{tok});
         }
     }
 
@@ -1190,8 +1189,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const self = @fieldParentPtr(CompileStep, "step", step);
 
     if (self.root_src == null and self.link_objects.items.len == 0) {
-        log.err("{s}: linker needs 1 or more objects to link", .{self.step.name});
-        return error.NeedAnObject;
+        return step.fail("the linker needs one or more objects to link", .{});
     }
 
     var zig_args = ArrayList([]const u8).init(b.allocator);
@@ -1280,10 +1278,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             .system_lib => |system_lib| {
                 const prefix: []const u8 = prefix: {
                     if (system_lib.needed) break :prefix "-needed-l";
-                    if (system_lib.weak) {
-                        if (self.target.isDarwin()) break :prefix "-weak-l";
-                        log.warn("Weak library import used for a non-darwin target, this will be converted to normally library import `-lname`", .{});
-                    }
+                    if (system_lib.weak) break :prefix "-weak-l";
                     break :prefix "-l";
                 };
                 switch (system_lib.use_pkg_config) {
@@ -1774,18 +1769,18 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(c_macro);
     }
 
-    if (self.target.isDarwin()) {
-        for (self.framework_dirs.items) |dir| {
-            if (b.sysroot != null) {
-                try zig_args.append("-iframeworkwithsysroot");
-            } else {
-                try zig_args.append("-iframework");
-            }
-            try zig_args.append(dir);
-            try zig_args.append("-F");
-            try zig_args.append(dir);
+    for (self.framework_dirs.items) |dir| {
+        if (b.sysroot != null) {
+            try zig_args.append("-iframeworkwithsysroot");
+        } else {
+            try zig_args.append("-iframework");
         }
+        try zig_args.append(dir);
+        try zig_args.append("-F");
+        try zig_args.append(dir);
+    }
 
+    {
         var it = self.frameworks.iterator();
         while (it.next()) |entry| {
             const name = entry.key_ptr.*;
@@ -1798,14 +1793,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 try zig_args.append("-framework");
             }
             try zig_args.append(name);
-        }
-    } else {
-        if (self.framework_dirs.items.len > 0) {
-            log.info("Framework directories have been added for a non-darwin target, this will have no affect on the build", .{});
-        }
-
-        if (self.frameworks.count() > 0) {
-            log.info("Frameworks have been added for a non-darwin target, this will have no affect on the build", .{});
         }
     }
 
@@ -1970,8 +1957,15 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 
-    if (self.kind == .lib and self.linkage != null and self.linkage.? == .dynamic and self.version != null and self.target.wantSharedLibSymLinks()) {
-        try doAtomicSymLinks(b.allocator, self.getOutputSource().getPath(b), self.major_only_filename.?, self.name_only_filename.?);
+    if (self.kind == .lib and self.linkage != null and self.linkage.? == .dynamic and
+        self.version != null and self.target.wantSharedLibSymLinks())
+    {
+        try doAtomicSymLinks(
+            step,
+            self.getOutputSource().getPath(b),
+            self.major_only_filename.?,
+            self.name_only_filename.?,
+        );
     }
 }
 
@@ -2013,30 +2007,27 @@ fn findVcpkgRoot(allocator: Allocator) !?[]const u8 {
 }
 
 pub fn doAtomicSymLinks(
-    allocator: Allocator,
+    step: *Step,
     output_path: []const u8,
     filename_major_only: []const u8,
     filename_name_only: []const u8,
 ) !void {
+    const arena = step.owner.allocator;
     const out_dir = fs.path.dirname(output_path) orelse ".";
     const out_basename = fs.path.basename(output_path);
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
-    const major_only_path = try fs.path.join(
-        allocator,
-        &[_][]const u8{ out_dir, filename_major_only },
-    );
-    fs.atomicSymLink(allocator, out_basename, major_only_path) catch |err| {
-        log.err("Unable to symlink {s} -> {s}", .{ major_only_path, out_basename });
-        return err;
+    const major_only_path = try fs.path.join(arena, &.{ out_dir, filename_major_only });
+    fs.atomicSymLink(arena, out_basename, major_only_path) catch |err| {
+        return step.fail("unable to symlink {s} -> {s}: {s}", .{
+            major_only_path, out_basename, @errorName(err),
+        });
     };
     // sym link for libfoo.so to libfoo.so.1
-    const name_only_path = try fs.path.join(
-        allocator,
-        &[_][]const u8{ out_dir, filename_name_only },
-    );
-    fs.atomicSymLink(allocator, filename_major_only, name_only_path) catch |err| {
-        log.err("Unable to symlink {s} -> {s}", .{ name_only_path, filename_major_only });
-        return err;
+    const name_only_path = try fs.path.join(arena, &.{ out_dir, filename_name_only });
+    fs.atomicSymLink(arena, filename_major_only, name_only_path) catch |err| {
+        return step.fail("Unable to symlink {s} -> {s}: {s}", .{
+            name_only_path, filename_major_only, @errorName(err),
+        });
     };
 }
 

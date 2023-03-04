@@ -1,5 +1,4 @@
 const std = @import("../std.zig");
-const log = std.log;
 const fs = std.fs;
 const Step = std.Build.Step;
 const RemoveDirStep = @This();

@@ -83,7 +83,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         full_dest_path,
     );
     if (self.artifact.isDynamicLibrary() and self.artifact.version != null and self.artifact.target.wantSharedLibSymLinks()) {
-        try CompileStep.doAtomicSymLinks(src_builder.allocator, full_dest_path, self.artifact.major_only_filename.?, self.artifact.name_only_filename.?);
+        try CompileStep.doAtomicSymLinks(step, full_dest_path, self.artifact.major_only_filename.?, self.artifact.name_only_filename.?);
     }
     if (self.artifact.isDynamicLibrary() and self.artifact.target.isWindows() and self.artifact.emit_implib != .no_emit) {
         const full_implib_path = dest_builder.getInstallPath(self.dest_dir, self.artifact.out_lib_filename);
