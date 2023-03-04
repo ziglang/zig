@@ -547,6 +547,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .bitcast         => try self.airBitCast(inst),
             .block           => try self.airBlock(inst),
             .br              => try self.airBr(inst),
+            .trap            => try self.airTrap(),
             .breakpoint      => try self.airBreakpoint(),
             .ret_addr        => try self.airRetAddr(inst),
             .frame_addr      => try self.airFrameAddress(inst),
@@ -1647,6 +1648,14 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     return self.finishAir(inst, mcv, .{ .none, .none, .none });
+}
+
+fn airTrap(self: *Self) !void {
+    _ = try self.addInst(.{
+        .tag = .unimp,
+        .data = .{ .nop = {} },
+    });
+    return self.finishAirBookkeeping();
 }
 
 fn airBreakpoint(self: *Self) !void {

@@ -1827,6 +1827,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .arg => func.airArg(inst),
         .bitcast => func.airBitcast(inst),
         .block => func.airBlock(inst),
+        .trap => func.airTrap(inst),
         .breakpoint => func.airBreakpoint(inst),
         .br => func.airBr(inst),
         .bool_to_int => func.airBoolToInt(inst),
@@ -3287,9 +3288,15 @@ fn airNot(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     func.finishAir(inst, result, &.{ty_op.operand});
 }
 
+fn airTrap(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    try func.addTag(.@"unreachable");
+    func.finishAir(inst, .none, &.{});
+}
+
 fn airBreakpoint(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // unsupported by wasm itfunc. Can be implemented once we support DWARF
     // for wasm
+    try func.addTag(.@"unreachable");
     func.finishAir(inst, .none, &.{});
 }
 

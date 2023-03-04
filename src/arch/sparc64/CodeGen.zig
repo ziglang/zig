@@ -562,6 +562,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .bitcast         => try self.airBitCast(inst),
             .block           => try self.airBlock(inst),
             .br              => try self.airBr(inst),
+            .trap            => try self.airTrap(),
             .breakpoint      => try self.airBreakpoint(),
             .ret_addr        => @panic("TODO try self.airRetAddr(inst)"),
             .frame_addr      => @panic("TODO try self.airFrameAddress(inst)"),
@@ -1154,6 +1155,21 @@ fn airBr(self: *Self, inst: Air.Inst.Index) !void {
     const branch = self.air.instructions.items(.data)[inst].br;
     try self.br(branch.block_inst, branch.operand);
     return self.finishAir(inst, .dead, .{ branch.operand, .none, .none });
+}
+
+fn airTrap(self: *Self) !void {
+    // ta 0x05
+    _ = try self.addInst(.{
+        .tag = .tcc,
+        .data = .{
+            .trap = .{
+                .is_imm = true,
+                .cond = .al,
+                .rs2_or_imm = .{ .imm = 0x05 },
+            },
+        },
+    });
+    return self.finishAirBookkeeping();
 }
 
 fn airBreakpoint(self: *Self) !void {

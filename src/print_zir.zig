@@ -196,7 +196,6 @@ const Writer = struct {
             .error_name,
             .panic,
             .panic_comptime,
-            .set_cold,
             .set_runtime_safety,
             .sqrt,
             .sin,
@@ -411,6 +410,7 @@ const Writer = struct {
             .alloc_inferred_comptime_mut,
             .ret_ptr,
             .ret_type,
+            .trap,
             => try self.writeNode(stream, inst),
 
             .error_value,
@@ -503,6 +503,7 @@ const Writer = struct {
             .fence,
             .set_float_mode,
             .set_align_stack,
+            .set_cold,
             .wasm_memory_size,
             .error_to_int,
             .int_to_error,
