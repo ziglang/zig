@@ -2457,6 +2457,9 @@ pub fn update(comp: *Compilation) !void {
     if (comp.totalErrorCount() != 0) {
         // Skip flushing and keep source files loaded for error reporting.
         comp.link_error_flags = .{};
+
+        try comp.bin_file.delete();
+
         return;
     }
 
@@ -2523,6 +2526,8 @@ pub fn update(comp: *Compilation) !void {
         }
 
         if (comp.totalErrorCount() != 0) {
+            try comp.bin_file.delete();
+
             return;
         }
 
@@ -2535,6 +2540,12 @@ pub fn update(comp: *Compilation) !void {
         comp.bin_file.lock = man.toOwnedLock();
     } else {
         try comp.flush(main_progress_node);
+
+        if (comp.totalErrorCount() != 0) {
+            try comp.bin_file.delete();
+
+            return;
+        }
     }
 
     // Unload all source files to save memory.

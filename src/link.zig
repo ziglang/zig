@@ -374,16 +374,22 @@ pub const File = struct {
         switch (base.tag) {
             .coff, .elf, .macho, .plan9, .wasm => {
                 if (build_options.only_c) unreachable;
-                if (base.file != null) return;
-                const emit = base.options.emit orelse return;
-                base.file = try emit.directory.handle.createFile(emit.sub_path, .{
-                    .truncate = false,
-                    .read = true,
-                    .mode = determineMode(base.options),
-                });
             },
             .c, .spirv, .nvptx => {},
         }
+
+        if (base.file != null) return;
+
+        const emit = base.options.emit orelse return;
+
+        const full_path = emit.directory.join(base.allocator, &.{emit.sub_path}) catch &[0]u8{};
+        defer base.allocator.free(full_path);
+
+        base.file = try emit.directory.handle.createFile(emit.sub_path, .{
+            .truncate = false,
+            .read = true,
+            .mode = determineMode(base.options),
+        });
     }
 
     pub fn makeExecutable(base: *File) !void {
@@ -427,6 +433,22 @@ pub const File = struct {
             },
             .c, .spirv, .nvptx => {},
         }
+    }
+
+    pub fn delete(base: *File) !void {
+        if (base.file == null) return;
+
+        const emit = base.options.emit orelse return;
+        const full_path = try emit.directory.join(base.allocator, &.{emit.sub_path});
+        defer base.allocator.free(full_path);
+
+        emit.directory.handle.deleteFile(emit.sub_path) catch |err| {
+            log.warn("Failed to delete {s}: {s}.", .{ full_path, @errorName(err) });
+
+            return err;
+        };
+
+        base.file = null;
     }
 
     pub const UpdateDeclError = error{

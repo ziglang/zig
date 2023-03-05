@@ -1798,6 +1798,13 @@ pub const TestContext = struct {
                         }
                     }
 
+                    if (case_error_list.len > 0) {
+                        const full_path = try emit_directory.join(allocator, &.{bin_name});
+                        defer allocator.free(full_path);
+
+                        try std.testing.expectError(std.fs.Dir.AccessError.FileNotFound, emit_directory.handle.access(bin_name, .{ .mode = std.fs.File.OpenMode.read_only }));
+                    }
+
                     if (any_failed) {
                         print("\nupdate_index={d}\n", .{update_index});
                         return error.WrongCompileErrors;
@@ -1913,6 +1920,10 @@ pub const TestContext = struct {
                             },
                         }
 
+                        // Previously Compilation#update didn't delete bin_file on compilation errors.
+                        // Now, it does and we need to recreate bin_file if it is deleted.
+                        // Note that this is only required for Execution cases whose expected stdout is the empty string compilation errors are expected.
+                        try comp.makeBinFileWritable();
                         try comp.makeBinFileExecutable();
 
                         while (true) {
