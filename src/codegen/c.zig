@@ -438,6 +438,10 @@ pub const Function = struct {
         return f.object.dg.renderType(w, t);
     }
 
+    fn renderCType(f: *Function, w: anytype, t: CType.Index) !void {
+        return f.object.dg.renderCType(w, t);
+    }
+
     fn renderIntCast(f: *Function, w: anytype, dest_ty: Type, src: CValue, v: Vectorizer, src_ty: Type, location: ValueRenderLocation) !void {
         return f.object.dg.renderIntCast(w, dest_ty, .{ .c_value = .{ .f = f, .value = src, .v = v } }, src_ty, location);
     }
@@ -1576,9 +1580,12 @@ pub const DeclGen = struct {
     ///   | `renderType`        | "uint8_t *"     | "uint8_t *[10]"     |
     ///
     fn renderType(dg: *DeclGen, w: anytype, t: Type) error{ OutOfMemory, AnalysisFail }!void {
+        try dg.renderCType(w, try dg.typeToIndex(t, .complete));
+    }
+
+    fn renderCType(dg: *DeclGen, w: anytype, idx: CType.Index) error{ OutOfMemory, AnalysisFail }!void {
         const store = &dg.ctypes.set;
         const module = dg.module;
-        const idx = try dg.typeToIndex(t, .complete);
         _ = try renderTypePrefix(dg.decl_index, store.*, module, w, idx, .suffix, .{});
         try renderTypeSuffix(dg.decl_index, store.*, module, w, idx, .suffix, .{});
     }
@@ -6543,21 +6550,37 @@ fn airErrorName(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airSplat(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+
     if (f.liveness.isUnused(inst)) {
         try reap(f, inst, &.{ty_op.operand});
         return .none;
     }
 
-    const inst_ty = f.air.typeOfIndex(inst);
     const operand = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const inst_scalar_ty = inst_ty.scalarType();
+    const inst_scalar_cty = try f.typeToIndex(inst_scalar_ty, .complete);
+    const need_memcpy = f.indexToCType(inst_scalar_cty).tag() == .array;
+
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
+    const v = try Vectorizer.start(f, inst, writer, inst_ty);
+    if (need_memcpy) try writer.writeAll("memcpy(&");
     try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(" = ");
+    try v.elem(f, writer);
+    try writer.writeAll(if (need_memcpy) ", &" else " = ");
+    try f.writeCValue(writer, operand, .Other);
+    if (need_memcpy) {
+        try writer.writeAll(", sizeof(");
+        try f.renderCType(writer, inst_scalar_cty);
+        try writer.writeAll("))");
+    }
+    try writer.writeAll(";\n");
+    try v.end(f, inst, writer);
 
-    _ = operand;
-    return f.fail("TODO: C backend: implement airSplat", .{});
+    return local;
 }
 
 fn airSelect(f: *Function, inst: Air.Inst.Index) !CValue {
