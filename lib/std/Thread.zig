@@ -945,6 +945,7 @@ const LinuxThreadImpl = struct {
 
         // map all memory needed without read/write permissions
         // to avoid committing the whole region right away
+        // anonymous mapping ensures file descriptor limits are not exceeded
         const mapped = os.mmap(
             null,
             map_bytes,
@@ -956,6 +957,8 @@ const LinuxThreadImpl = struct {
             error.MemoryMappingNotSupported => unreachable,
             error.AccessDenied => unreachable,
             error.PermissionDenied => unreachable,
+            error.ProcessFdQuotaExceeded => unreachable,
+            error.SystemFdQuotaExceeded => unreachable,
             else => |e| return e,
         };
         assert(mapped.len >= map_bytes);
