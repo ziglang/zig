@@ -302,8 +302,7 @@ pub const FChmodError = error{
 /// successfully, or must have the effective user ID matching the owner
 /// of the file.
 pub fn fchmod(fd: fd_t, mode: mode_t) FChmodError!void {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
-        @compileError("Unsupported OS");
+    if (!std.fs.has_executable_bit) @compileError("fchmod unsupported by target OS");
 
     while (true) {
         const res = system.fchmod(fd, mode);
@@ -311,8 +310,38 @@ pub fn fchmod(fd: fd_t, mode: mode_t) FChmodError!void {
         switch (system.getErrno(res)) {
             .SUCCESS => return,
             .INTR => continue,
-            .BADF => unreachable, // Can be reached if the fd refers to a non-iterable directory.
+            .BADF => unreachable,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .ACCES => return error.AccessDenied,
+            .IO => return error.InputOutput,
+            .LOOP => return error.SymLinkLoop,
+            .NOENT => return error.FileNotFound,
+            .NOMEM => return error.SystemResources,
+            .NOTDIR => return error.FileNotFound,
+            .PERM => return error.AccessDenied,
+            .ROFS => return error.ReadOnlyFileSystem,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
 
+const FChmodAtError = FChmodError || error{
+    NameTooLong,
+};
+
+pub fn fchmodat(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtError!void {
+    if (!std.fs.has_executable_bit) @compileError("fchmodat unsupported by target OS");
+
+    const path_c = try toPosixPath(path);
+
+    while (true) {
+        const res = system.fchmodat(dirfd, &path_c, mode, flags);
+
+        switch (system.getErrno(res)) {
+            .SUCCESS => return,
+            .INTR => continue,
+            .BADF => unreachable,
             .FAULT => unreachable,
             .INVAL => unreachable,
             .ACCES => return error.AccessDenied,

@@ -26,7 +26,7 @@ class MultiArrayListPrinter:
         self.val = val
 
     def child_type(self):
-        (helper_fn, _) = gdb.lookup_symbol('%s.gdbHelper' % self.val.type.name)
+        (helper_fn, _) = gdb.lookup_symbol('%s.dbHelper' % self.val.type.name)
         return helper_fn.type.fields()[1].type.target()
 
     def to_string(self):
@@ -65,7 +65,7 @@ class HashMapPrinter:
         self.val = val['unmanaged'] if is_managed else val
 
     def header_ptr_type(self):
-        (helper_fn, _) = gdb.lookup_symbol('%s.gdbHelper' % self.val.type.name)
+        (helper_fn, _) = gdb.lookup_symbol('%s.dbHelper' % self.val.type.name)
         return helper_fn.type.fields()[1].type
 
     def header(self):

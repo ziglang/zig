@@ -2068,7 +2068,7 @@ pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid:
         ws2_32.SIO_GET_EXTENSION_FUNCTION_POINTER,
         @ptrCast(*const anyopaque, &guid),
         @sizeOf(GUID),
-        @intToPtr(?*anyopaque, @ptrToInt(function)),
+        @intToPtr(?*anyopaque, @ptrToInt(&function)),
         @sizeOf(T),
         &num_bytes,
         null,

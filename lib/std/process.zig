@@ -9,6 +9,7 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const child_process = @import("child_process.zig");
 
+pub const Child = child_process.ChildProcess;
 pub const abort = os.abort;
 pub const exit = os.exit;
 pub const changeCurDir = os.chdir;

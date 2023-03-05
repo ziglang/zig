@@ -397,3 +397,22 @@ test "nested runtime conditionals in tuple initializer" {
     };
     try expectEqualStrings("up", x[0]);
 }
+
+test "sentinel slice in tuple with other fields" {
+    const S = struct {
+        a: u32,
+        b: u32,
+    };
+
+    const Submission = union(enum) {
+        open: struct { *S, [:0]const u8, u32 },
+    };
+
+    _ = Submission;
+}
+
+test "sentinel slice in tuple" {
+    const S = struct { [:0]const u8 };
+
+    _ = S;
+}

@@ -644,8 +644,9 @@ pub fn defaultAddressSpace(
         function,
     },
 ) AddressSpace {
-    _ = target;
-    _ = context;
+    // The default address space for functions on AVR is .flash to produce
+    // correct fixups into progmem.
+    if (context == .function and target.cpu.arch == .avr) return .flash;
     return .generic;
 }
 
