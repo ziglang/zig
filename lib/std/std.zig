@@ -12,6 +12,7 @@ pub const BoundedArray = @import("bounded_array.zig").BoundedArray;
 pub const Build = @import("Build.zig");
 pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
+/// Deprecated: use `process.Child`.
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const ComptimeStringMap = @import("comptime_string_map.zig").ComptimeStringMap;
 pub const DynLib = @import("dynamic_library.zig").DynLib;

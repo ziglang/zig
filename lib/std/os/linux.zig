@@ -769,12 +769,30 @@ pub fn fchmod(fd: i32, mode: mode_t) usize {
     return syscall2(.fchmod, @bitCast(usize, @as(isize, fd)), mode);
 }
 
+pub fn chmod(path: [*:0]const u8, mode: mode_t) usize {
+    if (@hasField(SYS, "chmod")) {
+        return syscall2(.chmod, @ptrToInt(path), mode);
+    } else {
+        return syscall4(
+            .fchmodat,
+            @bitCast(usize, @as(isize, AT.FDCWD)),
+            @ptrToInt(path),
+            mode,
+            0,
+        );
+    }
+}
+
 pub fn fchown(fd: i32, owner: uid_t, group: gid_t) usize {
     if (@hasField(SYS, "fchown32")) {
         return syscall3(.fchown32, @bitCast(usize, @as(isize, fd)), owner, group);
     } else {
         return syscall3(.fchown, @bitCast(usize, @as(isize, fd)), owner, group);
     }
+}
+
+pub fn fchmodat(fd: i32, path: [*:0]const u8, mode: mode_t, flags: u32) usize {
+    return syscall4(.fchmodat, @bitCast(usize, @as(isize, fd)), @ptrToInt(path), mode, flags);
 }
 
 /// Can only be called on 32 bit systems. For 64 bit see `lseek`.

@@ -11,6 +11,11 @@ const math = std.math;
 
 const is_darwin = builtin.os.tag.isDarwin();
 
+pub const has_executable_bit = switch (builtin.os.tag) {
+    .windows, .wasi => false,
+    else => true,
+};
+
 pub const path = @import("fs/path.zig");
 pub const File = @import("fs/file.zig").File;
 pub const wasi = @import("fs/wasi.zig");

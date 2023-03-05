@@ -180,10 +180,16 @@ typedef char bool;
 #define zig_export(sig, symbol, name) __asm(name " = " symbol)
 #endif
 
+#if zig_has_builtin(trap)
+#define zig_trap() __builtin_trap()
+#elif defined(__i386__) || defined(__x86_64__)
+#define zig_trap() __asm__ volatile("ud2");
+#else
+#define zig_trap() raise(SIGILL)
+#endif
+
 #if zig_has_builtin(debugtrap)
 #define zig_breakpoint() __builtin_debugtrap()
-#elif zig_has_builtin(trap) || defined(zig_gnuc)
-#define zig_breakpoint() __builtin_trap()
 #elif defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
 #define zig_breakpoint() __debugbreak()
 #elif defined(__i386__) || defined(__x86_64__)

@@ -166,6 +166,7 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
 
             .@"test" => try emit.mirTest(inst),
 
+            .ud => try emit.mirUndefinedInstruction(),
             .interrupt => try emit.mirInterrupt(inst),
             .nop => {}, // just skip it
 
@@ -232,6 +233,10 @@ fn fixupRelocs(emit: *Emit) InnerError!void {
         const disp = @intCast(i32, @intCast(i64, target) - @intCast(i64, reloc.source + reloc.length));
         mem.writeIntLittle(i32, emit.code.items[reloc.offset..][0..4], disp);
     }
+}
+
+fn mirUndefinedInstruction(emit: *Emit) InnerError!void {
+    return lowerToZoEnc(.ud2, emit.code);
 }
 
 fn mirInterrupt(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
@@ -1279,6 +1284,7 @@ const Tag = enum {
     push,
     pop,
     @"test",
+    ud2,
     int3,
     nop,
     imul,
@@ -1571,6 +1577,7 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) OpCode {
         .zo => return switch (tag) {
             .ret_near => OpCode.init(&.{0xc3}),
             .ret_far  => OpCode.init(&.{0xcb}),
+            .ud2      => OpCode.init(&.{ 0x0F, 0x0B }),
             .int3     => OpCode.init(&.{0xcc}),
             .nop      => OpCode.init(&.{0x90}),
             .syscall  => OpCode.init(&.{ 0x0f, 0x05 }),
