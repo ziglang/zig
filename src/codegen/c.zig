@@ -1841,30 +1841,21 @@ pub const DeclGen = struct {
         dg.module.markDeclAlive(decl);
 
         if (dg.module.decl_exports.get(decl_index)) |exports| {
-            return writer.writeAll(exports.items[export_index].options.name);
+            try writer.writeAll(exports.items[export_index].options.name);
         } else if (decl.isExtern()) {
-            return writer.writeAll(mem.sliceTo(decl.name, 0));
-        } else if (dg.module.test_functions.get(decl_index)) |_| {
-            const gpa = dg.gpa;
-            const name = try decl.getFullyQualifiedName(dg.module);
-            defer gpa.free(name);
-            return writer.print("{}_{d}", .{ fmtIdent(name), @enumToInt(decl_index) });
+            try writer.writeAll(mem.sliceTo(decl.name, 0));
         } else {
-            const gpa = dg.gpa;
-            const name = try decl.getFullyQualifiedName(dg.module);
-            defer gpa.free(name);
-
-            // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case), expand
-            // to 3x the length of its input
-            if (name.len > 1365) {
-                var hash = ident_hasher_init;
-                hash.update(name);
-                const ident_hash = hash.finalInt();
-                try writer.writeAll("zig_D_");
-                return std.fmt.formatIntValue(ident_hash, "x", .{}, writer);
-            } else {
-                return writer.print("{}", .{fmtIdent(name)});
-            }
+            // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
+            // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
+            var name: [100]u8 = undefined;
+            var name_stream = std.io.fixedBufferStream(&name);
+            decl.renderFullyQualifiedName(dg.module, name_stream.writer()) catch |err| switch (err) {
+                error.NoSpaceLeft => {},
+            };
+            try writer.print("{}__{d}", .{
+                fmtIdent(name_stream.getWritten()),
+                @enumToInt(decl_index),
+            });
         }
     }
 
