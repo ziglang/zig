@@ -3,6 +3,7 @@ const Step = std.Build.Step;
 const CompileStep = std.Build.CompileStep;
 const InstallDir = std.Build.InstallDir;
 const InstallArtifactStep = @This();
+const fs = std.fs;
 
 pub const base_id = .install_artifact;
 
@@ -77,25 +78,59 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     const dest_sub_path = if (self.dest_sub_path) |sub_path| sub_path else self.artifact.out_filename;
     const full_dest_path = dest_builder.getInstallPath(self.dest_dir, dest_sub_path);
+    const cwd = fs.cwd();
 
-    try src_builder.updateFile(
-        self.artifact.getOutputSource().getPath(src_builder),
-        full_dest_path,
-    );
-    if (self.artifact.isDynamicLibrary() and self.artifact.version != null and self.artifact.target.wantSharedLibSymLinks()) {
+    var all_cached = true;
+
+    {
+        const full_src_path = self.artifact.getOutputSource().getPath(src_builder);
+        const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_dest_path, .{}) catch |err| {
+            return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
+                full_src_path, full_dest_path, @errorName(err),
+            });
+        };
+        all_cached = all_cached and p == .fresh;
+    }
+
+    if (self.artifact.isDynamicLibrary() and
+        self.artifact.version != null and
+        self.artifact.target.wantSharedLibSymLinks())
+    {
         try CompileStep.doAtomicSymLinks(step, full_dest_path, self.artifact.major_only_filename.?, self.artifact.name_only_filename.?);
     }
-    if (self.artifact.isDynamicLibrary() and self.artifact.target.isWindows() and self.artifact.emit_implib != .no_emit) {
+    if (self.artifact.isDynamicLibrary() and
+        self.artifact.target.isWindows() and
+        self.artifact.emit_implib != .no_emit)
+    {
+        const full_src_path = self.artifact.getOutputLibSource().getPath(src_builder);
         const full_implib_path = dest_builder.getInstallPath(self.dest_dir, self.artifact.out_lib_filename);
-        try src_builder.updateFile(self.artifact.getOutputLibSource().getPath(src_builder), full_implib_path);
+        const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_implib_path, .{}) catch |err| {
+            return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
+                full_src_path, full_implib_path, @errorName(err),
+            });
+        };
+        all_cached = all_cached and p == .fresh;
     }
     if (self.pdb_dir) |pdb_dir| {
+        const full_src_path = self.artifact.getOutputPdbSource().getPath(src_builder);
         const full_pdb_path = dest_builder.getInstallPath(pdb_dir, self.artifact.out_pdb_filename);
-        try src_builder.updateFile(self.artifact.getOutputPdbSource().getPath(src_builder), full_pdb_path);
+        const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_pdb_path, .{}) catch |err| {
+            return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
+                full_src_path, full_pdb_path, @errorName(err),
+            });
+        };
+        all_cached = all_cached and p == .fresh;
     }
     if (self.h_dir) |h_dir| {
+        const full_src_path = self.artifact.getOutputHSource().getPath(src_builder);
         const full_h_path = dest_builder.getInstallPath(h_dir, self.artifact.out_h_filename);
-        try src_builder.updateFile(self.artifact.getOutputHSource().getPath(src_builder), full_h_path);
+        const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_h_path, .{}) catch |err| {
+            return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
+                full_src_path, full_h_path, @errorName(err),
+            });
+        };
+        all_cached = all_cached and p == .fresh;
     }
     self.artifact.installed_path = full_dest_path;
+    step.result_cached = all_cached;
 }

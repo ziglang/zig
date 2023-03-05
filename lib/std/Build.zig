@@ -1235,18 +1235,6 @@ pub fn pushInstalledFile(self: *Build, dir: InstallDir, dest_rel_path: []const u
     self.installed_files.append(file.dupe(self)) catch @panic("OOM");
 }
 
-pub fn updateFile(self: *Build, source_path: []const u8, dest_path: []const u8) !void {
-    if (self.verbose) {
-        log.info("cp {s} {s} ", .{ source_path, dest_path });
-    }
-    const cwd = fs.cwd();
-    const prev_status = try fs.Dir.updateFile(cwd, source_path, cwd, dest_path, .{});
-    if (self.verbose) switch (prev_status) {
-        .stale => log.info("# installed", .{}),
-        .fresh => log.info("# up-to-date", .{}),
-    };
-}
-
 pub fn truncateFile(self: *Build, dest_path: []const u8) !void {
     if (self.verbose) {
         log.info("truncate {s}", .{dest_path});

@@ -1910,13 +1910,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const build_output_dir = fs.path.dirname(output_bin_path).?;
 
     if (self.output_dir) |output_dir| {
-        var src_dir = try std.fs.cwd().openIterableDir(build_output_dir, .{});
+        var src_dir = try fs.cwd().openIterableDir(build_output_dir, .{});
         defer src_dir.close();
 
         // Create the output directory if it doesn't exist.
-        try std.fs.cwd().makePath(output_dir);
+        try fs.cwd().makePath(output_dir);
 
-        var dest_dir = try std.fs.cwd().openDir(output_dir, .{});
+        var dest_dir = try fs.cwd().openDir(output_dir, .{});
         defer dest_dir.close();
 
         var it = src_dir.iterate();

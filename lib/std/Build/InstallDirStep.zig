@@ -89,13 +89,17 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     }
                 }
 
-                const prev_status = try fs.Dir.updateFile(
+                const prev_status = fs.Dir.updateFile(
                     src_builder.build_root.handle,
                     src_sub_path,
                     cwd,
                     dest_path,
                     .{},
-                );
+                ) catch |err| {
+                    return step.fail("unable to update file from '{}{s}' to '{s}': {s}", .{
+                        src_builder.build_root, src_sub_path, dest_path, @errorName(err),
+                    });
+                };
                 all_cached = all_cached and prev_status == .fresh;
             },
             else => continue,

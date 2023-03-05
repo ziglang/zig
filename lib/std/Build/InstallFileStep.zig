@@ -42,5 +42,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const dest_builder = self.dest_builder;
     const full_src_path = self.source.getPath2(src_builder, step);
     const full_dest_path = dest_builder.getInstallPath(self.dir, self.dest_rel_path);
-    try dest_builder.updateFile(full_src_path, full_dest_path);
+    const cwd = std.fs.cwd();
+    const prev = std.fs.Dir.updateFile(cwd, full_src_path, cwd, full_dest_path, .{}) catch |err| {
+        return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
+            full_src_path, full_dest_path, @errorName(err),
+        });
+    };
+    step.result_cached = prev == .fresh;
 }
