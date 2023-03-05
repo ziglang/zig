@@ -550,27 +550,12 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *CompileStep {
     return obj_step;
 }
 
-<<<<<<< HEAD
-pub const AddModuleOptions = struct {
-    name: []const u8,
-    source_file: FileSource,
-    dependencies: []const ModuleDependency = &.{},
-};
-
-pub fn addModule(b: *Build, options: AddModuleOptions) *Module {
-    const module = b.createModule(.{
-        .source_file = options.source_file,
-        .dependencies = options.dependencies,
-    });
-    b.modules.put(b.dupe(options.name), module) catch @panic("OOM");
-=======
 /// This function creates a module and adds it to the package's module set, making
 /// it available to other packages which depend on this one.
 /// `createModule` can be used instead to create a private module.
 pub fn addModule(b: *Build, name: []const u8, options: CreateModuleOptions) *Module {
     const module = b.createModule(options);
     b.modules.put(b.dupe(name), module) catch @panic("OOM");
->>>>>>> upstream/master
     return module;
 }
 
