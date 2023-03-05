@@ -8060,35 +8060,35 @@ fn builtinCall(
         },
         .fence => {
             const order = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .atomic_order_type } }, params[0]);
-            const result = try gz.addExtendedPayload(.fence, Zir.Inst.UnNode{
+            _ = try gz.addExtendedPayload(.fence, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = order,
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .set_float_mode => {
             const order = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .float_mode_type } }, params[0]);
-            const result = try gz.addExtendedPayload(.set_float_mode, Zir.Inst.UnNode{
+            _ = try gz.addExtendedPayload(.set_float_mode, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = order,
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .set_align_stack => {
             const order = try expr(gz, scope, align_ri, params[0]);
-            const result = try gz.addExtendedPayload(.set_align_stack, Zir.Inst.UnNode{
+            _ = try gz.addExtendedPayload(.set_align_stack, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = order,
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .set_cold => {
             const order = try expr(gz, scope, ri, params[0]);
-            const result = try gz.addExtendedPayload(.set_cold, Zir.Inst.UnNode{
+            _ = try gz.addExtendedPayload(.set_cold, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = order,
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
 
         .src => {
@@ -8373,14 +8373,14 @@ fn builtinCall(
         },
         .atomic_store => {
             const int_type = try typeExpr(gz, scope, params[0]);
-            const result = try gz.addPlNode(.atomic_store, node, Zir.Inst.AtomicStore{
+            _ = try gz.addPlNode(.atomic_store, node, Zir.Inst.AtomicStore{
                 // zig fmt: off
                 .ptr      = try expr(gz, scope, .{ .rl = .none },                                 params[1]),
                 .operand  = try expr(gz, scope, .{ .rl = .{ .ty = int_type } },                   params[2]),
                 .ordering = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .atomic_order_type } }, params[3]),
                 // zig fmt: on
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .mul_add => {
             const float_type = try typeExpr(gz, scope, params[0]);
@@ -8421,20 +8421,20 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .memcpy => {
-            const result = try gz.addPlNode(.memcpy, node, Zir.Inst.Memcpy{
+            _ = try gz.addPlNode(.memcpy, node, Zir.Inst.Memcpy{
                 .dest = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .manyptr_u8_type } }, params[0]),
                 .source = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .manyptr_const_u8_type } }, params[1]),
                 .byte_count = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, params[2]),
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .memset => {
-            const result = try gz.addPlNode(.memset, node, Zir.Inst.Memset{
+            _ = try gz.addPlNode(.memset, node, Zir.Inst.Memset{
                 .dest = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .manyptr_u8_type } }, params[0]),
                 .byte = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .u8_type } }, params[1]),
                 .byte_count = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, params[2]),
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .shuffle => {
             const result = try gz.addPlNode(.shuffle, node, Zir.Inst.Shuffle{
@@ -8475,12 +8475,12 @@ fn builtinCall(
         .prefetch => {
             const ptr = try expr(gz, scope, .{ .rl = .none }, params[0]);
             const options = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .prefetch_options_type } }, params[1]);
-            const result = try gz.addExtendedPayload(.prefetch, Zir.Inst.BinNode{
+            _ = try gz.addExtendedPayload(.prefetch, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
                 .lhs = ptr,
                 .rhs = options,
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .c_va_arg => {
             if (astgen.fn_block == null) {
