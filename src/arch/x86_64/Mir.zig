@@ -339,41 +339,23 @@ pub const Inst = struct {
         /// Nop
         nop,
 
-        /// SSE instructions
+        /// SSE/AVX instructions
         /// ops flags:  form:
         ///       0b00  reg1, qword ptr [reg2 + imm32]
         ///       0b01  qword ptr [reg1 + imm32], reg2
         ///       0b10  reg1, reg2
-        mov_f64_sse,
-        mov_f32_sse,
+        mov_f64,
+        mov_f32,
 
         /// ops flags:  form:
         ///       0b00  reg1, reg2
-        add_f64_sse,
-        add_f32_sse,
+        add_f64,
+        add_f32,
 
         /// ops flags:  form:
         ///       0b00  reg1, reg2
-        cmp_f64_sse,
-        cmp_f32_sse,
-
-        /// AVX instructions
-        /// ops flags:  form:
-        ///       0b00  reg1, qword ptr [reg2 + imm32]
-        ///       0b01  qword ptr [reg1 + imm32], reg2
-        ///       0b10  reg1, reg1, reg2
-        mov_f64_avx,
-        mov_f32_avx,
-
-        /// ops flags:  form:
-        ///       0b00  reg1, reg1, reg2
-        add_f64_avx,
-        add_f32_avx,
-
-        /// ops flags:  form:
-        ///       0b00  reg1, reg1, reg2
-        cmp_f64_avx,
-        cmp_f32_avx,
+        cmp_f64,
+        cmp_f32,
 
         /// Pseudo-instructions
         /// call extern function
@@ -439,6 +421,8 @@ pub const Inst = struct {
         inst: Index,
         /// A 32-bit immediate value.
         imm: u32,
+        /// A 32-bit signed displacement value.
+        disp: i32,
         /// A condition code for use with EFLAGS register.
         cc: bits.Condition,
         /// Another instruction with condition code.
@@ -476,9 +460,9 @@ pub const IndexRegisterDisp = struct {
     index: u32,
 
     /// Displacement value
-    disp: u32,
+    disp: i32,
 
-    pub fn encode(index: Register, disp: u32) IndexRegisterDisp {
+    pub fn encode(index: Register, disp: i32) IndexRegisterDisp {
         return .{
             .index = @enumToInt(index),
             .disp = disp,
@@ -487,7 +471,7 @@ pub const IndexRegisterDisp = struct {
 
     pub fn decode(this: IndexRegisterDisp) struct {
         index: Register,
-        disp: u32,
+        disp: i32,
     } {
         return .{
             .index = @intToEnum(Register, this.index),
@@ -503,12 +487,12 @@ pub const IndexRegisterDispImm = struct {
     index: u32,
 
     /// Displacement value
-    disp: u32,
+    disp: i32,
 
     /// Immediate
     imm: u32,
 
-    pub fn encode(index: Register, disp: u32, imm: u32) IndexRegisterDispImm {
+    pub fn encode(index: Register, disp: i32, imm: u32) IndexRegisterDispImm {
         return .{
             .index = @enumToInt(index),
             .disp = disp,
@@ -518,7 +502,7 @@ pub const IndexRegisterDispImm = struct {
 
     pub fn decode(this: IndexRegisterDispImm) struct {
         index: Register,
-        disp: u32,
+        disp: i32,
         imm: u32,
     } {
         return .{
@@ -576,7 +560,7 @@ pub const SaveRegisterList = struct {
 };
 
 pub const ImmPair = struct {
-    dest_off: u32,
+    dest_off: i32,
     operand: u32,
 };
 

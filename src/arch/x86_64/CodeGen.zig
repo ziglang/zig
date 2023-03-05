@@ -303,7 +303,12 @@ pub fn generate(
     var call_info = function.resolveCallingConventionValues(fn_type) catch |err| switch (err) {
         error.CodegenFail => return Result{ .fail = function.err_msg.? },
         error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(bin_file.allocator, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
+            .fail = try ErrorMsg.create(
+                bin_file.allocator,
+                src_loc,
+                "CodeGen ran out of registers. This is a bug in the Zig compiler.",
+                .{},
+            ),
         },
         else => |e| return e,
     };
@@ -342,6 +347,20 @@ pub fn generate(
     defer emit.deinit();
     emit.lowerMir() catch |err| switch (err) {
         error.EmitFail => return Result{ .fail = emit.err_msg.? },
+        error.InvalidInstruction, error.CannotEncode => |e| {
+            const msg = switch (e) {
+                error.InvalidInstruction => "CodeGen failed to find a viable instruction.",
+                error.CannotEncode => "CodeGen failed to encode the instruction.",
+            };
+            return Result{
+                .fail = try ErrorMsg.create(
+                    bin_file.allocator,
+                    src_loc,
+                    "{s} This is a bug in the Zig compiler.",
+                    .{msg},
+                ),
+            };
+        },
         else => |e| return e,
     };
 
@@ -1687,7 +1706,7 @@ fn genIntMulDivOpMir(
                         else => unreachable,
                     },
                 }),
-                .data = .{ .imm = @bitCast(u32, -off) },
+                .data = .{ .disp = -off },
             });
         },
         else => unreachable,
@@ -2191,7 +2210,7 @@ fn genSliceElemPtr(self: *Self, lhs: Air.Inst.Ref, rhs: Air.Inst.Ref) !MCValue {
                     .reg2 = .rbp,
                     .flags = 0b01,
                 }),
-                .data = .{ .imm = @bitCast(u32, -@intCast(i32, off)) },
+                .data = .{ .disp = -@intCast(i32, off) },
             });
         },
         else => return self.fail("TODO implement slice_elem_ptr when slice is {}", .{slice_mcv}),
@@ -2275,7 +2294,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
                     .reg1 = addr_reg.to64(),
                     .reg2 = .rbp,
                 }),
-                .data = .{ .imm = @bitCast(u32, -off) },
+                .data = .{ .disp = -off },
             });
         },
         .stack_offset => |off| {
@@ -2286,7 +2305,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
                     .reg1 = addr_reg.to64(),
                     .reg2 = .rbp,
                 }),
-                .data = .{ .imm = @bitCast(u32, -off) },
+                .data = .{ .disp = -off },
             });
         },
         .memory, .linker_load => {
@@ -2352,7 +2371,7 @@ fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
                     .reg2 = dst_mcv.register,
                     .flags = 0b01,
                 }),
-                .data = .{ .imm = 0 },
+                .data = .{ .disp = 0 },
             });
             break :result .{ .register = registerAlias(dst_mcv.register, @intCast(u32, elem_abi_size)) };
         }
@@ -2615,7 +2634,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                             .reg2 = reg,
                             .flags = 0b01,
                         }),
-                        .data = .{ .imm = 0 },
+                        .data = .{ .disp = 0 },
                     });
                 },
                 .stack_offset => |off| {
@@ -2842,7 +2861,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                     .reg2 = addr_reg.to64(),
                     .flags = 0b01,
                 }),
-                .data = .{ .imm = 0 },
+                .data = .{ .disp = 0 },
             });
 
             const new_ptr = MCValue{ .register = addr_reg.to64() };
@@ -2903,7 +2922,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 .reg2 = tmp_reg,
                                 .flags = 0b01,
                             }),
-                            .data = .{ .imm = 0 },
+                            .data = .{ .disp = 0 },
                         });
                         return self.store(new_ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                     }
@@ -3542,25 +3561,13 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                         if (intrinsicsAllowed(self.target.*, dst_ty)) {
                             const actual_tag: Mir.Inst.Tag = switch (dst_ty.tag()) {
                                 .f32 => switch (mir_tag) {
-                                    .add => if (hasAvxSupport(self.target.*))
-                                        Mir.Inst.Tag.add_f32_avx
-                                    else
-                                        Mir.Inst.Tag.add_f32_sse,
-                                    .cmp => if (hasAvxSupport(self.target.*))
-                                        Mir.Inst.Tag.cmp_f32_avx
-                                    else
-                                        Mir.Inst.Tag.cmp_f32_sse,
+                                    .add => Mir.Inst.Tag.add_f32,
+                                    .cmp => Mir.Inst.Tag.cmp_f32,
                                     else => return self.fail("TODO genBinOpMir for f32 register-register with MIR tag {}", .{mir_tag}),
                                 },
                                 .f64 => switch (mir_tag) {
-                                    .add => if (hasAvxSupport(self.target.*))
-                                        Mir.Inst.Tag.add_f64_avx
-                                    else
-                                        Mir.Inst.Tag.add_f64_sse,
-                                    .cmp => if (hasAvxSupport(self.target.*))
-                                        Mir.Inst.Tag.cmp_f64_avx
-                                    else
-                                        Mir.Inst.Tag.cmp_f64_sse,
+                                    .add => Mir.Inst.Tag.add_f64,
+                                    .cmp => Mir.Inst.Tag.cmp_f64,
                                     else => return self.fail("TODO genBinOpMir for f64 register-register with MIR tag {}", .{mir_tag}),
                                 },
                                 else => return self.fail("TODO genBinOpMir for float register-register and type {}", .{dst_ty.fmtDebug()}),
@@ -3618,7 +3625,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                             .reg2 = .rbp,
                             .flags = 0b01,
                         }),
-                        .data = .{ .imm = @bitCast(u32, -off) },
+                        .data = .{ .disp = -off },
                     });
                 },
             }
@@ -3644,7 +3651,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                             .reg2 = registerAlias(src_reg, abi_size),
                             .flags = 0b10,
                         }),
-                        .data = .{ .imm = @bitCast(u32, -off) },
+                        .data = .{ .disp = -off },
                     });
                 },
                 .immediate => |imm| {
@@ -3665,7 +3672,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                         else => unreachable,
                     };
                     const payload = try self.addExtra(Mir.ImmPair{
-                        .dest_off = @bitCast(u32, -off),
+                        .dest_off = -off,
                         .operand = @truncate(u32, imm),
                     });
                     _ = try self.addInst(.{
@@ -3756,7 +3763,7 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
                             .reg2 = .rbp,
                             .flags = 0b01,
                         }),
-                        .data = .{ .imm = @bitCast(u32, -off) },
+                        .data = .{ .disp = -off },
                     });
                 },
                 .memory => {
@@ -5360,7 +5367,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                     // offset from rbp, which is at the top of the stack frame.
                     // mov [rbp+offset], immediate
                     const payload = try self.addExtra(Mir.ImmPair{
-                        .dest_off = @bitCast(u32, -stack_offset),
+                        .dest_off = -stack_offset,
                         .operand = @truncate(u32, imm),
                     });
                     _ = try self.addInst(.{
@@ -5400,14 +5407,8 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                 .Float => {
                     if (intrinsicsAllowed(self.target.*, ty)) {
                         const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                            .f32 => if (hasAvxSupport(self.target.*))
-                                Mir.Inst.Tag.mov_f32_avx
-                            else
-                                Mir.Inst.Tag.mov_f32_sse,
-                            .f64 => if (hasAvxSupport(self.target.*))
-                                Mir.Inst.Tag.mov_f64_avx
-                            else
-                                Mir.Inst.Tag.mov_f64_sse,
+                            .f32 => Mir.Inst.Tag.mov_f32,
+                            .f64 => Mir.Inst.Tag.mov_f64,
                             else => return self.fail("TODO genSetStackArg for register for type {}", .{ty.fmtDebug()}),
                         };
                         _ = try self.addInst(.{
@@ -5421,7 +5422,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                                 .reg2 = reg.to128(),
                                 .flags = 0b01,
                             }),
-                            .data = .{ .imm = @bitCast(u32, -stack_offset) },
+                            .data = .{ .disp = -stack_offset },
                         });
                         return;
                     }
@@ -5436,7 +5437,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                             .reg2 = registerAlias(reg, @intCast(u32, abi_size)),
                             .flags = 0b10,
                         }),
-                        .data = .{ .imm = @bitCast(u32, -stack_offset) },
+                        .data = .{ .disp = -stack_offset },
                     });
                 },
             }
@@ -5516,7 +5517,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                 0 => {
                     assert(ty.isError());
                     const payload = try self.addExtra(Mir.ImmPair{
-                        .dest_off = @bitCast(u32, -stack_offset),
+                        .dest_off = -stack_offset,
                         .operand = @truncate(u32, x_big),
                     });
                     _ = try self.addInst(.{
@@ -5530,7 +5531,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                 },
                 1, 2, 4 => {
                     const payload = try self.addExtra(Mir.ImmPair{
-                        .dest_off = @bitCast(u32, -stack_offset),
+                        .dest_off = -stack_offset,
                         .operand = @truncate(u32, x_big),
                     });
                     _ = try self.addInst(.{
@@ -5552,7 +5553,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                     // insted just use two 32 bit writes to avoid register allocation
                     {
                         const payload = try self.addExtra(Mir.ImmPair{
-                            .dest_off = @bitCast(u32, -stack_offset + 4),
+                            .dest_off = -stack_offset + 4,
                             .operand = @truncate(u32, x_big >> 32),
                         });
                         _ = try self.addInst(.{
@@ -5566,7 +5567,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                     }
                     {
                         const payload = try self.addExtra(Mir.ImmPair{
-                            .dest_off = @bitCast(u32, -stack_offset),
+                            .dest_off = -stack_offset,
                             .operand = @truncate(u32, x_big),
                         });
                         _ = try self.addInst(.{
@@ -5595,14 +5596,8 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                 .Float => {
                     if (intrinsicsAllowed(self.target.*, ty)) {
                         const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                            .f32 => if (hasAvxSupport(self.target.*))
-                                Mir.Inst.Tag.mov_f32_avx
-                            else
-                                Mir.Inst.Tag.mov_f32_sse,
-                            .f64 => if (hasAvxSupport(self.target.*))
-                                Mir.Inst.Tag.mov_f64_avx
-                            else
-                                Mir.Inst.Tag.mov_f64_sse,
+                            .f32 => Mir.Inst.Tag.mov_f32,
+                            .f64 => Mir.Inst.Tag.mov_f64,
                             else => return self.fail("TODO genSetStack for register for type {}", .{ty.fmtDebug()}),
                         };
                         _ = try self.addInst(.{
@@ -5616,7 +5611,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                                 .reg2 = reg.to128(),
                                 .flags = 0b01,
                             }),
-                            .data = .{ .imm = @bitCast(u32, -stack_offset) },
+                            .data = .{ .disp = -stack_offset },
                         });
                         return;
                     }
@@ -5691,7 +5686,7 @@ fn genInlineMemcpyRegisterRegister(
                     .reg2 = registerAlias(tmp_reg, nearest_power_of_two),
                     .flags = 0b10,
                 }),
-                .data = .{ .imm = @bitCast(u32, -next_offset) },
+                .data = .{ .disp = -next_offset },
             });
 
             if (nearest_power_of_two > 1) {
@@ -5711,7 +5706,7 @@ fn genInlineMemcpyRegisterRegister(
                 .reg2 = registerAlias(src_reg, @intCast(u32, abi_size)),
                 .flags = 0b10,
             }),
-            .data = .{ .imm = @bitCast(u32, -offset) },
+            .data = .{ .disp = -offset },
         });
     }
 }
@@ -5758,7 +5753,7 @@ fn genInlineMemcpy(
                     .reg1 = dst_addr_reg.to64(),
                     .reg2 = opts.dest_stack_base orelse .rbp,
                 }),
-                .data = .{ .imm = @bitCast(u32, -off) },
+                .data = .{ .disp = -off },
             });
         },
         .register => |reg| {
@@ -5787,7 +5782,7 @@ fn genInlineMemcpy(
                     .reg1 = src_addr_reg.to64(),
                     .reg2 = opts.source_stack_base orelse .rbp,
                 }),
-                .data = .{ .imm = @bitCast(u32, -off) },
+                .data = .{ .disp = -off },
             });
         },
         .register => |reg| {
@@ -5911,7 +5906,7 @@ fn genInlineMemset(
                     .reg1 = addr_reg.to64(),
                     .reg2 = opts.dest_stack_base orelse .rbp,
                 }),
-                .data = .{ .imm = @bitCast(u32, -off) },
+                .data = .{ .disp = -off },
             });
         },
         .register => |reg| {
@@ -5998,7 +5993,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     .reg1 = registerAlias(reg, abi_size),
                     .reg2 = .rbp,
                 }),
-                .data = .{ .imm = @bitCast(u32, -off) },
+                .data = .{ .disp = -off },
             });
         },
         .unreach, .none => return, // Nothing to do.
@@ -6097,14 +6092,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .Float => {
                     if (intrinsicsAllowed(self.target.*, ty)) {
                         const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                            .f32 => if (hasAvxSupport(self.target.*))
-                                Mir.Inst.Tag.mov_f32_avx
-                            else
-                                Mir.Inst.Tag.mov_f32_sse,
-                            .f64 => if (hasAvxSupport(self.target.*))
-                                Mir.Inst.Tag.mov_f64_avx
-                            else
-                                Mir.Inst.Tag.mov_f64_sse,
+                            .f32 => Mir.Inst.Tag.mov_f32,
+                            .f64 => Mir.Inst.Tag.mov_f64,
                             else => return self.fail("TODO genSetReg from register for {}", .{ty.fmtDebug()}),
                         };
                         _ = try self.addInst(.{
@@ -6141,14 +6130,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
 
                     if (intrinsicsAllowed(self.target.*, ty)) {
                         const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                            .f32 => if (hasAvxSupport(self.target.*))
-                                Mir.Inst.Tag.mov_f32_avx
-                            else
-                                Mir.Inst.Tag.mov_f32_sse,
-                            .f64 => if (hasAvxSupport(self.target.*))
-                                Mir.Inst.Tag.mov_f64_avx
-                            else
-                                Mir.Inst.Tag.mov_f64_sse,
+                            .f32 => Mir.Inst.Tag.mov_f32,
+                            .f64 => Mir.Inst.Tag.mov_f64,
                             else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
                         };
 
@@ -6162,7 +6145,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                                     else => unreachable,
                                 },
                             }),
-                            .data = .{ .imm = 0 },
+                            .data = .{ .disp = 0 },
                         });
                         return;
                     }
@@ -6178,7 +6161,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                             .reg2 = reg.to64(),
                             .flags = 0b01,
                         }),
-                        .data = .{ .imm = 0 },
+                        .data = .{ .disp = 0 },
                     });
                 },
             }
@@ -6190,14 +6173,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
 
                 if (intrinsicsAllowed(self.target.*, ty)) {
                     const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                        .f32 => if (hasAvxSupport(self.target.*))
-                            Mir.Inst.Tag.mov_f32_avx
-                        else
-                            Mir.Inst.Tag.mov_f32_sse,
-                        .f64 => if (hasAvxSupport(self.target.*))
-                            Mir.Inst.Tag.mov_f64_avx
-                        else
-                            Mir.Inst.Tag.mov_f64_sse,
+                        .f32 => Mir.Inst.Tag.mov_f32,
+                        .f64 => Mir.Inst.Tag.mov_f64,
                         else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
                     };
 
@@ -6211,7 +6188,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                                 else => unreachable,
                             },
                         }),
-                        .data = .{ .imm = 0 },
+                        .data = .{ .disp = 0 },
                     });
                     return;
                 }
@@ -6255,7 +6232,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                                 .reg2 = reg.to64(),
                                 .flags = 0b01,
                             }),
-                            .data = .{ .imm = 0 },
+                            .data = .{ .disp = 0 },
                         });
                     }
                 }
@@ -6283,7 +6260,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                                     .reg2 = .rbp,
                                     .flags = flags,
                                 }),
-                                .data = .{ .imm = @bitCast(u32, -off) },
+                                .data = .{ .disp = -off },
                             });
                             return;
                         }
@@ -6302,7 +6279,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                                     .reg2 = .rbp,
                                     .flags = flags,
                                 }),
-                                .data = .{ .imm = @bitCast(u32, -off) },
+                                .data = .{ .disp = -off },
                             });
                             return;
                         }
@@ -6311,14 +6288,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .Float => {
                     if (intrinsicsAllowed(self.target.*, ty)) {
                         const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                            .f32 => if (hasAvxSupport(self.target.*))
-                                Mir.Inst.Tag.mov_f32_avx
-                            else
-                                Mir.Inst.Tag.mov_f32_sse,
-                            .f64 => if (hasAvxSupport(self.target.*))
-                                Mir.Inst.Tag.mov_f64_avx
-                            else
-                                Mir.Inst.Tag.mov_f64_sse,
+                            .f32 => Mir.Inst.Tag.mov_f32,
+                            .f64 => Mir.Inst.Tag.mov_f64,
                             else => return self.fail("TODO genSetReg from stack offset for {}", .{ty.fmtDebug()}),
                         };
                         _ = try self.addInst(.{
@@ -6331,7 +6302,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                                     else => unreachable,
                                 },
                             }),
-                            .data = .{ .imm = @bitCast(u32, -off) },
+                            .data = .{ .disp = -off },
                         });
                         return;
                     }
@@ -6347,7 +6318,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     .reg2 = .rbp,
                     .flags = 0b01,
                 }),
-                .data = .{ .imm = @bitCast(u32, -off) },
+                .data = .{ .disp = -off },
             });
         },
     }
@@ -6436,7 +6407,7 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
                 else => |size| return self.fail("TODO load ST(0) with abiSize={}", .{size}),
             },
         }),
-        .data = .{ .imm = @bitCast(u32, -stack_offset) },
+        .data = .{ .disp = -stack_offset },
     });
 
     // convert
@@ -6452,7 +6423,7 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
                 else => |size| return self.fail("TODO convert float with abiSize={}", .{size}),
             },
         }),
-        .data = .{ .imm = @bitCast(u32, -stack_dst.stack_offset) },
+        .data = .{ .disp = -stack_dst.stack_offset },
     });
 
     return self.finishAir(inst, stack_dst, .{ ty_op.operand, .none, .none });
@@ -6551,7 +6522,7 @@ fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
                         .reg2 = reg,
                         .flags = 0b01,
                     }),
-                    .data = .{ .imm = 0 },
+                    .data = .{ .disp = 0 },
                 });
                 break :blk MCValue{ .register = reg };
             },
