@@ -6584,15 +6584,86 @@ fn airSplat(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airSelect(f: *Function, inst: Air.Inst.Index) !CValue {
-    if (f.liveness.isUnused(inst)) return .none;
+    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const extra = f.air.extraData(Air.Bin, pl_op.payload).data;
 
-    return f.fail("TODO: C backend: implement airSelect", .{});
+    if (f.liveness.isUnused(inst)) {
+        try reap(f, inst, &.{ pl_op.operand, extra.lhs, extra.rhs });
+        return .none;
+    }
+
+    const pred = try f.resolveInst(pl_op.operand);
+    const lhs = try f.resolveInst(extra.lhs);
+    const rhs = try f.resolveInst(extra.rhs);
+    try reap(f, inst, &.{ pl_op.operand, extra.lhs, extra.rhs });
+
+    const inst_ty = f.air.typeOfIndex(inst);
+
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst, inst_ty);
+    const v = try Vectorizer.start(f, inst, writer, inst_ty);
+    try f.writeCValue(writer, local, .Other);
+    try v.elem(f, writer);
+    try writer.writeAll(" = ");
+    try f.writeCValue(writer, pred, .Other);
+    try v.elem(f, writer);
+    try writer.writeAll(" ? ");
+    try f.writeCValue(writer, lhs, .Other);
+    try v.elem(f, writer);
+    try writer.writeAll(" : ");
+    try f.writeCValue(writer, rhs, .Other);
+    try v.elem(f, writer);
+    try writer.writeAll(";\n");
+    try v.end(f, inst, writer);
+
+    return local;
 }
 
 fn airShuffle(f: *Function, inst: Air.Inst.Index) !CValue {
-    if (f.liveness.isUnused(inst)) return .none;
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const extra = f.air.extraData(Air.Shuffle, ty_pl.payload).data;
 
-    return f.fail("TODO: C backend: implement airShuffle", .{});
+    if (f.liveness.isUnused(inst)) {
+        try reap(f, inst, &.{ extra.a, extra.b });
+        return .none;
+    }
+
+    const mask = f.air.values[extra.mask];
+    const lhs = try f.resolveInst(extra.a);
+    const rhs = try f.resolveInst(extra.b);
+
+    const module = f.object.dg.module;
+    const target = module.getTarget();
+    const inst_ty = f.air.typeOfIndex(inst);
+
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst, inst_ty);
+    try reap(f, inst, &.{ extra.a, extra.b }); // local cannot alias operands
+    for (0..extra.mask_len) |index| {
+        var dst_pl = Value.Payload.U64{
+            .base = .{ .tag = .int_u64 },
+            .data = @intCast(u64, index),
+        };
+
+        try f.writeCValue(writer, local, .Other);
+        try writer.writeByte('[');
+        try f.object.dg.renderValue(writer, Type.usize, Value.initPayload(&dst_pl.base), .Other);
+        try writer.writeAll("] = ");
+
+        var buf: Value.ElemValueBuffer = undefined;
+        const mask_elem = mask.elemValueBuffer(module, index, &buf).toSignedInt(target);
+        var src_pl = Value.Payload.U64{
+            .base = .{ .tag = .int_u64 },
+            .data = @intCast(u64, mask_elem ^ mask_elem >> 63),
+        };
+
+        try f.writeCValue(writer, if (mask_elem >= 0) lhs else rhs, .Other);
+        try writer.writeByte('[');
+        try f.object.dg.renderValue(writer, Type.usize, Value.initPayload(&src_pl.base), .Other);
+        try writer.writeAll("];\n");
+    }
+
+    return local;
 }
 
 fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
