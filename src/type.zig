@@ -4213,7 +4213,7 @@ pub const Type = extern union {
         };
     }
 
-    pub fn shallowElemType(child_ty: Type) Type {
+    fn shallowElemType(child_ty: Type) Type {
         return switch (child_ty.zigTypeTag()) {
             .Array, .Vector => child_ty.childType(),
             else => child_ty,

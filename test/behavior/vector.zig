@@ -25,7 +25,6 @@ test "implicit cast vector to array - bool" {
 
 test "vector wrap operators" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -116,7 +115,6 @@ test "vector float operators" {
 
 test "vector bit operators" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -442,7 +440,6 @@ test "vector comparison operators" {
 
 test "vector division operators" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -525,7 +522,6 @@ test "vector division operators" {
 
 test "vector bitwise not operator" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -557,7 +553,6 @@ test "vector bitwise not operator" {
 
 test "vector shift operators" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -651,7 +646,6 @@ test "vector shift operators" {
 
 test "vector reduce operation" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -707,7 +701,7 @@ test "vector reduce operation" {
 
             // LLVM 11 ERROR: Cannot select type
             // https://github.com/ziglang/zig/issues/7138
-            if (builtin.target.cpu.arch != .aarch64) {
+            if (builtin.zig_backend != .stage2_llvm or builtin.target.cpu.arch != .aarch64) {
                 try testReduce(.Min, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, -386));
                 try testReduce(.Min, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 9));
             }
@@ -725,7 +719,7 @@ test "vector reduce operation" {
 
             // LLVM 11 ERROR: Cannot select type
             // https://github.com/ziglang/zig/issues/7138
-            if (builtin.target.cpu.arch != .aarch64) {
+            if (builtin.zig_backend != .stage2_llvm or builtin.target.cpu.arch != .aarch64) {
                 try testReduce(.Max, [4]i64{ 1234567, -386, 0, 3 }, @as(i64, 1234567));
                 try testReduce(.Max, [4]u64{ 99, 9999, 9, 99999 }, @as(u64, 99999));
             }
@@ -773,14 +767,14 @@ test "vector reduce operation" {
 
             // LLVM 11 ERROR: Cannot select type
             // https://github.com/ziglang/zig/issues/7138
-            if (false) {
-                try testReduce(.Min, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
-                try testReduce(.Min, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
-                try testReduce(.Min, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+            if (builtin.zig_backend != .stage2_llvm) {
+                try testReduce(.Min, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, @as(f16, -1.9));
+                try testReduce(.Min, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, @as(f32, -1.9));
+                try testReduce(.Min, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, @as(f64, -1.9));
 
-                try testReduce(.Max, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
-                try testReduce(.Max, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);
-                try testReduce(.Max, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, f64_nan);
+                try testReduce(.Max, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, @as(f16, 100.0));
+                try testReduce(.Max, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, @as(f32, 100.0));
+                try testReduce(.Max, [4]f64{ -1.9, 5.1, f64_nan, 100.0 }, @as(f64, 100.0));
             }
 
             try testReduce(.Mul, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
@@ -831,7 +825,6 @@ test "mask parameter of @shuffle is comptime scope" {
 
 test "saturating add" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -863,7 +856,6 @@ test "saturating add" {
 
 test "saturating subtraction" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -886,7 +878,6 @@ test "saturating subtraction" {
 
 test "saturating multiplication" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -913,7 +904,6 @@ test "saturating multiplication" {
 
 test "saturating shift-left" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -1047,7 +1037,6 @@ test "@mulWithOverflow" {
 }
 
 test "@shlWithOverflow" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -1202,7 +1191,6 @@ test "zero multiplicand" {
 
 test "@intCast to u0" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO

@@ -612,12 +612,6 @@ static inline bool zig_addo_u32(uint32_t *res, uint32_t lhs, uint32_t rhs, uint8
 #endif
 }
 
-static inline void zig_vaddo_u32(uint8_t *ov, uint32_t *res, int n,
-    const uint32_t *lhs, const uint32_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_addo_u32(&res[i], lhs[i], rhs[i], bits);
-}
-
 zig_extern int32_t  __addosi4(int32_t lhs, int32_t rhs, int *overflow);
 static inline bool zig_addo_i32(int32_t *res, int32_t lhs, int32_t rhs, uint8_t bits) {
 #if zig_has_builtin(add_overflow) || defined(zig_gnuc)
@@ -632,12 +626,6 @@ static inline bool zig_addo_i32(int32_t *res, int32_t lhs, int32_t rhs, uint8_t 
     return overflow || full_res < zig_minInt_i(32, bits) || full_res > zig_maxInt_i(32, bits);
 }
 
-static inline void zig_vaddo_i32(uint8_t *ov, int32_t *res, int n,
-    const int32_t *lhs, const int32_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_addo_i32(&res[i], lhs[i], rhs[i], bits);
-}
-
 static inline bool zig_addo_u64(uint64_t *res, uint64_t lhs, uint64_t rhs, uint8_t bits) {
 #if zig_has_builtin(add_overflow) || defined(zig_gnuc)
     uint64_t full_res;
@@ -648,12 +636,6 @@ static inline bool zig_addo_u64(uint64_t *res, uint64_t lhs, uint64_t rhs, uint8
     *res = zig_addw_u64(lhs, rhs, bits);
     return *res < lhs;
 #endif
-}
-
-static inline void zig_vaddo_u64(uint8_t *ov, uint64_t *res, int n,
-    const uint64_t *lhs, const uint64_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_addo_u64(&res[i], lhs[i], rhs[i], bits);
 }
 
 zig_extern int64_t  __addodi4(int64_t lhs, int64_t rhs, int *overflow);
@@ -670,12 +652,6 @@ static inline bool zig_addo_i64(int64_t *res, int64_t lhs, int64_t rhs, uint8_t 
     return overflow || full_res < zig_minInt_i(64, bits) || full_res > zig_maxInt_i(64, bits);
 }
 
-static inline void zig_vaddo_i64(uint8_t *ov, int64_t *res, int n,
-    const int64_t *lhs, const int64_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_addo_i64(&res[i], lhs[i], rhs[i], bits);
-}
-
 static inline bool zig_addo_u8(uint8_t *res, uint8_t lhs, uint8_t rhs, uint8_t bits) {
 #if zig_has_builtin(add_overflow) || defined(zig_gnuc)
     uint8_t full_res;
@@ -688,12 +664,6 @@ static inline bool zig_addo_u8(uint8_t *res, uint8_t lhs, uint8_t rhs, uint8_t b
     *res = (uint8_t)full_res;
     return overflow;
 #endif
-}
-
-static inline void zig_vaddo_u8(uint8_t *ov, uint8_t *res, int n,
-    const uint8_t *lhs, const uint8_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_addo_u8(&res[i], lhs[i], rhs[i], bits);
 }
 
 static inline bool zig_addo_i8(int8_t *res, int8_t lhs, int8_t rhs, uint8_t bits) {
@@ -710,12 +680,6 @@ static inline bool zig_addo_i8(int8_t *res, int8_t lhs, int8_t rhs, uint8_t bits
 #endif
 }
 
-static inline void zig_vaddo_i8(uint8_t *ov, int8_t *res, int n,
-    const int8_t *lhs, const int8_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_addo_i8(&res[i], lhs[i], rhs[i], bits);
-}
-
 static inline bool zig_addo_u16(uint16_t *res, uint16_t lhs, uint16_t rhs, uint8_t bits) {
 #if zig_has_builtin(add_overflow) || defined(zig_gnuc)
     uint16_t full_res;
@@ -728,12 +692,6 @@ static inline bool zig_addo_u16(uint16_t *res, uint16_t lhs, uint16_t rhs, uint8
     *res = (uint16_t)full_res;
     return overflow;
 #endif
-}
-
-static inline void zig_vaddo_u16(uint8_t *ov, uint16_t *res, int n,
-    const uint16_t *lhs, const uint16_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_addo_u16(&res[i], lhs[i], rhs[i], bits);
 }
 
 static inline bool zig_addo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t bits) {
@@ -750,12 +708,6 @@ static inline bool zig_addo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t 
 #endif
 }
 
-static inline void zig_vaddo_i16(uint8_t *ov, int16_t *res, int n,
-    const int16_t *lhs, const int16_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_addo_i16(&res[i], lhs[i], rhs[i], bits);
-}
-
 static inline bool zig_subo_u32(uint32_t *res, uint32_t lhs, uint32_t rhs, uint8_t bits) {
 #if zig_has_builtin(sub_overflow) || defined(zig_gnuc)
     uint32_t full_res;
@@ -766,12 +718,6 @@ static inline bool zig_subo_u32(uint32_t *res, uint32_t lhs, uint32_t rhs, uint8
     *res = zig_subw_u32(lhs, rhs, bits);
     return *res > lhs;
 #endif
-}
-
-static inline void zig_vsubo_u32(uint8_t *ov, uint32_t *res, int n,
-    const uint32_t *lhs, const uint32_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_subo_u32(&res[i], lhs[i], rhs[i], bits);
 }
 
 zig_extern int32_t  __subosi4(int32_t lhs, int32_t rhs, int *overflow);
@@ -788,12 +734,6 @@ static inline bool zig_subo_i32(int32_t *res, int32_t lhs, int32_t rhs, uint8_t 
     return overflow || full_res < zig_minInt_i(32, bits) || full_res > zig_maxInt_i(32, bits);
 }
 
-static inline void zig_vsubo_i32(uint8_t *ov, int32_t *res, int n,
-    const int32_t *lhs, const int32_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_subo_i32(&res[i], lhs[i], rhs[i], bits);
-}
-
 static inline bool zig_subo_u64(uint64_t *res, uint64_t lhs, uint64_t rhs, uint8_t bits) {
 #if zig_has_builtin(sub_overflow) || defined(zig_gnuc)
     uint64_t full_res;
@@ -804,12 +744,6 @@ static inline bool zig_subo_u64(uint64_t *res, uint64_t lhs, uint64_t rhs, uint8
     *res = zig_subw_u64(lhs, rhs, bits);
     return *res > lhs;
 #endif
-}
-
-static inline void zig_vsubo_u64(uint8_t *ov, uint64_t *res, int n,
-    const uint64_t *lhs, const uint64_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_subo_u64(&res[i], lhs[i], rhs[i], bits);
 }
 
 zig_extern int64_t  __subodi4(int64_t lhs, int64_t rhs, int *overflow);
@@ -826,12 +760,6 @@ static inline bool zig_subo_i64(int64_t *res, int64_t lhs, int64_t rhs, uint8_t 
     return overflow || full_res < zig_minInt_i(64, bits) || full_res > zig_maxInt_i(64, bits);
 }
 
-static inline void zig_vsubo_i64(uint8_t *ov, int64_t *res, int n,
-    const int64_t *lhs, const int64_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_subo_i64(&res[i], lhs[i], rhs[i], bits);
-}
-
 static inline bool zig_subo_u8(uint8_t *res, uint8_t lhs, uint8_t rhs, uint8_t bits) {
 #if zig_has_builtin(sub_overflow) || defined(zig_gnuc)
     uint8_t full_res;
@@ -844,12 +772,6 @@ static inline bool zig_subo_u8(uint8_t *res, uint8_t lhs, uint8_t rhs, uint8_t b
     *res = (uint8_t)full_res;
     return overflow;
 #endif
-}
-
-static inline void zig_vsubo_u8(uint8_t *ov, uint8_t *res, int n,
-    const uint8_t *lhs, const uint8_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_subo_u8(&res[i], lhs[i], rhs[i], bits);
 }
 
 static inline bool zig_subo_i8(int8_t *res, int8_t lhs, int8_t rhs, uint8_t bits) {
@@ -866,13 +788,6 @@ static inline bool zig_subo_i8(int8_t *res, int8_t lhs, int8_t rhs, uint8_t bits
 #endif
 }
 
-static inline void zig_vsubo_i8(uint8_t *ov, int8_t *res, int n,
-    const int8_t *lhs, const int8_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_subo_i8(&res[i], lhs[i], rhs[i], bits);
-}
-
-
 static inline bool zig_subo_u16(uint16_t *res, uint16_t lhs, uint16_t rhs, uint8_t bits) {
 #if zig_has_builtin(sub_overflow) || defined(zig_gnuc)
     uint16_t full_res;
@@ -886,13 +801,6 @@ static inline bool zig_subo_u16(uint16_t *res, uint16_t lhs, uint16_t rhs, uint8
     return overflow;
 #endif
 }
-
-static inline void zig_vsubo_u16(uint8_t *ov, uint16_t *res, int n,
-    const uint16_t *lhs, const uint16_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_subo_u16(&res[i], lhs[i], rhs[i], bits);
-}
-
 
 static inline bool zig_subo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t bits) {
 #if zig_has_builtin(sub_overflow) || defined(zig_gnuc)
@@ -908,12 +816,6 @@ static inline bool zig_subo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t 
 #endif
 }
 
-static inline void zig_vsubo_i16(uint8_t *ov, int16_t *res, int n,
-    const int16_t *lhs, const int16_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_subo_i16(&res[i], lhs[i], rhs[i], bits);
-}
-
 static inline bool zig_mulo_u32(uint32_t *res, uint32_t lhs, uint32_t rhs, uint8_t bits) {
 #if zig_has_builtin(mul_overflow) || defined(zig_gnuc)
     uint32_t full_res;
@@ -924,12 +826,6 @@ static inline bool zig_mulo_u32(uint32_t *res, uint32_t lhs, uint32_t rhs, uint8
     *res = zig_mulw_u32(lhs, rhs, bits);
     return rhs != UINT32_C(0) && lhs > zig_maxInt_u(32, bits) / rhs;
 #endif
-}
-
-static inline void zig_vmulo_u32(uint8_t *ov, uint32_t *res, int n,
-    const uint32_t *lhs, const uint32_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_u32(&res[i], lhs[i], rhs[i], bits);
 }
 
 zig_extern int32_t  __mulosi4(int32_t lhs, int32_t rhs, int *overflow);
@@ -946,12 +842,6 @@ static inline bool zig_mulo_i32(int32_t *res, int32_t lhs, int32_t rhs, uint8_t 
     return overflow || full_res < zig_minInt_i(32, bits) || full_res > zig_maxInt_i(32, bits);
 }
 
-static inline void zig_vmulo_i32(uint8_t *ov, int32_t *res, int n,
-    const int32_t *lhs, const int32_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_i32(&res[i], lhs[i], rhs[i], bits);
-}
-
 static inline bool zig_mulo_u64(uint64_t *res, uint64_t lhs, uint64_t rhs, uint8_t bits) {
 #if zig_has_builtin(mul_overflow) || defined(zig_gnuc)
     uint64_t full_res;
@@ -962,12 +852,6 @@ static inline bool zig_mulo_u64(uint64_t *res, uint64_t lhs, uint64_t rhs, uint8
     *res = zig_mulw_u64(lhs, rhs, bits);
     return rhs != UINT64_C(0) && lhs > zig_maxInt_u(64, bits) / rhs;
 #endif
-}
-
-static inline void zig_vmulo_u64(uint8_t *ov, uint64_t *res, int n,
-    const uint64_t *lhs, const uint64_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_u64(&res[i], lhs[i], rhs[i], bits);
 }
 
 zig_extern int64_t  __mulodi4(int64_t lhs, int64_t rhs, int *overflow);
@@ -984,12 +868,6 @@ static inline bool zig_mulo_i64(int64_t *res, int64_t lhs, int64_t rhs, uint8_t 
     return overflow || full_res < zig_minInt_i(64, bits) || full_res > zig_maxInt_i(64, bits);
 }
 
-static inline void zig_vmulo_i64(uint8_t *ov, int64_t *res, int n,
-    const int64_t *lhs, const int64_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_i64(&res[i], lhs[i], rhs[i], bits);
-}
-
 static inline bool zig_mulo_u8(uint8_t *res, uint8_t lhs, uint8_t rhs, uint8_t bits) {
 #if zig_has_builtin(mul_overflow) || defined(zig_gnuc)
     uint8_t full_res;
@@ -1002,12 +880,6 @@ static inline bool zig_mulo_u8(uint8_t *res, uint8_t lhs, uint8_t rhs, uint8_t b
     *res = (uint8_t)full_res;
     return overflow;
 #endif
-}
-
-static inline void zig_vmulo_u8(uint8_t *ov, uint8_t *res, int n,
-    const uint8_t *lhs, const uint8_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_u8(&res[i], lhs[i], rhs[i], bits);
 }
 
 static inline bool zig_mulo_i8(int8_t *res, int8_t lhs, int8_t rhs, uint8_t bits) {
@@ -1024,12 +896,6 @@ static inline bool zig_mulo_i8(int8_t *res, int8_t lhs, int8_t rhs, uint8_t bits
 #endif
 }
 
-static inline void zig_vmulo_i8(uint8_t *ov, int8_t *res, int n,
-    const int8_t *lhs, const int8_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_i8(&res[i], lhs[i], rhs[i], bits);
-}
-
 static inline bool zig_mulo_u16(uint16_t *res, uint16_t lhs, uint16_t rhs, uint8_t bits) {
 #if zig_has_builtin(mul_overflow) || defined(zig_gnuc)
     uint16_t full_res;
@@ -1044,12 +910,6 @@ static inline bool zig_mulo_u16(uint16_t *res, uint16_t lhs, uint16_t rhs, uint8
 #endif
 }
 
-static inline void zig_vmulo_u16(uint8_t *ov, uint16_t *res, int n,
-    const uint16_t *lhs, const uint16_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_u16(&res[i], lhs[i], rhs[i], bits);
-}
-
 static inline bool zig_mulo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t bits) {
 #if zig_has_builtin(mul_overflow) || defined(zig_gnuc)
     int16_t full_res;
@@ -1062,12 +922,6 @@ static inline bool zig_mulo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t 
     *res = (int16_t)full_res;
     return overflow;
 #endif
-}
-
-static inline void zig_vmulo_i16(uint8_t *ov, int16_t *res, int n,
-    const int16_t *lhs, const int16_t *rhs, uint8_t bits)
-{
-    for (int i = 0; i < n; ++i) ov[i] = zig_mulo_i16(&res[i], lhs[i], rhs[i], bits);
 }
 
 #define zig_int_builtins(w) \
@@ -2090,6 +1944,446 @@ static inline int32_t zig_cmp_big(const void *lhs, const void *rhs, bool is_sign
     return 0;
 }
 
+static inline bool zig_addo_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    uint8_t *res_bytes = res;
+    const uint8_t *lhs_bytes = lhs;
+    const uint8_t *rhs_bytes = rhs;
+    uint16_t byte_offset = 0;
+    uint16_t remaining_bytes = zig_int_bytes(bits);
+    uint16_t top_bits = remaining_bytes * 8 - bits;
+    bool overflow = false;
+
+#if zig_big_endian
+    byte_offset = remaining_bytes;
+#endif
+
+    while (remaining_bytes >= 128 / CHAR_BIT) {
+        uint16_t limb_bits = 128 - (remaining_bytes == 128 / CHAR_BIT ? top_bits : 0);
+
+#if zig_big_endian
+        byte_offset -= 128 / CHAR_BIT;
+#endif
+
+        if (remaining_bytes == 128 / CHAR_BIT && is_signed) {
+            zig_i128 res_limb;
+            zig_i128 tmp_limb;
+            zig_i128 lhs_limb;
+            zig_i128 rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_addo_i128(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_addo_i128(&res_limb, tmp_limb, zig_make_i128(INT64_C(0), overflow ? UINT64_C(1) : UINT64_C(0)), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        } else {
+            zig_u128 res_limb;
+            zig_u128 tmp_limb;
+            zig_u128 lhs_limb;
+            zig_u128 rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_addo_u128(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_addo_u128(&res_limb, tmp_limb, zig_make_u128(UINT64_C(0), overflow ? UINT64_C(1) : UINT64_C(0)), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        }
+
+        remaining_bytes -= 128 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 128 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 64 / CHAR_BIT) {
+        uint16_t limb_bits = 64 - (remaining_bytes == 64 / CHAR_BIT ? top_bits : 0);
+
+#if zig_big_endian
+        byte_offset -= 64 / CHAR_BIT;
+#endif
+
+        if (remaining_bytes == 64 / CHAR_BIT && is_signed) {
+            int64_t res_limb;
+            int64_t tmp_limb;
+            int64_t lhs_limb;
+            int64_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_addo_i64(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_addo_i64(&res_limb, tmp_limb, overflow ? INT64_C(1) : INT64_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        } else {
+            uint64_t res_limb;
+            uint64_t tmp_limb;
+            uint64_t lhs_limb;
+            uint64_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_addo_u64(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_addo_u64(&res_limb, tmp_limb, overflow ? UINT64_C(1) : UINT64_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        }
+
+        remaining_bytes -= 64 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 64 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 32 / CHAR_BIT) {
+        uint16_t limb_bits = 32 - (remaining_bytes == 32 / CHAR_BIT ? top_bits : 0);
+
+#if zig_big_endian
+        byte_offset -= 32 / CHAR_BIT;
+#endif
+
+        if (remaining_bytes == 32 / CHAR_BIT && is_signed) {
+            int32_t res_limb;
+            int32_t tmp_limb;
+            int32_t lhs_limb;
+            int32_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_addo_i32(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_addo_i32(&res_limb, tmp_limb, overflow ? INT32_C(1) : INT32_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        } else {
+            uint32_t res_limb;
+            uint32_t tmp_limb;
+            uint32_t lhs_limb;
+            uint32_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_addo_u32(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_addo_u32(&res_limb, tmp_limb, overflow ? UINT32_C(1) : UINT32_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        }
+
+        remaining_bytes -= 32 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 32 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 16 / CHAR_BIT) {
+        uint16_t limb_bits = 16 - (remaining_bytes == 16 / CHAR_BIT ? top_bits : 0);
+
+#if zig_big_endian
+        byte_offset -= 16 / CHAR_BIT;
+#endif
+
+        if (remaining_bytes == 16 / CHAR_BIT && is_signed) {
+            int16_t res_limb;
+            int16_t tmp_limb;
+            int16_t lhs_limb;
+            int16_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_addo_i16(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_addo_i16(&res_limb, tmp_limb, overflow ? INT16_C(1) : INT16_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        } else {
+            uint16_t res_limb;
+            uint16_t tmp_limb;
+            uint16_t lhs_limb;
+            uint16_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_addo_u16(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_addo_u16(&res_limb, tmp_limb, overflow ? UINT16_C(1) : UINT16_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        }
+
+        remaining_bytes -= 16 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 16 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 8 / CHAR_BIT) {
+        uint16_t limb_bits = 8 - (remaining_bytes == 8 / CHAR_BIT ? top_bits : 0);
+
+#if zig_big_endian
+        byte_offset -= 8 / CHAR_BIT;
+#endif
+
+        if (remaining_bytes == 8 / CHAR_BIT && is_signed) {
+            int8_t res_limb;
+            int8_t tmp_limb;
+            int8_t lhs_limb;
+            int8_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_addo_i8(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_addo_i8(&res_limb, tmp_limb, overflow ? INT8_C(1) : INT8_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        } else {
+            uint8_t res_limb;
+            uint8_t tmp_limb;
+            uint8_t lhs_limb;
+            uint8_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_addo_u8(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_addo_u8(&res_limb, tmp_limb, overflow ? UINT8_C(1) : UINT8_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        }
+
+        remaining_bytes -= 8 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 8 / CHAR_BIT;
+#endif
+    }
+
+    return overflow;
+}
+
+static inline bool zig_subo_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    uint8_t *res_bytes = res;
+    const uint8_t *lhs_bytes = lhs;
+    const uint8_t *rhs_bytes = rhs;
+    uint16_t byte_offset = 0;
+    uint16_t remaining_bytes = zig_int_bytes(bits);
+    uint16_t top_bits = remaining_bytes * 8 - bits;
+    bool overflow = false;
+
+#if zig_big_endian
+    byte_offset = remaining_bytes;
+#endif
+
+    while (remaining_bytes >= 128 / CHAR_BIT) {
+        uint16_t limb_bits = 128 - (remaining_bytes == 128 / CHAR_BIT ? top_bits : 0);
+
+#if zig_big_endian
+        byte_offset -= 128 / CHAR_BIT;
+#endif
+
+        if (remaining_bytes == 128 / CHAR_BIT && is_signed) {
+            zig_i128 res_limb;
+            zig_i128 tmp_limb;
+            zig_i128 lhs_limb;
+            zig_i128 rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_subo_i128(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_subo_i128(&res_limb, tmp_limb, zig_make_i128(INT64_C(0), overflow ? UINT64_C(1) : UINT64_C(0)), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        } else {
+            zig_u128 res_limb;
+            zig_u128 tmp_limb;
+            zig_u128 lhs_limb;
+            zig_u128 rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_subo_u128(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_subo_u128(&res_limb, tmp_limb, zig_make_u128(UINT64_C(0), overflow ? UINT64_C(1) : UINT64_C(0)), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        }
+
+        remaining_bytes -= 128 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 128 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 64 / CHAR_BIT) {
+        uint16_t limb_bits = 64 - (remaining_bytes == 64 / CHAR_BIT ? top_bits : 0);
+
+#if zig_big_endian
+        byte_offset -= 64 / CHAR_BIT;
+#endif
+
+        if (remaining_bytes == 64 / CHAR_BIT && is_signed) {
+            int64_t res_limb;
+            int64_t tmp_limb;
+            int64_t lhs_limb;
+            int64_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_subo_i64(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_subo_i64(&res_limb, tmp_limb, overflow ? INT64_C(1) : INT64_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        } else {
+            uint64_t res_limb;
+            uint64_t tmp_limb;
+            uint64_t lhs_limb;
+            uint64_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_subo_u64(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_subo_u64(&res_limb, tmp_limb, overflow ? UINT64_C(1) : UINT64_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        }
+
+        remaining_bytes -= 64 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 64 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 32 / CHAR_BIT) {
+        uint16_t limb_bits = 32 - (remaining_bytes == 32 / CHAR_BIT ? top_bits : 0);
+
+#if zig_big_endian
+        byte_offset -= 32 / CHAR_BIT;
+#endif
+
+        if (remaining_bytes == 32 / CHAR_BIT && is_signed) {
+            int32_t res_limb;
+            int32_t tmp_limb;
+            int32_t lhs_limb;
+            int32_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_subo_i32(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_subo_i32(&res_limb, tmp_limb, overflow ? INT32_C(1) : INT32_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        } else {
+            uint32_t res_limb;
+            uint32_t tmp_limb;
+            uint32_t lhs_limb;
+            uint32_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_subo_u32(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_subo_u32(&res_limb, tmp_limb, overflow ? UINT32_C(1) : UINT32_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        }
+
+        remaining_bytes -= 32 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 32 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 16 / CHAR_BIT) {
+        uint16_t limb_bits = 16 - (remaining_bytes == 16 / CHAR_BIT ? top_bits : 0);
+
+#if zig_big_endian
+        byte_offset -= 16 / CHAR_BIT;
+#endif
+
+        if (remaining_bytes == 16 / CHAR_BIT && is_signed) {
+            int16_t res_limb;
+            int16_t tmp_limb;
+            int16_t lhs_limb;
+            int16_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_subo_i16(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_subo_i16(&res_limb, tmp_limb, overflow ? INT16_C(1) : INT16_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        } else {
+            uint16_t res_limb;
+            uint16_t tmp_limb;
+            uint16_t lhs_limb;
+            uint16_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_subo_u16(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_subo_u16(&res_limb, tmp_limb, overflow ? UINT16_C(1) : UINT16_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        }
+
+        remaining_bytes -= 16 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 16 / CHAR_BIT;
+#endif
+    }
+
+    while (remaining_bytes >= 8 / CHAR_BIT) {
+        uint16_t limb_bits = 8 - (remaining_bytes == 8 / CHAR_BIT ? top_bits : 0);
+
+#if zig_big_endian
+        byte_offset -= 8 / CHAR_BIT;
+#endif
+
+        if (remaining_bytes == 8 / CHAR_BIT && is_signed) {
+            int8_t res_limb;
+            int8_t tmp_limb;
+            int8_t lhs_limb;
+            int8_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_subo_i8(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_subo_i8(&res_limb, tmp_limb, overflow ? INT8_C(1) : INT8_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        } else {
+            uint8_t res_limb;
+            uint8_t tmp_limb;
+            uint8_t lhs_limb;
+            uint8_t rhs_limb;
+            bool limb_overflow;
+
+            memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+            memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+            limb_overflow = zig_subo_u8(&tmp_limb, lhs_limb, rhs_limb, limb_bits);
+            overflow = limb_overflow ^ zig_subo_u8(&res_limb, tmp_limb, overflow ? UINT8_C(1) : UINT8_C(0), limb_bits);
+            memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+        }
+
+        remaining_bytes -= 8 / CHAR_BIT;
+
+#if zig_little_endian
+        byte_offset += 8 / CHAR_BIT;
+#endif
+    }
+
+    return overflow;
+}
+
+static inline void zig_addw_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    (void)zig_addo_big(res, lhs, rhs, is_signed, bits);
+}
+
+static inline void zig_subw_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    (void)zig_subo_big(res, lhs, rhs, is_signed, bits);
+}
+
 static inline uint16_t zig_clz_big(const void *val, bool is_signed, uint16_t bits) {
     const uint8_t *val_bytes = val;
     uint16_t byte_offset = 0;
@@ -3091,80 +3385,6 @@ zig_msvc_atomics_128op(u128, max)
 #endif /* _M_IX86 */
 
 #endif /* _MSC_VER && (_M_IX86 || _M_X64) */
-
-/* ============================= Vector Support ============================= */
-
-#define zig_cmp_vec(operation, operator) \
-    static inline void zig_##operation##_vec(bool *result, const void *lhs, const void *rhs, uint32_t len, bool is_signed, uint16_t elem_bits) { \
-        uint32_t index = 0; \
-        const uint8_t *lhs_ptr = lhs; \
-        const uint8_t *rhs_ptr = rhs; \
-        uint16_t elem_bytes = zig_int_bytes(elem_bits); \
- \
-        while (index < len) { \
-            result[index] = zig_cmp_big(lhs_ptr, rhs_ptr, is_signed, elem_bits) operator 0; \
-            lhs_ptr += elem_bytes; \
-            rhs_ptr += elem_bytes; \
-            index += 1; \
-        } \
-    }
-zig_cmp_vec(eq, ==)
-zig_cmp_vec(ne, !=)
-zig_cmp_vec(lt, < )
-zig_cmp_vec(le, <=)
-zig_cmp_vec(gt, > )
-zig_cmp_vec(ge, >=)
-
-static inline void zig_clz_vec(void *result, const void *val, uint32_t len, bool is_signed, uint16_t elem_bits) {
-    uint32_t index = 0;
-    const uint8_t *val_ptr = val;
-    uint16_t elem_bytes = zig_int_bytes(elem_bits);
-
-    while (index < len) {
-        uint16_t lz = zig_clz_big(val_ptr, is_signed, elem_bits);
-        if (elem_bits <= 128) {
-            ((uint8_t *)result)[index] = (uint8_t)lz;
-        } else {
-            ((uint16_t *)result)[index] = lz;
-        }
-        val_ptr += elem_bytes;
-        index += 1;
-    }
-}
-
-static inline void zig_ctz_vec(void *result, const void *val, uint32_t len, bool is_signed, uint16_t elem_bits) {
-    uint32_t index = 0;
-    const uint8_t *val_ptr = val;
-    uint16_t elem_bytes = zig_int_bytes(elem_bits);
-
-    while (index < len) {
-        uint16_t tz = zig_ctz_big(val_ptr, is_signed, elem_bits);
-        if (elem_bits <= 128) {
-            ((uint8_t *)result)[index] = (uint8_t)tz;
-        } else {
-            ((uint16_t *)result)[index] = tz;
-        }
-        val_ptr += elem_bytes;
-        index += 1;
-    }
-}
-
-static inline void zig_popcount_vec(void *result, const void *val, uint32_t len, bool is_signed, uint16_t elem_bits) {
-    uint32_t index = 0;
-    const uint8_t *val_ptr = val;
-    uint16_t elem_bytes = zig_int_bytes(elem_bits);
-
-    while (index < len) {
-        uint16_t pc = zig_popcount_big(val_ptr, is_signed, elem_bits);
-        if (elem_bits <= 128) {
-            ((uint8_t *)result)[index] = (uint8_t)pc;
-        } else {
-            ((uint16_t *)result)[index] = pc;
-        }
-        val_ptr += elem_bytes;
-        index += 1;
-    }
-}
 
 /* ======================== Special Case Intrinsics ========================= */
 

@@ -3319,7 +3319,7 @@ pub const Value = extern union {
         }
     }
 
-    fn floatToValue(float: f128, arena: Allocator, dest_ty: Type, target: Target) !Value {
+    pub fn floatToValue(float: f128, arena: Allocator, dest_ty: Type, target: Target) !Value {
         switch (dest_ty.floatBits(target)) {
             16 => return Value.Tag.float_16.create(arena, @floatCast(f16, float)),
             32 => return Value.Tag.float_32.create(arena, @floatCast(f32, float)),
