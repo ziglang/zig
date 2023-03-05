@@ -4013,6 +4013,7 @@ pub const usage_build =
     \\   --cache-dir [path]            Override path to local Zig cache directory
     \\   --global-cache-dir [path]     Override path to global Zig cache directory
     \\   --zig-lib-dir [arg]           Override path to Zig lib directory
+    \\   --build-runner [file]         Override path to build runner
     \\   --prominent-compile-errors    Output compile errors formatted for a human to read
     \\   -h, --help                    Print this help and exit
     \\
@@ -4031,6 +4032,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         var override_lib_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIB_DIR");
         var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
         var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
+        var override_build_runner: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_BUILD_RUNNER");
         var child_argv = std.ArrayList([]const u8).init(arena);
         var reference_trace: ?u32 = null;
         var debug_compile_errors = false;
@@ -4064,6 +4066,11 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         i += 1;
                         override_lib_dir = args[i];
                         try child_argv.appendSlice(&[_][]const u8{ arg, args[i] });
+                        continue;
+                    } else if (mem.eql(u8, arg, "--build-runner")) {
+                        if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                        i += 1;
+                        override_build_runner = args[i];
                         continue;
                     } else if (mem.eql(u8, arg, "--cache-dir")) {
                         if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
@@ -4197,10 +4204,29 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         try thread_pool.init(gpa);
         defer thread_pool.deinit();
 
-        var main_pkg: Package = .{
-            .root_src_directory = zig_lib_directory,
-            .root_src_path = "build_runner.zig",
-        };
+        var cleanup_build_runner_dir: ?fs.Dir = null;
+        defer if (cleanup_build_runner_dir) |*dir| dir.close();
+
+        var main_pkg: Package = if (override_build_runner) |build_runner_path|
+            .{
+                .root_src_directory = blk: {
+                    if (std.fs.path.dirname(build_runner_path)) |dirname| {
+                        const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
+                            fatal("unable to open directory to build runner from argument 'build-runner', '{s}': {s}", .{ dirname, @errorName(err) });
+                        };
+                        cleanup_build_runner_dir = dir;
+                        break :blk .{ .path = dirname, .handle = dir };
+                    }
+
+                    break :blk .{ .path = null, .handle = fs.cwd() };
+                },
+                .root_src_path = std.fs.path.basename(build_runner_path),
+            }
+        else
+            .{
+                .root_src_directory = zig_lib_directory,
+                .root_src_path = "build_runner.zig",
+            };
 
         if (!build_options.omit_pkg_fetching_code) {
             var http_client: std.http.Client = .{ .allocator = gpa };
@@ -4218,6 +4244,9 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             var build_roots_source = std.ArrayList(u8).init(gpa);
             defer build_roots_source.deinit();
 
+            var all_modules: Package.AllModules = .{};
+            defer all_modules.deinit(gpa);
+
             // Here we borrow main package's table and will replace it with a fresh
             // one after this process completes.
             main_pkg.fetchAndAddDependencies(
@@ -4231,6 +4260,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 &build_roots_source,
                 "",
                 color,
+                &all_modules,
             ) catch |err| switch (err) {
                 error.PackageFetchFailed => process.exit(1),
                 else => |e| return e,

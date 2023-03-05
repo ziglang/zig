@@ -2214,11 +2214,16 @@ pub const Object = struct {
                     ));
                 }
 
-                const union_name = if (layout.tag_size == 0) name.ptr else "AnonUnion";
+                var union_name_buf: ?[:0]const u8 = null;
+                defer if (union_name_buf) |buf| gpa.free(buf);
+                const union_name = if (layout.tag_size == 0) name else name: {
+                    union_name_buf = try std.fmt.allocPrintZ(gpa, "{s}:Payload", .{name});
+                    break :name union_name_buf.?;
+                };
 
                 const union_di_ty = dib.createUnionType(
                     compile_unit_scope,
-                    union_name,
+                    union_name.ptr,
                     null, // file
                     0, // line
                     ty.abiSize(target) * 8, // size in bits
@@ -4585,6 +4590,7 @@ pub const FuncGen = struct {
                 .block          => try self.airBlock(inst),
                 .br             => try self.airBr(inst),
                 .switch_br      => try self.airSwitchBr(inst),
+                .trap           => try self.airTrap(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
                 .frame_addr     => try self.airFrameAddress(inst),
@@ -8249,6 +8255,13 @@ pub const FuncGen = struct {
             return ptr;
         }
         return fg.load(ptr, ptr_ty);
+    }
+
+    fn airTrap(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        _ = inst;
+        const llvm_fn = self.getIntrinsic("llvm.trap", &.{});
+        _ = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, undefined, 0, .Cold, .Auto, "");
+        return null;
     }
 
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {

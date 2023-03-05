@@ -2097,9 +2097,16 @@ fn freeAtom(self: *Elf, atom_index: Atom.Index) void {
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
     const local_sym_index = atom.getSymbolIndex().?;
 
+    log.debug("adding %{d} to local symbols free list", .{local_sym_index});
     self.local_symbol_free_list.append(gpa, local_sym_index) catch {};
-    self.local_symbols.items[local_sym_index].st_info = 0;
-    self.local_symbols.items[local_sym_index].st_shndx = 0;
+    self.local_symbols.items[local_sym_index] = .{
+        .st_name = 0,
+        .st_info = 0,
+        .st_other = 0,
+        .st_shndx = 0,
+        .st_value = 0,
+        .st_size = 0,
+    };
     _ = self.atom_by_index_table.remove(local_sym_index);
     self.getAtomPtr(atom_index).local_sym_index = 0;
 
@@ -2618,7 +2625,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
             decl.analysis = .codegen_failure;
             try mod.failed_decls.put(mod.gpa, decl_index, em);
             log.err("{s}", .{em.msg});
-            return error.AnalysisFail;
+            return error.CodegenFail;
         },
     };
 

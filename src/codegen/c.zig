@@ -2741,6 +2741,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .const_ty => unreachable, // excluded from function bodies
             .arg      => try airArg(f, inst),
 
+            .trap       => try airTrap(f.object.writer()),
             .breakpoint => try airBreakpoint(f.object.writer()),
             .ret_addr   => try airRetAddr(f, inst),
             .frame_addr => try airFrameAddress(f, inst),
@@ -4426,6 +4427,11 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
     }
 
     return local;
+}
+
+fn airTrap(writer: anytype) !CValue {
+    try writer.writeAll("zig_trap();\n");
+    return .none;
 }
 
 fn airBreakpoint(writer: anytype) !CValue {

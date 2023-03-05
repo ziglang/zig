@@ -131,8 +131,8 @@ pub fn MultiArrayList(comptime S: type) type {
                 .capacity = self.capacity,
             };
             var ptr: [*]u8 = self.bytes;
-            for (sizes.bytes, 0..) |field_size, i| {
-                result.ptrs[sizes.fields[i]] = ptr;
+            for (sizes.bytes, sizes.fields) |field_size, i| {
+                result.ptrs[i] = ptr;
                 ptr += field_size * self.capacity;
             }
             return result;
@@ -446,16 +446,33 @@ pub fn MultiArrayList(comptime S: type) type {
             return meta.fieldInfo(S, field).type;
         }
 
-        /// This function is used in tools/zig-gdb.py to fetch the child type to facilitate
-        /// fancy debug printing for this type.
-        fn gdbHelper(self: *Self, child: *S) void {
+        const Entry = entry: {
+            var entry_fields: [fields.len]std.builtin.Type.StructField = undefined;
+            for (&entry_fields, sizes.fields) |*entry_field, i| entry_field.* = .{
+                .name = fields[i].name ++ "_ptr",
+                .type = *fields[i].type,
+                .default_value = null,
+                .is_comptime = fields[i].is_comptime,
+                .alignment = fields[i].alignment,
+            };
+            break :entry @Type(.{ .Struct = .{
+                .layout = .Extern,
+                .fields = &entry_fields,
+                .decls = &.{},
+                .is_tuple = false,
+            } });
+        };
+        /// This function is used in the debugger pretty formatters in tools/ to fetch the
+        /// child type to facilitate fancy debug printing for this type.
+        fn dbHelper(self: *Self, child: *S, entry: *Entry) void {
             _ = self;
             _ = child;
+            _ = entry;
         }
 
         comptime {
             if (builtin.mode == .Debug) {
-                _ = gdbHelper;
+                _ = dbHelper;
             }
         }
     };

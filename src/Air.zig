@@ -232,7 +232,14 @@ pub const Inst = struct {
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `br` field.
         br,
-        /// Lowers to a hardware trap instruction, or the next best thing.
+        /// Lowers to a trap/jam instruction causing program abortion.
+        /// This may lower to an instruction known to be invalid.
+        /// Sometimes, for the lack of a better instruction, `trap` and `breakpoint` may compile down to the same code.
+        /// Result type is always noreturn; no instructions in a block follow this one.
+        trap,
+        /// Lowers to a trap instruction causing debuggers to break here, or the next best thing.
+        /// The debugger or something else may allow the program to resume after this point.
+        /// Sometimes, for the lack of a better instruction, `trap` and `breakpoint` may compile down to the same code.
         /// Result type is always void.
         breakpoint,
         /// Yields the return address of the current function.
@@ -1186,6 +1193,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .ret,
         .ret_load,
         .unreach,
+        .trap,
         => return Type.initTag(.noreturn),
 
         .breakpoint,

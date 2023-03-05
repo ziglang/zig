@@ -377,7 +377,7 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: Module.Decl.I
             decl.analysis = .codegen_failure;
             try mod.failed_decls.put(mod.gpa, decl_index, em);
             log.err("{s}", .{em.msg});
-            return error.AnalysisFail;
+            return error.CodegenFail;
         },
     };
     // duped_code is freed when the unnamed const is freed
