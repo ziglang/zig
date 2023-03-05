@@ -4091,11 +4091,11 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                 const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
                 const atom = elf_file.getAtom(atom_index);
-                const got_addr = @intCast(u32, atom.getOffsetTableAddress(elf_file));
+                const got_addr = @intCast(i32, atom.getOffsetTableAddress(elf_file));
                 _ = try self.addInst(.{
                     .tag = .call,
                     .ops = Mir.Inst.Ops.encode(.{ .flags = 0b01 }),
-                    .data = .{ .imm = got_addr },
+                    .data = .{ .disp = got_addr },
                 });
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const atom_index = try coff_file.getOrCreateAtomForDecl(func.owner_decl);
@@ -4142,7 +4142,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 _ = try self.addInst(.{
                     .tag = .call,
                     .ops = Mir.Inst.Ops.encode(.{ .flags = 0b01 }),
-                    .data = .{ .imm = @intCast(u32, fn_got_addr) },
+                    .data = .{ .disp = @intCast(i32, fn_got_addr) },
                 });
             } else unreachable;
         } else if (func_value.castTag(.extern_fn)) |func_payload| {

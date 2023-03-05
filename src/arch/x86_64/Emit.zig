@@ -340,9 +340,9 @@ fn mirJmpCall(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.Index)
         },
         0b01 => {
             if (ops.reg1 == .none) {
-                const imm = emit.mir.instructions.items(.data)[inst].imm;
+                const disp = emit.mir.instructions.items(.data)[inst].disp;
                 return emit.encode(mnemonic, .{
-                    .op1 = .{ .imm = imm },
+                    .op1 = .{ .mem = Memory.sib(.qword, .{ .disp = disp }) },
                 });
             }
             return emit.encode(mnemonic, .{
