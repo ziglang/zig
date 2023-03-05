@@ -6672,33 +6672,43 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
     const operand_ty = f.air.typeOf(reduce.operand);
     const writer = f.object.writer();
 
+    const use_operator = scalar_ty.bitSize(target) <= 64;
     const op: union(enum) {
-        float_op: []const u8,
-        builtin: []const u8,
+        const Func = struct { operation: []const u8, info: BuiltinInfo = .none };
+        float_op: Func,
+        builtin: Func,
         infix: []const u8,
         ternary: []const u8,
     } = switch (reduce.operation) {
-        .And => .{ .infix = " &= " },
-        .Or => .{ .infix = " |= " },
-        .Xor => .{ .infix = " ^= " },
+        .And => if (use_operator) .{ .infix = " &= " } else .{ .builtin = .{ .operation = "and" } },
+        .Or => if (use_operator) .{ .infix = " |= " } else .{ .builtin = .{ .operation = "or" } },
+        .Xor => if (use_operator) .{ .infix = " ^= " } else .{ .builtin = .{ .operation = "xor" } },
         .Min => switch (scalar_ty.zigTypeTag()) {
-            .Int => .{ .ternary = " < " },
-            .Float => .{ .float_op = "fmin" },
+            .Int => if (use_operator) .{ .ternary = " < " } else .{
+                .builtin = .{ .operation = "min" },
+            },
+            .Float => .{ .float_op = .{ .operation = "fmin" } },
             else => unreachable,
         },
         .Max => switch (scalar_ty.zigTypeTag()) {
-            .Int => .{ .ternary = " > " },
-            .Float => .{ .float_op = "fmax" },
+            .Int => if (use_operator) .{ .ternary = " > " } else .{
+                .builtin = .{ .operation = "max" },
+            },
+            .Float => .{ .float_op = .{ .operation = "fmax" } },
             else => unreachable,
         },
         .Add => switch (scalar_ty.zigTypeTag()) {
-            .Int => .{ .infix = " += " },
-            .Float => .{ .builtin = "add" },
+            .Int => if (use_operator) .{ .infix = " += " } else .{
+                .builtin = .{ .operation = "addw", .info = .bits },
+            },
+            .Float => .{ .builtin = .{ .operation = "add" } },
             else => unreachable,
         },
         .Mul => switch (scalar_ty.zigTypeTag()) {
-            .Int => .{ .infix = " *= " },
-            .Float => .{ .builtin = "mul" },
+            .Int => if (use_operator) .{ .infix = " *= " } else .{
+                .builtin = .{ .operation = "mulw", .info = .bits },
+            },
+            .Float => .{ .builtin = .{ .operation = "mul" } },
             else => unreachable,
         },
     };
@@ -6762,24 +6772,26 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
     const v = try Vectorizer.start(f, inst, writer, operand_ty);
     try f.writeCValue(writer, accum, .Other);
     switch (op) {
-        .float_op => |operation| {
+        .float_op => |func| {
             try writer.writeAll(" = zig_libc_name_");
             try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
-            try writer.print("({s})(", .{operation});
+            try writer.print("({s})(", .{func.operation});
             try f.writeCValue(writer, accum, .FunctionArgument);
             try writer.writeAll(", ");
             try f.writeCValue(writer, operand, .Other);
             try v.elem(f, writer);
+            try f.object.dg.renderBuiltinInfo(writer, scalar_ty, func.info);
             try writer.writeByte(')');
         },
-        .builtin => |operation| {
-            try writer.print(" = zig_{s}_", .{operation});
+        .builtin => |func| {
+            try writer.print(" = zig_{s}_", .{func.operation});
             try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
             try writer.writeByte('(');
             try f.writeCValue(writer, accum, .FunctionArgument);
             try writer.writeAll(", ");
             try f.writeCValue(writer, operand, .Other);
             try v.elem(f, writer);
+            try f.object.dg.renderBuiltinInfo(writer, scalar_ty, func.info);
             try writer.writeByte(')');
         },
         .infix => |ass| {
