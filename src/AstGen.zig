@@ -205,7 +205,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     };
 }
 
-pub fn deinit(astgen: *AstGen, gpa: Allocator) void {
+fn deinit(astgen: *AstGen, gpa: Allocator) void {
     astgen.instructions.deinit(gpa);
     astgen.extra.deinit(gpa);
     astgen.string_table.deinit(gpa);
@@ -216,7 +216,7 @@ pub fn deinit(astgen: *AstGen, gpa: Allocator) void {
     astgen.ref_table.deinit(gpa);
 }
 
-pub const ResultInfo = struct {
+const ResultInfo = struct {
     /// The semantics requested for the result location
     rl: Loc,
 
@@ -245,7 +245,7 @@ pub const ResultInfo = struct {
         }
     }
 
-    pub const Loc = union(enum) {
+    const Loc = union(enum) {
         /// The expression is the right-hand side of assignment to `_`. Only the side-effects of the
         /// expression should be generated. The result instruction from the expression must
         /// be ignored.
@@ -277,11 +277,11 @@ pub const ResultInfo = struct {
             src_node: ?Ast.Node.Index = null,
         };
 
-        pub const Strategy = struct {
+        const Strategy = struct {
             elide_store_to_block_ptr_instructions: bool,
             tag: Tag,
 
-            pub const Tag = enum {
+            const Tag = enum {
                 /// Both branches will use break_void; result location is used to communicate the
                 /// result instruction.
                 break_void,
@@ -331,7 +331,7 @@ pub const ResultInfo = struct {
         }
     };
 
-    pub const Context = enum {
+    const Context = enum {
         /// The expression is the operand to a return expression.
         @"return",
         /// The expression is the input to an error-handling operator (if-else, try, or catch).
@@ -349,11 +349,11 @@ pub const ResultInfo = struct {
     };
 };
 
-pub const align_ri: ResultInfo = .{ .rl = .{ .ty = .u29_type } };
-pub const coerced_align_ri: ResultInfo = .{ .rl = .{ .coerced_ty = .u29_type } };
-pub const bool_ri: ResultInfo = .{ .rl = .{ .ty = .bool_type } };
-pub const type_ri: ResultInfo = .{ .rl = .{ .ty = .type_type } };
-pub const coerced_type_ri: ResultInfo = .{ .rl = .{ .coerced_ty = .type_type } };
+const align_ri: ResultInfo = .{ .rl = .{ .ty = .u29_type } };
+const coerced_align_ri: ResultInfo = .{ .rl = .{ .coerced_ty = .u29_type } };
+const bool_ri: ResultInfo = .{ .rl = .{ .ty = .bool_type } };
+const type_ri: ResultInfo = .{ .rl = .{ .ty = .type_type } };
+const coerced_type_ri: ResultInfo = .{ .rl = .{ .coerced_ty = .type_type } };
 
 fn typeExpr(gz: *GenZir, scope: *Scope, type_node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const prev_force_comptime = gz.force_comptime;
@@ -3507,7 +3507,7 @@ const WipMembers = struct {
     /// (4 for src_hash + line + name + value + doc_comment + align + link_section + address_space )
     const max_decl_size = 11;
 
-    pub fn init(gpa: Allocator, payload: *ArrayListUnmanaged(u32), decl_count: u32, field_count: u32, comptime bits_per_field: u32, comptime max_field_size: u32) Allocator.Error!Self {
+    fn init(gpa: Allocator, payload: *ArrayListUnmanaged(u32), decl_count: u32, field_count: u32, comptime bits_per_field: u32, comptime max_field_size: u32) Allocator.Error!Self {
         const payload_top = @intCast(u32, payload.items.len);
         const decls_start = payload_top + (decl_count + decls_per_u32 - 1) / decls_per_u32;
         const field_bits_start = decls_start + decl_count * max_decl_size;
@@ -3528,7 +3528,7 @@ const WipMembers = struct {
         };
     }
 
-    pub fn nextDecl(self: *Self, is_pub: bool, is_export: bool, has_align: bool, has_section_or_addrspace: bool) void {
+    fn nextDecl(self: *Self, is_pub: bool, is_export: bool, has_align: bool, has_section_or_addrspace: bool) void {
         const index = self.payload_top + self.decl_index / decls_per_u32;
         assert(index < self.decls_start);
         const bit_bag: u32 = if (self.decl_index % decls_per_u32 == 0) 0 else self.payload.items[index];
@@ -3540,7 +3540,7 @@ const WipMembers = struct {
         self.decl_index += 1;
     }
 
-    pub fn nextField(self: *Self, comptime bits_per_field: u32, bits: [bits_per_field]bool) void {
+    fn nextField(self: *Self, comptime bits_per_field: u32, bits: [bits_per_field]bool) void {
         const fields_per_u32 = 32 / bits_per_field;
         const index = self.field_bits_start + self.field_index / fields_per_u32;
         assert(index < self.fields_start);
@@ -3554,25 +3554,25 @@ const WipMembers = struct {
         self.field_index += 1;
     }
 
-    pub fn appendToDecl(self: *Self, data: u32) void {
+    fn appendToDecl(self: *Self, data: u32) void {
         assert(self.decls_end < self.field_bits_start);
         self.payload.items[self.decls_end] = data;
         self.decls_end += 1;
     }
 
-    pub fn appendToDeclSlice(self: *Self, data: []const u32) void {
+    fn appendToDeclSlice(self: *Self, data: []const u32) void {
         assert(self.decls_end + data.len <= self.field_bits_start);
         mem.copy(u32, self.payload.items[self.decls_end..], data);
         self.decls_end += @intCast(u32, data.len);
     }
 
-    pub fn appendToField(self: *Self, data: u32) void {
+    fn appendToField(self: *Self, data: u32) void {
         assert(self.fields_end < self.payload.items.len);
         self.payload.items[self.fields_end] = data;
         self.fields_end += 1;
     }
 
-    pub fn finishBits(self: *Self, comptime bits_per_field: u32) void {
+    fn finishBits(self: *Self, comptime bits_per_field: u32) void {
         const empty_decl_slots = decls_per_u32 - (self.decl_index % decls_per_u32);
         if (self.decl_index > 0 and empty_decl_slots < decls_per_u32) {
             const index = self.payload_top + self.decl_index / decls_per_u32;
@@ -3588,15 +3588,15 @@ const WipMembers = struct {
         }
     }
 
-    pub fn declsSlice(self: *Self) []u32 {
+    fn declsSlice(self: *Self) []u32 {
         return self.payload.items[self.payload_top..self.decls_end];
     }
 
-    pub fn fieldsSlice(self: *Self) []u32 {
+    fn fieldsSlice(self: *Self) []u32 {
         return self.payload.items[self.field_bits_start..self.fields_end];
     }
 
-    pub fn deinit(self: *Self) void {
+    fn deinit(self: *Self) void {
         self.payload.items.len = self.payload_top;
     }
 };
@@ -10803,7 +10803,7 @@ const Scope = struct {
         /// ref of the capture for decls in this namespace
         captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
 
-        pub fn deinit(self: *Namespace, gpa: Allocator) void {
+        fn deinit(self: *Namespace, gpa: Allocator) void {
             self.decls.deinit(gpa);
             self.captures.deinit(gpa);
             self.* = undefined;
