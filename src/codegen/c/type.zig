@@ -496,6 +496,427 @@ pub const CType = extern union {
         }
     };
 
+    pub fn isBool(self: CType) bool {
+        return switch (self.tag()) {
+            ._Bool,
+            .bool,
+            => true,
+            else => false,
+        };
+    }
+
+    pub fn isInteger(self: CType) bool {
+        return switch (self.tag()) {
+            .char,
+            .@"signed char",
+            .short,
+            .int,
+            .long,
+            .@"long long",
+            .@"unsigned char",
+            .@"unsigned short",
+            .@"unsigned int",
+            .@"unsigned long",
+            .@"unsigned long long",
+            .size_t,
+            .ptrdiff_t,
+            .uint8_t,
+            .int8_t,
+            .uint16_t,
+            .int16_t,
+            .uint32_t,
+            .int32_t,
+            .uint64_t,
+            .int64_t,
+            .uintptr_t,
+            .intptr_t,
+            .zig_u128,
+            .zig_i128,
+            => true,
+            else => false,
+        };
+    }
+
+    pub fn signedness(self: CType) ?std.builtin.Signedness {
+        return switch (self.tag()) {
+            .char => null, // unknown signedness
+            .@"signed char",
+            .short,
+            .int,
+            .long,
+            .@"long long",
+            .ptrdiff_t,
+            .int8_t,
+            .int16_t,
+            .int32_t,
+            .int64_t,
+            .intptr_t,
+            .zig_i128,
+            => .signed,
+            .@"unsigned char",
+            .@"unsigned short",
+            .@"unsigned int",
+            .@"unsigned long",
+            .@"unsigned long long",
+            .size_t,
+            .uint8_t,
+            .uint16_t,
+            .uint32_t,
+            .uint64_t,
+            .uintptr_t,
+            .zig_u128,
+            => .unsigned,
+            else => unreachable,
+        };
+    }
+
+    pub fn isFloat(self: CType) bool {
+        return switch (self.tag()) {
+            .float,
+            .double,
+            .@"long double",
+            .zig_f16,
+            .zig_f32,
+            .zig_f64,
+            .zig_f80,
+            .zig_f128,
+            .zig_c_longdouble,
+            => true,
+            else => false,
+        };
+    }
+
+    pub fn isPointer(self: CType) bool {
+        return switch (self.tag()) {
+            .pointer,
+            .pointer_const,
+            .pointer_volatile,
+            .pointer_const_volatile,
+            => true,
+            else => false,
+        };
+    }
+
+    pub fn isFunction(self: CType) bool {
+        return switch (self.tag()) {
+            .function,
+            .varargs_function,
+            => true,
+            else => false,
+        };
+    }
+
+    pub fn toSigned(self: CType) CType {
+        return CType.initTag(switch (self.tag()) {
+            .char, .@"signed char", .@"unsigned char" => .@"signed char",
+            .short, .@"unsigned short" => .short,
+            .int, .@"unsigned int" => .int,
+            .long, .@"unsigned long" => .long,
+            .@"long long", .@"unsigned long long" => .@"long long",
+            .size_t, .ptrdiff_t => .ptrdiff_t,
+            .uint8_t, .int8_t => .int8_t,
+            .uint16_t, .int16_t => .int16_t,
+            .uint32_t, .int32_t => .int32_t,
+            .uint64_t, .int64_t => .int64_t,
+            .uintptr_t, .intptr_t => .intptr_t,
+            .zig_u128, .zig_i128 => .zig_i128,
+            .float,
+            .double,
+            .@"long double",
+            .zig_f16,
+            .zig_f32,
+            .zig_f80,
+            .zig_f128,
+            .zig_c_longdouble,
+            => |t| t,
+            else => unreachable,
+        });
+    }
+
+    pub fn toUnsigned(self: CType) CType {
+        return CType.initTag(switch (self.tag()) {
+            .char, .@"signed char", .@"unsigned char" => .@"unsigned char",
+            .short, .@"unsigned short" => .@"unsigned short",
+            .int, .@"unsigned int" => .@"unsigned int",
+            .long, .@"unsigned long" => .@"unsigned long",
+            .@"long long", .@"unsigned long long" => .@"unsigned long long",
+            .size_t, .ptrdiff_t => .size_t,
+            .uint8_t, .int8_t => .uint8_t,
+            .uint16_t, .int16_t => .uint16_t,
+            .uint32_t, .int32_t => .uint32_t,
+            .uint64_t, .int64_t => .uint64_t,
+            .uintptr_t, .intptr_t => .uintptr_t,
+            .zig_u128, .zig_i128 => .zig_u128,
+            else => unreachable,
+        });
+    }
+
+    pub fn toSignedness(self: CType, s: std.builtin.Signedness) CType {
+        return switch (s) {
+            .unsigned => self.toUnsigned(),
+            .signed => self.toSigned(),
+        };
+    }
+
+    pub fn getStandardDefineAbbrev(self: CType) ?[]const u8 {
+        return switch (self.tag()) {
+            .char => "CHAR",
+            .@"signed char" => "SCHAR",
+            .short => "SHRT",
+            .int => "INT",
+            .long => "LONG",
+            .@"long long" => "LLONG",
+            .@"unsigned char" => "UCHAR",
+            .@"unsigned short" => "USHRT",
+            .@"unsigned int" => "UINT",
+            .@"unsigned long" => "ULONG",
+            .@"unsigned long long" => "ULLONG",
+            .float => "FLT",
+            .double => "DBL",
+            .@"long double" => "LDBL",
+            .size_t => "SIZE",
+            .ptrdiff_t => "PTRDIFF",
+            .uint8_t => "UINT8",
+            .int8_t => "INT8",
+            .uint16_t => "UINT16",
+            .int16_t => "INT16",
+            .uint32_t => "UINT32",
+            .int32_t => "INT32",
+            .uint64_t => "UINT64",
+            .int64_t => "INT64",
+            .uintptr_t => "UINTPTR",
+            .intptr_t => "INTPTR",
+            else => null,
+        };
+    }
+
+    pub fn renderLiteralPrefix(self: CType, writer: anytype, kind: Kind) @TypeOf(writer).Error!void {
+        switch (self.tag()) {
+            .void => unreachable,
+            ._Bool,
+            .char,
+            .@"signed char",
+            .short,
+            .@"unsigned short",
+            .bool,
+            .size_t,
+            .ptrdiff_t,
+            .uintptr_t,
+            .intptr_t,
+            => |t| switch (kind) {
+                else => try writer.print("({s})", .{@tagName(t)}),
+                .global => {},
+            },
+            .int,
+            .long,
+            .@"long long",
+            .@"unsigned char",
+            .@"unsigned int",
+            .@"unsigned long",
+            .@"unsigned long long",
+            .float,
+            .double,
+            .@"long double",
+            => {},
+            .uint8_t,
+            .int8_t,
+            .uint16_t,
+            .int16_t,
+            .uint32_t,
+            .int32_t,
+            .uint64_t,
+            .int64_t,
+            => try writer.print("{s}_C(", .{self.getStandardDefineAbbrev().?}),
+            .zig_u128,
+            .zig_i128,
+            .zig_f16,
+            .zig_f32,
+            .zig_f64,
+            .zig_f80,
+            .zig_f128,
+            .zig_c_longdouble,
+            => |t| try writer.print("zig_{s}_{s}(", .{
+                switch (kind) {
+                    else => "make",
+                    .global => "init",
+                },
+                @tagName(t)["zig_".len..],
+            }),
+            .pointer,
+            .pointer_const,
+            .pointer_volatile,
+            .pointer_const_volatile,
+            => unreachable,
+            .array,
+            .vector,
+            => try writer.writeByte('{'),
+            .fwd_anon_struct,
+            .fwd_anon_union,
+            .fwd_struct,
+            .fwd_union,
+            .unnamed_struct,
+            .unnamed_union,
+            .packed_unnamed_struct,
+            .packed_unnamed_union,
+            .anon_struct,
+            .anon_union,
+            .@"struct",
+            .@"union",
+            .packed_struct,
+            .packed_union,
+            .function,
+            .varargs_function,
+            => unreachable,
+        }
+    }
+
+    pub fn renderLiteralSuffix(self: CType, writer: anytype) @TypeOf(writer).Error!void {
+        switch (self.tag()) {
+            .void => unreachable,
+            ._Bool => {},
+            .char,
+            .@"signed char",
+            .short,
+            .int,
+            => {},
+            .long => try writer.writeByte('l'),
+            .@"long long" => try writer.writeAll("ll"),
+            .@"unsigned char",
+            .@"unsigned short",
+            .@"unsigned int",
+            => try writer.writeByte('u'),
+            .@"unsigned long",
+            .size_t,
+            .uintptr_t,
+            => try writer.writeAll("ul"),
+            .@"unsigned long long" => try writer.writeAll("ull"),
+            .float => try writer.writeByte('f'),
+            .double => {},
+            .@"long double" => try writer.writeByte('l'),
+            .bool,
+            .ptrdiff_t,
+            .intptr_t,
+            => {},
+            .uint8_t,
+            .int8_t,
+            .uint16_t,
+            .int16_t,
+            .uint32_t,
+            .int32_t,
+            .uint64_t,
+            .int64_t,
+            .zig_u128,
+            .zig_i128,
+            .zig_f16,
+            .zig_f32,
+            .zig_f64,
+            .zig_f80,
+            .zig_f128,
+            .zig_c_longdouble,
+            => try writer.writeByte(')'),
+            .pointer,
+            .pointer_const,
+            .pointer_volatile,
+            .pointer_const_volatile,
+            => unreachable,
+            .array,
+            .vector,
+            => try writer.writeByte('}'),
+            .fwd_anon_struct,
+            .fwd_anon_union,
+            .fwd_struct,
+            .fwd_union,
+            .unnamed_struct,
+            .unnamed_union,
+            .packed_unnamed_struct,
+            .packed_unnamed_union,
+            .anon_struct,
+            .anon_union,
+            .@"struct",
+            .@"union",
+            .packed_struct,
+            .packed_union,
+            .function,
+            .varargs_function,
+            => unreachable,
+        }
+    }
+
+    pub fn floatActiveBits(self: CType, target: Target) u16 {
+        return switch (self.tag()) {
+            .float => target.c_type_bit_size(.float),
+            .double => target.c_type_bit_size(.double),
+            .@"long double", .zig_c_longdouble => target.c_type_bit_size(.longdouble),
+            .zig_f16 => 16,
+            .zig_f32 => 32,
+            .zig_f64 => 64,
+            .zig_f80 => 80,
+            .zig_f128 => 128,
+            else => unreachable,
+        };
+    }
+
+    pub fn byteSize(self: CType, store: Store.Set, target: Target) u64 {
+        return switch (self.tag()) {
+            .void => 0,
+            .char, .@"signed char", ._Bool, .@"unsigned char", .bool, .uint8_t, .int8_t => 1,
+            .short => target.c_type_byte_size(.short),
+            .int => target.c_type_byte_size(.int),
+            .long => target.c_type_byte_size(.long),
+            .@"long long" => target.c_type_byte_size(.longlong),
+            .@"unsigned short" => target.c_type_byte_size(.ushort),
+            .@"unsigned int" => target.c_type_byte_size(.uint),
+            .@"unsigned long" => target.c_type_byte_size(.ulong),
+            .@"unsigned long long" => target.c_type_byte_size(.ulonglong),
+            .float => target.c_type_byte_size(.float),
+            .double => target.c_type_byte_size(.double),
+            .@"long double" => target.c_type_byte_size(.longdouble),
+            .size_t,
+            .ptrdiff_t,
+            .uintptr_t,
+            .intptr_t,
+            .pointer,
+            .pointer_const,
+            .pointer_volatile,
+            .pointer_const_volatile,
+            => @divExact(target.cpu.arch.ptrBitWidth(), 8),
+            .uint16_t, .int16_t, .zig_f16 => 2,
+            .uint32_t, .int32_t, .zig_f32 => 4,
+            .uint64_t, .int64_t, .zig_f64 => 8,
+            .zig_u128, .zig_i128, .zig_f128 => 16,
+            .zig_f80 => if (target.c_type_bit_size(.longdouble) == 80)
+                target.c_type_byte_size(.longdouble)
+            else
+                16,
+            .zig_c_longdouble => target.c_type_byte_size(.longdouble),
+
+            .array,
+            .vector,
+            => {
+                const data = self.cast(Payload.Sequence).?.data;
+                return data.len * store.indexToCType(data.elem_type).byteSize(store, target);
+            },
+
+            .fwd_anon_struct,
+            .fwd_anon_union,
+            .fwd_struct,
+            .fwd_union,
+            .unnamed_struct,
+            .unnamed_union,
+            .packed_unnamed_struct,
+            .packed_unnamed_union,
+            .anon_struct,
+            .anon_union,
+            .@"struct",
+            .@"union",
+            .packed_struct,
+            .packed_union,
+            .function,
+            .varargs_function,
+            => unreachable,
+        };
+    }
+
     pub fn isPacked(self: CType) bool {
         return switch (self.tag()) {
             else => false,
@@ -787,26 +1208,26 @@ pub const CType = extern union {
             };
         }
 
-        fn tagFromIntInfo(signedness: std.builtin.Signedness, bits: u16) Tag {
-            return switch (bits) {
+        fn tagFromIntInfo(int_info: std.builtin.Type.Int) Tag {
+            return switch (int_info.bits) {
                 0 => .void,
-                1...8 => switch (signedness) {
+                1...8 => switch (int_info.signedness) {
                     .unsigned => .uint8_t,
                     .signed => .int8_t,
                 },
-                9...16 => switch (signedness) {
+                9...16 => switch (int_info.signedness) {
                     .unsigned => .uint16_t,
                     .signed => .int16_t,
                 },
-                17...32 => switch (signedness) {
+                17...32 => switch (int_info.signedness) {
                     .unsigned => .uint32_t,
                     .signed => .int32_t,
                 },
-                33...64 => switch (signedness) {
+                33...64 => switch (int_info.signedness) {
                     .unsigned => .uint64_t,
                     .signed => .int64_t,
                 },
-                65...128 => switch (signedness) {
+                65...128 => switch (int_info.signedness) {
                     .unsigned => .zig_u128,
                     .signed => .zig_i128,
                 },
@@ -945,31 +1366,27 @@ pub const CType = extern union {
                 .c_ulong => self.init(.@"unsigned long"),
                 .c_longlong => self.init(.@"long long"),
                 .c_ulonglong => self.init(.@"unsigned long long"),
-                else => {
-                    const info = ty.intInfo(target);
-                    const t = tagFromIntInfo(info.signedness, info.bits);
-                    switch (t) {
-                        .void => unreachable,
-                        else => self.init(t),
-                        .array => switch (kind) {
-                            .forward, .complete, .global => {
-                                const abi_size = ty.abiSize(target);
-                                const abi_align = ty.abiAlignment(target);
-                                self.storage = .{ .seq = .{ .base = .{ .tag = .array }, .data = .{
-                                    .len = @divExact(abi_size, abi_align),
-                                    .elem_type = tagFromIntInfo(
-                                        .unsigned,
-                                        @intCast(u16, abi_align * 8),
-                                    ).toIndex(),
-                                } } };
-                                self.value = .{ .cty = initPayload(&self.storage.seq) };
-                            },
-                            .forward_parameter,
-                            .parameter,
-                            => try self.initArrayParameter(ty, kind, lookup),
-                            .payload => unreachable,
+                else => switch (tagFromIntInfo(ty.intInfo(target))) {
+                    .void => unreachable,
+                    else => |t| self.init(t),
+                    .array => switch (kind) {
+                        .forward, .complete, .global => {
+                            const abi_size = ty.abiSize(target);
+                            const abi_align = ty.abiAlignment(target);
+                            self.storage = .{ .seq = .{ .base = .{ .tag = .array }, .data = .{
+                                .len = @divExact(abi_size, abi_align),
+                                .elem_type = tagFromIntInfo(.{
+                                    .signedness = .unsigned,
+                                    .bits = @intCast(u16, abi_align * 8),
+                                }).toIndex(),
+                            } } };
+                            self.value = .{ .cty = initPayload(&self.storage.seq) };
                         },
-                    }
+                        .forward_parameter,
+                        .parameter,
+                        => try self.initArrayParameter(ty, kind, lookup),
+                        .payload => unreachable,
+                    },
                 },
             } else switch (ty.zigTypeTag()) {
                 .Frame => unreachable,
@@ -1048,7 +1465,7 @@ pub const CType = extern union {
                                 .base = .{ .tag = .int_unsigned },
                                 .data = info.host_size * 8,
                             };
-                            const pointee_ty = if (info.host_size > 0)
+                            const pointee_ty = if (info.host_size > 0 and info.vector_index == .none)
                                 Type.initPayload(&host_int_pl.base)
                             else
                                 info.pointee_type;
