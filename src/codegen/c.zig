@@ -3465,34 +3465,40 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
     const operand = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
     const inst_ty = f.air.typeOfIndex(inst);
-    const writer = f.object.writer();
-    const local = try f.allocLocal(inst, inst_ty);
+    const inst_scalar_ty = inst_ty.scalarType();
     const target = f.object.dg.module.getTarget();
-    const dest_int_info = inst_ty.intInfo(target);
+    const dest_int_info = inst_scalar_ty.intInfo(target);
     const dest_bits = dest_int_info.bits;
     const dest_c_bits = toCIntBits(dest_int_info.bits) orelse
         return f.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
     const operand_ty = f.air.typeOf(ty_op.operand);
-    const operand_int_info = operand_ty.intInfo(target);
+    const scalar_ty = operand_ty.scalarType();
+    const scalar_int_info = scalar_ty.intInfo(target);
+
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst, inst_ty);
+    const v = try Vectorizer.start(f, inst, writer, operand_ty);
 
     try f.writeCValue(writer, local, .Other);
+    try v.elem(f, writer);
     try writer.writeAll(" = ");
 
     if (dest_c_bits < 64) {
         try writer.writeByte('(');
-        try f.renderType(writer, inst_ty);
+        try f.renderType(writer, inst_scalar_ty);
         try writer.writeByte(')');
     }
 
-    const needs_lo = operand_int_info.bits > 64 and dest_bits <= 64;
+    const needs_lo = scalar_int_info.bits > 64 and dest_bits <= 64;
     if (needs_lo) {
         try writer.writeAll("zig_lo_");
-        try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
+        try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
         try writer.writeByte('(');
     }
 
     if (dest_bits >= 8 and std.math.isPowerOfTwo(dest_bits)) {
         try f.writeCValue(writer, operand, .Other);
+        try v.elem(f, writer);
     } else switch (dest_int_info.signedness) {
         .unsigned => {
             var arena = std.heap.ArenaAllocator.init(f.object.dg.gpa);
@@ -3502,15 +3508,16 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
             var stack align(@alignOf(ExpectedContents)) =
                 std.heap.stackFallback(@sizeOf(ExpectedContents), arena.allocator());
 
-            const mask_val = try inst_ty.maxInt(stack.get(), target);
+            const mask_val = try inst_scalar_ty.maxInt(stack.get(), target);
             try writer.writeAll("zig_and_");
-            try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
+            try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
             try writer.writeByte('(');
             try f.writeCValue(writer, operand, .FunctionArgument);
-            try writer.print(", {x})", .{try f.fmtIntLiteral(operand_ty, mask_val)});
+            try v.elem(f, writer);
+            try writer.print(", {x})", .{try f.fmtIntLiteral(scalar_ty, mask_val)});
         },
         .signed => {
-            const c_bits = toCIntBits(operand_int_info.bits) orelse
+            const c_bits = toCIntBits(scalar_int_info.bits) orelse
                 return f.fail("TODO: C backend: implement integer types larger than 128 bits", .{});
             var shift_pl = Value.Payload.U64{
                 .base = .{ .tag = .int_u64 },
@@ -3519,7 +3526,7 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
             const shift_val = Value.initPayload(&shift_pl.base);
 
             try writer.writeAll("zig_shr_");
-            try f.object.dg.renderTypeForBuiltinFnName(writer, operand_ty);
+            try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
             if (c_bits == 128) {
                 try writer.print("(zig_bitcast_i{d}(", .{c_bits});
             } else {
@@ -3532,6 +3539,7 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
                 try writer.print("(uint{d}_t)", .{c_bits});
             }
             try f.writeCValue(writer, operand, .FunctionArgument);
+            try v.elem(f, writer);
             if (c_bits == 128) try writer.writeByte(')');
             try writer.print(", {})", .{try f.fmtIntLiteral(Type.u8, shift_val)});
             if (c_bits == 128) try writer.writeByte(')');
@@ -3541,6 +3549,8 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
 
     if (needs_lo) try writer.writeByte(')');
     try writer.writeAll(";\n");
+    try v.end(f, inst, writer);
+
     return local;
 }
 
