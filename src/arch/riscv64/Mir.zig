@@ -32,6 +32,7 @@ pub const Inst = struct {
         dbg_epilogue_begin,
         /// Pseudo-instruction: Update debug line
         dbg_line,
+        unimp,
         ebreak,
         ecall,
         jalr,

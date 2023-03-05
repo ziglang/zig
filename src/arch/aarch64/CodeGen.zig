@@ -23,7 +23,7 @@ const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
 
-const GenerateSymbolError = codegen.GenerateSymbolError;
+const CodeGenError = codegen.CodeGenError;
 const Result = codegen.Result;
 const DebugInfoOutput = codegen.DebugInfoOutput;
 
@@ -41,11 +41,7 @@ const c_abi_int_param_regs = abi.c_abi_int_param_regs;
 const c_abi_int_return_regs = abi.c_abi_int_return_regs;
 const gp = abi.RegisterClass.gp;
 
-const InnerError = error{
-    OutOfMemory,
-    CodegenFail,
-    OutOfRegisters,
-};
+const InnerError = CodeGenError || error{OutOfRegisters};
 
 gpa: Allocator,
 air: Air,
@@ -337,7 +333,7 @@ pub fn generate(
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
-) GenerateSymbolError!Result {
+) CodeGenError!Result {
     if (build_options.skip_non_native and builtin.cpu.arch != bin_file.options.target.cpu.arch) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
@@ -737,6 +733,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .bitcast         => try self.airBitCast(inst),
             .block           => try self.airBlock(inst),
             .br              => try self.airBr(inst),
+            .trap            => try self.airTrap(),
             .breakpoint      => try self.airBreakpoint(),
             .ret_addr        => try self.airRetAddr(inst),
             .frame_addr      => try self.airFrameAddress(inst),
@@ -4198,10 +4195,18 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
+fn airTrap(self: *Self) !void {
+    _ = try self.addInst(.{
+        .tag = .brk,
+        .data = .{ .imm16 = 0x0001 },
+    });
+    return self.finishAirBookkeeping();
+}
+
 fn airBreakpoint(self: *Self) !void {
     _ = try self.addInst(.{
         .tag = .brk,
-        .data = .{ .imm16 = 1 },
+        .data = .{ .imm16 = 0xf000 },
     });
     return self.finishAirBookkeeping();
 }
@@ -6137,201 +6142,26 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
     }
 }
 
-fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) InnerError!MCValue {
-    const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-    const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-
-    // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
-    if (tv.ty.zigTypeTag() == .Pointer) blk: {
-        if (tv.ty.castPtrToFn()) |_| break :blk;
-        if (!tv.ty.elemType2().hasRuntimeBits()) {
-            return MCValue.none;
-        }
-    }
-
-    const mod = self.bin_file.options.module.?;
-    const decl = mod.declPtr(decl_index);
-    mod.markDeclAlive(decl);
-
-    if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const atom_index = try elf_file.getOrCreateAtomForDecl(decl_index);
-        const atom = elf_file.getAtom(atom_index);
-        return MCValue{ .memory = atom.getOffsetTableAddress(elf_file) };
-    } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-        const atom = try macho_file.getOrCreateAtomForDecl(decl_index);
-        const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
-        return MCValue{ .linker_load = .{
-            .type = .got,
-            .sym_index = sym_index,
-        } };
-    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-        const atom_index = try coff_file.getOrCreateAtomForDecl(decl_index);
-        const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
-        return MCValue{ .linker_load = .{
-            .type = .got,
-            .sym_index = sym_index,
-        } };
-    } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-        const decl_block_index = try p9.seeDecl(decl_index);
-        const decl_block = p9.getDeclBlock(decl_block_index);
-        const got_addr = p9.bases.data + decl_block.got_index.? * ptr_bytes;
-        return MCValue{ .memory = got_addr };
-    } else {
-        return self.fail("TODO codegen non-ELF const Decl pointer", .{});
-    }
-}
-
-fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
-    log.debug("lowerUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
-    const local_sym_index = self.bin_file.lowerUnnamedConst(tv, self.mod_fn.owner_decl) catch |err| {
-        return self.fail("lowering unnamed constant failed: {s}", .{@errorName(err)});
-    };
-    if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        return MCValue{ .memory = elf_file.getSymbol(local_sym_index).st_value };
-    } else if (self.bin_file.cast(link.File.MachO)) |_| {
-        return MCValue{ .linker_load = .{
-            .type = .direct,
-            .sym_index = local_sym_index,
-        } };
-    } else if (self.bin_file.cast(link.File.Coff)) |_| {
-        return MCValue{ .linker_load = .{
-            .type = .direct,
-            .sym_index = local_sym_index,
-        } };
-    } else if (self.bin_file.cast(link.File.Plan9)) |_| {
-        return self.fail("TODO lower unnamed const in Plan9", .{});
-    } else {
-        return self.fail("TODO lower unnamed const", .{});
-    }
-}
-
 fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
-    var typed_value = arg_tv;
-    if (typed_value.val.castTag(.runtime_value)) |rt| {
-        typed_value.val = rt.data;
-    }
-    log.debug("genTypedValue: ty = {}, val = {}", .{ typed_value.ty.fmtDebug(), typed_value.val.fmtDebug() });
-    if (typed_value.val.isUndef())
-        return MCValue{ .undef = {} };
-
-    if (typed_value.val.castTag(.decl_ref)) |payload| {
-        return self.lowerDeclRef(typed_value, payload.data);
-    }
-    if (typed_value.val.castTag(.decl_ref_mut)) |payload| {
-        return self.lowerDeclRef(typed_value, payload.data.decl_index);
-    }
-    const target = self.target.*;
-
-    switch (typed_value.ty.zigTypeTag()) {
-        .Pointer => switch (typed_value.ty.ptrSize()) {
-            .Slice => {},
-            else => {
-                switch (typed_value.val.tag()) {
-                    .int_u64 => {
-                        return MCValue{ .immediate = typed_value.val.toUnsignedInt(target) };
-                    },
-                    else => {},
-                }
-            },
+    const mcv: MCValue = switch (try codegen.genTypedValue(
+        self.bin_file,
+        self.src_loc,
+        arg_tv,
+        self.mod_fn.owner_decl,
+    )) {
+        .mcv => |mcv| switch (mcv) {
+            .none => .none,
+            .undef => .undef,
+            .linker_load => |ll| .{ .linker_load = ll },
+            .immediate => |imm| .{ .immediate = imm },
+            .memory => |addr| .{ .memory = addr },
         },
-        .Int => {
-            const info = typed_value.ty.intInfo(self.target.*);
-            if (info.bits <= 64) {
-                const unsigned = switch (info.signedness) {
-                    .signed => blk: {
-                        const signed = typed_value.val.toSignedInt(target);
-                        break :blk @bitCast(u64, signed);
-                    },
-                    .unsigned => typed_value.val.toUnsignedInt(target),
-                };
-
-                return MCValue{ .immediate = unsigned };
-            }
+        .fail => |msg| {
+            self.err_msg = msg;
+            return error.CodegenFail;
         },
-        .Bool => {
-            return MCValue{ .immediate = @boolToInt(typed_value.val.toBool()) };
-        },
-        .Optional => {
-            if (typed_value.ty.isPtrLikeOptional()) {
-                if (typed_value.val.isNull())
-                    return MCValue{ .immediate = 0 };
-
-                var buf: Type.Payload.ElemType = undefined;
-                return self.genTypedValue(.{
-                    .ty = typed_value.ty.optionalChild(&buf),
-                    .val = typed_value.val,
-                });
-            } else if (typed_value.ty.abiSize(self.target.*) == 1) {
-                return MCValue{ .immediate = @boolToInt(typed_value.val.isNull()) };
-            }
-        },
-        .Enum => {
-            if (typed_value.val.castTag(.enum_field_index)) |field_index| {
-                switch (typed_value.ty.tag()) {
-                    .enum_simple => {
-                        return MCValue{ .immediate = field_index.data };
-                    },
-                    .enum_full, .enum_nonexhaustive => {
-                        const enum_full = typed_value.ty.cast(Type.Payload.EnumFull).?.data;
-                        if (enum_full.values.count() != 0) {
-                            const tag_val = enum_full.values.keys()[field_index.data];
-                            return self.genTypedValue(.{ .ty = enum_full.tag_ty, .val = tag_val });
-                        } else {
-                            return MCValue{ .immediate = field_index.data };
-                        }
-                    },
-                    else => unreachable,
-                }
-            } else {
-                var int_tag_buffer: Type.Payload.Bits = undefined;
-                const int_tag_ty = typed_value.ty.intTagType(&int_tag_buffer);
-                return self.genTypedValue(.{ .ty = int_tag_ty, .val = typed_value.val });
-            }
-        },
-        .ErrorSet => {
-            switch (typed_value.val.tag()) {
-                .@"error" => {
-                    const err_name = typed_value.val.castTag(.@"error").?.data.name;
-                    const module = self.bin_file.options.module.?;
-                    const global_error_set = module.global_error_set;
-                    const error_index = global_error_set.get(err_name).?;
-                    return MCValue{ .immediate = error_index };
-                },
-                else => {
-                    // In this case we are rendering an error union which has a 0 bits payload.
-                    return MCValue{ .immediate = 0 };
-                },
-            }
-        },
-        .ErrorUnion => {
-            const error_type = typed_value.ty.errorUnionSet();
-            const payload_type = typed_value.ty.errorUnionPayload();
-
-            const is_pl = typed_value.val.errorUnionIsPayload();
-
-            if (!payload_type.hasRuntimeBitsIgnoreComptime()) {
-                // We use the error type directly as the type.
-                const err_val = if (!is_pl) typed_value.val else Value.initTag(.zero);
-                return self.genTypedValue(.{ .ty = error_type, .val = err_val });
-            }
-
-            return self.lowerUnnamedConst(typed_value);
-        },
-
-        .ComptimeInt => unreachable, // semantic analysis prevents this
-        .ComptimeFloat => unreachable, // semantic analysis prevents this
-        .Type => unreachable,
-        .EnumLiteral => unreachable,
-        .Void => unreachable,
-        .NoReturn => unreachable,
-        .Undefined => unreachable,
-        .Null => unreachable,
-        .Opaque => unreachable,
-
-        else => {},
-    }
-
-    return self.lowerUnnamedConst(typed_value);
+    };
+    return mcv;
 }
 
 const CallMCValues = struct {

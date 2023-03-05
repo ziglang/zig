@@ -16,8 +16,7 @@ pub fn build(b: *std.Build) void {
     lib.addIncludePath("lib");
     lib.addCSourceFile("lib/lib.c", &.{""});
 
-    var module = b.addModule(.{
-        .name = "test_module",
+    var module = b.addModule("test_module", .{
         .source_file = .{
             .path = "test_module.zig",
         },

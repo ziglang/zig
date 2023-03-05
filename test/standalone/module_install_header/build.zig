@@ -8,8 +8,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "test.zig" },
         .optimize = optimize,
     });
-    var module = b.addModule(.{
-        .name = "test_module",
+    var module = b.addModule("test_module", .{
         .source_file = .{
             .path = "test_module.zig",
         },

@@ -18,8 +18,7 @@ pub fn build(b: *std.Build) void {
     lib.setOutputDir("test/standalone/module_add_library_path/lib_out");
     lib.install();
 
-    var module = b.addModule(.{
-        .name = "test_module",
+    var module = b.addModule("test_module", .{
         .source_file = .{
             .path = "test_module.zig",
         },

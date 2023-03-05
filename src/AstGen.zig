@@ -2609,8 +2609,9 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .extended => switch (gz.astgen.instructions.items(.data)[inst].extended.opcode) {
                 .breakpoint,
                 .fence,
-                .set_align_stack,
                 .set_float_mode,
+                .set_align_stack,
+                .set_cold,
                 => break :b true,
                 else => break :b false,
             },
@@ -2630,6 +2631,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .repeat_inline,
             .panic,
             .panic_comptime,
+            .trap,
             .check_comptime_control_flow,
             => {
                 noreturn_src_node = statement;
@@ -2658,7 +2660,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .validate_struct_init_comptime,
             .validate_array_init,
             .validate_array_init_comptime,
-            .set_cold,
             .set_runtime_safety,
             .closure_capture,
             .memcpy,
@@ -7976,6 +7977,9 @@ fn builtinCall(
             switch (node_tags[params[0]]) {
                 .identifier => {
                     const ident_token = main_tokens[params[0]];
+                    if (isPrimitive(tree.tokenSlice(ident_token))) {
+                        return astgen.failTok(ident_token, "unable to export primitive value", .{});
+                    }
                     decl_name = try astgen.identAsString(ident_token);
 
                     var s = scope;
@@ -8078,6 +8082,14 @@ fn builtinCall(
             });
             return rvalue(gz, ri, result, node);
         },
+        .set_cold => {
+            const order = try expr(gz, scope, ri, params[0]);
+            const result = try gz.addExtendedPayload(.set_cold, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = order,
+            });
+            return rvalue(gz, ri, result, node);
+        },
 
         .src => {
             const token_starts = tree.tokens.items(.start);
@@ -8097,7 +8109,7 @@ fn builtinCall(
         .error_return_trace => return rvalue(gz, ri, try gz.addNodeExtended(.error_return_trace, node), node),
         .frame              => return rvalue(gz, ri, try gz.addNodeExtended(.frame,              node), node),
         .frame_address      => return rvalue(gz, ri, try gz.addNodeExtended(.frame_address,      node), node),
-        .breakpoint         => return rvalue(gz, ri, try gz.addNodeExtended(.breakpoint, node), node),
+        .breakpoint         => return rvalue(gz, ri, try gz.addNodeExtended(.breakpoint,         node), node),
 
         .type_info   => return simpleUnOpType(gz, scope, ri, node, params[0], .type_info),
         .size_of     => return simpleUnOpType(gz, scope, ri, node, params[0], .size_of),
@@ -8111,7 +8123,6 @@ fn builtinCall(
         .bool_to_int           => return simpleUnOp(gz, scope, ri, node, bool_ri,                                    params[0], .bool_to_int),
         .embed_file            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[0], .embed_file),
         .error_name            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .anyerror_type } },       params[0], .error_name),
-        .set_cold              => return simpleUnOp(gz, scope, ri, node, bool_ri,                                    params[0], .set_cold),
         .set_runtime_safety    => return simpleUnOp(gz, scope, ri, node, bool_ri,                                    params[0], .set_runtime_safety),
         .sqrt                  => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .sqrt),
         .sin                   => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .sin),
@@ -8170,6 +8181,11 @@ fn builtinCall(
         .panic => {
             try emitDbgNode(gz, node);
             return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[0], if (gz.force_comptime) .panic_comptime else .panic);
+        },
+        .trap => {
+            try emitDbgNode(gz, node);
+            _ = try gz.addNode(.trap, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .error_to_int => {
             const operand = try expr(gz, scope, .{ .rl = .none }, params[0]);
@@ -8988,7 +9004,7 @@ const primitive_instrs = std.ComptimeStringMap(Zir.Inst.Ref, .{
 });
 
 comptime {
-    // These checks ensure that std.zig.primitives stays in synce with the primitive->Zir map.
+    // These checks ensure that std.zig.primitives stays in sync with the primitive->Zir map.
     const primitives = std.zig.primitives;
     for (primitive_instrs.kvs) |kv| {
         if (!primitives.isPrimitive(kv.key)) {
