@@ -1036,6 +1036,7 @@ pub const WriteError = error{
     FileTooBig,
     InputOutput,
     NoSpaceLeft,
+    DeviceBusy,
 
     /// In WASI, this error may occur when the file descriptor does
     /// not hold the required rights to write to it.
@@ -1134,6 +1135,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .PERM => return error.AccessDenied,
             .PIPE => return error.BrokenPipe,
             .CONNRESET => return error.ConnectionResetByPeer,
+            .BUSY => return error.DeviceBusy,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1203,6 +1205,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
             .PERM => return error.AccessDenied,
             .PIPE => return error.BrokenPipe,
             .CONNRESET => return error.ConnectionResetByPeer,
+            .BUSY => return error.DeviceBusy,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1299,6 +1302,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
+            .BUSY => return error.DeviceBusy,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1388,6 +1392,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
+            .BUSY => return error.DeviceBusy,
             else => |err| return unexpectedErrno(err),
         }
     }
