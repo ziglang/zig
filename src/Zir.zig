@@ -2045,8 +2045,7 @@ pub const Inst = struct {
 
     /// A reference to a TypedValue or ZIR instruction.
     ///
-    /// If the Ref has a tag in this enum, it refers to a TypedValue which may be
-    /// retrieved with Ref.toTypedValue().
+    /// If the Ref has a tag in this enum, it refers to a TypedValue.
     ///
     /// If the value of a Ref does not have a tag, it refers to a ZIR instruction.
     ///
