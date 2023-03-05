@@ -22,7 +22,7 @@ pub const Instruction = struct {
         none,
         reg: Register,
         mem: Memory,
-        imm: i64,
+        imm: u64,
 
         /// Returns the bitsize of the operand.
         /// Asserts the operand is either register or memory.
@@ -47,6 +47,7 @@ pub const Instruction = struct {
         }
 
         pub fn fmtPrint(op: Operand, enc_op: Encoding.Op, writer: anytype) !void {
+            _ = enc_op;
             switch (op) {
                 .none => {},
                 .reg => |reg| try writer.writeAll(@tagName(reg)),
@@ -92,14 +93,7 @@ pub const Instruction = struct {
                     .moffs => |moffs| try writer.print("{s}:0x{x}", .{ @tagName(moffs.seg), moffs.offset }),
                 },
                 .imm => |imm| {
-                    if (enc_op == .imm64) {
-                        return writer.print("0x{x}", .{@bitCast(u64, imm)});
-                    }
-                    const imm_abs = try std.math.absInt(imm);
-                    if (sign(imm) < 0) {
-                        try writer.writeByte('-');
-                    }
-                    try writer.print("0x{x}", .{imm_abs});
+                    try writer.print("0x{x}", .{imm});
                 },
             }
         }
@@ -117,7 +111,7 @@ pub const Instruction = struct {
             .op3 = args.op3,
             .op4 = args.op4,
         }) orelse return error.InvalidInstruction;
-        std.log.debug("{}", .{encoding});
+        std.log.warn("{}", .{encoding});
         return .{
             .op1 = args.op1,
             .op2 = args.op2,
@@ -386,12 +380,12 @@ pub const Instruction = struct {
         }
     }
 
-    fn encodeImm(imm: i64, kind: Encoding.Op, encoder: anytype) !void {
+    fn encodeImm(imm: u64, kind: Encoding.Op, encoder: anytype) !void {
         switch (kind) {
-            .imm8, .rel8 => try encoder.imm8(@truncate(i8, imm)),
-            .imm16, .rel16 => try encoder.imm16(@truncate(i16, imm)),
-            .imm32, .rel32 => try encoder.imm32(@truncate(i32, imm)),
-            .imm64 => try encoder.imm64(@bitCast(u64, imm)),
+            .imm8, .rel8 => try encoder.imm8(@bitCast(i8, @truncate(u8, imm))),
+            .imm16, .rel16 => try encoder.imm16(@bitCast(i16, @truncate(u16, imm))),
+            .imm32, .rel32 => try encoder.imm32(@bitCast(i32, @truncate(u32, imm))),
+            .imm64 => try encoder.imm64(imm),
             else => unreachable,
         }
     }

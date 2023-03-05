@@ -236,12 +236,12 @@ fn encode(emit: *Emit, mnemonic: Instruction.Mnemonic, ops: struct {
     op3: Instruction.Operand = .none,
     op4: Instruction.Operand = .none,
 }) InnerError!void {
-    const inst = try Instruction.new(mnemonic, .{
+    const inst = Instruction.new(mnemonic, .{
         .op1 = ops.op1,
         .op2 = ops.op2,
         .op3 = ops.op3,
         .op4 = ops.op4,
-    });
+    }) catch unreachable;
     return inst.encode(emit.code.writer());
 }
 
@@ -624,7 +624,7 @@ fn mirArithScaleSrc(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const index_reg_disp = emit.mir.extraData(Mir.IndexRegisterDisp, payload).data.decode();
     const scale_index = Memory.ScaleIndex{
-        .scale = scale,
+        .scale = @as(u4, 1) << scale,
         .index = index_reg_disp.index,
     };
     return emit.encode(mnemonic, .{
@@ -643,7 +643,7 @@ fn mirArithScaleDst(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const index_reg_disp = emit.mir.extraData(Mir.IndexRegisterDisp, payload).data.decode();
     const scale_index = Memory.ScaleIndex{
-        .scale = scale,
+        .scale = @as(u4, 1) << scale,
         .index = index_reg_disp.index,
     };
     assert(ops.reg2 != .none);
@@ -663,7 +663,7 @@ fn mirArithScaleImm(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const index_reg_disp_imm = emit.mir.extraData(Mir.IndexRegisterDispImm, payload).data.decode();
     const scale_index = Memory.ScaleIndex{
-        .scale = scale,
+        .scale = @as(u4, 1) << scale,
         .index = index_reg_disp_imm.index,
     };
     return emit.encode(mnemonic, .{
@@ -688,7 +688,7 @@ fn mirArithMemIndexImm(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.In
         0b11 => .qword,
     };
     const scale_index = Memory.ScaleIndex{
-        .scale = 0,
+        .scale = 1,
         .index = index_reg_disp_imm.index,
     };
     return emit.encode(mnemonic, .{
@@ -777,7 +777,7 @@ fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             } else emit.mir.instructions.items(.data)[inst].imm;
             return emit.encode(.mov, .{
                 .op1 = .{ .reg = ops.reg1 },
-                .op2 = .{ .imm = @bitCast(i64, imm) },
+                .op2 = .{ .imm = imm },
             });
         },
         0b01 => {
@@ -983,7 +983,7 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             const index_reg_disp = emit.mir.extraData(Mir.IndexRegisterDisp, payload).data.decode();
             const src_reg: ?Register = if (ops.reg2 != .none) ops.reg2 else null;
             const scale_index = Memory.ScaleIndex{
-                .scale = 0,
+                .scale = 1,
                 .index = index_reg_disp.index,
             };
             return emit.encode(.lea, .{

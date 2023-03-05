@@ -390,9 +390,9 @@ pub const Op = enum {
 
             .imm => |imm| {
                 if (imm == 1) return .unity;
-                if (math.cast(i8, imm)) |_| return .imm8;
-                if (math.cast(i16, imm)) |_| return .imm16;
-                if (math.cast(i32, imm)) |_| return .imm32;
+                if (math.cast(u8, imm)) |_| return .imm8;
+                if (math.cast(u16, imm)) |_| return .imm16;
+                if (math.cast(u32, imm)) |_| return .imm32;
                 return .imm64;
             },
         }

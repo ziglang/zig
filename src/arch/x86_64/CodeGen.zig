@@ -385,6 +385,24 @@ pub fn addExtra(self: *Self, extra: anytype) Allocator.Error!u32 {
     return self.addExtraAssumeCapacity(extra);
 }
 
+fn extraData(self: *Self, comptime T: type, index: u32) struct { data: T, end: u32 } {
+    const fields = std.meta.fields(T);
+    var i: u32 = index;
+    var result: T = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
+            u32 => self.mir_extra.items[i],
+            i32 => @bitCast(i32, self.mir_extra.items[i]),
+            else => @compileError("bad field type"),
+        };
+        i += 1;
+    }
+    return .{
+        .data = result,
+        .end = i,
+    };
+}
+
 pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
     const fields = std.meta.fields(@TypeOf(extra));
     const result = @intCast(u32, self.mir_extra.items.len);
@@ -2759,9 +2777,15 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         1, 2, 4 => {
                             // TODO this is wasteful!
                             // introduce new MIR tag specifically for mov [reg + 0], imm
+                            const operand = switch (abi_size) {
+                                1 => @truncate(u8, imm),
+                                2 => @truncate(u16, imm),
+                                4 => @truncate(u32, imm),
+                                else => unreachable,
+                            };
                             const payload = try self.addExtra(Mir.ImmPair{
                                 .dest_off = 0,
-                                .operand = @truncate(u32, imm),
+                                .operand = operand,
                             });
                             _ = try self.addInst(.{
                                 .tag = .mov_mem_imm,
@@ -2872,10 +2896,17 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         return self.fail("TODO saving imm to memory for abi_size {}", .{abi_size});
                     }
 
+                    const operand = switch (abi_size) {
+                        1 => @truncate(u8, imm),
+                        2 => @truncate(u16, imm),
+                        4 => @truncate(u32, imm),
+                        8 => @truncate(u32, imm),
+                        else => unreachable,
+                    };
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = 0,
                         // TODO check if this logic is correct
-                        .operand = @truncate(u32, imm),
+                        .operand = operand,
                     });
                     const flags: u2 = switch (abi_size) {
                         1 => 0b00,
@@ -3600,7 +3631,13 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = Mir.Inst.Ops.encode(.{ .reg1 = registerAlias(dst_reg, abi_size) }),
-                        .data = .{ .imm = @truncate(u32, imm) },
+                        .data = .{ .imm = switch (abi_size) {
+                            1 => @truncate(u8, imm),
+                            2 => @truncate(u16, imm),
+                            4 => @truncate(u32, imm),
+                            8 => @truncate(u32, imm),
+                            else => unreachable,
+                        } },
                     });
                 },
                 .memory,
@@ -3671,9 +3708,16 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                         8 => 0b11,
                         else => unreachable,
                     };
+                    const operand = switch (abi_size) {
+                        1 => @truncate(u8, imm),
+                        2 => @truncate(u16, imm),
+                        4 => @truncate(u32, imm),
+                        8 => @truncate(u32, imm),
+                        else => unreachable,
+                    };
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = -off,
-                        .operand = @truncate(u32, imm),
+                        .operand = operand,
                     });
                     _ = try self.addInst(.{
                         .tag = tag,
@@ -4855,7 +4899,13 @@ fn genCondSwitchMir(self: *Self, ty: Type, condition: MCValue, case: MCValue) !u
                     _ = try self.addInst(.{
                         .tag = .xor,
                         .ops = Mir.Inst.Ops.encode(.{ .reg1 = registerAlias(cond_reg, abi_size) }),
-                        .data = .{ .imm = @intCast(u32, imm) },
+                        .data = .{ .imm = switch (abi_size) {
+                            1 => @truncate(u8, imm),
+                            2 => @truncate(u16, imm),
+                            4 => @truncate(u32, imm),
+                            8 => @truncate(u32, imm),
+                            else => unreachable,
+                        } },
                     });
                 },
                 .register => |reg| {
@@ -5366,20 +5416,27 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                     // We have a positive stack offset value but we want a twos complement negative
                     // offset from rbp, which is at the top of the stack frame.
                     // mov [rbp+offset], immediate
+                    const operand = switch (abi_size) {
+                        1 => @truncate(u8, imm),
+                        2 => @truncate(u16, imm),
+                        4 => @truncate(u32, imm),
+                        else => unreachable,
+                    };
+                    const flags: u2 = switch (abi_size) {
+                        1 => 0b00,
+                        2 => 0b01,
+                        4 => 0b10,
+                        else => unreachable,
+                    };
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = -stack_offset,
-                        .operand = @truncate(u32, imm),
+                        .operand = operand,
                     });
                     _ = try self.addInst(.{
                         .tag = .mov_mem_imm,
                         .ops = Mir.Inst.Ops.encode(.{
                             .reg1 = .rsp,
-                            .flags = switch (abi_size) {
-                                1 => 0b00,
-                                2 => 0b01,
-                                4 => 0b10,
-                                else => unreachable,
-                            },
+                            .flags = flags,
                         }),
                         .data = .{ .payload = payload },
                     });
@@ -5518,7 +5575,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                     assert(ty.isError());
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = -stack_offset,
-                        .operand = @truncate(u32, x_big),
+                        .operand = @truncate(u8, x_big),
                     });
                     _ = try self.addInst(.{
                         .tag = .mov_mem_imm,
@@ -5530,9 +5587,15 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                     });
                 },
                 1, 2, 4 => {
+                    const operand = switch (abi_size) {
+                        1 => @truncate(u8, x_big),
+                        2 => @truncate(u16, x_big),
+                        4 => @truncate(u32, x_big),
+                        else => unreachable,
+                    };
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = -stack_offset,
-                        .operand = @truncate(u32, x_big),
+                        .operand = operand,
                     });
                     _ = try self.addInst(.{
                         .tag = .mov_mem_imm,
@@ -5932,7 +5995,7 @@ fn genInlineMemset(
     const loop_start = try self.addInst(.{
         .tag = .cmp,
         .ops = Mir.Inst.Ops.encode(.{ .reg1 = index_reg }),
-        .data = .{ .imm = @bitCast(u32, @as(i32, -1)) },
+        .data = .{ .imm = @bitCast(u8, @as(i8, -1)) },
     });
 
     // je end
@@ -6037,7 +6100,13 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 _ = try self.addInst(.{
                     .tag = .mov,
                     .ops = Mir.Inst.Ops.encode(.{ .reg1 = registerAlias(reg, abi_size) }),
-                    .data = .{ .imm = @truncate(u32, x) },
+                    .data = .{ .imm = switch (abi_size) {
+                        1 => @truncate(u8, x),
+                        2 => @truncate(u16, x),
+                        4 => @truncate(u32, x),
+                        8 => @truncate(u32, x),
+                        else => unreachable,
+                    } },
                 });
                 return;
             }
@@ -6204,7 +6273,13 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                             .reg1 = registerAlias(reg, abi_size),
                             .flags = 0b01,
                         }),
-                        .data = .{ .imm = @truncate(u32, x) },
+                        .data = .{ .imm = switch (abi_size) {
+                            1 => @truncate(u8, x),
+                            2 => @truncate(u16, x),
+                            4 => @truncate(u32, x),
+                            8 => @truncate(u32, x),
+                            else => unreachable,
+                        } },
                     });
                 } else {
                     // If this is RAX, we can use a direct load.

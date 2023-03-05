@@ -594,9 +594,9 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.* = undefined;
 }
 
-pub fn extraData(mir: Mir, comptime T: type, index: usize) struct { data: T, end: usize } {
+pub fn extraData(mir: Mir, comptime T: type, index: u32) struct { data: T, end: u32 } {
     const fields = std.meta.fields(T);
-    var i: usize = index;
+    var i: u32 = index;
     var result: T = undefined;
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
