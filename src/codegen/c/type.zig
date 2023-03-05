@@ -1465,7 +1465,7 @@ pub const CType = extern union {
                                 .base = .{ .tag = .int_unsigned },
                                 .data = info.host_size * 8,
                             };
-                            const pointee_ty = if (info.host_size > 0)
+                            const pointee_ty = if (info.host_size > 0 and info.vector_index == .none)
                                 Type.initPayload(&host_int_pl.base)
                             else
                                 info.pointee_type;

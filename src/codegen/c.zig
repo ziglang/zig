@@ -17,12 +17,6 @@ const LazySrcLoc = Module.LazySrcLoc;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 
-const target_util = @import("../target.zig");
-const libcFloatPrefix = target_util.libcFloatPrefix;
-const libcFloatSuffix = target_util.libcFloatSuffix;
-const compilerRtFloatAbbrev = target_util.compilerRtFloatAbbrev;
-const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
-
 const BigIntLimb = std.math.big.Limb;
 const BigInt = std.math.big.int;
 
@@ -3317,7 +3311,7 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
         try writer.writeAll(", sizeof(");
         try f.renderType(writer, src_ty);
         try writer.writeAll("))");
-    } else if (ptr_info.host_size != 0) {
+    } else if (ptr_info.host_size > 0 and ptr_info.vector_index == .none) {
         var host_pl = Type.Payload.Bits{
             .base = .{ .tag = .int_unsigned },
             .data = ptr_info.host_size * 8,
@@ -3647,7 +3641,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
         if (src_val == .constant) {
             try freeLocal(f, inst, array_src.new_local, 0);
         }
-    } else if (ptr_info.host_size != 0) {
+    } else if (ptr_info.host_size > 0 and ptr_info.vector_index == .none) {
         const host_bits = ptr_info.host_size * 8;
         var host_pl = Type.Payload.Bits{ .base = .{ .tag = .int_unsigned }, .data = host_bits };
         const host_ty = Type.initPayload(&host_pl.base);
