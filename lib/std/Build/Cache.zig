@@ -374,7 +374,7 @@ pub const Manifest = struct {
         self.failed_file_index = null;
 
         const ext = ".txt";
-        var manifest_file_path: [self.hex_digest.len + ext.len]u8 = undefined;
+        var manifest_file_path: [hex_digest_len + ext.len]u8 = undefined;
 
         var bin_digest: BinDigest = undefined;
         self.hash.hasher.final(&bin_digest);
@@ -389,7 +389,7 @@ pub const Manifest = struct {
         self.hash.hasher.update(&bin_digest);
 
         mem.copy(u8, &manifest_file_path, &self.hex_digest);
-        manifest_file_path[self.hex_digest.len..][0..ext.len].* = ext.*;
+        manifest_file_path[hex_digest_len..][0..ext.len].* = ext.*;
 
         if (self.files.items.len == 0) {
             // If there are no file inputs, we check if the manifest file exists instead of

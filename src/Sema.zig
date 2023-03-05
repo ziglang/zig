@@ -1112,8 +1112,7 @@ fn analyzeBodyInner(
             .ret_load       => break sema.zirRetLoad(block, inst),
             .ret_err_value  => break sema.zirRetErrValue(block, inst),
             .@"unreachable" => break sema.zirUnreachable(block, inst),
-            .panic          => break sema.zirPanic(block, inst, false),
-            .panic_comptime => break sema.zirPanic(block, inst, true),
+            .panic          => break sema.zirPanic(block, inst),
             .trap           => break sema.zirTrap(block, inst),
             // zig fmt: on
 
@@ -1292,22 +1291,12 @@ fn analyzeBodyInner(
                 continue;
             },
             .validate_struct_init => {
-                try sema.zirValidateStructInit(block, inst, false);
-                i += 1;
-                continue;
-            },
-            .validate_struct_init_comptime => {
-                try sema.zirValidateStructInit(block, inst, true);
+                try sema.zirValidateStructInit(block, inst);
                 i += 1;
                 continue;
             },
             .validate_array_init => {
-                try sema.zirValidateArrayInit(block, inst, false);
-                i += 1;
-                continue;
-            },
-            .validate_array_init_comptime => {
-                try sema.zirValidateArrayInit(block, inst, true);
+                try sema.zirValidateArrayInit(block, inst);
                 i += 1;
                 continue;
             },
@@ -1464,8 +1453,10 @@ fn analyzeBodyInner(
                     break break_data.inst;
                 }
             },
-            .block => blk: {
-                if (!block.is_comptime) break :blk try sema.zirBlock(block, inst);
+            .block, .block_comptime => blk: {
+                if (!block.is_comptime) {
+                    break :blk try sema.zirBlock(block, inst, tags[inst] == .block_comptime);
+                }
                 // Same as `block_inline`. TODO https://github.com/ziglang/zig/issues/8220
                 const inst_data = datas[inst].pl_node;
                 const extra = sema.code.extraData(Zir.Inst.Block, inst_data.payload_index);
@@ -1649,38 +1640,6 @@ fn analyzeBodyInner(
                     break break_data.inst;
                 }
             },
-            //.try_inline => blk: {
-            //    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-            //    const src = inst_data.src();
-            //    const operand_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
-            //    const extra = sema.code.extraData(Zir.Inst.Try, inst_data.payload_index);
-            //    const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
-            //    const operand = try sema.resolveInst(extra.data.operand);
-            //    const operand_ty = sema.typeOf(operand);
-            //    const is_ptr = operand_ty.zigTypeTag() == .Pointer;
-            //    const err_union = if (is_ptr)
-            //        try sema.analyzeLoad(block, src, operand, operand_src)
-            //    else
-            //        operand;
-            //    const is_non_err = try sema.analyzeIsNonErrComptimeOnly(block, operand_src, err_union);
-            //    assert(is_non_err != .none);
-            //    const is_non_err_tv = try sema.resolveInstConst(block, operand_src, is_non_err);
-            //    if (is_non_err_tv.val.toBool()) {
-            //        if (is_ptr) {
-            //            break :blk try sema.analyzeErrUnionPayloadPtr(block, src, operand, false, false);
-            //        } else {
-            //            const err_union_ty = sema.typeOf(err_union);
-            //            break :blk try sema.analyzeErrUnionPayload(block, src, err_union_ty, operand, operand_src, false);
-            //        }
-            //    }
-            //    const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
-            //        break always_noreturn;
-            //    if (inst == break_data.block_inst) {
-            //        break :blk try sema.resolveInst(break_data.operand);
-            //    } else {
-            //        break break_data.inst;
-            //    }
-            //},
             .try_ptr => blk: {
                 if (!block.is_comptime) break :blk try sema.zirTryPtr(block, inst);
                 const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
@@ -1707,28 +1666,6 @@ fn analyzeBodyInner(
                     break break_data.inst;
                 }
             },
-            //.try_ptr_inline => blk: {
-            //    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-            //    const src = inst_data.src();
-            //    const operand_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
-            //    const extra = sema.code.extraData(Zir.Inst.Try, inst_data.payload_index);
-            //    const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
-            //    const operand = try sema.resolveInst(extra.data.operand);
-            //    const err_union = try sema.analyzeLoad(block, src, operand, operand_src);
-            //    const is_non_err = try sema.analyzeIsNonErrComptimeOnly(block, operand_src, err_union);
-            //    assert(is_non_err != .none);
-            //    const is_non_err_tv = try sema.resolveInstConst(block, operand_src, is_non_err);
-            //    if (is_non_err_tv.val.toBool()) {
-            //        break :blk try sema.analyzeErrUnionPayloadPtr(block, src, operand, false, false);
-            //    }
-            //    const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
-            //        break always_noreturn;
-            //    if (inst == break_data.block_inst) {
-            //        break :blk try sema.resolveInst(break_data.operand);
-            //    } else {
-            //        break break_data.inst;
-            //    }
-            //},
             .@"defer" => blk: {
                 const inst_data = sema.code.instructions.items(.data)[inst].@"defer";
                 const defer_body = sema.code.extra[inst_data.index..][0..inst_data.len];
@@ -4161,7 +4098,6 @@ fn zirValidateStructInit(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
-    is_comptime: bool,
 ) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -4180,7 +4116,6 @@ fn zirValidateStructInit(
             agg_ty,
             init_src,
             instrs,
-            is_comptime,
         ),
         .Union => return sema.validateUnionInit(
             block,
@@ -4188,7 +4123,6 @@ fn zirValidateStructInit(
             init_src,
             instrs,
             object_ptr,
-            is_comptime,
         ),
         else => unreachable,
     }
@@ -4201,7 +4135,6 @@ fn validateUnionInit(
     init_src: LazySrcLoc,
     instrs: []const Zir.Inst.Index,
     union_ptr: Air.Inst.Ref,
-    is_comptime: bool,
 ) CompileError!void {
     if (instrs.len != 1) {
         const msg = msg: {
@@ -4224,7 +4157,7 @@ fn validateUnionInit(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
-    if ((is_comptime or block.is_comptime) and
+    if (block.is_comptime and
         (try sema.resolveDefinedValue(block, init_src, union_ptr)) != null)
     {
         // In this case, comptime machinery already did everything. No work to do here.
@@ -4328,7 +4261,6 @@ fn validateStructInit(
     struct_ty: Type,
     init_src: LazySrcLoc,
     instrs: []const Zir.Inst.Index,
-    is_comptime: bool,
 ) CompileError!void {
     const gpa = sema.gpa;
 
@@ -4368,7 +4300,7 @@ fn validateStructInit(
     errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
     const struct_ptr = try sema.resolveInst(struct_ptr_zir_ref);
-    if ((is_comptime or block.is_comptime) and
+    if (block.is_comptime and
         (try sema.resolveDefinedValue(block, init_src, struct_ptr)) != null)
     {
         try sema.resolveStructLayout(struct_ty);
@@ -4592,7 +4524,6 @@ fn zirValidateArrayInit(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
-    is_comptime: bool,
 ) CompileError!void {
     const validate_inst = sema.code.instructions.items(.data)[inst].pl_node;
     const init_src = validate_inst.src();
@@ -4640,7 +4571,7 @@ fn zirValidateArrayInit(
         else => unreachable,
     };
 
-    if ((is_comptime or block.is_comptime) and
+    if (block.is_comptime and
         (try sema.resolveDefinedValue(block, init_src, array_ptr)) != null)
     {
         // In this case the comptime machinery will have evaluated the store instructions
@@ -5208,12 +5139,12 @@ fn zirCompileLog(
     return Air.Inst.Ref.void_value;
 }
 
-fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index, force_comptime: bool) CompileError!Zir.Inst.Index {
+fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const msg_inst = try sema.resolveInst(inst_data.operand);
 
-    if (block.is_comptime or force_comptime) {
+    if (block.is_comptime) {
         return sema.fail(block, src, "encountered @panic at comptime", .{});
     }
     try sema.panicWithMsg(block, src, msg_inst);
@@ -5421,7 +5352,7 @@ fn zirSuspendBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) Comp
     return sema.failWithUseOfAsync(parent_block, src);
 }
 
-fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index, force_comptime: bool) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -5459,7 +5390,7 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErro
         .instructions = .{},
         .label = &label,
         .inlining = parent_block.inlining,
-        .is_comptime = parent_block.is_comptime,
+        .is_comptime = parent_block.is_comptime or force_comptime,
         .comptime_reason = parent_block.comptime_reason,
         .is_typeof = parent_block.is_typeof,
         .want_safety = parent_block.want_safety,
@@ -17123,7 +17054,7 @@ fn zirUnreachable(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const inst_data = sema.code.instructions.items(.data)[inst].@"unreachable";
     const src = inst_data.src();
 
-    if (block.is_comptime or inst_data.force_comptime) {
+    if (block.is_comptime) {
         return sema.fail(block, src, "reached unreachable code", .{});
     }
     // TODO Add compile error for @optimizeFor occurring too late in a scope.
@@ -17393,6 +17324,8 @@ fn analyzeRet(
         try inlining.merges.results.append(sema.gpa, operand);
         _ = try block.addBr(inlining.merges.block_inst, operand);
         return always_noreturn;
+    } else if (block.is_comptime) {
+        return sema.fail(block, src, "function called at runtime cannot return value at comptime", .{});
     }
 
     try sema.resolveTypeLayout(sema.fn_ret_ty);
@@ -17405,6 +17338,7 @@ fn analyzeRet(
     }
 
     _ = try block.addUnOp(.ret, operand);
+
     return always_noreturn;
 }
 
@@ -21543,7 +21477,7 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     switch (modifier) {
         // These can be upgraded to comptime or nosuspend calls.
         .auto, .never_tail, .no_async => {
-            if (extra.flags.is_comptime) {
+            if (block.is_comptime) {
                 if (modifier == .never_tail) {
                     return sema.fail(block, modifier_src, "unable to perform 'never_tail' call at compile-time", .{});
                 }
@@ -21558,12 +21492,12 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 return sema.fail(block, func_src, "modifier '{s}' requires a comptime-known function", .{@tagName(modifier)});
             };
 
-            if (extra.flags.is_comptime) {
+            if (block.is_comptime) {
                 modifier = .compile_time;
             }
         },
         .always_tail => {
-            if (extra.flags.is_comptime) {
+            if (block.is_comptime) {
                 modifier = .compile_time;
             }
         },
@@ -21571,12 +21505,12 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             if (extra.flags.is_nosuspend) {
                 return sema.fail(block, modifier_src, "modifier 'async_kw' cannot be used inside nosuspend block", .{});
             }
-            if (extra.flags.is_comptime) {
+            if (block.is_comptime) {
                 return sema.fail(block, modifier_src, "modifier 'async_kw' cannot be used in combination with comptime function call", .{});
             }
         },
         .never_inline => {
-            if (extra.flags.is_comptime) {
+            if (block.is_comptime) {
                 return sema.fail(block, modifier_src, "unable to perform 'never_inline' call at compile-time", .{});
             }
         },

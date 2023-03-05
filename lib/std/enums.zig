@@ -177,9 +177,9 @@ test "std.enums.directEnumArrayDefault slice" {
 /// Cast an enum literal, value, or string to the enum value of type E
 /// with the same name.
 pub fn nameCast(comptime E: type, comptime value: anytype) E {
-    comptime {
+    return comptime blk: {
         const V = @TypeOf(value);
-        if (V == E) return value;
+        if (V == E) break :blk value;
         var name: ?[]const u8 = switch (@typeInfo(V)) {
             .EnumLiteral, .Enum => @tagName(value),
             .Pointer => if (std.meta.trait.isZigString(V)) value else null,
@@ -187,12 +187,12 @@ pub fn nameCast(comptime E: type, comptime value: anytype) E {
         };
         if (name) |n| {
             if (@hasField(E, n)) {
-                return @field(E, n);
+                break :blk @field(E, n);
             }
             @compileError("Enum " ++ @typeName(E) ++ " has no field named " ++ n);
         }
         @compileError("Cannot cast from " ++ @typeName(@TypeOf(value)) ++ " to " ++ @typeName(E));
-    }
+    };
 }
 
 test "std.enums.nameCast" {
