@@ -144,9 +144,16 @@ pub fn getStackTrace(s: *Step) std.builtin.StackTrace {
     };
 }
 
-fn makeNoOp(self: *Step, prog_node: *std.Progress.Node) anyerror!void {
-    _ = self;
+fn makeNoOp(step: *Step, prog_node: *std.Progress.Node) anyerror!void {
     _ = prog_node;
+
+    var all_cached = true;
+
+    for (step.dependencies.items) |dep| {
+        all_cached = all_cached and dep.result_cached;
+    }
+
+    step.result_cached = all_cached;
 }
 
 pub fn cast(step: *Step, comptime T: type) ?*T {
