@@ -195,7 +195,6 @@ const Writer = struct {
             .embed_file,
             .error_name,
             .panic,
-            .panic_comptime,
             .set_runtime_safety,
             .sqrt,
             .sin,
@@ -365,13 +364,12 @@ const Writer = struct {
             .call => try self.writeCall(stream, inst),
 
             .block,
+            .block_comptime,
             .block_inline,
             .suspend_block,
             .loop,
             .validate_struct_init,
-            .validate_struct_init_comptime,
             .validate_array_init,
-            .validate_array_init_comptime,
             .c_import,
             .typeof_builtin,
             => try self.writeBlock(stream, inst),
@@ -811,7 +809,6 @@ const Writer = struct {
 
         try self.writeFlag(stream, "nodiscard ", extra.flags.ensure_result_used);
         try self.writeFlag(stream, "nosuspend ", extra.flags.is_nosuspend);
-        try self.writeFlag(stream, "comptime ", extra.flags.is_comptime);
 
         try self.writeInstRef(stream, extra.modifier);
         try stream.writeAll(", ");

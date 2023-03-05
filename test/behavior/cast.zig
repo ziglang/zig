@@ -1455,7 +1455,7 @@ test "floatToInt to zero-bit int" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    var a: f32 = 0.0;
+    const a: f32 = 0.0;
     comptime try std.testing.expect(@floatToInt(u0, a) == 0);
 }
 
@@ -1505,15 +1505,6 @@ test "optional pointer coerced to optional allowzero pointer" {
     p = @intToPtr(*u32, 4);
     q = p;
     try expect(@ptrToInt(q.?) == 4);
-}
-
-test "ptrToInt on const inside comptime block" {
-    var a = comptime blk: {
-        const b: u8 = 1;
-        const c = @ptrToInt(&b);
-        break :blk c;
-    };
-    try expect(@intToPtr(*const u8, a).* == 1);
 }
 
 test "single item pointer to pointer to array to slice" {
