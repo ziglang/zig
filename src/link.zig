@@ -461,6 +461,7 @@ pub const File = struct {
         LockViolation,
         NetNameDeleted,
         DeviceBusy,
+        InvalidArgument,
     };
 
     /// Called from within the CodeGen to lower a local variable instantion as an unnamed
