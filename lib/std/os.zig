@@ -575,21 +575,11 @@ pub fn abort() noreturn {
         raise(SIG.KILL) catch {};
         exit(127); // Pid 1 might not be signalled in some containers.
     }
-    if (builtin.os.tag == .uefi) {
-        exit(0); // TODO choose appropriate exit code
+    switch (builtin.os.tag) {
+        .uefi, .wasi, .cuda => @trap(),
+        else => system.abort(),
     }
-    if (builtin.os.tag == .wasi) {
-        exit(1);
-    }
-    if (builtin.os.tag == .cuda) {
-        // TODO: introduce `@trap` instead of abusing https://github.com/ziglang/zig/issues/2291
-        @"llvm.trap"();
-    }
-
-    system.abort();
 }
-
-extern fn @"llvm.trap"() noreturn;
 
 pub const RaiseError = UnexpectedError;
 

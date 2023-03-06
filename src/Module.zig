@@ -3528,6 +3528,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     const digest = hash: {
         var path_hash: Cache.HashHelper = .{};
         path_hash.addBytes(build_options.version);
+        path_hash.add(builtin.zig_backend);
         if (!want_local_cache) {
             path_hash.addOptionalBytes(file.pkg.root_src_directory.path);
         }

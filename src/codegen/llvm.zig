@@ -8261,6 +8261,7 @@ pub const FuncGen = struct {
         _ = inst;
         const llvm_fn = self.getIntrinsic("llvm.trap", &.{});
         _ = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, undefined, 0, .Cold, .Auto, "");
+        _ = self.builder.buildUnreachable();
         return null;
     }
 
