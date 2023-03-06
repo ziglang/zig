@@ -201,7 +201,7 @@ class std_MultiArrayList_SynthProvider:
 
             value_type = self.value.type
             for helper in self.value.target.FindFunctions('%s.dbHelper' % value_type.name, lldb.eFunctionNameTypeFull):
-                ptr_self_type, ptr_child_type, ptr_entry_type = helper.function.type.GetFunctionArgumentTypes()
+                ptr_self_type, ptr_child_type, ptr_field_type, ptr_entry_type = helper.function.type.GetFunctionArgumentTypes()
                 if ptr_self_type.GetPointeeType() == value_type: break
             else: return
 
@@ -221,11 +221,43 @@ class std_MultiArrayList_SynthProvider:
             offset = 0
             data = lldb.SBData()
             for field in self.entry_type.fields:
-                ptr_field_type = field.type
-                field_size = ptr_field_type.GetPointeeType().size
-                data.Append(self.bytes.CreateChildAtOffset(field.name, offset + index * field_size, ptr_field_type).address_of.data)
+                field_type = field.type.GetPointeeType()
+                field_size = field_type.size
+                data.Append(self.bytes.CreateChildAtOffset(field.name, offset + index * field_size, field_type).address_of.data)
                 offset += self.capacity * field_size
             return self.bytes.CreateValueFromData('[%d]' % index, data, self.entry_type)
+        except: return None
+class std_MultiArrayList_Slice_SynthProvider:
+    def __init__(self, value, _=None): self.value = value
+    def update(self):
+        try:
+            self.len = 0
+
+            value_type = self.value.type
+            for helper in self.value.target.FindFunctions('%s.dbHelper' % value_type.name, lldb.eFunctionNameTypeFull):
+                ptr_self_type, ptr_child_type, ptr_field_type, ptr_entry_type = helper.function.type.GetFunctionArgumentTypes()
+                if ptr_self_type.GetPointeeType() == value_type: break
+            else: return
+
+            self.fields = {member.name: index for index, member in enumerate(ptr_field_type.GetPointeeType().enum_members)}
+            self.entry_type = ptr_entry_type.GetPointeeType()
+            self.ptrs = self.value.GetChildMemberWithName('ptrs')
+            self.len = self.value.GetChildMemberWithName('len').unsigned
+            self.capacity = self.value.GetChildMemberWithName('capacity').unsigned
+        except: pass
+    def has_children(self): return True
+    def num_children(self): return self.len
+    def get_child_index(self, name):
+        try: return int(name.removeprefix('[').removesuffix(']'))
+        except: return -1
+    def get_child_at_index(self, index):
+        try:
+            if index < 0 or index >= self.len: return None
+            data = lldb.SBData()
+            for field in self.entry_type.fields:
+                field_type = field.type.GetPointeeType()
+                data.Append(self.ptrs.child[self.fields[field.name.removesuffix('_ptr')]].CreateChildAtOffset(field.name, index * field_type.size, field_type).address_of.data)
+            return self.ptrs.CreateValueFromData('[%d]' % index, data, self.entry_type)
         except: return None
 
 class std_HashMapUnmanaged_SynthProvider:
@@ -556,6 +588,7 @@ def __lldb_init_module(debugger, _=None):
     add(debugger, category='zig.std', type='mem.Allocator', summary='${var.ptr}')
     add(debugger, category='zig.std', regex=True, type='^segmented_list\\.SegmentedList\\(.*\\)$', identifier='std_SegmentedList', synth=True, expand=True, summary='len=${var.len}')
     add(debugger, category='zig.std', regex=True, type='^multi_array_list\\.MultiArrayList\\(.*\\)$', identifier='std_MultiArrayList', synth=True, expand=True, summary='len=${var.len} capacity=${var.capacity}')
+    add(debugger, category='zig.std', regex=True, type='^multi_array_list\\.MultiArrayList\\(.*\\)\\.Slice$', identifier='std_MultiArrayList_Slice', synth=True, expand=True, summary='len=${var.len} capacity=${var.capacity}')
     add(debugger, category='zig.std', regex=True, type=MultiArrayList_Entry('.*'), identifier='std_Entry', synth=True, inline_children=True, summary=True)
     add(debugger, category='zig.std', regex=True, type='^hash_map\\.HashMapUnmanaged\\(.*\\)$', identifier='std_HashMapUnmanaged', synth=True, expand=True, summary=True)
     add(debugger, category='zig.std', regex=True, type='^hash_map\\.HashMapUnmanaged\\(.*\\)\\.Entry$', identifier = 'std_Entry', synth=True, inline_children=True, summary=True)
