@@ -658,6 +658,7 @@ pub const Request = struct {
         MissingEndCertificateMarker,
         InvalidPadding,
         EndOfStream,
+        InvalidArgument,
     };
 
     pub fn read(req: *Request, buffer: []u8) ReadError!usize {

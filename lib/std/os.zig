@@ -1037,6 +1037,7 @@ pub const WriteError = error{
     InputOutput,
     NoSpaceLeft,
     DeviceBusy,
+    InvalidArgument,
 
     /// In WASI, this error may occur when the file descriptor does
     /// not hold the required rights to write to it.
@@ -1123,7 +1124,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
         switch (errno(rc)) {
             .SUCCESS => return @intCast(usize, rc),
             .INTR => continue,
-            .INVAL => unreachable,
+            .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // can be a race condition.
@@ -1193,7 +1194,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
         switch (errno(rc)) {
             .SUCCESS => return @intCast(usize, rc),
             .INTR => continue,
-            .INVAL => unreachable,
+            .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
@@ -1288,7 +1289,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
         switch (errno(rc)) {
             .SUCCESS => return @intCast(usize, rc),
             .INTR => continue,
-            .INVAL => unreachable,
+            .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
@@ -1378,7 +1379,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
         switch (errno(rc)) {
             .SUCCESS => return @intCast(usize, rc),
             .INTR => continue,
-            .INVAL => unreachable,
+            .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
