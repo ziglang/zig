@@ -1169,3 +1169,38 @@ pub fn execve(
 
     return os.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp);
 }
+
+pub const TotalSystemMemoryError = error{
+    UnknownTotalSystemMemory,
+};
+
+/// Returns the total system memory, in bytes.
+pub fn totalSystemMemory() TotalSystemMemoryError!usize {
+    switch (builtin.os.tag) {
+        .linux => {
+            return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
+        },
+        .windows => {
+            var kilobytes: std.os.windows.ULONGLONG = undefined;
+            assert(std.os.windows.kernel32.GetPhysicallyInstalledSystemMemory(&kilobytes) == std.os.windows.TRUE);
+            return kilobytes * 1024;
+        },
+        else => return error.UnknownTotalSystemMemory,
+    }
+}
+
+fn totalSystemMemoryLinux() !usize {
+    var file = try std.fs.openFileAbsoluteZ("/proc/meminfo", .{});
+    defer file.close();
+    var buf: [50]u8 = undefined;
+    const amt = try file.read(&buf);
+    if (amt != 50) return error.Unexpected;
+    var it = std.mem.tokenize(u8, buf[0..amt], " \n");
+    const label = it.next().?;
+    if (!std.mem.eql(u8, label, "MemTotal:")) return error.Unexpected;
+    const int_text = it.next() orelse return error.Unexpected;
+    const units = it.next() orelse return error.Unexpected;
+    if (!std.mem.eql(u8, units, "kB")) return error.Unexpected;
+    const kilobytes = try std.fmt.parseInt(usize, int_text, 10);
+    return kilobytes * 1024;
+}
