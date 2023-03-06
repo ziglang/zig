@@ -639,8 +639,7 @@ pub fn addGenHTests(b: *std.Build, test_filter: ?[]const u8) *Step {
     return cases.step;
 }
 
-pub fn addPkgTests(
-    b: *std.Build,
+const ModuleTestOptions = struct {
     test_filter: ?[]const u8,
     root_src: []const u8,
     name: []const u8,
@@ -651,14 +650,17 @@ pub fn addPkgTests(
     skip_libc: bool,
     skip_stage1: bool,
     skip_stage2: bool,
-) *Step {
-    const step = b.step(b.fmt("test-{s}", .{name}), desc);
+    max_rss: usize = 0,
+};
+
+pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
+    const step = b.step(b.fmt("test-{s}", .{options.name}), options.desc);
 
     for (test_targets) |test_target| {
-        if (skip_non_native and !test_target.target.isNative())
+        if (options.skip_non_native and !test_target.target.isNative())
             continue;
 
-        if (skip_libc and test_target.link_libc)
+        if (options.skip_libc and test_target.link_libc)
             continue;
 
         if (test_target.link_libc and test_target.target.getOs().requiresLibC()) {
@@ -666,7 +668,7 @@ pub fn addPkgTests(
             continue;
         }
 
-        if (skip_single_threaded and test_target.single_threaded)
+        if (options.skip_single_threaded and test_target.single_threaded)
             continue;
 
         if (test_target.disable_native and
@@ -677,12 +679,12 @@ pub fn addPkgTests(
         }
 
         if (test_target.backend) |backend| switch (backend) {
-            .stage1 => if (skip_stage1) continue,
+            .stage1 => if (options.skip_stage1) continue,
             .stage2_llvm => {},
-            else => if (skip_stage2) continue,
+            else => if (options.skip_stage2) continue,
         };
 
-        const want_this_mode = for (optimize_modes) |m| {
+        const want_this_mode = for (options.optimize_modes) |m| {
             if (m == test_target.optimize_mode) break true;
         } else false;
         if (!want_this_mode) continue;
@@ -696,15 +698,22 @@ pub fn addPkgTests(
 
         const triple_prefix = test_target.target.zigTriple(b.allocator) catch unreachable;
 
+        // wasm32-wasi builds need more RAM, idk why
+        const max_rss = if (test_target.target.getOs().tag == .wasi)
+            options.max_rss * 2
+        else
+            options.max_rss;
+
         const these_tests = b.addTest(.{
-            .root_source_file = .{ .path = root_src },
+            .root_source_file = .{ .path = options.root_src },
             .optimize = test_target.optimize_mode,
             .target = test_target.target,
+            .max_rss = max_rss,
         });
         const single_threaded_txt = if (test_target.single_threaded) "single" else "multi";
         const backend_txt = if (test_target.backend) |backend| @tagName(backend) else "default";
         these_tests.setNamePrefix(b.fmt("{s}-{s}-{s}-{s}-{s}-{s} ", .{
-            name,
+            options.name,
             triple_prefix,
             @tagName(test_target.optimize_mode),
             libc_prefix,
@@ -712,7 +721,7 @@ pub fn addPkgTests(
             backend_txt,
         }));
         these_tests.single_threaded = test_target.single_threaded;
-        these_tests.setFilter(test_filter);
+        these_tests.setFilter(options.test_filter);
         if (test_target.link_libc) {
             these_tests.linkSystemLibrary("c");
         }

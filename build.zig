@@ -402,47 +402,45 @@ pub fn build(b: *std.Build) !void {
     const do_fmt_step = b.step("fmt", "Modify source files in place to have conforming formatting");
     do_fmt_step.dependOn(&do_fmt.step);
 
-    test_step.dependOn(tests.addPkgTests(
-        b,
-        test_filter,
-        "test/behavior.zig",
-        "behavior",
-        "Run the behavior tests",
-        optimization_modes,
-        skip_single_threaded,
-        skip_non_native,
-        skip_libc,
-        skip_stage1,
-        skip_stage2_tests,
-    ));
+    test_step.dependOn(tests.addModuleTests(b, .{
+        .test_filter = test_filter,
+        .root_src = "test/behavior.zig",
+        .name = "behavior",
+        .desc = "Run the behavior tests",
+        .optimize_modes = optimization_modes,
+        .skip_single_threaded = skip_single_threaded,
+        .skip_non_native = skip_non_native,
+        .skip_libc = skip_libc,
+        .skip_stage1 = skip_stage1,
+        .skip_stage2 = skip_stage2_tests,
+        .max_rss = 1 * 1024 * 1024 * 1024,
+    }));
 
-    test_step.dependOn(tests.addPkgTests(
-        b,
-        test_filter,
-        "lib/compiler_rt.zig",
-        "compiler-rt",
-        "Run the compiler_rt tests",
-        optimization_modes,
-        true, // skip_single_threaded
-        skip_non_native,
-        true, // skip_libc
-        skip_stage1,
-        skip_stage2_tests or true, // TODO get these all passing
-    ));
+    test_step.dependOn(tests.addModuleTests(b, .{
+        .test_filter = test_filter,
+        .root_src = "lib/compiler_rt.zig",
+        .name = "compiler-rt",
+        .desc = "Run the compiler_rt tests",
+        .optimize_modes = optimization_modes,
+        .skip_single_threaded = true,
+        .skip_non_native = skip_non_native,
+        .skip_libc = true,
+        .skip_stage1 = skip_stage1,
+        .skip_stage2 = true, // TODO get all these passing
+    }));
 
-    test_step.dependOn(tests.addPkgTests(
-        b,
-        test_filter,
-        "lib/c.zig",
-        "universal-libc",
-        "Run the universal libc tests",
-        optimization_modes,
-        true, // skip_single_threaded
-        skip_non_native,
-        true, // skip_libc
-        skip_stage1,
-        skip_stage2_tests or true, // TODO get these all passing
-    ));
+    test_step.dependOn(tests.addModuleTests(b, .{
+        .test_filter = test_filter,
+        .root_src = "lib/c.zig",
+        .name = "universal-libc",
+        .desc = "Run the universal libc tests",
+        .optimize_modes = optimization_modes,
+        .skip_single_threaded = true,
+        .skip_non_native = skip_non_native,
+        .skip_libc = true,
+        .skip_stage1 = skip_stage1,
+        .skip_stage2 = true, // TODO get all these passing
+    }));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, optimization_modes));
     test_step.dependOn(tests.addStandaloneTests(
@@ -472,19 +470,19 @@ pub fn build(b: *std.Build) !void {
     // tests for this feature are disabled until we have the self-hosted compiler available
     // test_step.dependOn(tests.addGenHTests(b, test_filter));
 
-    test_step.dependOn(tests.addPkgTests(
-        b,
-        test_filter,
-        "lib/std/std.zig",
-        "std",
-        "Run the standard library tests",
-        optimization_modes,
-        skip_single_threaded,
-        skip_non_native,
-        skip_libc,
-        skip_stage1,
-        true, // TODO get these all passing
-    ));
+    test_step.dependOn(tests.addModuleTests(b, .{
+        .test_filter = test_filter,
+        .root_src = "lib/std/std.zig",
+        .name = "std",
+        .desc = "Run the standard library tests",
+        .optimize_modes = optimization_modes,
+        .skip_single_threaded = skip_single_threaded,
+        .skip_non_native = skip_non_native,
+        .skip_libc = skip_libc,
+        .skip_stage1 = skip_stage1,
+        .skip_stage2 = true, // TODO get all these passing
+        .max_rss = 3 * 1024 * 1024 * 1024,
+    }));
 
     try addWasiUpdateStep(b, version);
 }
