@@ -84,19 +84,20 @@ pub fn main() !void {
     );
     defer builder.destroy();
 
+    const Color = enum { auto, off, on };
+
     var targets = ArrayList([]const u8).init(arena);
     var debug_log_scopes = ArrayList([]const u8).init(arena);
     var thread_pool_options: std.Thread.Pool.Options = .{ .allocator = arena };
 
-    const stderr_stream = io.getStdErr().writer();
-    const stdout_stream = io.getStdOut().writer();
-
     var install_prefix: ?[]const u8 = null;
     var dir_list = std.Build.DirList{};
     var enable_summary: ?bool = null;
-
-    const Color = enum { auto, off, on };
+    var max_rss: usize = 0;
     var color: Color = .auto;
+
+    const stderr_stream = io.getStdErr().writer();
+    const stdout_stream = io.getStdOut().writer();
 
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-D")) {
@@ -147,6 +148,18 @@ pub fn main() !void {
                     usageAndErr(builder, false, stderr_stream);
                 };
                 builder.sysroot = sysroot;
+            } else if (mem.eql(u8, arg, "--maxrss")) {
+                const max_rss_text = nextArg(args, &arg_idx) orelse {
+                    std.debug.print("Expected argument after --sysroot\n\n", .{});
+                    usageAndErr(builder, false, stderr_stream);
+                };
+                // TODO: support shorthand such as "2GiB", "2GB", or "2G"
+                max_rss = std.fmt.parseInt(usize, max_rss_text, 10) catch |err| {
+                    std.debug.print("invalid byte size: '{s}': {s}\n", .{
+                        max_rss_text, @errorName(err),
+                    });
+                    process.exit(1);
+                };
             } else if (mem.eql(u8, arg, "--search-prefix")) {
                 const search_prefix = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after --search-prefix\n\n", .{});
@@ -280,20 +293,47 @@ pub fn main() !void {
     if (builder.validateUserInputDidItFail())
         usageAndErr(builder, true, stderr_stream);
 
+    var run: Run = .{
+        .max_rss = max_rss,
+        .max_rss_is_default = false,
+        .max_rss_mutex = .{},
+        .memory_blocked_steps = std.ArrayList(*Step).init(arena),
+
+        .claimed_rss = 0,
+        .enable_summary = enable_summary,
+        .ttyconf = ttyconf,
+        .stderr = stderr,
+    };
+
+    if (run.max_rss == 0) {
+        run.max_rss = process.totalSystemMemory() catch std.math.maxInt(usize);
+        run.max_rss_is_default = true;
+    }
+
     runStepNames(
         arena,
         builder,
         targets.items,
         main_progress_node,
         thread_pool_options,
-        ttyconf,
-        stderr,
-        enable_summary,
+        &run,
     ) catch |err| switch (err) {
         error.UncleanExit => process.exit(1),
         else => return err,
     };
 }
+
+const Run = struct {
+    max_rss: usize,
+    max_rss_is_default: bool,
+    max_rss_mutex: std.Thread.Mutex,
+    memory_blocked_steps: std.ArrayList(*Step),
+
+    claimed_rss: usize,
+    enable_summary: ?bool,
+    ttyconf: std.debug.TTY.Config,
+    stderr: std.fs.File,
+};
 
 fn runStepNames(
     arena: std.mem.Allocator,
@@ -301,9 +341,7 @@ fn runStepNames(
     step_names: []const []const u8,
     parent_prog_node: *std.Progress.Node,
     thread_pool_options: std.Thread.Pool.Options,
-    ttyconf: std.debug.TTY.Config,
-    stderr: std.fs.File,
-    enable_summary: ?bool,
+    run: *Run,
 ) !void {
     const gpa = b.allocator;
     var step_stack: std.AutoArrayHashMapUnmanaged(*Step, void) = .{};
@@ -331,6 +369,26 @@ fn runStepNames(
         };
     }
 
+    {
+        // Check that we have enough memory to complete the build.
+        var any_problems = false;
+        for (step_stack.keys()) |s| {
+            if (s.max_rss == 0) continue;
+            if (s.max_rss > run.max_rss) {
+                std.debug.print("{s}{s}: this step declares an upper bound of {d} bytes of memory, exceeding the available {d} bytes of memory\n", .{
+                    s.owner.dep_prefix, s.name, s.max_rss, run.max_rss,
+                });
+                any_problems = true;
+            }
+        }
+        if (any_problems) {
+            if (run.max_rss_is_default) {
+                std.debug.print("note: use --maxrss to override the default", .{});
+            }
+            return error.UncleanExit;
+        }
+    }
+
     var thread_pool: std.Thread.Pool = undefined;
     try thread_pool.init(thread_pool_options);
     defer thread_pool.deinit();
@@ -353,10 +411,11 @@ fn runStepNames(
 
             wait_group.start();
             thread_pool.spawn(workerMakeOneStep, .{
-                &wait_group, &thread_pool, b, step, &step_prog, ttyconf,
+                &wait_group, &thread_pool, b, step, &step_prog, run,
             }) catch @panic("OOM");
         }
     }
+    assert(run.memory_blocked_steps.items.len == 0);
 
     var success_count: usize = 0;
     var skipped_count: usize = 0;
@@ -396,9 +455,12 @@ fn runStepNames(
 
     // A proper command line application defaults to silently succeeding.
     // The user may request verbose mode if they have a different preference.
-    if (failure_count == 0 and enable_summary != true) return cleanExit();
+    if (failure_count == 0 and run.enable_summary != true) return cleanExit();
 
-    if (enable_summary != false) {
+    const ttyconf = run.ttyconf;
+    const stderr = run.stderr;
+
+    if (run.enable_summary != false) {
         const total_count = success_count + failure_count + pending_count + skipped_count;
         ttyconf.setColor(stderr, .Cyan) catch {};
         stderr.writeAll("Build Summary:") catch {};
@@ -407,7 +469,7 @@ fn runStepNames(
         if (skipped_count > 0) stderr.writer().print("; {d} skipped", .{skipped_count}) catch {};
         if (failure_count > 0) stderr.writer().print("; {d} failed", .{failure_count}) catch {};
 
-        if (enable_summary == null) {
+        if (run.enable_summary == null) {
             ttyconf.setColor(stderr, .Dim) catch {};
             stderr.writeAll(" (disable with -fno-summary)") catch {};
             ttyconf.setColor(stderr, .Reset) catch {};
@@ -623,7 +685,7 @@ fn workerMakeOneStep(
     b: *std.Build,
     s: *Step,
     prog_node: *std.Progress.Node,
-    ttyconf: std.debug.TTY.Config,
+    run: *Run,
 ) void {
     defer wg.finish();
 
@@ -646,10 +708,32 @@ fn workerMakeOneStep(
         }
     }
 
-    // Avoid running steps twice.
-    if (@cmpxchgStrong(Step.State, &s.state, .precheck_done, .running, .SeqCst, .SeqCst) != null) {
-        // Another worker got the job.
-        return;
+    if (s.max_rss != 0) {
+        run.max_rss_mutex.lock();
+        defer run.max_rss_mutex.unlock();
+
+        // Avoid running steps twice.
+        if (s.state != .precheck_done) {
+            // Another worker got the job.
+            return;
+        }
+
+        const new_claimed_rss = run.claimed_rss + s.max_rss;
+        if (new_claimed_rss > run.max_rss) {
+            // Running this step right now could possibly exceed the allotted RSS.
+            // Add this step to the queue of memory-blocked steps.
+            run.memory_blocked_steps.append(s) catch @panic("OOM");
+            return;
+        }
+
+        run.claimed_rss = new_claimed_rss;
+        s.state = .running;
+    } else {
+        // Avoid running steps twice.
+        if (@cmpxchgStrong(Step.State, &s.state, .precheck_done, .running, .SeqCst, .SeqCst) != null) {
+            // Another worker got the job.
+            return;
+        }
     }
 
     var sub_prog_node = prog_node.start(s.name, 0);
@@ -667,7 +751,8 @@ fn workerMakeOneStep(
         sub_prog_node.context.lock_stderr();
         defer sub_prog_node.context.unlock_stderr();
 
-        const stderr = std.io.getStdErr();
+        const stderr = run.stderr;
+        const ttyconf = run.ttyconf;
 
         for (s.result_error_msgs.items) |msg| {
             // Sometimes it feels like you just can't catch a break. Finally,
@@ -684,22 +769,55 @@ fn workerMakeOneStep(
         }
     }
 
-    if (make_result) |_| {
-        @atomicStore(Step.State, &s.state, .success, .SeqCst);
-    } else |err| switch (err) {
-        error.MakeFailed => {
-            @atomicStore(Step.State, &s.state, .failure, .SeqCst);
-            return;
-        },
-        error.MakeSkipped => @atomicStore(Step.State, &s.state, .skipped, .SeqCst),
+    handle_result: {
+        if (make_result) |_| {
+            @atomicStore(Step.State, &s.state, .success, .SeqCst);
+        } else |err| switch (err) {
+            error.MakeFailed => {
+                @atomicStore(Step.State, &s.state, .failure, .SeqCst);
+                break :handle_result;
+            },
+            error.MakeSkipped => @atomicStore(Step.State, &s.state, .skipped, .SeqCst),
+        }
+
+        // Successful completion of a step, so we queue up its dependants as well.
+        for (s.dependants.items) |dep| {
+            wg.start();
+            thread_pool.spawn(workerMakeOneStep, .{
+                wg, thread_pool, b, dep, prog_node, run,
+            }) catch @panic("OOM");
+        }
     }
 
-    // Successful completion of a step, so we queue up its dependants as well.
-    for (s.dependants.items) |dep| {
-        wg.start();
-        thread_pool.spawn(workerMakeOneStep, .{
-            wg, thread_pool, b, dep, prog_node, ttyconf,
-        }) catch @panic("OOM");
+    // If this is a step that claims resources, we must now queue up other
+    // steps that are waiting for resources.
+    if (s.max_rss != 0) {
+        run.max_rss_mutex.lock();
+        defer run.max_rss_mutex.unlock();
+
+        // Give the memory back to the scheduler.
+        run.claimed_rss -= s.max_rss;
+        // Avoid kicking off too many tasks that we already know will not have
+        // enough resources.
+        var remaining = run.max_rss - run.claimed_rss;
+        var i: usize = 0;
+        var j: usize = 0;
+        while (j < run.memory_blocked_steps.items.len) : (j += 1) {
+            const dep = run.memory_blocked_steps.items[j];
+            assert(dep.max_rss != 0);
+            if (dep.max_rss <= remaining) {
+                remaining -= dep.max_rss;
+
+                wg.start();
+                thread_pool.spawn(workerMakeOneStep, .{
+                    wg, thread_pool, b, dep, prog_node, run,
+                }) catch @panic("OOM");
+            } else {
+                run.memory_blocked_steps.items[i] = dep;
+                i += 1;
+            }
+        }
+        run.memory_blocked_steps.shrinkRetainingCapacity(i);
     }
 }
 
@@ -770,6 +888,7 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\  --color [auto|off|on]        Enable or disable colored error messages
         \\  --prominent-compile-errors   Output compile errors formatted for a human to read
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
+        \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
         \\
         \\Project-Specific Options:
         \\

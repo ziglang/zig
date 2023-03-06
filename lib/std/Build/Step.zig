@@ -2,14 +2,32 @@ id: Id,
 name: []const u8,
 owner: *Build,
 makeFn: MakeFn,
+
 dependencies: std.ArrayList(*Step),
 /// This field is empty during execution of the user's build script, and
 /// then populated during dependency loop checking in the build runner.
 dependants: std.ArrayListUnmanaged(*Step),
 state: State,
-/// The return addresss associated with creation of this step that can be useful
-/// to print along with debugging messages.
-debug_stack_trace: [n_debug_stack_frames]usize,
+/// Set this field to declare an upper bound on the amount of bytes of memory it will
+/// take to run the step. Zero means no limit.
+///
+/// The idea to annotate steps that might use a high amount of RAM with an
+/// upper bound. For example, perhaps a particular set of unit tests require 4
+/// GiB of RAM, and those tests will be run under 4 different build
+/// configurations at once. This would potentially require 16 GiB of memory on
+/// the system if all 4 steps executed simultaneously, which could easily be
+/// greater than what is actually available, potentially causing the system to
+/// crash when using `zig build` at the default concurrency level.
+///
+/// This field causes the build runner to do two things:
+/// 1. ulimit child processes, so that they will fail if it would exceed this
+/// memory limit. This serves to enforce that this upper bound value is
+/// correct.
+/// 2. Ensure that the set of concurrent steps at any given time have a total
+/// max_rss value that does not exceed the `max_total_rss` value of the build
+/// runner. This value is configurable on the command line, and defaults to the
+/// total system memory available.
+max_rss: usize,
 
 result_error_msgs: std.ArrayListUnmanaged([]const u8),
 result_error_bundle: std.zig.ErrorBundle,
@@ -17,6 +35,10 @@ result_cached: bool,
 result_duration_ns: ?u64,
 /// 0 means unavailable or not reported.
 result_peak_rss: usize,
+
+/// The return addresss associated with creation of this step that can be useful
+/// to print along with debugging messages.
+debug_stack_trace: [n_debug_stack_frames]usize,
 
 pub const MakeFn = *const fn (self: *Step, prog_node: *std.Progress.Node) anyerror!void;
 
@@ -83,6 +105,7 @@ pub const Options = struct {
     owner: *Build,
     makeFn: MakeFn = makeNoOp,
     first_ret_addr: ?usize = null,
+    max_rss: usize = 0,
 };
 
 pub fn init(options: Options) Step {
@@ -104,6 +127,7 @@ pub fn init(options: Options) Step {
         .dependencies = std.ArrayList(*Step).init(arena),
         .dependants = .{},
         .state = .precheck_unstarted,
+        .max_rss = options.max_rss,
         .debug_stack_trace = addresses,
         .result_error_msgs = .{},
         .result_error_bundle = std.zig.ErrorBundle.empty,
@@ -117,15 +141,24 @@ pub fn init(options: Options) Step {
 /// have already reported the error. Otherwise, we add a simple error report
 /// here.
 pub fn make(s: *Step, prog_node: *std.Progress.Node) error{ MakeFailed, MakeSkipped }!void {
-    return s.makeFn(s, prog_node) catch |err| switch (err) {
+    const arena = s.owner.allocator;
+
+    s.makeFn(s, prog_node) catch |err| switch (err) {
         error.MakeFailed => return error.MakeFailed,
         error.MakeSkipped => return error.MakeSkipped,
         else => {
-            const gpa = s.dependencies.allocator;
-            s.result_error_msgs.append(gpa, @errorName(err)) catch @panic("OOM");
+            s.result_error_msgs.append(arena, @errorName(err)) catch @panic("OOM");
             return error.MakeFailed;
         },
     };
+
+    if (s.max_rss != 0 and s.result_peak_rss > s.max_rss) {
+        const msg = std.fmt.allocPrint(arena, "memory usage peaked at {d} bytes, exceeding the declared upper bound of {d}", .{
+            s.result_peak_rss, s.max_rss,
+        }) catch @panic("OOM");
+        s.result_error_msgs.append(arena, msg) catch @panic("OOM");
+        return error.MakeFailed;
+    }
 }
 
 pub fn dependOn(self: *Step, other: *Step) void {

@@ -453,6 +453,7 @@ pub const ExecutableOptions = struct {
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
     linkage: ?CompileStep.Linkage = null,
+    max_rss: usize = 0,
 };
 
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *CompileStep {
@@ -464,6 +465,7 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *CompileStep {
         .optimize = options.optimize,
         .kind = .exe,
         .linkage = options.linkage,
+        .max_rss = options.max_rss,
     });
 }
 
@@ -472,6 +474,7 @@ pub const ObjectOptions = struct {
     root_source_file: ?FileSource = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
+    max_rss: usize = 0,
 };
 
 pub fn addObject(b: *Build, options: ObjectOptions) *CompileStep {
@@ -481,6 +484,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *CompileStep {
         .target = options.target,
         .optimize = options.optimize,
         .kind = .obj,
+        .max_rss = options.max_rss,
     });
 }
 
@@ -490,6 +494,7 @@ pub const SharedLibraryOptions = struct {
     version: ?std.builtin.Version = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
+    max_rss: usize = 0,
 };
 
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *CompileStep {
@@ -501,6 +506,7 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *CompileStep {
         .version = options.version,
         .target = options.target,
         .optimize = options.optimize,
+        .max_rss = options.max_rss,
     });
 }
 
@@ -510,6 +516,7 @@ pub const StaticLibraryOptions = struct {
     target: CrossTarget,
     optimize: std.builtin.Mode,
     version: ?std.builtin.Version = null,
+    max_rss: usize = 0,
 };
 
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *CompileStep {
@@ -521,6 +528,7 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *CompileStep {
         .version = options.version,
         .target = options.target,
         .optimize = options.optimize,
+        .max_rss = options.max_rss,
     });
 }
 
@@ -531,6 +539,7 @@ pub const TestOptions = struct {
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
     version: ?std.builtin.Version = null,
+    max_rss: usize = 0,
 };
 
 pub fn addTest(b: *Build, options: TestOptions) *CompileStep {
@@ -540,6 +549,7 @@ pub fn addTest(b: *Build, options: TestOptions) *CompileStep {
         .root_source_file = options.root_source_file,
         .target = options.target,
         .optimize = options.optimize,
+        .max_rss = options.max_rss,
     });
 }
 
@@ -548,6 +558,7 @@ pub const AssemblyOptions = struct {
     source_file: FileSource,
     target: CrossTarget,
     optimize: std.builtin.Mode,
+    max_rss: usize = 0,
 };
 
 pub fn addAssembly(b: *Build, options: AssemblyOptions) *CompileStep {
@@ -557,6 +568,7 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *CompileStep {
         .root_source_file = null,
         .target = options.target,
         .optimize = options.optimize,
+        .max_rss = options.max_rss,
     });
     obj_step.addAssemblyFileSource(options.source_file.dupe(b));
     return obj_step;

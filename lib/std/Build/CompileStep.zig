@@ -274,6 +274,7 @@ pub const Options = struct {
     kind: Kind,
     linkage: ?Linkage = null,
     version: ?std.builtin.Version = null,
+    max_rss: usize = 0,
 };
 
 pub const Kind = enum {
@@ -333,6 +334,7 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
             .name = step_name,
             .owner = owner,
             .makeFn = make,
+            .max_rss = options.max_rss,
         }),
         .version = options.version,
         .out_filename = undefined,
