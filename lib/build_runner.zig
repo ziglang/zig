@@ -527,10 +527,8 @@ fn printTreeStep(
                 if (s.result_peak_rss != 0) {
                     const rss = s.result_peak_rss;
                     try ttyconf.setColor(stderr, .Dim);
-                    if (rss >= 1000_000_000_000) {
-                        try stderr.writer().print(" MaxRSS:{d}G", .{rss / 1000_000_000_000});
-                    } else if (rss >= 1000_000_000) {
-                        try stderr.writer().print(" MaxRSS:{d}M", .{rss / 1000_000_000});
+                    if (rss >= 1000_000_000) {
+                        try stderr.writer().print(" MaxRSS:{d}G", .{rss / 1000_000_000});
                     } else if (rss >= 1000_000) {
                         try stderr.writer().print(" MaxRSS:{d}M", .{rss / 1000_000});
                     } else if (rss >= 1000) {
