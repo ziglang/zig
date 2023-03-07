@@ -41,9 +41,7 @@ pub const Preopens = struct {
     /// e.g. if `/` and `/tmp` are preopened, and `full_path` is `/tmp/myfile.txt`,
     /// `myfile.txt` is looked under the `/tmp` preopen and not under `/`.
     pub fn findDir(p: Preopens, full_path: []const u8, flags: std.fs.Dir.OpenDirOptions) std.fs.Dir.OpenError!std.fs.Dir {
-        const m = findPreopenMatch(p, full_path) catch |err| {
-            return err;
-        };
+        const m = try findPreopenMatch(p, full_path);
         return m.dir.openDirWasi(m.relativePath, flags);
     }
 
@@ -66,7 +64,7 @@ pub const Preopens = struct {
         if (fd == 0) {
             return std.fs.Dir.OpenError.FileNotFound;
         }
-        const d = std.fs.Dir{ .fd = @intCast(os.fd_t, fd) };
+        const d = std.fs.Dir{ .fd = @intCast(os.fd_t) };
         const rel = full_path[prefix.len + 1 .. full_path.len];
         return PreopenMatch{ .dir = d, .relativePath = rel };
     }
