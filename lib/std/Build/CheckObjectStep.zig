@@ -314,14 +314,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const self = @fieldParentPtr(CheckObjectStep, "step", step);
 
     const src_path = self.source.getPath(b);
-    const contents = try fs.cwd().readFileAllocOptions(
+    const contents = fs.cwd().readFileAllocOptions(
         gpa,
         src_path,
         self.max_bytes,
         null,
         @alignOf(u64),
         null,
-    );
+    ) catch |err| return step.fail("unable to read '{s}': {s}", .{ src_path, @errorName(err) });
 
     const output = switch (self.obj_format) {
         .macho => try MachODumper.parseAndDump(step, contents, .{
