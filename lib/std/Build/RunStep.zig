@@ -38,6 +38,8 @@ env_map: ?*EnvMap,
 /// be skipped if all output files are up-to-date and input files are
 /// unchanged.
 stdio: StdIo = .infer_from_args,
+/// This field must be `null` if stdio is `inherit`.
+stdin: ?[]const u8 = null,
 
 /// Additional file paths relative to build.zig that, when modified, indicate
 /// that the RunStep should be re-executed.
@@ -64,6 +66,9 @@ skip_foreign_checks: bool = false,
 /// If stderr or stdout exceeds this amount, the child process is killed and
 /// the step fails.
 max_stdio_size: usize = 10 * 1024 * 1024,
+
+captured_stdout: ?*Output = null,
+captured_stderr: ?*Output = null,
 
 pub const StdIo = union(enum) {
     /// Whether the RunStep has side-effects will be determined by whether or not one
@@ -99,12 +104,12 @@ pub const Arg = union(enum) {
     artifact: *CompileStep,
     file_source: std.Build.FileSource,
     bytes: []u8,
-    output: Output,
+    output: *Output,
+};
 
-    pub const Output = struct {
-        generated_file: *std.Build.GeneratedFile,
-        basename: []const u8,
-    };
+pub const Output = struct {
+    generated_file: std.Build.GeneratedFile,
+    basename: []const u8,
 };
 
 pub fn create(owner: *std.Build, name: []const u8) *RunStep {
@@ -119,10 +124,13 @@ pub fn create(owner: *std.Build, name: []const u8) *RunStep {
         .argv = ArrayList(Arg).init(owner.allocator),
         .cwd = null,
         .env_map = null,
-        .rename_step_with_output_arg = true,
-        .max_stdio_size = 10 * 1024 * 1024,
     };
     return self;
+}
+
+pub fn setName(self: *RunStep, name: []const u8) void {
+    self.step.name = name;
+    self.rename_step_with_output_arg = false;
 }
 
 pub fn addArtifactArg(self: *RunStep, artifact: *CompileStep) void {
@@ -135,19 +143,19 @@ pub fn addArtifactArg(self: *RunStep, artifact: *CompileStep) void {
 /// throughout the build system.
 pub fn addOutputFileArg(rs: *RunStep, basename: []const u8) std.Build.FileSource {
     const b = rs.step.owner;
-    const generated_file = b.allocator.create(std.Build.GeneratedFile) catch @panic("OOM");
-    generated_file.* = .{ .step = &rs.step };
-    rs.argv.append(.{ .output = .{
-        .generated_file = generated_file,
-        .basename = b.dupe(basename),
-    } }) catch @panic("OOM");
+
+    const output = b.allocator.create(Output) catch @panic("OOM");
+    output.* = .{
+        .basename = basename,
+        .generated_file = .{ .step = &rs.step },
+    };
+    rs.argv.append(.{ .output = output }) catch @panic("OOM");
 
     if (rs.rename_step_with_output_arg) {
-        rs.rename_step_with_output_arg = false;
-        rs.step.name = b.fmt("{s} ({s})", .{ rs.step.name, basename });
+        rs.setName(b.fmt("{s} ({s})", .{ rs.step.name, basename }));
     }
 
-    return .{ .generated = generated_file };
+    return .{ .generated = &output.generated_file };
 }
 
 pub fn addFileSourceArg(self: *RunStep, file_source: std.Build.FileSource) void {
@@ -259,6 +267,34 @@ pub fn addCheck(self: *RunStep, new_check: StdIo.Check) void {
     }
 }
 
+pub fn captureStdErr(self: *RunStep) std.Build.FileSource {
+    assert(self.stdio != .inherit);
+
+    if (self.captured_stderr) |output| return .{ .generated = &output.generated_file };
+
+    const output = self.step.owner.allocator.create(Output) catch @panic("OOM");
+    output.* = .{
+        .basename = "stderr",
+        .generated_file = .{ .step = &self.step },
+    };
+    self.captured_stderr = output;
+    return .{ .generated = &output.generated_file };
+}
+
+pub fn captureStdOut(self: *RunStep) *std.Build.GeneratedFile {
+    assert(self.stdio != .inherit);
+
+    if (self.captured_stdout) |output| return .{ .generated = &output.generated_file };
+
+    const output = self.step.owner.allocator.create(Output) catch @panic("OOM");
+    output.* = .{
+        .basename = "stdout",
+        .generated_file = .{ .step = &self.step },
+    };
+    self.captured_stdout = output;
+    return .{ .generated = &output.generated_file };
+}
+
 /// Returns whether the RunStep has side effects *other than* updating the output arguments.
 fn hasSideEffects(self: RunStep) bool {
     return switch (self.stdio) {
@@ -269,6 +305,8 @@ fn hasSideEffects(self: RunStep) bool {
 }
 
 fn hasAnyOutputArgs(self: RunStep) bool {
+    if (self.captured_stdout != null) return true;
+    if (self.captured_stderr != null) return true;
     for (self.argv.items) |arg| switch (arg) {
         .output => return true,
         else => continue,
@@ -318,7 +356,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var argv_list = ArrayList([]const u8).init(arena);
     var output_placeholders = ArrayList(struct {
         index: usize,
-        output: Arg.Output,
+        output: *Output,
     }).init(arena);
 
     var man = b.cache.obtain();
@@ -361,46 +399,68 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 
-    if (!has_side_effects) {
-        for (self.extra_file_dependencies) |file_path| {
-            _ = try man.addFile(b.pathFromRoot(file_path), null);
-        }
+    if (self.captured_stdout) |output| {
+        man.hash.addBytes(output.basename);
+    }
 
-        if (try step.cacheHit(&man)) {
-            // cache hit, skip running command
-            const digest = man.final();
-            for (output_placeholders.items) |placeholder| {
-                placeholder.output.generated_file.path = try b.cache_root.join(
-                    arena,
-                    &.{ "o", &digest, placeholder.output.basename },
-                );
-            }
-            step.result_cached = true;
-            return;
-        }
+    if (self.captured_stderr) |output| {
+        man.hash.addBytes(output.basename);
+    }
 
+    hashStdIo(&man.hash, self.stdio);
+
+    if (has_side_effects) {
+        try runCommand(self, argv_list.items, has_side_effects, null);
+        return;
+    }
+
+    for (self.extra_file_dependencies) |file_path| {
+        _ = try man.addFile(b.pathFromRoot(file_path), null);
+    }
+
+    if (try step.cacheHit(&man)) {
+        // cache hit, skip running command
         const digest = man.final();
-
         for (output_placeholders.items) |placeholder| {
-            const output_components = .{ "o", &digest, placeholder.output.basename };
-            const output_sub_path = try fs.path.join(arena, &output_components);
-            const output_sub_dir_path = fs.path.dirname(output_sub_path).?;
-            b.cache_root.handle.makePath(output_sub_dir_path) catch |err| {
-                return step.fail("unable to make path '{}{s}': {s}", .{
-                    b.cache_root, output_sub_dir_path, @errorName(err),
-                });
-            };
-            const output_path = try b.cache_root.join(arena, &output_components);
-            placeholder.output.generated_file.path = output_path;
-            argv_list.items[placeholder.index] = output_path;
+            placeholder.output.generated_file.path = try b.cache_root.join(arena, &.{
+                "o", &digest, placeholder.output.basename,
+            });
         }
+
+        if (self.captured_stdout) |output| {
+            output.generated_file.path = try b.cache_root.join(arena, &.{
+                "o", &digest, output.basename,
+            });
+        }
+
+        if (self.captured_stderr) |output| {
+            output.generated_file.path = try b.cache_root.join(arena, &.{
+                "o", &digest, output.basename,
+            });
+        }
+
+        step.result_cached = true;
+        return;
     }
 
-    try runCommand(self, argv_list.items, has_side_effects);
+    const digest = man.final();
 
-    if (!has_side_effects) {
-        try man.writeManifest();
+    for (output_placeholders.items) |placeholder| {
+        const output_components = .{ "o", &digest, placeholder.output.basename };
+        const output_sub_path = try fs.path.join(arena, &output_components);
+        const output_sub_dir_path = fs.path.dirname(output_sub_path).?;
+        b.cache_root.handle.makePath(output_sub_dir_path) catch |err| {
+            return step.fail("unable to make path '{}{s}': {s}", .{
+                b.cache_root, output_sub_dir_path, @errorName(err),
+            });
+        };
+        const output_path = try b.cache_root.join(arena, &output_components);
+        placeholder.output.generated_file.path = output_path;
+        argv_list.items[placeholder.index] = output_path;
     }
+
+    try runCommand(self, argv_list.items, has_side_effects, &digest);
+    try man.writeManifest();
 }
 
 fn formatTerm(
@@ -448,7 +508,12 @@ fn termMatches(expected: ?std.process.Child.Term, actual: std.process.Child.Term
     };
 }
 
-fn runCommand(self: *RunStep, argv: []const []const u8, has_side_effects: bool) !void {
+fn runCommand(
+    self: *RunStep,
+    argv: []const []const u8,
+    has_side_effects: bool,
+    digest: ?*const [std.Build.Cache.hex_digest_len]u8,
+) !void {
     const step = &self.step;
     const b = step.owner;
     const arena = b.allocator;
@@ -584,6 +649,46 @@ fn runCommand(self: *RunStep, argv: []const []const u8, has_side_effects: bool) 
     step.result_duration_ns = result.elapsed_ns;
     step.result_peak_rss = result.peak_rss;
 
+    // Capture stdout and stderr to GeneratedFile objects.
+    const Stream = struct {
+        captured: ?*Output,
+        is_null: bool,
+        bytes: []const u8,
+    };
+    for ([_]Stream{
+        .{
+            .captured = self.captured_stdout,
+            .is_null = result.stdout_null,
+            .bytes = result.stdout,
+        },
+        .{
+            .captured = self.captured_stderr,
+            .is_null = result.stderr_null,
+            .bytes = result.stderr,
+        },
+    }) |stream| {
+        if (stream.captured) |output| {
+            assert(!stream.is_null);
+
+            const output_components = .{ "o", digest.?, output.basename };
+            const output_path = try b.cache_root.join(arena, &output_components);
+            output.generated_file.path = output_path;
+
+            const sub_path = try fs.path.join(arena, &output_components);
+            const sub_path_dirname = fs.path.dirname(sub_path).?;
+            b.cache_root.handle.makePath(sub_path_dirname) catch |err| {
+                return step.fail("unable to make path '{}{s}': {s}", .{
+                    b.cache_root, sub_path_dirname, @errorName(err),
+                });
+            };
+            b.cache_root.handle.writeFile(sub_path, stream.bytes) catch |err| {
+                return step.fail("unable to write file '{}{s}': {s}", .{
+                    b.cache_root, sub_path, @errorName(err),
+                });
+            };
+        }
+    }
+
     switch (self.stdio) {
         .check => |checks| for (checks.items) |check| switch (check) {
             .expect_stderr_exact => |expected_bytes| {
@@ -705,7 +810,7 @@ fn spawnChildAndCollect(
     child.request_resource_usage_statistics = true;
 
     child.stdin_behavior = switch (self.stdio) {
-        .infer_from_args => if (has_side_effects) .Inherit else .Ignore,
+        .infer_from_args => if (has_side_effects) .Inherit else .Close,
         .inherit => .Inherit,
         .check => .Close,
     };
@@ -719,11 +824,25 @@ fn spawnChildAndCollect(
         .inherit => .Inherit,
         .check => .Pipe,
     };
+    if (self.captured_stdout != null) child.stdout_behavior = .Pipe;
+    if (self.captured_stderr != null) child.stderr_behavior = .Pipe;
+    if (self.stdin != null) {
+        assert(child.stdin_behavior != .Inherit);
+        child.stdin_behavior = .Pipe;
+    }
 
     child.spawn() catch |err| return self.step.fail("unable to spawn {s}: {s}", .{
         argv[0], @errorName(err),
     });
     var timer = try std.time.Timer.start();
+
+    if (self.stdin) |stdin| {
+        child.stdin.?.writeAll(stdin) catch |err| {
+            return self.step.fail("unable to write stdin: {s}", .{@errorName(err)});
+        };
+        child.stdin.?.close();
+        child.stdin = null;
+    }
 
     // These are not optionals, as a workaround for
     // https://github.com/ziglang/zig/issues/14783
@@ -761,7 +880,8 @@ fn spawnChildAndCollect(
     }
 
     if (!stderr_null and stderr_bytes.len > 0) {
-        const stderr_is_diagnostic = switch (self.stdio) {
+        // Treat stderr as an error message.
+        const stderr_is_diagnostic = self.captured_stderr == null and switch (self.stdio) {
             .check => |checks| !checksContainStderr(checks.items),
             else => true,
         };
@@ -826,6 +946,30 @@ fn failForeign(
         },
         else => {
             return self.step.fail("unable to spawn foreign binary '{s}'", .{argv0});
+        },
+    }
+}
+
+fn hashStdIo(hh: *std.Build.Cache.HashHelper, stdio: StdIo) void {
+    switch (stdio) {
+        .infer_from_args, .inherit => {},
+        .check => |checks| for (checks.items) |check| {
+            hh.add(@as(std.meta.Tag(StdIo.Check), check));
+            switch (check) {
+                .expect_stderr_exact,
+                .expect_stderr_match,
+                .expect_stdout_exact,
+                .expect_stdout_match,
+                => |s| hh.addBytes(s),
+
+                .expect_term => |term| {
+                    hh.add(@as(std.meta.Tag(std.process.Child.Term), term));
+                    switch (term) {
+                        .Exited => |x| hh.add(x),
+                        .Signal, .Stopped, .Unknown => |x| hh.add(x),
+                    }
+                },
+            }
         },
     }
 }

@@ -189,10 +189,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (try step.cacheHit(&man)) {
         const digest = man.final();
         for (wf.files.items) |file| {
-            file.generated_file.path = try b.cache_root.join(
-                b.allocator,
-                &.{ "o", &digest, file.sub_path },
-            );
+            file.generated_file.path = try b.cache_root.join(b.allocator, &.{
+                "o", &digest, file.sub_path,
+            });
         }
         return;
     }
@@ -249,10 +248,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             },
         }
 
-        file.generated_file.path = try b.cache_root.join(
-            b.allocator,
-            &.{ cache_path, file.sub_path },
-        );
+        file.generated_file.path = try b.cache_root.join(b.allocator, &.{
+            cache_path, file.sub_path,
+        });
     }
 
     try man.writeManifest();
