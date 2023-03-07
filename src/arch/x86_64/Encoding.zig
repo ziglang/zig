@@ -29,11 +29,41 @@ pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
     op2: Instruction.Operand,
     op3: Instruction.Operand,
     op4: Instruction.Operand,
-}) ?Encoding {
+}) !?Encoding {
     const input_op1 = Op.fromOperand(args.op1);
     const input_op2 = Op.fromOperand(args.op2);
     const input_op3 = Op.fromOperand(args.op3);
     const input_op4 = Op.fromOperand(args.op4);
+
+    const ops = &[_]Instruction.Operand{ args.op1, args.op2, args.op3, args.op4 };
+    const rex_required = for (ops) |op| switch (op) {
+        .reg => |r| switch (r) {
+            .spl, .bpl, .sil, .dil => break true,
+            else => {},
+        },
+        else => {},
+    } else false;
+    const rex_invalid = for (ops) |op| switch (op) {
+        .reg => |r| switch (r) {
+            .ah, .bh, .ch, .dh => break true,
+            else => {},
+        },
+        else => {},
+    } else false;
+    const rex_extended = for (ops) |op| switch (op) {
+        .reg => |r| if (r.isExtended()) break true,
+        .mem => |m| {
+            if (m.base()) |base| {
+                if (base.isExtended()) break true;
+            }
+            if (m.scaleIndex()) |si| {
+                if (si.index.isExtended()) break true;
+            }
+        },
+        else => {},
+    } else false;
+
+    if ((rex_required or rex_extended) and rex_invalid) return error.CannotEncode;
 
     // TODO work out what is the maximum number of variants we can actually find in one swoop.
     var candidates: [10]Encoding = undefined;
@@ -57,13 +87,24 @@ pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
             input_op3.isSubset(enc.op3, enc.mode) and
             input_op4.isSubset(enc.op4, enc.mode))
         {
-            candidates[count] = enc;
-            count += 1;
+            if (rex_required) {
+                switch (enc.mode) {
+                    .rex, .long => {
+                        candidates[count] = enc;
+                        count += 1;
+                    },
+                    else => {},
+                }
+            } else {
+                if (enc.mode != .rex) {
+                    candidates[count] = enc;
+                    count += 1;
+                }
+            }
         }
     }
 
     if (count == 0) return null;
-    if (count == 1) return candidates[0];
 
     const EncodingLength = struct {
         fn estimate(encoding: Encoding, params: struct {
@@ -71,7 +112,7 @@ pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
             op2: Instruction.Operand,
             op3: Instruction.Operand,
             op4: Instruction.Operand,
-        }) usize {
+        }) !usize {
             var inst = Instruction{
                 .op1 = params.op1,
                 .op2 = params.op2,
@@ -91,7 +132,13 @@ pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
     } = null;
     var i: usize = 0;
     while (i < count) : (i += 1) {
-        const len = EncodingLength.estimate(candidates[i], .{
+        const candidate = candidates[i];
+        switch (candidate.mode) {
+            .long, .rex => if (rex_invalid) return error.CannotEncode,
+            else => {},
+        }
+
+        const len = try EncodingLength.estimate(candidate, .{
             .op1 = args.op1,
             .op2 = args.op2,
             .op3 = args.op3,
@@ -136,20 +183,11 @@ pub fn findByOpcode(opc: []const u8, prefixes: struct {
         if (match) {
             if (prefixes.rex.w) {
                 switch (enc.mode) {
-                    .fpu, .sse, .sse2 => {},
-                    .long => return enc,
-                    .none => {
-                        // TODO this is a hack to allow parsing of instructions which contain
-                        // spurious prefix bytes such as
-                        // rex.W mov dil, 0x1
-                        // Here, rex.W is not needed.
-                        const rex_w_allowed = blk: {
-                            const bit_size = enc.operandBitSize();
-                            break :blk bit_size == 64 or bit_size == 8;
-                        };
-                        if (rex_w_allowed) return enc;
-                    },
+                    .fpu, .sse, .sse2, .none => {},
+                    .long, .rex => return enc,
                 }
+            } else if (prefixes.rex.present and !prefixes.rex.isSet()) {
+                if (enc.mode == .rex) return enc;
             } else if (prefixes.legacy.prefix_66) {
                 switch (enc.operandBitSize()) {
                     16 => return enc,
@@ -542,6 +580,7 @@ pub const Op = enum {
 pub const Mode = enum {
     none,
     fpu,
+    rex,
     long,
     sse,
     sse2,

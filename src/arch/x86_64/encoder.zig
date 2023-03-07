@@ -102,12 +102,12 @@ pub const Instruction = struct {
         op3: Operand = .none,
         op4: Operand = .none,
     }) !Instruction {
-        const encoding = Encoding.findByMnemonic(mnemonic, .{
+        const encoding = (try Encoding.findByMnemonic(mnemonic, .{
             .op1 = args.op1,
             .op2 = args.op2,
             .op3 = args.op3,
             .op4 = args.op4,
-        }) orelse {
+        })) orelse {
             std.log.debug("{s} {s} {s} {s} {s}", .{
                 @tagName(mnemonic),
                 @tagName(Encoding.Op.fromOperand(args.op1)),
@@ -251,13 +251,8 @@ pub const Instruction = struct {
     fn encodeRexPrefix(inst: Instruction, encoder: anytype) !void {
         const op_en = inst.encoding.op_en;
 
-        // Check if we need REX and can actually encode it
-        const is_rex_invalid = for (&[_]Operand{ inst.op1, inst.op2, inst.op3, inst.op4 }) |op| switch (op) {
-            .reg => |r| if (r.isRexInvalid()) break true,
-            else => {},
-        } else false;
-
         var rex = Rex{};
+        rex.present = inst.encoding.mode == .rex;
         rex.w = inst.encoding.mode == .long;
 
         switch (op_en) {
@@ -292,8 +287,6 @@ pub const Instruction = struct {
                 }
             },
         }
-
-        if (rex.isSet() and is_rex_invalid) return error.CannotEncode;
 
         try encoder.rex(rex);
     }
@@ -507,9 +500,9 @@ fn Encoder(comptime T: type) type {
         /// or one of reg, index, r/m, base, or opcode-reg might be extended.
         ///
         /// See struct `Rex` for a description of each field.
-        ///
-        /// Does not add a prefix byte if none of the fields are set!
         pub fn rex(self: Self, byte: Rex) !void {
+            if (!byte.present and !byte.isSet()) return;
+
             var value: u8 = 0b0100_0000;
 
             if (byte.w) value |= 0b1000;
@@ -517,9 +510,7 @@ fn Encoder(comptime T: type) type {
             if (byte.x) value |= 0b0010;
             if (byte.b) value |= 0b0001;
 
-            if (value != 0b0100_0000) {
-                try self.writer.writeByte(value);
-            }
+            try self.writer.writeByte(value);
         }
 
         // ------
@@ -788,6 +779,7 @@ pub const Rex = struct {
     r: bool = false,
     x: bool = false,
     b: bool = false,
+    present: bool = false,
 
     pub fn isSet(rex: Rex) bool {
         return rex.w or rex.r or rex.x or rex.b;
