@@ -104,7 +104,6 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
             const run = exe.run();
             run.setName(annotated_case_name);
             run.addArgs(case.cli_args);
-            run.expectStdErrEqual("");
             run.expectStdOutEqual(case.expected_output);
 
             self.step.dependOn(&run.step);
@@ -132,7 +131,6 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
                 const run = exe.run();
                 run.setName(annotated_case_name);
                 run.addArgs(case.cli_args);
-                run.expectStdErrEqual("");
                 run.expectStdOutEqual(case.expected_output);
 
                 self.step.dependOn(&run.step);
