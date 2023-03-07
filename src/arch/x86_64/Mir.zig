@@ -34,6 +34,7 @@ pub const Inst = struct {
         ///       0b01  reg1, [reg2 + imm32]
         ///       0b01  reg1, [ds:imm32]
         ///       0b10  [reg1 + imm32], reg2
+        ///       0b11  reg1, imm_s
         /// Notes:
         ///  * If reg2 is `none` then it means Data field `imm` is used as the immediate.
         ///  * When two imm32 values are required, Data field `payload` points at `ImmPair`.
@@ -421,6 +422,8 @@ pub const Inst = struct {
         inst: Index,
         /// A 32-bit immediate value.
         imm: u32,
+        /// A 32-bit signed immediate value.
+        imm_s: i32,
         /// A 32-bit signed displacement value.
         disp: i32,
         /// A condition code for use with EFLAGS register.

@@ -207,7 +207,7 @@ pub const Register = enum(u7) {
         return @intCast(u6, @enumToInt(reg) - base);
     }
 
-    pub fn size(reg: Register) u32 {
+    pub fn bitSize(reg: Register) u64 {
         return switch (@enumToInt(reg)) {
             // zig fmt: off
             @enumToInt(Register.rax)  ... @enumToInt(Register.r15)   => 64,
@@ -273,7 +273,7 @@ pub const Register = enum(u7) {
         return @truncate(u3, reg.enc());
     }
 
-    pub fn toSize(reg: Register, bit_size: u32) Register {
+    pub fn toBitSize(reg: Register, bit_size: u64) Register {
         return switch (bit_size) {
             8 => reg.to8(),
             16 => reg.to16(),
@@ -334,7 +334,17 @@ pub const Register = enum(u7) {
 
     pub fn dwarfLocOp(reg: Register) u8 {
         return switch (reg.class()) {
-            .general_purpose => @intCast(u8, @enumToInt(reg) - reg.gpBase()) + DW.OP.reg0,
+            .general_purpose => switch (reg.to64()) {
+                .rax => DW.OP.reg0,
+                .rdx => DW.OP.reg1,
+                .rcx => DW.OP.reg2,
+                .rbx => DW.OP.reg3,
+                .rsi => DW.OP.reg4,
+                .rdi => DW.OP.reg5,
+                .rbp => DW.OP.reg6,
+                .rsp => DW.OP.reg7,
+                else => @intCast(u8, @enumToInt(reg) - reg.gpBase()) + DW.OP.reg0,
+            },
             .floating_point => @intCast(u8, @enumToInt(reg) - reg.fpBase()) + DW.OP.reg17,
             else => unreachable,
         };
@@ -345,7 +355,17 @@ pub const Register = enum(u7) {
     /// register to a given signed offset.
     pub fn dwarfLocOpDeref(reg: Register) u8 {
         return switch (reg.class()) {
-            .general_purpose => @intCast(u8, @enumToInt(reg) - reg.gpBase()) + DW.OP.breg0,
+            .general_purpose => switch (reg.to64()) {
+                .rax => DW.OP.breg0,
+                .rdx => DW.OP.breg1,
+                .rcx => DW.OP.breg2,
+                .rbx => DW.OP.breg3,
+                .rsi => DW.OP.breg4,
+                .rdi => DW.OP.breg5,
+                .rbp => DW.OP.breg6,
+                .rsp => DW.OP.breg7,
+                else => @intCast(u8, @enumToInt(reg) - reg.gpBase()) + DW.OP.breg0,
+            },
             .floating_point => @intCast(u8, @enumToInt(reg) - reg.fpBase()) + DW.OP.breg17,
             else => unreachable,
         };
@@ -397,7 +417,7 @@ pub const Memory = union(enum) {
         qword,
         tbyte,
 
-        pub fn fromSize(bit_size: u32) PtrSize {
+        pub fn fromBitSize(bit_size: u64) PtrSize {
             return switch (bit_size) {
                 8 => .byte,
                 16 => .word,
@@ -408,7 +428,7 @@ pub const Memory = union(enum) {
             };
         }
 
-        pub fn size(s: PtrSize) u32 {
+        pub fn bitSize(s: PtrSize) u64 {
             return switch (s) {
                 .byte => 8,
                 .word => 16,
@@ -481,11 +501,42 @@ pub const Memory = union(enum) {
         };
     }
 
-    pub fn size(mem: Memory) u32 {
+    pub fn bitSize(mem: Memory) u64 {
         return switch (mem) {
-            .rip => |r| r.ptr_size.size(),
-            .sib => |s| s.ptr_size.size(),
+            .rip => |r| r.ptr_size.bitSize(),
+            .sib => |s| s.ptr_size.bitSize(),
             .moffs => unreachable,
+        };
+    }
+};
+
+pub const Immediate = union(enum) {
+    signed: i32,
+    unsigned: u64,
+
+    pub fn u(x: u64) Immediate {
+        return .{ .unsigned = x };
+    }
+
+    pub fn s(x: i32) Immediate {
+        return .{ .signed = x };
+    }
+
+    pub fn asUnsigned(imm: Immediate, bit_size: u64) u64 {
+        return switch (imm) {
+            .signed => |x| switch (bit_size) {
+                8 => @bitCast(u8, @intCast(i8, x)),
+                16 => @bitCast(u16, @intCast(i16, x)),
+                32 => @bitCast(u32, @intCast(i32, x)),
+                else => unreachable,
+            },
+            .unsigned => |x| switch (bit_size) {
+                8 => @intCast(u8, x),
+                16 => @intCast(u16, x),
+                32 => @intCast(u32, x),
+                64 => x,
+                else => unreachable,
+            },
         };
     }
 };

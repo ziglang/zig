@@ -4,6 +4,7 @@ const math = std.math;
 
 const bits = @import("bits.zig");
 const Encoding = @import("Encoding.zig");
+const Immediate = bits.Immediate;
 const Memory = bits.Memory;
 const Moffs = bits.Moffs;
 const PtrSize = bits.PtrSize;
@@ -22,15 +23,14 @@ pub const Instruction = struct {
         none,
         reg: Register,
         mem: Memory,
-        imm: u64,
+        imm: Immediate,
 
         /// Returns the bitsize of the operand.
-        /// Asserts the operand is either register or memory.
-        pub fn size(op: Operand) u64 {
+        pub fn bitSize(op: Operand) u64 {
             return switch (op) {
                 .none => unreachable,
-                .reg => |reg| reg.size(),
-                .mem => |mem| mem.size(),
+                .reg => |reg| reg.bitSize(),
+                .mem => |mem| mem.bitSize(),
                 .imm => unreachable,
             };
         }
@@ -47,7 +47,6 @@ pub const Instruction = struct {
         }
 
         pub fn fmtPrint(op: Operand, enc_op: Encoding.Op, writer: anytype) !void {
-            _ = enc_op;
             switch (op) {
                 .none => {},
                 .reg => |reg| try writer.writeAll(@tagName(reg)),
@@ -92,9 +91,7 @@ pub const Instruction = struct {
                     },
                     .moffs => |moffs| try writer.print("{s}:0x{x}", .{ @tagName(moffs.seg), moffs.offset }),
                 },
-                .imm => |imm| {
-                    try writer.print("0x{x}", .{imm});
-                },
+                .imm => |imm| try writer.print("0x{x}", .{imm.asUnsigned(enc_op.bitSize())}),
             }
         }
     };
@@ -110,8 +107,17 @@ pub const Instruction = struct {
             .op2 = args.op2,
             .op3 = args.op3,
             .op4 = args.op4,
-        }) orelse return error.InvalidInstruction;
-        std.log.warn("{}", .{encoding});
+        }) orelse {
+            std.log.debug("{s} {s} {s} {s} {s}", .{
+                @tagName(mnemonic),
+                @tagName(Encoding.Op.fromOperand(args.op1)),
+                @tagName(Encoding.Op.fromOperand(args.op2)),
+                @tagName(Encoding.Op.fromOperand(args.op3)),
+                @tagName(Encoding.Op.fromOperand(args.op4)),
+            });
+            return error.InvalidInstruction;
+        };
+        std.log.debug("{}", .{encoding});
         return .{
             .op1 = args.op1,
             .op2 = args.op2,
@@ -210,7 +216,7 @@ pub const Instruction = struct {
 
         var legacy = LegacyPrefixes{};
         if (enc.mode == .none) {
-            const bit_size = enc.operandSize();
+            const bit_size = enc.operandBitSize();
             if (bit_size == 16) {
                 legacy.set16BitOverride();
             }
@@ -380,12 +386,13 @@ pub const Instruction = struct {
         }
     }
 
-    fn encodeImm(imm: u64, kind: Encoding.Op, encoder: anytype) !void {
-        switch (kind) {
-            .imm8, .rel8 => try encoder.imm8(@bitCast(i8, @truncate(u8, imm))),
-            .imm16, .rel16 => try encoder.imm16(@bitCast(i16, @truncate(u16, imm))),
-            .imm32, .rel32 => try encoder.imm32(@bitCast(i32, @truncate(u32, imm))),
-            .imm64 => try encoder.imm64(imm),
+    fn encodeImm(imm: Immediate, kind: Encoding.Op, encoder: anytype) !void {
+        const raw = imm.asUnsigned(kind.bitSize());
+        switch (kind.bitSize()) {
+            8 => try encoder.imm8(@intCast(u8, raw)),
+            16 => try encoder.imm16(@intCast(u16, raw)),
+            32 => try encoder.imm32(@intCast(u32, raw)),
+            64 => try encoder.imm64(raw),
             else => unreachable,
         }
     }
@@ -732,13 +739,6 @@ fn Encoder(comptime T: type) type {
         // Trivial (no bit fiddling)
         // -------------------------
 
-        /// Encode an 8 bit immediate
-        ///
-        /// It is sign-extended to 64 bits by the cpu.
-        pub fn imm8(self: Self, imm: i8) !void {
-            try self.writer.writeByte(@bitCast(u8, imm));
-        }
-
         /// Encode an 8 bit displacement
         ///
         /// It is sign-extended to 64 bits by the cpu.
@@ -746,25 +746,32 @@ fn Encoder(comptime T: type) type {
             try self.writer.writeByte(@bitCast(u8, disp));
         }
 
-        /// Encode an 16 bit immediate
-        ///
-        /// It is sign-extended to 64 bits by the cpu.
-        pub fn imm16(self: Self, imm: i16) !void {
-            try self.writer.writeIntLittle(i16, imm);
-        }
-
-        /// Encode an 32 bit immediate
-        ///
-        /// It is sign-extended to 64 bits by the cpu.
-        pub fn imm32(self: Self, imm: i32) !void {
-            try self.writer.writeIntLittle(i32, imm);
-        }
-
         /// Encode an 32 bit displacement
         ///
         /// It is sign-extended to 64 bits by the cpu.
         pub fn disp32(self: Self, disp: i32) !void {
             try self.writer.writeIntLittle(i32, disp);
+        }
+
+        /// Encode an 8 bit immediate
+        ///
+        /// It is sign-extended to 64 bits by the cpu.
+        pub fn imm8(self: Self, imm: u8) !void {
+            try self.writer.writeByte(imm);
+        }
+
+        /// Encode an 16 bit immediate
+        ///
+        /// It is sign-extended to 64 bits by the cpu.
+        pub fn imm16(self: Self, imm: u16) !void {
+            try self.writer.writeIntLittle(u16, imm);
+        }
+
+        /// Encode an 32 bit immediate
+        ///
+        /// It is sign-extended to 64 bits by the cpu.
+        pub fn imm32(self: Self, imm: u32) !void {
+            try self.writer.writeIntLittle(u32, imm);
         }
 
         /// Encode an 64 bit immediate

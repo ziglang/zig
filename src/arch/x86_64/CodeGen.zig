@@ -852,10 +852,10 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     branch.inst_table.putAssumeCapacity(inst, .dead);
     switch (prev_value) {
         .register => |reg| {
-            self.register_manager.freeReg(reg.to64());
+            self.register_manager.freeReg(reg);
         },
         .register_overflow => |ro| {
-            self.register_manager.freeReg(ro.reg.to64());
+            self.register_manager.freeReg(ro.reg);
             self.eflags_inst = null;
         },
         .eflags => {
@@ -1253,7 +1253,13 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
         };
         defer if (dst_mcv_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const mask = ~@as(u64, 0);
+        const mask = switch (operand_ty.abiSize(self.target.*)) {
+            1 => ~@as(u8, 0),
+            2 => ~@as(u16, 0),
+            4 => ~@as(u32, 0),
+            8 => ~@as(u64, 0),
+            else => unreachable,
+        };
         try self.genBinOpMir(.xor, operand_ty, dst_mcv, .{ .immediate = mask });
 
         break :result dst_mcv;
@@ -2777,15 +2783,9 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         1, 2, 4 => {
                             // TODO this is wasteful!
                             // introduce new MIR tag specifically for mov [reg + 0], imm
-                            const operand = switch (abi_size) {
-                                1 => @truncate(u8, imm),
-                                2 => @truncate(u16, imm),
-                                4 => @truncate(u32, imm),
-                                else => unreachable,
-                            };
                             const payload = try self.addExtra(Mir.ImmPair{
                                 .dest_off = 0,
-                                .operand = operand,
+                                .operand = @intCast(u32, imm),
                             });
                             _ = try self.addInst(.{
                                 .tag = .mov_mem_imm,
@@ -2896,17 +2896,10 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         return self.fail("TODO saving imm to memory for abi_size {}", .{abi_size});
                     }
 
-                    const operand = switch (abi_size) {
-                        1 => @truncate(u8, imm),
-                        2 => @truncate(u16, imm),
-                        4 => @truncate(u32, imm),
-                        8 => @truncate(u32, imm),
-                        else => unreachable,
-                    };
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = 0,
                         // TODO check if this logic is correct
-                        .operand = operand,
+                        .operand = @intCast(u32, imm),
                     });
                     const flags: u2 = switch (abi_size) {
                         1 => 0b00,
@@ -3102,8 +3095,8 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 const shift = @intCast(u8, struct_field_offset * @sizeOf(usize));
                 try self.genShiftBinOpMir(.shr, Type.usize, dst_mcv.register, .{ .immediate = shift });
 
-                // Mask with reg.size() - struct_field_size
-                const max_reg_bit_width = Register.rax.size();
+                // Mask with reg.bitSize() - struct_field_size
+                const max_reg_bit_width = Register.rax.bitSize();
                 const mask_shift = @intCast(u6, (max_reg_bit_width - struct_field_ty.bitSize(self.target.*)));
                 const mask = (~@as(u64, 0)) >> mask_shift;
 
@@ -3631,13 +3624,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                     _ = try self.addInst(.{
                         .tag = mir_tag,
                         .ops = Mir.Inst.Ops.encode(.{ .reg1 = registerAlias(dst_reg, abi_size) }),
-                        .data = .{ .imm = switch (abi_size) {
-                            1 => @truncate(u8, imm),
-                            2 => @truncate(u16, imm),
-                            4 => @truncate(u32, imm),
-                            8 => @truncate(u32, imm),
-                            else => unreachable,
-                        } },
+                        .data = .{ .imm = @intCast(u32, imm) },
                     });
                 },
                 .memory,
@@ -3708,16 +3695,9 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                         8 => 0b11,
                         else => unreachable,
                     };
-                    const operand = switch (abi_size) {
-                        1 => @truncate(u8, imm),
-                        2 => @truncate(u16, imm),
-                        4 => @truncate(u32, imm),
-                        8 => @truncate(u32, imm),
-                        else => unreachable,
-                    };
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = -off,
-                        .operand = operand,
+                        .operand = @intCast(u32, imm),
                     });
                     _ = try self.addInst(.{
                         .tag = tag,
@@ -3791,7 +3771,7 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
                                 .reg2 = dst_reg.to32(),
                                 .flags = 0b10,
                             }),
-                            .data = .{ .imm = @truncate(u32, imm) },
+                            .data = .{ .imm = @intCast(u32, imm) },
                         });
                     } else {
                         // TODO verify we don't spill and assign to the same register as dst_mcv
@@ -4899,13 +4879,7 @@ fn genCondSwitchMir(self: *Self, ty: Type, condition: MCValue, case: MCValue) !u
                     _ = try self.addInst(.{
                         .tag = .xor,
                         .ops = Mir.Inst.Ops.encode(.{ .reg1 = registerAlias(cond_reg, abi_size) }),
-                        .data = .{ .imm = switch (abi_size) {
-                            1 => @truncate(u8, imm),
-                            2 => @truncate(u16, imm),
-                            4 => @truncate(u32, imm),
-                            8 => @truncate(u32, imm),
-                            else => unreachable,
-                        } },
+                        .data = .{ .imm = @intCast(u32, imm) },
                     });
                 },
                 .register => |reg| {
@@ -5416,12 +5390,6 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                     // We have a positive stack offset value but we want a twos complement negative
                     // offset from rbp, which is at the top of the stack frame.
                     // mov [rbp+offset], immediate
-                    const operand = switch (abi_size) {
-                        1 => @truncate(u8, imm),
-                        2 => @truncate(u16, imm),
-                        4 => @truncate(u32, imm),
-                        else => unreachable,
-                    };
                     const flags: u2 = switch (abi_size) {
                         1 => 0b00,
                         2 => 0b01,
@@ -5430,7 +5398,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                     };
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = -stack_offset,
-                        .operand = operand,
+                        .operand = @intCast(u32, imm),
                     });
                     _ = try self.addInst(.{
                         .tag = .mov_mem_imm,
@@ -5575,7 +5543,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                     assert(ty.isError());
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = -stack_offset,
-                        .operand = @truncate(u8, x_big),
+                        .operand = @intCast(u32, x_big),
                     });
                     _ = try self.addInst(.{
                         .tag = .mov_mem_imm,
@@ -5587,15 +5555,9 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                     });
                 },
                 1, 2, 4 => {
-                    const operand = switch (abi_size) {
-                        1 => @truncate(u8, x_big),
-                        2 => @truncate(u16, x_big),
-                        4 => @truncate(u32, x_big),
-                        else => unreachable,
-                    };
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = -stack_offset,
-                        .operand = operand,
+                        .operand = @intCast(u32, x_big),
                     });
                     _ = try self.addInst(.{
                         .tag = .mov_mem_imm,
@@ -5724,7 +5686,7 @@ fn genInlineMemcpyRegisterRegister(
     src_reg: Register,
     offset: i32,
 ) InnerError!void {
-    assert(dst_reg.size() == 64);
+    assert(dst_reg.bitSize() == 64);
 
     const dst_reg_lock = self.register_manager.lockReg(dst_reg);
     defer if (dst_reg_lock) |lock| self.register_manager.unlockReg(lock);
@@ -5823,7 +5785,7 @@ fn genInlineMemcpy(
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = Mir.Inst.Ops.encode(.{
-                    .reg1 = registerAlias(dst_addr_reg, @divExact(reg.size(), 8)),
+                    .reg1 = registerAlias(dst_addr_reg, @intCast(u32, @divExact(reg.bitSize(), 8))),
                     .reg2 = reg,
                 }),
                 .data = undefined,
@@ -5852,7 +5814,7 @@ fn genInlineMemcpy(
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = Mir.Inst.Ops.encode(.{
-                    .reg1 = registerAlias(src_addr_reg, @divExact(reg.size(), 8)),
+                    .reg1 = registerAlias(src_addr_reg, @intCast(u32, @divExact(reg.bitSize(), 8))),
                     .reg2 = reg,
                 }),
                 .data = undefined,
@@ -5976,7 +5938,7 @@ fn genInlineMemset(
             _ = try self.addInst(.{
                 .tag = .mov,
                 .ops = Mir.Inst.Ops.encode(.{
-                    .reg1 = registerAlias(addr_reg, @divExact(reg.size(), 8)),
+                    .reg1 = registerAlias(addr_reg, @intCast(u32, @divExact(reg.bitSize(), 8))),
                     .reg2 = reg,
                 }),
                 .data = undefined,
@@ -5994,8 +5956,11 @@ fn genInlineMemset(
     // cmp index_reg, -1
     const loop_start = try self.addInst(.{
         .tag = .cmp,
-        .ops = Mir.Inst.Ops.encode(.{ .reg1 = index_reg }),
-        .data = .{ .imm = @bitCast(u8, @as(i8, -1)) },
+        .ops = Mir.Inst.Ops.encode(.{
+            .reg1 = index_reg,
+            .flags = 0b11,
+        }),
+        .data = .{ .imm_s = -1 },
     });
 
     // je end
@@ -6016,8 +5981,14 @@ fn genInlineMemset(
             // mov byte ptr [rbp + index_reg + stack_offset], imm
             _ = try self.addInst(.{
                 .tag = .mov_mem_index_imm,
-                .ops = Mir.Inst.Ops.encode(.{ .reg1 = addr_reg }),
-                .data = .{ .payload = try self.addExtra(Mir.IndexRegisterDispImm.encode(index_reg, 0, @truncate(u32, x))) },
+                .ops = Mir.Inst.Ops.encode(.{
+                    .reg1 = addr_reg,
+                }),
+                .data = .{ .payload = try self.addExtra(Mir.IndexRegisterDispImm.encode(
+                    index_reg,
+                    0,
+                    @intCast(u32, x),
+                )) },
             });
         },
         else => return self.fail("TODO inline memset for value of type {}", .{value}),
@@ -6064,7 +6035,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             if (!self.wantSafety())
                 return; // The already existing value will do just fine.
             // Write the debug undefined value.
-            switch (registerAlias(reg, abi_size).size()) {
+            switch (registerAlias(reg, abi_size).bitSize()) {
                 8 => return self.genSetReg(ty, reg, .{ .immediate = 0xaa }),
                 16 => return self.genSetReg(ty, reg, .{ .immediate = 0xaaaa }),
                 32 => return self.genSetReg(ty, reg, .{ .immediate = 0xaaaaaaaa }),
@@ -6100,13 +6071,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 _ = try self.addInst(.{
                     .tag = .mov,
                     .ops = Mir.Inst.Ops.encode(.{ .reg1 = registerAlias(reg, abi_size) }),
-                    .data = .{ .imm = switch (abi_size) {
-                        1 => @truncate(u8, x),
-                        2 => @truncate(u16, x),
-                        4 => @truncate(u32, x),
-                        8 => @truncate(u32, x),
-                        else => unreachable,
-                    } },
+                    .data = .{ .imm = @intCast(u32, x) },
                 });
                 return;
             }
@@ -6273,13 +6238,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                             .reg1 = registerAlias(reg, abi_size),
                             .flags = 0b01,
                         }),
-                        .data = .{ .imm = switch (abi_size) {
-                            1 => @truncate(u8, x),
-                            2 => @truncate(u16, x),
-                            4 => @truncate(u32, x),
-                            8 => @truncate(u32, x),
-                            else => unreachable,
-                        } },
+                        .data = .{ .disp = @intCast(i32, x) },
                     });
                 } else {
                     // If this is RAX, we can use a direct load.
@@ -6949,7 +6908,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 if (ret_ty_size == 0) {
                     assert(ret_ty.isError());
                     result.return_value = .{ .immediate = 0 };
-                } else if (ret_ty_size <= 8) {
+                } else if (ret_ty_size <= 8 and !ret_ty.isRuntimeFloat()) {
                     const aliased_reg = registerAlias(abi.getCAbiIntReturnRegs(self.target.*)[0], ret_ty_size);
                     result.return_value = .{ .register = aliased_reg };
                 } else {
@@ -7024,28 +6983,34 @@ fn parseRegName(name: []const u8) ?Register {
 
 /// Returns register wide enough to hold at least `size_bytes`.
 fn registerAlias(reg: Register, size_bytes: u32) Register {
-    if (size_bytes == 0) {
-        unreachable; // should be comptime-known
-    } else if (size_bytes <= 1) {
-        return reg.to8();
-    } else if (size_bytes <= 2) {
-        return reg.to16();
-    } else if (size_bytes <= 4) {
-        return reg.to32();
-    } else if (size_bytes <= 8) {
-        return reg.to64();
-    } else if (size_bytes <= 16) {
-        return reg.to128();
-    } else if (size_bytes <= 32) {
-        return reg.to256();
-    } else unreachable;
+    return switch (reg.class()) {
+        .general_purpose => if (size_bytes == 0)
+            unreachable // should be comptime-known
+        else if (size_bytes <= 1)
+            reg.to8()
+        else if (size_bytes <= 2)
+            reg.to16()
+        else if (size_bytes <= 4)
+            reg.to32()
+        else if (size_bytes <= 8)
+            reg.to64()
+        else
+            unreachable,
+        .floating_point => if (size_bytes <= 16)
+            reg.to128()
+        else if (size_bytes <= 32)
+            reg.to256()
+        else
+            unreachable,
+        .segment => unreachable,
+    };
 }
 
 /// Truncates the value in the register in place.
 /// Clobbers any remaining bits.
 fn truncateRegister(self: *Self, ty: Type, reg: Register) !void {
     const int_info = ty.intInfo(self.target.*);
-    const max_reg_bit_width = Register.rax.size();
+    const max_reg_bit_width = Register.rax.bitSize();
     switch (int_info.signedness) {
         .signed => {
             const shift = @intCast(u6, max_reg_bit_width - int_info.bits);

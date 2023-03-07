@@ -21,6 +21,7 @@ const CodeGen = @import("CodeGen.zig");
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const Encoder = bits.Encoder;
 const ErrorMsg = Module.ErrorMsg;
+const Immediate = bits.Immediate;
 const Instruction = encoder.Instruction;
 const MCValue = @import("CodeGen.zig").MCValue;
 const Memory = bits.Memory;
@@ -283,7 +284,7 @@ fn mirPushPop(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.Index)
         0b10 => {
             const imm = emit.mir.instructions.items(.data)[inst].imm;
             return emit.encode(.push, .{
-                .op1 = .{ .imm = imm },
+                .op1 = .{ .imm = Immediate.u(imm) },
             });
         },
         0b11 => unreachable,
@@ -327,9 +328,7 @@ fn mirJmpCall(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.Index)
             const target = emit.mir.instructions.items(.data)[inst].inst;
             const source = emit.code.items.len;
             try emit.encode(mnemonic, .{
-                .op1 = .{
-                    .imm = 0,
-                },
+                .op1 = .{ .imm = Immediate.s(0) },
             });
             try emit.relocs.append(emit.bin_file.allocator, .{
                 .source = source,
@@ -400,7 +399,7 @@ fn mirCondJmp(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     };
     const source = emit.code.items.len;
     try emit.encode(mnemonic, .{
-        .op1 = .{ .imm = 0 },
+        .op1 = .{ .imm = Immediate.s(0) },
     });
     try emit.relocs.append(emit.bin_file.allocator, .{
         .source = source,
@@ -521,7 +520,7 @@ fn mirTest(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
                 const imm = emit.mir.instructions.items(.data)[inst].imm;
                 return emit.encode(.@"test", .{
                     .op1 = .{ .reg = ops.reg1 },
-                    .op2 = .{ .imm = imm },
+                    .op2 = .{ .imm = Immediate.u(imm) },
                 });
             }
             return emit.encode(.@"test", .{
@@ -543,7 +542,7 @@ fn mirRet(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         0b10 => {
             const imm = emit.mir.instructions.items(.data)[inst].imm;
             return emit.encode(.ret, .{
-                .op1 = .{ .imm = imm },
+                .op1 = .{ .imm = Immediate.u(imm) },
             });
         },
         0b11 => {
@@ -560,7 +559,7 @@ fn mirArith(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.Index) I
                 const imm = emit.mir.instructions.items(.data)[inst].imm;
                 return emit.encode(mnemonic, .{
                     .op1 = .{ .reg = ops.reg1 },
-                    .op2 = .{ .imm = imm },
+                    .op2 = .{ .imm = Immediate.u(imm) },
                 });
             }
             return emit.encode(mnemonic, .{
@@ -573,7 +572,7 @@ fn mirArith(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.Index) I
             const base: ?Register = if (ops.reg2 != .none) ops.reg2 else null;
             return emit.encode(mnemonic, .{
                 .op1 = .{ .reg = ops.reg1 },
-                .op2 = .{ .mem = Memory.sib(Memory.PtrSize.fromSize(ops.reg1.size()), .{
+                .op2 = .{ .mem = Memory.sib(Memory.PtrSize.fromBitSize(ops.reg1.bitSize()), .{
                     .base = base,
                     .disp = disp,
                 }) },
@@ -585,7 +584,7 @@ fn mirArith(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.Index) I
             }
             const disp = emit.mir.instructions.items(.data)[inst].disp;
             return emit.encode(mnemonic, .{
-                .op1 = .{ .mem = Memory.sib(Memory.PtrSize.fromSize(ops.reg2.size()), .{
+                .op1 = .{ .mem = Memory.sib(Memory.PtrSize.fromBitSize(ops.reg2.bitSize()), .{
                     .base = ops.reg1,
                     .disp = disp,
                 }) },
@@ -593,7 +592,11 @@ fn mirArith(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.Index) I
             });
         },
         0b11 => {
-            return emit.fail("TODO unused variant: mov reg1, reg2, 0b11", .{});
+            const imm_s = emit.mir.instructions.items(.data)[inst].imm_s;
+            return emit.encode(mnemonic, .{
+                .op1 = .{ .reg = ops.reg1 },
+                .op2 = .{ .imm = Immediate.s(imm_s) },
+            });
         },
     }
 }
@@ -614,7 +617,7 @@ fn mirArithMemImm(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.In
             .disp = imm_pair.dest_off,
             .base = ops.reg1,
         }) },
-        .op2 = .{ .imm = imm_pair.operand },
+        .op2 = .{ .imm = Immediate.u(imm_pair.operand) },
     });
 }
 
@@ -629,7 +632,7 @@ fn mirArithScaleSrc(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.
     };
     return emit.encode(mnemonic, .{
         .op1 = .{ .reg = ops.reg1 },
-        .op2 = .{ .mem = Memory.sib(Memory.PtrSize.fromSize(ops.reg1.size()), .{
+        .op2 = .{ .mem = Memory.sib(Memory.PtrSize.fromBitSize(ops.reg1.bitSize()), .{
             .base = ops.reg2,
             .scale_index = scale_index,
             .disp = index_reg_disp.disp,
@@ -648,7 +651,7 @@ fn mirArithScaleDst(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.
     };
     assert(ops.reg2 != .none);
     return emit.encode(mnemonic, .{
-        .op1 = .{ .mem = Memory.sib(Memory.PtrSize.fromSize(ops.reg2.size()), .{
+        .op1 = .{ .mem = Memory.sib(Memory.PtrSize.fromBitSize(ops.reg2.bitSize()), .{
             .base = ops.reg1,
             .scale_index = scale_index,
             .disp = index_reg_disp.disp,
@@ -672,7 +675,7 @@ fn mirArithScaleImm(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.
             .disp = index_reg_disp_imm.disp,
             .scale_index = scale_index,
         }) },
-        .op2 = .{ .imm = index_reg_disp_imm.imm },
+        .op2 = .{ .imm = Immediate.u(index_reg_disp_imm.imm) },
     });
 }
 
@@ -697,7 +700,7 @@ fn mirArithMemIndexImm(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.In
             .base = ops.reg1,
             .scale_index = scale_index,
         }) },
-        .op2 = .{ .imm = index_reg_disp_imm.imm },
+        .op2 = .{ .imm = Immediate.u(index_reg_disp_imm.imm) },
     });
 }
 
@@ -708,7 +711,7 @@ fn mirMovSignExtend(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const disp = if (ops.flags != 0b00) emit.mir.instructions.items(.data)[inst].disp else undefined;
     switch (ops.flags) {
         0b00 => {
-            const mnemonic: Instruction.Mnemonic = if (ops.reg2.size() == 32) .movsxd else .movsx;
+            const mnemonic: Instruction.Mnemonic = if (ops.reg2.bitSize() == 32) .movsxd else .movsx;
             return emit.encode(mnemonic, .{
                 .op1 = .{ .reg = ops.reg1 },
                 .op2 = .{ .reg = ops.reg2 },
@@ -718,14 +721,15 @@ fn mirMovSignExtend(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             const ptr_size: Memory.PtrSize = switch (ops.flags) {
                 0b01 => .byte,
                 0b10 => .word,
-                0b11 => .qword,
+                0b11 => .dword,
                 else => unreachable,
             };
-            return emit.encode(.movsx, .{
+            const mnemonic: Instruction.Mnemonic = if (ops.flags == 0b11) .movsxd else .movsx;
+            return emit.encode(mnemonic, .{
                 .op1 = .{ .reg = ops.reg1 },
                 .op2 = .{ .mem = Memory.sib(ptr_size, .{
-                    .disp = disp,
                     .base = ops.reg2,
+                    .disp = disp,
                 }) },
             });
         },
@@ -770,19 +774,19 @@ fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
     switch (ops.flags) {
         0b00 => {
-            const imm: u64 = if (ops.reg1.size() == 64) blk: {
+            const imm: u64 = if (ops.reg1.bitSize() == 64) blk: {
                 const payload = emit.mir.instructions.items(.data)[inst].payload;
                 const imm = emit.mir.extraData(Mir.Imm64, payload).data;
                 break :blk imm.decode();
             } else emit.mir.instructions.items(.data)[inst].imm;
             return emit.encode(.mov, .{
                 .op1 = .{ .reg = ops.reg1 },
-                .op2 = .{ .imm = imm },
+                .op2 = .{ .imm = Immediate.u(imm) },
             });
         },
         0b01 => {
             if (ops.reg1 == .none) {
-                const imm: u64 = if (ops.reg2.size() == 64) blk: {
+                const imm: u64 = if (ops.reg2.bitSize() == 64) blk: {
                     const payload = emit.mir.instructions.items(.data)[inst].payload;
                     const imm = emit.mir.extraData(Mir.Imm64, payload).data;
                     break :blk imm.decode();
@@ -792,7 +796,7 @@ fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
                     .op2 = .{ .reg = .rax },
                 });
             }
-            const imm: u64 = if (ops.reg1.size() == 64) blk: {
+            const imm: u64 = if (ops.reg1.bitSize() == 64) blk: {
                 const payload = emit.mir.instructions.items(.data)[inst].payload;
                 const imm = emit.mir.extraData(Mir.Imm64, payload).data;
                 break :blk imm.decode();
@@ -847,7 +851,7 @@ fn mirShift(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.Index) I
         0b00 => {
             return emit.encode(mnemonic, .{
                 .op1 = .{ .reg = ops.reg1 },
-                .op2 = .{ .imm = 1 },
+                .op2 = .{ .imm = Immediate.u(1) },
             });
         },
         0b01 => {
@@ -860,7 +864,7 @@ fn mirShift(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.Index) I
             const imm = @truncate(u8, emit.mir.instructions.items(.data)[inst].imm);
             return emit.encode(mnemonic, .{
                 .op1 = .{ .reg = ops.reg1 },
-                .op2 = .{ .imm = imm },
+                .op2 = .{ .imm = Immediate.u(imm) },
             });
         },
         0b11 => {
@@ -920,7 +924,7 @@ fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             return emit.encode(.imul, .{
                 .op1 = .{ .reg = ops.reg1 },
                 .op2 = .{ .reg = ops.reg2 },
-                .op3 = .{ .imm = imm },
+                .op3 = .{ .imm = Immediate.u(imm) },
             });
         },
         0b11 => {
@@ -932,7 +936,7 @@ fn mirIMulComplex(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
                     .base = ops.reg2,
                     .disp = imm_pair.dest_off,
                 }) },
-                .op3 = .{ .imm = imm_pair.operand },
+                .op3 = .{ .imm = Immediate.u(imm_pair.operand) },
             });
         },
     }
@@ -959,7 +963,7 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             const src_reg: ?Register = if (ops.reg2 != .none) ops.reg2 else null;
             return emit.encode(.lea, .{
                 .op1 = .{ .reg = ops.reg1 },
-                .op2 = .{ .mem = Memory.sib(Memory.PtrSize.fromSize(ops.reg1.size()), .{
+                .op2 = .{ .mem = Memory.sib(Memory.PtrSize.fromBitSize(ops.reg1.bitSize()), .{
                     .base = src_reg,
                     .disp = disp,
                 }) },
@@ -969,7 +973,7 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             const start_offset = emit.code.items.len;
             try emit.encode(.lea, .{
                 .op1 = .{ .reg = ops.reg1 },
-                .op2 = .{ .mem = Memory.rip(Memory.PtrSize.fromSize(ops.reg1.size()), 0) },
+                .op2 = .{ .mem = Memory.rip(Memory.PtrSize.fromBitSize(ops.reg1.bitSize()), 0) },
             });
             const end_offset = emit.code.items.len;
             // Backpatch the displacement
@@ -988,7 +992,7 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             };
             return emit.encode(.lea, .{
                 .op1 = .{ .reg = ops.reg1 },
-                .op2 = .{ .mem = Memory.sib(Memory.PtrSize.fromSize(ops.reg1.size()), .{
+                .op2 = .{ .mem = Memory.sib(Memory.PtrSize.fromBitSize(ops.reg1.bitSize()), .{
                     .base = src_reg,
                     .scale_index = scale_index,
                     .disp = index_reg_disp.disp,
@@ -1012,7 +1016,7 @@ fn mirLeaPic(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 
     try emit.encode(.lea, .{
         .op1 = .{ .reg = ops.reg1 },
-        .op2 = .{ .mem = Memory.rip(Memory.PtrSize.fromSize(ops.reg1.size()), 0) },
+        .op2 = .{ .mem = Memory.rip(Memory.PtrSize.fromBitSize(ops.reg1.bitSize()), 0) },
     });
 
     const end_offset = emit.code.items.len;
@@ -1065,7 +1069,7 @@ fn mirMovFloat(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.Index
             const disp = emit.mir.instructions.items(.data)[inst].disp;
             return emit.encode(mnemonic, .{
                 .op1 = .{ .reg = ops.reg1 },
-                .op2 = .{ .mem = Memory.sib(Memory.PtrSize.fromSize(ops.reg2.size()), .{
+                .op2 = .{ .mem = Memory.sib(Memory.PtrSize.fromBitSize(ops.reg2.bitSize()), .{
                     .base = ops.reg2,
                     .disp = disp,
                 }) },
@@ -1074,7 +1078,7 @@ fn mirMovFloat(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.Index
         0b01 => {
             const disp = emit.mir.instructions.items(.data)[inst].disp;
             return emit.encode(mnemonic, .{
-                .op1 = .{ .mem = Memory.sib(Memory.PtrSize.fromSize(ops.reg1.size()), .{
+                .op1 = .{ .mem = Memory.sib(Memory.PtrSize.fromBitSize(ops.reg1.bitSize()), .{
                     .base = ops.reg1,
                     .disp = disp,
                 }) },
@@ -1127,7 +1131,7 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const offset = blk: {
         // callq
         try emit.encode(.call, .{
-            .op1 = .{ .imm = 0 },
+            .op1 = .{ .imm = Immediate.s(0) },
         });
         break :blk @intCast(u32, emit.code.items.len) - 4;
     };
