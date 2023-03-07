@@ -1831,3 +1831,10 @@ test "delete a setAsCwd directory on Windows" {
     // Close the parent "tmp" so we don't leak the HANDLE.
     tmp.parent_dir.close();
 }
+
+// ensure the tests for fs/wasi.zig are run
+test {
+    if (builtin.os.tag == .wasi) {
+        _ = std.fs.wasi;
+    }
+}
