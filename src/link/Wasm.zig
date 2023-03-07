@@ -3379,7 +3379,7 @@ fn emitBuildIdSection(binary_bytes: *std.ArrayList(u8)) !void {
     try writer.writeAll(build_id);
 
     var id: [16]u8 = undefined;
-    std.crypto.hash.Blake3.hash(binary_bytes.items, &id, .{});
+    std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
     var uuid: [36]u8 = undefined;
     _ = try std.fmt.bufPrint(&uuid, "{s}-{s}-{s}-{s}-{s}", .{
         std.fmt.fmtSliceHexLower(id[0..4]),  std.fmt.fmtSliceHexLower(id[4..6]), std.fmt.fmtSliceHexLower(id[6..8]),
@@ -3795,6 +3795,12 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         if (wasm.base.options.import_symbols) {
             try argv.append("--allow-undefined");
         }
+
+        // XXX - TODO: add when wasm-ld supports --build-id.
+        // if (wasm.base.options.build_id) {
+        //     try argv.append("--build-id=tree");
+        // }
+
         try argv.appendSlice(&.{ "-o", full_out_path });
 
         if (target.cpu.arch == .wasm64) {
