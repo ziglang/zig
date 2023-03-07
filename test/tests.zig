@@ -25,7 +25,7 @@ const link = @import("link.zig");
 // Implementations
 pub const TranslateCContext = @import("src/translate_c.zig").TranslateCContext;
 pub const RunTranslatedCContext = @import("src/run_translated_c.zig").RunTranslatedCContext;
-pub const CompareOutputContext = @import("src/compare_output.zig").CompareOutputContext;
+pub const CompareOutputContext = @import("src/CompareOutput.zig");
 pub const StackTracesContext = @import("src/StackTrace.zig");
 pub const StandaloneContext = @import("src/Standalone.zig");
 

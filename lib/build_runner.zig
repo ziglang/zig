@@ -887,6 +887,8 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\  --verbose                    Print commands before executing them
         \\  --color [auto|off|on]        Enable or disable colored error messages
         \\  --prominent-compile-errors   Output compile errors formatted for a human to read
+        \\  -fsummary                    Print the build summary, even on success
+        \\  -fno-summary                 Omit the build summary, even on failure
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
         \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
         \\
@@ -920,8 +922,6 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\Advanced Options:
         \\  -freference-trace[=num]      How many lines of reference trace should be shown per compile error
         \\  -fno-reference-trace         Disable reference trace
-        \\  -fsummary                    Print the build summary, even on success
-        \\  -fno-summary                 Omit the build summary, even on failure
         \\  --build-file [file]          Override path to build.zig
         \\  --cache-dir [path]           Override path to local Zig cache directory
         \\  --global-cache-dir [path]    Override path to global Zig cache directory

@@ -444,7 +444,7 @@ pub fn build(b: *std.Build) !void {
 
     _ = enable_symlinks_windows;
     _ = enable_macos_sdk;
-    //test_step.dependOn(tests.addCompareOutputTests(b, test_filter, optimization_modes));
+    test_step.dependOn(tests.addCompareOutputTests(b, test_filter, optimization_modes));
     //test_step.dependOn(tests.addStandaloneTests(
     //    b,
     //    test_filter,
