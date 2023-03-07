@@ -253,6 +253,16 @@ pub const TransferEncoding = enum {
     gzip,
 };
 
+pub const Connection = enum {
+    keep_alive,
+    close,
+};
+
+pub const CustomHeader = struct {
+    name: []const u8,
+    value: []const u8,
+};
+
 const std = @import("std.zig");
 
 test {
