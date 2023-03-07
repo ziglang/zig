@@ -190,10 +190,17 @@ typedef char bool;
 
 #if zig_has_builtin(trap)
 #define zig_trap() __builtin_trap()
+#elif _MSC_VER && (_M_IX86 || _M_X64)
+#define zig_trap() __ud2()
+#elif _MSC_VER
+#define zig_trap() __fastfail(0)
 #elif defined(__i386__) || defined(__x86_64__)
 #define zig_trap() __asm__ volatile("ud2");
+#elif defined(__arm__) || defined(__aarch64__)
+#define zig_breakpoint() __asm__ volatile("udf #0");
 #else
-#define zig_trap() raise(SIGTRAP)
+#include <stdlib.h>
+#define zig_trap() abort()
 #endif
 
 #if zig_has_builtin(debugtrap)
@@ -202,8 +209,17 @@ typedef char bool;
 #define zig_breakpoint() __debugbreak()
 #elif defined(__i386__) || defined(__x86_64__)
 #define zig_breakpoint() __asm__ volatile("int $0x03");
+#elif defined(__arm__)
+#define zig_breakpoint() __asm__ volatile("bkpt #0");
+#elif defined(__aarch64__)
+#define zig_breakpoint() __asm__ volatile("brk #0");
 #else
+#include <signal.h>
+#if defined(SIGTRAP)
 #define zig_breakpoint() raise(SIGTRAP)
+#else
+#define zig_breakpoint() zig_breakpoint_unavailable
+#endif
 #endif
 
 #if zig_has_builtin(return_address) || defined(zig_gnuc)
