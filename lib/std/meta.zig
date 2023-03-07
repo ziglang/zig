@@ -672,8 +672,7 @@ fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
         const expected_fields = @typeInfo(expected).Enum.fields;
         const actual_fields = @typeInfo(actual).Enum.fields;
         if (expected_fields.len != actual_fields.len) return error.FailedTest;
-        for (expected_fields, 0..) |expected_field, i| {
-            const actual_field = actual_fields[i];
+        for (expected_fields, actual_fields) |expected_field, actual_field| {
             try testing.expectEqual(expected_field.value, actual_field.value);
             try testing.expectEqualStrings(expected_field.name, actual_field.name);
         }
@@ -682,8 +681,7 @@ fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
         const expected_decls = @typeInfo(expected).Enum.decls;
         const actual_decls = @typeInfo(actual).Enum.decls;
         if (expected_decls.len != actual_decls.len) return error.FailedTest;
-        for (expected_decls, 0..) |expected_decl, i| {
-            const actual_decl = actual_decls[i];
+        for (expected_decls, actual_decls) |expected_decl, actual_decl| {
             try testing.expectEqual(expected_decl.is_pub, actual_decl.is_pub);
             try testing.expectEqualStrings(expected_decl.name, actual_decl.name);
         }
@@ -870,8 +868,8 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
         },
         .Array => {
             if (a.len != b.len) return false;
-            for (a, 0..) |e, i|
-                if (!eql(e, b[i])) return false;
+            for (a, b) |e, f|
+                if (!eql(e, f)) return false;
             return true;
         },
         .Vector => |info| {

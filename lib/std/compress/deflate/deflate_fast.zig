@@ -264,8 +264,8 @@ pub const DeflateFast = struct {
             var a = src[@intCast(usize, s)..@intCast(usize, s1)];
             b = b[0..a.len];
             // Extend the match to be as long as possible.
-            for (a, 0..) |_, i| {
-                if (a[i] != b[i]) {
+            for (a, b, 0..) |e, f, i| {
+                if (e != f) {
                     return @intCast(i32, i);
                 }
             }
@@ -285,8 +285,8 @@ pub const DeflateFast = struct {
             b = b[0..a.len];
         }
         a = a[0..b.len];
-        for (b, 0..) |_, i| {
-            if (a[i] != b[i]) {
+        for (a, b, 0..) |e, f, i| {
+            if (e != f) {
                 return @intCast(i32, i);
             }
         }
@@ -301,8 +301,8 @@ pub const DeflateFast = struct {
         // Continue looking for more matches in the current block.
         a = src[@intCast(usize, s + n)..@intCast(usize, s1)];
         b = src[0..a.len];
-        for (a, 0..) |_, i| {
-            if (a[i] != b[i]) {
+        for (a, b, 0..) |e, f, i| {
+            if (e != f) {
                 return @intCast(i32, i) + n;
             }
         }

@@ -715,8 +715,8 @@ pub fn ArrayHashMapUnmanaged(
                 const slice = self.entries.slice();
                 const hashes_array = slice.items(.hash);
                 const keys_array = slice.items(.key);
-                for (keys_array, 0..) |*item_key, i| {
-                    if (hashes_array[i] == h and checkedEql(ctx, key, item_key.*, i)) {
+                for (keys_array, hashes_array, 0..) |*item_key, item_hash, i| {
+                    if (item_hash == h and checkedEql(ctx, key, item_key.*, i)) {
                         return GetOrPutResult{
                             .key_ptr = item_key,
                             // workaround for #6974
@@ -946,8 +946,8 @@ pub fn ArrayHashMapUnmanaged(
                 const slice = self.entries.slice();
                 const hashes_array = slice.items(.hash);
                 const keys_array = slice.items(.key);
-                for (keys_array, 0..) |*item_key, i| {
-                    if (hashes_array[i] == h and checkedEql(ctx, key, item_key.*, i)) {
+                for (keys_array, hashes_array, 0..) |*item_key, item_hash, i| {
+                    if (item_hash == h and checkedEql(ctx, key, item_key.*, i)) {
                         return i;
                     }
                 }

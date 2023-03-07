@@ -2138,8 +2138,8 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
                 ) catch return;
                 return;
             };
-            for (t.addrs[0..end], 0..) |frames_array, i| {
-                stderr.print("{s}:\n", .{t.notes[i]}) catch return;
+            for (t.addrs[0..end], t.notes[0..end]) |frames_array, frame_note| {
+                stderr.print("{s}:\n", .{frame_note}) catch return;
                 var frames_array_mutable = frames_array;
                 const frames = mem.sliceTo(frames_array_mutable[0..], 0);
                 const stack_trace: std.builtin.StackTrace = .{

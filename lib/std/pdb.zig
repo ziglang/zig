@@ -922,8 +922,7 @@ const Msf = struct {
         }
 
         const streams = try allocator.alloc(MsfStream, stream_count);
-        for (streams, 0..) |*stream, i| {
-            const size = stream_sizes[i];
+        for (streams, stream_sizes) |*stream, size| {
             if (size == 0) {
                 stream.* = MsfStream{
                     .blocks = &[_]u32{},

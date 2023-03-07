@@ -349,9 +349,8 @@ fn render_blank(
     try output.appendSlice(include_guard_name);
     try output.appendSlice("\n");
 
-    const values = defines.values();
-    for (defines.keys(), 0..) |name, i| {
-        try renderValueC(output, name, values[i]);
+    for (defines.keys(), defines.values()) |name, value| {
+        try renderValueC(output, name, value);
     }
 
     try output.appendSlice("#endif /* ");

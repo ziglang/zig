@@ -1280,8 +1280,8 @@ fn parsedEqual(a: anytype, b: @TypeOf(a)) bool {
             }
         },
         .Array => {
-            for (a, 0..) |e, i|
-                if (!parsedEqual(e, b[i])) return false;
+            for (a, b) |e, f|
+                if (!parsedEqual(e, f)) return false;
             return true;
         },
         .Struct => |info| {
@@ -1294,8 +1294,8 @@ fn parsedEqual(a: anytype, b: @TypeOf(a)) bool {
             .One => return parsedEqual(a.*, b.*),
             .Slice => {
                 if (a.len != b.len) return false;
-                for (a, 0..) |e, i|
-                    if (!parsedEqual(e, b[i])) return false;
+                for (a, b) |e, f|
+                    if (!parsedEqual(e, f)) return false;
                 return true;
             },
             .Many, .C => unreachable,
@@ -1518,8 +1518,8 @@ fn parseInternal(
             var r: T = undefined;
             var fields_seen = [_]bool{false} ** structInfo.fields.len;
             errdefer {
-                inline for (structInfo.fields, 0..) |field, i| {
-                    if (fields_seen[i] and !field.is_comptime) {
+                inline for (structInfo.fields, fields_seen) |field, seen| {
+                    if (seen and !field.is_comptime) {
                         parseFree(field.type, @field(r, field.name), options);
                     }
                 }
@@ -1584,8 +1584,8 @@ fn parseInternal(
                     else => return error.UnexpectedToken,
                 }
             }
-            inline for (structInfo.fields, 0..) |field, i| {
-                if (!fields_seen[i]) {
+            inline for (structInfo.fields, fields_seen) |field, seen| {
+                if (!seen) {
                     if (field.default_value) |default_ptr| {
                         if (!field.is_comptime) {
                             const default = @ptrCast(*align(1) const field.type, default_ptr).*;
