@@ -20,10 +20,6 @@ pub const cases = [_]Case{
         .build_root = "test/link/interdependent_static_c_libs",
         .import = @import("link/interdependent_static_c_libs/build.zig"),
     },
-    //.{
-    //    .build_root = "test/link/static_lib_as_system_lib",
-    //    .import = @import("link/static_lib_as_system_lib/build.zig"),
-    //},
 };
 
 //pub fn addCases(cases: *Standalone) void {
