@@ -985,37 +985,37 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
 
     const optimize_modes: [2]OptimizeMode = .{ .Debug, .ReleaseFast };
 
-    for (optimize_modes[0 .. @as(u8, 1) + @boolToInt(!skip_release)]) |optimize_mode| for (c_abi_targets) |c_abi_target| {
-        if (skip_non_native and !c_abi_target.isNative())
-            continue;
+    for (optimize_modes) |optimize_mode| {
+        if (optimize_mode != .Debug and skip_release) continue;
 
-        const test_step = b.addTest(.{
-            .root_source_file = .{ .path = "test/c_abi/main.zig" },
-            .optimize = optimize_mode,
-            .target = c_abi_target,
-        });
-        if (c_abi_target.abi != null and c_abi_target.abi.?.isMusl()) {
-            // TODO NativeTargetInfo insists on dynamically linking musl
-            // for some reason?
-            test_step.target_info.dynamic_linker.max_byte = null;
-        }
-        test_step.linkLibC();
-        test_step.addCSourceFile("test/c_abi/cfuncs.c", &.{"-std=c99"});
+        for (c_abi_targets) |c_abi_target| {
+            if (skip_non_native and !c_abi_target.isNative()) continue;
 
-        if (c_abi_target.isWindows() and (c_abi_target.getCpuArch() == .x86 or builtin.target.os.tag == .linux)) {
-            // LTO currently incorrectly strips stdcall name-mangled functions
-            // LLD crashes in LTO here when cross compiling for windows on linux
+            const test_step = b.addTest(.{
+                .root_source_file = .{ .path = "test/c_abi/main.zig" },
+                .optimize = optimize_mode,
+                .target = c_abi_target,
+            });
+            if (c_abi_target.abi != null and c_abi_target.abi.?.isMusl()) {
+                // TODO NativeTargetInfo insists on dynamically linking musl
+                // for some reason?
+                test_step.target_info.dynamic_linker.max_byte = null;
+            }
+            test_step.linkLibC();
+            test_step.addCSourceFile("test/c_abi/cfuncs.c", &.{"-std=c99"});
+            // This test is intentionally trying to check if the external ABI is
+            // done properly. LTO would be a hindrance to this.
             test_step.want_lto = false;
+
+            const triple_prefix = c_abi_target.zigTriple(b.allocator) catch @panic("OOM");
+            test_step.setNamePrefix(b.fmt("{s}-{s}-{s} ", .{
+                "test-c-abi",
+                triple_prefix,
+                @tagName(optimize_mode),
+            }));
+
+            step.dependOn(&test_step.step);
         }
-
-        const triple_prefix = c_abi_target.zigTriple(b.allocator) catch @panic("OOM");
-        test_step.setNamePrefix(b.fmt("{s}-{s}-{s} ", .{
-            "test-c-abi",
-            triple_prefix,
-            @tagName(optimize_mode),
-        }));
-
-        step.dependOn(&test_step.step);
-    };
+    }
     return step;
 }
