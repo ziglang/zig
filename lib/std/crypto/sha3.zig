@@ -18,6 +18,20 @@ pub const Keccak_512 = @compileError("Deprecated: use `Keccak512` instead");
 pub const Shake128 = Shake(128);
 pub const Shake256 = Shake(256);
 
+/// TurboSHAKE128 is a XOF (a secure hash function with a variable output length), with a 128 bit security level.
+/// It is based on the same permutation as SHA3 and SHAKE128, but which much higher performance.
+/// The delimiter is 0x01 by default, but can be changed for context-separation.
+pub fn TurboShake128(comptime delim: ?u8) type {
+    return TurboShake(128, delim);
+}
+
+/// TurboSHAKE256 is a XOF (a secure hash function with a variable output length), with a 256 bit security level.
+/// It is based on the same permutation as SHA3 and SHAKE256, but which much higher performance.
+/// The delimiter is 0x01 by default, but can be changed for context-separation.
+pub fn TurboShake256(comptime delim: ?u8) type {
+    return TurboShake(256, delim);
+}
+
 /// A generic Keccak hash function.
 pub fn Keccak(comptime f: u11, comptime output_bits: u11, comptime delim: u8, comptime rounds: u5) type {
     comptime assert(output_bits > 0 and output_bits * 2 < f and output_bits % 8 == 0); // invalid output length
@@ -76,9 +90,18 @@ pub fn Keccak(comptime f: u11, comptime output_bits: u11, comptime delim: u8, co
 
 /// The SHAKE extendable output hash function.
 pub fn Shake(comptime security_level: u11) type {
+    return ShakeLike(security_level, 0x1f, 24);
+}
+
+/// The TurboSHAKE extendable output hash function.
+/// https://datatracker.ietf.org/doc/draft-irtf-cfrg-kangarootwelve/
+pub fn TurboShake(comptime security_level: u11, comptime delim: ?u8) type {
+    return ShakeLike(security_level, delim orelse 0x01, 12);
+}
+
+fn ShakeLike(comptime security_level: u11, comptime delim: u8, comptime rounds: u5) type {
     const f = 1600;
-    const rounds = 24;
-    const State = KeccakState(f, security_level * 2, 0x1f, rounds);
+    const State = KeccakState(f, security_level * 2, delim, rounds);
 
     return struct {
         const Self = @This();
@@ -347,4 +370,10 @@ test "SHAKE-256 single" {
     var out: [10]u8 = undefined;
     Shake256.hash("hello123", &out, .{});
     try htest.assertEqual("ade612ba265f92de4a37", &out);
+}
+
+test "TurboSHAKE-128" {
+    var out: [32]u8 = undefined;
+    TurboShake(128, 0x06).hash("\xff", &out, .{});
+    try htest.assertEqual("8ec9c66465ed0d4a6c35d13506718d687a25cb05c74cca1e42501abd83874a67", &out);
 }
