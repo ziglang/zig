@@ -784,9 +784,9 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
 
     const qual_type = var_decl.getTypeSourceInfo_getType();
     const storage_class = var_decl.getStorageClass();
-    const is_const = qual_type.isConstQualified();
     const has_init = var_decl.hasInit();
     const decl_init = var_decl.getInit();
+    var is_const = qual_type.isConstQualified();
 
     // In C extern variables with initializers behave like Zig exports.
     // extern int foo = 2;
@@ -843,6 +843,20 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
 
         // std.mem.zeroes(T)
         init_node = try Tag.std_mem_zeroes.create(c.arena, type_node);
+    } else if (qual_type.getTypeClass() == .IncompleteArray) {
+        // Oh no, an extern array of unknown size! These are really fun because there's no
+        // direct equivalent in Zig. To translate correctly, we'll have to create a C-pointer
+        // to the data initialized via @extern.
+
+        const name_str = try std.fmt.allocPrint(c.arena, "\"{s}\"", .{var_name});
+        init_node = try Tag.builtin_extern.create(c.arena, .{
+            .type = type_node,
+            .name = try Tag.string_literal.create(c.arena, name_str),
+        });
+
+        // Since this is really a pointer to the underlying data, we tweak a few properties.
+        is_extern = false;
+        is_const = true;
     }
 
     const linksection_string = blk: {
