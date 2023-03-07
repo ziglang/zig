@@ -72,7 +72,11 @@ pub fn addIncludeDir(self: *TranslateCStep, include_dir: []const u8) void {
 }
 
 pub fn addCheckFile(self: *TranslateCStep, expected_matches: []const []const u8) *CheckFileStep {
-    return CheckFileStep.create(self.step.owner, .{ .generated = &self.output_file }, self.step.owner.dupeStrings(expected_matches));
+    return CheckFileStep.create(
+        self.step.owner,
+        .{ .generated = &self.output_file },
+        .{ .expected_matches = expected_matches },
+    );
 }
 
 /// If the value is omitted, it is set to 1.

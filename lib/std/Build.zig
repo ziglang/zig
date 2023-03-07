@@ -699,10 +699,8 @@ pub fn addWriteFile(self: *Build, file_path: []const u8, data: []const u8) *Writ
     return write_file_step;
 }
 
-pub fn addWriteFiles(self: *Build) *WriteFileStep {
-    const write_file_step = self.allocator.create(WriteFileStep) catch @panic("OOM");
-    write_file_step.* = WriteFileStep.init(self);
-    return write_file_step;
+pub fn addWriteFiles(b: *Build) *WriteFileStep {
+    return WriteFileStep.create(b);
 }
 
 pub fn addRemoveDirTree(self: *Build, dir_path: []const u8) *RemoveDirStep {
@@ -1239,6 +1237,14 @@ pub fn addInstallDirectory(self: *Build, options: InstallDirectoryOptions) *Inst
     return install_step;
 }
 
+pub fn addCheckFile(
+    b: *Build,
+    file_source: FileSource,
+    options: CheckFileStep.Options,
+) *CheckFileStep {
+    return CheckFileStep.create(b, file_source, options);
+}
+
 pub fn pushInstalledFile(self: *Build, dir: InstallDir, dest_rel_path: []const u8) void {
     const file = InstalledFile{
         .dir = dir,
@@ -1711,6 +1717,36 @@ pub fn serializeCpu(allocator: Allocator, cpu: std.Target.Cpu) ![]const u8 {
 
         return try mcpu_buffer.toOwnedSlice();
     }
+}
+
+/// This function is intended to be called in the `configure` phase only.
+/// It returns an absolute directory path, which is potentially going to be a
+/// source of API breakage in the future, so keep that in mind when using this
+/// function.
+pub fn makeTempPath(b: *Build) []const u8 {
+    const rand_int = std.crypto.random.int(u64);
+    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ hex64(rand_int);
+    const result_path = b.cache_root.join(b.allocator, &.{tmp_dir_sub_path}) catch @panic("OOM");
+    fs.cwd().makePath(result_path) catch |err| {
+        std.debug.print("unable to make tmp path '{s}': {s}\n", .{
+            result_path, @errorName(err),
+        });
+    };
+    return result_path;
+}
+
+/// There are a few copies of this function in miscellaneous places. Would be nice to find
+/// a home for them.
+fn hex64(x: u64) [16]u8 {
+    const hex_charset = "0123456789abcdef";
+    var result: [16]u8 = undefined;
+    var i: usize = 0;
+    while (i < 8) : (i += 1) {
+        const byte = @truncate(u8, x >> @intCast(u6, 8 * i));
+        result[i * 2 + 0] = hex_charset[byte >> 4];
+        result[i * 2 + 1] = hex_charset[byte & 15];
+    }
+    return result;
 }
 
 test {

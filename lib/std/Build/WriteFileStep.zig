@@ -14,6 +14,7 @@ step: Step,
 /// GeneratedFile field.
 files: std.ArrayListUnmanaged(*File),
 output_source_files: std.ArrayListUnmanaged(OutputSourceFile),
+generated_directory: std.Build.GeneratedFile,
 
 pub const base_id = .write_file;
 
@@ -33,8 +34,9 @@ pub const Contents = union(enum) {
     copy: std.Build.FileSource,
 };
 
-pub fn init(owner: *std.Build) WriteFileStep {
-    return .{
+pub fn create(owner: *std.Build) *WriteFileStep {
+    const wf = owner.allocator.create(WriteFileStep) catch @panic("OOM");
+    wf.* = .{
         .step = Step.init(.{
             .id = .write_file,
             .name = "WriteFile",
@@ -43,7 +45,9 @@ pub fn init(owner: *std.Build) WriteFileStep {
         }),
         .files = .{},
         .output_source_files = .{},
+        .generated_directory = .{ .step = &wf.step },
     };
+    return wf;
 }
 
 pub fn add(wf: *WriteFileStep, sub_path: []const u8, bytes: []const u8) void {
@@ -95,6 +99,20 @@ pub fn addCopyFileToSource(wf: *WriteFileStep, source: std.Build.FileSource, sub
     }) catch @panic("OOM");
 }
 
+/// A path relative to the package root.
+/// Be careful with this because it updates source files. This should not be
+/// used as part of the normal build process, but as a utility occasionally
+/// run by a developer with intent to modify source files and then commit
+/// those changes to version control.
+/// A file added this way is not available with `getFileSource`.
+pub fn addBytesToSource(wf: *WriteFileStep, bytes: []const u8, sub_path: []const u8) void {
+    const b = wf.step.owner;
+    wf.output_source_files.append(b.allocator, .{
+        .contents = .{ .bytes = bytes },
+        .sub_path = sub_path,
+    }) catch @panic("OOM");
+}
+
 /// Gets a file source for the given sub_path. If the file does not exist, returns `null`.
 pub fn getFileSource(wf: *WriteFileStep, sub_path: []const u8) ?std.Build.FileSource {
     for (wf.files.items) |file| {
@@ -103,6 +121,12 @@ pub fn getFileSource(wf: *WriteFileStep, sub_path: []const u8) ?std.Build.FileSo
         }
     }
     return null;
+}
+
+/// Returns a `FileSource` representing the base directory that contains all the
+/// files from this `WriteFileStep`.
+pub fn getDirectorySource(wf: *WriteFileStep) std.Build.FileSource {
+    return .{ .generated = &wf.generated_directory };
 }
 
 fn maybeUpdateName(wf: *WriteFileStep) void {
@@ -193,11 +217,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 "o", &digest, file.sub_path,
             });
         }
+        wf.generated_directory.path = try b.cache_root.join(b.allocator, &.{ "o", &digest });
         return;
     }
 
     const digest = man.final();
     const cache_path = "o" ++ fs.path.sep_str ++ digest;
+
+    wf.generated_directory.path = try b.cache_root.join(b.allocator, &.{ "o", &digest });
 
     var cache_dir = b.cache_root.handle.makeOpenPath(cache_path, .{}) catch |err| {
         return step.fail("unable to make path '{}{s}': {s}", .{

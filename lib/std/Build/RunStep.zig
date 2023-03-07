@@ -70,6 +70,8 @@ max_stdio_size: usize = 10 * 1024 * 1024,
 captured_stdout: ?*Output = null,
 captured_stderr: ?*Output = null,
 
+has_side_effects: bool = false,
+
 pub const StdIo = union(enum) {
     /// Whether the RunStep has side-effects will be determined by whether or not one
     /// of the args is an output file (added with `addOutputFileArg`).
@@ -103,12 +105,14 @@ pub const StdIo = union(enum) {
 pub const Arg = union(enum) {
     artifact: *CompileStep,
     file_source: std.Build.FileSource,
+    directory_source: std.Build.FileSource,
     bytes: []u8,
     output: *Output,
 };
 
 pub const Output = struct {
     generated_file: std.Build.GeneratedFile,
+    prefix: []const u8,
     basename: []const u8,
 };
 
@@ -142,10 +146,19 @@ pub fn addArtifactArg(self: *RunStep, artifact: *CompileStep) void {
 /// run, and returns a FileSource which can be used as inputs to other APIs
 /// throughout the build system.
 pub fn addOutputFileArg(rs: *RunStep, basename: []const u8) std.Build.FileSource {
+    return addPrefixedOutputFileArg(rs, "", basename);
+}
+
+pub fn addPrefixedOutputFileArg(
+    rs: *RunStep,
+    prefix: []const u8,
+    basename: []const u8,
+) std.Build.FileSource {
     const b = rs.step.owner;
 
     const output = b.allocator.create(Output) catch @panic("OOM");
     output.* = .{
+        .prefix = prefix,
         .basename = basename,
         .generated_file = .{ .step = &rs.step },
     };
@@ -159,14 +172,21 @@ pub fn addOutputFileArg(rs: *RunStep, basename: []const u8) std.Build.FileSource
 }
 
 pub fn addFileSourceArg(self: *RunStep, file_source: std.Build.FileSource) void {
-    self.argv.append(Arg{
+    self.argv.append(.{
         .file_source = file_source.dupe(self.step.owner),
     }) catch @panic("OOM");
     file_source.addStepDependencies(&self.step);
 }
 
+pub fn addDirectorySourceArg(self: *RunStep, directory_source: std.Build.FileSource) void {
+    self.argv.append(.{
+        .directory_source = directory_source.dupe(self.step.owner),
+    }) catch @panic("OOM");
+    directory_source.addStepDependencies(&self.step);
+}
+
 pub fn addArg(self: *RunStep, arg: []const u8) void {
-    self.argv.append(Arg{ .bytes = self.step.owner.dupe(arg) }) catch @panic("OOM");
+    self.argv.append(.{ .bytes = self.step.owner.dupe(arg) }) catch @panic("OOM");
 }
 
 pub fn addArgs(self: *RunStep, args: []const []const u8) void {
@@ -274,6 +294,7 @@ pub fn captureStdErr(self: *RunStep) std.Build.FileSource {
 
     const output = self.step.owner.allocator.create(Output) catch @panic("OOM");
     output.* = .{
+        .prefix = "",
         .basename = "stderr",
         .generated_file = .{ .step = &self.step },
     };
@@ -288,6 +309,7 @@ pub fn captureStdOut(self: *RunStep) *std.Build.GeneratedFile {
 
     const output = self.step.owner.allocator.create(Output) catch @panic("OOM");
     output.* = .{
+        .prefix = "",
         .basename = "stdout",
         .generated_file = .{ .step = &self.step },
     };
@@ -297,6 +319,7 @@ pub fn captureStdOut(self: *RunStep) *std.Build.GeneratedFile {
 
 /// Returns whether the RunStep has side effects *other than* updating the output arguments.
 fn hasSideEffects(self: RunStep) bool {
+    if (self.has_side_effects) return true;
     return switch (self.stdio) {
         .infer_from_args => !self.hasAnyOutputArgs(),
         .inherit => true,
@@ -373,6 +396,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 try argv_list.append(file_path);
                 _ = try man.addFile(file_path, null);
             },
+            .directory_source => |file| {
+                const file_path = file.getPath(b);
+                try argv_list.append(file_path);
+                man.hash.addBytes(file_path);
+            },
             .artifact => |artifact| {
                 if (artifact.target.isWindows()) {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
@@ -386,6 +414,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 _ = try man.addFile(file_path, null);
             },
             .output => |output| {
+                man.hash.addBytes(output.prefix);
                 man.hash.addBytes(output.basename);
                 // Add a placeholder into the argument list because we need the
                 // manifest hash to be updated with all arguments before the
@@ -456,7 +485,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         };
         const output_path = try b.cache_root.join(arena, &output_components);
         placeholder.output.generated_file.path = output_path;
-        argv_list.items[placeholder.index] = output_path;
+        const cli_arg = if (placeholder.output.prefix.len == 0)
+            output_path
+        else
+            b.fmt("{s}{s}", .{ placeholder.output.prefix, output_path });
+        argv_list.items[placeholder.index] = cli_arg;
     }
 
     try runCommand(self, argv_list.items, has_side_effects, &digest);

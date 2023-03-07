@@ -635,19 +635,189 @@ pub fn addCliTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []co
     _ = optimize_modes;
     const step = b.step("test-cli", "Test the command line interface");
 
-    const exe = b.addExecutable(.{
-        .name = "test-cli",
-        .root_source_file = .{ .path = "test/cli.zig" },
-        .target = .{},
-        .optimize = .Debug,
-    });
-    const run_cmd = exe.run();
-    run_cmd.addArgs(&[_][]const u8{
-        fs.realpathAlloc(b.allocator, b.zig_exe) catch @panic("OOM"),
-        b.pathFromRoot(b.cache_root.path orelse "."),
-    });
+    {
+        // Test `zig init-lib`.
+        const tmp_path = b.makeTempPath();
+        const init_lib = b.addSystemCommand(&.{ b.zig_exe, "init-lib" });
+        init_lib.cwd = tmp_path;
+        init_lib.setName("zig init-lib");
+        init_lib.expectStdOutEqual("");
+        init_lib.expectStdErrEqual(
+            \\info: Created build.zig
+            \\info: Created src/main.zig
+            \\info: Next, try `zig build --help` or `zig build test`
+            \\
+        );
 
-    step.dependOn(&run_cmd.step);
+        const run_test = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
+        run_test.cwd = tmp_path;
+        run_test.setName("zig build test");
+        run_test.expectStdOutEqual("");
+        run_test.step.dependOn(&init_lib.step);
+
+        const cleanup = b.addRemoveDirTree(tmp_path);
+        cleanup.step.dependOn(&run_test.step);
+
+        step.dependOn(&cleanup.step);
+    }
+
+    {
+        // Test `zig init-exe`.
+        const tmp_path = b.makeTempPath();
+        const init_exe = b.addSystemCommand(&.{ b.zig_exe, "init-exe" });
+        init_exe.cwd = tmp_path;
+        init_exe.setName("zig init-exe");
+        init_exe.expectStdOutEqual("");
+        init_exe.expectStdErrEqual(
+            \\info: Created build.zig
+            \\info: Created src/main.zig
+            \\info: Next, try `zig build --help` or `zig build run`
+            \\
+        );
+
+        // Test missing output path.
+        const s = std.fs.path.sep_str;
+        const bad_out_arg = "-femit-bin=does" ++ s ++ "not" ++ s ++ "exist" ++ s ++ "foo.exe";
+        const ok_src_arg = "src" ++ s ++ "main.zig";
+        const expected = "error: unable to open output directory 'does" ++ s ++ "not" ++ s ++ "exist': FileNotFound\n";
+        const run_bad = b.addSystemCommand(&.{ b.zig_exe, "build-exe", ok_src_arg, bad_out_arg });
+        run_bad.setName("zig build-exe error message for bad -femit-bin arg");
+        run_bad.expectExitCode(1);
+        run_bad.expectStdErrEqual(expected);
+        run_bad.expectStdOutEqual("");
+        run_bad.step.dependOn(&init_exe.step);
+
+        const run_test = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
+        run_test.cwd = tmp_path;
+        run_test.setName("zig build test");
+        run_test.expectStdOutEqual("");
+        run_test.step.dependOn(&init_exe.step);
+
+        const run_run = b.addSystemCommand(&.{ b.zig_exe, "build", "run" });
+        run_run.cwd = tmp_path;
+        run_run.setName("zig build run");
+        run_run.expectStdOutEqual("Run `zig build test` to run the tests.\n");
+        run_run.expectStdErrEqual("All your codebase are belong to us.\n");
+        run_run.step.dependOn(&init_exe.step);
+
+        const cleanup = b.addRemoveDirTree(tmp_path);
+        cleanup.step.dependOn(&run_test.step);
+        cleanup.step.dependOn(&run_run.step);
+        cleanup.step.dependOn(&run_bad.step);
+
+        step.dependOn(&cleanup.step);
+    }
+
+    // Test Godbolt API
+    if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
+        const tmp_path = b.makeTempPath();
+
+        const writefile = b.addWriteFile("example.zig",
+            \\// Type your code here, or load an example.
+            \\export fn square(num: i32) i32 {
+            \\    return num * num;
+            \\}
+            \\extern fn zig_panic() noreturn;
+            \\pub fn panic(msg: []const u8, error_return_trace: ?*@import("std").builtin.StackTrace, _: ?usize) noreturn {
+            \\    _ = msg;
+            \\    _ = error_return_trace;
+            \\    zig_panic();
+            \\}
+        );
+
+        // This is intended to be the exact CLI usage used by godbolt.org.
+        const run = b.addSystemCommand(&.{
+            b.zig_exe,       "build-obj",
+            "--cache-dir",   tmp_path,
+            "--name",        "example",
+            "-fno-emit-bin", "-fno-emit-h",
+            "-fstrip",       "-OReleaseFast",
+        });
+        run.addFileSourceArg(writefile.getFileSource("example.zig").?);
+        const example_s = run.addPrefixedOutputFileArg("-femit-asm=", "example.s");
+
+        const checkfile = b.addCheckFile(example_s, .{
+            .expected_matches = &.{
+                "square:",
+                "mov\teax, edi",
+                "imul\teax, edi",
+            },
+        });
+        checkfile.setName("check godbolt.org CLI usage generating valid asm");
+
+        const cleanup = b.addRemoveDirTree(tmp_path);
+        cleanup.step.dependOn(&checkfile.step);
+
+        step.dependOn(&cleanup.step);
+    }
+
+    {
+        // Test `zig fmt`.
+        // This test must use a temporary directory rather than a cache
+        // directory because this test will be mutating the files. The cache
+        // system relies on cache directories being mutated only by their
+        // owners.
+        const tmp_path = b.makeTempPath();
+        const unformatted_code = "    // no reason for indent";
+        const s = std.fs.path.sep_str;
+
+        var dir = fs.cwd().openDir(tmp_path, .{}) catch @panic("unhandled");
+        defer dir.close();
+        dir.writeFile("fmt1.zig", unformatted_code) catch @panic("unhandled");
+        dir.writeFile("fmt2.zig", unformatted_code) catch @panic("unhandled");
+
+        // Test zig fmt affecting only the appropriate files.
+        const run1 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "fmt1.zig" });
+        run1.setName("run zig fmt one file");
+        run1.cwd = tmp_path;
+        run1.has_side_effects = true;
+        // stdout should be file path + \n
+        run1.expectStdOutEqual("fmt1.zig\n");
+
+        // running it on the dir, only the new file should be changed
+        const run2 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "." });
+        run2.setName("run zig fmt the directory");
+        run2.cwd = tmp_path;
+        run2.has_side_effects = true;
+        run2.expectStdOutEqual("." ++ s ++ "fmt2.zig\n");
+        run2.step.dependOn(&run1.step);
+
+        // both files have been formatted, nothing should change now
+        const run3 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "." });
+        run3.setName("run zig fmt with nothing to do");
+        run3.cwd = tmp_path;
+        run3.has_side_effects = true;
+        run3.expectStdOutEqual("");
+        run3.step.dependOn(&run2.step);
+
+        const unformatted_code_utf16 = "\xff\xfe \x00 \x00 \x00 \x00/\x00/\x00 \x00n\x00o\x00 \x00r\x00e\x00a\x00s\x00o\x00n\x00";
+        const fmt4_path = fs.path.join(b.allocator, &.{ tmp_path, "fmt4.zig" }) catch @panic("OOM");
+        const write4 = b.addWriteFiles();
+        write4.addBytesToSource(unformatted_code_utf16, fmt4_path);
+        write4.step.dependOn(&run3.step);
+
+        // Test `zig fmt` handling UTF-16 decoding.
+        const run4 = b.addSystemCommand(&.{ b.zig_exe, "fmt", "." });
+        run4.setName("run zig fmt convert UTF-16 to UTF-8");
+        run4.cwd = tmp_path;
+        run4.has_side_effects = true;
+        run4.expectStdOutEqual("." ++ s ++ "fmt4.zig\n");
+        run4.step.dependOn(&write4.step);
+
+        // TODO change this to an exact match
+        const check4 = b.addCheckFile(.{ .path = fmt4_path }, .{
+            .expected_matches = &.{
+                "// no reason",
+            },
+        });
+        check4.step.dependOn(&run4.step);
+
+        const cleanup = b.addRemoveDirTree(tmp_path);
+        cleanup.step.dependOn(&check4.step);
+
+        step.dependOn(&cleanup.step);
+    }
+
     return step;
 }
 
