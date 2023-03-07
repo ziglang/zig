@@ -544,6 +544,10 @@ pub const Op = enum {
                 }
                 if (op.isImmediate() and target.isImmediate()) {
                     switch (target) {
+                        .imm64 => switch (op) {
+                            .unity, .imm8s, .imm8, .imm16s, .imm16, .imm32s, .imm32, .imm64 => return true,
+                            else => return op == target,
+                        },
                         .imm32s, .rel32 => switch (op) {
                             .unity, .imm8s, .imm8, .imm16s, .imm16, .imm32s => return true,
                             else => return op == target,

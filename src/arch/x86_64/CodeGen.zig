@@ -2785,7 +2785,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                             // introduce new MIR tag specifically for mov [reg + 0], imm
                             const payload = try self.addExtra(Mir.ImmPair{
                                 .dest_off = 0,
-                                .operand = @intCast(u32, imm),
+                                .operand = @truncate(u32, imm),
                             });
                             _ = try self.addInst(.{
                                 .tag = .mov_mem_imm,
@@ -5385,31 +5385,33 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
             return self.genSetStackArg(ty, stack_offset, .{ .register = reg });
         },
         .immediate => |imm| {
+            _ = imm;
             switch (abi_size) {
-                1, 2, 4 => {
-                    // We have a positive stack offset value but we want a twos complement negative
-                    // offset from rbp, which is at the top of the stack frame.
-                    // mov [rbp+offset], immediate
-                    const flags: u2 = switch (abi_size) {
-                        1 => 0b00,
-                        2 => 0b01,
-                        4 => 0b10,
-                        else => unreachable,
-                    };
-                    const payload = try self.addExtra(Mir.ImmPair{
-                        .dest_off = -stack_offset,
-                        .operand = @intCast(u32, imm),
-                    });
-                    _ = try self.addInst(.{
-                        .tag = .mov_mem_imm,
-                        .ops = Mir.Inst.Ops.encode(.{
-                            .reg1 = .rsp,
-                            .flags = flags,
-                        }),
-                        .data = .{ .payload = payload },
-                    });
-                },
-                8 => {
+                // TODO
+                // 1, 2, 4 => {
+                //     // We have a positive stack offset value but we want a twos complement negative
+                //     // offset from rbp, which is at the top of the stack frame.
+                //     // mov [rbp+offset], immediate
+                //     const flags: u2 = switch (abi_size) {
+                //         1 => 0b00,
+                //         2 => 0b01,
+                //         4 => 0b10,
+                //         else => unreachable,
+                //     };
+                //     const payload = try self.addExtra(Mir.ImmPair{
+                //         .dest_off = -stack_offset,
+                //         .operand = @intCast(u32, imm),
+                //     });
+                //     _ = try self.addInst(.{
+                //         .tag = .mov_mem_imm,
+                //         .ops = Mir.Inst.Ops.encode(.{
+                //             .reg1 = .rsp,
+                //             .flags = flags,
+                //         }),
+                //         .data = .{ .payload = payload },
+                //     });
+                // },
+                1, 2, 4, 8 => {
                     const reg = try self.copyToTmpRegister(ty, mcv);
                     return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
                 },
@@ -5543,7 +5545,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                     assert(ty.isError());
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = -stack_offset,
-                        .operand = @intCast(u32, x_big),
+                        .operand = @truncate(u32, x_big),
                     });
                     _ = try self.addInst(.{
                         .tag = .mov_mem_imm,
@@ -5557,7 +5559,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                 1, 2, 4 => {
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = -stack_offset,
-                        .operand = @intCast(u32, x_big),
+                        .operand = @truncate(u32, x_big),
                     });
                     _ = try self.addInst(.{
                         .tag = .mov_mem_imm,
@@ -7020,7 +7022,7 @@ fn truncateRegister(self: *Self, ty: Type, reg: Register) !void {
         .unsigned => {
             const shift = @intCast(u6, max_reg_bit_width - int_info.bits);
             const mask = (~@as(u64, 0)) >> shift;
-            if (int_info.bits <= 32) {
+            if (int_info.bits < 32) {
                 try self.genBinOpMir(.@"and", Type.usize, .{ .register = reg }, .{ .immediate = mask });
             } else {
                 const tmp_reg = try self.copyToTmpRegister(Type.usize, .{ .immediate = mask });

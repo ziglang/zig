@@ -108,7 +108,7 @@ pub const Instruction = struct {
             .op3 = args.op3,
             .op4 = args.op4,
         })) orelse {
-            std.log.debug("{s} {s} {s} {s} {s}", .{
+            std.log.warn("{s} {s} {s} {s} {s}", .{
                 @tagName(mnemonic),
                 @tagName(Encoding.Op.fromOperand(args.op1)),
                 @tagName(Encoding.Op.fromOperand(args.op2)),

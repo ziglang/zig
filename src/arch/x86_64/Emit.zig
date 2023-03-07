@@ -612,12 +612,17 @@ fn mirArithMemImm(emit: *Emit, mnemonic: Instruction.Mnemonic, inst: Mir.Inst.In
         0b10 => .dword,
         0b11 => .qword,
     };
+    const imm = switch (ops.flags) {
+        0b00 => @truncate(u8, imm_pair.operand),
+        0b01 => @truncate(u16, imm_pair.operand),
+        0b10, 0b11 => @truncate(u32, imm_pair.operand),
+    };
     return emit.encode(mnemonic, .{
         .op1 = .{ .mem = Memory.sib(ptr_size, .{
             .disp = imm_pair.dest_off,
             .base = ops.reg1,
         }) },
-        .op2 = .{ .imm = Immediate.u(imm_pair.operand) },
+        .op2 = .{ .imm = Immediate.u(imm) },
     });
 }
 
