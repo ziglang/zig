@@ -442,8 +442,6 @@ pub fn build(b: *std.Build) !void {
         .skip_stage2 = true, // TODO get all these passing
     }));
 
-    _ = enable_symlinks_windows;
-    _ = enable_macos_sdk;
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, optimization_modes));
     //test_step.dependOn(tests.addStandaloneTests(
     //    b,
@@ -453,15 +451,10 @@ pub fn build(b: *std.Build) !void {
     //    enable_macos_sdk,
     //    target,
     //    skip_stage2_tests,
-    //    b.enable_darling,
-    //    b.enable_qemu,
-    //    b.enable_rosetta,
-    //    b.enable_wasmtime,
-    //    b.enable_wine,
     //    enable_symlinks_windows,
     //));
     test_step.dependOn(tests.addCAbiTests(b, skip_non_native, skip_release));
-    //test_step.dependOn(tests.addLinkTests(b, test_filter, optimization_modes, enable_macos_sdk, skip_stage2_tests, enable_symlinks_windows));
+    test_step.dependOn(tests.addLinkTests(b, test_filter, optimization_modes, enable_macos_sdk, skip_stage2_tests, enable_symlinks_windows));
     test_step.dependOn(tests.addStackTraceTests(b, test_filter, optimization_modes));
     test_step.dependOn(tests.addCliTests(b, test_filter, optimization_modes));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, optimization_modes));

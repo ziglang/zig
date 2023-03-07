@@ -1,16 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const debug = std.debug;
+const assert = std.debug.assert;
 const CrossTarget = std.zig.CrossTarget;
-const io = std.io;
-const fs = std.fs;
 const mem = std.mem;
-const fmt = std.fmt;
-const ArrayList = std.ArrayList;
 const OptimizeMode = std.builtin.OptimizeMode;
-const CompileStep = std.Build.CompileStep;
-const Allocator = mem.Allocator;
-const ExecError = std.Build.ExecError;
 const Step = std.Build.Step;
 
 // Cases
@@ -574,15 +567,10 @@ pub fn addStandaloneTests(
     enable_macos_sdk: bool,
     target: std.zig.CrossTarget,
     omit_stage2: bool,
-    enable_darling: bool,
-    enable_qemu: bool,
-    enable_rosetta: bool,
-    enable_wasmtime: bool,
-    enable_wine: bool,
     enable_symlinks_windows: bool,
 ) *Step {
     const cases = b.allocator.create(StandaloneContext) catch @panic("OOM");
-    cases.* = StandaloneContext{
+    cases.* = .{
         .b = b,
         .step = b.step("test-standalone", "Run the standalone tests"),
         .test_index = 0,
@@ -592,11 +580,6 @@ pub fn addStandaloneTests(
         .enable_macos_sdk = enable_macos_sdk,
         .target = target,
         .omit_stage2 = omit_stage2,
-        .enable_darling = enable_darling,
-        .enable_qemu = enable_qemu,
-        .enable_rosetta = enable_rosetta,
-        .enable_wasmtime = enable_wasmtime,
-        .enable_wine = enable_wine,
         .enable_symlinks_windows = enable_symlinks_windows,
     };
 
@@ -613,21 +596,24 @@ pub fn addLinkTests(
     omit_stage2: bool,
     enable_symlinks_windows: bool,
 ) *Step {
-    const cases = b.allocator.create(StandaloneContext) catch @panic("OOM");
-    cases.* = StandaloneContext{
-        .b = b,
-        .step = b.step("test-link", "Run the linker tests"),
-        .test_index = 0,
-        .test_filter = test_filter,
-        .optimize_modes = optimize_modes,
-        .skip_non_native = true,
-        .enable_macos_sdk = enable_macos_sdk,
-        .target = .{},
-        .omit_stage2 = omit_stage2,
-        .enable_symlinks_windows = enable_symlinks_windows,
-    };
-    link.addCases(cases);
-    return cases.step;
+    _ = test_filter;
+    _ = optimize_modes;
+    _ = enable_macos_sdk;
+    _ = omit_stage2;
+    _ = enable_symlinks_windows;
+
+    const step = b.step("test-link", "Run the linker tests");
+
+    inline for (link.cases) |link_test| {
+        const dep = b.anonymousDependency(link_test.build_root, link_test.import, .{});
+        const dep_step = dep.builder.default_step;
+        assert(mem.startsWith(u8, dep.builder.dep_prefix, "test."));
+        const dep_prefix_adjusted = dep.builder.dep_prefix["test.".len..];
+        dep_step.name = b.fmt("{s}{s}", .{ dep_prefix_adjusted, dep_step.name });
+        step.dependOn(dep_step);
+    }
+
+    return step;
 }
 
 pub fn addCliTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *Step {
@@ -761,7 +747,7 @@ pub fn addCliTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []co
         const unformatted_code = "    // no reason for indent";
         const s = std.fs.path.sep_str;
 
-        var dir = fs.cwd().openDir(tmp_path, .{}) catch @panic("unhandled");
+        var dir = std.fs.cwd().openDir(tmp_path, .{}) catch @panic("unhandled");
         defer dir.close();
         dir.writeFile("fmt1.zig", unformatted_code) catch @panic("unhandled");
         dir.writeFile("fmt2.zig", unformatted_code) catch @panic("unhandled");
@@ -791,7 +777,7 @@ pub fn addCliTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []co
         run3.step.dependOn(&run2.step);
 
         const unformatted_code_utf16 = "\xff\xfe \x00 \x00 \x00 \x00/\x00/\x00 \x00n\x00o\x00 \x00r\x00e\x00a\x00s\x00o\x00n\x00";
-        const fmt4_path = fs.path.join(b.allocator, &.{ tmp_path, "fmt4.zig" }) catch @panic("OOM");
+        const fmt4_path = std.fs.path.join(b.allocator, &.{ tmp_path, "fmt4.zig" }) catch @panic("OOM");
         const write4 = b.addWriteFiles();
         write4.addBytesToSource(unformatted_code_utf16, fmt4_path);
         write4.step.dependOn(&run3.step);
