@@ -2555,6 +2555,21 @@ test "bytes.hex" {
     try expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{fmtSliceHexLower(bytes_with_zeros)});
 }
 
+/// Encodes a sequence of bytes as hexadecimal digits.
+/// Returns an array containing the encoded bytes.
+pub fn bytesToHex(input: anytype, case: Case) [input.len * 2]u8 {
+    if (input.len == 0) return [_]u8{};
+    comptime assert(@TypeOf(input[0]) == u8); // elements to encode must be unsigned bytes
+
+    const charset = "0123456789" ++ if (case == .upper) "ABCDEF" else "abcdef";
+    var result: [input.len * 2]u8 = undefined;
+    for (input, 0..) |b, i| {
+        result[i * 2 + 0] = charset[b >> 4];
+        result[i * 2 + 1] = charset[b & 15];
+    }
+    return result;
+}
+
 /// Decodes the sequence of bytes represented by the specified string of
 /// hexadecimal characters.
 /// Returns a slice of the output buffer containing the decoded bytes.
@@ -2573,6 +2588,13 @@ pub fn hexToBytes(out: []u8, input: []const u8) ![]u8 {
     }
 
     return out[0 .. in_i / 2];
+}
+
+test "bytesToHex" {
+    const input = "input slice";
+    const encoded = bytesToHex(input, .lower);
+    var decoded: [input.len]u8 = undefined;
+    try std.testing.expectEqualSlices(u8, input, try hexToBytes(&decoded, &encoded));
 }
 
 test "hexToBytes" {
