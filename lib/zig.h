@@ -2384,6 +2384,44 @@ static inline void zig_subw_big(void *res, const void *lhs, const void *rhs, boo
     (void)zig_subo_big(res, lhs, rhs, is_signed, bits);
 }
 
+zig_extern void __udivei4(uint32_t *res, const uint32_t *lhs, const uint32_t *rhs, uintptr_t bits);
+static inline void zig_div_trunc_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    if (!is_signed) {
+        __udivei4(res, lhs, rhs, bits);
+        return;
+    }
+
+    zig_trap();
+}
+
+static inline void zig_div_floor_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    if (!is_signed) {
+        zig_div_trunc_big(res, lhs, rhs, is_signed, bits);
+        return;
+    }
+
+    zig_trap();
+}
+
+zig_extern void __umodei4(uint32_t *res, const uint32_t *lhs, const uint32_t *rhs, uintptr_t bits);
+static inline void zig_rem_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    if (!is_signed) {
+        __umodei4(res, lhs, rhs, bits);
+        return;
+    }
+
+    zig_trap();
+}
+
+static inline void zig_mod_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    if (!is_signed) {
+        zig_rem_big(res, lhs, rhs, is_signed, bits);
+        return;
+    }
+
+    zig_trap();
+}
+
 static inline uint16_t zig_clz_big(const void *val, bool is_signed, uint16_t bits) {
     const uint8_t *val_bytes = val;
     uint16_t byte_offset = 0;
