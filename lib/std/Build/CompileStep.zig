@@ -310,8 +310,20 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         panic("invalid name: '{s}'. It looks like a file path, but it is supposed to be the library or application name.", .{name});
     }
 
-    const step_name = owner.fmt("compile {s} {s} {s}", .{
-        name,
+    // Avoid the common case of the step name looking like "zig test test".
+    const name_adjusted = if (options.kind == .@"test" and mem.eql(u8, name, "test"))
+        ""
+    else
+        owner.fmt("{s} ", .{name});
+
+    const step_name = owner.fmt("{s} {s}{s} {s}", .{
+        switch (options.kind) {
+            .exe => "zig build-exe",
+            .lib => "zig build-lib",
+            .obj => "zig build-obj",
+            .test_exe, .@"test" => "zig test",
+        },
+        name_adjusted,
         @tagName(options.optimize),
         options.target.zigTriple(owner.allocator) catch @panic("OOM"),
     });
