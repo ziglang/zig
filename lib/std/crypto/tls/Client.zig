@@ -89,7 +89,7 @@ pub const StreamInterface = struct {
 };
 
 pub fn InitError(comptime Stream: type) type {
-    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || error {
+    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || error{
         InsufficientEntropy,
         DiskQuota,
         LockViolation,
