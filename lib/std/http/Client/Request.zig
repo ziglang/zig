@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 
 const Client = @import("../Client.zig");
 const Connection = Client.Connection;
-const ConnectionNode = Client.ConnectionNode;
+const ConnectionNode = Client.ConnectionPool.Node;
 const Response = @import("Response.zig");
 
 const Request = @This();
@@ -85,7 +85,7 @@ pub fn deinit(req: *Request) void {
     if (!req.response.done) {
         // If the response wasn't fully read, then we need to close the connection.
         req.connection.data.closing = true;
-        req.client.release(req.connection);
+        req.client.connection_pool.release(req.client, req.connection);
     }
 
     req.arena.deinit();
@@ -135,7 +135,7 @@ fn checkForCompleteHead(req: *Request, buffer: []u8) !usize {
     if (req.response.state == .finished) {
         req.response.headers = try Response.Headers.parse(req.response.header_bytes.items);
 
-        if (req.response.upgrade) |_| {
+        if (req.response.headers.upgrade) |_| {
             req.connection.data.closing = false;
             req.response.done = true;
             return i;
@@ -226,7 +226,7 @@ fn readRawAdvanced(req: *Request, buffer: []u8) !usize {
                     req.response.next_chunk_length -= can_read;
 
                     if (req.response.next_chunk_length == 0) {
-                        req.client.release(req.connection);
+                        req.client.connection_pool.release(req.client, req.connection);
                         req.connection = undefined;
                         req.response.done = true;
                     }
@@ -241,7 +241,7 @@ fn readRawAdvanced(req: *Request, buffer: []u8) !usize {
                 req.read_buffer_start += @intCast(ReadBufferIndex, can_read);
 
                 if (req.response.next_chunk_length == 0) {
-                    req.client.release(req.connection);
+                    req.client.connection_pool.release(req.client, req.connection);
                     req.connection = undefined;
                     req.response.done = true;
                 }
@@ -293,7 +293,7 @@ fn readRawAdvanced(req: *Request, buffer: []u8) !usize {
                     .chunk_data => {
                         if (req.response.next_chunk_length == 0) {
                             req.response.done = true;
-                            req.client.release(req.connection);
+                            req.client.connection_pool.release(req.client, req.connection);
                             req.connection = undefined;
 
                             return out_index;
@@ -317,7 +317,7 @@ fn readRawAdvanced(req: *Request, buffer: []u8) !usize {
                     req.response.next_chunk_length -= can_read;
 
                     if (req.response.next_chunk_length == 0) {
-                        req.client.release(req.connection);
+                        req.client.connection_pool.release(req.client, req.connection);
                         req.connection = undefined;
                         req.response.done = true;
                         continue;
@@ -345,13 +345,7 @@ fn readRawAdvanced(req: *Request, buffer: []u8) !usize {
     }
 }
 
-pub const ReadError = Client.DeflateDecompressor.Error || Client.GzipDecompressor.Error || Client.ZstdDecompressor.Error || WaitForCompleteHeadError || error{
-    BadHeader,
-    InvalidCompression,
-    StreamTooLong,
-    InvalidWindowSize,
-    CompressionNotSupported
-};
+pub const ReadError = Client.DeflateDecompressor.Error || Client.GzipDecompressor.Error || Client.ZstdDecompressor.Error || WaitForCompleteHeadError || error{ BadHeader, InvalidCompression, StreamTooLong, InvalidWindowSize, CompressionNotSupported };
 
 pub const Reader = std.io.Reader(*Request, ReadError, read);
 

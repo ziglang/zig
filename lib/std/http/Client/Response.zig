@@ -32,6 +32,7 @@ pub const Headers = struct {
     transfer_encoding: ?http.TransferEncoding = null,
     transfer_compression: ?http.ContentEncoding = null,
     connection: http.Connection = .close,
+    upgrade: ?[]const u8 = null,
 
     number_of_headers: usize = 0,
 
@@ -93,7 +94,7 @@ pub const Headers = struct {
 
                 if (iter.next()) |second| {
                     if (headers.transfer_compression != null) return error.HttpTransferEncodingUnsupported;
-                        
+
                     const trimmed = std.mem.trim(u8, second, " ");
 
                     if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
@@ -122,6 +123,8 @@ pub const Headers = struct {
                 } else {
                     return error.HttpConnectionHeaderUnsupported;
                 }
+            } else if (std.ascii.eqlIgnoreCase(header_name, "upgrade")) {
+                headers.upgrade = header_value;
             }
         }
 
