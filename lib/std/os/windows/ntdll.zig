@@ -18,6 +18,7 @@ const IO_STATUS_BLOCK = windows.IO_STATUS_BLOCK;
 const LARGE_INTEGER = windows.LARGE_INTEGER;
 const OBJECT_INFORMATION_CLASS = windows.OBJECT_INFORMATION_CLASS;
 const FILE_INFORMATION_CLASS = windows.FILE_INFORMATION_CLASS;
+const FS_INFORMATION_CLASS = windows.FS_INFORMATION_CLASS;
 const UNICODE_STRING = windows.UNICODE_STRING;
 const RTL_OSVERSIONINFOW = windows.RTL_OSVERSIONINFOW;
 const FILE_BASIC_INFORMATION = windows.FILE_BASIC_INFORMATION;
@@ -230,6 +231,14 @@ pub extern "ntdll" fn NtQueryObject(
     ObjectInformation: PVOID,
     ObjectInformationLength: ULONG,
     ReturnLength: ?*ULONG,
+) callconv(WINAPI) NTSTATUS;
+
+pub extern "ntdll" fn NtQueryVolumeInformationFile(
+    FileHandle: HANDLE,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+    FsInformation: *anyopaque,
+    Length: ULONG,
+    FsInformationClass: FS_INFORMATION_CLASS,
 ) callconv(WINAPI) NTSTATUS;
 
 pub extern "ntdll" fn RtlWakeAddressAll(
