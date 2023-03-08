@@ -555,7 +555,9 @@ fn runCommand(
     try Step.handleVerbose(step.owner, self.cwd, argv);
 
     const result = spawnChildAndCollect(self, argv, has_side_effects) catch |err| term: {
-        if (err == error.InvalidExe) interpret: {
+        // InvalidExe: cpu arch mismatch
+        // FileNotFound: can happen with a wrong dynamic linker path
+        if (err == error.InvalidExe or err == error.FileNotFound) interpret: {
             // TODO: learn the target from the binary directly rather than from
             // relying on it being a CompileStep. This will make this logic
             // work even for the edge case that the binary was produced by a
