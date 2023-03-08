@@ -1511,6 +1511,34 @@ fn parseInternal(
             }
         },
         .Struct => |structInfo| {
+            if (structInfo.is_tuple) {
+                switch (token) {
+                    .ArrayBegin => {},
+                    else => return error.UnexpectedToken,
+                }
+                var r: T = undefined;
+                var child_options = options;
+                child_options.allow_trailing_data = true;
+                var fields_seen: usize = 0;
+                errdefer {
+                    inline for (0..structInfo.fields.len) |i| {
+                        if (i < fields_seen) {
+                            parseFree(structInfo.fields[i].type, r[i], options);
+                        }
+                    }
+                }
+                inline for (0..structInfo.fields.len) |i| {
+                    r[i] = try parse(structInfo.fields[i].type, tokens, child_options);
+                    fields_seen = i + 1;
+                }
+                const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
+                switch (tok) {
+                    .ArrayEnd => {},
+                    else => return error.UnexpectedToken,
+                }
+                return r;
+            }
+
             switch (token) {
                 .ObjectBegin => {},
                 else => return error.UnexpectedToken,
@@ -2290,7 +2318,7 @@ pub fn stringify(
                 return value.jsonStringify(options, out_stream);
             }
 
-            try out_stream.writeByte('{');
+            try out_stream.writeByte(if (S.is_tuple) '[' else '{');
             var field_output = false;
             var child_options = options;
             if (child_options.whitespace) |*child_whitespace| {
@@ -2320,11 +2348,13 @@ pub fn stringify(
                     if (child_options.whitespace) |child_whitespace| {
                         try child_whitespace.outputIndent(out_stream);
                     }
-                    try encodeJsonString(Field.name, options, out_stream);
-                    try out_stream.writeByte(':');
-                    if (child_options.whitespace) |child_whitespace| {
-                        if (child_whitespace.separator) {
-                            try out_stream.writeByte(' ');
+                    if (!S.is_tuple) {
+                        try encodeJsonString(Field.name, options, out_stream);
+                        try out_stream.writeByte(':');
+                        if (child_options.whitespace) |child_whitespace| {
+                            if (child_whitespace.separator) {
+                                try out_stream.writeByte(' ');
+                            }
                         }
                     }
                     try stringify(@field(value, Field.name), child_options, out_stream);
@@ -2335,7 +2365,7 @@ pub fn stringify(
                     try whitespace.outputIndent(out_stream);
                 }
             }
-            try out_stream.writeByte('}');
+            try out_stream.writeByte(if (S.is_tuple) ']' else '}');
             return;
         },
         .ErrorSet => return stringify(@as([]const u8, @errorName(value)), options, out_stream),
@@ -2647,6 +2677,10 @@ test "stringify struct with custom stringifier" {
 
 test "stringify vector" {
     try teststringify("[1,1]", @splat(2, @as(u32, 1)), StringifyOptions{});
+}
+
+test "stringify tuple" {
+    try teststringify("[\"foo\",42]", std.meta.Tuple(&.{ []const u8, usize }){ "foo", 42 }, StringifyOptions{});
 }
 
 fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions) !void {
