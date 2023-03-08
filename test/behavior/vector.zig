@@ -175,6 +175,25 @@ test "array to vector" {
     comptime try S.doTheTest();
 }
 
+test "peer type resolution with coercible element types" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var b: @Vector(2, u8) = .{ 1, 2 };
+            var a: @Vector(2, u16) = .{ 2, 1 };
+            var t: bool = true;
+            var c = if (t) a else b;
+            try std.testing.expect(@TypeOf(c) == @Vector(2, u16));
+        }
+    };
+    comptime try S.doTheTest();
+}
+
 test "tuple to vector" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO

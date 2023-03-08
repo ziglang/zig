@@ -29875,6 +29875,31 @@ fn resolvePeerTypes(
                 continue;
             },
             .Vector => switch (chosen_ty_tag) {
+                .Vector => {
+                    const chosen_len = chosen_ty.vectorLen();
+                    const candidate_len = candidate_ty.vectorLen();
+                    if (chosen_len != candidate_len)
+                        continue;
+
+                    const chosen_child_ty = chosen_ty.childType();
+                    const candidate_child_ty = candidate_ty.childType();
+                    if (chosen_child_ty.zigTypeTag() == .Int and candidate_child_ty.zigTypeTag() == .Int) {
+                        const chosen_info = chosen_child_ty.intInfo(target);
+                        const candidate_info = candidate_child_ty.intInfo(target);
+                        if (chosen_info.bits < candidate_info.bits) {
+                            chosen = candidate;
+                            chosen_i = candidate_i + 1;
+                        }
+                        continue;
+                    }
+                    if (chosen_child_ty.zigTypeTag() == .Float and candidate_child_ty.zigTypeTag() == .Float) {
+                        if (chosen_ty.floatBits(target) < candidate_ty.floatBits(target)) {
+                            chosen = candidate;
+                            chosen_i = candidate_i + 1;
+                        }
+                        continue;
+                    }
+                },
                 .Array => {
                     chosen = candidate;
                     chosen_i = candidate_i + 1;
