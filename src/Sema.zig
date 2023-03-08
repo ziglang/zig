@@ -2538,6 +2538,20 @@ fn coerceResultPtr(
         const trash_inst = trash_block.instructions.pop();
 
         switch (air_tags[trash_inst]) {
+            // Array coerced to Vector where element size is not equal but coercible.
+            .aggregate_init => {
+                const ty_pl = air_datas[trash_inst].ty_pl;
+                const ptr_operand_ty = try Type.ptr(sema.arena, sema.mod, .{
+                    .pointee_type = try sema.analyzeAsType(block, src, ty_pl.ty),
+                    .@"addrspace" = addr_space,
+                });
+
+                if (try sema.resolveDefinedValue(block, src, new_ptr)) |ptr_val| {
+                    return sema.addConstant(ptr_operand_ty, ptr_val);
+                } else {
+                    return sema.bitCast(block, ptr_operand_ty, new_ptr, src, null);
+                }
+            },
             .bitcast => {
                 const ty_op = air_datas[trash_inst].ty_op;
                 const operand_ty = sema.typeOf(ty_op.operand);
