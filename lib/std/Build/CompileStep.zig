@@ -46,9 +46,9 @@ strip: ?bool,
 unwind_tables: ?bool,
 // keep in sync with src/link.zig:CompressDebugSections
 compress_debug_sections: enum { none, zlib } = .none,
-lib_paths: ArrayList([]const u8),
-rpaths: ArrayList([]const u8),
-framework_dirs: ArrayList([]const u8),
+lib_paths: ArrayList(FileSource),
+rpaths: ArrayList(FileSource),
+framework_dirs: ArrayList(FileSource),
 frameworks: StringHashMap(FrameworkLinkInfo),
 verbose_link: bool,
 verbose_cc: bool,
@@ -211,6 +211,7 @@ output_path_source: GeneratedFile,
 output_lib_path_source: GeneratedFile,
 output_h_path_source: GeneratedFile,
 output_pdb_path_source: GeneratedFile,
+output_dirname_source: GeneratedFile,
 
 pub const CSourceFiles = struct {
     files: []const []const u8,
@@ -359,9 +360,9 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         .include_dirs = ArrayList(IncludeDir).init(owner.allocator),
         .link_objects = ArrayList(LinkObject).init(owner.allocator),
         .c_macros = ArrayList([]const u8).init(owner.allocator),
-        .lib_paths = ArrayList([]const u8).init(owner.allocator),
-        .rpaths = ArrayList([]const u8).init(owner.allocator),
-        .framework_dirs = ArrayList([]const u8).init(owner.allocator),
+        .lib_paths = ArrayList(FileSource).init(owner.allocator),
+        .rpaths = ArrayList(FileSource).init(owner.allocator),
+        .framework_dirs = ArrayList(FileSource).init(owner.allocator),
         .installed_headers = ArrayList(*Step).init(owner.allocator),
         .object_src = undefined,
         .c_std = std.Build.CStd.C99,
@@ -384,6 +385,7 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         .output_lib_path_source = GeneratedFile{ .step = &self.step },
         .output_h_path_source = GeneratedFile{ .step = &self.step },
         .output_pdb_path_source = GeneratedFile{ .step = &self.step },
+        .output_dirname_source = GeneratedFile{ .step = &self.step },
 
         .target_info = NativeTargetInfo.detect(self.target) catch @panic("unhandled error"),
     };
@@ -914,13 +916,17 @@ pub fn setLibCFile(self: *CompileStep, libc_file: ?FileSource) void {
 /// Returns the generated executable, library or object file.
 /// To run an executable built with zig build, use `run`, or create an install step and invoke it.
 pub fn getOutputSource(self: *CompileStep) FileSource {
-    return FileSource{ .generated = &self.output_path_source };
+    return .{ .generated = &self.output_path_source };
+}
+
+pub fn getOutputDirectorySource(self: *CompileStep) FileSource {
+    return .{ .generated = &self.output_dirname_source };
 }
 
 /// Returns the generated import library. This function can only be called for libraries.
 pub fn getOutputLibSource(self: *CompileStep) FileSource {
     assert(self.kind == .lib);
-    return FileSource{ .generated = &self.output_lib_path_source };
+    return .{ .generated = &self.output_lib_path_source };
 }
 
 /// Returns the generated header file.
@@ -928,14 +934,14 @@ pub fn getOutputLibSource(self: *CompileStep) FileSource {
 pub fn getOutputHSource(self: *CompileStep) FileSource {
     assert(self.kind != .exe and self.kind != .test_exe and self.kind != .@"test");
     assert(self.emit_h);
-    return FileSource{ .generated = &self.output_h_path_source };
+    return .{ .generated = &self.output_h_path_source };
 }
 
 /// Returns the generated PDB file. This function can only be called for Windows and UEFI.
 pub fn getOutputPdbSource(self: *CompileStep) FileSource {
     // TODO: Is this right? Isn't PDB for *any* PE/COFF file?
     assert(self.target.isWindows() or self.target.isUefi());
-    return FileSource{ .generated = &self.output_pdb_path_source };
+    return .{ .generated = &self.output_pdb_path_source };
 }
 
 pub fn addAssemblyFile(self: *CompileStep, path: []const u8) void {
@@ -989,17 +995,32 @@ pub fn addConfigHeader(self: *CompileStep, config_header: *ConfigHeaderStep) voi
 
 pub fn addLibraryPath(self: *CompileStep, path: []const u8) void {
     const b = self.step.owner;
-    self.lib_paths.append(b.dupe(path)) catch @panic("OOM");
+    self.lib_paths.append(.{ .path = b.dupe(path) }) catch @panic("OOM");
+}
+
+pub fn addLibraryPathDirectorySource(self: *CompileStep, directory_source: FileSource) void {
+    self.lib_paths.append(directory_source) catch @panic("OOM");
+    directory_source.addStepDependencies(&self.step);
 }
 
 pub fn addRPath(self: *CompileStep, path: []const u8) void {
     const b = self.step.owner;
-    self.rpaths.append(b.dupe(path)) catch @panic("OOM");
+    self.rpaths.append(.{ .path = b.dupe(path) }) catch @panic("OOM");
+}
+
+pub fn addRPathDirectorySource(self: *CompileStep, directory_source: FileSource) void {
+    self.rpaths.append(directory_source) catch @panic("OOM");
+    directory_source.addStepDependencies(&self.step);
 }
 
 pub fn addFrameworkPath(self: *CompileStep, dir_path: []const u8) void {
     const b = self.step.owner;
-    self.framework_dirs.append(b.dupe(dir_path)) catch @panic("OOM");
+    self.framework_dirs.append(.{ .path = b.dupe(dir_path) }) catch @panic("OOM");
+}
+
+pub fn addFrameworkPathDirectorySource(self: *CompileStep, directory_source: FileSource) void {
+    self.framework_dirs.append(directory_source) catch @panic("OOM");
+    directory_source.addStepDependencies(&self.step);
 }
 
 /// Adds a module to be used with `@import` and exposing it in the current
@@ -1065,7 +1086,7 @@ pub fn addVcpkgPaths(self: *CompileStep, linkage: CompileStep.Linkage) !void {
             try self.include_dirs.append(IncludeDir{ .raw_path = include_path });
 
             const lib_path = b.pathJoin(&.{ root, "installed", triplet, "lib" });
-            try self.lib_paths.append(lib_path);
+            try self.lib_paths.append(.{ .path = lib_path });
 
             self.vcpkg_bin_path = b.pathJoin(&.{ root, "installed", triplet, "bin" });
         },
@@ -1768,30 +1789,32 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 
-    for (self.lib_paths.items) |lib_path| {
-        try zig_args.append("-L");
-        try zig_args.append(lib_path);
-    }
-
-    for (self.rpaths.items) |rpath| {
-        try zig_args.append("-rpath");
-        try zig_args.append(rpath);
-    }
-
     for (self.c_macros.items) |c_macro| {
         try zig_args.append("-D");
         try zig_args.append(c_macro);
     }
 
-    for (self.framework_dirs.items) |dir| {
+    try zig_args.ensureUnusedCapacity(2 * self.lib_paths.items.len);
+    for (self.lib_paths.items) |lib_path| {
+        zig_args.appendAssumeCapacity("-L");
+        zig_args.appendAssumeCapacity(lib_path.getPath2(b, step));
+    }
+
+    try zig_args.ensureUnusedCapacity(2 * self.rpaths.items.len);
+    for (self.rpaths.items) |rpath| {
+        zig_args.appendAssumeCapacity("-rpath");
+        zig_args.appendAssumeCapacity(rpath.getPath2(b, step));
+    }
+
+    for (self.framework_dirs.items) |directory_source| {
         if (b.sysroot != null) {
             try zig_args.append("-iframeworkwithsysroot");
         } else {
             try zig_args.append("-iframework");
         }
-        try zig_args.append(dir);
+        try zig_args.append(directory_source.getPath2(b, step));
         try zig_args.append("-F");
-        try zig_args.append(dir);
+        try zig_args.append(directory_source.getPath2(b, step));
     }
 
     {
@@ -1954,6 +1977,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     // Update generated files
     if (self.output_dir != null) {
+        self.output_dirname_source.path = self.output_dir.?;
+
         self.output_path_source.path = b.pathJoin(
             &.{ self.output_dir.?, self.out_filename },
         );
