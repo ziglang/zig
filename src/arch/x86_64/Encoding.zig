@@ -453,13 +453,26 @@ pub const Op = enum {
     pub fn bitSize(op: Op) u64 {
         return switch (op) {
             .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
-            .unity, .imm8, .imm8s, .al, .cl, .r8, .m8, .rm8, .rel8 => 8,
+            .unity => 1,
+            .imm8, .imm8s, .al, .cl, .r8, .m8, .rm8, .rel8 => 8,
             .imm16, .imm16s, .ax, .r16, .m16, .rm16, .rel16 => 16,
             .imm32, .imm32s, .eax, .r32, .m32, .rm32, .rel32, .xmm_m32 => 32,
             .imm64, .rax, .r64, .m64, .rm64, .xmm_m64 => 64,
             .m80 => 80,
             .xmm => 128,
         };
+    }
+
+    pub fn isSigned(op: Op) bool {
+        return switch (op) {
+            .unity, .imm8, .imm16, .imm32, .imm64 => false,
+            .imm8s, .imm16s, .imm32s => true,
+            else => unreachable,
+        };
+    }
+
+    pub fn isUnsigned(op: Op) bool {
+        return !op.isSigned();
     }
 
     pub fn isRegister(op: Op) bool {
@@ -516,8 +529,7 @@ pub const Op = enum {
         };
     }
 
-    /// Given an operand `op` checks if `target` is a subset for the purposes
-    /// of the encoding.
+    /// Given an operand `op` checks if `target` is a subset for the purposes of the encoding.
     pub fn isSubset(op: Op, target: Op, mode: Mode) bool {
         switch (op) {
             .m, .o16, .o32, .o64 => unreachable,
@@ -544,36 +556,19 @@ pub const Op = enum {
                 }
                 if (op.isImmediate() and target.isImmediate()) {
                     switch (target) {
-                        .imm64 => switch (op) {
-                            .unity, .imm8s, .imm8, .imm16s, .imm16, .imm32s, .imm32, .imm64 => return true,
-                            else => return op == target,
-                        },
-                        .imm32s, .rel32 => switch (op) {
-                            .unity, .imm8s, .imm8, .imm16s, .imm16, .imm32s => return true,
-                            else => return op == target,
-                        },
-                        .imm32 => switch (op) {
-                            .unity, .imm8, .imm8s, .imm16, .imm16s, .imm32, .imm32s => return true,
-                            else => return op == target,
-                        },
-                        .imm16s, .rel16 => switch (op) {
-                            .unity, .imm8s, .imm8, .imm16s => return true,
-                            else => return op == target,
-                        },
-                        .imm16 => switch (op) {
-                            .unity, .imm8, .imm8s, .imm16, .imm16s => return true,
-                            else => return op == target,
-                        },
-                        .imm8s, .rel8 => switch (op) {
-                            .unity, .imm8s => return true,
-                            else => return op == target,
-                        },
-                        .imm8 => switch (op) {
-                            .unity, .imm8, .imm8s => return true,
-                            else => return op == target,
-                        },
-                        else => return op == target,
+                        .imm64 => if (op.bitSize() <= 64) return true,
+                        .imm32s, .rel32 => if (op.bitSize() < 32 or (op.bitSize() == 32 and op.isSigned()))
+                            return true,
+                        .imm32 => if (op.bitSize() <= 32) return true,
+                        .imm16s, .rel16 => if (op.bitSize() < 16 or (op.bitSize() == 16 and op.isSigned()))
+                            return true,
+                        .imm16 => if (op.bitSize() <= 16) return true,
+                        .imm8s, .rel8 => if (op.bitSize() < 8 or (op.bitSize() == 8 and op.isSigned()))
+                            return true,
+                        .imm8 => if (op.bitSize() <= 8) return true,
+                        else => {},
                     }
+                    return op == target;
                 }
                 return false;
             },
