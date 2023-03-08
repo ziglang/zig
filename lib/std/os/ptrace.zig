@@ -25,21 +25,4 @@ const ptrace = if (builtin.target.isDarwin()) struct {
             else => |err| return unexpectedErrno(err),
         }
     }
-} else if (builtin.target.os.tag == .linux) struct {
-    pub const PtraceError = error{
-        ProcessNotFound,
-        PermissionDenied,
-        InputOutput,
-    } || UnexpectedError;
-
-    pub fn ptrace(request: i32, pid: pid_t, addr: ?[*]u8, data: usize) PtraceError!void {
-        switch (errno(system.ptrace(request, pid, addr, data))) {
-            .SUCCESS => return,
-            .SRCH => return error.ProcessNotFound,
-            .INVAL, .FAULT, .BUSY => unreachable,
-            .PERM => return error.PermissionDenied,
-            .IO => return error.InputOutput,
-            else => |err| return unexpectedErrno(err),
-        }
-    }
 } else struct {};
