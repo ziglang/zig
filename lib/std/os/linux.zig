@@ -1820,6 +1820,16 @@ pub fn seccomp(operation: u32, flags: u32, args: ?*const anyopaque) usize {
     return syscall3(.seccomp, operation, flags, @ptrToInt(args));
 }
 
+pub fn ptrace(request: i32, pid: pid_t, addr: ?[*]u8, data: usize) usize {
+    return syscall4(
+        .ptrace,
+        @bitCast(usize, @as(isize, request)),
+        @bitCast(usize, @as(isize, pid)),
+        @ptrToInt(addr),
+        data,
+    );
+}
+
 pub const E = switch (native_arch) {
     .mips, .mipsel => @import("linux/errno/mips.zig").E,
     .sparc, .sparcel, .sparc64 => @import("linux/errno/sparc.zig").E,
@@ -1941,6 +1951,59 @@ pub const PROT = struct {
     pub const GROWSDOWN = 0x01000000;
     /// mprotect flag: extend change to end of growsup vma
     pub const GROWSUP = 0x02000000;
+};
+
+pub const PTRACE = struct {
+    pub const TRACEME = 0;
+    pub const PEEKTEXT = 1;
+    pub const PEEKDATA = 2;
+    pub const PEEKUSER = 3;
+    pub const POKETEXT = 4;
+    pub const POKEDATA = 5;
+    pub const POKEUSER = 6;
+    pub const CONT = 7;
+    pub const KILL = 8;
+    pub const SINGLESTEP = 9;
+    pub const GETREGS = 12;
+    pub const SETREGS = 13;
+    pub const GETFPREGS = 14;
+    pub const SETFPREGS = 15;
+    pub const ATTACH = 16;
+    pub const DETACH = 17;
+    pub const GETFPXREGS = 18;
+    pub const SETFPXREGS = 19;
+    pub const SYSCALL = 24;
+
+    pub const SETOPTIONS = 0x4200;
+    pub const GETEVENTMSG = 0x4201;
+    pub const GETSIGINFO = 0x4202;
+    pub const SETSIGINFO = 0x4203;
+    pub const GETREGSET = 0x4204;
+    pub const SETREGSET = 0x4205;
+    pub const SEIZE = 0x4206;
+    pub const INTERRUPT = 0x4207;
+    pub const LISTEN = 0x4208;
+    pub const PEEKSIGINFO = 0x4209;
+    pub const GETSIGMASK = 0x420a;
+    pub const SETSIGMASK = 0x420b;
+    pub const SECCOMP_GET_FILTER = 0x420c;
+    pub const SECCOMP_GET_METADATA = 0x420d;
+    pub const GET_SYSCALL_INFO = 0x420e;
+    pub const GET_RSEQ_CONFIGURATION = 0x420f;
+
+    pub const O = struct {
+        pub const TRACESYSGOOD = 0x00000001;
+        pub const TRACEFORK = 0x00000002;
+        pub const TRACEVFORK = 0x00000004;
+        pub const TRACECLONE = 0x00000008;
+        pub const TRACEEXEC = 0x00000010;
+        pub const TRACEVFORKDONE = 0x00000020;
+        pub const TRACEEXIT = 0x00000040;
+        pub const TRACESECCOMP = 0x00000080;
+        pub const EXITKILL = 0x00100000;
+        pub const SUSPEND_SECCOMP = 0x00200000;
+        pub const MASK = 0x003000ff;
+    };
 };
 
 pub const FD_CLOEXEC = 1;
