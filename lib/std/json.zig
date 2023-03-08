@@ -1534,30 +1534,25 @@ fn parseInternal(
                         child_options.allow_trailing_data = true;
                         var found = false;
                         inline for (structInfo.fields, 0..) |field, i| {
-                            // TODO: using switches here segfault the compiler (#2727?)
-                            if ((stringToken.escapes == .None and mem.eql(u8, field.name, key_source_slice)) or (stringToken.escapes == .Some and (field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)))) {
-                                // if (switch (stringToken.escapes) {
-                                //     .None => mem.eql(u8, field.name, key_source_slice),
-                                //     .Some => (field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)),
-                                // }) {
+                            if (switch (stringToken.escapes) {
+                                .None => mem.eql(u8, field.name, key_source_slice),
+                                .Some => (field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)),
+                            }) {
                                 if (fields_seen[i]) {
-                                    // switch (options.duplicate_field_behavior) {
-                                    //     .UseFirst => {},
-                                    //     .Error => {},
-                                    //     .UseLast => {},
-                                    // }
-                                    if (options.duplicate_field_behavior == .UseFirst) {
-                                        // unconditonally ignore value. for comptime fields, this skips check against default_value
-                                        parseFree(field.type, try parse(field.type, tokens, child_options), child_options);
-                                        found = true;
-                                        break;
-                                    } else if (options.duplicate_field_behavior == .Error) {
-                                        return error.DuplicateJSONField;
-                                    } else if (options.duplicate_field_behavior == .UseLast) {
-                                        if (!field.is_comptime) {
-                                            parseFree(field.type, @field(r, field.name), child_options);
-                                        }
-                                        fields_seen[i] = false;
+                                    switch (options.duplicate_field_behavior) {
+                                        .UseFirst => {
+                                            // unconditonally ignore value. for comptime fields, this skips check against default_value
+                                            parseFree(field.type, try parse(field.type, tokens, child_options), child_options);
+                                            found = true;
+                                            break;
+                                        },
+                                        .Error => return error.DuplicateJSONField,
+                                        .UseLast => {
+                                            if (!field.is_comptime) {
+                                                parseFree(field.type, @field(r, field.name), child_options);
+                                            }
+                                            fields_seen[i] = false;
+                                        },
                                     }
                                 }
                                 if (field.is_comptime) {
