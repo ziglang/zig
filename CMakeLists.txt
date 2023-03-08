@@ -827,6 +827,12 @@ else()
   set(ZIG_STATIC_ARG "")
 endif()
 
+if(CMAKE_POSITION_INDEPENDENT_CODE)
+  set(ZIG_PIE_ARG="-Dpie")
+else()
+  set(ZIG_PIE_ARG="")
+endif()
+
 set(ZIG_BUILD_ARGS
   --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
   "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
@@ -835,6 +841,7 @@ set(ZIG_BUILD_ARGS
   ${ZIG_STATIC_ARG}
   ${ZIG_NO_LIB_ARG}
   ${ZIG_SINGLE_THREADED_ARG}
+  ${ZIG_PIE_ARG}
   "-Dtarget=${ZIG_TARGET_TRIPLE}"
   "-Dcpu=${ZIG_TARGET_MCPU}"
   "-Dversion-string=${RESOLVED_ZIG_VERSION}"
