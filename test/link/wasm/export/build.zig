@@ -1,8 +1,18 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{});
+pub const requires_stage2 = true;
 
+pub fn build(b: *std.Build) void {
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    add(b, test_step, .Debug);
+    add(b, test_step, .ReleaseFast);
+    add(b, test_step, .ReleaseSmall);
+    add(b, test_step, .ReleaseSafe);
+}
+
+fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const no_export = b.addSharedLibrary(.{
         .name = "no-export",
         .root_source_file = .{ .path = "main.zig" },
@@ -50,7 +60,6 @@ pub fn build(b: *std.Build) void {
     check_force_export.checkNext("name foo");
     check_force_export.checkNext("kind function");
 
-    const test_step = b.step("test", "Run linker test");
     test_step.dependOn(&check_no_export.step);
     test_step.dependOn(&check_dynamic_export.step);
     test_step.dependOn(&check_force_export.step);

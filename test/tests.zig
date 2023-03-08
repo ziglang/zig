@@ -599,18 +599,21 @@ pub fn addLinkTests(
     _ = test_filter;
     _ = optimize_modes;
     _ = enable_macos_sdk;
-    _ = omit_stage2;
     _ = enable_symlinks_windows;
 
     const step = b.step("test-link", "Run the linker tests");
 
     inline for (link.cases) |link_test| {
-        const dep = b.anonymousDependency(link_test.build_root, link_test.import, .{});
-        const dep_step = dep.builder.default_step;
-        assert(mem.startsWith(u8, dep.builder.dep_prefix, "test."));
-        const dep_prefix_adjusted = dep.builder.dep_prefix["test.".len..];
-        dep_step.name = b.fmt("{s}{s}", .{ dep_prefix_adjusted, dep_step.name });
-        step.dependOn(dep_step);
+        const requires_stage2 = @hasDecl(link_test.import, "requires_stage2") and
+            link_test.import.requires_stage2;
+        if (!requires_stage2 or !omit_stage2) {
+            const dep = b.anonymousDependency(link_test.build_root, link_test.import, .{});
+            const dep_step = dep.builder.default_step;
+            assert(mem.startsWith(u8, dep.builder.dep_prefix, "test."));
+            const dep_prefix_adjusted = dep.builder.dep_prefix["test.".len..];
+            dep_step.name = b.fmt("{s}{s}", .{ dep_prefix_adjusted, dep_step.name });
+            step.dependOn(dep_step);
+        }
     }
 
     return step;
