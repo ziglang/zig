@@ -60,7 +60,6 @@ stage3-release/bin/zig build -Dtarget=arm-linux-musleabihf
 # TODO: add -fqemu back to this line
 
 stage3-release/bin/zig build test docs \
-  -j1 \
   -fwasmtime \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \

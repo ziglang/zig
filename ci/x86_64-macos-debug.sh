@@ -48,7 +48,6 @@ cmake .. \
 make $JOBS install
 
 stage3/bin/zig build test docs \
-  -j1 \
   --zig-lib-dir "$(pwd)/../lib" \
   -Denable-macos-sdk \
   -Dstatic-llvm \

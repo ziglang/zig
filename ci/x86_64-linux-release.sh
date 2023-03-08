@@ -59,7 +59,6 @@ stage3-release/bin/zig fmt --check .. \
 stage3-release/bin/zig build -Dtarget=arm-linux-musleabihf
 
 stage3-release/bin/zig build test docs \
-  -j1 \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \

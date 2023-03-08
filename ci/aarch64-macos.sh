@@ -44,7 +44,6 @@ PATH="$HOME/local/bin:$PATH" cmake .. \
 $HOME/local/bin/ninja install
 
 stage3-release/bin/zig build test docs \
-  -j1 \
   --zig-lib-dir "$(pwd)/../lib" \
   -Denable-macos-sdk \
   -Dstatic-llvm \
