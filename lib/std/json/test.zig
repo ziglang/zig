@@ -2459,6 +2459,56 @@ test "parse into struct ignoring unknown fields" {
     try testing.expectEqualSlices(u8, "zig", r.language);
 }
 
+test "parse into tuple" {
+    const options = ParseOptions{ .allocator = testing.allocator };
+    const Union = union(enum) {
+        char: u8,
+        float: f64,
+        string: []const u8,
+    };
+    const T = std.meta.Tuple(&.{
+        i64,
+        f64,
+        bool,
+        []const u8,
+        ?bool,
+        struct {
+            foo: i32,
+            bar: []const u8,
+        },
+        std.meta.Tuple(&.{ u8, []const u8, u8 }),
+        Union,
+    });
+    var ts = TokenStream.init(
+        \\[
+        \\  420,
+        \\  3.14,
+        \\  true,
+        \\  "zig",
+        \\  null,
+        \\  {
+        \\    "foo": 1,
+        \\    "bar": "zero"
+        \\  },
+        \\  [4, "två", 42],
+        \\  12.34
+        \\]
+    );
+    const r = try parse(T, &ts, options);
+    defer parseFree(T, r, options);
+    try testing.expectEqual(@as(i64, 420), r[0]);
+    try testing.expectEqual(@as(f64, 3.14), r[1]);
+    try testing.expectEqual(true, r[2]);
+    try testing.expectEqualSlices(u8, "zig", r[3]);
+    try testing.expectEqual(@as(?bool, null), r[4]);
+    try testing.expectEqual(@as(i32, 1), r[5].foo);
+    try testing.expectEqualSlices(u8, "zero", r[5].bar);
+    try testing.expectEqual(@as(u8, 4), r[6][0]);
+    try testing.expectEqualSlices(u8, "två", r[6][1]);
+    try testing.expectEqual(@as(u8, 42), r[6][2]);
+    try testing.expectEqual(Union{ .float = 12.34 }, r[7]);
+}
+
 const ParseIntoRecursiveUnionDefinitionValue = union(enum) {
     integer: i64,
     array: []const ParseIntoRecursiveUnionDefinitionValue,
