@@ -200,7 +200,7 @@ const CompressGeneric = struct {
     }
 };
 
-const compress = if (builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_c)
+const compress = if (builtin.cpu.arch == .x86_64)
     CompressVectorized.compress
 else
     CompressGeneric.compress;
