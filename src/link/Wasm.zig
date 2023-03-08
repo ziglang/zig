@@ -2635,6 +2635,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         try man.addOptionalFile(compiler_rt_path);
         man.hash.addOptionalBytes(options.entry);
         man.hash.addOptional(options.stack_size_override);
+        man.hash.add(wasm.base.options.build_id);
         man.hash.add(options.import_memory);
         man.hash.add(options.import_table);
         man.hash.add(options.export_table);
@@ -3225,6 +3226,12 @@ fn writeToFile(
     }
 
     if (!wasm.base.options.strip) {
+        // The build id must be computed on the main sections only,
+        // so we have to do it now, before the debug sections.
+        if (wasm.base.options.build_id) {
+            try emitBuildIdSection(&binary_bytes);
+        }
+
         // if (wasm.dwarf) |*dwarf| {
         //     const mod = wasm.base.options.module.?;
         //     try dwarf.writeDbgAbbrev();
@@ -3355,6 +3362,33 @@ fn emitProducerSection(binary_bytes: *std.ArrayList(u8)) !void {
             try writer.writeAll(version);
         }
     }
+
+    try writeCustomSectionHeader(
+        binary_bytes.items,
+        header_offset,
+        @intCast(u32, binary_bytes.items.len - header_offset - 6),
+    );
+}
+
+fn emitBuildIdSection(binary_bytes: *std.ArrayList(u8)) !void {
+    const header_offset = try reserveCustomSectionHeader(binary_bytes);
+
+    const writer = binary_bytes.writer();
+    const build_id = "build_id";
+    try leb.writeULEB128(writer, @intCast(u32, build_id.len));
+    try writer.writeAll(build_id);
+
+    var id: [16]u8 = undefined;
+    std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
+    var uuid: [36]u8 = undefined;
+    _ = try std.fmt.bufPrint(&uuid, "{s}-{s}-{s}-{s}-{s}", .{
+        std.fmt.fmtSliceHexLower(id[0..4]),  std.fmt.fmtSliceHexLower(id[4..6]), std.fmt.fmtSliceHexLower(id[6..8]),
+        std.fmt.fmtSliceHexLower(id[8..10]), std.fmt.fmtSliceHexLower(id[10..]),
+    });
+
+    try leb.writeULEB128(writer, @as(u32, 1));
+    try leb.writeULEB128(writer, @as(u32, uuid.len));
+    try writer.writeAll(&uuid);
 
     try writeCustomSectionHeader(
         binary_bytes.items,
@@ -3594,6 +3628,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         try man.addOptionalFile(compiler_rt_path);
         man.hash.addOptionalBytes(wasm.base.options.entry);
         man.hash.addOptional(wasm.base.options.stack_size_override);
+        man.hash.add(wasm.base.options.build_id);
         man.hash.add(wasm.base.options.import_memory);
         man.hash.add(wasm.base.options.import_table);
         man.hash.add(wasm.base.options.export_table);
@@ -3760,6 +3795,12 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         if (wasm.base.options.import_symbols) {
             try argv.append("--allow-undefined");
         }
+
+        // XXX - TODO: add when wasm-ld supports --build-id.
+        // if (wasm.base.options.build_id) {
+        //     try argv.append("--build-id=tree");
+        // }
+
         try argv.appendSlice(&.{ "-o", full_out_path });
 
         if (target.cpu.arch == .wasm64) {
