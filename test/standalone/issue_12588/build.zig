@@ -1,8 +1,11 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{});
-    const target = b.standardTargetOptions(.{});
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    const optimize: std.builtin.OptimizeMode = .Debug;
+    const target: std.zig.CrossTarget = .{};
 
     const obj = b.addObject(.{
         .name = "main",
@@ -15,6 +18,5 @@ pub fn build(b: *std.Build) void {
     obj.emit_bin = .no_emit;
     b.default_step.dependOn(&obj.step);
 
-    const test_step = b.step("test", "Test the program");
     test_step.dependOn(&obj.step);
 }

@@ -1,7 +1,11 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) !void {
-    const optimize = b.standardOptimizeOption(.{});
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    const optimize: std.builtin.OptimizeMode = .Debug;
+
     const zip_add = b.addTest(.{
         .root_source_file = .{ .path = "main.zig" },
         .optimize = optimize,
@@ -13,6 +17,5 @@ pub fn build(b: *std.Build) !void {
     zip_add.addIncludePath("vendor/kuba-zip");
     zip_add.linkLibC();
 
-    const test_step = b.step("test", "Test it");
     test_step.dependOn(&zip_add.step);
 }

@@ -560,34 +560,62 @@ pub fn addStackTraceTests(
 
 pub fn addStandaloneTests(
     b: *std.Build,
-    test_filter: ?[]const u8,
     optimize_modes: []const OptimizeMode,
-    skip_non_native: bool,
     enable_macos_sdk: bool,
     omit_stage2: bool,
     enable_symlinks_windows: bool,
 ) *Step {
     const step = b.step("test-standalone", "Run the standalone tests");
-
-    _ = test_filter;
-    _ = skip_non_native;
-    _ = enable_macos_sdk;
-    _ = omit_stage2;
-    _ = enable_symlinks_windows;
+    const omit_symlinks = builtin.os.tag == .windows and !enable_symlinks_windows;
 
     for (standalone.simple_cases) |case| {
         for (optimize_modes) |optimize| {
             if (!case.all_modes and optimize != .Debug) continue;
 
-            const exe = b.addExecutable(.{
-                .name = std.fs.path.stem(case.src_path),
-                .root_source_file = .{ .path = case.src_path },
-                .optimize = optimize,
-                .target = case.target,
-            });
-            if (case.link_libc) exe.linkLibC();
+            if (case.is_exe) {
+                const exe = b.addExecutable(.{
+                    .name = std.fs.path.stem(case.src_path),
+                    .root_source_file = .{ .path = case.src_path },
+                    .optimize = optimize,
+                    .target = case.target,
+                });
+                if (case.link_libc) exe.linkLibC();
 
-            step.dependOn(&exe.step);
+                step.dependOn(&exe.step);
+            }
+
+            if (case.is_test) {
+                const exe = b.addTest(.{
+                    .name = std.fs.path.stem(case.src_path),
+                    .root_source_file = .{ .path = case.src_path },
+                    .optimize = optimize,
+                    .target = case.target,
+                });
+                if (case.link_libc) exe.linkLibC();
+
+                step.dependOn(&exe.step);
+            }
+        }
+    }
+
+    inline for (standalone.build_cases) |case| {
+        const requires_stage2 = @hasDecl(case.import, "requires_stage2") and
+            case.import.requires_stage2;
+        const requires_symlinks = @hasDecl(case.import, "requires_symlinks") and
+            case.import.requires_symlinks;
+        const requires_macos_sdk = @hasDecl(case.import, "requires_macos_sdk") and
+            case.import.requires_macos_sdk;
+        const bad =
+            (requires_stage2 and omit_stage2) or
+            (requires_symlinks and omit_symlinks) or
+            (requires_macos_sdk and !enable_macos_sdk);
+        if (!bad) {
+            const dep = b.anonymousDependency(case.build_root, case.import, .{});
+            const dep_step = dep.builder.default_step;
+            assert(mem.startsWith(u8, dep.builder.dep_prefix, "test."));
+            const dep_prefix_adjusted = dep.builder.dep_prefix["test.".len..];
+            dep_step.name = b.fmt("{s}{s}", .{ dep_prefix_adjusted, dep_step.name });
+            step.dependOn(dep_step);
         }
     }
 
@@ -603,19 +631,19 @@ pub fn addLinkTests(
     const step = b.step("test-link", "Run the linker tests");
     const omit_symlinks = builtin.os.tag == .windows and !enable_symlinks_windows;
 
-    inline for (link.cases) |link_test| {
-        const requires_stage2 = @hasDecl(link_test.import, "requires_stage2") and
-            link_test.import.requires_stage2;
-        const requires_symlinks = @hasDecl(link_test.import, "requires_symlinks") and
-            link_test.import.requires_symlinks;
-        const requires_macos_sdk = @hasDecl(link_test.import, "requires_macos_sdk") and
-            link_test.import.requires_macos_sdk;
+    inline for (link.cases) |case| {
+        const requires_stage2 = @hasDecl(case.import, "requires_stage2") and
+            case.import.requires_stage2;
+        const requires_symlinks = @hasDecl(case.import, "requires_symlinks") and
+            case.import.requires_symlinks;
+        const requires_macos_sdk = @hasDecl(case.import, "requires_macos_sdk") and
+            case.import.requires_macos_sdk;
         const bad =
             (requires_stage2 and omit_stage2) or
             (requires_symlinks and omit_symlinks) or
             (requires_macos_sdk and !enable_macos_sdk);
         if (!bad) {
-            const dep = b.anonymousDependency(link_test.build_root, link_test.import, .{});
+            const dep = b.anonymousDependency(case.build_root, case.import, .{});
             const dep_step = dep.builder.default_step;
             assert(mem.startsWith(u8, dep.builder.dep_prefix, "test."));
             const dep_prefix_adjusted = dep.builder.dep_prefix["test.".len..];
@@ -627,9 +655,7 @@ pub fn addLinkTests(
     return step;
 }
 
-pub fn addCliTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *Step {
-    _ = test_filter;
-    _ = optimize_modes;
+pub fn addCliTests(b: *std.Build) *Step {
     const step = b.step("test-cli", "Test the command line interface");
 
     {
@@ -813,6 +839,19 @@ pub fn addCliTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []co
         cleanup.step.dependOn(&check4.step);
 
         step.dependOn(&cleanup.step);
+    }
+
+    {
+        // TODO this should move to become a CLI test rather than standalone
+        //    cases.addBuildFile("test/standalone/options/build.zig", .{
+        //        .extra_argv = &.{
+        //            "-Dbool_true",
+        //            "-Dbool_false=false",
+        //            "-Dint=1234",
+        //            "-De=two",
+        //            "-Dstring=hello",
+        //        },
+        //    });
     }
 
     return step;
