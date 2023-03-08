@@ -2350,10 +2350,13 @@ pub fn stringify(
                     return stringify(value.*, options, out_stream);
                 },
             },
-            // TODO: .Many when there is a sentinel (waiting for https://github.com/ziglang/zig/pull/3972)
-            .Slice => {
-                if (ptr_info.child == u8 and options.string == .String and std.unicode.utf8ValidateSlice(value)) {
-                    try encodeJsonString(value, options, out_stream);
+            .Many, .Slice => {
+                if (ptr_info.size == .Many and ptr_info.sentinel == null)
+                    @compileError("unable to stringify type '" ++ @typeName(T) ++ "' without sentinel");
+                const slice = if (ptr_info.size == .Many) mem.span(value) else value;
+
+                if (ptr_info.child == u8 and options.string == .String and std.unicode.utf8ValidateSlice(slice)) {
+                    try encodeJsonString(slice, options, out_stream);
                     return;
                 }
 
@@ -2362,7 +2365,7 @@ pub fn stringify(
                 if (child_options.whitespace) |*whitespace| {
                     whitespace.indent_level += 1;
                 }
-                for (value, 0..) |x, i| {
+                for (slice, 0..) |x, i| {
                     if (i != 0) {
                         try out_stream.writeByte(',');
                     }
@@ -2371,7 +2374,7 @@ pub fn stringify(
                     }
                     try stringify(x, child_options, out_stream);
                 }
-                if (value.len != 0) {
+                if (slice.len != 0) {
                     if (options.whitespace) |whitespace| {
                         try whitespace.outputIndent(out_stream);
                     }
@@ -2524,6 +2527,12 @@ test "stringify string" {
     try teststringify("\"with unicode\\udbff\\udfff\"", "with unicode\u{10FFFF}", StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
     try teststringify("\"/\"", "/", StringifyOptions{});
     try teststringify("\"\\/\"", "/", StringifyOptions{ .string = .{ .String = .{ .escape_solidus = true } } });
+}
+
+test "stringify many-item sentinel-terminated string" {
+    try teststringify("\"hello\"", @as([*:0]const u8, "hello"), StringifyOptions{});
+    try teststringify("\"with\\nescapes\\r\"", @as([*:0]const u8, "with\nescapes\r"), StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
+    try teststringify("\"with unicode\\u0001\"", @as([*:0]const u8, "with unicode\u{1}"), StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
 }
 
 test "stringify tagged unions" {
@@ -2712,7 +2721,7 @@ test "encodesTo" {
     try testing.expectEqual(true, encodesTo("withąunicode😂", "with\\u0105unicode\\ud83d\\ude02"));
 }
 
-test "issue 14600" {
+test "deserializing string with escape sequence into sentinel slice" {
     const json = "\"\\n\"";
     var token_stream = std.json.TokenStream.init(json);
     const options = ParseOptions{ .allocator = std.testing.allocator };
