@@ -1,12 +1,20 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+pub const requires_symlinks = true;
+pub const requires_macos_sdk = true;
+
 pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{});
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
 
-    const test_step = b.step("test", "Test");
-    test_step.dependOn(b.getInstallStep());
+    add(b, test_step, .Debug);
+    add(b, test_step, .ReleaseFast);
+    add(b, test_step, .ReleaseSmall);
+    add(b, test_step, .ReleaseSafe);
+}
 
+fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     {
         // Test -headerpad_max_install_names
         const exe = simpleExe(b, optimize);

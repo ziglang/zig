@@ -3,11 +3,14 @@ const CompileStep = std.Build.CompileStep;
 const FileSource = std.Build.FileSource;
 const Step = std.Build.Step;
 
+pub const requires_symlinks = true;
+
 pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test");
-    test_step.dependOn(b.getInstallStep());
+    b.default_step = test_step;
 
-    // We force cross-compilation to ensure we always pick a generic CPU with constant set of CPU features.
+    // We force cross-compilation to ensure we always pick a generic CPU with
+    // constant set of CPU features.
     const aarch64_macos = std.zig.CrossTarget{
         .cpu_arch = .aarch64,
         .os_tag = .macos,

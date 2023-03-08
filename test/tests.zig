@@ -590,23 +590,25 @@ pub fn addStandaloneTests(
 
 pub fn addLinkTests(
     b: *std.Build,
-    test_filter: ?[]const u8,
-    optimize_modes: []const OptimizeMode,
     enable_macos_sdk: bool,
     omit_stage2: bool,
     enable_symlinks_windows: bool,
 ) *Step {
-    _ = test_filter;
-    _ = optimize_modes;
-    _ = enable_macos_sdk;
-    _ = enable_symlinks_windows;
-
     const step = b.step("test-link", "Run the linker tests");
+    const omit_symlinks = builtin.os.tag == .windows and !enable_symlinks_windows;
 
     inline for (link.cases) |link_test| {
         const requires_stage2 = @hasDecl(link_test.import, "requires_stage2") and
             link_test.import.requires_stage2;
-        if (!requires_stage2 or !omit_stage2) {
+        const requires_symlinks = @hasDecl(link_test.import, "requires_symlinks") and
+            link_test.import.requires_symlinks;
+        const requires_macos_sdk = @hasDecl(link_test.import, "requires_macos_sdk") and
+            link_test.import.requires_macos_sdk;
+        const bad =
+            (requires_stage2 and omit_stage2) or
+            (requires_symlinks and omit_symlinks) or
+            (requires_macos_sdk and !enable_macos_sdk);
+        if (!bad) {
             const dep = b.anonymousDependency(link_test.build_root, link_test.import, .{});
             const dep_step = dep.builder.default_step;
             assert(mem.startsWith(u8, dep.builder.dep_prefix, "test."));

@@ -1,15 +1,17 @@
 const std = @import("std");
 
+pub const requires_symlinks = true;
+
 pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{});
+    const optimize: std.builtin.OptimizeMode = .Debug;
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     const test_step = b.step("test", "Test the program");
-    test_step.dependOn(b.getInstallStep());
+    b.default_step = test_step;
 
     {
         // Without -dead_strip, we expect `iAmUnused` symbol present
-        const exe = createScenario(b, optimize, target);
+        const exe = createScenario(b, optimize, target, "no-gc");
 
         const check = exe.checkObject(.macho);
         check.checkInSymtab();
@@ -22,7 +24,7 @@ pub fn build(b: *std.Build) void {
 
     {
         // With -dead_strip, no `iAmUnused` symbol should be present
-        const exe = createScenario(b, optimize, target);
+        const exe = createScenario(b, optimize, target, "yes-gc");
         exe.link_gc_sections = true;
 
         const check = exe.checkObject(.macho);
@@ -39,9 +41,10 @@ fn createScenario(
     b: *std.Build,
     optimize: std.builtin.OptimizeMode,
     target: std.zig.CrossTarget,
+    name: []const u8,
 ) *std.Build.CompileStep {
     const exe = b.addExecutable(.{
-        .name = "test",
+        .name = name,
         .optimize = optimize,
         .target = target,
     });

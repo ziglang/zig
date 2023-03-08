@@ -454,7 +454,7 @@ pub fn build(b: *std.Build) !void {
     //    enable_symlinks_windows,
     //));
     test_step.dependOn(tests.addCAbiTests(b, skip_non_native, skip_release));
-    test_step.dependOn(tests.addLinkTests(b, test_filter, optimization_modes, enable_macos_sdk, skip_stage2_tests, enable_symlinks_windows));
+    test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, skip_stage2_tests, enable_symlinks_windows));
     test_step.dependOn(tests.addStackTraceTests(b, test_filter, optimization_modes));
     test_step.dependOn(tests.addCliTests(b, test_filter, optimization_modes));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, optimization_modes));
