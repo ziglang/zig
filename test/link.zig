@@ -174,6 +174,3 @@ pub const cases = [_]Case{
         .import = @import("link/macho/weak_framework/build.zig"),
     },
 };
-
-const std = @import("std");
-const builtin = @import("builtin");

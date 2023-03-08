@@ -20,7 +20,6 @@ pub const TranslateCContext = @import("src/translate_c.zig").TranslateCContext;
 pub const RunTranslatedCContext = @import("src/run_translated_c.zig").RunTranslatedCContext;
 pub const CompareOutputContext = @import("src/CompareOutput.zig");
 pub const StackTracesContext = @import("src/StackTrace.zig");
-pub const StandaloneContext = @import("src/Standalone.zig");
 
 const TestTarget = struct {
     target: CrossTarget = @as(CrossTarget, .{}),
@@ -565,27 +564,34 @@ pub fn addStandaloneTests(
     optimize_modes: []const OptimizeMode,
     skip_non_native: bool,
     enable_macos_sdk: bool,
-    target: std.zig.CrossTarget,
     omit_stage2: bool,
     enable_symlinks_windows: bool,
 ) *Step {
-    const cases = b.allocator.create(StandaloneContext) catch @panic("OOM");
-    cases.* = .{
-        .b = b,
-        .step = b.step("test-standalone", "Run the standalone tests"),
-        .test_index = 0,
-        .test_filter = test_filter,
-        .optimize_modes = optimize_modes,
-        .skip_non_native = skip_non_native,
-        .enable_macos_sdk = enable_macos_sdk,
-        .target = target,
-        .omit_stage2 = omit_stage2,
-        .enable_symlinks_windows = enable_symlinks_windows,
-    };
+    const step = b.step("test-standalone", "Run the standalone tests");
 
-    standalone.addCases(cases);
+    _ = test_filter;
+    _ = skip_non_native;
+    _ = enable_macos_sdk;
+    _ = omit_stage2;
+    _ = enable_symlinks_windows;
 
-    return cases.step;
+    for (standalone.simple_cases) |case| {
+        for (optimize_modes) |optimize| {
+            if (!case.all_modes and optimize != .Debug) continue;
+
+            const exe = b.addExecutable(.{
+                .name = std.fs.path.stem(case.src_path),
+                .root_source_file = .{ .path = case.src_path },
+                .optimize = optimize,
+                .target = case.target,
+            });
+            if (case.link_libc) exe.linkLibC();
+
+            step.dependOn(&exe.step);
+        }
+    }
+
+    return step;
 }
 
 pub fn addLinkTests(
