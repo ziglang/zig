@@ -20,7 +20,7 @@ pub const Shake256 = Shake(256);
 
 /// TurboSHAKE128 is a XOF (a secure hash function with a variable output length), with a 128 bit security level.
 /// It is based on the same permutation as SHA3 and SHAKE128, but which much higher performance.
-/// The delimiter is 0x01 by default, but can be changed for context-separation.
+/// The delimiter is 0x1f by default, but can be changed for context-separation.
 pub fn TurboShake128(comptime delim: ?u8) type {
     return TurboShake(128, delim);
 }
@@ -96,7 +96,7 @@ pub fn Shake(comptime security_level: u11) type {
 /// The TurboSHAKE extendable output hash function.
 /// https://datatracker.ietf.org/doc/draft-irtf-cfrg-kangarootwelve/
 pub fn TurboShake(comptime security_level: u11, comptime delim: ?u8) type {
-    return ShakeLike(security_level, delim orelse 0x01, 12);
+    return ShakeLike(security_level, delim orelse 0x1f, 12);
 }
 
 fn ShakeLike(comptime security_level: u11, comptime delim: u8, comptime rounds: u5) type {
