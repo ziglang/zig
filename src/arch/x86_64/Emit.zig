@@ -87,7 +87,6 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .imul,
             .int3,
             .mov,
-            .movsx,
             .movzx,
             .mul,
             .nop,
@@ -116,7 +115,11 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .ucomisd,
             => try emit.mirEncodeGeneric(tag, inst),
 
-            // Pseudo-instructions
+            .call,
+            .jmp,
+            => try emit.mirCallJmp(inst),
+
+            .movsx => try emit.mirMovsx(inst),
             .cmovcc => try emit.mirCmovcc(inst),
             .setcc => try emit.mirSetcc(inst),
             .jcc => try emit.mirJcc(inst),
@@ -209,7 +212,7 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
                 .{ .imm = Immediate.u(Mir.Imm64.decode(imm64)) },
             };
         },
-        else => unreachable,
+        else => unreachable, // TODO
     }
 
     return emit.encode(mnemonic, .{
@@ -217,6 +220,28 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
         .op2 = operands[1],
         .op3 = operands[2],
         .op4 = operands[3],
+    });
+}
+
+fn mirMovsx(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const ops = emit.mir.instructions.items(.ops)[inst];
+    const data = emit.mir.instructions.items(.data)[inst];
+
+    var op1: Instruction.Operand = .none;
+    var op2: Instruction.Operand = .none;
+    switch (ops) {
+        .rr => {
+            op1 = .{ .reg = data.rr.r1 };
+            op2 = .{ .reg = data.rr.r2 };
+        },
+        else => unreachable, // TODO
+    }
+
+    const mnemonic: Instruction.Mnemonic = if (op1.bitSize() == 64 and op2.bitSize() == 32) .movsxd else .movsx;
+
+    return emit.encode(mnemonic, .{
+        .op1 = op1,
+        .op2 = op2,
     });
 }
 
@@ -276,6 +301,86 @@ fn mirJcc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         else => unreachable, // TODO
     }
 }
+
+fn mirCallJmp(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const mnemonic: Instruction.Mnemonic = switch (tag) {
+        .call => .call,
+        .jmp => .jmp,
+        else => unreachable,
+    };
+    const ops = emit.mir.instructions.items(.ops)[inst];
+    switch (ops) {
+        .inst => {
+            const target = emit.mir.instructions.items(.data)[inst].inst;
+            const source = emit.code.items.len;
+            try emit.encode(mnemonic, .{
+                .op1 = .{ .imm = Immediate.s(0) },
+            });
+            try emit.relocs.append(emit.bin_file.allocator, .{
+                .source = source,
+                .target = target,
+                .offset = emit.code.items.len - 4,
+                .length = 5,
+            });
+        },
+        .r => {
+            const reg = emit.mir.instructions.items(.data)[inst].r;
+            try emit.encode(mnemonic, .{
+                .op1 = .{ .reg = reg },
+            });
+        },
+        .imm_s => {
+            const imm = emit.mir.instructions.items(.data)[inst].imm_s;
+            try emit.encode(mnemonic, .{
+                .op1 = .{ .imm = Immediate.s(imm) },
+            });
+        },
+        else => unreachable, // TODO
+    }
+}
+
+// fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+//     const tag = emit.mir.instructions.items(.tag)[inst];
+//     assert(tag == .call_extern);
+//     const relocation = emit.mir.instructions.items(.data)[inst].relocation;
+
+//     const offset = blk: {
+//         // callq
+//         try emit.encode(.call, .{
+//             .op1 = .{ .imm = Immediate.s(0) },
+//         });
+//         break :blk @intCast(u32, emit.code.items.len) - 4;
+//     };
+
+//     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+//         // Add relocation to the decl.
+//         const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
+//         const target = macho_file.getGlobalByIndex(relocation.sym_index);
+//         try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
+//             .type = @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_BRANCH),
+//             .target = target,
+//             .offset = offset,
+//             .addend = 0,
+//             .pcrel = true,
+//             .length = 2,
+//         });
+//     } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+//         // Add relocation to the decl.
+//         const atom_index = coff_file.getAtomIndexForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
+//         const target = coff_file.getGlobalByIndex(relocation.sym_index);
+//         try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
+//             .type = .direct,
+//             .target = target,
+//             .offset = offset,
+//             .addend = 0,
+//             .pcrel = true,
+//             .length = 2,
+//         });
+//     } else {
+//         return emit.fail("TODO implement call_extern for linking backends different than MachO and COFF", .{});
+//     }
+// }
 
 fn mirPushPopRegisterList(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
     const payload = emit.mir.instructions.items(.data)[inst].payload;
