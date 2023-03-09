@@ -4511,35 +4511,29 @@ fn genCondBrMir(self: *Self, ty: Type, mcv: MCValue) !u32 {
     const abi_size = ty.abiSize(self.target.*);
     switch (mcv) {
         .eflags => |cc| {
-            _ = cc;
-            // return self.addInst(.{
-            //     .tag = .cond_jmp,
-            //     .ops = Mir.Inst.Ops.encode(.{}),
-            //     .data = .{
-            //         .inst_cc = .{
-            //             .inst = undefined,
-            //             // Here we map the opposites since the jump is to the false branch.
-            //             .cc = cc.negate(),
-            //         },
-            //     },
-            // });
+            return self.addInst(.{
+                .tag = .jcc,
+                .ops = .inst_cc,
+                .data = .{
+                    .inst_cc = .{
+                        .inst = undefined,
+                        // Here we map the opposites since the jump is to the false branch.
+                        .cc = cc.negate(),
+                    },
+                },
+            });
         },
         .register => |reg| {
-            _ = reg;
             try self.spillEflagsIfOccupied();
-            // _ = try self.addInst(.{
-            //     .tag = .@"test",
-            //     .ops = Mir.Inst.Ops.encode(.{ .reg1 = reg }),
-            //     .data = .{ .imm = 1 },
-            // });
-            // return self.addInst(.{
-            //     .tag = .cond_jmp,
-            //     .ops = Mir.Inst.Ops.encode(.{}),
-            //     .data = .{ .inst_cc = .{
-            //         .inst = undefined,
-            //         .cc = .e,
-            //     } },
-            // });
+            try self.asmRegisterImmediate(.@"test", reg, Immediate.u(1));
+            return self.addInst(.{
+                .tag = .jcc,
+                .ops = .inst_cc,
+                .data = .{ .inst_cc = .{
+                    .inst = undefined,
+                    .cc = .e,
+                } },
+            });
         },
         .immediate,
         .stack_offset,
@@ -4961,22 +4955,17 @@ fn genCondSwitchMir(self: *Self, ty: Type, condition: MCValue, case: MCValue) !u
                 },
             }
 
-            // _ = try self.addInst(.{
-            //     .tag = .@"test",
-            //     .ops = Mir.Inst.Ops.encode(.{
-            //         .reg1 = registerAlias(cond_reg, abi_size),
-            //         .reg2 = registerAlias(cond_reg, abi_size),
-            //     }),
-            //     .data = undefined,
-            // });
-            // return self.addInst(.{
-            //     .tag = .cond_jmp,
-            //     .ops = Mir.Inst.Ops.encode(.{}),
-            //     .data = .{ .inst_cc = .{
-            //         .inst = undefined,
-            //         .cc = .ne,
-            //     } },
-            // });
+            const aliased_reg = registerAlias(cond_reg, abi_size);
+            try self.asmRegisterRegister(.@"test", aliased_reg, aliased_reg);
+
+            return self.addInst(.{
+                .tag = .jcc,
+                .ops = .inst_cc,
+                .data = .{ .inst_cc = .{
+                    .inst = undefined,
+                    .cc = .ne,
+                } },
+            });
         },
         .stack_offset => {
             try self.spillEflagsIfOccupied();
@@ -5189,9 +5178,9 @@ fn canonicaliseBranches(self: *Self, parent_branch: *Branch, canon_branch: *Bran
 fn performReloc(self: *Self, reloc: Mir.Inst.Index) !void {
     const next_inst = @intCast(u32, self.mir_instructions.len);
     switch (self.mir_instructions.items(.tag)[reloc]) {
-        // .cond_jmp => {
-        //     self.mir_instructions.items(.data)[reloc].inst_cc.inst = next_inst;
-        // },
+        .jcc => {
+            self.mir_instructions.items(.data)[reloc].inst_cc.inst = next_inst;
+        },
         .jmp => {
             self.mir_instructions.items(.data)[reloc].inst = next_inst;
         },
@@ -5806,7 +5795,6 @@ fn genInlineMemcpy(
     const index_reg = regs[2].to64();
     const count_reg = regs[3].to64();
     const tmp_reg = regs[4].to8();
-    _ = index_reg;
     _ = tmp_reg;
 
     switch (dst_ptr) {
@@ -5825,15 +5813,11 @@ fn genInlineMemcpy(
             // });
         },
         .register => |reg| {
-            _ = reg;
-            // _ = try self.addInst(.{
-            //     .tag = .mov,
-            //     .ops = Mir.Inst.Ops.encode(.{
-            //         .reg1 = registerAlias(dst_addr_reg, @intCast(u32, @divExact(reg.bitSize(), 8))),
-            //         .reg2 = reg,
-            //     }),
-            //     .data = undefined,
-            // });
+            try self.asmRegisterRegister(
+                .mov,
+                registerAlias(dst_addr_reg, @intCast(u32, @divExact(reg.bitSize(), 8))),
+                reg,
+            );
         },
         else => {
             return self.fail("TODO implement memcpy for setting stack when dest is {}", .{dst_ptr});
@@ -5856,15 +5840,11 @@ fn genInlineMemcpy(
             // });
         },
         .register => |reg| {
-            _ = reg;
-            // _ = try self.addInst(.{
-            //     .tag = .mov,
-            //     .ops = Mir.Inst.Ops.encode(.{
-            //         .reg1 = registerAlias(src_addr_reg, @intCast(u32, @divExact(reg.bitSize(), 8))),
-            //         .reg2 = reg,
-            //     }),
-            //     .data = undefined,
-            // });
+            try self.asmRegisterRegister(
+                .mov,
+                registerAlias(src_addr_reg, @intCast(u32, @divExact(reg.bitSize(), 8))),
+                reg,
+            );
         },
         else => {
             return self.fail("TODO implement memcpy for setting stack when src is {}", .{src_ptr});
@@ -5873,30 +5853,24 @@ fn genInlineMemcpy(
 
     try self.genSetReg(Type.usize, count_reg, len);
 
-    // mov index_reg, 0
-    // _ = try self.addInst(.{
-    //     .tag = .mov,
-    //     .ops = Mir.Inst.Ops.encode(.{ .reg1 = index_reg }),
-    //     .data = .{ .imm = 0 },
-    // });
+    try self.asmRegisterImmediate(.mov, index_reg, Immediate.u(0));
 
-    // loop:
-    // cmp count, 0
-    // const loop_start = try self.addInst(.{
-    //     .tag = .cmp,
-    //     .ops = Mir.Inst.Ops.encode(.{ .reg1 = count_reg }),
-    //     .data = .{ .imm = 0 },
-    // });
-
-    // je end
-    // const loop_reloc = try self.addInst(.{
-    //     .tag = .cond_jmp,
-    //     .ops = Mir.Inst.Ops.encode(.{}),
-    //     .data = .{ .inst_cc = .{
-    //         .inst = undefined,
-    //         .cc = .e,
-    //     } },
-    // });
+    const loop_start = try self.addInst(.{
+        .tag = .cmp,
+        .ops = .ri_u,
+        .data = .{ .ri_u = .{
+            .r1 = count_reg,
+            .imm = 0,
+        } },
+    });
+    const loop_reloc = try self.addInst(.{
+        .tag = .jcc,
+        .ops = .inst_cc,
+        .data = .{ .inst_cc = .{
+            .inst = undefined,
+            .cc = .e,
+        } },
+    });
 
     // mov tmp, [addr + index_reg]
     // _ = try self.addInst(.{
@@ -5918,29 +5892,16 @@ fn genInlineMemcpy(
     //     .data = .{ .payload = try self.addExtra(Mir.IndexRegisterDisp.encode(index_reg, 0)) },
     // });
 
-    // add index_reg, 1
-    // _ = try self.addInst(.{
-    //     .tag = .add,
-    //     .ops = Mir.Inst.Ops.encode(.{ .reg1 = index_reg }),
-    //     .data = .{ .imm = 1 },
-    // });
+    try self.asmRegisterImmediate(.add, index_reg, Immediate.u(1));
+    try self.asmRegisterImmediate(.sub, count_reg, Immediate.u(1));
 
-    // sub count, 1
-    // _ = try self.addInst(.{
-    //     .tag = .sub,
-    //     .ops = Mir.Inst.Ops.encode(.{ .reg1 = count_reg }),
-    //     .data = .{ .imm = 1 },
-    // });
+    _ = try self.addInst(.{
+        .tag = .jmp,
+        .ops = .inst,
+        .data = .{ .inst = loop_start },
+    });
 
-    // jmp loop
-    // _ = try self.addInst(.{
-    //     .tag = .jmp,
-    //     .ops = Mir.Inst.Ops.encode(.{}),
-    //     .data = .{ .inst = loop_start },
-    // });
-
-    // end:
-    // try self.performReloc(loop_reloc);
+    try self.performReloc(loop_reloc);
 }
 
 fn genInlineMemset(
@@ -5982,15 +5943,11 @@ fn genInlineMemset(
             // });
         },
         .register => |reg| {
-            _ = reg;
-            // _ = try self.addInst(.{
-            //     .tag = .mov,
-            //     .ops = Mir.Inst.Ops.encode(.{
-            //         .reg1 = registerAlias(addr_reg, @intCast(u32, @divExact(reg.bitSize(), 8))),
-            //         .reg2 = reg,
-            //     }),
-            //     .data = undefined,
-            // });
+            try self.asmRegisterRegister(
+                .mov,
+                registerAlias(addr_reg, @intCast(u32, @divExact(reg.bitSize(), 8))),
+                reg,
+            );
         },
         else => {
             return self.fail("TODO implement memcpy for setting stack when dest is {}", .{dst_ptr});
@@ -6000,26 +5957,23 @@ fn genInlineMemset(
     try self.genSetReg(Type.usize, index_reg, len);
     try self.genBinOpMir(.sub, Type.usize, .{ .register = index_reg }, .{ .immediate = 1 });
 
-    // loop:
-    // cmp index_reg, -1
-    // const loop_start = try self.addInst(.{
-    //     .tag = .cmp,
-    //     .ops = Mir.Inst.Ops.encode(.{
-    //         .reg1 = index_reg,
-    //         .flags = 0b11,
-    //     }),
-    //     .data = .{ .imm_s = -1 },
-    // });
+    const loop_start = try self.addInst(.{
+        .tag = .cmp,
+        .ops = .ri_s,
+        .data = .{ .ri_s = .{
+            .r1 = index_reg,
+            .imm = -1,
+        } },
+    });
 
-    // je end
-    // const loop_reloc = try self.addInst(.{
-    //     .tag = .cond_jmp,
-    //     .ops = Mir.Inst.Ops.encode(.{}),
-    //     .data = .{ .inst_cc = .{
-    //         .inst = undefined,
-    //         .cc = .e,
-    //     } },
-    // });
+    const loop_reloc = try self.addInst(.{
+        .tag = .jcc,
+        .ops = .inst_cc,
+        .data = .{ .inst_cc = .{
+            .inst = undefined,
+            .cc = .e,
+        } },
+    });
 
     switch (value) {
         .immediate => |x| {
@@ -6042,22 +5996,15 @@ fn genInlineMemset(
         else => return self.fail("TODO inline memset for value of type {}", .{value}),
     }
 
-    // sub index_reg, 1
-    // _ = try self.addInst(.{
-    //     .tag = .sub,
-    //     .ops = Mir.Inst.Ops.encode(.{ .reg1 = index_reg }),
-    //     .data = .{ .imm = 1 },
-    // });
+    try self.asmRegisterImmediate(.sub, index_reg, Immediate.u(1));
 
-    // jmp loop
-    // _ = try self.addInst(.{
-    //     .tag = .jmp,
-    //     .ops = Mir.Inst.Ops.encode(.{}),
-    //     .data = .{ .inst = loop_start },
-    // });
+    _ = try self.addInst(.{
+        .tag = .jmp,
+        .ops = .inst,
+        .data = .{ .inst = loop_start },
+    });
 
-    // end:
-    // try self.performReloc(loop_reloc);
+    try self.performReloc(loop_reloc);
 }
 
 fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {

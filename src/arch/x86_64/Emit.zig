@@ -1,4 +1,3 @@
-//!
 //! This file contains the functionality for lowering x86_64 MIR into
 //! machine code
 
@@ -118,8 +117,9 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             => try emit.mirEncodeGeneric(tag, inst),
 
             // Pseudo-instructions
-            .cmovcc => try emit.mirCmovCC(inst),
-            .setcc => try emit.mirSetCC(inst),
+            .cmovcc => try emit.mirCmovcc(inst),
+            .setcc => try emit.mirSetcc(inst),
+            .jcc => try emit.mirJcc(inst),
 
             .dbg_line => try emit.mirDbgLine(inst),
             .dbg_prologue_end => try emit.mirDbgPrologueEnd(inst),
@@ -220,19 +220,19 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
     });
 }
 
-fn mnemonicFromCC(comptime basename: []const u8, cc: bits.Condition) Instruction.Mnemonic {
+fn mnemonicFromConditionCode(comptime basename: []const u8, cc: bits.Condition) Instruction.Mnemonic {
     inline for (@typeInfo(bits.Condition).Enum.fields) |field| {
         if (mem.eql(u8, field.name, @tagName(cc)))
             return @field(Instruction.Mnemonic, basename ++ field.name);
     } else unreachable;
 }
 
-fn mirCmovCC(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+fn mirCmovcc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst];
     switch (ops) {
         .rr_c => {
             const data = emit.mir.instructions.items(.data)[inst].rr_c;
-            const mnemonic = mnemonicFromCC("cmov", data.cc);
+            const mnemonic = mnemonicFromConditionCode("cmov", data.cc);
             return emit.encode(mnemonic, .{
                 .op1 = .{ .reg = data.r1 },
                 .op2 = .{ .reg = data.r2 },
@@ -242,14 +242,35 @@ fn mirCmovCC(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 
-fn mirSetCC(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+fn mirSetcc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst];
     switch (ops) {
         .r_c => {
             const data = emit.mir.instructions.items(.data)[inst].r_c;
-            const mnemonic = mnemonicFromCC("set", data.cc);
+            const mnemonic = mnemonicFromConditionCode("set", data.cc);
             return emit.encode(mnemonic, .{
                 .op1 = .{ .reg = data.r1 },
+            });
+        },
+        else => unreachable, // TODO
+    }
+}
+
+fn mirJcc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const ops = emit.mir.instructions.items(.ops)[inst];
+    switch (ops) {
+        .inst_cc => {
+            const data = emit.mir.instructions.items(.data)[inst].inst_cc;
+            const mnemonic = mnemonicFromConditionCode("j", data.cc);
+            const source = emit.code.items.len;
+            try emit.encode(mnemonic, .{
+                .op1 = .{ .imm = Immediate.s(0) },
+            });
+            try emit.relocs.append(emit.bin_file.allocator, .{
+                .source = source,
+                .target = data.inst,
+                .offset = emit.code.items.len - 4,
+                .length = 6,
             });
         },
         else => unreachable, // TODO
@@ -324,54 +345,6 @@ fn mirPushPopRegisterList(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) 
 //         },
 //         0b11 => return emit.fail("TODO unused variant jmp/call 0b11", .{}),
 //     }
-// }
-
-// fn mirCondJmp(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-//     const tag = emit.mir.instructions.items(.tag)[inst];
-//     assert(tag == .cond_jmp);
-//     const inst_cc = emit.mir.instructions.items(.data)[inst].inst_cc;
-//     const mnemonic: Instruction.Mnemonic = switch (inst_cc.cc) {
-//         .a => .ja,
-//         .ae => .jae,
-//         .b => .jb,
-//         .be => .jbe,
-//         .c => .jc,
-//         .e => .je,
-//         .g => .jg,
-//         .ge => .jge,
-//         .l => .jl,
-//         .le => .jle,
-//         .na => .jna,
-//         .nae => .jnae,
-//         .nb => .jnb,
-//         .nbe => .jnbe,
-//         .nc => .jnc,
-//         .ne => .jne,
-//         .ng => .jng,
-//         .nge => .jnge,
-//         .nl => .jnl,
-//         .nle => .jnle,
-//         .no => .jno,
-//         .np => .jnp,
-//         .ns => .jns,
-//         .nz => .jnz,
-//         .o => .jo,
-//         .p => .jp,
-//         .pe => .jpe,
-//         .po => .jpo,
-//         .s => .js,
-//         .z => .jz,
-//     };
-//     const source = emit.code.items.len;
-//     try emit.encode(mnemonic, .{
-//         .op1 = .{ .imm = Immediate.s(0) },
-//     });
-//     try emit.relocs.append(emit.bin_file.allocator, .{
-//         .source = source,
-//         .target = inst_cc.inst,
-//         .offset = emit.code.items.len - 4,
-//         .length = 6,
-//     });
 // }
 
 // fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
