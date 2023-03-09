@@ -27,6 +27,8 @@ pub extern "advapi32" fn RegQueryValueExW(
     lpcbData: ?*DWORD,
 ) callconv(WINAPI) LSTATUS;
 
+pub extern "advapi32" fn RegCloseKey(hKey: HKEY) callconv(WINAPI) LSTATUS;
+
 // RtlGenRandom is known as SystemFunction036 under advapi32
 // http://msdn.microsoft.com/en-us/library/windows/desktop/aa387694.aspx */
 pub extern "advapi32" fn SystemFunction036(output: [*]u8, length: ULONG) callconv(WINAPI) BOOL;
