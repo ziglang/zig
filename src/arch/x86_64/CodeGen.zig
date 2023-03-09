@@ -417,7 +417,6 @@ fn asmRegister(self: *Self, tag: Mir.Inst.Tag, reg: Register) !void {
 }
 
 fn asmImmediate(self: *Self, tag: Mir.Inst.Tag, imm: Immediate) !void {
-    // TODO imm64
     const ops: Mir.Inst.Ops = if (imm == .signed) .imm_s else .imm_u;
     const data: Mir.Inst.Data = switch (ops) {
         .imm_s => .{ .imm_s = imm.signed },
@@ -443,7 +442,10 @@ fn asmRegisterRegister(self: *Self, tag: Mir.Inst.Tag, reg1: Register, reg2: Reg
 }
 
 fn asmRegisterImmediate(self: *Self, tag: Mir.Inst.Tag, reg: Register, imm: Immediate) !void {
-    const ops: Mir.Inst.Ops = if (imm == .signed) .ri_s else .ri_u;
+    const ops: Mir.Inst.Ops = switch (imm) {
+        .signed => .ri_s,
+        .unsigned => |x| if (x <= math.maxInt(u32)) .ri_u else .ri64,
+    };
     const data: Mir.Inst.Data = switch (ops) {
         .ri_s => .{ .ri_s = .{
             .r1 = reg,
@@ -452,6 +454,10 @@ fn asmRegisterImmediate(self: *Self, tag: Mir.Inst.Tag, reg: Register, imm: Imme
         .ri_u => .{ .ri_u = .{
             .r1 = reg,
             .imm = @intCast(u32, imm.unsigned),
+        } },
+        .ri64 => .{ .rx = .{
+            .r1 = reg,
+            .payload = try self.addExtra(Mir.Imm64.encode(imm.unsigned)),
         } },
         else => unreachable,
     };
@@ -6118,32 +6124,23 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             // });
         },
         .immediate => |x| {
-            // 32-bit moves zero-extend to 64-bit, so xoring the 32-bit
-            // register is the fastest way to zero a register.
             if (x == 0) {
+                // 32-bit moves zero-extend to 64-bit, so xoring the 32-bit
+                // register is the fastest way to zero a register.
                 return self.asmRegisterRegister(.xor, reg.to32(), reg.to32());
             }
-            if (x <= math.maxInt(i32)) {
-                // Next best case: if we set the lower four bytes, the upper four will be zeroed.
+            if (ty.isSignedInt() and x <= math.maxInt(i32)) {
                 return self.asmRegisterImmediate(
                     .mov,
                     registerAlias(reg, abi_size),
-                    Immediate.u(@intCast(u32, x)),
+                    Immediate.s(@intCast(i32, @bitCast(i64, x))),
                 );
             }
-            // Worst case: we need to load the 64-bit register with the IMM. GNU's assemblers calls
-            // this `movabs`, though this is officially just a different variant of the plain `mov`
-            // instruction.
-            //
-            // This encoding is, in fact, the *same* as the one used for 32-bit loads. The only
-            // difference is that we set REX.W before the instruction, which extends the load to
-            // 64-bit and uses the full bit-width of the register.
-            // const payload = try self.addExtra(Mir.Imm64.encode(x));
-            // _ = try self.addInst(.{
-            //     .tag = .movabs,
-            //     .ops = Mir.Inst.Ops.encode(.{ .reg1 = reg.to64() }),
-            //     .data = .{ .payload = payload },
-            // });
+            return self.asmRegisterImmediate(
+                .mov,
+                registerAlias(reg, abi_size),
+                Immediate.u(x),
+            );
         },
         .register => |src_reg| {
             // If the registers are the same, nothing to do.

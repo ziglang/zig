@@ -178,9 +178,10 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
         if (mem.eql(u8, field.name, @tagName(tag))) break @field(Instruction.Mnemonic, field.name);
     } else unreachable;
 
-    var operands = [4]Instruction.Operand{ .none, .none, .none, .none };
     const ops = emit.mir.instructions.items(.ops)[inst];
     const data = emit.mir.instructions.items(.data)[inst];
+
+    var operands = [4]Instruction.Operand{ .none, .none, .none, .none };
     switch (ops) {
         .none => {},
         .imm_s => operands[0] = .{ .imm = Immediate.s(data.imm_s) },
@@ -197,6 +198,11 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
         .ri_u => operands[0..2].* = .{
             .{ .reg = data.ri_u.r1 },
             .{ .imm = Immediate.u(data.ri_u.imm) },
+        },
+        .ri64 => {
+            operands[0] = .{ .reg = data.rx.r1 };
+            const imm64 = emit.mir.extraData(Mir.Imm64, data.rx.payload).data;
+            operands[1] = .{ .imm = Immediate.u(Mir.Imm64.decode(imm64)) };
         },
         else => unreachable,
     }
