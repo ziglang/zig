@@ -22287,7 +22287,6 @@ fn zirBuiltinExtern(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-    const src = LazySrcLoc.nodeOffset(extra.node);
     const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
 
@@ -22315,39 +22314,41 @@ fn zirBuiltinExtern(
     const new_decl = sema.mod.declPtr(new_decl_index);
     new_decl.name = try sema.gpa.dupeZ(u8, options.name);
 
-    var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
-    errdefer new_decl_arena.deinit();
-    const new_decl_arena_allocator = new_decl_arena.allocator();
+    {
+        var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
+        errdefer new_decl_arena.deinit();
+        const new_decl_arena_allocator = new_decl_arena.allocator();
 
-    const new_var = try new_decl_arena_allocator.create(Module.Var);
-    errdefer new_decl_arena_allocator.destroy(new_var);
+        const new_var = try new_decl_arena_allocator.create(Module.Var);
+        new_var.* = .{
+            .owner_decl = sema.owner_decl_index,
+            .init = Value.initTag(.unreachable_value),
+            .is_extern = true,
+            .is_mutable = false,
+            .is_threadlocal = options.is_thread_local,
+            .is_weak_linkage = options.linkage == .Weak,
+            .lib_name = null,
+        };
 
-    new_var.* = .{
-        .owner_decl = sema.owner_decl_index,
-        .init = Value.initTag(.unreachable_value),
-        .is_extern = true,
-        .is_mutable = false,
-        .is_threadlocal = options.is_thread_local,
-        .is_weak_linkage = options.linkage == .Weak,
-        .lib_name = null,
-    };
+        new_decl.src_line = sema.owner_decl.src_line;
+        // We only access this decl through the decl_ref with the correct type created
+        // below, so this type doesn't matter
+        new_decl.ty = Type.Tag.init(.anyopaque);
+        new_decl.val = try Value.Tag.variable.create(new_decl_arena_allocator, new_var);
+        new_decl.@"align" = 0;
+        new_decl.@"linksection" = null;
+        new_decl.has_tv = true;
+        new_decl.analysis = .complete;
+        new_decl.generation = sema.mod.generation;
 
-    new_decl.src_line = sema.owner_decl.src_line;
-    new_decl.ty = try ty.copy(new_decl_arena_allocator);
-    new_decl.val = try Value.Tag.variable.create(new_decl_arena_allocator, new_var);
-    new_decl.@"align" = 0;
-    new_decl.@"linksection" = null;
-    new_decl.has_tv = true;
-    new_decl.analysis = .complete;
-    new_decl.generation = sema.mod.generation;
+        try new_decl.finalizeNewArena(&new_decl_arena);
+    }
 
-    const arena_state = try new_decl_arena_allocator.create(std.heap.ArenaAllocator.State);
-    arena_state.* = new_decl_arena.state;
-    new_decl.value_arena = arena_state;
+    try sema.mod.declareDeclDependency(sema.owner_decl_index, new_decl_index);
+    try sema.ensureDeclAnalyzed(new_decl_index);
 
-    const ref = try sema.analyzeDeclRef(new_decl_index);
-    try sema.requireRuntimeBlock(block, src, null);
-    return block.addBitCast(ty, ref);
+    const ref = try Value.Tag.decl_ref.create(sema.arena, new_decl_index);
+    return sema.addConstant(ty, ref);
 }
 
 fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src: ?LazySrcLoc) !void {

@@ -107,6 +107,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/emit_asm_and_bin/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_12588/build.zig", .{});
     cases.addBuildFile("test/standalone/embed_generated_file/build.zig", .{});
+    cases.addBuildFile("test/standalone/extern/build.zig", .{});
 
     cases.addBuildFile("test/standalone/dep_diamond/build.zig", .{});
     cases.addBuildFile("test/standalone/dep_triangle/build.zig", .{});
