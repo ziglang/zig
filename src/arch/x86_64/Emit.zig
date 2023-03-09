@@ -73,6 +73,7 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .adc,
             .add,
             .@"and",
+            .call,
             .cbw,
             .cwde,
             .cdqe,
@@ -86,6 +87,8 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .idiv,
             .imul,
             .int3,
+            .jmp,
+            .lea,
             .mov,
             .movzx,
             .mul,
@@ -115,9 +118,9 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .ucomisd,
             => try emit.mirEncodeGeneric(tag, inst),
 
-            .call,
-            .jmp,
-            => try emit.mirCallJmp(inst),
+            .jmp_reloc => try emit.mirJmpReloc(inst),
+
+            .mov_moffs => try emit.mirMovMoffs(inst),
 
             .movsx => try emit.mirMovsx(inst),
             .cmovcc => try emit.mirCmovcc(inst),
@@ -130,8 +133,6 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
 
             .push_regs => try emit.mirPushPopRegisterList(.push, inst),
             .pop_regs => try emit.mirPushPopRegisterList(.pop, inst),
-
-            else => return emit.fail("Implement MIR->Emit lowering for x86_64 for pseudo-inst: {}", .{tag}),
         }
     }
 
@@ -212,6 +213,34 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
                 .{ .imm = Immediate.u(Mir.Imm64.decode(imm64)) },
             };
         },
+        .m_sib => {
+            const msib = emit.mir.extraData(Mir.MemorySib, data.payload).data;
+            operands[0] = .{ .mem = Mir.MemorySib.decode(msib) };
+        },
+        .m_rip => {
+            const mrip = emit.mir.extraData(Mir.MemoryRip, data.payload).data;
+            operands[0] = .{ .mem = Mir.MemoryRip.decode(mrip) };
+        },
+        .rm_sib, .mr_sib => {
+            const msib = emit.mir.extraData(Mir.MemorySib, data.rx.payload).data;
+            const op1 = .{ .reg = data.rx.r1 };
+            const op2 = .{ .mem = Mir.MemorySib.decode(msib) };
+            switch (ops) {
+                .rm_sib => operands[0..2].* = .{ op1, op2 },
+                .mr_sib => operands[0..2].* = .{ op2, op1 },
+                else => unreachable,
+            }
+        },
+        .rm_rip, .mr_rip => {
+            const mrip = emit.mir.extraData(Mir.MemoryRip, data.rx.payload).data;
+            const op1 = .{ .reg = data.rx.r1 };
+            const op2 = .{ .mem = Mir.MemoryRip.decode(mrip) };
+            switch (ops) {
+                .rm_rip => operands[0..2].* = .{ op1, op2 },
+                .mr_rip => operands[0..2].* = .{ op2, op1 },
+                else => unreachable,
+            }
+        },
         else => unreachable, // TODO
     }
 
@@ -221,6 +250,29 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
         .op3 = operands[2],
         .op4 = operands[3],
     });
+}
+
+fn mirMovMoffs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const ops = emit.mir.instructions.items(.ops)[inst];
+    const payload = emit.mir.instructions.items(.data)[inst].payload;
+    const moffs = emit.mir.extraData(Mir.MemoryMoffs, payload).data;
+    const seg = @intToEnum(Register, moffs.seg);
+    const offset = moffs.decodeOffset();
+    switch (ops) {
+        .rax_moffs => {
+            try emit.encode(.mov, .{
+                .op1 = .{ .reg = .rax },
+                .op2 = .{ .mem = Memory.moffs(seg, offset) },
+            });
+        },
+        .moffs_rax => {
+            try emit.encode(.mov, .{
+                .op1 = .{ .mem = Memory.moffs(seg, offset) },
+                .op2 = .{ .reg = .rax },
+            });
+        },
+        else => unreachable,
+    }
 }
 
 fn mirMovsx(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
@@ -302,19 +354,13 @@ fn mirJcc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 
-fn mirCallJmp(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
-    const mnemonic: Instruction.Mnemonic = switch (tag) {
-        .call => .call,
-        .jmp => .jmp,
-        else => unreachable,
-    };
+fn mirJmpReloc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst];
     switch (ops) {
         .inst => {
             const target = emit.mir.instructions.items(.data)[inst].inst;
             const source = emit.code.items.len;
-            try emit.encode(mnemonic, .{
+            try emit.encode(.jmp, .{
                 .op1 = .{ .imm = Immediate.s(0) },
             });
             try emit.relocs.append(emit.bin_file.allocator, .{
@@ -324,19 +370,7 @@ fn mirCallJmp(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
                 .length = 5,
             });
         },
-        .r => {
-            const reg = emit.mir.instructions.items(.data)[inst].r;
-            try emit.encode(mnemonic, .{
-                .op1 = .{ .reg = reg },
-            });
-        },
-        .imm_s => {
-            const imm = emit.mir.instructions.items(.data)[inst].imm_s;
-            try emit.encode(mnemonic, .{
-                .op1 = .{ .imm = Immediate.s(imm) },
-            });
-        },
-        else => unreachable, // TODO
+        else => unreachable,
     }
 }
 

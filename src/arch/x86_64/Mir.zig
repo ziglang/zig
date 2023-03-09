@@ -17,6 +17,7 @@ const encoder = @import("encoder.zig");
 const Air = @import("../../Air.zig");
 const CodeGen = @import("CodeGen.zig");
 const IntegerBitSet = std.bit_set.IntegerBitSet;
+const Memory = bits.Memory;
 const Register = bits.Register;
 
 instructions: std.MultiArrayList(Inst).Slice,
@@ -135,6 +136,12 @@ pub const Inst = struct {
         /// Conditional move
         cmovcc,
 
+        /// Mov absolute to/from memory wrt segment register to/from rax
+        mov_moffs,
+
+        /// Jump with relocation to another local MIR instruction
+        jmp_reloc,
+
         /// End of prologue
         dbg_prologue_end,
         /// Start of epilogue
@@ -186,24 +193,48 @@ pub const Inst = struct {
         /// Relative displacement operand.
         /// Uses `rel` payload.
         rel,
-        /// Register, memory operands.
+        /// Register, memory (SIB) operands.
         /// Uses `rx` payload.
-        rm,
+        rm_sib,
+        /// Register, memory (RIP) operands.
+        /// Uses `rx` payload.
+        rm_rip,
         /// Register, memory, immediate (unsigned) operands
         /// Uses `rx` payload.
         rmi_u,
         /// Register, memory, immediate (sign-extended) operands
         /// Uses `rx` payload.
         rmi_s,
-        /// Memory, immediate (unsigned) operands.
-        /// Uses `payload` payload.
-        mi_u,
-        /// Memory, immediate (sign-extend) operands.
-        /// Uses `payload` payload.
-        mi_s,
-        /// Memory, register operands.
-        /// Uses `payload` payload.
-        mr,
+        /// Single memory (SIB) operand.
+        /// Uses `payload` with extra data of type `MemorySib`.
+        m_sib,
+        /// Single memory (RIP) operand.
+        /// Uses `payload` with extra data of type `MemoryRip`.
+        m_rip,
+        /// Memory (SIB), immediate (unsigned) operands.
+        /// Uses `xi_u` payload with extra data of type `MemorySib`.
+        mi_u_sib,
+        /// Memory (RIP), immediate (unsigned) operands.
+        /// Uses `xi_u` payload with extra data of type `MemoryRip`.
+        mi_u_rip,
+        /// Memory (SIB), immediate (sign-extend) operands.
+        /// Uses `xi_s` payload with extra data of type `MemorySib`.
+        mi_s_sib,
+        /// Memory (RIP), immediate (sign-extend) operands.
+        /// Uses `xi_s` payload with extra data of type `MemoryRip`.
+        mi_s_rip,
+        /// Memory (SIB), register operands.
+        /// Uses `rx` payload with extra data of type `MemorySib`.
+        mr_sib,
+        /// Memory (RIP), register operands.
+        /// Uses `rx` payload with extra data of type `MemoryRip`.
+        mr_rip,
+        /// Rax, Memory moffs.
+        /// Uses `payload` with extra data of type `MemoryMoffs`.
+        rax_moffs,
+        /// Memory moffs, rax.
+        /// Uses `payload` with extra data of type `MemoryMoffs`.
+        moffs_rax,
         /// Lea into register with linker relocation.
         /// Uses `payload` payload with data of type `LeaRegisterReloc`.
         lea_r_reloc,
@@ -273,6 +304,16 @@ pub const Inst = struct {
         rx: struct {
             r1: Register,
             payload: u32,
+        },
+        /// Custom payload followed by an unsigned immediate.
+        xi_u: struct {
+            payload: u32,
+            imm: u32,
+        },
+        /// Custom payload followed by a signed immediate.
+        xi_s: struct {
+            payload: u32,
+            imm: i32,
         },
         /// Relocation for the linker where:
         /// * `atom_index` is the index of the source
@@ -374,6 +415,90 @@ pub const Imm64 = struct {
         var res: u64 = 0;
         res |= (@intCast(u64, imm.msb) << 32);
         res |= @intCast(u64, imm.lsb);
+        return res;
+    }
+};
+
+// TODO this can be further compacted using packed struct
+pub const MemorySib = struct {
+    /// Size of the pointer.
+    ptr_size: u32,
+    /// Base register. -1 means null, or no base register.
+    base: i32,
+    /// Scale for index register. -1 means null, or no scale.
+    /// This has to be in sync with `index` field.
+    scale: i32,
+    /// Index register. -1 means null, or no index register.
+    /// This has to be in sync with `scale` field.
+    index: i32,
+    /// Displacement value.
+    disp: i32,
+
+    pub fn encode(mem: Memory) MemorySib {
+        const sib = mem.sib;
+        return .{
+            .ptr_size = @enumToInt(sib.ptr_size),
+            .base = if (sib.base) |r| @enumToInt(r) else -1,
+            .scale = if (sib.scale_index) |si| si.scale else -1,
+            .index = if (sib.scale_index) |si| @enumToInt(si.index) else -1,
+            .disp = sib.disp,
+        };
+    }
+
+    pub fn decode(msib: MemorySib) Memory {
+        const base: ?Register = if (msib.base == -1) null else @intToEnum(Register, msib.base);
+        const scale_index: ?Memory.ScaleIndex = if (msib.index == -1) null else .{
+            .scale = @intCast(u4, msib.scale),
+            .index = @intToEnum(Register, msib.index),
+        };
+        const mem: Memory = .{ .sib = .{
+            .ptr_size = @intToEnum(Memory.PtrSize, msib.ptr_size),
+            .base = base,
+            .scale_index = scale_index,
+            .disp = msib.disp,
+        } };
+        return mem;
+    }
+};
+
+pub const MemoryRip = struct {
+    /// Size of the pointer.
+    ptr_size: u32,
+    /// Displacement value.
+    disp: i32,
+
+    pub fn encode(mem: Memory) MemoryRip {
+        return .{
+            .ptr_size = @enumToInt(mem.rip.ptr_size),
+            .disp = mem.rip.disp,
+        };
+    }
+
+    pub fn decode(mrip: MemoryRip) Memory {
+        return .{ .rip = .{
+            .ptr_size = @intToEnum(Memory.PtrSize, mrip.ptr_size),
+            .disp = mrip.disp,
+        } };
+    }
+};
+
+pub const MemoryMoffs = struct {
+    /// Segment register.
+    seg: u32,
+    /// Absolute offset wrt to the segment register split between MSB and LSB parts much like
+    /// `Imm64` payload.
+    msb: u32,
+    lsb: u32,
+
+    pub fn encodeOffset(moffs: *MemoryMoffs, v: u64) void {
+        moffs.msb = @truncate(u32, v >> 32);
+        moffs.lsb = @truncate(u32, v);
+    }
+
+    pub fn decodeOffset(moffs: *const MemoryMoffs) u64 {
+        var res: u64 = 0;
+        res |= (@intCast(u64, moffs.msb) << 32);
+        res |= @intCast(u64, moffs.lsb);
         return res;
     }
 };
