@@ -468,6 +468,7 @@ fn createSyntheticSymbol(wasm: *Wasm, name: []const u8, tag: Symbol.Tag) !Symbol
         .flags = 0,
         .tag = tag,
         .index = undefined,
+        .virtual_address = undefined,
     });
     try wasm.resolved_symbols.putNoClobber(wasm.base.allocator, loc, {});
     try wasm.globals.put(wasm.base.allocator, name_offset, loc);
@@ -1011,6 +1012,7 @@ pub fn allocateSymbol(wasm: *Wasm) !u32 {
         .flags = @enumToInt(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
         .tag = undefined, // will be set after updateDecl
         .index = undefined, // will be set after updateDecl
+        .virtual_address = undefined, // will be set during atom allocation
     };
     if (wasm.symbols_free_list.popOrNull()) |index| {
         wasm.symbols.items[index] = symbol;
@@ -1246,6 +1248,7 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
             .flags = @enumToInt(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
             .tag = .data,
             .index = undefined,
+            .virtual_address = undefined,
         };
         try wasm.resolved_symbols.putNoClobber(wasm.base.allocator, atom.symbolLoc(), {});
 
@@ -1292,6 +1295,7 @@ pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8) !u32 {
         .flags = 0,
         .index = undefined, // index to type will be set after merging function symbols
         .tag = .function,
+        .virtual_address = undefined,
     };
     symbol.setGlobal(true);
     symbol.setUndefined(true);
@@ -1788,6 +1792,30 @@ fn allocateAtoms(wasm: *Wasm) !void {
     }
 }
 
+/// For each data symbol, sets the virtual address.
+fn allocateVirtualAddresses(wasm: *Wasm) void {
+    for (wasm.resolved_symbols.keys()) |loc| {
+        const symbol = loc.getSymbol(wasm);
+        if (symbol.tag != .data) {
+            continue; // only data symbols have virtual addresses
+        }
+        const atom_index = wasm.symbol_atom.get(loc) orelse {
+            // synthetic symbol that does not contain an atom
+            continue;
+        };
+
+        const atom = wasm.getAtom(atom_index);
+        const merge_segment = wasm.base.options.output_mode != .Obj;
+        const segment_info = if (atom.file) |object_index| blk: {
+            break :blk wasm.objects.items[object_index].segment_info;
+        } else wasm.segment_info.values();
+        const segment_name = segment_info[symbol.index].outputName(merge_segment);
+        const segment_index = wasm.data_segments.get(segment_name).?;
+        const segment = wasm.segments.items[segment_index];
+        symbol.virtual_address = atom.offset + segment.offset;
+    }
+}
+
 fn sortDataSegments(wasm: *Wasm) !void {
     var new_mapping: std.StringArrayHashMapUnmanaged(u32) = .{};
     try new_mapping.ensureUnusedCapacity(wasm.base.allocator, wasm.data_segments.count());
@@ -2137,13 +2165,10 @@ fn setupExports(wasm: *Wasm) !void {
             break :blk try wasm.string_table.put(wasm.base.allocator, sym_name);
         };
         const exp: types.Export = if (symbol.tag == .data) exp: {
-            const atom_index = wasm.symbol_atom.get(sym_loc).?;
-            const atom = wasm.getAtom(atom_index);
-            const va = atom.getVA(wasm, symbol);
             const global_index = @intCast(u32, wasm.imported_globals_count + wasm.wasm_globals.items.len);
             try wasm.wasm_globals.append(wasm.base.allocator, .{
                 .global_type = .{ .valtype = .i32, .mutable = false },
-                .init = .{ .i32_const = @intCast(i32, va) },
+                .init = .{ .i32_const = @intCast(i32, symbol.virtual_address) },
             });
             break :exp .{
                 .name = export_name,
@@ -2240,12 +2265,8 @@ fn setupMemory(wasm: *Wasm) !void {
     // One of the linked object files has a reference to the __heap_base symbol.
     // We must set its virtual address so it can be used in relocations.
     if (wasm.findGlobalSymbol("__heap_base")) |loc| {
-        const segment_index = wasm.data_segments.get(".synthetic").?;
-        const segment = &wasm.segments.items[segment_index];
-        segment.offset = 0; // for simplicity we store the entire VA into atom's offset.
-        const atom_index = wasm.symbol_atom.get(loc).?;
-        const atom = wasm.getAtomPtr(atom_index);
-        atom.offset = @intCast(u32, mem.alignForwardGeneric(u64, memory_ptr, heap_alignment));
+        const symbol = loc.getSymbol(wasm);
+        symbol.virtual_address = @intCast(u32, mem.alignForwardGeneric(u64, memory_ptr, heap_alignment));
     }
 
     // Setup the max amount of pages
@@ -2274,12 +2295,8 @@ fn setupMemory(wasm: *Wasm) !void {
     log.debug("Total memory pages: {d}", .{wasm.memories.limits.min});
 
     if (wasm.findGlobalSymbol("__heap_end")) |loc| {
-        const segment_index = wasm.data_segments.get(".synthetic").?;
-        const segment = &wasm.segments.items[segment_index];
-        segment.offset = 0;
-        const atom_index = wasm.symbol_atom.get(loc).?;
-        const atom = wasm.getAtomPtr(atom_index);
-        atom.offset = @intCast(u32, memory_ptr);
+        const symbol = loc.getSymbol(wasm);
+        symbol.virtual_address = @intCast(u32, memory_ptr);
     }
 
     if (wasm.base.options.max_memory) |max_memory| {
@@ -2417,6 +2434,7 @@ pub fn getErrorTableSymbol(wasm: *Wasm) !u32 {
         .tag = .data,
         .flags = 0,
         .index = 0,
+        .virtual_address = undefined,
     };
     symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
 
@@ -2449,6 +2467,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
         .tag = .data,
         .flags = 0,
         .index = 0,
+        .virtual_address = undefined,
     };
     names_symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
 
@@ -2748,6 +2767,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
 
     try wasm.allocateAtoms();
     try wasm.setupMemory();
+    wasm.allocateVirtualAddresses();
     wasm.mapFunctionTable();
     try wasm.mergeSections();
     try wasm.mergeTypes();
@@ -2866,6 +2886,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
 
     try wasm.allocateAtoms();
     try wasm.setupMemory();
+    wasm.allocateVirtualAddresses();
     wasm.mapFunctionTable();
     try wasm.mergeSections();
     try wasm.mergeTypes();
