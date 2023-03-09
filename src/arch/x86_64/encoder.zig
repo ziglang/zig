@@ -4,6 +4,8 @@ const math = std.math;
 
 const bits = @import("bits.zig");
 const Encoding = @import("Encoding.zig");
+const Immediate = bits.Immediate;
+const Memory = bits.Memory;
 const Register = bits.Register;
 
 pub const Instruction = struct {
@@ -20,9 +22,6 @@ pub const Instruction = struct {
         reg: Register,
         mem: Memory,
         imm: Immediate,
-
-        pub const Memory = bits.Memory;
-        pub const Immediate = bits.Immediate;
 
         /// Returns the bitsize of the operand.
         pub fn bitSize(op: Operand) u64 {
@@ -295,7 +294,7 @@ pub const Instruction = struct {
         try encoder.opcode_1byte(prefix);
     }
 
-    fn encodeMemory(encoding: Encoding, mem: Operand.Memory, operand: Operand, encoder: anytype) !void {
+    fn encodeMemory(encoding: Encoding, mem: Memory, operand: Operand, encoder: anytype) !void {
         const operand_enc = switch (operand) {
             .reg => |reg| reg.lowEnc(),
             .none => encoding.modRmExt(),
@@ -378,7 +377,7 @@ pub const Instruction = struct {
         }
     }
 
-    fn encodeImm(imm: Operand.Immediate, kind: Encoding.Op, encoder: anytype) !void {
+    fn encodeImm(imm: Immediate, kind: Encoding.Op, encoder: anytype) !void {
         const raw = imm.asUnsigned(kind.bitSize());
         switch (kind.bitSize()) {
             8 => try encoder.imm8(@intCast(u8, raw)),

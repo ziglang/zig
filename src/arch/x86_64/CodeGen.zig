@@ -33,9 +33,11 @@ const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
 
 const Condition = bits.Condition;
+const Immediate = bits.Immediate;
+const Memory = bits.Memory;
+const Register = bits.Register;
 const RegisterManager = abi.RegisterManager;
 const RegisterLock = RegisterManager.RegisterLock;
-const Register = bits.Register;
 
 const gp = abi.RegisterClass.gp;
 const sse = abi.RegisterClass.sse;
@@ -398,47 +400,58 @@ fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
     return result;
 }
 
-fn assemble(self: *Self, tag: Mir.Inst.Tag, args: struct {
-    op1: Mir.Operand = .none,
-    op2: Mir.Operand = .none,
-    op3: Mir.Operand = .none,
-    op4: Mir.Operand = .none,
-}) !void {
-    const ops: Mir.Inst.Ops = blk: {
-        if (args.op1 == .none and args.op2 == .none and args.op3 == .none and args.op4 == .none)
-            break :blk .none;
+fn asmNone(self: *Self, tag: Mir.Inst.Tag) !void {
+    _ = try self.addInst(.{
+        .tag = tag,
+        .ops = .none,
+        .data = undefined,
+    });
+}
 
-        if (args.op1 == .reg and args.op2 == .reg)
-            break :blk .rr;
-        if (args.op1 == .reg and args.op2 == .imm) switch (args.op2.imm) {
-            .signed => break :blk .ri_s,
-            .unsigned => break :blk .ri_u,
-        };
-        if (args.op1 == .reg)
-            break :blk .r;
-        if (args.op1 == .imm) switch (args.op1.imm) {
-            .signed => break :blk .imm_s,
-            .unsigned => break :blk .imm_u, // TODO 64bits
-        };
+fn asmRegister(self: *Self, tag: Mir.Inst.Tag, reg: Register) !void {
+    _ = try self.addInst(.{
+        .tag = tag,
+        .ops = .r,
+        .data = .{ .r = reg },
+    });
+}
 
-        unreachable;
-    };
+fn asmImmediate(self: *Self, tag: Mir.Inst.Tag, imm: Immediate) !void {
+    // TODO imm64
+    const ops: Mir.Inst.Ops = if (imm == .signed) .imm_s else .imm_u;
     const data: Mir.Inst.Data = switch (ops) {
-        .none => undefined,
-        .imm_s => .{ .imm_s = args.op1.imm.signed },
-        .imm_u => .{ .imm_u = @intCast(u32, args.op1.imm.unsigned) },
-        .r => .{ .r = args.op1.reg },
-        .rr => .{ .rr = .{
-            .r1 = args.op1.reg,
-            .r2 = args.op2.reg,
+        .imm_s => .{ .imm_s = imm.signed },
+        .imm_u => .{ .imm_u = @intCast(u32, imm.unsigned) },
+        else => unreachable,
+    };
+    _ = try self.addInst(.{
+        .tag = tag,
+        .ops = ops,
+        .data = data,
+    });
+}
+
+fn asmRegisterRegister(self: *Self, tag: Mir.Inst.Tag, reg1: Register, reg2: Register) !void {
+    _ = try self.addInst(.{
+        .tag = tag,
+        .ops = .rr,
+        .data = .{ .rr = .{
+            .r1 = reg1,
+            .r2 = reg2,
         } },
+    });
+}
+
+fn asmRegisterImmediate(self: *Self, tag: Mir.Inst.Tag, reg: Register, imm: Immediate) !void {
+    const ops: Mir.Inst.Ops = if (imm == .signed) .ri_s else .ri_u;
+    const data: Mir.Inst.Data = switch (ops) {
         .ri_s => .{ .ri_s = .{
-            .r1 = args.op1.reg,
-            .imm = args.op2.imm.signed,
+            .r1 = reg,
+            .imm = imm.signed,
         } },
         .ri_u => .{ .ri_u = .{
-            .r1 = args.op1.reg,
-            .imm = @intCast(u32, args.op2.imm.unsigned),
+            .r1 = reg,
+            .imm = @intCast(u32, imm.unsigned),
         } },
         else => unreachable,
     };
@@ -452,13 +465,8 @@ fn assemble(self: *Self, tag: Mir.Inst.Tag, args: struct {
 fn gen(self: *Self) InnerError!void {
     const cc = self.fn_type.fnCallingConvention();
     if (cc != .Naked) {
-        try self.assemble(.push, .{
-            .op1 = .{ .reg = .rbp },
-        });
-        try self.assemble(.mov, .{
-            .op1 = .{ .reg = .rbp },
-            .op2 = .{ .reg = .rsp },
-        });
+        try self.asmRegister(.push, .rbp);
+        try self.asmRegisterRegister(.mov, .rbp, .rsp);
 
         // We want to subtract the aligned stack frame size from rsp here, but we don't
         // yet know how big it will be, so we leave room for a 4-byte stack size.
@@ -541,8 +549,8 @@ fn gen(self: *Self) InnerError!void {
             .data = undefined,
         });
 
-        try self.assemble(.pop, .{ .op1 = .{ .reg = .rbp } });
-        try self.assemble(.ret, .{});
+        try self.asmRegister(.pop, .rbp);
+        try self.asmNone(.ret);
 
         // Adjust the stack
         if (self.max_end_stack > math.maxInt(i32)) {
@@ -5313,23 +5321,19 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             var iter = std.mem.tokenize(u8, asm_source, "\n\r");
             while (iter.next()) |ins| {
                 if (mem.eql(u8, ins, "syscall")) {
-                    try self.assemble(.syscall, .{});
+                    try self.asmNone(.syscall);
                 } else if (mem.indexOf(u8, ins, "push")) |_| {
                     const arg = ins[4..];
                     if (mem.indexOf(u8, arg, "$")) |l| {
                         const n = std.fmt.parseInt(u8, ins[4 + l + 1 ..], 10) catch {
                             return self.fail("TODO implement more inline asm int parsing", .{});
                         };
-                        try self.assemble(.push, .{
-                            .op1 = .{ .imm = Mir.Operand.Immediate.u(n) },
-                        });
+                        try self.asmImmediate(.push, Immediate.u(n));
                     } else if (mem.indexOf(u8, arg, "%%")) |l| {
                         const reg_name = ins[4 + l + 2 ..];
                         const reg = parseRegName(reg_name) orelse
                             return self.fail("unrecognized register: '{s}'", .{reg_name});
-                        try self.assemble(.push, .{
-                            .op1 = .{ .reg = reg },
-                        });
+                        try self.asmRegister(.push, reg);
                     } else return self.fail("TODO more push operands", .{});
                 } else if (mem.indexOf(u8, ins, "pop")) |_| {
                     const arg = ins[3..];
@@ -5337,9 +5341,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                         const reg_name = ins[3 + l + 2 ..];
                         const reg = parseRegName(reg_name) orelse
                             return self.fail("unrecognized register: '{s}'", .{reg_name});
-                        try self.assemble(.pop, .{
-                            .op1 = .{ .reg = reg },
-                        });
+                        try self.asmRegister(.pop, reg);
                     } else return self.fail("TODO more pop operands", .{});
                 } else {
                     return self.fail("TODO implement support for more x86 assembly instructions", .{});
@@ -6119,19 +6121,15 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             // 32-bit moves zero-extend to 64-bit, so xoring the 32-bit
             // register is the fastest way to zero a register.
             if (x == 0) {
-                try self.assemble(.xor, .{
-                    .op1 = .{ .reg = reg.to32() },
-                    .op2 = .{ .reg = reg.to32() },
-                });
-                return;
+                return self.asmRegisterRegister(.xor, reg.to32(), reg.to32());
             }
             if (x <= math.maxInt(i32)) {
                 // Next best case: if we set the lower four bytes, the upper four will be zeroed.
-                try self.assemble(.mov, .{
-                    .op1 = .{ .reg = registerAlias(reg, abi_size) },
-                    .op2 = .{ .imm = Mir.Operand.Immediate.u(@intCast(u32, x)) },
-                });
-                return;
+                return self.asmRegisterImmediate(
+                    .mov,
+                    registerAlias(reg, abi_size),
+                    Immediate.u(@intCast(u32, x)),
+                );
             }
             // Worst case: we need to load the 64-bit register with the IMM. GNU's assemblers calls
             // this `movabs`, though this is officially just a different variant of the plain `mov`
