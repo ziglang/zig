@@ -221,6 +221,34 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
             const mrip = emit.mir.extraData(Mir.MemoryRip, data.payload).data;
             operands[0] = .{ .mem = Mir.MemoryRip.decode(mrip) };
         },
+        .mi_u_sib => {
+            const msib = emit.mir.extraData(Mir.MemorySib, data.xi_u.payload).data;
+            operands[0..2].* = .{
+                .{ .mem = Mir.MemorySib.decode(msib) },
+                .{ .imm = Immediate.u(data.xi_u.imm) },
+            };
+        },
+        .mi_s_sib => {
+            const msib = emit.mir.extraData(Mir.MemorySib, data.xi_s.payload).data;
+            operands[0..2].* = .{
+                .{ .mem = Mir.MemorySib.decode(msib) },
+                .{ .imm = Immediate.s(data.xi_s.imm) },
+            };
+        },
+        .mi_u_rip => {
+            const mrip = emit.mir.extraData(Mir.MemoryRip, data.xi_u.payload).data;
+            operands[0..2].* = .{
+                .{ .mem = Mir.MemoryRip.decode(mrip) },
+                .{ .imm = Immediate.u(data.xi_u.imm) },
+            };
+        },
+        .mi_s_rip => {
+            const mrip = emit.mir.extraData(Mir.MemoryRip, data.xi_s.payload).data;
+            operands[0..2].* = .{
+                .{ .mem = Mir.MemoryRip.decode(mrip) },
+                .{ .imm = Immediate.s(data.xi_s.imm) },
+            };
+        },
         .rm_sib, .mr_sib => {
             const msib = emit.mir.extraData(Mir.MemorySib, data.rx.payload).data;
             const op1 = .{ .reg = data.rx.r1 };

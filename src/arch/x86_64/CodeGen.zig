@@ -509,6 +509,29 @@ fn asmMemory(self: *Self, tag: Mir.Inst.Tag, m: Memory) !void {
     });
 }
 
+fn asmMemoryImmediate(self: *Self, tag: Mir.Inst.Tag, m: Memory, imm: Immediate) !void {
+    const ops: Mir.Inst.Ops = switch (m) {
+        .sib => if (imm == .signed) .mi_s_sib else .mi_u_sib,
+        .rip => if (imm == .signed) .mi_s_rip else .mi_u_rip,
+        else => unreachable,
+    };
+    const payload: u32 = switch (ops) {
+        .mi_s_sib, .mi_u_sib => try self.addExtra(Mir.MemorySib.encode(m)),
+        .mi_s_rip, .mi_u_rip => try self.addExtra(Mir.MemoryRip.encode(m)),
+        else => unreachable,
+    };
+    const data: Mir.Inst.Data = switch (ops) {
+        .mi_s_sib, .mi_s_rip => .{ .xi_s = .{ .imm = imm.signed, .payload = payload } },
+        .mi_u_sib, .mi_u_rip => .{ .xi_u = .{ .imm = @intCast(u32, imm.unsigned), .payload = payload } },
+        else => unreachable,
+    };
+    _ = try self.addInst(.{
+        .tag = tag,
+        .ops = ops,
+        .data = data,
+    });
+}
+
 fn asmRegisterMemory(self: *Self, tag: Mir.Inst.Tag, reg: Register, m: Memory) !void {
     const ops: Mir.Inst.Ops = switch (m) {
         .sib => .rm_sib,
@@ -2776,7 +2799,7 @@ fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue
 }
 
 fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) InnerError!void {
-    const abi_size = value_ty.abiSize(self.target.*);
+    const abi_size = @intCast(u32, value_ty.abiSize(self.target.*));
     switch (ptr) {
         .none => unreachable,
         .undef => unreachable,
@@ -2807,28 +2830,12 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                     try self.genSetReg(value_ty, reg, value);
                 },
                 .immediate => |imm| {
-                    _ = imm;
                     switch (abi_size) {
                         1, 2, 4 => {
-                            // TODO this is wasteful!
-                            // introduce new MIR tag specifically for mov [reg + 0], imm
-                            // const payload = try self.addExtra(Mir.ImmPair{
-                            //     .dest_off = 0,
-                            //     .operand = @truncate(u32, imm),
-                            // });
-                            // _ = try self.addInst(.{
-                            //     .tag = .mov_mem_imm,
-                            //     .ops = Mir.Inst.Ops.encode(.{
-                            //         .reg1 = reg.to64(),
-                            //         .flags = switch (abi_size) {
-                            //             1 => 0b00,
-                            //             2 => 0b01,
-                            //             4 => 0b10,
-                            //             else => unreachable,
-                            //         },
-                            //     }),
-                            //     .data = .{ .payload = payload },
-                            // });
+                            try self.asmMemoryImmediate(.mov, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
+                                .base = reg.to64(),
+                                .disp = 0,
+                            }), Immediate.u(@truncate(u32, imm)));
                         },
                         8 => {
                             // TODO: optimization: if the imm is only using the lower
@@ -2913,19 +2920,8 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         return self.fail("TODO saving imm to memory for abi_size {}", .{abi_size});
                     }
 
-                    // const payload = try self.addExtra(Mir.ImmPair{
-                    //     .dest_off = 0,
-                    //     // TODO check if this logic is correct
-                    //     .operand = @intCast(u32, imm),
-                    // });
-                    const flags: u2 = switch (abi_size) {
-                        1 => 0b00,
-                        2 => 0b01,
-                        4 => 0b10,
-                        8 => 0b11,
-                        else => unreachable,
-                    };
-                    if (flags == 0b11) {
+                    if (abi_size == 8) {
+                        // TODO
                         const top_bits: u32 = @intCast(u32, imm >> 32);
                         const can_extend = if (value_ty.isUnsignedInt())
                             (top_bits == 0) and (imm & 0x8000_0000) == 0
@@ -2936,14 +2932,10 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                             return self.fail("TODO imm64 would get incorrectly sign extended", .{});
                         }
                     }
-                    // _ = try self.addInst(.{
-                    //     .tag = .mov_mem_imm,
-                    //     .ops = Mir.Inst.Ops.encode(.{
-                    //         .reg1 = addr_reg.to64(),
-                    //         .flags = flags,
-                    //     }),
-                    //     .data = .{ .payload = payload },
-                    // });
+                    try self.asmMemoryImmediate(.mov, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
+                        .base = addr_reg.to64(),
+                        .disp = 0,
+                    }), Immediate.u(@intCast(u32, imm)));
                 },
                 .register => {
                     return self.store(new_ptr, value, ptr_ty, value_ty);
@@ -3595,12 +3587,12 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                     ),
                 },
                 .immediate => |imm| {
-                    _ = imm;
-                    // _ = try self.addInst(.{
-                    //     .tag = mir_tag,
-                    //     .ops = Mir.Inst.Ops.encode(.{ .reg1 = registerAlias(dst_reg, abi_size) }),
-                    //     .data = .{ .imm = @intCast(u32, imm) },
-                    // });
+                    // TODO
+                    try self.asmRegisterImmediate(
+                        mir_tag,
+                        registerAlias(dst_reg, abi_size),
+                        Immediate.u(@intCast(u32, imm)),
+                    );
                 },
                 .memory,
                 .linker_load,
@@ -3645,36 +3637,11 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                     }), registerAlias(src_reg, abi_size));
                 },
                 .immediate => |imm| {
-                    _ = imm;
-                    // const tag: Mir.Inst.Tag = switch (mir_tag) {
-                    //     .add => .add_mem_imm,
-                    //     .@"or" => .or_mem_imm,
-                    //     .@"and" => .and_mem_imm,
-                    //     .sub => .sub_mem_imm,
-                    //     .xor => .xor_mem_imm,
-                    //     .cmp => .cmp_mem_imm,
-                    //     else => unreachable,
-                    // };
-                    const flags: u2 = switch (abi_size) {
-                        1 => 0b00,
-                        2 => 0b01,
-                        4 => 0b10,
-                        8 => 0b11,
-                        else => unreachable,
-                    };
-                    // const payload = try self.addExtra(Mir.ImmPair{
-                    //     .dest_off = -off,
-                    //     .operand = @intCast(u32, imm),
-                    // });
-                    _ = flags;
-                    // _ = try self.addInst(.{
-                    //     .tag = tag,
-                    //     .ops = Mir.Inst.Ops.encode(.{
-                    //         .reg1 = .rbp,
-                    //         .flags = flags,
-                    //     }),
-                    //     .data = .{ .payload = payload },
-                    // });
+                    // TODO
+                    try self.asmMemoryImmediate(mir_tag, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
+                        .base = .rbp,
+                        .disp = -off,
+                    }), Immediate.u(@intCast(u32, imm)));
                 },
                 .memory,
                 .stack_offset,
@@ -5258,33 +5225,18 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
             return self.genSetStackArg(ty, stack_offset, .{ .register = reg });
         },
         .immediate => |imm| {
-            _ = imm;
             switch (abi_size) {
-                // TODO
-                // 1, 2, 4 => {
-                //     // We have a positive stack offset value but we want a twos complement negative
-                //     // offset from rbp, which is at the top of the stack frame.
-                //     // mov [rbp+offset], immediate
-                //     const flags: u2 = switch (abi_size) {
-                //         1 => 0b00,
-                //         2 => 0b01,
-                //         4 => 0b10,
-                //         else => unreachable,
-                //     };
-                //     const payload = try self.addExtra(Mir.ImmPair{
-                //         .dest_off = -stack_offset,
-                //         .operand = @intCast(u32, imm),
-                //     });
-                //     _ = try self.addInst(.{
-                //         .tag = .mov_mem_imm,
-                //         .ops = Mir.Inst.Ops.encode(.{
-                //             .reg1 = .rsp,
-                //             .flags = flags,
-                //         }),
-                //         .data = .{ .payload = payload },
-                //     });
-                // },
-                1, 2, 4, 8 => {
+                1, 2, 4 => {
+                    // TODO
+                    // We have a positive stack offset value but we want a twos complement negative
+                    // offset from rbp, which is at the top of the stack frame.
+                    // mov [rbp+offset], immediate
+                    try self.asmMemoryImmediate(.mov, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
+                        .base = .rsp,
+                        .disp = -stack_offset,
+                    }), Immediate.u(@intCast(u32, imm)));
+                },
+                8 => {
                     const reg = try self.copyToTmpRegister(ty, mcv);
                     return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
                 },
@@ -5355,7 +5307,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
 }
 
 fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: InlineMemcpyOpts) InnerError!void {
-    const abi_size = ty.abiSize(self.target.*);
+    const abi_size = @intCast(u32, ty.abiSize(self.target.*));
     switch (mcv) {
         .dead => unreachable,
         .unreach, .none => return, // Nothing to do.
@@ -5400,75 +5352,33 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
             return self.genSetStack(ty, stack_offset, .{ .register = reg }, opts);
         },
         .immediate => |x_big| {
-            _ = x_big;
             const base_reg = opts.dest_stack_base orelse .rbp;
-            _ = base_reg;
+            // TODO
             switch (abi_size) {
                 0 => {
                     assert(ty.isError());
-                    // const payload = try self.addExtra(Mir.ImmPair{
-                    //     .dest_off = -stack_offset,
-                    //     .operand = @truncate(u32, x_big),
-                    // });
-                    // _ = try self.addInst(.{
-                    //     .tag = .mov_mem_imm,
-                    //     .ops = Mir.Inst.Ops.encode(.{
-                    //         .reg1 = base_reg,
-                    //         .flags = 0b00,
-                    //     }),
-                    //     .data = .{ .payload = payload },
-                    // });
+                    try self.asmMemoryImmediate(.mov, Memory.sib(.byte, .{
+                        .base = base_reg,
+                        .disp = -stack_offset,
+                    }), Immediate.u(@truncate(u32, x_big)));
                 },
                 1, 2, 4 => {
-                    // const payload = try self.addExtra(Mir.ImmPair{
-                    //     .dest_off = -stack_offset,
-                    //     .operand = @truncate(u32, x_big),
-                    // });
-                    // _ = try self.addInst(.{
-                    //     .tag = .mov_mem_imm,
-                    //     .ops = Mir.Inst.Ops.encode(.{
-                    //         .reg1 = base_reg,
-                    //         .flags = switch (abi_size) {
-                    //             1 => 0b00,
-                    //             2 => 0b01,
-                    //             4 => 0b10,
-                    //             else => unreachable,
-                    //         },
-                    //     }),
-                    //     .data = .{ .payload = payload },
-                    // });
+                    try self.asmMemoryImmediate(.mov, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
+                        .base = base_reg,
+                        .disp = -stack_offset,
+                    }), Immediate.u(@truncate(u32, x_big)));
                 },
                 8 => {
                     // 64 bit write to memory would take two mov's anyways so we
                     // insted just use two 32 bit writes to avoid register allocation
-                    {
-                        // const payload = try self.addExtra(Mir.ImmPair{
-                        //     .dest_off = -stack_offset + 4,
-                        //     .operand = @truncate(u32, x_big >> 32),
-                        // });
-                        // _ = try self.addInst(.{
-                        //     .tag = .mov_mem_imm,
-                        //     .ops = Mir.Inst.Ops.encode(.{
-                        //         .reg1 = base_reg,
-                        //         .flags = 0b10,
-                        //     }),
-                        //     .data = .{ .payload = payload },
-                        // });
-                    }
-                    {
-                        // const payload = try self.addExtra(Mir.ImmPair{
-                        //     .dest_off = -stack_offset,
-                        //     .operand = @truncate(u32, x_big),
-                        // });
-                        // _ = try self.addInst(.{
-                        //     .tag = .mov_mem_imm,
-                        //     .ops = Mir.Inst.Ops.encode(.{
-                        //         .reg1 = base_reg,
-                        //         .flags = 0b10,
-                        //     }),
-                        //     .data = .{ .payload = payload },
-                        // });
-                    }
+                    try self.asmMemoryImmediate(.mov, Memory.sib(.dword, .{
+                        .base = base_reg,
+                        .disp = -stack_offset + 4,
+                    }), Immediate.u(@truncate(u32, x_big >> 32)));
+                    try self.asmMemoryImmediate(.mov, Memory.sib(.dword, .{
+                        .base = base_reg,
+                        .disp = -stack_offset,
+                    }), Immediate.u(@truncate(u32, x_big)));
                 },
                 else => {
                     return self.fail("TODO implement set abi_size=large stack variable with immediate", .{});
@@ -5647,15 +5557,10 @@ fn genInlineMemcpy(
             try self.loadMemPtrIntoRegister(src_addr_reg, Type.usize, src_ptr);
         },
         .ptr_stack_offset, .stack_offset => |off| {
-            _ = off;
-            // _ = try self.addInst(.{
-            //     .tag = .lea,
-            //     .ops = Mir.Inst.Ops.encode(.{
-            //         .reg1 = src_addr_reg.to64(),
-            //         .reg2 = opts.source_stack_base orelse .rbp,
-            //     }),
-            //     .data = .{ .disp = -off },
-            // });
+            try self.asmRegisterMemory(.lea, src_addr_reg.to64(), Memory.sib(.qword, .{
+                .base = opts.source_stack_base orelse .rbp,
+                .disp = -off,
+            }));
         },
         .register => |reg| {
             try self.asmRegisterRegister(
