@@ -1713,21 +1713,6 @@ pub fn LocalFree(hMem: HLOCAL) void {
     assert(kernel32.LocalFree(hMem) == null);
 }
 
-pub const GetFileInformationByHandleError = error{Unexpected};
-
-pub fn GetFileInformationByHandle(
-    hFile: HANDLE,
-) GetFileInformationByHandleError!BY_HANDLE_FILE_INFORMATION {
-    var info: BY_HANDLE_FILE_INFORMATION = undefined;
-    const rc = kernel32.GetFileInformationByHandle(hFile, &info);
-    if (rc == 0) {
-        switch (kernel32.GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return info;
-}
-
 pub const SetFileTimeError = error{Unexpected};
 
 pub fn SetFileTime(
