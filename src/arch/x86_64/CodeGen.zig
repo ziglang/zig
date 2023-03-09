@@ -5834,14 +5834,11 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             if (off < std.math.minInt(i32) or off > std.math.maxInt(i32)) {
                 return self.fail("stack offset too large", .{});
             }
-            // _ = try self.addInst(.{
-            //     .tag = .lea,
-            //     .ops = Mir.Inst.Ops.encode(.{
-            //         .reg1 = registerAlias(reg, abi_size),
-            //         .reg2 = .rbp,
-            //     }),
-            //     .data = .{ .disp = -off },
-            // });
+            try self.asmRegisterMemory(
+                .lea,
+                registerAlias(reg, abi_size),
+                Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = .rbp, .disp = -off }),
+            );
         },
         .unreach, .none => return, // Nothing to do.
         .undef => {
@@ -5927,40 +5924,31 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     try self.loadMemPtrIntoRegister(base_reg, Type.usize, mcv);
 
                     if (intrinsicsAllowed(self.target.*, ty)) {
-                        // const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                        //     .f32 => Mir.Inst.Tag.mov_f32,
-                        //     .f64 => Mir.Inst.Tag.mov_f64,
-                        //     else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
-                        // };
-
-                        // _ = try self.addInst(.{
-                        //     .tag = tag,
-                        //     .ops = Mir.Inst.Ops.encode(.{
-                        //         .reg1 = reg.to128(),
-                        //         .reg2 = switch (ty.tag()) {
-                        //             .f32 => base_reg.to32(),
-                        //             .f64 => base_reg.to64(),
-                        //             else => unreachable,
-                        //         },
-                        //     }),
-                        //     .data = .{ .disp = 0 },
-                        // });
-                        return;
+                        const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                            .f32 => .movss,
+                            .f64 => .movsx,
+                            else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
+                        };
+                        const ptr_size: Memory.PtrSize = switch (ty.tag()) {
+                            .f32 => .dword,
+                            .f64 => .qword,
+                            else => unreachable,
+                        };
+                        return self.asmRegisterMemory(tag, reg.to128(), Memory.sib(ptr_size, .{
+                            .base = base_reg.to64(),
+                            .disp = 0,
+                        }));
                     }
 
                     return self.fail("TODO genSetReg from memory for float with no intrinsics", .{});
                 },
                 else => {
                     try self.loadMemPtrIntoRegister(reg, Type.usize, mcv);
-                    // _ = try self.addInst(.{
-                    //     .tag = .mov,
-                    //     .ops = Mir.Inst.Ops.encode(.{
-                    //         .reg1 = registerAlias(reg, abi_size),
-                    //         .reg2 = reg.to64(),
-                    //         .flags = 0b01,
-                    //     }),
-                    //     .data = .{ .disp = 0 },
-                    // });
+                    try self.asmRegisterMemory(
+                        .mov,
+                        registerAlias(reg, abi_size),
+                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64(), .disp = 0 }),
+                    );
                 },
             }
         },
@@ -5970,40 +5958,34 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 try self.loadMemPtrIntoRegister(base_reg, Type.usize, mcv);
 
                 if (intrinsicsAllowed(self.target.*, ty)) {
-                    // const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                    //     .f32 => Mir.Inst.Tag.mov_f32,
-                    //     .f64 => Mir.Inst.Tag.mov_f64,
-                    //     else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
-                    // };
-
-                    // _ = try self.addInst(.{
-                    //     .tag = tag,
-                    //     .ops = Mir.Inst.Ops.encode(.{
-                    //         .reg1 = reg.to128(),
-                    //         .reg2 = switch (ty.tag()) {
-                    //             .f32 => base_reg.to32(),
-                    //             .f64 => base_reg.to64(),
-                    //             else => unreachable,
-                    //         },
-                    //     }),
-                    //     .data = .{ .disp = 0 },
-                    // });
-                    return;
+                    const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                        .f32 => .movss,
+                        .f64 => .movsd,
+                        else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
+                    };
+                    const ptr_size: Memory.PtrSize = switch (ty.tag()) {
+                        .f32 => .dword,
+                        .f64 => .qword,
+                        else => unreachable,
+                    };
+                    return self.asmRegisterMemory(tag, reg.to128(), Memory.sib(ptr_size, .{
+                        .base = base_reg.to64(),
+                        .disp = 0,
+                    }));
                 }
 
                 return self.fail("TODO genSetReg from memory for float with no intrinsics", .{});
             },
             else => {
                 if (x <= math.maxInt(i32)) {
-                    // mov reg, [ds:imm32]
-                    // _ = try self.addInst(.{
-                    //     .tag = .mov,
-                    //     .ops = Mir.Inst.Ops.encode(.{
-                    //         .reg1 = registerAlias(reg, abi_size),
-                    //         .flags = 0b01,
-                    //     }),
-                    //     .data = .{ .disp = @intCast(i32, x) },
-                    // });
+                    try self.asmRegisterMemory(
+                        .mov,
+                        registerAlias(reg, abi_size),
+                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
+                            .base = .ds,
+                            .disp = @intCast(i32, x),
+                        }),
+                    );
                 } else {
                     if (reg.to64() == .rax) {
                         // If this is RAX, we can use a direct load.
@@ -6022,17 +6004,11 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     } else {
                         // Rather than duplicate the logic used for the move, we just use a self-call with a new MCValue.
                         try self.genSetReg(ty, reg, MCValue{ .immediate = x });
-
-                        // mov reg, [reg + 0x0]
-                        // _ = try self.addInst(.{
-                        //     .tag = .mov,
-                        //     .ops = Mir.Inst.Ops.encode(.{
-                        //         .reg1 = registerAlias(reg, abi_size),
-                        //         .reg2 = reg.to64(),
-                        //         .flags = 0b01,
-                        //     }),
-                        //     .data = .{ .disp = 0 },
-                        // });
+                        try self.asmRegisterMemory(
+                            .mov,
+                            registerAlias(reg, abi_size),
+                            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64(), .disp = 0 }),
+                        );
                     }
                 }
             },
@@ -6046,81 +6022,59 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .Int => switch (ty.intInfo(self.target.*).signedness) {
                     .signed => {
                         if (abi_size <= 4) {
-                            const flags: u2 = switch (abi_size) {
-                                1 => 0b01,
-                                2 => 0b10,
-                                4 => 0b11,
-                                else => unreachable,
-                            };
-                            _ = flags;
-                            // _ = try self.addInst(.{
-                            //     .tag = .mov_sign_extend,
-                            //     .ops = Mir.Inst.Ops.encode(.{
-                            //         .reg1 = reg.to64(),
-                            //         .reg2 = .rbp,
-                            //         .flags = flags,
-                            //     }),
-                            //     .data = .{ .disp = -off },
-                            // });
-                            return;
+                            return self.asmRegisterMemory(
+                                .movsx,
+                                reg.to64(),
+                                Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
+                                    .base = .rbp,
+                                    .disp = -off,
+                                }),
+                            );
                         }
                     },
                     .unsigned => {
                         if (abi_size <= 2) {
-                            const flags: u2 = switch (abi_size) {
-                                1 => 0b01,
-                                2 => 0b10,
-                                else => unreachable,
-                            };
-                            _ = flags;
-                            // _ = try self.addInst(.{
-                            //     .tag = .mov_zero_extend,
-                            //     .ops = Mir.Inst.Ops.encode(.{
-                            //         .reg1 = reg.to64(),
-                            //         .reg2 = .rbp,
-                            //         .flags = flags,
-                            //     }),
-                            //     .data = .{ .disp = -off },
-                            // });
-                            return;
+                            return self.asmRegisterMemory(
+                                .movzx,
+                                reg.to64(),
+                                Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
+                                    .base = .rbp,
+                                    .disp = -off,
+                                }),
+                            );
                         }
                     },
                 },
                 .Float => {
                     if (intrinsicsAllowed(self.target.*, ty)) {
-                        // const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                        //     .f32 => Mir.Inst.Tag.mov_f32,
-                        //     .f64 => Mir.Inst.Tag.mov_f64,
-                        //     else => return self.fail("TODO genSetReg from stack offset for {}", .{ty.fmtDebug()}),
-                        // };
-                        // _ = try self.addInst(.{
-                        //     .tag = tag,
-                        //     .ops = Mir.Inst.Ops.encode(.{
-                        //         .reg1 = reg.to128(),
-                        //         .reg2 = switch (ty.tag()) {
-                        //             .f32 => .ebp,
-                        //             .f64 => .rbp,
-                        //             else => unreachable,
-                        //         },
-                        //     }),
-                        //     .data = .{ .disp = -off },
-                        // });
-                        return;
+                        const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                            .f32 => .movss,
+                            .f64 => .movsd,
+                            else => return self.fail(
+                                "TODO genSetReg from stack offset for {}",
+                                .{ty.fmtDebug()},
+                            ),
+                        };
+                        const ptr_size: Memory.PtrSize = switch (ty.tag()) {
+                            .f32 => .dword,
+                            .f64 => .qword,
+                            else => unreachable,
+                        };
+                        return self.asmRegisterMemory(tag, reg.to128(), Memory.sib(ptr_size, .{
+                            .base = .rbp,
+                            .disp = -off,
+                        }));
                     }
                     return self.fail("TODO genSetReg from stack offset for float with no intrinsics", .{});
                 },
                 else => {},
             }
 
-            // _ = try self.addInst(.{
-            //     .tag = .mov,
-            //     .ops = Mir.Inst.Ops.encode(.{
-            //         .reg1 = registerAlias(reg, abi_size),
-            //         .reg2 = .rbp,
-            //         .flags = 0b01,
-            //     }),
-            //     .data = .{ .disp = -off },
-            // });
+            try self.asmRegisterMemory(
+                .mov,
+                registerAlias(reg, abi_size),
+                Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = .rbp, .disp = -off }),
+            );
         },
     }
 }
@@ -6184,7 +6138,16 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
     const src_ty = self.air.typeOf(ty_op.operand);
     const dst_ty = self.air.typeOfIndex(inst);
     const operand = try self.resolveInst(ty_op.operand);
-    _ = dst_ty;
+    const src_abi_size = @intCast(u32, src_ty.abiSize(self.target.*));
+    const dst_abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
+
+    switch (src_abi_size) {
+        4, 8 => {},
+        else => |size| return self.fail("TODO load ST(0) with abiSize={}", .{size}),
+    }
+    if (dst_abi_size > 8) {
+        return self.fail("TODO convert float with abiSize={}", .{dst_abi_size});
+    }
 
     // move float src to ST(0)
     const stack_offset = switch (operand) {
@@ -6192,42 +6155,24 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
         else => blk: {
             const offset = @intCast(i32, try self.allocMem(
                 inst,
-                @intCast(u32, src_ty.abiSize(self.target.*)),
+                src_abi_size,
                 src_ty.abiAlignment(self.target.*),
             ));
             try self.genSetStack(src_ty, offset, operand, .{});
             break :blk offset;
         },
     };
-    _ = stack_offset;
-    // _ = try self.addInst(.{
-    //     .tag = .fld,
-    //     .ops = Mir.Inst.Ops.encode(.{
-    //         .reg1 = .rbp,
-    //         .flags = switch (src_ty.abiSize(self.target.*)) {
-    //             4 => 0b01,
-    //             8 => 0b10,
-    //             else => |size| return self.fail("TODO load ST(0) with abiSize={}", .{size}),
-    //         },
-    //     }),
-    //     .data = .{ .disp = -stack_offset },
-    // });
+    try self.asmMemory(.fld, Memory.sib(Memory.PtrSize.fromSize(src_abi_size), .{
+        .base = .rbp,
+        .disp = -stack_offset,
+    }));
 
     // convert
     const stack_dst = try self.allocRegOrMem(inst, false);
-    // _ = try self.addInst(.{
-    //     .tag = .fisttp,
-    //     .ops = Mir.Inst.Ops.encode(.{
-    //         .reg1 = .rbp,
-    //         .flags = switch (dst_ty.abiSize(self.target.*)) {
-    //             1...2 => 0b00,
-    //             3...4 => 0b01,
-    //             5...8 => 0b10,
-    //             else => |size| return self.fail("TODO convert float with abiSize={}", .{size}),
-    //         },
-    //     }),
-    //     .data = .{ .disp = -stack_dst.stack_offset },
-    // });
+    try self.asmMemory(.fisttp, Memory.sib(Memory.PtrSize.fromSize(dst_abi_size), .{
+        .base = .rbp,
+        .disp = -stack_dst.stack_offset,
+    }));
 
     return self.finishAir(inst, stack_dst, .{ ty_op.operand, .none, .none });
 }
@@ -6318,15 +6263,10 @@ fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
             .linker_load, .memory => {
                 const reg = try self.register_manager.allocReg(null, gp);
                 try self.loadMemPtrIntoRegister(reg, src_ty, src_ptr);
-                // _ = try self.addInst(.{
-                //     .tag = .mov,
-                //     .ops = Mir.Inst.Ops.encode(.{
-                //         .reg1 = reg,
-                //         .reg2 = reg,
-                //         .flags = 0b01,
-                //     }),
-                //     .data = .{ .disp = 0 },
-                // });
+                try self.asmRegisterMemory(.mov, reg, Memory.sib(.qword, .{
+                    .base = reg,
+                    .disp = 0,
+                }));
                 break :blk MCValue{ .register = reg };
             },
             else => break :blk src_ptr,
