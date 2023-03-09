@@ -491,6 +491,37 @@ fn asmRegisterImmediate(self: *Self, tag: Mir.Inst.Tag, reg: Register, imm: Imme
     });
 }
 
+fn asmRegisterRegisterImmediate(
+    self: *Self,
+    tag: Mir.Inst.Tag,
+    reg1: Register,
+    reg2: Register,
+    imm: Immediate,
+) !void {
+    const ops: Mir.Inst.Ops = switch (imm) {
+        .signed => .rri_s,
+        .unsigned => .rri_u,
+    };
+    const data: Mir.Inst.Data = switch (ops) {
+        .rri_s => .{ .rri_s = .{
+            .r1 = reg1,
+            .r2 = reg2,
+            .imm = imm.signed,
+        } },
+        .rri_u => .{ .rri_u = .{
+            .r1 = reg1,
+            .r2 = reg2,
+            .imm = @intCast(u32, imm.unsigned),
+        } },
+        else => unreachable,
+    };
+    _ = try self.addInst(.{
+        .tag = tag,
+        .ops = ops,
+        .data = data,
+    });
+}
+
 fn asmMemory(self: *Self, tag: Mir.Inst.Tag, m: Memory) !void {
     const ops: Mir.Inst.Ops = switch (m) {
         .sib => .m_sib,
@@ -2767,27 +2798,20 @@ fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue
                 const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
                 break :blk coff_file.getAtom(atom).getSymbolIndex().?;
             } else unreachable;
-            const flags: u2 = switch (load_struct.type) {
-                .got => 0b00,
-                .direct => 0b01,
-                .import => 0b10,
+            const ops: Mir.Inst.Ops = switch (load_struct.type) {
+                .got => .got_reloc,
+                .direct => .direct_reloc,
+                .import => .import_reloc,
             };
-            _ = abi_size;
-            _ = atom_index;
-            _ = flags;
-            // _ = try self.addInst(.{
-            //     .tag = .lea_pic,
-            //     .ops = Mir.Inst.Ops.encode(.{
-            //         .reg1 = registerAlias(reg, abi_size),
-            //         .flags = flags,
-            //     }),
-            //     .data = .{
-            //         .relocation = .{
-            //             .atom_index = atom_index,
-            //             .sym_index = load_struct.sym_index,
-            //         },
-            //     },
-            // });
+            _ = try self.addInst(.{
+                .tag = .lea_linker,
+                .ops = ops,
+                .data = .{ .payload = try self.addExtra(Mir.LeaRegisterReloc{
+                    .reg = @enumToInt(registerAlias(reg, abi_size)),
+                    .atom_index = atom_index,
+                    .sym_index = load_struct.sym_index,
+                }) },
+            });
         },
         .memory => |addr| {
             // TODO: in case the address fits in an imm32 we can use [ds:imm32]
@@ -3690,18 +3714,15 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
                     registerAlias(src_reg, abi_size),
                 ),
                 .immediate => |imm| {
-                    // TODO take into account the type's ABI size when selecting the register alias
-                    // register, immediate
                     if (math.minInt(i32) <= imm and imm <= math.maxInt(i32)) {
-                        // _ = try self.addInst(.{
-                        //     .tag = .imul_complex,
-                        //     .ops = Mir.Inst.Ops.encode(.{
-                        //         .reg1 = dst_reg.to32(),
-                        //         .reg2 = dst_reg.to32(),
-                        //         .flags = 0b10,
-                        //     }),
-                        //     .data = .{ .imm = @intCast(u32, imm) },
-                        // });
+                        // TODO take into account the type's ABI size when selecting the register alias
+                        // register, immediate
+                        try self.asmRegisterRegisterImmediate(
+                            .imul,
+                            dst_reg.to32(),
+                            dst_reg.to32(),
+                            Immediate.u(@intCast(u32, imm)),
+                        );
                     } else {
                         // TODO verify we don't spill and assign to the same register as dst_mcv
                         const src_reg = try self.copyToTmpRegister(dst_ty, src_mcv);
@@ -4034,16 +4055,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const sym_index = try macho_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
                 const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
                 const atom_index = macho_file.getAtom(atom).getSymbolIndex().?;
-                _ = sym_index;
-                _ = atom_index;
-                // _ = try self.addInst(.{
-                //     .tag = .call_extern,
-                //     .ops = undefined,
-                //     .data = .{ .relocation = .{
-                //         .atom_index = atom_index,
-                //         .sym_index = sym_index,
-                //     } },
-                // });
+                _ = try self.addInst(.{
+                    .tag = .call_extern,
+                    .ops = undefined,
+                    .data = .{ .relocation = .{
+                        .atom_index = atom_index,
+                        .sym_index = sym_index,
+                    } },
+                });
             } else {
                 return self.fail("TODO implement calling extern functions", .{});
             }
@@ -5528,7 +5547,6 @@ fn genInlineMemcpy(
     const index_reg = regs[2].to64();
     const count_reg = regs[3].to64();
     const tmp_reg = regs[4].to8();
-    _ = tmp_reg;
 
     switch (dst_ptr) {
         .memory, .linker_load => {
@@ -5575,7 +5593,6 @@ fn genInlineMemcpy(
     }
 
     try self.genSetReg(Type.usize, count_reg, len);
-
     try self.asmRegisterImmediate(.mov, index_reg, Immediate.u(0));
 
     const loop_start = try self.addInst(.{
@@ -5595,26 +5612,22 @@ fn genInlineMemcpy(
         } },
     });
 
-    // mov tmp, [addr + index_reg]
-    // _ = try self.addInst(.{
-    //     .tag = .mov_scale_src,
-    //     .ops = Mir.Inst.Ops.encode(.{
-    //         .reg1 = tmp_reg.to8(),
-    //         .reg2 = src_addr_reg,
-    //     }),
-    //     .data = .{ .payload = try self.addExtra(Mir.IndexRegisterDisp.encode(index_reg, 0)) },
-    // });
-
-    // mov [stack_offset + index_reg], tmp
-    // _ = try self.addInst(.{
-    //     .tag = .mov_scale_dst,
-    //     .ops = Mir.Inst.Ops.encode(.{
-    //         .reg1 = dst_addr_reg,
-    //         .reg2 = tmp_reg.to8(),
-    //     }),
-    //     .data = .{ .payload = try self.addExtra(Mir.IndexRegisterDisp.encode(index_reg, 0)) },
-    // });
-
+    try self.asmRegisterMemory(.mov, tmp_reg.to8(), Memory.sib(.byte, .{
+        .base = src_addr_reg,
+        .scale_index = .{
+            .scale = 1,
+            .index = index_reg,
+        },
+        .disp = 0,
+    }));
+    try self.asmMemoryRegister(.mov, Memory.sib(.byte, .{
+        .base = dst_addr_reg,
+        .scale_index = .{
+            .scale = 1,
+            .index = index_reg,
+        },
+        .disp = 0,
+    }), tmp_reg.to8());
     try self.asmRegisterImmediate(.add, index_reg, Immediate.u(1));
     try self.asmRegisterImmediate(.sub, count_reg, Immediate.u(1));
 
@@ -5655,15 +5668,10 @@ fn genInlineMemset(
             try self.loadMemPtrIntoRegister(addr_reg, Type.usize, dst_ptr);
         },
         .ptr_stack_offset, .stack_offset => |off| {
-            _ = off;
-            // _ = try self.addInst(.{
-            //     .tag = .lea,
-            //     .ops = Mir.Inst.Ops.encode(.{
-            //         .reg1 = addr_reg.to64(),
-            //         .reg2 = opts.dest_stack_base orelse .rbp,
-            //     }),
-            //     .data = .{ .disp = -off },
-            // });
+            try self.asmRegisterMemory(.lea, addr_reg.to64(), Memory.sib(.qword, .{
+                .base = opts.dest_stack_base orelse .rbp,
+                .disp = -off,
+            }));
         },
         .register => |reg| {
             try self.asmRegisterRegister(
@@ -5703,18 +5711,14 @@ fn genInlineMemset(
             if (x > math.maxInt(i32)) {
                 return self.fail("TODO inline memset for value immediate larger than 32bits", .{});
             }
-            // mov byte ptr [rbp + index_reg + stack_offset], imm
-            // _ = try self.addInst(.{
-            //     .tag = .mov_mem_index_imm,
-            //     .ops = Mir.Inst.Ops.encode(.{
-            //         .reg1 = addr_reg,
-            //     }),
-            //     .data = .{ .payload = try self.addExtra(Mir.IndexRegisterDispImm.encode(
-            //         index_reg,
-            //         0,
-            //         @intCast(u32, x),
-            //     )) },
-            // });
+            try self.asmMemoryImmediate(.mov, Memory.sib(.byte, .{
+                .base = addr_reg,
+                .scale_index = .{
+                    .scale = 1,
+                    .index = index_reg,
+                },
+                .disp = 0,
+            }), Immediate.u(@intCast(u8, x)));
         },
         else => return self.fail("TODO inline memset for value of type {}", .{value}),
     }

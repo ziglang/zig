@@ -142,6 +142,13 @@ pub const Inst = struct {
         /// Jump with relocation to another local MIR instruction
         jmp_reloc,
 
+        /// Call to an extern symbol via linker relocation.
+        /// Uses `relocation` payload.
+        call_extern,
+
+        /// Load effective address of a symbol not yet allocated in VM.
+        lea_linker,
+
         /// End of prologue
         dbg_prologue_end,
         /// Start of epilogue
@@ -169,6 +176,12 @@ pub const Inst = struct {
         /// Register, register, register operands.
         /// Uses `rrr` payload.
         rrr,
+        /// Register, register, immediate (sign-extended) operands.
+        /// Uses `rri_s`  payload.
+        rri_s,
+        /// Register, register, immediate (unsigned) operands.
+        /// Uses `rri_u`  payload.
+        rri_u,
         /// Register with condition code (CC).
         /// Uses `r_c` payload.
         r_c,
@@ -199,12 +212,6 @@ pub const Inst = struct {
         /// Register, memory (RIP) operands.
         /// Uses `rx` payload.
         rm_rip,
-        /// Register, memory, immediate (unsigned) operands
-        /// Uses `rx` payload.
-        rmi_u,
-        /// Register, memory, immediate (sign-extended) operands
-        /// Uses `rx` payload.
-        rmi_s,
         /// Single memory (SIB) operand.
         /// Uses `payload` with extra data of type `MemorySib`.
         m_sib,
@@ -250,6 +257,15 @@ pub const Inst = struct {
         rm_cc,
         /// Uses `reloc` payload.
         reloc,
+        /// Linker relocation - GOT indirection.
+        /// Uses `payload` payload with extra data of type `LeaRegisterReloc`.
+        got_reloc,
+        /// Linker relocation - direct reference.
+        /// Uses `payload` payload with extra data of type `LeaRegisterReloc`.
+        direct_reloc,
+        /// Linker relocation - imports table indirection (binding).
+        /// Uses `payload` payload with extra data of type `LeaRegisterReloc`.
+        import_reloc,
     };
 
     pub const Data = union {
@@ -278,6 +294,16 @@ pub const Inst = struct {
             r1: Register,
             r2: Register,
             r3: Register,
+        },
+        rri_s: struct {
+            r1: Register,
+            r2: Register,
+            imm: i32,
+        },
+        rri_u: struct {
+            r1: Register,
+            r2: Register,
+            imm: u32,
         },
         /// Register with condition code (CC).
         r_c: struct {
@@ -339,13 +365,7 @@ pub const Inst = struct {
 
 pub const LeaRegisterReloc = struct {
     /// Destination register.
-    reg: Register,
-    /// Type of the load.
-    load_type: enum(u2) {
-        got,
-        direct,
-        import,
-    },
+    reg: u32,
     /// Index of the containing atom.
     atom_index: u32,
     /// Index into the linker's symbol table.
