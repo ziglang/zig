@@ -231,7 +231,7 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime delim: u8, compti
                 bytes = bytes[rate..];
             }
             if (bytes.len > 0) {
-                self.st.addBytes(bytes[0..]);
+                mem.copy(u8, &self.buf, bytes);
                 self.offset = bytes.len;
             }
         }
