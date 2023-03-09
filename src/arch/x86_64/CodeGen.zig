@@ -400,6 +400,29 @@ fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
     return result;
 }
 
+fn asmSetCCRegister(self: *Self, reg: Register, cc: bits.Condition) !void {
+    _ = try self.addInst(.{
+        .tag = .setcc,
+        .ops = .r_c,
+        .data = .{ .r_c = .{
+            .r1 = reg,
+            .cc = cc,
+        } },
+    });
+}
+
+fn asmCmovCCRegisterRegister(self: *Self, reg1: Register, reg2: Register, cc: bits.Condition) !void {
+    _ = try self.addInst(.{
+        .tag = .cmovcc,
+        .ops = .rr_c,
+        .data = .{ .rr_c = .{
+            .r1 = reg1,
+            .r2 = reg2,
+            .cc = cc,
+        } },
+    });
+}
+
 fn asmNone(self: *Self, tag: Mir.Inst.Tag) !void {
     _ = try self.addInst(.{
         .tag = tag,
@@ -1346,15 +1369,7 @@ fn airMin(self: *Self, inst: Air.Inst.Index) !void {
             .unsigned => .b,
             .signed => .l,
         };
-        _ = cc;
-        // _ = try self.addInst(.{
-        //     .tag = .cond_mov,
-        //     .ops = Mir.Inst.Ops.encode(.{
-        //         .reg1 = dst_mcv.register,
-        //         .reg2 = lhs_reg,
-        //     }),
-        //     .data = .{ .cc = cc },
-        // });
+        try self.asmCmovCCRegisterRegister(dst_mcv.register, lhs_reg, cc);
 
         break :result dst_mcv;
     };
@@ -1554,14 +1569,7 @@ fn genSetStackTruncatedOverflowCompare(
         .signed => .o,
         .unsigned => .c,
     };
-    _ = cc;
-    // _ = try self.addInst(.{
-    //     .tag = .cond_set_byte,
-    //     .ops = Mir.Inst.Ops.encode(.{
-    //         .reg1 = overflow_reg.to8(),
-    //     }),
-    //     .data = .{ .cc = cc },
-    // });
+    try self.asmSetCCRegister(overflow_reg.to8(), cc);
 
     const scratch_reg = temp_regs[1];
     try self.genSetReg(extended_ty, scratch_reg, .{ .register = reg });
@@ -1574,12 +1582,7 @@ fn genSetStackTruncatedOverflowCompare(
     );
 
     const eq_reg = temp_regs[2];
-    // _ = try self.addInst(.{
-    //     .tag = .cond_set_byte,
-    //     .ops = Mir.Inst.Ops.encode(.{ .reg1 = eq_reg.to8() }),
-    //     .data = .{ .cc = .ne },
-    // });
-
+    try self.asmSetCCRegister(eq_reg.to8(), .ne);
     try self.genBinOpMir(
         .@"or",
         Type.u8,
@@ -1829,14 +1832,7 @@ fn genInlineIntDivFloor(self: *Self, ty: Type, lhs: MCValue, rhs: MCValue) !MCVa
     //     }),
     //     .data = undefined,
     // });
-    // _ = try self.addInst(.{
-    //     .tag = .cond_mov,
-    //     .ops = Mir.Inst.Ops.encode(.{
-    //         .reg1 = divisor.to64(),
-    //         .reg2 = .rdx,
-    //     }),
-    //     .data = .{ .cc = .e },
-    // });
+    try self.asmCmovCCRegisterRegister(divisor.to64(), .rdx, .e);
     try self.genBinOpMir(.add, Type.isize, .{ .register = divisor }, .{ .register = .rax });
     return MCValue{ .register = divisor };
 }
@@ -2881,13 +2877,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                     const overflow_bit_ty = value_ty.structFieldType(1);
                     const overflow_bit_offset = value_ty.structFieldOffset(1, self.target.*);
                     const tmp_reg = try self.register_manager.allocReg(null, gp);
-                    // _ = try self.addInst(.{
-                    //     .tag = .cond_set_byte,
-                    //     .ops = Mir.Inst.Ops.encode(.{
-                    //         .reg1 = tmp_reg.to8(),
-                    //     }),
-                    //     .data = .{ .cc = ro.eflags },
-                    // });
+                    try self.asmSetCCRegister(tmp_reg.to8(), ro.eflags);
                     try self.genInlineMemcpyRegisterRegister(
                         overflow_bit_ty,
                         reg,
@@ -3185,13 +3175,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                         defer self.register_manager.unlockReg(reg_lock);
 
                         const dst_reg = try self.register_manager.allocReg(inst, gp);
-                        // _ = try self.addInst(.{
-                        //     .tag = .cond_set_byte,
-                        //     .ops = Mir.Inst.Ops.encode(.{
-                        //         .reg1 = dst_reg.to8(),
-                        //     }),
-                        //     .data = .{ .cc = ro.eflags },
-                        // });
+                        try self.asmSetCCRegister(dst_reg.to8(), ro.eflags);
                         break :result MCValue{ .register = dst_reg.to8() };
                     },
                     else => unreachable,
@@ -5577,13 +5561,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
             const overflow_bit_ty = ty.structFieldType(1);
             const overflow_bit_offset = ty.structFieldOffset(1, self.target.*);
             const tmp_reg = try self.register_manager.allocReg(null, gp);
-            // _ = try self.addInst(.{
-            //     .tag = .cond_set_byte,
-            //     .ops = Mir.Inst.Ops.encode(.{
-            //         .reg1 = tmp_reg.to8(),
-            //     }),
-            //     .data = .{ .cc = ro.eflags },
-            // });
+            try self.asmSetCCRegister(tmp_reg.to8(), ro.eflags);
 
             return self.genSetStack(
                 overflow_bit_ty,
@@ -6114,14 +6092,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             }
         },
         .eflags => |cc| {
-            _ = cc;
-            // _ = try self.addInst(.{
-            //     .tag = .cond_set_byte,
-            //     .ops = Mir.Inst.Ops.encode(.{
-            //         .reg1 = reg.to8(),
-            //     }),
-            //     .data = .{ .cc = cc },
-            // });
+            return self.asmSetCCRegister(reg.to8(), cc);
         },
         .immediate => |x| {
             if (x == 0) {

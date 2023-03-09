@@ -56,8 +56,6 @@ pub const Inst = struct {
         cqo,
         /// Logical compare
         cmp,
-        /// Conditional move
-        cmovcc,
         /// Unsigned division
         div,
         /// Store integer with truncation
@@ -134,6 +132,9 @@ pub const Inst = struct {
         /// Unordered compare scalar double-precision floating-point values
         ucomisd,
 
+        /// Conditional move
+        cmovcc,
+
         /// End of prologue
         dbg_prologue_end,
         /// Start of epilogue
@@ -161,6 +162,12 @@ pub const Inst = struct {
         /// Register, register, register operands.
         /// Uses `rrr` payload.
         rrr,
+        /// Register with condition code (CC).
+        /// Uses `r_c` payload.
+        r_c,
+        /// Register, register with condition code (CC).
+        /// Uses `rr_c` payload.
+        rr_c,
         /// Register, immediate (sign-extended) operands.
         /// Uses `ri_s` payload.
         ri_s,
@@ -240,6 +247,17 @@ pub const Inst = struct {
             r1: Register,
             r2: Register,
             r3: Register,
+        },
+        /// Register with condition code (CC).
+        r_c: struct {
+            r1: Register,
+            cc: bits.Condition,
+        },
+        /// Register, register with condition code (CC).
+        rr_c: struct {
+            r1: Register,
+            r2: Register,
+            cc: bits.Condition,
         },
         /// Register, signed immediate.
         ri_s: struct {

@@ -118,6 +118,9 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             => try emit.mirEncodeGeneric(tag, inst),
 
             // Pseudo-instructions
+            .cmovcc => try emit.mirCmovCC(inst),
+            .setcc => try emit.mirSetCC(inst),
+
             .dbg_line => try emit.mirDbgLine(inst),
             .dbg_prologue_end => try emit.mirDbgPrologueEnd(inst),
             .dbg_epilogue_begin => try emit.mirDbgEpilogueBegin(inst),
@@ -200,9 +203,11 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
             .{ .imm = Immediate.u(data.ri_u.imm) },
         },
         .ri64 => {
-            operands[0] = .{ .reg = data.rx.r1 };
             const imm64 = emit.mir.extraData(Mir.Imm64, data.rx.payload).data;
-            operands[1] = .{ .imm = Immediate.u(Mir.Imm64.decode(imm64)) };
+            operands[0..2].* = .{
+                .{ .reg = data.rx.r1 },
+                .{ .imm = Immediate.u(Mir.Imm64.decode(imm64)) },
+            };
         },
         else => unreachable,
     }
@@ -213,6 +218,42 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
         .op3 = operands[2],
         .op4 = operands[3],
     });
+}
+
+fn mnemonicFromCC(comptime basename: []const u8, cc: bits.Condition) Instruction.Mnemonic {
+    inline for (@typeInfo(bits.Condition).Enum.fields) |field| {
+        if (mem.eql(u8, field.name, @tagName(cc)))
+            return @field(Instruction.Mnemonic, basename ++ field.name);
+    } else unreachable;
+}
+
+fn mirCmovCC(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const ops = emit.mir.instructions.items(.ops)[inst];
+    switch (ops) {
+        .rr_c => {
+            const data = emit.mir.instructions.items(.data)[inst].rr_c;
+            const mnemonic = mnemonicFromCC("cmov", data.cc);
+            return emit.encode(mnemonic, .{
+                .op1 = .{ .reg = data.r1 },
+                .op2 = .{ .reg = data.r2 },
+            });
+        },
+        else => unreachable, // TODO
+    }
+}
+
+fn mirSetCC(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const ops = emit.mir.instructions.items(.ops)[inst];
+    switch (ops) {
+        .r_c => {
+            const data = emit.mir.instructions.items(.data)[inst].r_c;
+            const mnemonic = mnemonicFromCC("set", data.cc);
+            return emit.encode(mnemonic, .{
+                .op1 = .{ .reg = data.r1 },
+            });
+        },
+        else => unreachable, // TODO
+    }
 }
 
 fn mirPushPopRegisterList(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
@@ -330,107 +371,6 @@ fn mirPushPopRegisterList(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) 
 //         .target = inst_cc.inst,
 //         .offset = emit.code.items.len - 4,
 //         .length = 6,
-//     });
-// }
-
-// fn mirCondSetByte(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-//     const tag = emit.mir.instructions.items(.tag)[inst];
-//     assert(tag == .cond_set_byte);
-//     const ops = emit.mir.instructions.items(.ops)[inst].decode();
-//     const cc = emit.mir.instructions.items(.data)[inst].cc;
-//     const mnemonic: Instruction.Mnemonic = switch (cc) {
-//         .a => .seta,
-//         .ae => .setae,
-//         .b => .setb,
-//         .be => .setbe,
-//         .c => .setc,
-//         .e => .sete,
-//         .g => .setg,
-//         .ge => .setge,
-//         .l => .setl,
-//         .le => .setle,
-//         .na => .setna,
-//         .nae => .setnae,
-//         .nb => .setnb,
-//         .nbe => .setnbe,
-//         .nc => .setnc,
-//         .ne => .setne,
-//         .ng => .setng,
-//         .nge => .setnge,
-//         .nl => .setnl,
-//         .nle => .setnle,
-//         .no => .setno,
-//         .np => .setnp,
-//         .ns => .setns,
-//         .nz => .setnz,
-//         .o => .seto,
-//         .p => .setp,
-//         .pe => .setpe,
-//         .po => .setpo,
-//         .s => .sets,
-//         .z => .setz,
-//     };
-//     return emit.encode(mnemonic, .{ .op1 = .{ .reg = ops.reg1 } });
-// }
-
-// fn mirCondMov(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-//     const tag = emit.mir.instructions.items(.tag)[inst];
-//     assert(tag == .cond_mov);
-//     const ops = emit.mir.instructions.items(.ops)[inst].decode();
-//     const cc = emit.mir.instructions.items(.data)[inst].cc;
-//     const mnemonic: Instruction.Mnemonic = switch (cc) {
-//         .a => .cmova,
-//         .ae => .cmovae,
-//         .b => .cmovb,
-//         .be => .cmovbe,
-//         .c => .cmovc,
-//         .e => .cmove,
-//         .g => .cmovg,
-//         .ge => .cmovge,
-//         .l => .cmovl,
-//         .le => .cmovle,
-//         .na => .cmovna,
-//         .nae => .cmovnae,
-//         .nb => .cmovnb,
-//         .nbe => .cmovnbe,
-//         .nc => .cmovnc,
-//         .ne => .cmovne,
-//         .ng => .cmovng,
-//         .nge => .cmovnge,
-//         .nl => .cmovnl,
-//         .nle => .cmovnle,
-//         .no => .cmovno,
-//         .np => .cmovnp,
-//         .ns => .cmovns,
-//         .nz => .cmovnz,
-//         .o => .cmovo,
-//         .p => .cmovp,
-//         .pe => .cmovpe,
-//         .po => .cmovpo,
-//         .s => .cmovs,
-//         .z => .cmovz,
-//     };
-//     const op1: Instruction.Operand = .{ .reg = ops.reg1 };
-
-//     if (ops.flags == 0b00) {
-//         return emit.encode(mnemonic, .{
-//             .op1 = op1,
-//             .op2 = .{ .reg = ops.reg2 },
-//         });
-//     }
-//     const disp = emit.mir.instructions.items(.data)[inst].disp;
-//     const ptr_size: Memory.PtrSize = switch (ops.flags) {
-//         0b00 => unreachable,
-//         0b01 => .word,
-//         0b10 => .dword,
-//         0b11 => .qword,
-//     };
-//     return emit.encode(mnemonic, .{
-//         .op1 = op1,
-//         .op2 = .{ .mem = Memory.sib(ptr_size, .{
-//             .base = ops.reg2,
-//             .disp = disp,
-//         }) },
 //     });
 // }
 
