@@ -1,4 +1,8 @@
-export fn foo() void {
+comptime {
+    foo();
+}
+
+fn foo() void {
     try bar();
 }
 
@@ -10,4 +14,5 @@ pub fn bar() u8 {
 // backend=stage2
 // target=native
 //
-// :2:12: error: expected error union type, found 'u8'
+// :6:12: error: expected error union type, found 'u8'
+// :2:8: note: called from here
