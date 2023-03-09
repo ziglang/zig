@@ -5002,13 +5002,14 @@ fn initArgIteratorResponseFile(allocator: Allocator, resp_file_path: []const u8)
 const clang_args = @import("clang_options.zig").list;
 
 pub const ClangArgIterator = struct {
+    next_index: usize,
     has_next: bool,
+    skip_flags: bool,
     zig_equivalent: ZigEquivalent,
     only_arg: []const u8,
     second_arg: []const u8,
     other_args: []const []const u8,
     argv: []const []const u8,
-    next_index: usize,
     root_args: ?*Args,
     arg_iterator_response_file: ArgIteratorResponseFile,
     arena: Allocator,
@@ -5090,6 +5091,7 @@ pub const ClangArgIterator = struct {
         return .{
             .next_index = 2, // `zig cc foo` this points to `foo`
             .has_next = argv.len > 2,
+            .skip_flags = false, // basically "have we seen -- ?"
             .zig_equivalent = undefined,
             .only_arg = undefined,
             .second_arg = undefined,
@@ -5110,6 +5112,18 @@ pub const ClangArgIterator = struct {
         self.other_args = (self.argv.ptr + self.next_index)[0..1];
         var arg = self.argv[self.next_index];
         self.incrementArgIndex();
+
+        if (mem.eql(u8, arg, "--")) {
+            self.zig_equivalent = .ignore;
+            self.skip_flags = true;
+            return;
+        }
+
+        if (self.skip_flags) {
+            self.zig_equivalent = .positional;
+            self.only_arg = arg;
+            return;
+        }
 
         if (mem.startsWith(u8, arg, "@")) {
             if (self.root_args != null) return error.NestedResponseFile;
