@@ -2909,7 +2909,7 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Module.File) !void {
                     .column = @intCast(u32, err_loc.column),
                     .source_line = try eb.addString(err_loc.source_line),
                 }),
-                .notes_len = item.data.notes,
+                .notes_len = item.data.notesLen(file.zir),
             });
         }
 

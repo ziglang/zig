@@ -10382,7 +10382,7 @@ fn appendErrorTok(
     comptime format: []const u8,
     args: anytype,
 ) !void {
-    try astgen.appendErrorTokNotes(token, format, args, &[0]u32{});
+    try astgen.appendErrorTokNotesOff(token, 0, format, args, &[0]u32{});
 }
 
 fn failTokNotes(
@@ -10392,7 +10392,7 @@ fn failTokNotes(
     args: anytype,
     notes: []const u32,
 ) InnerError {
-    try appendErrorTokNotes(astgen, token, format, args, notes);
+    try appendErrorTokNotesOff(astgen, token, 0, format, args, notes);
     return error.AnalysisFail;
 }
 
