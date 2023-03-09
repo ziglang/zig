@@ -1885,25 +1885,28 @@ pub const DeclGen = struct {
     }
 
     fn renderBuiltinInfo(dg: *DeclGen, writer: anytype, ty: Type, info: BuiltinInfo) !void {
+        const cty = try dg.typeToCType(ty, .complete);
+        const is_big = cty.tag() == .array;
+
         switch (info) {
-            .none => {},
-            .bits => {
-                const target = dg.module.getTarget();
-                const int_info = if (ty.isAbiInt()) ty.intInfo(target) else std.builtin.Type.Int{
-                    .signedness = .unsigned,
-                    .bits = @intCast(u16, ty.bitSize(target)),
-                };
-
-                const cty = try dg.typeToCType(ty, .complete);
-                if (cty.tag() == .array) try writer.print(", {}", .{int_info.signedness == .signed});
-
-                var bits_pl = Value.Payload.U64{ .base = .{ .tag = .int_u64 }, .data = int_info.bits };
-                try writer.print(", {}", .{try dg.fmtIntLiteral(switch (cty.tag()) {
-                    else => Type.u8,
-                    .array => Type.u16,
-                }, Value.initPayload(&bits_pl.base), .FunctionArgument)});
-            },
+            .none => if (!is_big) return,
+            .bits => {},
         }
+
+        const target = dg.module.getTarget();
+        const int_info = if (ty.isAbiInt()) ty.intInfo(target) else std.builtin.Type.Int{
+            .signedness = .unsigned,
+            .bits = @intCast(u16, ty.bitSize(target)),
+        };
+
+        if (is_big) try writer.print(", {}", .{int_info.signedness == .signed});
+
+        var bits_pl = Value.Payload.U64{ .base = .{ .tag = .int_u64 }, .data = int_info.bits };
+        try writer.print(", {}", .{try dg.fmtIntLiteral(
+            if (is_big) Type.u16 else Type.u8,
+            Value.initPayload(&bits_pl.base),
+            .FunctionArgument,
+        )});
     }
 
     fn fmtIntLiteral(
@@ -6099,13 +6102,16 @@ fn airBinBuiltinCall(
         return .none;
     }
 
+    const operand_ty = f.air.typeOf(bin_op.lhs);
+    const operand_cty = try f.typeToCType(operand_ty, .complete);
+    const is_big = operand_cty.tag() == .array;
+
     const lhs = try f.resolveInst(bin_op.lhs);
     const rhs = try f.resolveInst(bin_op.rhs);
-    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
+    if (!is_big) try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
 
     const inst_ty = f.air.typeOfIndex(inst);
     const inst_scalar_ty = inst_ty.scalarType();
-    const operand_ty = f.air.typeOf(bin_op.lhs);
     const scalar_ty = operand_ty.scalarType();
 
     const inst_scalar_cty = try f.typeToCType(inst_scalar_ty, .complete);
@@ -6113,6 +6119,7 @@ fn airBinBuiltinCall(
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
+    if (is_big) try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
     const v = try Vectorizer.start(f, inst, writer, operand_ty);
     if (!ref_ret) {
         try f.writeCValue(writer, local, .Other);

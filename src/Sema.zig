@@ -1612,6 +1612,12 @@ fn analyzeBodyInner(
                 const extra = sema.code.extraData(Zir.Inst.Try, inst_data.payload_index);
                 const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
                 const err_union = try sema.resolveInst(extra.data.operand);
+                const err_union_ty = sema.typeOf(err_union);
+                if (err_union_ty.zigTypeTag() != .ErrorUnion) {
+                    return sema.fail(block, operand_src, "expected error union type, found '{}'", .{
+                        err_union_ty.fmt(sema.mod),
+                    });
+                }
                 const is_non_err = try sema.analyzeIsNonErrComptimeOnly(block, operand_src, err_union);
                 assert(is_non_err != .none);
                 const is_non_err_tv = sema.resolveInstConst(block, operand_src, is_non_err, "try operand inside comptime block must be comptime-known") catch |err| {
@@ -1619,7 +1625,6 @@ fn analyzeBodyInner(
                     return err;
                 };
                 if (is_non_err_tv.val.toBool()) {
-                    const err_union_ty = sema.typeOf(err_union);
                     break :blk try sema.analyzeErrUnionPayload(block, src, err_union_ty, err_union, operand_src, false);
                 }
                 const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
