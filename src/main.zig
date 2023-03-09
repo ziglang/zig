@@ -4082,12 +4082,7 @@ fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void
     defer errors.deinit(comp.gpa);
 
     if (errors.errorMessageCount() > 0) {
-        const ttyconf: std.debug.TTY.Config = switch (comp.color) {
-            .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
-            .on => .escape_codes,
-            .off => .no_color,
-        };
-        errors.renderToStdErr(ttyconf);
+        errors.renderToStdErr(get_tty_conf(comp.color));
         const log_text = comp.getCompileLogOutput();
         if (log_text.len != 0) {
             std.debug.print("\nCompile Log Output:\n{s}", .{log_text});
@@ -4714,14 +4709,9 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 &all_modules,
             );
             if (wip_errors.root_list.items.len > 0) {
-                const ttyconf: std.debug.TTY.Config = switch (color) {
-                    .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
-                    .on => .escape_codes,
-                    .off => .no_color,
-                };
                 var errors = try wip_errors.toOwnedBundle();
                 defer errors.deinit(gpa);
-                errors.renderToStdErr(ttyconf);
+                errors.renderToStdErr(get_tty_conf(color));
                 process.exit(1);
             }
             try fetch_result;
@@ -4767,7 +4757,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         defer comp.destroy();
 
         updateModule(gpa, comp, .none) catch |err| switch (err) {
-            error.SemanticAnalyzeFail => process.exit(1),
+            error.SemanticAnalyzeFail => process.exit(2),
             else => |e| return e,
         };
         try comp.makeBinFileExecutable();
@@ -4982,14 +4972,9 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                 try wip_errors.init(gpa);
                 defer wip_errors.deinit();
                 try Compilation.addZirErrorMessages(&wip_errors, &file);
-                const ttyconf: std.debug.TTY.Config = switch (color) {
-                    .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
-                    .on => .escape_codes,
-                    .off => .no_color,
-                };
                 var error_bundle = try wip_errors.toOwnedBundle();
                 defer error_bundle.deinit(gpa);
-                error_bundle.renderToStdErr(ttyconf);
+                error_bundle.renderToStdErr(get_tty_conf(color));
                 process.exit(2);
             }
         } else if (tree.errors.len != 0) {
@@ -5193,14 +5178,9 @@ fn fmtPathFile(
             try wip_errors.init(gpa);
             defer wip_errors.deinit();
             try Compilation.addZirErrorMessages(&wip_errors, &file);
-            const ttyconf: std.debug.TTY.Config = switch (fmt.color) {
-                .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
-                .on => .escape_codes,
-                .off => .no_color,
-            };
             var error_bundle = try wip_errors.toOwnedBundle();
             defer error_bundle.deinit(gpa);
-            error_bundle.renderToStdErr(ttyconf);
+            error_bundle.renderToStdErr(get_tty_conf(fmt.color));
             fmt.any_error = true;
         }
     }
@@ -5235,14 +5215,9 @@ fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Co
 
     try putAstErrorsIntoBundle(gpa, tree, path, &wip_errors);
 
-    const ttyconf: std.debug.TTY.Config = switch (color) {
-        .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
-        .on => .escape_codes,
-        .off => .no_color,
-    };
     var error_bundle = try wip_errors.toOwnedBundle();
     defer error_bundle.deinit(gpa);
-    error_bundle.renderToStdErr(ttyconf);
+    error_bundle.renderToStdErr(get_tty_conf(color));
 }
 
 pub fn putAstErrorsIntoBundle(
@@ -5848,11 +5823,6 @@ pub fn cmdAstCheck(
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
-    try printAstErrorsToStderr(gpa, file.tree, file.sub_file_path, color);
-    if (file.tree.errors.len != 0) {
-        process.exit(1);
-    }
-
     file.zir = try AstGen.generate(gpa, file.tree);
     file.zir_loaded = true;
     defer file.zir.deinit(gpa);
@@ -5862,14 +5832,9 @@ pub fn cmdAstCheck(
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
         try Compilation.addZirErrorMessages(&wip_errors, &file);
-        const ttyconf: std.debug.TTY.Config = switch (color) {
-            .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
-            .on => .escape_codes,
-            .off => .no_color,
-        };
         var error_bundle = try wip_errors.toOwnedBundle();
         defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(ttyconf);
+        error_bundle.renderToStdErr(get_tty_conf(color));
         process.exit(1);
     }
 
@@ -5974,11 +5939,6 @@ pub fn cmdChangelist(
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
-    try printAstErrorsToStderr(gpa, file.tree, old_source_file, .auto);
-    if (file.tree.errors.len != 0) {
-        process.exit(1);
-    }
-
     file.zir = try AstGen.generate(gpa, file.tree);
     file.zir_loaded = true;
     defer file.zir.deinit(gpa);
@@ -6012,11 +5972,6 @@ pub fn cmdChangelist(
 
     var new_tree = try Ast.parse(gpa, new_source, .zig);
     defer new_tree.deinit(gpa);
-
-    try printAstErrorsToStderr(gpa, new_tree, new_source_file, .auto);
-    if (new_tree.errors.len != 0) {
-        process.exit(1);
-    }
 
     var old_zir = file.zir;
     defer old_zir.deinit(gpa);
@@ -6293,3 +6248,11 @@ const ClangSearchSanitizer = struct {
         iframework: bool = false,
     };
 };
+
+fn get_tty_conf(color: Color) std.debug.TTY.Config {
+    return switch (color) {
+        .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
+        .on => .escape_codes,
+        .off => .no_color,
+    };
+}
