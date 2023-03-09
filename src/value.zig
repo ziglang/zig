@@ -1365,6 +1365,11 @@ pub const Value = extern union {
                 if (val.isDeclRef()) return error.ReinterpretDeclRef;
                 return val.writeToMemory(Type.usize, mod, buffer);
             },
+            .Optional => {
+                assert(ty.isPtrLikeOptional());
+                if (val.isDeclRef()) return error.ReinterpretDeclRef;
+                return val.writeToMemory(Type.usize, mod, buffer);
+            },
             else => @panic("TODO implement writeToMemory for more types"),
         }
     }
@@ -1468,6 +1473,11 @@ pub const Value = extern union {
             },
             .Pointer => {
                 assert(!ty.isSlice()); // No well defined layout.
+                if (val.isDeclRef()) return error.ReinterpretDeclRef;
+                return val.writeToPackedMemory(Type.usize, mod, buffer, bit_offset);
+            },
+            .Optional => {
+                assert(ty.isPtrLikeOptional());
                 if (val.isDeclRef()) return error.ReinterpretDeclRef;
                 return val.writeToPackedMemory(Type.usize, mod, buffer, bit_offset);
             },
@@ -1579,6 +1589,10 @@ pub const Value = extern union {
                 assert(!ty.isSlice()); // No well defined layout.
                 return readFromMemory(Type.usize, mod, buffer, arena);
             },
+            .Optional => {
+                assert(ty.isPtrLikeOptional());
+                return readFromMemory(Type.usize, mod, buffer, arena);
+            },
             else => @panic("TODO implement readFromMemory for more types"),
         }
     }
@@ -1668,6 +1682,10 @@ pub const Value = extern union {
             },
             .Pointer => {
                 assert(!ty.isSlice()); // No well defined layout.
+                return readFromPackedMemory(Type.usize, mod, buffer, bit_offset, arena);
+            },
+            .Optional => {
+                assert(ty.isPtrLikeOptional());
                 return readFromPackedMemory(Type.usize, mod, buffer, bit_offset, arena);
             },
             else => @panic("TODO implement readFromPackedMemory for more types"),
