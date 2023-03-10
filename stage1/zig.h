@@ -5,6 +5,7 @@
 #endif
 #include <float.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
