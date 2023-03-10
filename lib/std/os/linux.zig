@@ -1820,12 +1820,12 @@ pub fn seccomp(operation: u32, flags: u32, args: ?*const anyopaque) usize {
     return syscall3(.seccomp, operation, flags, @ptrToInt(args));
 }
 
-pub fn ptrace(request: i32, pid: pid_t, addr: ?[*]u8, data: usize) usize {
+pub fn ptrace(request: i32, pid: pid_t, addr: usize, data: usize) usize {
     return syscall4(
         .ptrace,
         @bitCast(usize, @as(isize, request)),
         @bitCast(usize, @as(isize, pid)),
-        @ptrToInt(addr),
+        addr,
         data,
     );
 }
