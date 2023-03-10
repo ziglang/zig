@@ -571,6 +571,9 @@ pub fn addStandaloneTests(
     for (standalone.simple_cases) |case| {
         for (optimize_modes) |optimize| {
             if (!case.all_modes and optimize != .Debug) continue;
+            if (case.os_filter) |os_tag| {
+                if (os_tag != builtin.os.tag) continue;
+            }
 
             if (case.is_exe) {
                 const exe = b.addExecutable(.{

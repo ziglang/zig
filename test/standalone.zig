@@ -5,6 +5,8 @@ pub const SimpleCase = struct {
     target: std.zig.CrossTarget = .{},
     is_test: bool = false,
     is_exe: bool = true,
+    /// Run only on this OS.
+    os_filter: ?std.Target.Os.Tag = null,
 };
 
 pub const BuildCase = struct {
@@ -50,7 +52,7 @@ pub const simple_cases = [_]SimpleCase{
 
     .{
         .src_path = "test/standalone/issue_9402/main.zig",
-        .target = .{ .os_tag = .windows },
+        .os_filter = .windows,
         .link_libc = true,
     },
 
