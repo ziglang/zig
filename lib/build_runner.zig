@@ -272,6 +272,11 @@ pub fn main() !void {
 
     const stderr = std.io.getStdErr();
     const ttyconf = get_tty_conf(color, stderr);
+    switch (ttyconf) {
+        .no_color => try builder.env_map.put("NO_COLOR", "1"),
+        .escape_codes => try builder.env_map.put("ZIG_DEBUG_COLOR", "1"),
+        .windows_api => {},
+    }
 
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
     const main_progress_node = progress.start("", 0);
