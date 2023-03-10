@@ -25,7 +25,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     lib.stack_size = std.wasm.page_size * 2; // set an explicit stack size
     lib.install();
 
-    const check_lib = lib.checkObject(.wasm);
+    const check_lib = lib.checkObject();
 
     // ensure global exists and its initial value is equal to explitic stack size
     check_lib.checkStart("Section global");

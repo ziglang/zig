@@ -42,9 +42,9 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     regular_table.use_llvm = false;
     regular_table.use_lld = false;
 
-    const check_import = import_table.checkObject(.wasm);
-    const check_export = export_table.checkObject(.wasm);
-    const check_regular = regular_table.checkObject(.wasm);
+    const check_import = import_table.checkObject();
+    const check_export = export_table.checkObject();
+    const check_regular = regular_table.checkObject();
 
     check_import.checkStart("Section import");
     check_import.checkNext("entries 1");

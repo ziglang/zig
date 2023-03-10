@@ -27,7 +27,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const version_fmt = "version " ++ builtin.zig_version_string;
 
-    const check_lib = lib.checkObject(.wasm);
+    const check_lib = lib.checkObject();
     check_lib.checkStart("name producers");
     check_lib.checkNext("fields 2");
     check_lib.checkNext("field_name language");

@@ -19,7 +19,7 @@ pub fn build(b: *std.Build) void {
         exe.linkLibC();
         exe.pagezero_size = 0x4000;
 
-        const check = exe.checkObject(.macho);
+        const check = exe.checkObject();
         check.checkStart("LC 0");
         check.checkNext("segname __PAGEZERO");
         check.checkNext("vmaddr 0");
@@ -41,7 +41,7 @@ pub fn build(b: *std.Build) void {
         exe.linkLibC();
         exe.pagezero_size = 0;
 
-        const check = exe.checkObject(.macho);
+        const check = exe.checkObject();
         check.checkStart("LC 0");
         check.checkNext("segname __TEXT");
         check.checkNext("vmaddr 0");

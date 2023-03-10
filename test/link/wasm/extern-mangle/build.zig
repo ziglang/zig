@@ -20,7 +20,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     lib.import_symbols = true; // import `a` and `b`
     lib.rdynamic = true; // export `foo`
 
-    const check_lib = lib.checkObject(.wasm);
+    const check_lib = lib.checkObject();
     check_lib.checkStart("Section import");
     check_lib.checkNext("entries 2"); // a.hello & b.hello
     check_lib.checkNext("module a");

@@ -25,7 +25,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.linkFrameworkNeeded("Cocoa");
     exe.dead_strip_dylibs = true;
 
-    const check = exe.checkObject(.macho);
+    const check = exe.checkObject();
     check.checkStart("cmd LOAD_DYLIB");
     check.checkNext("name {*}Cocoa");
     test_step.dependOn(&check.step);

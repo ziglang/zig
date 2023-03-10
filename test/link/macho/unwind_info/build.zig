@@ -31,7 +31,7 @@ fn testUnwindInfo(
     const exe = createScenario(b, optimize, target, name);
     exe.link_gc_sections = dead_strip;
 
-    const check = exe.checkObject(.macho);
+    const check = exe.checkObject();
     check.checkStart("segname __TEXT");
     check.checkNext("sectname __gcc_except_tab");
     check.checkNext("sectname __unwind_info");

@@ -1055,3 +1055,30 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
     }
     return step;
 }
+
+pub fn addCases(
+    b: *std.Build,
+    parent_step: *Step,
+    opt_test_filter: ?[]const u8,
+    check_case_exe: *std.Build.CompileStep,
+) !void {
+    const arena = b.allocator;
+    const gpa = b.allocator;
+
+    var cases = @import("src/Cases.zig").init(gpa, arena);
+
+    var dir = try b.build_root.handle.openIterableDir("test/cases", .{});
+    defer dir.close();
+
+    cases.addFromDir(dir);
+    try @import("cases.zig").addCases(&cases);
+
+    const cases_dir_path = try b.build_root.join(b.allocator, &.{ "test", "cases" });
+    cases.lowerToBuildSteps(
+        b,
+        parent_step,
+        opt_test_filter,
+        cases_dir_path,
+        check_case_exe,
+    );
+}

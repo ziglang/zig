@@ -42,19 +42,19 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     force_export.use_llvm = false;
     force_export.use_lld = false;
 
-    const check_no_export = no_export.checkObject(.wasm);
+    const check_no_export = no_export.checkObject();
     check_no_export.checkStart("Section export");
     check_no_export.checkNext("entries 1");
     check_no_export.checkNext("name memory");
     check_no_export.checkNext("kind memory");
 
-    const check_dynamic_export = dynamic_export.checkObject(.wasm);
+    const check_dynamic_export = dynamic_export.checkObject();
     check_dynamic_export.checkStart("Section export");
     check_dynamic_export.checkNext("entries 2");
     check_dynamic_export.checkNext("name foo");
     check_dynamic_export.checkNext("kind function");
 
-    const check_force_export = force_export.checkObject(.wasm);
+    const check_force_export = force_export.checkObject();
     check_force_export.checkStart("Section export");
     check_force_export.checkNext("entries 2");
     check_force_export.checkNext("name foo");

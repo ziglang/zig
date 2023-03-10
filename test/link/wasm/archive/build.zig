@@ -25,7 +25,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     lib.use_lld = false;
     lib.strip = false;
 
-    const check = lib.checkObject(.wasm);
+    const check = lib.checkObject();
     check.checkStart("Section custom");
     check.checkNext("name __truncsfhf2"); // Ensure it was imported and resolved
 

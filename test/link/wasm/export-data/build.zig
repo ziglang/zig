@@ -19,7 +19,7 @@ pub fn build(b: *std.Build) void {
     lib.export_symbol_names = &.{ "foo", "bar" };
     lib.global_base = 0; // put data section at address 0 to make data symbols easier to parse
 
-    const check_lib = lib.checkObject(.wasm);
+    const check_lib = lib.checkObject();
 
     check_lib.checkStart("Section global");
     check_lib.checkNext("entries 3");

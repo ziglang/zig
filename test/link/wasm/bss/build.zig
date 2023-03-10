@@ -19,7 +19,7 @@ pub fn build(b: *std.Build) void {
     lib.import_memory = true;
     lib.install();
 
-    const check_lib = lib.checkObject(.wasm);
+    const check_lib = lib.checkObject();
 
     // since we import memory, make sure it exists with the correct naming
     check_lib.checkStart("Section import");

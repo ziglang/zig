@@ -24,7 +24,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     lib.strip = false;
     lib.install();
 
-    const check_lib = lib.checkObject(.wasm);
+    const check_lib = lib.checkObject();
     check_lib.checkStart("Section type");
     // only 2 entries, although we have 3 functions.
     // This is to test functions with the same function signature

@@ -32,7 +32,7 @@ pub fn build(b: *std.Build) void {
     lib.addObject(c_obj);
 
     // Verify the result contains the features from the C Object file.
-    const check = lib.checkObject(.wasm);
+    const check = lib.checkObject();
     check.checkStart("name target_features");
     check.checkNext("features 7");
     check.checkNext("+ atomics");

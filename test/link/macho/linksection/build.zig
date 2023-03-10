@@ -22,7 +22,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .target = target,
     });
 
-    const check = obj.checkObject(.macho);
+    const check = obj.checkObject();
 
     check.checkInSymtab();
     check.checkNext("{*} (__DATA,__TestGlobal) external _test_global");

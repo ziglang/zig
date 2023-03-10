@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
         // Without -dead_strip, we expect `iAmUnused` symbol present
         const exe = createScenario(b, optimize, target, "no-gc");
 
-        const check = exe.checkObject(.macho);
+        const check = exe.checkObject();
         check.checkInSymtab();
         check.checkNext("{*} (__TEXT,__text) external _iAmUnused");
 
@@ -27,7 +27,7 @@ pub fn build(b: *std.Build) void {
         const exe = createScenario(b, optimize, target, "yes-gc");
         exe.link_gc_sections = true;
 
-        const check = exe.checkObject(.macho);
+        const check = exe.checkObject();
         check.checkInSymtab();
         check.checkNotPresent("{*} (__TEXT,__text) external _iAmUnused");
 

@@ -24,7 +24,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     dylib.addCSourceFile("a.c", &.{});
     dylib.linkLibC();
 
-    const check_dylib = dylib.checkObject(.macho);
+    const check_dylib = dylib.checkObject();
     check_dylib.checkStart("cmd ID_DYLIB");
     check_dylib.checkNext("name @rpath/liba.dylib");
     check_dylib.checkNext("timestamp 2");
@@ -44,7 +44,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.addRPathDirectorySource(dylib.getOutputDirectorySource());
     exe.linkLibC();
 
-    const check_exe = exe.checkObject(.macho);
+    const check_exe = exe.checkObject();
     check_exe.checkStart("cmd LOAD_DYLIB");
     check_exe.checkNext("name @rpath/liba.dylib");
     check_exe.checkNext("timestamp 2");

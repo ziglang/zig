@@ -19,7 +19,7 @@ pub fn build(b: *std.Build) void {
     lib.use_lld = false;
 
     // Verify the result contains the features explicitly set on the target for the library.
-    const check = lib.checkObject(.wasm);
+    const check = lib.checkObject();
     check.checkStart("name target_features");
     check.checkNext("features 1");
     check.checkNext("+ atomics");

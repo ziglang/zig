@@ -18,7 +18,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         // Without -dead_strip_dylibs we expect `-la` to include liba.dylib in the final executable
         const exe = createScenario(b, optimize, "no-dead-strip");
 
-        const check = exe.checkObject(.macho);
+        const check = exe.checkObject();
         check.checkStart("cmd LOAD_DYLIB");
         check.checkNext("name {*}Cocoa");
 

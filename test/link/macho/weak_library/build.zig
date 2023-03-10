@@ -36,7 +36,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.addLibraryPathDirectorySource(dylib.getOutputDirectorySource());
     exe.addRPathDirectorySource(dylib.getOutputDirectorySource());
 
-    const check = exe.checkObject(.macho);
+    const check = exe.checkObject();
     check.checkStart("cmd LOAD_WEAK_DYLIB");
     check.checkNext("name @rpath/liba.dylib");
 

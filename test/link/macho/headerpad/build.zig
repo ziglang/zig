@@ -20,7 +20,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         const exe = simpleExe(b, optimize);
         exe.headerpad_max_install_names = true;
 
-        const check = exe.checkObject(.macho);
+        const check = exe.checkObject();
         check.checkStart("sectname __text");
         check.checkNext("offset {offset}");
 
@@ -45,7 +45,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         const exe = simpleExe(b, optimize);
         exe.headerpad_size = 0x10000;
 
-        const check = exe.checkObject(.macho);
+        const check = exe.checkObject();
         check.checkStart("sectname __text");
         check.checkNext("offset {offset}");
         check.checkComputeCompare("offset", .{ .op = .gte, .value = .{ .literal = 0x10000 } });
@@ -62,7 +62,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         exe.headerpad_max_install_names = true;
         exe.headerpad_size = 0x10000;
 
-        const check = exe.checkObject(.macho);
+        const check = exe.checkObject();
         check.checkStart("sectname __text");
         check.checkNext("offset {offset}");
         check.checkComputeCompare("offset", .{ .op = .gte, .value = .{ .literal = 0x10000 } });
@@ -79,7 +79,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         exe.headerpad_size = 0x1000;
         exe.headerpad_max_install_names = true;
 
-        const check = exe.checkObject(.macho);
+        const check = exe.checkObject();
         check.checkStart("sectname __text");
         check.checkNext("offset {offset}");
 

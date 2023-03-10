@@ -24,7 +24,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     });
     exe.linkLibC();
 
-    const check_exe = exe.checkObject(.macho);
+    const check_exe = exe.checkObject();
 
     check_exe.checkStart("cmd SEGMENT_64");
     check_exe.checkNext("segname __LINKEDIT");

@@ -22,7 +22,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.linkLibC();
     exe.entry_symbol_name = "_non_main";
 
-    const check_exe = exe.checkObject(.macho);
+    const check_exe = exe.checkObject();
 
     check_exe.checkStart("segname __TEXT");
     check_exe.checkNext("vmaddr {vmaddr}");

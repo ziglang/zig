@@ -32,6 +32,7 @@ export fn d() void {
 // :3:8: error: opaque types have unknown size and therefore cannot be directly embedded in structs
 // :1:11: note: opaque declared here
 // :7:10: error: opaque types have unknown size and therefore cannot be directly embedded in unions
+// :1:11: note: opaque declared here
 // :19:18: error: opaque types have unknown size and therefore cannot be directly embedded in structs
 // :18:22: note: opaque declared here
 // :24:23: error: opaque types have unknown size and therefore cannot be directly embedded in structs

@@ -24,7 +24,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     lib.strip = false;
     lib.install();
 
-    const check_lib = lib.checkObject(.wasm);
+    const check_lib = lib.checkObject();
     check_lib.checkStart("Section data");
     check_lib.checkNext("entries 2"); // rodata & data, no bss because we're exporting memory
 

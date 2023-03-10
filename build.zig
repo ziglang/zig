@@ -53,13 +53,14 @@ pub fn build(b: *std.Build) !void {
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
 
-    const test_cases = b.addTest(.{
-        .root_source_file = .{ .path = "src/test.zig" },
+    const check_case_exe = b.addExecutable(.{
+        .name = "check-case",
+        .root_source_file = .{ .path = "test/src/Cases.zig" },
         .optimize = optimize,
     });
-    test_cases.main_pkg_path = ".";
-    test_cases.stack_size = stack_size;
-    test_cases.single_threaded = single_threaded;
+    check_case_exe.main_pkg_path = ".";
+    check_case_exe.stack_size = stack_size;
+    check_case_exe.single_threaded = single_threaded;
 
     const skip_debug = b.option(bool, "skip-debug", "Main test suite skips debug builds") orelse false;
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
@@ -178,7 +179,7 @@ pub fn build(b: *std.Build) !void {
     if (target.isWindows() and target.getAbi() == .gnu) {
         // LTO is currently broken on mingw, this can be removed when it's fixed.
         exe.want_lto = false;
-        test_cases.want_lto = false;
+        check_case_exe.want_lto = false;
     }
 
     const exe_options = b.addOptions();
@@ -196,7 +197,7 @@ pub fn build(b: *std.Build) !void {
 
     if (link_libc) {
         exe.linkLibC();
-        test_cases.linkLibC();
+        check_case_exe.linkLibC();
     }
 
     const is_debug = optimize == .Debug;
@@ -282,14 +283,14 @@ pub fn build(b: *std.Build) !void {
             }
 
             try addCmakeCfgOptionsToExe(b, cfg, exe, use_zig_libcxx);
-            try addCmakeCfgOptionsToExe(b, cfg, test_cases, use_zig_libcxx);
+            try addCmakeCfgOptionsToExe(b, cfg, check_case_exe, use_zig_libcxx);
         } else {
             // Here we are -Denable-llvm but no cmake integration.
             try addStaticLlvmOptionsToExe(exe);
-            try addStaticLlvmOptionsToExe(test_cases);
+            try addStaticLlvmOptionsToExe(check_case_exe);
         }
         if (target.isWindows()) {
-            inline for (.{ exe, test_cases }) |artifact| {
+            inline for (.{ exe, check_case_exe }) |artifact| {
                 artifact.linkSystemLibrary("version");
                 artifact.linkSystemLibrary("uuid");
                 artifact.linkSystemLibrary("ole32");
@@ -334,8 +335,9 @@ pub fn build(b: *std.Build) !void {
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
 
     const test_cases_options = b.addOptions();
-    test_cases.addOptions("build_options", test_cases_options);
+    check_case_exe.addOptions("build_options", test_cases_options);
 
+    test_cases_options.addOption(bool, "enable_tracy", false);
     test_cases_options.addOption(bool, "enable_logging", enable_logging);
     test_cases_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     test_cases_options.addOption(bool, "skip_non_native", skip_non_native);
@@ -357,12 +359,6 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption([:0]const u8, "version", version);
     test_cases_options.addOption(std.SemanticVersion, "semver", semver);
     test_cases_options.addOption(?[]const u8, "test_filter", test_filter);
-
-    const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
-    test_cases_step.dependOn(&test_cases.step);
-    if (!skip_stage2_tests) {
-        test_step.dependOn(test_cases_step);
-    }
 
     var chosen_opt_modes_buf: [4]builtin.Mode = undefined;
     var chosen_mode_index: usize = 0;
@@ -386,21 +382,20 @@ pub fn build(b: *std.Build) !void {
 
     const fmt_include_paths = &.{ "doc", "lib", "src", "test", "tools", "build.zig" };
     const fmt_exclude_paths = &.{"test/cases"};
-    const check_fmt = b.addFmt(.{
-        .paths = fmt_include_paths,
-        .exclude_paths = fmt_exclude_paths,
-        .check = true,
-    });
     const do_fmt = b.addFmt(.{
         .paths = fmt_include_paths,
         .exclude_paths = fmt_exclude_paths,
     });
 
-    const test_fmt_step = b.step("test-fmt", "Check whether source files have conforming formatting");
-    test_fmt_step.dependOn(&check_fmt.step);
+    b.step("test-fmt", "Check source files having conforming formatting").dependOn(&b.addFmt(.{
+        .paths = fmt_include_paths,
+        .exclude_paths = fmt_exclude_paths,
+        .check = true,
+    }).step);
 
-    const do_fmt_step = b.step("fmt", "Modify source files in place to have conforming formatting");
-    do_fmt_step.dependOn(&do_fmt.step);
+    const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
+    try tests.addCases(b, test_cases_step, test_filter, check_case_exe);
+    if (!skip_stage2_tests) test_step.dependOn(test_cases_step);
 
     test_step.dependOn(tests.addModuleTests(b, .{
         .test_filter = test_filter,
@@ -475,6 +470,9 @@ pub fn build(b: *std.Build) !void {
     }));
 
     try addWasiUpdateStep(b, version);
+
+    b.step("fmt", "Modify source files in place to have conforming formatting")
+        .dependOn(&do_fmt.step);
 }
 
 fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
