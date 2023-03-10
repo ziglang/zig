@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     {
         // Test -headerpad_max_install_names
-        const exe = simpleExe(b, optimize);
+        const exe = simpleExe(b, optimize, "headerpad_max_install_names");
         exe.headerpad_max_install_names = true;
 
         const check = exe.checkObject();
@@ -42,7 +42,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     {
         // Test -headerpad
-        const exe = simpleExe(b, optimize);
+        const exe = simpleExe(b, optimize, "headerpad");
         exe.headerpad_size = 0x10000;
 
         const check = exe.checkObject();
@@ -58,7 +58,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     {
         // Test both flags with -headerpad overriding -headerpad_max_install_names
-        const exe = simpleExe(b, optimize);
+        const exe = simpleExe(b, optimize, "headerpad_overriding");
         exe.headerpad_max_install_names = true;
         exe.headerpad_size = 0x10000;
 
@@ -75,7 +75,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     {
         // Test both flags with -headerpad_max_install_names overriding -headerpad
-        const exe = simpleExe(b, optimize);
+        const exe = simpleExe(b, optimize, "headerpad_max_install_names_overriding");
         exe.headerpad_size = 0x1000;
         exe.headerpad_max_install_names = true;
 
@@ -100,9 +100,13 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     }
 }
 
-fn simpleExe(b: *std.Build, optimize: std.builtin.OptimizeMode) *std.Build.CompileStep {
+fn simpleExe(
+    b: *std.Build,
+    optimize: std.builtin.OptimizeMode,
+    name: []const u8,
+) *std.Build.CompileStep {
     const exe = b.addExecutable(.{
-        .name = "main",
+        .name = name,
         .optimize = optimize,
     });
     exe.addCSourceFile("main.c", &.{});
