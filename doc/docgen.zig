@@ -1270,7 +1270,7 @@ fn genHtml(
     zig_exe: []const u8,
     do_code_tests: bool,
 ) !void {
-    var progress = Progress{};
+    var progress = Progress{ .dont_print_on_dumb = true };
     const root_node = progress.start("Generating docgen examples", toc.nodes.len);
     defer root_node.end();
 
