@@ -18373,7 +18373,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
     const union_val = val.cast(Value.Payload.Union).?.data;
     const target = mod.getTarget();
     const tag_index = type_info_ty.unionTagFieldIndex(union_val.tag, mod).?;
-    if (union_val.val.anyUndef()) return sema.failWithUseOfUndef(block, src);
+    if (union_val.val.anyUndef(mod)) return sema.failWithUseOfUndef(block, src);
     switch (@intToEnum(std.builtin.TypeId, tag_index)) {
         .Type => return Air.Inst.Ref.type_type,
         .Void => return Air.Inst.Ref.void_type,
