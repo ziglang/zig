@@ -40,18 +40,21 @@ pub fn build(b: *std.Build) !void {
     });
     docgen_exe.single_threaded = single_threaded;
 
-    const langref_out_path = try b.cache_root.join(b.allocator, &.{"langref.html"});
-    const docgen_cmd = docgen_exe.run();
-    docgen_cmd.addArgs(&[_][]const u8{
-        "--zig",
-        b.zig_exe,
-        "doc" ++ fs.path.sep_str ++ "langref.html.in",
-        langref_out_path,
-    });
-    docgen_cmd.step.dependOn(&docgen_exe.step);
+    const docgen_cmd = b.addRunArtifact(docgen_exe);
+    docgen_cmd.addArgs(&.{ "--zig", b.zig_exe });
+    docgen_cmd.addFileSourceArg(.{ .path = "doc/langref.html.in" });
+    const langref_file = docgen_cmd.addOutputFileArg("langref.html");
+    const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "langref.html");
+    b.getInstallStep().dependOn(&install_langref.step);
 
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
+
+    // This is for legacy reasons, to be removed after our CI scripts are upgraded to use
+    // the file from the install prefix instead.
+    const legacy_write_to_cache = b.addWriteFiles();
+    legacy_write_to_cache.addCopyFileToSource(langref_file, "zig-cache/langref.html");
+    docs_step.dependOn(&legacy_write_to_cache.step);
 
     const check_case_exe = b.addExecutable(.{
         .name = "check-case",
