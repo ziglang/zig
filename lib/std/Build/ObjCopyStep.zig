@@ -113,6 +113,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     };
 
     try argv.appendSlice(&.{ full_src_path, full_dest_path });
+
+    try argv.append("--listen=-");
     _ = try step.evalZigProcess(argv.items, prog_node);
 
     self.output_file.path = full_dest_path;

@@ -26,6 +26,7 @@ const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
 const Module = @import("Module.zig");
 const AstGen = @import("AstGen.zig");
+const Server = @import("Server.zig");
 
 pub const std_options = struct {
     pub const wasiCwd = wasi_cwd;
@@ -3540,11 +3541,14 @@ fn serve(
 ) !void {
     const gpa = comp.gpa;
 
-    try serveStringMessage(out, .zig_version, build_options.version);
+    var server = try Server.init(.{
+        .gpa = gpa,
+        .in = in,
+        .out = out,
+    });
+    defer server.deinit();
 
     var child_pid: ?std.ChildProcess.Id = null;
-    var receive_fifo = std.fifo.LinearFifo(u8, .Dynamic).init(gpa);
-    defer receive_fifo.deinit();
 
     var progress: std.Progress = .{
         .terminal = null,
@@ -3564,7 +3568,7 @@ fn serve(
     main_progress_node.context = &progress;
 
     while (true) {
-        const hdr = try receiveMessage(in, &receive_fifo);
+        const hdr = try server.receiveMessage();
 
         switch (hdr.tag) {
             .exit => {
@@ -3580,7 +3584,7 @@ fn serve(
                     const arena = arena_instance.allocator();
                     var output: TranslateCOutput = undefined;
                     try cmdTranslateC(comp, arena, &output);
-                    try serveEmitBinPath(out, output.path, .{
+                    try server.serveEmitBinPath(output.path, .{
                         .flags = .{ .cache_hit = output.cache_hit },
                     });
                     continue;
@@ -3594,7 +3598,7 @@ fn serve(
                     var reset: std.Thread.ResetEvent = .{};
 
                     var progress_thread = try std.Thread.spawn(.{}, progressThread, .{
-                        &progress, out, &reset,
+                        &progress, &server, &reset,
                     });
                     defer {
                         reset.set();
@@ -3605,7 +3609,7 @@ fn serve(
                 }
 
                 try comp.makeBinFileExecutable();
-                try serveUpdateResults(out, comp);
+                try serveUpdateResults(&server, comp);
             },
             .run => {
                 if (child_pid != null) {
@@ -3632,14 +3636,14 @@ fn serve(
                 assert(main_progress_node.recently_updated_child == null);
                 if (child_pid) |pid| {
                     try comp.hotCodeSwap(main_progress_node, pid);
-                    try serveUpdateResults(out, comp);
+                    try serveUpdateResults(&server, comp);
                 } else {
                     if (comp.bin_file.options.output_mode == .Exe) {
                         try comp.makeBinFileWritable();
                     }
                     try comp.update(main_progress_node);
                     try comp.makeBinFileExecutable();
-                    try serveUpdateResults(out, comp);
+                    try serveUpdateResults(&server, comp);
 
                     child_pid = try runOrTestHotSwap(
                         comp,
@@ -3659,7 +3663,7 @@ fn serve(
     }
 }
 
-fn progressThread(progress: *std.Progress, out: fs.File, reset: *std.Thread.ResetEvent) void {
+fn progressThread(progress: *std.Progress, server: *const Server, reset: *std.Thread.ResetEvent) void {
     while (true) {
         if (reset.timedWait(500 * std.time.ns_per_ms)) |_| {
             // The Compilation update has completed.
@@ -3705,7 +3709,7 @@ fn progressThread(progress: *std.Progress, out: fs.File, reset: *std.Thread.Rese
 
         const progress_string = buf.slice();
 
-        serveMessage(out, .{
+        server.serveMessage(.{
             .tag = .progress,
             .bytes_len = @intCast(u32, progress_string.len),
         }, &.{
@@ -3716,97 +3720,18 @@ fn progressThread(progress: *std.Progress, out: fs.File, reset: *std.Thread.Rese
     }
 }
 
-fn serveMessage(
-    out: fs.File,
-    header: std.zig.Server.Message.Header,
-    bufs: []const []const u8,
-) !void {
-    var iovecs: [10]std.os.iovec_const = undefined;
-    iovecs[0] = .{
-        .iov_base = @ptrCast([*]const u8, &header),
-        .iov_len = @sizeOf(std.zig.Server.Message.Header),
-    };
-    for (bufs, iovecs[1 .. bufs.len + 1]) |buf, *iovec| {
-        iovec.* = .{
-            .iov_base = buf.ptr,
-            .iov_len = buf.len,
-        };
-    }
-    try out.writevAll(iovecs[0 .. bufs.len + 1]);
-}
-
-fn serveErrorBundle(out: fs.File, error_bundle: std.zig.ErrorBundle) !void {
-    const eb_hdr: std.zig.Server.Message.ErrorBundle = .{
-        .extra_len = @intCast(u32, error_bundle.extra.len),
-        .string_bytes_len = @intCast(u32, error_bundle.string_bytes.len),
-    };
-    const bytes_len = @sizeOf(std.zig.Server.Message.ErrorBundle) +
-        4 * error_bundle.extra.len + error_bundle.string_bytes.len;
-    try serveMessage(out, .{
-        .tag = .error_bundle,
-        .bytes_len = @intCast(u32, bytes_len),
-    }, &.{
-        std.mem.asBytes(&eb_hdr),
-        // TODO: implement @ptrCast between slices changing the length
-        std.mem.sliceAsBytes(error_bundle.extra),
-        error_bundle.string_bytes,
-    });
-}
-
-fn serveUpdateResults(out: fs.File, comp: *Compilation) !void {
+fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
     const gpa = comp.gpa;
     var error_bundle = try comp.getAllErrorsAlloc();
     defer error_bundle.deinit(gpa);
     if (error_bundle.errorMessageCount() > 0) {
-        try serveErrorBundle(out, error_bundle);
+        try s.serveErrorBundle(error_bundle);
     } else if (comp.bin_file.options.emit) |emit| {
         const full_path = try emit.directory.join(gpa, &.{emit.sub_path});
         defer gpa.free(full_path);
-        try serveEmitBinPath(out, full_path, .{
+        try s.serveEmitBinPath(full_path, .{
             .flags = .{ .cache_hit = comp.last_update_was_cache_hit },
         });
-    }
-}
-
-fn serveEmitBinPath(
-    out: fs.File,
-    fs_path: []const u8,
-    header: std.zig.Server.Message.EmitBinPath,
-) !void {
-    try serveMessage(out, .{
-        .tag = .emit_bin_path,
-        .bytes_len = @intCast(u32, fs_path.len + @sizeOf(std.zig.Server.Message.EmitBinPath)),
-    }, &.{
-        std.mem.asBytes(&header),
-        fs_path,
-    });
-}
-
-fn serveStringMessage(out: fs.File, tag: std.zig.Server.Message.Tag, s: []const u8) !void {
-    try serveMessage(out, .{
-        .tag = tag,
-        .bytes_len = @intCast(u32, s.len),
-    }, &.{s});
-}
-
-fn receiveMessage(in: fs.File, fifo: *std.fifo.LinearFifo(u8, .Dynamic)) !std.zig.Client.Message.Header {
-    const Header = std.zig.Client.Message.Header;
-
-    while (true) {
-        const buf = fifo.readableSlice(0);
-        assert(fifo.readableLength() == buf.len);
-        if (buf.len >= @sizeOf(Header)) {
-            const header = @ptrCast(*align(1) const Header, buf[0..@sizeOf(Header)]);
-            if (header.bytes_len != 0)
-                return error.InvalidClientMessage;
-            const result = header.*;
-            fifo.discard(@sizeOf(Header));
-            return result;
-        }
-
-        const write_buffer = try fifo.writableWithSize(256);
-        const amt = try in.read(write_buffer);
-        fifo.update(amt);
     }
 }
 
