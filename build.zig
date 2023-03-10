@@ -31,6 +31,11 @@ pub fn build(b: *std.Build) !void {
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
     const test_step = b.step("test", "Run all the tests");
+    const deprecated_skip_install_lib_files = b.option(bool, "skip-install-lib-files", "deprecated. see no-lib") orelse false;
+    if (deprecated_skip_install_lib_files) {
+        std.log.warn("-Dskip-install-lib-files is deprecated in favor of -Dno-lib", .{});
+    }
+    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse deprecated_skip_install_lib_files;
 
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
@@ -45,7 +50,9 @@ pub fn build(b: *std.Build) !void {
     docgen_cmd.addFileSourceArg(.{ .path = "doc/langref.html.in" });
     const langref_file = docgen_cmd.addOutputFileArg("langref.html");
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "langref.html");
-    b.getInstallStep().dependOn(&install_langref.step);
+    if (!skip_install_lib_files) {
+        b.getInstallStep().dependOn(&install_langref.step);
+    }
 
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
@@ -76,11 +83,6 @@ pub fn build(b: *std.Build) !void {
     const skip_stage1 = b.option(bool, "skip-stage1", "Main test suite skips stage1 compile error tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
     const skip_stage2_tests = b.option(bool, "skip-stage2-tests", "Main test suite skips self-hosted compiler tests") orelse false;
-    const deprecated_skip_install_lib_files = b.option(bool, "skip-install-lib-files", "deprecated. see no-lib") orelse false;
-    if (deprecated_skip_install_lib_files) {
-        std.log.warn("-Dskip-install-lib-files is deprecated in favor of -Dno-lib", .{});
-    }
-    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files to installation prefix. Useful for development") orelse deprecated_skip_install_lib_files;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
