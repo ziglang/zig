@@ -883,7 +883,12 @@ pub fn step(self: *Build, name: []const u8, description: []const u8) *Step {
         }),
         .description = self.dupe(description),
     };
-    self.top_level_steps.put(self.allocator, step_info.step.name, step_info) catch @panic("OOM");
+    const gop = self.top_level_steps.getOrPut(self.allocator, name) catch @panic("OOM");
+    if (gop.found_existing) std.debug.panic("A top-level step with name \"{s}\" already exists", .{name});
+
+    gop.key_ptr.* = step_info.step.name;
+    gop.value_ptr.* = step_info;
+
     return &step_info.step;
 }
 
