@@ -1161,8 +1161,8 @@ pub fn gettid() pid_t {
     return @bitCast(pid_t, @truncate(u32, syscall0(.gettid)));
 }
 
-pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*sigset_t) usize {
-    return syscall4(.rt_sigprocmask, flags, @ptrToInt(set), @ptrToInt(oldset), NSIG / 8);
+pub fn sigprocmask(how: i32, noalias set: ?*const sigset_t, noalias oldset: ?*sigset_t) usize {
+    return syscall4(.rt_sigprocmask, @bitCast(usize, @as(isize, how)), @ptrToInt(set), @ptrToInt(oldset), NSIG / 8);
 }
 
 pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {

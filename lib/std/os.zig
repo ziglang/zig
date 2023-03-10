@@ -5661,8 +5661,8 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
 }
 
 /// Sets the thread signal mask.
-pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*sigset_t) void {
-    switch (errno(system.sigprocmask(flags, set, oldset))) {
+pub fn sigprocmask(how: i32, noalias set: ?*const sigset_t, noalias oldset: ?*sigset_t) void {
+    switch (errno(system.sigprocmask(how, set, oldset))) {
         .SUCCESS => return,
         .FAULT => unreachable,
         .INVAL => unreachable,
