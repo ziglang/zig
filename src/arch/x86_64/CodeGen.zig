@@ -4001,7 +4001,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
                 const atom = elf_file.getAtom(atom_index);
                 const got_addr = atom.getOffsetTableAddress(elf_file);
-                try self.asmImmediate(.call, Immediate.s(@intCast(i32, got_addr)));
+                try self.asmMemory(.call, Memory.sib(.qword, .{
+                    .base = .ds,
+                    .disp = @intCast(i32, got_addr),
+                }));
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const atom_index = try coff_file.getOrCreateAtomForDecl(func.owner_decl);
                 const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
@@ -4030,7 +4033,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const got_addr = p9.bases.data;
                 const got_index = decl_block.got_index.?;
                 const fn_got_addr = got_addr + got_index * ptr_bytes;
-                try self.asmImmediate(.call, Immediate.s(@intCast(i32, fn_got_addr)));
+                try self.asmMemory(.call, Memory.sib(.qword, .{
+                    .base = .ds,
+                    .disp = @intCast(i32, fn_got_addr),
+                }));
             } else unreachable;
         } else if (func_value.castTag(.extern_fn)) |func_payload| {
             const extern_fn = func_payload.data;
