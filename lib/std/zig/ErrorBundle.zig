@@ -141,32 +141,35 @@ pub fn nullTerminatedString(eb: ErrorBundle, index: usize) [:0]const u8 {
     return string_bytes[index..end :0];
 }
 
-pub fn renderToStdErr(eb: ErrorBundle, ttyconf: std.debug.TTY.Config) void {
+pub const RenderOptions = struct {
+    ttyconf: std.debug.TTY.Config,
+    include_reference_trace: bool = true,
+    include_source_line: bool = true,
+};
+
+pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
     std.debug.getStderrMutex().lock();
     defer std.debug.getStderrMutex().unlock();
     const stderr = std.io.getStdErr();
-    return renderToWriter(eb, ttyconf, stderr.writer()) catch return;
+    return renderToWriter(eb, options, stderr.writer()) catch return;
 }
 
-pub fn renderToWriter(
-    eb: ErrorBundle,
-    ttyconf: std.debug.TTY.Config,
-    writer: anytype,
-) anyerror!void {
+pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, writer: anytype) anyerror!void {
     for (eb.getMessages()) |err_msg| {
-        try renderErrorMessageToWriter(eb, err_msg, ttyconf, writer, "error", .Red, 0);
+        try renderErrorMessageToWriter(eb, options, err_msg, writer, "error", .Red, 0);
     }
 }
 
 fn renderErrorMessageToWriter(
     eb: ErrorBundle,
+    options: RenderOptions,
     err_msg_index: MessageIndex,
-    ttyconf: std.debug.TTY.Config,
     stderr: anytype,
     kind: []const u8,
     color: std.debug.TTY.Color,
     indent: usize,
 ) anyerror!void {
+    const ttyconf = options.ttyconf;
     var counting_writer = std.io.countingWriter(stderr);
     const counting_stderr = counting_writer.writer();
     const err_msg = eb.getErrorMessage(err_msg_index);
@@ -196,7 +199,7 @@ fn renderErrorMessageToWriter(
             try stderr.print(" ({d} times)\n", .{err_msg.count});
         }
         try ttyconf.setColor(stderr, .Reset);
-        if (src.data.source_line != 0) {
+        if (src.data.source_line != 0 and options.include_source_line) {
             const line = eb.nullTerminatedString(src.data.source_line);
             for (line) |b| switch (b) {
                 '\t' => try stderr.writeByte(' '),
@@ -216,9 +219,9 @@ fn renderErrorMessageToWriter(
             try ttyconf.setColor(stderr, .Reset);
         }
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, note, ttyconf, stderr, "note", .Cyan, indent);
+            try renderErrorMessageToWriter(eb, options, note, stderr, "note", .Cyan, indent);
         }
-        if (src.data.reference_trace_len > 0) {
+        if (src.data.reference_trace_len > 0 and options.include_reference_trace) {
             try ttyconf.setColor(stderr, .Reset);
             try ttyconf.setColor(stderr, .Dim);
             try stderr.print("referenced by:\n", .{});
@@ -266,7 +269,7 @@ fn renderErrorMessageToWriter(
         }
         try ttyconf.setColor(stderr, .Reset);
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, note, ttyconf, stderr, "note", .Cyan, indent + 4);
+            try renderErrorMessageToWriter(eb, options, note, stderr, "note", .Cyan, indent + 4);
         }
     }
 }

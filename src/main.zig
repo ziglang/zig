@@ -4082,7 +4082,7 @@ fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void
     defer errors.deinit(comp.gpa);
 
     if (errors.errorMessageCount() > 0) {
-        errors.renderToStdErr(get_tty_conf(comp.color));
+        errors.renderToStdErr(renderOptions(comp.color));
         const log_text = comp.getCompileLogOutput();
         if (log_text.len != 0) {
             std.debug.print("\nCompile Log Output:\n{s}", .{log_text});
@@ -4711,7 +4711,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             if (wip_errors.root_list.items.len > 0) {
                 var errors = try wip_errors.toOwnedBundle();
                 defer errors.deinit(gpa);
-                errors.renderToStdErr(get_tty_conf(color));
+                errors.renderToStdErr(renderOptions(color));
                 process.exit(1);
             }
             try fetch_result;
@@ -4974,7 +4974,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                 try Compilation.addZirErrorMessages(&wip_errors, &file);
                 var error_bundle = try wip_errors.toOwnedBundle();
                 defer error_bundle.deinit(gpa);
-                error_bundle.renderToStdErr(get_tty_conf(color));
+                error_bundle.renderToStdErr(renderOptions(color));
                 process.exit(2);
             }
         } else if (tree.errors.len != 0) {
@@ -5180,7 +5180,7 @@ fn fmtPathFile(
             try Compilation.addZirErrorMessages(&wip_errors, &file);
             var error_bundle = try wip_errors.toOwnedBundle();
             defer error_bundle.deinit(gpa);
-            error_bundle.renderToStdErr(get_tty_conf(fmt.color));
+            error_bundle.renderToStdErr(renderOptions(fmt.color));
             fmt.any_error = true;
         }
     }
@@ -5217,7 +5217,7 @@ fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Co
 
     var error_bundle = try wip_errors.toOwnedBundle();
     defer error_bundle.deinit(gpa);
-    error_bundle.renderToStdErr(get_tty_conf(color));
+    error_bundle.renderToStdErr(renderOptions(color));
 }
 
 pub fn putAstErrorsIntoBundle(
@@ -5834,7 +5834,7 @@ pub fn cmdAstCheck(
         try Compilation.addZirErrorMessages(&wip_errors, &file);
         var error_bundle = try wip_errors.toOwnedBundle();
         defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(get_tty_conf(color));
+        error_bundle.renderToStdErr(renderOptions(color));
         process.exit(1);
     }
 
@@ -5892,6 +5892,7 @@ pub fn cmdChangelist(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
+    const color: Color = .auto;
     const Zir = @import("Zir.zig");
 
     const old_source_file = args[0];
@@ -5948,10 +5949,9 @@ pub fn cmdChangelist(
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
         try Compilation.addZirErrorMessages(&wip_errors, &file);
-        const ttyconf = std.debug.detectTTYConfig(std.io.getStdErr());
         var error_bundle = try wip_errors.toOwnedBundle();
         defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(ttyconf);
+        error_bundle.renderToStdErr(renderOptions(color));
         process.exit(1);
     }
 
@@ -5984,10 +5984,9 @@ pub fn cmdChangelist(
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
         try Compilation.addZirErrorMessages(&wip_errors, &file);
-        const ttyconf = std.debug.detectTTYConfig(std.io.getStdErr());
         var error_bundle = try wip_errors.toOwnedBundle();
         defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(ttyconf);
+        error_bundle.renderToStdErr(renderOptions(color));
         process.exit(1);
     }
 
@@ -6254,5 +6253,14 @@ fn get_tty_conf(color: Color) std.debug.TTY.Config {
         .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
         .on => .escape_codes,
         .off => .no_color,
+    };
+}
+
+fn renderOptions(color: Color) std.zig.ErrorBundle.RenderOptions {
+    const ttyconf = get_tty_conf(color);
+    return .{
+        .ttyconf = ttyconf,
+        .include_source_line = ttyconf != .no_color,
+        .include_reference_trace = ttyconf != .no_color,
     };
 }

@@ -295,8 +295,8 @@ pub fn evalZigProcess(
 
     var node_name: std.ArrayListUnmanaged(u8) = .{};
     defer node_name.deinit(gpa);
-    var sub_prog_node: ?std.Progress.Node = null;
-    defer if (sub_prog_node) |*n| n.end();
+    var sub_prog_node = prog_node.start("", 0);
+    defer sub_prog_node.end();
 
     const stdout = poller.fifo(.stdout);
 
@@ -336,11 +336,9 @@ pub fn evalZigProcess(
                     };
                 },
                 .progress => {
-                    if (sub_prog_node) |*n| n.end();
                     node_name.clearRetainingCapacity();
                     try node_name.appendSlice(gpa, body);
-                    sub_prog_node = prog_node.start(node_name.items, 0);
-                    sub_prog_node.?.activate();
+                    sub_prog_node.setName(node_name.items);
                 },
                 .emit_bin_path => {
                     const EbpHdr = std.zig.Server.Message.EmitBinPath;
@@ -370,6 +368,18 @@ pub fn evalZigProcess(
     };
     s.result_duration_ns = timer.read();
     s.result_peak_rss = child.resource_usage_statistics.getMaxRss() orelse 0;
+
+    // Special handling for CompileStep that is expecting compile errors.
+    if (s.cast(Build.CompileStep)) |compile| switch (term) {
+        .Exited => {
+            // Note that the exit code may be 0 in this case due to the
+            // compiler server protocol.
+            if (compile.expect_errors.len != 0 and s.result_error_bundle.errorMessageCount() > 0) {
+                return error.NeedCompileErrorCheck;
+            }
+        },
+        else => {},
+    };
 
     try handleChildProcessTerm(s, term, null, argv);
 

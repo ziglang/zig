@@ -84,8 +84,6 @@ pub fn main() !void {
     );
     defer builder.destroy();
 
-    const Color = enum { auto, off, on };
-
     var targets = ArrayList([]const u8).init(arena);
     var debug_log_scopes = ArrayList([]const u8).init(arena);
     var thread_pool_options: std.Thread.Pool.Options = .{ .allocator = arena };
@@ -273,13 +271,9 @@ pub fn main() !void {
     }
 
     const stderr = std.io.getStdErr();
-    const ttyconf: std.debug.TTY.Config = switch (color) {
-        .auto => std.debug.detectTTYConfig(stderr),
-        .on => .escape_codes,
-        .off => .no_color,
-    };
+    const ttyconf = get_tty_conf(color, stderr);
 
-    var progress: std.Progress = .{};
+    var progress: std.Progress = .{ .dont_print_on_dumb = true };
     const main_progress_node = progress.start("", 0);
 
     builder.debug_log_scopes = debug_log_scopes.items;
@@ -498,7 +492,7 @@ fn runStepNames(
     if (total_compile_errors > 0) {
         for (compile_error_steps.items) |s| {
             if (s.result_error_bundle.errorMessageCount() > 0) {
-                s.result_error_bundle.renderToStdErr(ttyconf);
+                s.result_error_bundle.renderToStdErr(renderOptions(ttyconf));
             }
         }
 
@@ -960,4 +954,22 @@ fn cleanExit() void {
     // --debug-build-runner-leaks which would make this function return instead
     // of calling exit.
     process.exit(0);
+}
+
+const Color = enum { auto, off, on };
+
+fn get_tty_conf(color: Color, stderr: std.fs.File) std.debug.TTY.Config {
+    return switch (color) {
+        .auto => std.debug.detectTTYConfig(stderr),
+        .on => .escape_codes,
+        .off => .no_color,
+    };
+}
+
+fn renderOptions(ttyconf: std.debug.TTY.Config) std.zig.ErrorBundle.RenderOptions {
+    return .{
+        .ttyconf = ttyconf,
+        .include_source_line = ttyconf != .no_color,
+        .include_reference_trace = ttyconf != .no_color,
+    };
 }

@@ -207,6 +207,12 @@ want_lto: ?bool = null,
 use_llvm: ?bool = null,
 use_lld: ?bool = null,
 
+/// This is an advanced setting that can change the intent of this CompileStep.
+/// If this slice has nonzero length, it means that this CompileStep exists to
+/// check for compile errors and return *success* if they match, and failure
+/// otherwise.
+expect_errors: []const []const u8 = &.{},
+
 output_path_source: GeneratedFile,
 output_lib_path_source: GeneratedFile,
 output_h_path_source: GeneratedFile,
@@ -552,8 +558,8 @@ pub fn run(cs: *CompileStep) *RunStep {
     return cs.step.owner.addRunArtifact(cs);
 }
 
-pub fn checkObject(self: *CompileStep, obj_format: std.Target.ObjectFormat) *CheckObjectStep {
-    return CheckObjectStep.create(self.step.owner, self.getOutputSource(), obj_format);
+pub fn checkObject(self: *CompileStep) *CheckObjectStep {
+    return CheckObjectStep.create(self.step.owner, self.getOutputSource(), self.target_info.target.ofmt);
 }
 
 pub fn setLinkerScriptPath(self: *CompileStep, source: FileSource) void {
@@ -1838,14 +1844,38 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     for (b.search_prefixes.items) |search_prefix| {
-        try zig_args.append("-L");
-        try zig_args.append(b.pathJoin(&.{
-            search_prefix, "lib",
-        }));
-        try zig_args.append("-I");
-        try zig_args.append(b.pathJoin(&.{
-            search_prefix, "include",
-        }));
+        var prefix_dir = fs.cwd().openDir(search_prefix, .{}) catch |err| {
+            return step.fail("unable to open prefix directory '{s}': {s}", .{
+                search_prefix, @errorName(err),
+            });
+        };
+        defer prefix_dir.close();
+
+        // Avoid passing -L and -I flags for nonexistent directories.
+        // This prevents a warning, that should probably be upgraded to an error in Zig's
+        // CLI parsing code, when the linker sees an -L directory that does not exist.
+
+        if (prefix_dir.accessZ("lib", .{})) |_| {
+            try zig_args.appendSlice(&.{
+                "-L", try fs.path.join(b.allocator, &.{ search_prefix, "lib" }),
+            });
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return step.fail("unable to access '{s}/lib' directory: {s}", .{
+                search_prefix, @errorName(e),
+            }),
+        }
+
+        if (prefix_dir.accessZ("include", .{})) |_| {
+            try zig_args.appendSlice(&.{
+                "-I", try fs.path.join(b.allocator, &.{ search_prefix, "include" }),
+            });
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return step.fail("unable to access '{s}/include' directory: {s}", .{
+                search_prefix, @errorName(e),
+            }),
+        }
     }
 
     try addFlag(&zig_args, "valgrind", self.valgrind_support);
@@ -1943,7 +1973,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(resolved_args_file);
     }
 
-    const output_bin_path = try step.evalZigProcess(zig_args.items, prog_node);
+    const output_bin_path = step.evalZigProcess(zig_args.items, prog_node) catch |err| switch (err) {
+        error.NeedCompileErrorCheck => {
+            assert(self.expect_errors.len != 0);
+            try checkCompileErrors(self);
+            return;
+        },
+        else => |e| return e,
+    };
     const build_output_dir = fs.path.dirname(output_bin_path).?;
 
     if (self.output_dir) |output_dir| {
@@ -2178,3 +2215,57 @@ const TransitiveDeps = struct {
         }
     }
 };
+
+fn checkCompileErrors(self: *CompileStep) !void {
+    // Clear this field so that it does not get printed by the build runner.
+    const actual_eb = self.step.result_error_bundle;
+    self.step.result_error_bundle = std.zig.ErrorBundle.empty;
+
+    const arena = self.step.owner.allocator;
+
+    var actual_stderr_list = std.ArrayList(u8).init(arena);
+    try actual_eb.renderToWriter(.{
+        .ttyconf = .no_color,
+        .include_reference_trace = false,
+        .include_source_line = false,
+    }, actual_stderr_list.writer());
+    const actual_stderr = try actual_stderr_list.toOwnedSlice();
+
+    // Render the expected lines into a string that we can compare verbatim.
+    var expected_generated = std.ArrayList(u8).init(arena);
+
+    var actual_line_it = mem.split(u8, actual_stderr, "\n");
+    for (self.expect_errors) |expect_line| {
+        const actual_line = actual_line_it.next() orelse {
+            try expected_generated.appendSlice(expect_line);
+            try expected_generated.append('\n');
+            continue;
+        };
+        if (mem.endsWith(u8, actual_line, expect_line)) {
+            try expected_generated.appendSlice(actual_line);
+            try expected_generated.append('\n');
+            continue;
+        }
+        if (mem.startsWith(u8, expect_line, ":?:?: ")) {
+            if (mem.endsWith(u8, actual_line, expect_line[":?:?: ".len..])) {
+                try expected_generated.appendSlice(actual_line);
+                try expected_generated.append('\n');
+                continue;
+            }
+        }
+        try expected_generated.appendSlice(expect_line);
+        try expected_generated.append('\n');
+    }
+
+    if (mem.eql(u8, expected_generated.items, actual_stderr)) return;
+
+    // TODO merge this with the testing.expectEqualStrings logic, and also CheckFile
+    return self.step.fail(
+        \\
+        \\========= expected: =====================
+        \\{s}
+        \\========= but found: ====================
+        \\{s}
+        \\=========================================
+    , .{ expected_generated.items, actual_stderr });
+}
