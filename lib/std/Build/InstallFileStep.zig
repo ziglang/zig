@@ -3,6 +3,7 @@ const Step = std.Build.Step;
 const FileSource = std.Build.FileSource;
 const InstallDir = std.Build.InstallDir;
 const InstallFileStep = @This();
+const assert = std.debug.assert;
 
 pub const base_id = .install_file;
 
@@ -14,14 +15,16 @@ dest_rel_path: []const u8,
 /// package but is being installed by another.
 dest_builder: *std.Build,
 
-pub fn init(
+pub fn create(
     owner: *std.Build,
     source: FileSource,
     dir: InstallDir,
     dest_rel_path: []const u8,
-) InstallFileStep {
+) *InstallFileStep {
+    assert(dest_rel_path.len != 0);
     owner.pushInstalledFile(dir, dest_rel_path);
-    return InstallFileStep{
+    const self = owner.allocator.create(InstallFileStep) catch @panic("OOM");
+    self.* = .{
         .step = Step.init(.{
             .id = base_id,
             .name = owner.fmt("install {s} to {s}", .{ source.getDisplayName(), dest_rel_path }),
@@ -33,6 +36,8 @@ pub fn init(
         .dest_rel_path = owner.dupePath(dest_rel_path),
         .dest_builder = owner,
     };
+    source.addStepDependencies(&self.step);
+    return self;
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {

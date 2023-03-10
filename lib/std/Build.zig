@@ -1220,12 +1220,7 @@ pub fn addInstallFileWithDir(
     install_dir: InstallDir,
     dest_rel_path: []const u8,
 ) *InstallFileStep {
-    if (dest_rel_path.len == 0) {
-        panic("dest_rel_path must be non-empty", .{});
-    }
-    const install_step = self.allocator.create(InstallFileStep) catch @panic("OOM");
-    install_step.* = InstallFileStep.init(self, source.dupe(self), install_dir, dest_rel_path);
-    return install_step;
+    return InstallFileStep.create(self, source.dupe(self), install_dir, dest_rel_path);
 }
 
 pub fn addInstallDirectory(self: *Build, options: InstallDirectoryOptions) *InstallDirStep {
@@ -1685,9 +1680,7 @@ pub const InstallDir = union(enum) {
     /// Duplicates the install directory including the path if set to custom.
     pub fn dupe(self: InstallDir, builder: *Build) InstallDir {
         if (self == .custom) {
-            // Written with this temporary to avoid RLS problems
-            const duped_path = builder.dupe(self.custom);
-            return .{ .custom = duped_path };
+            return .{ .custom = builder.dupe(self.custom) };
         } else {
             return self;
         }
