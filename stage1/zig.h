@@ -5,7 +5,6 @@
 #endif
 #include <float.h>
 #include <limits.h>
-#include <signal.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -191,10 +190,17 @@ typedef char bool;
 
 #if zig_has_builtin(trap)
 #define zig_trap() __builtin_trap()
+#elif _MSC_VER && (_M_IX86 || _M_X64)
+#define zig_trap() __ud2()
+#elif _MSC_VER
+#define zig_trap() __fastfail(0)
 #elif defined(__i386__) || defined(__x86_64__)
 #define zig_trap() __asm__ volatile("ud2");
+#elif defined(__arm__) || defined(__aarch64__)
+#define zig_breakpoint() __asm__ volatile("udf #0");
 #else
-#define zig_trap() raise(SIGTRAP)
+#include <stdlib.h>
+#define zig_trap() abort()
 #endif
 
 #if zig_has_builtin(debugtrap)
@@ -203,8 +209,17 @@ typedef char bool;
 #define zig_breakpoint() __debugbreak()
 #elif defined(__i386__) || defined(__x86_64__)
 #define zig_breakpoint() __asm__ volatile("int $0x03");
+#elif defined(__arm__)
+#define zig_breakpoint() __asm__ volatile("bkpt #0");
+#elif defined(__aarch64__)
+#define zig_breakpoint() __asm__ volatile("brk #0");
 #else
+#include <signal.h>
+#if defined(SIGTRAP)
 #define zig_breakpoint() raise(SIGTRAP)
+#else
+#define zig_breakpoint() zig_breakpoint_unavailable
+#endif
 #endif
 
 #if zig_has_builtin(return_address) || defined(zig_gnuc)
@@ -2383,6 +2398,44 @@ static inline void zig_addw_big(void *res, const void *lhs, const void *rhs, boo
 
 static inline void zig_subw_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
     (void)zig_subo_big(res, lhs, rhs, is_signed, bits);
+}
+
+zig_extern void __udivei4(uint32_t *res, const uint32_t *lhs, const uint32_t *rhs, uintptr_t bits);
+static inline void zig_div_trunc_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    if (!is_signed) {
+        __udivei4(res, lhs, rhs, bits);
+        return;
+    }
+
+    zig_trap();
+}
+
+static inline void zig_div_floor_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    if (!is_signed) {
+        zig_div_trunc_big(res, lhs, rhs, is_signed, bits);
+        return;
+    }
+
+    zig_trap();
+}
+
+zig_extern void __umodei4(uint32_t *res, const uint32_t *lhs, const uint32_t *rhs, uintptr_t bits);
+static inline void zig_rem_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    if (!is_signed) {
+        __umodei4(res, lhs, rhs, bits);
+        return;
+    }
+
+    zig_trap();
+}
+
+static inline void zig_mod_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    if (!is_signed) {
+        zig_rem_big(res, lhs, rhs, is_signed, bits);
+        return;
+    }
+
+    zig_trap();
 }
 
 static inline uint16_t zig_clz_big(const void *val, bool is_signed, uint16_t bits) {
