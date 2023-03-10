@@ -887,32 +887,12 @@ fn resolveLazySymbols(wasm: *Wasm) !void {
         const loc = try wasm.createSyntheticSymbol("__heap_base", .data);
         try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
         _ = wasm.resolved_symbols.swapRemove(loc); // we don't want to emit this symbol, only use it for relocations.
-
-        // TODO: Can we use `createAtom` here while also re-using the symbol
-        // from `createSyntheticSymbol`.
-        const atom_index = @intCast(Atom.Index, wasm.managed_atoms.items.len);
-        const atom = try wasm.managed_atoms.addOne(wasm.base.allocator);
-        atom.* = Atom.empty;
-        atom.sym_index = loc.index;
-        atom.alignment = 1;
-
-        try wasm.parseAtom(atom_index, .{ .data = .synthetic });
-        try wasm.symbol_atom.putNoClobber(wasm.base.allocator, loc, atom_index);
     }
 
     if (wasm.undefs.fetchSwapRemove("__heap_end")) |kv| {
         const loc = try wasm.createSyntheticSymbol("__heap_end", .data);
         try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
         _ = wasm.resolved_symbols.swapRemove(loc);
-
-        const atom_index = @intCast(Atom.Index, wasm.managed_atoms.items.len);
-        const atom = try wasm.managed_atoms.addOne(wasm.base.allocator);
-        atom.* = Atom.empty;
-        atom.sym_index = loc.index;
-        atom.alignment = 1;
-
-        try wasm.parseAtom(atom_index, .{ .data = .synthetic });
-        try wasm.symbol_atom.putNoClobber(wasm.base.allocator, loc, atom_index);
     }
 }
 
@@ -1614,7 +1594,6 @@ const Kind = union(enum) {
         read_only,
         uninitialized,
         initialized,
-        synthetic,
     },
     function: void,
 
@@ -1625,7 +1604,6 @@ const Kind = union(enum) {
             .read_only => return ".rodata.",
             .uninitialized => return ".bss.",
             .initialized => return ".data.",
-            .synthetic => return ".synthetic",
         }
     }
 };
@@ -1833,7 +1811,6 @@ fn sortDataSegments(wasm: *Wasm) !void {
             if (mem.startsWith(u8, name, ".rodata")) return 0;
             if (mem.startsWith(u8, name, ".data")) return 1;
             if (mem.startsWith(u8, name, ".text")) return 2;
-            if (mem.startsWith(u8, name, ".synthetic")) return 100; // always at end
             return 3;
         }
     };
@@ -2245,10 +2222,6 @@ fn setupMemory(wasm: *Wasm) !void {
     var offset: u32 = @intCast(u32, memory_ptr);
     var data_seg_it = wasm.data_segments.iterator();
     while (data_seg_it.next()) |entry| {
-        if (mem.eql(u8, entry.key_ptr.*, ".synthetic")) {
-            // do not update synthetic segments as they are not part of the output
-            continue;
-        }
         const segment = &wasm.segments.items[entry.value_ptr.*];
         memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, segment.alignment);
         memory_ptr += segment.size;
@@ -3447,8 +3420,6 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem
         // bss section is not emitted when this condition holds true, so we also
         // do not output a name for it.
         if (!wasm.base.options.import_memory and std.mem.eql(u8, key, ".bss")) continue;
-        // Synthetic segments are not emitted
-        if (std.mem.eql(u8, key, ".synthetic")) continue;
         segments.appendAssumeCapacity(.{ .index = data_segment_index, .name = key });
         data_segment_index += 1;
     }
