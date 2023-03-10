@@ -666,6 +666,21 @@ const ArgMode = union(enum) {
     run,
 };
 
+/// Add the CACHEDIR.TAG file to the cache directory.
+/// See http://www.brynosaurus.com/cachedir/.
+fn tagCacheDirectory(dir: fs.Dir) !void {
+    const bytes =
+        \\Signature: 8a477f597d28d172789f06886806bc55
+        \\# This file is a cache directory tag created by Zig.
+        \\# For information about cache directory tags, see:
+        \\#	http://www.brynosaurus.com/cachedir/
+    ;
+    const file = try dir.createFile("CACHEDIR.TAG", .{});
+    defer file.close();
+
+    try file.writeAll(bytes);
+}
+
 fn buildOutputType(
     gpa: Allocator,
     arena: Allocator,
@@ -3028,6 +3043,7 @@ fn buildOutputType(
         };
     };
     defer global_cache_directory.handle.close();
+    try tagCacheDirectory(global_cache_directory.handle);
 
     var cleanup_local_cache_dir: ?fs.Dir = null;
     defer if (cleanup_local_cache_dir) |*dir| dir.close();
@@ -3072,6 +3088,7 @@ fn buildOutputType(
         // so we utilize the global one.
         break :l global_cache_directory;
     };
+    try tagCacheDirectory(local_cache_directory.handle);
 
     if (build_options.have_llvm and emit_asm != .no) {
         // LLVM has no way to set this non-globally.
