@@ -126,6 +126,21 @@ pub const Node = struct {
         }
     }
 
+    /// Thread-safe.
+    pub fn setName(self: *Node, name: []const u8) void {
+        const progress = self.context;
+        progress.update_mutex.lock();
+        defer progress.update_mutex.unlock();
+        self.name = name;
+        if (self.parent) |parent| {
+            @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
+            if (parent.parent) |grand_parent| {
+                @atomicStore(?*Node, &grand_parent.recently_updated_child, parent, .Release);
+            }
+            if (progress.timer) |*timer| progress.maybeRefreshWithHeldLock(timer);
+        }
+    }
+
     /// Thread-safe. 0 means unknown.
     pub fn setEstimatedTotalItems(self: *Node, count: usize) void {
         @atomicStore(usize, &self.unprotected_estimated_total_items, count, .Monotonic);
@@ -174,14 +189,18 @@ pub fn maybeRefresh(self: *Progress) void {
     if (self.timer) |*timer| {
         if (!self.update_mutex.tryLock()) return;
         defer self.update_mutex.unlock();
-        const now = timer.read();
-        if (now < self.initial_delay_ns) return;
-        // TODO I have observed this to happen sometimes. I think we need to follow Rust's
-        // lead and guarantee monotonically increasing times in the std lib itself.
-        if (now < self.prev_refresh_timestamp) return;
-        if (now - self.prev_refresh_timestamp < self.refresh_rate_ns) return;
-        return self.refreshWithHeldLock();
+        maybeRefreshWithHeldLock(self, timer);
     }
+}
+
+fn maybeRefreshWithHeldLock(self: *Progress, timer: *std.time.Timer) void {
+    const now = timer.read();
+    if (now < self.initial_delay_ns) return;
+    // TODO I have observed this to happen sometimes. I think we need to follow Rust's
+    // lead and guarantee monotonically increasing times in the std lib itself.
+    if (now < self.prev_refresh_timestamp) return;
+    if (now - self.prev_refresh_timestamp < self.refresh_rate_ns) return;
+    return self.refreshWithHeldLock();
 }
 
 /// Updates the terminal and resets `self.next_refresh_timestamp`. Thread-safe.
