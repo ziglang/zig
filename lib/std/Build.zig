@@ -384,20 +384,17 @@ fn applyArgs(b: *Build, args: anytype) !void {
             },
         }
     }
-    const Hasher = std.crypto.auth.siphash.SipHash128(1, 3);
+
+    // Create an installation directory local to this package. This will be used when
+    // dependant packages require a standard prefix, such as include directories for C headers.
+    var hash = b.cache.hash;
     // Random bytes to make unique. Refresh this with new random bytes when
     // implementation is modified in a non-backwards-compatible way.
-    var hash = Hasher.init("ZaEsvQ5ClaA2IdH9");
-    hash.update(b.dep_prefix);
+    hash.add(@as(u32, 0xd8cb0055));
+    hash.addBytes(b.dep_prefix);
     // TODO additionally update the hash with `args`.
-
-    var digest: [16]u8 = undefined;
-    hash.final(&digest);
-    var hash_basename: [digest.len * 2]u8 = undefined;
-    _ = std.fmt.bufPrint(&hash_basename, "{s}", .{std.fmt.fmtSliceHexLower(&digest)}) catch
-        unreachable;
-
-    const install_prefix = try b.cache_root.join(b.allocator, &.{ "i", &hash_basename });
+    const digest = hash.final();
+    const install_prefix = try b.cache_root.join(b.allocator, &.{ "i", &digest });
     b.resolveInstallPrefix(install_prefix, .{});
 }
 
