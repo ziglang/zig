@@ -278,12 +278,8 @@ pub fn main() !void {
         .windows_api => {},
     }
 
-    var progress: std.Progress = .{};
+    var progress: std.Progress = .{ .dont_print_on_dumb = true };
     const main_progress_node = progress.start("", 0);
-    if (ttyconf == .no_color) {
-        progress.timer = null;
-        progress.terminal = null;
-    }
 
     builder.debug_log_scopes = debug_log_scopes.items;
     builder.resolveInstallPrefix(install_prefix, dir_list);
@@ -306,9 +302,6 @@ pub fn main() !void {
         .enable_summary = enable_summary,
         .ttyconf = ttyconf,
         .stderr = stderr,
-
-        .step_index = 0,
-        .step_count = undefined,
     };
 
     if (run.max_rss == 0) {
@@ -339,9 +332,6 @@ const Run = struct {
     enable_summary: ?bool,
     ttyconf: std.debug.TTY.Config,
     stderr: std.fs.File,
-
-    step_count: usize,
-    step_index: usize,
 };
 
 fn runStepNames(
@@ -405,8 +395,7 @@ fn runStepNames(
     {
         defer parent_prog_node.end();
 
-        run.step_count = step_stack.count();
-        var step_prog = parent_prog_node.start("run steps", run.step_count);
+        var step_prog = parent_prog_node.start("run steps", step_stack.count());
         defer step_prog.end();
 
         var wait_group: std.Thread.WaitGroup = .{};
@@ -750,33 +739,15 @@ fn workerMakeOneStep(
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    const stderr = run.stderr;
-    const ttyconf = run.ttyconf;
-
-    // If we are unable to print a fancy terminal progress bar, then we resort
-    // to 1 line printed to stderr for each step, similar to Ninja.
-    if (ttyconf == .no_color) {
-        var buf: [120]u8 = undefined;
-        const step_index = @atomicRmw(usize, &run.step_index, .Add, 1, .Monotonic);
-        const text = std.fmt.bufPrint(&buf, "[{d}/{d}] Making {s}{s}\n", .{
-            step_index + 1, run.step_count, s.owner.dep_prefix, s.name,
-        }) catch |err| switch (err) {
-            error.NoSpaceLeft => blk: {
-                buf[buf.len - 4 ..].* = "...\n".*;
-                break :blk &buf;
-            },
-        };
-        std.debug.getStderrMutex().lock();
-        defer std.debug.getStderrMutex().unlock();
-        stderr.writeAll(text) catch {};
-    }
-
     const make_result = s.make(&sub_prog_node);
 
     // No matter the result, we want to display error/warning messages.
     if (s.result_error_msgs.items.len > 0) {
         sub_prog_node.context.lock_stderr();
         defer sub_prog_node.context.unlock_stderr();
+
+        const stderr = run.stderr;
+        const ttyconf = run.ttyconf;
 
         for (s.result_error_msgs.items) |msg| {
             // Sometimes it feels like you just can't catch a break. Finally,
