@@ -133,8 +133,6 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     try astgen.extra.ensureTotalCapacity(gpa, tree.nodes.len + reserved_count);
     astgen.extra.items.len += reserved_count;
 
-    try lowerAstErrors(&astgen);
-
     var top_scope: Scope.Top = .{};
 
     var gz_instructions: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
@@ -150,18 +148,24 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     };
     defer gz_instructions.deinit(gpa);
 
-    if (AstGen.structDeclInner(
-        &gen_scope,
-        &gen_scope.base,
-        0,
-        tree.containerDeclRoot(),
-        .Auto,
-        0,
-    )) |struct_decl_ref| {
-        assert(refToIndex(struct_decl_ref).? == 0);
-    } else |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.AnalysisFail => {}, // Handled via compile_errors below.
+    // The AST -> ZIR lowering process assumes an AST that does not have any
+    // parse errors.
+    if (tree.errors.len == 0) {
+        if (AstGen.structDeclInner(
+            &gen_scope,
+            &gen_scope.base,
+            0,
+            tree.containerDeclRoot(),
+            .Auto,
+            0,
+        )) |struct_decl_ref| {
+            assert(refToIndex(struct_decl_ref).? == 0);
+        } else |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.AnalysisFail => {}, // Handled via compile_errors below.
+        }
+    } else {
+        try lowerAstErrors(&astgen);
     }
 
     const err_index = @enumToInt(Zir.ExtraIndex.compile_errors);
@@ -12642,7 +12646,7 @@ fn emitDbgStmt(gz: *GenZir, line: u32, column: u32) !void {
 
 fn lowerAstErrors(astgen: *AstGen) !void {
     const tree = astgen.tree;
-    if (tree.errors.len == 0) return;
+    assert(tree.errors.len > 0);
 
     const gpa = astgen.gpa;
     const parse_err = tree.errors[0];
