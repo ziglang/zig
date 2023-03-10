@@ -83,6 +83,7 @@ pub fn addCopyFile(wf: *WriteFileStep, source: std.Build.FileSource, sub_path: [
     wf.files.append(gpa, file) catch @panic("OOM");
 
     wf.maybeUpdateName();
+    source.addStepDependencies(&wf.step);
 }
 
 /// A path relative to the package root.
@@ -97,6 +98,7 @@ pub fn addCopyFileToSource(wf: *WriteFileStep, source: std.Build.FileSource, sub
         .contents = .{ .copy = source },
         .sub_path = sub_path,
     }) catch @panic("OOM");
+    source.addStepDependencies(&wf.step);
 }
 
 /// A path relative to the package root.
