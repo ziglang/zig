@@ -485,7 +485,12 @@ pub fn lowerToBuildSteps(
         }
         const root_source_file = writefiles.getFileSource(update.files.items[0].path).?;
 
-        const artifact = switch (case.output_mode) {
+        const artifact = if (case.is_test) b.addTest(.{
+            .root_source_file = root_source_file,
+            .name = case.name,
+            .target = case.target,
+            .optimize = case.optimize_mode,
+        }) else switch (case.output_mode) {
             .Obj => b.addObject(.{
                 .root_source_file = root_source_file,
                 .name = case.name,
@@ -498,12 +503,7 @@ pub fn lowerToBuildSteps(
                 .target = case.target,
                 .optimize = case.optimize_mode,
             }),
-            .Exe => if (case.is_test) b.addTest(.{
-                .root_source_file = root_source_file,
-                .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
-            }) else b.addExecutable(.{
+            .Exe => b.addExecutable(.{
                 .root_source_file = root_source_file,
                 .name = case.name,
                 .target = case.target,
