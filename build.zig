@@ -471,7 +471,9 @@ pub fn build(b: *std.Build) !void {
         .skip_libc = skip_libc,
         .skip_stage1 = skip_stage1,
         .skip_stage2 = true, // TODO get all these passing
-        .max_rss = 3 * 1024 * 1024 * 1024,
+        // I observed a value of 3398275072 on my M1, and multiplied by 1.1 to
+        // get this amount:
+        .max_rss = 3738102579,
     }));
 
     try addWasiUpdateStep(b, version);
