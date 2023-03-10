@@ -418,14 +418,18 @@ pub const Memory = union(enum) {
         tbyte,
 
         pub fn fromSize(size: u32) PtrSize {
-            return switch (size) {
-                1 => .byte,
-                2 => .word,
-                4 => .dword,
-                8 => .qword,
-                10 => .tbyte,
-                else => unreachable,
-            };
+            return if (size <= 1)
+                .byte
+            else if (size <= 2)
+                .word
+            else if (size <= 4)
+                .dword
+            else if (size <= 8)
+                .qword
+            else if (size == 10)
+                .tbyte
+            else
+                unreachable;
         }
 
         pub fn fromBitSize(bit_size: u64) PtrSize {
