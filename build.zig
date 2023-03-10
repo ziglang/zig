@@ -49,7 +49,7 @@ pub fn build(b: *std.Build) !void {
     docgen_cmd.addArgs(&.{ "--zig", b.zig_exe });
     docgen_cmd.addFileSourceArg(.{ .path = "doc/langref.html.in" });
     const langref_file = docgen_cmd.addOutputFileArg("langref.html");
-    const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "langref.html");
+    const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
     if (!skip_install_lib_files) {
         b.getInstallStep().dependOn(&install_langref.step);
     }
