@@ -5841,7 +5841,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     if (intrinsicsAllowed(self.target.*, ty)) {
                         const tag: Mir.Inst.Tag = switch (ty.tag()) {
                             .f32 => .movss,
-                            .f64 => .movsx,
+                            .f64 => .movsd,
                             else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
                         };
                         const ptr_size: Memory.PtrSize = switch (ty.tag()) {

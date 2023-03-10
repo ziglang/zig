@@ -328,6 +328,16 @@ fn mirMovsx(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             op1 = .{ .reg = data.rr.r1 };
             op2 = .{ .reg = data.rr.r2 };
         },
+        .rm_sib => {
+            const msib = emit.mir.extraData(Mir.MemorySib, data.rx.payload).data;
+            op1 = .{ .reg = data.rx.r1 };
+            op2 = .{ .mem = Mir.MemorySib.decode(msib) };
+        },
+        .rm_rip => {
+            const mrip = emit.mir.extraData(Mir.MemoryRip, data.rx.payload).data;
+            op1 = .{ .reg = data.rx.r1 };
+            op2 = .{ .mem = Mir.MemoryRip.decode(mrip) };
+        },
         else => unreachable, // TODO
     }
 
