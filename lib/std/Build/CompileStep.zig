@@ -742,7 +742,6 @@ pub fn runPkgConfig(self: *CompileStep, lib_name: []const u8) ![]const []const u
         error.ExecNotSupported => return error.PkgConfigFailed,
         error.ExitCodeFailure => return error.PkgConfigFailed,
         error.FileNotFound => return error.PkgConfigNotInstalled,
-        error.ChildExecFailed => return error.PkgConfigFailed,
         else => return err,
     };
 
@@ -2042,7 +2041,6 @@ fn getPkgConfigList(self: *std.Build) ![]const PkgConfigPkg {
             error.FileNotFound => error.PkgConfigNotInstalled,
             error.InvalidName => error.PkgConfigNotInstalled,
             error.PkgConfigInvalidOutput => error.PkgConfigInvalidOutput,
-            error.ChildExecFailed => error.PkgConfigFailed,
             else => return err,
         };
         self.pkg_config_pkg_list = result;
