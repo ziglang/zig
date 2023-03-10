@@ -2856,10 +2856,14 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 .immediate => |imm| {
                     switch (abi_size) {
                         1, 2, 4 => {
+                            const immediate = if (value_ty.isSignedInt())
+                                Immediate.s(@intCast(i32, @bitCast(i64, imm)))
+                            else
+                                Immediate.u(@truncate(u32, imm));
                             try self.asmMemoryImmediate(.mov, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
                                 .base = reg.to64(),
                                 .disp = 0,
-                            }), Immediate.u(@truncate(u32, imm)));
+                            }), immediate);
                         },
                         8 => {
                             // TODO: optimization: if the imm is only using the lower
@@ -3580,7 +3584,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                             const actual_tag: Mir.Inst.Tag = switch (dst_ty.tag()) {
                                 .f32 => switch (mir_tag) {
                                     .add => .addss,
-                                    .cmp => .cmpss,
+                                    .cmp => .ucomiss,
                                     else => return self.fail(
                                         "TODO genBinOpMir for f32 register-register with MIR tag {}",
                                         .{mir_tag},
@@ -3588,7 +3592,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                                 },
                                 .f64 => switch (mir_tag) {
                                     .add => .addsd,
-                                    .cmp => .cmpsd,
+                                    .cmp => .ucomisd,
                                     else => return self.fail(
                                         "TODO genBinOpMir for f64 register-register with MIR tag {}",
                                         .{mir_tag},
@@ -3599,7 +3603,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                                     .{dst_ty.fmtDebug()},
                                 ),
                             };
-                            try self.asmRegisterRegister(actual_tag, dst_reg.to128(), src_reg.to128());
+                            return self.asmRegisterRegister(actual_tag, dst_reg.to128(), src_reg.to128());
                         }
 
                         return self.fail("TODO genBinOpMir for float register-register and no intrinsics", .{});
@@ -5255,11 +5259,14 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                     // TODO
                     // We have a positive stack offset value but we want a twos complement negative
                     // offset from rbp, which is at the top of the stack frame.
-                    // mov [rbp+offset], immediate
+                    const immediate = if (ty.isSignedInt())
+                        Immediate.s(@intCast(i32, @bitCast(i64, imm)))
+                    else
+                        Immediate.u(@intCast(u32, imm));
                     try self.asmMemoryImmediate(.mov, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
                         .base = .rsp,
                         .disp = -stack_offset,
-                    }), Immediate.u(@intCast(u32, imm)));
+                    }), immediate);
                 },
                 8 => {
                     const reg = try self.copyToTmpRegister(ty, mcv);
@@ -5340,10 +5347,19 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
             if (!self.wantSafety())
                 return; // The already existing value will do just fine.
             // TODO Upgrade this to a memset call when we have that available.
-            switch (ty.abiSize(self.target.*)) {
-                1 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaa }, opts),
-                2 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaa }, opts),
-                4 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaa }, opts),
+            switch (abi_size) {
+                1, 2, 4 => {
+                    const value: u64 = switch (abi_size) {
+                        1 => 0xaa,
+                        2 => 0xaaaa,
+                        4 => 0xaaaaaaaa,
+                        else => unreachable,
+                    };
+                    return self.asmMemoryImmediate(.mov, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
+                        .base = opts.dest_stack_base orelse .rbp,
+                        .disp = -stack_offset,
+                    }), Immediate.u(value));
+                },
                 8 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaaaaaaaaaa }, opts),
                 else => |x| return self.genInlineMemset(
                     .{ .stack_offset = stack_offset },
@@ -5385,13 +5401,17 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                     try self.asmMemoryImmediate(.mov, Memory.sib(.byte, .{
                         .base = base_reg,
                         .disp = -stack_offset,
-                    }), Immediate.u(@truncate(u32, x_big)));
+                    }), Immediate.u(@truncate(u8, x_big)));
                 },
                 1, 2, 4 => {
+                    const immediate = if (ty.isSignedInt())
+                        Immediate.s(@truncate(i32, @bitCast(i64, x_big)))
+                    else
+                        Immediate.u(@intCast(u32, x_big));
                     try self.asmMemoryImmediate(.mov, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
                         .base = base_reg,
                         .disp = -stack_offset,
-                    }), Immediate.u(@truncate(u32, x_big)));
+                    }), immediate);
                 },
                 8 => {
                     // 64 bit write to memory would take two mov's anyways so we
@@ -5777,12 +5797,15 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 // register is the fastest way to zero a register.
                 return self.asmRegisterRegister(.xor, reg.to32(), reg.to32());
             }
-            if (ty.isSignedInt() and x <= math.maxInt(i32)) {
-                return self.asmRegisterImmediate(
-                    .mov,
-                    registerAlias(reg, abi_size),
-                    Immediate.s(@intCast(i32, @bitCast(i64, x))),
-                );
+            if (ty.isSignedInt()) {
+                const signed_x = @bitCast(i64, x);
+                if (math.minInt(i32) <= signed_x and signed_x <= math.maxInt(i32)) {
+                    return self.asmRegisterImmediate(
+                        .mov,
+                        registerAlias(reg, abi_size),
+                        Immediate.s(@intCast(i32, signed_x)),
+                    );
+                }
             }
             return self.asmRegisterImmediate(
                 .mov,

@@ -542,7 +542,7 @@ pub const Immediate = union(enum) {
             .signed => |x| switch (bit_size) {
                 1, 8 => @bitCast(u8, @intCast(i8, x)),
                 16 => @bitCast(u16, @intCast(i16, x)),
-                32 => @bitCast(u32, @intCast(i32, x)),
+                32, 64 => @bitCast(u32, x),
                 else => unreachable,
             },
             .unsigned => |x| switch (bit_size) {

@@ -341,7 +341,10 @@ fn mirMovsx(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         else => unreachable, // TODO
     }
 
-    const mnemonic: Instruction.Mnemonic = if (op1.bitSize() == 64 and op2.bitSize() == 32) .movsxd else .movsx;
+    const mnemonic: Instruction.Mnemonic = switch (op1.bitSize()) {
+        32, 64 => if (op2.bitSize() == 32) .movsxd else .movsx,
+        else => .movsx,
+    };
 
     return emit.encode(mnemonic, .{
         .op1 = op1,
