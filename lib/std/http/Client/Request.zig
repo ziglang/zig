@@ -82,6 +82,11 @@ pub fn deinit(req: *Request) void {
         req.response.header_bytes.deinit(req.client.allocator);
     }
 
+    for (req.response.headers_data.keys()) |key| {
+        req.client.allocator.free(key);
+    }
+    req.response.headers_data.deinit(req.client.allocator);
+
     if (!req.response.done) {
         // If the response wasn't fully read, then we need to close the connection.
         req.connection.data.closing = true;
@@ -133,7 +138,11 @@ fn checkForCompleteHead(req: *Request, buffer: []u8) !usize {
     try req.response.header_bytes.appendSlice(req.client.allocator, headers_data);
 
     if (req.response.state == .finished) {
-        req.response.headers = try Response.Headers.parse(req.response.header_bytes.items);
+        // Clear the headers we might have gotten from a previous redirect.
+        req.response.clearHeaders(req.client.allocator);
+
+        // Parse the headers.
+        try req.response.parseHeaders(req.client.allocator);
 
         if (req.response.headers.upgrade) |_| {
             req.connection.data.closing = false;

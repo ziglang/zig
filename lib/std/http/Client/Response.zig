@@ -13,6 +13,10 @@ header_bytes_owned: bool,
 /// This could either be a fixed buffer provided by the API user or it
 /// could be our own array list.
 header_bytes: std.ArrayListUnmanaged(u8),
+/// This is a map of header names to header values. The header names
+/// are lower case and the values are the original case.
+headers_data: std.StringArrayHashMapUnmanaged([]const u8),
+header_count: usize,
 max_header_bytes: usize,
 next_chunk_length: u64,
 done: bool = false,
@@ -24,6 +28,216 @@ compression: union(enum) {
     none: void,
 } = .none,
 
+pub fn clearHeaders(self: *Response, allocator: std.mem.Allocator) void {
+    for (self.headers_data.keys()) |key| {
+        allocator.free(key);
+    }
+    self.headers_data.clearAndFree(allocator);
+    self.header_count = 0;
+}
+
+pub fn parseHeaders(self: *Response, allocator: std.mem.Allocator) !void {
+    var it = mem.split(u8, self.header_bytes.items[0 .. self.header_bytes.items.len - 4], "\r\n");
+
+    const first_line = it.first();
+    if (first_line.len < 12)
+        return error.ShortHttpStatusLine;
+
+    const version: http.Version = switch (int64(first_line[0..8])) {
+        int64("HTTP/1.0") => .@"HTTP/1.0",
+        int64("HTTP/1.1") => .@"HTTP/1.1",
+        else => return error.BadHttpVersion,
+    };
+    if (first_line[8] != ' ') return error.HttpHeadersInvalid;
+    const status = @intToEnum(http.Status, parseInt3(first_line[9..12].*));
+
+    var headers: Headers = .{ .version = version, .status = status };
+
+    while (it.next()) |line| {
+        if (line.len == 0) return error.HttpHeadersInvalid;
+        switch (line[0]) {
+            ' ', '\t' => return error.HttpHeaderContinuationsUnsupported,
+            else => {},
+        }
+        var line_it = mem.split(u8, line, ": ");
+        const header_name = line_it.first();
+        const header_value = line_it.rest();
+
+        const header_key_lower = try std.ascii.allocLowerString(allocator, header_name);
+        errdefer allocator.free(header_key_lower);
+
+        const getOrPut = try self.headers_data.getOrPut(allocator, header_key_lower);
+
+        if (getOrPut.found_existing) {
+            return error.HttpHeadersInvalid;
+        } else {
+            getOrPut.value_ptr.* = header_value;
+        }
+    }
+
+    if (self.headers_data.get("location")) |header_value| {
+        headers.location = header_value;
+    }
+    if (self.headers_data.get("content-length")) |header_value| {
+        headers.content_length = try std.fmt.parseInt(u64, header_value, 10);
+    }
+    if (self.headers_data.get("transfer-encoding")) |header_value| {
+        // Transfer-Encoding: second, first
+        // Transfer-Encoding: deflate, chunked
+        var iter = std.mem.splitBackwards(u8, header_value, ",");
+
+        if (iter.next()) |first| {
+            const trimmed = std.mem.trim(u8, first, " ");
+
+            if (std.meta.stringToEnum(http.TransferEncoding, trimmed)) |te| {
+                headers.transfer_encoding = te;
+            } else if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                headers.transfer_compression = ce;
+            } else {
+                return error.HttpTransferEncodingUnsupported;
+            }
+        }
+
+        if (iter.next()) |second| {
+            if (headers.transfer_compression != null) return error.HttpTransferEncodingUnsupported;
+
+            const trimmed = std.mem.trim(u8, second, " ");
+
+            if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                headers.transfer_compression = ce;
+            } else {
+                return error.HttpTransferEncodingUnsupported;
+            }
+        }
+
+        if (iter.next()) |_| return error.HttpTransferEncodingUnsupported;
+    }
+    if (self.headers_data.get("content-encoding")) |header_value| {
+        const trimmed = std.mem.trim(u8, header_value, " ");
+
+        if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+            headers.transfer_compression = ce;
+        } else {
+            return error.HttpTransferEncodingUnsupported;
+        }
+    }
+    if (self.headers_data.get("connection")) |header_value| {
+        if (std.ascii.eqlIgnoreCase(header_value, "keep-alive")) {
+            headers.connection = .keep_alive;
+        } else if (std.ascii.eqlIgnoreCase(header_value, "close")) {
+            headers.connection = .close;
+        } else {
+            return error.HttpConnectionHeaderUnsupported;
+        }
+    }
+    if (self.headers_data.get("upgrade")) |header_value| {
+        headers.upgrade = header_value;
+    }
+
+    self.headers = headers;
+    self.header_count = self.headers_data.count();
+}
+
+inline fn isSliceUpper(slice: []const u8) bool {
+    for (slice) |c| {
+        if (std.ascii.isUpper(c)) return true;
+    }
+    return false;
+}
+
+/// Get a header value by name. The name must be lower case.
+pub fn getHeader(self: *Response, name: []const u8) ?[]const u8 {
+    // assert that the header name is lower case
+    assert(!isSliceUpper(name));
+    return self.headers_data.get(name);
+}
+
+pub fn getHeaderListIterator(self: *Response, name: []const u8) ?HeaderValuesIterator {
+    // assert that the header name is lower case
+    assert(!isSliceUpper(name));
+    return HeaderValuesIterator{ .buffer = self.headers_data.get(name) orelse return null, .index = 0 };
+}
+
+test "parse headers" {
+    const example =
+        "HTTP/1.1 301 Moved Permanently\r\n" ++
+        "Location: https://www.example.com/\r\n" ++
+        "Content-Type: text/html; charset=UTF-8\r\n" ++
+        "Content-Length: 220\r\n" ++
+        "Date: Thu, 15 Feb 2007 12:34:56 JST\r\n" ++
+        "Expires: Tue, 8 Jan 2013 02:20:09 JST\r\n" ++
+        "Accept-Ranges: bytes\r\n" ++
+        "Cache-Control: max-age=100000\r\n" ++
+        "Transfer-Encoding: deflate, chunked\r\n\r\n";
+
+    var resp = Response.initDynamic(example.len);
+    try resp.header_bytes.appendSlice(testing.allocator, example);
+    defer {
+        resp.header_bytes.deinit(testing.allocator);
+        resp.clearHeaders(testing.allocator);
+        resp.headers_data.deinit(testing.allocator);
+    }
+
+    try resp.parseHeaders(testing.allocator);
+
+    try testing.expectEqual(http.Version.@"HTTP/1.1", resp.headers.version);
+    try testing.expectEqual(http.Status.moved_permanently, resp.headers.status);
+    try testing.expectEqualStrings("https://www.example.com/", resp.headers.location orelse return error.TestFailed);
+    try testing.expectEqualStrings("https://www.example.com/", resp.getHeader("location") orelse return error.TestFailed);
+
+    try testing.expectEqual(@as(?u64, 220), resp.headers.content_length);
+    try testing.expectEqualStrings("220", resp.getHeader("content-length") orelse return error.TestFailed);
+
+    try testing.expectEqualStrings("Thu, 15 Feb 2007 12:34:56 JST", resp.getHeader("date") orelse return error.TestFailed);
+    try testing.expectEqualStrings("Tue, 8 Jan 2013 02:20:09 JST", resp.getHeader("expires") orelse return error.TestFailed);
+    try testing.expectEqualStrings("bytes", resp.getHeader("accept-ranges") orelse return error.TestFailed);
+    try testing.expectEqualStrings("max-age=100000", resp.getHeader("cache-control") orelse return error.TestFailed);
+    var iter = resp.getHeaderListIterator("transfer-encoding") orelse return error.TestFailed;
+    try testing.expectEqualStrings("deflate", iter.next() orelse return error.TestFailed);
+    try testing.expectEqualStrings("chunked", iter.next() orelse return error.TestFailed);
+}
+
+test "header continuation" {
+    const example =
+        "HTTP/1.0 200 OK\r\n" ++
+        "Content-Type: text/html;\r\n charset=UTF-8\r\n" ++
+        "Content-Length: 220\r\n\r\n";
+
+    var resp = Response.initDynamic(example.len);
+    try resp.header_bytes.appendSlice(testing.allocator, example);
+    defer {
+        resp.header_bytes.deinit(testing.allocator);
+        resp.clearHeaders(testing.allocator);
+        resp.headers_data.deinit(testing.allocator);
+    }
+
+    try testing.expectError(
+        error.HttpHeaderContinuationsUnsupported,
+        resp.parseHeaders(),
+    );
+}
+
+test "duplicate content length header" {
+    const example =
+        "HTTP/1.0 200 OK\r\n" ++
+        "Content-Length: 220\r\n" ++
+        "Content-Type: text/html; charset=UTF-8\r\n" ++
+        "content-length: 220\r\n\r\n";
+
+    var resp = Response.initDynamic(example.len);
+    try resp.header_bytes.appendSlice(testing.allocator, example);
+    defer {
+        resp.header_bytes.deinit(testing.allocator);
+        resp.clearHeaders(testing.allocator);
+        resp.headers_data.deinit(testing.allocator);
+    }
+
+    try testing.expectError(
+        error.HttpHeadersInvalid,
+        resp.parseHeaders(),
+    );
+}
+
 pub const Headers = struct {
     status: http.Status,
     version: http.Version,
@@ -33,140 +247,6 @@ pub const Headers = struct {
     transfer_compression: ?http.ContentEncoding = null,
     connection: http.Connection = .close,
     upgrade: ?[]const u8 = null,
-
-    number_of_headers: usize = 0,
-
-    pub fn parse(bytes: []const u8) !Headers {
-        var it = mem.split(u8, bytes[0 .. bytes.len - 4], "\r\n");
-
-        const first_line = it.first();
-        if (first_line.len < 12)
-            return error.ShortHttpStatusLine;
-
-        const version: http.Version = switch (int64(first_line[0..8])) {
-            int64("HTTP/1.0") => .@"HTTP/1.0",
-            int64("HTTP/1.1") => .@"HTTP/1.1",
-            else => return error.BadHttpVersion,
-        };
-        if (first_line[8] != ' ') return error.HttpHeadersInvalid;
-        const status = @intToEnum(http.Status, parseInt3(first_line[9..12].*));
-
-        var headers: Headers = .{
-            .version = version,
-            .status = status,
-        };
-
-        while (it.next()) |line| {
-            headers.number_of_headers += 1;
-
-            if (line.len == 0) return error.HttpHeadersInvalid;
-            switch (line[0]) {
-                ' ', '\t' => return error.HttpHeaderContinuationsUnsupported,
-                else => {},
-            }
-            var line_it = mem.split(u8, line, ": ");
-            const header_name = line_it.first();
-            const header_value = line_it.rest();
-            if (std.ascii.eqlIgnoreCase(header_name, "location")) {
-                if (headers.location != null) return error.HttpHeadersInvalid;
-                headers.location = header_value;
-            } else if (std.ascii.eqlIgnoreCase(header_name, "content-length")) {
-                if (headers.content_length != null) return error.HttpHeadersInvalid;
-                headers.content_length = try std.fmt.parseInt(u64, header_value, 10);
-            } else if (std.ascii.eqlIgnoreCase(header_name, "transfer-encoding")) {
-                if (headers.transfer_encoding != null or headers.transfer_compression != null) return error.HttpHeadersInvalid;
-
-                // Transfer-Encoding: second, first
-                // Transfer-Encoding: deflate, chunked
-                var iter = std.mem.splitBackwards(u8, header_value, ",");
-
-                if (iter.next()) |first| {
-                    const trimmed = std.mem.trim(u8, first, " ");
-
-                    if (std.meta.stringToEnum(http.TransferEncoding, trimmed)) |te| {
-                        headers.transfer_encoding = te;
-                    } else if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
-                        headers.transfer_compression = ce;
-                    } else {
-                        return error.HttpTransferEncodingUnsupported;
-                    }
-                }
-
-                if (iter.next()) |second| {
-                    if (headers.transfer_compression != null) return error.HttpTransferEncodingUnsupported;
-
-                    const trimmed = std.mem.trim(u8, second, " ");
-
-                    if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
-                        headers.transfer_compression = ce;
-                    } else {
-                        return error.HttpTransferEncodingUnsupported;
-                    }
-                }
-
-                if (iter.next()) |_| return error.HttpTransferEncodingUnsupported;
-            } else if (std.ascii.eqlIgnoreCase(header_name, "content-encoding")) {
-                if (headers.transfer_compression != null) return error.HttpHeadersInvalid;
-
-                const trimmed = std.mem.trim(u8, header_value, " ");
-
-                if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
-                    headers.transfer_compression = ce;
-                } else {
-                    return error.HttpTransferEncodingUnsupported;
-                }
-            } else if (std.ascii.eqlIgnoreCase(header_name, "connection")) {
-                if (std.ascii.eqlIgnoreCase(header_value, "keep-alive")) {
-                    headers.connection = .keep_alive;
-                } else if (std.ascii.eqlIgnoreCase(header_value, "close")) {
-                    headers.connection = .close;
-                } else {
-                    return error.HttpConnectionHeaderUnsupported;
-                }
-            } else if (std.ascii.eqlIgnoreCase(header_name, "upgrade")) {
-                headers.upgrade = header_value;
-            }
-        }
-
-        return headers;
-    }
-
-    test "parse headers" {
-        const example =
-            "HTTP/1.1 301 Moved Permanently\r\n" ++
-            "Location: https://www.example.com/\r\n" ++
-            "Content-Type: text/html; charset=UTF-8\r\n" ++
-            "Content-Length: 220\r\n\r\n";
-        const parsed = try Headers.parse(example);
-        try testing.expectEqual(http.Version.@"HTTP/1.1", parsed.version);
-        try testing.expectEqual(http.Status.moved_permanently, parsed.status);
-        try testing.expectEqualStrings("https://www.example.com/", parsed.location orelse
-            return error.TestFailed);
-        try testing.expectEqual(@as(?u64, 220), parsed.content_length);
-    }
-
-    test "header continuation" {
-        const example =
-            "HTTP/1.0 200 OK\r\n" ++
-            "Content-Type: text/html;\r\n charset=UTF-8\r\n" ++
-            "Content-Length: 220\r\n\r\n";
-        try testing.expectError(
-            error.HttpHeaderContinuationsUnsupported,
-            Headers.parse(example),
-        );
-    }
-
-    test "extra content length" {
-        const example =
-            "HTTP/1.0 200 OK\r\n" ++
-            "Content-Length: 220\r\n" ++
-            "Content-Type: text/html; charset=UTF-8\r\n" ++
-            "content-length: 220\r\n\r\n";
-        try testing.expectError(
-            error.HttpHeadersInvalid,
-            Headers.parse(example),
-        );
-    }
 };
 
 inline fn int16(array: *const [2]u8) u16 {
@@ -209,6 +289,8 @@ pub fn initDynamic(max: usize) Response {
         .state = .start,
         .headers = undefined,
         .header_bytes = .{},
+        .headers_data = .{},
+        .header_count = 0,
         .max_header_bytes = max,
         .header_bytes_owned = true,
         .next_chunk_length = undefined,
@@ -220,6 +302,8 @@ pub fn initStatic(buf: []u8) Response {
         .state = .start,
         .headers = undefined,
         .header_bytes = .{ .items = buf[0..0], .capacity = buf.len },
+        .headers_data = .{},
+        .header_count = 0,
         .max_header_bytes = buf.len,
         .header_bytes_owned = false,
         .next_chunk_length = undefined,
@@ -507,3 +591,44 @@ test "find headers end bug" {
         "connection: close\r\n\r\n" ++ trail;
     try testing.expectEqual(@as(usize, example.len - trail.len), r.findHeadersEnd(example));
 }
+
+pub const HeaderValuesIterator = struct {
+    buffer: []const u8,
+    index: ?usize,
+
+    const delimiter = ",";
+
+    const Self = @This();
+
+    /// Returns a slice of the first field. This never fails.
+    /// Call this only to get the first field and then use `next` to get all subsequent fields.
+    pub fn first(self: *Self) []const u8 {
+        assert(self.index.? == 0);
+        return self.next().?;
+    }
+
+    /// Returns a slice of the next field, or null if splitting is complete.
+    pub fn next(self: *Self) ?[]const u8 {
+        const start = self.index orelse return null;
+        const end = if (std.mem.indexOfPos(u8, self.buffer, start, delimiter)) |delim_start| blk: {
+            self.index = delim_start + delimiter.len;
+            break :blk delim_start;
+        } else blk: {
+            self.index = null;
+            break :blk self.buffer.len;
+        };
+        return std.mem.trim(u8, self.buffer[start..end], " ");
+    }
+
+    /// Returns a slice of the remaining bytes. Does not affect iterator state.
+    pub fn rest(self: Self) []const u8 {
+        const end = self.buffer.len;
+        const start = self.index orelse end;
+        return std.mem.trim(u8, self.buffer[start..end], " ");
+    }
+
+    /// Resets the iterator to the initial slice.
+    pub fn reset(self: *Self) void {
+        self.index = 0;
+    }
+};
