@@ -22,6 +22,7 @@ const is_darwin = builtin.target.isDarwin();
 pub const ChildProcess = struct {
     pub const Id = switch (builtin.os.tag) {
         .windows => windows.HANDLE,
+        .wasi => void,
         else => os.pid_t,
     };
 

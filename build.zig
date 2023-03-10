@@ -508,6 +508,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "enable_tracy_callstack", false);
     exe_options.addOption(bool, "enable_tracy_allocation", false);
     exe_options.addOption(bool, "value_tracing", false);
+    exe_options.addOption(bool, "omit_pkg_fetching_code", true);
 
     const run_opt = b.addSystemCommand(&.{ "wasm-opt", "-Oz", "--enable-bulk-memory" });
     run_opt.addArtifactArg(exe);
