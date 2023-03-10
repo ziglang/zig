@@ -213,7 +213,7 @@ test "header continuation" {
 
     try testing.expectError(
         error.HttpHeaderContinuationsUnsupported,
-        resp.parseHeaders(),
+        resp.parseHeaders(testing.allocator),
     );
 }
 
@@ -234,7 +234,7 @@ test "duplicate content length header" {
 
     try testing.expectError(
         error.HttpHeadersInvalid,
-        resp.parseHeaders(),
+        resp.parseHeaders(testing.allocator),
     );
 }
 
