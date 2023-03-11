@@ -460,15 +460,13 @@ fn asmRegister(self: *Self, tag: Mir.Inst.Tag, reg: Register) !void {
 
 fn asmImmediate(self: *Self, tag: Mir.Inst.Tag, imm: Immediate) !void {
     const ops: Mir.Inst.Ops = if (imm == .signed) .imm_s else .imm_u;
-    const data: Mir.Inst.Data = switch (ops) {
-        .imm_s => .{ .imm_s = imm.signed },
-        .imm_u => .{ .imm_u = @intCast(u32, imm.unsigned) },
-        else => unreachable,
-    };
     _ = try self.addInst(.{
         .tag = tag,
         .ops = ops,
-        .data = data,
+        .data = .{ .imm = switch (imm) {
+            .signed => |x| @bitCast(u32, x),
+            .unsigned => |x| @intCast(u32, x),
+        } },
     });
 }
 
@@ -489,11 +487,11 @@ fn asmRegisterImmediate(self: *Self, tag: Mir.Inst.Tag, reg: Register, imm: Imme
         .unsigned => |x| if (x <= math.maxInt(u32)) .ri_u else .ri64,
     };
     const data: Mir.Inst.Data = switch (ops) {
-        .ri_s => .{ .ri_s = .{
+        .ri_s => .{ .ri = .{
             .r1 = reg,
-            .imm = imm.signed,
+            .imm = @bitCast(u32, imm.signed),
         } },
-        .ri_u => .{ .ri_u = .{
+        .ri_u => .{ .ri = .{
             .r1 = reg,
             .imm = @intCast(u32, imm.unsigned),
         } },
@@ -522,12 +520,12 @@ fn asmRegisterRegisterImmediate(
         .unsigned => .rri_u,
     };
     const data: Mir.Inst.Data = switch (ops) {
-        .rri_s => .{ .rri_s = .{
+        .rri_s => .{ .rri = .{
             .r1 = reg1,
             .r2 = reg2,
-            .imm = imm.signed,
+            .imm = @bitCast(u32, imm.signed),
         } },
-        .rri_u => .{ .rri_u = .{
+        .rri_u => .{ .rri = .{
             .r1 = reg1,
             .r2 = reg2,
             .imm = @intCast(u32, imm.unsigned),
@@ -547,11 +545,11 @@ fn asmMemory(self: *Self, tag: Mir.Inst.Tag, m: Memory) !void {
         .rip => .m_rip,
         else => unreachable,
     };
-    const data: Mir.Inst.Data = switch (ops) {
-        .m_sib => .{ .payload = try self.addExtra(Mir.MemorySib.encode(m)) },
-        .m_rip => .{ .payload = try self.addExtra(Mir.MemoryRip.encode(m)) },
+    const data: Mir.Inst.Data = .{ .payload = switch (ops) {
+        .m_sib => try self.addExtra(Mir.MemorySib.encode(m)),
+        .m_rip => try self.addExtra(Mir.MemoryRip.encode(m)),
         else => unreachable,
-    };
+    } };
     _ = try self.addInst(.{
         .tag = tag,
         .ops = ops,
@@ -570,10 +568,11 @@ fn asmMemoryImmediate(self: *Self, tag: Mir.Inst.Tag, m: Memory, imm: Immediate)
         .mi_s_rip, .mi_u_rip => try self.addExtra(Mir.MemoryRip.encode(m)),
         else => unreachable,
     };
-    const data: Mir.Inst.Data = switch (ops) {
-        .mi_s_sib, .mi_s_rip => .{ .xi_s = .{ .imm = imm.signed, .payload = payload } },
-        .mi_u_sib, .mi_u_rip => .{ .xi_u = .{ .imm = @intCast(u32, imm.unsigned), .payload = payload } },
-        else => unreachable,
+    const data: Mir.Inst.Data = .{
+        .xi = .{ .payload = payload, .imm = switch (imm) {
+            .signed => |x| @bitCast(u32, x),
+            .unsigned => |x| @intCast(u32, x),
+        } },
     };
     _ = try self.addInst(.{
         .tag = tag,
@@ -588,16 +587,12 @@ fn asmRegisterMemory(self: *Self, tag: Mir.Inst.Tag, reg: Register, m: Memory) !
         .rip => .rm_rip,
         else => unreachable,
     };
-    const data: Mir.Inst.Data = switch (ops) {
-        .rm_sib => .{ .rx = .{
-            .r1 = reg,
-            .payload = try self.addExtra(Mir.MemorySib.encode(m)),
+    const data: Mir.Inst.Data = .{
+        .rx = .{ .r1 = reg, .payload = switch (ops) {
+            .rm_sib => try self.addExtra(Mir.MemorySib.encode(m)),
+            .rm_rip => try self.addExtra(Mir.MemoryRip.encode(m)),
+            else => unreachable,
         } },
-        .rm_rip => .{ .rx = .{
-            .r1 = reg,
-            .payload = try self.addExtra(Mir.MemoryRip.encode(m)),
-        } },
-        else => unreachable,
     };
     _ = try self.addInst(.{
         .tag = tag,
@@ -612,16 +607,12 @@ fn asmMemoryRegister(self: *Self, tag: Mir.Inst.Tag, m: Memory, reg: Register) !
         .rip => .mr_rip,
         else => unreachable,
     };
-    const data: Mir.Inst.Data = switch (ops) {
-        .mr_sib => .{ .rx = .{
-            .r1 = reg,
-            .payload = try self.addExtra(Mir.MemorySib.encode(m)),
+    const data: Mir.Inst.Data = .{
+        .rx = .{ .r1 = reg, .payload = switch (ops) {
+            .mr_sib => try self.addExtra(Mir.MemorySib.encode(m)),
+            .mr_rip => try self.addExtra(Mir.MemoryRip.encode(m)),
+            else => unreachable,
         } },
-        .mr_rip => .{ .rx = .{
-            .r1 = reg,
-            .payload = try self.addExtra(Mir.MemoryRip.encode(m)),
-        } },
-        else => unreachable,
     };
     _ = try self.addInst(.{
         .tag = tag,
@@ -733,7 +724,7 @@ fn gen(self: *Self) InnerError!void {
             self.mir_instructions.set(backpatch_stack_sub, .{
                 .tag = .sub,
                 .ops = .ri_u,
-                .data = .{ .ri_u = .{
+                .data = .{ .ri = .{
                     .r1 = .rsp,
                     .imm = aligned_stack_end,
                 } },
@@ -741,7 +732,7 @@ fn gen(self: *Self) InnerError!void {
             self.mir_instructions.set(backpatch_stack_add, .{
                 .tag = .add,
                 .ops = .ri_u,
-                .data = .{ .ri_u = .{
+                .data = .{ .ri = .{
                     .r1 = .rsp,
                     .imm = aligned_stack_end,
                 } },
@@ -5602,7 +5593,7 @@ fn genInlineMemcpy(
     const loop_start = try self.addInst(.{
         .tag = .cmp,
         .ops = .ri_u,
-        .data = .{ .ri_u = .{
+        .data = .{ .ri = .{
             .r1 = count_reg,
             .imm = 0,
         } },
@@ -5681,9 +5672,9 @@ fn genInlineMemset(
     const loop_start = try self.addInst(.{
         .tag = .cmp,
         .ops = .ri_s,
-        .data = .{ .ri_s = .{
+        .data = .{ .ri = .{
             .r1 = index_reg,
-            .imm = -1,
+            .imm = @bitCast(u32, @as(i32, -1)),
         } },
     });
     const loop_reloc = try self.asmJccReloc(undefined, .e);

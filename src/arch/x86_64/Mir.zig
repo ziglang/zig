@@ -182,10 +182,10 @@ pub const Inst = struct {
         /// Uses `rrr` payload.
         rrr,
         /// Register, register, immediate (sign-extended) operands.
-        /// Uses `rri_s`  payload.
+        /// Uses `rri`  payload.
         rri_s,
         /// Register, register, immediate (unsigned) operands.
-        /// Uses `rri_u`  payload.
+        /// Uses `rri`  payload.
         rri_u,
         /// Register with condition code (CC).
         /// Uses `r_c` payload.
@@ -194,22 +194,22 @@ pub const Inst = struct {
         /// Uses `rr_c` payload.
         rr_c,
         /// Register, immediate (sign-extended) operands.
-        /// Uses `ri_s` payload.
+        /// Uses `ri` payload.
         ri_s,
         /// Register, immediate (unsigned) operands.
-        /// Uses `ri_u` payload.
+        /// Uses `ri` payload.
         ri_u,
         /// Register, 64-bit unsigned immediate operands.
         /// Uses `rx` payload with payload type `Imm64`.
         ri64,
         /// Immediate (sign-extended) operand.
-        /// Uses `imm_s` payload.
+        /// Uses `imm` payload.
         imm_s,
         /// Immediate (unsigned) operand.
-        /// Uses `imm_u` payload.
+        /// Uses `imm` payload.
         imm_u,
         /// Relative displacement operand.
-        /// Uses `rel` payload.
+        /// Uses `imm` payload.
         rel,
         /// Register, memory (SIB) operands.
         /// Uses `rx` payload.
@@ -224,16 +224,16 @@ pub const Inst = struct {
         /// Uses `payload` with extra data of type `MemoryRip`.
         m_rip,
         /// Memory (SIB), immediate (unsigned) operands.
-        /// Uses `xi_u` payload with extra data of type `MemorySib`.
+        /// Uses `xi` payload with extra data of type `MemorySib`.
         mi_u_sib,
         /// Memory (RIP), immediate (unsigned) operands.
-        /// Uses `xi_u` payload with extra data of type `MemoryRip`.
+        /// Uses `xi` payload with extra data of type `MemoryRip`.
         mi_u_rip,
         /// Memory (SIB), immediate (sign-extend) operands.
-        /// Uses `xi_s` payload with extra data of type `MemorySib`.
+        /// Uses `xi` payload with extra data of type `MemorySib`.
         mi_s_sib,
         /// Memory (RIP), immediate (sign-extend) operands.
-        /// Uses `xi_s` payload with extra data of type `MemoryRip`.
+        /// Uses `xi` payload with extra data of type `MemoryRip`.
         mi_s_rip,
         /// Memory (SIB), register operands.
         /// Uses `rx` payload with extra data of type `MemorySib`.
@@ -281,12 +281,8 @@ pub const Inst = struct {
             /// A condition code for use with EFLAGS register.
             cc: bits.Condition,
         },
-        /// A 32-bit signed immediate value.
-        imm_s: i32,
-        /// A 32-bit unsigned immediate value.
-        imm_u: u32,
-        /// A 32-bit signed relative offset value.
-        rel: i32,
+        /// A 32-bit immediate value.
+        imm: u32,
         r: Register,
         rr: struct {
             r1: Register,
@@ -297,12 +293,7 @@ pub const Inst = struct {
             r2: Register,
             r3: Register,
         },
-        rri_s: struct {
-            r1: Register,
-            r2: Register,
-            imm: i32,
-        },
-        rri_u: struct {
+        rri: struct {
             r1: Register,
             r2: Register,
             imm: u32,
@@ -318,13 +309,8 @@ pub const Inst = struct {
             r2: Register,
             cc: bits.Condition,
         },
-        /// Register, signed immediate.
-        ri_s: struct {
-            r1: Register,
-            imm: i32,
-        },
-        /// Register, unsigned immediate.
-        ri_u: struct {
+        /// Register, immediate.
+        ri: struct {
             r1: Register,
             imm: u32,
         },
@@ -333,15 +319,10 @@ pub const Inst = struct {
             r1: Register,
             payload: u32,
         },
-        /// Custom payload followed by an unsigned immediate.
-        xi_u: struct {
+        /// Custom payload followed by an immediate.
+        xi: struct {
             payload: u32,
             imm: u32,
-        },
-        /// Custom payload followed by a signed immediate.
-        xi_s: struct {
-            payload: u32,
-            imm: i32,
         },
         /// Relocation for the linker where:
         /// * `atom_index` is the index of the source
