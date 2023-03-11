@@ -140,6 +140,7 @@ pub const Inst = struct {
         mov_moffs,
 
         /// Jump with relocation to another local MIR instruction
+        /// Uses `inst` payload.
         jmp_reloc,
 
         /// Call to an extern symbol via linker relocation.
@@ -242,9 +243,6 @@ pub const Inst = struct {
         /// Memory moffs, rax.
         /// Uses `payload` with extra data of type `MemoryMoffs`.
         moffs_rax,
-        /// Lea into register with linker relocation.
-        /// Uses `payload` payload with data of type `LeaRegisterReloc`.
-        lea_r_reloc,
         /// References another Mir instruction directly.
         /// Uses `inst` payload.
         inst,

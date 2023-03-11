@@ -410,23 +410,17 @@ fn mirJcc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 }
 
 fn mirJmpReloc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
-    const ops = emit.mir.instructions.items(.ops)[inst];
-    switch (ops) {
-        .inst => {
-            const target = emit.mir.instructions.items(.data)[inst].inst;
-            const source = emit.code.items.len;
-            try emit.encode(.jmp, .{
-                .op1 = .{ .imm = Immediate.s(0) },
-            });
-            try emit.relocs.append(emit.bin_file.allocator, .{
-                .source = source,
-                .target = target,
-                .offset = emit.code.items.len - 4,
-                .length = 5,
-            });
-        },
-        else => unreachable,
-    }
+    const target = emit.mir.instructions.items(.data)[inst].inst;
+    const source = emit.code.items.len;
+    try emit.encode(.jmp, .{
+        .op1 = .{ .imm = Immediate.s(0) },
+    });
+    try emit.relocs.append(emit.bin_file.allocator, .{
+        .source = source,
+        .target = target,
+        .offset = emit.code.items.len - 4,
+        .length = 5,
+    });
 }
 
 fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {

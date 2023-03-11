@@ -423,6 +423,14 @@ fn asmCmovccRegisterRegister(self: *Self, reg1: Register, reg2: Register, cc: bi
     });
 }
 
+fn asmJmpReloc(self: *Self, target: Mir.Inst.Index) !Mir.Inst.Index {
+    return self.addInst(.{
+        .tag = .jmp_reloc,
+        .ops = undefined,
+        .data = .{ .inst = target },
+    });
+}
+
 fn asmNone(self: *Self, tag: Mir.Inst.Tag) !void {
     _ = try self.addInst(.{
         .tag = tag,
@@ -4145,11 +4153,7 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
     // TODO when implementing defer, this will need to jump to the appropriate defer expression.
     // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
     // which is available if the jump is 127 bytes or less forward.
-    const jmp_reloc = try self.addInst(.{
-        .tag = .jmp_reloc,
-        .ops = .inst,
-        .data = .{ .inst = undefined },
-    });
+    const jmp_reloc = try self.asmJmpReloc(undefined);
     try self.exitlude_jump_relocs.append(self.gpa, jmp_reloc);
     return self.finishAir(inst, .dead, .{ un_op, .none, .none });
 }
@@ -4181,11 +4185,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     // TODO when implementing defer, this will need to jump to the appropriate defer expression.
     // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
     // which is available if the jump is 127 bytes or less forward.
-    const jmp_reloc = try self.addInst(.{
-        .tag = .jmp_reloc,
-        .ops = .inst,
-        .data = .{ .inst = undefined },
-    });
+    const jmp_reloc = try self.asmJmpReloc(undefined);
     try self.exitlude_jump_relocs.append(self.gpa, jmp_reloc);
     return self.finishAir(inst, .dead, .{ un_op, .none, .none });
 }
@@ -4722,11 +4722,7 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     const body = self.air.extra[loop.end..][0..loop.data.body_len];
     const jmp_target = @intCast(u32, self.mir_instructions.len);
     try self.genBody(body);
-    _ = try self.addInst(.{
-        .tag = .jmp_reloc,
-        .ops = .inst,
-        .data = .{ .inst = jmp_target },
-    });
+    _ = try self.asmJmpReloc(jmp_target);
     return self.finishAirBookkeeping();
 }
 
@@ -5062,11 +5058,7 @@ fn brVoid(self: *Self, block: Air.Inst.Index) !void {
     // Emit a jump with a relocation. It will be patched up after the block ends.
     try block_data.relocs.ensureUnusedCapacity(self.gpa, 1);
     // Leave the jump offset undefined
-    const jmp_reloc = try self.addInst(.{
-        .tag = .jmp_reloc,
-        .ops = .inst,
-        .data = .{ .inst = undefined },
-    });
+    const jmp_reloc = try self.asmJmpReloc(undefined);
     block_data.relocs.appendAssumeCapacity(jmp_reloc);
 }
 
@@ -5656,13 +5648,7 @@ fn genInlineMemcpy(
     }), tmp_reg.to8());
     try self.asmRegisterImmediate(.add, index_reg, Immediate.u(1));
     try self.asmRegisterImmediate(.sub, count_reg, Immediate.u(1));
-
-    _ = try self.addInst(.{
-        .tag = .jmp_reloc,
-        .ops = .inst,
-        .data = .{ .inst = loop_start },
-    });
-
+    _ = try self.asmJmpReloc(loop_start);
     try self.performReloc(loop_reloc);
 }
 
@@ -5750,13 +5736,7 @@ fn genInlineMemset(
     }
 
     try self.asmRegisterImmediate(.sub, index_reg, Immediate.u(1));
-
-    _ = try self.addInst(.{
-        .tag = .jmp_reloc,
-        .ops = .inst,
-        .data = .{ .inst = loop_start },
-    });
-
+    _ = try self.asmJmpReloc(loop_start);
     try self.performReloc(loop_reloc);
 }
 
