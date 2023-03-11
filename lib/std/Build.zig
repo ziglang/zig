@@ -413,8 +413,15 @@ pub fn resolveInstallPrefix(self: *Build, install_prefix: ?[]const u8, dir_list:
         self.install_prefix = install_prefix orelse "/usr";
         self.install_path = self.pathJoin(&.{ dest_dir, self.install_prefix });
     } else {
-        self.install_prefix = install_prefix orelse
-            (self.build_root.join(self.allocator, &.{"zig-out"}) catch @panic("unhandled error"));
+        if (install_prefix) |path| {
+            if (fs.path.isAbsolute(path))
+                self.install_prefix = path
+            else
+                // Allow a relative path to have the same behavior as zig-out.
+                self.install_prefix = self.build_root.join(self.allocator, &.{path}) catch
+                    @panic("unhandled error");
+        } else self.install_prefix = self.build_root.join(self.allocator, &.{"zig-out"}) catch
+            @panic("unhandled error");
         self.install_path = self.install_prefix;
     }
 
