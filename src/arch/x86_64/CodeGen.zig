@@ -431,6 +431,17 @@ fn asmJmpReloc(self: *Self, target: Mir.Inst.Index) !Mir.Inst.Index {
     });
 }
 
+fn asmJccReloc(self: *Self, target: Mir.Inst.Index, cc: bits.Condition) !Mir.Inst.Index {
+    return self.addInst(.{
+        .tag = .jcc,
+        .ops = .inst_cc,
+        .data = .{ .inst_cc = .{
+            .inst = target,
+            .cc = cc,
+        } },
+    });
+}
+
 fn asmNone(self: *Self, tag: Mir.Inst.Tag) !void {
     _ = try self.addInst(.{
         .tag = tag,
@@ -4360,29 +4371,13 @@ fn genCondBrMir(self: *Self, ty: Type, mcv: MCValue) !u32 {
     const abi_size = ty.abiSize(self.target.*);
     switch (mcv) {
         .eflags => |cc| {
-            return self.addInst(.{
-                .tag = .jcc,
-                .ops = .inst_cc,
-                .data = .{
-                    .inst_cc = .{
-                        .inst = undefined,
-                        // Here we map the opposites since the jump is to the false branch.
-                        .cc = cc.negate(),
-                    },
-                },
-            });
+            // Here we map the opposites since the jump is to the false branch.
+            return self.asmJccReloc(undefined, cc.negate());
         },
         .register => |reg| {
             try self.spillEflagsIfOccupied();
             try self.asmRegisterImmediate(.@"test", reg, Immediate.u(1));
-            return self.addInst(.{
-                .tag = .jcc,
-                .ops = .inst_cc,
-                .data = .{ .inst_cc = .{
-                    .inst = undefined,
-                    .cc = .e,
-                } },
-            });
+            return self.asmJccReloc(undefined, .e);
         },
         .immediate,
         .stack_offset,
@@ -4792,15 +4787,7 @@ fn genCondSwitchMir(self: *Self, ty: Type, condition: MCValue, case: MCValue) !u
 
             const aliased_reg = registerAlias(cond_reg, abi_size);
             try self.asmRegisterRegister(.@"test", aliased_reg, aliased_reg);
-
-            return self.addInst(.{
-                .tag = .jcc,
-                .ops = .inst_cc,
-                .data = .{ .inst_cc = .{
-                    .inst = undefined,
-                    .cc = .ne,
-                } },
-            });
+            return self.asmJccReloc(undefined, .ne);
         },
         .stack_offset => {
             try self.spillEflagsIfOccupied();
@@ -5612,7 +5599,6 @@ fn genInlineMemcpy(
 
     try self.genSetReg(Type.usize, count_reg, len);
     try self.asmRegisterImmediate(.mov, index_reg, Immediate.u(0));
-
     const loop_start = try self.addInst(.{
         .tag = .cmp,
         .ops = .ri_u,
@@ -5621,15 +5607,7 @@ fn genInlineMemcpy(
             .imm = 0,
         } },
     });
-    const loop_reloc = try self.addInst(.{
-        .tag = .jcc,
-        .ops = .inst_cc,
-        .data = .{ .inst_cc = .{
-            .inst = undefined,
-            .cc = .e,
-        } },
-    });
-
+    const loop_reloc = try self.asmJccReloc(undefined, .e);
     try self.asmRegisterMemory(.mov, tmp_reg.to8(), Memory.sib(.byte, .{
         .base = src_addr_reg,
         .scale_index = .{
@@ -5708,15 +5686,7 @@ fn genInlineMemset(
             .imm = -1,
         } },
     });
-
-    const loop_reloc = try self.addInst(.{
-        .tag = .jcc,
-        .ops = .inst_cc,
-        .data = .{ .inst_cc = .{
-            .inst = undefined,
-            .cc = .e,
-        } },
-    });
+    const loop_reloc = try self.asmJccReloc(undefined, .e);
 
     switch (value) {
         .immediate => |x| {
