@@ -439,9 +439,9 @@ test "std.meta.declarationInfo" {
 
     inline for (infos) |info| {
         try testing.expect(comptime mem.eql(u8, info.name, "a"));
-        try testing.expect(!info.is_pub);
     }
 }
+
 pub fn fields(comptime T: type) switch (@typeInfo(T)) {
     .Struct => []const Type.StructField,
     .Union => []const Type.UnionField,
@@ -684,7 +684,6 @@ fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
         if (expected_decls.len != actual_decls.len) return error.FailedTest;
         for (expected_decls, 0..) |expected_decl, i| {
             const actual_decl = actual_decls[i];
-            try testing.expectEqual(expected_decl.is_pub, actual_decl.is_pub);
             try testing.expectEqualStrings(expected_decl.name, actual_decl.name);
         }
     }

@@ -322,7 +322,6 @@ fn testPackedStruct() !void {
     try expect(@ptrCast(*align(1) const u32, struct_info.Struct.fields[3].default_value.?).* == 4);
     try expect(struct_info.Struct.fields[3].alignment == 0);
     try expect(struct_info.Struct.decls.len == 2);
-    try expect(struct_info.Struct.decls[0].is_pub);
 }
 
 const TestPackedStruct = packed struct {

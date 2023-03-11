@@ -16390,6 +16390,7 @@ fn typeInfoNamespaceDecls(
             continue;
         }
         if (decl.kind != .named) continue;
+        if (!decl.is_pub and decl.getFileScope() != block.getFileScope()) continue;
         const name_val = v: {
             var anon_decl = try block.startAnonDecl();
             defer anon_decl.deinit();
@@ -16405,12 +16406,10 @@ fn typeInfoNamespaceDecls(
             });
         };
 
-        const fields = try decls_anon_decl.create([2]Value);
+        const fields = try decls_anon_decl.create([1]Value);
         fields.* = .{
             //name: []const u8,
             name_val,
-            //is_pub: bool,
-            Value.makeBool(decl.is_pub),
         };
         try decl_vals.append(try Value.Tag.aggregate.create(decls_anon_decl, fields));
     }
