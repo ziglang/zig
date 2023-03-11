@@ -177,12 +177,12 @@ fn encode(emit: *Emit, mnemonic: Instruction.Mnemonic, ops: struct {
     op3: Instruction.Operand = .none,
     op4: Instruction.Operand = .none,
 }) InnerError!void {
-    const inst = Instruction.new(mnemonic, .{
+    const inst = try Instruction.new(mnemonic, .{
         .op1 = ops.op1,
         .op2 = ops.op2,
         .op3 = ops.op3,
         .op4 = ops.op4,
-    }) catch unreachable;
+    });
     return inst.encode(emit.code.writer());
 }
 

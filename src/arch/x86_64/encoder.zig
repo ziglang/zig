@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const log = std.log.scoped(.x86_64_encoder);
 const math = std.math;
 
 const bits = @import("bits.zig");
@@ -106,7 +107,7 @@ pub const Instruction = struct {
             .op3 = args.op3,
             .op4 = args.op4,
         })) orelse {
-            std.log.warn("{s} {s} {s} {s} {s}", .{
+            log.debug("no encoding found for: {s} {s} {s} {s} {s}", .{
                 @tagName(mnemonic),
                 @tagName(Encoding.Op.fromOperand(args.op1)),
                 @tagName(Encoding.Op.fromOperand(args.op2)),
@@ -115,7 +116,7 @@ pub const Instruction = struct {
             });
             return error.InvalidInstruction;
         };
-        std.log.debug("{}", .{encoding});
+        log.debug("selected encoding: {}", .{encoding});
         return .{
             .op1 = args.op1,
             .op2 = args.op2,

@@ -242,13 +242,6 @@ pub const Register = enum(u7) {
         };
     }
 
-    pub fn isRexInvalid(reg: Register) bool {
-        return switch (@enumToInt(reg)) {
-            @enumToInt(Register.ah)...@enumToInt(Register.bh) => true,
-            else => false,
-        };
-    }
-
     pub fn enc(reg: Register) u4 {
         const base = switch (@enumToInt(reg)) {
             // zig fmt: off

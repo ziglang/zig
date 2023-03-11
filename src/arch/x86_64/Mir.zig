@@ -24,9 +24,6 @@ instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 extra: []const u32,
 
-pub const Mnemonic = encoder.Instruction.Mnemonic;
-pub const Operand = encoder.Instruction.Operand;
-
 pub const Inst = struct {
     tag: Tag,
     ops: Ops,
@@ -69,8 +66,6 @@ pub const Inst = struct {
         imul,
         ///
         int3,
-        /// Conditional jump
-        jcc,
         /// Jump
         jmp,
         /// Load effective address
@@ -99,8 +94,6 @@ pub const Inst = struct {
         sar,
         /// Integer subtraction with borrow
         sbb,
-        /// Set byte on condition
-        setcc,
         /// Logical shift left
         shl,
         /// Logical shift right
@@ -135,6 +128,10 @@ pub const Inst = struct {
 
         /// Conditional move
         cmovcc,
+        /// Conditional jump
+        jcc,
+        /// Set byte on condition
+        setcc,
 
         /// Mov absolute to/from memory wrt segment register to/from rax
         mov_moffs,

@@ -121,7 +121,7 @@ pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
                 .encoding = encoding,
             };
             var cwriter = std.io.countingWriter(std.io.null_writer);
-            inst.encode(cwriter.writer()) catch unreachable;
+            inst.encode(cwriter.writer()) catch unreachable; // Not allowed to fail here unless OOM.
             return cwriter.bytes_written;
         }
     };
