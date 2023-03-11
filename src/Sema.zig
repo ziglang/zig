@@ -23605,10 +23605,13 @@ fn fieldCallBind(
     }
 
     // If we get here, we need to look for a decl in the struct type instead.
-    switch (concrete_ty.zigTypeTag()) {
-        .Struct, .Opaque, .Union, .Enum => {
+    const found_decl = switch (concrete_ty.zigTypeTag()) {
+        .Struct, .Opaque, .Union, .Enum => found_decl: {
             if (concrete_ty.getNamespace()) |namespace| {
-                if (try sema.namespaceLookupRef(block, src, namespace, field_name)) |inst| {
+                if (try sema.namespaceLookup(block, src, namespace, field_name)) |decl_idx| {
+                    try sema.addReferencedBy(block, src, decl_idx);
+                    const inst = try sema.analyzeDeclRef(decl_idx);
+
                     const decl_val = try sema.analyzeLoad(block, src, inst, src);
                     const decl_type = sema.typeOf(decl_val);
                     if (decl_type.zigTypeTag() == .Fn and
@@ -23625,7 +23628,7 @@ fn fieldCallBind(
                                 first_param_type.ptrSize() == .C) and
                                 first_param_type.childType().eql(concrete_ty, sema.mod)))
                         {
-                            // zig fmt: on
+                        // zig fmt: on
                             // TODO: bound fn calls on rvalues should probably
                             // generate a by-value argument somehow.
                             const ty = Type.Tag.bound_fn.init();
@@ -23664,16 +23667,22 @@ fn fieldCallBind(
                             return sema.addConstant(ty, value);
                         }
                     }
+                    break :found_decl decl_idx;
                 }
             }
+            break :found_decl null;
         },
-        else => {},
-    }
+        else => null,
+    };
 
     const msg = msg: {
         const msg = try sema.errMsg(block, src, "no field or member function named '{s}' in '{}'", .{ field_name, concrete_ty.fmt(sema.mod) });
         errdefer msg.destroy(sema.gpa);
         try sema.addDeclaredHereNote(msg, concrete_ty);
+        if (found_decl) |decl_idx| {
+            const decl = sema.mod.declPtr(decl_idx);
+            try sema.mod.errNoteNonLazy(decl.srcLoc(), msg, "'{s}' is not a member function", .{field_name});
+        }
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(msg);
