@@ -442,7 +442,7 @@ fn asmJccReloc(self: *Self, target: Mir.Inst.Index, cc: bits.Condition) !Mir.Ins
     });
 }
 
-fn asmNone(self: *Self, tag: Mir.Inst.Tag) !void {
+fn asmOpOnly(self: *Self, tag: Mir.Inst.Tag) !void {
     _ = try self.addInst(.{
         .tag = tag,
         .ops = .none,
@@ -709,7 +709,7 @@ fn gen(self: *Self) InnerError!void {
         });
 
         try self.asmRegister(.pop, .rbp);
-        try self.asmNone(.ret);
+        try self.asmOpOnly(.ret);
 
         // Adjust the stack
         if (self.max_end_stack > math.maxInt(i32)) {
@@ -1856,7 +1856,7 @@ fn genIntMulDivOpMir(
     }
 
     switch (signedness) {
-        .signed => try self.asmNone(.cqo),
+        .signed => try self.asmOpOnly(.cqo),
         .unsigned => try self.asmRegisterRegister(.xor, .rdx, .rdx),
     }
 
@@ -3901,12 +3901,12 @@ fn genVarDbgInfo(
 }
 
 fn airTrap(self: *Self) !void {
-    try self.asmNone(.ud2);
+    try self.asmOpOnly(.ud2);
     return self.finishAirBookkeeping();
 }
 
 fn airBreakpoint(self: *Self) !void {
-    try self.asmNone(.int3);
+    try self.asmOpOnly(.int3);
     return self.finishAirBookkeeping();
 }
 
@@ -5109,7 +5109,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             var iter = std.mem.tokenize(u8, asm_source, "\n\r");
             while (iter.next()) |ins| {
                 if (mem.eql(u8, ins, "syscall")) {
-                    try self.asmNone(.syscall);
+                    try self.asmOpOnly(.syscall);
                 } else if (mem.indexOf(u8, ins, "push")) |_| {
                     const arg = ins[4..];
                     if (mem.indexOf(u8, arg, "$")) |l| {
