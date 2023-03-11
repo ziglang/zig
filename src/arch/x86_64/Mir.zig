@@ -163,6 +163,10 @@ pub const Inst = struct {
         /// Pop registers
         /// Uses `payload` payload with data of type `SaveRegisterList`.
         pop_regs,
+
+        /// Tombstone
+        /// Emitter should skip this instruction.
+        dead,
     };
 
     pub const Ops = enum(u8) {

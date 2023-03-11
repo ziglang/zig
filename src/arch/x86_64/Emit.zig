@@ -137,6 +137,8 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
 
             .push_regs => try emit.mirPushPopRegisterList(.push, inst),
             .pop_regs => try emit.mirPushPopRegisterList(.pop, inst),
+
+            .dead => {},
         }
     }
 

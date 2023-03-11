@@ -630,8 +630,8 @@ fn gen(self: *Self) InnerError!void {
         // TODO During semantic analysis, check if there are no function calls. If there
         // are none, here we can omit the part where we subtract and then add rsp.
         const backpatch_stack_sub = try self.addInst(.{
-            .tag = .nop,
-            .ops = .none,
+            .tag = .dead,
+            .ops = undefined,
             .data = undefined,
         });
 
@@ -657,8 +657,8 @@ fn gen(self: *Self) InnerError!void {
 
         // Push callee-preserved regs that were used actually in use.
         const backpatch_push_callee_preserved_regs = try self.addInst(.{
-            .tag = .nop,
-            .ops = .none,
+            .tag = .dead,
+            .ops = undefined,
             .data = undefined,
         });
 
@@ -688,8 +688,8 @@ fn gen(self: *Self) InnerError!void {
 
         // Pop saved callee-preserved regs.
         const backpatch_pop_callee_preserved_regs = try self.addInst(.{
-            .tag = .nop,
-            .ops = .none,
+            .tag = .dead,
+            .ops = undefined,
             .data = undefined,
         });
 
@@ -701,8 +701,8 @@ fn gen(self: *Self) InnerError!void {
 
         // Maybe add rsp, x if required. This is backpatched later.
         const backpatch_stack_add = try self.addInst(.{
-            .tag = .nop,
-            .ops = .none,
+            .tag = .dead,
+            .ops = undefined,
             .data = undefined,
         });
 
