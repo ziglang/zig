@@ -3067,13 +3067,18 @@ fn buildOutputType(
     defer if (cleanup_local_cache_dir) |*dir| dir.close();
 
     var local_cache_directory: Compilation.Directory = l: {
+        var zig_cache: []const u8 = "zig-cache";
         if (override_local_cache_dir) |local_cache_dir_path| {
-            const dir = try fs.cwd().makeOpenPath(local_cache_dir_path, .{});
-            cleanup_local_cache_dir = dir;
-            break :l .{
-                .handle = dir,
-                .path = local_cache_dir_path,
-            };
+            if (fs.path.isAbsolute(local_cache_dir_path)) {
+                const dir = try fs.cwd().makeOpenPath(local_cache_dir_path, .{});
+                cleanup_local_cache_dir = dir;
+                break :l .{
+                    .handle = dir,
+                    .path = local_cache_dir_path,
+                };
+            }
+            // Allow a relative path to have the same behavior as zig-cache.
+            zig_cache = local_cache_dir_path;
         }
         if (arg_mode == .run) {
             break :l global_cache_directory;
@@ -3082,7 +3087,6 @@ fn buildOutputType(
             // search upwards from cwd until we find directory with build.zig
             const cwd_path = try process.getCwdAlloc(arena);
             const build_zig = "build.zig";
-            const zig_cache = "zig-cache";
             var dirname: []const u8 = cwd_path;
             while (true) {
                 const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig });
@@ -4437,15 +4441,20 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         child_argv.items[argv_index_global_cache_dir] = global_cache_directory.path orelse cwd_path;
 
         var local_cache_directory: Compilation.Directory = l: {
+            var zig_cache: []const u8 = "zig-cache";
             if (override_local_cache_dir) |local_cache_dir_path| {
-                break :l .{
-                    .handle = try fs.cwd().makeOpenPath(local_cache_dir_path, .{}),
-                    .path = local_cache_dir_path,
-                };
+                if (fs.path.isAbsolute(local_cache_dir_path)) {
+                    break :l .{
+                        .handle = try fs.cwd().makeOpenPath(local_cache_dir_path, .{}),
+                        .path = local_cache_dir_path,
+                    };
+                }
+                // Allow a relative path to have the same behavior as zig-cache.
+                zig_cache = local_cache_dir_path;
             }
-            const cache_dir_path = try build_directory.join(arena, &[_][]const u8{"zig-cache"});
+            const cache_dir_path = try build_directory.join(arena, &[_][]const u8{zig_cache});
             break :l .{
-                .handle = try build_directory.handle.makeOpenPath("zig-cache", .{}),
+                .handle = try build_directory.handle.makeOpenPath(zig_cache, .{}),
                 .path = cache_dir_path,
             };
         };
