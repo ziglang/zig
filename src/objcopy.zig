@@ -755,7 +755,7 @@ const ElfContents = struct {
             const need_strings = (idx == header.shstrndx);
 
             if (need_data or need_strings) {
-                const buffer = try allocator.alignedAlloc(u8, section_memory_align, section.section.sh_size);
+                const buffer = try allocator.alignedAlloc(u8, section_memory_align, @intCast(usize, section.section.sh_size));
                 const bytes_read = try source.preadAll(buffer, section.section.sh_offset);
                 if (bytes_read != section.section.sh_size) return error.TRUNCATED_ELF;
                 section.payload = buffer;
@@ -838,7 +838,7 @@ const ElfContents = struct {
                     switch (section.section.sh_type) {
                         elf.DT_VERSYM => {
                             std.debug.assert(section.section.sh_entsize == @sizeOf(elf.Elf64_Verdef));
-                            const defs = @ptrCast([*]const elf.Elf64_Verdef, data)[0 .. section.section.sh_size / @sizeOf(elf.Elf64_Verdef)];
+                            const defs = @ptrCast([*]const elf.Elf64_Verdef, data)[0 .. @intCast(usize, section.section.sh_size) / @sizeOf(elf.Elf64_Verdef)];
                             for (defs) |def| {
                                 if (def.vd_ndx != elf.SHN_UNDEF)
                                     dirty |= Local.propagateUsage(&sections[def.vd_ndx].usage, section.usage);
@@ -846,7 +846,7 @@ const ElfContents = struct {
                         },
                         elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
                             std.debug.assert(section.section.sh_entsize == @sizeOf(elf.Elf64_Sym));
-                            const syms = @ptrCast([*]const elf.Elf64_Sym, data)[0 .. section.section.sh_size / @sizeOf(elf.Elf64_Sym)];
+                            const syms = @ptrCast([*]const elf.Elf64_Sym, data)[0 .. @intCast(usize, section.section.sh_size) / @sizeOf(elf.Elf64_Sym)];
 
                             for (syms) |sym| {
                                 if (sym.st_shndx != elf.SHN_UNDEF and sym.st_shndx < elf.SHN_LORESERVE)
@@ -1020,7 +1020,7 @@ const ElfContents = struct {
                     dest.sh_size = data.len;
 
                 const addralign = if (src.sh_addralign == 0 or dest.sh_type == elf.SHT_NOBITS) 1 else src.sh_addralign;
-                dest.sh_offset = std.mem.alignForward(eof_offset, addralign);
+                dest.sh_offset = std.mem.alignForwardGeneric(u64, eof_offset, addralign);
                 if (src.sh_offset != dest.sh_offset and section.segment != null and update.action != .empty and dest.sh_type != elf.SHT_NOTE) {
                     if (src.sh_offset > dest.sh_offset) {
                         dest.sh_offset = src.sh_offset; // add padding to avoid modifing the program segments
@@ -1041,14 +1041,14 @@ const ElfContents = struct {
 
                         switch (src.sh_type) {
                             elf.DT_VERSYM => {
-                                const defs = @ptrCast([*]elf.Elf64_Verdef, data)[0 .. src.sh_size / @sizeOf(elf.Elf64_Verdef)];
+                                const defs = @ptrCast([*]elf.Elf64_Verdef, data)[0 .. @intCast(usize, src.sh_size) / @sizeOf(elf.Elf64_Verdef)];
                                 for (defs) |*def| {
                                     if (def.vd_ndx != elf.SHN_UNDEF)
                                         def.vd_ndx = sections_update[src.sh_info].remap_idx;
                                 }
                             },
                             elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
-                                const syms = @ptrCast([*]elf.Elf64_Sym, data)[0 .. src.sh_size / @sizeOf(elf.Elf64_Sym)];
+                                const syms = @ptrCast([*]elf.Elf64_Sym, data)[0 .. @intCast(usize, src.sh_size) / @sizeOf(elf.Elf64_Sym)];
                                 for (syms) |*sym| {
                                     if (sym.st_shndx != elf.SHN_UNDEF and sym.st_shndx < elf.SHN_LORESERVE)
                                         sym.st_shndx = sections_update[sym.st_shndx].remap_idx;
@@ -1106,7 +1106,7 @@ const ElfContents = struct {
 
         // write the section header at the tail
         {
-            const offset = std.mem.alignForward(eof_offset, @alignOf(elf.Elf64_Shdr));
+            const offset = std.mem.alignForwardGeneric(u64, eof_offset, @alignOf(elf.Elf64_Shdr));
 
             const data = std.mem.sliceAsBytes(updated_section_header);
             std.debug.assert(data.len == @as(usize, updated_elf_header.e_shentsize) * new_shnum);
