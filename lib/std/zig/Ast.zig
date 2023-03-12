@@ -195,6 +195,9 @@ pub fn rootDecls(tree: Ast) []const Node.Index {
 pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
     const token_tags = tree.tokens.items(.tag);
     switch (parse_error.tag) {
+        .period_after_asterisk => {
+            return stream.writeAll("expected expression after '*', found '.'. Use '.*' to dereference pointers");
+        },
         .asterisk_after_ptr_deref => {
             // Note that the token will point at the `.*` but ideally the source
             // location would point to the `*` after the `.*`.
@@ -2836,6 +2839,7 @@ pub const Error = struct {
     } = .{ .none = {} },
 
     pub const Tag = enum {
+        period_after_asterisk,
         asterisk_after_ptr_deref,
         chained_comparison_operators,
         decl_between_fields,

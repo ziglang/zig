@@ -67,6 +67,7 @@ pub const Token = struct {
 
     pub const Tag = enum {
         invalid,
+        invalid_asteriskperiod,
         invalid_periodasterisks,
         identifier,
         string_literal,
@@ -203,6 +204,7 @@ pub const Token = struct {
                 .container_doc_comment,
                 => null,
 
+                .invalid_asteriskperiod => "*.",
                 .invalid_periodasterisks => ".**",
                 .bang => "!",
                 .pipe => "|",
@@ -622,6 +624,10 @@ pub const Tokenizer = struct {
                 },
 
                 .asterisk => switch (c) {
+                    '.' => {
+                        result.tag = .invalid_asteriskperiod;
+                        break;
+                    },
                     '=' => {
                         result.tag = .asterisk_equal;
                         self.index += 1;
