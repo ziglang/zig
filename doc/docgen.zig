@@ -1170,7 +1170,7 @@ fn tokenizeAndPrintRaw(
             .tilde,
             => try writeEscaped(out, src[token.loc.start..token.loc.end]),
 
-            .invalid, .invalid_periodasterisks => return parseError(
+            .invalid, .invalid_periodasterisks, .invalid_asteriskperiod => return parseError(
                 docgen_tokenizer,
                 source_token,
                 "syntax error",

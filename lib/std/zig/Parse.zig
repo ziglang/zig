@@ -3438,6 +3438,17 @@ fn parseSuffixOp(p: *Parse, lhs: Node.Index) !Node.Index {
                 .rhs = undefined,
             },
         }),
+        .invalid_asteriskperiod => {
+            try p.warn(.period_after_asterisk);
+            return p.addNode(.{
+                .tag = .deref,
+                .main_token = p.nextToken(),
+                .data = .{
+                    .lhs = lhs,
+                    .rhs = undefined,
+                },
+            });
+        },
         .invalid_periodasterisks => {
             try p.warn(.asterisk_after_ptr_deref);
             return p.addNode(.{

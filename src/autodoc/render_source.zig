@@ -386,7 +386,7 @@ pub fn tokenizeAndPrintRaw(
             .tilde,
             => try writeEscaped(out, src[token.loc.start..token.loc.end]),
 
-            .invalid, .invalid_periodasterisks => return error.ParseError,
+            .invalid, .invalid_periodasterisks, .invalid_asteriskperiod => return error.ParseError,
         }
         index = token.loc.end;
     }
