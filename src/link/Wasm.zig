@@ -111,7 +111,11 @@ functions: std.AutoArrayHashMapUnmanaged(struct { file: ?u16, index: u32 }, std.
 /// Output global section
 wasm_globals: std.ArrayListUnmanaged(std.wasm.Global) = .{},
 /// Memory section
-memories: std.wasm.Memory = .{ .limits = .{ .min = 0, .max = null } },
+memories: std.wasm.Memory = .{ .limits = .{
+    .min = 0,
+    .max = undefined,
+    .flags = 0,
+} },
 /// Output table section
 tables: std.ArrayListUnmanaged(std.wasm.Table) = .{},
 /// Output export section
@@ -396,7 +400,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         const loc = try wasm_bin.createSyntheticSymbol("__indirect_function_table", .table);
         const symbol = loc.getSymbol(wasm_bin);
         const table: std.wasm.Table = .{
-            .limits = .{ .min = 0, .max = null }, // will be overwritten during `mapFunctionTable`
+            .limits = .{ .flags = 0, .min = 0, .max = undefined }, // will be overwritten during `mapFunctionTable`
             .reftype = .funcref,
         };
         if (options.output_mode == .Obj or options.import_table) {
@@ -1524,7 +1528,7 @@ fn mapFunctionTable(wasm: *Wasm) void {
         const sym_loc = wasm.findGlobalSymbol("__indirect_function_table").?;
         const symbol = sym_loc.getSymbol(wasm);
         const table = &wasm.tables.items[symbol.index - wasm.imported_tables_count];
-        table.limits = .{ .min = index, .max = index };
+        table.limits = .{ .min = index, .max = index, .flags = 0x1 };
     }
 }
 
@@ -2236,8 +2240,9 @@ fn setupMemory(wasm: *Wasm) !void {
         if (mem.eql(u8, entry.key_ptr.*, ".tdata")) {
             if (wasm.findGlobalSymbol("__tls_base")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                sym.index = try wasm.globals.append(wasm.base.allocator, wasm.imports.globalCount, .{
-                    .global_type = .{ .valtype = .i32_const, .mutable = false },
+                sym.index = @intCast(u32, wasm.wasm_globals.items.len) + wasm.imported_globals_count;
+                try wasm.wasm_globals.append(wasm.base.allocator, .{
+                    .global_type = .{ .valtype = .i32, .mutable = false },
                     .init = .{ .i32_const = @intCast(i32, memory_ptr) },
                 });
             }
@@ -2305,6 +2310,10 @@ fn setupMemory(wasm: *Wasm) !void {
             return error.MemoryTooBig;
         }
         wasm.memories.limits.max = @intCast(u32, max_memory / page_size);
+        wasm.memories.limits.setFlag(.WASM_LIMITS_FLAG_HAS_MAX);
+        if (wasm.base.options.shared_memory) {
+            wasm.memories.limits.setFlag(.WASM_LIMITS_FLAG_IS_SHARED);
+        }
         log.debug("Maximum memory pages: {?d}", .{wasm.memories.limits.max});
     }
 }
@@ -3517,10 +3526,10 @@ fn emitNameSubsection(wasm: *Wasm, section_id: std.wasm.NameSubsection, names: a
 }
 
 fn emitLimits(writer: anytype, limits: std.wasm.Limits) !void {
-    try leb.writeULEB128(writer, @boolToInt(limits.max != null));
+    try writer.writeByte(limits.flags);
     try leb.writeULEB128(writer, limits.min);
-    if (limits.max) |max| {
-        try leb.writeULEB128(writer, max);
+    if (limits.hasFlag(.WASM_LIMITS_FLAG_HAS_MAX)) {
+        try leb.writeULEB128(writer, limits.max);
     }
 }
 

@@ -551,8 +551,22 @@ test "Wasm - valtypes" {
 
 /// Limits classify the size range of resizeable storage associated with memory types and table types.
 pub const Limits = struct {
+    flags: u8,
     min: u32,
-    max: ?u32,
+    max: u32,
+
+    pub const Flags = enum(u8) {
+        WASM_LIMITS_FLAG_HAS_MAX = 0x1,
+        WASM_LIMITS_FLAG_IS_SHARED = 0x2,
+    };
+
+    pub fn hasFlag(limits: Limits, flag: Flags) bool {
+        return limits.flags & @enumToInt(flag) != 0;
+    }
+
+    pub fn setFlag(limits: *Limits, flag: Flags) void {
+        limits.flags |= @enumToInt(flag);
+    }
 };
 
 /// Initialization expressions are used to set the initial value on an object

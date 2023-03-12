@@ -852,12 +852,17 @@ fn readEnum(comptime T: type, reader: anytype) !T {
 }
 
 fn readLimits(reader: anytype) !std.wasm.Limits {
-    const flags = try readLeb(u1, reader);
+    const flags = try reader.readByte();
     const min = try readLeb(u32, reader);
-    return std.wasm.Limits{
+    var limits: std.wasm.Limits = .{
+        .flags = flags,
         .min = min,
-        .max = if (flags == 0) null else try readLeb(u32, reader),
+        .max = undefined,
     };
+    if (limits.hasFlag(.WASM_LIMITS_FLAG_HAS_MAX)) {
+        limits.max = try readLeb(u32, reader);
+    }
+    return limits;
 }
 
 fn readInit(reader: anytype) !std.wasm.InitExpression {
