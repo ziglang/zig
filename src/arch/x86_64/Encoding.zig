@@ -105,6 +105,7 @@ pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
     }
 
     if (count == 0) return null;
+    if (count == 1) return candidates[0];
 
     const EncodingLength = struct {
         fn estimate(encoding: Encoding, params: struct {
@@ -112,7 +113,7 @@ pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
             op2: Instruction.Operand,
             op3: Instruction.Operand,
             op4: Instruction.Operand,
-        }) !usize {
+        }) usize {
             var inst = Instruction{
                 .op1 = params.op1,
                 .op2 = params.op2,
@@ -122,7 +123,7 @@ pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
             };
             var cwriter = std.io.countingWriter(std.io.null_writer);
             inst.encode(cwriter.writer()) catch unreachable; // Not allowed to fail here unless OOM.
-            return cwriter.bytes_written;
+            return @intCast(usize, cwriter.bytes_written);
         }
     };
 
@@ -138,7 +139,7 @@ pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
             else => {},
         }
 
-        const len = try EncodingLength.estimate(candidate, .{
+        const len = EncodingLength.estimate(candidate, .{
             .op1 = args.op1,
             .op2 = args.op2,
             .op3 = args.op3,
