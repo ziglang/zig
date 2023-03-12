@@ -385,6 +385,7 @@ pub fn LinearFifo(
         }
 
         pub fn toOwnedSlice(self: *Self) Allocator.Error![]T {
+            if (self.head != 0) self.realign();
             assert(self.head == 0);
             assert(self.count <= self.buf.len);
             const allocator = self.allocator;
