@@ -5938,6 +5938,17 @@ test "recovery: invalid global error set access" {
     });
 }
 
+test "recovery: invalid pointer dereference" {
+    try testError(
+        \\test "" {
+        \\  foo*.;
+        \\}
+    , &[_]Error{
+        .period_after_asterisk,
+        .expected_suffix_op,
+    });
+}
+
 test "recovery: invalid asterisk after pointer dereference" {
     try testError(
         \\test "" {
