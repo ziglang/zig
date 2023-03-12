@@ -68,7 +68,7 @@ pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
     // TODO work out what is the maximum number of variants we can actually find in one swoop.
     var candidates: [10]Encoding = undefined;
     var count: usize = 0;
-    inline for (table) |entry| {
+    for (table) |entry| {
         const enc = Encoding{
             .mnemonic = entry[0],
             .op_en = entry[1],
@@ -162,7 +162,7 @@ pub fn findByOpcode(opc: []const u8, prefixes: struct {
     legacy: LegacyPrefixes,
     rex: Rex,
 }, modrm_ext: ?u3) ?Encoding {
-    inline for (table) |entry| {
+    for (table) |entry| {
         const enc = Encoding{
             .mnemonic = entry[0],
             .op_en = entry[1],
