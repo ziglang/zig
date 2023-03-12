@@ -8782,7 +8782,7 @@ fn funcCommon(
             };
             return sema.failWithOwnedErrorMsg(msg);
         }
-        if (!Type.fnCallingConventionAllowsZigTypes(cc_resolved) and !try sema.validateExternType(return_type, .ret_ty)) {
+        if (!ret_poison and !Type.fnCallingConventionAllowsZigTypes(cc_resolved) and !try sema.validateExternType(return_type, .ret_ty)) {
             const msg = msg: {
                 const msg = try sema.errMsg(block, ret_ty_src, "return type '{}' not allowed in function with calling convention '{s}'", .{
                     return_type.fmt(sema.mod), @tagName(cc_resolved),
