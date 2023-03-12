@@ -126,10 +126,12 @@ pub fn resolveRelocs(atom: *Atom, wasm_bin: *const Wasm) void {
             .R_WASM_TABLE_INDEX_SLEB,
             .R_WASM_TABLE_NUMBER_LEB,
             .R_WASM_TYPE_INDEX_LEB,
+            .R_WASM_MEMORY_ADDR_TLS_SLEB,
             => leb.writeUnsignedFixed(5, atom.code.items[reloc.offset..][0..5], @intCast(u32, value)),
             .R_WASM_MEMORY_ADDR_LEB64,
             .R_WASM_MEMORY_ADDR_SLEB64,
             .R_WASM_TABLE_INDEX_SLEB64,
+            .R_WASM_MEMORY_ADDR_TLS_SLEB64,
             => leb.writeUnsignedFixed(10, atom.code.items[reloc.offset..][0..10], value),
         }
     }
@@ -189,6 +191,11 @@ fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wa
             const offset: u32 = 11 + Wasm.getULEB128Size(target_atom.size); // Header (11 bytes fixed-size) + body size (leb-encoded)
             const rel_value = @intCast(i32, target_atom.offset + offset) + relocation.addend;
             return @intCast(u32, rel_value);
+        },
+        .R_WASM_MEMORY_ADDR_TLS_SLEB,
+        .R_WASM_MEMORY_ADDR_TLS_SLEB64,
+        => {
+            @panic("TODO: Implement TLS relocations");
         },
     }
 }

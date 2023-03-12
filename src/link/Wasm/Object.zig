@@ -674,6 +674,12 @@ fn Parser(comptime ReaderType: type) type {
                             segment.alignment,
                             segment.flags,
                         });
+
+                        // support legacy object files that specified being TLS by the name instead of the TLS flag.
+                        if (!segment.isTLS() and (std.mem.startsWith(u8, segment.name, ".tdata") or std.mem.startsWith(u8, segment.name, ".tbss"))) {
+                            // set the flag so we can simply check for the flag in the rest of the linker.
+                            segment.flags |= @enumToInt(types.Segment.Flags.WASM_SEG_FLAG_TLS);
+                        }
                     }
                     parser.object.segment_info = segments;
                 },

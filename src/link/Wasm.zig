@@ -894,6 +894,13 @@ fn resolveLazySymbols(wasm: *Wasm) !void {
         try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
         _ = wasm.resolved_symbols.swapRemove(loc);
     }
+
+    if (!wasm.base.options.shared_memory) {
+        if (wasm.undefs.fetchSwapRemove("__tls_base")) |kv| {
+            const loc = try wasm.createSyntheticSymbol("__tls_base", .global);
+            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+        }
+    }
 }
 
 // Tries to find a global symbol by its name. Returns null when not found,
@@ -2224,6 +2231,18 @@ fn setupMemory(wasm: *Wasm) !void {
     while (data_seg_it.next()) |entry| {
         const segment = &wasm.segments.items[entry.value_ptr.*];
         memory_ptr = std.mem.alignForwardGeneric(u64, memory_ptr, segment.alignment);
+
+        // set TLS-related symbols
+        if (mem.eql(u8, entry.key_ptr.*, ".tdata")) {
+            if (wasm.findGlobalSymbol("__tls_base")) |loc| {
+                const sym = loc.getSymbol(wasm);
+                sym.index = try wasm.globals.append(wasm.base.allocator, wasm.imports.globalCount, .{
+                    .global_type = .{ .valtype = .i32_const, .mutable = false },
+                    .init = .{ .i32_const = @intCast(i32, memory_ptr) },
+                });
+            }
+        }
+
         memory_ptr += segment.size;
         segment.offset = offset;
         offset += segment.size;
