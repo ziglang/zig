@@ -32,12 +32,11 @@ pub fn create(owner: *std.Build, artifact: *CompileStep) *InstallArtifactStep {
         .artifact = artifact,
         .dest_dir = artifact.override_dest_dir orelse switch (artifact.kind) {
             .obj => @panic("Cannot install a .obj build artifact."),
-            .@"test" => @panic("Cannot install a .test build artifact, use .test_exe instead."),
-            .exe, .test_exe => InstallDir{ .bin = {} },
+            .exe, .@"test" => InstallDir{ .bin = {} },
             .lib => InstallDir{ .lib = {} },
         },
         .pdb_dir = if (artifact.producesPdbFile()) blk: {
-            if (artifact.kind == .exe or artifact.kind == .test_exe) {
+            if (artifact.kind == .exe or artifact.kind == .@"test") {
                 break :blk InstallDir{ .bin = {} };
             } else {
                 break :blk InstallDir{ .lib = {} };

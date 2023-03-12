@@ -26,6 +26,13 @@ pub const Message = struct {
         /// swap.
         /// No body.
         hot_update,
+        /// Ask the test runner for metadata about all the unit tests that can
+        /// be run. Server will respond with a `test_metadata` message.
+        /// No body.
+        query_test_metadata,
+        /// Ask the test runner to run a particular test.
+        /// The message body is a u32 test index.
+        run_test,
 
         _,
     };

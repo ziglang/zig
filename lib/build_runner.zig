@@ -416,6 +416,12 @@ fn runStepNames(
     }
     assert(run.memory_blocked_steps.items.len == 0);
 
+    var test_skip_count: usize = 0;
+    var test_fail_count: usize = 0;
+    var test_pass_count: usize = 0;
+    var test_leak_count: usize = 0;
+    var test_count: usize = 0;
+
     var success_count: usize = 0;
     var skipped_count: usize = 0;
     var failure_count: usize = 0;
@@ -425,6 +431,12 @@ fn runStepNames(
     defer compile_error_steps.deinit(gpa);
 
     for (step_stack.keys()) |s| {
+        test_fail_count += s.test_results.fail_count;
+        test_skip_count += s.test_results.skip_count;
+        test_leak_count += s.test_results.leak_count;
+        test_pass_count += s.test_results.passCount();
+        test_count += s.test_results.test_count;
+
         switch (s.state) {
             .precheck_unstarted => unreachable,
             .precheck_started => unreachable,
@@ -467,6 +479,11 @@ fn runStepNames(
         stderr.writer().print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
         if (skipped_count > 0) stderr.writer().print("; {d} skipped", .{skipped_count}) catch {};
         if (failure_count > 0) stderr.writer().print("; {d} failed", .{failure_count}) catch {};
+
+        if (test_count > 0) stderr.writer().print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
+        if (test_skip_count > 0) stderr.writer().print("; {d} skipped", .{test_skip_count}) catch {};
+        if (test_fail_count > 0) stderr.writer().print("; {d} failed", .{test_fail_count}) catch {};
+        if (test_leak_count > 0) stderr.writer().print("; {d} leaked", .{test_leak_count}) catch {};
 
         if (run.enable_summary == null) {
             ttyconf.setColor(stderr, .Dim) catch {};
@@ -566,6 +583,13 @@ fn printTreeStep(
                 try ttyconf.setColor(stderr, .Green);
                 if (s.result_cached) {
                     try stderr.writeAll(" cached");
+                } else if (s.test_results.test_count > 0) {
+                    const pass_count = s.test_results.passCount();
+                    try stderr.writer().print(" {d} passed", .{pass_count});
+                    if (s.test_results.skip_count > 0) {
+                        try ttyconf.setColor(stderr, .Yellow);
+                        try stderr.writer().print(" {d} skipped", .{s.test_results.skip_count});
+                    }
                 } else {
                     try stderr.writeAll(" success");
                 }
@@ -609,15 +633,46 @@ fn printTreeStep(
             },
 
             .failure => {
-                try ttyconf.setColor(stderr, .Red);
                 if (s.result_error_bundle.errorMessageCount() > 0) {
+                    try ttyconf.setColor(stderr, .Red);
                     try stderr.writer().print(" {d} errors\n", .{
                         s.result_error_bundle.errorMessageCount(),
                     });
+                    try ttyconf.setColor(stderr, .Reset);
+                } else if (!s.test_results.isSuccess()) {
+                    try stderr.writer().print(" {d}/{d} passed", .{
+                        s.test_results.passCount(), s.test_results.test_count,
+                    });
+                    if (s.test_results.fail_count > 0) {
+                        try stderr.writeAll(", ");
+                        try ttyconf.setColor(stderr, .Red);
+                        try stderr.writer().print("{d} failed", .{
+                            s.test_results.fail_count,
+                        });
+                        try ttyconf.setColor(stderr, .Reset);
+                    }
+                    if (s.test_results.skip_count > 0) {
+                        try stderr.writeAll(", ");
+                        try ttyconf.setColor(stderr, .Yellow);
+                        try stderr.writer().print("{d} skipped", .{
+                            s.test_results.skip_count,
+                        });
+                        try ttyconf.setColor(stderr, .Reset);
+                    }
+                    if (s.test_results.leak_count > 0) {
+                        try stderr.writeAll(", ");
+                        try ttyconf.setColor(stderr, .Red);
+                        try stderr.writer().print("{d} leaked", .{
+                            s.test_results.leak_count,
+                        });
+                        try ttyconf.setColor(stderr, .Reset);
+                    }
+                    try stderr.writeAll("\n");
                 } else {
+                    try ttyconf.setColor(stderr, .Red);
                     try stderr.writeAll(" failure\n");
+                    try ttyconf.setColor(stderr, .Reset);
                 }
-                try ttyconf.setColor(stderr, .Reset);
             },
         }
 

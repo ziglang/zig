@@ -92,6 +92,9 @@ pub const StdIo = union(enum) {
     /// Note that an explicit check for exit code 0 needs to be added to this
     /// list if such a check is desireable.
     check: std.ArrayList(Check),
+    /// This RunStep is running a zig unit test binary and will communicate
+    /// extra metadata over the IPC protocol.
+    zig_test,
 
     pub const Check = union(enum) {
         expect_stderr_exact: []const u8,
@@ -324,6 +327,7 @@ fn hasSideEffects(self: RunStep) bool {
         .infer_from_args => !self.hasAnyOutputArgs(),
         .inherit => true,
         .check => false,
+        .zig_test => false,
     };
 }
 
@@ -366,11 +370,6 @@ fn checksContainStderr(checks: []const StdIo.Check) bool {
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
-    // Unfortunately we have no way to collect progress from arbitrary programs.
-    // Perhaps in the future Zig could offer some kind of opt-in IPC mechanism that
-    // processes could use to supply progress updates.
-    _ = prog_node;
-
     const b = step.owner;
     const arena = b.allocator;
     const self = @fieldParentPtr(RunStep, "step", step);
@@ -439,7 +438,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     hashStdIo(&man.hash, self.stdio);
 
     if (has_side_effects) {
-        try runCommand(self, argv_list.items, has_side_effects, null);
+        try runCommand(self, argv_list.items, has_side_effects, null, prog_node);
         return;
     }
 
@@ -492,8 +491,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         argv_list.items[placeholder.index] = cli_arg;
     }
 
-    try runCommand(self, argv_list.items, has_side_effects, &digest);
-    try man.writeManifest();
+    try runCommand(self, argv_list.items, has_side_effects, &digest, prog_node);
+
+    try step.writeManifest(&man);
 }
 
 fn formatTerm(
@@ -546,6 +546,7 @@ fn runCommand(
     argv: []const []const u8,
     has_side_effects: bool,
     digest: ?*const [std.Build.Cache.hex_digest_len]u8,
+    prog_node: *std.Progress.Node,
 ) !void {
     const step = &self.step;
     const b = step.owner;
@@ -554,7 +555,15 @@ fn runCommand(
     try step.handleChildProcUnsupported(self.cwd, argv);
     try Step.handleVerbose(step.owner, self.cwd, argv);
 
-    const result = spawnChildAndCollect(self, argv, has_side_effects) catch |err| term: {
+    const allow_skip = switch (self.stdio) {
+        .check, .zig_test => self.skip_foreign_checks,
+        else => false,
+    };
+
+    var interp_argv = std.ArrayList([]const u8).init(b.allocator);
+    defer interp_argv.deinit();
+
+    const result = spawnChildAndCollect(self, argv, has_side_effects, prog_node) catch |err| term: {
         // InvalidExe: cpu arch mismatch
         // FileNotFound: can happen with a wrong dynamic linker path
         if (err == error.InvalidExe or err == error.FileNotFound) interpret: {
@@ -566,10 +575,10 @@ fn runCommand(
                 .artifact => |exe| exe,
                 else => break :interpret,
             };
-            if (exe.kind != .exe) break :interpret;
-
-            var interp_argv = std.ArrayList([]const u8).init(b.allocator);
-            defer interp_argv.deinit();
+            switch (exe.kind) {
+                .exe, .@"test" => {},
+                else => break :interpret,
+            }
 
             const need_cross_glibc = exe.target.isGnuLibC() and exe.is_linking_libc;
             switch (b.host.getExternalExecutor(exe.target_info, .{
@@ -577,14 +586,13 @@ fn runCommand(
                 .link_libc = exe.is_linking_libc,
             })) {
                 .native, .rosetta => {
-                    if (self.stdio == .check and self.skip_foreign_checks)
-                        return error.MakeSkipped;
-
+                    if (allow_skip) return error.MakeSkipped;
                     break :interpret;
                 },
                 .wine => |bin_name| {
                     if (b.enable_wine) {
                         try interp_argv.append(bin_name);
+                        try interp_argv.appendSlice(argv);
                     } else {
                         return failForeign(self, "-fwine", argv[0], exe);
                     }
@@ -617,6 +625,8 @@ fn runCommand(
                             try interp_argv.append("-L");
                             try interp_argv.append(full_dir);
                         }
+
+                        try interp_argv.appendSlice(argv);
                     } else {
                         return failForeign(self, "-fqemu", argv[0], exe);
                     }
@@ -624,6 +634,7 @@ fn runCommand(
                 .darling => |bin_name| {
                     if (b.enable_darling) {
                         try interp_argv.append(bin_name);
+                        try interp_argv.appendSlice(argv);
                     } else {
                         return failForeign(self, "-fdarling", argv[0], exe);
                     }
@@ -632,13 +643,15 @@ fn runCommand(
                     if (b.enable_wasmtime) {
                         try interp_argv.append(bin_name);
                         try interp_argv.append("--dir=.");
+                        try interp_argv.append(argv[0]);
+                        try interp_argv.append("--");
+                        try interp_argv.appendSlice(argv[1..]);
                     } else {
                         return failForeign(self, "-fwasmtime", argv[0], exe);
                     }
                 },
                 .bad_dl => |foreign_dl| {
-                    if (self.stdio == .check and self.skip_foreign_checks)
-                        return error.MakeSkipped;
+                    if (allow_skip) return error.MakeSkipped;
 
                     const host_dl = b.host.dynamic_linker.get() orelse "(none)";
 
@@ -650,8 +663,7 @@ fn runCommand(
                     , .{ host_dl, foreign_dl });
                 },
                 .bad_os_or_cpu => {
-                    if (self.stdio == .check and self.skip_foreign_checks)
-                        return error.MakeSkipped;
+                    if (allow_skip) return error.MakeSkipped;
 
                     const host_name = try b.host.target.zigTriple(b.allocator);
                     const foreign_name = try exe.target.zigTriple(b.allocator);
@@ -667,11 +679,9 @@ fn runCommand(
                 RunStep.addPathForDynLibsInternal(&self.step, b, exe);
             }
 
-            try interp_argv.append(argv[0]);
-
             try Step.handleVerbose(step.owner, self.cwd, interp_argv.items);
 
-            break :term spawnChildAndCollect(self, interp_argv.items, has_side_effects) catch |e| {
+            break :term spawnChildAndCollect(self, interp_argv.items, has_side_effects, prog_node) catch |e| {
                 return step.fail("unable to spawn {s}: {s}", .{
                     interp_argv.items[0], @errorName(e),
                 });
@@ -683,6 +693,7 @@ fn runCommand(
 
     step.result_duration_ns = result.elapsed_ns;
     step.result_peak_rss = result.peak_rss;
+    step.test_results = result.stdio.test_results;
 
     // Capture stdout and stderr to GeneratedFile objects.
     const Stream = struct {
@@ -693,13 +704,13 @@ fn runCommand(
     for ([_]Stream{
         .{
             .captured = self.captured_stdout,
-            .is_null = result.stdout_null,
-            .bytes = result.stdout,
+            .is_null = result.stdio.stdout_null,
+            .bytes = result.stdio.stdout,
         },
         .{
             .captured = self.captured_stderr,
-            .is_null = result.stderr_null,
-            .bytes = result.stderr,
+            .is_null = result.stdio.stderr_null,
+            .bytes = result.stdio.stderr,
         },
     }) |stream| {
         if (stream.captured) |output| {
@@ -724,11 +735,13 @@ fn runCommand(
         }
     }
 
+    const final_argv = if (interp_argv.items.len == 0) argv else interp_argv.items;
+
     switch (self.stdio) {
         .check => |checks| for (checks.items) |check| switch (check) {
             .expect_stderr_exact => |expected_bytes| {
-                assert(!result.stderr_null);
-                if (!mem.eql(u8, expected_bytes, result.stderr)) {
+                assert(!result.stdio.stderr_null);
+                if (!mem.eql(u8, expected_bytes, result.stdio.stderr)) {
                     return step.fail(
                         \\
                         \\========= expected this stderr: =========
@@ -739,14 +752,14 @@ fn runCommand(
                         \\{s}
                     , .{
                         expected_bytes,
-                        result.stderr,
-                        try Step.allocPrintCmd(arena, self.cwd, argv),
+                        result.stdio.stderr,
+                        try Step.allocPrintCmd(arena, self.cwd, final_argv),
                     });
                 }
             },
             .expect_stderr_match => |match| {
-                assert(!result.stderr_null);
-                if (mem.indexOf(u8, result.stderr, match) == null) {
+                assert(!result.stdio.stderr_null);
+                if (mem.indexOf(u8, result.stdio.stderr, match) == null) {
                     return step.fail(
                         \\
                         \\========= expected to find in stderr: =========
@@ -757,14 +770,14 @@ fn runCommand(
                         \\{s}
                     , .{
                         match,
-                        result.stderr,
-                        try Step.allocPrintCmd(arena, self.cwd, argv),
+                        result.stdio.stderr,
+                        try Step.allocPrintCmd(arena, self.cwd, final_argv),
                     });
                 }
             },
             .expect_stdout_exact => |expected_bytes| {
-                assert(!result.stdout_null);
-                if (!mem.eql(u8, expected_bytes, result.stdout)) {
+                assert(!result.stdio.stdout_null);
+                if (!mem.eql(u8, expected_bytes, result.stdio.stdout)) {
                     return step.fail(
                         \\
                         \\========= expected this stdout: =========
@@ -775,14 +788,14 @@ fn runCommand(
                         \\{s}
                     , .{
                         expected_bytes,
-                        result.stdout,
-                        try Step.allocPrintCmd(arena, self.cwd, argv),
+                        result.stdio.stdout,
+                        try Step.allocPrintCmd(arena, self.cwd, final_argv),
                     });
                 }
             },
             .expect_stdout_match => |match| {
-                assert(!result.stdout_null);
-                if (mem.indexOf(u8, result.stdout, match) == null) {
+                assert(!result.stdio.stdout_null);
+                if (mem.indexOf(u8, result.stdio.stdout, match) == null) {
                     return step.fail(
                         \\
                         \\========= expected to find in stdout: =========
@@ -793,8 +806,8 @@ fn runCommand(
                         \\{s}
                     , .{
                         match,
-                        result.stdout,
-                        try Step.allocPrintCmd(arena, self.cwd, argv),
+                        result.stdio.stdout,
+                        try Step.allocPrintCmd(arena, self.cwd, final_argv),
                     });
                 }
             },
@@ -803,33 +816,46 @@ fn runCommand(
                     return step.fail("the following command {} (expected {}):\n{s}", .{
                         fmtTerm(result.term),
                         fmtTerm(expected_term),
-                        try Step.allocPrintCmd(arena, self.cwd, argv),
+                        try Step.allocPrintCmd(arena, self.cwd, final_argv),
                     });
                 }
             },
         },
+        .zig_test => {
+            const expected_term: std.process.Child.Term = .{ .Exited = 0 };
+            if (!termMatches(expected_term, result.term)) {
+                return step.fail("the following command {} (expected {}):\n{s}", .{
+                    fmtTerm(result.term),
+                    fmtTerm(expected_term),
+                    try Step.allocPrintCmd(arena, self.cwd, final_argv),
+                });
+            }
+            if (!result.stdio.test_results.isSuccess()) {
+                return step.fail(
+                    "the following test command failed:\n{s}",
+                    .{try Step.allocPrintCmd(arena, self.cwd, final_argv)},
+                );
+            }
+        },
         else => {
-            try step.handleChildProcessTerm(result.term, self.cwd, argv);
+            try step.handleChildProcessTerm(result.term, self.cwd, final_argv);
         },
     }
 }
 
 const ChildProcResult = struct {
-    // These use boolean flags instead of optionals as a workaround for
-    // https://github.com/ziglang/zig/issues/14783
-    stdout: []const u8,
-    stderr: []const u8,
-    stdout_null: bool,
-    stderr_null: bool,
     term: std.process.Child.Term,
     elapsed_ns: u64,
     peak_rss: usize,
+
+    stdio: StdIoResult,
 };
 
 fn spawnChildAndCollect(
     self: *RunStep,
     argv: []const []const u8,
     has_side_effects: bool,
+    prog_node: *std.Progress.Node,
 ) !ChildProcResult {
     const b = self.step.owner;
     const arena = b.allocator;
@@ -848,16 +874,19 @@ fn spawnChildAndCollect(
         .infer_from_args => if (has_side_effects) .Inherit else .Close,
         .inherit => .Inherit,
         .check => .Close,
+        .zig_test => .Pipe,
     };
     child.stdout_behavior = switch (self.stdio) {
         .infer_from_args => if (has_side_effects) .Inherit else .Ignore,
         .inherit => .Inherit,
         .check => |checks| if (checksContainStdout(checks.items)) .Pipe else .Ignore,
+        .zig_test => .Pipe,
     };
     child.stderr_behavior = switch (self.stdio) {
         .infer_from_args => if (has_side_effects) .Inherit else .Pipe,
         .inherit => .Inherit,
         .check => .Pipe,
+        .zig_test => .Pipe,
     };
     if (self.captured_stdout != null) child.stdout_behavior = .Pipe;
     if (self.captured_stderr != null) child.stderr_behavior = .Pipe;
@@ -870,6 +899,219 @@ fn spawnChildAndCollect(
         argv[0], @errorName(err),
     });
     var timer = try std.time.Timer.start();
+
+    const result = if (self.stdio == .zig_test)
+        evalZigTest(self, &child, prog_node)
+    else
+        evalGeneric(self, &child);
+
+    const term = try child.wait();
+    const elapsed_ns = timer.read();
+
+    return .{
+        .stdio = try result,
+        .term = term,
+        .elapsed_ns = elapsed_ns,
+        .peak_rss = child.resource_usage_statistics.getMaxRss() orelse 0,
+    };
+}
+
+const StdIoResult = struct {
+    // These use boolean flags instead of optionals as a workaround for
+    // https://github.com/ziglang/zig/issues/14783
+    stdout: []const u8,
+    stderr: []const u8,
+    stdout_null: bool,
+    stderr_null: bool,
+    test_results: Step.TestResults,
+};
+
+fn evalZigTest(
+    self: *RunStep,
+    child: *std.process.Child,
+    prog_node: *std.Progress.Node,
+) !StdIoResult {
+    const gpa = self.step.owner.allocator;
+    const arena = self.step.owner.allocator;
+
+    var poller = std.io.poll(gpa, enum { stdout, stderr }, .{
+        .stdout = child.stdout.?,
+        .stderr = child.stderr.?,
+    });
+    defer poller.deinit();
+
+    try sendMessage(child.stdin.?, .query_test_metadata);
+
+    const Header = std.zig.Server.Message.Header;
+
+    const stdout = poller.fifo(.stdout);
+    const stderr = poller.fifo(.stderr);
+
+    var fail_count: u32 = 0;
+    var skip_count: u32 = 0;
+    var leak_count: u32 = 0;
+    var test_count: u32 = 0;
+
+    var metadata: ?TestMetadata = null;
+
+    var sub_prog_node: ?std.Progress.Node = null;
+    defer if (sub_prog_node) |*n| n.end();
+
+    poll: while (try poller.poll()) {
+        while (true) {
+            const buf = stdout.readableSlice(0);
+            assert(stdout.readableLength() == buf.len);
+            if (buf.len < @sizeOf(Header)) continue :poll;
+            const header = @ptrCast(*align(1) const Header, buf[0..@sizeOf(Header)]);
+            const header_and_msg_len = header.bytes_len + @sizeOf(Header);
+            if (buf.len < header_and_msg_len) continue :poll;
+            const body = buf[@sizeOf(Header)..][0..header.bytes_len];
+            switch (header.tag) {
+                .zig_version => {
+                    if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
+                        return self.step.fail(
+                            "zig version mismatch build runner vs compiler: '{s}' vs '{s}'",
+                            .{ builtin.zig_version_string, body },
+                        );
+                    }
+                },
+                .test_metadata => {
+                    const TmHdr = std.zig.Server.Message.TestMetadata;
+                    const tm_hdr = @ptrCast(*align(1) const TmHdr, body);
+                    test_count = tm_hdr.tests_len;
+
+                    const names_bytes = body[@sizeOf(TmHdr)..][0 .. test_count * @sizeOf(u32)];
+                    const async_frame_lens_bytes = body[@sizeOf(TmHdr) + names_bytes.len ..][0 .. test_count * @sizeOf(u32)];
+                    const expected_panic_msgs_bytes = body[@sizeOf(TmHdr) + names_bytes.len + async_frame_lens_bytes.len ..][0 .. test_count * @sizeOf(u32)];
+                    const string_bytes = body[@sizeOf(TmHdr) + names_bytes.len + async_frame_lens_bytes.len + expected_panic_msgs_bytes.len ..][0..tm_hdr.string_bytes_len];
+
+                    const names = std.mem.bytesAsSlice(u32, names_bytes);
+                    const async_frame_lens = std.mem.bytesAsSlice(u32, async_frame_lens_bytes);
+                    const expected_panic_msgs = std.mem.bytesAsSlice(u32, expected_panic_msgs_bytes);
+                    const names_aligned = try arena.alloc(u32, names.len);
+                    for (names_aligned, names) |*dest, src| dest.* = src;
+
+                    const async_frame_lens_aligned = try arena.alloc(u32, async_frame_lens.len);
+                    for (async_frame_lens_aligned, async_frame_lens) |*dest, src| dest.* = src;
+
+                    const expected_panic_msgs_aligned = try arena.alloc(u32, expected_panic_msgs.len);
+                    for (expected_panic_msgs_aligned, expected_panic_msgs) |*dest, src| dest.* = src;
+
+                    prog_node.setEstimatedTotalItems(names.len);
+                    metadata = .{
+                        .string_bytes = try arena.dupe(u8, string_bytes),
+                        .names = names_aligned,
+                        .async_frame_lens = async_frame_lens_aligned,
+                        .expected_panic_msgs = expected_panic_msgs_aligned,
+                        .next_index = 0,
+                        .prog_node = prog_node,
+                    };
+
+                    try requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node);
+                },
+                .test_results => {
+                    const md = metadata.?;
+
+                    const TrHdr = std.zig.Server.Message.TestResults;
+                    const tr_hdr = @ptrCast(*align(1) const TrHdr, body);
+                    fail_count += @boolToInt(tr_hdr.flags.fail);
+                    skip_count += @boolToInt(tr_hdr.flags.skip);
+                    leak_count += @boolToInt(tr_hdr.flags.leak);
+
+                    if (tr_hdr.flags.fail or tr_hdr.flags.leak) {
+                        const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
+                        const msg = std.mem.trim(u8, stderr.readableSlice(0), "\n");
+                        const label = if (tr_hdr.flags.fail) "failed" else "leaked";
+                        if (msg.len > 0) {
+                            try self.step.addError("'{s}' {s}: {s}", .{ name, label, msg });
+                        } else {
+                            try self.step.addError("'{s}' {s}", .{ name, label });
+                        }
+                        stderr.discard(msg.len);
+                    }
+
+                    try requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node);
+                },
+                else => {}, // ignore other messages
+            }
+            stdout.discard(header_and_msg_len);
+        }
+    }
+
+    if (stderr.readableLength() > 0) {
+        const msg = std.mem.trim(u8, try stderr.toOwnedSlice(), "\n");
+        if (msg.len > 0) try self.step.result_error_msgs.append(arena, msg);
+    }
+
+    // Send EOF to stdin.
+    child.stdin.?.close();
+    child.stdin = null;
+
+    return .{
+        .stdout = &.{},
+        .stderr = &.{},
+        .stdout_null = true,
+        .stderr_null = true,
+        .test_results = .{
+            .test_count = test_count,
+            .fail_count = fail_count,
+            .skip_count = skip_count,
+            .leak_count = leak_count,
+        },
+    };
+}
+
+const TestMetadata = struct {
+    names: []const u32,
+    async_frame_lens: []const u32,
+    expected_panic_msgs: []const u32,
+    string_bytes: []const u8,
+    next_index: u32,
+    prog_node: *std.Progress.Node,
+
+    fn testName(tm: TestMetadata, index: u32) []const u8 {
+        return std.mem.sliceTo(tm.string_bytes[tm.names[index]..], 0);
+    }
+};
+
+fn requestNextTest(in: fs.File, metadata: *TestMetadata, sub_prog_node: *?std.Progress.Node) !void {
+    while (metadata.next_index < metadata.names.len) {
+        const i = metadata.next_index;
+        metadata.next_index += 1;
+
+        if (metadata.async_frame_lens[i] != 0) continue;
+        if (metadata.expected_panic_msgs[i] != 0) continue;
+
+        const name = metadata.testName(i);
+        if (sub_prog_node.*) |*n| n.end();
+        sub_prog_node.* = metadata.prog_node.start(name, 0);
+
+        try sendRunTestMessage(in, i);
+        return;
+    } else {
+        try sendMessage(in, .exit);
+    }
+}
+
+fn sendMessage(file: std.fs.File, tag: std.zig.Client.Message.Tag) !void {
+    const header: std.zig.Client.Message.Header = .{
+        .tag = tag,
+        .bytes_len = 0,
+    };
+    try file.writeAll(std.mem.asBytes(&header));
+}
+
+fn sendRunTestMessage(file: std.fs.File, index: u32) !void {
+    const header: std.zig.Client.Message.Header = .{
+        .tag = .run_test,
+        .bytes_len = 4,
+    };
+    const full_msg = std.mem.asBytes(&header) ++ std.mem.asBytes(&index);
+    try file.writeAll(full_msg);
+}
+
+fn evalGeneric(self: *RunStep, child: *std.process.Child) !StdIoResult {
+    const arena = self.step.owner.allocator;
 
     if (self.stdin) |stdin| {
         child.stdin.?.writeAll(stdin) catch |err| {
@@ -925,17 +1167,12 @@ fn spawnChildAndCollect(
         }
     }
 
-    const term = try child.wait();
-    const elapsed_ns = timer.read();
-
     return .{
         .stdout = stdout_bytes,
         .stderr = stderr_bytes,
         .stdout_null = stdout_null,
         .stderr_null = stderr_null,
-        .term = term,
-        .elapsed_ns = elapsed_ns,
-        .peak_rss = child.resource_usage_statistics.getMaxRss() orelse 0,
+        .test_results = .{},
     };
 }
 
@@ -966,7 +1203,7 @@ fn failForeign(
     exe: *CompileStep,
 ) error{ MakeFailed, MakeSkipped, OutOfMemory } {
     switch (self.stdio) {
-        .check => {
+        .check, .zig_test => {
             if (self.skip_foreign_checks)
                 return error.MakeSkipped;
 
@@ -987,7 +1224,7 @@ fn failForeign(
 
 fn hashStdIo(hh: *std.Build.Cache.HashHelper, stdio: StdIo) void {
     switch (stdio) {
-        .infer_from_args, .inherit => {},
+        .infer_from_args, .inherit, .zig_test => {},
         .check => |checks| for (checks.items) |check| {
             hh.add(@as(std.meta.Tag(StdIo.Check), check));
             switch (check) {

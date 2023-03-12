@@ -8,7 +8,6 @@ pub fn build(b: *std.Build) void {
 
     const test_exe = b.addTest(.{
         .root_source_file = .{ .path = "test.zig" },
-        .kind = .test_exe,
     });
     test_exe.test_runner = "test_runner.zig";
 

@@ -8,8 +8,8 @@ const assert = std.debug.assert;
 
 const main = @import("main.zig");
 const fatal = main.fatal;
-const cleanExit = main.cleanExit;
-const Server = @import("Server.zig");
+const Server = std.zig.Server;
+const build_options = @import("build_options");
 
 pub fn cmdObjCopy(
     gpa: Allocator,
@@ -116,6 +116,7 @@ pub fn cmdObjCopy(
             .gpa = gpa,
             .in = std.io.getStdIn(),
             .out = std.io.getStdOut(),
+            .zig_version = build_options.version,
         });
         defer server.deinit();
 
@@ -124,7 +125,7 @@ pub fn cmdObjCopy(
             const hdr = try server.receiveMessage();
             switch (hdr.tag) {
                 .exit => {
-                    return cleanExit();
+                    return std.process.cleanExit();
                 },
                 .update => {
                     if (seen_update) {
@@ -144,7 +145,7 @@ pub fn cmdObjCopy(
             }
         }
     }
-    return cleanExit();
+    return std.process.cleanExit();
 }
 
 const usage =

@@ -32,5 +32,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     test_exe.linkLibrary(lib);
     test_exe.linkLibC();
 
-    test_step.dependOn(&test_exe.step);
+    const run = test_exe.run();
+    run.skip_foreign_checks = true;
+
+    test_step.dependOn(&run.step);
 }

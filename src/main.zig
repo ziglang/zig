@@ -10,6 +10,7 @@ const ArrayList = std.ArrayList;
 const Ast = std.zig.Ast;
 const warn = std.log.warn;
 const ThreadPool = std.Thread.Pool;
+const cleanExit = std.process.cleanExit;
 
 const tracy = @import("tracy.zig");
 const Compilation = @import("Compilation.zig");
@@ -26,7 +27,7 @@ const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
 const Module = @import("Module.zig");
 const AstGen = @import("AstGen.zig");
-const Server = @import("Server.zig");
+const Server = std.zig.Server;
 
 pub const std_options = struct {
     pub const wasiCwd = wasi_cwd;
@@ -3545,6 +3546,7 @@ fn serve(
         .gpa = gpa,
         .in = in,
         .out = out,
+        .zig_version = build_options.version,
     });
     defer server.deinit();
 
@@ -3656,8 +3658,8 @@ fn serve(
                     );
                 }
             },
-            _ => {
-                @panic("TODO unrecognized message from client");
+            else => {
+                fatal("unrecognized message from client: 0x{x}", .{@enumToInt(hdr.tag)});
             },
         }
     }
@@ -5622,19 +5624,6 @@ test "fds" {
 
 fn detectNativeTargetInfo(cross_target: std.zig.CrossTarget) !std.zig.system.NativeTargetInfo {
     return std.zig.system.NativeTargetInfo.detect(cross_target);
-}
-
-/// Indicate that we are now terminating with a successful exit code.
-/// In debug builds, this is a no-op, so that the calling code's
-/// cleanup mechanisms are tested and so that external tools that
-/// check for resource leaks can be accurate. In release builds, this
-/// calls exit(0), and does not return.
-pub fn cleanExit() void {
-    if (builtin.mode == .Debug) {
-        return;
-    } else {
-        process.exit(0);
-    }
 }
 
 const usage_ast_check =

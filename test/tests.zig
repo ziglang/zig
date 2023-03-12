@@ -596,7 +596,7 @@ pub fn addStandaloneTests(
                 });
                 if (case.link_libc) exe.linkLibC();
 
-                step.dependOn(&exe.step);
+                step.dependOn(&exe.run().step);
             }
         }
     }
@@ -981,14 +981,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         });
         const single_threaded_txt = if (test_target.single_threaded) "single" else "multi";
         const backend_txt = if (test_target.backend) |backend| @tagName(backend) else "default";
-        these_tests.setNamePrefix(b.fmt("{s}-{s}-{s}-{s}-{s}-{s} ", .{
-            options.name,
-            triple_prefix,
-            @tagName(test_target.optimize_mode),
-            libc_prefix,
-            single_threaded_txt,
-            backend_txt,
-        }));
         these_tests.single_threaded = test_target.single_threaded;
         these_tests.setFilter(options.test_filter);
         if (test_target.link_libc) {
@@ -1014,7 +1006,18 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             },
         };
 
-        step.dependOn(&these_tests.step);
+        const run = these_tests.run();
+        run.skip_foreign_checks = true;
+        run.setName(b.fmt("run test {s}-{s}-{s}-{s}-{s}-{s}", .{
+            options.name,
+            triple_prefix,
+            @tagName(test_target.optimize_mode),
+            libc_prefix,
+            single_threaded_txt,
+            backend_txt,
+        }));
+
+        step.dependOn(&run.step);
     }
     return step;
 }
@@ -1053,7 +1056,9 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 @tagName(optimize_mode),
             }));
 
-            step.dependOn(&test_step.step);
+            const run = test_step.run();
+            run.skip_foreign_checks = true;
+            step.dependOn(&run.step);
         }
     }
     return step;

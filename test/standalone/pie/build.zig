@@ -17,5 +17,5 @@ pub fn build(b: *std.Build) void {
     });
     main.pie = true;
 
-    test_step.dependOn(&main.step);
+    test_step.dependOn(&main.run().step);
 }

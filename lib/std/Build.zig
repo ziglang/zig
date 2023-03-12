@@ -531,7 +531,6 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *CompileStep {
 
 pub const TestOptions = struct {
     name: []const u8 = "test",
-    kind: CompileStep.Kind = .@"test",
     root_source_file: FileSource,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
@@ -542,7 +541,7 @@ pub const TestOptions = struct {
 pub fn addTest(b: *Build, options: TestOptions) *CompileStep {
     return CompileStep.create(b, .{
         .name = options.name,
-        .kind = options.kind,
+        .kind = .@"test",
         .root_source_file = options.root_source_file,
         .target = options.target,
         .optimize = options.optimize,
@@ -626,16 +625,15 @@ pub fn addSystemCommand(self: *Build, argv: []const []const u8) *RunStep {
 /// Creates a `RunStep` with an executable built with `addExecutable`.
 /// Add command line arguments with methods of `RunStep`.
 pub fn addRunArtifact(b: *Build, exe: *CompileStep) *RunStep {
-    assert(exe.kind == .exe or exe.kind == .test_exe);
-
     // It doesn't have to be native. We catch that if you actually try to run it.
     // Consider that this is declarative; the run step may not be run unless a user
     // option is supplied.
     const run_step = RunStep.create(b, b.fmt("run {s}", .{exe.name}));
     run_step.addArtifactArg(exe);
 
-    if (exe.kind == .test_exe) {
-        run_step.addArg(b.zig_exe);
+    if (exe.kind == .@"test") {
+        run_step.stdio = .zig_test;
+        run_step.addArgs(&.{"--listen=-"});
     }
 
     if (exe.vcpkg_bin_path) |path| {

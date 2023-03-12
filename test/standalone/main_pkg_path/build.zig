@@ -9,5 +9,5 @@ pub fn build(b: *std.Build) void {
     });
     test_exe.setMainPkgPath(".");
 
-    test_step.dependOn(&test_exe.step);
+    test_step.dependOn(&test_exe.run().step);
 }

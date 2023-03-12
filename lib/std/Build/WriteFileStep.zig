@@ -282,7 +282,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         });
     }
 
-    try man.writeManifest();
+    try step.writeManifest(&man);
 }
 
 const std = @import("../std.zig");

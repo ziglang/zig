@@ -35,10 +35,26 @@ result_cached: bool,
 result_duration_ns: ?u64,
 /// 0 means unavailable or not reported.
 result_peak_rss: usize,
+test_results: TestResults,
 
 /// The return addresss associated with creation of this step that can be useful
 /// to print along with debugging messages.
 debug_stack_trace: [n_debug_stack_frames]usize,
+
+pub const TestResults = struct {
+    fail_count: u32 = 0,
+    skip_count: u32 = 0,
+    leak_count: u32 = 0,
+    test_count: u32 = 0,
+
+    pub fn isSuccess(tr: TestResults) bool {
+        return tr.fail_count == 0 and tr.leak_count == 0;
+    }
+
+    pub fn passCount(tr: TestResults) u32 {
+        return tr.test_count - tr.fail_count - tr.skip_count;
+    }
+};
 
 pub const MakeFn = *const fn (self: *Step, prog_node: *std.Progress.Node) anyerror!void;
 
@@ -134,6 +150,7 @@ pub fn init(options: Options) Step {
         .result_cached = false,
         .result_duration_ns = null,
         .result_peak_rss = 0,
+        .test_results = .{},
     };
 }
 
@@ -151,6 +168,10 @@ pub fn make(s: *Step, prog_node: *std.Progress.Node) error{ MakeFailed, MakeSkip
             return error.MakeFailed;
         },
     };
+
+    if (!s.test_results.isSuccess()) {
+        return error.MakeFailed;
+    }
 
     if (s.max_rss != 0 and s.result_peak_rss > s.max_rss) {
         const msg = std.fmt.allocPrint(arena, "memory usage peaked at {d} bytes, exceeding the declared upper bound of {d}", .{
@@ -346,9 +367,7 @@ pub fn evalZigProcess(
                     s.result_cached = ebp_hdr.flags.cache_hit;
                     result = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
                 },
-                _ => {
-                    // Unrecognized message.
-                },
+                else => {}, // ignore other messages
             }
             stdout.discard(header_and_msg_len);
         }
@@ -474,4 +493,12 @@ fn failWithCacheError(s: *Step, man: *const std.Build.Cache.Manifest, err: anyer
     const pp = man.files.items[i].prefixed_path orelse return err;
     const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
     return s.fail("{s}: {s}/{s}", .{ @errorName(err), prefix, pp.sub_path });
+}
+
+pub fn writeManifest(s: *Step, man: *std.Build.Cache.Manifest) !void {
+    if (s.test_results.isSuccess()) {
+        man.writeManifest() catch |err| {
+            try s.addError("unable to write cache manifest: {s}", .{@errorName(err)});
+        };
+    }
 }

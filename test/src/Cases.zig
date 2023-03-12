@@ -547,15 +547,12 @@ pub fn lowerToBuildSteps(
                 parent_step.dependOn(&artifact.step);
             },
             .Execution => |expected_stdout| {
-                if (case.is_test) {
-                    parent_step.dependOn(&artifact.step);
-                } else {
-                    const run = b.addRunArtifact(artifact);
-                    run.skip_foreign_checks = true;
+                const run = b.addRunArtifact(artifact);
+                run.skip_foreign_checks = true;
+                if (!case.is_test) {
                     run.expectStdOutEqual(expected_stdout);
-
-                    parent_step.dependOn(&run.step);
                 }
+                parent_step.dependOn(&run.step);
             },
             .Header => @panic("TODO"),
         }
