@@ -1204,3 +1204,16 @@ fn totalSystemMemoryLinux() !usize {
     const kilobytes = try std.fmt.parseInt(usize, int_text, 10);
     return kilobytes * 1024;
 }
+
+/// Indicate that we are now terminating with a successful exit code.
+/// In debug builds, this is a no-op, so that the calling code's
+/// cleanup mechanisms are tested and so that external tools that
+/// check for resource leaks can be accurate. In release builds, this
+/// calls exit(0), and does not return.
+pub fn cleanExit() void {
+    if (builtin.mode == .Debug) {
+        return;
+    } else {
+        exit(0);
+    }
+}
