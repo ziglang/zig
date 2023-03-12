@@ -924,7 +924,7 @@ const ElfContents = struct {
         //   - unused sections are removed
         // when emitting the debug file:
         //   - all sections are kept, but some are emptied and their types is changed to SHT_NOBITS
-        // the program header is kept unchanged. (`strip` does update it, but `eu-strip` does not, and it still works) TODO: maybe it can be omitted altogether from debug?
+        // the program header is kept unchanged. (`strip` does update it, but `eu-strip` does not, and it still works)
 
         const Update = struct {
             action: enum { keep, strip, empty },
@@ -1021,6 +1021,7 @@ const ElfContents = struct {
         eof_offset = @sizeOf(elf.Elf64_Ehdr);
 
         // program header as-is.
+        // nb: for only-debug files, removing it appears to work, but is invalid by ELF specifcation.
         {
             std.debug.assert(updated_elf_header.e_phoff == @sizeOf(elf.Elf64_Ehdr));
             const data = std.mem.sliceAsBytes(self.program_segments);
@@ -1164,10 +1165,60 @@ const ElfContents = struct {
             cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = data, .out_offset = updated_elf_header.e_shoff } });
         }
 
-        // write the target files
-        //  TODO: pack together contiguous copies (cmdbuf is ordered, by construction)
-        //  TODO: fill the paddings with zero or copy from source file
-        for (cmdbuf.items) |cmd| {
+        // consolidate holes between writes:
+        //   by coping original padding data from in_file (by fusing contiguous ranges)
+        //   by writing zeroes otherwise
+        const zeroes = [1]u8{0} ** 4096;
+        const consolidated_cmdbuf = blk: {
+            var newbuf = std.ArrayList(WriteCmd).init(allocator);
+            try newbuf.ensureUnusedCapacity(cmdbuf.items.len * 2);
+            var offset: u64 = 0;
+            var fused_cmd: ?WriteCmd = null;
+            for (cmdbuf.items) |cmd| {
+                switch (cmd) {
+                    .write_data => |data| {
+                        std.debug.assert(data.out_offset >= offset);
+                        if (fused_cmd) |prev| {
+                            newbuf.appendAssumeCapacity(prev);
+                            fused_cmd = null;
+                        }
+                        if (data.out_offset > offset) {
+                            newbuf.appendAssumeCapacity(.{ .write_data = .{ .data = zeroes[0 .. @intCast(usize, data.out_offset - offset)], .out_offset = offset } });
+                        }
+                        newbuf.appendAssumeCapacity(cmd);
+                        offset = data.out_offset + data.data.len;
+                    },
+                    .copy_range => |range| {
+                        std.debug.assert(range.out_offset >= offset);
+                        if (fused_cmd) |prev| {
+                            if (range.in_offset >= prev.copy_range.in_offset + prev.copy_range.len and (range.out_offset - prev.copy_range.out_offset == range.in_offset - prev.copy_range.in_offset)) {
+                                fused_cmd = .{ .copy_range = .{
+                                    .in_offset = prev.copy_range.in_offset,
+                                    .out_offset = prev.copy_range.out_offset,
+                                    .len = (range.out_offset + range.len) - prev.copy_range.out_offset,
+                                } };
+                            } else {
+                                newbuf.appendAssumeCapacity(prev);
+                                if (range.out_offset > offset) {
+                                    newbuf.appendAssumeCapacity(.{ .write_data = .{ .data = zeroes[0 .. @intCast(usize, range.out_offset - offset)], .out_offset = offset } });
+                                }
+                                fused_cmd = cmd;
+                            }
+                        } else {
+                            fused_cmd = cmd;
+                        }
+                        offset = range.out_offset + range.len;
+                    },
+                }
+            }
+            if (fused_cmd) |cmd| {
+                newbuf.appendAssumeCapacity(cmd);
+            }
+            break :blk newbuf.items;
+        };
+
+        // write the output file
+        for (consolidated_cmdbuf) |cmd| {
             switch (cmd) {
                 .write_data => |data| {
                     var iovec = [_]std.os.iovec_const{.{ .iov_base = data.data.ptr, .iov_len = data.data.len }};
