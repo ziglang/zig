@@ -1285,6 +1285,7 @@ pub fn addInstallFileWithDir(
     }
     const install_step = self.allocator.create(InstallFileStep) catch @panic("OOM");
     install_step.* = InstallFileStep.init(self, source.dupe(self), install_dir, dest_rel_path);
+    source.addStepDependencies(&install_step.step);
     return install_step;
 }
 

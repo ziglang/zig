@@ -164,7 +164,7 @@ fn make(step: *Step) !void {
     for (wf.files.items) |file| {
         const basename = fs.path.basename(file.sub_path);
         if (fs.path.dirname(file.sub_path)) |dirname| {
-            var dir = try wf.builder.cache_root.handle.makeOpenPath(dirname, .{});
+            var dir = try cache_dir.makeOpenPath(dirname, .{});
             defer dir.close();
             try writeFile(wf, dir, file.contents, basename);
         } else {
