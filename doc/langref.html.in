@@ -11149,6 +11149,7 @@ all your base are belong to us{#end_shell_samp#}
       {#code_begin|lib|math#}
       {#target_wasm#}
       {#link_mode_dynamic#}
+      {#additonal_option|-rdynamic#}
 extern fn print(i32) void;
 
 export fn add(a: i32, b: i32) void {
