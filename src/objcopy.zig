@@ -129,10 +129,6 @@ pub fn cmdObjCopy(
                 fatal("zig objcopy: ELF to RAW or HEX copying does not support --strip", .{});
             if (opt_extract != null)
                 fatal("zig objcopy: ELF to RAW or HEX copying does not support --extract-to", .{});
-            if (opt_extract != null)
-                fatal("zig objcopy: ELF to RAW or HEX copying does not support --extract-to", .{});
-            if (opt_extract != null)
-                fatal("zig objcopy: ELF to RAW or HEX copying does not support --extract-to", .{});
 
             try emitElf(arena, in_file, out_file, elf_hdr, .{
                 .ofmt = out_fmt,
@@ -658,7 +654,7 @@ test "containsValidAddressRange" {
 // -------------
 // ELF to ELF stripping
 
-pub const StripElfOptions = struct {
+const StripElfOptions = struct {
     extract_to: ?[]const u8 = null,
     add_debuglink: ?[]const u8 = null,
     strip_all: bool = false,
@@ -673,72 +669,64 @@ fn stripElf(
     elf_hdr: elf.Header,
     options: StripElfOptions,
 ) !void {
+    const Filter = ElfFileHelper.Filter;
+    const DebugLink = ElfFileHelper.DebugLink;
+
+    const filter: Filter = filter: {
+        if (options.only_keep_debug) break :filter .debug;
+        if (options.strip_all) break :filter .program;
+        if (options.strip_debug) break :filter .program_and_symbols;
+        break :filter .all;
+    };
+
+    const filter_complement: ?Filter = blk: {
+        if (options.extract_to) |_| {
+            break :blk switch (filter) {
+                .program => .debug_and_symbols,
+                .debug => .program_and_symbols,
+                .program_and_symbols => .debug,
+                .debug_and_symbols => .program,
+                .all => fatal("zig objcopy: nothing to extract", .{}),
+            };
+        } else {
+            break :blk null;
+        }
+    };
+    const debuglink_path = path: {
+        if (options.add_debuglink) |path| break :path path;
+        if (options.extract_to) |path| break :path path;
+        break :path null;
+    };
+
     switch (elf_hdr.is_64) {
         inline else => |is_64| {
-            const Elf = ElfContents(is_64);
-            const Filter = Elf.Filter;
-            const DebugLink = Elf.DebugLink;
+            var elf_file = try ElfFile(is_64).parse(allocator, in_file, elf_hdr);
+            defer elf_file.deinit();
 
-            var elf_contents = try Elf.parse(allocator, in_file, elf_hdr);
-            defer elf_contents.deinit();
-
-            const filter: Filter = filter: {
-                if (options.only_keep_debug) break :filter .debug;
-                if (options.strip_all) break :filter .program;
-                if (options.strip_debug) break :filter .program_and_symbols;
-                break :filter .all;
-            };
-
-            if (options.extract_to) |filename| {
-                const dbg_file = std.fs.cwd().createFile(filename, .{}) catch |err| {
-                    fatal("zig objcopy: unable to create '{s}': {s}", .{ filename, @errorName(err) });
+            if (filter_complement) |flt| {
+                // write the .dbg file and close it, so it can be read back to compute the debuglink checksum.
+                const path = options.extract_to.?;
+                const dbg_file = std.fs.cwd().createFile(path, .{}) catch |err| {
+                    fatal("zig objcopy: unable to create '{s}': {s}", .{ path, @errorName(err) });
                 };
                 defer dbg_file.close();
 
-                const filter_complement: Filter = switch (filter) {
-                    .program => .debug_and_symbols,
-                    .debug => .program_and_symbols,
-                    .program_and_symbols => .debug,
-                    .debug_and_symbols => .program,
-                    .all => fatal("zig objcopy: nothing to extract", .{}),
-                };
-
-                try elf_contents.emit(allocator, dbg_file, in_file, filter_complement, null);
+                try elf_file.emit(allocator, dbg_file, in_file, .{ .section_filter = flt });
             }
 
-            const debuglink: ?DebugLink = blk: {
-                const debuglink_filename = name: {
-                    if (options.add_debuglink) |filename| break :name filename;
-                    if (options.extract_to) |filename| break :name filename;
-                    break :name null;
-                };
-                if (debuglink_filename) |filename| {
-                    const dbg_file = std.fs.cwd().openFile(filename, .{}) catch |err| {
-                        fatal("zig objcopy: could not read `{s}`: {s}\n", .{ filename, @errorName(err) });
-                    };
-                    defer dbg_file.close();
-
-                    break :blk .{
-                        .name = std.fs.path.basename(filename),
-                        .crc32 = try computeFileCrc(dbg_file),
-                    };
-                } else {
-                    break :blk null;
-                }
-            };
-
-            try elf_contents.emit(allocator, out_file, in_file, filter, debuglink);
+            const debuglink: ?DebugLink = if (debuglink_path) |path| ElfFileHelper.createDebugLink(path) else null;
+            try elf_file.emit(allocator, out_file, in_file, .{ .section_filter = filter, .debuglink = debuglink });
         },
     }
 }
 
 // note: this is "a minimal effort implementation"
 //  It doesn't support all possibile elf files: some sections type may need fixups, the program header may need fix up, ...
-//  it was written for a specific use case (strip debug info to a sperate file, for linux 64-bits executables built with `zig` or `zig c++` )
-// It manupulates and reoders the sections as little as possible to avoid having to do fixups.
+//  It was written for a specific use case (strip debug info to a sperate file, for linux 64-bits executables built with `zig` or `zig c++` )
+// It moves and reoders the sections as little as possible to avoid having to do fixups.
 // TODO: support non-native endianess
 
-fn ElfContents(comptime is_64: bool) type {
+fn ElfFile(comptime is_64: bool) type {
     const Elf_Ehdr = if (is_64) elf.Elf64_Ehdr else elf.Elf32_Ehdr;
     const Elf_Phdr = if (is_64) elf.Elf64_Phdr else elf.Elf32_Phdr;
     const Elf_Shdr = if (is_64) elf.Elf64_Shdr else elf.Elf32_Shdr;
@@ -752,27 +740,26 @@ fn ElfContents(comptime is_64: bool) type {
         sections: []const Section,
         arena: std.heap.ArenaAllocator,
 
+        const SectionCategory = ElfFileHelper.SectionCategory;
         const section_memory_align = @alignOf(Elf_Sym); // most restrictive of what we may load in memory
         const Section = struct {
             section: Elf_Shdr,
             name: []const u8 = "",
             segment: ?*const Elf_Phdr = null, // if the section is used by a program segment (there can be more than one)
             payload: ?[]align(section_memory_align) const u8 = null, // if we need the data in memory
-            usage: Usage = .none, // should the section be kept in the exe or stripped to the debug database, or both.
-
-            const Usage = enum { common, exe, debug, symbols, none };
+            category: SectionCategory = .none, // should the section be kept in the exe or stripped to the debug database, or both.
         };
 
         const Self = @This();
 
-        pub fn parse(gpa: Allocator, source: File, header: elf.Header) !Self {
+        pub fn parse(gpa: Allocator, in_file: File, header: elf.Header) !Self {
             var arena = std.heap.ArenaAllocator.init(gpa);
             errdefer arena.deinit();
             const allocator = arena.allocator();
 
             var raw_header: Elf_Ehdr = undefined;
             {
-                const bytes_read = try source.preadAll(std.mem.asBytes(&raw_header), 0);
+                const bytes_read = try in_file.preadAll(std.mem.asBytes(&raw_header), 0);
                 if (bytes_read < @sizeOf(Elf_Ehdr))
                     return error.TRUNCATED_ELF;
             }
@@ -783,7 +770,7 @@ fn ElfContents(comptime is_64: bool) type {
                     fatal("zig objcopy: unsuported ELF file, unexpected phentsize ({d})", .{header.phentsize});
 
                 const program_header = try allocator.alloc(Elf_Phdr, header.phnum);
-                const bytes_read = try source.preadAll(std.mem.sliceAsBytes(program_header), header.phoff);
+                const bytes_read = try in_file.preadAll(std.mem.sliceAsBytes(program_header), header.phoff);
                 if (bytes_read < @sizeOf(Elf_Phdr) * header.phnum)
                     return error.TRUNCATED_ELF;
                 break :blk program_header;
@@ -798,7 +785,7 @@ fn ElfContents(comptime is_64: bool) type {
 
                 const raw_section_header = try allocator.alloc(Elf_Shdr, header.shnum);
                 defer allocator.free(raw_section_header);
-                const bytes_read = try source.preadAll(std.mem.sliceAsBytes(raw_section_header), header.shoff);
+                const bytes_read = try in_file.preadAll(std.mem.sliceAsBytes(raw_section_header), header.shoff);
                 if (bytes_read < @sizeOf(Elf_Phdr) * header.shnum)
                     return error.TRUNCATED_ELF;
 
@@ -821,7 +808,7 @@ fn ElfContents(comptime is_64: bool) type {
 
                 if (need_data or need_strings) {
                     const buffer = try allocator.alignedAlloc(u8, section_memory_align, @intCast(usize, section.section.sh_size));
-                    const bytes_read = try source.preadAll(buffer, section.section.sh_offset);
+                    const bytes_read = try in_file.preadAll(buffer, section.section.sh_offset);
                     if (bytes_read != section.section.sh_size) return error.TRUNCATED_ELF;
                     section.payload = buffer;
                 }
@@ -830,7 +817,7 @@ fn ElfContents(comptime is_64: bool) type {
             // fill-in sections info:
             //    resolve the name
             //    find if a program segment uses the section
-            //    classify sections usage (used by program segments, debug datadase, common metadata, symbol table)
+            //    categorise sections usage (used by program segments, debug datadase, common metadata, symbol table)
             for (sections) |*section| {
                 section.segment = for (program_segments) |*seg| {
                     if (sectionWithinSegment(section.section, seg.*)) break seg;
@@ -839,65 +826,36 @@ fn ElfContents(comptime is_64: bool) type {
                 if (section.section.sh_name != 0 and header.shstrndx != elf.SHN_UNDEF)
                     section.name = std.mem.span(@ptrCast([*:0]const u8, &sections[header.shstrndx].payload.?[section.section.sh_name]));
 
-                const usage_from_program: Section.Usage = if (section.segment != null) .exe else .debug;
-                section.usage = switch (section.section.sh_type) {
+                const category_from_program: SectionCategory = if (section.segment != null) .exe else .debug;
+                section.category = switch (section.section.sh_type) {
                     elf.SHT_NOTE => .common,
                     elf.SHT_SYMTAB => .symbols, // "strip all" vs "strip only debug"
                     elf.SHT_DYNSYM => .exe,
-                    elf.SHT_PROGBITS => usage: {
-                        if (std.mem.eql(u8, section.name, ".comment")) break :usage .exe;
-                        if (std.mem.eql(u8, section.name, ".gnu_debuglink")) break :usage .none;
-                        break :usage usage_from_program;
+                    elf.SHT_PROGBITS => cat: {
+                        if (std.mem.eql(u8, section.name, ".comment")) break :cat .exe;
+                        if (std.mem.eql(u8, section.name, ".gnu_debuglink")) break :cat .none;
+                        break :cat category_from_program;
                     },
                     elf.SHT_LOPROC...elf.SHT_HIPROC => .common, // don't strip unkonwn sections
                     elf.SHT_LOUSER...elf.SHT_HIUSER => .common, // don't strip unkonwn sections
-                    else => usage_from_program,
+                    else => category_from_program,
                 };
             }
 
-            sections[0].usage = .common; // mandatory null section
+            sections[0].category = .common; // mandatory null section
             if (header.shstrndx != elf.SHN_UNDEF)
-                sections[header.shstrndx].usage = .common; // string table for the headers
+                sections[header.shstrndx].category = .common; // string table for the headers
 
             // recursive dependencies
             var dirty: u1 = 1;
             while (dirty != 0) {
                 dirty = 0;
 
-                const Local = struct {
-                    fn propagateUsage(cur: *Section.Usage, new: Section.Usage) u1 {
-                        const use: Section.Usage = switch (cur.*) {
-                            .none => new,
-                            .common => .common,
-                            .debug => switch (new) {
-                                .none, .debug => .debug,
-                                else => new,
-                            },
-                            .exe => switch (new) {
-                                .common => .common,
-                                .none, .debug, .exe => .exe,
-                                .symbols => .exe,
-                            },
-                            .symbols => switch (new) {
-                                .none, .common, .debug, .exe => unreachable,
-                                .symbols => .symbols,
-                            },
-                        };
-
-                        if (cur.* != use) {
-                            cur.* = use;
-                            return 1;
-                        } else {
-                            return 0;
-                        }
-                    }
-                };
-
                 for (sections) |*section| {
                     if (section.section.sh_link != elf.SHN_UNDEF)
-                        dirty |= Local.propagateUsage(&sections[section.section.sh_link].usage, section.usage);
+                        dirty |= ElfFileHelper.propagateCategory(&sections[section.section.sh_link].category, section.category);
                     if ((section.section.sh_flags & elf.SHF_INFO_LINK) != 0 and section.section.sh_info != elf.SHN_UNDEF)
-                        dirty |= Local.propagateUsage(&sections[section.section.sh_info].usage, section.usage);
+                        dirty |= ElfFileHelper.propagateCategory(&sections[section.section.sh_info].category, section.category);
 
                     if (section.payload) |data| {
                         switch (section.section.sh_type) {
@@ -906,7 +864,7 @@ fn ElfContents(comptime is_64: bool) type {
                                 const defs = @ptrCast([*]const Elf_Verdef, data)[0 .. @intCast(usize, section.section.sh_size) / @sizeOf(Elf_Verdef)];
                                 for (defs) |def| {
                                     if (def.vd_ndx != elf.SHN_UNDEF)
-                                        dirty |= Local.propagateUsage(&sections[def.vd_ndx].usage, section.usage);
+                                        dirty |= ElfFileHelper.propagateCategory(&sections[def.vd_ndx].category, section.category);
                                 }
                             },
                             elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
@@ -915,7 +873,7 @@ fn ElfContents(comptime is_64: bool) type {
 
                                 for (syms) |sym| {
                                     if (sym.st_shndx != elf.SHN_UNDEF and sym.st_shndx < elf.SHN_LORESERVE)
-                                        dirty |= Local.propagateUsage(&sections[sym.st_shndx].usage, section.usage);
+                                        dirty |= ElfFileHelper.propagateCategory(&sections[sym.st_shndx].category, section.category);
                                 }
                             },
                             else => {},
@@ -936,9 +894,13 @@ fn ElfContents(comptime is_64: bool) type {
             self.arena.deinit();
         }
 
-        const DebugLink = struct { name: []const u8, crc32: u32 };
-        const Filter = enum { all, program, debug, program_and_symbols, debug_and_symbols };
-        fn emit(self: *const Self, gpa: Allocator, output: File, source: File, filter: Filter, debuglink: ?DebugLink) !void {
+        const Filter = ElfFileHelper.Filter;
+        const DebugLink = ElfFileHelper.DebugLink;
+        const EmitElfOptions = struct {
+            section_filter: Filter = .all,
+            debuglink: ?DebugLink = null,
+        };
+        fn emit(self: *const Self, gpa: Allocator, out_file: File, in_file: File, options: EmitElfOptions) !void {
             var arena = std.heap.ArenaAllocator.init(gpa);
             defer arena.deinit();
             const allocator = arena.allocator();
@@ -950,63 +912,37 @@ fn ElfContents(comptime is_64: bool) type {
             // the program header is kept unchanged. (`strip` does update it, but `eu-strip` does not, and it still works)
 
             const Update = struct {
-                action: enum { keep, strip, empty },
+                action: ElfFileHelper.Action,
 
                 // remap the indexs after omitting the filtered sections
                 remap_idx: u16,
 
                 // optionally overrides the payload from the source file
-                payload: ?[]align(section_memory_align) const u8,
+                payload: ?[]align(section_memory_align) const u8 = null,
+                section: ?Elf_Shdr = null,
             };
             const sections_update = try allocator.alloc(Update, self.sections.len);
             const new_shnum = blk: {
                 var next_idx: u16 = 0;
                 for (self.sections, sections_update) |section, *update| {
-                    update.action = action: {
-                        if (section.usage == .none) break :action .strip;
-                        break :action switch (filter) {
-                            .all => switch (section.usage) {
-                                .none => .strip,
-                                else => .keep,
-                            },
-                            .program => switch (section.usage) {
-                                .common, .exe => .keep,
-                                else => .strip,
-                            },
-                            .program_and_symbols => switch (section.usage) {
-                                .common, .exe, .symbols => .keep,
-                                else => .strip,
-                            },
-                            .debug => switch (section.usage) {
-                                .exe, .symbols => .empty,
-                                .none => .strip,
-                                else => .keep,
-                            },
-                            .debug_and_symbols => switch (section.usage) {
-                                .exe => .empty,
-                                .none => .strip,
-                                else => .keep,
-                            },
-                        };
-                    };
-
-                    if (update.action == .strip) {
-                        update.remap_idx = elf.SHN_UNDEF;
-                    } else {
-                        update.remap_idx = next_idx;
+                    const action = ElfFileHelper.selectAction(section.category, options.section_filter);
+                    const remap_idx = idx: {
+                        if (action == .strip) break :idx elf.SHN_UNDEF;
                         next_idx += 1;
-                    }
-
-                    update.payload = null;
+                        break :idx next_idx - 1;
+                    };
+                    update.* = Update{ .action = action, .remap_idx = remap_idx };
                 }
 
-                if (debuglink != null)
+                if (options.debuglink != null)
                     next_idx += 1;
+
                 break :blk next_idx;
             };
 
+            // add a ".gnu_debuglink" to the string table if needed
             const debuglink_name: u32 = blk: {
-                if (debuglink == null) break :blk elf.SHN_UNDEF;
+                if (options.debuglink == null) break :blk elf.SHN_UNDEF;
                 if (self.raw_elf_header.e_shstrndx == elf.SHN_UNDEF)
                     fatal("zig objcopy: no strtab, cannot add the debuglink section", .{}); // TODO add the section if needed?
 
@@ -1026,11 +962,7 @@ fn ElfContents(comptime is_64: bool) type {
                 break :blk new_offset;
             };
 
-            const WriteCmd = union(enum) {
-                copy_range: struct { in_offset: u64, len: u64, out_offset: u64 },
-                write_data: struct { data: []const u8, out_offset: u64 },
-            };
-            var cmdbuf = std.ArrayList(WriteCmd).init(allocator);
+            var cmdbuf = std.ArrayList(ElfFileHelper.WriteCmd).init(allocator);
             defer cmdbuf.deinit();
             try cmdbuf.ensureUnusedCapacity(3 + new_shnum);
             var eof_offset: Elf_OffSize = 0; // track the end of the data written so far.
@@ -1076,8 +1008,9 @@ fn ElfContents(comptime is_64: bool) type {
                     if (update.action == .strip) continue;
                     std.debug.assert(update.remap_idx == dest_section_idx);
 
-                    const src = &section.section;
+                    const src = if (update.section) |*s| s else &section.section;
                     const dest = &dest_sections[dest_section_idx];
+                    const payload = if (update.payload) |data| data else section.payload;
                     dest_section_idx += 1;
 
                     dest.* = src.*;
@@ -1087,7 +1020,6 @@ fn ElfContents(comptime is_64: bool) type {
                     if ((src.sh_flags & elf.SHF_INFO_LINK) != 0 and src.sh_info != elf.SHN_UNDEF)
                         dest.sh_info = sections_update[src.sh_info].remap_idx;
 
-                    const payload = if (update.payload) |data| data else section.payload;
                     if (payload) |data|
                         dest.sh_size = @intCast(Elf_OffSize, data.len);
 
@@ -1108,29 +1040,36 @@ fn ElfContents(comptime is_64: bool) type {
                     if (dest.sh_type != elf.SHT_NOBITS) {
                         if (payload) |src_data| {
                             // update sections payload and write
-                            const data = try allocator.alignedAlloc(u8, section_memory_align, src_data.len);
-                            std.mem.copy(u8, data, src_data);
+                            const dest_data = switch (src.sh_type) {
+                                elf.DT_VERSYM => dst_data: {
+                                    const data = try allocator.alignedAlloc(u8, section_memory_align, src_data.len);
+                                    std.mem.copy(u8, data, src_data);
 
-                            switch (src.sh_type) {
-                                elf.DT_VERSYM => {
                                     const defs = @ptrCast([*]Elf_Verdef, data)[0 .. @intCast(usize, src.sh_size) / @sizeOf(Elf_Verdef)];
                                     for (defs) |*def| {
                                         if (def.vd_ndx != elf.SHN_UNDEF)
                                             def.vd_ndx = sections_update[src.sh_info].remap_idx;
                                     }
+
+                                    break :dst_data data;
                                 },
-                                elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
+                                elf.SHT_SYMTAB, elf.SHT_DYNSYM => dst_data: {
+                                    const data = try allocator.alignedAlloc(u8, section_memory_align, src_data.len);
+                                    std.mem.copy(u8, data, src_data);
+
                                     const syms = @ptrCast([*]Elf_Sym, data)[0 .. @intCast(usize, src.sh_size) / @sizeOf(Elf_Sym)];
                                     for (syms) |*sym| {
                                         if (sym.st_shndx != elf.SHN_UNDEF and sym.st_shndx < elf.SHN_LORESERVE)
                                             sym.st_shndx = sections_update[sym.st_shndx].remap_idx;
                                     }
-                                },
-                                else => {},
-                            }
 
-                            std.debug.assert(data.len == dest.sh_size);
-                            cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = data, .out_offset = dest.sh_offset } });
+                                    break :dst_data data;
+                                },
+                                else => src_data,
+                            };
+
+                            std.debug.assert(dest_data.len == dest.sh_size);
+                            cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = dest_data, .out_offset = dest.sh_offset } });
                             eof_offset = dest.sh_offset + dest.sh_size;
                         } else {
                             // direct contents copy
@@ -1144,7 +1083,7 @@ fn ElfContents(comptime is_64: bool) type {
                 }
 
                 // add a ".gnu_debuglink" section
-                if (debuglink) |link| {
+                if (options.debuglink) |link| {
                     const payload = payload: {
                         const crc_offset = std.mem.alignForward(link.name.len + 1, 4);
                         const buf = try allocator.alignedAlloc(u8, 4, crc_offset + 4);
@@ -1188,71 +1127,7 @@ fn ElfContents(comptime is_64: bool) type {
                 cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = data, .out_offset = updated_elf_header.e_shoff } });
             }
 
-            // consolidate holes between writes:
-            //   by coping original padding data from in_file (by fusing contiguous ranges)
-            //   by writing zeroes otherwise
-            const zeroes = [1]u8{0} ** 4096;
-            const consolidated_cmdbuf = blk: {
-                var newbuf = std.ArrayList(WriteCmd).init(allocator);
-                try newbuf.ensureUnusedCapacity(cmdbuf.items.len * 2);
-                var offset: u64 = 0;
-                var fused_cmd: ?WriteCmd = null;
-                for (cmdbuf.items) |cmd| {
-                    switch (cmd) {
-                        .write_data => |data| {
-                            std.debug.assert(data.out_offset >= offset);
-                            if (fused_cmd) |prev| {
-                                newbuf.appendAssumeCapacity(prev);
-                                fused_cmd = null;
-                            }
-                            if (data.out_offset > offset) {
-                                newbuf.appendAssumeCapacity(.{ .write_data = .{ .data = zeroes[0..@intCast(usize, data.out_offset - offset)], .out_offset = offset } });
-                            }
-                            newbuf.appendAssumeCapacity(cmd);
-                            offset = data.out_offset + data.data.len;
-                        },
-                        .copy_range => |range| {
-                            std.debug.assert(range.out_offset >= offset);
-                            if (fused_cmd) |prev| {
-                                if (range.in_offset >= prev.copy_range.in_offset + prev.copy_range.len and (range.out_offset - prev.copy_range.out_offset == range.in_offset - prev.copy_range.in_offset)) {
-                                    fused_cmd = .{ .copy_range = .{
-                                        .in_offset = prev.copy_range.in_offset,
-                                        .out_offset = prev.copy_range.out_offset,
-                                        .len = (range.out_offset + range.len) - prev.copy_range.out_offset,
-                                    } };
-                                } else {
-                                    newbuf.appendAssumeCapacity(prev);
-                                    if (range.out_offset > offset) {
-                                        newbuf.appendAssumeCapacity(.{ .write_data = .{ .data = zeroes[0..@intCast(usize, range.out_offset - offset)], .out_offset = offset } });
-                                    }
-                                    fused_cmd = cmd;
-                                }
-                            } else {
-                                fused_cmd = cmd;
-                            }
-                            offset = range.out_offset + range.len;
-                        },
-                    }
-                }
-                if (fused_cmd) |cmd| {
-                    newbuf.appendAssumeCapacity(cmd);
-                }
-                break :blk newbuf.items;
-            };
-
-            // write the output file
-            for (consolidated_cmdbuf) |cmd| {
-                switch (cmd) {
-                    .write_data => |data| {
-                        var iovec = [_]std.os.iovec_const{.{ .iov_base = data.data.ptr, .iov_len = data.data.len }};
-                        try output.pwritevAll(&iovec, data.out_offset);
-                    },
-                    .copy_range => |range| {
-                        const copied_bytes = try source.copyRangeAll(range.in_offset, output, range.out_offset, range.len);
-                        if (copied_bytes < range.len) return error.TRUNCATED_ELF;
-                    },
-                }
-            }
+            try ElfFileHelper.write(allocator, out_file, in_file, cmdbuf.items);
         }
 
         fn sectionWithinSegment(section: Elf_Shdr, segment: Elf_Phdr) bool {
@@ -1262,15 +1137,162 @@ fn ElfContents(comptime is_64: bool) type {
     };
 }
 
-fn computeFileCrc(file: File) !u32 {
-    var buf: [8000]u8 = undefined;
+const ElfFileHelper = struct {
+    const DebugLink = struct { name: []const u8, crc32: u32 };
+    const Filter = enum { all, program, debug, program_and_symbols, debug_and_symbols };
 
-    try file.seekTo(0);
-    var hasher = std.hash.Crc32.init();
-    while (true) {
-        const bytes_read = try file.read(&buf);
-        if (bytes_read == 0) break;
-        hasher.update(buf[0..bytes_read]);
+    const SectionCategory = enum { common, exe, debug, symbols, none };
+    fn propagateCategory(cur: *SectionCategory, new: SectionCategory) u1 {
+        const cat: SectionCategory = switch (cur.*) {
+            .none => new,
+            .common => .common,
+            .debug => switch (new) {
+                .none, .debug => .debug,
+                else => new,
+            },
+            .exe => switch (new) {
+                .common => .common,
+                .none, .debug, .exe => .exe,
+                .symbols => .exe,
+            },
+            .symbols => switch (new) {
+                .none, .common, .debug, .exe => unreachable,
+                .symbols => .symbols,
+            },
+        };
+
+        if (cur.* != cat) {
+            cur.* = cat;
+            return 1;
+        } else {
+            return 0;
+        }
     }
-    return hasher.final();
-}
+
+    const Action = enum { keep, strip, empty };
+    fn selectAction(category: SectionCategory, filter: Filter) Action {
+        if (category == .none) return .strip;
+        return switch (filter) {
+            .all => switch (category) {
+                .none => .strip,
+                else => .keep,
+            },
+            .program => switch (category) {
+                .common, .exe => .keep,
+                else => .strip,
+            },
+            .program_and_symbols => switch (category) {
+                .common, .exe, .symbols => .keep,
+                else => .strip,
+            },
+            .debug => switch (category) {
+                .exe, .symbols => .empty,
+                .none => .strip,
+                else => .keep,
+            },
+            .debug_and_symbols => switch (category) {
+                .exe => .empty,
+                .none => .strip,
+                else => .keep,
+            },
+        };
+    }
+
+    const WriteCmd = union(enum) {
+        copy_range: struct { in_offset: u64, len: u64, out_offset: u64 },
+        write_data: struct { data: []const u8, out_offset: u64 },
+    };
+    fn write(allocator: Allocator, out_file: File, in_file: File, cmds: []const WriteCmd) !void {
+        // consolidate holes between writes:
+        //   by coping original padding data from in_file (by fusing contiguous ranges)
+        //   by writing zeroes otherwise
+        const zeroes = [1]u8{0} ** 4096;
+        var consolidated = std.ArrayList(WriteCmd).init(allocator);
+        defer consolidated.deinit();
+        try consolidated.ensureUnusedCapacity(cmds.len * 2);
+        var offset: u64 = 0;
+        var fused_cmd: ?WriteCmd = null;
+        for (cmds) |cmd| {
+            switch (cmd) {
+                .write_data => |data| {
+                    std.debug.assert(data.out_offset >= offset);
+                    if (fused_cmd) |prev| {
+                        consolidated.appendAssumeCapacity(prev);
+                        fused_cmd = null;
+                    }
+                    if (data.out_offset > offset) {
+                        consolidated.appendAssumeCapacity(.{ .write_data = .{ .data = zeroes[0..@intCast(usize, data.out_offset - offset)], .out_offset = offset } });
+                    }
+                    consolidated.appendAssumeCapacity(cmd);
+                    offset = data.out_offset + data.data.len;
+                },
+                .copy_range => |range| {
+                    std.debug.assert(range.out_offset >= offset);
+                    if (fused_cmd) |prev| {
+                        if (range.in_offset >= prev.copy_range.in_offset + prev.copy_range.len and (range.out_offset - prev.copy_range.out_offset == range.in_offset - prev.copy_range.in_offset)) {
+                            fused_cmd = .{ .copy_range = .{
+                                .in_offset = prev.copy_range.in_offset,
+                                .out_offset = prev.copy_range.out_offset,
+                                .len = (range.out_offset + range.len) - prev.copy_range.out_offset,
+                            } };
+                        } else {
+                            consolidated.appendAssumeCapacity(prev);
+                            if (range.out_offset > offset) {
+                                consolidated.appendAssumeCapacity(.{ .write_data = .{ .data = zeroes[0..@intCast(usize, range.out_offset - offset)], .out_offset = offset } });
+                            }
+                            fused_cmd = cmd;
+                        }
+                    } else {
+                        fused_cmd = cmd;
+                    }
+                    offset = range.out_offset + range.len;
+                },
+            }
+        }
+        if (fused_cmd) |cmd| {
+            consolidated.appendAssumeCapacity(cmd);
+        }
+
+        // write the output file
+        for (consolidated.items) |cmd| {
+            switch (cmd) {
+                .write_data => |data| {
+                    var iovec = [_]std.os.iovec_const{.{ .iov_base = data.data.ptr, .iov_len = data.data.len }};
+                    try out_file.pwritevAll(&iovec, data.out_offset);
+                },
+                .copy_range => |range| {
+                    const copied_bytes = try in_file.copyRangeAll(range.in_offset, out_file, range.out_offset, range.len);
+                    if (copied_bytes < range.len) return error.TRUNCATED_ELF;
+                },
+            }
+        }
+    }
+
+    fn createDebugLink(path: []const u8) DebugLink {
+        const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+            fatal("zig objcopy: could not open `{s}`: {s}\n", .{ path, @errorName(err) });
+        };
+        defer file.close();
+
+        const crc = ElfFileHelper.computeFileCrc(file) catch |err| {
+            fatal("zig objcopy: could not read `{s}`: {s}\n", .{ path, @errorName(err) });
+        };
+        return .{
+            .name = std.fs.path.basename(path),
+            .crc32 = crc,
+        };
+    }
+
+    fn computeFileCrc(file: File) !u32 {
+        var buf: [8000]u8 = undefined;
+
+        try file.seekTo(0);
+        var hasher = std.hash.Crc32.init();
+        while (true) {
+            const bytes_read = try file.read(&buf);
+            if (bytes_read == 0) break;
+            hasher.update(buf[0..bytes_read]);
+        }
+        return hasher.final();
+    }
+};
