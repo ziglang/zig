@@ -143,8 +143,6 @@ pub fn cmdObjCopy(
         .elf => {
             if (elf_hdr.endian != @import("builtin").target.cpu.arch.endian())
                 fatal("zig objcopy: ELF to ELF copying only supports native endian", .{});
-            if (!elf_hdr.is_64)
-                fatal("zig objcopy: ELF to ELF copying only supports 64-bit files", .{});
             if (elf_hdr.phoff == 0) // no program header
                 fatal("zig objcopy: ELF to ELF copying only supports programs", .{});
             if (only_section) |_|
@@ -675,568 +673,594 @@ fn stripElf(
     elf_hdr: elf.Header,
     options: StripElfOptions,
 ) !void {
-    const filter: ElfContents.Filter = filter: {
-        if (options.only_keep_debug) break :filter .debug;
-        if (options.strip_all) break :filter .program;
-        if (options.strip_debug) break :filter .program_and_symbols;
-        break :filter .all;
-    };
+    switch (elf_hdr.is_64) {
+        inline else => |is_64| {
+            const Elf = ElfContents(is_64);
+            const Filter = Elf.Filter;
+            const DebugLink = Elf.DebugLink;
 
-    var elf_contents = try ElfContents.parse(allocator, in_file, elf_hdr);
-    defer elf_contents.deinit();
+            var elf_contents = try Elf.parse(allocator, in_file, elf_hdr);
+            defer elf_contents.deinit();
 
-    if (options.extract_to) |filename| {
-        const dbg_file = std.fs.cwd().createFile(filename, .{}) catch |err| {
-            fatal("zig objcopy: unable to create '{s}': {s}", .{ filename, @errorName(err) });
-        };
-        defer dbg_file.close();
+            const filter: Filter = filter: {
+                if (options.only_keep_debug) break :filter .debug;
+                if (options.strip_all) break :filter .program;
+                if (options.strip_debug) break :filter .program_and_symbols;
+                break :filter .all;
+            };
 
-        const filter_complement: ElfContents.Filter = switch (filter) {
-            .program => .debug_and_symbols,
-            .debug => .program_and_symbols,
-            .program_and_symbols => .debug,
-            .debug_and_symbols => .program,
-            .all => fatal("zig objcopy: nothing to extract", .{}),
-        };
+            if (options.extract_to) |filename| {
+                const dbg_file = std.fs.cwd().createFile(filename, .{}) catch |err| {
+                    fatal("zig objcopy: unable to create '{s}': {s}", .{ filename, @errorName(err) });
+                };
+                defer dbg_file.close();
 
-        try elf_contents.emit(allocator, dbg_file, in_file, filter_complement, null);
+                const filter_complement: Filter = switch (filter) {
+                    .program => .debug_and_symbols,
+                    .debug => .program_and_symbols,
+                    .program_and_symbols => .debug,
+                    .debug_and_symbols => .program,
+                    .all => fatal("zig objcopy: nothing to extract", .{}),
+                };
+
+                try elf_contents.emit(allocator, dbg_file, in_file, filter_complement, null);
+            }
+
+            const debuglink: ?DebugLink = blk: {
+                const debuglink_filename = name: {
+                    if (options.add_debuglink) |filename| break :name filename;
+                    if (options.extract_to) |filename| break :name filename;
+                    break :name null;
+                };
+                if (debuglink_filename) |filename| {
+                    const dbg_file = std.fs.cwd().openFile(filename, .{}) catch |err| {
+                        fatal("zig objcopy: could not read `{s}`: {s}\n", .{ filename, @errorName(err) });
+                    };
+                    defer dbg_file.close();
+
+                    break :blk .{
+                        .name = std.fs.path.basename(filename),
+                        .crc32 = try computeFileCrc(dbg_file),
+                    };
+                } else {
+                    break :blk null;
+                }
+            };
+
+            try elf_contents.emit(allocator, out_file, in_file, filter, debuglink);
+        },
     }
-
-    const debuglink: ?ElfContents.DebugLink = blk: {
-        const debuglink_filename = name: {
-            if (options.add_debuglink) |filename| break :name filename;
-            if (options.extract_to) |filename| break :name filename;
-            break :name null;
-        };
-        if (debuglink_filename) |filename| {
-            const dbg_file = std.fs.cwd().openFile(filename, .{}) catch |err| {
-                fatal("zig objcopy: could not read `{s}`: {s}\n", .{ filename, @errorName(err) });
-            };
-            defer dbg_file.close();
-
-            break :blk .{
-                .name = std.fs.path.basename(filename),
-                .crc32 = try computeFileCrc(dbg_file),
-            };
-        } else {
-            break :blk null;
-        }
-    };
-
-    try elf_contents.emit(allocator, out_file, in_file, filter, debuglink);
 }
 
 // note: this is "a minimal effort implementation"
 //  It doesn't support all possibile elf files: some sections type may need fixups, the program header may need fix up, ...
 //  it was written for a specific use case (strip debug info to a sperate file, for linux 64-bits executables built with `zig` or `zig c++` )
 // It manupulates and reoders the sections as little as possible to avoid having to do fixups.
-// TODO: support 32-bit files
 // TODO: support non-native endianess
 
-const ElfContents = struct {
-    raw_elf_header: elf.Elf64_Ehdr,
-    program_segments: []const elf.Elf64_Phdr,
-    sections: []const Section,
-    arena: std.heap.ArenaAllocator,
+fn ElfContents(comptime is_64: bool) type {
+    const Elf_Ehdr = if (is_64) elf.Elf64_Ehdr else elf.Elf32_Ehdr;
+    const Elf_Phdr = if (is_64) elf.Elf64_Phdr else elf.Elf32_Phdr;
+    const Elf_Shdr = if (is_64) elf.Elf64_Shdr else elf.Elf32_Shdr;
+    const Elf_Sym = if (is_64) elf.Elf64_Sym else elf.Elf32_Sym;
+    const Elf_Verdef = if (is_64) elf.Elf64_Verdef else elf.Elf32_Verdef;
+    const Elf_OffSize = if (is_64) elf.Elf64_Off else elf.Elf32_Off;
 
-    const section_memory_align = @alignOf(elf.Elf64_Sym); // most restrictive of what we may load in memory
-    const Section = struct {
-        section: elf.Elf64_Shdr,
-        name: []const u8 = "",
-        segment: ?*const elf.Elf64_Phdr = null, // if the section is used by a program segment (there can be more than one)
-        payload: ?[]align(section_memory_align) const u8 = null, // if we need the data in memory
-        usage: Usage = .none, // should the section be kept in the exe or stripped to the debug database, or both.
+    return struct {
+        raw_elf_header: Elf_Ehdr,
+        program_segments: []const Elf_Phdr,
+        sections: []const Section,
+        arena: std.heap.ArenaAllocator,
 
-        const Usage = enum { common, exe, debug, symbols, none };
-    };
+        const section_memory_align = @alignOf(Elf_Sym); // most restrictive of what we may load in memory
+        const Section = struct {
+            section: Elf_Shdr,
+            name: []const u8 = "",
+            segment: ?*const Elf_Phdr = null, // if the section is used by a program segment (there can be more than one)
+            payload: ?[]align(section_memory_align) const u8 = null, // if we need the data in memory
+            usage: Usage = .none, // should the section be kept in the exe or stripped to the debug database, or both.
 
-    const Self = @This();
-
-    pub fn parse(gpa: Allocator, source: File, header: elf.Header) !Self {
-        var arena = std.heap.ArenaAllocator.init(gpa);
-        errdefer arena.deinit();
-        const allocator = arena.allocator();
-
-        var raw_header: elf.Elf64_Ehdr = undefined;
-        try source.seekableStream().seekTo(0);
-        try source.reader().readNoEof(std.mem.asBytes(&raw_header));
-
-        // program header: list of segments
-        const program_segments = blk: {
-            const program_header = try allocator.alloc(elf.Elf64_Phdr, header.phnum);
-            var i: u32 = 0;
-            var it = header.program_header_iterator(source);
-            while (try it.next()) |hdr| {
-                program_header[i] = hdr;
-                i += 1;
-            }
-            break :blk @ptrCast([]const elf.Elf64_Phdr, program_header[0..i]);
+            const Usage = enum { common, exe, debug, symbols, none };
         };
 
-        // section header
-        const sections = blk: {
-            const section_header = try allocator.alloc(Section, header.shnum);
-            var it = header.section_header_iterator(source);
-            var i: u32 = 0;
-            while (try it.next()) |hdr| {
-                section_header[i] = .{ .section = hdr };
-                i += 1;
+        const Self = @This();
+
+        pub fn parse(gpa: Allocator, source: File, header: elf.Header) !Self {
+            var arena = std.heap.ArenaAllocator.init(gpa);
+            errdefer arena.deinit();
+            const allocator = arena.allocator();
+
+            var raw_header: Elf_Ehdr = undefined;
+            {
+                const bytes_read = try source.preadAll(std.mem.asBytes(&raw_header), 0);
+                if (bytes_read < @sizeOf(Elf_Ehdr))
+                    return error.TRUNCATED_ELF;
             }
-            break :blk section_header[0..i];
-        };
 
-        // load data to memory for some sections:
-        //   string tables for access
-        //   sections than need modifications when other sections move.
-        for (sections, 0..) |*section, idx| {
-            const need_data = switch (section.section.sh_type) {
-                elf.DT_VERSYM => true,
-                elf.SHT_SYMTAB, elf.SHT_DYNSYM => true,
-                else => false,
+            // program header: list of segments
+            const program_segments = blk: {
+                if (@sizeOf(Elf_Phdr) != header.phentsize)
+                    fatal("zig objcopy: unsuported ELF file, unexpected phentsize ({d})", .{header.phentsize});
+
+                const program_header = try allocator.alloc(Elf_Phdr, header.phnum);
+                const bytes_read = try source.preadAll(std.mem.sliceAsBytes(program_header), header.phoff);
+                if (bytes_read < @sizeOf(Elf_Phdr) * header.phnum)
+                    return error.TRUNCATED_ELF;
+                break :blk program_header;
             };
-            const need_strings = (idx == header.shstrndx);
 
-            if (need_data or need_strings) {
-                const buffer = try allocator.alignedAlloc(u8, section_memory_align, @intCast(usize, section.section.sh_size));
-                const bytes_read = try source.preadAll(buffer, section.section.sh_offset);
-                if (bytes_read != section.section.sh_size) return error.TRUNCATED_ELF;
-                section.payload = buffer;
-            }
-        }
+            // section header
+            const sections = blk: {
+                if (@sizeOf(Elf_Shdr) != header.shentsize)
+                    fatal("zig objcopy: unsuported ELF file, unexpected shentsize ({d})", .{header.shentsize});
 
-        // fill-in sections info:
-        //    resolve the name
-        //    find if a program segment uses the section
-        //    classify sections usage (used by program segments, debug datadase, common metadata, symbol table)
-        for (sections) |*section| {
-            section.segment = for (program_segments) |*seg| {
-                if (sectionWithinSegment(section.section, seg.*)) break seg;
-            } else null;
+                const section_header = try allocator.alloc(Section, header.shnum);
 
-            if (section.section.sh_name != 0 and header.shstrndx != elf.SHN_UNDEF)
-                section.name = std.mem.span(@ptrCast([*:0]const u8, &sections[header.shstrndx].payload.?[section.section.sh_name]));
+                const raw_section_header = try allocator.alloc(Elf_Shdr, header.shnum);
+                defer allocator.free(raw_section_header);
+                const bytes_read = try source.preadAll(std.mem.sliceAsBytes(raw_section_header), header.shoff);
+                if (bytes_read < @sizeOf(Elf_Phdr) * header.shnum)
+                    return error.TRUNCATED_ELF;
 
-            const usage_from_program: Section.Usage = if (section.segment != null) .exe else .debug;
-            section.usage = switch (section.section.sh_type) {
-                elf.SHT_NOTE => .common,
-                elf.SHT_SYMTAB => .symbols, // "strip all" vs "strip only debug"
-                elf.SHT_DYNSYM => .exe,
-                elf.SHT_PROGBITS => usage: {
-                    if (std.mem.eql(u8, section.name, ".comment")) break :usage .exe;
-                    if (std.mem.eql(u8, section.name, ".gnu_debuglink")) break :usage .none;
-                    break :usage usage_from_program;
-                },
-                elf.SHT_LOPROC...elf.SHT_HIPROC => .common, // don't strip unkonwn sections
-                elf.SHT_LOUSER...elf.SHT_HIUSER => .common, // don't strip unkonwn sections
-                else => usage_from_program,
-            };
-        }
-
-        sections[0].usage = .common; // mandatory null section
-        if (header.shstrndx != elf.SHN_UNDEF)
-            sections[header.shstrndx].usage = .common; // string table for the headers
-
-        // recursive dependencies
-        var dirty: u1 = 1;
-        while (dirty != 0) {
-            dirty = 0;
-
-            const Local = struct {
-                fn propagateUsage(cur: *Section.Usage, new: Section.Usage) u1 {
-                    const use: Section.Usage = switch (cur.*) {
-                        .none => new,
-                        .common => .common,
-                        .debug => switch (new) {
-                            .none, .debug => .debug,
-                            else => new,
-                        },
-                        .exe => switch (new) {
-                            .common => .common,
-                            .none, .debug, .exe => .exe,
-                            .symbols => .exe,
-                        },
-                        .symbols => switch (new) {
-                            .none, .common, .debug, .exe => unreachable,
-                            .symbols => .symbols,
-                        },
-                    };
-
-                    if (cur.* != use) {
-                        cur.* = use;
-                        return 1;
-                    } else {
-                        return 0;
-                    }
+                for (section_header, raw_section_header) |*section, hdr| {
+                    section.* = .{ .section = hdr };
                 }
+                break :blk section_header;
             };
 
+            // load data to memory for some sections:
+            //   string tables for access
+            //   sections than need modifications when other sections move.
+            for (sections, 0..) |*section, idx| {
+                const need_data = switch (section.section.sh_type) {
+                    elf.DT_VERSYM => true,
+                    elf.SHT_SYMTAB, elf.SHT_DYNSYM => true,
+                    else => false,
+                };
+                const need_strings = (idx == header.shstrndx);
+
+                if (need_data or need_strings) {
+                    const buffer = try allocator.alignedAlloc(u8, section_memory_align, @intCast(usize, section.section.sh_size));
+                    const bytes_read = try source.preadAll(buffer, section.section.sh_offset);
+                    if (bytes_read != section.section.sh_size) return error.TRUNCATED_ELF;
+                    section.payload = buffer;
+                }
+            }
+
+            // fill-in sections info:
+            //    resolve the name
+            //    find if a program segment uses the section
+            //    classify sections usage (used by program segments, debug datadase, common metadata, symbol table)
             for (sections) |*section| {
-                if (section.section.sh_link != elf.SHN_UNDEF)
-                    dirty |= Local.propagateUsage(&sections[section.section.sh_link].usage, section.usage);
-                if ((section.section.sh_flags & elf.SHF_INFO_LINK) != 0 and section.section.sh_info != elf.SHN_UNDEF)
-                    dirty |= Local.propagateUsage(&sections[section.section.sh_info].usage, section.usage);
+                section.segment = for (program_segments) |*seg| {
+                    if (sectionWithinSegment(section.section, seg.*)) break seg;
+                } else null;
 
-                if (section.payload) |data| {
-                    switch (section.section.sh_type) {
-                        elf.DT_VERSYM => {
-                            std.debug.assert(section.section.sh_entsize == @sizeOf(elf.Elf64_Verdef));
-                            const defs = @ptrCast([*]const elf.Elf64_Verdef, data)[0 .. @intCast(usize, section.section.sh_size) / @sizeOf(elf.Elf64_Verdef)];
-                            for (defs) |def| {
-                                if (def.vd_ndx != elf.SHN_UNDEF)
-                                    dirty |= Local.propagateUsage(&sections[def.vd_ndx].usage, section.usage);
-                            }
-                        },
-                        elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
-                            std.debug.assert(section.section.sh_entsize == @sizeOf(elf.Elf64_Sym));
-                            const syms = @ptrCast([*]const elf.Elf64_Sym, data)[0 .. @intCast(usize, section.section.sh_size) / @sizeOf(elf.Elf64_Sym)];
+                if (section.section.sh_name != 0 and header.shstrndx != elf.SHN_UNDEF)
+                    section.name = std.mem.span(@ptrCast([*:0]const u8, &sections[header.shstrndx].payload.?[section.section.sh_name]));
 
-                            for (syms) |sym| {
-                                if (sym.st_shndx != elf.SHN_UNDEF and sym.st_shndx < elf.SHN_LORESERVE)
-                                    dirty |= Local.propagateUsage(&sections[sym.st_shndx].usage, section.usage);
-                            }
-                        },
-                        else => {},
-                    }
-                }
+                const usage_from_program: Section.Usage = if (section.segment != null) .exe else .debug;
+                section.usage = switch (section.section.sh_type) {
+                    elf.SHT_NOTE => .common,
+                    elf.SHT_SYMTAB => .symbols, // "strip all" vs "strip only debug"
+                    elf.SHT_DYNSYM => .exe,
+                    elf.SHT_PROGBITS => usage: {
+                        if (std.mem.eql(u8, section.name, ".comment")) break :usage .exe;
+                        if (std.mem.eql(u8, section.name, ".gnu_debuglink")) break :usage .none;
+                        break :usage usage_from_program;
+                    },
+                    elf.SHT_LOPROC...elf.SHT_HIPROC => .common, // don't strip unkonwn sections
+                    elf.SHT_LOUSER...elf.SHT_HIUSER => .common, // don't strip unkonwn sections
+                    else => usage_from_program,
+                };
             }
-        }
 
-        return Self{
-            .arena = arena,
-            .raw_elf_header = raw_header,
-            .program_segments = program_segments,
-            .sections = sections,
-        };
-    }
+            sections[0].usage = .common; // mandatory null section
+            if (header.shstrndx != elf.SHN_UNDEF)
+                sections[header.shstrndx].usage = .common; // string table for the headers
 
-    pub fn deinit(self: *Self) void {
-        self.arena.deinit();
-    }
+            // recursive dependencies
+            var dirty: u1 = 1;
+            while (dirty != 0) {
+                dirty = 0;
 
-    const DebugLink = struct { name: []const u8, crc32: u32 };
-    const Filter = enum { all, program, debug, program_and_symbols, debug_and_symbols };
-    fn emit(self: *const Self, gpa: Allocator, output: File, source: File, filter: Filter, debuglink: ?DebugLink) !void {
-        var arena = std.heap.ArenaAllocator.init(gpa);
-        defer arena.deinit();
-        const allocator = arena.allocator();
+                const Local = struct {
+                    fn propagateUsage(cur: *Section.Usage, new: Section.Usage) u1 {
+                        const use: Section.Usage = switch (cur.*) {
+                            .none => new,
+                            .common => .common,
+                            .debug => switch (new) {
+                                .none, .debug => .debug,
+                                else => new,
+                            },
+                            .exe => switch (new) {
+                                .common => .common,
+                                .none, .debug, .exe => .exe,
+                                .symbols => .exe,
+                            },
+                            .symbols => switch (new) {
+                                .none, .common, .debug, .exe => unreachable,
+                                .symbols => .symbols,
+                            },
+                        };
 
-        // when emitting the stripped exe:
-        //   - unused sections are removed
-        // when emitting the debug file:
-        //   - all sections are kept, but some are emptied and their types is changed to SHT_NOBITS
-        // the program header is kept unchanged. (`strip` does update it, but `eu-strip` does not, and it still works)
-
-        const Update = struct {
-            action: enum { keep, strip, empty },
-
-            // remap the indexs after omitting the filtered sections
-            remap_idx: u16,
-
-            // optionally overrides the payload from the source file
-            payload: ?[]align(section_memory_align) const u8,
-        };
-        const sections_update = try allocator.alloc(Update, self.sections.len);
-        const new_shnum = blk: {
-            var next_idx: u16 = 0;
-            for (self.sections, sections_update) |section, *update| {
-                update.action = action: {
-                    if (section.usage == .none) break :action .strip;
-                    break :action switch (filter) {
-                        .all => switch (section.usage) {
-                            .none => .strip,
-                            else => .keep,
-                        },
-                        .program => switch (section.usage) {
-                            .common, .exe => .keep,
-                            else => .strip,
-                        },
-                        .program_and_symbols => switch (section.usage) {
-                            .common, .exe, .symbols => .keep,
-                            else => .strip,
-                        },
-                        .debug => switch (section.usage) {
-                            .exe, .symbols => .empty,
-                            .none => .strip,
-                            else => .keep,
-                        },
-                        .debug_and_symbols => switch (section.usage) {
-                            .exe => .empty,
-                            .none => .strip,
-                            else => .keep,
-                        },
-                    };
+                        if (cur.* != use) {
+                            cur.* = use;
+                            return 1;
+                        } else {
+                            return 0;
+                        }
+                    }
                 };
 
-                if (update.action == .strip) {
-                    update.remap_idx = elf.SHN_UNDEF;
-                } else {
-                    update.remap_idx = next_idx;
-                    next_idx += 1;
-                }
+                for (sections) |*section| {
+                    if (section.section.sh_link != elf.SHN_UNDEF)
+                        dirty |= Local.propagateUsage(&sections[section.section.sh_link].usage, section.usage);
+                    if ((section.section.sh_flags & elf.SHF_INFO_LINK) != 0 and section.section.sh_info != elf.SHN_UNDEF)
+                        dirty |= Local.propagateUsage(&sections[section.section.sh_info].usage, section.usage);
 
-                update.payload = null;
-            }
-
-            if (debuglink != null)
-                next_idx += 1;
-            break :blk next_idx;
-        };
-
-        const debuglink_name: elf.Elf64_Word = blk: {
-            if (debuglink == null) break :blk elf.SHN_UNDEF;
-            if (self.raw_elf_header.e_shstrndx == elf.SHN_UNDEF)
-                fatal("zig objcopy: no strtab, cannot add the debuglink section", .{}); // TODO add the section if needed?
-
-            const strtab = &self.sections[self.raw_elf_header.e_shstrndx];
-            const update = &sections_update[self.raw_elf_header.e_shstrndx];
-
-            const name: []const u8 = ".gnu_debuglink";
-            const new_offset = @intCast(u32, strtab.payload.?.len);
-            const buf = try allocator.alignedAlloc(u8, section_memory_align, new_offset + name.len + 1);
-            std.mem.copy(u8, buf[0..new_offset], strtab.payload.?);
-            std.mem.copy(u8, buf[new_offset .. new_offset + name.len], name);
-            buf[new_offset + name.len] = 0;
-
-            std.debug.assert(update.action == .keep);
-            update.payload = buf;
-
-            break :blk new_offset;
-        };
-
-        const WriteCmd = union(enum) {
-            copy_range: struct { in_offset: u64, len: u64, out_offset: u64 },
-            write_data: struct { data: []const u8, out_offset: u64 },
-        };
-        var cmdbuf = std.ArrayList(WriteCmd).init(allocator);
-        defer cmdbuf.deinit();
-        try cmdbuf.ensureUnusedCapacity(3 + new_shnum);
-        var eof_offset: u64 = 0; // track the end of the data written so far.
-
-        // build the updated headers
-        // nb: updated_elf_header will be updated before the actual write
-        var updated_elf_header = self.raw_elf_header;
-        if (updated_elf_header.e_shstrndx != elf.SHN_UNDEF)
-            updated_elf_header.e_shstrndx = sections_update[updated_elf_header.e_shstrndx].remap_idx;
-        cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = std.mem.asBytes(&updated_elf_header), .out_offset = 0 } });
-        eof_offset = @sizeOf(elf.Elf64_Ehdr);
-
-        // program header as-is.
-        // nb: for only-debug files, removing it appears to work, but is invalid by ELF specifcation.
-        {
-            std.debug.assert(updated_elf_header.e_phoff == @sizeOf(elf.Elf64_Ehdr));
-            const data = std.mem.sliceAsBytes(self.program_segments);
-            std.debug.assert(data.len == @as(usize, updated_elf_header.e_phentsize) * updated_elf_header.e_phnum);
-            cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = data, .out_offset = updated_elf_header.e_phoff } });
-            eof_offset = updated_elf_header.e_phoff + data.len;
-        }
-
-        // update sections and queue payload writes
-        const updated_section_header = blk: {
-            const dest_sections = try allocator.alloc(elf.Elf64_Shdr, new_shnum);
-
-            {
-                // the ELF format doesn't specify the order for all sections.
-                // this code only supports when they are in increasing file order.
-                var offset: u64 = eof_offset;
-                for (self.sections[1..]) |section| {
-                    if (section.section.sh_offset < offset) {
-                        fatal("zig objcopy: unsuported ELF file", .{});
-                    }
-                    offset = section.section.sh_offset;
-                }
-            }
-
-            dest_sections[0] = self.sections[0].section;
-
-            var dest_section_idx: u32 = 1;
-            for (self.sections[1..], sections_update[1..]) |section, update| {
-                if (update.action == .strip) continue;
-                std.debug.assert(update.remap_idx == dest_section_idx);
-
-                const src = &section.section;
-                const dest = &dest_sections[dest_section_idx];
-                dest_section_idx += 1;
-
-                dest.* = src.*;
-
-                if (src.sh_link != elf.SHN_UNDEF)
-                    dest.sh_link = sections_update[src.sh_link].remap_idx;
-                if ((src.sh_flags & elf.SHF_INFO_LINK) != 0 and src.sh_info != elf.SHN_UNDEF)
-                    dest.sh_info = sections_update[src.sh_info].remap_idx;
-
-                const payload = if (update.payload) |data| data else section.payload;
-                if (payload) |data|
-                    dest.sh_size = data.len;
-
-                const addralign = if (src.sh_addralign == 0 or dest.sh_type == elf.SHT_NOBITS) 1 else src.sh_addralign;
-                dest.sh_offset = std.mem.alignForwardGeneric(u64, eof_offset, addralign);
-                if (src.sh_offset != dest.sh_offset and section.segment != null and update.action != .empty and dest.sh_type != elf.SHT_NOTE) {
-                    if (src.sh_offset > dest.sh_offset) {
-                        dest.sh_offset = src.sh_offset; // add padding to avoid modifing the program segments
-                    } else {
-                        fatal("zig objcopy: cannot adjust program segments", .{});
-                    }
-                }
-                std.debug.assert(dest.sh_addr % addralign == dest.sh_offset % addralign);
-
-                if (update.action == .empty)
-                    dest.sh_type = elf.SHT_NOBITS;
-
-                if (dest.sh_type != elf.SHT_NOBITS) {
-                    if (payload) |src_data| {
-                        // update sections payload and write
-                        const data = try allocator.alignedAlloc(u8, section_memory_align, src_data.len);
-                        std.mem.copy(u8, data, src_data);
-
-                        switch (src.sh_type) {
+                    if (section.payload) |data| {
+                        switch (section.section.sh_type) {
                             elf.DT_VERSYM => {
-                                const defs = @ptrCast([*]elf.Elf64_Verdef, data)[0 .. @intCast(usize, src.sh_size) / @sizeOf(elf.Elf64_Verdef)];
-                                for (defs) |*def| {
+                                std.debug.assert(section.section.sh_entsize == @sizeOf(Elf_Verdef));
+                                const defs = @ptrCast([*]const Elf_Verdef, data)[0 .. @intCast(usize, section.section.sh_size) / @sizeOf(Elf_Verdef)];
+                                for (defs) |def| {
                                     if (def.vd_ndx != elf.SHN_UNDEF)
-                                        def.vd_ndx = sections_update[src.sh_info].remap_idx;
+                                        dirty |= Local.propagateUsage(&sections[def.vd_ndx].usage, section.usage);
                                 }
                             },
                             elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
-                                const syms = @ptrCast([*]elf.Elf64_Sym, data)[0 .. @intCast(usize, src.sh_size) / @sizeOf(elf.Elf64_Sym)];
-                                for (syms) |*sym| {
+                                std.debug.assert(section.section.sh_entsize == @sizeOf(Elf_Sym));
+                                const syms = @ptrCast([*]const Elf_Sym, data)[0 .. @intCast(usize, section.section.sh_size) / @sizeOf(Elf_Sym)];
+
+                                for (syms) |sym| {
                                     if (sym.st_shndx != elf.SHN_UNDEF and sym.st_shndx < elf.SHN_LORESERVE)
-                                        sym.st_shndx = sections_update[sym.st_shndx].remap_idx;
+                                        dirty |= Local.propagateUsage(&sections[sym.st_shndx].usage, section.usage);
                                 }
                             },
                             else => {},
                         }
-
-                        std.debug.assert(data.len == dest.sh_size);
-                        cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = data, .out_offset = dest.sh_offset } });
-                        eof_offset = dest.sh_offset + dest.sh_size;
-                    } else {
-                        // direct contents copy
-                        cmdbuf.appendAssumeCapacity(.{ .copy_range = .{ .in_offset = src.sh_offset, .len = dest.sh_size, .out_offset = dest.sh_offset } });
-                        eof_offset = dest.sh_offset + dest.sh_size;
                     }
-                } else {
-                    // account for alignment padding even in empty sections to keep logical section order
-                    eof_offset = dest.sh_offset;
                 }
             }
 
-            // add a ".gnu_debuglink" section
-            if (debuglink) |link| {
-                const payload = payload: {
-                    const crc_offset = std.mem.alignForward(link.name.len + 1, 4);
-                    const buf = try allocator.alignedAlloc(u8, 4, crc_offset + 4);
-                    std.mem.copy(u8, buf[0..link.name.len], link.name);
-                    std.mem.set(u8, buf[link.name.len..crc_offset], 0);
-                    std.mem.copy(u8, buf[crc_offset..], std.mem.asBytes(&link.crc32));
-                    break :payload buf;
-                };
-
-                dest_sections[dest_section_idx] = elf.Elf64_Shdr{
-                    .sh_name = debuglink_name,
-                    .sh_type = elf.SHT_PROGBITS,
-                    .sh_flags = 0,
-                    .sh_addr = 0,
-                    .sh_offset = eof_offset,
-                    .sh_size = payload.len,
-                    .sh_link = elf.SHN_UNDEF,
-                    .sh_info = elf.SHN_UNDEF,
-                    .sh_addralign = 4,
-                    .sh_entsize = 0,
-                };
-                dest_section_idx += 1;
-
-                cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = payload, .out_offset = eof_offset } });
-                eof_offset += payload.len;
-            }
-
-            std.debug.assert(dest_section_idx == new_shnum);
-            break :blk dest_sections;
-        };
-
-        // write the section header at the tail
-        {
-            const offset = std.mem.alignForwardGeneric(u64, eof_offset, @alignOf(elf.Elf64_Shdr));
-
-            const data = std.mem.sliceAsBytes(updated_section_header);
-            std.debug.assert(data.len == @as(usize, updated_elf_header.e_shentsize) * new_shnum);
-            updated_elf_header.e_shoff = offset;
-            updated_elf_header.e_shnum = new_shnum;
-
-            cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = data, .out_offset = updated_elf_header.e_shoff } });
+            return Self{
+                .arena = arena,
+                .raw_elf_header = raw_header,
+                .program_segments = program_segments,
+                .sections = sections,
+            };
         }
 
-        // consolidate holes between writes:
-        //   by coping original padding data from in_file (by fusing contiguous ranges)
-        //   by writing zeroes otherwise
-        const zeroes = [1]u8{0} ** 4096;
-        const consolidated_cmdbuf = blk: {
-            var newbuf = std.ArrayList(WriteCmd).init(allocator);
-            try newbuf.ensureUnusedCapacity(cmdbuf.items.len * 2);
-            var offset: u64 = 0;
-            var fused_cmd: ?WriteCmd = null;
-            for (cmdbuf.items) |cmd| {
-                switch (cmd) {
-                    .write_data => |data| {
-                        std.debug.assert(data.out_offset >= offset);
-                        if (fused_cmd) |prev| {
-                            newbuf.appendAssumeCapacity(prev);
-                            fused_cmd = null;
+        pub fn deinit(self: *Self) void {
+            self.arena.deinit();
+        }
+
+        const DebugLink = struct { name: []const u8, crc32: u32 };
+        const Filter = enum { all, program, debug, program_and_symbols, debug_and_symbols };
+        fn emit(self: *const Self, gpa: Allocator, output: File, source: File, filter: Filter, debuglink: ?DebugLink) !void {
+            var arena = std.heap.ArenaAllocator.init(gpa);
+            defer arena.deinit();
+            const allocator = arena.allocator();
+
+            // when emitting the stripped exe:
+            //   - unused sections are removed
+            // when emitting the debug file:
+            //   - all sections are kept, but some are emptied and their types is changed to SHT_NOBITS
+            // the program header is kept unchanged. (`strip` does update it, but `eu-strip` does not, and it still works)
+
+            const Update = struct {
+                action: enum { keep, strip, empty },
+
+                // remap the indexs after omitting the filtered sections
+                remap_idx: u16,
+
+                // optionally overrides the payload from the source file
+                payload: ?[]align(section_memory_align) const u8,
+            };
+            const sections_update = try allocator.alloc(Update, self.sections.len);
+            const new_shnum = blk: {
+                var next_idx: u16 = 0;
+                for (self.sections, sections_update) |section, *update| {
+                    update.action = action: {
+                        if (section.usage == .none) break :action .strip;
+                        break :action switch (filter) {
+                            .all => switch (section.usage) {
+                                .none => .strip,
+                                else => .keep,
+                            },
+                            .program => switch (section.usage) {
+                                .common, .exe => .keep,
+                                else => .strip,
+                            },
+                            .program_and_symbols => switch (section.usage) {
+                                .common, .exe, .symbols => .keep,
+                                else => .strip,
+                            },
+                            .debug => switch (section.usage) {
+                                .exe, .symbols => .empty,
+                                .none => .strip,
+                                else => .keep,
+                            },
+                            .debug_and_symbols => switch (section.usage) {
+                                .exe => .empty,
+                                .none => .strip,
+                                else => .keep,
+                            },
+                        };
+                    };
+
+                    if (update.action == .strip) {
+                        update.remap_idx = elf.SHN_UNDEF;
+                    } else {
+                        update.remap_idx = next_idx;
+                        next_idx += 1;
+                    }
+
+                    update.payload = null;
+                }
+
+                if (debuglink != null)
+                    next_idx += 1;
+                break :blk next_idx;
+            };
+
+            const debuglink_name: u32 = blk: {
+                if (debuglink == null) break :blk elf.SHN_UNDEF;
+                if (self.raw_elf_header.e_shstrndx == elf.SHN_UNDEF)
+                    fatal("zig objcopy: no strtab, cannot add the debuglink section", .{}); // TODO add the section if needed?
+
+                const strtab = &self.sections[self.raw_elf_header.e_shstrndx];
+                const update = &sections_update[self.raw_elf_header.e_shstrndx];
+
+                const name: []const u8 = ".gnu_debuglink";
+                const new_offset = @intCast(u32, strtab.payload.?.len);
+                const buf = try allocator.alignedAlloc(u8, section_memory_align, new_offset + name.len + 1);
+                std.mem.copy(u8, buf[0..new_offset], strtab.payload.?);
+                std.mem.copy(u8, buf[new_offset .. new_offset + name.len], name);
+                buf[new_offset + name.len] = 0;
+
+                std.debug.assert(update.action == .keep);
+                update.payload = buf;
+
+                break :blk new_offset;
+            };
+
+            const WriteCmd = union(enum) {
+                copy_range: struct { in_offset: u64, len: u64, out_offset: u64 },
+                write_data: struct { data: []const u8, out_offset: u64 },
+            };
+            var cmdbuf = std.ArrayList(WriteCmd).init(allocator);
+            defer cmdbuf.deinit();
+            try cmdbuf.ensureUnusedCapacity(3 + new_shnum);
+            var eof_offset: Elf_OffSize = 0; // track the end of the data written so far.
+
+            // build the updated headers
+            // nb: updated_elf_header will be updated before the actual write
+            var updated_elf_header = self.raw_elf_header;
+            if (updated_elf_header.e_shstrndx != elf.SHN_UNDEF)
+                updated_elf_header.e_shstrndx = sections_update[updated_elf_header.e_shstrndx].remap_idx;
+            cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = std.mem.asBytes(&updated_elf_header), .out_offset = 0 } });
+            eof_offset = @sizeOf(Elf_Ehdr);
+
+            // program header as-is.
+            // nb: for only-debug files, removing it appears to work, but is invalid by ELF specifcation.
+            {
+                std.debug.assert(updated_elf_header.e_phoff == @sizeOf(Elf_Ehdr));
+                const data = std.mem.sliceAsBytes(self.program_segments);
+                std.debug.assert(data.len == @as(usize, updated_elf_header.e_phentsize) * updated_elf_header.e_phnum);
+                cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = data, .out_offset = updated_elf_header.e_phoff } });
+                eof_offset = updated_elf_header.e_phoff + @intCast(Elf_OffSize, data.len);
+            }
+
+            // update sections and queue payload writes
+            const updated_section_header = blk: {
+                const dest_sections = try allocator.alloc(Elf_Shdr, new_shnum);
+
+                {
+                    // the ELF format doesn't specify the order for all sections.
+                    // this code only supports when they are in increasing file order.
+                    var offset: u64 = eof_offset;
+                    for (self.sections[1..]) |section| {
+                        if (section.section.sh_offset < offset) {
+                            fatal("zig objcopy: unsuported ELF file", .{});
                         }
-                        if (data.out_offset > offset) {
-                            newbuf.appendAssumeCapacity(.{ .write_data = .{ .data = zeroes[0 .. @intCast(usize, data.out_offset - offset)], .out_offset = offset } });
+                        offset = section.section.sh_offset;
+                    }
+                }
+
+                dest_sections[0] = self.sections[0].section;
+
+                var dest_section_idx: u32 = 1;
+                for (self.sections[1..], sections_update[1..]) |section, update| {
+                    if (update.action == .strip) continue;
+                    std.debug.assert(update.remap_idx == dest_section_idx);
+
+                    const src = &section.section;
+                    const dest = &dest_sections[dest_section_idx];
+                    dest_section_idx += 1;
+
+                    dest.* = src.*;
+
+                    if (src.sh_link != elf.SHN_UNDEF)
+                        dest.sh_link = sections_update[src.sh_link].remap_idx;
+                    if ((src.sh_flags & elf.SHF_INFO_LINK) != 0 and src.sh_info != elf.SHN_UNDEF)
+                        dest.sh_info = sections_update[src.sh_info].remap_idx;
+
+                    const payload = if (update.payload) |data| data else section.payload;
+                    if (payload) |data|
+                        dest.sh_size = @intCast(Elf_OffSize, data.len);
+
+                    const addralign = if (src.sh_addralign == 0 or dest.sh_type == elf.SHT_NOBITS) 1 else src.sh_addralign;
+                    dest.sh_offset = std.mem.alignForwardGeneric(Elf_OffSize, eof_offset, addralign);
+                    if (src.sh_offset != dest.sh_offset and section.segment != null and update.action != .empty and dest.sh_type != elf.SHT_NOTE) {
+                        if (src.sh_offset > dest.sh_offset) {
+                            dest.sh_offset = src.sh_offset; // add padding to avoid modifing the program segments
+                        } else {
+                            fatal("zig objcopy: cannot adjust program segments", .{});
                         }
-                        newbuf.appendAssumeCapacity(cmd);
-                        offset = data.out_offset + data.data.len;
-                    },
-                    .copy_range => |range| {
-                        std.debug.assert(range.out_offset >= offset);
-                        if (fused_cmd) |prev| {
-                            if (range.in_offset >= prev.copy_range.in_offset + prev.copy_range.len and (range.out_offset - prev.copy_range.out_offset == range.in_offset - prev.copy_range.in_offset)) {
-                                fused_cmd = .{ .copy_range = .{
-                                    .in_offset = prev.copy_range.in_offset,
-                                    .out_offset = prev.copy_range.out_offset,
-                                    .len = (range.out_offset + range.len) - prev.copy_range.out_offset,
-                                } };
-                            } else {
+                    }
+                    std.debug.assert(dest.sh_addr % addralign == dest.sh_offset % addralign);
+
+                    if (update.action == .empty)
+                        dest.sh_type = elf.SHT_NOBITS;
+
+                    if (dest.sh_type != elf.SHT_NOBITS) {
+                        if (payload) |src_data| {
+                            // update sections payload and write
+                            const data = try allocator.alignedAlloc(u8, section_memory_align, src_data.len);
+                            std.mem.copy(u8, data, src_data);
+
+                            switch (src.sh_type) {
+                                elf.DT_VERSYM => {
+                                    const defs = @ptrCast([*]Elf_Verdef, data)[0 .. @intCast(usize, src.sh_size) / @sizeOf(Elf_Verdef)];
+                                    for (defs) |*def| {
+                                        if (def.vd_ndx != elf.SHN_UNDEF)
+                                            def.vd_ndx = sections_update[src.sh_info].remap_idx;
+                                    }
+                                },
+                                elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
+                                    const syms = @ptrCast([*]Elf_Sym, data)[0 .. @intCast(usize, src.sh_size) / @sizeOf(Elf_Sym)];
+                                    for (syms) |*sym| {
+                                        if (sym.st_shndx != elf.SHN_UNDEF and sym.st_shndx < elf.SHN_LORESERVE)
+                                            sym.st_shndx = sections_update[sym.st_shndx].remap_idx;
+                                    }
+                                },
+                                else => {},
+                            }
+
+                            std.debug.assert(data.len == dest.sh_size);
+                            cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = data, .out_offset = dest.sh_offset } });
+                            eof_offset = dest.sh_offset + dest.sh_size;
+                        } else {
+                            // direct contents copy
+                            cmdbuf.appendAssumeCapacity(.{ .copy_range = .{ .in_offset = src.sh_offset, .len = dest.sh_size, .out_offset = dest.sh_offset } });
+                            eof_offset = dest.sh_offset + dest.sh_size;
+                        }
+                    } else {
+                        // account for alignment padding even in empty sections to keep logical section order
+                        eof_offset = dest.sh_offset;
+                    }
+                }
+
+                // add a ".gnu_debuglink" section
+                if (debuglink) |link| {
+                    const payload = payload: {
+                        const crc_offset = std.mem.alignForward(link.name.len + 1, 4);
+                        const buf = try allocator.alignedAlloc(u8, 4, crc_offset + 4);
+                        std.mem.copy(u8, buf[0..link.name.len], link.name);
+                        std.mem.set(u8, buf[link.name.len..crc_offset], 0);
+                        std.mem.copy(u8, buf[crc_offset..], std.mem.asBytes(&link.crc32));
+                        break :payload buf;
+                    };
+
+                    dest_sections[dest_section_idx] = Elf_Shdr{
+                        .sh_name = debuglink_name,
+                        .sh_type = elf.SHT_PROGBITS,
+                        .sh_flags = 0,
+                        .sh_addr = 0,
+                        .sh_offset = eof_offset,
+                        .sh_size = @intCast(Elf_OffSize, payload.len),
+                        .sh_link = elf.SHN_UNDEF,
+                        .sh_info = elf.SHN_UNDEF,
+                        .sh_addralign = 4,
+                        .sh_entsize = 0,
+                    };
+                    dest_section_idx += 1;
+
+                    cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = payload, .out_offset = eof_offset } });
+                    eof_offset += @intCast(Elf_OffSize, payload.len);
+                }
+
+                std.debug.assert(dest_section_idx == new_shnum);
+                break :blk dest_sections;
+            };
+
+            // write the section header at the tail
+            {
+                const offset = std.mem.alignForwardGeneric(Elf_OffSize, eof_offset, @alignOf(Elf_Shdr));
+
+                const data = std.mem.sliceAsBytes(updated_section_header);
+                std.debug.assert(data.len == @as(usize, updated_elf_header.e_shentsize) * new_shnum);
+                updated_elf_header.e_shoff = offset;
+                updated_elf_header.e_shnum = new_shnum;
+
+                cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = data, .out_offset = updated_elf_header.e_shoff } });
+            }
+
+            // consolidate holes between writes:
+            //   by coping original padding data from in_file (by fusing contiguous ranges)
+            //   by writing zeroes otherwise
+            const zeroes = [1]u8{0} ** 4096;
+            const consolidated_cmdbuf = blk: {
+                var newbuf = std.ArrayList(WriteCmd).init(allocator);
+                try newbuf.ensureUnusedCapacity(cmdbuf.items.len * 2);
+                var offset: u64 = 0;
+                var fused_cmd: ?WriteCmd = null;
+                for (cmdbuf.items) |cmd| {
+                    switch (cmd) {
+                        .write_data => |data| {
+                            std.debug.assert(data.out_offset >= offset);
+                            if (fused_cmd) |prev| {
                                 newbuf.appendAssumeCapacity(prev);
-                                if (range.out_offset > offset) {
-                                    newbuf.appendAssumeCapacity(.{ .write_data = .{ .data = zeroes[0 .. @intCast(usize, range.out_offset - offset)], .out_offset = offset } });
+                                fused_cmd = null;
+                            }
+                            if (data.out_offset > offset) {
+                                newbuf.appendAssumeCapacity(.{ .write_data = .{ .data = zeroes[0..@intCast(usize, data.out_offset - offset)], .out_offset = offset } });
+                            }
+                            newbuf.appendAssumeCapacity(cmd);
+                            offset = data.out_offset + data.data.len;
+                        },
+                        .copy_range => |range| {
+                            std.debug.assert(range.out_offset >= offset);
+                            if (fused_cmd) |prev| {
+                                if (range.in_offset >= prev.copy_range.in_offset + prev.copy_range.len and (range.out_offset - prev.copy_range.out_offset == range.in_offset - prev.copy_range.in_offset)) {
+                                    fused_cmd = .{ .copy_range = .{
+                                        .in_offset = prev.copy_range.in_offset,
+                                        .out_offset = prev.copy_range.out_offset,
+                                        .len = (range.out_offset + range.len) - prev.copy_range.out_offset,
+                                    } };
+                                } else {
+                                    newbuf.appendAssumeCapacity(prev);
+                                    if (range.out_offset > offset) {
+                                        newbuf.appendAssumeCapacity(.{ .write_data = .{ .data = zeroes[0..@intCast(usize, range.out_offset - offset)], .out_offset = offset } });
+                                    }
+                                    fused_cmd = cmd;
                                 }
+                            } else {
                                 fused_cmd = cmd;
                             }
-                        } else {
-                            fused_cmd = cmd;
-                        }
-                        offset = range.out_offset + range.len;
+                            offset = range.out_offset + range.len;
+                        },
+                    }
+                }
+                if (fused_cmd) |cmd| {
+                    newbuf.appendAssumeCapacity(cmd);
+                }
+                break :blk newbuf.items;
+            };
+
+            // write the output file
+            for (consolidated_cmdbuf) |cmd| {
+                switch (cmd) {
+                    .write_data => |data| {
+                        var iovec = [_]std.os.iovec_const{.{ .iov_base = data.data.ptr, .iov_len = data.data.len }};
+                        try output.pwritevAll(&iovec, data.out_offset);
+                    },
+                    .copy_range => |range| {
+                        const copied_bytes = try source.copyRangeAll(range.in_offset, output, range.out_offset, range.len);
+                        if (copied_bytes < range.len) return error.TRUNCATED_ELF;
                     },
                 }
             }
-            if (fused_cmd) |cmd| {
-                newbuf.appendAssumeCapacity(cmd);
-            }
-            break :blk newbuf.items;
-        };
-
-        // write the output file
-        for (consolidated_cmdbuf) |cmd| {
-            switch (cmd) {
-                .write_data => |data| {
-                    var iovec = [_]std.os.iovec_const{.{ .iov_base = data.data.ptr, .iov_len = data.data.len }};
-                    try output.pwritevAll(&iovec, data.out_offset);
-                },
-                .copy_range => |range| {
-                    const copied_bytes = try source.copyRangeAll(range.in_offset, output, range.out_offset, range.len);
-                    if (copied_bytes < range.len) return error.TRUNCATED_ELF;
-                },
-            }
         }
-    }
 
-    fn sectionWithinSegment(section: elf.Elf64_Shdr, segment: elf.Elf64_Phdr) bool {
-        const file_size = if (section.sh_type == elf.SHT_NOBITS) 0 else section.sh_size;
-        return segment.p_offset <= section.sh_offset and (segment.p_offset + segment.p_filesz) >= (section.sh_offset + file_size);
-    }
-};
+        fn sectionWithinSegment(section: Elf_Shdr, segment: Elf_Phdr) bool {
+            const file_size = if (section.sh_type == elf.SHT_NOBITS) 0 else section.sh_size;
+            return segment.p_offset <= section.sh_offset and (segment.p_offset + segment.p_filesz) >= (section.sh_offset + file_size);
+        }
+    };
+}
 
 fn computeFileCrc(file: File) !u32 {
     var buf: [8000]u8 = undefined;
