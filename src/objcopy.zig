@@ -21,10 +21,12 @@ pub fn cmdObjCopy(
     var opt_input: ?[]const u8 = null;
     var opt_output: ?[]const u8 = null;
     var opt_extract: ?[]const u8 = null;
+    var opt_add_debuglink: ?[]const u8 = null;
     var only_section: ?[]const u8 = null;
     var pad_to: ?u64 = null;
     var strip_all: bool = false;
-    var strip_only_debug: bool = false;
+    var strip_debug: bool = false;
+    var only_keep_debug: bool = false;
     var listen = false;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
@@ -71,10 +73,19 @@ pub fn cmdObjCopy(
                 fatal("unable to parse: '{s}': {s}", .{ args[i], @errorName(err) });
             };
         } else if (mem.eql(u8, arg, "-g") or mem.eql(u8, arg, "--strip-debug")) {
-            strip_only_debug = true;
+            strip_debug = true;
         } else if (mem.eql(u8, arg, "-S") or mem.eql(u8, arg, "--strip-all")) {
-            strip_only_debug = true;
             strip_all = true;
+        } else if (mem.eql(u8, arg, "--only-keep-debug")) {
+            only_keep_debug = true;
+        } else if (mem.startsWith(u8, arg, "--add-gnu-debuglink=")) {
+            opt_add_debuglink = arg["--add-gnu-debuglink=".len..];
+        } else if (mem.eql(u8, arg, "--add-gnu-debuglink")) {
+            i += 1;
+            if (i >= args.len) fatal("expected another argument after '{s}'", .{arg});
+            opt_add_debuglink = args[i];
+        } else if (mem.startsWith(u8, arg, "--extract-to=")) {
+            opt_extract = arg["--extract-to=".len..];
         } else if (mem.eql(u8, arg, "--extract-to")) {
             i += 1;
             if (i >= args.len) fatal("expected another argument after '{s}'", .{arg});
@@ -114,8 +125,12 @@ pub fn cmdObjCopy(
 
     switch (out_fmt) {
         .hex, .raw => {
-            if (strip_only_debug or strip_all)
+            if (strip_debug or strip_all or only_keep_debug)
                 fatal("zig objcopy: ELF to RAW or HEX copying does not support --strip", .{});
+            if (opt_extract != null)
+                fatal("zig objcopy: ELF to RAW or HEX copying does not support --extract-to", .{});
+            if (opt_extract != null)
+                fatal("zig objcopy: ELF to RAW or HEX copying does not support --extract-to", .{});
             if (opt_extract != null)
                 fatal("zig objcopy: ELF to RAW or HEX copying does not support --extract-to", .{});
 
@@ -136,12 +151,12 @@ pub fn cmdObjCopy(
                 fatal("zig objcopy: ELF to ELF copying does not support --only-section", .{});
             if (pad_to) |_|
                 fatal("zig objcopy: ELF to ELF copying does not support --pad-to", .{});
-            if (!strip_only_debug and !strip_all)
-                fatal("zig objcopy: ELF to ELF copying only supports --strip", .{});
 
             try stripElf(arena, in_file, out_file, elf_hdr, .{
-                .strip_only_debug = strip_only_debug,
+                .strip_debug = strip_debug,
                 .strip_all = strip_all,
+                .only_keep_debug = only_keep_debug,
+                .add_debuglink = opt_add_debuglink,
                 .extract_to = opt_extract,
             });
             return std.process.cleanExit();
@@ -190,15 +205,18 @@ const usage =
     \\Usage: zig objcopy [options] input output
     \\
     \\Options:
-    \\  -h, --help                Print this help and exit
-    \\  --output-target=<value>   Format of the output file
-    \\  -O <value>                Alias for --output-target
-    \\  --only-section=<section>  Remove all but <section>
-    \\  -j <value>                Alias for --only-section
-    \\  --pad-to <addr>           Pad the last section up to address <addr>
-    \\  --strip-debug, -g         Remove all debug sections from the output.¶
-    \\  --strip-all, -S           Remove all debug sections and symbol table from the output.
-    \\  --extract-to <file>       Extract the removed sections into <file>, and add a .gnu-debuglink section
+    \\  -h, --help                  Print this help and exit
+    \\  --output-target=<value>     Format of the output file
+    \\  -O <value>                  Alias for --output-target
+    \\  --only-section=<section>    Remove all but <section>
+    \\  -j <value>                  Alias for --only-section
+    \\  --pad-to <addr>             Pad the last section up to address <addr>
+    \\  --strip-debug, -g           Remove all debug sections from the output.
+    \\  --strip-all, -S             Remove all debug sections and symbol table from the output.
+    \\  --only-keep-debug           Strip a file, removing contents of any sections that would not be stripped by --strip-debug and leaving the debugging sections intact.
+    \\  --add-gnu-debuglink=<file>  Creates a .gnu_debuglink section which contains a reference to <file> and adds it to the output file.
+    \\  --extract-to <file>         Extract the removed sections into <file>, and add a .gnu-debuglink section.
+    \\
 ;
 
 pub const EmitRawElfOptions = struct {
@@ -644,8 +662,10 @@ test "containsValidAddressRange" {
 
 pub const StripElfOptions = struct {
     extract_to: ?[]const u8 = null,
+    add_debuglink: ?[]const u8 = null,
     strip_all: bool = false,
-    strip_only_debug: bool = false,
+    strip_debug: bool = false,
+    only_keep_debug: bool = false,
 };
 
 fn stripElf(
@@ -655,7 +675,12 @@ fn stripElf(
     elf_hdr: elf.Header,
     options: StripElfOptions,
 ) !void {
-    std.debug.assert(options.strip_only_debug or options.strip_all);
+    const filter: ElfContents.Filter = filter: {
+        if (options.only_keep_debug) break :filter .debug;
+        if (options.strip_all) break :filter .program;
+        if (options.strip_debug) break :filter .program_and_symbols;
+        break :filter .all;
+    };
 
     var elf_contents = try ElfContents.parse(allocator, in_file, elf_hdr);
     defer elf_contents.deinit();
@@ -665,23 +690,40 @@ fn stripElf(
             fatal("zig objcopy: unable to create '{s}': {s}", .{ filename, @errorName(err) });
         };
         defer dbg_file.close();
-        try elf_contents.emit(allocator, dbg_file, in_file, if (options.strip_only_debug) .debug else .debug_and_symbols, null);
+
+        const filter_complement: ElfContents.Filter = switch (filter) {
+            .program => .debug_and_symbols,
+            .debug => .program_and_symbols,
+            .program_and_symbols => .debug,
+            .debug_and_symbols => .program,
+            .all => fatal("zig objcopy: nothing to extract", .{}),
+        };
+
+        try elf_contents.emit(allocator, dbg_file, in_file, filter_complement, null);
     }
 
     const debuglink: ?ElfContents.DebugLink = blk: {
-        if (options.extract_to) |filename| {
+        const debuglink_filename = name: {
+            if (options.add_debuglink) |filename| break :name filename;
+            if (options.extract_to) |filename| break :name filename;
+            break :name null;
+        };
+        if (debuglink_filename) |filename| {
             const dbg_file = std.fs.cwd().openFile(filename, .{}) catch |err| {
                 fatal("zig objcopy: could not read `{s}`: {s}\n", .{ filename, @errorName(err) });
             };
             defer dbg_file.close();
 
-            break :blk .{ .name = std.fs.path.basename(filename), .crc32 = try computeFileCrc(dbg_file) };
+            break :blk .{
+                .name = std.fs.path.basename(filename),
+                .crc32 = try computeFileCrc(dbg_file),
+            };
         } else {
             break :blk null;
         }
     };
 
-    try elf_contents.emit(allocator, out_file, in_file, if (options.strip_only_debug) .program_and_symbols else .program, debuglink);
+    try elf_contents.emit(allocator, out_file, in_file, filter, debuglink);
 }
 
 // note: this is "a minimal effort implementation"
@@ -872,7 +914,7 @@ const ElfContents = struct {
     }
 
     const DebugLink = struct { name: []const u8, crc32: u32 };
-    const Filter = enum { program, debug, program_and_symbols, debug_and_symbols };
+    const Filter = enum { all, program, debug, program_and_symbols, debug_and_symbols };
     fn emit(self: *const Self, gpa: Allocator, output: File, source: File, filter: Filter, debuglink: ?DebugLink) !void {
         var arena = std.heap.ArenaAllocator.init(gpa);
         defer arena.deinit();
@@ -900,6 +942,10 @@ const ElfContents = struct {
                 update.action = action: {
                     if (section.usage == .none) break :action .strip;
                     break :action switch (filter) {
+                        .all => switch (section.usage) {
+                            .none => .strip,
+                            else => .keep,
+                        },
                         .program => switch (section.usage) {
                             .common, .exe => .keep,
                             else => .strip,
@@ -910,10 +956,12 @@ const ElfContents = struct {
                         },
                         .debug => switch (section.usage) {
                             .exe, .symbols => .empty,
+                            .none => .strip,
                             else => .keep,
                         },
                         .debug_and_symbols => switch (section.usage) {
                             .exe => .empty,
+                            .none => .strip,
                             else => .keep,
                         },
                     };
@@ -1117,7 +1165,7 @@ const ElfContents = struct {
         }
 
         // write the target files
-        //  TODO: pack together contiguous copies (cmdbuf if ordered by construction)
+        //  TODO: pack together contiguous copies (cmdbuf is ordered, by construction)
         //  TODO: fill the paddings with zero or copy from source file
         for (cmdbuf.items) |cmd| {
             switch (cmd) {
