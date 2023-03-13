@@ -212,17 +212,13 @@ const kems = [_]Crypto{
 pub fn benchmarkKem(comptime Kem: anytype, comptime kems_count: comptime_int) !u64 {
     const key_pair = try Kem.KeyPair.create(null);
 
-    var ct: [Kem.ciphertext_length]u8 = undefined;
-    var ss: [Kem.shared_length]u8 = undefined;
-
     var timer = try Timer.start();
     const start = timer.lap();
     {
         var i: usize = 0;
         while (i < kems_count) : (i += 1) {
-            _ = key_pair.public_key.encaps(&ct, &ss);
-            mem.doNotOptimizeAway(&ct);
-            mem.doNotOptimizeAway(&ss);
+            const e = key_pair.public_key.encaps(null);
+            mem.doNotOptimizeAway(&e);
         }
     }
     const end = timer.read();
@@ -236,16 +232,14 @@ pub fn benchmarkKem(comptime Kem: anytype, comptime kems_count: comptime_int) !u
 pub fn benchmarkKemDecaps(comptime Kem: anytype, comptime kems_count: comptime_int) !u64 {
     const key_pair = try Kem.KeyPair.create(null);
 
-    var ct: [Kem.ciphertext_length]u8 = undefined;
-    var ss: [Kem.shared_length]u8 = undefined;
-    _ = key_pair.public_key.encaps(&ct, &ss);
+    const e = key_pair.public_key.encaps(null);
 
     var timer = try Timer.start();
     const start = timer.lap();
     {
         var i: usize = 0;
         while (i < kems_count) : (i += 1) {
-            const ss2 = key_pair.secret_key.decaps(&ct);
+            const ss2 = try key_pair.secret_key.decaps(&e.ciphertext);
             mem.doNotOptimizeAway(&ss2);
         }
     }
@@ -549,7 +543,7 @@ pub fn main() !void {
 
     inline for (kems) |E| {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
-            const throughput = try benchmarkKemDecaps(E.ty, mode(1000));
+            const throughput = try benchmarkKemDecaps(E.ty, mode(25000));
             try stdout.print("{s:>17}: {:10} decaps/s\n", .{ E.name, throughput });
         }
     }
