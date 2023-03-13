@@ -1656,13 +1656,13 @@ test "NIST KAT test" {
         }
         var f = sha2.Sha256.init(.{});
         const fw = f.writer();
-        var g = NistDRBG.new(seed);
+        var g = NistDRBG.init(seed);
         try std.fmt.format(fw, "# {s}\n\n", .{mode.name});
         for (0..100) |i| {
             g.fill(&seed);
             try std.fmt.format(fw, "count = {}\n", .{i});
             try std.fmt.format(fw, "seed = {s}\n", .{std.fmt.fmtSliceHexUpper(&seed)});
-            var g2 = NistDRBG.new(seed);
+            var g2 = NistDRBG.init(seed);
 
             // This is not equivalent to g2.fill(kseed[:]).  As the reference
             // implementation calls randombytes twice generating the keypair,
@@ -1745,9 +1745,8 @@ const NistDRBG = struct {
         g.update(null);
     }
 
-    // randombyte_init(seed, NULL, 256).
-    fn new(seed: [48]u8) NistDRBG {
-        var ret: NistDRBG = NistDRBG{ .key = .{0} ** 32, .v = .{0} ** 16 };
+    fn init(seed: [48]u8) NistDRBG {
+        var ret: NistDRBG = .{ .key = .{0} ** 32, .v = .{0} ** 16 };
         ret.update(seed);
         return ret;
     }
