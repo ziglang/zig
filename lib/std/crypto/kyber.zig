@@ -767,7 +767,7 @@ const Poly = struct {
 
     fn add(a: Poly, b: Poly) Poly {
         var ret: Poly = undefined;
-        inline for (0..N) |i| {
+        for (0..N) |i| {
             ret.cs[i] = a.cs[i] + b.cs[i];
         }
         return ret;
@@ -775,7 +775,7 @@ const Poly = struct {
 
     fn sub(a: Poly, b: Poly) Poly {
         var ret: Poly = undefined;
-        inline for (0..N) |i| {
+        for (0..N) |i| {
             ret.cs[i] = a.cs[i] - b.cs[i];
         }
         return ret;
@@ -785,7 +785,7 @@ const Poly = struct {
     // coefficient |x| ≤ q.
     fn randAbsLeqQ(rnd: anytype) Poly {
         var ret: Poly = undefined;
-        inline for (0..N) |i| {
+        for (0..N) |i| {
             ret.cs[i] = rnd.random().intRangeAtMost(i16, -Q, Q);
         }
         return ret;
@@ -794,7 +794,7 @@ const Poly = struct {
     // For testing, generates a random normalized polynomial.
     fn randNormalized(rnd: anytype) Poly {
         var ret: Poly = undefined;
-        inline for (0..N) |i| {
+        for (0..N) |i| {
             ret.cs[i] = rnd.random().intRangeLessThan(i16, 0, Q);
         }
         return ret;
