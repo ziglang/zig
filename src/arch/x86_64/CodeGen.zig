@@ -4410,16 +4410,16 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     // Capture the state of register and stack allocation state so that we can revert to it.
     const saved_state = try self.captureState();
 
-    try self.branch_stack.append(.{});
-    errdefer {
-        _ = self.branch_stack.pop();
-    }
+    {
+        try self.branch_stack.append(.{});
+        errdefer _ = self.branch_stack.pop();
 
-    try self.ensureProcessDeathCapacity(liveness_condbr.then_deaths.len);
-    for (liveness_condbr.then_deaths) |operand| {
-        self.processDeath(operand);
+        try self.ensureProcessDeathCapacity(liveness_condbr.then_deaths.len);
+        for (liveness_condbr.then_deaths) |operand| {
+            self.processDeath(operand);
+        }
+        try self.genBody(then_body);
     }
-    try self.genBody(then_body);
 
     // Revert to the previous register and stack allocation state.
 
@@ -4430,16 +4430,16 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     try self.performReloc(reloc);
 
-    try self.branch_stack.append(.{});
-    errdefer {
-        _ = self.branch_stack.pop();
-    }
+    {
+        try self.branch_stack.append(.{});
+        errdefer _ = self.branch_stack.pop();
 
-    try self.ensureProcessDeathCapacity(liveness_condbr.else_deaths.len);
-    for (liveness_condbr.else_deaths) |operand| {
-        self.processDeath(operand);
+        try self.ensureProcessDeathCapacity(liveness_condbr.else_deaths.len);
+        for (liveness_condbr.else_deaths) |operand| {
+            self.processDeath(operand);
+        }
+        try self.genBody(else_body);
     }
-    try self.genBody(else_body);
 
     var else_branch = self.branch_stack.pop();
     defer else_branch.deinit(self.gpa);
@@ -4850,17 +4850,17 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         // Capture the state of register and stack allocation state so that we can revert to it.
         const saved_state = try self.captureState();
 
-        try self.branch_stack.append(.{});
-        errdefer {
-            _ = self.branch_stack.pop();
-        }
+        {
+            try self.branch_stack.append(.{});
+            errdefer _ = self.branch_stack.pop();
 
-        try self.ensureProcessDeathCapacity(liveness.deaths[case_i].len);
-        for (liveness.deaths[case_i]) |operand| {
-            self.processDeath(operand);
-        }
+            try self.ensureProcessDeathCapacity(liveness.deaths[case_i].len);
+            for (liveness.deaths[case_i]) |operand| {
+                self.processDeath(operand);
+            }
 
-        try self.genBody(case_body);
+            try self.genBody(case_body);
+        }
 
         branch_stack.appendAssumeCapacity(self.branch_stack.pop());
 
@@ -4878,18 +4878,18 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         // Capture the state of register and stack allocation state so that we can revert to it.
         const saved_state = try self.captureState();
 
-        try self.branch_stack.append(.{});
-        errdefer {
-            _ = self.branch_stack.pop();
-        }
+        {
+            try self.branch_stack.append(.{});
+            errdefer _ = self.branch_stack.pop();
 
-        const else_deaths = liveness.deaths.len - 1;
-        try self.ensureProcessDeathCapacity(liveness.deaths[else_deaths].len);
-        for (liveness.deaths[else_deaths]) |operand| {
-            self.processDeath(operand);
-        }
+            const else_deaths = liveness.deaths.len - 1;
+            try self.ensureProcessDeathCapacity(liveness.deaths[else_deaths].len);
+            for (liveness.deaths[else_deaths]) |operand| {
+                self.processDeath(operand);
+            }
 
-        try self.genBody(else_body);
+            try self.genBody(else_body);
+        }
 
         branch_stack.appendAssumeCapacity(self.branch_stack.pop());
 
