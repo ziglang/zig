@@ -196,7 +196,7 @@ fn Kyber(comptime p: Params) type {
             // Cached
             hpk: [h_length]u8, // H(pk)
 
-            pub const packet_length: usize = InnerPk.packed_length;
+            pub const packed_length: usize = InnerPk.packed_length;
 
             /// Generates a shared secret, written to ss, and encapsulates
             /// it for public key, written to ct.
@@ -241,11 +241,11 @@ fn Kyber(comptime p: Params) type {
                 kdf.squeeze(ss);
             }
 
-            pub fn pack(pk: PublicKey) [packet_length]u8 {
+            pub fn pack(pk: PublicKey) [packed_length]u8 {
                 return pk.pk.pack();
             }
 
-            pub fn unpack(buf: *const [packet_length]u8) PublicKey {
+            pub fn unpack(buf: *const [packed_length]u8) PublicKey {
                 var ret: PublicKey = undefined;
                 ret.pk = InnerPk.unpack(buf[0..InnerPk.packed_length]);
 
@@ -1001,7 +1001,7 @@ const Poly = struct {
     fn compress(p: Poly, comptime d: u8) [compressedSize(d)]u8 {
         @setEvalBranchQuota(10000);
         const q_over_2: u32 = comptime @divTrunc(Q, 2); // (q-1)/2
-        const two_dm_1: u32 = comptime (1 << d) - 1; // 2ᵈ-1
+        const two_d_min_1: u32 = comptime (1 << d) - 1; // 2ᵈ-1
         var in_off: usize = 0;
         var out_off: usize = 0;
 
@@ -1023,7 +1023,7 @@ const Poly = struct {
                 //                  = ⌊((x << d) + q/2) / q⌋ mod⁺ 2ᵈ
                 //                  = DIV((x << d) + q/2, q) & ((1<<d) - 1)
                 const t = @intCast(u32, p.cs[in_off + i]) << d;
-                in[i] = @intCast(u16, @divFloor(t + q_over_2, Q) & two_dm_1);
+                in[i] = @intCast(u16, @divFloor(t + q_over_2, Q) & two_d_min_1);
             }
 
             // Now we pack the d-bit integers from `in' into out as bytes.
