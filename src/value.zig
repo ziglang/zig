@@ -1373,7 +1373,7 @@ pub const Value = extern union {
                 if (opt_val) |some| {
                     return some.writeToMemory(child, mod, buffer);
                 } else {
-                    unreachable;
+                    return writeToMemory(Value.zero, Type.usize, mod, buffer);
                 }
             },
             else => @panic("TODO implement writeToMemory for more types"),
@@ -1490,7 +1490,7 @@ pub const Value = extern union {
                 if (opt_val) |some| {
                     return some.writeToPackedMemory(child, mod, buffer, bit_offset);
                 } else {
-                    unreachable;
+                    return writeToPackedMemory(Value.zero, Type.usize, mod, buffer, bit_offset);
                 }
             },
             else => @panic("TODO implement writeToPackedMemory for more types"),
