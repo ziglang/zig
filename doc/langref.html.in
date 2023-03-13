@@ -9804,8 +9804,8 @@ pub fn main() !void {
       {#header_close#}
       {#header_open|Builtin Overflow Functions#}
       <p>
-      These builtins return a {#link|Tuples#} containing wether there was an overflow
-      (as a {#syntax#}u1{#endsyntax#}) and the overflowed bits of the operation:
+      These builtins return a tuple containing whether there was an overflow
+      (as a {#syntax#}u1{#endsyntax#}) and the possibly overflowed bits of the operation:
       </p>
       <ul>
           <li>{#link|@addWithOverflow#}</li>
