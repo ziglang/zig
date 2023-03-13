@@ -16,15 +16,27 @@ fragment: ?[]const u8,
 
 /// Applies URI encoding and replaces all reserved characters with their respective %XX code.
 pub fn escapeString(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]const u8 {
+    return escapeStringWithFn(allocator, input, isUnreserved);
+}
+
+pub fn escapePath(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]const u8 {
+    return escapeStringWithFn(allocator, input, isPathChar);
+}
+
+pub fn escapeQuery(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]const u8 {
+    return escapeStringWithFn(allocator, input, isQueryChar);
+}
+
+pub fn escapeStringWithFn(allocator: std.mem.Allocator, input: []const u8, comptime keepUnescaped: fn (c: u8) bool) std.mem.Allocator.Error![]const u8 {
     var outsize: usize = 0;
     for (input) |c| {
-        outsize += if (isUnreserved(c)) @as(usize, 1) else 3;
+        outsize += if (keepUnescaped(c)) @as(usize, 1) else 3;
     }
     var output = try allocator.alloc(u8, outsize);
     var outptr: usize = 0;
 
     for (input) |c| {
-        if (isUnreserved(c)) {
+        if (keepUnescaped(c)) {
             output[outptr] = c;
             outptr += 1;
         } else {
@@ -94,13 +106,14 @@ pub fn unescapeString(allocator: std.mem.Allocator, input: []const u8) error{Out
 
 pub const ParseError = error{ UnexpectedCharacter, InvalidFormat, InvalidPort };
 
-/// Parses the URI or returns an error.
+/// Parses the URI or returns an error. This function is not compliant, but is required to parse
+/// some forms of URIs in the wild. Such as HTTP Location headers.
 /// The return value will contain unescaped strings pointing into the
 /// original `text`. Each component that is provided, will be non-`null`.
-pub fn parse(text: []const u8) ParseError!Uri {
+pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
     var reader = SliceReader{ .slice = text };
     var uri = Uri{
-        .scheme = reader.readWhile(isSchemeChar),
+        .scheme = "",
         .user = null,
         .password = null,
         .host = null,
@@ -109,14 +122,6 @@ pub fn parse(text: []const u8) ParseError!Uri {
         .query = null,
         .fragment = null,
     };
-
-    // after the scheme, a ':' must appear
-    if (reader.get()) |c| {
-        if (c != ':')
-            return error.UnexpectedCharacter;
-    } else {
-        return error.InvalidFormat;
-    }
 
     if (reader.peekPrefix("//")) { // authority part
         std.debug.assert(reader.get().? == '/');
@@ -177,6 +182,76 @@ pub fn parse(text: []const u8) ParseError!Uri {
     }
 
     return uri;
+}
+
+/// Parses the URI or returns an error.
+/// The return value will contain unescaped strings pointing into the
+/// original `text`. Each component that is provided, will be non-`null`.
+pub fn parse(text: []const u8) ParseError!Uri {
+    var reader = SliceReader{ .slice = text };
+    const scheme = reader.readWhile(isSchemeChar);
+
+    // after the scheme, a ':' must appear
+    if (reader.get()) |c| {
+        if (c != ':')
+            return error.UnexpectedCharacter;
+    } else {
+        return error.InvalidFormat;
+    }
+
+    var uri = try parseWithoutScheme(reader.readUntilEof());
+    uri.scheme = scheme;
+
+    return uri;
+}
+
+/// Resolves a URI against a base URI, conforming to RFC 3986, Section 5.
+/// arena owns any memory allocated by this function.
+pub fn resolve(Base: Uri, R: Uri, strict: bool, arena: std.mem.Allocator) !Uri {
+    var T: Uri = undefined;
+
+    if (R.scheme.len > 0 and !((!strict) and (std.mem.eql(u8, R.scheme, Base.scheme)))) {
+        T.scheme = R.scheme;
+        T.user = R.user;
+        T.host = R.host;
+        T.port = R.port;
+        T.path = try std.fs.path.resolvePosix(arena, &.{ "/", R.path });
+        T.query = R.query;
+    } else {
+        if (R.host) |host| {
+            T.user = R.user;
+            T.host = host;
+            T.port = R.port;
+            T.path = R.path;
+            T.path = try std.fs.path.resolvePosix(arena, &.{ "/", R.path });
+            T.query = R.query;
+        } else {
+            if (R.path.len == 0) {
+                T.path = Base.path;
+                if (R.query) |query| {
+                    T.query = query;
+                } else {
+                    T.query = Base.query;
+                }
+            } else {
+                if (R.path[0] == '/') {
+                    T.path = try std.fs.path.resolvePosix(arena, &.{ "/", R.path });
+                } else {
+                    T.path = try std.fs.path.resolvePosix(arena, &.{ "/", Base.path, R.path });
+                }
+                T.query = R.query;
+            }
+
+            T.user = Base.user;
+            T.host = Base.host;
+            T.port = Base.port;
+        }
+        T.scheme = Base.scheme;
+    }
+
+    T.fragment = R.fragment;
+
+    return T;
 }
 
 const SliceReader = struct {
@@ -282,6 +357,14 @@ fn isPathSeparator(c: u8) bool {
         '?', '#' => true,
         else => false,
     };
+}
+
+fn isPathChar(c: u8) bool {
+    return isUnreserved(c) or isSubLimit(c) or c == '/' or c == ':' or c == '@';
+}
+
+fn isQueryChar(c: u8) bool {
+    return isPathChar(c) or c == '?';
 }
 
 fn isQuerySeparator(c: u8) bool {

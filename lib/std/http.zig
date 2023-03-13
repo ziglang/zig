@@ -248,9 +248,24 @@ pub const Status = enum(u10) {
 
 pub const TransferEncoding = enum {
     chunked,
+    // compression is intentionally omitted here, as std.http.Client stores it as content-encoding
+};
+
+pub const ContentEncoding = enum {
     compress,
     deflate,
     gzip,
+    zstd,
+};
+
+pub const Connection = enum {
+    keep_alive,
+    close,
+};
+
+pub const CustomHeader = struct {
+    name: []const u8,
+    value: []const u8,
 };
 
 const std = @import("std.zig");

@@ -185,6 +185,11 @@ pub const options = struct {
         options_override.keep_sigpipe
     else
         false;
+
+    pub const http_connection_pool_size = if (@hasDecl(options_override, "http_connection_pool_size"))
+        options_override.http_connection_pool_size
+    else
+        http.Client.default_connection_pool_size;
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that

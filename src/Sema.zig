@@ -18373,7 +18373,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
     const union_val = val.cast(Value.Payload.Union).?.data;
     const target = mod.getTarget();
     const tag_index = type_info_ty.unionTagFieldIndex(union_val.tag, mod).?;
-    if (union_val.val.anyUndef()) return sema.failWithUseOfUndef(block, src);
+    if (union_val.val.anyUndef(mod)) return sema.failWithUseOfUndef(block, src);
     switch (@intToEnum(std.builtin.TypeId, tag_index)) {
         .Type => return Air.Inst.Ref.type_type,
         .Void => return Air.Inst.Ref.void_type,
@@ -22287,7 +22287,6 @@ fn zirBuiltinExtern(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-    const src = LazySrcLoc.nodeOffset(extra.node);
     const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
 
@@ -22315,39 +22314,41 @@ fn zirBuiltinExtern(
     const new_decl = sema.mod.declPtr(new_decl_index);
     new_decl.name = try sema.gpa.dupeZ(u8, options.name);
 
-    var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
-    errdefer new_decl_arena.deinit();
-    const new_decl_arena_allocator = new_decl_arena.allocator();
+    {
+        var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
+        errdefer new_decl_arena.deinit();
+        const new_decl_arena_allocator = new_decl_arena.allocator();
 
-    const new_var = try new_decl_arena_allocator.create(Module.Var);
-    errdefer new_decl_arena_allocator.destroy(new_var);
+        const new_var = try new_decl_arena_allocator.create(Module.Var);
+        new_var.* = .{
+            .owner_decl = sema.owner_decl_index,
+            .init = Value.initTag(.unreachable_value),
+            .is_extern = true,
+            .is_mutable = false,
+            .is_threadlocal = options.is_thread_local,
+            .is_weak_linkage = options.linkage == .Weak,
+            .lib_name = null,
+        };
 
-    new_var.* = .{
-        .owner_decl = sema.owner_decl_index,
-        .init = Value.initTag(.unreachable_value),
-        .is_extern = true,
-        .is_mutable = false,
-        .is_threadlocal = options.is_thread_local,
-        .is_weak_linkage = options.linkage == .Weak,
-        .lib_name = null,
-    };
+        new_decl.src_line = sema.owner_decl.src_line;
+        // We only access this decl through the decl_ref with the correct type created
+        // below, so this type doesn't matter
+        new_decl.ty = Type.Tag.init(.anyopaque);
+        new_decl.val = try Value.Tag.variable.create(new_decl_arena_allocator, new_var);
+        new_decl.@"align" = 0;
+        new_decl.@"linksection" = null;
+        new_decl.has_tv = true;
+        new_decl.analysis = .complete;
+        new_decl.generation = sema.mod.generation;
 
-    new_decl.src_line = sema.owner_decl.src_line;
-    new_decl.ty = try ty.copy(new_decl_arena_allocator);
-    new_decl.val = try Value.Tag.variable.create(new_decl_arena_allocator, new_var);
-    new_decl.@"align" = 0;
-    new_decl.@"linksection" = null;
-    new_decl.has_tv = true;
-    new_decl.analysis = .complete;
-    new_decl.generation = sema.mod.generation;
+        try new_decl.finalizeNewArena(&new_decl_arena);
+    }
 
-    const arena_state = try new_decl_arena_allocator.create(std.heap.ArenaAllocator.State);
-    arena_state.* = new_decl_arena.state;
-    new_decl.value_arena = arena_state;
+    try sema.mod.declareDeclDependency(sema.owner_decl_index, new_decl_index);
+    try sema.ensureDeclAnalyzed(new_decl_index);
 
-    const ref = try sema.analyzeDeclRef(new_decl_index);
-    try sema.requireRuntimeBlock(block, src, null);
-    return block.addBitCast(ty, ref);
+    const ref = try Value.Tag.decl_ref.create(sema.arena, new_decl_index);
+    return sema.addConstant(ty, ref);
 }
 
 fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src: ?LazySrcLoc) !void {
@@ -23605,10 +23606,13 @@ fn fieldCallBind(
     }
 
     // If we get here, we need to look for a decl in the struct type instead.
-    switch (concrete_ty.zigTypeTag()) {
-        .Struct, .Opaque, .Union, .Enum => {
+    const found_decl = switch (concrete_ty.zigTypeTag()) {
+        .Struct, .Opaque, .Union, .Enum => found_decl: {
             if (concrete_ty.getNamespace()) |namespace| {
-                if (try sema.namespaceLookupRef(block, src, namespace, field_name)) |inst| {
+                if (try sema.namespaceLookup(block, src, namespace, field_name)) |decl_idx| {
+                    try sema.addReferencedBy(block, src, decl_idx);
+                    const inst = try sema.analyzeDeclRef(decl_idx);
+
                     const decl_val = try sema.analyzeLoad(block, src, inst, src);
                     const decl_type = sema.typeOf(decl_val);
                     if (decl_type.zigTypeTag() == .Fn and
@@ -23625,7 +23629,7 @@ fn fieldCallBind(
                                 first_param_type.ptrSize() == .C) and
                                 first_param_type.childType().eql(concrete_ty, sema.mod)))
                         {
-                            // zig fmt: on
+                        // zig fmt: on
                             // TODO: bound fn calls on rvalues should probably
                             // generate a by-value argument somehow.
                             const ty = Type.Tag.bound_fn.init();
@@ -23664,16 +23668,22 @@ fn fieldCallBind(
                             return sema.addConstant(ty, value);
                         }
                     }
+                    break :found_decl decl_idx;
                 }
             }
+            break :found_decl null;
         },
-        else => {},
-    }
+        else => null,
+    };
 
     const msg = msg: {
         const msg = try sema.errMsg(block, src, "no field or member function named '{s}' in '{}'", .{ field_name, concrete_ty.fmt(sema.mod) });
         errdefer msg.destroy(sema.gpa);
         try sema.addDeclaredHereNote(msg, concrete_ty);
+        if (found_decl) |decl_idx| {
+            const decl = sema.mod.declPtr(decl_idx);
+            try sema.mod.errNoteNonLazy(decl.srcLoc(), msg, "'{s}' is not a member function", .{field_name});
+        }
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(msg);

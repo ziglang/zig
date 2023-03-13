@@ -3569,20 +3569,25 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     // If another process is already working on this file, we will get the cached
     // version. Likewise if we're working on AstGen and another process asks for
     // the cached file, they'll get it.
-    const cache_file = zir_dir.createFile(&digest, .{
-        .read = true,
-        .truncate = false,
-        .lock = lock,
-    }) catch |err| switch (err) {
-        error.NotDir => unreachable, // no dir components
-        error.InvalidUtf8 => unreachable, // it's a hex encoded name
-        error.BadPathName => unreachable, // it's a hex encoded name
-        error.NameTooLong => unreachable, // it's a fixed size name
-        error.PipeBusy => unreachable, // it's not a pipe
-        error.WouldBlock => unreachable, // not asking for non-blocking I/O
-        error.FileNotFound => unreachable, // no dir components
+    const cache_file = while (true) {
+        break zir_dir.createFile(&digest, .{
+            .read = true,
+            .truncate = false,
+            .lock = lock,
+        }) catch |err| switch (err) {
+            error.NotDir => unreachable, // no dir components
+            error.InvalidUtf8 => unreachable, // it's a hex encoded name
+            error.BadPathName => unreachable, // it's a hex encoded name
+            error.NameTooLong => unreachable, // it's a fixed size name
+            error.PipeBusy => unreachable, // it's not a pipe
+            error.WouldBlock => unreachable, // not asking for non-blocking I/O
+            // There are no dir components, so you would think that this was
+            // unreachable, however we have observed on macOS two processes racing
+            // to do openat() with O_CREAT manifest in ENOENT.
+            error.FileNotFound => continue,
 
-        else => |e| return e, // Retryable errors are handled at callsite.
+            else => |e| return e, // Retryable errors are handled at callsite.
+        };
     };
     defer cache_file.close();
 
