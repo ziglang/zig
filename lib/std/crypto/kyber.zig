@@ -200,7 +200,7 @@ fn Kyber(comptime p: Params) type {
             hpk: [h_length]u8, // H(pk)
 
             /// Size of a serialized representation of the key, in bytes.
-            pub const compressed_length: usize = InnerPk.compressed_length;
+            pub const compressed_length = InnerPk.compressed_length;
 
             /// Generates a shared secret, and encapsulates it for the public key.
             /// If `seed` is `null`, a random seed is used. This is recommended.
@@ -367,7 +367,7 @@ fn Kyber(comptime p: Params) type {
             // Cached values
             aT: M,
 
-            const compressed_length: usize = V.compressed_length + 32;
+            const compressed_length = V.compressed_length + 32;
 
             fn encrypt(
                 pk: InnerPk,
@@ -558,7 +558,7 @@ test "invNTTReductions bounds" {
         }
 
         while (true) {
-            const j: i16 = inv_ntt_reductions[r];
+            const j = inv_ntt_reductions[r];
             r += 1;
             if (j < 0) {
                 break;
@@ -599,7 +599,7 @@ fn invertMod(a: anytype, p: @TypeOf(a)) @TypeOf(a) {
 
 // Reduce mod q for testing.
 fn modQ32(x: i32) i16 {
-    var y: i16 = @intCast(i16, @rem(x, @as(i32, Q)));
+    var y = @intCast(i16, @rem(x, @as(i32, Q)));
     if (y < 0) {
         y += Q;
     }
@@ -622,7 +622,7 @@ fn montReduce(x: i32) i16 {
     // Note that x q' might be as big as 2³² and could overflow the int32
     // multiplication in the last line.  However for any int32s a and b,
     // we have int32(int64(a)*int64(b)) = int32(a*b) and so the result is ok.
-    const m: i16 = @truncate(i16, @truncate(i32, x *% qInv));
+    const m = @truncate(i16, @truncate(i32, x *% qInv));
 
     // Note that x - m q is divisable by R; indeed modulo R we have
     //
@@ -642,9 +642,9 @@ fn montReduce(x: i32) i16 {
 test "Test montReduce" {
     var rnd = RndGen.init(0);
     for (0..1000) |_| {
-        const bound: i32 = comptime @as(i32, Q) * (1 << 15);
-        const x: i32 = rnd.random().intRangeLessThan(i32, -bound, bound);
-        const y: i16 = montReduce(x);
+        const bound = comptime @as(i32, Q) * (1 << 15);
+        const x = rnd.random().intRangeLessThan(i32, -bound, bound);
+        const y = montReduce(x);
         try testing.expect(-Q < y and y < Q);
         try testing.expectEqual(modQ32(x), modQ32(@as(i32, y) * R));
     }
@@ -660,7 +660,7 @@ fn feToMont(x: i16) i16 {
 test "Test feToMont" {
     var x: i32 = -(1 << 15);
     while (x < 1 << 15) : (x += 1) {
-        const y: i16 = feToMont(@intCast(i16, x));
+        const y = feToMont(@intCast(i16, x));
         try testing.expectEqual(modQ32(@as(i32, y)), modQ32(x * r_mod_q));
     }
 }
@@ -693,8 +693,8 @@ fn feBarrettReduce(x: i16) i16 {
 test "Test Barrett reduction" {
     var x: i32 = -(1 << 15);
     while (x < 1 << 15) : (x += 1) {
-        var y1: i16 = feBarrettReduce(@intCast(i16, x));
-        const y2: i16 = @mod(@intCast(i16, x), Q);
+        var y1 = feBarrettReduce(@intCast(i16, x));
+        const y2 = @mod(@intCast(i16, x), Q);
         if (x < 0 and @rem(-x, Q) == 0) {
             y1 -= Q;
         }
@@ -713,8 +713,8 @@ fn csubq(x: i16) i16 {
 test "Test csubq" {
     var x: i32 = -29439;
     while (x < 1 << 15) : (x += 1) {
-        const y1: i16 = csubq(@intCast(i16, x));
-        var y2: i16 = @intCast(i16, x);
+        const y1 = csubq(@intCast(i16, x));
+        var y2 = @intCast(i16, x);
         if (@intCast(i16, x) >= Q) {
             y2 -= Q;
         }
@@ -1015,10 +1015,10 @@ const Poly = struct {
             inline while (i < in_batch_size) : (j += 1) {
                 comptime var todo: usize = 8;
                 inline while (todo > 0) {
-                    const out_shift: usize = comptime 8 - todo;
+                    const out_shift = comptime 8 - todo;
                     out[out_off + j] |= @truncate(u8, (in[i] >> in_shift) << out_shift);
 
-                    const done: usize = comptime @min(@min(d, todo), d - in_shift);
+                    const done = comptime @min(@min(d, todo), d - in_shift);
                     todo -= done;
                     in_shift += done;
 
@@ -1039,7 +1039,7 @@ const Poly = struct {
     // Set p to Decompress_q(m, d).
     fn decompress(comptime d: u8, in: *const [compressedSize(d)]u8) Poly {
         @setEvalBranchQuota(10000);
-        const inLen: usize = comptime @divTrunc(N * d, 8);
+        const inLen = comptime @divTrunc(N * d, 8);
         comptime assert(inLen * 8 == d * N);
         var ret: Poly = undefined;
         var in_off: usize = 0;
@@ -1055,15 +1055,15 @@ const Poly = struct {
             comptime var i: usize = 0;
             inline while (i < out_batch_size) : (i += 1) {
                 // First, unpack next coefficient.
-                comptime var todo: usize = d;
+                comptime var todo = d;
                 var out: u16 = 0;
 
                 inline while (todo > 0) {
-                    const out_shift: usize = comptime d - todo;
+                    const out_shift = comptime d - todo;
                     const m = comptime (1 << d) - 1;
                     out |= (@as(u16, in[in_off + j] >> in_shift) << out_shift) & m;
 
-                    const done: usize = comptime @min(@min(8, todo), 8 - in_shift);
+                    const done = comptime @min(@min(8, todo), 8 - in_shift);
                     todo -= done;
                     in_shift += done;
 
