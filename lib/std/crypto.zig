@@ -1,3 +1,5 @@
+const root = @import("root");
+
 /// Authenticated Encryption with Associated Data
 pub const aead = struct {
     pub const aegis = struct {
@@ -187,6 +189,31 @@ pub const errors = @import("crypto/errors.zig");
 
 pub const tls = @import("crypto/tls.zig");
 pub const Certificate = @import("crypto/Certificate.zig");
+
+/// Global configuration of cryptographic implementations in the standard library.
+pub const config = struct {
+    /// Side-channels mitigations.
+    pub const SideChannelsMitigations = enum {
+        /// No additional side-channel mitigations are applied.
+        /// This is the fastest mode.
+        none,
+        /// The `basic` mode protects against most practical attacks, provided that the
+        /// application or implements proper defenses against brute-force attacks.
+        /// It offers a good balance between performance and security.
+        basic,
+        /// The `medium` mode offers increased resilience against side-channel attacks,
+        /// making most attacks unpractical even on shared/low latency environements.
+        /// This is the default mode.
+        medium,
+        /// The `full` mode offers the highest level of protection against side-channel attacks.
+        /// Note that this doesn't cover all possible attacks (especially power analysis or
+        /// thread-local attacks such as cachebleed), and that the performance impact is significant.
+        full,
+    };
+
+    /// This is a global configuration that applies to all cryptographic implementations.
+    pub const side_channels_mitigations: SideChannelsMitigations = if (@hasDecl(root, "side_channels_mitigations")) root.side_channels_mitigations else .medium;
+};
 
 test {
     _ = aead.aegis.Aegis128L;
