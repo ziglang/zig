@@ -1430,13 +1430,13 @@ fn Mat(comptime K: u8) type {
 }
 
 // Returns `true` if a ≠ b.
-fn ctneq(comptime len: usize, a: [len]u8, b: [len]u8) bool {
-    return !crypto.utils.timingSafeEql([len]u8, a, b);
+fn ctneq(comptime len: usize, a: [len]u8, b: [len]u8) u1 {
+    return 1 - @boolToInt(crypto.utils.timingSafeEql([len]u8, a, b));
 }
 
 // Copy src into dst given b = 1.
-fn cmov(comptime len: usize, dst: *[len]u8, src: [len]u8, b: bool) void {
-    const mask = @as(u8, 0) -% @boolToInt(b);
+fn cmov(comptime len: usize, dst: *[len]u8, src: [len]u8, b: u1) void {
+    const mask = @as(u8, 0) -% b;
     for (0..len) |i| {
         dst[i] ^= mask & (dst[i] ^ src[i]);
     }
