@@ -270,6 +270,7 @@ fn checkLegacyIndirectFunctionTable(object: *Object) !?Symbol {
         .name = table_import.name,
         .tag = .table,
         .index = 0,
+        .virtual_address = undefined,
     };
     table_symbol.setFlag(.WASM_SYM_UNDEFINED);
     table_symbol.setFlag(.WASM_SYM_NO_STRIP);
@@ -758,6 +759,7 @@ fn Parser(comptime ReaderType: type) type {
                 .tag = tag,
                 .name = undefined,
                 .index = undefined,
+                .virtual_address = undefined,
             };
 
             switch (tag) {

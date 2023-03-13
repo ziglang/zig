@@ -141,11 +141,21 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return cloned;
         }
 
-        /// Insert `item` at index `n` by moving `list[n .. list.len]` to make room.
+        /// Insert `item` at index `n`. Moves `list[n .. list.len]` to higher indices to make room.
+        /// If `n` is equal to the length of the list this operation is equivalent to append.
         /// This operation is O(N).
         /// Invalidates pointers if additional memory is needed.
         pub fn insert(self: *Self, n: usize, item: T) Allocator.Error!void {
             try self.ensureUnusedCapacity(1);
+            self.insertAssumeCapacity(n, item);
+        }
+
+        /// Insert `item` at index `n`. Moves `list[n .. list.len]` to higher indices to make room.
+        /// If `n` is equal to the length of the list this operation is equivalent to append.
+        /// This operation is O(N).
+        /// Asserts that there is enough capacity for the new item.
+        pub fn insertAssumeCapacity(self: *Self, n: usize, item: T) void {
+            assert(self.items.len < self.capacity);
             self.items.len += 1;
 
             mem.copyBackwards(T, self.items[n + 1 .. self.items.len], self.items[n .. self.items.len - 1]);
@@ -609,12 +619,21 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return cloned;
         }
 
-        /// Insert `item` at index `n`. Moves `list[n .. list.len]`
-        /// to higher indices to make room.
+        /// Insert `item` at index `n`. Moves `list[n .. list.len]` to higher indices to make room.
+        /// If `n` is equal to the length of the list this operation is equivalent to append.
         /// This operation is O(N).
         /// Invalidates pointers if additional memory is needed.
         pub fn insert(self: *Self, allocator: Allocator, n: usize, item: T) Allocator.Error!void {
             try self.ensureUnusedCapacity(allocator, 1);
+            self.insertAssumeCapacity(n, item);
+        }
+
+        /// Insert `item` at index `n`. Moves `list[n .. list.len]` to higher indices to make room.
+        /// If `n` is equal to the length of the list this operation is equivalent to append.
+        /// This operation is O(N).
+        /// Asserts that there is enough capacity for the new item.
+        pub fn insertAssumeCapacity(self: *Self, n: usize, item: T) void {
+            assert(self.items.len < self.capacity);
             self.items.len += 1;
 
             mem.copyBackwards(T, self.items[n + 1 .. self.items.len], self.items[n .. self.items.len - 1]);
@@ -1309,9 +1328,9 @@ test "std.ArrayList/ArrayListUnmanaged.insert" {
         var list = ArrayList(i32).init(a);
         defer list.deinit();
 
-        try list.append(1);
+        try list.insert(0, 1);
         try list.append(2);
-        try list.append(3);
+        try list.insert(2, 3);
         try list.insert(0, 5);
         try testing.expect(list.items[0] == 5);
         try testing.expect(list.items[1] == 1);
@@ -1322,9 +1341,9 @@ test "std.ArrayList/ArrayListUnmanaged.insert" {
         var list = ArrayListUnmanaged(i32){};
         defer list.deinit(a);
 
-        try list.append(a, 1);
+        try list.insert(a, 0, 1);
         try list.append(a, 2);
-        try list.append(a, 3);
+        try list.insert(a, 2, 3);
         try list.insert(a, 0, 5);
         try testing.expect(list.items[0] == 5);
         try testing.expect(list.items[1] == 1);

@@ -3948,4 +3948,12 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
             \\}
         });
     }
+
+    cases.add("extern array of unknown length",
+        \\extern int foo[];
+    , &[_][]const u8{
+        \\const foo: [*c]c_int = @extern([*c]c_int, .{
+        \\    .name = "foo",
+        \\});
+    });
 }
