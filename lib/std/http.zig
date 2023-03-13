@@ -1,4 +1,6 @@
 pub const Client = @import("http/Client.zig");
+pub const Server = @import("http/Server.zig");
+pub const protocol = @import("http/protocol.zig");
 
 pub const Version = enum {
     @"HTTP/1.0",
