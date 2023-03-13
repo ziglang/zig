@@ -173,7 +173,7 @@ const common_shared_key_size: usize = 32;
 
 fn Kyber(comptime p: Params) type {
     return struct {
-        // Size of ciphertexts.
+        // Size of a ciphertext, in bytes.
         pub const ciphertext_length = Poly.compressedSize(p.du) * p.k + Poly.compressedSize(p.dv);
 
         const Self = @This();
@@ -323,7 +323,7 @@ fn Kyber(comptime p: Params) type {
             /// Create a new key pair.
             /// If seed is null, a random seed will be generated.
             /// If a seed is provided, the key pair will be determinsitic.
-            pub fn create(seed_: ?[seed_length]u8) KeyPair {
+            pub fn create(seed_: ?[seed_length]u8) !KeyPair {
                 const seed = seed_ orelse sk: {
                     var random_seed: [seed_length]u8 = undefined;
                     crypto.random.bytes(&random_seed);
@@ -1690,7 +1690,7 @@ test "Test happy flow" {
         i = 0;
         while (i < 100) : (i += 1) {
             seed[0] = @intCast(u8, i);
-            var kp = mode.KeyPair.create(seed);
+            var kp = try mode.KeyPair.create(seed);
             const sk = mode.SecretKey.unpack(&kp.secret_key.pack());
             try testing.expectEqual(sk, kp.secret_key);
             const pk = mode.PublicKey.unpack(&kp.public_key.pack());
@@ -1742,7 +1742,7 @@ test "NIST KAT test" {
             g2.fill(kseed[0..32]);
             g2.fill(kseed[32..64]);
             g2.fill(&eseed);
-            const kp = mode.KeyPair.create(kseed);
+            const kp = try mode.KeyPair.create(kseed);
             var ct: [mode.ciphertext_length]u8 = undefined;
             var ss: [mode.shared_length]u8 = undefined;
             kp.public_key.encapsDeterministically(&eseed, &ct, &ss);
