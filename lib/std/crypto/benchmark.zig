@@ -549,7 +549,7 @@ pub fn main() !void {
 
     inline for (kems) |E| {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
-            const throughput = try benchmarkKemDecaps(E.ty, mode(1000));
+            const throughput = try benchmarkKemDecaps(E.ty, mode(25000));
             try stdout.print("{s:>17}: {:10} decaps/s\n", .{ E.name, throughput });
         }
     }
