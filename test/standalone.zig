@@ -148,6 +148,10 @@ pub const build_cases = [_]BuildCase{
         .import = @import("standalone/embed_generated_file/build.zig"),
     },
     .{
+        .build_root = "test/standalone/extern",
+        .import = @import("standalone/extern/build.zig"),
+    },
+    .{
         .build_root = "test/standalone/dep_diamond",
         .import = @import("standalone/dep_diamond/build.zig"),
     },
