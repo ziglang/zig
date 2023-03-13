@@ -795,6 +795,8 @@ fn validateFeatures(
 
     // when false, we fail linking. We only verify this after a loop to catch all invalid features.
     var valid_feature_set = true;
+    // will be set to true when there's any TLS segment found in any of the object files
+    var has_tls = false;
 
     // When the user has given an explicit list of features to enable,
     // we extract them and insert each into the 'allowed' list.
@@ -825,6 +827,12 @@ fn validateFeatures(
                 },
             }
         }
+
+        for (object.segment_info) |segment| {
+            if (segment.isTLS()) {
+                has_tls = true;
+            }
+        }
     }
 
     // when we infer the features, we allow each feature found in the 'used' set
@@ -836,7 +844,7 @@ fn validateFeatures(
             allowed[used_index] = is_enabled;
             emit_features_count.* += @boolToInt(is_enabled);
         } else if (is_enabled and !allowed[used_index]) {
-            log.err("feature '{s}' not allowed, but used by linked object", .{(@intToEnum(types.Feature.Tag, used_index)).toString()});
+            log.err("feature '{}' not allowed, but used by linked object", .{@intToEnum(types.Feature.Tag, used_index)});
             log.err("  defined in '{s}'", .{wasm.objects.items[used_set >> 1].name});
             valid_feature_set = false;
         }
@@ -846,6 +854,30 @@ fn validateFeatures(
         return error.InvalidFeatureSet;
     }
 
+    if (wasm.base.options.shared_memory) {
+        const disallowed_feature = disallowed[@enumToInt(types.Feature.Tag.shared_mem)];
+        if (@truncate(u1, disallowed_feature) != 0) {
+            log.err(
+                "shared-memory is disallowed by '{s}' because it wasn't compiled with 'atomics' and 'bulk-memory' features enabled",
+                .{wasm.objects.items[disallowed_feature >> 1].name},
+            );
+            valid_feature_set = false;
+        }
+
+        for ([_]types.Feature.Tag{ .atomics, .bulk_memory }) |feature| {
+            if (!allowed[@enumToInt(feature)]) {
+                log.err("feature '{}' is not used but is required for shared-memory", .{feature});
+            }
+        }
+    }
+
+    if (has_tls) {
+        for ([_]types.Feature.Tag{ .atomics, .bulk_memory }) |feature| {
+            if (!allowed[@enumToInt(feature)]) {
+                log.err("feature '{}' is not used but is required for thread-local storage", .{feature});
+            }
+        }
+    }
     // For each linked object, validate the required and disallowed features
     for (wasm.objects.items) |object| {
         var object_used_features = [_]bool{false} ** known_features_count;
@@ -854,7 +886,7 @@ fn validateFeatures(
             // from here a feature is always used
             const disallowed_feature = disallowed[@enumToInt(feature.tag)];
             if (@truncate(u1, disallowed_feature) != 0) {
-                log.err("feature '{s}' is disallowed, but used by linked object", .{feature.tag.toString()});
+                log.err("feature '{}' is disallowed, but used by linked object", .{feature.tag});
                 log.err("  disallowed by '{s}'", .{wasm.objects.items[disallowed_feature >> 1].name});
                 log.err("  used in '{s}'", .{object.name});
                 valid_feature_set = false;
@@ -867,7 +899,7 @@ fn validateFeatures(
         for (required, 0..) |required_feature, feature_index| {
             const is_required = @truncate(u1, required_feature) != 0;
             if (is_required and !object_used_features[feature_index]) {
-                log.err("feature '{s}' is required but not used in linked object", .{(@intToEnum(types.Feature.Tag, feature_index)).toString()});
+                log.err("feature '{}' is required but not used in linked object", .{@intToEnum(types.Feature.Tag, feature_index)});
                 log.err("  required by '{s}'", .{wasm.objects.items[required_feature >> 1].name});
                 log.err("  missing in '{s}'", .{object.name});
                 valid_feature_set = false;
@@ -3432,7 +3464,8 @@ fn emitFeaturesSection(binary_bytes: *std.ArrayList(u8), enabled_features: []con
         if (enabled) {
             const feature: types.Feature = .{ .prefix = .used, .tag = @intToEnum(types.Feature.Tag, feature_index) };
             try leb.writeULEB128(writer, @enumToInt(feature.prefix));
-            const string = feature.tag.toString();
+            var buf: [100]u8 = undefined;
+            const string = try std.fmt.bufPrint(&buf, "{}", .{feature.tag});
             try leb.writeULEB128(writer, @intCast(u32, string.len));
             try writer.writeAll(string);
         }

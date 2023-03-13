@@ -50,6 +50,8 @@ pub const Relocation = struct {
                 .R_WASM_MEMORY_ADDR_LEB64,
                 .R_WASM_MEMORY_ADDR_SLEB64,
                 .R_WASM_MEMORY_ADDR_I64,
+                .R_WASM_MEMORY_ADDR_TLS_SLEB,
+                .R_WASM_MEMORY_ADDR_TLS_SLEB64,
                 .R_WASM_FUNCTION_OFFSET_I32,
                 .R_WASM_SECTION_OFFSET_I32,
                 => true,
@@ -218,8 +220,10 @@ pub const Feature = struct {
             return @intToEnum(Tag, @enumToInt(feature));
         }
 
-        pub fn toString(tag: Tag) []const u8 {
-            return switch (tag) {
+        pub fn format(tag: Tag, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
+            _ = fmt;
+            _ = opt;
+            try writer.writeAll(switch (tag) {
                 .atomics => "atomics",
                 .bulk_memory => "bulk-memory",
                 .exception_handling => "exception-handling",
@@ -233,7 +237,7 @@ pub const Feature = struct {
                 .simd128 => "simd128",
                 .tail_call => "tail-call",
                 .shared_mem => "shared-mem",
-            };
+            });
         }
     };
 
@@ -246,7 +250,7 @@ pub const Feature = struct {
     pub fn format(feature: Feature, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
         _ = opt;
         _ = fmt;
-        try writer.print("{c} {s}", .{ feature.prefix, feature.tag.toString() });
+        try writer.print("{c} {}", .{ feature.prefix, feature.tag });
     }
 };
 

@@ -601,8 +601,8 @@ fn Parser(comptime ReaderType: type) type {
             });
 
             for (relocations) |*relocation| {
-                const rel_type = try leb.readULEB128(u8, reader);
-                const rel_type_enum = @intToEnum(types.Relocation.RelocationType, rel_type);
+                const rel_type = try reader.readByte();
+                const rel_type_enum = std.meta.intToEnum(types.Relocation.RelocationType, rel_type) catch return error.MalformedSection;
                 relocation.* = .{
                     .relocation_type = rel_type_enum,
                     .offset = try leb.readULEB128(u32, reader),
