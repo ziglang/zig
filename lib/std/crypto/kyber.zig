@@ -105,8 +105,11 @@ const std = @import("std");
 
 const testing = std.testing;
 const assert = std.debug.assert;
+const crypto = std.crypto;
+const math = std.math;
+const mem = std.mem;
 const RndGen = std.rand.DefaultPrng;
-const sha3 = std.crypto.hash.sha3;
+const sha3 = crypto.hash.sha3;
 
 // Q is the parameter q ≡ 3329 = 2¹¹ + 2¹⁰ + 2⁸ + 1.
 const Q: i16 = 3329;
@@ -115,7 +118,7 @@ const Q: i16 = 3329;
 const R: i32 = 1 << 16;
 
 // Parameter n, degree of polynomials.
-const N: i32 = 256;
+const N: usize = 256;
 
 // Size of "small" vectors used in encryption blinds.
 const eta2: u8 = 2;
@@ -163,44 +166,54 @@ pub const Kyber1024 = Kyber(.{
 });
 
 const modes = [_]type{ Kyber512, Kyber768, Kyber1024 };
-const hSize: usize = 32;
-const innerSeedSize: usize = 32;
-const commonEncapsSeedSize: usize = 32;
-const commonSharedKeySize: usize = 32;
+const h_length: usize = 32;
+const inner_seed_length: usize = 32;
+const common_encaps_seed_length: usize = 32;
+const common_shared_key_size: usize = 32;
 
 fn Kyber(comptime p: Params) type {
     return struct {
         // Size of ciphertexts.
-        pub const ciphertextSize: usize = Poly.compressedSize(p.du) * p.k + Poly.compressedSize(p.dv);
+        pub const ciphertext_length = Poly.compressedSize(p.du) * p.k + Poly.compressedSize(p.dv);
 
         const Self = @This();
         const V = Vec(p.k);
         const M = Mat(p.k);
 
-        pub const sharedKeySize = commonSharedKeySize;
-        pub const encapsSeedSize = commonEncapsSeedSize;
-        pub const seedSize: usize = innerSeedSize + sharedKeySize;
+        /// Length (in bytes) of a shared secret.
+        pub const shared_length = common_shared_key_size;
+        /// Length (in bytes) of a seed for deterministic encapsulation.
+        pub const encaps_seed_length = common_encaps_seed_length;
+        /// Length (in bytes) of a seed for key generation.
+        pub const seed_length: usize = inner_seed_length + shared_length;
+        /// Algorithm name.
         pub const name = p.name;
 
-        const PublicKey = struct {
-            pk: innerPk,
+        /// A Kyber public key.
+        pub const PublicKey = struct {
+            pk: InnerPk,
 
             // Cached
-            hpk: [hSize]u8, // H(pk)
+            hpk: [h_length]u8, // H(pk)
 
-            pub const packedSize: usize = innerPk.packedSize;
+            pub const packet_length: usize = InnerPk.packed_length;
 
             /// Generates a shared secret, written to ss, and encapsulates
             /// it for public key, written to ct.
-            pub fn encaps(pk: PublicKey, ct: *[ciphertextSize]u8, ss: *[sharedKeySize]u8) void {
-                var seed: [encapsSeedSize]u8 = undefined;
-                std.crypto.random.bytes(&seed);
+            pub fn encaps(pk: PublicKey, ct: *[ciphertext_length]u8, ss: *[shared_length]u8) void {
+                var seed: [encaps_seed_length]u8 = undefined;
+                crypto.random.bytes(&seed);
                 return encapsDeterministically(pk, &seed, ct, ss);
             }
 
             /// If you're unsure, you should use encaps instead.
-            pub fn encapsDeterministically(pk: PublicKey, seed: *const [encapsSeedSize]u8, ct: *[ciphertextSize]u8, ss: *[sharedKeySize]u8) void {
-                var m: [innerPlaintextSize]u8 = undefined;
+            pub fn encapsDeterministically(
+                pk: PublicKey,
+                seed: *const [encaps_seed_length]u8,
+                ct: *[ciphertext_length]u8,
+                ss: *[shared_length]u8,
+            ) void {
+                var m: [inner_plaintext_length]u8 = undefined;
 
                 // m = H(seed)
                 var h = sha3.Sha3_256.init(.{});
@@ -208,7 +221,7 @@ fn Kyber(comptime p: Params) type {
                 h.final(&m);
 
                 // (K', r) = G(m ‖ H(pk))
-                var kr: [innerPlaintextSize + hSize]u8 = undefined;
+                var kr: [inner_plaintext_length + h_length]u8 = undefined;
                 var g = sha3.Sha3_512.init(.{});
                 g.update(&m);
                 g.update(&pk.hpk);
@@ -228,13 +241,13 @@ fn Kyber(comptime p: Params) type {
                 kdf.squeeze(ss);
             }
 
-            pub fn pack(pk: PublicKey) [packedSize]u8 {
+            pub fn pack(pk: PublicKey) [packet_length]u8 {
                 return pk.pk.pack();
             }
 
-            pub fn unpack(buf: *const [packedSize]u8) PublicKey {
+            pub fn unpack(buf: *const [packet_length]u8) PublicKey {
                 var ret: PublicKey = undefined;
-                ret.pk = innerPk.unpack(buf[0..innerPk.packedSize]);
+                ret.pk = InnerPk.unpack(buf[0..InnerPk.packed_length]);
 
                 var h = sha3.Sha3_256.init(.{});
                 h.update(buf);
@@ -243,16 +256,18 @@ fn Kyber(comptime p: Params) type {
             }
         };
 
-        const PrivateKey = struct {
-            sk: innerSk,
-            pk: innerPk,
-            hpk: [hSize]u8, // H(pk)
-            z: [sharedKeySize]u8,
+        /// A Kyber secret key.
+        pub const SecretKey = struct {
+            sk: InnerSk,
+            pk: InnerPk,
+            hpk: [h_length]u8, // H(pk)
+            z: [shared_length]u8,
 
-            pub const packedSize: usize = innerSk.packedSize + innerPk.packedSize + hSize + sharedKeySize;
+            pub const packed_length: usize =
+                InnerSk.packed_length + InnerPk.packed_length + h_length + shared_length;
 
             /// Decapsulates the shared secret within ct using the private key.
-            pub fn decaps(sk: PrivateKey, ct: *const [ciphertextSize]u8) [sharedKeySize]u8 {
+            pub fn decaps(sk: SecretKey, ct: *const [ciphertext_length]u8) [shared_length]u8 {
                 // m' = innerDec(ct)
                 const m2 = sk.sk.decrypt(ct);
 
@@ -272,81 +287,81 @@ fn Kyber(comptime p: Params) type {
                 h.final(kr2[32..64]);
 
                 // Replace K'' by z in the first slot of kr2 if ct ≠ ct'.
-                cmov(32, kr2[0..32], &sk.z, cteq(ciphertextSize, ct, &ct2));
+                cmov(32, kr2[0..32], &sk.z, cteq(ciphertext_length, ct, &ct2));
 
                 // K = KDF(K''/z, H(c))
                 var kdf = sha3.Shake256.init(.{});
-                var ss: [sharedKeySize]u8 = undefined;
+                var ss: [shared_length]u8 = undefined;
                 kdf.update(&kr2);
                 kdf.squeeze(&ss);
                 return ss;
             }
 
-            pub fn pack(sk: PrivateKey) [packedSize]u8 {
+            pub fn pack(sk: SecretKey) [packed_length]u8 {
                 return sk.sk.pack() ++ sk.pk.pack() ++ sk.hpk ++ sk.z;
             }
 
-            pub fn unpack(buf: *const [packedSize]u8) PrivateKey {
-                var ret: PrivateKey = undefined;
+            pub fn unpack(buf: *const [packed_length]u8) SecretKey {
+                var ret: SecretKey = undefined;
                 comptime var s: usize = 0;
-                ret.sk = innerSk.unpack(buf[s .. s + innerSk.packedSize]);
-                s += innerSk.packedSize;
-                ret.pk = innerPk.unpack(buf[s .. s + innerPk.packedSize]);
-                s += innerPk.packedSize;
-                std.mem.copy(u8, &ret.hpk, buf[s .. s + hSize]);
-                s += hSize;
-                std.mem.copy(u8, &ret.z, buf[s .. s + sharedKeySize]);
+                ret.sk = InnerSk.unpack(buf[s .. s + InnerSk.packed_length]);
+                s += InnerSk.packed_length;
+                ret.pk = InnerPk.unpack(buf[s .. s + InnerPk.packed_length]);
+                s += InnerPk.packed_length;
+                mem.copy(u8, &ret.hpk, buf[s .. s + h_length]);
+                s += h_length;
+                mem.copy(u8, &ret.z, buf[s .. s + shared_length]);
                 return ret;
             }
         };
 
-        const KeyPair = struct {
-            sk: PrivateKey,
-            pk: PublicKey,
+        /// A Kyber key pair.
+        pub const KeyPair = struct {
+            secret_key: SecretKey,
+            public_key: PublicKey,
+
+            /// Create a new key pair.
+            /// If seed is null, a random seed will be generated.
+            /// If a seed is provided, the key pair will be determinsitic.
+            pub fn create(seed_: ?[seed_length]u8) KeyPair {
+                const seed = seed_ orelse sk: {
+                    var random_seed: [seed_length]u8 = undefined;
+                    crypto.random.bytes(&random_seed);
+                    break :sk random_seed;
+                };
+                var ret: KeyPair = undefined;
+                mem.copy(u8, &ret.secret_key.z, seed[inner_seed_length..seed_length]);
+
+                // Generate inner key
+                innerKeyFromSeed(seed[0..inner_seed_length], &ret.public_key.pk, &ret.secret_key.sk);
+                ret.secret_key.pk = ret.public_key.pk;
+
+                // Copy over z from seed.
+                mem.copy(u8, &ret.secret_key.z, seed[inner_seed_length..seed_length]);
+
+                // Compute H(pk)
+                var h = sha3.Sha3_256.init(.{});
+                h.update(&ret.public_key.pk.pack());
+                h.final(&ret.secret_key.hpk);
+                ret.public_key.hpk = ret.secret_key.hpk;
+
+                return ret;
+            }
         };
 
-        /// Generates a new random keypair.
-        pub fn genKey() KeyPair {
-            var seed: [seedSize]u8 = undefined;
-            std.crypto.random.bytes(&seed);
-            return keyFromSeed(&seed);
-        }
-
-        /// Derives a keypair from a seed. If you're unsure, you should use
-        /// genKey() instead.
-        pub fn keyFromSeed(seed: *const [seedSize]u8) KeyPair {
-            var ret: KeyPair = undefined;
-            std.mem.copy(u8, &ret.sk.z, seed[innerSeedSize..seedSize]);
-
-            // Generate inner key
-            innerKeyFromSeed(seed[0..innerSeedSize], &ret.pk.pk, &ret.sk.sk);
-            ret.sk.pk = ret.pk.pk;
-
-            // Copy over z from seed.
-            std.mem.copy(u8, &ret.sk.z, seed[innerSeedSize..seedSize]);
-
-            // Compute H(pk)
-            var h = sha3.Sha3_256.init(.{});
-            h.update(&ret.pk.pk.pack());
-            h.final(&ret.sk.hpk);
-            ret.pk.hpk = ret.sk.hpk;
-
-            return ret;
-        }
-
         // Size of plaintexts of the in
-        const innerPlaintextSize: usize = Poly.compressedSize(1);
+        const inner_plaintext_length: usize = Poly.compressedSize(1);
 
-        const innerPk = struct {
+        const InnerPk = struct {
             rho: [32]u8, // ρ, the seed for the matrix A
             th: V, // NTT(t), normalized
 
             // Cached values
             aT: M,
 
-            const packedSize: usize = V.packedSize + 32;
+            const packed_length: usize = V.packed_length + 32;
 
-            fn encrypt(pk: innerPk, pt: *const [innerPlaintextSize]u8, seed: *const [32]u8) [ciphertextSize]u8 {
+            fn encrypt(pk: InnerPk, pt: *const [inner_plaintext_length]u8, seed: *const [32]u8) [ciphertext_length]u8 {
                 // Sample r, e₁ and e₂ appropriately
                 const rh = V.noise(p.eta1, 0, seed).ntt().barrettReduce();
                 const e1 = V.noise(eta2, p.k, seed);
@@ -373,52 +388,52 @@ fn Kyber(comptime p: Params) type {
                 return u.compress(p.du) ++ v.compress(p.dv);
             }
 
-            fn pack(pk: innerPk) [packedSize]u8 {
+            fn pack(pk: InnerPk) [packed_length]u8 {
                 return pk.th.pack() ++ pk.rho;
             }
 
-            fn unpack(buf: *const [packedSize]u8) innerPk {
-                var ret: innerPk = undefined;
-                ret.th = V.unpack(buf[0..V.packedSize]).normalize();
-                std.mem.copy(u8, &ret.rho, buf[V.packedSize..packedSize]);
+            fn unpack(buf: *const [packed_length]u8) InnerPk {
+                var ret: InnerPk = undefined;
+                ret.th = V.unpack(buf[0..V.packed_length]).normalize();
+                mem.copy(u8, &ret.rho, buf[V.packed_length..packed_length]);
                 ret.aT = M.uniform(&ret.rho, true);
                 return ret;
             }
         };
 
         // Private key of the inner PKE
-        const innerSk = struct {
+        const InnerSk = struct {
             sh: V, // NTT(s), normalized
-            const packedSize = V.packedSize;
+            const packed_length = V.packed_length;
 
-            fn decrypt(sk: innerSk, ct: *const [ciphertextSize]u8) [innerPlaintextSize]u8 {
+            fn decrypt(sk: InnerSk, ct: *const [ciphertext_length]u8) [inner_plaintext_length]u8 {
                 const u = V.decompress(p.du, ct[0..comptime V.compressedSize(p.du)]);
-                const v = Poly.decompress(p.dv, ct[comptime V.compressedSize(p.du)..ciphertextSize]);
+                const v = Poly.decompress(p.dv, ct[comptime V.compressedSize(p.du)..ciphertext_length]);
 
                 // Compute m = v - <s, u>
                 return v.sub(sk.sh.dotHat(u.ntt()).barrettReduce().invNTT()).normalize().compress(1);
             }
 
-            fn pack(sk: innerSk) [packedSize]u8 {
+            fn pack(sk: InnerSk) [packed_length]u8 {
                 return sk.sh.pack();
             }
 
-            fn unpack(buf: *const [packedSize]u8) innerSk {
-                var ret: innerSk = undefined;
+            fn unpack(buf: *const [packed_length]u8) InnerSk {
+                var ret: InnerSk = undefined;
                 ret.sh = V.unpack(buf).normalize();
                 return ret;
             }
         };
 
         // Derives inner PKE keypair from given seed.
-        fn innerKeyFromSeed(seed: *const [innerSeedSize]u8, pk: *innerPk, sk: *innerSk) void {
-            var expandedSeed: [64]u8 = undefined;
+        fn innerKeyFromSeed(seed: *const [inner_seed_length]u8, pk: *InnerPk, sk: *InnerSk) void {
+            var expanded_seed: [64]u8 = undefined;
 
             var h = sha3.Sha3_512.init(.{});
             h.update(seed);
-            h.final(&expandedSeed);
-            std.mem.copy(u8, &pk.rho, expandedSeed[0..32]);
-            const sigma = expandedSeed[32..64];
+            h.final(&expanded_seed);
+            mem.copy(u8, &pk.rho, expanded_seed[0..32]);
+            const sigma = expanded_seed[32..64];
             pk.aT = M.uniform(&pk.rho, false); // Expand ρ to A; we'll transpose later on
 
             // Sample secret vector s.
@@ -441,22 +456,22 @@ fn Kyber(comptime p: Params) type {
             }
 
             pk.th = th.add(eh).normalize(); // bounded by 8q
-            pk.aT = pk.aT.T();
+            pk.aT = pk.aT.transpose();
         }
     };
 }
 
 // R mod q
-const RModQ: i32 = @rem(@as(i32, R), Q);
+const r_mod_q: i32 = @rem(@as(i32, R), Q);
 
 // R² mod q
-const R2ModQ: i32 = @rem(RModQ * RModQ, Q);
+const r2_mod_q: i32 = @rem(r_mod_q * r_mod_q, Q);
 
 // ζ is the degree 256 primitive root of unity used for the NTT.
 const zeta: i16 = 17;
 
 // (128)⁻¹ R². Used in inverse NTT.
-const R2over128: i32 = @mod(invertMod(128, Q) * R2ModQ, Q);
+const r2_over_128: i32 = @mod(invertMod(128, Q) * r2_mod_q, Q);
 
 // zetas lists precomputed powers of the primitive root of unity in
 // Montgomery representation used for the NTT:
@@ -475,7 +490,7 @@ const zetas: [128]i16 = computeZetas();
 //
 // This is actually optimal, as proven in https://eprint.iacr.org/2020/1377.pdf
 // TODO generate comptime?
-var invNTTReductions = [_]i16{
+var inv_ntt_reductions = [_]i16{
     -1, // after layer 1
     -1, // after layer 2
     16,
@@ -521,9 +536,9 @@ test "invNTTReductions bounds" {
     }
 
     var r: usize = 0;
-    var layer: u6 = 1;
+    var layer: math.Log2Int(usize) = 1;
     while (layer < 8) : (layer += 1) {
-        var w: usize = @as(usize, 1) << layer;
+        var w = @as(usize, 1) << layer;
         i = 0;
 
         while (i + w < 256) {
@@ -537,7 +552,7 @@ test "invNTTReductions bounds" {
         }
 
         while (true) {
-            var j: i16 = invNTTReductions[r];
+            var j: i16 = inv_ntt_reductions[r];
             r += 1;
             if (j < 0) {
                 break;
@@ -634,14 +649,14 @@ test "Test montReduce" {
 fn feToMont(x: i16) i16 {
     // Note |1353 x| ≤ 1353 2¹⁵ ≤ 13318 q ≤ 2¹⁵ q and so we're within
     // the bounds of montReduce.
-    return montReduce(@as(i32, x) * R2ModQ);
+    return montReduce(@as(i32, x) * r2_mod_q);
 }
 
 test "Test feToMont" {
     var x: i32 = -(1 << 15);
     while (x < 1 << 15) : (x += 1) {
         const y: i16 = feToMont(@intCast(i16, x));
-        try testing.expectEqual(modQ32(@as(i32, y)), modQ32(x * RModQ));
+        try testing.expectEqual(modQ32(@as(i32, y)), modQ32(x * r_mod_q));
     }
 }
 
@@ -754,7 +769,7 @@ fn computeZetas() [128]i16 {
 const Poly = struct {
     cs: [N]i16,
 
-    const packedSize = N / 2 * 3;
+    const packed_length = N / 2 * 3;
     const zero: Poly = .{ .cs = .{0} ** N };
 
     fn add(a: Poly, b: Poly) Poly {
@@ -855,7 +870,7 @@ const Poly = struct {
         var p = a;
         var k: usize = 0; // index into zetas
 
-        var l: usize = N >> 1;
+        var l = N >> 1;
         while (l > 1) : (l >>= 1) {
             // On the nᵗʰ iteration of the l-loop, the absolute value of the
             // coefficients are bounded by nq.
@@ -865,7 +880,7 @@ const Poly = struct {
             var offset: usize = 0;
             while (offset < N - l) : (offset += 2 * l) {
                 k += 1;
-                var z: i32 = @as(i32, zetas[k]);
+                var z = @as(i32, zetas[k]);
 
                 // j loops over each butterfly in the row group.
                 var j: usize = offset;
@@ -922,7 +937,7 @@ const Poly = struct {
             // We let the invNTTReductions instruct us which coefficients to
             // Barrett reduce.
             while (true) {
-                var i = invNTTReductions[r];
+                var i = inv_ntt_reductions[r];
                 r += 1;
                 if (i < 0) {
                     break;
@@ -936,7 +951,7 @@ const Poly = struct {
             // Note 1441 = (128)⁻¹ R².  The coefficients are bounded by 9q, so
             // as 1441 * 9 ≈ 2¹⁴ < 2¹⁵, we're within the required bounds
             // for montReduce().
-            p.cs[j] = montReduce(R2over128 * @as(i32, p.cs[j]));
+            p.cs[j] = montReduce(r2_over_128 * @as(i32, p.cs[j]));
         }
 
         return p;
@@ -985,55 +1000,55 @@ const Poly = struct {
     // Assumes p is normalized.
     fn compress(p: Poly, comptime d: u8) [compressedSize(d)]u8 {
         @setEvalBranchQuota(10000);
-        const Qover2: u32 = comptime @divTrunc(Q, 2); // (q-1)/2
-        const twoDm1: u32 = comptime (1 << d) - 1; // 2ᵈ-1
-        var inOff: usize = 0;
-        var outOff: usize = 0;
+        const q_over_2: u32 = comptime @divTrunc(Q, 2); // (q-1)/2
+        const two_dm_1: u32 = comptime (1 << d) - 1; // 2ᵈ-1
+        var in_off: usize = 0;
+        var out_off: usize = 0;
 
-        const batchSize: usize = comptime lcm(@as(i16, d), 8);
-        const inBatchSize: usize = comptime batchSize / d;
-        const outBatchSize: usize = comptime batchSize / 8;
+        const batch_size: usize = comptime lcm(@as(i16, d), 8);
+        const in_batch_size: usize = comptime batch_size / d;
+        const out_batch_size: usize = comptime batch_size / 8;
 
-        const outLen: usize = comptime @divTrunc(N * d, 8);
-        comptime assert(outLen * 8 == d * N);
-        var out = std.mem.zeroes([outLen]u8);
+        const out_length: usize = comptime @divTrunc(N * d, 8);
+        comptime assert(out_length * 8 == d * N);
+        var out = [_]u8{0} ** out_length;
 
-        while (inOff < N) {
+        while (in_off < N) {
             // First we compress into in.
-            var in: [inBatchSize]u16 = undefined;
+            var in: [in_batch_size]u16 = undefined;
             comptime var i: usize = 0;
-            inline while (i < inBatchSize) : (i += 1) {
+            inline while (i < in_batch_size) : (i += 1) {
                 // Compress_q(x, d) = ⌈(2ᵈ/q)x⌋ mod⁺ 2ᵈ
                 //                  = ⌊(2ᵈ/q)x+½⌋ mod⁺ 2ᵈ
                 //                  = ⌊((x << d) + q/2) / q⌋ mod⁺ 2ᵈ
                 //                  = DIV((x << d) + q/2, q) & ((1<<d) - 1)
-                const t = @intCast(u32, p.cs[inOff + i]) << d;
-                in[i] = @intCast(u16, @divFloor(t + Qover2, Q) & twoDm1);
+                const t = @intCast(u32, p.cs[in_off + i]) << d;
+                in[i] = @intCast(u16, @divFloor(t + q_over_2, Q) & two_dm_1);
             }
 
             // Now we pack the d-bit integers from `in' into out as bytes.
-            comptime var inShift: usize = 0;
+            comptime var in_shift: usize = 0;
             comptime var j: usize = 0;
             i = 0;
-            inline while (i < inBatchSize) : (j += 1) {
+            inline while (i < in_batch_size) : (j += 1) {
                 comptime var todo: usize = 8;
                 inline while (todo > 0) {
-                    const outShift: usize = comptime 8 - todo;
-                    out[outOff + j] |= @truncate(u8, (in[i] >> inShift) << outShift);
+                    const out_shift: usize = comptime 8 - todo;
+                    out[out_off + j] |= @truncate(u8, (in[i] >> in_shift) << out_shift);
 
-                    const done: usize = comptime @min(@min(d, todo), d - inShift);
+                    const done: usize = comptime @min(@min(d, todo), d - in_shift);
                     todo -= done;
-                    inShift += done;
+                    in_shift += done;
 
-                    if (inShift == d) {
-                        inShift = 0;
+                    if (in_shift == d) {
+                        in_shift = 0;
                         i += 1;
                     }
                 }
             }
 
-            inOff += inBatchSize;
-            outOff += outBatchSize;
+            in_off += in_batch_size;
+            out_off += out_batch_size;
         }
 
         return out;
@@ -1045,33 +1060,33 @@ const Poly = struct {
         const inLen: usize = comptime @divTrunc(N * d, 8);
         comptime assert(inLen * 8 == d * N);
         var ret: Poly = undefined;
-        var inOff: usize = 0;
-        var outOff: usize = 0;
+        var in_off: usize = 0;
+        var out_off: usize = 0;
 
-        const batchSize: usize = comptime lcm(@as(i16, d), 8);
-        const inBatchSize: usize = comptime batchSize / 8;
-        const outBatchSize: usize = comptime batchSize / d;
+        const batch_size: usize = comptime lcm(@as(i16, d), 8);
+        const in_batch_size: usize = comptime batch_size / 8;
+        const out_batch_size: usize = comptime batch_size / d;
 
-        while (outOff < N) {
-            comptime var inShift: usize = 0;
+        while (out_off < N) {
+            comptime var in_shift: usize = 0;
             comptime var j: usize = 0;
             comptime var i: usize = 0;
-            inline while (i < outBatchSize) : (i += 1) {
+            inline while (i < out_batch_size) : (i += 1) {
                 // First, unpack next coefficient.
                 comptime var todo: usize = d;
                 var out: u16 = 0;
 
                 inline while (todo > 0) {
-                    const outShift: usize = comptime d - todo;
+                    const out_shift: usize = comptime d - todo;
                     const m = comptime (1 << d) - 1;
-                    out |= (@as(u16, in[inOff + j] >> inShift) << outShift) & m;
+                    out |= (@as(u16, in[in_off + j] >> in_shift) << out_shift) & m;
 
-                    const done: usize = comptime @min(@min(8, todo), 8 - inShift);
+                    const done: usize = comptime @min(@min(8, todo), 8 - in_shift);
                     todo -= done;
-                    inShift += done;
+                    in_shift += done;
 
-                    if (inShift == 8) {
-                        inShift = 0;
+                    if (in_shift == 8) {
+                        in_shift = 0;
                         j += 1;
                     }
                 }
@@ -1081,11 +1096,11 @@ const Poly = struct {
                 //                    = ⌊(qx + 2ᵈ⁻¹)/2ᵈ⌋
                 //                    = (qx + (1<<(d-1))) >> d
                 const qx = @as(u32, out) * @as(u32, Q);
-                ret.cs[outOff + i] = @intCast(i16, (qx + (1 << (d - 1))) >> d);
+                ret.cs[out_off + i] = @intCast(i16, (qx + (1 << (d - 1))) >> d);
             }
 
-            inOff += inBatchSize;
-            outOff += outBatchSize;
+            in_off += in_batch_size;
+            out_off += out_batch_size;
         }
 
         return ret;
@@ -1156,18 +1171,18 @@ const Poly = struct {
         // buf is interpreted as a₁…a_ηb₁…b_ηa₁…a_ηb₁…b_η…. We process
         // multiple coefficients in one batch.
         const T: type = u64; // TODO is u128 faster?
-        comptime var batchCount: usize = undefined;
-        comptime var batchBytes: usize = undefined;
+        comptime var batch_count: usize = undefined;
+        comptime var batch_bytes: usize = undefined;
         comptime var mask: T = 0;
         comptime {
-            batchCount = @divTrunc(@typeInfo(T).Int.bits, 2 * eta);
-            while (@rem(N, batchCount) != 0 and batchCount > 0) : (batchCount -= 1) {}
-            assert(batchCount > 0);
-            assert(@rem(2 * eta * batchCount, 8) == 0);
-            batchBytes = 2 * eta * batchCount / 8;
+            batch_count = @divTrunc(@typeInfo(T).Int.bits, 2 * eta);
+            while (@rem(N, batch_count) != 0 and batch_count > 0) : (batch_count -= 1) {}
+            assert(batch_count > 0);
+            assert(@rem(2 * eta * batch_count, 8) == 0);
+            batch_bytes = 2 * eta * batch_count / 8;
 
             comptime var i = 0;
-            while (i < 2 * eta * batchCount) : (i += 1) {
+            while (i < 2 * eta * batch_count) : (i += 1) {
                 mask <<= eta;
                 mask |= 1;
             }
@@ -1175,13 +1190,13 @@ const Poly = struct {
 
         var i: usize = 0;
         var ret: Poly = undefined;
-        while (i < comptime N / batchCount) : (i += 1) {
+        while (i < comptime N / batch_count) : (i += 1) {
             // Read coefficients into t. In the case of η=3,
             // we have t = a₁ + 2a₂ + 4a₃ + 8b₁ + 16b₂ + …
             var t: T = 0;
             comptime var j: usize = 0;
-            inline while (j < batchBytes) : (j += 1) {
-                t |= @as(T, buf[batchBytes * i + j]) << (8 * j);
+            inline while (j < batch_bytes) : (j += 1) {
+                t |= @as(T, buf[batch_bytes * i + j]) << (8 * j);
             }
 
             // Accumelate `a's and `b's together by masking them out, shifting
@@ -1194,11 +1209,11 @@ const Poly = struct {
 
             // Extract each a and b separately and set coefficient in polynomial.
             j = 0;
-            inline while (j < batchCount) : (j += 1) {
+            inline while (j < batch_count) : (j += 1) {
                 const mask2 = comptime (1 << eta) - 1;
                 const a = @intCast(i16, (d >> (comptime (2 * j * eta))) & mask2);
                 const b = @intCast(i16, (d >> (comptime ((2 * j + 1) * eta))) & mask2);
-                ret.cs[batchCount * i + j] = a - b;
+                ret.cs[batch_count * i + j] = a - b;
             }
         }
 
@@ -1212,8 +1227,8 @@ const Poly = struct {
         h.update(seed);
         h.update(&suffix);
 
-        const bufLen = 168; // rate SHAKE-128
-        var buf: [bufLen]u8 = undefined;
+        const buf_len = sha3.Shake128.block_length; // rate SHAKE-128
+        var buf: [buf_len]u8 = undefined;
 
         var ret: Poly = undefined;
         var i: usize = 0; // index into ret.cs
@@ -1221,7 +1236,7 @@ const Poly = struct {
             h.squeeze(&buf);
 
             var j: usize = 0; // index into buf
-            while (j < bufLen) : (j += 3) {
+            while (j < buf_len) : (j += 3) {
                 const b0 = @as(u16, buf[j]);
                 const b1 = @as(u16, buf[j + 1]);
                 const b2 = @as(u16, buf[j + 2]);
@@ -1250,9 +1265,9 @@ const Poly = struct {
     // Packs p.
     //
     // Assumes p is normalized (and not just Barrett reduced).
-    fn pack(p: Poly) [packedSize]u8 {
+    fn pack(p: Poly) [packed_length]u8 {
         var i: usize = 0;
-        var ret: [packedSize]u8 = undefined;
+        var ret: [packed_length]u8 = undefined;
         while (i < comptime N / 2) : (i += 1) {
             const t0 = @intCast(u16, p.cs[2 * i]);
             const t1 = @intCast(u16, p.cs[2 * i + 1]);
@@ -1266,7 +1281,7 @@ const Poly = struct {
     // Unpacks a Poly from buf.
     //
     // p will not be normalized; instead 0 ≤ p[i] < 4096.
-    fn unpack(buf: *const [packedSize]u8) Poly {
+    fn unpack(buf: *const [packed_length]u8) Poly {
         var ret: Poly = undefined;
         var i: usize = 0;
         while (i < comptime N / 2) : (i += 1) {
@@ -1286,7 +1301,7 @@ fn Vec(comptime K: u8) type {
         ps: [K]Poly,
 
         const Self = @This();
-        const packedSize = K * Poly.packedSize;
+        const packed_length = K * Poly.packed_length;
 
         fn compressedSize(comptime d: u8) usize {
             return Poly.compressedSize(d) * K;
@@ -1379,7 +1394,7 @@ fn Vec(comptime K: u8) type {
             var ret: [compressedSize(d)]u8 = undefined;
             var i: usize = 0;
             while (i < K) : (i += 1) {
-                std.mem.copy(u8, ret[i * cs .. (i + 1) * cs], &v.ps[i].compress(d));
+                mem.copy(u8, ret[i * cs .. (i + 1) * cs], &v.ps[i].compress(d));
             }
             return ret;
         }
@@ -1394,20 +1409,20 @@ fn Vec(comptime K: u8) type {
             return ret;
         }
 
-        fn pack(v: Self) [packedSize]u8 {
-            var ret: [packedSize]u8 = undefined;
+        fn pack(v: Self) [packed_length]u8 {
+            var ret: [packed_length]u8 = undefined;
             comptime var i = 0;
             inline while (i < K) : (i += 1) {
-                std.mem.copy(u8, ret[i * Poly.packedSize .. (i + 1) * Poly.packedSize], &v.ps[i].pack());
+                mem.copy(u8, ret[i * Poly.packed_length .. (i + 1) * Poly.packed_length], &v.ps[i].pack());
             }
             return ret;
         }
 
-        fn unpack(buf: *const [packedSize]u8) Self {
+        fn unpack(buf: *const [packed_length]u8) Self {
             var ret: Self = undefined;
             comptime var i: usize = 0;
             inline while (i < K) : (i += 1) {
-                ret.ps[i] = Poly.unpack(buf[i * Poly.packedSize .. (i + 1) * Poly.packedSize]);
+                ret.ps[i] = Poly.unpack(buf[i * Poly.packed_length .. (i + 1) * Poly.packed_length]);
             }
             return ret;
         }
@@ -1420,7 +1435,7 @@ fn Mat(comptime K: u8) type {
         const Self = @This();
         vs: [K]Vec(K),
 
-        fn uniform(seed: *const [32]u8, comptime transpose: bool) Self {
+        fn uniform(seed: *const [32]u8, comptime transposed: bool) Self {
             var ret: Self = undefined;
             var i: u8 = 0;
             while (i < K) : (i += 1) {
@@ -1428,8 +1443,8 @@ fn Mat(comptime K: u8) type {
                 while (j < K) : (j += 1) {
                     ret.vs[i].ps[j] = Poly.uniform(
                         seed,
-                        if (transpose) i else j,
-                        if (transpose) j else i,
+                        if (transposed) i else j,
+                        if (transposed) j else i,
                     );
                 }
             }
@@ -1437,7 +1452,7 @@ fn Mat(comptime K: u8) type {
         }
 
         // Returns transpose of A
-        fn T(m: Self) Self {
+        fn transpose(m: Self) Self {
             var i: usize = 0;
             var ret: Self = undefined;
             while (i < K) : (i += 1) {
@@ -1652,8 +1667,8 @@ test "Test inner PKE" {
     inline for (modes) |mode| {
         i = 0;
         while (i < 100) : (i += 1) {
-            var pk: mode.innerPk = undefined;
-            var sk: mode.innerSk = undefined;
+            var pk: mode.InnerPk = undefined;
+            var sk: mode.InnerSk = undefined;
             seed[0] = @intCast(u8, i);
             mode.innerKeyFromSeed(&seed, &pk, &sk);
             var j: usize = 0;
@@ -1675,16 +1690,16 @@ test "Test happy flow" {
         i = 0;
         while (i < 100) : (i += 1) {
             seed[0] = @intCast(u8, i);
-            var kp = mode.keyFromSeed(&seed);
-            const sk = mode.PrivateKey.unpack(&kp.sk.pack());
-            try testing.expectEqual(sk, kp.sk);
-            const pk = mode.PublicKey.unpack(&kp.pk.pack());
-            try testing.expectEqual(pk, kp.pk);
+            var kp = mode.KeyPair.create(seed);
+            const sk = mode.SecretKey.unpack(&kp.secret_key.pack());
+            try testing.expectEqual(sk, kp.secret_key);
+            const pk = mode.PublicKey.unpack(&kp.public_key.pack());
+            try testing.expectEqual(pk, kp.public_key);
             var j: usize = 0;
             while (j < 10) : (j += 1) {
                 seed[1] = @intCast(u8, j);
-                var ct: [mode.ciphertextSize]u8 = undefined;
-                var ss: [mode.sharedKeySize]u8 = undefined;
+                var ct: [mode.ciphertext_length]u8 = undefined;
+                var ss: [mode.shared_length]u8 = undefined;
                 pk.encapsDeterministically(seed[0..32], &ct, &ss);
                 try testing.expectEqual(ss, sk.decaps(&ct));
             }
@@ -1694,7 +1709,7 @@ test "Test happy flow" {
 
 // Code to test NIST Known Answer Tests (KAT), see PQCgenKAT.c.
 
-const sha2 = std.crypto.hash.sha2;
+const sha2 = crypto.hash.sha2;
 
 test "NIST KAT test" {
     inline for (.{
@@ -1727,14 +1742,14 @@ test "NIST KAT test" {
             g2.fill(kseed[0..32]);
             g2.fill(kseed[32..64]);
             g2.fill(&eseed);
-            const kp = mode.keyFromSeed(&kseed);
-            var ct: [mode.ciphertextSize]u8 = undefined;
-            var ss: [mode.sharedKeySize]u8 = undefined;
-            kp.pk.encapsDeterministically(&eseed, &ct, &ss);
-            const ss2 = kp.sk.decaps(&ct);
+            const kp = mode.KeyPair.create(kseed);
+            var ct: [mode.ciphertext_length]u8 = undefined;
+            var ss: [mode.shared_length]u8 = undefined;
+            kp.public_key.encapsDeterministically(&eseed, &ct, &ss);
+            const ss2 = kp.secret_key.decaps(&ct);
             try testing.expectEqual(ss2, ss);
-            try std.fmt.format(fw, "pk = {s}\n", .{std.fmt.fmtSliceHexUpper(&kp.pk.pack())});
-            try std.fmt.format(fw, "sk = {s}\n", .{std.fmt.fmtSliceHexUpper(&kp.sk.pack())});
+            try std.fmt.format(fw, "pk = {s}\n", .{std.fmt.fmtSliceHexUpper(&kp.public_key.pack())});
+            try std.fmt.format(fw, "sk = {s}\n", .{std.fmt.fmtSliceHexUpper(&kp.secret_key.pack())});
             try std.fmt.format(fw, "ct = {s}\n", .{std.fmt.fmtSliceHexUpper(&ct)});
             try std.fmt.format(fw, "ss = {s}\n\n", .{std.fmt.fmtSliceHexUpper(&ss)});
         }
@@ -1766,13 +1781,13 @@ const NistDRBG = struct {
     // AES256_CTR_DRBG_Update(pd, &g.key, &g.v).
     fn update(g: *NistDRBG, pd: ?*const [48]u8) void {
         var buf: [48]u8 = undefined;
-        var ctx = std.crypto.core.aes.Aes256.initEnc(g.key);
+        var ctx = crypto.core.aes.Aes256.initEnc(g.key);
         var i: usize = 0;
         while (i < 3) : (i += 1) {
             g.incV();
             var block: [16]u8 = undefined;
             ctx.encrypt(&block, &g.v);
-            std.mem.copy(u8, buf[i * 16 .. (i + 1) * 16], &block);
+            mem.copy(u8, buf[i * 16 .. (i + 1) * 16], &block);
         }
         if (pd != null) {
             i = 0;
@@ -1780,8 +1795,8 @@ const NistDRBG = struct {
                 buf[i] ^= pd.?[i];
             }
         }
-        std.mem.copy(u8, &g.key, buf[0..32]);
-        std.mem.copy(u8, &g.v, buf[32..48]);
+        mem.copy(u8, &g.key, buf[0..32]);
+        mem.copy(u8, &g.v, buf[32..48]);
     }
 
     // randombytes.
@@ -1789,15 +1804,15 @@ const NistDRBG = struct {
         var block: [16]u8 = undefined;
         var dst = out;
 
-        var ctx = std.crypto.core.aes.Aes256.initEnc(g.key);
+        var ctx = crypto.core.aes.Aes256.initEnc(g.key);
         while (dst.len > 0) {
             g.incV();
             ctx.encrypt(&block, &g.v);
             if (dst.len < 16) {
-                std.mem.copy(u8, dst, block[0..dst.len]);
+                mem.copy(u8, dst, block[0..dst.len]);
                 break;
             }
-            std.mem.copy(u8, dst, &block);
+            mem.copy(u8, dst, &block);
             dst = dst[16..dst.len];
         }
         g.update(null);
