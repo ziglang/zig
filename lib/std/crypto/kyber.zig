@@ -200,7 +200,7 @@ fn Kyber(comptime p: Params) type {
             hpk: [h_length]u8, // H(pk)
 
             /// Size of a serialized representation of the key, in bytes.
-            pub const compressed_length = InnerPk.compressed_length;
+            pub const bytes_length = InnerPk.bytes_length;
 
             /// Generates a shared secret, and encapsulates it for the public key.
             /// If `seed` is `null`, a random seed is used. This is recommended.
@@ -247,14 +247,14 @@ fn Kyber(comptime p: Params) type {
             }
 
             /// Serializes the key into a byte array.
-            pub fn toBytes(pk: PublicKey) [compressed_length]u8 {
+            pub fn toBytes(pk: PublicKey) [bytes_length]u8 {
                 return pk.pk.toBytes();
             }
 
             /// Deserializes the key from a byte array.
-            pub fn fromBytes(buf: *const [compressed_length]u8) !PublicKey {
+            pub fn fromBytes(buf: *const [bytes_length]u8) !PublicKey {
                 var ret: PublicKey = undefined;
-                ret.pk = InnerPk.fromBytes(buf[0..InnerPk.compressed_length]);
+                ret.pk = InnerPk.fromBytes(buf[0..InnerPk.bytes_length]);
 
                 var h = sha3.Sha3_256.init(.{});
                 h.update(buf);
@@ -271,8 +271,8 @@ fn Kyber(comptime p: Params) type {
             z: [shared_length]u8,
 
             /// Size of a serialized representation of the key, in bytes.
-            pub const compressed_length: usize =
-                InnerSk.compressed_length + InnerPk.compressed_length + h_length + shared_length;
+            pub const bytes_length: usize =
+                InnerSk.bytes_length + InnerPk.bytes_length + h_length + shared_length;
 
             /// Decapsulates the shared secret within ct using the private key.
             pub fn decaps(sk: SecretKey, ct: *const [ciphertext_length]u8) ![shared_length]u8 {
@@ -305,17 +305,17 @@ fn Kyber(comptime p: Params) type {
                 return ss;
             }
 
-            pub fn toBytes(sk: SecretKey) [compressed_length]u8 {
+            pub fn toBytes(sk: SecretKey) [bytes_length]u8 {
                 return sk.sk.toBytes() ++ sk.pk.toBytes() ++ sk.hpk ++ sk.z;
             }
 
-            pub fn fromBytes(buf: *const [compressed_length]u8) !SecretKey {
+            pub fn fromBytes(buf: *const [bytes_length]u8) !SecretKey {
                 var ret: SecretKey = undefined;
                 comptime var s: usize = 0;
-                ret.sk = InnerSk.fromBytes(buf[s .. s + InnerSk.compressed_length]);
-                s += InnerSk.compressed_length;
-                ret.pk = InnerPk.fromBytes(buf[s .. s + InnerPk.compressed_length]);
-                s += InnerPk.compressed_length;
+                ret.sk = InnerSk.fromBytes(buf[s .. s + InnerSk.bytes_length]);
+                s += InnerSk.bytes_length;
+                ret.pk = InnerPk.fromBytes(buf[s .. s + InnerPk.bytes_length]);
+                s += InnerPk.bytes_length;
                 mem.copy(u8, &ret.hpk, buf[s .. s + h_length]);
                 s += h_length;
                 mem.copy(u8, &ret.z, buf[s .. s + shared_length]);
@@ -367,7 +367,7 @@ fn Kyber(comptime p: Params) type {
             // Cached values
             aT: M,
 
-            const compressed_length = V.compressed_length + 32;
+            const bytes_length = V.bytes_length + 32;
 
             fn encrypt(
                 pk: InnerPk,
@@ -399,14 +399,14 @@ fn Kyber(comptime p: Params) type {
                 return u.compress(p.du) ++ v.compress(p.dv);
             }
 
-            fn toBytes(pk: InnerPk) [compressed_length]u8 {
+            fn toBytes(pk: InnerPk) [bytes_length]u8 {
                 return pk.th.toBytes() ++ pk.rho;
             }
 
-            fn fromBytes(buf: *const [compressed_length]u8) InnerPk {
+            fn fromBytes(buf: *const [bytes_length]u8) InnerPk {
                 var ret: InnerPk = undefined;
-                ret.th = V.fromBytes(buf[0..V.compressed_length]).normalize();
-                mem.copy(u8, &ret.rho, buf[V.compressed_length..compressed_length]);
+                ret.th = V.fromBytes(buf[0..V.bytes_length]).normalize();
+                mem.copy(u8, &ret.rho, buf[V.bytes_length..bytes_length]);
                 ret.aT = M.uniform(ret.rho, true);
                 return ret;
             }
@@ -415,7 +415,7 @@ fn Kyber(comptime p: Params) type {
         // Private key of the inner PKE
         const InnerSk = struct {
             sh: V, // NTT(s), normalized
-            const compressed_length = V.compressed_length;
+            const bytes_length = V.bytes_length;
 
             fn decrypt(sk: InnerSk, ct: *const [ciphertext_length]u8) [inner_plaintext_length]u8 {
                 const u = V.decompress(p.du, ct[0..comptime V.compressedSize(p.du)]);
@@ -425,11 +425,11 @@ fn Kyber(comptime p: Params) type {
                 return v.sub(sk.sh.dotHat(u.ntt()).barrettReduce().invNTT()).normalize().compress(1);
             }
 
-            fn toBytes(sk: InnerSk) [compressed_length]u8 {
+            fn toBytes(sk: InnerSk) [bytes_length]u8 {
                 return sk.sh.toBytes();
             }
 
-            fn fromBytes(buf: *const [compressed_length]u8) InnerSk {
+            fn fromBytes(buf: *const [bytes_length]u8) InnerSk {
                 var ret: InnerSk = undefined;
                 ret.sh = V.fromBytes(buf).normalize();
                 return ret;
@@ -762,7 +762,7 @@ fn computeZetas() [128]i16 {
 const Poly = struct {
     cs: [N]i16,
 
-    const compressed_length = N / 2 * 3;
+    const bytes_length = N / 2 * 3;
     const zero: Poly = .{ .cs = .{0} ** N };
 
     fn add(a: Poly, b: Poly) Poly {
@@ -1242,8 +1242,8 @@ const Poly = struct {
     // Packs p.
     //
     // Assumes p is normalized (and not just Barrett reduced).
-    fn toBytes(p: Poly) [compressed_length]u8 {
-        var ret: [compressed_length]u8 = undefined;
+    fn toBytes(p: Poly) [bytes_length]u8 {
+        var ret: [bytes_length]u8 = undefined;
         for (0..comptime N / 2) |i| {
             const t0 = @intCast(u16, p.cs[2 * i]);
             const t1 = @intCast(u16, p.cs[2 * i + 1]);
@@ -1257,7 +1257,7 @@ const Poly = struct {
     // Unpacks a Poly from buf.
     //
     // p will not be normalized; instead 0 ≤ p[i] < 4096.
-    fn fromBytes(buf: *const [compressed_length]u8) Poly {
+    fn fromBytes(buf: *const [bytes_length]u8) Poly {
         var ret: Poly = undefined;
         for (0..comptime N / 2) |i| {
             const b0 = @as(i16, buf[3 * i]);
@@ -1276,7 +1276,7 @@ fn Vec(comptime K: u8) type {
         ps: [K]Poly,
 
         const Self = @This();
-        const compressed_length = K * Poly.compressed_length;
+        const bytes_length = K * Poly.bytes_length;
 
         fn compressedSize(comptime d: u8) usize {
             return Poly.compressedSize(d) * K;
@@ -1375,19 +1375,19 @@ fn Vec(comptime K: u8) type {
         }
 
         /// Serializes the key into a byte array.
-        fn toBytes(v: Self) [compressed_length]u8 {
-            var ret: [compressed_length]u8 = undefined;
+        fn toBytes(v: Self) [bytes_length]u8 {
+            var ret: [bytes_length]u8 = undefined;
             inline for (0..K) |i| {
-                mem.copy(u8, ret[i * Poly.compressed_length .. (i + 1) * Poly.compressed_length], &v.ps[i].toBytes());
+                mem.copy(u8, ret[i * Poly.bytes_length .. (i + 1) * Poly.bytes_length], &v.ps[i].toBytes());
             }
             return ret;
         }
 
         /// Deserializes the key from a byte array.
-        fn fromBytes(buf: *const [compressed_length]u8) Self {
+        fn fromBytes(buf: *const [bytes_length]u8) Self {
             var ret: Self = undefined;
             inline for (0..K) |i| {
-                ret.ps[i] = Poly.fromBytes(buf[i * Poly.compressed_length .. (i + 1) * Poly.compressed_length]);
+                ret.ps[i] = Poly.fromBytes(buf[i * Poly.bytes_length .. (i + 1) * Poly.bytes_length]);
             }
             return ret;
         }
