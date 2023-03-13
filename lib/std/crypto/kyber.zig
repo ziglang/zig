@@ -1157,7 +1157,7 @@ const Poly = struct {
         comptime var batch_bytes: usize = undefined;
         comptime var mask: T = 0;
         comptime {
-            batch_count = @divTrunc(@typeInfo(T).Int.bits, 2 * eta);
+            batch_count = @divTrunc(@bitSizeOf(T), 2 * eta);
             while (@rem(N, batch_count) != 0 and batch_count > 0) : (batch_count -= 1) {}
             assert(batch_count > 0);
             assert(@rem(2 * eta * batch_count, 8) == 0);
