@@ -252,7 +252,7 @@ fn Kyber(comptime p: Params) type {
             }
 
             /// Deserializes the key from a byte array.
-            pub fn fromBytes(buf: *const [compressed_length]u8) PublicKey {
+            pub fn fromBytes(buf: *const [compressed_length]u8) !PublicKey {
                 var ret: PublicKey = undefined;
                 ret.pk = InnerPk.fromBytes(buf[0..InnerPk.compressed_length]);
 
@@ -275,7 +275,7 @@ fn Kyber(comptime p: Params) type {
                 InnerSk.compressed_length + InnerPk.compressed_length + h_length + shared_length;
 
             /// Decapsulates the shared secret within ct using the private key.
-            pub fn decaps(sk: SecretKey, ct: *const [ciphertext_length]u8) [shared_length]u8 {
+            pub fn decaps(sk: SecretKey, ct: *const [ciphertext_length]u8) ![shared_length]u8 {
                 // m' = innerDec(ct)
                 const m2 = sk.sk.decrypt(ct);
 
@@ -309,7 +309,7 @@ fn Kyber(comptime p: Params) type {
                 return sk.sk.toBytes() ++ sk.pk.toBytes() ++ sk.hpk ++ sk.z;
             }
 
-            pub fn fromBytes(buf: *const [compressed_length]u8) SecretKey {
+            pub fn fromBytes(buf: *const [compressed_length]u8) !SecretKey {
                 var ret: SecretKey = undefined;
                 comptime var s: usize = 0;
                 ret.sk = InnerSk.fromBytes(buf[s .. s + InnerSk.compressed_length]);
@@ -1157,7 +1157,7 @@ const Poly = struct {
         comptime var batch_bytes: usize = undefined;
         comptime var mask: T = 0;
         comptime {
-            batch_count = @divTrunc(@bitSizeOf(T), 2 * eta);
+            batch_count = @bitSizeOf(T) / @as(usize, 2 * eta);
             while (@rem(N, batch_count) != 0 and batch_count > 0) : (batch_count -= 1) {}
             assert(batch_count > 0);
             assert(@rem(2 * eta * batch_count, 8) == 0);
@@ -1626,14 +1626,14 @@ test "Test happy flow" {
         for (0..100) |i| {
             seed[0] = @intCast(u8, i);
             const kp = try mode.KeyPair.create(seed);
-            const sk = mode.SecretKey.fromBytes(&kp.secret_key.toBytes());
+            const sk = try mode.SecretKey.fromBytes(&kp.secret_key.toBytes());
             try testing.expectEqual(sk, kp.secret_key);
-            const pk = mode.PublicKey.fromBytes(&kp.public_key.toBytes());
+            const pk = try mode.PublicKey.fromBytes(&kp.public_key.toBytes());
             try testing.expectEqual(pk, kp.public_key);
             for (0..10) |j| {
                 seed[1] = @intCast(u8, j);
                 const e = pk.encaps(seed[0..32].*);
-                try testing.expectEqual(e.shared_secret, sk.decaps(&e.ciphertext));
+                try testing.expectEqual(e.shared_secret, try sk.decaps(&e.ciphertext));
             }
         }
     }
@@ -1674,7 +1674,7 @@ test "NIST KAT test" {
             g2.fill(&eseed);
             const kp = try mode.KeyPair.create(kseed);
             const e = kp.public_key.encaps(eseed);
-            const ss2 = kp.secret_key.decaps(&e.ciphertext);
+            const ss2 = try kp.secret_key.decaps(&e.ciphertext);
             try testing.expectEqual(ss2, e.shared_secret);
             try std.fmt.format(fw, "pk = {s}\n", .{std.fmt.fmtSliceHexUpper(&kp.public_key.toBytes())});
             try std.fmt.format(fw, "sk = {s}\n", .{std.fmt.fmtSliceHexUpper(&kp.secret_key.toBytes())});

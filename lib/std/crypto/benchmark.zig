@@ -239,7 +239,7 @@ pub fn benchmarkKemDecaps(comptime Kem: anytype, comptime kems_count: comptime_i
     {
         var i: usize = 0;
         while (i < kems_count) : (i += 1) {
-            const ss2 = key_pair.secret_key.decaps(&e.ciphertext);
+            const ss2 = try key_pair.secret_key.decaps(&e.ciphertext);
             mem.doNotOptimizeAway(&ss2);
         }
     }
