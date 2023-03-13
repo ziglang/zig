@@ -1367,8 +1367,14 @@ pub const Value = extern union {
             },
             .Optional => {
                 assert(ty.isPtrLikeOptional());
-                if (val.isDeclRef()) return error.ReinterpretDeclRef;
-                return val.writeToMemory(Type.usize, mod, buffer);
+                var buf: Type.Payload.ElemType = undefined;
+                const child = ty.optionalChild(&buf);
+                const opt_val = val.optionalValue();
+                if (opt_val) |some| {
+                    return some.writeToMemory(child, mod, buffer);
+                } else {
+                    unreachable;
+                }
             },
             else => @panic("TODO implement writeToMemory for more types"),
         }
@@ -1478,8 +1484,14 @@ pub const Value = extern union {
             },
             .Optional => {
                 assert(ty.isPtrLikeOptional());
-                if (val.isDeclRef()) return error.ReinterpretDeclRef;
-                return val.writeToPackedMemory(Type.usize, mod, buffer, bit_offset);
+                var buf: Type.Payload.ElemType = undefined;
+                const child = ty.optionalChild(&buf);
+                const opt_val = val.optionalValue();
+                if (opt_val) |some| {
+                    return some.writeToPackedMemory(child, mod, buffer, bit_offset);
+                } else {
+                    unreachable;
+                }
             },
             else => @panic("TODO implement writeToPackedMemory for more types"),
         }
@@ -1591,7 +1603,9 @@ pub const Value = extern union {
             },
             .Optional => {
                 assert(ty.isPtrLikeOptional());
-                return readFromMemory(Type.usize, mod, buffer, arena);
+                var buf: Type.Payload.ElemType = undefined;
+                const child = ty.optionalChild(&buf);
+                return readFromMemory(child, mod, buffer, arena);
             },
             else => @panic("TODO implement readFromMemory for more types"),
         }
@@ -1686,7 +1700,9 @@ pub const Value = extern union {
             },
             .Optional => {
                 assert(ty.isPtrLikeOptional());
-                return readFromPackedMemory(Type.usize, mod, buffer, bit_offset, arena);
+                var buf: Type.Payload.ElemType = undefined;
+                const child = ty.optionalChild(&buf);
+                return readFromPackedMemory(child, mod, buffer, bit_offset, arena);
             },
             else => @panic("TODO implement readFromPackedMemory for more types"),
         }
