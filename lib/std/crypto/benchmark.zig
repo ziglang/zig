@@ -203,6 +203,60 @@ pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime
     return throughput;
 }
 
+const kems = [_]Crypto{
+    Crypto{ .ty = crypto.kem.kyber.Kyber512, .name = "kyber512" },
+    Crypto{ .ty = crypto.kem.kyber.Kyber768, .name = "kyber768" },
+    Crypto{ .ty = crypto.kem.kyber.Kyber1024, .name = "kyber1024" },
+};
+
+pub fn benchmarkKem(comptime Kem: anytype, comptime kems_count: comptime_int) !u64 {
+    const key_pair = try Kem.KeyPair.create(null);
+
+    var ct: [Kem.ciphertext_length]u8 = undefined;
+    var ss: [Kem.shared_length]u8 = undefined;
+
+    var timer = try Timer.start();
+    const start = timer.lap();
+    {
+        var i: usize = 0;
+        while (i < kems_count) : (i += 1) {
+            _ = key_pair.public_key.encaps(&ct, &ss);
+            mem.doNotOptimizeAway(&ct);
+            mem.doNotOptimizeAway(&ss);
+        }
+    }
+    const end = timer.read();
+
+    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
+    const throughput = @floatToInt(u64, kems_count / elapsed_s);
+
+    return throughput;
+}
+
+pub fn benchmarkKemDecaps(comptime Kem: anytype, comptime kems_count: comptime_int) !u64 {
+    const key_pair = try Kem.KeyPair.create(null);
+
+    var ct: [Kem.ciphertext_length]u8 = undefined;
+    var ss: [Kem.shared_length]u8 = undefined;
+    _ = key_pair.public_key.encaps(&ct, &ss);
+
+    var timer = try Timer.start();
+    const start = timer.lap();
+    {
+        var i: usize = 0;
+        while (i < kems_count) : (i += 1) {
+            const ss2 = key_pair.secret_key.decaps(&ct);
+            mem.doNotOptimizeAway(&ss2);
+        }
+    }
+    const end = timer.read();
+
+    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
+    const throughput = @floatToInt(u64, kems_count / elapsed_s);
+
+    return throughput;
+}
+
 const aeads = [_]Crypto{
     Crypto{ .ty = crypto.aead.chacha_poly.ChaCha20Poly1305, .name = "chacha20Poly1305" },
     Crypto{ .ty = crypto.aead.chacha_poly.XChaCha20Poly1305, .name = "xchacha20Poly1305" },
@@ -483,6 +537,20 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             const throughput = try benchmarkPwhash(arena_allocator, H.ty, H.params, mode(64));
             try stdout.print("{s:>17}: {d:10.3} s/ops\n", .{ H.name, throughput });
+        }
+    }
+
+    inline for (kems) |E| {
+        if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
+            const throughput = try benchmarkKem(E.ty, mode(1000));
+            try stdout.print("{s:>17}: {:10} encaps/s\n", .{ E.name, throughput });
+        }
+    }
+
+    inline for (kems) |E| {
+        if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
+            const throughput = try benchmarkKemDecaps(E.ty, mode(1000));
+            try stdout.print("{s:>17}: {:10} decaps/s\n", .{ E.name, throughput });
         }
     }
 }
