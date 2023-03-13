@@ -105,8 +105,10 @@ pub fn receiveMessage(s: *Server) !InMessage.Header {
         assert(fifo.readableLength() == buf.len);
         if (buf.len >= @sizeOf(Header)) {
             const header = @ptrCast(*align(1) const Header, buf[0..@sizeOf(Header)]);
-            const bytes_len = bswap(header.bytes_len);
-            const tag = bswap(header.tag);
+            // workaround for https://github.com/ziglang/zig/issues/14904
+            const bytes_len = bswap_and_workaround_u32(&header.bytes_len);
+            // workaround for https://github.com/ziglang/zig/issues/14904
+            const tag = bswap_and_workaround_tag(&header.tag);
 
             if (buf.len - @sizeOf(Header) >= bytes_len) {
                 fifo.discard(@sizeOf(Header));
@@ -276,6 +278,19 @@ fn bswap(x: anytype) @TypeOf(x) {
 fn bswap_u32_array(slice: []u32) void {
     comptime assert(need_bswap);
     for (slice) |*elem| elem.* = @byteSwap(elem.*);
+}
+
+/// workaround for https://github.com/ziglang/zig/issues/14904
+fn bswap_and_workaround_u32(x: *align(1) const u32) u32 {
+    const bytes_ptr = @ptrCast(*const [4]u8, x);
+    return std.mem.readIntLittle(u32, bytes_ptr);
+}
+
+/// workaround for https://github.com/ziglang/zig/issues/14904
+fn bswap_and_workaround_tag(x: *align(1) const InMessage.Tag) InMessage.Tag {
+    const bytes_ptr = @ptrCast(*const [4]u8, x);
+    const int = std.mem.readIntLittle(u32, bytes_ptr);
+    return @intToEnum(InMessage.Tag, int);
 }
 
 const OutMessage = std.zig.Server.Message;
