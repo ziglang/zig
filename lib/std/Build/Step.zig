@@ -428,10 +428,19 @@ pub fn handleVerbose(
     opt_cwd: ?[]const u8,
     argv: []const []const u8,
 ) error{OutOfMemory}!void {
+    return handleVerbose2(b, opt_cwd, null, argv);
+}
+
+pub fn handleVerbose2(
+    b: *Build,
+    opt_cwd: ?[]const u8,
+    opt_env: ?*const std.process.EnvMap,
+    argv: []const []const u8,
+) error{OutOfMemory}!void {
     if (b.verbose) {
         // Intention of verbose is to print all sub-process command lines to
         // stderr before spawning them.
-        const text = try allocPrintCmd(b.allocator, opt_cwd, argv);
+        const text = try allocPrintCmd2(b.allocator, opt_cwd, opt_env, argv);
         std.debug.print("{s}\n", .{text});
     }
 }
@@ -474,9 +483,34 @@ pub fn handleChildProcessTerm(
     }
 }
 
-pub fn allocPrintCmd(arena: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) ![]u8 {
+pub fn allocPrintCmd(
+    arena: Allocator,
+    opt_cwd: ?[]const u8,
+    argv: []const []const u8,
+) ![]u8 {
+    return allocPrintCmd2(arena, opt_cwd, null, argv);
+}
+
+pub fn allocPrintCmd2(
+    arena: Allocator,
+    opt_cwd: ?[]const u8,
+    opt_env: ?*const std.process.EnvMap,
+    argv: []const []const u8,
+) ![]u8 {
     var buf: std.ArrayListUnmanaged(u8) = .{};
     if (opt_cwd) |cwd| try buf.writer(arena).print("cd {s} && ", .{cwd});
+    if (opt_env) |env| {
+        const process_env_map = try std.process.getEnvMap(arena);
+        var it = env.iterator();
+        while (it.next()) |entry| {
+            const key = entry.key_ptr.*;
+            const value = entry.value_ptr.*;
+            if (process_env_map.get(key)) |process_value| {
+                if (std.mem.eql(u8, value, process_value)) continue;
+            }
+            try buf.writer(arena).print("{s}={s} ", .{ key, value });
+        }
+    }
     for (argv) |arg| {
         try buf.writer(arena).print("{s} ", .{arg});
     }

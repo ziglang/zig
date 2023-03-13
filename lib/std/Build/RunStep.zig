@@ -206,40 +206,30 @@ pub fn clearEnvironment(self: *RunStep) void {
 }
 
 pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
-    addPathDirInternal(&self.step, self.step.owner, search_path);
-}
-
-/// For internal use only, users of `RunStep` should use `addPathDir` directly.
-pub fn addPathDirInternal(step: *Step, builder: *std.Build, search_path: []const u8) void {
-    const env_map = getEnvMapInternal(step, builder.allocator);
+    const b = self.step.owner;
+    const env_map = getEnvMapInternal(self);
 
     const key = "PATH";
     var prev_path = env_map.get(key);
 
     if (prev_path) |pp| {
-        const new_path = builder.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });
+        const new_path = b.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });
         env_map.put(key, new_path) catch @panic("OOM");
     } else {
-        env_map.put(key, builder.dupePath(search_path)) catch @panic("OOM");
+        env_map.put(key, b.dupePath(search_path)) catch @panic("OOM");
     }
 }
 
 pub fn getEnvMap(self: *RunStep) *EnvMap {
-    return getEnvMapInternal(&self.step, self.step.owner.allocator);
+    return getEnvMapInternal(self);
 }
 
-fn getEnvMapInternal(step: *Step, allocator: Allocator) *EnvMap {
-    const maybe_env_map = switch (step.id) {
-        .run => step.cast(RunStep).?.env_map,
-        else => unreachable,
-    };
-    return maybe_env_map orelse {
-        const env_map = allocator.create(EnvMap) catch @panic("OOM");
-        env_map.* = process.getEnvMap(allocator) catch @panic("unhandled error");
-        switch (step.id) {
-            .run => step.cast(RunStep).?.env_map = env_map,
-            else => unreachable,
-        }
+fn getEnvMapInternal(self: *RunStep) *EnvMap {
+    const arena = self.step.owner.allocator;
+    return self.env_map orelse {
+        const env_map = arena.create(EnvMap) catch @panic("OOM");
+        env_map.* = process.getEnvMap(arena) catch @panic("unhandled error");
+        self.env_map = env_map;
         return env_map;
     };
 }
@@ -248,6 +238,10 @@ pub fn setEnvironmentVariable(self: *RunStep, key: []const u8, value: []const u8
     const b = self.step.owner;
     const env_map = self.getEnvMap();
     env_map.put(b.dupe(key), b.dupe(value)) catch @panic("unhandled error");
+}
+
+pub fn removeEnvironmentVariable(self: *RunStep, key: []const u8) void {
+    self.getEnvMap().remove(key);
 }
 
 /// Adds a check for exact stderr match. Does not add any other checks.
@@ -553,7 +547,7 @@ fn runCommand(
     const arena = b.allocator;
 
     try step.handleChildProcUnsupported(self.cwd, argv);
-    try Step.handleVerbose(step.owner, self.cwd, argv);
+    try Step.handleVerbose2(step.owner, self.cwd, self.env_map, argv);
 
     const allow_skip = switch (self.stdio) {
         .check, .zig_test => self.skip_foreign_checks,
@@ -676,10 +670,10 @@ fn runCommand(
 
             if (exe.target.isWindows()) {
                 // On Windows we don't have rpaths so we have to add .dll search paths to PATH
-                RunStep.addPathForDynLibsInternal(&self.step, b, exe);
+                self.addPathForDynLibs(exe);
             }
 
-            try Step.handleVerbose(step.owner, self.cwd, interp_argv.items);
+            try Step.handleVerbose2(step.owner, self.cwd, self.env_map, interp_argv.items);
 
             break :term spawnChildAndCollect(self, interp_argv.items, has_side_effects, prog_node) catch |e| {
                 return step.fail("unable to spawn {s}: {s}", .{
@@ -1177,18 +1171,13 @@ fn evalGeneric(self: *RunStep, child: *std.process.Child) !StdIoResult {
 }
 
 fn addPathForDynLibs(self: *RunStep, artifact: *CompileStep) void {
-    addPathForDynLibsInternal(&self.step, self.step.owner, artifact);
-}
-
-/// This should only be used for internal usage, this is called automatically
-/// for the user.
-pub fn addPathForDynLibsInternal(step: *Step, builder: *std.Build, artifact: *CompileStep) void {
+    const b = self.step.owner;
     for (artifact.link_objects.items) |link_object| {
         switch (link_object) {
             .other_step => |other| {
                 if (other.target.isWindows() and other.isDynamicLibrary()) {
-                    addPathDirInternal(step, builder, fs.path.dirname(other.getOutputSource().getPath(builder)).?);
-                    addPathForDynLibsInternal(step, builder, other);
+                    addPathDir(self, fs.path.dirname(other.getOutputSource().getPath(b)).?);
+                    addPathForDynLibs(self, other);
                 }
             },
             else => {},
