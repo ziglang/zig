@@ -105,13 +105,17 @@ pub fn receiveMessage(s: *Server) !InMessage.Header {
         assert(fifo.readableLength() == buf.len);
         if (buf.len >= @sizeOf(Header)) {
             const header = @ptrCast(*align(1) const Header, buf[0..@sizeOf(Header)]);
+            const bytes_len = bswap(header.bytes_len);
+            const tag = bswap(header.tag);
 
-            if (buf.len - @sizeOf(Header) >= header.bytes_len) {
-                const result = header.*;
+            if (buf.len - @sizeOf(Header) >= bytes_len) {
                 fifo.discard(@sizeOf(Header));
-                return result;
+                return .{
+                    .tag = tag,
+                    .bytes_len = bytes_len,
+                };
             } else {
-                const needed = header.bytes_len - (buf.len - @sizeOf(Header));
+                const needed = bytes_len - (buf.len - @sizeOf(Header));
                 const write_buffer = try fifo.writableWithSize(needed);
                 const amt = try s.in.read(write_buffer);
                 fifo.update(amt);
@@ -130,7 +134,7 @@ pub fn receiveBody_u32(s: *Server) !u32 {
     const buf = fifo.readableSlice(0);
     const result = @ptrCast(*align(1) const u32, buf[0..4]).*;
     fifo.discard(4);
-    return result;
+    return bswap(result);
 }
 
 pub fn serveStringMessage(s: *Server, tag: OutMessage.Tag, msg: []const u8) !void {
@@ -146,8 +150,9 @@ pub fn serveMessage(
     bufs: []const []const u8,
 ) !void {
     var iovecs: [10]std.os.iovec_const = undefined;
+    const header_le = bswap(header);
     iovecs[0] = .{
-        .iov_base = @ptrCast([*]const u8, &header),
+        .iov_base = @ptrCast([*]const u8, &header_le),
         .iov_len = @sizeOf(OutMessage.Header),
     };
     for (bufs, iovecs[1 .. bufs.len + 1]) |buf, *iovec| {
@@ -177,11 +182,12 @@ pub fn serveTestResults(
     s: *Server,
     msg: OutMessage.TestResults,
 ) !void {
+    const msg_le = bswap(msg);
     try s.serveMessage(.{
         .tag = .test_results,
         .bytes_len = @intCast(u32, @sizeOf(OutMessage.TestResults)),
     }, &.{
-        std.mem.asBytes(&msg),
+        std.mem.asBytes(&msg_le),
     });
 }
 
@@ -204,19 +210,31 @@ pub fn serveErrorBundle(s: *Server, error_bundle: std.zig.ErrorBundle) !void {
 }
 
 pub const TestMetadata = struct {
-    names: []const u32,
-    async_frame_sizes: []const u32,
-    expected_panic_msgs: []const u32,
+    names: []u32,
+    async_frame_sizes: []u32,
+    expected_panic_msgs: []u32,
     string_bytes: []const u8,
 };
 
 pub fn serveTestMetadata(s: *Server, test_metadata: TestMetadata) !void {
     const header: OutMessage.TestMetadata = .{
-        .tests_len = @intCast(u32, test_metadata.names.len),
-        .string_bytes_len = @intCast(u32, test_metadata.string_bytes.len),
+        .tests_len = bswap(@intCast(u32, test_metadata.names.len)),
+        .string_bytes_len = bswap(@intCast(u32, test_metadata.string_bytes.len)),
     };
     const bytes_len = @sizeOf(OutMessage.TestMetadata) +
         3 * 4 * test_metadata.names.len + test_metadata.string_bytes.len;
+
+    if (need_bswap) {
+        bswap_u32_array(test_metadata.names);
+        bswap_u32_array(test_metadata.async_frame_sizes);
+        bswap_u32_array(test_metadata.expected_panic_msgs);
+    }
+    defer if (need_bswap) {
+        bswap_u32_array(test_metadata.names);
+        bswap_u32_array(test_metadata.async_frame_sizes);
+        bswap_u32_array(test_metadata.expected_panic_msgs);
+    };
+
     return s.serveMessage(.{
         .tag = .test_metadata,
         .bytes_len = @intCast(u32, bytes_len),
@@ -230,10 +248,43 @@ pub fn serveTestMetadata(s: *Server, test_metadata: TestMetadata) !void {
     });
 }
 
+fn bswap(x: anytype) @TypeOf(x) {
+    if (!need_bswap) return x;
+
+    const T = @TypeOf(x);
+    switch (@typeInfo(T)) {
+        .Enum => return @intToEnum(T, @byteSwap(@enumToInt(x))),
+        .Int => return @byteSwap(x),
+        .Struct => |info| switch (info.layout) {
+            .Extern => {
+                var result: T = undefined;
+                inline for (info.fields) |field| {
+                    @field(result, field.name) = bswap(@field(x, field.name));
+                }
+                return result;
+            },
+            .Packed => {
+                const I = info.backing_integer.?;
+                return @bitCast(T, @byteSwap(@bitCast(I, x)));
+            },
+            .Auto => @compileError("auto layout struct"),
+        },
+        else => @compileError("bswap on type " ++ @typeName(T)),
+    }
+}
+
+fn bswap_u32_array(slice: []u32) void {
+    comptime assert(need_bswap);
+    for (slice) |*elem| elem.* = @byteSwap(elem.*);
+}
+
 const OutMessage = std.zig.Server.Message;
 const InMessage = std.zig.Client.Message;
 
 const Server = @This();
+const builtin = @import("builtin");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const native_endian = builtin.target.cpu.arch.endian();
+const need_bswap = native_endian != .Little;
