@@ -82,6 +82,8 @@ fn addExpect(
     });
 
     const run = b.addRunArtifact(exe);
+    run.removeEnvironmentVariable("ZIG_DEBUG_COLOR");
+    run.setEnvironmentVariable("NO_COLOR", "1");
     run.expectExitCode(1);
     run.expectStdOutEqual("");
 
