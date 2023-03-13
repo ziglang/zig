@@ -33,17 +33,13 @@ pub fn main() void {
     }
 
     if (listen) {
-        return mainServer();
+        return mainServer() catch @panic("internal test runner failure");
     } else {
         return mainTerminal();
     }
 }
 
-fn mainServer() void {
-    return mainServerFallible() catch @panic("internal test runner failure");
-}
-
-fn mainServerFallible() !void {
+fn mainServer() !void {
     var server = try std.zig.Server.init(.{
         .gpa = fba.allocator(),
         .in = std.io.getStdIn(),
