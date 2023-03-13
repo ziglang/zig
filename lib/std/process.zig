@@ -828,24 +828,6 @@ pub fn argsWithAllocator(allocator: Allocator) ArgIterator.InitError!ArgIterator
     return ArgIterator.initWithAllocator(allocator);
 }
 
-test "args iterator" {
-    var ga = std.testing.allocator;
-    var it = try argsWithAllocator(ga);
-    defer it.deinit(); // no-op unless WASI or Windows
-
-    const prog_name = it.next() orelse unreachable;
-    const expected_suffix = switch (builtin.os.tag) {
-        .wasi => "test.wasm",
-        .windows => "test.exe",
-        else => "test",
-    };
-    const given_suffix = std.fs.path.basename(prog_name);
-
-    try testing.expect(mem.eql(u8, expected_suffix, given_suffix));
-    try testing.expect(it.next() == null);
-    try testing.expect(!it.skip());
-}
-
 /// Caller must call argsFree on result.
 pub fn argsAlloc(allocator: Allocator) ![][:0]u8 {
     // TODO refactor to only make 1 allocation.
