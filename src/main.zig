@@ -365,7 +365,6 @@ const usage_build_generic =
     \\
     \\General Options:
     \\  -h, --help                Print this help and exit
-    \\  --watch                   Enable compiler REPL
     \\  --color [auto|off|on]     Enable or disable colored error messages
     \\  -femit-bin[=path]         (default) Output machine code
     \\  -fno-emit-bin             Do not output machine code
@@ -700,7 +699,6 @@ fn buildOutputType(
     var formatted_panics: ?bool = null;
     var function_sections = false;
     var no_builtin = false;
-    var watch = false;
     var listen: Listen = .none;
     var debug_compile_errors = false;
     var verbose_link = (builtin.os.tag != .wasi or builtin.link_libc) and std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
@@ -1163,7 +1161,6 @@ fn buildOutputType(
                         const next_arg = args_iter.nextOrFatal();
                         if (mem.eql(u8, next_arg, "-")) {
                             listen = .stdio;
-                            watch = true;
                         } else {
                             if (build_options.omit_pkg_fetching_code) unreachable;
                             // example: --listen 127.0.0.1:9000
@@ -1174,11 +1171,9 @@ fn buildOutputType(
                                 fatal("invalid port number: '{s}': {s}", .{ port_text, @errorName(err) });
                             listen = .{ .ip4 = std.net.Ip4Address.parse(host, port) catch |err|
                                 fatal("invalid host: '{s}': {s}", .{ host, @errorName(err) }) };
-                            watch = true;
                         }
                     } else if (mem.eql(u8, arg, "--listen=-")) {
                         listen = .stdio;
-                        watch = true;
                     } else if (mem.eql(u8, arg, "--debug-link-snapshot")) {
                         if (!build_options.enable_link_snapshots) {
                             std.log.warn("Zig was compiled without linker snapshots enabled (-Dlink-snapshot). --debug-link-snapshot has no effect.", .{});
@@ -1207,8 +1202,6 @@ fn buildOutputType(
                         test_evented_io = true;
                     } else if (mem.eql(u8, arg, "--test-no-exec")) {
                         test_no_exec = true;
-                    } else if (mem.eql(u8, arg, "--watch")) {
-                        watch = true;
                     } else if (mem.eql(u8, arg, "-ftime-report")) {
                         time_report = true;
                     } else if (mem.eql(u8, arg, "-fstack-report")) {
@@ -3355,7 +3348,7 @@ fn buildOutputType(
     };
 
     updateModule(gpa, comp, hook) catch |err| switch (err) {
-        error.SemanticAnalyzeFail => if (!watch) process.exit(1),
+        error.SemanticAnalyzeFail => if (listen == .none) process.exit(1),
         else => |e| return e,
     };
     if (build_options.only_c) return cleanExit();
@@ -3411,7 +3404,6 @@ fn buildOutputType(
             self_exe_path.?,
             arg_mode,
             target_info,
-            watch,
             &comp_destroyed,
             all_args,
             runtime_args_start,
@@ -3419,113 +3411,6 @@ fn buildOutputType(
         );
     }
 
-    // TODO move this REPL implementation to the standard library / build
-    // system and have it be a CLI abstraction layer on top of the real, actual
-    // binary protocol of the compiler. Make it actually interface through the
-    // server protocol. This way the REPL does not have any special powers that
-    // an IDE couldn't also have.
-
-    const stdin = std.io.getStdIn().reader();
-    const stderr = std.io.getStdErr().writer();
-    var repl_buf: [1024]u8 = undefined;
-
-    const ReplCmd = enum {
-        update,
-        help,
-        run,
-        update_and_run,
-    };
-
-    var last_cmd: ReplCmd = .help;
-
-    while (watch) {
-        try stderr.print("(zig) ", .{});
-        try comp.makeBinFileExecutable();
-        if (stdin.readUntilDelimiterOrEof(&repl_buf, '\n') catch |err| {
-            try stderr.print("\nUnable to parse command: {s}\n", .{@errorName(err)});
-            continue;
-        }) |line| {
-            const actual_line = mem.trimRight(u8, line, "\r\n ");
-            const cmd: ReplCmd = blk: {
-                if (mem.eql(u8, actual_line, "update")) {
-                    break :blk .update;
-                } else if (mem.eql(u8, actual_line, "exit")) {
-                    break;
-                } else if (mem.eql(u8, actual_line, "help")) {
-                    break :blk .help;
-                } else if (mem.eql(u8, actual_line, "run")) {
-                    break :blk .run;
-                } else if (mem.eql(u8, actual_line, "update-and-run")) {
-                    break :blk .update_and_run;
-                } else if (actual_line.len == 0) {
-                    break :blk last_cmd;
-                } else {
-                    try stderr.print("unknown command: {s}\n", .{actual_line});
-                    continue;
-                }
-            };
-            last_cmd = cmd;
-            switch (cmd) {
-                .update => {
-                    tracy.frameMark();
-                    if (output_mode == .Exe) {
-                        try comp.makeBinFileWritable();
-                    }
-                    updateModule(gpa, comp, hook) catch |err| switch (err) {
-                        error.SemanticAnalyzeFail => continue,
-                        else => |e| return e,
-                    };
-                },
-                .help => {
-                    try stderr.writeAll(repl_help);
-                },
-                .run => {
-                    tracy.frameMark();
-                    try runOrTest(
-                        comp,
-                        gpa,
-                        arena,
-                        test_exec_args.items,
-                        self_exe_path.?,
-                        arg_mode,
-                        target_info,
-                        watch,
-                        &comp_destroyed,
-                        all_args,
-                        runtime_args_start,
-                        link_libc,
-                    );
-                },
-                .update_and_run => {
-                    tracy.frameMark();
-                    if (output_mode == .Exe) {
-                        try comp.makeBinFileWritable();
-                    }
-                    updateModule(gpa, comp, hook) catch |err| switch (err) {
-                        error.SemanticAnalyzeFail => continue,
-                        else => |e| return e,
-                    };
-                    try comp.makeBinFileExecutable();
-                    try runOrTest(
-                        comp,
-                        gpa,
-                        arena,
-                        test_exec_args.items,
-                        self_exe_path.?,
-                        arg_mode,
-                        target_info,
-                        watch,
-                        &comp_destroyed,
-                        all_args,
-                        runtime_args_start,
-                        link_libc,
-                    );
-                },
-            }
-        } else {
-            break;
-        }
-    }
     // Skip resource deallocation in release builds; let the OS do it.
     return cleanExit();
 }
@@ -3822,7 +3707,6 @@ fn runOrTest(
     self_exe_path: []const u8,
     arg_mode: ArgMode,
     target_info: std.zig.system.NativeTargetInfo,
-    watch: bool,
     comp_destroyed: *bool,
     all_args: []const []const u8,
     runtime_args_start: ?usize,
@@ -3853,7 +3737,7 @@ fn runOrTest(
 
     // We do not execve for tests because if the test fails we want to print
     // the error message and invocation below.
-    if (std.process.can_execv and arg_mode == .run and !watch) {
+    if (std.process.can_execv and arg_mode == .run) {
         // execv releases the locks; no need to destroy the Compilation here.
         const err = std.process.execve(gpa, argv.items, &env_map);
         try warnAboutForeignBinaries(arena, arg_mode, target_info, link_libc);
@@ -3866,12 +3750,10 @@ fn runOrTest(
         child.stdout_behavior = .Inherit;
         child.stderr_behavior = .Inherit;
 
-        if (!watch) {
-            // Here we release all the locks associated with the Compilation so
-            // that whatever this child process wants to do won't deadlock.
-            comp.destroy();
-            comp_destroyed.* = true;
-        }
+        // Here we release all the locks associated with the Compilation so
+        // that whatever this child process wants to do won't deadlock.
+        comp.destroy();
+        comp_destroyed.* = true;
 
         const term = child.spawnAndWait() catch |err| {
             try warnAboutForeignBinaries(arena, arg_mode, target_info, link_libc);
@@ -3883,19 +3765,13 @@ fn runOrTest(
                 switch (term) {
                     .Exited => |code| {
                         if (code == 0) {
-                            if (!watch) return cleanExit();
-                        } else if (watch) {
-                            warn("process exited with code {d}", .{code});
+                            return cleanExit();
                         } else {
                             process.exit(code);
                         }
                     },
                     else => {
-                        if (watch) {
-                            warn("process aborted abnormally", .{});
-                        } else {
-                            process.exit(1);
-                        }
+                        process.exit(1);
                     },
                 }
             },
@@ -3903,7 +3779,7 @@ fn runOrTest(
                 switch (term) {
                     .Exited => |code| {
                         if (code == 0) {
-                            if (!watch) return cleanExit();
+                            return cleanExit();
                         } else {
                             const cmd = try std.mem.join(arena, " ", argv.items);
                             fatal("the following test command failed with exit code {d}:\n{s}", .{ code, cmd });
