@@ -70,7 +70,7 @@ pub const dh = struct {
 
 /// Key Encapsulation Mechanisms.
 pub const kem = struct {
-    pub const kyber = @import("crypto/kyber.zig");
+    pub const kyber_d00 = @import("crypto/kyber_d00.zig");
 };
 
 /// Elliptic-curve arithmetic.
@@ -249,7 +249,7 @@ test {
 
     _ = dh.X25519;
 
-    _ = kem.kyber;
+    _ = kem.kyber_d00;
 
     _ = ecc.Curve25519;
     _ = ecc.Edwards25519;

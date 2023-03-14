@@ -204,9 +204,9 @@ pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime
 }
 
 const kems = [_]Crypto{
-    Crypto{ .ty = crypto.kem.kyber.Kyber512, .name = "kyber512" },
-    Crypto{ .ty = crypto.kem.kyber.Kyber768, .name = "kyber768" },
-    Crypto{ .ty = crypto.kem.kyber.Kyber1024, .name = "kyber1024" },
+    Crypto{ .ty = crypto.kem.kyber_d00.Kyber512, .name = "kyber512d00" },
+    Crypto{ .ty = crypto.kem.kyber_d00.Kyber768, .name = "kyber768d00" },
+    Crypto{ .ty = crypto.kem.kyber_d00.Kyber1024, .name = "kyber1024d00" },
 };
 
 pub fn benchmarkKem(comptime Kem: anytype, comptime kems_count: comptime_int) !u64 {
