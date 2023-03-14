@@ -660,20 +660,19 @@ pub fn addLinkTests(
 
 pub fn addCliTests(b: *std.Build) *Step {
     const step = b.step("test-cli", "Test the command line interface");
+    const s = std.fs.path.sep_str;
 
     {
+
         // Test `zig init-lib`.
         const tmp_path = b.makeTempPath();
         const init_lib = b.addSystemCommand(&.{ b.zig_exe, "init-lib" });
         init_lib.cwd = tmp_path;
         init_lib.setName("zig init-lib");
         init_lib.expectStdOutEqual("");
-        init_lib.expectStdErrEqual(
-            \\info: Created build.zig
-            \\info: Created src/main.zig
-            \\info: Next, try `zig build --help` or `zig build test`
-            \\
-        );
+        init_lib.expectStdErrEqual("info: Created build.zig\n" ++
+            "info: Created src" ++ s ++ "main.zig\n" ++
+            "info: Next, try `zig build --help` or `zig build test`\n");
 
         const run_test = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
         run_test.cwd = tmp_path;
@@ -694,15 +693,11 @@ pub fn addCliTests(b: *std.Build) *Step {
         init_exe.cwd = tmp_path;
         init_exe.setName("zig init-exe");
         init_exe.expectStdOutEqual("");
-        init_exe.expectStdErrEqual(
-            \\info: Created build.zig
-            \\info: Created src/main.zig
-            \\info: Next, try `zig build --help` or `zig build run`
-            \\
-        );
+        init_exe.expectStdErrEqual("info: Created build.zig\n" ++
+            "info: Created src" ++ s ++ "main.zig\n" ++
+            "info: Next, try `zig build --help` or `zig build run`\n");
 
         // Test missing output path.
-        const s = std.fs.path.sep_str;
         const bad_out_arg = "-femit-bin=does" ++ s ++ "not" ++ s ++ "exist" ++ s ++ "foo.exe";
         const ok_src_arg = "src" ++ s ++ "main.zig";
         const expected = "error: unable to open output directory 'does" ++ s ++ "not" ++ s ++ "exist': FileNotFound\n";
@@ -785,7 +780,6 @@ pub fn addCliTests(b: *std.Build) *Step {
         // owners.
         const tmp_path = b.makeTempPath();
         const unformatted_code = "    // no reason for indent";
-        const s = std.fs.path.sep_str;
 
         var dir = std.fs.cwd().openDir(tmp_path, .{}) catch @panic("unhandled");
         defer dir.close();
