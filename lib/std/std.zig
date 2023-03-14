@@ -190,6 +190,11 @@ pub const options = struct {
         options_override.http_connection_pool_size
     else
         http.Client.default_connection_pool_size;
+
+    pub const side_channels_mitigations: crypto.SideChannelsMitigations = if (@hasDecl(options_override, "side_channels_mitigations"))
+        options_override.side_channels_mitigations
+    else
+        crypto.default_side_channels_mitigations;
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that
