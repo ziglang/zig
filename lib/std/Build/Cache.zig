@@ -439,7 +439,10 @@ pub const Manifest = struct {
                 self.manifest_file = manifest_file;
                 self.have_exclusive_lock = true;
             } else |err| switch (err) {
-                error.WouldBlock => {
+                // There are no dir components, so you would think that this was
+                // unreachable, however we have observed on macOS two processes racing
+                // to do openat() with O_CREAT manifest in ENOENT.
+                error.WouldBlock, error.FileNotFound => {
                     self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
                         .lock = .Shared,
                     });
