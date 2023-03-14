@@ -532,14 +532,17 @@ const PrintNode = struct {
     last: bool = false,
 };
 
-fn printPrefix(node: *PrintNode, stderr: std.fs.File) !void {
+fn printPrefix(node: *PrintNode, stderr: std.fs.File, ttyconf: std.debug.TTY.Config) !void {
     const parent = node.parent orelse return;
     if (parent.parent == null) return;
-    try printPrefix(parent, stderr);
+    try printPrefix(parent, stderr, ttyconf);
     if (parent.last) {
         try stderr.writeAll("   ");
     } else {
-        try stderr.writeAll("│  ");
+        try stderr.writeAll(switch (ttyconf) {
+            .no_color, .windows_api => "|  ",
+            .escape_codes => "\x1B\x28\x30\x78\x1B\x28\x42  ", // │
+        });
     }
 }
 
@@ -552,14 +555,20 @@ fn printTreeStep(
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
 ) !void {
     const first = step_stack.swapRemove(s);
-    try printPrefix(parent_node, stderr);
+    try printPrefix(parent_node, stderr, ttyconf);
 
     if (!first) try ttyconf.setColor(stderr, .Dim);
     if (parent_node.parent != null) {
         if (parent_node.last) {
-            try stderr.writeAll("└─ ");
+            try stderr.writeAll(switch (ttyconf) {
+                .no_color, .windows_api => "+- ",
+                .escape_codes => "\x1B\x28\x30\x6d\x71\x1B\x28\x42 ", // └─
+            });
         } else {
-            try stderr.writeAll("├─ ");
+            try stderr.writeAll(switch (ttyconf) {
+                .no_color, .windows_api => "+- ",
+                .escape_codes => "\x1B\x28\x30\x74\x71\x1B\x28\x42 ", // ├─
+            });
         }
     }
 
