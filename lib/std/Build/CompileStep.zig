@@ -83,7 +83,6 @@ c_std: std.Build.CStd,
 zig_lib_dir: ?[]const u8,
 main_pkg_path: ?[]const u8,
 exec_cmd_args: ?[]const ?[]const u8,
-name_prefix: []const u8,
 filter: ?[]const u8,
 test_evented_io: bool = false,
 test_runner: ?[]const u8,
@@ -374,7 +373,6 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         .zig_lib_dir = null,
         .main_pkg_path = null,
         .exec_cmd_args = null,
-        .name_prefix = "",
         .filter = null,
         .test_runner = null,
         .disable_stack_probing = false,
@@ -847,10 +845,10 @@ fn linkSystemLibraryInner(self: *CompileStep, name: []const u8, opts: struct {
     }) catch @panic("OOM");
 }
 
-pub fn setNamePrefix(self: *CompileStep, text: []const u8) void {
+pub fn setName(self: *CompileStep, text: []const u8) void {
     const b = self.step.owner;
     assert(self.kind == .@"test");
-    self.name_prefix = b.dupe(text);
+    self.name = b.dupe(text);
 }
 
 pub fn setFilter(self: *CompileStep, text: ?[]const u8) void {
@@ -1422,11 +1420,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     if (self.test_evented_io) {
         try zig_args.append("--test-evented-io");
-    }
-
-    if (self.name_prefix.len != 0) {
-        try zig_args.append("--test-name-prefix");
-        try zig_args.append(self.name_prefix);
     }
 
     if (self.test_runner) |test_runner| {

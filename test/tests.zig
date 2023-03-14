@@ -1054,10 +1054,8 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
             }
 
             const triple_prefix = c_abi_target.zigTriple(b.allocator) catch @panic("OOM");
-            test_step.setNamePrefix(b.fmt("{s}-{s}-{s} ", .{
-                "test-c-abi",
-                triple_prefix,
-                @tagName(optimize_mode),
+            test_step.setName(b.fmt("test-c-abi-{s}-{s} ", .{
+                triple_prefix, @tagName(optimize_mode),
             }));
 
             const run = test_step.run();
