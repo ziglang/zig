@@ -180,6 +180,16 @@ pub const Segment = struct {
     alignment: u32,
     size: u32,
     offset: u32,
+    flags: u32,
+
+    pub const Flag = enum(u32) {
+        WASM_DATA_SEGMENT_IS_PASSIVE = 0x01,
+        WASM_DATA_SEGMENT_HAS_MEMINDEX = 0x02,
+    };
+
+    pub fn isPassive(segment: Segment) bool {
+        return segment.flags & @enumToInt(Flag.WASM_DATA_SEGMENT_IS_PASSIVE) != 0;
+    }
 };
 
 pub const Export = struct {
@@ -1673,6 +1683,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
                     .alignment = atom.alignment,
                     .size = atom.size,
                     .offset = 0,
+                    .flags = 0,
                 });
             }
 
@@ -1711,10 +1722,15 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
                 break :result index;
             } else {
                 const index = @intCast(u32, wasm.segments.items.len);
+                var flags: u32 = 0;
+                if (wasm.base.options.shared_memory) {
+                    flags |= @enumToInt(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
+                }
                 try wasm.segments.append(wasm.base.allocator, .{
                     .alignment = atom.alignment,
                     .size = 0,
                     .offset = 0,
+                    .flags = flags,
                 });
                 gop.value_ptr.* = index;
 
@@ -2365,7 +2381,16 @@ pub fn getMatchingSegment(wasm: *Wasm, object_index: u16, relocatable_index: u32
             const result = try wasm.data_segments.getOrPut(wasm.base.allocator, segment_info.outputName(merge_segment));
             if (!result.found_existing) {
                 result.value_ptr.* = index;
-                try wasm.appendDummySegment();
+                var flags: u32 = 0;
+                if (wasm.base.options.shared_memory) {
+                    flags |= @enumToInt(Segment.Flag.WASM_DATA_SEGMENT_IS_PASSIVE);
+                }
+                try wasm.segments.append(wasm.base.allocator, .{
+                    .alignment = 1,
+                    .size = 0,
+                    .offset = 0,
+                    .flags = flags,
+                });
                 return index;
             } else return result.value_ptr.*;
         },
@@ -2439,6 +2464,7 @@ fn appendDummySegment(wasm: *Wasm) !void {
         .alignment = 1,
         .size = 0,
         .offset = 0,
+        .flags = 0,
     });
 }
 
@@ -3147,6 +3173,19 @@ fn writeToFile(
         section_count += 1;
     }
 
+    // When the shared-memory option is enabled, we *must* emit the 'data count' section.
+    const data_segments_count = wasm.data_segments.count() - @boolToInt(wasm.data_segments.contains(".bss") and import_memory);
+    if (data_segments_count != 0 and wasm.base.options.shared_memory) {
+        const header_offset = try reserveVecSectionHeader(&binary_bytes);
+        try writeVecSectionHeader(
+            binary_bytes.items,
+            header_offset,
+            .data_count,
+            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
+            @intCast(u32, data_segments_count),
+        );
+    }
+
     // Code section
     var code_section_size: u32 = 0;
     if (wasm.code_section_index) |code_index| {
@@ -3197,7 +3236,7 @@ fn writeToFile(
     }
 
     // Data section
-    if (wasm.data_segments.count() != 0) {
+    if (data_segments_count != 0) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
         var it = wasm.data_segments.iterator();
@@ -3212,10 +3251,15 @@ fn writeToFile(
             segment_count += 1;
             var atom_index = wasm.atoms.get(segment_index).?;
 
-            // flag and index to memory section (currently, there can only be 1 memory section in wasm)
-            try leb.writeULEB128(binary_writer, @as(u32, 0));
+            try leb.writeULEB128(binary_writer, segment.flags);
+            if (segment.flags & @enumToInt(Wasm.Segment.Flag.WASM_DATA_SEGMENT_HAS_MEMINDEX) != 0) {
+                try leb.writeULEB128(binary_writer, @as(u32, 0)); // memory is always index 0 as we only have 1 memory entry
+            }
+            // when a segment is passive, it's initialized during runtime.
+            if (!segment.isPassive()) {
+                try emitInit(binary_writer, .{ .i32_const = @bitCast(i32, segment.offset) });
+            }
             // offset into data section
-            try emitInit(binary_writer, .{ .i32_const = @bitCast(i32, segment.offset) });
             try leb.writeULEB128(binary_writer, segment.size);
 
             // fill in the offset table and the data segments
