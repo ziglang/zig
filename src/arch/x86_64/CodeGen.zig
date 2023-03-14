@@ -2861,7 +2861,13 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 .unreach => unreachable,
                 .eflags => unreachable,
                 .undef => {
-                    try self.genSetReg(value_ty, reg, value);
+                    switch (abi_size) {
+                        1 => try self.store(ptr, .{ .immediate = 0xaa }, ptr_ty, value_ty),
+                        2 => try self.store(ptr, .{ .immediate = 0xaaaa }, ptr_ty, value_ty),
+                        4 => try self.store(ptr, .{ .immediate = 0xaaaaaaaa }, ptr_ty, value_ty),
+                        8 => try self.store(ptr, .{ .immediate = 0xaaaaaaaaaaaaaaaa }, ptr_ty, value_ty),
+                        else => try self.genInlineMemset(ptr, .{ .immediate = 0xaa }, .{ .immediate = abi_size }, .{}),
+                    }
                 },
                 .immediate => |imm| {
                     switch (abi_size) {
