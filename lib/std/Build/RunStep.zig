@@ -676,7 +676,7 @@ fn runCommand(
             try Step.handleVerbose2(step.owner, self.cwd, self.env_map, interp_argv.items);
 
             break :term spawnChildAndCollect(self, interp_argv.items, has_side_effects, prog_node) catch |e| {
-                return step.fail("unable to spawn {s}: {s}", .{
+                return step.fail("unable to spawn interpreter {s}: {s}", .{
                     interp_argv.items[0], @errorName(e),
                 });
             };
@@ -889,9 +889,7 @@ fn spawnChildAndCollect(
         child.stdin_behavior = .Pipe;
     }
 
-    child.spawn() catch |err| return self.step.fail("unable to spawn {s}: {s}", .{
-        argv[0], @errorName(err),
-    });
+    try child.spawn();
     var timer = try std.time.Timer.start();
 
     const result = if (self.stdio == .zig_test)
