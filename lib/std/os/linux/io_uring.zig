@@ -1976,6 +1976,11 @@ test "close" {
 test "accept/connect/send/recv" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14907
+        return error.SkipZigTest;
+    }
+
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2017,6 +2022,11 @@ test "accept/connect/send/recv" {
 test "sendmsg/recvmsg" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14907
+        return error.SkipZigTest;
+    }
+
     var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2024,6 +2034,7 @@ test "sendmsg/recvmsg" {
     };
     defer ring.deinit();
 
+    if (true) @compileError("don't hard code port numbers in unit tests"); // https://github.com/ziglang/zig/issues/14907
     const address_server = try net.Address.parseIp4("127.0.0.1", 3131);
 
     const server = try os.socket(address_server.any.family, os.SOCK.DGRAM, 0);
@@ -2223,6 +2234,11 @@ test "timeout_remove" {
 test "accept/connect/recv/link_timeout" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14907
+        return error.SkipZigTest;
+    }
+
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2372,6 +2388,11 @@ test "statx" {
 test "accept/connect/recv/cancel" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14907
+        return error.SkipZigTest;
+    }
+
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2509,6 +2530,11 @@ test "register_files_update" {
 test "shutdown" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14907
+        return error.SkipZigTest;
+    }
+
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2516,6 +2542,7 @@ test "shutdown" {
     };
     defer ring.deinit();
 
+    if (true) @compileError("don't hard code port numbers in unit tests"); // https://github.com/ziglang/zig/issues/14907
     const address = try net.Address.parseIp4("127.0.0.1", 3131);
 
     // Socket bound, expect shutdown to work
@@ -3060,6 +3087,11 @@ test "remove_buffers" {
 test "provide_buffers: accept/connect/send/recv" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14907
+        return error.SkipZigTest;
+    }
+
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -3236,6 +3268,7 @@ const SocketTestHarness = struct {
 fn createSocketTestHarness(ring: *IO_Uring) !SocketTestHarness {
     // Create a TCP server socket
 
+    if (true) @compileError("don't hard code port numbers in unit tests"); // https://github.com/ziglang/zig/issues/14907
     const address = try net.Address.parseIp4("127.0.0.1", 3131);
     const kernel_backlog = 1;
     const listener_socket = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
