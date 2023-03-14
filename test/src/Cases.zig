@@ -382,6 +382,7 @@ fn addFromDirInner(
         const backends = try manifest.getConfigForKeyAlloc(ctx.arena, "backend", Backend);
         const targets = try manifest.getConfigForKeyAlloc(ctx.arena, "target", CrossTarget);
         const is_test = try manifest.getConfigForKeyAssertSingle("is_test", bool);
+        const link_libc = try manifest.getConfigForKeyAssertSingle("link_libc", bool);
         const output_mode = try manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
 
         var cases = std.ArrayList(usize).init(ctx.arena);
@@ -397,7 +398,7 @@ fn addFromDirInner(
                     .updates = std.ArrayList(Cases.Update).init(ctx.cases.allocator),
                     .is_test = is_test,
                     .output_mode = output_mode,
-                    .link_libc = backend == .llvm,
+                    .link_libc = link_libc,
                     .deps = std.ArrayList(DepModule).init(ctx.cases.allocator),
                 });
                 try cases.append(next);
@@ -744,6 +745,8 @@ const TestManifestConfigDefaults = struct {
                 .cli => @panic("TODO test harness for CLI tests"),
             };
         } else if (std.mem.eql(u8, key, "is_test")) {
+            return "0";
+        } else if (std.mem.eql(u8, key, "link_libc")) {
             return "0";
         } else unreachable;
     }
