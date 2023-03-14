@@ -395,7 +395,7 @@ fn runStepNames(
     {
         defer parent_prog_node.end();
 
-        var step_prog = parent_prog_node.start("run steps", step_stack.count());
+        var step_prog = parent_prog_node.start("steps", step_stack.count());
         defer step_prog.end();
 
         var wait_group: std.Thread.WaitGroup = .{};
