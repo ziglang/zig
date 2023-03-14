@@ -2705,7 +2705,8 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
 
     assert(self.totalErrorCount() == bundle.root_list.items.len);
 
-    return bundle.toOwnedBundle();
+    const compile_log_text = if (self.bin_file.options.module) |m| m.compile_log_text.items else "";
+    return bundle.toOwnedBundle(compile_log_text);
 }
 
 pub const ErrorNoteHashContext = struct {
@@ -2952,11 +2953,6 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Module.File) !void {
             }
         }
     }
-}
-
-pub fn getCompileLogOutput(self: *Compilation) []const u8 {
-    const module = self.bin_file.options.module orelse return &[0]u8{};
-    return module.compile_log_text.items;
 }
 
 pub fn performAllTheWork(

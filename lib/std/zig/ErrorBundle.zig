@@ -32,6 +32,8 @@ pub const SourceLocationIndex = enum(u32) {
 pub const ErrorMessageList = struct {
     len: u32,
     start: u32,
+    /// null-terminated string index. 0 means no compile log text.
+    compile_log_text: u32,
 };
 
 /// Trailing:
@@ -110,6 +112,10 @@ pub fn getNotes(eb: ErrorBundle, index: MessageIndex) []const MessageIndex {
     return @ptrCast([]const MessageIndex, eb.extra[start..][0..notes_len]);
 }
 
+pub fn getCompileLogOutput(eb: ErrorBundle) [:0]const u8 {
+    return nullTerminatedString(eb, getErrorMessageList(eb).compile_log_text);
+}
+
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
 fn extraData(eb: ErrorBundle, comptime T: type, index: usize) struct { data: T, end: usize } {
@@ -145,6 +151,7 @@ pub const RenderOptions = struct {
     ttyconf: std.debug.TTY.Config,
     include_reference_trace: bool = true,
     include_source_line: bool = true,
+    include_log_text: bool = true,
 };
 
 pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
@@ -157,6 +164,14 @@ pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
 pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, writer: anytype) anyerror!void {
     for (eb.getMessages()) |err_msg| {
         try renderErrorMessageToWriter(eb, options, err_msg, writer, "error", .Red, 0);
+    }
+
+    if (options.include_log_text) {
+        const log_text = eb.getCompileLogOutput();
+        if (log_text.len != 0) {
+            try writer.writeAll("\nCompile Log Output:\n");
+            try writer.writeAll(log_text);
+        }
     }
 }
 
@@ -314,6 +329,7 @@ pub const Wip = struct {
         assert(0 == try addExtra(wip, ErrorMessageList{
             .len = 0,
             .start = 0,
+            .compile_log_text = 0,
         }));
     }
 
@@ -325,9 +341,10 @@ pub const Wip = struct {
         wip.* = undefined;
     }
 
-    pub fn toOwnedBundle(wip: *Wip) !ErrorBundle {
+    pub fn toOwnedBundle(wip: *Wip, compile_log_text: []const u8) !ErrorBundle {
         const gpa = wip.gpa;
         if (wip.root_list.items.len == 0) {
+            assert(compile_log_text.len == 0);
             // Special encoding when there are no errors.
             wip.deinit();
             wip.* = .{
@@ -338,9 +355,19 @@ pub const Wip = struct {
             };
             return empty;
         }
+
+        const compile_log_str_index = if (compile_log_text.len == 0) 0 else str: {
+            const str = @intCast(u32, wip.string_bytes.items.len);
+            try wip.string_bytes.ensureUnusedCapacity(gpa, compile_log_text.len + 1);
+            wip.string_bytes.appendSliceAssumeCapacity(compile_log_text);
+            wip.string_bytes.appendAssumeCapacity(0);
+            break :str str;
+        };
+
         wip.setExtra(0, ErrorMessageList{
             .len = @intCast(u32, wip.root_list.items.len),
             .start = @intCast(u32, wip.extra.items.len),
+            .compile_log_text = compile_log_str_index,
         });
         try wip.extra.appendSlice(gpa, @ptrCast([]const u32, wip.root_list.items));
         wip.root_list.clearAndFree(gpa);

@@ -3886,10 +3886,6 @@ fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void
 
     if (errors.errorMessageCount() > 0) {
         errors.renderToStdErr(renderOptions(comp.color));
-        const log_text = comp.getCompileLogOutput();
-        if (log_text.len != 0) {
-            std.debug.print("\nCompile Log Output:\n{s}", .{log_text});
-        }
         return error.SemanticAnalyzeFail;
     } else switch (hook) {
         .none => {},
@@ -4512,7 +4508,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 &all_modules,
             );
             if (wip_errors.root_list.items.len > 0) {
-                var errors = try wip_errors.toOwnedBundle();
+                var errors = try wip_errors.toOwnedBundle("");
                 defer errors.deinit(gpa);
                 errors.renderToStdErr(renderOptions(color));
                 process.exit(1);
@@ -4775,7 +4771,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                 try wip_errors.init(gpa);
                 defer wip_errors.deinit();
                 try Compilation.addZirErrorMessages(&wip_errors, &file);
-                var error_bundle = try wip_errors.toOwnedBundle();
+                var error_bundle = try wip_errors.toOwnedBundle("");
                 defer error_bundle.deinit(gpa);
                 error_bundle.renderToStdErr(renderOptions(color));
                 process.exit(2);
@@ -4981,7 +4977,7 @@ fn fmtPathFile(
             try wip_errors.init(gpa);
             defer wip_errors.deinit();
             try Compilation.addZirErrorMessages(&wip_errors, &file);
-            var error_bundle = try wip_errors.toOwnedBundle();
+            var error_bundle = try wip_errors.toOwnedBundle("");
             defer error_bundle.deinit(gpa);
             error_bundle.renderToStdErr(renderOptions(fmt.color));
             fmt.any_error = true;
@@ -5018,7 +5014,7 @@ fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Co
 
     try putAstErrorsIntoBundle(gpa, tree, path, &wip_errors);
 
-    var error_bundle = try wip_errors.toOwnedBundle();
+    var error_bundle = try wip_errors.toOwnedBundle("");
     defer error_bundle.deinit(gpa);
     error_bundle.renderToStdErr(renderOptions(color));
 }
@@ -5622,7 +5618,7 @@ pub fn cmdAstCheck(
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
         try Compilation.addZirErrorMessages(&wip_errors, &file);
-        var error_bundle = try wip_errors.toOwnedBundle();
+        var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
         error_bundle.renderToStdErr(renderOptions(color));
         process.exit(1);
@@ -5739,7 +5735,7 @@ pub fn cmdChangelist(
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
         try Compilation.addZirErrorMessages(&wip_errors, &file);
-        var error_bundle = try wip_errors.toOwnedBundle();
+        var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
         error_bundle.renderToStdErr(renderOptions(color));
         process.exit(1);
@@ -5774,7 +5770,7 @@ pub fn cmdChangelist(
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
         try Compilation.addZirErrorMessages(&wip_errors, &file);
-        var error_bundle = try wip_errors.toOwnedBundle();
+        var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
         error_bundle.renderToStdErr(renderOptions(color));
         process.exit(1);

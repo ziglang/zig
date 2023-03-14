@@ -2219,7 +2219,7 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
         wip_errors.init(gpa) catch unreachable;
         Compilation.addModuleErrorMsg(&wip_errors, err_msg.*) catch unreachable;
         std.debug.print("compile error during Sema:\n", .{});
-        var error_bundle = wip_errors.toOwnedBundle() catch unreachable;
+        var error_bundle = wip_errors.toOwnedBundle("") catch unreachable;
         error_bundle.renderToStdErr(.{ .ttyconf = .no_color });
         crash_report.compilerPanic("unexpected compile error occurred", null, null);
     }
