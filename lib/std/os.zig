@@ -767,8 +767,8 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 /// * Windows
 /// On these systems, the read races with concurrent writes to the same file descriptor.
 ///
-/// This function assumes that all zero-length vectors have a pointer within the address
-/// space of the application.
+/// This function assumes that all vectors, including zero-length vectors, have
+/// a pointer within the address space of the application.
 pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
     if (builtin.os.tag == .windows) {
         // TODO improve this to use ReadFileScatter
@@ -1170,6 +1170,9 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 ///
 /// If `iov.len` is larger than `IOV_MAX`, a partial write will occur.
+///
+/// This function assumes that all vectors, including zero-length vectors, have
+/// a pointer within the address space of the application.
 pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
     if (builtin.os.tag == .windows) {
         // TODO improve this to use WriteFileScatter
