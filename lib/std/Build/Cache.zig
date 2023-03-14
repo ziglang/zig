@@ -422,7 +422,11 @@ pub const Manifest = struct {
                             self.have_exclusive_lock = true;
                             return false; // cache miss; exclusive lock already held
                         } else |err| switch (err) {
-                            error.WouldBlock => continue,
+                            // There are no dir components, so you would think
+                            // that this was unreachable, however we have
+                            // observed on macOS two processes racing to do
+                            // openat() with O_CREAT manifest in ENOENT.
+                            error.WouldBlock, error.FileNotFound => continue,
                             else => |e| return e,
                         }
                     },
