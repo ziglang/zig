@@ -443,6 +443,30 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         // at the end during `initializeCallCtorsFunction`.
     }
 
+    // shared-memory symbols for TLS support
+    if (wasm_bin.base.options.shared_memory) {
+        {
+            const loc = try wasm_bin.createSyntheticSymbol("__tls_base", .global);
+            const symbol = loc.getSymbol(wasm_bin);
+            symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+        }
+        {
+            const loc = try wasm_bin.createSyntheticSymbol("__tls_size", .global);
+            const symbol = loc.getSymbol(wasm_bin);
+            symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+        }
+        {
+            const loc = try wasm_bin.createSyntheticSymbol("__tls_align", .global);
+            const symbol = loc.getSymbol(wasm_bin);
+            symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+        }
+        {
+            const loc = try wasm_bin.createSyntheticSymbol("__wasm_tls_init", .function);
+            const symbol = loc.getSymbol(wasm_bin);
+            symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+        }
+    }
+
     // if (!options.strip and options.module != null) {
     //     wasm_bin.dwarf = Dwarf.init(allocator, &wasm_bin.base, options.target);
     //     try wasm_bin.initDebugSections();
@@ -2286,12 +2310,28 @@ fn setupMemory(wasm: *Wasm) !void {
 
         // set TLS-related symbols
         if (mem.eql(u8, entry.key_ptr.*, ".tdata")) {
-            if (wasm.findGlobalSymbol("__tls_base")) |loc| {
+            if (wasm.findGlobalSymbol("__tls_size")) |loc| {
                 const sym = loc.getSymbol(wasm);
                 sym.index = @intCast(u32, wasm.wasm_globals.items.len) + wasm.imported_globals_count;
                 try wasm.wasm_globals.append(wasm.base.allocator, .{
                     .global_type = .{ .valtype = .i32, .mutable = false },
-                    .init = .{ .i32_const = @intCast(i32, memory_ptr) },
+                    .init = .{ .i32_const = @intCast(i32, segment.size) },
+                });
+            }
+            if (wasm.findGlobalSymbol("__tls_align")) |loc| {
+                const sym = loc.getSymbol(wasm);
+                sym.index = @intCast(u32, wasm.wasm_globals.items.len) + wasm.imported_globals_count;
+                try wasm.wasm_globals.append(wasm.base.allocator, .{
+                    .global_type = .{ .valtype = .i32, .mutable = false },
+                    .init = .{ .i32_const = @intCast(i32, segment.alignment) },
+                });
+            }
+            if (wasm.findGlobalSymbol("__tls_base")) |loc| {
+                const sym = loc.getSymbol(wasm);
+                sym.index = @intCast(u32, wasm.wasm_globals.items.len) + wasm.imported_globals_count;
+                try wasm.wasm_globals.append(wasm.base.allocator, .{
+                    .global_type = .{ .valtype = .i32, .mutable = wasm.base.options.shared_memory },
+                    .init = .{ .i32_const = if (wasm.base.options.shared_memory) @as(u32, 0) else @intCast(i32, memory_ptr) },
                 });
             }
         }
