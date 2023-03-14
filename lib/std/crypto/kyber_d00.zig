@@ -1,104 +1,109 @@
-// Implementation of the IND-CCA2 post-quantum secure key encapsulation
-// mechanism (KEM) CRYSTALS-Kyber, as submitted to the third round of the NIST
-// Post-Quantum Cryptography (v3.02/"draft00"), and selected for standardisation.
-//
-// Kyber will likely change before final standardisation.
-//
-// Quoting from the CFRG I-D:
-//
-// Kyber is not a Diffie-Hellman (DH) style non-interactive key
-// agreement, but instead, Kyber is a Key Encapsulation Method (KEM).
-// In essence, a KEM is a Public-Key Encryption (PKE) scheme where the
-// plaintext cannot be specified, but is generated as a random key as
-// part of the encryption. A KEM can be transformed into an unrestricted
-// PKE using HPKE (RFC9180). On its own, a KEM can be used as a key
-// agreement method in TLS.
-//
-// Kyber is an IND-CCA2 secure KEM.  It is constructed by applying a
-// Fujisaki--Okamato style transformation on InnerPKE, which is the
-// underlying IND-CPA secure Public Key Encryption scheme.  We cannot
-// use InnerPKE directly, as its ciphertexts are malleable.
-//
-//                     F.O. transform
-//     InnerPKE   ---------------------->   Kyber
-//     IND-CPA                              IND-CCA2
-//
-// Kyber is a lattice-based scheme.  More precisely, its security is
-// based on the learning-with-errors-and-rounding problem in module
-// lattices (MLWER).  The underlying polynomial ring R (defined in
-// Section 5) is chosen such that multiplication is very fast using the
-// number theoretic transform (NTT, see Section 5.1.3).
-//
-// An InnerPKE private key is a vector _s_ over R of length k which is
-// _small_ in a particular way.  Here k is a security parameter akin to
-// the size of a prime modulus.  For Kyber512, which targets AES-128's
-// security level, the value of k is 2.
-//
-// The public key consists of two values:
-//
-// *  _A_ a uniformly sampled k by k matrix over R _and_
-//
-// *  _t = A s + e_, where e is a suitably small masking vector.
-//
-// Distinguishing between such A s + e and a uniformly sampled t is the
-// module learning-with-errors (MLWE) problem.  If that is hard, then it
-// is also hard to recover the private key from the public key as that
-// would allow you to distinguish between those two.
-//
-// To save space in the public key, A is recomputed deterministically
-// from a seed _rho_.
-//
-// A ciphertext for a message m under this public key is a pair (c_1,
-// c_2) computed roughly as follows:
-//
-// c_1 = Compress(A^T r + e_1, d_u)
-// c_2 = Compress(t^T r + e_2 + Decompress(m, 1), d_v)
-//
-// where
-//
-// *  e_1, e_2 and r are small blinds;
-//
-// *  Compress(-, d) removes some information, leaving d bits per
-//    coefficient and Decompress is such that Compress after Decompress
-//    does nothing and
-//
-// *  d_u, d_v are scheme parameters.
-//
-// Distinguishing such a ciphertext and uniformly sampled (c_1, c_2) is
-// an example of the full MLWER problem, see section 4.4 of [KyberV302].
-//
-// To decrypt the ciphertext, one computes
-//
-// m = Compress(Decompress(c_2, d_v) - s^T Decompress(c_1, d_u), 1).
-//
-// It it not straight-forward to see that this formula is correct.  In
-// fact, there is negligable but non-zero probability that a ciphertext
-// does not decrypt correctly given by the DFP column in Table 4.  This
-// failure probability can be computed by a careful automated analysis
-// of the probabilities involved, see kyber_failure.py of [SecEst].
-//
-//  [KyberV302] https://pq-crystals.org/kyber/data/kyber-specification-round3-20210804.pdf
-//  [I-D] https://github.com/bwesterb/draft-schwabe-cfrg-kyber
-//  [SecEst] https://github.com/pq-crystals/security-estimates
+//! Implementation of the IND-CCA2 post-quantum secure key encapsulation
+//! mechanism (KEM) CRYSTALS-Kyber, as submitted to the third round of the NIST
+//! Post-Quantum Cryptography (v3.02/"draft00"), and selected for standardisation.
+//!
+//! Kyber will likely change before final standardisation.
+//!
+//! The namespace suffix (currently `_d00`) refers to the version currently
+//! implemented, in accordance with the draft. It may not be updated if new
+//! versions of the draft only include editorial changes.
+//!
+//! The suffix will eventually be removed once Kyber is finalized.
+//!
+//! Quoting from the CFRG I-D:
+//!
+//! Kyber is not a Diffie-Hellman (DH) style non-interactive key
+//! agreement, but instead, Kyber is a Key Encapsulation Method (KEM).
+//! In essence, a KEM is a Public-Key Encryption (PKE) scheme where the
+//! plaintext cannot be specified, but is generated as a random key as
+//! part of the encryption. A KEM can be transformed into an unrestricted
+//! PKE using HPKE (RFC9180). On its own, a KEM can be used as a key
+//! agreement method in TLS.
+//!
+//! Kyber is an IND-CCA2 secure KEM. It is constructed by applying a
+//! Fujisaki--Okamato style transformation on InnerPKE, which is the
+//! underlying IND-CPA secure Public Key Encryption scheme. We cannot
+//! use InnerPKE directly, as its ciphertexts are malleable.
+//!
+//! ```
+//!                     F.O. transform
+//!     InnerPKE   ---------------------->   Kyber
+//!     IND-CPA                              IND-CCA2
+//! ```
+//!
+//! Kyber is a lattice-based scheme.  More precisely, its security is
+//! based on the learning-with-errors-and-rounding problem in module
+//! lattices (MLWER).  The underlying polynomial ring R (defined in
+//! Section 5) is chosen such that multiplication is very fast using the
+//! number theoretic transform (NTT, see Section 5.1.3).
+//!
+//! An InnerPKE private key is a vector _s_ over R of length k which is
+//! _small_ in a particular way.  Here k is a security parameter akin to
+//! the size of a prime modulus.  For Kyber512, which targets AES-128's
+//! security level, the value of k is 2.
+//!
+//! The public key consists of two values:
+//!
+//! * _A_ a uniformly sampled k by k matrix over R _and_
+//!
+//! * _t = A s + e_, where e is a suitably small masking vector.
+//!
+//! Distinguishing between such A s + e and a uniformly sampled t is the
+//! module learning-with-errors (MLWE) problem.  If that is hard, then it
+//! is also hard to recover the private key from the public key as that
+//! would allow you to distinguish between those two.
+//!
+//! To save space in the public key, A is recomputed deterministically
+//! from a seed _rho_.
+//!
+//! A ciphertext for a message m under this public key is a pair (c_1,
+//! c_2) computed roughly as follows:
+//!
+//! c_1 = Compress(A^T r + e_1, d_u)
+//! c_2 = Compress(t^T r + e_2 + Decompress(m, 1), d_v)
+//!
+//! where
+//!
+//! * e_1, e_2 and r are small blinds;
+//!
+//! * Compress(-, d) removes some information, leaving d bits per
+//!   coefficient and Decompress is such that Compress after Decompress
+//!   does nothing and
+//!
+//! * d_u, d_v are scheme parameters.
+//!
+//! Distinguishing such a ciphertext and uniformly sampled (c_1, c_2) is
+//! an example of the full MLWER problem, see section 4.4 of [KyberV302].
+//!
+//! To decrypt the ciphertext, one computes
+//!
+//! m = Compress(Decompress(c_2, d_v) - s^T Decompress(c_1, d_u), 1).
+//!
+//! It it not straight-forward to see that this formula is correct.  In
+//! fact, there is negligable but non-zero probability that a ciphertext
+//! does not decrypt correctly given by the DFP column in Table 4.  This
+//! failure probability can be computed by a careful automated analysis
+//! of the probabilities involved, see kyber_failure.py of [SecEst].
+//!
+//! [KyberV302](https://pq-crystals.org/kyber/data/kyber-specification-round3-20210804.pdf)
+//! [I-D](https://github.com/bwesterb/draft-schwabe-cfrg-kyber)
+//! [SecEst](https://github.com/pq-crystals/security-estimates)
 
 // TODO
 //
-// - API
-// - More documentation
 // - The bottleneck in Kyber are the various hash/xof calls:
 //    - Optimize Zig's keccak implementation.
 //    - Use SIMD to compute keccak in parallel.
 // - Can we track bounds of coefficients using comptime types without
 //   duplicating code?
-// - Figure out how to neatly break long lines.
-// - test clauses within structs behaved weirdly, they're now moved into the
-//   global scope. Would be neater to have tests closer to the thing under test.
+// - Would be neater to have tests closer to the thing under test.
 // - When generating a keypair, we have a copy of the inner public key with
 //   its large matrix A in both the public key and the private key. In Go we
 //   can just have a pointer in the private key to the public key, but
 //   how do we do this elegantly in Zig?
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const testing = std.testing;
 const assert = std.debug.assert;
@@ -305,10 +310,12 @@ fn Kyber(comptime p: Params) type {
                 return ss;
             }
 
+            /// Serializes the key into a byte array.
             pub fn toBytes(sk: SecretKey) [bytes_length]u8 {
                 return sk.sk.toBytes() ++ sk.pk.toBytes() ++ sk.hpk ++ sk.z;
             }
 
+            /// Deserializes the key from a byte array.
             pub fn fromBytes(buf: *const [bytes_length]u8) !SecretKey {
                 var ret: SecretKey = undefined;
                 comptime var s: usize = 0;
@@ -341,7 +348,11 @@ fn Kyber(comptime p: Params) type {
                 mem.copy(u8, &ret.secret_key.z, seed[inner_seed_length..seed_length]);
 
                 // Generate inner key
-                innerKeyFromSeed(seed[0..inner_seed_length].*, &ret.public_key.pk, &ret.secret_key.sk);
+                innerKeyFromSeed(
+                    seed[0..inner_seed_length].*,
+                    &ret.public_key.pk,
+                    &ret.secret_key.sk,
+                );
                 ret.secret_key.pk = ret.public_key.pk;
 
                 // Copy over z from seed.
@@ -394,7 +405,8 @@ fn Kyber(comptime p: Params) type {
                 u = u.barrettReduce().invNTT().add(e1).normalize();
 
                 // Next, compute v = <t, r> + e₂ + Decompress_q(m, 1)
-                const v = pk.th.dotHat(rh).barrettReduce().invNTT().add(Poly.decompress(1, pt)).add(e2).normalize();
+                const v = pk.th.dotHat(rh).barrettReduce().invNTT()
+                    .add(Poly.decompress(1, pt)).add(e2).normalize();
 
                 return u.compress(p.du) ++ v.compress(p.dv);
             }
@@ -419,10 +431,14 @@ fn Kyber(comptime p: Params) type {
 
             fn decrypt(sk: InnerSk, ct: *const [ciphertext_length]u8) [inner_plaintext_length]u8 {
                 const u = V.decompress(p.du, ct[0..comptime V.compressedSize(p.du)]);
-                const v = Poly.decompress(p.dv, ct[comptime V.compressedSize(p.du)..ciphertext_length]);
+                const v = Poly.decompress(
+                    p.dv,
+                    ct[comptime V.compressedSize(p.du)..ciphertext_length],
+                );
 
                 // Compute m = v - <s, u>
-                return v.sub(sk.sh.dotHat(u.ntt()).barrettReduce().invNTT()).normalize().compress(1);
+                return v.sub(sk.sh.dotHat(u.ntt()).barrettReduce().invNTT())
+                    .normalize().compress(1);
             }
 
             fn toBytes(sk: InnerSk) [bytes_length]u8 {
@@ -489,7 +505,7 @@ const r2_over_128: i32 = @mod(invertMod(128, Q) * r2_mod_q, Q);
 //  zetas[i] = ζᵇʳᵛ⁽ⁱ⁾ R mod q
 //
 // where ζ = 17, brv(i) is the bitreversal of a 7-bit number and R=2¹⁶ mod q.
-const zetas: [128]i16 = computeZetas();
+const zetas = computeZetas();
 
 // invNTTReductions keeps track of which coefficients to apply Barrett
 // reduction to in Poly.invNTT().
@@ -572,7 +588,7 @@ test "invNTTReductions bounds" {
 //
 // For a, b finds x, y such that  x a + y b = gcd(a, b). Used to compute
 // modular inverse.
-fn eea(a: anytype, b: @TypeOf(a)) eeaResult(@TypeOf(a)) {
+fn eea(a: anytype, b: @TypeOf(a)) EeaResult(@TypeOf(a)) {
     if (a == 0) {
         return .{ .gcd = b, .x = 0, .y = 1 };
     }
@@ -580,7 +596,7 @@ fn eea(a: anytype, b: @TypeOf(a)) eeaResult(@TypeOf(a)) {
     return .{ .gcd = r.gcd, .x = r.y - @divTrunc(b, a) * r.x, .y = r.x };
 }
 
-fn eeaResult(comptime T: type) type {
+fn EeaResult(comptime T: type) type {
     return struct { gcd: T, x: T, y: T };
 }
 
@@ -1152,7 +1168,12 @@ const Poly = struct {
 
         // buf is interpreted as a₁…a_ηb₁…b_ηa₁…a_ηb₁…b_η…. We process
         // multiple coefficients in one batch.
-        const T: type = u64; // TODO is u128 faster?
+
+        const T = switch (builtin.target.cpu.arch) {
+            .x86_64, .x86 => u32, // Generates better code on Intel CPUs
+            else => u64, // u128 might be faster on some other CPUs.
+        };
+
         comptime var batch_count: usize = undefined;
         comptime var batch_bytes: usize = undefined;
         comptime var mask: T = 0;
@@ -1378,7 +1399,11 @@ fn Vec(comptime K: u8) type {
         fn toBytes(v: Self) [bytes_length]u8 {
             var ret: [bytes_length]u8 = undefined;
             inline for (0..K) |i| {
-                mem.copy(u8, ret[i * Poly.bytes_length .. (i + 1) * Poly.bytes_length], &v.ps[i].toBytes());
+                mem.copy(
+                    u8,
+                    ret[i * Poly.bytes_length .. (i + 1) * Poly.bytes_length],
+                    &v.ps[i].toBytes(),
+                );
             }
             return ret;
         }
@@ -1387,7 +1412,9 @@ fn Vec(comptime K: u8) type {
         fn fromBytes(buf: *const [bytes_length]u8) Self {
             var ret: Self = undefined;
             inline for (0..K) |i| {
-                ret.ps[i] = Poly.fromBytes(buf[i * Poly.bytes_length .. (i + 1) * Poly.bytes_length]);
+                ret.ps[i] = Poly.fromBytes(
+                    buf[i * Poly.bytes_length .. (i + 1) * Poly.bytes_length],
+                );
             }
             return ret;
         }
@@ -1664,7 +1691,7 @@ test "NIST KAT test" {
             try std.fmt.format(fw, "seed = {s}\n", .{std.fmt.fmtSliceHexUpper(&seed)});
             var g2 = NistDRBG.init(seed);
 
-            // This is not equivalent to g2.fill(kseed[:]).  As the reference
+            // This is not equivalent to g2.fill(kseed[:]). As the reference
             // implementation calls randombytes twice generating the keypair,
             // we have to do that as well.
             var kseed: [64]u8 = undefined;
