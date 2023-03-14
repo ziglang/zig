@@ -28,7 +28,6 @@ test "integer widening u0 to u8" {
 }
 
 test "implicit unsigned integer to signed integer" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
