@@ -208,7 +208,7 @@ const Branch = struct {
 };
 
 const StackAllocation = struct {
-    inst: Air.Inst.Index,
+    inst: ?Air.Inst.Index,
     /// TODO do we need size? should be determined by inst.ty.abiSize(self.target.*)
     size: u32,
 };
@@ -1109,7 +1109,7 @@ fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
     try table.ensureUnusedCapacity(self.gpa, additional_count);
 }
 
-fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u32 {
+fn allocMem(self: *Self, inst: ?Air.Inst.Index, abi_size: u32, abi_align: u32) !u32 {
     if (abi_align > self.stack_align)
         self.stack_align = abi_align;
     // TODO find a free slot instead of always appending
@@ -1142,7 +1142,14 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
 }
 
 fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
-    const elem_ty = self.air.typeOfIndex(inst);
+    return self.allocRegOrMemAdvanced(self.air.typeOfIndex(inst), inst, reg_ok);
+}
+
+fn allocTempRegOrMem(self: *Self, elem_ty: Type, reg_ok: bool) !MCValue {
+    return self.allocRegOrMemAdvanced(elem_ty, null, reg_ok);
+}
+
+fn allocRegOrMemAdvanced(self: *Self, elem_ty: Type, inst: ?Air.Inst.Index, reg_ok: bool) !MCValue {
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) orelse {
         const mod = self.bin_file.options.module.?;
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
@@ -4571,18 +4578,16 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     };
     defer if (operand_ptr_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const operand: MCValue = blk: {
-        if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
-            // The MCValue that holds the pointer can be re-used as the value.
-            break :blk operand_ptr;
-        } else {
-            break :blk try self.allocRegOrMem(inst, true);
-        }
-    };
     const ptr_ty = self.air.typeOf(un_op);
+    const elem_ty = ptr_ty.childType();
+    const operand = if (elem_ty.isPtrLikeOptional() and self.reuseOperand(inst, un_op, 0, operand_ptr))
+        // The MCValue that holds the pointer can be re-used as the value.
+        operand_ptr
+    else
+        try self.allocTempRegOrMem(elem_ty, true);
     try self.load(operand, operand_ptr, ptr_ty);
 
-    const result = try self.isNull(inst, ptr_ty.elemType(), operand);
+    const result = try self.isNull(inst, elem_ty, operand);
 
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -4611,15 +4616,13 @@ fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     };
     defer if (operand_ptr_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const operand: MCValue = blk: {
-        if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
-            // The MCValue that holds the pointer can be re-used as the value.
-            break :blk operand_ptr;
-        } else {
-            break :blk try self.allocRegOrMem(inst, true);
-        }
-    };
     const ptr_ty = self.air.typeOf(un_op);
+    const elem_ty = ptr_ty.childType();
+    const operand = if (elem_ty.isPtrLikeOptional() and self.reuseOperand(inst, un_op, 0, operand_ptr))
+        // The MCValue that holds the pointer can be re-used as the value.
+        operand_ptr
+    else
+        try self.allocTempRegOrMem(elem_ty, true);
     try self.load(operand, operand_ptr, ptr_ty);
 
     const result = try self.isNonNull(inst, ptr_ty.elemType(), operand);
