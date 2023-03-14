@@ -103,6 +103,7 @@
 //   how do we do this elegantly in Zig?
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const testing = std.testing;
 const assert = std.debug.assert;
@@ -1167,7 +1168,12 @@ const Poly = struct {
 
         // buf is interpreted as a₁…a_ηb₁…b_ηa₁…a_ηb₁…b_η…. We process
         // multiple coefficients in one batch.
-        const T: type = u64; // TODO is u128 faster?
+
+        const T = switch (builtin.target.cpu.arch) {
+            .x86_64, .x86 => u32, // Generates better code on Intel CPUs
+            else => u64, // u128 might be faster on some other CPUs.
+        };
+
         comptime var batch_count: usize = undefined;
         comptime var batch_bytes: usize = undefined;
         comptime var mask: T = 0;
