@@ -1112,6 +1112,10 @@ fn linkLibraryOrObject(self: *CompileStep, other: *CompileStep) void {
     self.step.dependOn(&other.step);
     self.link_objects.append(.{ .other_step = other }) catch @panic("OOM");
     self.include_dirs.append(.{ .other_step = other }) catch @panic("OOM");
+
+    for (other.installed_headers.items) |install_step| {
+        self.step.dependOn(install_step);
+    }
 }
 
 fn appendModuleArgs(
@@ -1699,9 +1703,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     try zig_args.append(fs.path.dirname(h_path).?);
                 }
                 if (other.installed_headers.items.len > 0) {
-                    for (other.installed_headers.items) |install_step| {
-                        try install_step.make(prog_node);
-                    }
                     try zig_args.append("-I");
                     try zig_args.append(b.pathJoin(&.{
                         other.step.owner.install_prefix, "include",
