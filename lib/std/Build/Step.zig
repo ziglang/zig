@@ -487,7 +487,7 @@ pub fn allocPrintCmd(
     arena: Allocator,
     opt_cwd: ?[]const u8,
     argv: []const []const u8,
-) ![]u8 {
+) Allocator.Error![]u8 {
     return allocPrintCmd2(arena, opt_cwd, null, argv);
 }
 
@@ -496,11 +496,11 @@ pub fn allocPrintCmd2(
     opt_cwd: ?[]const u8,
     opt_env: ?*const std.process.EnvMap,
     argv: []const []const u8,
-) ![]u8 {
+) Allocator.Error![]u8 {
     var buf: std.ArrayListUnmanaged(u8) = .{};
     if (opt_cwd) |cwd| try buf.writer(arena).print("cd {s} && ", .{cwd});
     if (opt_env) |env| {
-        const process_env_map = try std.process.getEnvMap(arena);
+        const process_env_map = std.process.getEnvMap(arena) catch std.process.EnvMap.init(arena);
         var it = env.iterator();
         while (it.next()) |entry| {
             const key = entry.key_ptr.*;
