@@ -3469,7 +3469,7 @@ pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!voi
         const rc = system.bind(sock, addr, len);
         switch (errno(rc)) {
             .SUCCESS => return,
-            .ACCES => return error.AccessDenied,
+            .ACCES, .PERM => return error.AccessDenied,
             .ADDRINUSE => return error.AddressInUse,
             .BADF => unreachable, // always a race condition if this error is returned
             .INVAL => unreachable, // invalid parameters
