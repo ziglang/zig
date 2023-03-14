@@ -4,7 +4,7 @@ const mem = std.mem;
 
 const BlockVec = [4]u32;
 
-const side_channels_mitigations = std.crypto.config.side_channels_mitigations;
+const side_channels_mitigations = std.options.side_channels_mitigations;
 
 /// A single AES block.
 pub const Block = struct {

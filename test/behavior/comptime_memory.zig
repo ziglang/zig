@@ -412,3 +412,11 @@ test "bitcast packed union to integer" {
         try testing.expectEqual(@as(u2, 2), cast_b);
     }
 }
+
+test "mutate entire slice at comptime" {
+    comptime {
+        var buf: [3]u8 = undefined;
+        const x: [2]u8 = .{ 1, 2 }; // Avoid RLS
+        buf[1..3].* = x;
+    }
+}

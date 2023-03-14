@@ -48,16 +48,23 @@ fn getArrayLen(a: []const u32) usize {
 test "array concat with undefined" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
-    {
-        var array = "hello".* ++ @as([5]u8, undefined);
-        array[5..10].* = "world".*;
-        try std.testing.expect(std.mem.eql(u8, &array, "helloworld"));
-    }
-    {
-        var array = @as([5]u8, undefined) ++ "world".*;
-        array[0..5].* = "hello".*;
-        try std.testing.expect(std.mem.eql(u8, &array, "helloworld"));
-    }
+    const S = struct {
+        fn doTheTest() !void {
+            {
+                var array = "hello".* ++ @as([5]u8, undefined);
+                array[5..10].* = "world".*;
+                try std.testing.expect(std.mem.eql(u8, &array, "helloworld"));
+            }
+            {
+                var array = @as([5]u8, undefined) ++ "world".*;
+                array[0..5].* = "hello".*;
+                try std.testing.expect(std.mem.eql(u8, &array, "helloworld"));
+            }
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "array concat with tuple" {
