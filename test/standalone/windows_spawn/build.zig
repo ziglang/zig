@@ -6,10 +6,9 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target: std.zig.CrossTarget = .{
-        .os_tag = .windows,
-        .cpu_arch = .x86_64,
-    };
+    const target: std.zig.CrossTarget = .{};
+
+    if (builtin.os.tag != .windows) return;
 
     const hello = b.addExecutable(.{
         .name = "hello",
