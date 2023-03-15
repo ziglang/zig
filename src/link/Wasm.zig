@@ -1990,10 +1990,23 @@ fn initializeCallCtorsFunction(wasm: *Wasm) !void {
         try writer.writeByte(std.wasm.opcode(.end));
     }
 
-    const loc = wasm.findGlobalSymbol("__wasm_call_ctors").?;
+    try wasm.createSyntheticFunction(
+        "__wasm_call_ctors",
+        std.wasm.Type{ .params = &.{}, .returns = &.{} },
+        &function_body,
+    );
+}
+
+fn createSyntheticFunction(
+    wasm: *Wasm,
+    symbol_name: []const u8,
+    func_ty: std.wasm.Type,
+    function_body: *std.ArrayList(u8),
+) !void {
+    const loc = wasm.findGlobalSymbol(symbol_name) orelse
+        try wasm.createSyntheticSymbol(symbol_name, .function);
     const symbol = loc.getSymbol(wasm);
-    // create type (() -> nil) as we do not have any parameters or return value.
-    const ty_index = try wasm.putOrGetFuncType(.{ .params = &[_]std.wasm.Valtype{}, .returns = &[_]std.wasm.Valtype{} });
+    const ty_index = try wasm.putOrGetFuncType(func_ty);
     // create function with above type
     const func_index = wasm.imported_functions_count + @intCast(u32, wasm.functions.count());
     try wasm.functions.putNoClobber(
@@ -2023,6 +2036,60 @@ fn initializeCallCtorsFunction(wasm: *Wasm) !void {
     // This is fine to do manually as we insert the atom at the very end.
     const prev_atom = wasm.getAtom(atom.prev.?);
     atom.offset = prev_atom.offset + prev_atom.size;
+}
+
+fn initializeTLSFunction(wasm: *Wasm) !void {
+    if (!wasm.base.options.shared_memory) return;
+
+    var function_body = std.ArrayList(u8).init(wasm.base.allocator);
+    defer function_body.deinit();
+    const writer = function_body.writer();
+
+    // locals
+    try writer.writeByte(0);
+
+    // If there's a TLS segment, initialize it during runtime using the bulk-memory feature
+    if (wasm.data_segments.getIndex(".tdata")) |data_index| {
+        const segment_index = wasm.data_segments.entries.items(.value)[data_index];
+        const segment = wasm.segments.items[segment_index];
+
+        const param_local: u32 = 0;
+
+        try writer.writeByte(std.wasm.opcode(.local_get));
+        try leb.writeULEB128(writer, param_local);
+
+        const tls_base_loc = wasm.findGlobalSymbol("__tls_base").?;
+        try writer.writeByte(std.wasm.opcode(.global_get));
+        try leb.writeULEB128(writer, tls_base_loc.getSymbol(wasm).index);
+
+        // load stack values for the bulk-memory operation
+        {
+            try writer.writeByte(std.wasm.opcode(.local_get));
+            try leb.writeULEB128(writer, param_local);
+
+            try writer.writeByte(std.wasm.opcode(.i32_const));
+            try leb.writeULEB128(writer, @as(u32, 0)); //segment offset
+
+            try writer.writeByte(std.wasm.opcode(.i32_const));
+            try leb.writeULEB128(writer, @as(u32, segment.size)); //segment offset
+        }
+
+        // perform the bulk-memory operation to initialize the data segment
+        try writer.writeByte(std.wasm.opcode(.prefixed));
+        try leb.writeULEB128(writer, @enumToInt(std.wasm.PrefixedOpcode.memory_init));
+        // segment immediate
+        try leb.writeULEB128(writer, @intCast(u32, data_index));
+        // memory index immediate (always 0)
+        try leb.writeULEB128(writer, @as(u32, 0));
+    }
+
+    try writer.writeByte(std.wasm.opcode(.end));
+
+    try wasm.createSyntheticFunction(
+        "__wasm_init_tls",
+        std.wasm.Type{ .params = &.{.i32}, .returns = &.{} },
+        &function_body,
+    );
 }
 
 fn setupImports(wasm: *Wasm) !void {
@@ -2872,6 +2939,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
     try wasm.mergeSections();
     try wasm.mergeTypes();
     try wasm.initializeCallCtorsFunction();
+    try wasm.initializeTLSFunction();
     try wasm.setupExports();
     try wasm.writeToFile(enabled_features, emit_features_count, arena);
 
@@ -2991,6 +3059,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     try wasm.mergeSections();
     try wasm.mergeTypes();
     try wasm.initializeCallCtorsFunction();
+    try wasm.initializeTLSFunction();
     try wasm.setupExports();
     try wasm.writeToFile(enabled_features, emit_features_count, arena);
 }
