@@ -1124,17 +1124,31 @@ test "open file with exclusive lock twice, make sure second lock waits" {
 test "open file with exclusive nonblocking lock twice (absolute paths)" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    const allocator = testing.allocator;
+    var random_bytes: [12]u8 = undefined;
+    std.crypto.random.bytes(&random_bytes);
 
-    const cwd = try std.process.getCwdAlloc(allocator);
-    defer allocator.free(cwd);
-    const file_paths: [2][]const u8 = .{ cwd, "zig-test-absolute-paths.txt" };
-    const filename = try fs.path.resolve(allocator, &file_paths);
-    defer allocator.free(filename);
+    var random_b64: [fs.base64_encoder.calcSize(random_bytes.len)]u8 = undefined;
+    _ = fs.base64_encoder.encode(&random_b64, &random_bytes);
 
-    const file1 = try fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    const sub_path = random_b64 ++ "-zig-test-absolute-paths.txt";
 
-    const file2 = fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    const gpa = testing.allocator;
+
+    const cwd = try std.process.getCwdAlloc(gpa);
+    defer gpa.free(cwd);
+
+    const filename = try fs.path.resolve(gpa, &[_][]const u8{ cwd, sub_path });
+    defer gpa.free(filename);
+
+    const file1 = try fs.createFileAbsolute(filename, .{
+        .lock = .Exclusive,
+        .lock_nonblocking = true,
+    });
+
+    const file2 = fs.createFileAbsolute(filename, .{
+        .lock = .Exclusive,
+        .lock_nonblocking = true,
+    });
     file1.close();
     try testing.expectError(error.WouldBlock, file2);
 
