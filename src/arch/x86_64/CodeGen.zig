@@ -3637,12 +3637,35 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                     ),
                 },
                 .immediate => |imm| {
-                    // TODO
-                    try self.asmRegisterImmediate(
-                        mir_tag,
-                        registerAlias(dst_reg, abi_size),
-                        Immediate.u(@intCast(u32, imm)),
-                    );
+                    switch (abi_size) {
+                        0 => unreachable,
+                        1...4 => {
+                            try self.asmRegisterImmediate(
+                                mir_tag,
+                                registerAlias(dst_reg, abi_size),
+                                Immediate.u(@intCast(u32, imm)),
+                            );
+                        },
+                        5...8 => {
+                            if (math.cast(i32, @bitCast(i64, imm))) |small| {
+                                try self.asmRegisterImmediate(
+                                    mir_tag,
+                                    registerAlias(dst_reg, abi_size),
+                                    Immediate.s(small),
+                                );
+                            } else {
+                                const tmp_reg = try self.register_manager.allocReg(null, gp);
+                                const tmp_alias = registerAlias(tmp_reg, abi_size);
+                                try self.asmRegisterImmediate(.mov, tmp_alias, Immediate.u(imm));
+                                try self.asmRegisterRegister(
+                                    mir_tag,
+                                    registerAlias(dst_reg, abi_size),
+                                    tmp_alias,
+                                );
+                            }
+                        },
+                        else => return self.fail("TODO getBinOpMir implement large immediate ABI", .{}),
+                    }
                 },
                 .memory,
                 .linker_load,
