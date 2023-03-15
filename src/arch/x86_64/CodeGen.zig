@@ -1037,7 +1037,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     const air_tags = self.air.instructions.items(.tag);
     if (air_tags[inst] == .constant) return; // Constants are immortal.
-    log.debug("%{d} => {}", .{ inst, MCValue{ .dead = {} } });
+    log.debug("%{d} => {}", .{ inst, MCValue.dead });
     // When editing this function, note that the logic must synchronize with `reuseOperand`.
     const prev_value = self.getResolvedInstValue(inst);
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -4729,7 +4729,7 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
         // break instruction will choose a MCValue for the block result and overwrite
         // this field. Following break instructions will use that MCValue to put their
         // block results.
-        .mcv = MCValue{ .none = {} },
+        .mcv = .none,
     });
     defer self.blocks.getPtr(inst).?.relocs.deinit(self.gpa);
 
@@ -5145,9 +5145,9 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             const reg_name = output[2 .. output.len - 1];
             const reg = parseRegName(reg_name) orelse
                 return self.fail("unrecognized register: '{s}'", .{reg_name});
-            break :result MCValue{ .register = reg };
+            break :result .{ .register = reg };
         } else {
-            break :result MCValue{ .none = {} };
+            break :result .none;
         }
     };
 
@@ -6289,7 +6289,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
     if (ref_int < Air.Inst.Ref.typed_value_map.len) {
         const tv = Air.Inst.Ref.typed_value_map[ref_int];
         if (!tv.ty.hasRuntimeBitsIgnoreComptime() and !tv.ty.isError()) {
-            return MCValue{ .none = {} };
+            return .none;
         }
         return self.genTypedValue(tv);
     }
@@ -6297,7 +6297,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
     // If the type has no codegen bits, no need to store it.
     const inst_ty = self.air.typeOf(inst);
     if (!inst_ty.hasRuntimeBitsIgnoreComptime() and !inst_ty.isError())
-        return MCValue{ .none = {} };
+        return .none;
 
     const inst_index = @intCast(Air.Inst.Index, ref_int - Air.Inst.Ref.typed_value_map.len);
     switch (self.air.instructions.items(.tag)[inst_index]) {
@@ -6406,7 +6406,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
     switch (cc) {
         .Naked => {
             assert(result.args.len == 0);
-            result.return_value = .{ .unreach = {} };
+            result.return_value = .unreach;
             result.stack_byte_count = 0;
             result.stack_align = 1;
             return result;
@@ -6414,10 +6414,10 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
         .C => {
             // Return values
             if (ret_ty.zigTypeTag() == .NoReturn) {
-                result.return_value = .{ .unreach = {} };
+                result.return_value = .unreach;
             } else if (!ret_ty.hasRuntimeBitsIgnoreComptime() and !ret_ty.isError()) {
                 // TODO: is this even possible for C calling convention?
-                result.return_value = .{ .none = {} };
+                result.return_value = .none;
             } else {
                 const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
                 if (ret_ty_size == 0) {
@@ -6489,9 +6489,9 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
         .Unspecified => {
             // Return values
             if (ret_ty.zigTypeTag() == .NoReturn) {
-                result.return_value = .{ .unreach = {} };
+                result.return_value = .unreach;
             } else if (!ret_ty.hasRuntimeBitsIgnoreComptime() and !ret_ty.isError()) {
-                result.return_value = .{ .none = {} };
+                result.return_value = .none;
             } else {
                 const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
                 if (ret_ty_size == 0) {
@@ -6516,7 +6516,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
             for (param_types, result.args) |ty, *arg| {
                 if (!ty.hasRuntimeBits()) {
-                    arg.* = .{ .none = {} };
+                    arg.* = .none;
                     continue;
                 }
                 const param_size = @intCast(u32, ty.abiSize(self.target.*));
