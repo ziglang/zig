@@ -195,6 +195,26 @@ fn ChaChaVecImpl(comptime rounds_nb: usize) type {
             }
         }
 
+        fn chacha20Stream(out: []u8, key: [8]u32, counter: [4]u32) void {
+            var ctx = initContext(key, counter);
+            var x: BlockVec = undefined;
+            var i: usize = 0;
+            while (i + 64 <= out.len) : (i += 64) {
+                chacha20Core(x[0..], ctx);
+                contextFeedback(&x, ctx);
+                hashToBytes(out[i..][0..64], x);
+                ctx[3][0] += 1;
+            }
+            if (i < out.len) {
+                chacha20Core(x[0..], ctx);
+                contextFeedback(&x, ctx);
+
+                var buf: [64]u8 = undefined;
+                hashToBytes(buf[0..], x);
+                mem.copy(u8, out[i..], buf[0 .. out.len - i]);
+            }
+        }
+
         fn hchacha20(input: [16]u8, key: [32]u8) [32]u8 {
             var c: [4]u32 = undefined;
             for (c, 0..) |_, i| {
@@ -336,6 +356,26 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
             }
         }
 
+        fn chacha20Stream(out: []u8, key: [8]u32, counter: [4]u32) void {
+            var ctx = initContext(key, counter);
+            var x: BlockVec = undefined;
+            var i: usize = 0;
+            while (i + 64 <= out.len) : (i += 64) {
+                chacha20Core(x[0..], ctx);
+                contextFeedback(&x, ctx);
+                hashToBytes(out[i..][0..64], x);
+                ctx[12] += 1;
+            }
+            if (i < out.len) {
+                chacha20Core(x[0..], ctx);
+                contextFeedback(&x, ctx);
+
+                var buf: [64]u8 = undefined;
+                hashToBytes(buf[0..], x);
+                mem.copy(u8, out[i..], buf[0 .. out.len - i]);
+            }
+        }
+
         fn hchacha20(input: [16]u8, key: [32]u8) [32]u8 {
             var c: [4]u32 = undefined;
             for (c, 0..) |_, i| {
@@ -387,6 +427,8 @@ fn ChaChaIETF(comptime rounds_nb: usize) type {
         pub const nonce_length = 12;
         /// Key length in bytes.
         pub const key_length = 32;
+        /// Block length in bytes.
+        pub const block_length = 64;
 
         /// Add the output of the ChaCha20 stream cipher to `in` and stores the result into `out`.
         /// WARNING: This function doesn't provide authenticated encryption.
@@ -402,6 +444,18 @@ fn ChaChaIETF(comptime rounds_nb: usize) type {
             d[3] = mem.readIntLittle(u32, nonce[8..12]);
             ChaChaImpl(rounds_nb).chacha20Xor(out, in, keyToWords(key), d);
         }
+
+        /// Write the output of the ChaCha20 stream cipher into `out`.
+        pub fn stream(out: []u8, counter: u32, key: [key_length]u8, nonce: [nonce_length]u8) void {
+            assert(out.len / 64 <= (1 << 32 - 1) - counter);
+
+            var d: [4]u32 = undefined;
+            d[0] = counter;
+            d[1] = mem.readIntLittle(u32, nonce[0..4]);
+            d[2] = mem.readIntLittle(u32, nonce[4..8]);
+            d[3] = mem.readIntLittle(u32, nonce[8..12]);
+            ChaChaImpl(rounds_nb).chacha20Stream(out, keyToWords(key), d);
+        }
     };
 }
 
@@ -411,6 +465,8 @@ fn ChaChaWith64BitNonce(comptime rounds_nb: usize) type {
         pub const nonce_length = 8;
         /// Key length in bytes.
         pub const key_length = 32;
+        /// Block length in bytes.
+        pub const block_length = 64;
 
         /// Add the output of the ChaCha20 stream cipher to `in` and stores the result into `out`.
         /// WARNING: This function doesn't provide authenticated encryption.
@@ -427,7 +483,6 @@ fn ChaChaWith64BitNonce(comptime rounds_nb: usize) type {
             c[2] = mem.readIntLittle(u32, nonce[0..4]);
             c[3] = mem.readIntLittle(u32, nonce[4..8]);
 
-            const block_length = (1 << 6);
             // The full block size is greater than the address space on a 32bit machine
             const big_block = if (@sizeOf(usize) > 4) (block_length << 32) else maxInt(usize);
 
@@ -448,6 +503,18 @@ fn ChaChaWith64BitNonce(comptime rounds_nb: usize) type {
             }
             ChaChaImpl(rounds_nb).chacha20Xor(out[cursor..], in[cursor..], k, c);
         }
+
+        /// Write the output of the ChaCha20 stream cipher into `out`.
+        pub fn stream(out: []u8, counter: u32, key: [key_length]u8, nonce: [nonce_length]u8) void {
+            assert(out.len / 64 <= (1 << 32 - 1) - counter);
+            const k = keyToWords(key);
+            var c: [4]u32 = undefined;
+            c[0] = @truncate(u32, counter);
+            c[1] = @truncate(u32, counter >> 32);
+            c[2] = mem.readIntLittle(u32, nonce[0..4]);
+            c[3] = mem.readIntLittle(u32, nonce[4..8]);
+            ChaChaImpl(rounds_nb).chacha20Stream(out, k, c);
+        }
     };
 }
 
@@ -457,6 +524,8 @@ fn XChaChaIETF(comptime rounds_nb: usize) type {
         pub const nonce_length = 24;
         /// Key length in bytes.
         pub const key_length = 32;
+        /// Block length in bytes.
+        pub const block_length = 64;
 
         /// Add the output of the XChaCha20 stream cipher to `in` and stores the result into `out`.
         /// WARNING: This function doesn't provide authenticated encryption.
@@ -464,6 +533,12 @@ fn XChaChaIETF(comptime rounds_nb: usize) type {
         pub fn xor(out: []u8, in: []const u8, counter: u32, key: [key_length]u8, nonce: [nonce_length]u8) void {
             const extended = extend(key, nonce, rounds_nb);
             ChaChaIETF(rounds_nb).xor(out, in, counter, extended.key, extended.nonce);
+        }
+
+        /// Write the output of the XChaCha20 stream cipher into `out`.
+        pub fn stream(out: []u8, counter: u32, key: [key_length]u8, nonce: [nonce_length]u8) void {
+            const extended = extend(key, nonce, rounds_nb);
+            ChaChaIETF(rounds_nb).xor(out, counter, extended.key, extended.nonce);
         }
     };
 }
