@@ -1,5 +1,5 @@
 export fn entry() void {
-    @compileLog(@ptrCast(*align(1) const anyopaque, &entry));
+    @compileLog(@as(*align(1) const anyopaque, @ptrCast(*const anyopaque, &entry)));
 }
 
 // error
