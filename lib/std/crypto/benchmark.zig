@@ -203,6 +203,72 @@ pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime
     return throughput;
 }
 
+const kems = [_]Crypto{
+    Crypto{ .ty = crypto.kem.kyber_d00.Kyber512, .name = "kyber512d00" },
+    Crypto{ .ty = crypto.kem.kyber_d00.Kyber768, .name = "kyber768d00" },
+    Crypto{ .ty = crypto.kem.kyber_d00.Kyber1024, .name = "kyber1024d00" },
+};
+
+pub fn benchmarkKem(comptime Kem: anytype, comptime kems_count: comptime_int) !u64 {
+    const key_pair = try Kem.KeyPair.create(null);
+
+    var timer = try Timer.start();
+    const start = timer.lap();
+    {
+        var i: usize = 0;
+        while (i < kems_count) : (i += 1) {
+            const e = key_pair.public_key.encaps(null);
+            mem.doNotOptimizeAway(&e);
+        }
+    }
+    const end = timer.read();
+
+    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
+    const throughput = @floatToInt(u64, kems_count / elapsed_s);
+
+    return throughput;
+}
+
+pub fn benchmarkKemDecaps(comptime Kem: anytype, comptime kems_count: comptime_int) !u64 {
+    const key_pair = try Kem.KeyPair.create(null);
+
+    const e = key_pair.public_key.encaps(null);
+
+    var timer = try Timer.start();
+    const start = timer.lap();
+    {
+        var i: usize = 0;
+        while (i < kems_count) : (i += 1) {
+            const ss2 = try key_pair.secret_key.decaps(&e.ciphertext);
+            mem.doNotOptimizeAway(&ss2);
+        }
+    }
+    const end = timer.read();
+
+    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
+    const throughput = @floatToInt(u64, kems_count / elapsed_s);
+
+    return throughput;
+}
+
+pub fn benchmarkKemKeyGen(comptime Kem: anytype, comptime kems_count: comptime_int) !u64 {
+    var timer = try Timer.start();
+    const start = timer.lap();
+    {
+        var i: usize = 0;
+        while (i < kems_count) : (i += 1) {
+            const key_pair = try Kem.KeyPair.create(null);
+            mem.doNotOptimizeAway(&key_pair);
+        }
+    }
+    const end = timer.read();
+
+    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
+    const throughput = @floatToInt(u64, kems_count / elapsed_s);
+
+    return throughput;
+}
+
 const aeads = [_]Crypto{
     Crypto{ .ty = crypto.aead.chacha_poly.ChaCha20Poly1305, .name = "chacha20Poly1305" },
     Crypto{ .ty = crypto.aead.chacha_poly.XChaCha20Poly1305, .name = "xchacha20Poly1305" },
@@ -483,6 +549,27 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             const throughput = try benchmarkPwhash(arena_allocator, H.ty, H.params, mode(64));
             try stdout.print("{s:>17}: {d:10.3} s/ops\n", .{ H.name, throughput });
+        }
+    }
+
+    inline for (kems) |E| {
+        if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
+            const throughput = try benchmarkKem(E.ty, mode(1000));
+            try stdout.print("{s:>17}: {:10} encaps/s\n", .{ E.name, throughput });
+        }
+    }
+
+    inline for (kems) |E| {
+        if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
+            const throughput = try benchmarkKemDecaps(E.ty, mode(25000));
+            try stdout.print("{s:>17}: {:10} decaps/s\n", .{ E.name, throughput });
+        }
+    }
+
+    inline for (kems) |E| {
+        if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
+            const throughput = try benchmarkKemKeyGen(E.ty, mode(25000));
+            try stdout.print("{s:>17}: {:10} keygen/s\n", .{ E.name, throughput });
         }
     }
 }

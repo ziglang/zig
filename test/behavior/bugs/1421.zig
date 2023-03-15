@@ -9,7 +9,6 @@ const S = struct {
 };
 
 test "functions with return type required to be comptime are generic" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     const ti = S.method();
     try expect(@as(std.builtin.TypeId, ti) == std.builtin.TypeId.Struct);
 }
