@@ -1027,6 +1027,11 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
         for (c_abi_targets) |c_abi_target| {
             if (skip_non_native and !c_abi_target.isNative()) continue;
 
+            if (c_abi_target.isWindows() and c_abi_target.getCpuArch() == .aarch64) {
+                // https://github.com/ziglang/zig/issues/14908
+                continue;
+            }
+
             const test_step = b.addTest(.{
                 .root_source_file = .{ .path = "test/c_abi/main.zig" },
                 .optimize = optimize_mode,
