@@ -152,7 +152,7 @@ pub const State = struct {
         self.endianSwap();
     }
 
-    pub const permute = if (builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_c) impl: {
+    pub const permute = if (builtin.cpu.arch == .x86_64) impl: {
         break :impl permute_vectorized;
     } else if (builtin.mode == .ReleaseSmall) impl: {
         break :impl permute_small;

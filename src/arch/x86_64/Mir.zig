@@ -12,9 +12,12 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 const bits = @import("bits.zig");
+const encoder = @import("encoder.zig");
+
 const Air = @import("../../Air.zig");
 const CodeGen = @import("CodeGen.zig");
 const IntegerBitSet = std.bit_set.IntegerBitSet;
+const Memory = bits.Memory;
 const Register = bits.Register;
 
 instructions: std.MultiArrayList(Inst).Slice,
@@ -24,430 +27,299 @@ extra: []const u32,
 pub const Inst = struct {
     tag: Tag,
     ops: Ops,
-    /// The meaning of this depends on `tag` and `ops`.
     data: Data,
 
-    pub const Tag = enum(u16) {
-        /// ops flags:  form:
-        ///       0b00  reg1, reg2
-        ///       0b00  reg1, imm32
-        ///       0b01  reg1, [reg2 + imm32]
-        ///       0b01  reg1, [ds:imm32]
-        ///       0b10  [reg1 + imm32], reg2
-        /// Notes:
-        ///  * If reg2 is `none` then it means Data field `imm` is used as the immediate.
-        ///  * When two imm32 values are required, Data field `payload` points at `ImmPair`.
-        adc,
-
-        /// ops flags: form:
-        ///       0b00 byte ptr [reg1 + imm32], imm8
-        ///       0b01 word ptr [reg1 + imm32], imm16
-        ///       0b10 dword ptr [reg1 + imm32], imm32
-        ///       0b11 qword ptr [reg1 + imm32], imm32 (sign-extended to imm64)
-        /// Notes:
-        ///  * Uses `ImmPair` as payload
-        adc_mem_imm,
-
-        /// form: reg1, [reg2 + scale*index + imm32]
-        /// ops flags  scale
-        ///      0b00      1
-        ///      0b01      2
-        ///      0b10      4
-        ///      0b11      8
-        /// Notes:
-        ///  * Uses `IndexRegisterDisp` as payload
-        adc_scale_src,
-
-        /// form: [reg1 + scale*index + imm32], reg2
-        /// ops flags  scale
-        ///      0b00      1
-        ///      0b01      2
-        ///      0b10      4
-        ///      0b11      8
-        /// Notes:
-        ///  * Uses `IndexRegisterDisp` payload.
-        adc_scale_dst,
-
-        /// form: [reg1 + scale*rax + imm32], imm32
-        /// ops flags  scale
-        ///      0b00      1
-        ///      0b01      2
-        ///      0b10      4
-        ///      0b11      8
-        /// Notes:
-        ///  * Uses `IndexRegisterDispImm` payload.
-        adc_scale_imm,
-
-        /// ops flags: form:
-        ///       0b00 byte ptr [reg1 + index + imm32], imm8
-        ///       0b01 word ptr [reg1 + index + imm32], imm16
-        ///       0b10 dword ptr [reg1 + index + imm32], imm32
-        ///       0b11 qword ptr [reg1 + index + imm32], imm32 (sign-extended to imm64)
-        /// Notes:
-        ///  * Uses `IndexRegisterDispImm` payload.
-        adc_mem_index_imm,
-
-        // The following instructions all have the same encoding as `adc`.
-
-        add,
-        add_mem_imm,
-        add_scale_src,
-        add_scale_dst,
-        add_scale_imm,
-        add_mem_index_imm,
-        sub,
-        sub_mem_imm,
-        sub_scale_src,
-        sub_scale_dst,
-        sub_scale_imm,
-        sub_mem_index_imm,
-        xor,
-        xor_mem_imm,
-        xor_scale_src,
-        xor_scale_dst,
-        xor_scale_imm,
-        xor_mem_index_imm,
-        @"and",
-        and_mem_imm,
-        and_scale_src,
-        and_scale_dst,
-        and_scale_imm,
-        and_mem_index_imm,
-        @"or",
-        or_mem_imm,
-        or_scale_src,
-        or_scale_dst,
-        or_scale_imm,
-        or_mem_index_imm,
-        rol,
-        rol_mem_imm,
-        rol_scale_src,
-        rol_scale_dst,
-        rol_scale_imm,
-        rol_mem_index_imm,
-        ror,
-        ror_mem_imm,
-        ror_scale_src,
-        ror_scale_dst,
-        ror_scale_imm,
-        ror_mem_index_imm,
-        rcl,
-        rcl_mem_imm,
-        rcl_scale_src,
-        rcl_scale_dst,
-        rcl_scale_imm,
-        rcl_mem_index_imm,
-        rcr,
-        rcr_mem_imm,
-        rcr_scale_src,
-        rcr_scale_dst,
-        rcr_scale_imm,
-        rcr_mem_index_imm,
-        sbb,
-        sbb_mem_imm,
-        sbb_scale_src,
-        sbb_scale_dst,
-        sbb_scale_imm,
-        sbb_mem_index_imm,
-        cmp,
-        cmp_mem_imm,
-        cmp_scale_src,
-        cmp_scale_dst,
-        cmp_scale_imm,
-        cmp_mem_index_imm,
-        mov,
-        mov_mem_imm,
-        mov_scale_src,
-        mov_scale_dst,
-        mov_scale_imm,
-        mov_mem_index_imm,
-
-        /// ops flags: form:
-        ///      0b00  reg1, reg2,
-        ///      0b01  reg1, byte ptr [reg2 + imm32]
-        ///      0b10  reg1, word ptr [reg2 + imm32]
-        ///      0b11  reg1, dword ptr [reg2 + imm32]
-        mov_sign_extend,
-
-        /// ops flags: form:
-        ///      0b00  reg1, reg2
-        ///      0b01  reg1, byte ptr [reg2 + imm32]
-        ///      0b10  reg1, word ptr [reg2 + imm32]
-        mov_zero_extend,
-
-        /// ops flags: form:
-        ///      0b00  reg1, [reg2 + imm32]
-        ///      0b00  reg1, [ds:imm32]
-        ///      0b01  reg1, [rip + imm32]
-        ///      0b10  reg1, [reg2 + index + imm32]
-        /// Notes:
-        ///  * 0b10 uses `IndexRegisterDisp` payload
-        lea,
-
-        /// ops flags: form:
-        ///      0b00  reg1, [rip + reloc] // via GOT PIC
-        ///      0b01  reg1, [rip + reloc] // direct load PIC
-        ///      0b10  reg1, [rip + reloc] // via imports table PIC
-        /// Notes:
-        /// * `Data` contains `relocation`
-        lea_pic,
-
-        /// ops flags: form:
-        ///      0b00  reg1, 1
-        ///      0b01  reg1, .cl
-        ///      0b10  reg1, imm8
-        /// Notes:
-        ///   * If flags == 0b10, uses `imm`.
-        shl,
-        shl_mem_imm,
-        shl_scale_src,
-        shl_scale_dst,
-        shl_scale_imm,
-        shl_mem_index_imm,
-        sal,
-        sal_mem_imm,
-        sal_scale_src,
-        sal_scale_dst,
-        sal_scale_imm,
-        sal_mem_index_imm,
-        shr,
-        shr_mem_imm,
-        shr_scale_src,
-        shr_scale_dst,
-        shr_scale_imm,
-        shr_mem_index_imm,
-        sar,
-        sar_mem_imm,
-        sar_scale_src,
-        sar_scale_dst,
-        sar_scale_imm,
-        sar_mem_index_imm,
-
-        /// ops flags: form:
-        ///      0b00  reg1
-        ///      0b00  byte ptr [reg2 + imm32]
-        ///      0b01  word ptr [reg2 + imm32]
-        ///      0b10  dword ptr [reg2 + imm32]
-        ///      0b11  qword ptr [reg2 + imm32]
-        imul,
-        idiv,
-        mul,
-        div,
-
-        /// ops flags: form:
-        ///      0b00  AX      <- AL
-        ///      0b01  DX:AX   <- AX
-        ///      0b10  EDX:EAX <- EAX
-        ///      0b11  RDX:RAX <- RAX
-        cwd,
-
-        /// ops flags:  form:
-        ///      0b00  reg1, reg2
-        ///      0b01  reg1, [reg2 + imm32]
-        ///      0b01  reg1, [imm32] if reg2 is none
-        ///      0b10  reg1, reg2, imm32
-        ///      0b11  reg1, [reg2 + imm32], imm32
-        imul_complex,
-
-        /// ops flags:  form:
-        ///      0b00   reg1, imm64
-        ///      0b01   rax, moffs64
-        /// Notes:
-        ///   * If reg1 is 64-bit, the immediate is 64-bit and stored
-        ///     within extra data `Imm64`.
-        ///   * For 0b01, reg1 (or reg2) need to be
-        ///     a version of rax. If reg1 == .none, then reg2 == .rax,
-        ///     or vice versa.
-        movabs,
-
-        /// ops flags:  form:
-        ///      0b00    word ptr [reg1 + imm32]
-        ///      0b01    dword ptr [reg1 + imm32]
-        ///      0b10    qword ptr [reg1 + imm32]
-        /// Notes:
-        ///   * source is always ST(0)
-        ///   * only supports memory operands as destination
-        fisttp,
-
-        /// ops flags:  form:
-        ///      0b01    dword ptr [reg1 + imm32]
-        ///      0b10    qword ptr [reg1 + imm32]
-        fld,
-
-        /// ops flags:  form:
-        ///      0b00    inst
-        ///      0b01    reg1
-        ///      0b01    [imm32] if reg1 is none
-        ///      0b10    [reg1 + imm32]
-        jmp,
-        call,
-
-        /// ops flags:
-        ///     unused
-        /// Notes:
-        ///  * uses `inst_cc` in Data.
-        cond_jmp,
-
-        /// ops flags:
-        ///      0b00 reg1
-        /// Notes:
-        ///  * uses condition code (CC) stored as part of data
-        cond_set_byte,
-
-        /// ops flags:
-        ///     0b00 reg1, reg2,
-        ///     0b01 reg1, word ptr  [reg2 + imm]
-        ///     0b10 reg1, dword ptr [reg2 + imm]
-        ///     0b11 reg1, qword ptr [reg2 + imm]
-        /// Notes:
-        ///  * uses condition code (CC) stored as part of data
-        cond_mov,
-
-        /// ops flags:  form:
-        ///       0b00   reg1
-        ///       0b01   [reg1 + imm32]
-        ///       0b10   imm32
-        /// Notes:
-        ///  * If 0b10 is specified and the tag is push, pushes immediate onto the stack
-        ///    using the mnemonic PUSH imm32.
-        push,
-        pop,
-
-        /// ops flags:  form:
-        ///       0b00  retf imm16
-        ///       0b01  retf
-        ///       0b10  retn imm16
-        ///       0b11  retn
-        ret,
-
-        /// Fast system call
-        syscall,
-
-        /// ops flags:  form:
-        ///       0b00  reg1, imm32 if reg2 == .none
-        ///       0b00  reg1, reg2
-        /// TODO handle more cases
-        @"test",
-
-        /// Undefined Instruction
-        ud,
-
-        /// Breakpoint  form:
-        ///       0b00  int3
-        interrupt,
-
-        /// Nop
-        nop,
-
-        /// SSE instructions
-        /// ops flags:  form:
-        ///       0b00  reg1, qword ptr [reg2 + imm32]
-        ///       0b01  qword ptr [reg1 + imm32], reg2
-        ///       0b10  reg1, reg2
-        mov_f64_sse,
-        mov_f32_sse,
-
-        /// ops flags:  form:
-        ///       0b00  reg1, reg2
-        add_f64_sse,
-        add_f32_sse,
-
-        /// ops flags:  form:
-        ///       0b00  reg1, reg2
-        cmp_f64_sse,
-        cmp_f32_sse,
-
-        /// AVX instructions
-        /// ops flags:  form:
-        ///       0b00  reg1, qword ptr [reg2 + imm32]
-        ///       0b01  qword ptr [reg1 + imm32], reg2
-        ///       0b10  reg1, reg1, reg2
-        mov_f64_avx,
-        mov_f32_avx,
-
-        /// ops flags:  form:
-        ///       0b00  reg1, reg1, reg2
-        add_f64_avx,
-        add_f32_avx,
-
-        /// ops flags:  form:
-        ///       0b00  reg1, reg1, reg2
-        cmp_f64_avx,
-        cmp_f32_avx,
-
-        /// Pseudo-instructions
-        /// call extern function
-        /// Notes:
-        ///   * target of the call is stored as `relocation` in `Data` union.
-        call_extern,
-
-        /// end of prologue
-        dbg_prologue_end,
-
-        /// start of epilogue
-        dbg_epilogue_begin,
-
-        /// update debug line
-        dbg_line,
-
-        /// push registers
-        /// Uses `payload` field with `SaveRegisterList` as payload.
-        push_regs,
-
-        /// pop registers
-        /// Uses `payload` field with `SaveRegisterList` as payload.
-        pop_regs,
-    };
-    /// The position of an MIR instruction within the `Mir` instructions array.
     pub const Index = u32;
 
-    pub const Ops = packed struct {
-        reg1: u7,
-        reg2: u7,
-        flags: u2,
+    pub const Tag = enum(u8) {
+        /// Add with carry
+        adc,
+        /// Add
+        add,
+        /// Logical and
+        @"and",
+        /// Call
+        call,
+        /// Convert byte to word
+        cbw,
+        /// Convert word to doubleword
+        cwde,
+        /// Convert doubleword to quadword
+        cdqe,
+        /// Convert word to doubleword
+        cwd,
+        /// Convert doubleword to quadword
+        cdq,
+        /// Convert doubleword to quadword
+        cqo,
+        /// Logical compare
+        cmp,
+        /// Unsigned division
+        div,
+        /// Store integer with truncation
+        fisttp,
+        /// Load floating-point value
+        fld,
+        /// Signed division
+        idiv,
+        /// Signed multiplication
+        imul,
+        ///
+        int3,
+        /// Jump
+        jmp,
+        /// Load effective address
+        lea,
+        /// Move
+        mov,
+        /// Move with sign extension
+        movsx,
+        /// Move with zero extension
+        movzx,
+        /// Multiply
+        mul,
+        /// No-op
+        nop,
+        /// Logical or
+        @"or",
+        /// Pop
+        pop,
+        /// Push
+        push,
+        /// Return
+        ret,
+        /// Arithmetic shift left
+        sal,
+        /// Arithmetic shift right
+        sar,
+        /// Integer subtraction with borrow
+        sbb,
+        /// Logical shift left
+        shl,
+        /// Logical shift right
+        shr,
+        /// Subtract
+        sub,
+        /// Syscall
+        syscall,
+        /// Test condition
+        @"test",
+        /// Undefined instruction
+        ud2,
+        /// Logical exclusive-or
+        xor,
 
-        pub fn encode(vals: struct {
-            reg1: Register = .none,
-            reg2: Register = .none,
-            flags: u2 = 0b00,
-        }) Ops {
-            return .{
-                .reg1 = @enumToInt(vals.reg1),
-                .reg2 = @enumToInt(vals.reg2),
-                .flags = vals.flags,
-            };
-        }
+        /// Add single precision floating point
+        addss,
+        /// Compare scalar single-precision floating-point values
+        cmpss,
+        /// Move scalar single-precision floating-point value
+        movss,
+        /// Unordered compare scalar single-precision floating-point values
+        ucomiss,
+        /// Add double precision floating point
+        addsd,
+        /// Compare scalar double-precision floating-point values
+        cmpsd,
+        /// Move scalar double-precision floating-point value
+        movsd,
+        /// Unordered compare scalar double-precision floating-point values
+        ucomisd,
 
-        pub fn decode(ops: Ops) struct {
-            reg1: Register,
-            reg2: Register,
-            flags: u2,
-        } {
-            return .{
-                .reg1 = @intToEnum(Register, ops.reg1),
-                .reg2 = @intToEnum(Register, ops.reg2),
-                .flags = ops.flags,
-            };
-        }
+        /// Conditional move
+        cmovcc,
+        /// Conditional jump
+        jcc,
+        /// Set byte on condition
+        setcc,
+
+        /// Mov absolute to/from memory wrt segment register to/from rax
+        mov_moffs,
+
+        /// Jump with relocation to another local MIR instruction
+        /// Uses `inst` payload.
+        jmp_reloc,
+
+        /// Call to an extern symbol via linker relocation.
+        /// Uses `relocation` payload.
+        call_extern,
+
+        /// Load effective address of a symbol not yet allocated in VM.
+        lea_linker,
+
+        /// End of prologue
+        dbg_prologue_end,
+        /// Start of epilogue
+        dbg_epilogue_begin,
+        /// Update debug line
+        /// Uses `payload` payload with data of type `DbgLineColumn`.
+        dbg_line,
+        /// Push registers
+        /// Uses `payload` payload with data of type `SaveRegisterList`.
+        push_regs,
+        /// Pop registers
+        /// Uses `payload` payload with data of type `SaveRegisterList`.
+        pop_regs,
+
+        /// Tombstone
+        /// Emitter should skip this instruction.
+        dead,
     };
 
-    /// All instructions have a 4-byte payload, which is contained within
-    /// this union. `Tag` determines which union field is active, as well as
-    /// how to interpret the data within.
+    pub const Ops = enum(u8) {
+        /// No data associated with this instruction (only mnemonic is used).
+        none,
+        /// Single register operand.
+        /// Uses `r` payload.
+        r,
+        /// Register, register operands.
+        /// Uses `rr` payload.
+        rr,
+        /// Register, register, register operands.
+        /// Uses `rrr` payload.
+        rrr,
+        /// Register, register, immediate (sign-extended) operands.
+        /// Uses `rri`  payload.
+        rri_s,
+        /// Register, register, immediate (unsigned) operands.
+        /// Uses `rri`  payload.
+        rri_u,
+        /// Register with condition code (CC).
+        /// Uses `r_c` payload.
+        r_c,
+        /// Register, register with condition code (CC).
+        /// Uses `rr_c` payload.
+        rr_c,
+        /// Register, immediate (sign-extended) operands.
+        /// Uses `ri` payload.
+        ri_s,
+        /// Register, immediate (unsigned) operands.
+        /// Uses `ri` payload.
+        ri_u,
+        /// Register, 64-bit unsigned immediate operands.
+        /// Uses `rx` payload with payload type `Imm64`.
+        ri64,
+        /// Immediate (sign-extended) operand.
+        /// Uses `imm` payload.
+        imm_s,
+        /// Immediate (unsigned) operand.
+        /// Uses `imm` payload.
+        imm_u,
+        /// Relative displacement operand.
+        /// Uses `imm` payload.
+        rel,
+        /// Register, memory (SIB) operands.
+        /// Uses `rx` payload.
+        rm_sib,
+        /// Register, memory (RIP) operands.
+        /// Uses `rx` payload.
+        rm_rip,
+        /// Single memory (SIB) operand.
+        /// Uses `payload` with extra data of type `MemorySib`.
+        m_sib,
+        /// Single memory (RIP) operand.
+        /// Uses `payload` with extra data of type `MemoryRip`.
+        m_rip,
+        /// Memory (SIB), immediate (unsigned) operands.
+        /// Uses `xi` payload with extra data of type `MemorySib`.
+        mi_u_sib,
+        /// Memory (RIP), immediate (unsigned) operands.
+        /// Uses `xi` payload with extra data of type `MemoryRip`.
+        mi_u_rip,
+        /// Memory (SIB), immediate (sign-extend) operands.
+        /// Uses `xi` payload with extra data of type `MemorySib`.
+        mi_s_sib,
+        /// Memory (RIP), immediate (sign-extend) operands.
+        /// Uses `xi` payload with extra data of type `MemoryRip`.
+        mi_s_rip,
+        /// Memory (SIB), register operands.
+        /// Uses `rx` payload with extra data of type `MemorySib`.
+        mr_sib,
+        /// Memory (RIP), register operands.
+        /// Uses `rx` payload with extra data of type `MemoryRip`.
+        mr_rip,
+        /// Rax, Memory moffs.
+        /// Uses `payload` with extra data of type `MemoryMoffs`.
+        rax_moffs,
+        /// Memory moffs, rax.
+        /// Uses `payload` with extra data of type `MemoryMoffs`.
+        moffs_rax,
+        /// References another Mir instruction directly.
+        /// Uses `inst` payload.
+        inst,
+        /// References another Mir instruction directly with condition code (CC).
+        /// Uses `inst_cc` payload.
+        inst_cc,
+        /// Uses `payload` payload with data of type `MemoryConditionCode`.
+        m_cc,
+        /// Uses `rx` payload with extra data of type `MemoryConditionCode`.
+        rm_cc,
+        /// Uses `reloc` payload.
+        reloc,
+        /// Linker relocation - GOT indirection.
+        /// Uses `payload` payload with extra data of type `LeaRegisterReloc`.
+        got_reloc,
+        /// Linker relocation - direct reference.
+        /// Uses `payload` payload with extra data of type `LeaRegisterReloc`.
+        direct_reloc,
+        /// Linker relocation - imports table indirection (binding).
+        /// Uses `payload` payload with extra data of type `LeaRegisterReloc`.
+        import_reloc,
+    };
+
     pub const Data = union {
-        /// Another instruction.
+        /// References another Mir instruction.
         inst: Index,
-        /// A 32-bit immediate value.
-        imm: u32,
-        /// A condition code for use with EFLAGS register.
-        cc: bits.Condition,
-        /// Another instruction with condition code.
-        /// Used by `cond_jmp`.
+        /// Another instruction with condition code (CC).
+        /// Used by `jcc`.
         inst_cc: struct {
             /// Another instruction.
             inst: Index,
             /// A condition code for use with EFLAGS register.
             cc: bits.Condition,
+        },
+        /// A 32-bit immediate value.
+        imm: u32,
+        r: Register,
+        rr: struct {
+            r1: Register,
+            r2: Register,
+        },
+        rrr: struct {
+            r1: Register,
+            r2: Register,
+            r3: Register,
+        },
+        rri: struct {
+            r1: Register,
+            r2: Register,
+            imm: u32,
+        },
+        /// Register with condition code (CC).
+        r_c: struct {
+            r1: Register,
+            cc: bits.Condition,
+        },
+        /// Register, register with condition code (CC).
+        rr_c: struct {
+            r1: Register,
+            r2: Register,
+            cc: bits.Condition,
+        },
+        /// Register, immediate.
+        ri: struct {
+            r1: Register,
+            imm: u32,
+        },
+        /// Register, followed by custom payload found in extra.
+        rx: struct {
+            r1: Register,
+            payload: u32,
+        },
+        /// Custom payload followed by an immediate.
+        xi: struct {
+            payload: u32,
+            imm: u32,
         },
         /// Relocation for the linker where:
         /// * `atom_index` is the index of the source
@@ -471,62 +343,13 @@ pub const Inst = struct {
     }
 };
 
-pub const IndexRegisterDisp = struct {
-    /// Index register to use with SIB-based encoding
-    index: u32,
-
-    /// Displacement value
-    disp: u32,
-
-    pub fn encode(index: Register, disp: u32) IndexRegisterDisp {
-        return .{
-            .index = @enumToInt(index),
-            .disp = disp,
-        };
-    }
-
-    pub fn decode(this: IndexRegisterDisp) struct {
-        index: Register,
-        disp: u32,
-    } {
-        return .{
-            .index = @intToEnum(Register, this.index),
-            .disp = this.disp,
-        };
-    }
-};
-
-/// TODO: would it be worth making `IndexRegisterDisp` and `IndexRegisterDispImm` a variable length list
-/// instead of having two structs, one a superset of the other one?
-pub const IndexRegisterDispImm = struct {
-    /// Index register to use with SIB-based encoding
-    index: u32,
-
-    /// Displacement value
-    disp: u32,
-
-    /// Immediate
-    imm: u32,
-
-    pub fn encode(index: Register, disp: u32, imm: u32) IndexRegisterDispImm {
-        return .{
-            .index = @enumToInt(index),
-            .disp = disp,
-            .imm = imm,
-        };
-    }
-
-    pub fn decode(this: IndexRegisterDispImm) struct {
-        index: Register,
-        disp: u32,
-        imm: u32,
-    } {
-        return .{
-            .index = @intToEnum(Register, this.index),
-            .disp = this.disp,
-            .imm = this.imm,
-        };
-    }
+pub const LeaRegisterReloc = struct {
+    /// Destination register.
+    reg: u32,
+    /// Index of the containing atom.
+    atom_index: u32,
+    /// Index into the linker's symbol table.
+    sym_index: u32,
 };
 
 /// Used in conjunction with `SaveRegisterList` payload to transfer a list of used registers
@@ -570,14 +393,11 @@ pub const RegisterList = struct {
 };
 
 pub const SaveRegisterList = struct {
+    /// Base register
+    base_reg: u32,
     /// Use `RegisterList` to populate.
     register_list: u32,
     stack_end: u32,
-};
-
-pub const ImmPair = struct {
-    dest_off: u32,
-    operand: u32,
 };
 
 pub const Imm64 = struct {
@@ -599,6 +419,90 @@ pub const Imm64 = struct {
     }
 };
 
+// TODO this can be further compacted using packed struct
+pub const MemorySib = struct {
+    /// Size of the pointer.
+    ptr_size: u32,
+    /// Base register. -1 means null, or no base register.
+    base: i32,
+    /// Scale for index register. -1 means null, or no scale.
+    /// This has to be in sync with `index` field.
+    scale: i32,
+    /// Index register. -1 means null, or no index register.
+    /// This has to be in sync with `scale` field.
+    index: i32,
+    /// Displacement value.
+    disp: i32,
+
+    pub fn encode(mem: Memory) MemorySib {
+        const sib = mem.sib;
+        return .{
+            .ptr_size = @enumToInt(sib.ptr_size),
+            .base = if (sib.base) |r| @enumToInt(r) else -1,
+            .scale = if (sib.scale_index) |si| si.scale else -1,
+            .index = if (sib.scale_index) |si| @enumToInt(si.index) else -1,
+            .disp = sib.disp,
+        };
+    }
+
+    pub fn decode(msib: MemorySib) Memory {
+        const base: ?Register = if (msib.base == -1) null else @intToEnum(Register, msib.base);
+        const scale_index: ?Memory.ScaleIndex = if (msib.index == -1) null else .{
+            .scale = @intCast(u4, msib.scale),
+            .index = @intToEnum(Register, msib.index),
+        };
+        const mem: Memory = .{ .sib = .{
+            .ptr_size = @intToEnum(Memory.PtrSize, msib.ptr_size),
+            .base = base,
+            .scale_index = scale_index,
+            .disp = msib.disp,
+        } };
+        return mem;
+    }
+};
+
+pub const MemoryRip = struct {
+    /// Size of the pointer.
+    ptr_size: u32,
+    /// Displacement value.
+    disp: i32,
+
+    pub fn encode(mem: Memory) MemoryRip {
+        return .{
+            .ptr_size = @enumToInt(mem.rip.ptr_size),
+            .disp = mem.rip.disp,
+        };
+    }
+
+    pub fn decode(mrip: MemoryRip) Memory {
+        return .{ .rip = .{
+            .ptr_size = @intToEnum(Memory.PtrSize, mrip.ptr_size),
+            .disp = mrip.disp,
+        } };
+    }
+};
+
+pub const MemoryMoffs = struct {
+    /// Segment register.
+    seg: u32,
+    /// Absolute offset wrt to the segment register split between MSB and LSB parts much like
+    /// `Imm64` payload.
+    msb: u32,
+    lsb: u32,
+
+    pub fn encodeOffset(moffs: *MemoryMoffs, v: u64) void {
+        moffs.msb = @truncate(u32, v >> 32);
+        moffs.lsb = @truncate(u32, v);
+    }
+
+    pub fn decodeOffset(moffs: *const MemoryMoffs) u64 {
+        var res: u64 = 0;
+        res |= (@intCast(u64, moffs.msb) << 32);
+        res |= @intCast(u64, moffs.lsb);
+        return res;
+    }
+};
+
 pub const DbgLineColumn = struct {
     line: u32,
     column: u32,
@@ -610,9 +514,9 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.* = undefined;
 }
 
-pub fn extraData(mir: Mir, comptime T: type, index: usize) struct { data: T, end: usize } {
+pub fn extraData(mir: Mir, comptime T: type, index: u32) struct { data: T, end: u32 } {
     const fields = std.meta.fields(T);
-    var i: usize = index;
+    var i: u32 = index;
     var result: T = undefined;
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {

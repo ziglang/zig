@@ -4228,6 +4228,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 .root_src_path = "build_runner.zig",
             };
 
+        var build_pkg: Package = .{
+            .root_src_directory = build_directory,
+            .root_src_path = build_zig_basename,
+        };
         if (!build_options.omit_pkg_fetching_code) {
             var http_client: std.http.Client = .{ .allocator = gpa };
             defer http_client.deinit();
@@ -4249,7 +4253,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
             // Here we borrow main package's table and will replace it with a fresh
             // one after this process completes.
-            main_pkg.fetchAndAddDependencies(
+            build_pkg.fetchAndAddDependencies(
+                &main_pkg,
                 arena,
                 &thread_pool,
                 &http_client,
@@ -4280,11 +4285,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             mem.swap(Package.Table, &main_pkg.table, &deps_pkg.table);
             try main_pkg.add(gpa, "@dependencies", deps_pkg);
         }
-
-        var build_pkg: Package = .{
-            .root_src_directory = build_directory,
-            .root_src_path = build_zig_basename,
-        };
         try main_pkg.add(gpa, "@build", &build_pkg);
 
         const comp = Compilation.create(gpa, .{
@@ -4622,6 +4622,7 @@ const FmtError = error{
     ConnectionResetByPeer,
     LockViolation,
     NetNameDeleted,
+    InvalidArgument,
 } || fs.File.OpenError;
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {

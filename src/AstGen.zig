@@ -205,7 +205,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     };
 }
 
-pub fn deinit(astgen: *AstGen, gpa: Allocator) void {
+fn deinit(astgen: *AstGen, gpa: Allocator) void {
     astgen.instructions.deinit(gpa);
     astgen.extra.deinit(gpa);
     astgen.string_table.deinit(gpa);
@@ -216,7 +216,7 @@ pub fn deinit(astgen: *AstGen, gpa: Allocator) void {
     astgen.ref_table.deinit(gpa);
 }
 
-pub const ResultInfo = struct {
+const ResultInfo = struct {
     /// The semantics requested for the result location
     rl: Loc,
 
@@ -245,7 +245,7 @@ pub const ResultInfo = struct {
         }
     }
 
-    pub const Loc = union(enum) {
+    const Loc = union(enum) {
         /// The expression is the right-hand side of assignment to `_`. Only the side-effects of the
         /// expression should be generated. The result instruction from the expression must
         /// be ignored.
@@ -277,11 +277,11 @@ pub const ResultInfo = struct {
             src_node: ?Ast.Node.Index = null,
         };
 
-        pub const Strategy = struct {
+        const Strategy = struct {
             elide_store_to_block_ptr_instructions: bool,
             tag: Tag,
 
-            pub const Tag = enum {
+            const Tag = enum {
                 /// Both branches will use break_void; result location is used to communicate the
                 /// result instruction.
                 break_void,
@@ -331,7 +331,7 @@ pub const ResultInfo = struct {
         }
     };
 
-    pub const Context = enum {
+    const Context = enum {
         /// The expression is the operand to a return expression.
         @"return",
         /// The expression is the input to an error-handling operator (if-else, try, or catch).
@@ -349,11 +349,11 @@ pub const ResultInfo = struct {
     };
 };
 
-pub const align_ri: ResultInfo = .{ .rl = .{ .ty = .u29_type } };
-pub const coerced_align_ri: ResultInfo = .{ .rl = .{ .coerced_ty = .u29_type } };
-pub const bool_ri: ResultInfo = .{ .rl = .{ .ty = .bool_type } };
-pub const type_ri: ResultInfo = .{ .rl = .{ .ty = .type_type } };
-pub const coerced_type_ri: ResultInfo = .{ .rl = .{ .coerced_ty = .type_type } };
+const align_ri: ResultInfo = .{ .rl = .{ .ty = .u29_type } };
+const coerced_align_ri: ResultInfo = .{ .rl = .{ .coerced_ty = .u29_type } };
+const bool_ri: ResultInfo = .{ .rl = .{ .ty = .bool_type } };
+const type_ri: ResultInfo = .{ .rl = .{ .ty = .type_type } };
+const coerced_type_ri: ResultInfo = .{ .rl = .{ .coerced_ty = .type_type } };
 
 fn typeExpr(gz: *GenZir, scope: *Scope, type_node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const prev_force_comptime = gz.force_comptime;
@@ -1960,7 +1960,10 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                 else
                     .@"break";
 
+                block_gz.break_count += 1;
                 if (rhs == 0) {
+                    _ = try rvalue(parent_gz, block_gz.break_result_info, .void_value, node);
+
                     try genDefers(parent_gz, scope, parent_scope, .normal_only);
 
                     // As our last action before the break, "pop" the error trace if needed
@@ -1970,7 +1973,6 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                     _ = try parent_gz.addBreak(break_tag, block_inst, .void_value);
                     return Zir.Inst.Ref.unreachable_value;
                 }
-                block_gz.break_count += 1;
 
                 const operand = try reachableExpr(parent_gz, parent_scope, block_gz.break_result_info, rhs, node);
                 const search_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
@@ -3507,7 +3509,7 @@ const WipMembers = struct {
     /// (4 for src_hash + line + name + value + doc_comment + align + link_section + address_space )
     const max_decl_size = 11;
 
-    pub fn init(gpa: Allocator, payload: *ArrayListUnmanaged(u32), decl_count: u32, field_count: u32, comptime bits_per_field: u32, comptime max_field_size: u32) Allocator.Error!Self {
+    fn init(gpa: Allocator, payload: *ArrayListUnmanaged(u32), decl_count: u32, field_count: u32, comptime bits_per_field: u32, comptime max_field_size: u32) Allocator.Error!Self {
         const payload_top = @intCast(u32, payload.items.len);
         const decls_start = payload_top + (decl_count + decls_per_u32 - 1) / decls_per_u32;
         const field_bits_start = decls_start + decl_count * max_decl_size;
@@ -3528,7 +3530,7 @@ const WipMembers = struct {
         };
     }
 
-    pub fn nextDecl(self: *Self, is_pub: bool, is_export: bool, has_align: bool, has_section_or_addrspace: bool) void {
+    fn nextDecl(self: *Self, is_pub: bool, is_export: bool, has_align: bool, has_section_or_addrspace: bool) void {
         const index = self.payload_top + self.decl_index / decls_per_u32;
         assert(index < self.decls_start);
         const bit_bag: u32 = if (self.decl_index % decls_per_u32 == 0) 0 else self.payload.items[index];
@@ -3540,7 +3542,7 @@ const WipMembers = struct {
         self.decl_index += 1;
     }
 
-    pub fn nextField(self: *Self, comptime bits_per_field: u32, bits: [bits_per_field]bool) void {
+    fn nextField(self: *Self, comptime bits_per_field: u32, bits: [bits_per_field]bool) void {
         const fields_per_u32 = 32 / bits_per_field;
         const index = self.field_bits_start + self.field_index / fields_per_u32;
         assert(index < self.fields_start);
@@ -3554,25 +3556,25 @@ const WipMembers = struct {
         self.field_index += 1;
     }
 
-    pub fn appendToDecl(self: *Self, data: u32) void {
+    fn appendToDecl(self: *Self, data: u32) void {
         assert(self.decls_end < self.field_bits_start);
         self.payload.items[self.decls_end] = data;
         self.decls_end += 1;
     }
 
-    pub fn appendToDeclSlice(self: *Self, data: []const u32) void {
+    fn appendToDeclSlice(self: *Self, data: []const u32) void {
         assert(self.decls_end + data.len <= self.field_bits_start);
         mem.copy(u32, self.payload.items[self.decls_end..], data);
         self.decls_end += @intCast(u32, data.len);
     }
 
-    pub fn appendToField(self: *Self, data: u32) void {
+    fn appendToField(self: *Self, data: u32) void {
         assert(self.fields_end < self.payload.items.len);
         self.payload.items[self.fields_end] = data;
         self.fields_end += 1;
     }
 
-    pub fn finishBits(self: *Self, comptime bits_per_field: u32) void {
+    fn finishBits(self: *Self, comptime bits_per_field: u32) void {
         const empty_decl_slots = decls_per_u32 - (self.decl_index % decls_per_u32);
         if (self.decl_index > 0 and empty_decl_slots < decls_per_u32) {
             const index = self.payload_top + self.decl_index / decls_per_u32;
@@ -3588,15 +3590,15 @@ const WipMembers = struct {
         }
     }
 
-    pub fn declsSlice(self: *Self) []u32 {
+    fn declsSlice(self: *Self) []u32 {
         return self.payload.items[self.payload_top..self.decls_end];
     }
 
-    pub fn fieldsSlice(self: *Self) []u32 {
+    fn fieldsSlice(self: *Self) []u32 {
         return self.payload.items[self.field_bits_start..self.fields_end];
     }
 
-    pub fn deinit(self: *Self) void {
+    fn deinit(self: *Self) void {
         self.payload.items.len = self.payload_top;
     }
 };
@@ -6584,6 +6586,9 @@ fn forExpr(
         cond_block,
         break_tag,
     );
+    if (ri.rl.strategy(&loop_scope).tag == .break_void and loop_scope.break_count == 0) {
+        _ = try rvalue(parent_gz, ri, .void_value, node);
+    }
     if (is_statement) {
         _ = try parent_gz.addUnNode(.ensure_result_used, result, node);
     }
@@ -8060,35 +8065,35 @@ fn builtinCall(
         },
         .fence => {
             const order = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .atomic_order_type } }, params[0]);
-            const result = try gz.addExtendedPayload(.fence, Zir.Inst.UnNode{
+            _ = try gz.addExtendedPayload(.fence, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = order,
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .set_float_mode => {
             const order = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .float_mode_type } }, params[0]);
-            const result = try gz.addExtendedPayload(.set_float_mode, Zir.Inst.UnNode{
+            _ = try gz.addExtendedPayload(.set_float_mode, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = order,
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .set_align_stack => {
             const order = try expr(gz, scope, align_ri, params[0]);
-            const result = try gz.addExtendedPayload(.set_align_stack, Zir.Inst.UnNode{
+            _ = try gz.addExtendedPayload(.set_align_stack, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = order,
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .set_cold => {
             const order = try expr(gz, scope, ri, params[0]);
-            const result = try gz.addExtendedPayload(.set_cold, Zir.Inst.UnNode{
+            _ = try gz.addExtendedPayload(.set_cold, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = order,
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
 
         .src => {
@@ -8373,14 +8378,14 @@ fn builtinCall(
         },
         .atomic_store => {
             const int_type = try typeExpr(gz, scope, params[0]);
-            const result = try gz.addPlNode(.atomic_store, node, Zir.Inst.AtomicStore{
+            _ = try gz.addPlNode(.atomic_store, node, Zir.Inst.AtomicStore{
                 // zig fmt: off
                 .ptr      = try expr(gz, scope, .{ .rl = .none },                                 params[1]),
                 .operand  = try expr(gz, scope, .{ .rl = .{ .ty = int_type } },                   params[2]),
                 .ordering = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .atomic_order_type } }, params[3]),
                 // zig fmt: on
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .mul_add => {
             const float_type = try typeExpr(gz, scope, params[0]);
@@ -8421,20 +8426,20 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .memcpy => {
-            const result = try gz.addPlNode(.memcpy, node, Zir.Inst.Memcpy{
+            _ = try gz.addPlNode(.memcpy, node, Zir.Inst.Memcpy{
                 .dest = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .manyptr_u8_type } }, params[0]),
                 .source = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .manyptr_const_u8_type } }, params[1]),
                 .byte_count = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, params[2]),
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .memset => {
-            const result = try gz.addPlNode(.memset, node, Zir.Inst.Memset{
+            _ = try gz.addPlNode(.memset, node, Zir.Inst.Memset{
                 .dest = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .manyptr_u8_type } }, params[0]),
                 .byte = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .u8_type } }, params[1]),
                 .byte_count = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, params[2]),
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .shuffle => {
             const result = try gz.addPlNode(.shuffle, node, Zir.Inst.Shuffle{
@@ -8475,12 +8480,12 @@ fn builtinCall(
         .prefetch => {
             const ptr = try expr(gz, scope, .{ .rl = .none }, params[0]);
             const options = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .prefetch_options_type } }, params[1]);
-            const result = try gz.addExtendedPayload(.prefetch, Zir.Inst.BinNode{
+            _ = try gz.addExtendedPayload(.prefetch, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
                 .lhs = ptr,
                 .rhs = options,
             });
-            return rvalue(gz, ri, result, node);
+            return rvalue(gz, ri, .void_value, node);
         },
         .c_va_arg => {
             if (astgen.fn_block == null) {
@@ -8523,16 +8528,6 @@ fn builtinCall(
             return rvalue(gz, ri, try gz.addNodeExtended(.c_va_start, node), node);
         },
     }
-}
-
-fn simpleNoOpVoid(
-    gz: *GenZir,
-    ri: ResultInfo,
-    node: Ast.Node.Index,
-    tag: Zir.Inst.Tag,
-) InnerError!Zir.Inst.Ref {
-    _ = try gz.addNode(tag, node);
-    return rvalue(gz, ri, .void_value, node);
 }
 
 fn hasDeclOrField(
@@ -10803,7 +10798,7 @@ const Scope = struct {
         /// ref of the capture for decls in this namespace
         captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
 
-        pub fn deinit(self: *Namespace, gpa: Allocator) void {
+        fn deinit(self: *Namespace, gpa: Allocator) void {
             self.decls.deinit(gpa);
             self.captures.deinit(gpa);
             self.* = undefined;

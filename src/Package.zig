@@ -215,6 +215,7 @@ pub const build_zig_basename = "build.zig";
 
 pub fn fetchAndAddDependencies(
     pkg: *Package,
+    root_pkg: *Package,
     arena: Allocator,
     thread_pool: *ThreadPool,
     http_client: *std.http.Client,
@@ -295,7 +296,8 @@ pub fn fetchAndAddDependencies(
             all_modules,
         );
 
-        try pkg.fetchAndAddDependencies(
+        try sub_pkg.fetchAndAddDependencies(
+            root_pkg,
             arena,
             thread_pool,
             http_client,
@@ -309,7 +311,8 @@ pub fn fetchAndAddDependencies(
             all_modules,
         );
 
-        try add(pkg, gpa, fqn, sub_pkg);
+        try pkg.add(gpa, name, sub_pkg);
+        try root_pkg.add(gpa, fqn, sub_pkg);
 
         try dependencies_source.writer().print("    pub const {s} = @import(\"{}\");\n", .{
             std.zig.fmtId(fqn), std.zig.fmtEscapes(fqn),
@@ -432,6 +435,12 @@ fn fetchAndUnpack(
         const build_root = try global_cache_directory.join(gpa, &.{pkg_dir_sub_path});
         errdefer gpa.free(build_root);
 
+        var pkg_dir = global_cache_directory.handle.openDir(pkg_dir_sub_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :cached,
+            else => |e| return e,
+        };
+        errdefer pkg_dir.close();
+
         try build_roots_source.writer().print("    pub const {s} = \"{}\";\n", .{
             std.zig.fmtId(fqn), std.zig.fmtEscapes(build_root),
         });
@@ -443,12 +452,6 @@ fn fetchAndUnpack(
             gpa.free(build_root);
             return gop.value_ptr.*;
         }
-
-        var pkg_dir = global_cache_directory.handle.openDir(pkg_dir_sub_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => break :cached,
-            else => |e| return e,
-        };
-        errdefer pkg_dir.close();
 
         const ptr = try gpa.create(Package);
         errdefer gpa.destroy(ptr);

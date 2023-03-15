@@ -8,7 +8,6 @@ test "@shuffle int" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -50,7 +49,6 @@ test "@shuffle bool 1" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -71,7 +69,6 @@ test "@shuffle bool 2" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     if (builtin.zig_backend == .stage2_llvm) {
@@ -83,7 +80,7 @@ test "@shuffle bool 2" {
         fn doTheTest() !void {
             var x: @Vector(3, bool) = [3]bool{ false, true, false };
             var v: @Vector(2, bool) = [2]bool{ true, false };
-            const mask: @Vector(4, i32) = [4]i32{ 0, ~@as(i32, 1), 1, 2 };
+            const mask = [4]i32{ 0, ~@as(i32, 1), 1, 2 };
             var res = @shuffle(bool, x, v, mask);
             try expect(mem.eql(bool, &@as([4]bool, res), &[4]bool{ false, false, true, false }));
         }
