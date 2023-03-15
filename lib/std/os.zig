@@ -29,7 +29,7 @@ const Allocator = std.mem.Allocator;
 const Preopen = std.fs.wasi.Preopen;
 const PreopenList = std.fs.wasi.PreopenList;
 
-pub const darwin = @import("os/darwin.zig");
+pub const darwin = std.c;
 pub const dragonfly = std.c;
 pub const freebsd = std.c;
 pub const haiku = std.c;
@@ -41,7 +41,6 @@ pub const plan9 = @import("os/plan9.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
 pub const windows = @import("os/windows.zig");
-pub const ptrace = @import("os/ptrace.zig");
 
 comptime {
     assert(@import("std") == std); // std lib tests require --zig-lib-dir
@@ -7124,6 +7123,28 @@ pub fn timerfd_gettime(fd: i32) TimerFdGetError!linux.itimerspec {
         .BADF => error.InvalidHandle,
         .FAULT => unreachable,
         .INVAL => unreachable,
+        else => |err| return unexpectedErrno(err),
+    };
+}
+
+pub const PtraceError = error{
+    DeviceBusy,
+    ProcessNotFound,
+    PermissionDenied,
+} || UnexpectedError;
+
+/// TODO on other OSes
+pub fn ptrace(request: i32, pid: pid_t, addr: ?[*]u8, signal: i32) PtraceError!void {
+    switch (builtin.os.tag) {
+        .macos, .ios, .tvos, .watchos => {},
+        else => @compileError("TODO implement ptrace"),
+    }
+    return switch (errno(system.ptrace(request, pid, addr, signal))) {
+        .SUCCESS => {},
+        .SRCH => error.ProcessNotFound,
+        .INVAL => unreachable,
+        .PERM => error.PermissionDenied,
+        .BUSY => error.DeviceBusy,
         else => |err| return unexpectedErrno(err),
     };
 }
