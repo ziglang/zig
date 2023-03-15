@@ -53,7 +53,6 @@ fn testReinterpretStructWrappedBytesAsInteger() !void {
 }
 
 test "reinterpret bytes of an array into an extern struct" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
