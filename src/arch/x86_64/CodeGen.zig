@@ -1037,9 +1037,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     const air_tags = self.air.instructions.items(.tag);
     if (air_tags[inst] == .constant) return; // Constants are immortal.
+    const prev_value = self.getResolvedInstValue(inst) orelse return;
     log.debug("%{d} => {}", .{ inst, MCValue.dead });
     // When editing this function, note that the logic must synchronize with `reuseOperand`.
-    const prev_value = self.getResolvedInstValue(inst);
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
     branch.inst_table.putAssumeCapacity(inst, .dead);
     switch (prev_value) {
@@ -1225,7 +1225,7 @@ fn revertState(self: *Self, state: State) void {
 pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void {
     const stack_mcv = try self.allocRegOrMem(inst, false);
     log.debug("spilling %{d} to stack mcv {any}", .{ inst, stack_mcv });
-    const reg_mcv = self.getResolvedInstValue(inst);
+    const reg_mcv = self.getResolvedInstValue(inst).?;
     switch (reg_mcv) {
         .register => |other| {
             assert(reg.to64() == other.to64());
@@ -1242,7 +1242,7 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
 
 pub fn spillEflagsIfOccupied(self: *Self) !void {
     if (self.eflags_inst) |inst_to_save| {
-        const mcv = self.getResolvedInstValue(inst_to_save);
+        const mcv = self.getResolvedInstValue(inst_to_save).?;
         const new_mcv = switch (mcv) {
             .register_overflow => try self.allocRegOrMem(inst_to_save, false),
             .eflags => try self.allocRegOrMem(inst_to_save, true),
@@ -6315,18 +6315,17 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
             return gop.value_ptr.*;
         },
         .const_ty => unreachable,
-        else => return self.getResolvedInstValue(inst_index),
+        else => return self.getResolvedInstValue(inst_index).?,
     }
 }
 
-fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
+fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) ?MCValue {
     // Treat each stack item as a "layer" on top of the previous one.
     var i: usize = self.branch_stack.items.len;
     while (true) {
         i -= 1;
         if (self.branch_stack.items[i].inst_table.get(inst)) |mcv| {
-            assert(mcv != .dead);
-            return mcv;
+            return if (mcv != .dead) mcv else null;
         }
     }
 }
