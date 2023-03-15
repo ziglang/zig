@@ -3053,6 +3053,9 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
     const mcv = try self.resolveInst(operand);
     const ptr_ty = self.air.typeOf(operand);
     const struct_ty = ptr_ty.childType();
+    if (struct_ty.zigTypeTag() == .Struct and struct_ty.containerLayout() == .Packed) {
+        return self.fail("TODO structFieldPtr implement packed structs", .{});
+    }
     const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
 
     const dst_mcv: MCValue = result: {
@@ -3116,6 +3119,9 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 
     const mcv = try self.resolveInst(operand);
     const struct_ty = self.air.typeOf(operand);
+    if (struct_ty.zigTypeTag() == .Struct and struct_ty.containerLayout() == .Packed) {
+        return self.fail("TODO airStructFieldVal implement packed structs", .{});
+    }
     const struct_field_offset = struct_ty.structFieldOffset(index, self.target.*);
     const struct_field_ty = struct_ty.structFieldType(index);
 
@@ -6242,6 +6248,9 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
         if (self.liveness.isUnused(inst)) break :res MCValue.dead;
         switch (result_ty.zigTypeTag()) {
             .Struct => {
+                if (result_ty.containerLayout() == .Packed) {
+                    return self.fail("TODO airAggregateInit implement packed structs", .{});
+                }
                 const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
                 for (elements, 0..) |elem, elem_i| {
                     if (result_ty.structFieldValueComptime(elem_i) != null) continue; // comptime elem
