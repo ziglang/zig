@@ -184,8 +184,7 @@ const Branch = struct {
         _ = options;
         comptime assert(unused_format_string.len == 0);
         try writer.writeAll("Branch {\n");
-        for (ctx.insts, 0..) |inst, i| {
-            const mcv = ctx.mcvs[i];
+        for (ctx.insts, ctx.mcvs) |inst, mcv| {
             try writer.print("  %{d} => {}\n", .{ inst, mcv });
         }
         try writer.writeAll("}");
@@ -3982,10 +3981,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     };
     defer if (ret_reg_lock) |lock| self.register_manager.unlockReg(lock);
 
-    for (args, 0..) |arg, arg_i| {
-        const mc_arg = info.args[arg_i];
+    for (args, info.args) |arg, info_arg| {
+        const mc_arg = info_arg;
         const arg_ty = self.air.typeOf(arg);
-        const arg_mcv = try self.resolveInst(args[arg_i]);
+        const arg_mcv = try self.resolveInst(arg);
         // Here we do not use setRegOrMem even though the logic is similar, because
         // the function call will move the stack pointer, so the offsets are different.
         switch (mc_arg) {
@@ -4851,9 +4850,9 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         var relocs = try self.gpa.alloc(u32, items.len);
         defer self.gpa.free(relocs);
 
-        for (items, 0..) |item, item_i| {
+        for (items, relocs) |item, *reloc| {
             const item_mcv = try self.resolveInst(item);
-            relocs[item_i] = try self.genCondSwitchMir(condition_ty, condition, item_mcv);
+            reloc.* = try self.genCondSwitchMir(condition_ty, condition, item_mcv);
         }
 
         // Capture the state of register and stack allocation state so that we can revert to it.
@@ -4935,11 +4934,7 @@ fn canonicaliseBranches(self: *Self, parent_branch: *Branch, canon_branch: *Bran
     try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, target_branch.inst_table.count());
 
     const target_slice = target_branch.inst_table.entries.slice();
-    const target_keys = target_slice.items(.key);
-    const target_values = target_slice.items(.value);
-
-    for (target_keys, 0..) |target_key, target_idx| {
-        const target_value = target_values[target_idx];
+    for (target_slice.items(.key), target_slice.items(.value)) |target_key, target_value| {
         const canon_mcv = if (canon_branch.inst_table.fetchSwapRemove(target_key)) |canon_entry| blk: {
             // The instruction's MCValue is overridden in both branches.
             parent_branch.inst_table.putAssumeCapacity(target_key, canon_entry.value);
@@ -4969,10 +4964,7 @@ fn canonicaliseBranches(self: *Self, parent_branch: *Branch, canon_branch: *Bran
     }
     try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, canon_branch.inst_table.count());
     const canon_slice = canon_branch.inst_table.entries.slice();
-    const canon_keys = canon_slice.items(.key);
-    const canon_values = canon_slice.items(.value);
-    for (canon_keys, 0..) |canon_key, canon_idx| {
-        const canon_value = canon_values[canon_idx];
+    for (canon_slice.items(.key), canon_slice.items(.value)) |canon_key, canon_value| {
         // We already deleted the items from this table that matched the target_branch.
         // So these are all instructions that are only overridden in the canon branch.
         parent_branch.inst_table.putAssumeCapacity(canon_key, canon_value);
@@ -6446,7 +6438,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 else => 0,
             };
 
-            for (param_types, 0..) |ty, i| {
+            for (param_types, result.args, 0..) |ty, *arg, i| {
                 assert(ty.hasRuntimeBits());
 
                 const classes: []const abi.Class = switch (self.target.os.tag) {
@@ -6459,7 +6451,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 switch (classes[0]) {
                     .integer => blk: {
                         if (i >= abi.getCAbiIntParamRegs(self.target.*).len) break :blk; // fallthrough
-                        result.args[i] = .{ .register = abi.getCAbiIntParamRegs(self.target.*)[i] };
+                        arg.* = .{ .register = abi.getCAbiIntParamRegs(self.target.*)[i] };
                         continue;
                     },
                     .memory => {}, // fallthrough
@@ -6471,7 +6463,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 const param_size = @intCast(u32, ty.abiSize(self.target.*));
                 const param_align = @intCast(u32, ty.abiAlignment(self.target.*));
                 const offset = mem.alignForwardGeneric(u32, next_stack_offset + param_size, param_align);
-                result.args[i] = .{ .stack_offset = @intCast(i32, offset) };
+                arg.* = .{ .stack_offset = @intCast(i32, offset) };
                 next_stack_offset = offset;
             }
 
@@ -6522,15 +6514,15 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 else => 0,
             };
 
-            for (param_types, 0..) |ty, i| {
+            for (param_types, result.args) |ty, *arg| {
                 if (!ty.hasRuntimeBits()) {
-                    result.args[i] = .{ .none = {} };
+                    arg.* = .{ .none = {} };
                     continue;
                 }
                 const param_size = @intCast(u32, ty.abiSize(self.target.*));
                 const param_align = @intCast(u32, ty.abiAlignment(self.target.*));
                 const offset = mem.alignForwardGeneric(u32, next_stack_offset + param_size, param_align);
-                result.args[i] = .{ .stack_offset = @intCast(i32, offset) };
+                arg.* = .{ .stack_offset = @intCast(i32, offset) };
                 next_stack_offset = offset;
             }
 
