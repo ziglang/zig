@@ -164,6 +164,17 @@ pub fn LinearFifo(
             return self.readableSliceMut(offset);
         }
 
+        pub fn readableSliceOfLen(self: *Self, len: usize) []const T {
+            assert(len <= self.count);
+            const buf = self.readableSlice(0);
+            if (buf.len >= len) {
+                return buf[0..len];
+            } else {
+                self.realign();
+                return self.readableSlice(0)[0..len];
+            }
+        }
+
         /// Discard first `count` items in the fifo
         pub fn discard(self: *Self, count: usize) void {
             assert(count <= self.count);
