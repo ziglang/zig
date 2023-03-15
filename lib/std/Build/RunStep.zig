@@ -949,85 +949,86 @@ fn evalZigTest(
     var sub_prog_node: ?std.Progress.Node = null;
     defer if (sub_prog_node) |*n| n.end();
 
-    poll: while (try poller.poll()) {
-        while (true) {
-            const buf = stdout.readableSlice(0);
-            assert(stdout.readableLength() == buf.len);
-            if (buf.len < @sizeOf(Header)) continue :poll;
-            const header = @ptrCast(*align(1) const Header, buf[0..@sizeOf(Header)]);
-            const header_and_msg_len = header.bytes_len + @sizeOf(Header);
-            if (buf.len < header_and_msg_len) continue :poll;
-            const body = buf[@sizeOf(Header)..][0..header.bytes_len];
-            switch (header.tag) {
-                .zig_version => {
-                    if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
-                        return self.step.fail(
-                            "zig version mismatch build runner vs compiler: '{s}' vs '{s}'",
-                            .{ builtin.zig_version_string, body },
-                        );
-                    }
-                },
-                .test_metadata => {
-                    const TmHdr = std.zig.Server.Message.TestMetadata;
-                    const tm_hdr = @ptrCast(*align(1) const TmHdr, body);
-                    test_count = tm_hdr.tests_len;
-
-                    const names_bytes = body[@sizeOf(TmHdr)..][0 .. test_count * @sizeOf(u32)];
-                    const async_frame_lens_bytes = body[@sizeOf(TmHdr) + names_bytes.len ..][0 .. test_count * @sizeOf(u32)];
-                    const expected_panic_msgs_bytes = body[@sizeOf(TmHdr) + names_bytes.len + async_frame_lens_bytes.len ..][0 .. test_count * @sizeOf(u32)];
-                    const string_bytes = body[@sizeOf(TmHdr) + names_bytes.len + async_frame_lens_bytes.len + expected_panic_msgs_bytes.len ..][0..tm_hdr.string_bytes_len];
-
-                    const names = std.mem.bytesAsSlice(u32, names_bytes);
-                    const async_frame_lens = std.mem.bytesAsSlice(u32, async_frame_lens_bytes);
-                    const expected_panic_msgs = std.mem.bytesAsSlice(u32, expected_panic_msgs_bytes);
-                    const names_aligned = try arena.alloc(u32, names.len);
-                    for (names_aligned, names) |*dest, src| dest.* = src;
-
-                    const async_frame_lens_aligned = try arena.alloc(u32, async_frame_lens.len);
-                    for (async_frame_lens_aligned, async_frame_lens) |*dest, src| dest.* = src;
-
-                    const expected_panic_msgs_aligned = try arena.alloc(u32, expected_panic_msgs.len);
-                    for (expected_panic_msgs_aligned, expected_panic_msgs) |*dest, src| dest.* = src;
-
-                    prog_node.setEstimatedTotalItems(names.len);
-                    metadata = .{
-                        .string_bytes = try arena.dupe(u8, string_bytes),
-                        .names = names_aligned,
-                        .async_frame_lens = async_frame_lens_aligned,
-                        .expected_panic_msgs = expected_panic_msgs_aligned,
-                        .next_index = 0,
-                        .prog_node = prog_node,
-                    };
-
-                    try requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node);
-                },
-                .test_results => {
-                    const md = metadata.?;
-
-                    const TrHdr = std.zig.Server.Message.TestResults;
-                    const tr_hdr = @ptrCast(*align(1) const TrHdr, body);
-                    fail_count += @boolToInt(tr_hdr.flags.fail);
-                    skip_count += @boolToInt(tr_hdr.flags.skip);
-                    leak_count += @boolToInt(tr_hdr.flags.leak);
-
-                    if (tr_hdr.flags.fail or tr_hdr.flags.leak) {
-                        const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
-                        const msg = std.mem.trim(u8, stderr.readableSlice(0), "\n");
-                        const label = if (tr_hdr.flags.fail) "failed" else "leaked";
-                        if (msg.len > 0) {
-                            try self.step.addError("'{s}' {s}: {s}", .{ name, label, msg });
-                        } else {
-                            try self.step.addError("'{s}' {s}", .{ name, label });
-                        }
-                        stderr.discard(msg.len);
-                    }
-
-                    try requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node);
-                },
-                else => {}, // ignore other messages
-            }
-            stdout.discard(header_and_msg_len);
+    poll: while (true) {
+        while (stdout.readableLength() < @sizeOf(Header)) {
+            if (!(try poller.poll())) break :poll;
         }
+        const header = stdout.reader().readStruct(Header) catch unreachable;
+        while (stdout.readableLength() < header.bytes_len) {
+            if (!(try poller.poll())) break :poll;
+        }
+        const body = stdout.readableSliceOfLen(header.bytes_len);
+
+        switch (header.tag) {
+            .zig_version => {
+                if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
+                    return self.step.fail(
+                        "zig version mismatch build runner vs compiler: '{s}' vs '{s}'",
+                        .{ builtin.zig_version_string, body },
+                    );
+                }
+            },
+            .test_metadata => {
+                const TmHdr = std.zig.Server.Message.TestMetadata;
+                const tm_hdr = @ptrCast(*align(1) const TmHdr, body);
+                test_count = tm_hdr.tests_len;
+
+                const names_bytes = body[@sizeOf(TmHdr)..][0 .. test_count * @sizeOf(u32)];
+                const async_frame_lens_bytes = body[@sizeOf(TmHdr) + names_bytes.len ..][0 .. test_count * @sizeOf(u32)];
+                const expected_panic_msgs_bytes = body[@sizeOf(TmHdr) + names_bytes.len + async_frame_lens_bytes.len ..][0 .. test_count * @sizeOf(u32)];
+                const string_bytes = body[@sizeOf(TmHdr) + names_bytes.len + async_frame_lens_bytes.len + expected_panic_msgs_bytes.len ..][0..tm_hdr.string_bytes_len];
+
+                const names = std.mem.bytesAsSlice(u32, names_bytes);
+                const async_frame_lens = std.mem.bytesAsSlice(u32, async_frame_lens_bytes);
+                const expected_panic_msgs = std.mem.bytesAsSlice(u32, expected_panic_msgs_bytes);
+                const names_aligned = try arena.alloc(u32, names.len);
+                for (names_aligned, names) |*dest, src| dest.* = src;
+
+                const async_frame_lens_aligned = try arena.alloc(u32, async_frame_lens.len);
+                for (async_frame_lens_aligned, async_frame_lens) |*dest, src| dest.* = src;
+
+                const expected_panic_msgs_aligned = try arena.alloc(u32, expected_panic_msgs.len);
+                for (expected_panic_msgs_aligned, expected_panic_msgs) |*dest, src| dest.* = src;
+
+                prog_node.setEstimatedTotalItems(names.len);
+                metadata = .{
+                    .string_bytes = try arena.dupe(u8, string_bytes),
+                    .names = names_aligned,
+                    .async_frame_lens = async_frame_lens_aligned,
+                    .expected_panic_msgs = expected_panic_msgs_aligned,
+                    .next_index = 0,
+                    .prog_node = prog_node,
+                };
+
+                try requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node);
+            },
+            .test_results => {
+                const md = metadata.?;
+
+                const TrHdr = std.zig.Server.Message.TestResults;
+                const tr_hdr = @ptrCast(*align(1) const TrHdr, body);
+                fail_count += @boolToInt(tr_hdr.flags.fail);
+                skip_count += @boolToInt(tr_hdr.flags.skip);
+                leak_count += @boolToInt(tr_hdr.flags.leak);
+
+                if (tr_hdr.flags.fail or tr_hdr.flags.leak) {
+                    const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
+                    const msg = std.mem.trim(u8, stderr.readableSlice(0), "\n");
+                    const label = if (tr_hdr.flags.fail) "failed" else "leaked";
+                    if (msg.len > 0) {
+                        try self.step.addError("'{s}' {s}: {s}", .{ name, label, msg });
+                    } else {
+                        try self.step.addError("'{s}' {s}", .{ name, label });
+                    }
+                    stderr.discard(msg.len);
+                }
+
+                try requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node);
+            },
+            else => {}, // ignore other messages
+        }
+
+        stdout.discard(body.len);
     }
 
     if (stderr.readableLength() > 0) {

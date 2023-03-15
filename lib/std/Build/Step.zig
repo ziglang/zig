@@ -321,56 +321,57 @@ pub fn evalZigProcess(
 
     const stdout = poller.fifo(.stdout);
 
-    poll: while (try poller.poll()) {
-        while (true) {
-            const buf = stdout.readableSlice(0);
-            assert(stdout.readableLength() == buf.len);
-            if (buf.len < @sizeOf(Header)) continue :poll;
-            const header = @ptrCast(*align(1) const Header, buf[0..@sizeOf(Header)]);
-            const header_and_msg_len = header.bytes_len + @sizeOf(Header);
-            if (buf.len < header_and_msg_len) continue :poll;
-            const body = buf[@sizeOf(Header)..][0..header.bytes_len];
-            switch (header.tag) {
-                .zig_version => {
-                    if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
-                        return s.fail(
-                            "zig version mismatch build runner vs compiler: '{s}' vs '{s}'",
-                            .{ builtin.zig_version_string, body },
-                        );
-                    }
-                },
-                .error_bundle => {
-                    const EbHdr = std.zig.Server.Message.ErrorBundle;
-                    const eb_hdr = @ptrCast(*align(1) const EbHdr, body);
-                    const extra_bytes =
-                        body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
-                    const string_bytes =
-                        body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
-                    // TODO: use @ptrCast when the compiler supports it
-                    const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
-                    const extra_array = try arena.alloc(u32, unaligned_extra.len);
-                    // TODO: use @memcpy when it supports slices
-                    for (extra_array, unaligned_extra) |*dst, src| dst.* = src;
-                    s.result_error_bundle = .{
-                        .string_bytes = try arena.dupe(u8, string_bytes),
-                        .extra = extra_array,
-                    };
-                },
-                .progress => {
-                    node_name.clearRetainingCapacity();
-                    try node_name.appendSlice(gpa, body);
-                    sub_prog_node.setName(node_name.items);
-                },
-                .emit_bin_path => {
-                    const EbpHdr = std.zig.Server.Message.EmitBinPath;
-                    const ebp_hdr = @ptrCast(*align(1) const EbpHdr, body);
-                    s.result_cached = ebp_hdr.flags.cache_hit;
-                    result = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
-                },
-                else => {}, // ignore other messages
-            }
-            stdout.discard(header_and_msg_len);
+    poll: while (true) {
+        while (stdout.readableLength() < @sizeOf(Header)) {
+            if (!(try poller.poll())) break :poll;
         }
+        const header = stdout.reader().readStruct(Header) catch unreachable;
+        while (stdout.readableLength() < header.bytes_len) {
+            if (!(try poller.poll())) break :poll;
+        }
+        const body = stdout.readableSliceOfLen(header.bytes_len);
+
+        switch (header.tag) {
+            .zig_version => {
+                if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
+                    return s.fail(
+                        "zig version mismatch build runner vs compiler: '{s}' vs '{s}'",
+                        .{ builtin.zig_version_string, body },
+                    );
+                }
+            },
+            .error_bundle => {
+                const EbHdr = std.zig.Server.Message.ErrorBundle;
+                const eb_hdr = @ptrCast(*align(1) const EbHdr, body);
+                const extra_bytes =
+                    body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
+                const string_bytes =
+                    body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
+                // TODO: use @ptrCast when the compiler supports it
+                const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
+                const extra_array = try arena.alloc(u32, unaligned_extra.len);
+                // TODO: use @memcpy when it supports slices
+                for (extra_array, unaligned_extra) |*dst, src| dst.* = src;
+                s.result_error_bundle = .{
+                    .string_bytes = try arena.dupe(u8, string_bytes),
+                    .extra = extra_array,
+                };
+            },
+            .progress => {
+                node_name.clearRetainingCapacity();
+                try node_name.appendSlice(gpa, body);
+                sub_prog_node.setName(node_name.items);
+            },
+            .emit_bin_path => {
+                const EbpHdr = std.zig.Server.Message.EmitBinPath;
+                const ebp_hdr = @ptrCast(*align(1) const EbpHdr, body);
+                s.result_cached = ebp_hdr.flags.cache_hit;
+                result = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
+            },
+            else => {}, // ignore other messages
+        }
+
+        stdout.discard(body.len);
     }
 
     const stderr = poller.fifo(.stderr);
