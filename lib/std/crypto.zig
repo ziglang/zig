@@ -68,6 +68,11 @@ pub const dh = struct {
     pub const X25519 = @import("crypto/25519/x25519.zig").X25519;
 };
 
+/// Key Encapsulation Mechanisms.
+pub const kem = struct {
+    pub const kyber_d00 = @import("crypto/kyber_d00.zig");
+};
+
 /// Elliptic-curve arithmetic.
 pub const ecc = struct {
     pub const Curve25519 = @import("crypto/25519/curve25519.zig").Curve25519;
@@ -239,6 +244,8 @@ test {
     _ = core.modes;
 
     _ = dh.X25519;
+
+    _ = kem.kyber_d00;
 
     _ = ecc.Curve25519;
     _ = ecc.Edwards25519;
