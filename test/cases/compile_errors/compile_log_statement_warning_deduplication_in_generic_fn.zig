@@ -13,3 +13,8 @@ fn inner(comptime n: usize) void {
 //
 // :7:39: error: found compile log statement
 // :7:39: note: also here
+//
+// Compile Log Output:
+// @as(*const [4:0]u8, "!@#$")
+// @as(*const [4:0]u8, "!@#$")
+// @as(*const [4:0]u8, "!@#$")

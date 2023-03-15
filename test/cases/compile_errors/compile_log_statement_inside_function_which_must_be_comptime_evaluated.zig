@@ -12,3 +12,6 @@ export fn entry() void {
 // target=native
 //
 // :2:5: error: found compile log statement
+//
+// Compile Log Output:
+// @as(*const [3:0]u8, "i32\x00")
