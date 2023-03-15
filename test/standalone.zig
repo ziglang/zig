@@ -119,4 +119,5 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/module_link_library/build.zig", .{});
     cases.addBuildFile("test/standalone/module_add_library_path/build.zig", .{});
     cases.addBuildFile("test/standalone/module_install_header/build.zig", .{});
+    cases.addBuildFile("test/standalone/module_link_libc_cpp/build.zig", .{});
 }
