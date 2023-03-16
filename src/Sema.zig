@@ -24853,6 +24853,7 @@ fn coerceExtra(
                 const array_ty = dest_info.pointee_type;
                 if (array_ty.zigTypeTag() != .Array) break :single_item;
                 const array_elem_ty = array_ty.childType();
+                if (array_ty.arrayLen() != 1) break :single_item;
                 const dest_is_mut = dest_info.mutable;
                 switch (try sema.coerceInMemoryAllowed(block, array_elem_ty, ptr_elem_ty, dest_is_mut, target, dest_ty_src, inst_src)) {
                     .ok => {},
