@@ -8,7 +8,19 @@ const testing = std.testing;
 const mem = std.mem;
 const deflate = std.compress.deflate;
 
-pub fn ZlibStreamReader(comptime ReaderType: type) type {
+// Zlib header format as specified in RFC1950
+const ZLibHeader = packed struct {
+    checksum: u5,
+    preset_dict: u1,
+    compression_level: u2,
+    compression_method: u4,
+    compression_info: u4,
+
+    const DEFLATE = 8;
+    const WINDOW_32K = 7;
+};
+
+pub fn DecompressStream(comptime ReaderType: type) type {
     return struct {
         const Self = @This();
 
@@ -24,26 +36,24 @@ pub fn ZlibStreamReader(comptime ReaderType: type) type {
 
         fn init(allocator: mem.Allocator, source: ReaderType) !Self {
             // Zlib header format is specified in RFC1950
-            const header = try source.readBytesNoEof(2);
+            const header_u16 = try source.readIntBig(u16);
 
-            const CM = @truncate(u4, header[0]);
-            const CINFO = @truncate(u4, header[0] >> 4);
-            const FCHECK = @truncate(u5, header[1]);
-            _ = FCHECK;
-            const FDICT = @truncate(u1, header[1] >> 5);
-
-            if ((@as(u16, header[0]) << 8 | header[1]) % 31 != 0)
+            // verify the header checksum
+            if (header_u16 % 31 != 0)
                 return error.BadHeader;
+            const header = @bitCast(ZLibHeader, header_u16);
 
             // The CM field must be 8 to indicate the use of DEFLATE
-            if (CM != 8) return error.InvalidCompression;
+            if (header.compression_method != ZLibHeader.DEFLATE)
+                return error.InvalidCompression;
             // CINFO is the base-2 logarithm of the LZ77 window size, minus 8.
             // Values above 7 are unspecified and therefore rejected.
-            if (CINFO > 7) return error.InvalidWindowSize;
+            if (header.compression_info > ZLibHeader.WINDOW_32K)
+                return error.InvalidWindowSize;
 
             const dictionary = null;
             // TODO: Support this case
-            if (FDICT != 0)
+            if (header.preset_dict != 0)
                 return error.Unsupported;
 
             return Self{
@@ -84,8 +94,8 @@ pub fn ZlibStreamReader(comptime ReaderType: type) type {
     };
 }
 
-pub fn zlibStreamReader(allocator: mem.Allocator, reader: anytype) !ZlibStreamReader(@TypeOf(reader)) {
-    return ZlibStreamReader(@TypeOf(reader)).init(allocator, reader);
+pub fn decompressStream(allocator: mem.Allocator, reader: anytype) !DecompressStream(@TypeOf(reader)) {
+    return DecompressStream(@TypeOf(reader)).init(allocator, reader);
 }
 
 pub const CompressionLevel = enum(u2) {
@@ -95,11 +105,11 @@ pub const CompressionLevel = enum(u2) {
     maximum = 3,
 };
 
-pub const CompressionOptions = struct {
+pub const CompressStreamOptions = struct {
     level: CompressionLevel = .default,
 };
 
-pub fn ZlibStreamWriter(comptime WriterType: type) type {
+pub fn CompressStream(comptime WriterType: type) type {
     return struct {
         const Self = @This();
 
@@ -112,17 +122,17 @@ pub fn ZlibStreamWriter(comptime WriterType: type) type {
         in_writer: WriterType,
         hasher: std.hash.Adler32,
 
-        fn init(allocator: mem.Allocator, dest: WriterType, options: CompressionOptions) !Self {
-            // Zlib header format is specified in RFC1950
-            const CM: u4 = 8; // DEFLATE
-            const CINFO: u4 = 7; // 32K window
-            const CMF: u8 = (@as(u8, CINFO) << 4) | CM;
+        fn init(allocator: mem.Allocator, dest: WriterType, options: CompressStreamOptions) !Self {
+            var header = ZLibHeader{
+                .compression_info = ZLibHeader.WINDOW_32K,
+                .compression_method = ZLibHeader.DEFLATE,
+                .compression_level = @enumToInt(options.level),
+                .preset_dict = 0,
+                .checksum = 0,
+            };
+            header.checksum = @truncate(u5, 31 - @bitCast(u16, header) % 31);
 
-            const FLEVEL: u2 = @enumToInt(options.level);
-            const FDICT: u1 = 0; // No preset dictionary support
-            const FLG_temp = (@as(u8, FLEVEL) << 6) | (@as(u8, FDICT) << 5);
-            const FCHECK: u5 = 31 - ((@as(u16, CMF) * 256 + FLG_temp) % 31);
-            const FLG = FLG_temp | FCHECK;
+            try dest.writeIntBig(u16, @bitCast(u16, header));
 
             const compression_level: deflate.Compression = switch (options.level) {
                 .no_compression => .no_compression,
@@ -130,8 +140,6 @@ pub fn ZlibStreamWriter(comptime WriterType: type) type {
                 .default => .default_compression,
                 .maximum => .best_compression,
             };
-
-            try dest.writeAll(&.{ CMF, FLG });
 
             return Self{
                 .allocator = allocator,
@@ -160,7 +168,7 @@ pub fn ZlibStreamWriter(comptime WriterType: type) type {
             self.deflator.deinit();
         }
 
-        pub fn close(self: *Self) !void {
+        pub fn finish(self: *Self) !void {
             const hash = self.hasher.final();
             try self.deflator.close();
             try self.in_writer.writeIntBig(u32, hash);
@@ -168,15 +176,14 @@ pub fn ZlibStreamWriter(comptime WriterType: type) type {
     };
 }
 
-pub fn zlibStreamWriter(allocator: mem.Allocator, writer: anytype, options: CompressionOptions) !ZlibStreamWriter(@TypeOf(writer)) {
-    return ZlibStreamWriter(@TypeOf(writer)).init(allocator, writer, options);
+pub fn compressStream(allocator: mem.Allocator, writer: anytype, options: CompressStreamOptions) !CompressStream(@TypeOf(writer)) {
+    return CompressStream(@TypeOf(writer)).init(allocator, writer, options);
 }
 
-
-fn testReader(data: []const u8, expected: []const u8) !void {
+fn testDecompress(data: []const u8, expected: []const u8) !void {
     var in_stream = io.fixedBufferStream(data);
 
-    var zlib_stream = try zlibStreamReader(testing.allocator, in_stream.reader());
+    var zlib_stream = try decompressStream(testing.allocator, in_stream.reader());
     defer zlib_stream.deinit();
 
     // Read and decompress the whole file
@@ -195,24 +202,24 @@ test "compressed data" {
     const rfc1951_txt = @embedFile("testdata/rfc1951.txt");
 
     // Compressed with compression level = 0
-    try testReader(
+    try testDecompress(
         @embedFile("testdata/rfc1951.txt.z.0"),
         rfc1951_txt,
     );
     // Compressed with compression level = 9
-    try testReader(
+    try testDecompress(
         @embedFile("testdata/rfc1951.txt.z.9"),
         rfc1951_txt,
     );
     // Compressed with compression level = 9 and fixed Huffman codes
-    try testReader(
+    try testDecompress(
         @embedFile("testdata/rfc1951.txt.fixed.z.9"),
         rfc1951_txt,
     );
 }
 
 test "don't read past deflate stream's end" {
-    try testReader(&[_]u8{
+    try testDecompress(&[_]u8{
         0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0xc0, 0x00, 0xc1, 0xff,
         0xff, 0x43, 0x30, 0x03, 0x03, 0xc3, 0xff, 0xff, 0xff, 0x01,
         0x83, 0x95, 0x0b, 0xf5,
@@ -227,32 +234,32 @@ test "sanity checks" {
     // Truncated header
     try testing.expectError(
         error.EndOfStream,
-        testReader(&[_]u8{0x78}, ""),
+        testDecompress(&[_]u8{0x78}, ""),
     );
     // Failed FCHECK check
     try testing.expectError(
         error.BadHeader,
-        testReader(&[_]u8{ 0x78, 0x9D }, ""),
+        testDecompress(&[_]u8{ 0x78, 0x9D }, ""),
     );
     // Wrong CM
     try testing.expectError(
         error.InvalidCompression,
-        testReader(&[_]u8{ 0x79, 0x94 }, ""),
+        testDecompress(&[_]u8{ 0x79, 0x94 }, ""),
     );
     // Wrong CINFO
     try testing.expectError(
         error.InvalidWindowSize,
-        testReader(&[_]u8{ 0x88, 0x98 }, ""),
+        testDecompress(&[_]u8{ 0x88, 0x98 }, ""),
     );
     // Wrong checksum
     try testing.expectError(
         error.WrongChecksum,
-        testReader(&[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00 }, ""),
+        testDecompress(&[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00 }, ""),
     );
     // Truncated checksum
     try testing.expectError(
         error.EndOfStream,
-        testReader(&[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00 }, ""),
+        testDecompress(&[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00 }, ""),
     );
 }
 
@@ -260,14 +267,16 @@ test "compress data" {
     const allocator = testing.allocator;
     const rfc1951_txt = @embedFile("testdata/rfc1951.txt");
 
-    var compressed_data = std.ArrayList(u8).init(allocator);
-    defer compressed_data.deinit();
+    for (std.meta.tags(CompressionLevel)) |level| {
+        var compressed_data = std.ArrayList(u8).init(allocator);
+        defer compressed_data.deinit();
 
-    var compressor = try zlibStreamWriter(allocator, compressed_data.writer(), .{});
-    defer compressor.deinit();
+        var compressor = try compressStream(allocator, compressed_data.writer(), .{ .level = level });
+        defer compressor.deinit();
 
-    try compressor.writer().writeAll(rfc1951_txt);
-    try compressor.close();
+        try compressor.writer().writeAll(rfc1951_txt);
+        try compressor.finish();
 
-    try testReader(compressed_data.items, rfc1951_txt);
+        try testDecompress(compressed_data.items, rfc1951_txt);
+    }
 }

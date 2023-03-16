@@ -155,7 +155,7 @@ pub const ResponseTransfer = union(enum) {
 
 /// The decompressor for request messages.
 pub const Compression = union(enum) {
-    pub const DeflateDecompressor = std.compress.zlib.ZlibStream(Response.TransferReader);
+    pub const DeflateDecompressor = std.compress.zlib.DecompressStream(Response.TransferReader);
     pub const GzipDecompressor = std.compress.gzip.Decompress(Response.TransferReader);
     pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Response.TransferReader, .{});
 
@@ -520,7 +520,7 @@ pub const Response = struct {
             if (res.request.transfer_compression) |tc| switch (tc) {
                 .compress => return error.CompressionNotSupported,
                 .deflate => res.request.compression = .{
-                    .deflate = std.compress.zlib.zlibStream(res.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
+                    .deflate = std.compress.zlib.decompressStream(res.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
                 },
                 .gzip => res.request.compression = .{
                     .gzip = std.compress.gzip.decompress(res.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
