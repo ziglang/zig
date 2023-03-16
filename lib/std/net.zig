@@ -741,7 +741,7 @@ pub fn tcpConnectToAddress(address: Address) TcpConnectToAddressError!Stream {
     return Stream{ .handle = sockfd };
 }
 
-const GetAddressListError = std.mem.Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError || std.os.SocketError || std.os.BindError || error{
+const GetAddressListError = std.mem.Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError || std.os.SocketError || std.os.BindError || std.os.SetSockOptError || error{
     // TODO: break this up into error sets from the various underlying functions
 
     TemporaryNameServerFailure,
