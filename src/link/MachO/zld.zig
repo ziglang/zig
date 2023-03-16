@@ -4172,6 +4172,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
 
         if (codesig) |*csig| {
             try zld.writeCodeSignature(comp, csig); // code signing always comes last
+            try MachO.invalidateKernelCache(directory.handle, zld.options.emit.?.sub_path);
         }
     }
 

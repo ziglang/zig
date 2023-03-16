@@ -662,6 +662,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     if (codesig) |*csig| {
         try self.writeCodeSignature(comp, csig); // code signing always comes last
+        const emit = self.base.options.emit.?;
+        try invalidateKernelCache(emit.directory.handle, emit.sub_path);
     }
 
     if (self.d_sym) |*d_sym| {
@@ -691,6 +693,21 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     self.cold_start = false;
 }
+
+/// XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
+/// Any change to the binary will effectively invalidate the kernel's cache
+/// resulting in a SIGKILL on each subsequent run. Since when doing incremental
+/// linking we're modifying a binary in-place, this will end up with the kernel
+/// killing it on every subsequent run. To circumvent it, we will copy the file
+/// into a new inode, remove the original file, and rename the copy to match
+/// the original file. This is super messy, but there doesn't seem any other
+/// way to please the XNU.
+pub fn invalidateKernelCache(dir: std.fs.Dir, sub_path: []const u8) !void {
+    if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
+        try dir.copyFile(sub_path, dir, sub_path, .{});
+    }
+}
+
 inline fn conformUuid(out: *[Md5.digest_length]u8) void {
     // LC_UUID uuids should conform to RFC 4122 UUID version 4 & UUID version 5 formats
     out[6] = (out[6] & 0x0F) | (3 << 4);
