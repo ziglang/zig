@@ -183,19 +183,11 @@ pub fn addLazyBinding(macho_file: *MachO, atom_index: Index, binding: Binding) !
     try gop.value_ptr.append(gpa, binding);
 }
 
-pub fn resolveRelocations(macho_file: *MachO, atom_index: Index) !void {
-    const atom = macho_file.getAtom(atom_index);
-    const relocs = macho_file.relocs.get(atom_index) orelse return;
-    const source_sym = atom.getSymbol(macho_file);
-    const source_section = macho_file.sections.get(source_sym.n_sect - 1).header;
-    const file_offset = source_section.offset + source_sym.n_value - source_section.addr;
-
-    log.debug("relocating '{s}'", .{atom.getName(macho_file)});
-
-    for (relocs.items) |*reloc| {
+pub fn resolveRelocations(macho_file: *MachO, atom_index: Index, relocs: []Relocation, code: []u8) !void {
+    log.debug("relocating '{s}'", .{macho_file.getAtom(atom_index).getName(macho_file)});
+    for (relocs) |*reloc| {
         if (!reloc.dirty) continue;
-
-        try reloc.resolve(macho_file, atom_index, file_offset);
+        try reloc.resolve(macho_file, atom_index, code);
         reloc.dirty = false;
     }
 }

@@ -3851,15 +3851,39 @@ fn runOrTestHotSwap(
     if (runtime_args_start) |i| {
         try argv.appendSlice(all_args[i..]);
     }
-    var child = std.ChildProcess.init(argv.items, gpa);
 
-    child.stdin_behavior = .Inherit;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
+    switch (builtin.target.os.tag) {
+        .macos, .ios, .tvos, .watchos => {
+            const PosixSpawn = std.os.darwin.PosixSpawn;
+            var attr = try PosixSpawn.Attr.init();
+            defer attr.deinit();
+            const flags: u16 = std.os.darwin.POSIX_SPAWN_SETSIGDEF |
+                std.os.darwin.POSIX_SPAWN_SETSIGMASK |
+                std.os.darwin._POSIX_SPAWN_DISABLE_ASLR;
+            try attr.set(flags);
 
-    try child.spawn();
+            var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+            defer arena_allocator.deinit();
+            const arena = arena_allocator.allocator();
 
-    return child.id;
+            const argv_buf = try arena.allocSentinel(?[*:0]u8, argv.items.len, null);
+            for (argv.items, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
+
+            const pid = try PosixSpawn.spawn(argv.items[0], null, attr, argv_buf, std.c.environ);
+            return pid;
+        },
+        else => {
+            var child = std.ChildProcess.init(argv.items, gpa);
+
+            child.stdin_behavior = .Inherit;
+            child.stdout_behavior = .Inherit;
+            child.stderr_behavior = .Inherit;
+
+            try child.spawn();
+
+            return child.id;
+        },
+    }
 }
 
 const AfterUpdateHook = union(enum) {

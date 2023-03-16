@@ -221,6 +221,9 @@ lazy_bindings: BindingTable = .{},
 /// Table of tracked Decls.
 decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
 
+/// Mach task used when the compiler is in hot-code swapping mode.
+mach_task: ?std.os.darwin.MachTask = null,
+
 const DeclMetadata = struct {
     atom: Atom.Index,
     section: u8,
@@ -584,7 +587,21 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     try self.allocateSpecialSymbols();
 
     for (self.relocs.keys()) |atom_index| {
-        try Atom.resolveRelocations(self, atom_index);
+        if (self.relocs.get(atom_index) == null) continue;
+
+        const atom = self.getAtom(atom_index);
+        const sym = atom.getSymbol(self);
+        const section = self.sections.get(sym.n_sect - 1).header;
+        const file_offset = section.offset + sym.n_value - section.addr;
+
+        var code = std.ArrayList(u8).init(self.base.allocator);
+        defer code.deinit();
+        try code.resize(atom.size);
+
+        const amt = try self.base.file.?.preadAll(code.items, file_offset);
+        if (amt != code.items.len) return error.InputOutput;
+
+        try self.writeAtom(atom_index, code.items);
     }
 
     if (build_options.enable_logging) {
@@ -1052,14 +1069,38 @@ pub fn parseDependentLibs(self: *MachO, syslibroot: ?[]const u8, dependent_libs:
     }
 }
 
-pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []const u8) !void {
+pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
     const atom = self.getAtom(atom_index);
     const sym = atom.getSymbol(self);
     const section = self.sections.get(sym.n_sect - 1);
     const file_offset = section.header.offset + sym.n_value - section.header.addr;
     log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ atom.getName(self), file_offset });
+
+    if (self.relocs.get(atom_index)) |relocs| {
+        try Atom.resolveRelocations(self, atom_index, relocs.items, code);
+    }
+
+    if (self.base.child_pid) |pid| blk: {
+        const task = self.mach_task orelse {
+            log.warn("cannot hot swap: no Mach task acquired for child process with pid {d}", .{pid});
+            break :blk;
+        };
+        self.writeAtomToMemory(task, section.segment_index, sym.n_value, code) catch |err| {
+            log.warn("cannot hot swap: writing to memory failed: {s}", .{@errorName(err)});
+        };
+    }
+
     try self.base.file.?.pwriteAll(code, file_offset);
-    try Atom.resolveRelocations(self, atom_index);
+}
+
+fn writeAtomToMemory(self: *MachO, task: std.os.darwin.MachTask, segment_index: u8, addr: u64, code: []const u8) !void {
+    const segment = self.segments.items[segment_index];
+    if (!segment.isWriteable()) {
+        try task.setCurrProtection(addr, code.len, macho.PROT.READ | macho.PROT.WRITE | macho.PROT.COPY);
+    }
+    defer if (!segment.isWriteable()) task.setCurrProtection(addr, code.len, segment.initprot) catch {};
+    const nwritten = try task.writeMem(addr, code, self.base.options.target.cpu.arch);
+    if (nwritten != code.len) return error.InputOutput;
 }
 
 fn writePtrWidthAtom(self: *MachO, atom_index: Atom.Index) !void {
@@ -2063,7 +2104,7 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     else
         try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
 
-    const code = switch (res) {
+    var code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2115,7 +2156,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
-    const code = switch (res) {
+    var code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2202,7 +2243,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) 
             .parent_atom_index = atom.getSymbolIndex().?,
         });
 
-    const code = switch (res) {
+    var code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2375,7 +2416,7 @@ pub fn getOutputSection(self: *MachO, sect: macho.section_64) !?u8 {
     return sect_id;
 }
 
-fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []const u8) !u64 {
+fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
