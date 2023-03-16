@@ -635,6 +635,7 @@ pub const TTY = struct {
     pub const Color = enum {
         Red,
         Green,
+        Yellow,
         Cyan,
         White,
         Dim,
@@ -659,6 +660,7 @@ pub const TTY = struct {
                     const color_string = switch (color) {
                         .Red => "\x1b[31;1m",
                         .Green => "\x1b[32;1m",
+                        .Yellow => "\x1b[33;1m",
                         .Cyan => "\x1b[36;1m",
                         .White => "\x1b[37;1m",
                         .Bold => "\x1b[1m",
@@ -671,6 +673,7 @@ pub const TTY = struct {
                     const attributes = switch (color) {
                         .Red => windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY,
                         .Green => windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY,
+                        .Yellow => windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY,
                         .Cyan => windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY,
                         .White, .Bold => windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY,
                         .Dim => windows.FOREGROUND_INTENSITY,
@@ -681,6 +684,36 @@ pub const TTY = struct {
                     unreachable;
                 },
             };
+        }
+
+        pub fn writeDEC(conf: Config, writer: anytype, codepoint: u8) !void {
+            const bytes = switch (conf) {
+                .no_color, .windows_api => switch (codepoint) {
+                    0x50...0x5e => @as(*const [1]u8, &codepoint),
+                    0x6a => "+", // ┘
+                    0x6b => "+", // ┐
+                    0x6c => "+", // ┌
+                    0x6d => "+", // └
+                    0x6e => "+", // ┼
+                    0x71 => "-", // ─
+                    0x74 => "+", // ├
+                    0x75 => "+", // ┤
+                    0x76 => "+", // ┴
+                    0x77 => "+", // ┬
+                    0x78 => "|", // │
+                    else => " ", // TODO
+                },
+                .escape_codes => switch (codepoint) {
+                    // Here we avoid writing the DEC beginning sequence and
+                    // ending sequence in separate syscalls by putting the
+                    // beginning and ending sequence into the same string
+                    // literals, to prevent terminals ending up in bad states
+                    // in case a crash happens between syscalls.
+                    inline 0x50...0x7f => |x| "\x1B\x28\x30" ++ [1]u8{x} ++ "\x1B\x28\x42",
+                    else => unreachable,
+                },
+            };
+            return writer.writeAll(bytes);
         }
     };
 };

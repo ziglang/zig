@@ -7,6 +7,9 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.compilation);
 const Target = std.Target;
+const ThreadPool = std.Thread.Pool;
+const WaitGroup = std.Thread.WaitGroup;
+const ErrorBundle = std.zig.ErrorBundle;
 
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
@@ -30,8 +33,6 @@ const Cache = std.Build.Cache;
 const translate_c = @import("translate_c.zig");
 const clang = @import("clang.zig");
 const c_codegen = @import("codegen/c.zig");
-const ThreadPool = @import("ThreadPool.zig");
-const WaitGroup = @import("WaitGroup.zig");
 const libtsan = @import("libtsan.zig");
 const Zir = @import("Zir.zig");
 const Autodoc = @import("Autodoc.zig");
@@ -99,6 +100,7 @@ job_queued_compiler_rt_lib: bool = false,
 job_queued_compiler_rt_obj: bool = false,
 alloc_failure_occurred: bool = false,
 formatted_panics: bool = false,
+last_update_was_cache_hit: bool = false,
 
 c_source_files: []const CSourceFile,
 clang_argv: []const []const u8,
@@ -334,12 +336,41 @@ pub const MiscTask = enum {
     libssp,
     zig_libc,
     analyze_pkg,
+
+    @"musl crti.o",
+    @"musl crtn.o",
+    @"musl crt1.o",
+    @"musl rcrt1.o",
+    @"musl Scrt1.o",
+    @"musl libc.a",
+    @"musl libc.so",
+
+    @"wasi crt1-reactor.o",
+    @"wasi crt1-command.o",
+    @"wasi libc.a",
+    @"libwasi-emulated-process-clocks.a",
+    @"libwasi-emulated-getpid.a",
+    @"libwasi-emulated-mman.a",
+    @"libwasi-emulated-signal.a",
+
+    @"glibc crti.o",
+    @"glibc crtn.o",
+    @"glibc Scrt1.o",
+    @"glibc libc_nonshared.a",
+    @"glibc shared object",
+
+    @"mingw-w64 crt2.o",
+    @"mingw-w64 dllcrt2.o",
+    @"mingw-w64 mingw32.lib",
+    @"mingw-w64 msvcrt-os.lib",
+    @"mingw-w64 mingwex.lib",
+    @"mingw-w64 uuid.lib",
 };
 
 pub const MiscError = struct {
     /// Allocated with gpa.
     msg: []u8,
-    children: ?AllErrors = null,
+    children: ?ErrorBundle = null,
 
     pub fn deinit(misc_err: *MiscError, gpa: Allocator) void {
         gpa.free(misc_err.msg);
@@ -362,448 +393,6 @@ pub const LldError = struct {
 
         gpa.free(self.context_lines);
         gpa.free(self.msg);
-    }
-};
-
-/// To support incremental compilation, errors are stored in various places
-/// so that they can be created and destroyed appropriately. This structure
-/// is used to collect all the errors from the various places into one
-/// convenient place for API users to consume. It is allocated into 1 arena
-/// and freed all at once.
-pub const AllErrors = struct {
-    arena: std.heap.ArenaAllocator.State,
-    list: []const Message,
-
-    pub const Message = union(enum) {
-        src: struct {
-            msg: []const u8,
-            src_path: []const u8,
-            line: u32,
-            column: u32,
-            span: Module.SrcLoc.Span,
-            /// Usually one, but incremented for redundant messages.
-            count: u32 = 1,
-            /// Does not include the trailing newline.
-            source_line: ?[]const u8,
-            notes: []const Message = &.{},
-            reference_trace: []Message = &.{},
-
-            /// Splits the error message up into lines to properly indent them
-            /// to allow for long, good-looking error messages.
-            ///
-            /// This is used to split the message in `@compileError("hello\nworld")` for example.
-            fn writeMsg(src: @This(), stderr: anytype, indent: usize) !void {
-                var lines = mem.split(u8, src.msg, "\n");
-                while (lines.next()) |line| {
-                    try stderr.writeAll(line);
-                    if (lines.index == null) break;
-                    try stderr.writeByte('\n');
-                    try stderr.writeByteNTimes(' ', indent);
-                }
-            }
-        },
-        plain: struct {
-            msg: []const u8,
-            notes: []Message = &.{},
-            /// Usually one, but incremented for redundant messages.
-            count: u32 = 1,
-        },
-
-        pub fn incrementCount(msg: *Message) void {
-            switch (msg.*) {
-                .src => |*src| {
-                    src.count += 1;
-                },
-                .plain => |*plain| {
-                    plain.count += 1;
-                },
-            }
-        }
-
-        pub fn renderToStdErr(msg: Message, ttyconf: std.debug.TTY.Config) void {
-            std.debug.getStderrMutex().lock();
-            defer std.debug.getStderrMutex().unlock();
-            const stderr = std.io.getStdErr();
-            return msg.renderToWriter(ttyconf, stderr.writer(), "error", .Red, 0) catch return;
-        }
-
-        pub fn renderToWriter(
-            msg: Message,
-            ttyconf: std.debug.TTY.Config,
-            stderr: anytype,
-            kind: []const u8,
-            color: std.debug.TTY.Color,
-            indent: usize,
-        ) anyerror!void {
-            var counting_writer = std.io.countingWriter(stderr);
-            const counting_stderr = counting_writer.writer();
-            switch (msg) {
-                .src => |src| {
-                    try counting_stderr.writeByteNTimes(' ', indent);
-                    try ttyconf.setColor(stderr, .Bold);
-                    try counting_stderr.print("{s}:{d}:{d}: ", .{
-                        src.src_path,
-                        src.line + 1,
-                        src.column + 1,
-                    });
-                    try ttyconf.setColor(stderr, color);
-                    try counting_stderr.writeAll(kind);
-                    try counting_stderr.writeAll(": ");
-                    // This is the length of the part before the error message:
-                    // e.g. "file.zig:4:5: error: "
-                    const prefix_len = @intCast(usize, counting_stderr.context.bytes_written);
-                    try ttyconf.setColor(stderr, .Reset);
-                    try ttyconf.setColor(stderr, .Bold);
-                    if (src.count == 1) {
-                        try src.writeMsg(stderr, prefix_len);
-                        try stderr.writeByte('\n');
-                    } else {
-                        try src.writeMsg(stderr, prefix_len);
-                        try ttyconf.setColor(stderr, .Dim);
-                        try stderr.print(" ({d} times)\n", .{src.count});
-                    }
-                    try ttyconf.setColor(stderr, .Reset);
-                    if (src.source_line) |line| {
-                        for (line) |b| switch (b) {
-                            '\t' => try stderr.writeByte(' '),
-                            else => try stderr.writeByte(b),
-                        };
-                        try stderr.writeByte('\n');
-                        // TODO basic unicode code point monospace width
-                        const before_caret = src.span.main - src.span.start;
-                        // -1 since span.main includes the caret
-                        const after_caret = src.span.end - src.span.main -| 1;
-                        try stderr.writeByteNTimes(' ', src.column - before_caret);
-                        try ttyconf.setColor(stderr, .Green);
-                        try stderr.writeByteNTimes('~', before_caret);
-                        try stderr.writeByte('^');
-                        try stderr.writeByteNTimes('~', after_caret);
-                        try stderr.writeByte('\n');
-                        try ttyconf.setColor(stderr, .Reset);
-                    }
-                    for (src.notes) |note| {
-                        try note.renderToWriter(ttyconf, stderr, "note", .Cyan, indent);
-                    }
-                    if (src.reference_trace.len != 0) {
-                        try ttyconf.setColor(stderr, .Reset);
-                        try ttyconf.setColor(stderr, .Dim);
-                        try stderr.print("referenced by:\n", .{});
-                        for (src.reference_trace) |reference| {
-                            switch (reference) {
-                                .src => |ref_src| try stderr.print("    {s}: {s}:{d}:{d}\n", .{
-                                    ref_src.msg,
-                                    ref_src.src_path,
-                                    ref_src.line + 1,
-                                    ref_src.column + 1,
-                                }),
-                                .plain => |plain| if (plain.count != 0) {
-                                    try stderr.print(
-                                        "    {d} reference(s) hidden; use '-freference-trace={d}' to see all references\n",
-                                        .{ plain.count, plain.count + src.reference_trace.len - 1 },
-                                    );
-                                } else {
-                                    try stderr.print(
-                                        "    remaining reference traces hidden; use '-freference-trace' to see all reference traces\n",
-                                        .{},
-                                    );
-                                },
-                            }
-                        }
-                        try stderr.writeByte('\n');
-                        try ttyconf.setColor(stderr, .Reset);
-                    }
-                },
-                .plain => |plain| {
-                    try ttyconf.setColor(stderr, color);
-                    try stderr.writeByteNTimes(' ', indent);
-                    try stderr.writeAll(kind);
-                    try stderr.writeAll(": ");
-                    try ttyconf.setColor(stderr, .Reset);
-                    if (plain.count == 1) {
-                        try stderr.print("{s}\n", .{plain.msg});
-                    } else {
-                        try stderr.print("{s}", .{plain.msg});
-                        try ttyconf.setColor(stderr, .Dim);
-                        try stderr.print(" ({d} times)\n", .{plain.count});
-                    }
-                    try ttyconf.setColor(stderr, .Reset);
-                    for (plain.notes) |note| {
-                        try note.renderToWriter(ttyconf, stderr, "note", .Cyan, indent + 4);
-                    }
-                },
-            }
-        }
-
-        pub const HashContext = struct {
-            pub fn hash(ctx: HashContext, key: *Message) u64 {
-                _ = ctx;
-                var hasher = std.hash.Wyhash.init(0);
-
-                switch (key.*) {
-                    .src => |src| {
-                        hasher.update(src.msg);
-                        hasher.update(src.src_path);
-                        std.hash.autoHash(&hasher, src.line);
-                        std.hash.autoHash(&hasher, src.column);
-                        std.hash.autoHash(&hasher, src.span.main);
-                    },
-                    .plain => |plain| {
-                        hasher.update(plain.msg);
-                    },
-                }
-
-                return hasher.final();
-            }
-
-            pub fn eql(ctx: HashContext, a: *Message, b: *Message) bool {
-                _ = ctx;
-                switch (a.*) {
-                    .src => |a_src| switch (b.*) {
-                        .src => |b_src| {
-                            return mem.eql(u8, a_src.msg, b_src.msg) and
-                                mem.eql(u8, a_src.src_path, b_src.src_path) and
-                                a_src.line == b_src.line and
-                                a_src.column == b_src.column and
-                                a_src.span.main == b_src.span.main;
-                        },
-                        .plain => return false,
-                    },
-                    .plain => |a_plain| switch (b.*) {
-                        .src => return false,
-                        .plain => |b_plain| {
-                            return mem.eql(u8, a_plain.msg, b_plain.msg);
-                        },
-                    },
-                }
-            }
-        };
-    };
-
-    pub fn deinit(self: *AllErrors, gpa: Allocator) void {
-        self.arena.promote(gpa).deinit();
-    }
-
-    pub fn add(
-        module: *Module,
-        arena: *std.heap.ArenaAllocator,
-        errors: *std.ArrayList(Message),
-        module_err_msg: Module.ErrorMsg,
-    ) !void {
-        const allocator = arena.allocator();
-
-        const notes_buf = try allocator.alloc(Message, module_err_msg.notes.len);
-        var note_i: usize = 0;
-
-        // De-duplicate error notes. The main use case in mind for this is
-        // too many "note: called from here" notes when eval branch quota is reached.
-        var seen_notes = std.HashMap(
-            *Message,
-            void,
-            Message.HashContext,
-            std.hash_map.default_max_load_percentage,
-        ).init(allocator);
-        const err_source = module_err_msg.src_loc.file_scope.getSource(module.gpa) catch |err| {
-            const file_path = try module_err_msg.src_loc.file_scope.fullPath(allocator);
-            try errors.append(.{
-                .plain = .{
-                    .msg = try std.fmt.allocPrint(allocator, "unable to load '{s}': {s}", .{
-                        file_path, @errorName(err),
-                    }),
-                },
-            });
-            return;
-        };
-        const err_span = try module_err_msg.src_loc.span(module.gpa);
-        const err_loc = std.zig.findLineColumn(err_source.bytes, err_span.main);
-
-        for (module_err_msg.notes) |module_note| {
-            const source = try module_note.src_loc.file_scope.getSource(module.gpa);
-            const span = try module_note.src_loc.span(module.gpa);
-            const loc = std.zig.findLineColumn(source.bytes, span.main);
-            const file_path = try module_note.src_loc.file_scope.fullPath(allocator);
-            const note = &notes_buf[note_i];
-            note.* = .{
-                .src = .{
-                    .src_path = file_path,
-                    .msg = try allocator.dupe(u8, module_note.msg),
-                    .span = span,
-                    .line = @intCast(u32, loc.line),
-                    .column = @intCast(u32, loc.column),
-                    .source_line = if (err_loc.eql(loc)) null else try allocator.dupe(u8, loc.source_line),
-                },
-            };
-            const gop = try seen_notes.getOrPut(note);
-            if (gop.found_existing) {
-                gop.key_ptr.*.incrementCount();
-            } else {
-                note_i += 1;
-            }
-        }
-
-        const reference_trace = try allocator.alloc(Message, module_err_msg.reference_trace.len);
-        for (reference_trace, 0..) |*reference, i| {
-            const module_reference = module_err_msg.reference_trace[i];
-            if (module_reference.hidden != 0) {
-                reference.* = .{ .plain = .{ .msg = undefined, .count = module_reference.hidden } };
-                break;
-            } else if (module_reference.decl == null) {
-                reference.* = .{ .plain = .{ .msg = undefined, .count = 0 } };
-                break;
-            }
-            const source = try module_reference.src_loc.file_scope.getSource(module.gpa);
-            const span = try module_reference.src_loc.span(module.gpa);
-            const loc = std.zig.findLineColumn(source.bytes, span.main);
-            const file_path = try module_reference.src_loc.file_scope.fullPath(allocator);
-            reference.* = .{
-                .src = .{
-                    .src_path = file_path,
-                    .msg = try allocator.dupe(u8, std.mem.sliceTo(module_reference.decl.?, 0)),
-                    .span = span,
-                    .line = @intCast(u32, loc.line),
-                    .column = @intCast(u32, loc.column),
-                    .source_line = null,
-                },
-            };
-        }
-        const file_path = try module_err_msg.src_loc.file_scope.fullPath(allocator);
-        try errors.append(.{
-            .src = .{
-                .src_path = file_path,
-                .msg = try allocator.dupe(u8, module_err_msg.msg),
-                .span = err_span,
-                .line = @intCast(u32, err_loc.line),
-                .column = @intCast(u32, err_loc.column),
-                .notes = notes_buf[0..note_i],
-                .reference_trace = reference_trace,
-                .source_line = if (module_err_msg.src_loc.lazy == .entire_file) null else try allocator.dupe(u8, err_loc.source_line),
-            },
-        });
-    }
-
-    pub fn addZir(
-        arena: Allocator,
-        errors: *std.ArrayList(Message),
-        file: *Module.File,
-    ) !void {
-        assert(file.zir_loaded);
-        assert(file.tree_loaded);
-        assert(file.source_loaded);
-        const payload_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.compile_errors)];
-        assert(payload_index != 0);
-
-        const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
-        const items_len = header.data.items_len;
-        var extra_index = header.end;
-        var item_i: usize = 0;
-        while (item_i < items_len) : (item_i += 1) {
-            const item = file.zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
-            extra_index = item.end;
-            const err_span = blk: {
-                if (item.data.node != 0) {
-                    break :blk Module.SrcLoc.nodeToSpan(&file.tree, item.data.node);
-                }
-                const token_starts = file.tree.tokens.items(.start);
-                const start = token_starts[item.data.token] + item.data.byte_offset;
-                const end = start + @intCast(u32, file.tree.tokenSlice(item.data.token).len) - item.data.byte_offset;
-                break :blk Module.SrcLoc.Span{ .start = start, .end = end, .main = start };
-            };
-            const err_loc = std.zig.findLineColumn(file.source, err_span.main);
-
-            var notes: []Message = &[0]Message{};
-            if (item.data.notes != 0) {
-                const block = file.zir.extraData(Zir.Inst.Block, item.data.notes);
-                const body = file.zir.extra[block.end..][0..block.data.body_len];
-                notes = try arena.alloc(Message, body.len);
-                for (notes, 0..) |*note, i| {
-                    const note_item = file.zir.extraData(Zir.Inst.CompileErrors.Item, body[i]);
-                    const msg = file.zir.nullTerminatedString(note_item.data.msg);
-                    const span = blk: {
-                        if (note_item.data.node != 0) {
-                            break :blk Module.SrcLoc.nodeToSpan(&file.tree, note_item.data.node);
-                        }
-                        const token_starts = file.tree.tokens.items(.start);
-                        const start = token_starts[note_item.data.token] + note_item.data.byte_offset;
-                        const end = start + @intCast(u32, file.tree.tokenSlice(note_item.data.token).len) - item.data.byte_offset;
-                        break :blk Module.SrcLoc.Span{ .start = start, .end = end, .main = start };
-                    };
-                    const loc = std.zig.findLineColumn(file.source, span.main);
-
-                    note.* = .{
-                        .src = .{
-                            .src_path = try file.fullPath(arena),
-                            .msg = try arena.dupe(u8, msg),
-                            .span = span,
-                            .line = @intCast(u32, loc.line),
-                            .column = @intCast(u32, loc.column),
-                            .notes = &.{}, // TODO rework this function to be recursive
-                            .source_line = if (loc.eql(err_loc)) null else try arena.dupe(u8, loc.source_line),
-                        },
-                    };
-                }
-            }
-
-            const msg = file.zir.nullTerminatedString(item.data.msg);
-            try errors.append(.{
-                .src = .{
-                    .src_path = try file.fullPath(arena),
-                    .msg = try arena.dupe(u8, msg),
-                    .span = err_span,
-                    .line = @intCast(u32, err_loc.line),
-                    .column = @intCast(u32, err_loc.column),
-                    .notes = notes,
-                    .source_line = try arena.dupe(u8, err_loc.source_line),
-                },
-            });
-        }
-    }
-
-    fn addPlain(
-        arena: *std.heap.ArenaAllocator,
-        errors: *std.ArrayList(Message),
-        msg: []const u8,
-    ) !void {
-        _ = arena;
-        try errors.append(.{ .plain = .{ .msg = msg } });
-    }
-
-    fn addPlainWithChildren(
-        arena: *std.heap.ArenaAllocator,
-        errors: *std.ArrayList(Message),
-        msg: []const u8,
-        optional_children: ?AllErrors,
-    ) !void {
-        const allocator = arena.allocator();
-        const duped_msg = try allocator.dupe(u8, msg);
-        if (optional_children) |*children| {
-            try errors.append(.{ .plain = .{
-                .msg = duped_msg,
-                .notes = try dupeList(children.list, allocator),
-            } });
-        } else {
-            try errors.append(.{ .plain = .{ .msg = duped_msg } });
-        }
-    }
-
-    fn dupeList(list: []const Message, arena: Allocator) Allocator.Error![]Message {
-        const duped_list = try arena.alloc(Message, list.len);
-        for (list, 0..) |item, i| {
-            duped_list[i] = switch (item) {
-                .src => |src| .{ .src = .{
-                    .msg = try arena.dupe(u8, src.msg),
-                    .src_path = try arena.dupe(u8, src.src_path),
-                    .line = src.line,
-                    .column = src.column,
-                    .span = src.span,
-                    .source_line = if (src.source_line) |s| try arena.dupe(u8, s) else null,
-                    .notes = try dupeList(src.notes, arena),
-                } },
-                .plain => |plain| .{ .plain = .{
-                    .msg = try arena.dupe(u8, plain.msg),
-                    .notes = try dupeList(plain.notes, arena),
-                } },
-            };
-        }
-        return duped_list;
     }
 };
 
@@ -2259,12 +1848,20 @@ fn cleanupTmpArtifactDirectory(
     }
 }
 
+pub fn hotCodeSwap(comp: *Compilation, prog_node: *std.Progress.Node, pid: std.ChildProcess.Id) !void {
+    comp.bin_file.child_pid = pid;
+    try comp.makeBinFileWritable();
+    try comp.update(prog_node);
+    try comp.makeBinFileExecutable();
+}
+
 /// Detect changes to source files, perform semantic analysis, and update the output files.
-pub fn update(comp: *Compilation) !void {
+pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
     comp.clearMiscFailures();
+    comp.last_update_was_cache_hit = false;
 
     var man: Cache.Manifest = undefined;
     defer if (comp.whole_cache_manifest != null) man.deinit();
@@ -2292,6 +1889,7 @@ pub fn update(comp: *Compilation) !void {
             return err;
         };
         if (is_hit) {
+            comp.last_update_was_cache_hit = true;
             log.debug("CacheMode.whole cache hit for {s}", .{comp.bin_file.options.root_name});
             const digest = man.final();
 
@@ -2405,21 +2003,6 @@ pub fn update(comp: *Compilation) !void {
         if (module.main_pkg.table.get("compiler_rt")) |compiler_rt_pkg| {
             try comp.work_queue.writeItem(.{ .analyze_pkg = compiler_rt_pkg });
         }
-    }
-
-    // If the terminal is dumb, we dont want to show the user all the output.
-    var progress: std.Progress = .{ .dont_print_on_dumb = true };
-    const main_progress_node = progress.start("", 0);
-    defer main_progress_node.end();
-    switch (comp.color) {
-        .off => {
-            progress.terminal = null;
-        },
-        .on => {
-            progress.terminal = std.io.getStdErr();
-            progress.supports_ansi_escape_codes = true;
-        },
-        .auto => {},
     }
 
     try comp.performAllTheWork(main_progress_node);
@@ -2891,7 +2474,7 @@ pub fn makeBinFileWritable(self: *Compilation) !void {
 }
 
 /// This function is temporally single-threaded.
-pub fn totalErrorCount(self: *Compilation) usize {
+pub fn totalErrorCount(self: *Compilation) u32 {
     var total: usize = self.failed_c_objects.count() + self.misc_failures.count() +
         @boolToInt(self.alloc_failure_occurred) + self.lld_errors.items.len;
 
@@ -2951,17 +2534,16 @@ pub fn totalErrorCount(self: *Compilation) usize {
         }
     }
 
-    return total;
+    return @intCast(u32, total);
 }
 
 /// This function is temporally single-threaded.
-pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
-    var arena = std.heap.ArenaAllocator.init(self.gpa);
-    errdefer arena.deinit();
-    const arena_allocator = arena.allocator();
+pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
+    const gpa = self.gpa;
 
-    var errors = std.ArrayList(AllErrors.Message).init(self.gpa);
-    defer errors.deinit();
+    var bundle: ErrorBundle.Wip = undefined;
+    try bundle.init(gpa);
+    defer bundle.deinit();
 
     {
         var it = self.failed_c_objects.iterator();
@@ -2970,53 +2552,58 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             const err_msg = entry.value_ptr.*;
             // TODO these fields will need to be adjusted when we have proper
             // C error reporting bubbling up.
-            try errors.append(.{
-                .src = .{
-                    .src_path = try arena_allocator.dupe(u8, c_object.src.src_path),
-                    .msg = try std.fmt.allocPrint(arena_allocator, "unable to build C object: {s}", .{
-                        err_msg.msg,
-                    }),
-                    .span = .{ .start = 0, .end = 1, .main = 0 },
+            try bundle.addRootErrorMessage(.{
+                .msg = try bundle.printString("unable to build C object: {s}", .{err_msg.msg}),
+                .src_loc = try bundle.addSourceLocation(.{
+                    .src_path = try bundle.addString(c_object.src.src_path),
+                    .span_start = 0,
+                    .span_main = 0,
+                    .span_end = 1,
                     .line = err_msg.line,
                     .column = err_msg.column,
-                    .source_line = null, // TODO
-                },
+                    .source_line = 0, // TODO
+                }),
             });
         }
     }
-    for (self.lld_errors.items) |lld_error| {
-        const notes = try arena_allocator.alloc(AllErrors.Message, lld_error.context_lines.len);
-        for (lld_error.context_lines, 0..) |context_line, i| {
-            notes[i] = .{ .plain = .{
-                .msg = try arena_allocator.dupe(u8, context_line),
-            } };
-        }
 
-        try errors.append(.{
-            .plain = .{
-                .msg = try arena_allocator.dupe(u8, lld_error.msg),
-                .notes = notes,
-            },
+    for (self.lld_errors.items) |lld_error| {
+        const notes_len = @intCast(u32, lld_error.context_lines.len);
+
+        try bundle.addRootErrorMessage(.{
+            .msg = try bundle.addString(lld_error.msg),
+            .notes_len = notes_len,
         });
+        const notes_start = try bundle.reserveNotes(notes_len);
+        for (notes_start.., lld_error.context_lines) |note, context_line| {
+            bundle.extra.items[note] = @enumToInt(bundle.addErrorMessageAssumeCapacity(.{
+                .msg = try bundle.addString(context_line),
+            }));
+        }
     }
     for (self.misc_failures.values()) |*value| {
-        try AllErrors.addPlainWithChildren(&arena, &errors, value.msg, value.children);
+        try bundle.addRootErrorMessage(.{
+            .msg = try bundle.addString(value.msg),
+            .notes_len = if (value.children) |b| b.errorMessageCount() else 0,
+        });
+        if (value.children) |b| try bundle.addBundle(b);
     }
     if (self.alloc_failure_occurred) {
-        try AllErrors.addPlain(&arena, &errors, "memory allocation failure");
+        try bundle.addRootErrorMessage(.{
+            .msg = try bundle.addString("memory allocation failure"),
+        });
     }
     if (self.bin_file.options.module) |module| {
         {
             var it = module.failed_files.iterator();
             while (it.next()) |entry| {
                 if (entry.value_ptr.*) |msg| {
-                    try AllErrors.add(module, &arena, &errors, msg.*);
+                    try addModuleErrorMsg(&bundle, msg.*);
                 } else {
-                    // Must be ZIR errors. In order for ZIR errors to exist, the parsing
-                    // must have completed successfully.
-                    const tree = try entry.key_ptr.*.getTree(module.gpa);
-                    assert(tree.errors.len == 0);
-                    try AllErrors.addZir(arena_allocator, &errors, entry.key_ptr.*);
+                    // Must be ZIR errors. Note that this may include AST errors.
+                    // addZirErrorMessages asserts that the tree is loaded.
+                    _ = try entry.key_ptr.*.getTree(gpa);
+                    try addZirErrorMessages(&bundle, entry.key_ptr.*);
                 }
             }
         }
@@ -3024,7 +2611,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             var it = module.failed_embed_files.iterator();
             while (it.next()) |entry| {
                 const msg = entry.value_ptr.*;
-                try AllErrors.add(module, &arena, &errors, msg.*);
+                try addModuleErrorMsg(&bundle, msg.*);
             }
         }
         {
@@ -3034,23 +2621,20 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
                 if (decl.getFileScope().okToReportErrors()) {
-                    try AllErrors.add(module, &arena, &errors, entry.value_ptr.*.*);
+                    try addModuleErrorMsg(&bundle, entry.value_ptr.*.*);
                     if (module.cimport_errors.get(entry.key_ptr.*)) |cimport_errors| for (cimport_errors) |c_error| {
-                        if (c_error.path) |some|
-                            try errors.append(.{
-                                .src = .{
-                                    .src_path = try arena_allocator.dupe(u8, std.mem.span(some)),
-                                    .span = .{ .start = c_error.offset, .end = c_error.offset + 1, .main = c_error.offset },
-                                    .msg = try arena_allocator.dupe(u8, std.mem.span(c_error.msg)),
-                                    .line = c_error.line,
-                                    .column = c_error.column,
-                                    .source_line = if (c_error.source_line) |line| try arena_allocator.dupe(u8, std.mem.span(line)) else null,
-                                },
-                            })
-                        else
-                            try errors.append(.{
-                                .plain = .{ .msg = try arena_allocator.dupe(u8, std.mem.span(c_error.msg)) },
-                            });
+                        try bundle.addRootErrorMessage(.{
+                            .msg = try bundle.addString(std.mem.span(c_error.msg)),
+                            .src_loc = if (c_error.path) |some| try bundle.addSourceLocation(.{
+                                .src_path = try bundle.addString(std.mem.span(some)),
+                                .span_start = c_error.offset,
+                                .span_main = c_error.offset,
+                                .span_end = c_error.offset + 1,
+                                .line = c_error.line,
+                                .column = c_error.column,
+                                .source_line = if (c_error.source_line) |line| try bundle.addString(std.mem.span(line)) else 0,
+                            }) else .none,
+                        });
                     };
                 }
             }
@@ -3062,45 +2646,39 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
                 if (decl.getFileScope().okToReportErrors()) {
-                    try AllErrors.add(module, &arena, &errors, entry.value_ptr.*.*);
+                    try addModuleErrorMsg(&bundle, entry.value_ptr.*.*);
                 }
             }
         }
         for (module.failed_exports.values()) |value| {
-            try AllErrors.add(module, &arena, &errors, value.*);
+            try addModuleErrorMsg(&bundle, value.*);
         }
     }
 
-    if (errors.items.len == 0) {
+    if (bundle.root_list.items.len == 0) {
         if (self.link_error_flags.no_entry_point_found) {
-            try errors.append(.{
-                .plain = .{
-                    .msg = try std.fmt.allocPrint(arena_allocator, "no entry point found", .{}),
-                },
+            try bundle.addRootErrorMessage(.{
+                .msg = try bundle.addString("no entry point found"),
             });
         }
     }
 
     if (self.link_error_flags.missing_libc) {
-        const notes = try arena_allocator.create([2]AllErrors.Message);
-        notes.* = .{
-            .{ .plain = .{
-                .msg = try arena_allocator.dupe(u8, "run 'zig libc -h' to learn about libc installations"),
-            } },
-            .{ .plain = .{
-                .msg = try arena_allocator.dupe(u8, "run 'zig targets' to see the targets for which zig can always provide libc"),
-            } },
-        };
-        try errors.append(.{
-            .plain = .{
-                .msg = try std.fmt.allocPrint(arena_allocator, "libc not available", .{}),
-                .notes = notes,
-            },
+        try bundle.addRootErrorMessage(.{
+            .msg = try bundle.addString("libc not available"),
+            .notes_len = 2,
         });
+        const notes_start = try bundle.reserveNotes(2);
+        bundle.extra.items[notes_start + 0] = @enumToInt(try bundle.addErrorMessage(.{
+            .msg = try bundle.addString("run 'zig libc -h' to learn about libc installations"),
+        }));
+        bundle.extra.items[notes_start + 1] = @enumToInt(try bundle.addErrorMessage(.{
+            .msg = try bundle.addString("run 'zig targets' to see the targets for which zig can always provide libc"),
+        }));
     }
 
     if (self.bin_file.options.module) |module| {
-        if (errors.items.len == 0 and module.compile_log_decls.count() != 0) {
+        if (bundle.root_list.items.len == 0 and module.compile_log_decls.count() != 0) {
             const keys = module.compile_log_decls.keys();
             const values = module.compile_log_decls.values();
             // First one will be the error; subsequent ones will be notes.
@@ -3109,9 +2687,9 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
             const err_msg = Module.ErrorMsg{
                 .src_loc = src_loc,
                 .msg = "found compile log statement",
-                .notes = try self.gpa.alloc(Module.ErrorMsg, module.compile_log_decls.count() - 1),
+                .notes = try gpa.alloc(Module.ErrorMsg, module.compile_log_decls.count() - 1),
             };
-            defer self.gpa.free(err_msg.notes);
+            defer gpa.free(err_msg.notes);
 
             for (keys[1..], 0..) |key, i| {
                 const note_decl = module.declPtr(key);
@@ -3121,21 +2699,260 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
                 };
             }
 
-            try AllErrors.add(module, &arena, &errors, err_msg);
+            try addModuleErrorMsg(&bundle, err_msg);
         }
     }
 
-    assert(errors.items.len == self.totalErrorCount());
+    assert(self.totalErrorCount() == bundle.root_list.items.len);
 
-    return AllErrors{
-        .list = try arena_allocator.dupe(AllErrors.Message, errors.items),
-        .arena = arena.state,
-    };
+    const compile_log_text = if (self.bin_file.options.module) |m| m.compile_log_text.items else "";
+    return bundle.toOwnedBundle(compile_log_text);
 }
 
-pub fn getCompileLogOutput(self: *Compilation) []const u8 {
-    const module = self.bin_file.options.module orelse return &[0]u8{};
-    return module.compile_log_text.items;
+pub const ErrorNoteHashContext = struct {
+    eb: *const ErrorBundle.Wip,
+
+    pub fn hash(ctx: ErrorNoteHashContext, key: ErrorBundle.ErrorMessage) u32 {
+        var hasher = std.hash.Wyhash.init(0);
+        const eb = ctx.eb.tmpBundle();
+
+        hasher.update(eb.nullTerminatedString(key.msg));
+        if (key.src_loc != .none) {
+            const src = eb.getSourceLocation(key.src_loc);
+            hasher.update(eb.nullTerminatedString(src.src_path));
+            std.hash.autoHash(&hasher, src.line);
+            std.hash.autoHash(&hasher, src.column);
+            std.hash.autoHash(&hasher, src.span_main);
+        }
+
+        return @truncate(u32, hasher.final());
+    }
+
+    pub fn eql(
+        ctx: ErrorNoteHashContext,
+        a: ErrorBundle.ErrorMessage,
+        b: ErrorBundle.ErrorMessage,
+        b_index: usize,
+    ) bool {
+        _ = b_index;
+        const eb = ctx.eb.tmpBundle();
+        const msg_a = eb.nullTerminatedString(a.msg);
+        const msg_b = eb.nullTerminatedString(b.msg);
+        if (!std.mem.eql(u8, msg_a, msg_b)) return false;
+
+        if (a.src_loc == .none and b.src_loc == .none) return true;
+        if (a.src_loc == .none or b.src_loc == .none) return false;
+        const src_a = eb.getSourceLocation(a.src_loc);
+        const src_b = eb.getSourceLocation(b.src_loc);
+
+        const src_path_a = eb.nullTerminatedString(src_a.src_path);
+        const src_path_b = eb.nullTerminatedString(src_b.src_path);
+
+        return std.mem.eql(u8, src_path_a, src_path_b) and
+            src_a.line == src_b.line and
+            src_a.column == src_b.column and
+            src_a.span_main == src_b.span_main;
+    }
+};
+
+pub fn addModuleErrorMsg(eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) !void {
+    const gpa = eb.gpa;
+    const err_source = module_err_msg.src_loc.file_scope.getSource(gpa) catch |err| {
+        const file_path = try module_err_msg.src_loc.file_scope.fullPath(gpa);
+        defer gpa.free(file_path);
+        try eb.addRootErrorMessage(.{
+            .msg = try eb.printString("unable to load '{s}': {s}", .{
+                file_path, @errorName(err),
+            }),
+        });
+        return;
+    };
+    const err_span = try module_err_msg.src_loc.span(gpa);
+    const err_loc = std.zig.findLineColumn(err_source.bytes, err_span.main);
+    const file_path = try module_err_msg.src_loc.file_scope.fullPath(gpa);
+    defer gpa.free(file_path);
+
+    var ref_traces: std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace) = .{};
+    defer ref_traces.deinit(gpa);
+
+    for (module_err_msg.reference_trace) |module_reference| {
+        if (module_reference.hidden != 0) {
+            try ref_traces.append(gpa, .{
+                .decl_name = module_reference.hidden,
+                .src_loc = .none,
+            });
+            break;
+        } else if (module_reference.decl == null) {
+            try ref_traces.append(gpa, .{
+                .decl_name = 0,
+                .src_loc = .none,
+            });
+            break;
+        }
+        const source = try module_reference.src_loc.file_scope.getSource(gpa);
+        const span = try module_reference.src_loc.span(gpa);
+        const loc = std.zig.findLineColumn(source.bytes, span.main);
+        const rt_file_path = try module_reference.src_loc.file_scope.fullPath(gpa);
+        defer gpa.free(rt_file_path);
+        try ref_traces.append(gpa, .{
+            .decl_name = try eb.addString(std.mem.sliceTo(module_reference.decl.?, 0)),
+            .src_loc = try eb.addSourceLocation(.{
+                .src_path = try eb.addString(rt_file_path),
+                .span_start = span.start,
+                .span_main = span.main,
+                .span_end = span.end,
+                .line = @intCast(u32, loc.line),
+                .column = @intCast(u32, loc.column),
+                .source_line = 0,
+            }),
+        });
+    }
+
+    const src_loc = try eb.addSourceLocation(.{
+        .src_path = try eb.addString(file_path),
+        .span_start = err_span.start,
+        .span_main = err_span.main,
+        .span_end = err_span.end,
+        .line = @intCast(u32, err_loc.line),
+        .column = @intCast(u32, err_loc.column),
+        .source_line = if (module_err_msg.src_loc.lazy == .entire_file)
+            0
+        else
+            try eb.addString(err_loc.source_line),
+        .reference_trace_len = @intCast(u32, ref_traces.items.len),
+    });
+
+    for (ref_traces.items) |rt| {
+        try eb.addReferenceTrace(rt);
+    }
+
+    // De-duplicate error notes. The main use case in mind for this is
+    // too many "note: called from here" notes when eval branch quota is reached.
+    var notes: std.ArrayHashMapUnmanaged(ErrorBundle.ErrorMessage, void, ErrorNoteHashContext, true) = .{};
+    defer notes.deinit(gpa);
+
+    for (module_err_msg.notes) |module_note| {
+        const source = try module_note.src_loc.file_scope.getSource(gpa);
+        const span = try module_note.src_loc.span(gpa);
+        const loc = std.zig.findLineColumn(source.bytes, span.main);
+        const note_file_path = try module_note.src_loc.file_scope.fullPath(gpa);
+        defer gpa.free(note_file_path);
+
+        const gop = try notes.getOrPutContext(gpa, .{
+            .msg = try eb.addString(module_note.msg),
+            .src_loc = try eb.addSourceLocation(.{
+                .src_path = try eb.addString(note_file_path),
+                .span_start = span.start,
+                .span_main = span.main,
+                .span_end = span.end,
+                .line = @intCast(u32, loc.line),
+                .column = @intCast(u32, loc.column),
+                .source_line = if (err_loc.eql(loc)) 0 else try eb.addString(loc.source_line),
+            }),
+        }, .{ .eb = eb });
+        if (gop.found_existing) {
+            gop.key_ptr.count += 1;
+        }
+    }
+
+    const notes_len = @intCast(u32, notes.entries.len);
+
+    try eb.addRootErrorMessage(.{
+        .msg = try eb.addString(module_err_msg.msg),
+        .src_loc = src_loc,
+        .notes_len = notes_len,
+    });
+
+    const notes_start = try eb.reserveNotes(notes_len);
+
+    for (notes_start.., notes.keys()) |i, note| {
+        eb.extra.items[i] = @enumToInt(try eb.addErrorMessage(note));
+    }
+}
+
+pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Module.File) !void {
+    assert(file.zir_loaded);
+    assert(file.tree_loaded);
+    assert(file.source_loaded);
+    const payload_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.compile_errors)];
+    assert(payload_index != 0);
+    const gpa = eb.gpa;
+
+    const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
+    const items_len = header.data.items_len;
+    var extra_index = header.end;
+    for (0..items_len) |_| {
+        const item = file.zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
+        extra_index = item.end;
+        const err_span = blk: {
+            if (item.data.node != 0) {
+                break :blk Module.SrcLoc.nodeToSpan(&file.tree, item.data.node);
+            }
+            const token_starts = file.tree.tokens.items(.start);
+            const start = token_starts[item.data.token] + item.data.byte_offset;
+            const end = start + @intCast(u32, file.tree.tokenSlice(item.data.token).len) - item.data.byte_offset;
+            break :blk Module.SrcLoc.Span{ .start = start, .end = end, .main = start };
+        };
+        const err_loc = std.zig.findLineColumn(file.source, err_span.main);
+
+        {
+            const msg = file.zir.nullTerminatedString(item.data.msg);
+            const src_path = try file.fullPath(gpa);
+            defer gpa.free(src_path);
+            try eb.addRootErrorMessage(.{
+                .msg = try eb.addString(msg),
+                .src_loc = try eb.addSourceLocation(.{
+                    .src_path = try eb.addString(src_path),
+                    .span_start = err_span.start,
+                    .span_main = err_span.main,
+                    .span_end = err_span.end,
+                    .line = @intCast(u32, err_loc.line),
+                    .column = @intCast(u32, err_loc.column),
+                    .source_line = try eb.addString(err_loc.source_line),
+                }),
+                .notes_len = item.data.notesLen(file.zir),
+            });
+        }
+
+        if (item.data.notes != 0) {
+            const notes_start = try eb.reserveNotes(item.data.notes);
+            const block = file.zir.extraData(Zir.Inst.Block, item.data.notes);
+            const body = file.zir.extra[block.end..][0..block.data.body_len];
+            for (notes_start.., body) |note_i, body_elem| {
+                const note_item = file.zir.extraData(Zir.Inst.CompileErrors.Item, body_elem);
+                const msg = file.zir.nullTerminatedString(note_item.data.msg);
+                const span = blk: {
+                    if (note_item.data.node != 0) {
+                        break :blk Module.SrcLoc.nodeToSpan(&file.tree, note_item.data.node);
+                    }
+                    const token_starts = file.tree.tokens.items(.start);
+                    const start = token_starts[note_item.data.token] + note_item.data.byte_offset;
+                    const end = start + @intCast(u32, file.tree.tokenSlice(note_item.data.token).len) - item.data.byte_offset;
+                    break :blk Module.SrcLoc.Span{ .start = start, .end = end, .main = start };
+                };
+                const loc = std.zig.findLineColumn(file.source, span.main);
+                const src_path = try file.fullPath(gpa);
+                defer gpa.free(src_path);
+
+                eb.extra.items[note_i] = @enumToInt(try eb.addErrorMessage(.{
+                    .msg = try eb.addString(msg),
+                    .src_loc = try eb.addSourceLocation(.{
+                        .src_path = try eb.addString(src_path),
+                        .span_start = span.start,
+                        .span_main = span.main,
+                        .span_end = span.end,
+                        .line = @intCast(u32, loc.line),
+                        .column = @intCast(u32, loc.column),
+                        .source_line = if (loc.eql(err_loc))
+                            0
+                        else
+                            try eb.addString(loc.source_line),
+                    }),
+                    .notes_len = 0, // TODO rework this function to be recursive
+                }));
+            }
+        }
+    }
 }
 
 pub fn performAllTheWork(
@@ -3231,11 +3048,11 @@ pub fn performAllTheWork(
     // backend, preventing anonymous Decls from being prematurely destroyed.
     while (true) {
         if (comp.work_queue.readItem()) |work_item| {
-            try processOneJob(comp, work_item);
+            try processOneJob(comp, work_item, main_progress_node);
             continue;
         }
         if (comp.anon_work_queue.readItem()) |work_item| {
-            try processOneJob(comp, work_item);
+            try processOneJob(comp, work_item, main_progress_node);
             continue;
         }
         break;
@@ -3243,16 +3060,16 @@ pub fn performAllTheWork(
 
     if (comp.job_queued_compiler_rt_lib) {
         comp.job_queued_compiler_rt_lib = false;
-        buildCompilerRtOneShot(comp, .Lib, &comp.compiler_rt_lib);
+        buildCompilerRtOneShot(comp, .Lib, &comp.compiler_rt_lib, main_progress_node);
     }
 
     if (comp.job_queued_compiler_rt_obj) {
         comp.job_queued_compiler_rt_obj = false;
-        buildCompilerRtOneShot(comp, .Obj, &comp.compiler_rt_obj);
+        buildCompilerRtOneShot(comp, .Obj, &comp.compiler_rt_obj, main_progress_node);
     }
 }
 
-fn processOneJob(comp: *Compilation, job: Job) !void {
+fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !void {
     switch (job) {
         .codegen_decl => |decl_index| {
             const module = comp.bin_file.options.module.?;
@@ -3404,7 +3221,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("glibc_crt_file");
             defer named_frame.end();
 
-            glibc.buildCRTFile(comp, crt_file) catch |err| {
+            glibc.buildCRTFile(comp, crt_file, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(.glibc_crt_file, "unable to build glibc CRT file: {s}", .{
                     @errorName(err),
@@ -3415,7 +3232,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("glibc_shared_objects");
             defer named_frame.end();
 
-            glibc.buildSharedObjects(comp) catch |err| {
+            glibc.buildSharedObjects(comp, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .glibc_shared_objects,
@@ -3428,7 +3245,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("musl_crt_file");
             defer named_frame.end();
 
-            musl.buildCRTFile(comp, crt_file) catch |err| {
+            musl.buildCRTFile(comp, crt_file, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .musl_crt_file,
@@ -3441,7 +3258,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("mingw_crt_file");
             defer named_frame.end();
 
-            mingw.buildCRTFile(comp, crt_file) catch |err| {
+            mingw.buildCRTFile(comp, crt_file, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .mingw_crt_file,
@@ -3468,7 +3285,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("libunwind");
             defer named_frame.end();
 
-            libunwind.buildStaticLib(comp) catch |err| {
+            libunwind.buildStaticLib(comp, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .libunwind,
@@ -3481,7 +3298,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("libcxx");
             defer named_frame.end();
 
-            libcxx.buildLibCXX(comp) catch |err| {
+            libcxx.buildLibCXX(comp, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .libcxx,
@@ -3494,7 +3311,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("libcxxabi");
             defer named_frame.end();
 
-            libcxx.buildLibCXXABI(comp) catch |err| {
+            libcxx.buildLibCXXABI(comp, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .libcxxabi,
@@ -3507,7 +3324,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("libtsan");
             defer named_frame.end();
 
-            libtsan.buildTsan(comp) catch |err| {
+            libtsan.buildTsan(comp, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .libtsan,
@@ -3520,7 +3337,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("wasi_libc_crt_file");
             defer named_frame.end();
 
-            wasi_libc.buildCRTFile(comp, crt_file) catch |err| {
+            wasi_libc.buildCRTFile(comp, crt_file, prog_node) catch |err| {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .wasi_libc_crt_file,
@@ -3538,6 +3355,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                 .Lib,
                 &comp.libssp_static_lib,
                 .libssp,
+                prog_node,
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.SubCompilationFailed => return, // error reported already
@@ -3557,6 +3375,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
                 .Lib,
                 &comp.libc_static_lib,
                 .zig_libc,
+                prog_node,
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.SubCompilationFailed => return, // error reported already
@@ -3897,8 +3716,15 @@ fn buildCompilerRtOneShot(
     comp: *Compilation,
     output_mode: std.builtin.OutputMode,
     out: *?CRTFile,
+    prog_node: *std.Progress.Node,
 ) void {
-    comp.buildOutputFromZig("compiler_rt.zig", output_mode, out, .compiler_rt) catch |err| switch (err) {
+    comp.buildOutputFromZig(
+        "compiler_rt.zig",
+        output_mode,
+        out,
+        .compiler_rt,
+        prog_node,
+    ) catch |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(
             .compiler_rt,
@@ -5230,7 +5056,8 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\const std = @import("std");
         \\/// Zig version. When writing code that supports multiple versions of Zig, prefer
         \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
-        \\pub const zig_version = std.SemanticVersion.parse("{s}") catch unreachable;
+        \\pub const zig_version = std.SemanticVersion.parse(zig_version_string) catch unreachable;
+        \\pub const zig_version_string = "{s}";
         \\pub const zig_backend = std.builtin.CompilerBackend.{};
         \\
         \\pub const output_mode = std.builtin.OutputMode.{};
@@ -5417,34 +5244,36 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
     return buffer.toOwnedSliceSentinel(0);
 }
 
-pub fn updateSubCompilation(sub_compilation: *Compilation) !void {
-    try sub_compilation.update();
+pub fn updateSubCompilation(
+    parent_comp: *Compilation,
+    sub_comp: *Compilation,
+    misc_task: MiscTask,
+    prog_node: *std.Progress.Node,
+) !void {
+    {
+        var sub_node = prog_node.start(@tagName(misc_task), 0);
+        sub_node.activate();
+        defer sub_node.end();
 
-    // Look for compilation errors in this sub_compilation
-    // TODO instead of logging these errors, handle them in the callsites
-    // of updateSubCompilation and attach them as sub-errors, properly
-    // surfacing the errors. You can see an example of this already
-    // done inside buildOutputFromZig.
-    var errors = try sub_compilation.getAllErrorsAlloc();
-    defer errors.deinit(sub_compilation.gpa);
+        try sub_comp.update(prog_node);
+    }
 
-    if (errors.list.len != 0) {
-        for (errors.list) |full_err_msg| {
-            switch (full_err_msg) {
-                .src => |src| {
-                    log.err("{s}:{d}:{d}: {s}", .{
-                        src.src_path,
-                        src.line + 1,
-                        src.column + 1,
-                        src.msg,
-                    });
-                },
-                .plain => |plain| {
-                    log.err("{s}", .{plain.msg});
-                },
-            }
-        }
-        return error.BuildingLibCObjectFailed;
+    // Look for compilation errors in this sub compilation
+    const gpa = parent_comp.gpa;
+    var keep_errors = false;
+    var errors = try sub_comp.getAllErrorsAlloc();
+    defer if (!keep_errors) errors.deinit(gpa);
+
+    if (errors.errorMessageCount() > 0) {
+        try parent_comp.misc_failures.ensureUnusedCapacity(gpa, 1);
+        parent_comp.misc_failures.putAssumeCapacityNoClobber(misc_task, .{
+            .msg = try std.fmt.allocPrint(gpa, "sub-compilation of {s} failed", .{
+                @tagName(misc_task),
+            }),
+            .children = errors,
+        });
+        keep_errors = true;
+        return error.SubCompilationFailed;
     }
 }
 
@@ -5454,6 +5283,7 @@ fn buildOutputFromZig(
     output_mode: std.builtin.OutputMode,
     out: *?CRTFile,
     misc_task_tag: MiscTask,
+    prog_node: *std.Progress.Node,
 ) !void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
@@ -5520,23 +5350,7 @@ fn buildOutputFromZig(
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.update();
-    // Look for compilation errors in this sub_compilation.
-    var keep_errors = false;
-    var errors = try sub_compilation.getAllErrorsAlloc();
-    defer if (!keep_errors) errors.deinit(sub_compilation.gpa);
-
-    if (errors.list.len != 0) {
-        try comp.misc_failures.ensureUnusedCapacity(comp.gpa, 1);
-        comp.misc_failures.putAssumeCapacityNoClobber(misc_task_tag, .{
-            .msg = try std.fmt.allocPrint(comp.gpa, "sub-compilation of {s} failed", .{
-                @tagName(misc_task_tag),
-            }),
-            .children = errors,
-        });
-        keep_errors = true;
-        return error.SubCompilationFailed;
-    }
+    try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
     assert(out.* == null);
     out.* = Compilation.CRTFile{
@@ -5551,6 +5365,8 @@ pub fn build_crt_file(
     comp: *Compilation,
     root_name: []const u8,
     output_mode: std.builtin.OutputMode,
+    misc_task_tag: MiscTask,
+    prog_node: *std.Progress.Node,
     c_source_files: []const Compilation.CSourceFile,
 ) !void {
     const tracy_trace = trace(@src());
@@ -5611,7 +5427,7 @@ pub fn build_crt_file(
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.updateSubCompilation();
+    try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
     try comp.crt_files.ensureUnusedCapacity(comp.gpa, 1);
 

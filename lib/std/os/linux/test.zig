@@ -8,10 +8,12 @@ const expectEqual = std.testing.expectEqual;
 const fs = std.fs;
 
 test "fallocate" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
     const path = "test_fallocate";
-    const file = try fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
+    const file = try tmp.dir.createFile(path, .{ .truncate = true, .mode = 0o666 });
     defer file.close();
-    defer fs.cwd().deleteFile(path) catch {};
 
     try expect((try file.stat()).size == 0);
 
@@ -67,12 +69,12 @@ test "timer" {
 }
 
 test "statx" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
     const tmp_file_name = "just_a_temporary_file.txt";
-    var file = try fs.cwd().createFile(tmp_file_name, .{});
-    defer {
-        file.close();
-        fs.cwd().deleteFile(tmp_file_name) catch {};
-    }
+    var file = try tmp.dir.createFile(tmp_file_name, .{});
+    defer file.close();
 
     var statx_buf: linux.Statx = undefined;
     switch (linux.getErrno(linux.statx(file.handle, "", linux.AT.EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
@@ -105,21 +107,16 @@ test "user and group ids" {
 }
 
 test "fadvise" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
     const tmp_file_name = "temp_posix_fadvise.txt";
-    var file = try fs.cwd().createFile(tmp_file_name, .{});
-    defer {
-        file.close();
-        fs.cwd().deleteFile(tmp_file_name) catch {};
-    }
+    var file = try tmp.dir.createFile(tmp_file_name, .{});
+    defer file.close();
 
     var buf: [2048]u8 = undefined;
     try file.writeAll(&buf);
 
-    const ret = linux.fadvise(
-        file.handle,
-        0,
-        0,
-        linux.POSIX_FADV.SEQUENTIAL,
-    );
+    const ret = linux.fadvise(file.handle, 0, 0, linux.POSIX_FADV.SEQUENTIAL);
     try expectEqual(@as(usize, 0), ret);
 }

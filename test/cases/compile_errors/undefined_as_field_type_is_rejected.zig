@@ -1,9 +1,13 @@
-export fn a() void {
-    b();
+const Foo = struct {
+    a: undefined,
+};
+export fn entry1() void {
+    const foo: Foo = undefined;
+    _ = foo;
 }
 
 // error
-// backend=stage2
+// backend=stage1
 // target=native
 //
-// :2:5: error: use of undeclared identifier 'b'
+// tmp.zig:2:8: error: use of undefined value here causes undefined behavior

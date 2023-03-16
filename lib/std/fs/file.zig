@@ -1048,11 +1048,26 @@ pub const File = struct {
     /// Returns the number of bytes read. If the number read is smaller than the total bytes
     /// from all the buffers, it means the file reached the end. Reaching the end of a file
     /// is not an error condition.
-    /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
-    /// order to handle partial reads from the underlying OS layer.
-    /// See https://github.com/ziglang/zig/issues/7699
+    ///
+    /// The `iovecs` parameter is mutable because:
+    /// * This function needs to mutate the fields in order to handle partial
+    ///   reads from the underlying OS layer.
+    /// * The OS layer expects pointer addresses to be inside the application's address space
+    ///   even if the length is zero. Meanwhile, in Zig, slices may have undefined pointer
+    ///   addresses when the length is zero. So this function modifies the iov_base fields
+    ///   when the length is zero.
+    ///
+    /// Related open issue: https://github.com/ziglang/zig/issues/7699
     pub fn readvAll(self: File, iovecs: []os.iovec) ReadError!usize {
         if (iovecs.len == 0) return 0;
+
+        // We use the address of this local variable for all zero-length
+        // vectors so that the OS does not complain that we are giving it
+        // addresses outside the application's address space.
+        var garbage: [1]u8 = undefined;
+        for (iovecs) |*v| {
+            if (v.iov_len == 0) v.iov_base = &garbage;
+        }
 
         var i: usize = 0;
         var off: usize = 0;
@@ -1181,12 +1196,25 @@ pub const File = struct {
         }
     }
 
-    /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
-    /// order to handle partial writes from the underlying OS layer.
+    /// The `iovecs` parameter is mutable because:
+    /// * This function needs to mutate the fields in order to handle partial
+    ///   writes from the underlying OS layer.
+    /// * The OS layer expects pointer addresses to be inside the application's address space
+    ///   even if the length is zero. Meanwhile, in Zig, slices may have undefined pointer
+    ///   addresses when the length is zero. So this function modifies the iov_base fields
+    ///   when the length is zero.
     /// See https://github.com/ziglang/zig/issues/7699
     /// See equivalent function: `std.net.Stream.writevAll`.
     pub fn writevAll(self: File, iovecs: []os.iovec_const) WriteError!void {
         if (iovecs.len == 0) return;
+
+        // We use the address of this local variable for all zero-length
+        // vectors so that the OS does not complain that we are giving it
+        // addresses outside the application's address space.
+        var garbage: [1]u8 = undefined;
+        for (iovecs) |*v| {
+            if (v.iov_len == 0) v.iov_base = &garbage;
+        }
 
         var i: usize = 0;
         while (true) {

@@ -32,14 +32,12 @@ pub const Step = @import("Build/Step.zig");
 pub const CheckFileStep = @import("Build/CheckFileStep.zig");
 pub const CheckObjectStep = @import("Build/CheckObjectStep.zig");
 pub const ConfigHeaderStep = @import("Build/ConfigHeaderStep.zig");
-pub const EmulatableRunStep = @import("Build/EmulatableRunStep.zig");
 pub const FmtStep = @import("Build/FmtStep.zig");
 pub const InstallArtifactStep = @import("Build/InstallArtifactStep.zig");
 pub const InstallDirStep = @import("Build/InstallDirStep.zig");
 pub const InstallFileStep = @import("Build/InstallFileStep.zig");
 pub const ObjCopyStep = @import("Build/ObjCopyStep.zig");
 pub const CompileStep = @import("Build/CompileStep.zig");
-pub const LogStep = @import("Build/LogStep.zig");
 pub const OptionsStep = @import("Build/OptionsStep.zig");
 pub const RemoveDirStep = @import("Build/RemoveDirStep.zig");
 pub const RunStep = @import("Build/RunStep.zig");
@@ -59,15 +57,12 @@ verbose_air: bool,
 verbose_llvm_ir: bool,
 verbose_cimport: bool,
 verbose_llvm_cpu_features: bool,
-/// The purpose of executing the command is for a human to read compile errors from the terminal
-prominent_compile_errors: bool,
-color: enum { auto, on, off } = .auto,
 reference_trace: ?u32 = null,
 invalid_user_input: bool,
 zig_exe: []const u8,
 default_step: *Step,
 env_map: *EnvMap,
-top_level_steps: ArrayList(*TopLevelStep),
+top_level_steps: std.StringArrayHashMapUnmanaged(*TopLevelStep),
 install_prefix: []const u8,
 dest_dir: ?[]const u8,
 lib_dir: []const u8,
@@ -90,6 +85,7 @@ pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
 args: ?[][]const u8 = null,
 debug_log_scopes: []const []const u8 = &.{},
 debug_compile_errors: bool = false,
+debug_pkg_config: bool = false,
 
 /// Experimental. Use system Darling installation to run cross compiled macOS build artifacts.
 enable_darling: bool = false,
@@ -198,7 +194,7 @@ pub fn create(
     env_map.* = try process.getEnvMap(allocator);
 
     const self = try allocator.create(Build);
-    self.* = Build{
+    self.* = .{
         .zig_exe = zig_exe,
         .build_root = build_root,
         .cache_root = cache_root,
@@ -211,13 +207,12 @@ pub fn create(
         .verbose_llvm_ir = false,
         .verbose_cimport = false,
         .verbose_llvm_cpu_features = false,
-        .prominent_compile_errors = false,
         .invalid_user_input = false,
         .allocator = allocator,
         .user_input_options = UserInputOptionsMap.init(allocator),
         .available_options_map = AvailableOptionsMap.init(allocator),
         .available_options_list = ArrayList(AvailableOption).init(allocator),
-        .top_level_steps = ArrayList(*TopLevelStep).init(allocator),
+        .top_level_steps = .{},
         .default_step = undefined,
         .env_map = env_map,
         .search_prefixes = ArrayList([]const u8).init(allocator),
@@ -227,12 +222,21 @@ pub fn create(
         .h_dir = undefined,
         .dest_dir = env_map.get("DESTDIR"),
         .installed_files = ArrayList(InstalledFile).init(allocator),
-        .install_tls = TopLevelStep{
-            .step = Step.initNoOp(.top_level, "install", allocator),
+        .install_tls = .{
+            .step = Step.init(.{
+                .id = .top_level,
+                .name = "install",
+                .owner = self,
+            }),
             .description = "Copy build artifacts to prefix path",
         },
-        .uninstall_tls = TopLevelStep{
-            .step = Step.init(.top_level, "uninstall", allocator, makeUninstall),
+        .uninstall_tls = .{
+            .step = Step.init(.{
+                .id = .top_level,
+                .name = "uninstall",
+                .owner = self,
+                .makeFn = makeUninstall,
+            }),
             .description = "Remove build artifacts from prefix path",
         },
         .zig_lib_dir = null,
@@ -241,8 +245,8 @@ pub fn create(
         .host = host,
         .modules = std.StringArrayHashMap(*Module).init(allocator),
     };
-    try self.top_level_steps.append(&self.install_tls);
-    try self.top_level_steps.append(&self.uninstall_tls);
+    try self.top_level_steps.put(allocator, self.install_tls.step.name, &self.install_tls);
+    try self.top_level_steps.put(allocator, self.uninstall_tls.step.name, &self.uninstall_tls);
     self.default_step = &self.install_tls.step;
     return self;
 }
@@ -264,11 +268,20 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
     child.* = .{
         .allocator = allocator,
         .install_tls = .{
-            .step = Step.initNoOp(.top_level, "install", allocator),
+            .step = Step.init(.{
+                .id = .top_level,
+                .name = "install",
+                .owner = child,
+            }),
             .description = "Copy build artifacts to prefix path",
         },
         .uninstall_tls = .{
-            .step = Step.init(.top_level, "uninstall", allocator, makeUninstall),
+            .step = Step.init(.{
+                .id = .top_level,
+                .name = "uninstall",
+                .owner = child,
+                .makeFn = makeUninstall,
+            }),
             .description = "Remove build artifacts from prefix path",
         },
         .user_input_options = UserInputOptionsMap.init(allocator),
@@ -281,14 +294,12 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .verbose_llvm_ir = parent.verbose_llvm_ir,
         .verbose_cimport = parent.verbose_cimport,
         .verbose_llvm_cpu_features = parent.verbose_llvm_cpu_features,
-        .prominent_compile_errors = parent.prominent_compile_errors,
-        .color = parent.color,
         .reference_trace = parent.reference_trace,
         .invalid_user_input = false,
         .zig_exe = parent.zig_exe,
         .default_step = undefined,
         .env_map = parent.env_map,
-        .top_level_steps = ArrayList(*TopLevelStep).init(allocator),
+        .top_level_steps = .{},
         .install_prefix = undefined,
         .dest_dir = parent.dest_dir,
         .lib_dir = parent.lib_dir,
@@ -306,6 +317,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .zig_lib_dir = parent.zig_lib_dir,
         .debug_log_scopes = parent.debug_log_scopes,
         .debug_compile_errors = parent.debug_compile_errors,
+        .debug_pkg_config = parent.debug_pkg_config,
         .enable_darling = parent.enable_darling,
         .enable_qemu = parent.enable_qemu,
         .enable_rosetta = parent.enable_rosetta,
@@ -316,8 +328,8 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = std.StringArrayHashMap(*Module).init(allocator),
     };
-    try child.top_level_steps.append(&child.install_tls);
-    try child.top_level_steps.append(&child.uninstall_tls);
+    try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
+    try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
     child.default_step = &child.install_tls.step;
     return child;
 }
@@ -372,27 +384,24 @@ fn applyArgs(b: *Build, args: anytype) !void {
             },
         }
     }
-    const Hasher = std.crypto.auth.siphash.SipHash128(1, 3);
+
+    // Create an installation directory local to this package. This will be used when
+    // dependant packages require a standard prefix, such as include directories for C headers.
+    var hash = b.cache.hash;
     // Random bytes to make unique. Refresh this with new random bytes when
     // implementation is modified in a non-backwards-compatible way.
-    var hash = Hasher.init("ZaEsvQ5ClaA2IdH9");
-    hash.update(b.dep_prefix);
+    hash.add(@as(u32, 0xd8cb0055));
+    hash.addBytes(b.dep_prefix);
     // TODO additionally update the hash with `args`.
-
-    var digest: [16]u8 = undefined;
-    hash.final(&digest);
-    var hash_basename: [digest.len * 2]u8 = undefined;
-    _ = std.fmt.bufPrint(&hash_basename, "{s}", .{std.fmt.fmtSliceHexLower(&digest)}) catch
-        unreachable;
-
-    const install_prefix = try b.cache_root.join(b.allocator, &.{ "i", &hash_basename });
+    const digest = hash.final();
+    const install_prefix = try b.cache_root.join(b.allocator, &.{ "i", &digest });
     b.resolveInstallPrefix(install_prefix, .{});
 }
 
-pub fn destroy(self: *Build) void {
-    self.env_map.deinit();
-    self.top_level_steps.deinit();
-    self.allocator.destroy(self);
+pub fn destroy(b: *Build) void {
+    b.env_map.deinit();
+    b.top_level_steps.deinit(b.allocator);
+    b.allocator.destroy(b);
 }
 
 /// This function is intended to be called by lib/build_runner.zig, not a build.zig file.
@@ -441,6 +450,7 @@ pub const ExecutableOptions = struct {
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
     linkage: ?CompileStep.Linkage = null,
+    max_rss: usize = 0,
 };
 
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *CompileStep {
@@ -452,6 +462,7 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *CompileStep {
         .optimize = options.optimize,
         .kind = .exe,
         .linkage = options.linkage,
+        .max_rss = options.max_rss,
     });
 }
 
@@ -460,6 +471,7 @@ pub const ObjectOptions = struct {
     root_source_file: ?FileSource = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
+    max_rss: usize = 0,
 };
 
 pub fn addObject(b: *Build, options: ObjectOptions) *CompileStep {
@@ -469,6 +481,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *CompileStep {
         .target = options.target,
         .optimize = options.optimize,
         .kind = .obj,
+        .max_rss = options.max_rss,
     });
 }
 
@@ -478,6 +491,7 @@ pub const SharedLibraryOptions = struct {
     version: ?std.builtin.Version = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
+    max_rss: usize = 0,
 };
 
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *CompileStep {
@@ -489,6 +503,7 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *CompileStep {
         .version = options.version,
         .target = options.target,
         .optimize = options.optimize,
+        .max_rss = options.max_rss,
     });
 }
 
@@ -498,6 +513,7 @@ pub const StaticLibraryOptions = struct {
     target: CrossTarget,
     optimize: std.builtin.Mode,
     version: ?std.builtin.Version = null,
+    max_rss: usize = 0,
 };
 
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *CompileStep {
@@ -509,25 +525,27 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *CompileStep {
         .version = options.version,
         .target = options.target,
         .optimize = options.optimize,
+        .max_rss = options.max_rss,
     });
 }
 
 pub const TestOptions = struct {
     name: []const u8 = "test",
-    kind: CompileStep.Kind = .@"test",
     root_source_file: FileSource,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
     version: ?std.builtin.Version = null,
+    max_rss: usize = 0,
 };
 
 pub fn addTest(b: *Build, options: TestOptions) *CompileStep {
     return CompileStep.create(b, .{
         .name = options.name,
-        .kind = options.kind,
+        .kind = .@"test",
         .root_source_file = options.root_source_file,
         .target = options.target,
         .optimize = options.optimize,
+        .max_rss = options.max_rss,
     });
 }
 
@@ -536,6 +554,7 @@ pub const AssemblyOptions = struct {
     source_file: FileSource,
     target: CrossTarget,
     optimize: std.builtin.Mode,
+    max_rss: usize = 0,
 };
 
 pub fn addAssembly(b: *Build, options: AssemblyOptions) *CompileStep {
@@ -545,6 +564,7 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *CompileStep {
         .root_source_file = null,
         .target = options.target,
         .optimize = options.optimize,
+        .max_rss = options.max_rss,
     });
     obj_step.addAssemblyFileSource(options.source_file.dupe(b));
     return obj_step;
@@ -605,16 +625,15 @@ pub fn addSystemCommand(self: *Build, argv: []const []const u8) *RunStep {
 /// Creates a `RunStep` with an executable built with `addExecutable`.
 /// Add command line arguments with methods of `RunStep`.
 pub fn addRunArtifact(b: *Build, exe: *CompileStep) *RunStep {
-    assert(exe.kind == .exe or exe.kind == .test_exe);
-
     // It doesn't have to be native. We catch that if you actually try to run it.
     // Consider that this is declarative; the run step may not be run unless a user
     // option is supplied.
-    const run_step = RunStep.create(b, b.fmt("run {s}", .{exe.step.name}));
+    const run_step = RunStep.create(b, b.fmt("run {s}", .{exe.name}));
     run_step.addArtifactArg(exe);
 
-    if (exe.kind == .test_exe) {
-        run_step.addArg(b.zig_exe);
+    if (exe.kind == .@"test") {
+        run_step.stdio = .zig_test;
+        run_step.addArgs(&.{"--listen=-"});
     }
 
     if (exe.vcpkg_bin_path) |path| {
@@ -634,7 +653,11 @@ pub fn addConfigHeader(
     options: ConfigHeaderStep.Options,
     values: anytype,
 ) *ConfigHeaderStep {
-    const config_header_step = ConfigHeaderStep.create(b, options);
+    var options_copy = options;
+    if (options_copy.first_ret_addr == null)
+        options_copy.first_ret_addr = @returnAddress();
+
+    const config_header_step = ConfigHeaderStep.create(b, options_copy);
     config_header_step.addValues(values);
     return config_header_step;
 }
@@ -671,17 +694,8 @@ pub fn addWriteFile(self: *Build, file_path: []const u8, data: []const u8) *Writ
     return write_file_step;
 }
 
-pub fn addWriteFiles(self: *Build) *WriteFileStep {
-    const write_file_step = self.allocator.create(WriteFileStep) catch @panic("OOM");
-    write_file_step.* = WriteFileStep.init(self);
-    return write_file_step;
-}
-
-pub fn addLog(self: *Build, comptime format: []const u8, args: anytype) *LogStep {
-    const data = self.fmt(format, args);
-    const log_step = self.allocator.create(LogStep) catch @panic("OOM");
-    log_step.* = LogStep.init(self, data);
-    return log_step;
+pub fn addWriteFiles(b: *Build) *WriteFileStep {
+    return WriteFileStep.create(b);
 }
 
 pub fn addRemoveDirTree(self: *Build, dir_path: []const u8) *RemoveDirStep {
@@ -690,30 +704,12 @@ pub fn addRemoveDirTree(self: *Build, dir_path: []const u8) *RemoveDirStep {
     return remove_dir_step;
 }
 
-pub fn addFmt(self: *Build, paths: []const []const u8) *FmtStep {
-    return FmtStep.create(self, paths);
+pub fn addFmt(b: *Build, options: FmtStep.Options) *FmtStep {
+    return FmtStep.create(b, options);
 }
 
 pub fn addTranslateC(self: *Build, options: TranslateCStep.Options) *TranslateCStep {
     return TranslateCStep.create(self, options);
-}
-
-pub fn make(self: *Build, step_names: []const []const u8) !void {
-    var wanted_steps = ArrayList(*Step).init(self.allocator);
-    defer wanted_steps.deinit();
-
-    if (step_names.len == 0) {
-        try wanted_steps.append(self.default_step);
-    } else {
-        for (step_names) |step_name| {
-            const s = try self.getTopLevelStepByName(step_name);
-            try wanted_steps.append(s);
-        }
-    }
-
-    for (wanted_steps.items) |s| {
-        try self.makeOneStep(s);
-    }
 }
 
 pub fn getInstallStep(self: *Build) *Step {
@@ -724,7 +720,8 @@ pub fn getUninstallStep(self: *Build) *Step {
     return &self.uninstall_tls.step;
 }
 
-fn makeUninstall(uninstall_step: *Step) anyerror!void {
+fn makeUninstall(uninstall_step: *Step, prog_node: *std.Progress.Node) anyerror!void {
+    _ = prog_node;
     const uninstall_tls = @fieldParentPtr(TopLevelStep, "step", uninstall_step);
     const self = @fieldParentPtr(Build, "uninstall_tls", uninstall_tls);
 
@@ -737,37 +734,6 @@ fn makeUninstall(uninstall_step: *Step) anyerror!void {
     }
 
     // TODO remove empty directories
-}
-
-fn makeOneStep(self: *Build, s: *Step) anyerror!void {
-    if (s.loop_flag) {
-        log.err("Dependency loop detected:\n  {s}", .{s.name});
-        return error.DependencyLoopDetected;
-    }
-    s.loop_flag = true;
-
-    for (s.dependencies.items) |dep| {
-        self.makeOneStep(dep) catch |err| {
-            if (err == error.DependencyLoopDetected) {
-                log.err("  {s}", .{s.name});
-            }
-            return err;
-        };
-    }
-
-    s.loop_flag = false;
-
-    try s.make();
-}
-
-fn getTopLevelStepByName(self: *Build, name: []const u8) !*Step {
-    for (self.top_level_steps.items) |top_level_step| {
-        if (mem.eql(u8, top_level_step.step.name, name)) {
-            return &top_level_step.step;
-        }
-    }
-    log.err("Cannot run step '{s}' because it does not exist", .{name});
-    return error.InvalidStepName;
 }
 
 pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_raw: []const u8) ?T {
@@ -906,11 +872,15 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
 
 pub fn step(self: *Build, name: []const u8, description: []const u8) *Step {
     const step_info = self.allocator.create(TopLevelStep) catch @panic("OOM");
-    step_info.* = TopLevelStep{
-        .step = Step.initNoOp(.top_level, name, self.allocator),
+    step_info.* = .{
+        .step = Step.init(.{
+            .id = .top_level,
+            .name = name,
+            .owner = self,
+        }),
         .description = self.dupe(description),
     };
-    self.top_level_steps.append(step_info) catch @panic("OOM");
+    self.top_level_steps.put(self.allocator, step_info.step.name, step_info) catch @panic("OOM");
     return &step_info.step;
 }
 
@@ -1178,50 +1148,18 @@ pub fn validateUserInputDidItFail(self: *Build) bool {
     return self.invalid_user_input;
 }
 
-pub fn spawnChild(self: *Build, argv: []const []const u8) !void {
-    return self.spawnChildEnvMap(null, self.env_map, argv);
-}
-
-fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
-    if (cwd) |yes_cwd| std.debug.print("cd {s} && ", .{yes_cwd});
+fn allocPrintCmd(ally: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) ![]u8 {
+    var buf = ArrayList(u8).init(ally);
+    if (opt_cwd) |cwd| try buf.writer().print("cd {s} && ", .{cwd});
     for (argv) |arg| {
-        std.debug.print("{s} ", .{arg});
+        try buf.writer().print("{s} ", .{arg});
     }
-    std.debug.print("\n", .{});
+    return buf.toOwnedSlice();
 }
 
-pub fn spawnChildEnvMap(self: *Build, cwd: ?[]const u8, env_map: *const EnvMap, argv: []const []const u8) !void {
-    if (self.verbose) {
-        printCmd(cwd, argv);
-    }
-
-    if (!std.process.can_spawn)
-        return error.ExecNotSupported;
-
-    var child = std.ChildProcess.init(argv, self.allocator);
-    child.cwd = cwd;
-    child.env_map = env_map;
-
-    const term = child.spawnAndWait() catch |err| {
-        log.err("Unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
-        return err;
-    };
-
-    switch (term) {
-        .Exited => |code| {
-            if (code != 0) {
-                log.err("The following command exited with error code {}:", .{code});
-                printCmd(cwd, argv);
-                return error.UncleanExit;
-            }
-        },
-        else => {
-            log.err("The following command terminated unexpectedly:", .{});
-            printCmd(cwd, argv);
-
-            return error.UncleanExit;
-        },
-    }
+fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
+    const text = allocPrintCmd(ally, cwd, argv) catch @panic("OOM");
+    std.debug.print("{s}\n", .{text});
 }
 
 pub fn installArtifact(self: *Build, artifact: *CompileStep) void {
@@ -1280,12 +1218,7 @@ pub fn addInstallFileWithDir(
     install_dir: InstallDir,
     dest_rel_path: []const u8,
 ) *InstallFileStep {
-    if (dest_rel_path.len == 0) {
-        panic("dest_rel_path must be non-empty", .{});
-    }
-    const install_step = self.allocator.create(InstallFileStep) catch @panic("OOM");
-    install_step.* = InstallFileStep.init(self, source.dupe(self), install_dir, dest_rel_path);
-    return install_step;
+    return InstallFileStep.create(self, source.dupe(self), install_dir, dest_rel_path);
 }
 
 pub fn addInstallDirectory(self: *Build, options: InstallDirectoryOptions) *InstallDirStep {
@@ -1294,24 +1227,20 @@ pub fn addInstallDirectory(self: *Build, options: InstallDirectoryOptions) *Inst
     return install_step;
 }
 
+pub fn addCheckFile(
+    b: *Build,
+    file_source: FileSource,
+    options: CheckFileStep.Options,
+) *CheckFileStep {
+    return CheckFileStep.create(b, file_source, options);
+}
+
 pub fn pushInstalledFile(self: *Build, dir: InstallDir, dest_rel_path: []const u8) void {
     const file = InstalledFile{
         .dir = dir,
         .path = dest_rel_path,
     };
     self.installed_files.append(file.dupe(self)) catch @panic("OOM");
-}
-
-pub fn updateFile(self: *Build, source_path: []const u8, dest_path: []const u8) !void {
-    if (self.verbose) {
-        log.info("cp {s} {s} ", .{ source_path, dest_path });
-    }
-    const cwd = fs.cwd();
-    const prev_status = try fs.Dir.updateFile(cwd, source_path, cwd, dest_path, .{});
-    if (self.verbose) switch (prev_status) {
-        .stale => log.info("# installed", .{}),
-        .fresh => log.info("# up-to-date", .{}),
-    };
 }
 
 pub fn truncateFile(self: *Build, dest_path: []const u8) !void {
@@ -1397,7 +1326,7 @@ pub fn execAllowFail(
 ) ExecError![]u8 {
     assert(argv.len != 0);
 
-    if (!std.process.can_spawn)
+    if (!process.can_spawn)
         return error.ExecNotSupported;
 
     const max_output_size = 400 * 1024;
@@ -1430,57 +1359,25 @@ pub fn execAllowFail(
     }
 }
 
-pub fn execFromStep(self: *Build, argv: []const []const u8, src_step: ?*Step) ![]u8 {
-    assert(argv.len != 0);
-
-    if (self.verbose) {
-        printCmd(null, argv);
-    }
-
-    if (!std.process.can_spawn) {
-        if (src_step) |s| log.err("{s}...", .{s.name});
-        log.err("Unable to spawn the following command: cannot spawn child process", .{});
-        printCmd(null, argv);
-        std.os.abort();
+/// This is a helper function to be called from build.zig scripts, *not* from
+/// inside step make() functions. If any errors occur, it fails the build with
+/// a helpful message.
+pub fn exec(b: *Build, argv: []const []const u8) []u8 {
+    if (!process.can_spawn) {
+        std.debug.print("unable to spawn the following command: cannot spawn child process\n{s}\n", .{
+            try allocPrintCmd(b.allocator, null, argv),
+        });
+        process.exit(1);
     }
 
     var code: u8 = undefined;
-    return self.execAllowFail(argv, &code, .Inherit) catch |err| switch (err) {
-        error.ExecNotSupported => {
-            if (src_step) |s| log.err("{s}...", .{s.name});
-            log.err("Unable to spawn the following command: cannot spawn child process", .{});
-            printCmd(null, argv);
-            std.os.abort();
-        },
-        error.FileNotFound => {
-            if (src_step) |s| log.err("{s}...", .{s.name});
-            log.err("Unable to spawn the following command: file not found", .{});
-            printCmd(null, argv);
-            std.os.exit(@truncate(u8, code));
-        },
-        error.ExitCodeFailure => {
-            if (src_step) |s| log.err("{s}...", .{s.name});
-            if (self.prominent_compile_errors) {
-                log.err("The step exited with error code {d}", .{code});
-            } else {
-                log.err("The following command exited with error code {d}:", .{code});
-                printCmd(null, argv);
-            }
-
-            std.os.exit(@truncate(u8, code));
-        },
-        error.ProcessTerminated => {
-            if (src_step) |s| log.err("{s}...", .{s.name});
-            log.err("The following command terminated unexpectedly:", .{});
-            printCmd(null, argv);
-            std.os.exit(@truncate(u8, code));
-        },
-        else => |e| return e,
+    return b.execAllowFail(argv, &code, .Inherit) catch |err| {
+        const printed_cmd = allocPrintCmd(b.allocator, null, argv) catch @panic("OOM");
+        std.debug.print("unable to spawn the following command: {s}\n{s}\n", .{
+            @errorName(err), printed_cmd,
+        });
+        process.exit(1);
     };
-}
-
-pub fn exec(self: *Build, argv: []const []const u8) ![]u8 {
-    return self.execFromStep(argv, null);
 }
 
 pub fn addSearchPrefix(self: *Build, search_prefix: []const u8) void {
@@ -1547,10 +1444,29 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
 
     const full_path = b.pathFromRoot("build.zig.zon");
     std.debug.print("no dependency named '{s}' in '{s}'. All packages used in build.zig must be declared in this file.\n", .{ name, full_path });
-    std.process.exit(1);
+    process.exit(1);
 }
 
-fn dependencyInner(
+pub fn anonymousDependency(
+    b: *Build,
+    /// The path to the directory containing the dependency's build.zig file,
+    /// relative to the current package's build.zig.
+    relative_build_root: []const u8,
+    /// A direct `@import` of the build.zig of the dependency.
+    comptime build_zig: type,
+    args: anytype,
+) *Dependency {
+    const arena = b.allocator;
+    const build_root = b.build_root.join(arena, &.{relative_build_root}) catch @panic("OOM");
+    const name = arena.dupe(u8, relative_build_root) catch @panic("OOM");
+    for (name) |*byte| switch (byte.*) {
+        '/', '\\' => byte.* = '.',
+        else => continue,
+    };
+    return dependencyInner(b, name, build_root, build_zig, args);
+}
+
+pub fn dependencyInner(
     b: *Build,
     name: []const u8,
     build_root_string: []const u8,
@@ -1563,7 +1479,7 @@ fn dependencyInner(
             std.debug.print("unable to open '{s}': {s}\n", .{
                 build_root_string, @errorName(err),
             });
-            std.process.exit(1);
+            process.exit(1);
         },
     };
     const sub_builder = b.createChild(name, build_root, args) catch @panic("unhandled error");
@@ -1607,7 +1523,7 @@ pub const GeneratedFile = struct {
 
     pub fn getPath(self: GeneratedFile) []const u8 {
         return self.path orelse std.debug.panic(
-            "getPath() was called on a GeneratedFile that wasn't build yet. Is there a missing Step dependency on step '{s}'?",
+            "getPath() was called on a GeneratedFile that wasn't built yet. Is there a missing Step dependency on step '{s}'?",
             .{self.step.name},
         );
     }
@@ -1647,12 +1563,23 @@ pub const FileSource = union(enum) {
     }
 
     /// Should only be called during make(), returns a path relative to the build root or absolute.
-    pub fn getPath(self: FileSource, builder: *Build) []const u8 {
-        const path = switch (self) {
-            .path => |p| builder.pathFromRoot(p),
-            .generated => |gen| gen.getPath(),
-        };
-        return path;
+    pub fn getPath(self: FileSource, src_builder: *Build) []const u8 {
+        return getPath2(self, src_builder, null);
+    }
+
+    /// Should only be called during make(), returns a path relative to the build root or absolute.
+    /// asking_step is only used for debugging purposes; it's the step being run that is asking for
+    /// the path.
+    pub fn getPath2(self: FileSource, src_builder: *Build, asking_step: ?*Step) []const u8 {
+        switch (self) {
+            .path => |p| return src_builder.pathFromRoot(p),
+            .generated => |gen| return gen.path orelse {
+                std.debug.getStderrMutex().lock();
+                const stderr = std.io.getStdErr();
+                dumpBadGetPathHelp(gen.step, stderr, src_builder, asking_step) catch {};
+                @panic("misconfigured build script");
+            },
+        }
     }
 
     /// Duplicates the file source for a given builder.
@@ -1663,6 +1590,54 @@ pub const FileSource = union(enum) {
         };
     }
 };
+
+/// In this function the stderr mutex has already been locked.
+fn dumpBadGetPathHelp(
+    s: *Step,
+    stderr: fs.File,
+    src_builder: *Build,
+    asking_step: ?*Step,
+) anyerror!void {
+    const w = stderr.writer();
+    try w.print(
+        \\getPath() was called on a GeneratedFile that wasn't built yet.
+        \\  source package path: {s}
+        \\  Is there a missing Step dependency on step '{s}'?
+        \\
+    , .{
+        src_builder.build_root.path orelse ".",
+        s.name,
+    });
+
+    const tty_config = std.debug.detectTTYConfig(stderr);
+    tty_config.setColor(w, .Red) catch {};
+    try stderr.writeAll("    The step was created by this stack trace:\n");
+    tty_config.setColor(w, .Reset) catch {};
+
+    const debug_info = std.debug.getSelfDebugInfo() catch |err| {
+        try w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
+        return;
+    };
+    const ally = debug_info.allocator;
+    std.debug.writeStackTrace(s.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
+        try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
+        return;
+    };
+    if (asking_step) |as| {
+        tty_config.setColor(w, .Red) catch {};
+        try stderr.writeAll("    The step that is missing a dependency on the above step was created by this stack trace:\n");
+        tty_config.setColor(w, .Reset) catch {};
+
+        std.debug.writeStackTrace(as.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
+            try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
+            return;
+        };
+    }
+
+    tty_config.setColor(w, .Red) catch {};
+    try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
+    tty_config.setColor(w, .Reset) catch {};
+}
 
 /// Allocates a new string for assigning a value to a named macro.
 /// If the value is omitted, it is set to 1.
@@ -1703,9 +1678,7 @@ pub const InstallDir = union(enum) {
     /// Duplicates the install directory including the path if set to custom.
     pub fn dupe(self: InstallDir, builder: *Build) InstallDir {
         if (self == .custom) {
-            // Written with this temporary to avoid RLS problems
-            const duped_path = builder.dupe(self.custom);
-            return .{ .custom = duped_path };
+            return .{ .custom = builder.dupe(self.custom) };
         } else {
             return self;
         }
@@ -1753,17 +1726,45 @@ pub fn serializeCpu(allocator: Allocator, cpu: std.Target.Cpu) ![]const u8 {
     }
 }
 
+/// This function is intended to be called in the `configure` phase only.
+/// It returns an absolute directory path, which is potentially going to be a
+/// source of API breakage in the future, so keep that in mind when using this
+/// function.
+pub fn makeTempPath(b: *Build) []const u8 {
+    const rand_int = std.crypto.random.int(u64);
+    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ hex64(rand_int);
+    const result_path = b.cache_root.join(b.allocator, &.{tmp_dir_sub_path}) catch @panic("OOM");
+    fs.cwd().makePath(result_path) catch |err| {
+        std.debug.print("unable to make tmp path '{s}': {s}\n", .{
+            result_path, @errorName(err),
+        });
+    };
+    return result_path;
+}
+
+/// There are a few copies of this function in miscellaneous places. Would be nice to find
+/// a home for them.
+fn hex64(x: u64) [16]u8 {
+    const hex_charset = "0123456789abcdef";
+    var result: [16]u8 = undefined;
+    var i: usize = 0;
+    while (i < 8) : (i += 1) {
+        const byte = @truncate(u8, x >> @intCast(u6, 8 * i));
+        result[i * 2 + 0] = hex_charset[byte >> 4];
+        result[i * 2 + 1] = hex_charset[byte & 15];
+    }
+    return result;
+}
+
 test {
     _ = CheckFileStep;
     _ = CheckObjectStep;
-    _ = EmulatableRunStep;
     _ = FmtStep;
     _ = InstallArtifactStep;
     _ = InstallDirStep;
     _ = InstallFileStep;
     _ = ObjCopyStep;
     _ = CompileStep;
-    _ = LogStep;
     _ = OptionsStep;
     _ = RemoveDirStep;
     _ = RunStep;

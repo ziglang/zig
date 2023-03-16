@@ -12,21 +12,24 @@ pub const base_id = .options;
 
 step: Step,
 generated_file: GeneratedFile,
-builder: *std.Build,
 
 contents: std.ArrayList(u8),
 artifact_args: std.ArrayList(OptionArtifactArg),
 file_source_args: std.ArrayList(OptionFileSourceArg),
 
-pub fn create(builder: *std.Build) *OptionsStep {
-    const self = builder.allocator.create(OptionsStep) catch @panic("OOM");
+pub fn create(owner: *std.Build) *OptionsStep {
+    const self = owner.allocator.create(OptionsStep) catch @panic("OOM");
     self.* = .{
-        .builder = builder,
-        .step = Step.init(.options, "options", builder.allocator, make),
+        .step = Step.init(.{
+            .id = base_id,
+            .name = "options",
+            .owner = owner,
+            .makeFn = make,
+        }),
         .generated_file = undefined,
-        .contents = std.ArrayList(u8).init(builder.allocator),
-        .artifact_args = std.ArrayList(OptionArtifactArg).init(builder.allocator),
-        .file_source_args = std.ArrayList(OptionFileSourceArg).init(builder.allocator),
+        .contents = std.ArrayList(u8).init(owner.allocator),
+        .artifact_args = std.ArrayList(OptionArtifactArg).init(owner.allocator),
+        .file_source_args = std.ArrayList(OptionFileSourceArg).init(owner.allocator),
     };
     self.generated_file = .{ .step = &self.step };
 
@@ -192,7 +195,7 @@ pub fn addOptionFileSource(
 ) void {
     self.file_source_args.append(.{
         .name = name,
-        .source = source.dupe(self.builder),
+        .source = source.dupe(self.step.owner),
     }) catch @panic("OOM");
     source.addStepDependencies(&self.step);
 }
@@ -200,12 +203,12 @@ pub fn addOptionFileSource(
 /// The value is the path in the cache dir.
 /// Adds a dependency automatically.
 pub fn addOptionArtifact(self: *OptionsStep, name: []const u8, artifact: *CompileStep) void {
-    self.artifact_args.append(.{ .name = self.builder.dupe(name), .artifact = artifact }) catch @panic("OOM");
+    self.artifact_args.append(.{ .name = self.step.owner.dupe(name), .artifact = artifact }) catch @panic("OOM");
     self.step.dependOn(&artifact.step);
 }
 
 pub fn createModule(self: *OptionsStep) *std.Build.Module {
-    return self.builder.createModule(.{
+    return self.step.owner.createModule(.{
         .source_file = self.getSource(),
         .dependencies = &.{},
     });
@@ -215,14 +218,18 @@ pub fn getSource(self: *OptionsStep) FileSource {
     return .{ .generated = &self.generated_file };
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    // This step completes so quickly that no progress is necessary.
+    _ = prog_node;
+
+    const b = step.owner;
     const self = @fieldParentPtr(OptionsStep, "step", step);
 
     for (self.artifact_args.items) |item| {
         self.addOption(
             []const u8,
             item.name,
-            self.builder.pathFromRoot(item.artifact.getOutputSource().getPath(self.builder)),
+            b.pathFromRoot(item.artifact.getOutputSource().getPath(b)),
         );
     }
 
@@ -230,20 +237,18 @@ fn make(step: *Step) !void {
         self.addOption(
             []const u8,
             item.name,
-            item.source.getPath(self.builder),
+            item.source.getPath(b),
         );
     }
 
-    var options_dir = try self.builder.cache_root.handle.makeOpenPath("options", .{});
+    var options_dir = try b.cache_root.handle.makeOpenPath("options", .{});
     defer options_dir.close();
 
     const basename = self.hashContentsToFileName();
 
     try options_dir.writeFile(&basename, self.contents.items);
 
-    self.generated_file.path = try self.builder.cache_root.join(self.builder.allocator, &.{
-        "options", &basename,
-    });
+    self.generated_file.path = try b.cache_root.join(b.allocator, &.{ "options", &basename });
 }
 
 fn hashContentsToFileName(self: *OptionsStep) [64]u8 {

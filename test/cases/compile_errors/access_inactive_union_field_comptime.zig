@@ -21,3 +21,4 @@ pub export fn entry1() void {
 // :9:15: error: access of union field 'a' while field 'b' is active
 // :2:21: note: union declared here
 // :14:16: error: access of union field 'a' while field 'b' is active
+// :2:21: note: union declared here

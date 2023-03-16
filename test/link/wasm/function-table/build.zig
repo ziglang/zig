@@ -1,13 +1,20 @@
 const std = @import("std");
 
+pub const requires_stage2 = true;
+
 pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{});
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
 
-    const test_step = b.step("test", "Test");
-    test_step.dependOn(b.getInstallStep());
+    add(b, test_step, .Debug);
+    add(b, test_step, .ReleaseFast);
+    add(b, test_step, .ReleaseSmall);
+    add(b, test_step, .ReleaseSafe);
+}
 
+fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const import_table = b.addSharedLibrary(.{
-        .name = "lib",
+        .name = "import_table",
         .root_source_file = .{ .path = "lib.zig" },
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
         .optimize = optimize,
@@ -17,7 +24,7 @@ pub fn build(b: *std.Build) void {
     import_table.import_table = true;
 
     const export_table = b.addSharedLibrary(.{
-        .name = "lib",
+        .name = "export_table",
         .root_source_file = .{ .path = "lib.zig" },
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
         .optimize = optimize,
@@ -27,7 +34,7 @@ pub fn build(b: *std.Build) void {
     export_table.export_table = true;
 
     const regular_table = b.addSharedLibrary(.{
-        .name = "lib",
+        .name = "regular_table",
         .root_source_file = .{ .path = "lib.zig" },
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
         .optimize = optimize,
@@ -35,9 +42,9 @@ pub fn build(b: *std.Build) void {
     regular_table.use_llvm = false;
     regular_table.use_lld = false;
 
-    const check_import = import_table.checkObject(.wasm);
-    const check_export = export_table.checkObject(.wasm);
-    const check_regular = regular_table.checkObject(.wasm);
+    const check_import = import_table.checkObject();
+    const check_export = export_table.checkObject();
+    const check_regular = regular_table.checkObject();
 
     check_import.checkStart("Section import");
     check_import.checkNext("entries 1");

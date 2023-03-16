@@ -4,14 +4,12 @@ const fs = std.fs;
 const Step = std.Build.Step;
 const InstallDir = std.Build.InstallDir;
 const InstallDirStep = @This();
-const log = std.log;
 
 step: Step,
-builder: *std.Build,
 options: Options,
 /// This is used by the build system when a file being installed comes from one
 /// package but is being installed by another.
-override_source_builder: ?*std.Build = null,
+dest_builder: *std.Build,
 
 pub const base_id = .install_dir;
 
@@ -40,31 +38,35 @@ pub const Options = struct {
     }
 };
 
-pub fn init(
-    builder: *std.Build,
-    options: Options,
-) InstallDirStep {
-    builder.pushInstalledFile(options.install_dir, options.install_subdir);
-    return InstallDirStep{
-        .builder = builder,
-        .step = Step.init(.install_dir, builder.fmt("install {s}/", .{options.source_dir}), builder.allocator, make),
-        .options = options.dupe(builder),
+pub fn init(owner: *std.Build, options: Options) InstallDirStep {
+    owner.pushInstalledFile(options.install_dir, options.install_subdir);
+    return .{
+        .step = Step.init(.{
+            .id = .install_dir,
+            .name = owner.fmt("install {s}/", .{options.source_dir}),
+            .owner = owner,
+            .makeFn = make,
+        }),
+        .options = options.dupe(owner),
+        .dest_builder = owner,
     };
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
     const self = @fieldParentPtr(InstallDirStep, "step", step);
-    const dest_prefix = self.builder.getInstallPath(self.options.install_dir, self.options.install_subdir);
-    const src_builder = self.override_source_builder orelse self.builder;
-    const full_src_dir = src_builder.pathFromRoot(self.options.source_dir);
-    var src_dir = std.fs.cwd().openIterableDir(full_src_dir, .{}) catch |err| {
-        log.err("InstallDirStep: unable to open source directory '{s}': {s}", .{
-            full_src_dir, @errorName(err),
+    const dest_builder = self.dest_builder;
+    const arena = dest_builder.allocator;
+    const dest_prefix = dest_builder.getInstallPath(self.options.install_dir, self.options.install_subdir);
+    const src_builder = self.step.owner;
+    var src_dir = src_builder.build_root.handle.openIterableDir(self.options.source_dir, .{}) catch |err| {
+        return step.fail("unable to open source directory '{}{s}': {s}", .{
+            src_builder.build_root, self.options.source_dir, @errorName(err),
         });
-        return error.StepFailed;
     };
     defer src_dir.close();
-    var it = try src_dir.walk(self.builder.allocator);
+    var it = try src_dir.walk(arena);
+    var all_cached = true;
     next_entry: while (try it.next()) |entry| {
         for (self.options.exclude_extensions) |ext| {
             if (mem.endsWith(u8, entry.path, ext)) {
@@ -72,22 +74,37 @@ fn make(step: *Step) !void {
             }
         }
 
-        const full_path = self.builder.pathJoin(&.{ full_src_dir, entry.path });
-        const dest_path = self.builder.pathJoin(&.{ dest_prefix, entry.path });
+        // relative to src build root
+        const src_sub_path = try fs.path.join(arena, &.{ self.options.source_dir, entry.path });
+        const dest_path = try fs.path.join(arena, &.{ dest_prefix, entry.path });
+        const cwd = fs.cwd();
 
         switch (entry.kind) {
-            .Directory => try fs.cwd().makePath(dest_path),
+            .Directory => try cwd.makePath(dest_path),
             .File => {
                 for (self.options.blank_extensions) |ext| {
                     if (mem.endsWith(u8, entry.path, ext)) {
-                        try self.builder.truncateFile(dest_path);
+                        try dest_builder.truncateFile(dest_path);
                         continue :next_entry;
                     }
                 }
 
-                try self.builder.updateFile(full_path, dest_path);
+                const prev_status = fs.Dir.updateFile(
+                    src_builder.build_root.handle,
+                    src_sub_path,
+                    cwd,
+                    dest_path,
+                    .{},
+                ) catch |err| {
+                    return step.fail("unable to update file from '{}{s}' to '{s}': {s}", .{
+                        src_builder.build_root, src_sub_path, dest_path, @errorName(err),
+                    });
+                };
+                all_cached = all_cached and prev_status == .fresh;
             },
             else => continue,
         }
     }
+
+    step.result_cached = all_cached;
 }

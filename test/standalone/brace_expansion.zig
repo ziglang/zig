@@ -234,8 +234,8 @@ pub fn main() !void {
     var result_buf = ArrayList(u8).init(global_allocator);
     defer result_buf.deinit();
 
-    try expandString(stdin.items, &result_buf);
-    try stdout_file.write(result_buf.items);
+    try expandString(stdin, &result_buf);
+    try stdout_file.writeAll(result_buf.items);
 }
 
 test "invalid inputs" {

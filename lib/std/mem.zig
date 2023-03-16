@@ -196,13 +196,8 @@ test "Allocator.resize" {
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
 pub fn copy(comptime T: type, dest: []T, source: []const T) void {
-    // TODO instead of manually doing this check for the whole array
-    // and turning off runtime safety, the compiler should detect loops like
-    // this and automatically omit safety checks for loops
-    @setRuntimeSafety(false);
-    assert(dest.len >= source.len);
-    for (source, 0..) |s, i|
-        dest[i] = s;
+    for (dest[0..source.len], source) |*d, s|
+        d.* = s;
 }
 
 /// Copy all of source into dest at position 0.
@@ -611,8 +606,8 @@ test "lessThan" {
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (a.len != b.len) return false;
     if (a.ptr == b.ptr) return true;
-    for (a, 0..) |item, index| {
-        if (b[index] != item) return false;
+    for (a, b) |a_elem, b_elem| {
+        if (a_elem != b_elem) return false;
     }
     return true;
 }

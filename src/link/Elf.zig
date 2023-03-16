@@ -467,7 +467,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .p_paddr = entry_addr,
             .p_memsz = file_size,
             .p_align = p_align,
-            .p_flags = elf.PF_X | elf.PF_R,
+            .p_flags = elf.PF_X | elf.PF_R | elf.PF_W,
         });
         self.entry_addr = null;
         self.phdr_table_dirty = true;
@@ -493,7 +493,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .p_paddr = got_addr,
             .p_memsz = file_size,
             .p_align = p_align,
-            .p_flags = elf.PF_R,
+            .p_flags = elf.PF_R | elf.PF_W,
         });
         self.phdr_table_dirty = true;
     }
@@ -516,7 +516,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             .p_paddr = rodata_addr,
             .p_memsz = file_size,
             .p_align = p_align,
-            .p_flags = elf.PF_R,
+            .p_flags = elf.PF_R | elf.PF_W,
         });
         self.phdr_table_dirty = true;
     }
@@ -2166,7 +2166,7 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
     // First we look for an appropriately sized free list node.
     // The list is unordered. We'll just take the first thing that works.
     const vaddr = blk: {
-        var i: usize = 0;
+        var i: usize = if (self.base.child_pid == null) 0 else free_list.items.len;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
             const big_atom = self.getAtom(big_atom_index);
@@ -2397,7 +2397,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     const atom = self.getAtom(atom_index);
 
     const shdr_index = decl_metadata.shdr;
-    if (atom.getSymbol(self).st_size != 0) {
+    if (atom.getSymbol(self).st_size != 0 and self.base.child_pid == null) {
         const local_sym = atom.getSymbolPtr(self);
         local_sym.st_name = try self.shstrtab.insert(gpa, decl_name);
         local_sym.st_info = (elf.STB_LOCAL << 4) | stt_bits;
@@ -2451,6 +2451,28 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
     const section_offset = local_sym.st_value - self.program_headers.items[phdr_index].p_vaddr;
     const file_offset = self.sections.items(.shdr)[shdr_index].sh_offset + section_offset;
+
+    if (self.base.child_pid) |pid| {
+        switch (builtin.os.tag) {
+            .linux => {
+                var code_vec: [1]std.os.iovec_const = .{.{
+                    .iov_base = code.ptr,
+                    .iov_len = code.len,
+                }};
+                var remote_vec: [1]std.os.iovec_const = .{.{
+                    .iov_base = @intToPtr([*]u8, @intCast(usize, local_sym.st_value)),
+                    .iov_len = code.len,
+                }};
+                const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
+                switch (std.os.errno(rc)) {
+                    .SUCCESS => assert(rc == code.len),
+                    else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
+                }
+            },
+            else => return error.HotSwapUnavailableOnHostOperatingSystem,
+        }
+    }
+
     try self.base.file.?.pwriteAll(code, file_offset);
 
     return local_sym;
@@ -2820,6 +2842,8 @@ fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
     const endian = self.base.options.target.cpu.arch.endian();
     const shdr = &self.sections.items(.shdr)[self.got_section_index.?];
     const off = shdr.sh_offset + @as(u64, entry_size) * index;
+    const phdr = &self.program_headers.items[self.phdr_got_index.?];
+    const vaddr = phdr.p_vaddr + @as(u64, entry_size) * index;
     switch (entry_size) {
         2 => {
             var buf: [2]u8 = undefined;
@@ -2835,6 +2859,27 @@ fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
             var buf: [8]u8 = undefined;
             mem.writeInt(u64, &buf, self.offset_table.items[index], endian);
             try self.base.file.?.pwriteAll(&buf, off);
+
+            if (self.base.child_pid) |pid| {
+                switch (builtin.os.tag) {
+                    .linux => {
+                        var local_vec: [1]std.os.iovec_const = .{.{
+                            .iov_base = &buf,
+                            .iov_len = buf.len,
+                        }};
+                        var remote_vec: [1]std.os.iovec_const = .{.{
+                            .iov_base = @intToPtr([*]u8, @intCast(usize, vaddr)),
+                            .iov_len = buf.len,
+                        }};
+                        const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
+                        switch (std.os.errno(rc)) {
+                            .SUCCESS => assert(rc == buf.len),
+                            else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
+                        }
+                    },
+                    else => return error.HotSwapUnavailableOnHostOperatingSystem,
+                }
+            }
         },
         else => unreachable,
     }

@@ -11,7 +11,6 @@ const TranslateCStep = @This();
 pub const base_id = .translate_c;
 
 step: Step,
-builder: *std.Build,
 source: std.Build.FileSource,
 include_dirs: std.ArrayList([]const u8),
 c_macros: std.ArrayList([]const u8),
@@ -26,15 +25,19 @@ pub const Options = struct {
     optimize: std.builtin.OptimizeMode,
 };
 
-pub fn create(builder: *std.Build, options: Options) *TranslateCStep {
-    const self = builder.allocator.create(TranslateCStep) catch @panic("OOM");
-    const source = options.source_file.dupe(builder);
+pub fn create(owner: *std.Build, options: Options) *TranslateCStep {
+    const self = owner.allocator.create(TranslateCStep) catch @panic("OOM");
+    const source = options.source_file.dupe(owner);
     self.* = TranslateCStep{
-        .step = Step.init(.translate_c, "translate-c", builder.allocator, make),
-        .builder = builder,
+        .step = Step.init(.{
+            .id = .translate_c,
+            .name = "translate-c",
+            .owner = owner,
+            .makeFn = make,
+        }),
         .source = source,
-        .include_dirs = std.ArrayList([]const u8).init(builder.allocator),
-        .c_macros = std.ArrayList([]const u8).init(builder.allocator),
+        .include_dirs = std.ArrayList([]const u8).init(owner.allocator),
+        .c_macros = std.ArrayList([]const u8).init(owner.allocator),
         .out_basename = undefined,
         .target = options.target,
         .optimize = options.optimize,
@@ -54,7 +57,7 @@ pub const AddExecutableOptions = struct {
 
 /// Creates a step to build an executable from the translated source.
 pub fn addExecutable(self: *TranslateCStep, options: AddExecutableOptions) *CompileStep {
-    return self.builder.addExecutable(.{
+    return self.step.owner.addExecutable(.{
         .root_source_file = .{ .generated = &self.output_file },
         .name = options.name orelse "translated_c",
         .version = options.version,
@@ -65,43 +68,49 @@ pub fn addExecutable(self: *TranslateCStep, options: AddExecutableOptions) *Comp
 }
 
 pub fn addIncludeDir(self: *TranslateCStep, include_dir: []const u8) void {
-    self.include_dirs.append(self.builder.dupePath(include_dir)) catch @panic("OOM");
+    self.include_dirs.append(self.step.owner.dupePath(include_dir)) catch @panic("OOM");
 }
 
 pub fn addCheckFile(self: *TranslateCStep, expected_matches: []const []const u8) *CheckFileStep {
-    return CheckFileStep.create(self.builder, .{ .generated = &self.output_file }, self.builder.dupeStrings(expected_matches));
+    return CheckFileStep.create(
+        self.step.owner,
+        .{ .generated = &self.output_file },
+        .{ .expected_matches = expected_matches },
+    );
 }
 
 /// If the value is omitted, it is set to 1.
 /// `name` and `value` need not live longer than the function call.
 pub fn defineCMacro(self: *TranslateCStep, name: []const u8, value: ?[]const u8) void {
-    const macro = std.Build.constructCMacro(self.builder.allocator, name, value);
+    const macro = std.Build.constructCMacro(self.step.owner.allocator, name, value);
     self.c_macros.append(macro) catch @panic("OOM");
 }
 
 /// name_and_value looks like [name]=[value]. If the value is omitted, it is set to 1.
 pub fn defineCMacroRaw(self: *TranslateCStep, name_and_value: []const u8) void {
-    self.c_macros.append(self.builder.dupe(name_and_value)) catch @panic("OOM");
+    self.c_macros.append(self.step.owner.dupe(name_and_value)) catch @panic("OOM");
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    const b = step.owner;
     const self = @fieldParentPtr(TranslateCStep, "step", step);
 
-    var argv_list = std.ArrayList([]const u8).init(self.builder.allocator);
-    try argv_list.append(self.builder.zig_exe);
+    var argv_list = std.ArrayList([]const u8).init(b.allocator);
+    try argv_list.append(b.zig_exe);
     try argv_list.append("translate-c");
     try argv_list.append("-lc");
 
     try argv_list.append("--enable-cache");
+    try argv_list.append("--listen=-");
 
     if (!self.target.isNative()) {
         try argv_list.append("-target");
-        try argv_list.append(try self.target.zigTriple(self.builder.allocator));
+        try argv_list.append(try self.target.zigTriple(b.allocator));
     }
 
     switch (self.optimize) {
         .Debug => {}, // Skip since it's the default.
-        else => try argv_list.append(self.builder.fmt("-O{s}", .{@tagName(self.optimize)})),
+        else => try argv_list.append(b.fmt("-O{s}", .{@tagName(self.optimize)})),
     }
 
     for (self.include_dirs.items) |include_dir| {
@@ -114,16 +123,15 @@ fn make(step: *Step) !void {
         try argv_list.append(c_macro);
     }
 
-    try argv_list.append(self.source.getPath(self.builder));
+    try argv_list.append(self.source.getPath(b));
 
-    const output_path_nl = try self.builder.execFromStep(argv_list.items, &self.step);
-    const output_path = mem.trimRight(u8, output_path_nl, "\r\n");
+    const output_path = try step.evalZigProcess(argv_list.items, prog_node);
 
     self.out_basename = fs.path.basename(output_path);
     const output_dir = fs.path.dirname(output_path).?;
 
     self.output_file.path = try fs.path.join(
-        self.builder.allocator,
+        b.allocator,
         &[_][]const u8{ output_dir, self.out_basename },
     );
 }

@@ -766,6 +766,9 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 /// This operation is non-atomic on the following systems:
 /// * Windows
 /// On these systems, the read races with concurrent writes to the same file descriptor.
+///
+/// This function assumes that all vectors, including zero-length vectors, have
+/// a pointer within the address space of the application.
 pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
     if (builtin.os.tag == .windows) {
         // TODO improve this to use ReadFileScatter
@@ -1167,6 +1170,9 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 ///
 /// If `iov.len` is larger than `IOV_MAX`, a partial write will occur.
+///
+/// This function assumes that all vectors, including zero-length vectors, have
+/// a pointer within the address space of the application.
 pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
     if (builtin.os.tag == .windows) {
         // TODO improve this to use WriteFileScatter
@@ -4000,8 +4006,28 @@ pub const WaitPidResult = struct {
 pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
     const Status = if (builtin.link_libc) c_int else u32;
     var status: Status = undefined;
+    const coerced_flags = if (builtin.link_libc) @intCast(c_int, flags) else flags;
     while (true) {
-        const rc = system.waitpid(pid, &status, if (builtin.link_libc) @intCast(c_int, flags) else flags);
+        const rc = system.waitpid(pid, &status, coerced_flags);
+        switch (errno(rc)) {
+            .SUCCESS => return .{
+                .pid = @intCast(pid_t, rc),
+                .status = @bitCast(u32, status),
+            },
+            .INTR => continue,
+            .CHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
+            .INVAL => unreachable, // Invalid flags.
+            else => unreachable,
+        }
+    }
+}
+
+pub fn wait4(pid: pid_t, flags: u32, ru: ?*rusage) WaitPidResult {
+    const Status = if (builtin.link_libc) c_int else u32;
+    var status: Status = undefined;
+    const coerced_flags = if (builtin.link_libc) @intCast(c_int, flags) else flags;
+    while (true) {
+        const rc = system.wait4(pid, &status, coerced_flags, ru);
         switch (errno(rc)) {
             .SUCCESS => return .{
                 .pid = @intCast(pid_t, rc),

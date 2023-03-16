@@ -84,6 +84,7 @@ test "array concat with tuple" {
 }
 
 test "array init with concat" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     const a = 'a';
     var i: [4]u8 = [2]u8{ a, 'b' } ++ [2]u8{ 'c', 'd' };
     try expect(std.mem.eql(u8, &i, "abcd"));

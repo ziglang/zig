@@ -3756,67 +3756,9 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     file.source_loaded = true;
 
     file.tree = try Ast.parse(gpa, source, .zig);
-    defer if (!file.tree_loaded) file.tree.deinit(gpa);
-
-    if (file.tree.errors.len != 0) {
-        const parse_err = file.tree.errors[0];
-
-        var msg = std.ArrayList(u8).init(gpa);
-        defer msg.deinit();
-
-        const token_starts = file.tree.tokens.items(.start);
-        const token_tags = file.tree.tokens.items(.tag);
-
-        const extra_offset = file.tree.errorOffset(parse_err);
-        try file.tree.renderError(parse_err, msg.writer());
-        const err_msg = try gpa.create(ErrorMsg);
-        err_msg.* = .{
-            .src_loc = .{
-                .file_scope = file,
-                .parent_decl_node = 0,
-                .lazy = if (extra_offset == 0) .{
-                    .token_abs = parse_err.token,
-                } else .{
-                    .byte_abs = token_starts[parse_err.token] + extra_offset,
-                },
-            },
-            .msg = try msg.toOwnedSlice(),
-        };
-        if (token_tags[parse_err.token + @boolToInt(parse_err.token_is_prev)] == .invalid) {
-            const bad_off = @intCast(u32, file.tree.tokenSlice(parse_err.token + @boolToInt(parse_err.token_is_prev)).len);
-            const byte_abs = token_starts[parse_err.token + @boolToInt(parse_err.token_is_prev)] + bad_off;
-            try mod.errNoteNonLazy(.{
-                .file_scope = file,
-                .parent_decl_node = 0,
-                .lazy = .{ .byte_abs = byte_abs },
-            }, err_msg, "invalid byte: '{'}'", .{std.zig.fmtEscapes(source[byte_abs..][0..1])});
-        }
-
-        for (file.tree.errors[1..]) |note| {
-            if (!note.is_note) break;
-
-            try file.tree.renderError(note, msg.writer());
-            err_msg.notes = try mod.gpa.realloc(err_msg.notes, err_msg.notes.len + 1);
-            err_msg.notes[err_msg.notes.len - 1] = .{
-                .src_loc = .{
-                    .file_scope = file,
-                    .parent_decl_node = 0,
-                    .lazy = .{ .token_abs = note.token },
-                },
-                .msg = try msg.toOwnedSlice(),
-            };
-        }
-
-        {
-            comp.mutex.lock();
-            defer comp.mutex.unlock();
-            try mod.failed_files.putNoClobber(gpa, file, err_msg);
-        }
-        file.status = .parse_failure;
-        return error.AnalysisFail;
-    }
     file.tree_loaded = true;
 
+    // Any potential AST errors are converted to ZIR errors here.
     file.zir = try AstGen.generate(gpa, file.tree);
     file.zir_loaded = true;
     file.status = .success_zir;
@@ -3925,6 +3867,9 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
     const gpa = mod.gpa;
     const new_zir = file.zir;
 
+    // The root decl will be null if the previous ZIR had AST errors.
+    const root_decl = file.root_decl.unwrap() orelse return;
+
     // Maps from old ZIR to new ZIR, struct_decl, enum_decl, etc. Any instruction which
     // creates a namespace, gets mapped from old to new here.
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
@@ -3942,7 +3887,6 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
     var decl_stack: ArrayListUnmanaged(Decl.Index) = .{};
     defer decl_stack.deinit(gpa);
 
-    const root_decl = file.root_decl.unwrap().?;
     try decl_stack.append(gpa, root_decl);
 
     file.deleted_decls.clearRetainingCapacity();

@@ -3,8 +3,8 @@ const std = @import("std");
 const CheckFileStep = std.Build.CheckFileStep;
 
 pub fn build(b: *std.Build) void {
-    const test_step = b.step("test", "Test the program");
-    b.default_step.dependOn(test_step);
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
 
     const target = .{
         .cpu_arch = .thumb,
@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
         .abi = .gnueabihf,
     };
 
-    const optimize = b.standardOptimizeOption(.{});
+    const optimize: std.builtin.OptimizeMode = .Debug;
 
     const elf = b.addExecutable(.{
         .name = "zig-nrf52-blink.elf",

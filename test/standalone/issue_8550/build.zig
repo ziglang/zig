@@ -1,6 +1,10 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) !void {
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    const optimize: std.builtin.OptimizeMode = .Debug;
     const target = std.zig.CrossTarget{
         .os_tag = .freestanding,
         .cpu_arch = .arm,
@@ -8,7 +12,7 @@ pub fn build(b: *std.Build) !void {
             .explicit = &std.Target.arm.cpu.arm1176jz_s,
         },
     };
-    const optimize = b.standardOptimizeOption(.{});
+
     const kernel = b.addExecutable(.{
         .name = "kernel",
         .root_source_file = .{ .path = "./main.zig" },
@@ -19,6 +23,5 @@ pub fn build(b: *std.Build) !void {
     kernel.setLinkerScriptPath(.{ .path = "./linker.ld" });
     kernel.install();
 
-    const test_step = b.step("test", "Test it");
     test_step.dependOn(&kernel.step);
 }

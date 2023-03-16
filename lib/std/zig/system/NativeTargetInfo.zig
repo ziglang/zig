@@ -1090,6 +1090,11 @@ pub fn getExternalExecutor(
     switch (candidate.target.os.tag) {
         .windows => {
             if (options.allow_wine) {
+                // x86_64 wine does not support emulating aarch64-windows and
+                // vice versa.
+                if (candidate.target.cpu.arch != builtin.cpu.arch) {
+                    return bad_result;
+                }
                 switch (candidate.target.cpu.arch.ptrBitWidth()) {
                     32 => return Executor{ .wine = "wine" },
                     64 => return Executor{ .wine = "wine64" },

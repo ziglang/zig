@@ -17,10 +17,12 @@ const Os = std.builtin.Os;
 const TailQueue = std.TailQueue;
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
+const is_darwin = builtin.target.isDarwin();
 
 pub const ChildProcess = struct {
     pub const Id = switch (builtin.os.tag) {
         .windows => windows.HANDLE,
+        .wasi => void,
         else => os.pid_t,
     };
 
@@ -69,6 +71,43 @@ pub const ChildProcess = struct {
 
     /// Darwin-only. Start child process in suspended state as if SIGSTOP was sent.
     start_suspended: bool = false,
+
+    /// Set to true to obtain rusage information for the child process.
+    /// Depending on the target platform and implementation status, the
+    /// requested statistics may or may not be available. If they are
+    /// available, then the `resource_usage_statistics` field will be populated
+    /// after calling `wait`.
+    /// On Linux, this obtains rusage statistics from wait4().
+    request_resource_usage_statistics: bool = false,
+
+    /// This is available after calling wait if
+    /// `request_resource_usage_statistics` was set to `true` before calling
+    /// `spawn`.
+    resource_usage_statistics: ResourceUsageStatistics = .{},
+
+    pub const ResourceUsageStatistics = struct {
+        rusage: @TypeOf(rusage_init) = rusage_init,
+
+        /// Returns the peak resident set size of the child process, in bytes,
+        /// if available.
+        pub inline fn getMaxRss(rus: ResourceUsageStatistics) ?usize {
+            switch (builtin.os.tag) {
+                .linux => {
+                    if (rus.rusage) |ru| {
+                        return @intCast(usize, ru.maxrss) * 1024;
+                    } else {
+                        return null;
+                    }
+                },
+                else => return null,
+            }
+        }
+
+        const rusage_init = switch (builtin.os.tag) {
+            .linux => @as(?std.os.rusage, null),
+            else => {},
+        };
+    };
 
     pub const Arg0Expand = os.Arg0Expand;
 
@@ -332,7 +371,16 @@ pub const ChildProcess = struct {
     }
 
     fn waitUnwrapped(self: *ChildProcess) !void {
-        const res: os.WaitPidResult = os.waitpid(self.id, 0);
+        const res: os.WaitPidResult = res: {
+            if (builtin.os.tag == .linux and self.request_resource_usage_statistics) {
+                var ru: std.os.rusage = undefined;
+                const res = os.wait4(self.id, 0, &ru);
+                self.resource_usage_statistics.rusage = ru;
+                break :res res;
+            }
+
+            break :res os.waitpid(self.id, 0);
+        };
         const status = res.status;
         self.cleanupStreams();
         self.handleWaitResult(status);

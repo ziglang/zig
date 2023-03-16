@@ -161,7 +161,7 @@ pub const CRTFile = enum {
     libc_nonshared_a,
 };
 
-pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
+pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -196,7 +196,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-DASSEMBLER",
                 "-Wa,--noexecstack",
             });
-            return comp.build_crt_file("crti", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("crti", .Obj, .@"glibc crti.o", prog_node, &.{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crti.S"),
                     .cache_exempt_flags = args.items,
@@ -215,7 +215,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-DASSEMBLER",
                 "-Wa,--noexecstack",
             });
-            return comp.build_crt_file("crtn", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("crtn", .Obj, .@"glibc crtn.o", prog_node, &.{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crtn.S"),
                     .cache_exempt_flags = args.items,
@@ -265,7 +265,9 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .cache_exempt_flags = args.items,
                 };
             };
-            return comp.build_crt_file("Scrt1", .Obj, &[_]Compilation.CSourceFile{ start_o, abi_note_o });
+            return comp.build_crt_file("Scrt1", .Obj, .@"glibc Scrt1.o", prog_node, &.{
+                start_o, abi_note_o,
+            });
         },
         .libc_nonshared_a => {
             const s = path.sep_str;
@@ -366,7 +368,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 files_index += 1;
             }
             const files = files_buf[0..files_index];
-            return comp.build_crt_file("c_nonshared", .Lib, files);
+            return comp.build_crt_file("c_nonshared", .Lib, .@"glibc libc_nonshared.a", prog_node, files);
         },
     }
 }
@@ -639,7 +641,7 @@ pub const BuiltSharedObjects = struct {
 
 const all_map_basename = "all.map";
 
-pub fn buildSharedObjects(comp: *Compilation) !void {
+pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1023,7 +1025,7 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
         const asm_file_basename = std.fmt.bufPrint(&lib_name_buf, "{s}.s", .{lib.name}) catch unreachable;
         try o_directory.handle.writeFile(asm_file_basename, stubs_asm.items);
 
-        try buildSharedLib(comp, arena, comp.global_cache_directory, o_directory, asm_file_basename, lib);
+        try buildSharedLib(comp, arena, comp.global_cache_directory, o_directory, asm_file_basename, lib, prog_node);
     }
 
     man.writeManifest() catch |err| {
@@ -1046,6 +1048,7 @@ fn buildSharedLib(
     bin_directory: Compilation.Directory,
     asm_file_basename: []const u8,
     lib: Lib,
+    prog_node: *std.Progress.Node,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1105,7 +1108,7 @@ fn buildSharedLib(
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.updateSubCompilation();
+    try comp.updateSubCompilation(sub_compilation, .@"glibc shared object", prog_node);
 }
 
 // Return true if glibc has crti/crtn sources for that architecture.
