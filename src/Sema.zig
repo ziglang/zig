@@ -4712,6 +4712,11 @@ fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
         .Slice => return sema.fail(block, src, "index syntax required for slice type '{}'", .{operand_ty.fmt(sema.mod)}),
     }
 
+    if ((try sema.typeHasOnePossibleValue(operand_ty.childType())) != null) {
+        // No need to validate the actual pointer value, we don't need it!
+        return;
+    }
+
     const elem_ty = operand_ty.elemType2();
     if (try sema.resolveMaybeUndefVal(operand)) |val| {
         if (val.isUndef()) {
