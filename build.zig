@@ -47,6 +47,9 @@ pub fn build(b: *std.Build) !void {
 
     const docgen_cmd = b.addRunArtifact(docgen_exe);
     docgen_cmd.addArgs(&.{ "--zig", b.zig_exe });
+    if (b.zig_lib_dir) |p| {
+        docgen_cmd.addArgs(&.{ "--zig-lib-dir", p });
+    }
     docgen_cmd.addFileSourceArg(.{ .path = "doc/langref.html.in" });
     const langref_file = docgen_cmd.addOutputFileArg("langref.html");
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
