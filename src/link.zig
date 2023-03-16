@@ -372,6 +372,16 @@ pub const File = struct {
         return @fieldParentPtr(T, "base", base);
     }
 
+    /// Copies the file into a temporary file, and then renames it over top of the original
+    /// file.
+    fn copyFileInPlaceAtomic(allocator: Allocator, dir: std.fs.Dir, sub_path: []const u8) !void {
+        const tmp_sub_path = try std.fmt.allocPrint(allocator, "{s}-{x}", .{
+            sub_path, std.crypto.random.int(u32),
+        });
+        try dir.copyFile(sub_path, dir, tmp_sub_path, .{});
+        try dir.rename(tmp_sub_path, sub_path);
+    }
+
     pub fn makeWritable(base: *File) !void {
         switch (base.tag) {
             .coff, .elf, .macho, .plan9, .wasm => {
@@ -383,11 +393,7 @@ pub const File = struct {
                     // it will return ETXTBSY. So instead, we copy the file, atomically rename it
                     // over top of the exe path, and then proceed normally. This changes the inode,
                     // avoiding the error.
-                    const tmp_sub_path = try std.fmt.allocPrint(base.allocator, "{s}-{x}", .{
-                        emit.sub_path, std.crypto.random.int(u32),
-                    });
-                    try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, tmp_sub_path, .{});
-                    try emit.directory.handle.rename(tmp_sub_path, emit.sub_path);
+                    try copyFileInPlaceAtomic(base.allocator, emit.directory.handle, emit.sub_path);
                     switch (builtin.os.tag) {
                         .linux => {
                             switch (std.os.errno(std.os.linux.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0, 0))) {
@@ -431,7 +437,7 @@ pub const File = struct {
                         // the original file. This is super messy, but there doesn't seem any other
                         // way to please the XNU.
                         const emit = base.options.emit orelse return;
-                        try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
+                        try copyFileInPlaceAtomic(base.allocator, emit.directory.handle, emit.sub_path);
                     }
                 }
                 f.close();
