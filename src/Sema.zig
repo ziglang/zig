@@ -7087,6 +7087,9 @@ fn analyzeCallArg(
     opts: CoerceOpts,
 ) !Air.Inst.Ref {
     try sema.resolveTypeFully(param_ty);
+    if (try sema.resolveMaybeUndefVal(uncasted_arg)) |arg_val| {
+        try sema.checkValueDoesNotReferenceComptimeMutableMemory(block, arg_val, arg_src);
+    }
     return sema.coerceExtra(block, param_ty, uncasted_arg, arg_src, opts) catch |err| switch (err) {
         error.NotCoercible => unreachable,
         else => |e| return e,
@@ -7107,6 +7110,9 @@ fn analyzeGenericCallArg(
         comptime_arg.ty.hasRuntimeBits() and
         !(try sema.typeRequiresComptime(comptime_arg.ty));
     if (is_runtime) {
+        if (try sema.resolveMaybeUndefVal(uncasted_arg)) |arg_val| {
+            try sema.checkValueDoesNotReferenceComptimeMutableMemory(block, arg_val, arg_src);
+        }
         const param_ty = new_fn_info.param_types[runtime_i.*];
         const casted_arg = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
         try sema.queueFullTypeResolution(param_ty);
@@ -20425,6 +20431,23 @@ fn checkPtrIsNotComptimeMutable(
     }
 }
 
+fn checkValueDoesNotReferenceComptimeMutableMemory(
+    sema: *Sema,
+    block: *Block,
+    val: Value,
+    src: LazySrcLoc,
+) CompileError!void {
+    if (val.canMutateComptimeVarState()) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "cannot store reference to comptime-mutable state at runtime", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, src, msg, "copy comptime data to a const to use it at runtime", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+}
+
 fn checkComptimeVarStore(
     sema: *Sema,
     block: *Block,
@@ -26440,6 +26463,11 @@ fn storePtr2(
             return;
         } else break :rs ptr_src;
     } else ptr_src;
+
+    if (maybe_operand_val) |operand_val| {
+        // Note that ptr's target is not comptime-mutable by the above check
+        try sema.checkValueDoesNotReferenceComptimeMutableMemory(block, operand_val, operand_src);
+    }
 
     // We do this after the possible comptime store above, for the case of field_ptr stores
     // to unions because we want the comptime tag to be set, even if the field type is void.
