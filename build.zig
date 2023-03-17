@@ -520,7 +520,12 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "value_tracing", false);
     exe_options.addOption(bool, "omit_pkg_fetching_code", true);
 
-    const run_opt = b.addSystemCommand(&.{ "wasm-opt", "-Oz", "--enable-bulk-memory" });
+    const run_opt = b.addSystemCommand(&.{
+        "wasm-opt",
+        "-Oz",
+        "--enable-bulk-memory",
+        "--enable-sign-ext",
+    });
     run_opt.addArtifactArg(exe);
     run_opt.addArg("-o");
     run_opt.addFileSourceArg(.{ .path = "stage1/zig1.wasm" });
