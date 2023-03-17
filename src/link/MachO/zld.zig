@@ -3665,16 +3665,17 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
     } else {
         const page_size = macho_file.page_size;
         const sub_path = options.emit.?.sub_path;
-        if (macho_file.base.file == null) {
-            macho_file.base.file = try directory.handle.createFile(sub_path, .{
-                .truncate = true,
-                .read = true,
-                .mode = link.determineMode(options.*),
-            });
-        }
+
+        const file = try directory.handle.createFile(sub_path, .{
+            .truncate = true,
+            .read = true,
+            .mode = link.determineMode(options.*),
+        });
+        defer file.close();
+
         var zld = Zld{
             .gpa = gpa,
-            .file = macho_file.base.file.?,
+            .file = file,
             .page_size = macho_file.page_size,
             .options = options,
         };
