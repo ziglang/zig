@@ -142,13 +142,13 @@ pub fn main() !void {
                 };
             } else if (mem.eql(u8, arg, "--sysroot")) {
                 const sysroot = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after --sysroot\n\n", .{});
+                    std.debug.print("Expected argument after {s}\n\n", .{arg});
                     usageAndErr(builder, false, stderr_stream);
                 };
                 builder.sysroot = sysroot;
             } else if (mem.eql(u8, arg, "--maxrss")) {
                 const max_rss_text = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after --sysroot\n\n", .{});
+                    std.debug.print("Expected argument after {s}\n\n", .{arg});
                     usageAndErr(builder, false, stderr_stream);
                 };
                 // TODO: support shorthand such as "2GiB", "2GB", or "2G"
@@ -160,28 +160,28 @@ pub fn main() !void {
                 };
             } else if (mem.eql(u8, arg, "--search-prefix")) {
                 const search_prefix = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after --search-prefix\n\n", .{});
+                    std.debug.print("Expected argument after {s}\n\n", .{arg});
                     usageAndErr(builder, false, stderr_stream);
                 };
                 builder.addSearchPrefix(search_prefix);
             } else if (mem.eql(u8, arg, "--libc")) {
                 const libc_file = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after --libc\n\n", .{});
+                    std.debug.print("Expected argument after {s}\n\n", .{arg});
                     usageAndErr(builder, false, stderr_stream);
                 };
                 builder.libc_file = libc_file;
             } else if (mem.eql(u8, arg, "--color")) {
                 const next_arg = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("expected [auto|on|off] after --color", .{});
+                    std.debug.print("Expected [auto|on|off] after {s}\n\n", .{arg});
                     usageAndErr(builder, false, stderr_stream);
                 };
                 color = std.meta.stringToEnum(Color, next_arg) orelse {
-                    std.debug.print("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
+                    std.debug.print("Expected [auto|on|off] after {s}, found '{s}'\n\n", .{ arg, next_arg });
                     usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
                 builder.zig_lib_dir = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after --zig-lib-dir\n\n", .{});
+                    std.debug.print("Expected argument after {s}\n\n", .{arg});
                     usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--debug-log")) {
@@ -196,7 +196,7 @@ pub fn main() !void {
                 builder.debug_compile_errors = true;
             } else if (mem.eql(u8, arg, "--glibc-runtimes")) {
                 builder.glibc_runtimes_dir = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after --glibc-runtimes\n\n", .{});
+                    std.debug.print("Expected argument after {s}\n\n", .{arg});
                     usageAndErr(builder, false, stderr_stream);
                 };
             } else if (mem.eql(u8, arg, "--verbose-link")) {
