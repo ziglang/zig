@@ -1,14 +1,16 @@
 const std = @import("std");
 
+pub const requires_stage2 = true;
+
 pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test");
-    test_step.dependOn(b.getInstallStep());
+    b.default_step = test_step;
 
     const lib = b.addSharedLibrary(.{
         .name = "lib",
         .root_source_file = .{ .path = "lib.zig" },
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
-        .optimize = b.standardOptimizeOption(.{}),
+        .optimize = .Debug,
     });
     lib.use_llvm = false;
     lib.use_lld = false;
@@ -17,7 +19,7 @@ pub fn build(b: *std.Build) void {
     lib.import_memory = true;
     lib.install();
 
-    const check_lib = lib.checkObject(.wasm);
+    const check_lib = lib.checkObject();
 
     // since we import memory, make sure it exists with the correct naming
     check_lib.checkStart("Section import");
@@ -36,5 +38,6 @@ pub fn build(b: *std.Build) void {
     check_lib.checkNext("name .rodata");
     check_lib.checkNext("index 1"); // bss section always last
     check_lib.checkNext("name .bss");
+
     test_step.dependOn(&check_lib.step);
 }

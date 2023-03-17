@@ -1,11 +1,13 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{});
-    const target: std.zig.CrossTarget = .{ .os_tag = .macos };
+pub const requires_symlinks = true;
 
-    const test_step = b.step("test", "Test");
-    test_step.dependOn(b.getInstallStep());
+pub fn build(b: *std.Build) void {
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    const optimize: std.builtin.OptimizeMode = .Debug;
+    const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     {
         const exe = b.addExecutable(.{
@@ -17,7 +19,7 @@ pub fn build(b: *std.Build) void {
         exe.linkLibC();
         exe.pagezero_size = 0x4000;
 
-        const check = exe.checkObject(.macho);
+        const check = exe.checkObject();
         check.checkStart("LC 0");
         check.checkNext("segname __PAGEZERO");
         check.checkNext("vmaddr 0");
@@ -39,7 +41,7 @@ pub fn build(b: *std.Build) void {
         exe.linkLibC();
         exe.pagezero_size = 0;
 
-        const check = exe.checkObject(.macho);
+        const check = exe.checkObject();
         check.checkStart("LC 0");
         check.checkNext("segname __TEXT");
         check.checkNext("vmaddr 0");

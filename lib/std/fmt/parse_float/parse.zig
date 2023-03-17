@@ -107,6 +107,8 @@ fn parsePartialNumberBase(comptime T: type, stream: *FloatStream, negative: bool
     tryParseDigits(MantissaT, stream, &mantissa, info.base);
     var int_end = stream.offsetTrue();
     var n_digits = @intCast(isize, stream.offsetTrue());
+    // the base being 16 implies a 0x prefix, which shouldn't be included in the digit count
+    if (info.base == 16) n_digits -= 2;
 
     // handle dot with the following digits
     var exponent: i64 = 0;

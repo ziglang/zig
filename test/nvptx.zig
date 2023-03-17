@@ -1,11 +1,11 @@
 const std = @import("std");
-const TestContext = @import("../../src/test.zig").TestContext;
+const Cases = @import("src/Cases.zig");
 
-pub fn addCases(ctx: *TestContext) !void {
+pub fn addCases(ctx: *Cases) !void {
     {
-        var case = addPtx(ctx, "nvptx: simple addition and subtraction");
+        var case = addPtx(ctx, "simple addition and subtraction");
 
-        case.compiles(
+        case.addCompile(
             \\fn add(a: i32, b: i32) i32 {
             \\    return a + b;
             \\}
@@ -20,9 +20,9 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = addPtx(ctx, "nvptx: read special registers");
+        var case = addPtx(ctx, "read special registers");
 
-        case.compiles(
+        case.addCompile(
             \\fn threadIdX() u32 {
             \\    return asm ("mov.u32 \t%[r], %tid.x;"
             \\       : [r] "=r" (-> u32),
@@ -37,9 +37,9 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = addPtx(ctx, "nvptx: address spaces");
+        var case = addPtx(ctx, "address spaces");
 
-        case.compiles(
+        case.addCompile(
             \\var x: i32 addrspace(.global) = 0;
             \\
             \\pub export fn increment(out: *i32) callconv(.PtxKernel) void {
@@ -50,8 +50,8 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = addPtx(ctx, "nvptx: reduce in shared mem");
-        case.compiles(
+        var case = addPtx(ctx, "reduce in shared mem");
+        case.addCompile(
             \\fn threadIdX() u32 {
             \\    return asm ("mov.u32 \t%[r], %tid.x;"
             \\       : [r] "=r" (-> u32),
@@ -88,16 +88,15 @@ const nvptx_target = std.zig.CrossTarget{
 };
 
 pub fn addPtx(
-    ctx: *TestContext,
+    ctx: *Cases,
     name: []const u8,
-) *TestContext.Case {
-    ctx.cases.append(TestContext.Case{
+) *Cases.Case {
+    ctx.cases.append(.{
         .name = name,
         .target = nvptx_target,
-        .updates = std.ArrayList(TestContext.Update).init(ctx.cases.allocator),
+        .updates = std.ArrayList(Cases.Update).init(ctx.cases.allocator),
         .output_mode = .Obj,
-        .files = std.ArrayList(TestContext.File).init(ctx.cases.allocator),
-        .deps = std.ArrayList(TestContext.DepModule).init(ctx.cases.allocator),
+        .deps = std.ArrayList(Cases.DepModule).init(ctx.cases.allocator),
         .link_libc = false,
         .backend = .llvm,
         // Bug in Debug mode

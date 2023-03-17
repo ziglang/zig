@@ -1,5 +1,5 @@
 export fn entry() void {
-    @compileLog(@ptrCast(*const anyopaque, &entry));
+    @compileLog(@as(*align(1) const anyopaque, @ptrCast(*const anyopaque, &entry)));
 }
 
 // error
@@ -7,3 +7,6 @@ export fn entry() void {
 // target=native
 //
 // :2:5: error: found compile log statement
+//
+// Compile Log Output:
+// @as(*const anyopaque, (function 'entry'))

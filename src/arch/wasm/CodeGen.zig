@@ -733,8 +733,6 @@ const InnerError = error{
     OutOfMemory,
     /// An error occurred when trying to lower AIR to MIR.
     CodegenFail,
-    /// Can occur when dereferencing a pointer that points to a `Decl` of which the analysis has failed
-    AnalysisFail,
     /// Compiler implementation could not handle a large integer.
     Overflow,
 };
@@ -1164,7 +1162,7 @@ pub fn generate(
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: codegen.DebugInfoOutput,
-) codegen.GenerateSymbolError!codegen.Result {
+) codegen.CodeGenError!codegen.Result {
     _ = src_loc;
     var code_gen: CodeGen = .{
         .gpa = bin_file.allocator,
@@ -1829,6 +1827,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .arg => func.airArg(inst),
         .bitcast => func.airBitcast(inst),
         .block => func.airBlock(inst),
+        .trap => func.airTrap(inst),
         .breakpoint => func.airBreakpoint(inst),
         .br => func.airBr(inst),
         .bool_to_int => func.airBoolToInt(inst),
@@ -3289,9 +3288,15 @@ fn airNot(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     func.finishAir(inst, result, &.{ty_op.operand});
 }
 
+fn airTrap(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    try func.addTag(.@"unreachable");
+    func.finishAir(inst, .none, &.{});
+}
+
 fn airBreakpoint(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // unsupported by wasm itfunc. Can be implemented once we support DWARF
     // for wasm
+    try func.addTag(.@"unreachable");
     func.finishAir(inst, .none, &.{});
 }
 

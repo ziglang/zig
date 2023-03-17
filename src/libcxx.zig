@@ -96,7 +96,7 @@ const libcxx_files = [_][]const u8{
     "src/verbose_abort.cpp",
 };
 
-pub fn buildLibCXX(comp: *Compilation) !void {
+pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -258,7 +258,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.updateSubCompilation();
+    try comp.updateSubCompilation(sub_compilation, .libcxx, prog_node);
 
     assert(comp.libcxx_static_lib == null);
     comp.libcxx_static_lib = Compilation.CRTFile{
@@ -269,7 +269,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
     };
 }
 
-pub fn buildLibCXXABI(comp: *Compilation) !void {
+pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -418,7 +418,7 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.updateSubCompilation();
+    try comp.updateSubCompilation(sub_compilation, .libcxxabi, prog_node);
 
     assert(comp.libcxxabi_static_lib == null);
     comp.libcxxabi_static_lib = Compilation.CRTFile{

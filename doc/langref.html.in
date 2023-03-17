@@ -7457,20 +7457,20 @@ pub const STDOUT_FILENO = 1;
 
 pub fn syscall1(number: usize, arg1: usize) usize {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize)
+        : [ret] "={rax}" (-> usize),
         : [number] "{rax}" (number),
-          [arg1] "{rdi}" (arg1)
+          [arg1] "{rdi}" (arg1),
         : "rcx", "r11"
     );
 }
 
 pub fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize)
+        : [ret] "={rax}" (-> usize),
         : [number] "{rax}" (number),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
-          [arg3] "{rdx}" (arg3)
+          [arg3] "{rdx}" (arg3),
         : "rcx", "r11"
     );
 }
@@ -7519,14 +7519,14 @@ pub fn syscall1(number: usize, arg1: usize) usize {
     // type is the result type of the inline assembly expression.
     // If it is a value binding, then `%[ret]` syntax would be used
     // to refer to the register bound to the value.
-        (-> usize)
+        (-> usize),
     // Next is the list of inputs.
     // The constraint for these inputs means, "when the assembly code is
     // executed, $rax shall have the value of `number` and $rdi shall have
     // the value of `arg1`". Any number of input parameters is allowed,
     // including none.
         : [number] "{rax}" (number),
-            [arg1] "{rdi}" (arg1)
+            [arg1] "{rdi}" (arg1),
     // Next is the list of clobbers. These declare a set of registers whose
     // values will not be preserved by the execution of this assembly code.
     // These do not include output or input registers. The special clobber
@@ -7818,12 +7818,14 @@ comptime {
       <p>
       This function inserts a platform-specific debug trap instruction which causes
       debuggers to break there.
+      Unlike for {#syntax#}@trap(){#endsyntax#}, execution may continue after this point if the program is resumed.
       </p>
       <p>
       This function is only valid within function scope.
       </p>
-
+      {#see_also|@trap#}
       {#header_close#}
+
       {#header_open|@mulAdd#}
       <pre>{#syntax#}@mulAdd(comptime T: type, a: T, b: T, c: T) T{#endsyntax#}</pre>
       <p>
@@ -9393,6 +9395,19 @@ fn List(comptime T: type) type {
       </p>
       {#header_close#}
 
+      {#header_open|@trap#}
+      <pre>{#syntax#}@trap() noreturn{#endsyntax#}</pre>
+      <p>
+      This function inserts a platform-specific trap/jam instruction which can be used to exit the program abnormally.
+      This may be implemented by explicitly emitting an invalid instruction which may cause an illegal instruction exception of some sort.
+      Unlike for {#syntax#}@breakpoint(){#endsyntax#}, execution does not continue after this point.
+      </p>
+      <p>
+      Outside function scope, this builtin causes a compile error.
+      </p>
+      {#see_also|@breakpoint#}
+      {#header_close#}
+
       {#header_open|@truncate#}
       <pre>{#syntax#}@truncate(comptime T: type, integer: anytype) T{#endsyntax#}</pre>
       <p>
@@ -9565,9 +9580,10 @@ pub fn build(b: *std.Build) void {
       This causes these options to be available:
       </p>
       <dl>
-        <dt><kbd>-Drelease-safe=[bool]</kbd></dt><dd>Optimizations on and safety on</dd>
-        <dt><kbd>-Drelease-fast=[bool]</kbd></dt><dd>Optimizations on and safety off</dd>
-        <dt><kbd>-Drelease-small=[bool]</kbd></dt><dd>Size optimizations on and safety off</dd>
+        <dt><kbd>-Doptimize=Debug</kbd></dt><dd>Optimizations off and safety on (default)</dd>
+        <dt><kbd>-Doptimize=ReleaseSafe</kbd></dt><dd>Optimizations on and safety on</dd>
+        <dt><kbd>-Doptimize=ReleaseFast</kbd></dt><dd>Optimizations on and safety off</dd>
+        <dt><kbd>-Doptimize=ReleaseSmall</kbd></dt><dd>Size optimizations on and safety off</dd>
       </dl>
       {#header_open|Debug#}
       {#shell_samp#}$ zig build-exe example.zig{#end_shell_samp#}
@@ -9788,8 +9804,8 @@ pub fn main() !void {
       {#header_close#}
       {#header_open|Builtin Overflow Functions#}
       <p>
-      These builtins return a {#syntax#}bool{#endsyntax#} of whether or not overflow
-      occurred, as well as returning the overflowed bits:
+      These builtins return a tuple containing whether there was an overflow
+      (as a {#syntax#}u1{#endsyntax#}) and the possibly overflowed bits of the operation:
       </p>
       <ul>
           <li>{#link|@addWithOverflow#}</li>

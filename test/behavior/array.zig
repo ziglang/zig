@@ -48,16 +48,23 @@ fn getArrayLen(a: []const u32) usize {
 test "array concat with undefined" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
-    {
-        var array = "hello".* ++ @as([5]u8, undefined);
-        array[5..10].* = "world".*;
-        try std.testing.expect(std.mem.eql(u8, &array, "helloworld"));
-    }
-    {
-        var array = @as([5]u8, undefined) ++ "world".*;
-        array[0..5].* = "hello".*;
-        try std.testing.expect(std.mem.eql(u8, &array, "helloworld"));
-    }
+    const S = struct {
+        fn doTheTest() !void {
+            {
+                var array = "hello".* ++ @as([5]u8, undefined);
+                array[5..10].* = "world".*;
+                try std.testing.expect(std.mem.eql(u8, &array, "helloworld"));
+            }
+            {
+                var array = @as([5]u8, undefined) ++ "world".*;
+                array[0..5].* = "hello".*;
+                try std.testing.expect(std.mem.eql(u8, &array, "helloworld"));
+            }
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "array concat with tuple" {
@@ -77,6 +84,7 @@ test "array concat with tuple" {
 }
 
 test "array init with concat" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     const a = 'a';
     var i: [4]u8 = [2]u8{ a, 'b' } ++ [2]u8{ 'c', 'd' };
     try expect(std.mem.eql(u8, &i, "abcd"));
@@ -584,7 +592,6 @@ test "type coercion of anon struct literal to array" {
 test "type coercion of pointer to anon struct literal to pointer to array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {

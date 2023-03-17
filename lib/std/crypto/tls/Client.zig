@@ -88,11 +88,59 @@ pub const StreamInterface = struct {
     }
 };
 
+pub fn InitError(comptime Stream: type) type {
+    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || error{
+        InsufficientEntropy,
+        DiskQuota,
+        LockViolation,
+        NotOpenForWriting,
+        TlsAlert,
+        TlsUnexpectedMessage,
+        TlsIllegalParameter,
+        TlsDecryptFailure,
+        TlsRecordOverflow,
+        TlsBadRecordMac,
+        CertificateFieldHasInvalidLength,
+        CertificateHostMismatch,
+        CertificatePublicKeyInvalid,
+        CertificateExpired,
+        CertificateFieldHasWrongDataType,
+        CertificateIssuerMismatch,
+        CertificateNotYetValid,
+        CertificateSignatureAlgorithmMismatch,
+        CertificateSignatureAlgorithmUnsupported,
+        CertificateSignatureInvalid,
+        CertificateSignatureInvalidLength,
+        CertificateSignatureNamedCurveUnsupported,
+        CertificateSignatureUnsupportedBitCount,
+        TlsCertificateNotVerified,
+        TlsBadSignatureScheme,
+        TlsBadRsaSignatureBitCount,
+        InvalidEncoding,
+        IdentityElement,
+        SignatureVerificationFailed,
+        TlsDecryptError,
+        TlsConnectionTruncated,
+        TlsDecodeError,
+        UnsupportedCertificateVersion,
+        CertificateTimeInvalid,
+        CertificateHasUnrecognizedObjectId,
+        CertificateHasInvalidBitString,
+        MessageTooLong,
+        NegativeIntoUnsigned,
+        TargetTooSmall,
+        BufferTooSmall,
+        InvalidSignature,
+        NotSquare,
+        NonCanonical,
+    };
+}
+
 /// Initiates a TLS handshake and establishes a TLSv1.3 session with `stream`, which
 /// must conform to `StreamInterface`.
 ///
 /// `host` is only borrowed during this function call.
-pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) !Client {
+pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) InitError(@TypeOf(stream))!Client {
     const host_len = @intCast(u16, host.len);
 
     var random_buffer: [128]u8 = undefined;

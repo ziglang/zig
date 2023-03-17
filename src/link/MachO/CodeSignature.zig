@@ -7,12 +7,12 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
 const testing = std.testing;
+const ThreadPool = std.Thread.Pool;
+const WaitGroup = std.Thread.WaitGroup;
 
 const Allocator = mem.Allocator;
 const Compilation = @import("../../Compilation.zig");
 const Sha256 = std.crypto.hash.sha2.Sha256;
-const ThreadPool = @import("../../ThreadPool.zig");
-const WaitGroup = @import("../../WaitGroup.zig");
 
 const hash_size = Sha256.digest_length;
 

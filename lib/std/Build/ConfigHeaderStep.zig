@@ -1,9 +1,3 @@
-const std = @import("../std.zig");
-const ConfigHeaderStep = @This();
-const Step = std.Build.Step;
-
-pub const base_id: Step.Id = .config_header;
-
 pub const Style = union(enum) {
     /// The configure format supported by autotools. It uses `#undef foo` to
     /// mark lines that can be substituted with different values.
@@ -34,7 +28,6 @@ pub const Value = union(enum) {
 };
 
 step: Step,
-builder: *std.Build,
 values: std.StringArrayHashMap(Value),
 output_file: std.Build.GeneratedFile,
 
@@ -42,42 +35,56 @@ style: Style,
 max_bytes: usize,
 include_path: []const u8,
 
+pub const base_id: Step.Id = .config_header;
+
 pub const Options = struct {
     style: Style = .blank,
     max_bytes: usize = 2 * 1024 * 1024,
     include_path: ?[]const u8 = null,
+    first_ret_addr: ?usize = null,
 };
 
-pub fn create(builder: *std.Build, options: Options) *ConfigHeaderStep {
-    const self = builder.allocator.create(ConfigHeaderStep) catch @panic("OOM");
-    const name = if (options.style.getFileSource()) |s|
-        builder.fmt("configure {s} header {s}", .{ @tagName(options.style), s.getDisplayName() })
-    else
-        builder.fmt("configure {s} header", .{@tagName(options.style)});
-    self.* = .{
-        .builder = builder,
-        .step = Step.init(base_id, name, builder.allocator, make),
-        .style = options.style,
-        .values = std.StringArrayHashMap(Value).init(builder.allocator),
+pub fn create(owner: *std.Build, options: Options) *ConfigHeaderStep {
+    const self = owner.allocator.create(ConfigHeaderStep) catch @panic("OOM");
 
-        .max_bytes = options.max_bytes,
-        .include_path = "config.h",
-        .output_file = .{ .step = &self.step },
-    };
+    var include_path: []const u8 = "config.h";
 
     if (options.style.getFileSource()) |s| switch (s) {
         .path => |p| {
             const basename = std.fs.path.basename(p);
             if (std.mem.endsWith(u8, basename, ".h.in")) {
-                self.include_path = basename[0 .. basename.len - 3];
+                include_path = basename[0 .. basename.len - 3];
             }
         },
         else => {},
     };
 
-    if (options.include_path) |include_path| {
-        self.include_path = include_path;
+    if (options.include_path) |p| {
+        include_path = p;
     }
+
+    const name = if (options.style.getFileSource()) |s|
+        owner.fmt("configure {s} header {s} to {s}", .{
+            @tagName(options.style), s.getDisplayName(), include_path,
+        })
+    else
+        owner.fmt("configure {s} header to {s}", .{ @tagName(options.style), include_path });
+
+    self.* = .{
+        .step = Step.init(.{
+            .id = base_id,
+            .name = name,
+            .owner = owner,
+            .makeFn = make,
+            .first_ret_addr = options.first_ret_addr orelse @returnAddress(),
+        }),
+        .style = options.style,
+        .values = std.StringArrayHashMap(Value).init(owner.allocator),
+
+        .max_bytes = options.max_bytes,
+        .include_path = include_path,
+        .output_file = .{ .step = &self.step },
+    };
 
     return self;
 }
@@ -146,26 +153,20 @@ fn putValue(self: *ConfigHeaderStep, field_name: []const u8, comptime T: type, v
     }
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
+    const b = step.owner;
     const self = @fieldParentPtr(ConfigHeaderStep, "step", step);
-    const gpa = self.builder.allocator;
+    const gpa = b.allocator;
+    const arena = b.allocator;
 
-    // The cache is used here not really as a way to speed things up - because writing
-    // the data to a file would probably be very fast - but as a way to find a canonical
-    // location to put build artifacts.
+    var man = b.cache.obtain();
+    defer man.deinit();
 
-    // If, for example, a hard-coded path was used as the location to put ConfigHeaderStep
-    // files, then two ConfigHeaderStep executing in parallel might clobber each other.
-
-    // TODO port the cache system from the compiler to zig std lib. Until then
-    // we construct the path directly, and no "cache hit" detection happens;
-    // the files are always written.
-    // Note there is very similar code over in WriteFileStep
-    const Hasher = std.crypto.auth.siphash.SipHash128(1, 3);
     // Random bytes to make ConfigHeaderStep unique. Refresh this with new
     // random bytes when ConfigHeaderStep implementation is modified in a
     // non-backwards-compatible way.
-    var hash = Hasher.init("PGuDTpidxyMqnkGM");
+    man.hash.add(@as(u32, 0xdef08d23));
 
     var output = std.ArrayList(u8).init(gpa);
     defer output.deinit();
@@ -177,15 +178,15 @@ fn make(step: *Step) !void {
     switch (self.style) {
         .autoconf => |file_source| {
             try output.appendSlice(c_generated_line);
-            const src_path = file_source.getPath(self.builder);
-            const contents = try std.fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes);
-            try render_autoconf(contents, &output, self.values, src_path);
+            const src_path = file_source.getPath(b);
+            const contents = try std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes);
+            try render_autoconf(step, contents, &output, self.values, src_path);
         },
         .cmake => |file_source| {
             try output.appendSlice(c_generated_line);
-            const src_path = file_source.getPath(self.builder);
-            const contents = try std.fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes);
-            try render_cmake(contents, &output, self.values, src_path);
+            const src_path = file_source.getPath(b);
+            const contents = try std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes);
+            try render_cmake(step, contents, &output, self.values, src_path);
         },
         .blank => {
             try output.appendSlice(c_generated_line);
@@ -197,43 +198,44 @@ fn make(step: *Step) !void {
         },
     }
 
-    hash.update(output.items);
+    man.hash.addBytes(output.items);
 
-    var digest: [16]u8 = undefined;
-    hash.final(&digest);
-    var hash_basename: [digest.len * 2]u8 = undefined;
-    _ = std.fmt.bufPrint(
-        &hash_basename,
-        "{s}",
-        .{std.fmt.fmtSliceHexLower(&digest)},
-    ) catch unreachable;
+    if (try step.cacheHit(&man)) {
+        const digest = man.final();
+        self.output_file.path = try b.cache_root.join(arena, &.{
+            "o", &digest, self.include_path,
+        });
+        return;
+    }
 
-    const output_dir = try self.builder.cache_root.join(gpa, &.{ "o", &hash_basename });
+    const digest = man.final();
 
     // If output_path has directory parts, deal with them.  Example:
     // output_dir is zig-cache/o/HASH
     // output_path is libavutil/avconfig.h
     // We want to open directory zig-cache/o/HASH/libavutil/
     // but keep output_dir as zig-cache/o/HASH for -I include
-    const sub_dir_path = if (std.fs.path.dirname(self.include_path)) |d|
-        try std.fs.path.join(gpa, &.{ output_dir, d })
-    else
-        output_dir;
+    const sub_path = try std.fs.path.join(arena, &.{ "o", &digest, self.include_path });
+    const sub_path_dirname = std.fs.path.dirname(sub_path).?;
 
-    var dir = std.fs.cwd().makeOpenPath(sub_dir_path, .{}) catch |err| {
-        std.debug.print("unable to make path {s}: {s}\n", .{ output_dir, @errorName(err) });
-        return err;
+    b.cache_root.handle.makePath(sub_path_dirname) catch |err| {
+        return step.fail("unable to make path '{}{s}': {s}", .{
+            b.cache_root, sub_path_dirname, @errorName(err),
+        });
     };
-    defer dir.close();
 
-    try dir.writeFile(std.fs.path.basename(self.include_path), output.items);
+    b.cache_root.handle.writeFile(sub_path, output.items) catch |err| {
+        return step.fail("unable to write file '{}{s}': {s}", .{
+            b.cache_root, sub_path, @errorName(err),
+        });
+    };
 
-    self.output_file.path = try std.fs.path.join(self.builder.allocator, &.{
-        output_dir, self.include_path,
-    });
+    self.output_file.path = try b.cache_root.join(arena, &.{sub_path});
+    try man.writeManifest();
 }
 
 fn render_autoconf(
+    step: *Step,
     contents: []const u8,
     output: *std.ArrayList(u8),
     values: std.StringArrayHashMap(Value),
@@ -260,7 +262,7 @@ fn render_autoconf(
         }
         const name = it.rest();
         const kv = values_copy.fetchSwapRemove(name) orelse {
-            std.debug.print("{s}:{d}: error: unspecified config header value: '{s}'\n", .{
+            try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
                 src_path, line_index + 1, name,
             });
             any_errors = true;
@@ -270,15 +272,17 @@ fn render_autoconf(
     }
 
     for (values_copy.keys()) |name| {
-        std.debug.print("{s}: error: config header value unused: '{s}'\n", .{ src_path, name });
+        try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
+        any_errors = true;
     }
 
     if (any_errors) {
-        return error.HeaderConfigFailed;
+        return error.MakeFailed;
     }
 }
 
 fn render_cmake(
+    step: *Step,
     contents: []const u8,
     output: *std.ArrayList(u8),
     values: std.StringArrayHashMap(Value),
@@ -304,14 +308,14 @@ fn render_cmake(
             continue;
         }
         const name = it.next() orelse {
-            std.debug.print("{s}:{d}: error: missing define name\n", .{
+            try step.addError("{s}:{d}: error: missing define name", .{
                 src_path, line_index + 1,
             });
             any_errors = true;
             continue;
         };
         const kv = values_copy.fetchSwapRemove(name) orelse {
-            std.debug.print("{s}:{d}: error: unspecified config header value: '{s}'\n", .{
+            try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
                 src_path, line_index + 1, name,
             });
             any_errors = true;
@@ -321,7 +325,8 @@ fn render_cmake(
     }
 
     for (values_copy.keys()) |name| {
-        std.debug.print("{s}: error: config header value unused: '{s}'\n", .{ src_path, name });
+        try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
+        any_errors = true;
     }
 
     if (any_errors) {
@@ -426,3 +431,7 @@ fn renderValueNasm(output: *std.ArrayList(u8), name: []const u8, value: Value) !
         },
     }
 }
+
+const std = @import("../std.zig");
+const ConfigHeaderStep = @This();
+const Step = std.Build.Step;

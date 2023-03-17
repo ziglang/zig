@@ -25,5 +25,6 @@ export fn e() void {
 // :4:7: error: no field named 'foo' in struct 'tmp.A'
 // :1:11: note: struct declared here
 // :10:17: error: no field named 'bar' in struct 'tmp.A'
+// :1:11: note: struct declared here
 // :18:45: error: no field named 'f' in struct 'tmp.e.B'
 // :14:15: note: struct declared here

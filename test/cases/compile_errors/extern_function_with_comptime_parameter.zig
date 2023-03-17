@@ -12,6 +12,6 @@ comptime { _ = entry2; }
 // backend=stage2
 // target=native
 //
-// :1:15: error: comptime parameters not allowed in function with calling convention 'C'
 // :5:30: error: comptime parameters not allowed in function with calling convention 'C'
 // :6:30: error: generic parameters not allowed in function with calling convention 'C'
+// :1:15: error: comptime parameters not allowed in function with calling convention 'C'

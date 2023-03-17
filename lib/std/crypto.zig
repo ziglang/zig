@@ -1,3 +1,5 @@
+const root = @import("root");
+
 /// Authenticated Encryption with Associated Data
 pub const aead = struct {
     pub const aegis = struct {
@@ -64,6 +66,11 @@ pub const core = struct {
 /// Diffie-Hellman key exchange functions.
 pub const dh = struct {
     pub const X25519 = @import("crypto/25519/x25519.zig").X25519;
+};
+
+/// Key Encapsulation Mechanisms.
+pub const kem = struct {
+    pub const kyber_d00 = @import("crypto/kyber_d00.zig");
 };
 
 /// Elliptic-curve arithmetic.
@@ -183,6 +190,27 @@ pub const errors = @import("crypto/errors.zig");
 pub const tls = @import("crypto/tls.zig");
 pub const Certificate = @import("crypto/Certificate.zig");
 
+/// Side-channels mitigations.
+pub const SideChannelsMitigations = enum {
+    /// No additional side-channel mitigations are applied.
+    /// This is the fastest mode.
+    none,
+    /// The `basic` mode protects against most practical attacks, provided that the
+    /// application or implements proper defenses against brute-force attacks.
+    /// It offers a good balance between performance and security.
+    basic,
+    /// The `medium` mode offers increased resilience against side-channel attacks,
+    /// making most attacks unpractical even on shared/low latency environements.
+    /// This is the default mode.
+    medium,
+    /// The `full` mode offers the highest level of protection against side-channel attacks.
+    /// Note that this doesn't cover all possible attacks (especially power analysis or
+    /// thread-local attacks such as cachebleed), and that the performance impact is significant.
+    full,
+};
+
+pub const default_side_channels_mitigations = .medium;
+
 test {
     _ = aead.aegis.Aegis128L;
     _ = aead.aegis.Aegis256;
@@ -216,6 +244,8 @@ test {
     _ = core.modes;
 
     _ = dh.X25519;
+
+    _ = kem.kyber_d00;
 
     _ = ecc.Curve25519;
     _ = ecc.Edwards25519;

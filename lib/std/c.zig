@@ -153,7 +153,8 @@ pub extern "c" fn linkat(oldfd: c.fd_t, oldpath: [*:0]const u8, newfd: c.fd_t, n
 pub extern "c" fn unlink(path: [*:0]const u8) c_int;
 pub extern "c" fn unlinkat(dirfd: c.fd_t, path: [*:0]const u8, flags: c_uint) c_int;
 pub extern "c" fn getcwd(buf: [*]u8, size: usize) ?[*]u8;
-pub extern "c" fn waitpid(pid: c.pid_t, stat_loc: ?*c_int, options: c_int) c.pid_t;
+pub extern "c" fn waitpid(pid: c.pid_t, status: ?*c_int, options: c_int) c.pid_t;
+pub extern "c" fn wait4(pid: c.pid_t, status: ?*c_int, options: c_int, ru: ?*c.rusage) c.pid_t;
 pub extern "c" fn fork() c_int;
 pub extern "c" fn access(path: [*:0]const u8, mode: c_uint) c_int;
 pub extern "c" fn faccessat(dirfd: c.fd_t, path: [*:0]const u8, mode: c_uint, flags: c_uint) c_int;

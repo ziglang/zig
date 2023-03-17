@@ -89,21 +89,6 @@ pub fn getSymbolIndex(atom: Atom) ?u32 {
     return atom.sym_index;
 }
 
-/// Returns the virtual address of the `Atom`. This is the address starting
-/// from the first entry within a section.
-pub fn getVA(atom: Atom, wasm: *const Wasm, symbol: *const Symbol) u32 {
-    if (symbol.tag == .function) return atom.offset;
-    std.debug.assert(symbol.tag == .data);
-    const merge_segment = wasm.base.options.output_mode != .Obj;
-    const segment_info = if (atom.file) |object_index| blk: {
-        break :blk wasm.objects.items[object_index].segment_info;
-    } else wasm.segment_info.values();
-    const segment_name = segment_info[symbol.index].outputName(merge_segment);
-    const segment_index = wasm.data_segments.get(segment_name).?;
-    const segment = wasm.segments.items[segment_index];
-    return segment.offset + atom.offset;
-}
-
 /// Resolves the relocations within the atom, writing the new value
 /// at the calculated offset.
 pub fn resolveRelocs(atom: *Atom, wasm_bin: *const Wasm) void {
@@ -186,14 +171,7 @@ fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wa
             if (symbol.isUndefined()) {
                 return 0;
             }
-            const target_atom_index = wasm_bin.symbol_atom.get(target_loc) orelse {
-                // this can only occur during incremental-compilation when a relocation
-                // still points to a freed decl. It is fine to emit the value 0 here
-                // as no actual code will point towards it.
-                return 0;
-            };
-            const target_atom = wasm_bin.getAtom(target_atom_index);
-            const va = @intCast(i32, target_atom.getVA(wasm_bin, symbol));
+            const va = @intCast(i64, symbol.virtual_address);
             return @intCast(u32, va + relocation.addend);
         },
         .R_WASM_EVENT_INDEX_LEB => return symbol.index,

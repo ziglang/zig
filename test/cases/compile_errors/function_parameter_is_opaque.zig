@@ -27,4 +27,5 @@ export fn entry4() void {
 // :1:17: note: opaque declared here
 // :8:28: error: parameter of type '@TypeOf(null)' not allowed
 // :12:8: error: parameter of opaque type 'tmp.FooType' not allowed
+// :1:17: note: opaque declared here
 // :17:8: error: parameter of type '@TypeOf(null)' not allowed

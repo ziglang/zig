@@ -1778,7 +1778,7 @@ pub const Object = struct {
                 if (ty.optionalReprIsPayload()) {
                     const ptr_di_ty = try o.lowerDebugType(child_ty, resolve);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(ptr_di_ty), .{ .mod = o.module });
+                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.init(ptr_di_ty, resolve), .{ .mod = o.module });
                     return ptr_di_ty;
                 }
 
@@ -4595,6 +4595,7 @@ pub const FuncGen = struct {
                 .block          => try self.airBlock(inst),
                 .br             => try self.airBr(inst),
                 .switch_br      => try self.airSwitchBr(inst),
+                .trap           => try self.airTrap(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
                 .frame_addr     => try self.airFrameAddress(inst),
@@ -8259,6 +8260,14 @@ pub const FuncGen = struct {
             return ptr;
         }
         return fg.load(ptr, ptr_ty);
+    }
+
+    fn airTrap(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        _ = inst;
+        const llvm_fn = self.getIntrinsic("llvm.trap", &.{});
+        _ = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, undefined, 0, .Cold, .Auto, "");
+        _ = self.builder.buildUnreachable();
+        return null;
     }
 
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {

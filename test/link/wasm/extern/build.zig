@@ -1,19 +1,31 @@
 const std = @import("std");
 
+pub const requires_stage2 = true;
+
 pub fn build(b: *std.Build) void {
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    add(b, test_step, .Debug);
+    add(b, test_step, .ReleaseFast);
+    add(b, test_step, .ReleaseSmall);
+    add(b, test_step, .ReleaseSafe);
+}
+
+fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const exe = b.addExecutable(.{
         .name = "extern",
         .root_source_file = .{ .path = "main.zig" },
-        .optimize = b.standardOptimizeOption(.{}),
+        .optimize = optimize,
         .target = .{ .cpu_arch = .wasm32, .os_tag = .wasi },
     });
     exe.addCSourceFile("foo.c", &.{});
     exe.use_llvm = false;
     exe.use_lld = false;
 
-    const run = exe.runEmulatable();
+    const run = b.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
     run.expectStdOutEqual("Result: 30");
 
-    const test_step = b.step("test", "Run linker test");
     test_step.dependOn(&run.step);
 }

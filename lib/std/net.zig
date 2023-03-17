@@ -702,8 +702,10 @@ pub const AddressList = struct {
     }
 };
 
+pub const TcpConnectToHostError = GetAddressListError || TcpConnectToAddressError;
+
 /// All memory allocated with `allocator` will be freed before this function returns.
-pub fn tcpConnectToHost(allocator: mem.Allocator, name: []const u8, port: u16) !Stream {
+pub fn tcpConnectToHost(allocator: mem.Allocator, name: []const u8, port: u16) TcpConnectToHostError!Stream {
     const list = try getAddressList(allocator, name, port);
     defer list.deinit();
 
@@ -720,7 +722,9 @@ pub fn tcpConnectToHost(allocator: mem.Allocator, name: []const u8, port: u16) !
     return std.os.ConnectError.ConnectionRefused;
 }
 
-pub fn tcpConnectToAddress(address: Address) !Stream {
+pub const TcpConnectToAddressError = std.os.SocketError || std.os.ConnectError;
+
+pub fn tcpConnectToAddress(address: Address) TcpConnectToAddressError!Stream {
     const nonblock = if (std.io.is_async) os.SOCK.NONBLOCK else 0;
     const sock_flags = os.SOCK.STREAM | nonblock |
         (if (builtin.target.os.tag == .windows) 0 else os.SOCK.CLOEXEC);
@@ -737,8 +741,32 @@ pub fn tcpConnectToAddress(address: Address) !Stream {
     return Stream{ .handle = sockfd };
 }
 
+const GetAddressListError = std.mem.Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError || std.os.SocketError || std.os.BindError || error{
+    // TODO: break this up into error sets from the various underlying functions
+
+    TemporaryNameServerFailure,
+    NameServerFailure,
+    AddressFamilyNotSupported,
+    UnknownHostName,
+    ServiceUnavailable,
+    Unexpected,
+
+    HostLacksNetworkAddresses,
+
+    InvalidCharacter,
+    InvalidEnd,
+    NonCanonical,
+    Overflow,
+    Incomplete,
+    InvalidIpv4Mapping,
+    InvalidIPAddressFormat,
+
+    InterfaceNotFound,
+    FileSystem,
+};
+
 /// Call `AddressList.deinit` on the result.
-pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*AddressList {
+pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) GetAddressListError!*AddressList {
     const result = blk: {
         var arena = std.heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();

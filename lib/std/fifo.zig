@@ -164,6 +164,17 @@ pub fn LinearFifo(
             return self.readableSliceMut(offset);
         }
 
+        pub fn readableSliceOfLen(self: *Self, len: usize) []const T {
+            assert(len <= self.count);
+            const buf = self.readableSlice(0);
+            if (buf.len >= len) {
+                return buf[0..len];
+            } else {
+                self.realign();
+                return self.readableSlice(0)[0..len];
+            }
+        }
+
         /// Discard first `count` items in the fifo
         pub fn discard(self: *Self, count: usize) void {
             assert(count <= self.count);
@@ -382,6 +393,22 @@ pub fn LinearFifo(
             while (self.readableLength() > 0) {
                 self.discard(try dest_writer.write(self.readableSlice(0)));
             }
+        }
+
+        pub fn toOwnedSlice(self: *Self) Allocator.Error![]T {
+            if (self.head != 0) self.realign();
+            assert(self.head == 0);
+            assert(self.count <= self.buf.len);
+            const allocator = self.allocator;
+            if (allocator.resize(self.buf, self.count)) {
+                const result = self.buf[0..self.count];
+                self.* = Self.init(allocator);
+                return result;
+            }
+            const new_memory = try allocator.dupe(T, self.buf[0..self.count]);
+            allocator.free(self.buf);
+            self.* = Self.init(allocator);
+            return new_memory;
         }
     };
 }

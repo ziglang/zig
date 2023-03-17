@@ -1,8 +1,8 @@
 const std = @import("std");
-const TestContext = @import("../src/test.zig").TestContext;
+const Cases = @import("src/Cases.zig");
 
-pub fn addCases(ctx: *TestContext) !void {
-    try @import("compile_errors.zig").addCases(ctx);
-    try @import("stage2/cbe.zig").addCases(ctx);
-    try @import("stage2/nvptx.zig").addCases(ctx);
+pub fn addCases(cases: *Cases) !void {
+    try @import("compile_errors.zig").addCases(cases);
+    try @import("cbe.zig").addCases(cases);
+    try @import("nvptx.zig").addCases(cases);
 }

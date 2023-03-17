@@ -10,25 +10,31 @@ const CheckObjectStep = @This();
 
 const Allocator = mem.Allocator;
 const Step = std.Build.Step;
-const EmulatableRunStep = std.Build.EmulatableRunStep;
 
 pub const base_id = .check_object;
 
 step: Step,
-builder: *std.Build,
 source: std.Build.FileSource,
 max_bytes: usize = 20 * 1024 * 1024,
 checks: std.ArrayList(Check),
 dump_symtab: bool = false,
 obj_format: std.Target.ObjectFormat,
 
-pub fn create(builder: *std.Build, source: std.Build.FileSource, obj_format: std.Target.ObjectFormat) *CheckObjectStep {
-    const gpa = builder.allocator;
+pub fn create(
+    owner: *std.Build,
+    source: std.Build.FileSource,
+    obj_format: std.Target.ObjectFormat,
+) *CheckObjectStep {
+    const gpa = owner.allocator;
     const self = gpa.create(CheckObjectStep) catch @panic("OOM");
     self.* = .{
-        .builder = builder,
-        .step = Step.init(.check_file, "CheckObject", gpa, make),
-        .source = source.dupe(builder),
+        .step = Step.init(.{
+            .id = .check_file,
+            .name = "CheckObject",
+            .owner = owner,
+            .makeFn = make,
+        }),
+        .source = source.dupe(owner),
         .checks = std.ArrayList(Check).init(gpa),
         .obj_format = obj_format,
     };
@@ -38,14 +44,18 @@ pub fn create(builder: *std.Build, source: std.Build.FileSource, obj_format: std
 
 /// Runs and (optionally) compares the output of a binary.
 /// Asserts `self` was generated from an executable step.
-pub fn runAndCompare(self: *CheckObjectStep) *EmulatableRunStep {
+/// TODO this doesn't actually compare, and there's no apparent reason for it
+/// to depend on the check object step. I don't see why this function should exist,
+/// the caller could just add the run step directly.
+pub fn runAndCompare(self: *CheckObjectStep) *std.Build.RunStep {
     const dependencies_len = self.step.dependencies.items.len;
     assert(dependencies_len > 0);
     const exe_step = self.step.dependencies.items[dependencies_len - 1];
     const exe = exe_step.cast(std.Build.CompileStep).?;
-    const emulatable_step = EmulatableRunStep.create(self.builder, "EmulatableRun", exe);
-    emulatable_step.step.dependOn(&self.step);
-    return emulatable_step;
+    const run = self.step.owner.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
+    run.step.dependOn(&self.step);
+    return run;
 }
 
 /// There two types of actions currently suported:
@@ -123,7 +133,8 @@ const Action = struct {
     /// Will return true if the `phrase` is correctly parsed into an RPN program and
     /// its reduced, computed value compares using `op` with the expected value, either
     /// a literal or another extracted variable.
-    fn computeCmp(act: Action, gpa: Allocator, global_vars: anytype) !bool {
+    fn computeCmp(act: Action, step: *Step, global_vars: anytype) !bool {
+        const gpa = step.owner.allocator;
         var op_stack = std.ArrayList(enum { add, sub, mod, mul }).init(gpa);
         var values = std.ArrayList(u64).init(gpa);
 
@@ -140,11 +151,11 @@ const Action = struct {
             } else {
                 const val = std.fmt.parseInt(u64, next, 0) catch blk: {
                     break :blk global_vars.get(next) orelse {
-                        std.debug.print(
+                        try step.addError(
                             \\
-                            \\========= Variable was not extracted: ===========
+                            \\========= variable was not extracted: ===========
                             \\{s}
-                            \\
+                            \\=================================================
                         , .{next});
                         return error.UnknownVariable;
                     };
@@ -176,11 +187,11 @@ const Action = struct {
 
         const exp_value = switch (act.expected.?.value) {
             .variable => |name| global_vars.get(name) orelse {
-                std.debug.print(
+                try step.addError(
                     \\
-                    \\========= Variable was not extracted: ===========
+                    \\========= variable was not extracted: ===========
                     \\{s}
-                    \\
+                    \\=================================================
                 , .{name});
                 return error.UnknownVariable;
             },
@@ -249,7 +260,7 @@ const Check = struct {
 
 /// Creates a new sequence of actions with `phrase` as the first anchor searched phrase.
 pub fn checkStart(self: *CheckObjectStep, phrase: []const u8) void {
-    var new_check = Check.create(self.builder);
+    var new_check = Check.create(self.step.owner);
     new_check.match(phrase);
     self.checks.append(new_check) catch @panic("OOM");
 }
@@ -291,34 +302,34 @@ pub fn checkComputeCompare(
     program: []const u8,
     expected: ComputeCompareExpected,
 ) void {
-    var new_check = Check.create(self.builder);
+    var new_check = Check.create(self.step.owner);
     new_check.computeCmp(program, expected);
     self.checks.append(new_check) catch @panic("OOM");
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
+    const b = step.owner;
+    const gpa = b.allocator;
     const self = @fieldParentPtr(CheckObjectStep, "step", step);
 
-    const gpa = self.builder.allocator;
-    const src_path = self.source.getPath(self.builder);
-    const contents = try fs.cwd().readFileAllocOptions(
+    const src_path = self.source.getPath(b);
+    const contents = fs.cwd().readFileAllocOptions(
         gpa,
         src_path,
         self.max_bytes,
         null,
         @alignOf(u64),
         null,
-    );
+    ) catch |err| return step.fail("unable to read '{s}': {s}", .{ src_path, @errorName(err) });
 
     const output = switch (self.obj_format) {
-        .macho => try MachODumper.parseAndDump(contents, .{
-            .gpa = gpa,
+        .macho => try MachODumper.parseAndDump(step, contents, .{
             .dump_symtab = self.dump_symtab,
         }),
         .elf => @panic("TODO elf parser"),
         .coff => @panic("TODO coff parser"),
-        .wasm => try WasmDumper.parseAndDump(contents, .{
-            .gpa = gpa,
+        .wasm => try WasmDumper.parseAndDump(step, contents, .{
             .dump_symtab = self.dump_symtab,
         }),
         else => unreachable,
@@ -334,54 +345,50 @@ fn make(step: *Step) !void {
                     while (it.next()) |line| {
                         if (try act.match(line, &vars)) break;
                     } else {
-                        std.debug.print(
+                        return step.fail(
                             \\
-                            \\========= Expected to find: ==========================
+                            \\========= expected to find: ==========================
                             \\{s}
-                            \\========= But parsed file does not contain it: =======
+                            \\========= but parsed file does not contain it: =======
                             \\{s}
-                            \\
+                            \\======================================================
                         , .{ act.phrase, output });
-                        return error.TestFailed;
                     }
                 },
                 .not_present => {
                     while (it.next()) |line| {
                         if (try act.match(line, &vars)) {
-                            std.debug.print(
+                            return step.fail(
                                 \\
-                                \\========= Expected not to find: ===================
+                                \\========= expected not to find: ===================
                                 \\{s}
-                                \\========= But parsed file does contain it: ========
+                                \\========= but parsed file does contain it: ========
                                 \\{s}
-                                \\
+                                \\===================================================
                             , .{ act.phrase, output });
-                            return error.TestFailed;
                         }
                     }
                 },
                 .compute_cmp => {
-                    const res = act.computeCmp(gpa, vars) catch |err| switch (err) {
+                    const res = act.computeCmp(step, vars) catch |err| switch (err) {
                         error.UnknownVariable => {
-                            std.debug.print(
-                                \\========= From parsed file: =====================
+                            return step.fail(
+                                \\========= from parsed file: =====================
                                 \\{s}
-                                \\
+                                \\=================================================
                             , .{output});
-                            return error.TestFailed;
                         },
                         else => |e| return e,
                     };
                     if (!res) {
-                        std.debug.print(
+                        return step.fail(
                             \\
-                            \\========= Comparison failed for action: ===========
+                            \\========= comparison failed for action: ===========
                             \\{s} {}
-                            \\========= From parsed file: =======================
+                            \\========= from parsed file: =======================
                             \\{s}
-                            \\
+                            \\===================================================
                         , .{ act.phrase, act.expected.?, output });
-                        return error.TestFailed;
                     }
                 },
             }
@@ -390,7 +397,6 @@ fn make(step: *Step) !void {
 }
 
 const Opts = struct {
-    gpa: ?Allocator = null,
     dump_symtab: bool = false,
 };
 
@@ -398,8 +404,8 @@ const MachODumper = struct {
     const LoadCommandIterator = macho.LoadCommandIterator;
     const symtab_label = "symtab";
 
-    fn parseAndDump(bytes: []align(@alignOf(u64)) const u8, opts: Opts) ![]const u8 {
-        const gpa = opts.gpa orelse unreachable; // MachO dumper requires an allocator
+    fn parseAndDump(step: *Step, bytes: []align(@alignOf(u64)) const u8, opts: Opts) ![]const u8 {
+        const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
 
@@ -681,8 +687,8 @@ const MachODumper = struct {
 const WasmDumper = struct {
     const symtab_label = "symbols";
 
-    fn parseAndDump(bytes: []const u8, opts: Opts) ![]const u8 {
-        const gpa = opts.gpa orelse unreachable; // Wasm dumper requires an allocator
+    fn parseAndDump(step: *Step, bytes: []const u8, opts: Opts) ![]const u8 {
+        const gpa = step.owner.allocator;
         if (opts.dump_symtab) {
             @panic("TODO: Implement symbol table parsing and dumping");
         }
@@ -703,20 +709,24 @@ const WasmDumper = struct {
         const writer = output.writer();
 
         while (reader.readByte()) |current_byte| {
-            const section = std.meta.intToEnum(std.wasm.Section, current_byte) catch |err| {
-                std.debug.print("Found invalid section id '{d}'\n", .{current_byte});
-                return err;
+            const section = std.meta.intToEnum(std.wasm.Section, current_byte) catch {
+                return step.fail("Found invalid section id '{d}'", .{current_byte});
             };
 
             const section_length = try std.leb.readULEB128(u32, reader);
-            try parseAndDumpSection(section, bytes[fbs.pos..][0..section_length], writer);
+            try parseAndDumpSection(step, section, bytes[fbs.pos..][0..section_length], writer);
             fbs.pos += section_length;
         } else |_| {} // reached end of stream
 
         return output.toOwnedSlice();
     }
 
-    fn parseAndDumpSection(section: std.wasm.Section, data: []const u8, writer: anytype) !void {
+    fn parseAndDumpSection(
+        step: *Step,
+        section: std.wasm.Section,
+        data: []const u8,
+        writer: anytype,
+    ) !void {
         var fbs = std.io.fixedBufferStream(data);
         const reader = fbs.reader();
 
@@ -739,7 +749,7 @@ const WasmDumper = struct {
             => {
                 const entries = try std.leb.readULEB128(u32, reader);
                 try writer.print("\nentries {d}\n", .{entries});
-                try dumpSection(section, data[fbs.pos..], entries, writer);
+                try dumpSection(step, section, data[fbs.pos..], entries, writer);
             },
             .custom => {
                 const name_length = try std.leb.readULEB128(u32, reader);
@@ -748,7 +758,7 @@ const WasmDumper = struct {
                 try writer.print("\nname {s}\n", .{name});
 
                 if (mem.eql(u8, name, "name")) {
-                    try parseDumpNames(reader, writer, data);
+                    try parseDumpNames(step, reader, writer, data);
                 } else if (mem.eql(u8, name, "producers")) {
                     try parseDumpProducers(reader, writer, data);
                 } else if (mem.eql(u8, name, "target_features")) {
@@ -764,7 +774,7 @@ const WasmDumper = struct {
         }
     }
 
-    fn dumpSection(section: std.wasm.Section, data: []const u8, entries: u32, writer: anytype) !void {
+    fn dumpSection(step: *Step, section: std.wasm.Section, data: []const u8, entries: u32, writer: anytype) !void {
         var fbs = std.io.fixedBufferStream(data);
         const reader = fbs.reader();
 
@@ -774,19 +784,18 @@ const WasmDumper = struct {
                 while (i < entries) : (i += 1) {
                     const func_type = try reader.readByte();
                     if (func_type != std.wasm.function_type) {
-                        std.debug.print("Expected function type, found byte '{d}'\n", .{func_type});
-                        return error.UnexpectedByte;
+                        return step.fail("expected function type, found byte '{d}'", .{func_type});
                     }
                     const params = try std.leb.readULEB128(u32, reader);
                     try writer.print("params {d}\n", .{params});
                     var index: u32 = 0;
                     while (index < params) : (index += 1) {
-                        try parseDumpType(std.wasm.Valtype, reader, writer);
+                        try parseDumpType(step, std.wasm.Valtype, reader, writer);
                     } else index = 0;
                     const returns = try std.leb.readULEB128(u32, reader);
                     try writer.print("returns {d}\n", .{returns});
                     while (index < returns) : (index += 1) {
-                        try parseDumpType(std.wasm.Valtype, reader, writer);
+                        try parseDumpType(step, std.wasm.Valtype, reader, writer);
                     }
                 }
             },
@@ -800,9 +809,8 @@ const WasmDumper = struct {
                     const name = data[fbs.pos..][0..name_len];
                     fbs.pos += name_len;
 
-                    const kind = std.meta.intToEnum(std.wasm.ExternalKind, try reader.readByte()) catch |err| {
-                        std.debug.print("Invalid import kind\n", .{});
-                        return err;
+                    const kind = std.meta.intToEnum(std.wasm.ExternalKind, try reader.readByte()) catch {
+                        return step.fail("invalid import kind", .{});
                     };
 
                     try writer.print(
@@ -819,11 +827,11 @@ const WasmDumper = struct {
                             try parseDumpLimits(reader, writer);
                         },
                         .global => {
-                            try parseDumpType(std.wasm.Valtype, reader, writer);
+                            try parseDumpType(step, std.wasm.Valtype, reader, writer);
                             try writer.print("mutable {}\n", .{0x01 == try std.leb.readULEB128(u32, reader)});
                         },
                         .table => {
-                            try parseDumpType(std.wasm.RefType, reader, writer);
+                            try parseDumpType(step, std.wasm.RefType, reader, writer);
                             try parseDumpLimits(reader, writer);
                         },
                     }
@@ -838,7 +846,7 @@ const WasmDumper = struct {
             .table => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    try parseDumpType(std.wasm.RefType, reader, writer);
+                    try parseDumpType(step, std.wasm.RefType, reader, writer);
                     try parseDumpLimits(reader, writer);
                 }
             },
@@ -851,9 +859,9 @@ const WasmDumper = struct {
             .global => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    try parseDumpType(std.wasm.Valtype, reader, writer);
+                    try parseDumpType(step, std.wasm.Valtype, reader, writer);
                     try writer.print("mutable {}\n", .{0x01 == try std.leb.readULEB128(u1, reader)});
-                    try parseDumpInit(reader, writer);
+                    try parseDumpInit(step, reader, writer);
                 }
             },
             .@"export" => {
@@ -863,9 +871,8 @@ const WasmDumper = struct {
                     const name = data[fbs.pos..][0..name_len];
                     fbs.pos += name_len;
                     const kind_byte = try std.leb.readULEB128(u8, reader);
-                    const kind = std.meta.intToEnum(std.wasm.ExternalKind, kind_byte) catch |err| {
-                        std.debug.print("invalid export kind value '{d}'\n", .{kind_byte});
-                        return err;
+                    const kind = std.meta.intToEnum(std.wasm.ExternalKind, kind_byte) catch {
+                        return step.fail("invalid export kind value '{d}'", .{kind_byte});
                     };
                     const index = try std.leb.readULEB128(u32, reader);
                     try writer.print(
@@ -880,7 +887,7 @@ const WasmDumper = struct {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
                     try writer.print("table index {d}\n", .{try std.leb.readULEB128(u32, reader)});
-                    try parseDumpInit(reader, writer);
+                    try parseDumpInit(step, reader, writer);
 
                     const function_indexes = try std.leb.readULEB128(u32, reader);
                     var function_index: u32 = 0;
@@ -896,7 +903,7 @@ const WasmDumper = struct {
                 while (i < entries) : (i += 1) {
                     const index = try std.leb.readULEB128(u32, reader);
                     try writer.print("memory index 0x{x}\n", .{index});
-                    try parseDumpInit(reader, writer);
+                    try parseDumpInit(step, reader, writer);
                     const size = try std.leb.readULEB128(u32, reader);
                     try writer.print("size {d}\n", .{size});
                     try reader.skipBytes(size, .{}); // we do not care about the content of the segments
@@ -906,11 +913,10 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseDumpType(comptime WasmType: type, reader: anytype, writer: anytype) !void {
+    fn parseDumpType(step: *Step, comptime WasmType: type, reader: anytype, writer: anytype) !void {
         const type_byte = try reader.readByte();
-        const valtype = std.meta.intToEnum(WasmType, type_byte) catch |err| {
-            std.debug.print("Invalid wasm type value '{d}'\n", .{type_byte});
-            return err;
+        const valtype = std.meta.intToEnum(WasmType, type_byte) catch {
+            return step.fail("Invalid wasm type value '{d}'", .{type_byte});
         };
         try writer.print("type {s}\n", .{@tagName(valtype)});
     }
@@ -925,11 +931,10 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseDumpInit(reader: anytype, writer: anytype) !void {
+    fn parseDumpInit(step: *Step, reader: anytype, writer: anytype) !void {
         const byte = try std.leb.readULEB128(u8, reader);
-        const opcode = std.meta.intToEnum(std.wasm.Opcode, byte) catch |err| {
-            std.debug.print("invalid wasm opcode '{d}'\n", .{byte});
-            return err;
+        const opcode = std.meta.intToEnum(std.wasm.Opcode, byte) catch {
+            return step.fail("invalid wasm opcode '{d}'", .{byte});
         };
         switch (opcode) {
             .i32_const => try writer.print("i32.const {x}\n", .{try std.leb.readILEB128(i32, reader)}),
@@ -941,14 +946,13 @@ const WasmDumper = struct {
         }
         const end_opcode = try std.leb.readULEB128(u8, reader);
         if (end_opcode != std.wasm.opcode(.end)) {
-            std.debug.print("expected 'end' opcode in init expression\n", .{});
-            return error.MissingEndOpcode;
+            return step.fail("expected 'end' opcode in init expression", .{});
         }
     }
 
-    fn parseDumpNames(reader: anytype, writer: anytype, data: []const u8) !void {
+    fn parseDumpNames(step: *Step, reader: anytype, writer: anytype, data: []const u8) !void {
         while (reader.context.pos < data.len) {
-            try parseDumpType(std.wasm.NameSubsection, reader, writer);
+            try parseDumpType(step, std.wasm.NameSubsection, reader, writer);
             const size = try std.leb.readULEB128(u32, reader);
             const entries = try std.leb.readULEB128(u32, reader);
             try writer.print(

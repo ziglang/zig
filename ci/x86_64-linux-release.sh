@@ -67,7 +67,7 @@ stage3-release/bin/zig build test docs \
   --zig-lib-dir "$(pwd)/../lib"
 
 # Look for HTML errors.
-tidy --drop-empty-elements no -qe "$ZIG_LOCAL_CACHE_DIR/langref.html"
+tidy --drop-empty-elements no -qe "stage3-release/doc/langref.html"
 
 # Produce the experimental std lib documentation.
 stage3-release/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-lib-dir ../lib
@@ -114,3 +114,9 @@ unset CXX
 ninja install
 
 stage3/bin/zig test ../test/behavior.zig -I../test
+stage3/bin/zig build -p stage4 \
+  -Dstatic-llvm \
+  -Dtarget=native-native-musl \
+  --search-prefix "$PREFIX" \
+  --zig-lib-dir "$(pwd)/../lib"
+stage4/bin/zig test ../test/behavior.zig -I../test

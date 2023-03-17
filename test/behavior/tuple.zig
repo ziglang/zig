@@ -126,7 +126,6 @@ test "tuple initializer for var" {
 }
 
 test "array-like initializer for tuple types" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -396,4 +395,23 @@ test "nested runtime conditionals in tuple initializer" {
         },
     };
     try expectEqualStrings("up", x[0]);
+}
+
+test "sentinel slice in tuple with other fields" {
+    const S = struct {
+        a: u32,
+        b: u32,
+    };
+
+    const Submission = union(enum) {
+        open: struct { *S, [:0]const u8, u32 },
+    };
+
+    _ = Submission;
+}
+
+test "sentinel slice in tuple" {
+    const S = struct { [:0]const u8 };
+
+    _ = S;
 }

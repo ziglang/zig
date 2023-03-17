@@ -78,7 +78,6 @@ test "const result loc, runtime if cond, else unreachable" {
 }
 
 test "if copies its payload" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 

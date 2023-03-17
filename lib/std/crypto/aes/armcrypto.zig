@@ -32,62 +32,54 @@ pub const Block = struct {
     /// Encrypt a block with a round key.
     pub inline fn encrypt(block: Block, round_key: Block) Block {
         return Block{
-            .repr = asm (
+            .repr = (asm (
                 \\ mov   %[out].16b, %[in].16b
                 \\ aese  %[out].16b, %[zero].16b
                 \\ aesmc %[out].16b, %[out].16b
-                \\ eor   %[out].16b, %[out].16b, %[rk].16b
                 : [out] "=&x" (-> BlockVec),
                 : [in] "x" (block.repr),
-                  [rk] "x" (round_key.repr),
                   [zero] "x" (zero),
-            ),
+            )) ^ round_key.repr,
         };
     }
 
     /// Encrypt a block with the last round key.
     pub inline fn encryptLast(block: Block, round_key: Block) Block {
         return Block{
-            .repr = asm (
+            .repr = (asm (
                 \\ mov   %[out].16b, %[in].16b
                 \\ aese  %[out].16b, %[zero].16b
-                \\ eor   %[out].16b, %[out].16b, %[rk].16b
                 : [out] "=&x" (-> BlockVec),
                 : [in] "x" (block.repr),
-                  [rk] "x" (round_key.repr),
                   [zero] "x" (zero),
-            ),
+            )) ^ round_key.repr,
         };
     }
 
     /// Decrypt a block with a round key.
     pub inline fn decrypt(block: Block, inv_round_key: Block) Block {
         return Block{
-            .repr = asm (
+            .repr = (asm (
                 \\ mov   %[out].16b, %[in].16b
                 \\ aesd  %[out].16b, %[zero].16b
                 \\ aesimc %[out].16b, %[out].16b
-                \\ eor   %[out].16b, %[out].16b, %[rk].16b
                 : [out] "=&x" (-> BlockVec),
                 : [in] "x" (block.repr),
-                  [rk] "x" (inv_round_key.repr),
                   [zero] "x" (zero),
-            ),
+            )) ^ inv_round_key.repr,
         };
     }
 
     /// Decrypt a block with the last round key.
     pub inline fn decryptLast(block: Block, inv_round_key: Block) Block {
         return Block{
-            .repr = asm (
+            .repr = (asm (
                 \\ mov   %[out].16b, %[in].16b
                 \\ aesd  %[out].16b, %[zero].16b
-                \\ eor   %[out].16b, %[out].16b, %[rk].16b
                 : [out] "=&x" (-> BlockVec),
                 : [in] "x" (block.repr),
-                  [rk] "x" (inv_round_key.repr),
                   [zero] "x" (zero),
-            ),
+            )) ^ inv_round_key.repr,
         };
     }
 

@@ -51,6 +51,7 @@ pub fn emitMir(
 
             .ebreak => try emit.mirSystem(inst),
             .ecall => try emit.mirSystem(inst),
+            .unimp => try emit.mirSystem(inst),
 
             .dbg_line => try emit.mirDbgLine(inst),
 
@@ -153,6 +154,7 @@ fn mirSystem(emit: *Emit, inst: Mir.Inst.Index) !void {
     switch (tag) {
         .ebreak => try emit.writeInstruction(Instruction.ebreak),
         .ecall => try emit.writeInstruction(Instruction.ecall),
+        .unimp => try emit.writeInstruction(Instruction.unimp),
         else => unreachable,
     }
 }

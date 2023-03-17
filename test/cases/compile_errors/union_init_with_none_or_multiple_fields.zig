@@ -28,10 +28,11 @@ export fn u2m() void {
 // target=native
 //
 // :9:1: error: union initializer must initialize one field
+// :1:12: note: union declared here
 // :14:20: error: cannot initialize multiple union fields at once, unions can only have one active field
 // :14:31: note: additional initializer here
+// :1:12: note: union declared here
 // :18:21: error: union initializer must initialize one field
 // :22:20: error: cannot initialize multiple union fields at once, unions can only have one active field
 // :22:31: note: additional initializer here
-// :1:12: note: union declared here
 // :5:12: note: union declared here

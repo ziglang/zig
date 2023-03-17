@@ -19,6 +19,9 @@ pub const AllocateRegistersError = error{
     /// Can happen when spilling an instruction in codegen runs out of
     /// memory, so we propagate that error
     OutOfMemory,
+    /// Can happen when spilling an instruction in codegen triggers integer
+    /// overflow, so we propagate that error
+    Overflow,
     /// Can happen when spilling an instruction triggers a codegen
     /// error, so we propagate that error
     CodegenFail,

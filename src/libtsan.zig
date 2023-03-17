@@ -5,7 +5,7 @@ const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
 
-pub fn buildTsan(comp: *Compilation) !void {
+pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -235,7 +235,7 @@ pub fn buildTsan(comp: *Compilation) !void {
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.updateSubCompilation();
+    try comp.updateSubCompilation(sub_compilation, .libtsan, prog_node);
 
     assert(comp.tsan_static_lib == null);
     comp.tsan_static_lib = Compilation.CRTFile{

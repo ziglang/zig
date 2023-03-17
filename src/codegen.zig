@@ -29,11 +29,10 @@ pub const Result = union(enum) {
     fail: *ErrorMsg,
 };
 
-pub const GenerateSymbolError = error{
+pub const CodeGenError = error{
     OutOfMemory,
     Overflow,
-    /// A Decl that this symbol depends on had a semantic analysis failure.
-    AnalysisFail,
+    CodegenFail,
 };
 
 pub const DebugInfoOutput = union(enum) {
@@ -63,19 +62,6 @@ pub const DebugInfoOutput = union(enum) {
     none,
 };
 
-/// Helper struct to denote that the value is in memory but requires a linker relocation fixup:
-/// * got - the value is referenced indirectly via GOT entry index (the linker emits a got-type reloc)
-/// * direct - the value is referenced directly via symbol index index (the linker emits a displacement reloc)
-/// * import - the value is referenced indirectly via import entry index (the linker emits an import-type reloc)
-pub const LinkerLoad = struct {
-    type: enum {
-        got,
-        direct,
-        import,
-    },
-    sym_index: u32,
-};
-
 pub fn generateFunction(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
@@ -84,7 +70,7 @@ pub fn generateFunction(
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
-) GenerateSymbolError!Result {
+) CodeGenError!Result {
     switch (bin_file.options.target.cpu.arch) {
         .arm,
         .armeb,
@@ -120,7 +106,7 @@ pub fn generateSymbol(
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
-) GenerateSymbolError!Result {
+) CodeGenError!Result {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -823,7 +809,7 @@ fn lowerDeclRef(
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
-) GenerateSymbolError!Result {
+) CodeGenError!Result {
     const target = bin_file.options.target;
     const module = bin_file.options.module.?;
     if (typed_value.ty.isSlice()) {
@@ -878,6 +864,288 @@ fn lowerDeclRef(
     }
 
     return Result.ok;
+}
+
+/// Helper struct to denote that the value is in memory but requires a linker relocation fixup:
+/// * got - the value is referenced indirectly via GOT entry index (the linker emits a got-type reloc)
+/// * direct - the value is referenced directly via symbol index index (the linker emits a displacement reloc)
+/// * import - the value is referenced indirectly via import entry index (the linker emits an import-type reloc)
+pub const LinkerLoad = struct {
+    type: enum {
+        got,
+        direct,
+        import,
+    },
+    sym_index: u32,
+};
+
+pub const GenResult = union(enum) {
+    mcv: MCValue,
+    fail: *ErrorMsg,
+
+    const MCValue = union(enum) {
+        none,
+        undef,
+        /// The bit-width of the immediate may be smaller than `u64`. For example, on 32-bit targets
+        /// such as ARM, the immediate will never exceed 32-bits.
+        immediate: u64,
+        linker_load: LinkerLoad,
+        /// Direct by-address reference to memory location.
+        memory: u64,
+    };
+
+    fn mcv(val: MCValue) GenResult {
+        return .{ .mcv = val };
+    }
+
+    fn fail(
+        gpa: Allocator,
+        src_loc: Module.SrcLoc,
+        comptime format: []const u8,
+        args: anytype,
+    ) Allocator.Error!GenResult {
+        const msg = try ErrorMsg.create(gpa, src_loc, format, args);
+        return .{ .fail = msg };
+    }
+};
+
+fn genDeclRef(
+    bin_file: *link.File,
+    src_loc: Module.SrcLoc,
+    tv: TypedValue,
+    decl_index: Module.Decl.Index,
+) CodeGenError!GenResult {
+    log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
+
+    const target = bin_file.options.target;
+    const ptr_bits = target.cpu.arch.ptrBitWidth();
+    const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+
+    const module = bin_file.options.module.?;
+    const decl = module.declPtr(decl_index);
+
+    if (decl.ty.zigTypeTag() != .Fn and !decl.ty.hasRuntimeBitsIgnoreComptime()) {
+        const imm: u64 = switch (ptr_bytes) {
+            1 => 0xaa,
+            2 => 0xaaaa,
+            4 => 0xaaaaaaaa,
+            8 => 0xaaaaaaaaaaaaaaaa,
+            else => unreachable,
+        };
+        return GenResult.mcv(.{ .immediate = imm });
+    }
+
+    // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
+    if (tv.ty.zigTypeTag() == .Pointer) blk: {
+        if (tv.ty.castPtrToFn()) |_| break :blk;
+        if (!tv.ty.elemType2().hasRuntimeBits()) {
+            return GenResult.mcv(.none);
+        }
+    }
+
+    module.markDeclAlive(decl);
+
+    if (bin_file.cast(link.File.Elf)) |elf_file| {
+        const atom_index = try elf_file.getOrCreateAtomForDecl(decl_index);
+        const atom = elf_file.getAtom(atom_index);
+        return GenResult.mcv(.{ .memory = atom.getOffsetTableAddress(elf_file) });
+    } else if (bin_file.cast(link.File.MachO)) |macho_file| {
+        const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
+        const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
+        return GenResult.mcv(.{ .linker_load = .{
+            .type = .got,
+            .sym_index = sym_index,
+        } });
+    } else if (bin_file.cast(link.File.Coff)) |coff_file| {
+        const atom_index = try coff_file.getOrCreateAtomForDecl(decl_index);
+        const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
+        return GenResult.mcv(.{ .linker_load = .{
+            .type = .got,
+            .sym_index = sym_index,
+        } });
+    } else if (bin_file.cast(link.File.Plan9)) |p9| {
+        const decl_block_index = try p9.seeDecl(decl_index);
+        const decl_block = p9.getDeclBlock(decl_block_index);
+        const got_addr = p9.bases.data + decl_block.got_index.? * ptr_bytes;
+        return GenResult.mcv(.{ .memory = got_addr });
+    } else {
+        return GenResult.fail(bin_file.allocator, src_loc, "TODO genDeclRef for target {}", .{target});
+    }
+}
+
+fn genUnnamedConst(
+    bin_file: *link.File,
+    src_loc: Module.SrcLoc,
+    tv: TypedValue,
+    owner_decl_index: Module.Decl.Index,
+) CodeGenError!GenResult {
+    log.debug("genUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
+
+    const target = bin_file.options.target;
+    const local_sym_index = bin_file.lowerUnnamedConst(tv, owner_decl_index) catch |err| {
+        return GenResult.fail(bin_file.allocator, src_loc, "lowering unnamed constant failed: {s}", .{@errorName(err)});
+    };
+    if (bin_file.cast(link.File.Elf)) |elf_file| {
+        return GenResult.mcv(.{ .memory = elf_file.getSymbol(local_sym_index).st_value });
+    } else if (bin_file.cast(link.File.MachO)) |_| {
+        return GenResult.mcv(.{ .linker_load = .{
+            .type = .direct,
+            .sym_index = local_sym_index,
+        } });
+    } else if (bin_file.cast(link.File.Coff)) |_| {
+        return GenResult.mcv(.{ .linker_load = .{
+            .type = .direct,
+            .sym_index = local_sym_index,
+        } });
+    } else if (bin_file.cast(link.File.Plan9)) |p9| {
+        const ptr_bits = target.cpu.arch.ptrBitWidth();
+        const ptr_bytes: u64 = @divExact(ptr_bits, 8);
+        const got_index = local_sym_index; // the plan9 backend returns the got_index
+        const got_addr = p9.bases.data + got_index * ptr_bytes;
+        return GenResult.mcv(.{ .memory = got_addr });
+    } else {
+        return GenResult.fail(bin_file.allocator, src_loc, "TODO genUnnamedConst for target {}", .{target});
+    }
+}
+
+pub fn genTypedValue(
+    bin_file: *link.File,
+    src_loc: Module.SrcLoc,
+    arg_tv: TypedValue,
+    owner_decl_index: Module.Decl.Index,
+) CodeGenError!GenResult {
+    var typed_value = arg_tv;
+    if (typed_value.val.castTag(.runtime_value)) |rt| {
+        typed_value.val = rt.data;
+    }
+
+    log.debug("genTypedValue: ty = {}, val = {}", .{ typed_value.ty.fmtDebug(), typed_value.val.fmtDebug() });
+
+    if (typed_value.val.isUndef())
+        return GenResult.mcv(.undef);
+
+    const target = bin_file.options.target;
+    const ptr_bits = target.cpu.arch.ptrBitWidth();
+
+    if (typed_value.val.castTag(.decl_ref)) |payload| {
+        return genDeclRef(bin_file, src_loc, typed_value, payload.data);
+    }
+    if (typed_value.val.castTag(.decl_ref_mut)) |payload| {
+        return genDeclRef(bin_file, src_loc, typed_value, payload.data.decl_index);
+    }
+
+    switch (typed_value.ty.zigTypeTag()) {
+        .Void => return GenResult.mcv(.none),
+        .Pointer => switch (typed_value.ty.ptrSize()) {
+            .Slice => {},
+            else => {
+                switch (typed_value.val.tag()) {
+                    .int_u64 => {
+                        return GenResult.mcv(.{ .immediate = typed_value.val.toUnsignedInt(target) });
+                    },
+                    else => {},
+                }
+            },
+        },
+        .Int => {
+            const info = typed_value.ty.intInfo(target);
+            if (info.bits <= ptr_bits) {
+                const unsigned = switch (info.signedness) {
+                    .signed => @bitCast(u64, typed_value.val.toSignedInt(target)),
+                    .unsigned => typed_value.val.toUnsignedInt(target),
+                };
+                return GenResult.mcv(.{ .immediate = unsigned });
+            }
+        },
+        .Bool => {
+            return GenResult.mcv(.{ .immediate = @boolToInt(typed_value.val.toBool()) });
+        },
+        .Optional => {
+            if (typed_value.ty.isPtrLikeOptional()) {
+                if (typed_value.val.isNull())
+                    return GenResult.mcv(.{ .immediate = 0 });
+
+                var buf: Type.Payload.ElemType = undefined;
+                return genTypedValue(bin_file, src_loc, .{
+                    .ty = typed_value.ty.optionalChild(&buf),
+                    .val = typed_value.val,
+                }, owner_decl_index);
+            } else if (typed_value.ty.abiSize(target) == 1) {
+                return GenResult.mcv(.{ .immediate = @boolToInt(!typed_value.val.isNull()) });
+            }
+        },
+        .Enum => {
+            if (typed_value.val.castTag(.enum_field_index)) |field_index| {
+                switch (typed_value.ty.tag()) {
+                    .enum_simple => {
+                        return GenResult.mcv(.{ .immediate = field_index.data });
+                    },
+                    .enum_full, .enum_nonexhaustive => {
+                        const enum_full = typed_value.ty.cast(Type.Payload.EnumFull).?.data;
+                        if (enum_full.values.count() != 0) {
+                            const tag_val = enum_full.values.keys()[field_index.data];
+                            return genTypedValue(bin_file, src_loc, .{
+                                .ty = enum_full.tag_ty,
+                                .val = tag_val,
+                            }, owner_decl_index);
+                        } else {
+                            return GenResult.mcv(.{ .immediate = field_index.data });
+                        }
+                    },
+                    else => unreachable,
+                }
+            } else {
+                var int_tag_buffer: Type.Payload.Bits = undefined;
+                const int_tag_ty = typed_value.ty.intTagType(&int_tag_buffer);
+                return genTypedValue(bin_file, src_loc, .{
+                    .ty = int_tag_ty,
+                    .val = typed_value.val,
+                }, owner_decl_index);
+            }
+        },
+        .ErrorSet => {
+            switch (typed_value.val.tag()) {
+                .@"error" => {
+                    const err_name = typed_value.val.castTag(.@"error").?.data.name;
+                    const module = bin_file.options.module.?;
+                    const global_error_set = module.global_error_set;
+                    const error_index = global_error_set.get(err_name).?;
+                    return GenResult.mcv(.{ .immediate = error_index });
+                },
+                else => {
+                    // In this case we are rendering an error union which has a 0 bits payload.
+                    return GenResult.mcv(.{ .immediate = 0 });
+                },
+            }
+        },
+        .ErrorUnion => {
+            const error_type = typed_value.ty.errorUnionSet();
+            const payload_type = typed_value.ty.errorUnionPayload();
+            const is_pl = typed_value.val.errorUnionIsPayload();
+
+            if (!payload_type.hasRuntimeBitsIgnoreComptime()) {
+                // We use the error type directly as the type.
+                const err_val = if (!is_pl) typed_value.val else Value.initTag(.zero);
+                return genTypedValue(bin_file, src_loc, .{
+                    .ty = error_type,
+                    .val = err_val,
+                }, owner_decl_index);
+            }
+        },
+
+        .ComptimeInt => unreachable,
+        .ComptimeFloat => unreachable,
+        .Type => unreachable,
+        .EnumLiteral => unreachable,
+        .NoReturn => unreachable,
+        .Undefined => unreachable,
+        .Null => unreachable,
+        .Opaque => unreachable,
+
+        else => {},
+    }
+
+    return genUnnamedConst(bin_file, src_loc, typed_value, owner_decl_index);
 }
 
 pub fn errUnionPayloadOffset(payload_ty: Type, target: std.Target) u64 {

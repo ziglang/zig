@@ -380,6 +380,7 @@ pub const Instruction = union(enum) {
 
     pub const ecall = iType(0b1110011, 0b000, .zero, .zero, 0x000);
     pub const ebreak = iType(0b1110011, 0b000, .zero, .zero, 0x001);
+    pub const unimp = iType(0, 0, .zero, .zero, 0);
 };
 
 pub const Register = enum(u6) {
