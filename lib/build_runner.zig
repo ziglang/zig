@@ -151,8 +151,7 @@ pub fn main() !void {
                     std.debug.print("Expected argument after {s}\n\n", .{arg});
                     usageAndErr(builder, false, stderr_stream);
                 };
-                // TODO: support shorthand such as "2GiB", "2GB", or "2G"
-                max_rss = std.fmt.parseInt(usize, max_rss_text, 10) catch |err| {
+                max_rss = std.fmt.parseIntSizeSuffix(max_rss_text, 10) catch |err| {
                     std.debug.print("invalid byte size: '{s}': {s}\n", .{
                         max_rss_text, @errorName(err),
                     });
