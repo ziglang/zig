@@ -3852,11 +3852,15 @@ fn runOrTestHotSwap(
     switch (builtin.target.os.tag) {
         .macos, .ios, .tvos, .watchos => {
             const PosixSpawn = std.os.darwin.PosixSpawn;
+
             var attr = try PosixSpawn.Attr.init();
             defer attr.deinit();
-            const flags: u16 = std.os.darwin.POSIX_SPAWN_SETSIGDEF |
-                std.os.darwin.POSIX_SPAWN_SETSIGMASK |
-                std.os.darwin._POSIX_SPAWN_DISABLE_ASLR;
+
+            // ASLR is probably a good default for better debugging experience/programming
+            // with hot-code updates in mind. However, we can also make it work with ASLR on.
+            const flags: u16 = std.os.darwin.POSIX_SPAWN.SETSIGDEF |
+                std.os.darwin.POSIX_SPAWN.SETSIGMASK |
+                std.os.darwin.POSIX_SPAWN.DISABLE_ASLR;
             try attr.set(flags);
 
             var arena_allocator = std.heap.ArenaAllocator.init(gpa);

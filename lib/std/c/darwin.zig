@@ -3033,16 +3033,18 @@ pub const caddr_t = ?[*]u8;
 
 pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: caddr_t, data: c_int) c_int;
 
-pub const POSIX_SPAWN_RESETIDS = 0x0001;
-pub const POSIX_SPAWN_SETPGROUP = 0x0002;
-pub const POSIX_SPAWN_SETSIGDEF = 0x0004;
-pub const POSIX_SPAWN_SETSIGMASK = 0x0008;
-pub const POSIX_SPAWN_SETEXEC = 0x0040;
-pub const POSIX_SPAWN_START_SUSPENDED = 0x0080;
-pub const _POSIX_SPAWN_DISABLE_ASLR = 0x0100;
-pub const POSIX_SPAWN_SETSID = 0x0400;
-pub const _POSIX_SPAWN_RESLIDE = 0x0800;
-pub const POSIX_SPAWN_CLOEXEC_DEFAULT = 0x4000;
+pub const POSIX_SPAWN = struct {
+    pub const RESETIDS = 0x0001;
+    pub const SETPGROUP = 0x0002;
+    pub const SETSIGDEF = 0x0004;
+    pub const SETSIGMASK = 0x0008;
+    pub const SETEXEC = 0x0040;
+    pub const START_SUSPENDED = 0x0080;
+    pub const DISABLE_ASLR = 0x0100;
+    pub const SETSID = 0x0400;
+    pub const RESLIDE = 0x0800;
+    pub const CLOEXEC_DEFAULT = 0x4000;
+};
 
 pub const posix_spawnattr_t = *opaque {};
 pub const posix_spawn_file_actions_t = *opaque {};
