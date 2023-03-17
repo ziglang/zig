@@ -60,7 +60,7 @@ verbose_cimport: bool,
 verbose_llvm_cpu_features: bool,
 reference_trace: ?u32 = null,
 invalid_user_input: bool,
-zig_exe: []const u8,
+zig_exe: [:0]const u8,
 default_step: *Step,
 env_map: *EnvMap,
 top_level_steps: std.StringArrayHashMapUnmanaged(*TopLevelStep),
@@ -184,7 +184,7 @@ pub const DirList = struct {
 
 pub fn create(
     allocator: Allocator,
-    zig_exe: []const u8,
+    zig_exe: [:0]const u8,
     build_root: Cache.Directory,
     cache_root: Cache.Directory,
     global_cache_root: Cache.Directory,
