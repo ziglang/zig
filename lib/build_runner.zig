@@ -1008,13 +1008,13 @@ fn usageAndErr(builder: *std.Build, already_ran_build: bool, out_stream: anytype
     process.exit(1);
 }
 
-fn nextArg(args: [][]const u8, idx: *usize) ?[]const u8 {
+fn nextArg(args: [][:0]const u8, idx: *usize) ?[:0]const u8 {
     if (idx.* >= args.len) return null;
     defer idx.* += 1;
     return args[idx.*];
 }
 
-fn argsRest(args: [][]const u8, idx: usize) ?[][]const u8 {
+fn argsRest(args: [][:0]const u8, idx: usize) ?[][:0]const u8 {
     if (idx >= args.len) return null;
     return args[idx..];
 }
