@@ -21,6 +21,38 @@ pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
 
+/// The set of all errors returned by public functions in this file
+pub const Error = error{
+    TestUnexpectedError,
+    TestExpectedError,
+    TestExpectedEqual,
+    TestExpectedFmt,
+    TestExpectedApproxEqAbs,
+    TestExpectedApproxEqRel,
+    TestUnexpectedResult,
+    TestExpectedStartsWith,
+    TestExpectedEndsWith,
+    SwallowedOutOfMemoryError,
+    NondeterministicMemoryUsage,
+    MemoryLeakDetected,
+};
+
+test Error {
+    // verify that Error contains exactly all possible errors and nothing more
+    if (true) return error.SkipZigTest; // TODO re-enable after #14991 is fixed
+    // TODO verify that Error doesn't contain extra errors which are not present
+    //      in any function. as is, this only verifies that pub fns don't
+    //      contain extra errors.
+    inline for (comptime std.meta.declarations(@This())) |decl| {
+        if (!decl.is_pub) continue;
+        const decl_info = @typeInfo(@TypeOf(@field(@This(), decl.name)));
+        if (decl_info != .Fn) continue;
+        const ret_type = decl_info.Fn.return_type orelse continue;
+        const fn_error_set = @typeInfo(ret_type).ErrorUnion.error_set;
+        try expect(Error || fn_error_set == Error);
+    }
+}
+
 fn print(comptime fmt: []const u8, args: anytype) void {
     // Disable printing in tests for simple backends.
     if (builtin.zig_backend == .stage2_spirv64) return;
@@ -691,8 +723,9 @@ pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) 
 /// Container types(like Array/Slice/Vector) deeply equal when their corresponding elements are deeply equal.
 /// Pointer values are deeply equal if values they point to are deeply equal.
 ///
-/// Note: Self-referential structs are not supported (e.g. things like std.SinglyLinkedList)
-pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) !void {
+/// Note: Self-referential structs are supported (e.g. things like std.SinglyLinkedList)
+/// but may cause infinite recursion or stack overflow when a container has a pointer to itself.
+pub fn expectEqualDeep(expected: anytype, actual: @TypeOf(expected)) Error!void {
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
         .Opaque,
