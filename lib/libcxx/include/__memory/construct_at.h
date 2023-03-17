@@ -83,6 +83,16 @@ _ForwardIterator __destroy(_ForwardIterator __first, _ForwardIterator __last) {
     return __first;
 }
 
+template <class _BidirectionalIterator>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
+_BidirectionalIterator __reverse_destroy(_BidirectionalIterator __first, _BidirectionalIterator __last) {
+    while (__last != __first) {
+        --__last;
+        std::__destroy_at(std::addressof(*__last));
+    }
+    return __last;
+}
+
 #if _LIBCPP_STD_VER > 14
 
 template <class _Tp, enable_if_t<!is_array_v<_Tp>, int> = 0>

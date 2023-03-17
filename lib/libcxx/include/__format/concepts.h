@@ -66,9 +66,8 @@ concept formattable = __formattable<_Tp, _CharT>;
 // TODO FMT Add a test to validate we fail when using that concept after P2165
 // has been implemented.
 template <class _Tp>
-concept __fmt_pair_like = __is_specialization_v<_Tp, pair> ||
-                          // Use a requires since tuple_size_v may fail to instantiate,
-                          (__is_specialization_v<_Tp, tuple> && requires { tuple_size_v<_Tp> == 2; });
+concept __fmt_pair_like =
+    __is_specialization_v<_Tp, pair> || (__is_specialization_v<_Tp, tuple> && tuple_size_v<_Tp> == 2);
 
 #  endif //_LIBCPP_STD_VER > 20
 #endif //_LIBCPP_STD_VER > 17

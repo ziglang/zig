@@ -134,6 +134,15 @@
 #    define _LIBCPP_ABI_DO_NOT_EXPORT_VECTOR_BASE_COMMON
 // According to the Standard, `bitset::operator[] const` returns bool
 #    define _LIBCPP_ABI_BITSET_VECTOR_BOOL_CONST_SUBSCRIPT_RETURN_BOOL
+// Fix the implementation of CityHash used for std::hash<fundamental-type>.
+// This is an ABI break because `std::hash` will return a different result,
+// which means that hashing the same object in translation units built against
+// different versions of libc++ can return inconsistent results. This is especially
+// tricky since std::hash is used in the implementation of unordered containers.
+//
+// The incorrect implementation of CityHash has the problem that it drops some
+// bits on the floor.
+#    define _LIBCPP_ABI_FIX_CITYHASH_IMPLEMENTATION
 // Remove the base 10 implementation of std::to_chars from the dylib.
 // The implementation moved to the header, but we still export the symbols from
 // the dylib for backwards compatibility.
@@ -895,7 +904,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 
 // Try to find out if RTTI is disabled.
 #  if !defined(__cpp_rtti) || __cpp_rtti < 199711L
-#    define _LIBCPP_NO_RTTI
+#    define _LIBCPP_HAS_NO_RTTI
 #  endif
 
 #  ifndef _LIBCPP_WEAK
@@ -1227,12 +1236,12 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 // functions are declared by the C library.
 #  define _LIBCPP_HAS_NO_C8RTOMB_MBRTOC8
 // GNU libc 2.36 and newer declare c8rtomb() and mbrtoc8() in C++ modes if
-// __cpp_char8_t is defined or if C2X extensions are enabled. Unfortunately,
-// determining the latter depends on internal GNU libc details. If the
-// __cpp_char8_t feature test macro is not defined, then a char8_t typedef
-// will be declared as well.
-#  if defined(_LIBCPP_GLIBC_PREREQ) && defined(__GLIBC_USE)
-#    if _LIBCPP_GLIBC_PREREQ(2, 36) && (defined(__cpp_char8_t) || __GLIBC_USE(ISOC2X))
+// __cpp_char8_t is defined or if C2X extensions are enabled. Determining
+// the latter depends on internal GNU libc details that are not appropriate
+// to depend on here, so any declarations present when __cpp_char8_t is not
+// defined are ignored.
+#  if defined(_LIBCPP_GLIBC_PREREQ)
+#    if _LIBCPP_GLIBC_PREREQ(2, 36) && defined(__cpp_char8_t)
 #      undef _LIBCPP_HAS_NO_C8RTOMB_MBRTOC8
 #    endif
 #  endif
@@ -1249,6 +1258,12 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #else
 #  define _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(_ClassName) static_assert(true, "")
 #endif
+
+// TODO(varconst): currently, there are bugs in Clang's intrinsics when handling Objective-C++ `id`, so don't use
+// compiler intrinsics in the Objective-C++ mode.
+#  ifdef __OBJC__
+#    define _LIBCPP_WORKAROUND_OBJCXX_COMPILER_INTRINSICS
+#  endif
 
 #endif // __cplusplus
 

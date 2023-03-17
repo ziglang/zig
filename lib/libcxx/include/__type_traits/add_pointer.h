@@ -22,7 +22,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if __has_builtin(__add_pointer)
+#if !defined(_LIBCPP_WORKAROUND_OBJCXX_COMPILER_INTRINSICS) && __has_builtin(__add_pointer)
 
 template <class _Tp>
 using __add_pointer_t = __add_pointer(_Tp);
@@ -39,7 +39,7 @@ template <class _Tp> struct __add_pointer_impl<_Tp, false>
 template <class _Tp>
 using __add_pointer_t = typename __add_pointer_impl<_Tp>::type;
 
-#endif // __has_builtin(__add_pointer)
+#endif // !defined(_LIBCPP_WORKAROUND_OBJCXX_COMPILER_INTRINSICS) && __has_builtin(__add_pointer)
 
 template <class _Tp>
 struct add_pointer {

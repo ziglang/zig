@@ -258,10 +258,12 @@ __handle_replacement_field(const _CharT* __begin, const _CharT* __end,
 
   if constexpr (same_as<_Ctx, __compile_time_basic_format_context<_CharT>>) {
     __arg_t __type = __ctx.arg(__r.__value);
-    if (__type == __arg_t::__handle)
+    if (__type == __arg_t::__none)
+      std::__throw_format_error("Argument index out of bounds");
+    else if (__type == __arg_t::__handle)
       __ctx.__handle(__r.__value).__parse(__parse_ctx);
-    else
-        __format::__compile_time_visit_format_arg(__parse_ctx, __ctx, __type);
+    else if (__parse)
+      __format::__compile_time_visit_format_arg(__parse_ctx, __ctx, __type);
   } else
     _VSTD::__visit_format_arg(
         [&](auto __arg) {

@@ -175,7 +175,7 @@ namespace __any_imp
   inline _LIBCPP_INLINE_VISIBILITY
   bool __compare_typeid(type_info const* __id, const void* __fallback_id)
   {
-#if !defined(_LIBCPP_NO_RTTI)
+#if !defined(_LIBCPP_HAS_NO_RTTI)
       if (__id && *__id == typeid(_Tp))
           return true;
 #endif
@@ -294,7 +294,7 @@ public:
   _LIBCPP_INLINE_VISIBILITY
   bool has_value() const _NOEXCEPT { return __h_ != nullptr; }
 
-#if !defined(_LIBCPP_NO_RTTI)
+#if !defined(_LIBCPP_HAS_NO_RTTI)
   _LIBCPP_INLINE_VISIBILITY
   const type_info & type() const _NOEXCEPT {
     if (__h_) {
@@ -426,7 +426,7 @@ namespace __any_imp
     _LIBCPP_INLINE_VISIBILITY
     static void* __type_info()
     {
-#if !defined(_LIBCPP_NO_RTTI)
+#if !defined(_LIBCPP_HAS_NO_RTTI)
         return const_cast<void*>(static_cast<void const *>(&typeid(_Tp)));
 #else
         return nullptr;
@@ -514,7 +514,7 @@ namespace __any_imp
     _LIBCPP_INLINE_VISIBILITY
     static void* __type_info()
     {
-#if !defined(_LIBCPP_NO_RTTI)
+#if !defined(_LIBCPP_HAS_NO_RTTI)
         return const_cast<void*>(static_cast<void const *>(&typeid(_Tp)));
 #else
         return nullptr;
@@ -680,7 +680,7 @@ any_cast(any * __any) _NOEXCEPT
     typedef add_pointer_t<_ValueType> _ReturnType;
     if (__any && __any->__h_) {
       void *__p = __any->__call(_Action::_Get, nullptr,
-#if !defined(_LIBCPP_NO_RTTI)
+#if !defined(_LIBCPP_HAS_NO_RTTI)
                           &typeid(_ValueType),
 #else
                           nullptr,

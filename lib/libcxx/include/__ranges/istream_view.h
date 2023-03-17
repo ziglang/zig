@@ -36,18 +36,10 @@ namespace ranges {
 template <class _Val, class _CharT, class _Traits>
 concept __stream_extractable = requires(basic_istream<_CharT, _Traits>& __is, _Val& __t) { __is >> __t; };
 
-template <movable _Val, class _CharT, class _Traits>
-  requires default_initializable<_Val> && __stream_extractable<_Val, _CharT, _Traits>
-class __basic_istream_view_iterator;
-
 template <movable _Val, class _CharT, class _Traits = char_traits<_CharT>>
   requires default_initializable<_Val> && __stream_extractable<_Val, _CharT, _Traits>
 class basic_istream_view : public view_interface<basic_istream_view<_Val, _CharT, _Traits>> {
-  using __iterator = __basic_istream_view_iterator<_Val, _CharT, _Traits>;
-
-  template <movable _ValueType, class _CharType, class _TraitsType>
-    requires default_initializable<_ValueType> && __stream_extractable<_ValueType, _CharType, _TraitsType>
-  friend class __basic_istream_view_iterator;
+  class __iterator;
 
 public:
   _LIBCPP_HIDE_FROM_ABI constexpr explicit basic_istream_view(basic_istream<_CharT, _Traits>& __stream)
@@ -67,23 +59,23 @@ private:
 
 template <movable _Val, class _CharT, class _Traits>
   requires default_initializable<_Val> && __stream_extractable<_Val, _CharT, _Traits>
-class __basic_istream_view_iterator {
+class basic_istream_view<_Val, _CharT, _Traits>::__iterator {
 public:
   using iterator_concept = input_iterator_tag;
   using difference_type  = ptrdiff_t;
   using value_type       = _Val;
 
-  _LIBCPP_HIDE_FROM_ABI constexpr explicit __basic_istream_view_iterator(
+  _LIBCPP_HIDE_FROM_ABI constexpr explicit __iterator(
       basic_istream_view<_Val, _CharT, _Traits>& __parent) noexcept
       : __parent_(std::addressof(__parent)) {}
 
-  __basic_istream_view_iterator(const __basic_istream_view_iterator&)                  = delete;
-  _LIBCPP_HIDE_FROM_ABI __basic_istream_view_iterator(__basic_istream_view_iterator&&) = default;
+  __iterator(const __iterator&)                  = delete;
+  _LIBCPP_HIDE_FROM_ABI __iterator(__iterator&&) = default;
 
-  __basic_istream_view_iterator& operator=(const __basic_istream_view_iterator&)                  = delete;
-  _LIBCPP_HIDE_FROM_ABI __basic_istream_view_iterator& operator=(__basic_istream_view_iterator&&) = default;
+  __iterator& operator=(const __iterator&)                  = delete;
+  _LIBCPP_HIDE_FROM_ABI __iterator& operator=(__iterator&&) = default;
 
-  _LIBCPP_HIDE_FROM_ABI __basic_istream_view_iterator& operator++() {
+  _LIBCPP_HIDE_FROM_ABI __iterator& operator++() {
     *__parent_->__stream_ >> __parent_->__value_;
     return *this;
   }
@@ -92,7 +84,7 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI _Val& operator*() const { return __parent_->__value_; }
 
-  _LIBCPP_HIDE_FROM_ABI friend bool operator==(const __basic_istream_view_iterator& __x, default_sentinel_t) {
+  _LIBCPP_HIDE_FROM_ABI friend bool operator==(const __iterator& __x, default_sentinel_t) {
     return !*__x.__get_parent_stream();
   }
 

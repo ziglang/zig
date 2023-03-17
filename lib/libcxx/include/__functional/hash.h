@@ -140,7 +140,11 @@ struct __murmur2_or_cityhash<_Size, 64>
     if (__len >= 4) {
       const uint32_t __a = std::__loadword<uint32_t>(__s);
       const uint32_t __b = std::__loadword<uint32_t>(__s + __len - 4);
+#ifdef _LIBCPP_ABI_FIX_CITYHASH_IMPLEMENTATION
       return __hash_len_16(__len + (static_cast<_Size>(__a) << 3), __b);
+#else
+      return __hash_len_16(__len + (__a << 3), __b);
+#endif
     }
     if (__len > 0) {
       const unsigned char __a = static_cast<unsigned char>(__s[0]);

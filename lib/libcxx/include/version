@@ -139,6 +139,7 @@ __cpp_lib_polymorphic_allocator                         201902L <memory_resource
 __cpp_lib_quoted_string_io                              201304L <iomanip>
 __cpp_lib_ranges                                        202106L <algorithm> <functional> <iterator>
                                                                 <memory> <ranges>
+__cpp_lib_ranges_as_rvalue                              202207L <ranges>
 __cpp_lib_ranges_chunk                                  202202L <ranges>
 __cpp_lib_ranges_chunk_by                               202202L <ranges>
 __cpp_lib_ranges_iota                                   202202L <numeric>
@@ -401,6 +402,7 @@ __cpp_lib_void_t                                        201411L <type_traits>
 # undef  __cpp_lib_optional
 # define __cpp_lib_optional                             202110L
 // # define __cpp_lib_out_ptr                              202106L
+# define __cpp_lib_ranges_as_rvalue                     202207L
 // # define __cpp_lib_ranges_chunk                         202202L
 // # define __cpp_lib_ranges_chunk_by                      202202L
 // # define __cpp_lib_ranges_iota                          202202L

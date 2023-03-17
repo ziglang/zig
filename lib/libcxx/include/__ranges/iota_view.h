@@ -83,14 +83,6 @@ namespace ranges {
       { __j - __j } -> convertible_to<_IotaDiffT<_Iter>>;
     };
 
-  template <weakly_incrementable _Start>
-    requires copyable<_Start>
-  struct __iota_view_iterator;
-
-  template <weakly_incrementable _Start, semiregular _BoundSentinel>
-    requires __weakly_equality_comparable_with<_Start, _BoundSentinel> && copyable<_Start>
-  struct __iota_view_sentinel;
-
   template<class>
   struct __iota_iterator_category {};
 
@@ -102,9 +94,211 @@ namespace ranges {
   template <weakly_incrementable _Start, semiregular _BoundSentinel = unreachable_sentinel_t>
     requires __weakly_equality_comparable_with<_Start, _BoundSentinel> && copyable<_Start>
   class iota_view : public view_interface<iota_view<_Start, _BoundSentinel>> {
+    struct __iterator : public __iota_iterator_category<_Start> {
+      friend class iota_view;
 
-    using __iterator = __iota_view_iterator<_Start>;
-    using __sentinel = __iota_view_sentinel<_Start, _BoundSentinel>;
+      using iterator_concept =
+        _If<__advanceable<_Start>,   random_access_iterator_tag,
+        _If<__decrementable<_Start>, bidirectional_iterator_tag,
+        _If<incrementable<_Start>,   forward_iterator_tag,
+        /*Else*/                     input_iterator_tag>>>;
+
+      using value_type = _Start;
+      using difference_type = _IotaDiffT<_Start>;
+
+      _Start __value_ = _Start();
+
+      _LIBCPP_HIDE_FROM_ABI
+      __iterator() requires default_initializable<_Start> = default;
+
+      _LIBCPP_HIDE_FROM_ABI
+      constexpr explicit __iterator(_Start __value) : __value_(std::move(__value)) {}
+
+      _LIBCPP_HIDE_FROM_ABI
+      constexpr _Start operator*() const noexcept(is_nothrow_copy_constructible_v<_Start>) {
+        return __value_;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      constexpr __iterator& operator++() {
+        ++__value_;
+        return *this;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      constexpr void operator++(int) { ++*this; }
+
+      _LIBCPP_HIDE_FROM_ABI
+      constexpr __iterator operator++(int) requires incrementable<_Start> {
+        auto __tmp = *this;
+        ++*this;
+        return __tmp;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      constexpr __iterator& operator--() requires __decrementable<_Start> {
+        --__value_;
+        return *this;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      constexpr __iterator  operator--(int) requires __decrementable<_Start> {
+        auto __tmp = *this;
+        --*this;
+        return __tmp;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      constexpr __iterator& operator+=(difference_type __n)
+        requires __advanceable<_Start>
+      {
+        if constexpr (__integer_like<_Start> && !__signed_integer_like<_Start>) {
+          if (__n >= difference_type(0)) {
+            __value_ += static_cast<_Start>(__n);
+          } else {
+            __value_ -= static_cast<_Start>(-__n);
+          }
+        } else {
+          __value_ += __n;
+        }
+        return *this;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      constexpr __iterator& operator-=(difference_type __n)
+        requires __advanceable<_Start>
+      {
+        if constexpr (__integer_like<_Start> && !__signed_integer_like<_Start>) {
+          if (__n >= difference_type(0)) {
+            __value_ -= static_cast<_Start>(__n);
+          } else {
+            __value_ += static_cast<_Start>(-__n);
+          }
+        } else {
+          __value_ -= __n;
+        }
+        return *this;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      constexpr _Start operator[](difference_type __n) const
+        requires __advanceable<_Start>
+      {
+        return _Start(__value_ + __n);
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      friend constexpr bool operator==(const __iterator& __x, const __iterator& __y)
+        requires equality_comparable<_Start>
+      {
+        return __x.__value_ == __y.__value_;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      friend constexpr bool operator<(const __iterator& __x, const __iterator& __y)
+        requires totally_ordered<_Start>
+      {
+        return __x.__value_ < __y.__value_;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      friend constexpr bool operator>(const __iterator& __x, const __iterator& __y)
+        requires totally_ordered<_Start>
+      {
+        return __y < __x;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      friend constexpr bool operator<=(const __iterator& __x, const __iterator& __y)
+        requires totally_ordered<_Start>
+      {
+        return !(__y < __x);
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      friend constexpr bool operator>=(const __iterator& __x, const __iterator& __y)
+        requires totally_ordered<_Start>
+      {
+        return !(__x < __y);
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      friend constexpr auto operator<=>(const __iterator& __x, const __iterator& __y)
+        requires totally_ordered<_Start> && three_way_comparable<_Start>
+      {
+        return __x.__value_ <=> __y.__value_;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      friend constexpr __iterator operator+(__iterator __i, difference_type __n)
+        requires __advanceable<_Start>
+      {
+        __i += __n;
+        return __i;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      friend constexpr __iterator operator+(difference_type __n, __iterator __i)
+        requires __advanceable<_Start>
+      {
+        return __i + __n;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      friend constexpr __iterator operator-(__iterator __i, difference_type __n)
+        requires __advanceable<_Start>
+      {
+        __i -= __n;
+        return __i;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      friend constexpr difference_type operator-(const __iterator& __x, const __iterator& __y)
+        requires __advanceable<_Start>
+      {
+        if constexpr (__integer_like<_Start>) {
+          if constexpr (__signed_integer_like<_Start>) {
+            return difference_type(difference_type(__x.__value_) - difference_type(__y.__value_));
+          }
+          if (__y.__value_ > __x.__value_) {
+            return difference_type(-difference_type(__y.__value_ - __x.__value_));
+          }
+          return difference_type(__x.__value_ - __y.__value_);
+        }
+        return __x.__value_ - __y.__value_;
+      }
+    };
+
+    struct __sentinel {
+      friend class iota_view;
+
+    private:
+      _BoundSentinel __bound_sentinel_ = _BoundSentinel();
+
+    public:
+      _LIBCPP_HIDE_FROM_ABI
+      __sentinel() = default;
+      constexpr explicit __sentinel(_BoundSentinel __bound_sentinel) : __bound_sentinel_(std::move(__bound_sentinel)) {}
+
+      _LIBCPP_HIDE_FROM_ABI
+      friend constexpr bool operator==(const __iterator& __x, const __sentinel& __y) {
+        return __x.__value_ == __y.__bound_sentinel_;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      friend constexpr iter_difference_t<_Start> operator-(const __iterator& __x, const __sentinel& __y)
+        requires sized_sentinel_for<_BoundSentinel, _Start>
+      {
+        return __x.__value_ - __y.__bound_sentinel_;
+      }
+
+      _LIBCPP_HIDE_FROM_ABI
+      friend constexpr iter_difference_t<_Start> operator-(const __sentinel& __x, const __iterator& __y)
+        requires sized_sentinel_for<_BoundSentinel, _Start>
+      {
+        return -(__y - __x);
+      }
+    };
 
     _Start __value_ = _Start();
     _BoundSentinel __bound_sentinel_ = _BoundSentinel();
@@ -184,224 +378,6 @@ namespace ranges {
 
   template <class _Start, class _BoundSentinel>
   inline constexpr bool enable_borrowed_range<iota_view<_Start, _BoundSentinel>> = true;
-
-  template <weakly_incrementable _Start>
-    requires copyable<_Start>
-  struct __iota_view_iterator : public __iota_iterator_category<_Start> {
-
-    template <weakly_incrementable _StartT, semiregular _BoundSentinelT>
-      requires __weakly_equality_comparable_with<_StartT, _BoundSentinelT> && copyable<_StartT>
-    friend class iota_view;
-
-    using iterator_concept =
-      _If<__advanceable<_Start>,   random_access_iterator_tag,
-      _If<__decrementable<_Start>, bidirectional_iterator_tag,
-      _If<incrementable<_Start>,   forward_iterator_tag,
-      /*Else*/                     input_iterator_tag>>>;
-
-    using value_type = _Start;
-    using difference_type = _IotaDiffT<_Start>;
-
-    _Start __value_ = _Start();
-
-    _LIBCPP_HIDE_FROM_ABI
-    __iota_view_iterator() requires default_initializable<_Start> = default;
-
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr explicit __iota_view_iterator(_Start __value) : __value_(std::move(__value)) {}
-
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr _Start operator*() const noexcept(is_nothrow_copy_constructible_v<_Start>) {
-      return __value_;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr __iota_view_iterator& operator++() {
-      ++__value_;
-      return *this;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr void operator++(int) { ++*this; }
-
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr __iota_view_iterator operator++(int) requires incrementable<_Start> {
-      auto __tmp = *this;
-      ++*this;
-      return __tmp;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr __iota_view_iterator& operator--() requires __decrementable<_Start> {
-      --__value_;
-      return *this;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr __iota_view_iterator  operator--(int) requires __decrementable<_Start> {
-      auto __tmp = *this;
-      --*this;
-      return __tmp;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr __iota_view_iterator& operator+=(difference_type __n)
-      requires __advanceable<_Start>
-    {
-      if constexpr (__integer_like<_Start> && !__signed_integer_like<_Start>) {
-        if (__n >= difference_type(0)) {
-          __value_ += static_cast<_Start>(__n);
-        } else {
-          __value_ -= static_cast<_Start>(-__n);
-        }
-      } else {
-        __value_ += __n;
-      }
-      return *this;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr __iota_view_iterator& operator-=(difference_type __n)
-      requires __advanceable<_Start>
-    {
-      if constexpr (__integer_like<_Start> && !__signed_integer_like<_Start>) {
-        if (__n >= difference_type(0)) {
-          __value_ -= static_cast<_Start>(__n);
-        } else {
-          __value_ += static_cast<_Start>(-__n);
-        }
-      } else {
-        __value_ -= __n;
-      }
-      return *this;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr _Start operator[](difference_type __n) const
-      requires __advanceable<_Start>
-    {
-      return _Start(__value_ + __n);
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    friend constexpr bool operator==(const __iota_view_iterator& __x, const __iota_view_iterator& __y)
-      requires equality_comparable<_Start>
-    {
-      return __x.__value_ == __y.__value_;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    friend constexpr bool operator<(const __iota_view_iterator& __x, const __iota_view_iterator& __y)
-      requires totally_ordered<_Start>
-    {
-      return __x.__value_ < __y.__value_;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    friend constexpr bool operator>(const __iota_view_iterator& __x, const __iota_view_iterator& __y)
-      requires totally_ordered<_Start>
-    {
-      return __y < __x;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    friend constexpr bool operator<=(const __iota_view_iterator& __x, const __iota_view_iterator& __y)
-      requires totally_ordered<_Start>
-    {
-      return !(__y < __x);
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    friend constexpr bool operator>=(const __iota_view_iterator& __x, const __iota_view_iterator& __y)
-      requires totally_ordered<_Start>
-    {
-      return !(__x < __y);
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    friend constexpr auto operator<=>(const __iota_view_iterator& __x, const __iota_view_iterator& __y)
-      requires totally_ordered<_Start> && three_way_comparable<_Start>
-    {
-      return __x.__value_ <=> __y.__value_;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    friend constexpr __iota_view_iterator operator+(__iota_view_iterator __i, difference_type __n)
-      requires __advanceable<_Start>
-    {
-      __i += __n;
-      return __i;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    friend constexpr __iota_view_iterator operator+(difference_type __n, __iota_view_iterator __i)
-      requires __advanceable<_Start>
-    {
-      return __i + __n;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    friend constexpr __iota_view_iterator operator-(__iota_view_iterator __i, difference_type __n)
-      requires __advanceable<_Start>
-    {
-      __i -= __n;
-      return __i;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    friend constexpr difference_type operator-(const __iota_view_iterator& __x, const __iota_view_iterator& __y)
-      requires __advanceable<_Start>
-    {
-      if constexpr (__integer_like<_Start>) {
-        if constexpr (__signed_integer_like<_Start>) {
-          return difference_type(difference_type(__x.__value_) - difference_type(__y.__value_));
-        }
-        if (__y.__value_ > __x.__value_) {
-          return difference_type(-difference_type(__y.__value_ - __x.__value_));
-        }
-        return difference_type(__x.__value_ - __y.__value_);
-      }
-      return __x.__value_ - __y.__value_;
-    }
-  };
-
-  template <weakly_incrementable _Start, semiregular _BoundSentinel>
-    requires __weakly_equality_comparable_with<_Start, _BoundSentinel> && copyable<_Start>
-  struct __iota_view_sentinel {
-
-    template <weakly_incrementable _StartT, semiregular _BoundSentinelT>
-      requires __weakly_equality_comparable_with<_StartT, _BoundSentinelT> && copyable<_StartT>
-    friend class iota_view;
-
-    using __iterator = __iota_view_iterator<_Start>;
-
-  private:
-    _BoundSentinel __bound_sentinel_ = _BoundSentinel();
-
-  public:
-    _LIBCPP_HIDE_FROM_ABI
-    __iota_view_sentinel() = default;
-    constexpr explicit __iota_view_sentinel(_BoundSentinel __bound_sentinel) : __bound_sentinel_(std::move(__bound_sentinel)) {}
-
-    _LIBCPP_HIDE_FROM_ABI
-    friend constexpr bool operator==(const __iterator& __x, const __iota_view_sentinel& __y) {
-      return __x.__value_ == __y.__bound_sentinel_;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    friend constexpr iter_difference_t<_Start> operator-(const __iterator& __x, const __iota_view_sentinel& __y)
-      requires sized_sentinel_for<_BoundSentinel, _Start>
-    {
-      return __x.__value_ - __y.__bound_sentinel_;
-    }
-
-    _LIBCPP_HIDE_FROM_ABI
-    friend constexpr iter_difference_t<_Start> operator-(const __iota_view_sentinel& __x, const __iterator& __y)
-      requires sized_sentinel_for<_BoundSentinel, _Start>
-    {
-      return -(__y - __x);
-    }
-  };
 
  namespace views {
  namespace __iota {
