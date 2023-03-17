@@ -287,6 +287,30 @@ test "big.int string set bad base error" {
     try testing.expectError(error.InvalidBase, a.setString(45, "10"));
 }
 
+test "big.int string set empty string" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    try a.setString(10, "");
+    try testing.expect(a.eqZero());
+}
+
+test "big.int string set underscores" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    try a.setString(10, "__________");
+    try testing.expect(a.eqZero());
+}
+
+test "big.int string set base 36 (decoding)" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    try a.setString(36, "efghijkmnpqz");
+    try testing.expect((try a.to(u64)) == 1899220601729005595);
+}
+
 test "big.int twos complement limit set" {
     const test_types = [_]type{
         u64,
@@ -324,6 +348,17 @@ test "big.int string to" {
     const as = try a.toString(testing.allocator, 10, .lower);
     defer testing.allocator.free(as);
     const es = "120317241209124781241290847124";
+
+    try testing.expect(mem.eql(u8, as, es));
+}
+
+test "big.int string to base36 (encoding)" {
+    var a = try Managed.initSet(testing.allocator, 1899220601729005595);
+    defer a.deinit();
+
+    const as = try a.toString(testing.allocator, 36, .lower);
+    defer testing.allocator.free(as);
+    const es = "efghijkmnpqz";
 
     try testing.expect(mem.eql(u8, as, es));
 }

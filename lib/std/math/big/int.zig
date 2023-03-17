@@ -19,6 +19,30 @@ const native_endian = builtin.cpu.arch.endian();
 
 const debug_safety = false;
 
+// assume: `max_n` digits of `base` do not overflow a Limb
+// parse at most `max_n` digits
+// `string_i` is the index of the start of the slice in the string
+fn sliceToLimb(base: u8, string: []const u8, max_n: usize, string_i: *usize) !?Limb {
+    @setRuntimeSafety(debug_safety);
+    assert(math.pow(usize, base, max_n) <= math.maxInt(Limb));
+    var result: ?Limb = null;
+    var k: usize = 0;
+    for (string, 1..) |char, i| {
+        if (char == '_')
+            continue;
+        if (result == null) result = 0;
+        result.? *= base;
+        result.? += try std.fmt.charToDigit(char, base);
+        k += 1;
+        if (k >= max_n) {
+            string_i.* += i;
+            return result;
+        }
+    }
+    string_i.* += string.len;
+    return result;
+}
+
 /// Returns the number of limbs needed to store `scalar`, which must be a
 /// primitive integer value.
 /// Note: A comptime-known upper bound of this value that may be used
@@ -58,7 +82,16 @@ pub fn calcSetStringLimbsBufferLen(base: u8, string_len: usize) usize {
 }
 
 pub fn calcSetStringLimbCount(base: u8, string_len: usize) usize {
-    return (string_len + (limb_bits / base - 1)) / (limb_bits / base);
+    const logs2 = comptime blk: {
+        var ar = [_]f32{0} ** 37;
+        for (2..37) |base_i| {
+            ar[base_i] = math.log2(@intToFloat(f32, base_i));
+        }
+        break :blk ar;
+    }; // size of a digit of each base in bits
+    const bits = @floatToInt(usize, logs2[base] * @intToFloat(f32, string_len)) + 1;
+    const n_limb = @divFloor(bits, limb_bits) + 1;
+    return n_limb;
 }
 
 pub fn calcPowLimbsBufferLen(a_bit_count: usize, y: usize) usize {
@@ -273,7 +306,7 @@ pub const Mutable = struct {
     ///
     /// Asserts there is enough memory for the value in `self.limbs`. An upper bound on number of limbs can
     /// be determined with `calcSetStringLimbCount`.
-    /// Asserts the base is in the range [2, 16].
+    /// Asserts the base is in the range [2, 36].
     ///
     /// Returns an error if the value has invalid digits for the requested base.
     ///
@@ -289,7 +322,7 @@ pub const Mutable = struct {
         limbs_buffer: []Limb,
         allocator: ?Allocator,
     ) error{InvalidCharacter}!void {
-        assert(base >= 2 and base <= 16);
+        assert(base >= 2 and base <= 36);
 
         var i: usize = 0;
         var positive = true;
@@ -297,20 +330,47 @@ pub const Mutable = struct {
             positive = false;
             i += 1;
         }
-
-        const ap_base: Const = .{ .limbs = &[_]Limb{base}, .positive = true };
         self.set(0);
 
-        for (value[i..]) |ch| {
-            if (ch == '_') {
-                continue;
+        // maximum powers of each base that fit in a Limb
+        // for instance, the biggest power of 10 that fits in a Limb of 64 bits size
+        // is 10^19, so bases[10] = 10^19 and powers[10] = 19
+        comptime var bases = [_]Limb{0} ** 37;
+        comptime var powers = [_]usize{0} ** 37;
+        comptime {
+            for (2..37) |base_i| {
+                const log = math.log2(@intToFloat(f32, base_i));
+                var power = @floatToInt(usize, @divFloor(@intToFloat(f32, limb_bits), log));
+
+                if (math.isPowerOfTwo(base_i)) power -= 1; // for bases which are power of 2, it overflows by 1
+                bases[base_i] = math.pow(Limb, @intCast(Limb, base_i), power);
+                powers[base_i] = power;
             }
-            const d = try std.fmt.charToDigit(ch, base);
-            const ap_d: Const = .{ .limbs = &[_]Limb{d}, .positive = true };
+        }
+
+        const biggest_pow = bases[base];
+        const power = powers[base];
+        const ap_base: Const = .{ .limbs = &[_]Limb{biggest_pow}, .positive = true };
+
+        const len = value.len - mem.count(u8, value, "_");
+
+        const r = len % power;
+        const head_len = if (r == 0) power else r;
+
+        var first = try sliceToLimb(base, value[i..], head_len, &i);
+
+        if (first == null) return; // empty string or full of underscore
+
+        self.addScalar(self.toConst(), first.?);
+
+        while (i < value.len) {
+            const n = try sliceToLimb(base, value[i..], power, &i);
+            if (n == null) break; // end of string, may happen if it only remains underscores
 
             self.mul(self.toConst(), ap_base, limbs_buffer, allocator);
-            self.add(self.toConst(), ap_d);
+            self.add(self.toConst(), .{ .limbs = &[_]Limb{n.?}, .positive = true });
         }
+
         self.positive = positive;
     }
 
@@ -2179,11 +2239,11 @@ pub const Const = struct {
 
     /// Converts self to a string in the requested base.
     /// Caller owns returned memory.
-    /// Asserts that `base` is in the range [2, 16].
+    /// Asserts that `base` is in the range [2, 36].
     /// See also `toString`, a lower level function than this.
     pub fn toStringAlloc(self: Const, allocator: Allocator, base: u8, case: std.fmt.Case) Allocator.Error![]u8 {
         assert(base >= 2);
-        assert(base <= 16);
+        assert(base <= 36);
 
         if (self.eqZero()) {
             return allocator.dupe(u8, "0");
@@ -2198,7 +2258,7 @@ pub const Const = struct {
     }
 
     /// Converts self to a string in the requested base.
-    /// Asserts that `base` is in the range [2, 16].
+    /// Asserts that `base` is in the range [2, 36].
     /// `string` is a caller-provided slice of at least `sizeInBaseUpperBound` bytes,
     /// where the result is written to.
     /// Returns the length of the string.
@@ -2208,7 +2268,7 @@ pub const Const = struct {
     /// See also `toStringAlloc`, a higher level function than this.
     pub fn toString(self: Const, string: []u8, base: u8, case: std.fmt.Case, limbs_buffer: []Limb) usize {
         assert(base >= 2);
-        assert(base <= 16);
+        assert(base <= 36);
 
         if (self.eqZero()) {
             string[0] = '0';
@@ -2697,8 +2757,12 @@ pub const Managed = struct {
     ///
     /// self's allocator is used for temporary storage to boost multiplication performance.
     pub fn setString(self: *Managed, base: u8, value: []const u8) !void {
-        if (base < 2 or base > 16) return error.InvalidBase;
-        try self.ensureCapacity(calcSetStringLimbCount(base, value.len));
+        if (base < 2 or base > 36) return error.InvalidBase;
+
+        const n_limb = calcSetStringLimbCount(base, value.len);
+
+        // adds 'default_capacity', which is more than needed, because of the mul function
+        try self.ensureCapacity(n_limb + default_capacity);
         const limbs_buffer = try self.allocator.alloc(Limb, calcSetStringLimbsBufferLen(base, value.len));
         defer self.allocator.free(limbs_buffer);
         var m = self.toMutable();
@@ -2724,7 +2788,7 @@ pub const Managed = struct {
     /// Converts self to a string in the requested base. Memory is allocated from the provided
     /// allocator and not the one present in self.
     pub fn toString(self: Managed, allocator: Allocator, base: u8, case: std.fmt.Case) ![]u8 {
-        if (base < 2 or base > 16) return error.InvalidBase;
+        if (base < 2 or base > 36) return error.InvalidBase;
         return self.toConst().toStringAlloc(allocator, base, case);
     }
 
