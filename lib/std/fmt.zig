@@ -1699,7 +1699,7 @@ pub const ParseIntError = error{
     /// The result cannot fit in the type specified
     Overflow,
 
-    /// The input was empty or had a byte that was not a digit
+    /// The input was empty or contained an invalid character
     InvalidCharacter,
 };
 
@@ -1903,6 +1903,54 @@ test "parseUnsigned" {
 
     // test empty string error
     try std.testing.expectError(error.InvalidCharacter, parseUnsigned(u8, "", 10));
+}
+
+/// Parses a number like '2G', '2Gi', or '2GiB'.
+pub fn parseIntSizeSuffix(buf: []const u8, radix: u8) ParseIntError!usize {
+    var without_B = buf;
+    if (mem.endsWith(u8, buf, "B")) without_B.len -= 1;
+    var without_i = without_B;
+    var base: usize = 1000;
+    if (mem.endsWith(u8, without_B, "i")) {
+        without_i.len -= 1;
+        base = 1024;
+    }
+    if (without_i.len == 0) return error.InvalidCharacter;
+    const orders_of_magnitude: usize = switch (without_i[without_i.len - 1]) {
+        'k', 'K' => 1,
+        'M' => 2,
+        'G' => 3,
+        'T' => 4,
+        'P' => 5,
+        'E' => 6,
+        'Z' => 7,
+        'Y' => 8,
+        else => 0,
+    };
+    var without_suffix = without_i;
+    if (orders_of_magnitude > 0) {
+        without_suffix.len -= 1;
+    } else if (without_i.len != without_B.len) {
+        return error.InvalidCharacter;
+    }
+    const multiplier = math.powi(usize, base, orders_of_magnitude) catch |err| switch (err) {
+        error.Underflow => unreachable,
+        error.Overflow => return error.Overflow,
+    };
+    const number = try std.fmt.parseInt(usize, without_suffix, radix);
+    return math.mul(usize, number, multiplier);
+}
+
+test "parseIntSizeSuffix" {
+    try std.testing.expect(try parseIntSizeSuffix("2", 10) == 2);
+    try std.testing.expect(try parseIntSizeSuffix("2B", 10) == 2);
+    try std.testing.expect(try parseIntSizeSuffix("2kB", 10) == 2000);
+    try std.testing.expect(try parseIntSizeSuffix("2k", 10) == 2000);
+    try std.testing.expect(try parseIntSizeSuffix("2KiB", 10) == 2048);
+    try std.testing.expect(try parseIntSizeSuffix("2Ki", 10) == 2048);
+    try std.testing.expect(try parseIntSizeSuffix("aKiB", 16) == 10240);
+    try std.testing.expect(parseIntSizeSuffix("", 10) == error.InvalidCharacter);
+    try std.testing.expect(parseIntSizeSuffix("2iB", 10) == error.InvalidCharacter);
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
