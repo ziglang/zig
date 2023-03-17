@@ -87,6 +87,13 @@ pub const Inst = struct {
         ///
         /// Uses `label`
         call_indirect = 0x11,
+        /// Contains a symbol to a function pointer
+        /// uses `label`
+        ///
+        /// Note: This uses `0x16` as value which is reserved by the WebAssembly
+        /// specification but unused, meaning we must update this if the specification were to
+        /// use this value.
+        function_index = 0x16,
         /// Pops three values from the stack and pushes
         /// the first or second value dependent on the third value.
         /// Uses `tag`
@@ -510,24 +517,24 @@ pub const Inst = struct {
         i64_extend16_s = 0xC3,
         /// Uses `tag`
         i64_extend32_s = 0xC4,
-        /// The instruction consists of an extension opcode.
+        /// The instruction consists of a prefixed opcode.
         /// The prefixed opcode can be found at payload's index.
         ///
         /// The `data` field depends on the extension instruction and
         /// may contain additional data.
-        extended = 0xFC,
+        misc_prefix = 0xFC,
         /// The instruction consists of a simd opcode.
         /// The actual simd-opcode is found at payload's index.
         ///
         /// The `data` field depends on the simd instruction and
         /// may contain additional data.
-        simd = 0xFD,
-        /// Contains a symbol to a function pointer
-        /// uses `label`
+        simd_prefix = 0xFD,
+        /// The instruction consists of an atomics opcode.
+        /// The actual atomics-opcode is found at payload's index.
         ///
-        /// Note: This uses `0xFE` as value as it is unused and not reserved
-        /// by the wasm specification, making it safe to use.
-        function_index = 0xFE,
+        /// The `data` field depends on the atomics instruction and
+        /// may contain additional data.
+        atomics_prefix = 0xFE,
         /// Contains a symbol to a memory address
         /// Uses `label`
         ///

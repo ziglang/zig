@@ -2128,8 +2128,8 @@ fn initializeTLSFunction(wasm: *Wasm) !void {
         }
 
         // perform the bulk-memory operation to initialize the data segment
-        try writer.writeByte(std.wasm.opcode(.prefixed));
-        try leb.writeULEB128(writer, @enumToInt(std.wasm.PrefixedOpcode.memory_init));
+        try writer.writeByte(std.wasm.opcode(.misc_prefix));
+        try leb.writeULEB128(writer, std.wasm.miscOpcode(.memory_init));
         // segment immediate
         try leb.writeULEB128(writer, @intCast(u32, data_index));
         // memory index immediate (always 0)

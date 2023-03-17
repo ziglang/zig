@@ -895,10 +895,10 @@ fn addTag(func: *CodeGen, tag: Mir.Inst.Tag) error{OutOfMemory}!void {
     try func.addInst(.{ .tag = tag, .data = .{ .tag = {} } });
 }
 
-fn addExtended(func: *CodeGen, opcode: wasm.PrefixedOpcode) error{OutOfMemory}!void {
+fn addExtended(func: *CodeGen, opcode: wasm.MiscOpcode) error{OutOfMemory}!void {
     const extra_index = @intCast(u32, func.mir_extra.items.len);
     try func.mir_extra.append(func.gpa, @enumToInt(opcode));
-    try func.addInst(.{ .tag = .extended, .data = .{ .payload = extra_index } });
+    try func.addInst(.{ .tag = .misc_prefix, .data = .{ .payload = extra_index } });
 }
 
 fn addLabel(func: *CodeGen, tag: Mir.Inst.Tag, label: u32) error{OutOfMemory}!void {
@@ -925,7 +925,7 @@ fn addImm128(func: *CodeGen, index: u32) error{OutOfMemory}!void {
     try func.mir_extra.ensureUnusedCapacity(func.gpa, 5);
     func.mir_extra.appendAssumeCapacity(std.wasm.simdOpcode(.v128_const));
     func.mir_extra.appendSliceAssumeCapacity(@alignCast(4, mem.bytesAsSlice(u32, &simd_values)));
-    try func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+    try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
 }
 
 fn addFloat64(func: *CodeGen, float: f64) error{OutOfMemory}!void {
@@ -2310,7 +2310,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
                     offset + lhs.offset(),
                     ty.abiAlignment(func.target),
                 });
-                return func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+                return func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
             },
         },
         .Pointer => {
@@ -2420,7 +2420,7 @@ fn load(func: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValu
             offset + operand.offset(),
             ty.abiAlignment(func.target),
         });
-        try func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+        try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
         return WValue{ .stack = {} };
     }
 
@@ -4477,7 +4477,7 @@ fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     operand.offset(),
                     elem_ty.abiAlignment(func.target),
                 });
-                try func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+                try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
                 try func.addLabel(.local_set, result.local.value);
                 return func.finishAir(inst, result, &.{ty_op.operand});
             },
@@ -4493,7 +4493,7 @@ fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 try func.emitWValue(operand);
                 const extra_index = @intCast(u32, func.mir_extra.items.len);
                 try func.mir_extra.append(func.gpa, opcode);
-                try func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+                try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
                 try func.addLabel(.local_set, result.local.value);
                 return func.finishAir(inst, result, &.{ty_op.operand});
             },
