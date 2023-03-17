@@ -392,19 +392,8 @@ pub const File = struct {
                         .linux => std.os.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0) catch |err| {
                             log.warn("ptrace failure: {s}", .{@errorName(err)});
                         },
-                        .macos => {
-                            const macho = base.cast(MachO).?;
-                            if (macho.mach_task == null) {
-                                if (std.os.darwin.machTaskForPid(pid)) |task| {
-                                    macho.mach_task = task;
-                                    // TODO enable ones we register for exceptions
-                                    // std.os.ptrace(std.os.darwin.PT.ATTACHEXC, pid, 0, 0) catch |err| {
-                                    //     log.warn("ptrace failure: {s}", .{@errorName(err)});
-                                    // };
-                                } else |err| {
-                                    log.warn("failed to acquire Mach task for child process: {s}", .{@errorName(err)});
-                                }
-                            }
+                        .macos => base.cast(MachO).?.ptraceAttach(pid) catch |err| {
+                            log.warn("attaching failed with error: {s}", .{@errorName(err)});
                         },
                         else => return error.HotSwapUnavailableOnHostOperatingSystem,
                     }
@@ -444,11 +433,9 @@ pub const File = struct {
                         .linux => std.os.ptrace(std.os.linux.PTRACE.DETACH, pid, 0, 0) catch |err| {
                             log.warn("ptrace failure: {s}", .{@errorName(err)});
                         },
-                        .macos => {},
-                        // TODO see comment above in makeWritable
-                        // .macos => std.os.ptrace(std.os.darwin.PT.DETACH, pid, 0, 0) catch |err| {
-                        //     log.warn("ptrace failure: {s}", .{@errorName(err)});
-                        // },
+                        .macos => base.cast(MachO).?.ptraceDetach(pid) catch |err| {
+                            log.warn("detaching failed with error: {s}", .{@errorName(err)});
+                        },
                         else => return error.HotSwapUnavailableOnHostOperatingSystem,
                     }
                 }
