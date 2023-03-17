@@ -741,7 +741,7 @@ pub fn tcpConnectToAddress(address: Address) TcpConnectToAddressError!Stream {
     return Stream{ .handle = sockfd };
 }
 
-const GetAddressListError = std.mem.Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError || std.os.SocketError || std.os.BindError || error{
+const GetAddressListError = std.mem.Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError || std.os.SocketError || std.os.BindError || std.os.SetSockOptError || error{
     // TODO: break this up into error sets from the various underlying functions
 
     TemporaryNameServerFailure,
@@ -1534,15 +1534,10 @@ fn resMSendRc(
         ns[i] = iplit.addr;
         assert(ns[i].getPort() == 53);
         if (iplit.addr.any.family != os.AF.INET) {
-            sl = @sizeOf(os.sockaddr.in6);
             family = os.AF.INET6;
         }
     }
 
-    // Get local address and open/bind a socket
-    var sa: Address = undefined;
-    @memset(@ptrCast([*]u8, &sa), 0, @sizeOf(Address));
-    sa.any.family = family;
     const flags = os.SOCK.DGRAM | os.SOCK.CLOEXEC | os.SOCK.NONBLOCK;
     const fd = os.socket(family, flags, 0) catch |err| switch (err) {
         error.AddressFamilyNotSupported => blk: {
@@ -1556,27 +1551,35 @@ fn resMSendRc(
         else => |e| return e,
     };
     defer os.closeSocket(fd);
-    try os.bind(fd, &sa.any, sl);
 
     // Past this point, there are no errors. Each individual query will
     // yield either no reply (indicated by zero length) or an answer
     // packet which is up to the caller to interpret.
 
     // Convert any IPv4 addresses in a mixed environment to v4-mapped
-    // TODO
-    //if (family == AF.INET6) {
-    //    setsockopt(fd, IPPROTO.IPV6, IPV6_V6ONLY, &(int){0}, sizeof 0);
-    //    for (i=0; i<nns; i++) {
-    //        if (ns[i].sin.sin_family != AF.INET) continue;
-    //        memcpy(ns[i].sin6.sin6_addr.s6_addr+12,
-    //            &ns[i].sin.sin_addr, 4);
-    //        memcpy(ns[i].sin6.sin6_addr.s6_addr,
-    //            "\0\0\0\0\0\0\0\0\0\0\xff\xff", 12);
-    //        ns[i].sin6.sin6_family = AF.INET6;
-    //        ns[i].sin6.sin6_flowinfo = 0;
-    //        ns[i].sin6.sin6_scope_id = 0;
-    //    }
-    //}
+    if (family == os.AF.INET6) {
+        try os.setsockopt(
+            fd,
+            os.SOL.IPV6,
+            os.linux.IPV6.V6ONLY,
+            &mem.toBytes(@as(c_int, 0)),
+        );
+        for (0..ns.len) |i| {
+            if (ns[i].any.family != os.AF.INET) continue;
+            mem.writeIntNative(u32, ns[i].in6.sa.addr[12..], ns[i].in.sa.addr);
+            mem.copy(u8, ns[i].in6.sa.addr[0..12], "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff");
+            ns[i].any.family = os.AF.INET6;
+            ns[i].in6.sa.flowinfo = 0;
+            ns[i].in6.sa.scope_id = 0;
+        }
+        sl = @sizeOf(os.sockaddr.in6);
+    }
+
+    // Get local address and open/bind a socket
+    var sa: Address = undefined;
+    @memset(@ptrCast([*]u8, &sa), 0, @sizeOf(Address));
+    sa.any.family = family;
+    try os.bind(fd, &sa.any, sl);
 
     var pfd = [1]os.pollfd{os.pollfd{
         .fd = fd,
