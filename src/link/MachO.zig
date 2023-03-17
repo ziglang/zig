@@ -587,7 +587,12 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     try self.allocateSpecialSymbols();
 
     for (self.relocs.keys()) |atom_index| {
-        if (self.relocs.get(atom_index) == null) continue;
+        const relocs = self.relocs.get(atom_index).?;
+        const needs_update = for (relocs.items) |reloc| {
+            if (reloc.dirty) break true;
+        } else false;
+
+        if (!needs_update) continue;
 
         const atom = self.getAtom(atom_index);
         const sym = atom.getSymbol(self);
@@ -1085,7 +1090,7 @@ pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
             log.warn("cannot hot swap: no Mach task acquired for child process with pid {d}", .{pid});
             break :blk;
         };
-        self.writeAtomToMemory(task, section.segment_index, sym.n_value, code) catch |err| {
+        self.updateAtomInMemory(task, section.segment_index, sym.n_value, code) catch |err| {
             log.warn("cannot hot swap: writing to memory failed: {s}", .{@errorName(err)});
         };
     }
@@ -1093,13 +1098,13 @@ pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
     try self.base.file.?.pwriteAll(code, file_offset);
 }
 
-fn writeAtomToMemory(self: *MachO, task: std.os.darwin.MachTask, segment_index: u8, addr: u64, code: []const u8) !void {
+fn updateAtomInMemory(self: *MachO, task: std.os.darwin.MachTask, segment_index: u8, addr: u64, code: []const u8) !void {
     const segment = self.segments.items[segment_index];
-    if (!segment.isWriteable()) {
-        try task.setCurrProtection(addr, code.len, macho.PROT.READ | macho.PROT.WRITE | macho.PROT.COPY);
-    }
-    defer if (!segment.isWriteable()) task.setCurrProtection(addr, code.len, segment.initprot) catch {};
-    const nwritten = try task.writeMem(addr, code, self.base.options.target.cpu.arch);
+    const cpu_arch = self.base.options.target.cpu.arch;
+    const nwritten = if (!segment.isWriteable())
+        try task.writeMemProtected(addr, code, cpu_arch)
+    else
+        try task.writeMem(addr, code, cpu_arch);
     if (nwritten != code.len) return error.InputOutput;
 }
 
@@ -1109,6 +1114,7 @@ fn writePtrWidthAtom(self: *MachO, atom_index: Atom.Index) !void {
 }
 
 fn markRelocsDirtyByTarget(self: *MachO, target: SymbolWithLoc) void {
+    log.debug("marking relocs dirty by target: {}", .{target});
     // TODO: reverse-lookup might come in handy here
     for (self.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
@@ -1119,6 +1125,7 @@ fn markRelocsDirtyByTarget(self: *MachO, target: SymbolWithLoc) void {
 }
 
 fn markRelocsDirtyByAddress(self: *MachO, addr: u64) void {
+    log.debug("marking relocs dirty by address: {x}", .{addr});
     for (self.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
             const target_atom_index = reloc.getTargetAtomIndex(self) orelse continue;
@@ -1742,6 +1749,8 @@ pub fn resolveSymbolsAtLoading(self: *MachO) !void {
 pub fn resolveDyldStubBinder(self: *MachO) !void {
     if (self.dyld_stub_binder_index != null) return;
     if (self.unresolved.count() == 0) return; // no need for a stub binder if we don't have any imports
+
+    log.debug("resolving dyld_stub_binder", .{});
 
     const gpa = self.base.allocator;
     const sym_index = try self.allocateSymbol();
@@ -2829,6 +2838,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
     if (self.linkedit_segment_cmd_index == null) {
         self.linkedit_segment_cmd_index = @intCast(u8, self.segments.items.len);
+
         try self.segments.append(gpa, .{
             .segname = makeStaticString("__LINKEDIT"),
             .maxprot = macho.PROT.READ,

@@ -3320,21 +3320,20 @@ fn buildOutputType(
 
             try server.listen(.{ .in = ip4_addr });
 
-            while (true) {
-                const conn = try server.accept();
-                defer conn.stream.close();
+            const conn = try server.accept();
+            defer conn.stream.close();
 
-                try serve(
-                    comp,
-                    .{ .handle = conn.stream.handle },
-                    .{ .handle = conn.stream.handle },
-                    test_exec_args.items,
-                    self_exe_path,
-                    arg_mode,
-                    all_args,
-                    runtime_args_start,
-                );
-            }
+            try serve(
+                comp,
+                .{ .handle = conn.stream.handle },
+                .{ .handle = conn.stream.handle },
+                test_exec_args.items,
+                self_exe_path,
+                arg_mode,
+                all_args,
+                runtime_args_start,
+            );
+            return cleanExit();
         },
     }
 
@@ -3465,9 +3464,7 @@ fn serve(
         const hdr = try server.receiveMessage();
 
         switch (hdr.tag) {
-            .exit => {
-                return cleanExit();
-            },
+            .exit => return,
             .update => {
                 assert(main_progress_node.recently_updated_child == null);
                 tracy.frameMark();

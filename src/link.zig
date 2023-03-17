@@ -397,9 +397,10 @@ pub const File = struct {
                             if (macho.mach_task == null) {
                                 if (std.os.darwin.machTaskForPid(pid)) |task| {
                                     macho.mach_task = task;
-                                    std.os.ptrace(std.os.darwin.PT.ATTACHEXC, pid, 0, 0) catch |err| {
-                                        log.warn("ptrace failure: {s}", .{@errorName(err)});
-                                    };
+                                    // TODO enable ones we register for exceptions
+                                    // std.os.ptrace(std.os.darwin.PT.ATTACHEXC, pid, 0, 0) catch |err| {
+                                    //     log.warn("ptrace failure: {s}", .{@errorName(err)});
+                                    // };
                                 } else |err| {
                                     log.warn("failed to acquire Mach task for child process: {s}", .{@errorName(err)});
                                 }
@@ -443,9 +444,11 @@ pub const File = struct {
                         .linux => std.os.ptrace(std.os.linux.PTRACE.DETACH, pid, 0, 0) catch |err| {
                             log.warn("ptrace failure: {s}", .{@errorName(err)});
                         },
-                        .macos => std.os.ptrace(std.os.darwin.PT.KILL, pid, 0, 0) catch |err| {
-                            log.warn("ptrace failure: {s}", .{@errorName(err)});
-                        },
+                        .macos => {},
+                        // TODO see comment above in makeWritable
+                        // .macos => std.os.ptrace(std.os.darwin.PT.DETACH, pid, 0, 0) catch |err| {
+                        //     log.warn("ptrace failure: {s}", .{@errorName(err)});
+                        // },
                         else => return error.HotSwapUnavailableOnHostOperatingSystem,
                     }
                 }
