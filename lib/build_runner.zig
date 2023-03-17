@@ -204,7 +204,11 @@ pub fn main() !void {
             } else if (mem.eql(u8, arg, "--verbose-air")) {
                 builder.verbose_air = true;
             } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
-                builder.verbose_llvm_ir = true;
+                builder.verbose_llvm_ir = "-";
+            } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
+                builder.verbose_llvm_ir = arg["--verbose-llvm-ir=".len..];
+            } else if (mem.eql(u8, arg, "--verbose-llvm-bc=")) {
+                builder.verbose_llvm_bc = arg["--verbose-llvm-bc=".len..];
             } else if (mem.eql(u8, arg, "--verbose-cimport")) {
                 builder.verbose_cimport = true;
             } else if (mem.eql(u8, arg, "--verbose-cc")) {
@@ -990,7 +994,8 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\  --debug-pkg-config           Fail if unknown pkg-config flags encountered
         \\  --verbose-link               Enable compiler debug output for linking
         \\  --verbose-air                Enable compiler debug output for Zig AIR
-        \\  --verbose-llvm-ir            Enable compiler debug output for LLVM IR
+        \\  --verbose-llvm-ir[=file]     Enable compiler debug output for LLVM IR
+        \\  --verbose-llvm-bc=[file]     Enable compiler debug output for LLVM BC
         \\  --verbose-cimport            Enable compiler debug output for C imports
         \\  --verbose-cc                 Enable compiler debug output for C compilation
         \\  --verbose-llvm-cpu-features  Enable compiler debug output for LLVM CPU features
@@ -1003,13 +1008,13 @@ fn usageAndErr(builder: *std.Build, already_ran_build: bool, out_stream: anytype
     process.exit(1);
 }
 
-fn nextArg(args: [][]const u8, idx: *usize) ?[]const u8 {
+fn nextArg(args: [][:0]const u8, idx: *usize) ?[:0]const u8 {
     if (idx.* >= args.len) return null;
     defer idx.* += 1;
     return args[idx.*];
 }
 
-fn argsRest(args: [][]const u8, idx: usize) ?[][]const u8 {
+fn argsRest(args: [][:0]const u8, idx: usize) ?[][:0]const u8 {
     if (idx >= args.len) return null;
     return args[idx..];
 }

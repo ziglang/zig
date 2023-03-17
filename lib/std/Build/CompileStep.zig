@@ -1438,7 +1438,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     if (b.verbose_cimport) try zig_args.append("--verbose-cimport");
     if (b.verbose_air) try zig_args.append("--verbose-air");
-    if (b.verbose_llvm_ir) try zig_args.append("--verbose-llvm-ir");
+    if (b.verbose_llvm_ir) |path| try zig_args.append(b.fmt("--verbose-llvm-ir={s}", .{path}));
+    if (b.verbose_llvm_bc) |path| try zig_args.append(b.fmt("--verbose-llvm-bc={s}", .{path}));
     if (b.verbose_link or self.verbose_link) try zig_args.append("--verbose-link");
     if (b.verbose_cc or self.verbose_cc) try zig_args.append("--verbose-cc");
     if (b.verbose_llvm_cpu_features) try zig_args.append("--verbose-llvm-cpu-features");

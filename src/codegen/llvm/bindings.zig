@@ -422,6 +422,9 @@ pub const Module = opaque {
 
     pub const printModuleToFile = LLVMPrintModuleToFile;
     extern fn LLVMPrintModuleToFile(M: *Module, Filename: [*:0]const u8, ErrorMessage: *[*:0]const u8) Bool;
+
+    pub const writeBitcodeToFile = LLVMWriteBitcodeToFile;
+    extern fn LLVMWriteBitcodeToFile(M: *Module, Path: [*:0]const u8) c_int;
 };
 
 pub const lookupIntrinsicID = LLVMLookupIntrinsicID;

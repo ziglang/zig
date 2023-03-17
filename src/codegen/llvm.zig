@@ -756,8 +756,35 @@ pub const Object = struct {
             dib.finalize();
         }
 
-        if (comp.verbose_llvm_ir) {
-            self.llvm_module.dump();
+        if (comp.verbose_llvm_ir) |path| {
+            if (std.mem.eql(u8, path, "-")) {
+                self.llvm_module.dump();
+            } else {
+                const path_z = try comp.gpa.dupeZ(u8, path);
+                defer comp.gpa.free(path_z);
+
+                var error_message: [*:0]const u8 = undefined;
+
+                if (self.llvm_module.printModuleToFile(path_z, &error_message).toBool()) {
+                    defer llvm.disposeMessage(error_message);
+
+                    log.err("dump LLVM module failed ir={s}: {s}", .{
+                        path, error_message,
+                    });
+                }
+            }
+        }
+
+        if (comp.verbose_llvm_bc) |path| {
+            const path_z = try comp.gpa.dupeZ(u8, path);
+            defer comp.gpa.free(path_z);
+
+            const error_code = self.llvm_module.writeBitcodeToFile(path_z);
+            if (error_code != 0) {
+                log.err("dump LLVM module failed bc={s}: {d}", .{
+                    path, error_code,
+                });
+            }
         }
 
         var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
