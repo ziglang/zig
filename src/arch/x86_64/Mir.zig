@@ -109,20 +109,40 @@ pub const Inst = struct {
         /// Logical exclusive-or
         xor,
 
-        /// Add single precision floating point
+        /// Add single precision floating point values
         addss,
         /// Compare scalar single-precision floating-point values
         cmpss,
+        /// Divide scalar single-precision floating-point values
+        divss,
+        /// Return maximum single-precision floating-point value
+        maxss,
+        /// Return minimum single-precision floating-point value
+        minss,
         /// Move scalar single-precision floating-point value
         movss,
+        /// Multiply scalar single-precision floating-point values
+        mulss,
+        /// Subtract scalar single-precision floating-point values
+        subss,
         /// Unordered compare scalar single-precision floating-point values
         ucomiss,
-        /// Add double precision floating point
+        /// Add double precision floating point values
         addsd,
         /// Compare scalar double-precision floating-point values
         cmpsd,
+        /// Divide scalar double-precision floating-point values
+        divsd,
+        /// Return maximum double-precision floating-point value
+        maxsd,
+        /// Return minimum double-precision floating-point value
+        minsd,
         /// Move scalar double-precision floating-point value
         movsd,
+        /// Multiply scalar double-precision floating-point values
+        mulsd,
+        /// Subtract scalar double-precision floating-point values
+        subsd,
         /// Unordered compare scalar double-precision floating-point values
         ucomisd,
 

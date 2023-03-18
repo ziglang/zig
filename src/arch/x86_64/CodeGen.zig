@@ -1530,21 +1530,23 @@ fn airPtrArithmetic(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void 
 
 fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const result = result: {
+        if (self.liveness.isUnused(inst)) break :result .dead;
 
-    if (self.liveness.isUnused(inst)) {
-        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
-    }
+        const tag = self.air.instructions.items(.tag)[inst];
+        const ty = self.air.typeOfIndex(inst);
 
-    const tag = self.air.instructions.items(.tag)[inst];
-    const ty = self.air.typeOfIndex(inst);
+        if (ty.zigTypeTag() == .Float) {
+            break :result try self.genBinOp(inst, tag, bin_op.lhs, bin_op.rhs);
+        }
 
-    try self.spillRegisters(2, .{ .rax, .rdx });
+        try self.spillRegisters(2, .{ .rax, .rdx });
 
-    const lhs = try self.resolveInst(bin_op.lhs);
-    const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
 
-    const result = try self.genMulDivBinOp(tag, inst, ty, lhs, rhs);
-
+        break :result try self.genMulDivBinOp(tag, inst, ty, lhs, rhs);
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3288,10 +3290,10 @@ fn genMulDivBinOp(
     rhs: MCValue,
 ) !MCValue {
     if (ty.zigTypeTag() == .Vector or ty.zigTypeTag() == .Float) {
-        return self.fail("TODO implement genBinOp for {}", .{ty.fmtDebug()});
+        return self.fail("TODO implement genMulDivBinOp for {}", .{ty.fmtDebug()});
     }
     if (ty.abiSize(self.target.*) > 8) {
-        return self.fail("TODO implement genBinOp for {}", .{ty.fmtDebug()});
+        return self.fail("TODO implement genMulDivBinOp for {}", .{ty.fmtDebug()});
     }
     if (tag == .div_float) {
         return self.fail("TODO implement genMulDivBinOp for div_float", .{});
@@ -3516,11 +3518,31 @@ fn genBinOp(
     switch (tag) {
         .add,
         .addwrap,
-        => try self.genBinOpMir(.add, lhs_ty, dst_mcv, src_mcv),
+        => try self.genBinOpMir(switch (lhs_ty.tag()) {
+            else => .add,
+            .f32 => .addss,
+            .f64 => .addsd,
+        }, lhs_ty, dst_mcv, src_mcv),
 
         .sub,
         .subwrap,
-        => try self.genBinOpMir(.sub, lhs_ty, dst_mcv, src_mcv),
+        => try self.genBinOpMir(switch (lhs_ty.tag()) {
+            else => .sub,
+            .f32 => .subss,
+            .f64 => .subsd,
+        }, lhs_ty, dst_mcv, src_mcv),
+
+        .mul => try self.genBinOpMir(switch (lhs_ty.tag()) {
+            .f32 => .mulss,
+            .f64 => .mulsd,
+            else => return self.fail("TODO implement genBinOp for {s} {}", .{ @tagName(tag), lhs_ty.fmt(self.bin_file.options.module.?) }),
+        }, lhs_ty, dst_mcv, src_mcv),
+
+        .div_float => try self.genBinOpMir(switch (lhs_ty.tag()) {
+            .f32 => .divss,
+            .f64 => .divsd,
+            else => return self.fail("TODO implement genBinOp for {s} {}", .{ @tagName(tag), lhs_ty.fmt(self.bin_file.options.module.?) }),
+        }, lhs_ty, dst_mcv, src_mcv),
 
         .ptr_add,
         .ptr_sub,
@@ -3547,54 +3569,66 @@ fn genBinOp(
 
         .min,
         .max,
-        => {
-            if (!lhs_ty.isAbiInt() or !rhs_ty.isAbiInt()) {
-                return self.fail("TODO implement genBinOp for {s} {}", .{ @tagName(tag), lhs_ty.fmt(self.bin_file.options.module.?) });
-            }
+        => switch (lhs_ty.zigTypeTag()) {
+            .Int => {
+                const mat_src_mcv = switch (src_mcv) {
+                    .immediate => MCValue{ .register = try self.copyToTmpRegister(rhs_ty, src_mcv) },
+                    else => src_mcv,
+                };
+                const mat_mcv_lock = switch (mat_src_mcv) {
+                    .register => |reg| self.register_manager.lockReg(reg),
+                    else => null,
+                };
+                defer if (mat_mcv_lock) |lock| self.register_manager.unlockReg(lock);
 
-            const mat_src_mcv = switch (src_mcv) {
-                .immediate => MCValue{ .register = try self.copyToTmpRegister(rhs_ty, src_mcv) },
-                else => src_mcv,
-            };
-            const mat_mcv_lock = switch (mat_src_mcv) {
-                .register => |reg| self.register_manager.lockReg(reg),
-                else => null,
-            };
-            defer if (mat_mcv_lock) |lock| self.register_manager.unlockReg(lock);
+                try self.genBinOpMir(.cmp, lhs_ty, dst_mcv, mat_src_mcv);
 
-            try self.genBinOpMir(.cmp, lhs_ty, dst_mcv, mat_src_mcv);
+                const int_info = lhs_ty.intInfo(self.target.*);
+                const cc: Condition = switch (int_info.signedness) {
+                    .unsigned => switch (tag) {
+                        .min => .a,
+                        .max => .b,
+                        else => unreachable,
+                    },
+                    .signed => switch (tag) {
+                        .min => .g,
+                        .max => .l,
+                        else => unreachable,
+                    },
+                };
 
-            const int_info = lhs_ty.intInfo(self.target.*);
-            const cc: Condition = switch (int_info.signedness) {
-                .unsigned => switch (tag) {
-                    .min => .a,
-                    .max => .b,
+                const abi_size = @intCast(u32, lhs_ty.abiSize(self.target.*));
+                switch (dst_mcv) {
+                    .register => |dst_reg| switch (mat_src_mcv) {
+                        .register => |src_reg| try self.asmCmovccRegisterRegister(
+                            registerAlias(dst_reg, abi_size),
+                            registerAlias(src_reg, abi_size),
+                            cc,
+                        ),
+                        .stack_offset => |off| try self.asmCmovccRegisterMemory(
+                            registerAlias(dst_reg, abi_size),
+                            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = .rbp, .disp = -off }),
+                            cc,
+                        ),
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                }
+            },
+            .Float => try self.genBinOpMir(switch (lhs_ty.tag()) {
+                .f32 => switch (tag) {
+                    .min => .minss,
+                    .max => .maxss,
                     else => unreachable,
                 },
-                .signed => switch (tag) {
-                    .min => .g,
-                    .max => .l,
+                .f64 => switch (tag) {
+                    .min => .minsd,
+                    .max => .maxsd,
                     else => unreachable,
                 },
-            };
-
-            const abi_size = @intCast(u32, lhs_ty.abiSize(self.target.*));
-            switch (dst_mcv) {
-                .register => |dst_reg| switch (mat_src_mcv) {
-                    .register => |src_reg| try self.asmCmovccRegisterRegister(
-                        registerAlias(dst_reg, abi_size),
-                        registerAlias(src_reg, abi_size),
-                        cc,
-                    ),
-                    .stack_offset => |off| try self.asmCmovccRegisterMemory(
-                        registerAlias(dst_reg, abi_size),
-                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = .rbp, .disp = -off }),
-                        cc,
-                    ),
-                    else => unreachable,
-                },
-                else => unreachable,
-            }
+                else => return self.fail("TODO implement genBinOp for {s} {}", .{ @tagName(tag), lhs_ty.fmt(self.bin_file.options.module.?) }),
+            }, lhs_ty, dst_mcv, src_mcv),
+            else => return self.fail("TODO implement genBinOp for {s} {}", .{ @tagName(tag), lhs_ty.fmt(self.bin_file.options.module.?) }),
         },
 
         else => unreachable,
@@ -3626,29 +3660,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                 .register => |src_reg| switch (dst_ty.zigTypeTag()) {
                     .Float => {
                         if (intrinsicsAllowed(self.target.*, dst_ty)) {
-                            const actual_tag: Mir.Inst.Tag = switch (dst_ty.tag()) {
-                                .f32 => switch (mir_tag) {
-                                    .add => .addss,
-                                    .cmp => .ucomiss,
-                                    else => return self.fail(
-                                        "TODO genBinOpMir for f32 register-register with MIR tag {}",
-                                        .{mir_tag},
-                                    ),
-                                },
-                                .f64 => switch (mir_tag) {
-                                    .add => .addsd,
-                                    .cmp => .ucomisd,
-                                    else => return self.fail(
-                                        "TODO genBinOpMir for f64 register-register with MIR tag {}",
-                                        .{mir_tag},
-                                    ),
-                                },
-                                else => return self.fail(
-                                    "TODO genBinOpMir for float register-register and type {}",
-                                    .{dst_ty.fmtDebug()},
-                                ),
-                            };
-                            return self.asmRegisterRegister(actual_tag, dst_reg.to128(), src_reg.to128());
+                            return self.asmRegisterRegister(mir_tag, dst_reg.to128(), src_reg.to128());
                         }
 
                         return self.fail("TODO genBinOpMir for float register-register and no intrinsics", .{});
@@ -4307,7 +4319,11 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         };
         defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
-        try self.genBinOpMir(.cmp, ty, dst_mcv, src_mcv);
+        try self.genBinOpMir(switch (ty.tag()) {
+            else => .cmp,
+            .f32 => .ucomiss,
+            .f64 => .ucomisd,
+        }, ty, dst_mcv, src_mcv);
 
         break :result switch (signedness) {
             .signed => MCValue{ .eflags = Condition.fromCompareOperatorSigned(op) },

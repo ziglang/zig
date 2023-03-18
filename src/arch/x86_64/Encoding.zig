@@ -342,12 +342,20 @@ pub const Mnemonic = enum {
     // SSE
     addss,
     cmpss,
+    divss,
+    maxss, minss,
     movss,
+    mulss,
+    subss,
     ucomiss,
     // SSE2
     addsd,
     cmpsd,
+    divsd,
+    maxsd, minsd,
     movq, movsd,
+    mulsd,
+    subsd,
     ucomisd,
     // zig fmt: on
 };

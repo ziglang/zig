@@ -599,8 +599,18 @@ pub const table = &[_]Entry{
 
     .{ .cmpss, .rmi, .xmm, .xmm_m32, .imm8, .none, 3, 0xf3, 0x0f, 0xc2, 0, .sse },
 
+    .{ .divss, .rm, .xmm, .xmm_m32, .none, .none, 3, 0xf3, 0x0f, 0x5e, 0, .sse },
+
+    .{ .maxss, .rm, .xmm, .xmm_m32, .none, .none, 3, 0xf3, 0x0f, 0x5f, 0, .sse },
+
+    .{ .minss, .rm, .xmm, .xmm_m32, .none, .none, 3, 0xf3, 0x0f, 0x5d, 0, .sse },
+
     .{ .movss, .rm, .xmm,     .xmm_m32, .none, .none, 3, 0xf3, 0x0f, 0x10, 0, .sse },
     .{ .movss, .mr, .xmm_m32, .xmm,     .none, .none, 3, 0xf3, 0x0f, 0x11, 0, .sse },
+
+    .{ .mulss, .rm, .xmm, .xmm_m32, .none, .none, 3, 0xf3, 0x0f, 0x59, 0, .sse },
+
+    .{ .subss, .rm, .xmm, .xmm_m32, .none, .none, 3, 0xf3, 0x0f, 0x5c, 0, .sse },
 
     .{ .ucomiss, .rm, .xmm, .xmm_m32, .none, .none, 2, 0x0f, 0x2e, 0x00, 0, .sse },
 
@@ -609,8 +619,18 @@ pub const table = &[_]Entry{
 
     .{ .cmpsd, .rmi, .xmm, .xmm_m64, .imm8, .none, 3, 0xf2, 0x0f, 0xc2, 0, .sse2 },
 
+    .{ .divsd, .rm, .xmm, .xmm_m64, .none, .none, 3, 0xf2, 0x0f, 0x5e, 0, .sse2 },
+
+    .{ .maxsd, .rm, .xmm, .xmm_m32, .none, .none, 3, 0xf2, 0x0f, 0x5f, 0, .sse2 },
+
+    .{ .minsd, .rm, .xmm, .xmm_m32, .none, .none, 3, 0xf2, 0x0f, 0x5d, 0, .sse2 },
+
     .{ .movq, .rm, .xmm,     .xmm_m64, .none, .none, 3, 0xf3, 0x0f, 0x7e, 0, .sse2 },
     .{ .movq, .mr, .xmm_m64, .xmm,     .none, .none, 3, 0x66, 0x0f, 0xd6, 0, .sse2 },
+
+    .{ .mulsd, .rm, .xmm, .xmm_m32, .none, .none, 3, 0xf2, 0x0f, 0x59, 0, .sse2 },
+
+    .{ .subsd, .rm, .xmm, .xmm_m32, .none, .none, 3, 0xf2, 0x0f, 0x5c, 0, .sse2 },
 
     .{ .movsd, .rm, .xmm,     .xmm_m64, .none, .none, 3, 0xf2, 0x0f, 0x10, 0, .sse2 },
     .{ .movsd, .mr, .xmm_m64, .xmm,     .none, .none, 3, 0xf2, 0x0f, 0x11, 0, .sse2 },
