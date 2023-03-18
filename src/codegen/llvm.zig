@@ -4745,6 +4745,10 @@ pub const FuncGen = struct {
                 .c_va_copy => try self.airCVaCopy(inst),
                 .c_va_end => try self.airCVaEnd(inst),
                 .c_va_start => try self.airCVaStart(inst),
+
+                .work_item_id => try self.airWorkItemId(inst),
+                .work_group_size => try self.airWorkGroupSize(inst),
+                .work_group_id => try self.airWorkGroupId(inst),
                 // zig fmt: on
             };
             if (opt_value) |val| {
@@ -9565,6 +9569,74 @@ pub const FuncGen = struct {
 
         const llvm_dest_ty = try self.dg.lowerType(inst_ty);
         return self.builder.buildAddrSpaceCast(operand, llvm_dest_ty, "");
+    }
+
+    fn amdgcnWorkIntrinsic(self: *FuncGen, dimension: u32, default: u32, comptime basename: []const u8) !?*llvm.Value {
+        const llvm_u32 = self.context.intType(32);
+
+        const llvm_fn_name = switch (dimension) {
+            0 => basename ++ ".x",
+            1 => basename ++ ".y",
+            2 => basename ++ ".z",
+            else => return llvm_u32.constInt(default, .False),
+        };
+
+        const args: [0]*llvm.Value = .{};
+        const llvm_fn = self.getIntrinsic(llvm_fn_name, &.{});
+        return self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args.len, .Fast, .Auto, "");
+    }
+
+    fn airWorkItemId(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const target = self.dg.module.getTarget();
+        assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const dimension = pl_op.payload;
+        return self.amdgcnWorkIntrinsic(dimension, 0, "llvm.amdgcn.workitem.id");
+    }
+
+    fn airWorkGroupSize(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const target = self.dg.module.getTarget();
+        assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const dimension = pl_op.payload;
+        const llvm_u32 = self.context.intType(32);
+        if (dimension >= 3) {
+            return llvm_u32.constInt(1, .False);
+        }
+
+        // Fetch the dispatch pointer, which points to this structure:
+        // https://github.com/RadeonOpenCompute/ROCR-Runtime/blob/adae6c61e10d371f7cbc3d0e94ae2c070cab18a4/src/inc/hsa.h#L2913
+        const llvm_fn = self.getIntrinsic("llvm.amdgcn.dispatch.ptr", &.{});
+        const args: [0]*llvm.Value = .{};
+        const dispatch_ptr = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args.len, .Fast, .Auto, "");
+        dispatch_ptr.setAlignment(4);
+
+        // Load the work_group_* member from the struct as u16.
+        // Just treat the dispatch pointer as an array of u16 to keep things simple.
+        const offset = 2 + dimension;
+        const index = [_]*llvm.Value{llvm_u32.constInt(offset, .False)};
+        const llvm_u16 = self.context.intType(16);
+        const workgroup_size_ptr = self.builder.buildInBoundsGEP(llvm_u16, dispatch_ptr, &index, index.len, "");
+        const workgroup_size = self.builder.buildLoad(llvm_u16, workgroup_size_ptr, "");
+        workgroup_size.setAlignment(2);
+        return workgroup_size;
+    }
+
+    fn airWorkGroupId(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const target = self.dg.module.getTarget();
+        assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const dimension = pl_op.payload;
+        return self.amdgcnWorkIntrinsic(dimension, 0, "llvm.amdgcn.workgroup.id");
     }
 
     fn getErrorNameTable(self: *FuncGen) !*llvm.Value {

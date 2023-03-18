@@ -8549,6 +8549,40 @@ fn builtinCall(
             }
             return rvalue(gz, ri, try gz.addNodeExtended(.c_va_start, node), node);
         },
+
+        .work_item_id => {
+            if (astgen.fn_block == null) {
+                return astgen.failNode(node, "'@workItemId' outside function scope", .{});
+            }
+            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]);
+            const result = try gz.addExtendedPayload(.work_item_id, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = operand,
+            });
+            return rvalue(gz, ri, result, node);
+        },
+        .work_group_size => {
+            if (astgen.fn_block == null) {
+                return astgen.failNode(node, "'@workGroupSize' outside function scope", .{});
+            }
+            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]);
+            const result = try gz.addExtendedPayload(.work_group_size, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = operand,
+            });
+            return rvalue(gz, ri, result, node);
+        },
+        .work_group_id => {
+            if (astgen.fn_block == null) {
+                return astgen.failNode(node, "'@workGroupId' outside function scope", .{});
+            }
+            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]);
+            const result = try gz.addExtendedPayload(.work_group_id, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = operand,
+            });
+            return rvalue(gz, ri, result, node);
+        },
     }
 }
 

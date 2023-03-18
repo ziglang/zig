@@ -9578,6 +9578,28 @@ fn foo(comptime T: type, ptr: *T) T {
       Remove {#syntax#}volatile{#endsyntax#} qualifier from a pointer.
       </p>
       {#header_close#}
+
+      {#header_open|@workGroupId#}
+      <pre>{#syntax#}@workGroupId(comptime dimension: u32) u32{#endsyntax#}</pre>
+      <p>
+      Returns the index of the work group in the current kernel invocation in dimension {#syntax#}dimension{#endsyntax#}.
+      </p>
+      {#header_close#}
+
+      {#header_open|@workGroupSize#}
+      <pre>{#syntax#}@workGroupSize(comptime dimension: u32) u32{#endsyntax#}</pre>
+      <p>
+      Returns the number of work items that a work group has in dimension {#syntax#}dimension{#endsyntax#}.
+      </p>
+      {#header_close#}
+
+      {#header_open|@workItemId#}
+      <pre>{#syntax#}@workItemId(comptime dimension: u32) u32{#endsyntax#}</pre>
+      <p>
+      Returns the index of the work item in the work group in dimension {#syntax#}dimension{#endsyntax#}. This function returns values between {#syntax#}0{#endsyntax#} (inclusive) and {#syntax#}@workGroupSize(dimension){#endsyntax#} (exclusive).
+      </p>
+      {#header_close#}
+
       {#header_close#}
 
       {#header_open|Build Mode#}
