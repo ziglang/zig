@@ -130,6 +130,13 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .ucomisd,
             => try emit.mirEncodeGeneric(tag, inst),
 
+            .cmps,
+            .lods,
+            .movs,
+            .scas,
+            .stos,
+            => try emit.mirString(tag, inst),
+
             .jmp_reloc => try emit.mirJmpReloc(inst),
 
             .call_extern => try emit.mirCallExtern(inst),
@@ -183,18 +190,8 @@ fn fixupRelocs(emit: *Emit) InnerError!void {
     }
 }
 
-fn encode(emit: *Emit, mnemonic: Instruction.Mnemonic, ops: struct {
-    op1: Instruction.Operand = .none,
-    op2: Instruction.Operand = .none,
-    op3: Instruction.Operand = .none,
-    op4: Instruction.Operand = .none,
-}) InnerError!void {
-    const inst = try Instruction.new(mnemonic, .{
-        .op1 = ops.op1,
-        .op2 = ops.op2,
-        .op3 = ops.op3,
-        .op4 = ops.op4,
-    });
+fn encode(emit: *Emit, mnemonic: Instruction.Mnemonic, ops: Instruction.Init) InnerError!void {
+    const inst = try Instruction.new(mnemonic, ops);
     return inst.encode(emit.code.writer());
 }
 
@@ -318,6 +315,28 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
     });
 }
 
+fn mirString(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = emit.mir.instructions.items(.ops)[inst];
+    switch (ops) {
+        .string => {
+            const data = emit.mir.instructions.items(.data)[inst].string;
+            const mnemonic = switch (tag) {
+                inline .cmps, .lods, .movs, .scas, .stos => |comptime_tag| switch (data.width) {
+                    inline else => |comptime_width| @field(
+                        Instruction.Mnemonic,
+                        @tagName(comptime_tag) ++ @tagName(comptime_width),
+                    ),
+                },
+                else => unreachable,
+            };
+            return emit.encode(mnemonic, .{ .prefix = switch (data.repeat) {
+                inline else => |comptime_repeat| @field(Instruction.Prefix, @tagName(comptime_repeat)),
+            } });
+        },
+        else => unreachable,
+    }
+}
+
 fn mirMovMoffs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst];
     const payload = emit.mir.instructions.items(.data)[inst].payload;
@@ -377,10 +396,9 @@ fn mirMovsx(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 }
 
 fn mnemonicFromConditionCode(comptime basename: []const u8, cc: bits.Condition) Instruction.Mnemonic {
-    inline for (@typeInfo(bits.Condition).Enum.fields) |field| {
-        if (mem.eql(u8, field.name, @tagName(cc)))
-            return @field(Instruction.Mnemonic, basename ++ field.name);
-    } else unreachable;
+    return switch (cc) {
+        inline else => |comptime_cc| @field(Instruction.Mnemonic, basename ++ @tagName(comptime_cc)),
+    };
 }
 
 fn mirCmovcc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {

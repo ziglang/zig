@@ -1286,7 +1286,7 @@ pub fn spillEflagsIfOccupied(self: *Self) !void {
     }
 }
 
-pub fn spillRegisters(self: *Self, comptime count: comptime_int, registers: [count]Register) !void {
+pub fn spillRegisters(self: *Self, registers: []const Register) !void {
     for (registers) |reg| {
         try self.register_manager.getReg(reg, null);
     }
@@ -1540,7 +1540,7 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
             break :result try self.genBinOp(inst, tag, bin_op.lhs, bin_op.rhs);
         }
 
-        try self.spillRegisters(2, .{ .rax, .rdx });
+        try self.spillRegisters(&.{ .rax, .rdx });
 
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
@@ -1594,7 +1594,7 @@ fn airAddSubShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 try self.spillEflagsIfOccupied();
 
                 if (tag == .shl_with_overflow) {
-                    try self.spillRegisters(1, .{.rcx});
+                    try self.spillRegisters(&.{.rcx});
                 }
 
                 const partial: MCValue = switch (tag) {
@@ -1721,7 +1721,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     try self.spillEflagsIfOccupied();
                     self.eflags_inst = inst;
 
-                    try self.spillRegisters(2, .{ .rax, .rdx });
+                    try self.spillRegisters(&.{ .rax, .rdx });
 
                     const lhs = try self.resolveInst(bin_op.lhs);
                     const rhs = try self.resolveInst(bin_op.rhs);
@@ -1774,7 +1774,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                             break :dst_reg dst_reg;
                         },
                         .unsigned => {
-                            try self.spillRegisters(2, .{ .rax, .rdx });
+                            try self.spillRegisters(&.{ .rax, .rdx });
 
                             const lhs = try self.resolveInst(bin_op.lhs);
                             const rhs = try self.resolveInst(bin_op.rhs);
@@ -1888,7 +1888,7 @@ fn airShlShrBinOp(self: *Self, inst: Air.Inst.Index) !void {
         return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
     }
 
-    try self.spillRegisters(1, .{.rcx});
+    try self.spillRegisters(&.{.rcx});
 
     const tag = self.air.instructions.items(.tag)[inst];
     const lhs = try self.resolveInst(bin_op.lhs);
@@ -2832,6 +2832,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 .unreach => unreachable,
                 .eflags => unreachable,
                 .undef => {
+                    if (!self.wantSafety()) return; // The already existing value will do just fine.
                     switch (abi_size) {
                         1 => try self.store(ptr, .{ .immediate = 0xaa }, ptr_ty, value_ty),
                         2 => try self.store(ptr, .{ .immediate = 0xaaaa }, ptr_ty, value_ty),
@@ -4035,11 +4036,40 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     defer info.deinit(self);
 
     try self.spillEflagsIfOccupied();
+    try self.spillRegisters(abi.getCallerPreservedRegs(self.target.*));
 
-    for (abi.getCallerPreservedRegs(self.target.*)) |reg| {
-        try self.register_manager.getReg(reg, null);
+    // set stack arguments first because this can clobber registers
+    // also clobber spill arguments as we go
+    if (info.return_value == .stack_offset) {
+        try self.spillRegisters(&.{abi.getCAbiIntParamRegs(self.target.*)[0]});
+    }
+    for (args, info.args) |arg, mc_arg| {
+        const arg_ty = self.air.typeOf(arg);
+        const arg_mcv = try self.resolveInst(arg);
+        // Here we do not use setRegOrMem even though the logic is similar, because
+        // the function call will move the stack pointer, so the offsets are different.
+        switch (mc_arg) {
+            .none => {},
+            .register => |reg| try self.spillRegisters(&.{reg}),
+            .stack_offset => |off| {
+                // TODO rewrite using `genSetStack`
+                try self.genSetStackArg(arg_ty, off, arg_mcv);
+            },
+            .ptr_stack_offset => {
+                return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
+            },
+            .undef => unreachable,
+            .immediate => unreachable,
+            .unreach => unreachable,
+            .dead => unreachable,
+            .memory => unreachable,
+            .linker_load => unreachable,
+            .eflags => unreachable,
+            .register_overflow => unreachable,
+        }
     }
 
+    // now we are free to set register arguments
     const ret_reg_lock: ?RegisterLock = blk: {
         if (info.return_value == .stack_offset) {
             const ret_ty = fn_ty.fnReturnType();
@@ -4049,7 +4079,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             log.debug("airCall: return value on stack at offset {}", .{stack_offset});
 
             const ret_reg = abi.getCAbiIntParamRegs(self.target.*)[0];
-            try self.register_manager.getReg(ret_reg, null);
             try self.genSetReg(Type.usize, ret_reg, .{ .ptr_stack_offset = stack_offset });
             const ret_reg_lock = self.register_manager.lockRegAssumeUnused(ret_reg);
 
@@ -4061,25 +4090,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     };
     defer if (ret_reg_lock) |lock| self.register_manager.unlockReg(lock);
 
-    for (args, info.args) |arg, info_arg| {
-        const mc_arg = info_arg;
+    for (args, info.args) |arg, mc_arg| {
         const arg_ty = self.air.typeOf(arg);
         const arg_mcv = try self.resolveInst(arg);
-        // Here we do not use setRegOrMem even though the logic is similar, because
-        // the function call will move the stack pointer, so the offsets are different.
         switch (mc_arg) {
-            .none => continue,
-            .register => |reg| {
-                try self.register_manager.getReg(reg, null);
-                try self.genSetReg(arg_ty, reg, arg_mcv);
-            },
-            .stack_offset => |off| {
-                // TODO rewrite using `genSetStack`
-                try self.genSetStackArg(arg_ty, off, arg_mcv);
-            },
-            .ptr_stack_offset => {
-                return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
-            },
+            .none, .stack_offset, .ptr_stack_offset => {},
+            .register => |reg| try self.genSetReg(arg_ty, reg, arg_mcv),
             .undef => unreachable,
             .immediate => unreachable,
             .unreach => unreachable,
@@ -5277,6 +5293,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
         .dead => unreachable,
         .unreach, .none => return,
         .undef => {
+            if (!self.wantSafety()) return; // The already existing value will do just fine.
             if (abi_size <= 8) {
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
@@ -5384,8 +5401,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
         .dead => unreachable,
         .unreach, .none => return, // Nothing to do.
         .undef => {
-            if (!self.wantSafety())
-                return; // The already existing value will do just fine.
+            if (!self.wantSafety()) return; // The already existing value will do just fine.
             // TODO Upgrade this to a memset call when we have that available.
             switch (abi_size) {
                 1, 2, 4 => {
@@ -5607,19 +5623,14 @@ fn genInlineMemcpy(
         null;
     defer if (dsbase_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const regs = try self.register_manager.allocRegs(5, .{ null, null, null, null, null }, gp);
-    const dst_addr_reg = regs[0];
-    const src_addr_reg = regs[1];
-    const index_reg = regs[2].to64();
-    const count_reg = regs[3].to64();
-    const tmp_reg = regs[4].to8();
+    try self.spillRegisters(&.{ .rdi, .rsi, .rcx });
 
     switch (dst_ptr) {
         .memory, .linker_load => {
-            try self.loadMemPtrIntoRegister(dst_addr_reg, Type.usize, dst_ptr);
+            try self.loadMemPtrIntoRegister(.rdi, Type.usize, dst_ptr);
         },
         .ptr_stack_offset, .stack_offset => |off| {
-            try self.asmRegisterMemory(.lea, dst_addr_reg.to64(), Memory.sib(.qword, .{
+            try self.asmRegisterMemory(.lea, .rdi, Memory.sib(.qword, .{
                 .base = opts.dest_stack_base orelse .rbp,
                 .disp = -off,
             }));
@@ -5627,7 +5638,7 @@ fn genInlineMemcpy(
         .register => |reg| {
             try self.asmRegisterRegister(
                 .mov,
-                registerAlias(dst_addr_reg, @intCast(u32, @divExact(reg.bitSize(), 8))),
+                registerAlias(.rdi, @intCast(u32, @divExact(reg.bitSize(), 8))),
                 reg,
             );
         },
@@ -5638,10 +5649,10 @@ fn genInlineMemcpy(
 
     switch (src_ptr) {
         .memory, .linker_load => {
-            try self.loadMemPtrIntoRegister(src_addr_reg, Type.usize, src_ptr);
+            try self.loadMemPtrIntoRegister(.rsi, Type.usize, src_ptr);
         },
         .ptr_stack_offset, .stack_offset => |off| {
-            try self.asmRegisterMemory(.lea, src_addr_reg.to64(), Memory.sib(.qword, .{
+            try self.asmRegisterMemory(.lea, .rsi, Memory.sib(.qword, .{
                 .base = opts.source_stack_base orelse .rbp,
                 .disp = -off,
             }));
@@ -5649,7 +5660,7 @@ fn genInlineMemcpy(
         .register => |reg| {
             try self.asmRegisterRegister(
                 .mov,
-                registerAlias(src_addr_reg, @intCast(u32, @divExact(reg.bitSize(), 8))),
+                registerAlias(.rsi, @intCast(u32, @divExact(reg.bitSize(), 8))),
                 reg,
             );
         },
@@ -5658,37 +5669,12 @@ fn genInlineMemcpy(
         },
     }
 
-    try self.genSetReg(Type.usize, count_reg, len);
-    try self.asmRegisterImmediate(.mov, index_reg, Immediate.u(0));
-    const loop_start = try self.addInst(.{
-        .tag = .cmp,
-        .ops = .ri_u,
-        .data = .{ .ri = .{
-            .r1 = count_reg,
-            .imm = 0,
-        } },
+    try self.genSetReg(Type.usize, .rcx, len);
+    _ = try self.addInst(.{
+        .tag = .movs,
+        .ops = .string,
+        .data = .{ .string = .{ .repeat = .rep, .width = .b } },
     });
-    const loop_reloc = try self.asmJccReloc(undefined, .e);
-    try self.asmRegisterMemory(.mov, tmp_reg.to8(), Memory.sib(.byte, .{
-        .base = src_addr_reg,
-        .scale_index = .{
-            .scale = 1,
-            .index = index_reg,
-        },
-        .disp = 0,
-    }));
-    try self.asmMemoryRegister(.mov, Memory.sib(.byte, .{
-        .base = dst_addr_reg,
-        .scale_index = .{
-            .scale = 1,
-            .index = index_reg,
-        },
-        .disp = 0,
-    }), tmp_reg.to8());
-    try self.asmRegisterImmediate(.add, index_reg, Immediate.u(1));
-    try self.asmRegisterImmediate(.sub, count_reg, Immediate.u(1));
-    _ = try self.asmJmpReloc(loop_start);
-    try self.performReloc(loop_reloc);
 }
 
 fn genInlineMemset(
@@ -5698,28 +5684,20 @@ fn genInlineMemset(
     len: MCValue,
     opts: InlineMemcpyOpts,
 ) InnerError!void {
-    const ssbase_lock: ?RegisterLock = if (opts.source_stack_base) |reg|
-        self.register_manager.lockReg(reg)
-    else
-        null;
-    defer if (ssbase_lock) |reg| self.register_manager.unlockReg(reg);
-
     const dsbase_lock: ?RegisterLock = if (opts.dest_stack_base) |reg|
         self.register_manager.lockReg(reg)
     else
         null;
     defer if (dsbase_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const regs = try self.register_manager.allocRegs(2, .{ null, null }, gp);
-    const addr_reg = regs[0];
-    const index_reg = regs[1].to64();
+    try self.spillRegisters(&.{ .rdi, .al, .rcx });
 
     switch (dst_ptr) {
         .memory, .linker_load => {
-            try self.loadMemPtrIntoRegister(addr_reg, Type.usize, dst_ptr);
+            try self.loadMemPtrIntoRegister(.rdi, Type.usize, dst_ptr);
         },
         .ptr_stack_offset, .stack_offset => |off| {
-            try self.asmRegisterMemory(.lea, addr_reg.to64(), Memory.sib(.qword, .{
+            try self.asmRegisterMemory(.lea, .rdi, Memory.sib(.qword, .{
                 .base = opts.dest_stack_base orelse .rbp,
                 .disp = -off,
             }));
@@ -5727,48 +5705,22 @@ fn genInlineMemset(
         .register => |reg| {
             try self.asmRegisterRegister(
                 .mov,
-                registerAlias(addr_reg, @intCast(u32, @divExact(reg.bitSize(), 8))),
+                registerAlias(.rdi, @intCast(u32, @divExact(reg.bitSize(), 8))),
                 reg,
             );
         },
         else => {
-            return self.fail("TODO implement memcpy for setting stack when dest is {}", .{dst_ptr});
+            return self.fail("TODO implement memset for setting stack when dest is {}", .{dst_ptr});
         },
     }
 
-    try self.genSetReg(Type.usize, index_reg, len);
-    try self.genBinOpMir(.sub, Type.usize, .{ .register = index_reg }, .{ .immediate = 1 });
-
-    const loop_start = try self.addInst(.{
-        .tag = .cmp,
-        .ops = .ri_s,
-        .data = .{ .ri = .{
-            .r1 = index_reg,
-            .imm = @bitCast(u32, @as(i32, -1)),
-        } },
+    try self.genSetReg(Type.u8, .al, value);
+    try self.genSetReg(Type.usize, .rcx, len);
+    _ = try self.addInst(.{
+        .tag = .stos,
+        .ops = .string,
+        .data = .{ .string = .{ .repeat = .rep, .width = .b } },
     });
-    const loop_reloc = try self.asmJccReloc(undefined, .e);
-
-    switch (value) {
-        .immediate => |x| {
-            if (x > math.maxInt(i32)) {
-                return self.fail("TODO inline memset for value immediate larger than 32bits", .{});
-            }
-            try self.asmMemoryImmediate(.mov, Memory.sib(.byte, .{
-                .base = addr_reg,
-                .scale_index = .{
-                    .scale = 1,
-                    .index = index_reg,
-                },
-                .disp = 0,
-            }), Immediate.u(@intCast(u8, x)));
-        },
-        else => return self.fail("TODO inline memset for value of type {}", .{value}),
-    }
-
-    try self.asmRegisterImmediate(.sub, index_reg, Immediate.u(1));
-    _ = try self.asmJmpReloc(loop_start);
-    try self.performReloc(loop_reloc);
 }
 
 fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
@@ -5788,8 +5740,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         },
         .unreach, .none => return, // Nothing to do.
         .undef => {
-            if (!self.wantSafety())
-                return; // The already existing value will do just fine.
+            if (!self.wantSafety()) return; // The already existing value will do just fine.
             // Write the debug undefined value.
             switch (registerAlias(reg, abi_size).bitSize()) {
                 8 => return self.genSetReg(ty, reg, .{ .immediate = 0xaa }),
@@ -5802,27 +5753,27 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         .eflags => |cc| {
             return self.asmSetccRegister(reg.to8(), cc);
         },
-        .immediate => |x| {
-            if (x == 0) {
+        .immediate => |imm| {
+            if (imm == 0) {
                 // 32-bit moves zero-extend to 64-bit, so xoring the 32-bit
                 // register is the fastest way to zero a register.
-                return self.asmRegisterRegister(.xor, reg.to32(), reg.to32());
+                try self.asmRegisterRegister(.xor, reg.to32(), reg.to32());
+            } else if (abi_size > 4 and math.cast(u32, imm) != null) {
+                // 32-bit moves zero-extend to 64-bit.
+                try self.asmRegisterImmediate(.mov, reg.to32(), Immediate.u(imm));
+            } else if (abi_size <= 4 and @bitCast(i64, imm) < 0) {
+                try self.asmRegisterImmediate(
+                    .mov,
+                    registerAlias(reg, abi_size),
+                    Immediate.s(@intCast(i32, @bitCast(i64, imm))),
+                );
+            } else {
+                try self.asmRegisterImmediate(
+                    .mov,
+                    registerAlias(reg, abi_size),
+                    Immediate.u(imm),
+                );
             }
-            if (ty.isSignedInt()) {
-                const signed_x = @bitCast(i64, x);
-                if (math.minInt(i32) <= signed_x and signed_x <= math.maxInt(i32)) {
-                    return self.asmRegisterImmediate(
-                        .mov,
-                        registerAlias(reg, abi_size),
-                        Immediate.s(@intCast(i32, signed_x)),
-                    );
-                }
-            }
-            return self.asmRegisterImmediate(
-                .mov,
-                registerAlias(reg, abi_size),
-                Immediate.u(x),
-            );
         },
         .register => |src_reg| {
             // If the registers are the same, nothing to do.
@@ -6136,7 +6087,7 @@ fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airAtomicRmw(self: *Self, inst: Air.Inst.Index) !void {
     _ = inst;
-    return self.fail("TODO implement x86 airAtomicRaw", .{});
+    return self.fail("TODO implement x86 airAtomicRmw", .{});
 }
 
 fn airAtomicLoad(self: *Self, inst: Air.Inst.Index) !void {
@@ -6177,7 +6128,7 @@ fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
 
     try self.genInlineMemset(dst_ptr, src_val, len, .{});
 
-    return self.finishAir(inst, .none, .{ pl_op.operand, .none, .none });
+    return self.finishAir(inst, .none, .{ pl_op.operand, extra.lhs, extra.rhs });
 }
 
 fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
@@ -6229,7 +6180,7 @@ fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
 
     try self.genInlineMemcpy(dst_ptr, src, len, .{});
 
-    return self.finishAir(inst, .none, .{ pl_op.operand, .none, .none });
+    return self.finishAir(inst, .none, .{ pl_op.operand, extra.lhs, extra.rhs });
 }
 
 fn airTagName(self: *Self, inst: Air.Inst.Index) !void {

@@ -24,12 +24,7 @@ opc: [7]u8,
 modrm_ext: u3,
 mode: Mode,
 
-pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
-    op1: Instruction.Operand,
-    op2: Instruction.Operand,
-    op3: Instruction.Operand,
-    op4: Instruction.Operand,
-}) !?Encoding {
+pub fn findByMnemonic(mnemonic: Mnemonic, args: Instruction.Init) !?Encoding {
     const input_op1 = Op.fromOperand(args.op1);
     const input_op2 = Op.fromOperand(args.op2);
     const input_op3 = Op.fromOperand(args.op3);
@@ -109,17 +104,13 @@ pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
     if (count == 1) return candidates[0];
 
     const EncodingLength = struct {
-        fn estimate(encoding: Encoding, params: struct {
-            op1: Instruction.Operand,
-            op2: Instruction.Operand,
-            op3: Instruction.Operand,
-            op4: Instruction.Operand,
-        }) usize {
+        fn estimate(encoding: Encoding, params: Instruction.Init) usize {
             var inst = Instruction{
                 .op1 = params.op1,
                 .op2 = params.op2,
                 .op3 = params.op3,
                 .op4 = params.op4,
+                .prefix = params.prefix,
                 .encoding = encoding,
             };
             var cwriter = std.io.countingWriter(std.io.null_writer);
@@ -140,12 +131,7 @@ pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
             else => {},
         }
 
-        const len = EncodingLength.estimate(candidate, .{
-            .op1 = args.op1,
-            .op2 = args.op2,
-            .op3 = args.op3,
-            .op4 = args.op4,
-        });
+        const len = EncodingLength.estimate(candidate, args);
         const current = shortest_encoding orelse {
             shortest_encoding = .{ .index = i, .len = len };
             continue;
@@ -228,7 +214,11 @@ pub fn modRmExt(encoding: Encoding) u3 {
 }
 
 pub fn operandBitSize(encoding: Encoding) u64 {
-    if (encoding.mode == .long) return 64;
+    switch (encoding.mode) {
+        .short => return 16,
+        .long => return 64,
+        else => {},
+    }
     const bit_size: u64 = switch (encoding.op_en) {
         .np => switch (encoding.op1) {
             .o16 => 16,
@@ -317,10 +307,13 @@ pub const Mnemonic = enum {
     // zig fmt: off
     // General-purpose
     adc, add, @"and",
-    call, cbw, cwde, cdqe, cwd, cdq, cqo, cmp,
+    call, cbw, cdq, cdqe,
     cmova, cmovae, cmovb, cmovbe, cmovc, cmove, cmovg, cmovge, cmovl, cmovle, cmovna,
     cmovnae, cmovnb, cmovnbe, cmovnc, cmovne, cmovng, cmovnge, cmovnl, cmovnle, cmovno,
     cmovnp, cmovns, cmovnz, cmovo, cmovp, cmovpe, cmovpo, cmovs, cmovz,
+    cmp,
+    cmps, cmpsb, cmpsd, cmpsq, cmpsw,
+    cqo, cwd, cwde,
     div,
     fisttp, fld,
     idiv, imul, int3,
@@ -328,15 +321,21 @@ pub const Mnemonic = enum {
     jnc, jne, jng, jnge, jnl, jnle, jno, jnp, jns, jnz, jo, jp, jpe, jpo, js, jz,
     jmp, 
     lea,
-    mov, movsx, movsxd, movzx, mul,
+    lods, lodsb, lodsd, lodsq, lodsw,
+    mov,
+    movs, movsb, movsd, movsq, movsw,
+    movsx, movsxd, movzx, mul,
     nop,
     @"or",
     pop, push,
     ret,
-    sal, sar, sbb, shl, shr, sub, syscall,
+    sal, sar, sbb,
+    scas, scasb, scasd, scasq, scasw,
+    shl, shr, sub, syscall,
     seta, setae, setb, setbe, setc, sete, setg, setge, setl, setle, setna, setnae,
     setnb, setnbe, setnc, setne, setng, setnge, setnl, setnle, setno, setnp, setns,
     setnz, seto, setp, setpe, setpo, sets, setz,
+    stos, stosb, stosd, stosq, stosw,
     @"test",
     ud2,
     xor,
@@ -351,10 +350,10 @@ pub const Mnemonic = enum {
     ucomiss,
     // SSE2
     addsd,
-    cmpsd,
+    //cmpsd,
     divsd,
     maxsd, minsd,
-    movq, movsd,
+    movq, //movsd,
     mulsd,
     subsd,
     ucomisd,
@@ -591,6 +590,7 @@ pub const Op = enum {
 
 pub const Mode = enum {
     none,
+    short,
     fpu,
     rex,
     long,

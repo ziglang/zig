@@ -150,6 +150,17 @@ pub const Inst = struct {
         /// Unordered compare scalar double-precision floating-point values
         ucomisd,
 
+        /// Compare string operands
+        cmps,
+        /// Load string
+        lods,
+        /// Move data from string to string
+        movs,
+        /// Scan string
+        scas,
+        /// Store string
+        stos,
+
         /// Conditional move
         cmovcc,
         /// Conditional jump
@@ -268,6 +279,30 @@ pub const Inst = struct {
         /// Memory (RIP), register operands.
         /// Uses `rx` payload with extra data of type `MemoryRip`.
         mr_rip,
+        /// Single memory (SIB) operand with lock prefix.
+        /// Uses `payload` with extra data of type `MemorySib`.
+        lock_m_sib,
+        /// Single memory (RIP) operand with lock prefix.
+        /// Uses `payload` with extra data of type `MemoryRip`.
+        lock_m_rip,
+        /// Memory (SIB), immediate (unsigned) operands with lock prefix.
+        /// Uses `xi` payload with extra data of type `MemorySib`.
+        lock_mi_u_sib,
+        /// Memory (RIP), immediate (unsigned) operands with lock prefix.
+        /// Uses `xi` payload with extra data of type `MemoryRip`.
+        lock_mi_u_rip,
+        /// Memory (SIB), immediate (sign-extend) operands with lock prefix.
+        /// Uses `xi` payload with extra data of type `MemorySib`.
+        lock_mi_s_sib,
+        /// Memory (RIP), immediate (sign-extend) operands with lock prefix.
+        /// Uses `xi` payload with extra data of type `MemoryRip`.
+        lock_mi_s_rip,
+        /// Memory (SIB), register operands with lock prefix.
+        /// Uses `rx` payload with extra data of type `MemorySib`.
+        lock_mr_sib,
+        /// Memory (RIP), register operands with lock prefix.
+        /// Uses `rx` payload with extra data of type `MemoryRip`.
+        lock_mr_rip,
         /// Rax, Memory moffs.
         /// Uses `payload` with extra data of type `MemoryMoffs`.
         rax_moffs,
@@ -280,6 +315,9 @@ pub const Inst = struct {
         /// References another Mir instruction directly with condition code (CC).
         /// Uses `inst_cc` payload.
         inst_cc,
+        /// String repeat and width
+        /// Uses `string` payload.
+        string,
         /// Uses `reloc` payload.
         reloc,
         /// Linker relocation - GOT indirection.
@@ -352,6 +390,11 @@ pub const Inst = struct {
         xi: struct {
             payload: u32,
             imm: u32,
+        },
+        /// String instruction prefix and width.
+        string: struct {
+            repeat: bits.StringRepeat,
+            width: bits.StringWidth,
         },
         /// Relocation for the linker where:
         /// * `atom_index` is the index of the source
