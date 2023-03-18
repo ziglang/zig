@@ -60,6 +60,17 @@ pub const SearchStrategy = enum {
     dylibs_first,
 };
 
+/// Mode of operation of the linker.
+pub const Mode = enum {
+    /// Incremental mode will preallocate segments/sections and is compatible with
+    /// watch and HCS modes of operation.
+    incremental,
+    /// Zld mode will link relocatables in a traditional, one-shot
+    /// fashion (default for LLVM backend). It acts as a drop-in replacement for
+    /// LLD.
+    zld,
+};
+
 const Section = struct {
     header: macho.section_64,
     segment_index: u8,
@@ -98,10 +109,7 @@ d_sym: ?DebugSymbols = null,
 /// For x86_64 that's 4KB, whereas for aarch64, that's 16KB.
 page_size: u16,
 
-/// Mode of operation: incremental - will preallocate segments/sections and is compatible with
-/// watch and HCS modes of operation; one_shot - will link relocatables in a traditional, one-shot
-/// fashion (default for LLVM backend).
-mode: enum { incremental, one_shot },
+mode: Mode,
 
 dyld_info_cmd: macho.dyld_info_command = .{},
 symtab_cmd: macho.symtab_command = .{},
@@ -314,33 +322,42 @@ pub const default_headerpad_size: u32 = 0x1000;
 pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
     assert(options.target.ofmt == .macho);
 
-    if (options.emit == null or options.module == null) {
+    if (options.emit == null) {
         return createEmpty(allocator, options);
     }
 
     const emit = options.emit.?;
-    const self = try createEmpty(allocator, options);
-    errdefer {
-        self.base.file = null;
-        self.base.destroy();
-    }
+    const mode: Mode = mode: {
+        if (options.use_llvm or options.module == null or options.cache_mode == .whole)
+            break :mode .zld;
+        break :mode .incremental;
+    };
+    const sub_path = if (mode == .zld) blk: {
+        if (options.module == null) {
+            // No point in opening a file, we would not write anything to it.
+            // Initialize with empty.
+            return createEmpty(allocator, options);
+        }
+        // Open a temporary object file, not the final output file because we
+        // want to link with LLD.
+        break :blk try std.fmt.allocPrint(allocator, "{s}{s}", .{
+            emit.sub_path, options.target.ofmt.fileExt(options.target.cpu.arch),
+        });
+    } else emit.sub_path;
+    errdefer if (mode == .zld) allocator.free(sub_path);
 
-    if (build_options.have_llvm and options.use_llvm and options.module != null) {
+    const self = try createEmpty(allocator, options);
+    errdefer self.base.destroy();
+
+    if (mode == .zld) {
         // TODO this intermediary_basename isn't enough; in the case of `zig build-exe`,
         // we also want to put the intermediary object file in the cache while the
         // main emit directory is the cwd.
-        self.base.intermediary_basename = try std.fmt.allocPrint(allocator, "{s}{s}", .{
-            emit.sub_path, options.target.ofmt.fileExt(options.target.cpu.arch),
-        });
+        self.base.intermediary_basename = sub_path;
+        return self;
     }
 
-    if (self.base.intermediary_basename != null) switch (options.output_mode) {
-        .Obj => return self,
-        .Lib => if (options.link_mode == .Static) return self,
-        else => {},
-    };
-
-    const file = try emit.directory.handle.createFile(emit.sub_path, .{
+    const file = try emit.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
         .mode = link.determineMode(options),
@@ -348,23 +365,21 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
     errdefer file.close();
     self.base.file = file;
 
-    if (self.mode == .one_shot) return self;
-
     if (!options.strip and options.module != null) {
         // Create dSYM bundle.
-        log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
+        log.debug("creating {s}.dSYM bundle", .{sub_path});
 
         const d_sym_path = try fmt.allocPrint(
             allocator,
             "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
-            .{emit.sub_path},
+            .{sub_path},
         );
         defer allocator.free(d_sym_path);
 
         var d_sym_bundle = try emit.directory.handle.makeOpenPath(d_sym_path, .{});
         defer d_sym_bundle.close();
 
-        const d_sym_file = try d_sym_bundle.createFile(emit.sub_path, .{
+        const d_sym_file = try d_sym_bundle.createFile(sub_path, .{
             .truncate = false,
             .read = true,
         });
@@ -413,7 +428,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
         },
         .page_size = page_size,
         .mode = if (use_llvm or options.module == null or options.cache_mode == .whole)
-            .one_shot
+            .zld
         else
             .incremental,
     };
@@ -447,7 +462,7 @@ pub fn flush(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) li
     }
 
     switch (self.mode) {
-        .one_shot => return zld.linkWithZld(self, comp, prog_node),
+        .zld => return zld.linkWithZld(self, comp, prog_node),
         .incremental => return self.flushModule(comp, prog_node),
     }
 }
@@ -662,6 +677,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     if (codesig) |*csig| {
         try self.writeCodeSignature(comp, csig); // code signing always comes last
+        const emit = self.base.options.emit.?;
+        try invalidateKernelCache(emit.directory.handle, emit.sub_path);
     }
 
     if (self.d_sym) |*d_sym| {
@@ -691,6 +708,21 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     self.cold_start = false;
 }
+
+/// XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
+/// Any change to the binary will effectively invalidate the kernel's cache
+/// resulting in a SIGKILL on each subsequent run. Since when doing incremental
+/// linking we're modifying a binary in-place, this will end up with the kernel
+/// killing it on every subsequent run. To circumvent it, we will copy the file
+/// into a new inode, remove the original file, and rename the copy to match
+/// the original file. This is super messy, but there doesn't seem any other
+/// way to please the XNU.
+pub fn invalidateKernelCache(dir: std.fs.Dir, sub_path: []const u8) !void {
+    if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
+        try dir.copyFile(sub_path, dir, sub_path, .{});
+    }
+}
+
 inline fn conformUuid(out: *[Md5.digest_length]u8) void {
     // LC_UUID uuids should conform to RFC 4122 UUID version 4 & UUID version 5 formats
     out[6] = (out[6] & 0x0F) | (3 << 4);
