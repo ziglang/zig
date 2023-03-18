@@ -307,6 +307,7 @@ pub const Mnemonic = enum {
     // zig fmt: off
     // General-purpose
     adc, add, @"and",
+    bsf, bsr,
     call, cbw, cdq, cdqe,
     cmova, cmovae, cmovb, cmovbe, cmovc, cmove, cmovg, cmovge, cmovl, cmovle, cmovna,
     cmovnae, cmovnb, cmovnbe, cmovnc, cmovne, cmovng, cmovnge, cmovnl, cmovnle, cmovno,
@@ -322,12 +323,13 @@ pub const Mnemonic = enum {
     jmp, 
     lea,
     lods, lodsb, lodsd, lodsq, lodsw,
+    lzcnt,
     mov,
     movs, movsb, movsd, movsq, movsw,
     movsx, movsxd, movzx, mul,
     nop,
     @"or",
-    pop, push,
+    pop, popcnt, push,
     ret,
     sal, sar, sbb,
     scas, scasb, scasd, scasq, scasw,
@@ -336,7 +338,7 @@ pub const Mnemonic = enum {
     setnb, setnbe, setnc, setne, setng, setnge, setnl, setnle, setno, setnp, setns,
     setnz, seto, setp, setpe, setpo, sets, setz,
     stos, stosb, stosd, stosq, stosw,
-    @"test",
+    @"test", tzcnt,
     ud2,
     xor,
     // SSE

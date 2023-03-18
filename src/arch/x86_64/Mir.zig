@@ -38,6 +38,10 @@ pub const Inst = struct {
         add,
         /// Logical and
         @"and",
+        /// Bit scan forward
+        bsf,
+        /// Bit scan reverse
+        bsr,
         /// Call
         call,
         /// Convert byte to word
@@ -70,6 +74,8 @@ pub const Inst = struct {
         jmp,
         /// Load effective address
         lea,
+        /// Count the number of leading zero bits
+        lzcnt,
         /// Move
         mov,
         /// Move with sign extension
@@ -84,6 +90,8 @@ pub const Inst = struct {
         @"or",
         /// Pop
         pop,
+        /// Return the count of number of bits set to 1
+        popcnt,
         /// Push
         push,
         /// Return
@@ -104,6 +112,8 @@ pub const Inst = struct {
         syscall,
         /// Test condition
         @"test",
+        /// Count the number of trailing zero bits
+        tzcnt,
         /// Undefined instruction
         ud2,
         /// Logical exclusive-or

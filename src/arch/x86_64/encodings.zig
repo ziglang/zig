@@ -81,6 +81,14 @@ pub const table = &[_]Entry{
     .{ .@"and", .rm, .r32,  .rm32,   .none, .none, &.{ 0x23 }, 0, .none  },
     .{ .@"and", .rm, .r64,  .rm64,   .none, .none, &.{ 0x23 }, 0, .long  },
 
+    .{ .bsf, .rm, .r16, .rm16, .none, .none, &.{ 0x0f, 0xbc }, 0, .none },
+    .{ .bsf, .rm, .r32, .rm32, .none, .none, &.{ 0x0f, 0xbc }, 0, .none },
+    .{ .bsf, .rm, .r64, .rm64, .none, .none, &.{ 0x0f, 0xbc }, 0, .long },
+
+    .{ .bsr, .rm, .r16, .rm16, .none, .none, &.{ 0x0f, 0xbd }, 0, .none },
+    .{ .bsr, .rm, .r32, .rm32, .none, .none, &.{ 0x0f, 0xbd }, 0, .none },
+    .{ .bsr, .rm, .r64, .rm64, .none, .none, &.{ 0x0f, 0xbd }, 0, .long },
+
     // This is M encoding according to Intel, but D makes more sense here.
     .{ .call, .d, .rel32, .none, .none, .none, &.{ 0xe8 }, 0, .none },
     .{ .call, .m, .rm64,  .none, .none, .none, &.{ 0xff }, 2, .none },
@@ -301,6 +309,10 @@ pub const table = &[_]Entry{
     .{ .lodsd, .np, .none, .none, .none, .none, &.{ 0xad }, 0, .none  },
     .{ .lodsq, .np, .none, .none, .none, .none, &.{ 0xad }, 0, .long  },
 
+    .{ .lzcnt, .rm, .r16, .rm16, .none, .none, &.{ 0xf3, 0x0f, 0xbd }, 0, .none },
+    .{ .lzcnt, .rm, .r32, .rm32, .none, .none, &.{ 0xf3, 0x0f, 0xbd }, 0, .none },
+    .{ .lzcnt, .rm, .r64, .rm64, .none, .none, &.{ 0xf3, 0x0f, 0xbd }, 0, .long },
+
     .{ .mov, .mr, .rm8,   .r8,     .none, .none, &.{ 0x88 }, 0, .none  },
     .{ .mov, .mr, .rm8,   .r8,     .none, .none, &.{ 0x88 }, 0, .rex   },
     .{ .mov, .mr, .rm16,  .r16,    .none, .none, &.{ 0x89 }, 0, .none  },
@@ -396,6 +408,10 @@ pub const table = &[_]Entry{
     .{ .pop, .o, .r64,  .none, .none, .none, &.{ 0x58 }, 0, .none  },
     .{ .pop, .m, .rm16, .none, .none, .none, &.{ 0x8f }, 0, .none  },
     .{ .pop, .m, .rm64, .none, .none, .none, &.{ 0x8f }, 0, .none  },
+
+    .{ .popcnt, .rm, .r16, .rm16, .none, .none, &.{ 0xf3, 0x0f, 0xb8 }, 0, .none },
+    .{ .popcnt, .rm, .r32, .rm32, .none, .none, &.{ 0xf3, 0x0f, 0xb8 }, 0, .none },
+    .{ .popcnt, .rm, .r64, .rm64, .none, .none, &.{ 0xf3, 0x0f, 0xb8 }, 0, .long },
 
     .{ .push, .o, .r16,   .none, .none, .none, &.{ 0x50 }, 0, .none  },
     .{ .push, .o, .r64,   .none, .none, .none, &.{ 0x50 }, 0, .none  },
@@ -596,8 +612,8 @@ pub const table = &[_]Entry{
     .{ .sub, .rm, .r32,  .rm32,   .none, .none, &.{ 0x2b }, 0, .none  },
     .{ .sub, .rm, .r64,  .rm64,   .none, .none, &.{ 0x2b }, 0, .long  },
 
-    .{ .syscall, .np, .none, .none, .none, .none, &.{ 0x0f, 0x05 }, 0, .none },
-
+    .{ .syscall, .np, .none, .none, .none, .none, &.{ 0x0f, 0x05 }, 0, .none }
+,
     .{ .@"test", .zi, .al,   .imm8,   .none, .none, &.{ 0xa8 }, 0, .none  },
     .{ .@"test", .zi, .ax,   .imm16,  .none, .none, &.{ 0xa9 }, 0, .none  },
     .{ .@"test", .zi, .eax,  .imm32,  .none, .none, &.{ 0xa9 }, 0, .none  },
@@ -612,6 +628,10 @@ pub const table = &[_]Entry{
     .{ .@"test", .mr, .rm16, .r16,    .none, .none, &.{ 0x85 }, 0, .none  },
     .{ .@"test", .mr, .rm32, .r32,    .none, .none, &.{ 0x85 }, 0, .none  },
     .{ .@"test", .mr, .rm64, .r64,    .none, .none, &.{ 0x85 }, 0, .long  },
+
+    .{ .tzcnt, .rm, .r16, .rm16, .none, .none, &.{ 0xf3, 0x0f, 0xbc }, 0, .none },
+    .{ .tzcnt, .rm, .r32, .rm32, .none, .none, &.{ 0xf3, 0x0f, 0xbc }, 0, .none },
+    .{ .tzcnt, .rm, .r64, .rm64, .none, .none, &.{ 0xf3, 0x0f, 0xbc }, 0, .long },
 
     .{ .ud2, .np, .none, .none, .none, .none, &.{ 0x0f, 0x0b }, 0, .none  },
 

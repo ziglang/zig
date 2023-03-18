@@ -2597,28 +2597,143 @@ fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airClz(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement airClz for {}", .{self.target.cpu.arch});
+    const result = result: {
+        if (self.liveness.isUnused(inst)) break :result .dead;
+
+        const dst_ty = self.air.typeOfIndex(inst);
+        const src_ty = self.air.typeOf(ty_op.operand);
+        const src_bits = src_ty.bitSize(self.target.*);
+
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        const mat_src_mcv = switch (src_mcv) {
+            .immediate => MCValue{ .register = try self.copyToTmpRegister(src_ty, src_mcv) },
+            else => src_mcv,
+        };
+        const mat_src_lock = switch (mat_src_mcv) {
+            .register => |reg| self.register_manager.lockReg(reg),
+            else => null,
+        };
+        defer if (mat_src_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const dst_reg = try self.register_manager.allocReg(inst, gp);
+        const dst_mcv = MCValue{ .register = dst_reg };
+        const dst_lock = self.register_manager.lockReg(dst_reg);
+        defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
+
+        if (Target.x86.featureSetHas(self.target.cpu.features, .lzcnt)) {
+            try self.genBinOpMir(.lzcnt, src_ty, dst_mcv, mat_src_mcv);
+            const src_abi_size = @intCast(u32, src_ty.abiSize(self.target.*));
+            const extra_bits = registerAlias(dst_reg, src_abi_size).bitSize() - src_bits;
+            if (extra_bits > 0) {
+                try self.genBinOpMir(.sub, dst_ty, dst_mcv, .{ .immediate = extra_bits });
+            }
+            break :result dst_mcv;
+        }
+
+        const width_reg = try self.copyToTmpRegister(dst_ty, .{ .immediate = src_bits });
+        const width_mcv = MCValue{ .register = width_reg };
+        try self.genBinOpMir(.bsr, src_ty, dst_mcv, mat_src_mcv);
+
+        const dst_abi_size = @intCast(u32, @max(dst_ty.abiSize(self.target.*), 2));
+        try self.asmCmovccRegisterRegister(
+            registerAlias(dst_reg, dst_abi_size),
+            registerAlias(width_reg, dst_abi_size),
+            .z,
+        );
+
+        try self.genBinOpMir(.sub, dst_ty, width_mcv, dst_mcv);
+        break :result width_mcv;
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement airCtz for {}", .{self.target.cpu.arch});
+    const result = result: {
+        if (self.liveness.isUnused(inst)) break :result .dead;
+
+        const dst_ty = self.air.typeOfIndex(inst);
+        const src_ty = self.air.typeOf(ty_op.operand);
+        const src_bits = src_ty.bitSize(self.target.*);
+
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        const mat_src_mcv = switch (src_mcv) {
+            .immediate => MCValue{ .register = try self.copyToTmpRegister(src_ty, src_mcv) },
+            else => src_mcv,
+        };
+        const mat_src_lock = switch (mat_src_mcv) {
+            .register => |reg| self.register_manager.lockReg(reg),
+            else => null,
+        };
+        defer if (mat_src_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const dst_reg = try self.register_manager.allocReg(inst, gp);
+        const dst_mcv = MCValue{ .register = dst_reg };
+        const dst_lock = self.register_manager.lockReg(dst_reg);
+        defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
+
+        if (Target.x86.featureSetHas(self.target.cpu.features, .bmi)) {
+            const src_abi_size = @intCast(u32, src_ty.abiSize(self.target.*));
+            const extra_bits = registerAlias(dst_reg, src_abi_size).bitSize() - src_bits;
+            const masked_mcv = if (extra_bits > 0) masked: {
+                const mask_mcv = MCValue{
+                    .immediate = ((@as(u64, 1) << @intCast(u6, extra_bits)) - 1) << @intCast(u6, src_bits),
+                };
+                const tmp_mcv = tmp: {
+                    if (src_mcv.isImmediate() or self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) {
+                        break :tmp src_mcv;
+                    }
+                    try self.genSetReg(src_ty, dst_reg, src_mcv);
+                    break :tmp dst_mcv;
+                };
+                try self.genBinOpMir(.@"or", src_ty, tmp_mcv, mask_mcv);
+                break :masked tmp_mcv;
+            } else mat_src_mcv;
+            try self.genBinOpMir(.tzcnt, src_ty, dst_mcv, masked_mcv);
+            break :result dst_mcv;
+        }
+
+        const width_reg = try self.copyToTmpRegister(dst_ty, .{ .immediate = src_bits });
+        try self.genBinOpMir(.bsf, src_ty, dst_mcv, mat_src_mcv);
+
+        const abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
+        try self.asmCmovccRegisterRegister(
+            registerAlias(dst_reg, abi_size),
+            registerAlias(width_reg, abi_size),
+            .z,
+        );
+
+        break :result dst_mcv;
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airPopcount(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement airPopcount for {}", .{self.target.cpu.arch});
+    const result = result: {
+        if (self.liveness.isUnused(inst)) break :result .dead;
+
+        const op_ty = self.air.typeOf(ty_op.operand);
+
+        if (Target.x86.featureSetHas(self.target.cpu.features, .popcnt)) {
+            const op_mcv = try self.resolveInst(ty_op.operand);
+            const mat_op_mcv = switch (op_mcv) {
+                .immediate => MCValue{ .register = try self.copyToTmpRegister(op_ty, op_mcv) },
+                else => op_mcv,
+            };
+            const mat_op_lock = switch (mat_op_mcv) {
+                .register => |reg| self.register_manager.lockReg(reg),
+                else => null,
+            };
+            defer if (mat_op_lock) |lock| self.register_manager.unlockReg(lock);
+
+            const dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, gp) };
+            try self.genBinOpMir(.popcnt, op_ty, dst_mcv, mat_op_mcv);
+            break :result dst_mcv;
+        }
+
+        return self.fail("TODO implement airPopcount for {}", .{op_ty.fmt(self.bin_file.options.module.?)});
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -3491,7 +3606,7 @@ fn genBinOp(
             if (lhs.isRegister() and self.reuseOperand(inst, lhs_air, 0, lhs)) {
                 break :blk lhs;
             }
-            if (rhs.isRegister() and is_commutative and self.reuseOperand(inst, rhs_air, 1, rhs)) {
+            if (is_commutative and rhs.isRegister() and self.reuseOperand(inst, rhs_air, 1, rhs)) {
                 flipped = true;
                 break :blk rhs;
             }
