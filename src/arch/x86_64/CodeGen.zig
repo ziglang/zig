@@ -5006,14 +5006,8 @@ fn canonicaliseBranches(self: *Self, parent_branch: *Branch, canon_branch: *Bran
             if (target_value == .dead)
                 continue;
             // The instruction is only overridden in the else branch.
-            var i: usize = self.branch_stack.items.len - 1;
-            while (true) {
-                i -= 1; // If this overflows, the question is: why wasn't the instruction marked dead?
-                if (self.branch_stack.items[i].inst_table.get(target_key)) |mcv| {
-                    assert(mcv != .dead);
-                    break :blk mcv;
-                }
-            }
+            // If integer overflows occurs, the question is: why wasn't the instruction marked dead?
+            break :blk self.getResolvedInstValue(target_key).?;
         };
         log.debug("consolidating target_entry {d} {}=>{}", .{ target_key, target_value, canon_mcv });
         // TODO make sure the destination stack offset / register does not already have something
@@ -5030,16 +5024,7 @@ fn canonicaliseBranches(self: *Self, parent_branch: *Branch, canon_branch: *Bran
         log.debug("canon_value = {}", .{canon_value});
         if (canon_value == .dead)
             continue;
-        const parent_mcv = blk: {
-            var i: usize = self.branch_stack.items.len - 1;
-            while (true) {
-                i -= 1;
-                if (self.branch_stack.items[i].inst_table.get(canon_key)) |mcv| {
-                    assert(mcv != .dead);
-                    break :blk mcv;
-                }
-            }
-        };
+        const parent_mcv = self.getResolvedInstValue(canon_key).?;
         log.debug("consolidating canon_entry {d} {}=>{}", .{ canon_key, parent_mcv, canon_value });
         // TODO make sure the destination stack offset / register does not already have something
         // going on there.
