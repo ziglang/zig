@@ -3538,11 +3538,36 @@ fn genBinOp(
             else => return self.fail("TODO implement genBinOp for {s} {}", .{ @tagName(tag), lhs_ty.fmt(self.bin_file.options.module.?) }),
         }, lhs_ty, dst_mcv, src_mcv),
 
-        .div_float => try self.genBinOpMir(switch (lhs_ty.tag()) {
+        .div_float,
+        .div_exact,
+        => try self.genBinOpMir(switch (lhs_ty.tag()) {
             .f32 => .divss,
             .f64 => .divsd,
             else => return self.fail("TODO implement genBinOp for {s} {}", .{ @tagName(tag), lhs_ty.fmt(self.bin_file.options.module.?) }),
         }, lhs_ty, dst_mcv, src_mcv),
+
+        .div_trunc,
+        .div_floor,
+        => {
+            try self.genBinOpMir(switch (lhs_ty.tag()) {
+                .f32 => .divss,
+                .f64 => .divsd,
+                else => return self.fail("TODO implement genBinOp for {s} {}", .{ @tagName(tag), lhs_ty.fmt(self.bin_file.options.module.?) }),
+            }, lhs_ty, dst_mcv, src_mcv);
+            if (Target.x86.featureSetHas(self.target.cpu.features, .sse4_1)) {
+                const abi_size = @intCast(u32, lhs_ty.abiSize(self.target.*));
+                const dst_alias = registerAlias(dst_mcv.register, abi_size);
+                try self.asmRegisterRegisterImmediate(switch (lhs_ty.tag()) {
+                    .f32 => .roundss,
+                    .f64 => .roundsd,
+                    else => unreachable,
+                }, dst_alias, dst_alias, Immediate.u(switch (tag) {
+                    .div_trunc => 0b1_0_11,
+                    .div_floor => 0b1_0_01,
+                    else => unreachable,
+                }));
+            } else return self.fail("TODO implement round without sse4_1", .{});
+        },
 
         .ptr_add,
         .ptr_sub,

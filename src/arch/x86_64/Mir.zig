@@ -123,6 +123,8 @@ pub const Inst = struct {
         movss,
         /// Multiply scalar single-precision floating-point values
         mulss,
+        /// Round scalar single-precision floating-point values
+        roundss,
         /// Subtract scalar single-precision floating-point values
         subss,
         /// Unordered compare scalar single-precision floating-point values
@@ -141,6 +143,8 @@ pub const Inst = struct {
         movsd,
         /// Multiply scalar double-precision floating-point values
         mulsd,
+        /// Round scalar double-precision floating-point values
+        roundsd,
         /// Subtract scalar double-precision floating-point values
         subsd,
         /// Unordered compare scalar double-precision floating-point values

@@ -19,8 +19,8 @@ op1: Op,
 op2: Op,
 op3: Op,
 op4: Op,
-opc_len: u2,
-opc: [3]u8,
+opc_len: u3,
+opc: [7]u8,
 modrm_ext: u3,
 mode: Mode,
 
@@ -69,18 +69,19 @@ pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
     var candidates: [10]Encoding = undefined;
     var count: usize = 0;
     for (table) |entry| {
-        const enc = Encoding{
+        var enc = Encoding{
             .mnemonic = entry[0],
             .op_en = entry[1],
             .op1 = entry[2],
             .op2 = entry[3],
             .op3 = entry[4],
             .op4 = entry[5],
-            .opc_len = entry[6],
-            .opc = .{ entry[7], entry[8], entry[9] },
-            .modrm_ext = entry[10],
-            .mode = entry[11],
+            .opc_len = @intCast(u3, entry[6].len),
+            .opc = undefined,
+            .modrm_ext = entry[7],
+            .mode = entry[8],
         };
+        std.mem.copy(u8, &enc.opc, entry[6]);
         if (enc.mnemonic == mnemonic and
             input_op1.isSubset(enc.op1, enc.mode) and
             input_op2.isSubset(enc.op2, enc.mode) and
@@ -184,7 +185,7 @@ pub fn findByOpcode(opc: []const u8, prefixes: struct {
         if (match) {
             if (prefixes.rex.w) {
                 switch (enc.mode) {
-                    .fpu, .sse, .sse2, .none => {},
+                    .fpu, .sse, .sse2, .sse4_1, .none => {},
                     .long, .rex => return enc,
                 }
             } else if (prefixes.rex.present and !prefixes.rex.isSet()) {
@@ -357,6 +358,9 @@ pub const Mnemonic = enum {
     mulsd,
     subsd,
     ucomisd,
+    // SSE4.1
+    roundss,
+    roundsd,
     // zig fmt: on
 };
 
@@ -550,7 +554,7 @@ pub const Op = enum {
             else => {
                 if (op.isRegister() and target.isRegister()) {
                     switch (mode) {
-                        .sse, .sse2 => return op.isFloatingPointRegister() and target.isFloatingPointRegister(),
+                        .sse, .sse2, .sse4_1 => return op.isFloatingPointRegister() and target.isFloatingPointRegister(),
                         else => switch (target) {
                             .cl, .al, .ax, .eax, .rax => return op == target,
                             else => return op.bitSize() == target.bitSize(),
@@ -592,4 +596,5 @@ pub const Mode = enum {
     long,
     sse,
     sse2,
+    sse4_1,
 };
