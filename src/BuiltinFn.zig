@@ -118,6 +118,9 @@ pub const Tag = enum {
     union_init,
     Vector,
     volatile_cast,
+    work_item_id,
+    work_group_size,
+    work_group_id,
 };
 
 pub const MemLocRequirement = enum {
@@ -977,6 +980,26 @@ pub const list = list: {
             "@volatileCast",
             .{
                 .tag = .volatile_cast,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@workItemId", .{
+                .tag = .work_item_id,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@workGroupSize",
+            .{
+                .tag = .work_group_size,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@workGroupId",
+            .{
+                .tag = .work_group_id,
                 .param_count = 1,
             },
         },
