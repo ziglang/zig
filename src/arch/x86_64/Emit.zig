@@ -374,23 +374,41 @@ fn mnemonicFromConditionCode(comptime basename: []const u8, cc: bits.Condition) 
 fn mirCmovcc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst];
     switch (ops) {
-        .rr_c => {
-            const data = emit.mir.instructions.items(.data)[inst].rr_c;
+        .rr_cc => {
+            const data = emit.mir.instructions.items(.data)[inst].rr_cc;
             const mnemonic = mnemonicFromConditionCode("cmov", data.cc);
             return emit.encode(mnemonic, .{
                 .op1 = .{ .reg = data.r1 },
                 .op2 = .{ .reg = data.r2 },
             });
         },
-        else => unreachable, // TODO
+        .rm_sib_cc => {
+            const data = emit.mir.instructions.items(.data)[inst].rx_cc;
+            const extra = emit.mir.extraData(Mir.MemorySib, data.payload).data;
+            const mnemonic = mnemonicFromConditionCode("cmov", data.cc);
+            return emit.encode(mnemonic, .{
+                .op1 = .{ .reg = data.r1 },
+                .op2 = .{ .mem = Mir.MemorySib.decode(extra) },
+            });
+        },
+        .rm_rip_cc => {
+            const data = emit.mir.instructions.items(.data)[inst].rx_cc;
+            const extra = emit.mir.extraData(Mir.MemoryRip, data.payload).data;
+            const mnemonic = mnemonicFromConditionCode("cmov", data.cc);
+            return emit.encode(mnemonic, .{
+                .op1 = .{ .reg = data.r1 },
+                .op2 = .{ .mem = Mir.MemoryRip.decode(extra) },
+            });
+        },
+        else => unreachable,
     }
 }
 
 fn mirSetcc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst];
     switch (ops) {
-        .r_c => {
-            const data = emit.mir.instructions.items(.data)[inst].r_c;
+        .r_cc => {
+            const data = emit.mir.instructions.items(.data)[inst].r_cc;
             const mnemonic = mnemonicFromConditionCode("set", data.cc);
             return emit.encode(mnemonic, .{
                 .op1 = .{ .reg = data.r1 },

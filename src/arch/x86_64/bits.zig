@@ -97,8 +97,7 @@ pub const Condition = enum(u5) {
         };
     }
 
-    /// Returns the condition which is true iff the given condition is
-    /// false (if such a condition exists)
+    /// Returns the condition which is true iff the given condition is false
     pub fn negate(cond: Condition) Condition {
         return switch (cond) {
             .a => .na,
@@ -127,8 +126,8 @@ pub const Condition = enum(u5) {
             .nz => .z,
             .o => .no,
             .p => .np,
-            .pe => unreachable,
-            .po => unreachable,
+            .pe => .po,
+            .po => .pe,
             .s => .ns,
             .z => .nz,
         };

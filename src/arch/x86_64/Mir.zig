@@ -186,10 +186,10 @@ pub const Inst = struct {
         rri_u,
         /// Register with condition code (CC).
         /// Uses `r_c` payload.
-        r_c,
+        r_cc,
         /// Register, register with condition code (CC).
         /// Uses `rr_c` payload.
-        rr_c,
+        rr_cc,
         /// Register, immediate (sign-extended) operands.
         /// Uses `ri` payload.
         ri_s,
@@ -214,6 +214,12 @@ pub const Inst = struct {
         /// Register, memory (RIP) operands.
         /// Uses `rx` payload.
         rm_rip,
+        /// Register, memory (SIB) operands with condition code (CC).
+        /// Uses `rx_cc` payload.
+        rm_sib_cc,
+        /// Register, memory (RIP) operands with condition code (CC).
+        /// Uses `rx_cc` payload.
+        rm_rip_cc,
         /// Single memory (SIB) operand.
         /// Uses `payload` with extra data of type `MemorySib`.
         m_sib,
@@ -250,10 +256,6 @@ pub const Inst = struct {
         /// References another Mir instruction directly with condition code (CC).
         /// Uses `inst_cc` payload.
         inst_cc,
-        /// Uses `payload` payload with data of type `MemoryConditionCode`.
-        m_cc,
-        /// Uses `rx` payload with extra data of type `MemoryConditionCode`.
-        rm_cc,
         /// Uses `reloc` payload.
         reloc,
         /// Linker relocation - GOT indirection.
@@ -296,12 +298,12 @@ pub const Inst = struct {
             imm: u32,
         },
         /// Register with condition code (CC).
-        r_c: struct {
+        r_cc: struct {
             r1: Register,
             cc: bits.Condition,
         },
         /// Register, register with condition code (CC).
-        rr_c: struct {
+        rr_cc: struct {
             r1: Register,
             r2: Register,
             cc: bits.Condition,
@@ -314,6 +316,12 @@ pub const Inst = struct {
         /// Register, followed by custom payload found in extra.
         rx: struct {
             r1: Register,
+            payload: u32,
+        },
+        /// Register with condition code (CC), followed by custom payload found in extra.
+        rx_cc: struct {
+            r1: Register,
+            cc: bits.Condition,
             payload: u32,
         },
         /// Custom payload followed by an immediate.
