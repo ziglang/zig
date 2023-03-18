@@ -524,7 +524,7 @@ _storebe_i64(void * __P, long long __D) {
 #include <invpcidintrin.h>
 #endif
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
-    defined(__AMXFP16__)
+    defined(__AMX_FP16__)
 #include <amxfp16intrin.h>
 #endif
 
@@ -534,7 +534,7 @@ _storebe_i64(void * __P, long long __D) {
 #endif
 
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
-    defined(__AMXTILE__) || defined(__AMXINT8__) || defined(__AMXBF16__)
+    defined(__AMX_TILE__) || defined(__AMX_INT8__) || defined(__AMX_BF16__)
 #include <amxintrin.h>
 #endif
 

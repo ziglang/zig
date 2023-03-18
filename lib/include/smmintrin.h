@@ -1145,7 +1145,7 @@ static __inline__ int __DEFAULT_FN_ATTRS _mm_testnzc_si128(__m128i __M,
 ///    A 128-bit integer vector containing the bits to be tested.
 /// \returns TRUE if the bits specified in the operand are all set to 1; FALSE
 ///    otherwise.
-#define _mm_test_all_ones(V) _mm_testc_si128((V), _mm_cmpeq_epi32((V), (V)))
+#define _mm_test_all_ones(V) _mm_testc_si128((V), _mm_set1_epi32(-1))
 
 /// Tests whether the specified bits in a 128-bit integer vector are
 ///    neither all zeros nor all ones.
