@@ -949,7 +949,6 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\  -l, --list-steps             Print available steps
         \\  --verbose                    Print commands before executing them
         \\  --color [auto|off|on]        Enable or disable colored error messages
-        \\  --prominent-compile-errors   Output compile errors formatted for a human to read
         \\  -fsummary                    Print the build summary, even on success
         \\  -fno-summary                 Omit the build summary, even on failure
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)

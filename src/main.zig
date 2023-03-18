@@ -4260,7 +4260,6 @@ pub const usage_build =
     \\   --global-cache-dir [path]     Override path to global Zig cache directory
     \\   --zig-lib-dir [arg]           Override path to Zig lib directory
     \\   --build-runner [file]         Override path to build runner
-    \\   --prominent-compile-errors    Output compile errors formatted for a human to read
     \\   -h, --help                    Print this help and exit
     \\
 ;
