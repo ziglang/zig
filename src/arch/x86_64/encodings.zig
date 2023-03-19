@@ -89,6 +89,34 @@ pub const table = &[_]Entry{
     .{ .bsr, .rm, .r32, .rm32, .none, .none, &.{ 0x0f, 0xbd }, 0, .none },
     .{ .bsr, .rm, .r64, .rm64, .none, .none, &.{ 0x0f, 0xbd }, 0, .long },
 
+    .{ .bt, .mr, .rm16, .r16,  .none, .none, &.{ 0x0f, 0xa3 }, 0, .none },
+    .{ .bt, .mr, .rm32, .r32,  .none, .none, &.{ 0x0f, 0xa3 }, 0, .none },
+    .{ .bt, .mr, .rm64, .r64,  .none, .none, &.{ 0x0f, 0xa3 }, 0, .long },
+    .{ .bt, .mi, .rm16, .imm8, .none, .none, &.{ 0x0f, 0xba }, 4, .none },
+    .{ .bt, .mi, .rm32, .imm8, .none, .none, &.{ 0x0f, 0xba }, 4, .none },
+    .{ .bt, .mi, .rm64, .imm8, .none, .none, &.{ 0x0f, 0xba }, 4, .long },
+
+    .{ .btc, .mr, .rm16, .r16,  .none, .none, &.{ 0x0f, 0xbb }, 0, .none },
+    .{ .btc, .mr, .rm32, .r32,  .none, .none, &.{ 0x0f, 0xbb }, 0, .none },
+    .{ .btc, .mr, .rm64, .r64,  .none, .none, &.{ 0x0f, 0xbb }, 0, .long },
+    .{ .btc, .mi, .rm16, .imm8, .none, .none, &.{ 0x0f, 0xba }, 7, .none },
+    .{ .btc, .mi, .rm32, .imm8, .none, .none, &.{ 0x0f, 0xba }, 7, .none },
+    .{ .btc, .mi, .rm64, .imm8, .none, .none, &.{ 0x0f, 0xba }, 7, .long },
+
+    .{ .btr, .mr, .rm16, .r16,  .none, .none, &.{ 0x0f, 0xb3 }, 0, .none },
+    .{ .btr, .mr, .rm32, .r32,  .none, .none, &.{ 0x0f, 0xb3 }, 0, .none },
+    .{ .btr, .mr, .rm64, .r64,  .none, .none, &.{ 0x0f, 0xb3 }, 0, .long },
+    .{ .btr, .mi, .rm16, .imm8, .none, .none, &.{ 0x0f, 0xba }, 6, .none },
+    .{ .btr, .mi, .rm32, .imm8, .none, .none, &.{ 0x0f, 0xba }, 6, .none },
+    .{ .btr, .mi, .rm64, .imm8, .none, .none, &.{ 0x0f, 0xba }, 6, .long },
+
+    .{ .bts, .mr, .rm16, .r16,  .none, .none, &.{ 0x0f, 0xab }, 0, .none },
+    .{ .bts, .mr, .rm32, .r32,  .none, .none, &.{ 0x0f, 0xab }, 0, .none },
+    .{ .bts, .mr, .rm64, .r64,  .none, .none, &.{ 0x0f, 0xab }, 0, .long },
+    .{ .bts, .mi, .rm16, .imm8, .none, .none, &.{ 0x0f, 0xba }, 5, .none },
+    .{ .bts, .mi, .rm32, .imm8, .none, .none, &.{ 0x0f, 0xba }, 5, .none },
+    .{ .bts, .mi, .rm64, .imm8, .none, .none, &.{ 0x0f, 0xba }, 5, .long },
+
     // This is M encoding according to Intel, but D makes more sense here.
     .{ .call, .d, .rel32, .none, .none, .none, &.{ 0xe8 }, 0, .none },
     .{ .call, .m, .rm64,  .none, .none, .none, &.{ 0xff }, 2, .none },

@@ -42,6 +42,14 @@ pub const Inst = struct {
         bsf,
         /// Bit scan reverse
         bsr,
+        /// Bit test
+        bt,
+        /// Bit test and complement
+        btc,
+        /// Bit test and reset
+        btr,
+        /// Bit test and set
+        bts,
         /// Call
         call,
         /// Convert byte to word

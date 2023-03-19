@@ -1871,55 +1871,74 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    if (self.liveness.isUnused(inst)) {
-        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
-    }
-
-    const payload_ty = self.air.typeOfIndex(inst);
-    const optional_ty = self.air.typeOf(ty_op.operand);
-    const operand = try self.resolveInst(ty_op.operand);
     const result: MCValue = result: {
-        if (!payload_ty.hasRuntimeBits()) break :result MCValue.none;
-        if (optional_ty.isPtrLikeOptional()) {
-            if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
-                break :result operand;
+        if (self.liveness.isUnused(inst)) break :result .none;
+
+        const pl_ty = self.air.typeOfIndex(inst);
+        const opt_mcv = try self.resolveInst(ty_op.operand);
+
+        if (self.reuseOperand(inst, ty_op.operand, 0, opt_mcv)) {
+            switch (opt_mcv) {
+                .register => |reg| try self.truncateRegister(pl_ty, reg),
+                else => {},
             }
-            break :result try self.copyToRegisterWithInstTracking(inst, payload_ty, operand);
+            break :result opt_mcv;
         }
 
-        const offset = optional_ty.abiSize(self.target.*) - payload_ty.abiSize(self.target.*);
-        switch (operand) {
-            .stack_offset => |off| {
-                break :result MCValue{ .stack_offset = off - @intCast(i32, offset) };
-            },
-            .register => {
-                // TODO reuse the operand
-                const result = try self.copyToRegisterWithInstTracking(inst, optional_ty, operand);
-                const shift = @intCast(u8, offset * @sizeOf(usize));
-                try self.genShiftBinOpMir(.shr, optional_ty, result.register, .{ .immediate = @intCast(u8, shift) });
-                break :result result;
-            },
-            else => return self.fail("TODO implement optional_payload when operand is {}", .{operand}),
-        }
+        const pl_mcv = try self.allocRegOrMem(inst, true);
+        try self.setRegOrMem(pl_ty, pl_mcv, opt_mcv);
+        break :result pl_mcv;
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airOptionalPayloadPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement .optional_payload_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = result: {
+        if (self.liveness.isUnused(inst)) break :result .dead;
+
+        const dst_ty = self.air.typeOfIndex(inst);
+        const opt_mcv = try self.resolveInst(ty_op.operand);
+
+        break :result if (self.reuseOperand(inst, ty_op.operand, 0, opt_mcv))
+            opt_mcv
+        else
+            try self.copyToRegisterWithInstTracking(inst, dst_ty, opt_mcv);
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement .optional_payload_ptr_set for {}", .{self.target.cpu.arch});
+    const result = result: {
+        const dst_ty = self.air.typeOfIndex(inst);
+        const src_ty = self.air.typeOf(ty_op.operand);
+        const opt_ty = src_ty.childType();
+        const src_mcv = try self.resolveInst(ty_op.operand);
+
+        if (opt_ty.optionalReprIsPayload()) {
+            break :result if (self.liveness.isUnused(inst))
+                .dead
+            else if (self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+                src_mcv
+            else
+                try self.copyToRegisterWithInstTracking(inst, dst_ty, src_mcv);
+        }
+
+        const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_mcv
+        else
+            try self.copyToRegisterWithInstTracking(inst, dst_ty, src_mcv);
+
+        const pl_ty = dst_ty.childType();
+        const pl_abi_size = @intCast(i32, pl_ty.abiSize(self.target.*));
+        try self.asmMemoryImmediate(
+            .mov,
+            Memory.sib(.byte, .{ .base = dst_mcv.register, .disp = pl_abi_size }),
+            Immediate.u(1),
+        );
+        break :result if (self.liveness.isUnused(inst)) .dead else dst_mcv;
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -2150,41 +2169,45 @@ fn airSaveErrReturnTraceIndex(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    if (self.liveness.isUnused(inst)) {
-        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
-    }
-
-    const payload_ty = self.air.typeOf(ty_op.operand);
     const result: MCValue = result: {
-        if (!payload_ty.hasRuntimeBits()) {
-            break :result MCValue{ .immediate = 1 };
-        }
+        if (self.liveness.isUnused(inst)) break :result .dead;
 
-        const optional_ty = self.air.typeOfIndex(inst);
-        const operand = try self.resolveInst(ty_op.operand);
-        const operand_lock: ?RegisterLock = switch (operand) {
+        const pl_ty = self.air.typeOf(ty_op.operand);
+        if (!pl_ty.hasRuntimeBits()) break :result .{ .immediate = 1 };
+
+        const opt_ty = self.air.typeOfIndex(inst);
+        const pl_mcv = try self.resolveInst(ty_op.operand);
+        const same_repr = opt_ty.optionalReprIsPayload();
+        if (same_repr and self.reuseOperand(inst, ty_op.operand, 0, pl_mcv)) break :result pl_mcv;
+
+        const pl_lock: ?RegisterLock = switch (pl_mcv) {
             .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
             else => null,
         };
-        defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
+        defer if (pl_lock) |lock| self.register_manager.unlockReg(lock);
 
-        if (optional_ty.isPtrLikeOptional()) {
-            // TODO should we check if we can reuse the operand?
-            if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
-                break :result operand;
+        const opt_mcv = try self.allocRegOrMem(inst, true);
+        try self.setRegOrMem(pl_ty, opt_mcv, pl_mcv);
+
+        if (!same_repr) {
+            const pl_abi_size = @intCast(i32, pl_ty.abiSize(self.target.*));
+            switch (opt_mcv) {
+                else => unreachable,
+
+                .register => |opt_reg| try self.asmRegisterImmediate(
+                    .bts,
+                    opt_reg,
+                    Immediate.u(@intCast(u6, pl_abi_size * 8)),
+                ),
+
+                .stack_offset => |off| try self.asmMemoryImmediate(
+                    .mov,
+                    Memory.sib(.byte, .{ .base = .rsp, .disp = pl_abi_size - off }),
+                    Immediate.u(0),
+                ),
             }
-            break :result try self.copyToRegisterWithInstTracking(inst, payload_ty, operand);
         }
-
-        const optional_abi_size = @intCast(u32, optional_ty.abiSize(self.target.*));
-        const optional_abi_align = optional_ty.abiAlignment(self.target.*);
-        const payload_abi_size = @intCast(u32, payload_ty.abiSize(self.target.*));
-        const offset = optional_abi_size - payload_abi_size;
-
-        const stack_offset = @intCast(i32, try self.allocMem(inst, optional_abi_size, optional_abi_align));
-        try self.genSetStack(Type.bool, stack_offset, .{ .immediate = 1 }, .{});
-        try self.genSetStack(payload_ty, stack_offset - @intCast(i32, offset), operand, .{});
-        break :result MCValue{ .stack_offset = stack_offset };
+        break :result opt_mcv;
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -2619,7 +2642,7 @@ fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
             },
             .register => {
                 const shift: u6 = if (layout.tag_align < layout.payload_align)
-                    @intCast(u6, layout.payload_size * @sizeOf(usize))
+                    @intCast(u6, layout.payload_size * 8)
                 else
                     0;
                 const result = try self.copyToRegisterWithInstTracking(inst, union_ty, operand);
@@ -3271,7 +3294,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 defer if (dst_mcv_lock) |lock| self.register_manager.unlockReg(lock);
 
                 // Shift by struct_field_offset.
-                const shift = @intCast(u8, struct_field_offset * @sizeOf(usize));
+                const shift = @intCast(u8, struct_field_offset * 8);
                 try self.genShiftBinOpMir(.shr, Type.usize, dst_mcv.register, .{ .immediate = shift });
 
                 // Mask with reg.bitSize() - struct_field_size
@@ -4928,25 +4951,107 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .unreach, .{ .none, .none, .none });
 }
 
-fn isNull(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCValue {
+fn isNull(self: *Self, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MCValue {
     try self.spillEflagsIfOccupied();
     self.eflags_inst = inst;
 
-    const cmp_ty: Type = if (!ty.isPtrLikeOptional()) blk: {
-        var buf: Type.Payload.ElemType = undefined;
-        const payload_ty = ty.optionalChild(&buf);
-        break :blk if (payload_ty.hasRuntimeBitsIgnoreComptime()) Type.bool else ty;
-    } else ty;
+    var pl_buf: Type.Payload.ElemType = undefined;
+    const pl_ty = opt_ty.optionalChild(&pl_buf);
 
-    try self.genBinOpMir(.cmp, cmp_ty, operand, MCValue{ .immediate = 0 });
+    var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
+    const some_info: struct { off: i32, ty: Type } = if (opt_ty.optionalReprIsPayload())
+        .{ .off = 0, .ty = if (pl_ty.isSlice()) pl_ty.slicePtrFieldType(&ptr_buf) else pl_ty }
+    else
+        .{ .off = @intCast(i32, pl_ty.abiSize(self.target.*)), .ty = Type.bool };
 
-    return MCValue{ .eflags = .e };
+    switch (opt_mcv) {
+        .none,
+        .unreach,
+        .dead,
+        .undef,
+        .immediate,
+        .register_overflow,
+        .ptr_stack_offset,
+        .eflags,
+        => unreachable,
+
+        .register => |opt_reg| {
+            if (some_info.off == 0) {
+                const some_abi_size = @intCast(u32, some_info.ty.abiSize(self.target.*));
+                const alias_reg = registerAlias(opt_reg, some_abi_size);
+                assert(some_abi_size * 8 == alias_reg.bitSize());
+                try self.asmRegisterRegister(.@"test", alias_reg, alias_reg);
+                return .{ .eflags = .z };
+            }
+            assert(some_info.ty.tag() == .bool);
+            const opt_abi_size = @intCast(u32, opt_ty.abiSize(self.target.*));
+            try self.asmRegisterImmediate(
+                .bt,
+                registerAlias(opt_reg, opt_abi_size),
+                Immediate.u(@intCast(u6, some_info.off * 8)),
+            );
+            return .{ .eflags = .nc };
+        },
+
+        .memory, .linker_load => {
+            const addr_reg = (try self.register_manager.allocReg(null, gp)).to64();
+            const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
+            defer self.register_manager.unlockReg(addr_reg_lock);
+
+            try self.loadMemPtrIntoRegister(addr_reg, Type.usize, opt_mcv);
+
+            // To get the actual address of the value we want to modify we have to go through the GOT
+            try self.asmRegisterMemory(.mov, addr_reg, Memory.sib(.qword, .{
+                .base = addr_reg,
+                .disp = 0,
+            }));
+
+            const some_abi_size = @intCast(u32, some_info.ty.abiSize(self.target.*));
+            try self.asmMemoryImmediate(.cmp, Memory.sib(
+                Memory.PtrSize.fromSize(some_abi_size),
+                .{ .base = addr_reg, .disp = some_info.off },
+            ), Immediate.u(0));
+            return .{ .eflags = .e };
+        },
+
+        .stack_offset => |off| {
+            const some_abi_size = @intCast(u32, some_info.ty.abiSize(self.target.*));
+            try self.asmMemoryImmediate(.cmp, Memory.sib(
+                Memory.PtrSize.fromSize(some_abi_size),
+                .{ .base = .rbp, .disp = some_info.off - off },
+            ), Immediate.u(0));
+            return .{ .eflags = .e };
+        },
+    }
 }
 
-fn isNonNull(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCValue {
-    const is_null_res = try self.isNull(inst, ty, operand);
-    assert(is_null_res.eflags == .e);
-    return MCValue{ .eflags = is_null_res.eflags.negate() };
+fn isNullPtr(self: *Self, inst: Air.Inst.Index, ptr_ty: Type, ptr_mcv: MCValue) !MCValue {
+    try self.spillEflagsIfOccupied();
+    self.eflags_inst = inst;
+
+    const opt_ty = ptr_ty.childType();
+    var pl_buf: Type.Payload.ElemType = undefined;
+    const pl_ty = opt_ty.optionalChild(&pl_buf);
+
+    var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
+    const some_info: struct { off: i32, ty: Type } = if (opt_ty.optionalReprIsPayload())
+        .{ .off = 0, .ty = if (pl_ty.isSlice()) pl_ty.slicePtrFieldType(&ptr_buf) else pl_ty }
+    else
+        .{ .off = @intCast(i32, pl_ty.abiSize(self.target.*)), .ty = Type.bool };
+
+    const ptr_reg = switch (ptr_mcv) {
+        .register => |reg| reg,
+        else => try self.copyToTmpRegister(ptr_ty, ptr_mcv),
+    };
+    const ptr_lock = self.register_manager.lockReg(ptr_reg);
+    defer if (ptr_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const some_abi_size = @intCast(u32, some_info.ty.abiSize(self.target.*));
+    try self.asmMemoryImmediate(.cmp, Memory.sib(
+        Memory.PtrSize.fromSize(some_abi_size),
+        .{ .base = ptr_reg, .disp = some_info.off },
+    ), Immediate.u(0));
+    return .{ .eflags = .e };
 }
 
 fn isErr(self: *Self, maybe_inst: ?Air.Inst.Index, ty: Type, operand: MCValue) !MCValue {
@@ -5012,29 +5117,11 @@ fn airIsNull(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
-
-    if (self.liveness.isUnused(inst)) {
-        return self.finishAir(inst, .dead, .{ un_op, .none, .none });
-    }
-
-    const operand_ptr = try self.resolveInst(un_op);
-    const operand_ptr_lock: ?RegisterLock = switch (operand_ptr) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-        else => null,
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand = try self.resolveInst(un_op);
+        const ty = self.air.typeOf(un_op);
+        break :result try self.isNullPtr(inst, ty, operand);
     };
-    defer if (operand_ptr_lock) |lock| self.register_manager.unlockReg(lock);
-
-    const ptr_ty = self.air.typeOf(un_op);
-    const elem_ty = ptr_ty.childType();
-    const operand = if (elem_ty.isPtrLikeOptional() and self.reuseOperand(inst, un_op, 0, operand_ptr))
-        // The MCValue that holds the pointer can be re-used as the value.
-        operand_ptr
-    else
-        try self.allocTempRegOrMem(elem_ty, true);
-    try self.load(operand, operand_ptr, ptr_ty);
-
-    const result = try self.isNull(inst, elem_ty, operand);
-
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
@@ -5043,36 +5130,24 @@ fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(un_op);
         const ty = self.air.typeOf(un_op);
-        break :result try self.isNonNull(inst, ty, operand);
+        break :result switch (try self.isNull(inst, ty, operand)) {
+            .eflags => |cc| .{ .eflags = cc.negate() },
+            else => unreachable,
+        };
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
-
-    if (self.liveness.isUnused(inst)) {
-        return self.finishAir(inst, .dead, .{ un_op, .none, .none });
-    }
-
-    const operand_ptr = try self.resolveInst(un_op);
-    const operand_ptr_lock: ?RegisterLock = switch (operand_ptr) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-        else => null,
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand = try self.resolveInst(un_op);
+        const ty = self.air.typeOf(un_op);
+        break :result switch (try self.isNullPtr(inst, ty, operand)) {
+            .eflags => |cc| .{ .eflags = cc.negate() },
+            else => unreachable,
+        };
     };
-    defer if (operand_ptr_lock) |lock| self.register_manager.unlockReg(lock);
-
-    const ptr_ty = self.air.typeOf(un_op);
-    const elem_ty = ptr_ty.childType();
-    const operand = if (elem_ty.isPtrLikeOptional() and self.reuseOperand(inst, un_op, 0, operand_ptr))
-        // The MCValue that holds the pointer can be re-used as the value.
-        operand_ptr
-    else
-        try self.allocTempRegOrMem(elem_ty, true);
-    try self.load(operand, operand_ptr, ptr_ty);
-
-    const result = try self.isNonNull(inst, ptr_ty.elemType(), operand);
-
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
@@ -6967,7 +7042,10 @@ fn registerAlias(reg: Register, size_bytes: u32) Register {
 /// Truncates the value in the register in place.
 /// Clobbers any remaining bits.
 fn truncateRegister(self: *Self, ty: Type, reg: Register) !void {
-    const int_info = ty.intInfo(self.target.*);
+    const int_info = if (ty.isAbiInt()) ty.intInfo(self.target.*) else std.builtin.Type.Int{
+        .signedness = .unsigned,
+        .bits = @intCast(u16, ty.bitSize(self.target.*)),
+    };
     const max_reg_bit_width = Register.rax.bitSize();
     switch (int_info.signedness) {
         .signed => {

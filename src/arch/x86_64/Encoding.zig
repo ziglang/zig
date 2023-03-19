@@ -307,7 +307,7 @@ pub const Mnemonic = enum {
     // zig fmt: off
     // General-purpose
     adc, add, @"and",
-    bsf, bsr,
+    bsf, bsr, bt, btc, btr, bts,
     call, cbw, cdq, cdqe,
     cmova, cmovae, cmovb, cmovbe, cmovc, cmove, cmovg, cmovge, cmovl, cmovle, cmovna,
     cmovnae, cmovnb, cmovnbe, cmovnc, cmovne, cmovng, cmovnge, cmovnl, cmovnle, cmovno,

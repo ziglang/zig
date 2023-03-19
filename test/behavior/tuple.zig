@@ -263,7 +263,6 @@ test "initializing anon struct with mixed comptime-runtime fields" {
 test "tuple in tuple passed to generic function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -283,7 +282,6 @@ test "tuple in tuple passed to generic function" {
 test "coerce tuple to tuple" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const T = std.meta.Tuple(&.{u8});
@@ -298,7 +296,6 @@ test "coerce tuple to tuple" {
 test "tuple type with void field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const T = std.meta.Tuple(&[_]type{void});
     const x = T{{}};
@@ -335,7 +332,6 @@ test "zero sized struct in tuple handled correctly" {
 test "tuple type with void field and a runtime field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const T = std.meta.Tuple(&[_]type{ usize, void });
     var t: T = .{ 5, {} };
