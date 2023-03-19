@@ -7129,22 +7129,49 @@ pub fn timerfd_gettime(fd: i32) TimerFdGetError!linux.itimerspec {
 
 pub const PtraceError = error{
     DeviceBusy,
+    InputOutput,
+    Overflow,
     ProcessNotFound,
     PermissionDenied,
 } || UnexpectedError;
 
-/// TODO on other OSes
-pub fn ptrace(request: i32, pid: pid_t, addr: ?[*]u8, signal: i32) PtraceError!void {
-    switch (builtin.os.tag) {
-        .macos, .ios, .tvos, .watchos => {},
-        else => @compileError("TODO implement ptrace"),
-    }
-    return switch (errno(system.ptrace(request, pid, addr, signal))) {
-        .SUCCESS => {},
-        .SRCH => error.ProcessNotFound,
-        .INVAL => unreachable,
-        .PERM => error.PermissionDenied,
-        .BUSY => error.DeviceBusy,
-        else => |err| return unexpectedErrno(err),
+pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!void {
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+        @compileError("Unsupported OS");
+
+    return switch (builtin.os.tag) {
+        .linux => switch (errno(linux.ptrace(request, pid, addr, signal, 0))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .IO => return error.InputOutput,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            else => |err| return unexpectedErrno(err),
+        },
+
+        .macos, .ios, .tvos, .watchos => switch (errno(darwin.ptrace(
+            math.cast(i32, request) orelse return error.Overflow,
+            pid,
+            @intToPtr(?[*]u8, addr),
+            math.cast(i32, signal) orelse return error.Overflow,
+        ))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .INVAL => unreachable,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            else => |err| return unexpectedErrno(err),
+        },
+
+        else => switch (errno(system.ptrace(request, pid, addr, signal))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .INVAL => unreachable,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            else => |err| return unexpectedErrno(err),
+        },
     };
 }

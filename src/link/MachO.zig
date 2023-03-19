@@ -221,6 +221,14 @@ lazy_bindings: BindingTable = .{},
 /// Table of tracked Decls.
 decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
 
+/// Hot-code swapping state.
+hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
+
+const is_hot_update_compatible = switch (builtin.target.os.tag) {
+    .macos => true,
+    else => false,
+};
+
 const DeclMetadata = struct {
     atom: Atom.Index,
     section: u8,
@@ -298,6 +306,10 @@ pub const SymbolWithLoc = struct {
         }
         return false;
     }
+};
+
+const HotUpdateState = struct {
+    mach_task: ?std.os.darwin.MachTask = null,
 };
 
 /// When allocating, the ideal_capacity is calculated by
@@ -584,7 +596,26 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     try self.allocateSpecialSymbols();
 
     for (self.relocs.keys()) |atom_index| {
-        try Atom.resolveRelocations(self, atom_index);
+        const relocs = self.relocs.get(atom_index).?;
+        const needs_update = for (relocs.items) |reloc| {
+            if (reloc.dirty) break true;
+        } else false;
+
+        if (!needs_update) continue;
+
+        const atom = self.getAtom(atom_index);
+        const sym = atom.getSymbol(self);
+        const section = self.sections.get(sym.n_sect - 1).header;
+        const file_offset = section.offset + sym.n_value - section.addr;
+
+        var code = std.ArrayList(u8).init(self.base.allocator);
+        defer code.deinit();
+        try code.resize(math.cast(usize, atom.size) orelse return error.Overflow);
+
+        const amt = try self.base.file.?.preadAll(code.items, file_offset);
+        if (amt != code.items.len) return error.InputOutput;
+
+        try self.writeAtom(atom_index, code.items);
     }
 
     if (build_options.enable_logging) {
@@ -1052,14 +1083,40 @@ pub fn parseDependentLibs(self: *MachO, syslibroot: ?[]const u8, dependent_libs:
     }
 }
 
-pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []const u8) !void {
+pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
     const atom = self.getAtom(atom_index);
     const sym = atom.getSymbol(self);
     const section = self.sections.get(sym.n_sect - 1);
     const file_offset = section.header.offset + sym.n_value - section.header.addr;
     log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ atom.getName(self), file_offset });
+
+    if (self.relocs.get(atom_index)) |relocs| {
+        try Atom.resolveRelocations(self, atom_index, relocs.items, code);
+    }
+
+    if (is_hot_update_compatible) {
+        if (self.base.child_pid) |pid| blk: {
+            const task = self.hot_state.mach_task orelse {
+                log.warn("cannot hot swap: no Mach task acquired for child process with pid {d}", .{pid});
+                break :blk;
+            };
+            self.updateAtomInMemory(task, section.segment_index, sym.n_value, code) catch |err| {
+                log.warn("cannot hot swap: writing to memory failed: {s}", .{@errorName(err)});
+            };
+        }
+    }
+
     try self.base.file.?.pwriteAll(code, file_offset);
-    try Atom.resolveRelocations(self, atom_index);
+}
+
+fn updateAtomInMemory(self: *MachO, task: std.os.darwin.MachTask, segment_index: u8, addr: u64, code: []const u8) !void {
+    const segment = self.segments.items[segment_index];
+    const cpu_arch = self.base.options.target.cpu.arch;
+    const nwritten = if (!segment.isWriteable())
+        try task.writeMemProtected(addr, code, cpu_arch)
+    else
+        try task.writeMem(addr, code, cpu_arch);
+    if (nwritten != code.len) return error.InputOutput;
 }
 
 fn writePtrWidthAtom(self: *MachO, atom_index: Atom.Index) !void {
@@ -1068,6 +1125,7 @@ fn writePtrWidthAtom(self: *MachO, atom_index: Atom.Index) !void {
 }
 
 fn markRelocsDirtyByTarget(self: *MachO, target: SymbolWithLoc) void {
+    log.debug("marking relocs dirty by target: {}", .{target});
     // TODO: reverse-lookup might come in handy here
     for (self.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
@@ -1078,6 +1136,7 @@ fn markRelocsDirtyByTarget(self: *MachO, target: SymbolWithLoc) void {
 }
 
 fn markRelocsDirtyByAddress(self: *MachO, addr: u64) void {
+    log.debug("marking relocs dirty by address: {x}", .{addr});
     for (self.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
             const target_atom_index = reloc.getTargetAtomIndex(self) orelse continue;
@@ -1702,6 +1761,8 @@ pub fn resolveDyldStubBinder(self: *MachO) !void {
     if (self.dyld_stub_binder_index != null) return;
     if (self.unresolved.count() == 0) return; // no need for a stub binder if we don't have any imports
 
+    log.debug("resolving dyld_stub_binder", .{});
+
     const gpa = self.base.allocator;
     const sym_index = try self.allocateSymbol();
     const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
@@ -2063,7 +2124,7 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     else
         try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
 
-    const code = switch (res) {
+    var code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2115,7 +2176,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
-    const code = switch (res) {
+    var code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2202,7 +2263,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) 
             .parent_atom_index = atom.getSymbolIndex().?,
         });
 
-    const code = switch (res) {
+    var code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2375,7 +2436,7 @@ pub fn getOutputSection(self: *MachO, sect: macho.section_64) !?u8 {
     return sect_id;
 }
 
-fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []const u8) !u64 {
+fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
@@ -2788,6 +2849,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
     if (self.linkedit_segment_cmd_index == null) {
         self.linkedit_segment_cmd_index = @intCast(u8, self.segments.items.len);
+
         try self.segments.append(gpa, .{
             .segname = makeStaticString("__LINKEDIT"),
             .maxprot = macho.PROT.READ,
@@ -3758,6 +3820,32 @@ pub fn allocatedVirtualSize(self: *MachO, start: u64) u64 {
         if (segment.vmaddr < min_pos) min_pos = segment.vmaddr;
     }
     return min_pos - start;
+}
+
+pub fn ptraceAttach(self: *MachO, pid: std.os.pid_t) !void {
+    if (!is_hot_update_compatible) return;
+
+    const mach_task = try std.os.darwin.machTaskForPid(pid);
+    log.debug("Mach task for pid {d}: {any}", .{ pid, mach_task });
+    self.hot_state.mach_task = mach_task;
+
+    // TODO start exception handler in another thread
+
+    // TODO enable ones we register for exceptions
+    // try std.os.ptrace(std.os.darwin.PT.ATTACHEXC, pid, 0, 0);
+}
+
+pub fn ptraceDetach(self: *MachO, pid: std.os.pid_t) !void {
+    if (!is_hot_update_compatible) return;
+
+    _ = pid;
+
+    // TODO stop exception handler
+
+    // TODO see comment in ptraceAttach
+    // try std.os.ptrace(std.os.darwin.PT.DETACH, pid, 0, 0);
+
+    self.hot_state.mach_task = null;
 }
 
 pub fn makeStaticString(bytes: []const u8) [16]u8 {

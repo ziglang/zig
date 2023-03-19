@@ -152,6 +152,7 @@ pub fn build(b: *std.Build) !void {
     if (only_install_lib_files)
         return;
 
+    const entitlements = b.option([]const u8, "entitlements", "Path to entitlements file for hot-code swapping without sudo on macOS");
     const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
     const tracy_callstack = b.option(bool, "tracy-callstack", "Include callstack information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
     const tracy_allocation = b.option(bool, "tracy-allocation", "Include allocation information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
@@ -173,6 +174,7 @@ pub fn build(b: *std.Build) !void {
     exe.pie = pie;
     exe.sanitize_thread = sanitize_thread;
     exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
+    exe.entitlements = entitlements;
     exe.install();
 
     const compile_step = b.step("compile", "Build the self-hosted compiler");

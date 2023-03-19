@@ -50,7 +50,7 @@ pub fn getTargetAtomIndex(self: Relocation, macho_file: *MachO) ?Atom.Index {
     return macho_file.getAtomIndexForSymbol(self.target);
 }
 
-pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, base_offset: u64) !void {
+pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, code: []u8) !void {
     const arch = macho_file.base.options.target.cpu.arch;
     const atom = macho_file.getAtom(atom_index);
     const source_sym = atom.getSymbol(macho_file);
@@ -68,42 +68,28 @@ pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, bas
     });
 
     switch (arch) {
-        .aarch64 => return self.resolveAarch64(macho_file, source_addr, target_addr, base_offset),
-        .x86_64 => return self.resolveX8664(macho_file, source_addr, target_addr, base_offset),
+        .aarch64 => return self.resolveAarch64(source_addr, target_addr, code),
+        .x86_64 => return self.resolveX8664(source_addr, target_addr, code),
         else => unreachable,
     }
 }
 
 fn resolveAarch64(
     self: Relocation,
-    macho_file: *MachO,
     source_addr: u64,
     target_addr: i64,
-    base_offset: u64,
+    code: []u8,
 ) !void {
     const rel_type = @intToEnum(macho.reloc_type_arm64, self.type);
     if (rel_type == .ARM64_RELOC_UNSIGNED) {
-        var buffer: [@sizeOf(u64)]u8 = undefined;
-        const code = blk: {
-            switch (self.length) {
-                2 => {
-                    mem.writeIntLittle(u32, buffer[0..4], @truncate(u32, @bitCast(u64, target_addr)));
-                    break :blk buffer[0..4];
-                },
-                3 => {
-                    mem.writeIntLittle(u64, &buffer, @bitCast(u64, target_addr));
-                    break :blk &buffer;
-                },
-                else => unreachable,
-            }
+        return switch (self.length) {
+            2 => mem.writeIntLittle(u32, code[self.offset..][0..4], @truncate(u32, @bitCast(u64, target_addr))),
+            3 => mem.writeIntLittle(u64, code[self.offset..][0..8], @bitCast(u64, target_addr)),
+            else => unreachable,
         };
-        return macho_file.base.file.?.pwriteAll(code, base_offset + self.offset);
     }
 
-    var buffer: [@sizeOf(u32)]u8 = undefined;
-    const amt = try macho_file.base.file.?.preadAll(&buffer, base_offset + self.offset);
-    if (amt != buffer.len) return error.InputOutput;
-
+    var buffer = code[self.offset..][0..4];
     switch (rel_type) {
         .ARM64_RELOC_BRANCH26 => {
             const displacement = math.cast(
@@ -114,10 +100,10 @@ fn resolveAarch64(
                 .unconditional_branch_immediate = mem.bytesToValue(meta.TagPayload(
                     aarch64.Instruction,
                     aarch64.Instruction.unconditional_branch_immediate,
-                ), &buffer),
+                ), buffer),
             };
             inst.unconditional_branch_immediate.imm26 = @truncate(u26, @bitCast(u28, displacement >> 2));
-            mem.writeIntLittle(u32, &buffer, inst.toU32());
+            mem.writeIntLittle(u32, buffer, inst.toU32());
         },
         .ARM64_RELOC_PAGE21,
         .ARM64_RELOC_GOT_LOAD_PAGE21,
@@ -130,31 +116,31 @@ fn resolveAarch64(
                 .pc_relative_address = mem.bytesToValue(meta.TagPayload(
                     aarch64.Instruction,
                     aarch64.Instruction.pc_relative_address,
-                ), &buffer),
+                ), buffer),
             };
             inst.pc_relative_address.immhi = @truncate(u19, pages >> 2);
             inst.pc_relative_address.immlo = @truncate(u2, pages);
-            mem.writeIntLittle(u32, &buffer, inst.toU32());
+            mem.writeIntLittle(u32, buffer, inst.toU32());
         },
         .ARM64_RELOC_PAGEOFF12,
         .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
         => {
             const narrowed = @truncate(u12, @intCast(u64, target_addr));
-            if (isArithmeticOp(&buffer)) {
+            if (isArithmeticOp(buffer)) {
                 var inst = aarch64.Instruction{
                     .add_subtract_immediate = mem.bytesToValue(meta.TagPayload(
                         aarch64.Instruction,
                         aarch64.Instruction.add_subtract_immediate,
-                    ), &buffer),
+                    ), buffer),
                 };
                 inst.add_subtract_immediate.imm12 = narrowed;
-                mem.writeIntLittle(u32, &buffer, inst.toU32());
+                mem.writeIntLittle(u32, buffer, inst.toU32());
             } else {
                 var inst = aarch64.Instruction{
                     .load_store_register = mem.bytesToValue(meta.TagPayload(
                         aarch64.Instruction,
                         aarch64.Instruction.load_store_register,
-                    ), &buffer),
+                    ), buffer),
                 };
                 const offset: u12 = blk: {
                     if (inst.load_store_register.size == 0) {
@@ -170,7 +156,7 @@ fn resolveAarch64(
                     }
                 };
                 inst.load_store_register.offset = offset;
-                mem.writeIntLittle(u32, &buffer, inst.toU32());
+                mem.writeIntLittle(u32, buffer, inst.toU32());
             }
         },
         .ARM64_RELOC_TLVP_LOAD_PAGEOFF12 => {
@@ -180,11 +166,11 @@ fn resolveAarch64(
                 size: u2,
             };
             const reg_info: RegInfo = blk: {
-                if (isArithmeticOp(&buffer)) {
+                if (isArithmeticOp(buffer)) {
                     const inst = mem.bytesToValue(meta.TagPayload(
                         aarch64.Instruction,
                         aarch64.Instruction.add_subtract_immediate,
-                    ), &buffer);
+                    ), buffer);
                     break :blk .{
                         .rd = inst.rd,
                         .rn = inst.rn,
@@ -194,7 +180,7 @@ fn resolveAarch64(
                     const inst = mem.bytesToValue(meta.TagPayload(
                         aarch64.Instruction,
                         aarch64.Instruction.load_store_register,
-                    ), &buffer);
+                    ), buffer);
                     break :blk .{
                         .rd = inst.rt,
                         .rn = inst.rn,
@@ -214,72 +200,62 @@ fn resolveAarch64(
                     .sf = @truncate(u1, reg_info.size),
                 },
             };
-            mem.writeIntLittle(u32, &buffer, inst.toU32());
+            mem.writeIntLittle(u32, buffer, inst.toU32());
         },
         .ARM64_RELOC_POINTER_TO_GOT => {
             const result = @intCast(i32, @intCast(i64, target_addr) - @intCast(i64, source_addr));
-            mem.writeIntLittle(i32, &buffer, result);
+            mem.writeIntLittle(i32, buffer, result);
         },
         .ARM64_RELOC_SUBTRACTOR => unreachable,
         .ARM64_RELOC_ADDEND => unreachable,
         .ARM64_RELOC_UNSIGNED => unreachable,
     }
-    try macho_file.base.file.?.pwriteAll(&buffer, base_offset + self.offset);
 }
 
 fn resolveX8664(
     self: Relocation,
-    macho_file: *MachO,
     source_addr: u64,
     target_addr: i64,
-    base_offset: u64,
+    code: []u8,
 ) !void {
     const rel_type = @intToEnum(macho.reloc_type_x86_64, self.type);
-    var buffer: [@sizeOf(u64)]u8 = undefined;
-    const code = blk: {
-        switch (rel_type) {
-            .X86_64_RELOC_BRANCH,
-            .X86_64_RELOC_GOT,
-            .X86_64_RELOC_GOT_LOAD,
-            .X86_64_RELOC_TLV,
-            => {
-                const displacement = @intCast(i32, @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4);
-                mem.writeIntLittle(u32, buffer[0..4], @bitCast(u32, displacement));
-                break :blk buffer[0..4];
-            },
-            .X86_64_RELOC_SIGNED,
-            .X86_64_RELOC_SIGNED_1,
-            .X86_64_RELOC_SIGNED_2,
-            .X86_64_RELOC_SIGNED_4,
-            => {
-                const correction: u3 = switch (rel_type) {
-                    .X86_64_RELOC_SIGNED => 0,
-                    .X86_64_RELOC_SIGNED_1 => 1,
-                    .X86_64_RELOC_SIGNED_2 => 2,
-                    .X86_64_RELOC_SIGNED_4 => 4,
-                    else => unreachable,
-                };
-                const displacement = @intCast(i32, target_addr - @intCast(i64, source_addr + correction + 4));
-                mem.writeIntLittle(u32, buffer[0..4], @bitCast(u32, displacement));
-                break :blk buffer[0..4];
-            },
-            .X86_64_RELOC_UNSIGNED => {
-                switch (self.length) {
-                    2 => {
-                        mem.writeIntLittle(u32, buffer[0..4], @truncate(u32, @bitCast(u64, target_addr)));
-                        break :blk buffer[0..4];
-                    },
-                    3 => {
-                        mem.writeIntLittle(u64, buffer[0..8], @bitCast(u64, target_addr));
-                        break :blk &buffer;
-                    },
-                    else => unreachable,
-                }
-            },
-            .X86_64_RELOC_SUBTRACTOR => unreachable,
-        }
-    };
-    try macho_file.base.file.?.pwriteAll(code, base_offset + self.offset);
+    switch (rel_type) {
+        .X86_64_RELOC_BRANCH,
+        .X86_64_RELOC_GOT,
+        .X86_64_RELOC_GOT_LOAD,
+        .X86_64_RELOC_TLV,
+        => {
+            const displacement = @intCast(i32, @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4);
+            mem.writeIntLittle(u32, code[self.offset..][0..4], @bitCast(u32, displacement));
+        },
+        .X86_64_RELOC_SIGNED,
+        .X86_64_RELOC_SIGNED_1,
+        .X86_64_RELOC_SIGNED_2,
+        .X86_64_RELOC_SIGNED_4,
+        => {
+            const correction: u3 = switch (rel_type) {
+                .X86_64_RELOC_SIGNED => 0,
+                .X86_64_RELOC_SIGNED_1 => 1,
+                .X86_64_RELOC_SIGNED_2 => 2,
+                .X86_64_RELOC_SIGNED_4 => 4,
+                else => unreachable,
+            };
+            const displacement = @intCast(i32, target_addr - @intCast(i64, source_addr + correction + 4));
+            mem.writeIntLittle(u32, code[self.offset..][0..4], @bitCast(u32, displacement));
+        },
+        .X86_64_RELOC_UNSIGNED => {
+            switch (self.length) {
+                2 => {
+                    mem.writeIntLittle(u32, code[self.offset..][0..4], @truncate(u32, @bitCast(u64, target_addr)));
+                },
+                3 => {
+                    mem.writeIntLittle(u64, code[self.offset..][0..8], @bitCast(u64, target_addr));
+                },
+                else => unreachable,
+            }
+        },
+        .X86_64_RELOC_SUBTRACTOR => unreachable,
+    }
 }
 
 inline fn isArithmeticOp(inst: *const [4]u8) bool {

@@ -3320,21 +3320,20 @@ fn buildOutputType(
 
             try server.listen(.{ .in = ip4_addr });
 
-            while (true) {
-                const conn = try server.accept();
-                defer conn.stream.close();
+            const conn = try server.accept();
+            defer conn.stream.close();
 
-                try serve(
-                    comp,
-                    .{ .handle = conn.stream.handle },
-                    .{ .handle = conn.stream.handle },
-                    test_exec_args.items,
-                    self_exe_path,
-                    arg_mode,
-                    all_args,
-                    runtime_args_start,
-                );
-            }
+            try serve(
+                comp,
+                .{ .handle = conn.stream.handle },
+                .{ .handle = conn.stream.handle },
+                test_exec_args.items,
+                self_exe_path,
+                arg_mode,
+                all_args,
+                runtime_args_start,
+            );
+            return cleanExit();
         },
     }
 
@@ -3465,9 +3464,7 @@ fn serve(
         const hdr = try server.receiveMessage();
 
         switch (hdr.tag) {
-            .exit => {
-                return cleanExit();
-            },
+            .exit => return,
             .update => {
                 assert(main_progress_node.recently_updated_child == null);
                 tracy.frameMark();
@@ -3851,15 +3848,43 @@ fn runOrTestHotSwap(
     if (runtime_args_start) |i| {
         try argv.appendSlice(all_args[i..]);
     }
-    var child = std.ChildProcess.init(argv.items, gpa);
 
-    child.stdin_behavior = .Inherit;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
+    switch (builtin.target.os.tag) {
+        .macos, .ios, .tvos, .watchos => {
+            const PosixSpawn = std.os.darwin.PosixSpawn;
 
-    try child.spawn();
+            var attr = try PosixSpawn.Attr.init();
+            defer attr.deinit();
 
-    return child.id;
+            // ASLR is probably a good default for better debugging experience/programming
+            // with hot-code updates in mind. However, we can also make it work with ASLR on.
+            const flags: u16 = std.os.darwin.POSIX_SPAWN.SETSIGDEF |
+                std.os.darwin.POSIX_SPAWN.SETSIGMASK |
+                std.os.darwin.POSIX_SPAWN.DISABLE_ASLR;
+            try attr.set(flags);
+
+            var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+            defer arena_allocator.deinit();
+            const arena = arena_allocator.allocator();
+
+            const argv_buf = try arena.allocSentinel(?[*:0]u8, argv.items.len, null);
+            for (argv.items, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
+
+            const pid = try PosixSpawn.spawn(argv.items[0], null, attr, argv_buf, std.c.environ);
+            return pid;
+        },
+        else => {
+            var child = std.ChildProcess.init(argv.items, gpa);
+
+            child.stdin_behavior = .Inherit;
+            child.stdout_behavior = .Inherit;
+            child.stderr_behavior = .Inherit;
+
+            try child.spawn();
+
+            return child.id;
+        },
+    }
 }
 
 const AfterUpdateHook = union(enum) {
