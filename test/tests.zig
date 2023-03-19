@@ -910,6 +910,7 @@ const ModuleTestOptions = struct {
     optimize_modes: []const OptimizeMode,
     skip_single_threaded: bool,
     skip_non_native: bool,
+    skip_cross_glibc: bool,
     skip_libc: bool,
     skip_stage1: bool,
     skip_stage2: bool,
@@ -921,6 +922,9 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
     for (test_targets) |test_target| {
         if (options.skip_non_native and !test_target.target.isNative())
+            continue;
+
+        if (options.skip_cross_glibc and test_target.target.isGnuLibC() and test_target.link_libc)
             continue;
 
         if (options.skip_libc and test_target.link_libc)
