@@ -2828,22 +2828,31 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             const decl = mod.declPtr(entry.key_ptr.*);
             if (decl.isExtern()) continue;
             const atom_index = entry.value_ptr.*;
+            const atom = wasm.getAtomPtr(atom_index);
             if (decl.ty.zigTypeTag() == .Fn) {
                 try wasm.parseAtom(atom_index, .function);
             } else if (decl.getVariable()) |variable| {
                 if (!variable.is_mutable) {
                     try wasm.parseAtom(atom_index, .{ .data = .read_only });
                 } else if (variable.init.isUndefDeep()) {
-                    try wasm.parseAtom(atom_index, .{ .data = .uninitialized });
+                    // for safe build modes, we store the atom in the data segment,
+                    // whereas for unsafe build modes we store it in bss.
+                    const is_initialized = wasm.base.options.optimize_mode == .Debug or
+                        wasm.base.options.optimize_mode == .ReleaseSafe;
+                    try wasm.parseAtom(atom_index, .{ .data = if (is_initialized) .initialized else .uninitialized });
                 } else {
-                    try wasm.parseAtom(atom_index, .{ .data = .initialized });
+                    // when the decl is all zeroes, we store the atom in the bss segment,
+                    // in all other cases it will be in the data segment.
+                    const is_zeroes = for (atom.code.items) |byte| {
+                        if (byte != 0) break false;
+                    } else true;
+                    try wasm.parseAtom(atom_index, .{ .data = if (is_zeroes) .uninitialized else .initialized });
                 }
             } else {
                 try wasm.parseAtom(atom_index, .{ .data = .read_only });
             }
 
             // also parse atoms for a decl's locals
-            const atom = wasm.getAtomPtr(atom_index);
             for (atom.locals.items) |local_atom_index| {
                 try wasm.parseAtom(local_atom_index, .{ .data = .read_only });
             }
