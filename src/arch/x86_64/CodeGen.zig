@@ -994,10 +994,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .optional_payload           => try self.airOptionalPayload(inst),
             .optional_payload_ptr       => try self.airOptionalPayloadPtr(inst),
             .optional_payload_ptr_set   => try self.airOptionalPayloadPtrSet(inst),
-            .unwrap_errunion_err        => try self.airUnwrapErrErr(inst),
-            .unwrap_errunion_payload    => try self.airUnwrapErrPayload(inst),
-            .unwrap_errunion_err_ptr    => try self.airUnwrapErrErrPtr(inst),
-            .unwrap_errunion_payload_ptr=> try self.airUnwrapErrPayloadPtr(inst),
+            .unwrap_errunion_err        => try self.airUnwrapErrUnionErr(inst),
+            .unwrap_errunion_payload    => try self.airUnwrapErrUnionPayload(inst),
+            .unwrap_errunion_err_ptr    => try self.airUnwrapErrUnionErrPtr(inst),
+            .unwrap_errunion_payload_ptr=> try self.airUnwrapErrUnionPayloadPtr(inst),
             .errunion_payload_ptr_set   => try self.airErrUnionPayloadPtrSet(inst),
             .err_return_trace           => try self.airErrReturnTrace(inst),
             .set_err_return_trace       => try self.airSetErrReturnTrace(inst),
@@ -1923,7 +1923,7 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
+fn airUnwrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     if (self.liveness.isUnused(inst)) {
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
@@ -1967,7 +1967,7 @@ fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
+fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     if (self.liveness.isUnused(inst)) {
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
@@ -2021,31 +2021,112 @@ fn genUnwrapErrorUnionPayloadMir(
 }
 
 // *(E!T) -> E
-fn airUnwrapErrErrPtr(self: *Self, inst: Air.Inst.Index) !void {
+fn airUnwrapErrUnionErrPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement unwrap error union error ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = result: {
+        if (self.liveness.isUnused(inst)) break :result .dead;
+
+        const src_ty = self.air.typeOf(ty_op.operand);
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        const src_reg = switch (src_mcv) {
+            .register => |reg| reg,
+            else => try self.copyToTmpRegister(src_ty, src_mcv),
+        };
+        const src_lock = self.register_manager.lockRegAssumeUnused(src_reg);
+        defer self.register_manager.unlockReg(src_lock);
+
+        const dst_reg = try self.register_manager.allocReg(inst, gp);
+        const dst_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
+        defer self.register_manager.unlockReg(dst_lock);
+
+        const eu_ty = src_ty.childType();
+        const pl_ty = eu_ty.errorUnionPayload();
+        const err_ty = eu_ty.errorUnionSet();
+        const err_off = @intCast(i32, errUnionErrorOffset(pl_ty, self.target.*));
+        const err_abi_size = @intCast(u32, err_ty.abiSize(self.target.*));
+        try self.asmRegisterMemory(
+            .mov,
+            registerAlias(dst_reg, err_abi_size),
+            Memory.sib(Memory.PtrSize.fromSize(err_abi_size), .{ .base = src_reg, .disp = err_off }),
+        );
+        break :result .{ .register = dst_reg };
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 // *(E!T) -> *T
-fn airUnwrapErrPayloadPtr(self: *Self, inst: Air.Inst.Index) !void {
+fn airUnwrapErrUnionPayloadPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement unwrap error union payload ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = result: {
+        if (self.liveness.isUnused(inst)) break :result .dead;
+
+        const src_ty = self.air.typeOf(ty_op.operand);
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        const src_reg = switch (src_mcv) {
+            .register => |reg| reg,
+            else => try self.copyToTmpRegister(src_ty, src_mcv),
+        };
+        const src_lock = self.register_manager.lockRegAssumeUnused(src_reg);
+        defer self.register_manager.unlockReg(src_lock);
+
+        const dst_ty = self.air.typeOfIndex(inst);
+        const dst_reg = try self.register_manager.allocReg(inst, gp);
+        const dst_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
+        defer self.register_manager.unlockReg(dst_lock);
+
+        const eu_ty = src_ty.childType();
+        const pl_ty = eu_ty.errorUnionPayload();
+        const pl_off = @intCast(i32, errUnionPayloadOffset(pl_ty, self.target.*));
+        const dst_abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
+        try self.asmRegisterMemory(
+            .lea,
+            registerAlias(dst_reg, dst_abi_size),
+            Memory.sib(.qword, .{ .base = src_reg, .disp = pl_off }),
+        );
+        break :result .{ .register = dst_reg };
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement .errunion_payload_ptr_set for {}", .{self.target.cpu.arch});
+    const result: MCValue = result: {
+        const src_ty = self.air.typeOf(ty_op.operand);
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        const src_reg = switch (src_mcv) {
+            .register => |reg| reg,
+            else => try self.copyToTmpRegister(src_ty, src_mcv),
+        };
+        const src_lock = self.register_manager.lockRegAssumeUnused(src_reg);
+        defer self.register_manager.unlockReg(src_lock);
+
+        const eu_ty = src_ty.childType();
+        const pl_ty = eu_ty.errorUnionPayload();
+        const err_ty = eu_ty.errorUnionSet();
+        const err_off = @intCast(i32, errUnionErrorOffset(pl_ty, self.target.*));
+        const err_abi_size = @intCast(u32, err_ty.abiSize(self.target.*));
+        try self.asmMemoryImmediate(
+            .mov,
+            Memory.sib(Memory.PtrSize.fromSize(err_abi_size), .{ .base = src_reg, .disp = err_off }),
+            Immediate.u(0),
+        );
+
+        if (self.liveness.isUnused(inst)) break :result .dead;
+
+        const dst_ty = self.air.typeOfIndex(inst);
+        const dst_reg = try self.register_manager.allocReg(inst, gp);
+        const dst_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
+        defer self.register_manager.unlockReg(dst_lock);
+
+        const pl_off = @intCast(i32, errUnionErrorOffset(pl_ty, self.target.*));
+        const dst_abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
+        try self.asmRegisterMemory(
+            .lea,
+            registerAlias(dst_reg, dst_abi_size),
+            Memory.sib(.qword, .{ .base = src_reg, .disp = pl_off }),
+        );
+        break :result .{ .register = dst_reg };
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
