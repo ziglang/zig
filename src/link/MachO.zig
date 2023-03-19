@@ -221,8 +221,13 @@ lazy_bindings: BindingTable = .{},
 /// Table of tracked Decls.
 decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
 
-/// Mach task used when the compiler is in hot-code swapping mode.
-mach_task: ?std.os.darwin.MachTask = null,
+/// Hot-code swapping state.
+hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
+
+const is_hot_update_compatible = switch (builtin.target.os.tag) {
+    .macos => true,
+    else => false,
+};
 
 const DeclMetadata = struct {
     atom: Atom.Index,
@@ -301,6 +306,10 @@ pub const SymbolWithLoc = struct {
         }
         return false;
     }
+};
+
+const HotUpdateState = struct {
+    mach_task: ?std.os.darwin.MachTask = null,
 };
 
 /// When allocating, the ideal_capacity is calculated by
@@ -1085,14 +1094,16 @@ pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
         try Atom.resolveRelocations(self, atom_index, relocs.items, code);
     }
 
-    if (self.base.child_pid) |pid| blk: {
-        const task = self.mach_task orelse {
-            log.warn("cannot hot swap: no Mach task acquired for child process with pid {d}", .{pid});
-            break :blk;
-        };
-        self.updateAtomInMemory(task, section.segment_index, sym.n_value, code) catch |err| {
-            log.warn("cannot hot swap: writing to memory failed: {s}", .{@errorName(err)});
-        };
+    if (is_hot_update_compatible) {
+        if (self.base.child_pid) |pid| blk: {
+            const task = self.hot_state.mach_task orelse {
+                log.warn("cannot hot swap: no Mach task acquired for child process with pid {d}", .{pid});
+                break :blk;
+            };
+            self.updateAtomInMemory(task, section.segment_index, sym.n_value, code) catch |err| {
+                log.warn("cannot hot swap: writing to memory failed: {s}", .{@errorName(err)});
+            };
+        }
     }
 
     try self.base.file.?.pwriteAll(code, file_offset);
@@ -3812,9 +3823,11 @@ pub fn allocatedVirtualSize(self: *MachO, start: u64) u64 {
 }
 
 pub fn ptraceAttach(self: *MachO, pid: std.os.pid_t) !void {
+    if (!is_hot_update_compatible) return;
+
     const mach_task = try std.os.darwin.machTaskForPid(pid);
     log.debug("Mach task for pid {d}: {any}", .{ pid, mach_task });
-    self.mach_task = mach_task;
+    self.hot_state.mach_task = mach_task;
 
     // TODO start exception handler in another thread
 
@@ -3823,6 +3836,8 @@ pub fn ptraceAttach(self: *MachO, pid: std.os.pid_t) !void {
 }
 
 pub fn ptraceDetach(self: *MachO, pid: std.os.pid_t) !void {
+    if (!is_hot_update_compatible) return;
+
     _ = pid;
 
     // TODO stop exception handler
@@ -3830,7 +3845,7 @@ pub fn ptraceDetach(self: *MachO, pid: std.os.pid_t) !void {
     // TODO see comment in ptraceAttach
     // try std.os.ptrace(std.os.darwin.PT.DETACH, pid, 0, 0);
 
-    self.mach_task = null;
+    self.hot_state.mach_task = null;
 }
 
 pub fn makeStaticString(bytes: []const u8) [16]u8 {
