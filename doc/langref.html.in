@@ -10332,9 +10332,9 @@ fn concat(allocator: Allocator, a: []const u8, b: []const u8) ![]u8 {
               Is the maximum number of bytes that you will need bounded by a number known at
               {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#} or
               {#syntax#}std.heap.ThreadSafeFixedBufferAllocator{#endsyntax#} depending on whether you need
-              thread-safety or not. Keep in mind that this is a bump allocator, so calls to
-	      {#syntax#}free{#endsyntax#} should be in reverse-order of calls to `alloc` for it to actually
-	      release the memory.
+              thread-safety or not.
+              Note that this is a bump allocator, so calls to {#syntax#}free{#endsyntax#} should be in the
+              reverse-order of calls to `alloc` for it to actually release the memory.
           </li>
           <li>
               Is your program a command line application which runs from start to end without any fundamental
