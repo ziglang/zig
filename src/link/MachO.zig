@@ -610,7 +610,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
         var code = std.ArrayList(u8).init(self.base.allocator);
         defer code.deinit();
-        try code.resize(atom.size);
+        try code.resize(math.cast(usize, atom.size) orelse return error.Overflow);
 
         const amt = try self.base.file.?.preadAll(code.items, file_offset);
         if (amt != code.items.len) return error.InputOutput;
