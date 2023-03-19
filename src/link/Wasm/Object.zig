@@ -601,8 +601,8 @@ fn Parser(comptime ReaderType: type) type {
             });
 
             for (relocations) |*relocation| {
-                const rel_type = try leb.readULEB128(u8, reader);
-                const rel_type_enum = @intToEnum(types.Relocation.RelocationType, rel_type);
+                const rel_type = try reader.readByte();
+                const rel_type_enum = std.meta.intToEnum(types.Relocation.RelocationType, rel_type) catch return error.MalformedSection;
                 relocation.* = .{
                     .relocation_type = rel_type_enum,
                     .offset = try leb.readULEB128(u32, reader),
@@ -674,6 +674,12 @@ fn Parser(comptime ReaderType: type) type {
                             segment.alignment,
                             segment.flags,
                         });
+
+                        // support legacy object files that specified being TLS by the name instead of the TLS flag.
+                        if (!segment.isTLS() and (std.mem.startsWith(u8, segment.name, ".tdata") or std.mem.startsWith(u8, segment.name, ".tbss"))) {
+                            // set the flag so we can simply check for the flag in the rest of the linker.
+                            segment.flags |= @enumToInt(types.Segment.Flags.WASM_SEG_FLAG_TLS);
+                        }
                     }
                     parser.object.segment_info = segments;
                 },
@@ -846,12 +852,17 @@ fn readEnum(comptime T: type, reader: anytype) !T {
 }
 
 fn readLimits(reader: anytype) !std.wasm.Limits {
-    const flags = try readLeb(u1, reader);
+    const flags = try reader.readByte();
     const min = try readLeb(u32, reader);
-    return std.wasm.Limits{
+    var limits: std.wasm.Limits = .{
+        .flags = flags,
         .min = min,
-        .max = if (flags == 0) null else try readLeb(u32, reader),
+        .max = undefined,
     };
+    if (limits.hasFlag(.WASM_LIMITS_FLAG_HAS_MAX)) {
+        limits.max = try readLeb(u32, reader);
+    }
+    return limits;
 }
 
 fn readInit(reader: anytype) !std.wasm.InitExpression {
@@ -919,11 +930,29 @@ pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_b
                 reloc.offset -= relocatable_data.offset;
                 try atom.relocs.append(gpa, reloc);
 
-                if (relocation.isTableIndex()) {
-                    try wasm_bin.function_table.put(gpa, .{
-                        .file = object_index,
-                        .index = relocation.index,
-                    }, 0);
+                switch (relocation.relocation_type) {
+                    .R_WASM_TABLE_INDEX_I32,
+                    .R_WASM_TABLE_INDEX_I64,
+                    .R_WASM_TABLE_INDEX_SLEB,
+                    .R_WASM_TABLE_INDEX_SLEB64,
+                    => {
+                        try wasm_bin.function_table.put(gpa, .{
+                            .file = object_index,
+                            .index = relocation.index,
+                        }, 0);
+                    },
+                    .R_WASM_GLOBAL_INDEX_I32,
+                    .R_WASM_GLOBAL_INDEX_LEB,
+                    => {
+                        const sym = object.symtable[relocation.index];
+                        if (sym.tag != .global) {
+                            try wasm_bin.got_symbols.append(
+                                wasm_bin.base.allocator,
+                                .{ .file = object_index, .index = relocation.index },
+                            );
+                        }
+                    },
+                    else => {},
                 }
             }
         }

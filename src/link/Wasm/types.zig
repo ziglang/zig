@@ -38,6 +38,8 @@ pub const Relocation = struct {
         R_WASM_TABLE_INDEX_SLEB64 = 18,
         R_WASM_TABLE_INDEX_I64 = 19,
         R_WASM_TABLE_NUMBER_LEB = 20,
+        R_WASM_MEMORY_ADDR_TLS_SLEB = 21,
+        R_WASM_MEMORY_ADDR_TLS_SLEB64 = 25,
 
         /// Returns true for relocation types where the `addend` field is present.
         pub fn addendIsPresent(self: RelocationType) bool {
@@ -48,6 +50,8 @@ pub const Relocation = struct {
                 .R_WASM_MEMORY_ADDR_LEB64,
                 .R_WASM_MEMORY_ADDR_SLEB64,
                 .R_WASM_MEMORY_ADDR_I64,
+                .R_WASM_MEMORY_ADDR_TLS_SLEB,
+                .R_WASM_MEMORY_ADDR_TLS_SLEB64,
                 .R_WASM_FUNCTION_OFFSET_I32,
                 .R_WASM_SECTION_OFFSET_I32,
                 => true,
@@ -62,18 +66,6 @@ pub const Relocation = struct {
         return switch (self.relocation_type) {
             .R_WASM_FUNCTION_INDEX_LEB,
             .R_WASM_TABLE_INDEX_SLEB,
-            => true,
-            else => false,
-        };
-    }
-
-    /// Returns true when the relocation represents a table index relocatable
-    pub fn isTableIndex(self: Relocation) bool {
-        return switch (self.relocation_type) {
-            .R_WASM_TABLE_INDEX_I32,
-            .R_WASM_TABLE_INDEX_I64,
-            .R_WASM_TABLE_INDEX_SLEB,
-            .R_WASM_TABLE_INDEX_SLEB64,
             => true,
             else => false,
         };
@@ -125,23 +117,34 @@ pub const Segment = struct {
     /// Bitfield containing flags for a segment
     flags: u32,
 
+    pub fn isTLS(segment: Segment) bool {
+        return segment.flags & @enumToInt(Flags.WASM_SEG_FLAG_TLS) != 0;
+    }
+
     /// Returns the name as how it will be output into the final object
     /// file or binary. When `merge_segments` is true, this will return the
     /// short name. i.e. ".rodata". When false, it returns the entire name instead.
-    pub fn outputName(self: Segment, merge_segments: bool) []const u8 {
-        if (std.mem.startsWith(u8, self.name, ".synthetic")) return ".synthetic"; // always merge
-        if (!merge_segments) return self.name;
-        if (std.mem.startsWith(u8, self.name, ".rodata.")) {
+    pub fn outputName(segment: Segment, merge_segments: bool) []const u8 {
+        if (segment.isTLS()) {
+            return ".tdata";
+        } else if (!merge_segments) {
+            return segment.name;
+        } else if (std.mem.startsWith(u8, segment.name, ".rodata.")) {
             return ".rodata";
-        } else if (std.mem.startsWith(u8, self.name, ".text.")) {
+        } else if (std.mem.startsWith(u8, segment.name, ".text.")) {
             return ".text";
-        } else if (std.mem.startsWith(u8, self.name, ".data.")) {
+        } else if (std.mem.startsWith(u8, segment.name, ".data.")) {
             return ".data";
-        } else if (std.mem.startsWith(u8, self.name, ".bss.")) {
+        } else if (std.mem.startsWith(u8, segment.name, ".bss.")) {
             return ".bss";
         }
-        return self.name;
+        return segment.name;
     }
+
+    pub const Flags = enum(u32) {
+        WASM_SEG_FLAG_STRINGS = 0x1,
+        WASM_SEG_FLAG_TLS = 0x2,
+    };
 };
 
 pub const InitFunc = struct {
@@ -205,8 +208,10 @@ pub const Feature = struct {
             return @intToEnum(Tag, @enumToInt(feature));
         }
 
-        pub fn toString(tag: Tag) []const u8 {
-            return switch (tag) {
+        pub fn format(tag: Tag, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
+            _ = fmt;
+            _ = opt;
+            try writer.writeAll(switch (tag) {
                 .atomics => "atomics",
                 .bulk_memory => "bulk-memory",
                 .exception_handling => "exception-handling",
@@ -220,7 +225,7 @@ pub const Feature = struct {
                 .simd128 => "simd128",
                 .tail_call => "tail-call",
                 .shared_mem => "shared-mem",
-            };
+            });
         }
     };
 
@@ -233,7 +238,7 @@ pub const Feature = struct {
     pub fn format(feature: Feature, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
         _ = opt;
         _ = fmt;
-        try writer.print("{c} {s}", .{ feature.prefix, feature.tag.toString() });
+        try writer.print("{c} {}", .{ feature.prefix, feature.tag });
     }
 };
 
