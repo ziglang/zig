@@ -4119,12 +4119,19 @@ fn airBreakpoint(self: *Self) !void {
 }
 
 fn airRetAddr(self: *Self, inst: Air.Inst.Index) !void {
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airRetAddr for x86_64", .{});
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else
+        .{ .stack_offset = -@as(i32, @divExact(self.target.cpu.arch.ptrBitWidth(), 8)) };
     return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
 fn airFrameAddress(self: *Self, inst: Air.Inst.Index) !void {
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airFrameAddress for x86_64", .{});
+    const result = if (self.liveness.isUnused(inst)) .dead else result: {
+        const dst_mcv = try self.allocRegOrMem(inst, true);
+        try self.genBinOpMir(.mov, Type.usize, dst_mcv, .{ .register = .rbp });
+        break :result dst_mcv;
+    };
     return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
