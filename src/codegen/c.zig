@@ -6852,17 +6852,35 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
     switch (inst_ty.zigTypeTag()) {
         .Array, .Vector => {
             const elem_ty = inst_ty.childType();
-            for (resolved_elements, 0..) |element, i| {
-                try f.writeCValue(writer, local, .Other);
-                try writer.print("[{d}] = ", .{i});
-                try f.writeCValue(writer, element, .Other);
-                try writer.writeAll(";\n");
-            }
-            if (inst_ty.sentinel()) |sentinel| {
-                try f.writeCValue(writer, local, .Other);
-                try writer.print("[{d}] = ", .{resolved_elements.len});
-                try f.object.dg.renderValue(writer, elem_ty, sentinel, .Other);
-                try writer.writeAll(";\n");
+
+            const is_array = lowersToArray(elem_ty, target);
+            const need_memcpy = is_array;
+            if (need_memcpy) {
+                for (resolved_elements, 0..) |element, i| {
+                    try writer.writeAll("memcpy(");
+                    try f.writeCValue(writer, local, .Other);
+                    try writer.print("[{d}]", .{i});
+                    try writer.writeAll(", ");
+                    try f.writeCValue(writer, element, .Other);
+                    try writer.writeAll(", sizeof(");
+                    try f.renderType(writer, elem_ty);
+                    try writer.writeAll("))");
+                    try writer.writeAll(";\n");
+                }
+                assert(inst_ty.sentinel() == null);
+            } else {
+                for (resolved_elements, 0..) |element, i| {
+                    try f.writeCValue(writer, local, .Other);
+                    try writer.print("[{d}] = ", .{i});
+                    try f.writeCValue(writer, element, .Other);
+                    try writer.writeAll(";\n");
+                }
+                if (inst_ty.sentinel()) |sentinel| {
+                    try f.writeCValue(writer, local, .Other);
+                    try writer.print("[{d}] = ", .{resolved_elements.len});
+                    try f.object.dg.renderValue(writer, elem_ty, sentinel, .Other);
+                    try writer.writeAll(";\n");
+                }
             }
         },
         .Struct => switch (inst_ty.containerLayout()) {
