@@ -379,7 +379,19 @@ pub const table = &[_]Entry{
     .{ .mul, .m, .rm32, .none, .none, .none, &.{ 0xf7 }, 4, .none  },
     .{ .mul, .m, .rm64, .none, .none, .none, &.{ 0xf7 }, 4, .long  },
 
+    .{ .neg, .m, .rm8,  .none, .none, .none, &.{ 0xf6 }, 3, .none },
+    .{ .neg, .m, .rm8,  .none, .none, .none, &.{ 0xf6 }, 3, .rex  },
+    .{ .neg, .m, .rm16, .none, .none, .none, &.{ 0xf7 }, 3, .none },
+    .{ .neg, .m, .rm32, .none, .none, .none, &.{ 0xf7 }, 3, .none },
+    .{ .neg, .m, .rm64, .none, .none, .none, &.{ 0xf7 }, 3, .long },
+
     .{ .nop, .np, .none, .none, .none, .none, &.{ 0x90 }, 0, .none },
+
+    .{ .not, .m, .rm8,  .none, .none, .none, &.{ 0xf6 }, 2, .none },
+    .{ .not, .m, .rm8,  .none, .none, .none, &.{ 0xf6 }, 2, .rex  },
+    .{ .not, .m, .rm16, .none, .none, .none, &.{ 0xf7 }, 2, .none },
+    .{ .not, .m, .rm32, .none, .none, .none, &.{ 0xf7 }, 2, .none },
+    .{ .not, .m, .rm64, .none, .none, .none, &.{ 0xf7 }, 2, .long },
 
     .{ .@"or", .zi, .al,   .imm8,   .none, .none, &.{ 0x0c }, 0, .none  },
     .{ .@"or", .zi, .ax,   .imm16,  .none, .none, &.{ 0x0d }, 0, .none  },

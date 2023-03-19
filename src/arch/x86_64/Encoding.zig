@@ -327,7 +327,7 @@ pub const Mnemonic = enum {
     mov,
     movs, movsb, movsd, movsq, movsw,
     movsx, movsxd, movzx, mul,
-    nop,
+    neg, nop, not,
     @"or",
     pop, popcnt, push,
     ret,

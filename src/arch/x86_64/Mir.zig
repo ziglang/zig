@@ -84,8 +84,12 @@ pub const Inst = struct {
         movzx,
         /// Multiply
         mul,
+        /// Two's complement negation
+        neg,
         /// No-op
         nop,
+        /// One's complement negation
+        not,
         /// Logical or
         @"or",
         /// Pop
