@@ -2771,29 +2771,112 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airPopcount(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result = result: {
+    const result: MCValue = result: {
         if (self.liveness.isUnused(inst)) break :result .dead;
 
-        const op_ty = self.air.typeOf(ty_op.operand);
+        const src_ty = self.air.typeOf(ty_op.operand);
+        const src_abi_size = @intCast(u32, src_ty.abiSize(self.target.*));
+        const src_mcv = try self.resolveInst(ty_op.operand);
 
         if (Target.x86.featureSetHas(self.target.cpu.features, .popcnt)) {
-            const op_mcv = try self.resolveInst(ty_op.operand);
-            const mat_op_mcv = switch (op_mcv) {
-                .immediate => MCValue{ .register = try self.copyToTmpRegister(op_ty, op_mcv) },
-                else => op_mcv,
+            const mat_src_mcv = switch (src_mcv) {
+                .immediate => MCValue{ .register = try self.copyToTmpRegister(src_ty, src_mcv) },
+                else => src_mcv,
             };
-            const mat_op_lock = switch (mat_op_mcv) {
+            const mat_src_lock = switch (mat_src_mcv) {
                 .register => |reg| self.register_manager.lockReg(reg),
                 else => null,
             };
-            defer if (mat_op_lock) |lock| self.register_manager.unlockReg(lock);
+            defer if (mat_src_lock) |lock| self.register_manager.unlockReg(lock);
 
-            const dst_mcv = MCValue{ .register = try self.register_manager.allocReg(inst, gp) };
-            try self.genBinOpMir(.popcnt, op_ty, dst_mcv, mat_op_mcv);
+            const dst_mcv: MCValue = if (self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+                src_mcv
+            else
+                .{ .register = try self.register_manager.allocReg(inst, gp) };
+
+            const popcnt_ty = if (src_abi_size > 1) src_ty else Type.u16;
+            try self.genBinOpMir(.popcnt, popcnt_ty, dst_mcv, mat_src_mcv);
             break :result dst_mcv;
         }
 
-        return self.fail("TODO implement airPopcount for {}", .{op_ty.fmt(self.bin_file.options.module.?)});
+        const mask = @as(u64, math.maxInt(u64)) >> @intCast(u6, 64 - src_abi_size * 8);
+        const imm_0_1 = Immediate.u(mask / 0b1_1);
+        const imm_00_11 = Immediate.u(mask / 0b01_01);
+        const imm_0000_1111 = Immediate.u(mask / 0b0001_0001);
+        const imm_0000_0001 = Immediate.u(mask / 0b1111_1111);
+
+        const tmp_reg = if (src_mcv.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_mcv.register
+        else
+            try self.copyToTmpRegister(src_ty, src_mcv);
+        const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+        defer self.register_manager.unlockReg(tmp_lock);
+
+        const dst_reg = try self.register_manager.allocReg(inst, gp);
+        const dst_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
+        defer self.register_manager.unlockReg(dst_lock);
+
+        {
+            const dst = registerAlias(dst_reg, src_abi_size);
+            const tmp = registerAlias(tmp_reg, src_abi_size);
+            const imm = if (src_abi_size > 4)
+                try self.register_manager.allocReg(null, gp)
+            else
+                undefined;
+
+            // tmp = operand
+            try self.asmRegisterRegister(.mov, dst, tmp);
+            // dst = operand
+            try self.asmRegisterImmediate(.shr, tmp, Immediate.u(1));
+            // tmp = operand >> 1
+            if (src_abi_size > 4) {
+                try self.asmRegisterImmediate(.mov, imm, imm_0_1);
+                try self.asmRegisterRegister(.@"and", tmp, imm);
+            } else try self.asmRegisterImmediate(.@"and", tmp, imm_0_1);
+            // tmp = (operand >> 1) & 0x55...55
+            try self.asmRegisterRegister(.sub, dst, tmp);
+            // dst = temp1 = operand - ((operand >> 1) & 0x55...55)
+            try self.asmRegisterRegister(.mov, tmp, dst);
+            // tmp = temp1
+            try self.asmRegisterImmediate(.shr, dst, Immediate.u(2));
+            // dst = temp1 >> 2
+            if (src_abi_size > 4) {
+                try self.asmRegisterImmediate(.mov, imm, imm_00_11);
+                try self.asmRegisterRegister(.@"and", tmp, imm);
+                try self.asmRegisterRegister(.@"and", dst, imm);
+            } else {
+                try self.asmRegisterImmediate(.@"and", tmp, imm_00_11);
+                try self.asmRegisterImmediate(.@"and", dst, imm_00_11);
+            }
+            // tmp = temp1 & 0x33...33
+            // dst = (temp1 >> 2) & 0x33...33
+            try self.asmRegisterRegister(.add, tmp, dst);
+            // tmp = temp2 = (temp1 & 0x33...33) + ((temp1 >> 2) & 0x33...33)
+            try self.asmRegisterRegister(.mov, dst, tmp);
+            // dst = temp2
+            try self.asmRegisterImmediate(.shr, tmp, Immediate.u(4));
+            // tmp = temp2 >> 4
+            try self.asmRegisterRegister(.add, dst, tmp);
+            // dst = temp2 + (temp2 >> 4)
+            if (src_abi_size > 4) {
+                try self.asmRegisterImmediate(.mov, imm, imm_0000_1111);
+                try self.asmRegisterImmediate(.mov, tmp, imm_0000_0001);
+                try self.asmRegisterRegister(.@"and", dst, imm);
+                try self.asmRegisterRegister(.imul, dst, tmp);
+            } else {
+                try self.asmRegisterImmediate(.@"and", dst, imm_0000_1111);
+                if (src_abi_size > 1) {
+                    try self.asmRegisterRegisterImmediate(.imul, dst, dst, imm_0000_0001);
+                }
+            }
+            // dst = temp3 = (temp2 + (temp2 >> 4)) & 0x0f...0f
+            // dst = temp3 * 0x01...01
+            if (src_abi_size > 1) {
+                try self.asmRegisterImmediate(.shr, dst, Immediate.u((src_abi_size - 1) * 8));
+            }
+            // dst = (temp3 * 0x01...01) >> (bits - 8)
+        }
+        break :result .{ .register = dst_reg };
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }

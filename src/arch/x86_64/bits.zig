@@ -476,6 +476,7 @@ pub const Memory = union(enum) {
         base: ?Register = null,
         scale_index: ?ScaleIndex = null,
     }) Memory {
+        if (args.scale_index) |si| assert(std.math.isPowerOfTwo(si.scale));
         return .{ .sib = .{
             .base = args.base,
             .disp = args.disp,
