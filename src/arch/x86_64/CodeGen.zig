@@ -2089,9 +2089,12 @@ fn airUnwrapErrUnionPayloadPtr(self: *Self, inst: Air.Inst.Index) !void {
         defer self.register_manager.unlockReg(src_lock);
 
         const dst_ty = self.air.typeOfIndex(inst);
-        const dst_reg = try self.register_manager.allocReg(inst, gp);
-        const dst_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
-        defer self.register_manager.unlockReg(dst_lock);
+        const dst_reg = if (self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_reg
+        else
+            try self.register_manager.allocReg(inst, gp);
+        const dst_lock = self.register_manager.lockReg(dst_reg);
+        defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
         const eu_ty = src_ty.childType();
         const pl_ty = eu_ty.errorUnionPayload();
@@ -2133,9 +2136,12 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
         if (self.liveness.isUnused(inst)) break :result .dead;
 
         const dst_ty = self.air.typeOfIndex(inst);
-        const dst_reg = try self.register_manager.allocReg(inst, gp);
-        const dst_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
-        defer self.register_manager.unlockReg(dst_lock);
+        const dst_reg = if (self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_reg
+        else
+            try self.register_manager.allocReg(inst, gp);
+        const dst_lock = self.register_manager.lockReg(dst_reg);
+        defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
         const pl_off = @intCast(i32, errUnionErrorOffset(pl_ty, self.target.*));
         const dst_abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
@@ -2309,19 +2315,53 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airPtrSliceLenPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement ptr_slice_len_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = result: {
+        if (self.liveness.isUnused(inst)) break :result .dead;
+
+        const src_ty = self.air.typeOf(ty_op.operand);
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        const src_reg = switch (src_mcv) {
+            .register => |reg| reg,
+            else => try self.copyToTmpRegister(src_ty, src_mcv),
+        };
+        const src_lock = self.register_manager.lockRegAssumeUnused(src_reg);
+        defer self.register_manager.unlockReg(src_lock);
+
+        const dst_ty = self.air.typeOfIndex(inst);
+        const dst_reg = if (self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_reg
+        else
+            try self.register_manager.allocReg(inst, gp);
+        const dst_lock = self.register_manager.lockReg(dst_reg);
+        defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const dst_abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
+        try self.asmRegisterMemory(
+            .lea,
+            registerAlias(dst_reg, dst_abi_size),
+            Memory.sib(.qword, .{
+                .base = src_reg,
+                .disp = @divExact(self.target.cpu.arch.ptrBitWidth(), 8),
+            }),
+        );
+        break :result .{ .register = dst_reg };
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement ptr_slice_ptr_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = result: {
+        if (self.liveness.isUnused(inst)) break :result .dead;
+
+        const dst_ty = self.air.typeOfIndex(inst);
+        const opt_mcv = try self.resolveInst(ty_op.operand);
+
+        break :result if (self.reuseOperand(inst, ty_op.operand, 0, opt_mcv))
+            opt_mcv
+        else
+            try self.copyToRegisterWithInstTracking(inst, dst_ty, opt_mcv);
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
