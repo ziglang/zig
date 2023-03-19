@@ -202,11 +202,6 @@ pub extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*:0]const WCHAR) callc
 pub extern "kernel32" fn GetLastError() callconv(WINAPI) Win32Error;
 pub extern "kernel32" fn SetLastError(dwErrCode: Win32Error) callconv(WINAPI) void;
 
-pub extern "kernel32" fn GetFileInformationByHandle(
-    hFile: HANDLE,
-    lpFileInformation: *BY_HANDLE_FILE_INFORMATION,
-) callconv(WINAPI) BOOL;
-
 pub extern "kernel32" fn GetFileInformationByHandleEx(
     in_hFile: HANDLE,
     in_FileInformationClass: FILE_INFO_BY_HANDLE_CLASS,
