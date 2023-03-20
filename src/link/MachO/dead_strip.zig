@@ -102,7 +102,7 @@ fn collectRoots(zld: *Zld, roots: *AtomTable) !void {
             };
 
             if (is_gc_root) {
-                try roots.putNoClobber(atom_index, {});
+                _ = try roots.getOrPut(atom_index);
 
                 log.debug("root(ATOM({d}, %{d}, {?d}))", .{
                     atom_index,
