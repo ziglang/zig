@@ -1113,6 +1113,10 @@ pub const Value = extern union {
             .bool_true,
             => return BigIntMutable.init(&space.limbs, 1).toConst(),
 
+            .enum_field_index => {
+                const index = val.castTag(.enum_field_index).?.data;
+                return BigIntMutable.init(&space.limbs, index).toConst();
+            },
             .runtime_value => {
                 const sub_val = val.castTag(.runtime_value).?.data;
                 return sub_val.toBigIntAdvanced(space, target, opt_sema);
@@ -1983,6 +1987,7 @@ pub const Value = extern union {
             .variable,
             => .gt,
 
+            .enum_field_index => return std.math.order(lhs.castTag(.enum_field_index).?.data, 0),
             .runtime_value => {
                 // This is needed to correctly handle hashing the value.
                 // Checks in Sema should prevent direct comparisons from reaching here.
