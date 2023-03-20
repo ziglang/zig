@@ -66,6 +66,10 @@ pub const Inst = struct {
         cqo,
         /// Logical compare
         cmp,
+        /// Compare and exchange
+        cmpxchg,
+        /// Compare and exchange bytes
+        cmpxchgb,
         /// Unsigned division
         div,
         /// Store integer with truncation
@@ -82,8 +86,12 @@ pub const Inst = struct {
         jmp,
         /// Load effective address
         lea,
+        /// Load fence
+        lfence,
         /// Count the number of leading zero bits
         lzcnt,
+        /// Memory fence
+        mfence,
         /// Move
         mov,
         /// Move with sign extension
@@ -114,6 +122,8 @@ pub const Inst = struct {
         sar,
         /// Integer subtraction with borrow
         sbb,
+        /// Store fence
+        sfence,
         /// Logical shift left
         shl,
         /// Logical shift right
@@ -128,6 +138,10 @@ pub const Inst = struct {
         tzcnt,
         /// Undefined instruction
         ud2,
+        /// Exchange and add
+        xadd,
+        /// Exchange register/memory with register
+        xchg,
         /// Logical exclusive-or
         xor,
 
@@ -242,10 +256,10 @@ pub const Inst = struct {
         /// Uses `rri`  payload.
         rri_u,
         /// Register with condition code (CC).
-        /// Uses `r_c` payload.
+        /// Uses `r_cc` payload.
         r_cc,
         /// Register, register with condition code (CC).
-        /// Uses `rr_c` payload.
+        /// Uses `rr_cc` payload.
         rr_cc,
         /// Register, immediate (sign-extended) operands.
         /// Uses `ri` payload.
@@ -283,6 +297,12 @@ pub const Inst = struct {
         /// Single memory (RIP) operand.
         /// Uses `payload` with extra data of type `MemoryRip`.
         m_rip,
+        /// Single memory (SIB) operand with condition code (CC).
+        /// Uses `x_cc` with extra data of type `MemorySib`.
+        m_sib_cc,
+        /// Single memory (RIP) operand with condition code (CC).
+        /// Uses `x_cc` with extra data of type `MemoryRip`.
+        m_rip_cc,
         /// Memory (SIB), immediate (unsigned) operands.
         /// Uses `xi` payload with extra data of type `MemorySib`.
         mi_u_sib,
@@ -301,6 +321,12 @@ pub const Inst = struct {
         /// Memory (RIP), register operands.
         /// Uses `rx` payload with extra data of type `MemoryRip`.
         mr_rip,
+        /// Rax, Memory moffs.
+        /// Uses `payload` with extra data of type `MemoryMoffs`.
+        rax_moffs,
+        /// Memory moffs, rax.
+        /// Uses `payload` with extra data of type `MemoryMoffs`.
+        moffs_rax,
         /// Single memory (SIB) operand with lock prefix.
         /// Uses `payload` with extra data of type `MemorySib`.
         lock_m_sib,
@@ -325,12 +351,9 @@ pub const Inst = struct {
         /// Memory (RIP), register operands with lock prefix.
         /// Uses `rx` payload with extra data of type `MemoryRip`.
         lock_mr_rip,
-        /// Rax, Memory moffs.
+        /// Memory moffs, rax with lock prefix.
         /// Uses `payload` with extra data of type `MemoryMoffs`.
-        rax_moffs,
-        /// Memory moffs, rax.
-        /// Uses `payload` with extra data of type `MemoryMoffs`.
-        moffs_rax,
+        lock_moffs_rax,
         /// References another Mir instruction directly.
         /// Uses `inst` payload.
         inst,
@@ -380,6 +403,11 @@ pub const Inst = struct {
             r1: Register,
             r2: Register,
             imm: u32,
+        },
+        /// Condition code (CC), followed by custom payload found in extra.
+        x_cc: struct {
+            payload: u32,
+            cc: bits.Condition,
         },
         /// Register with condition code (CC).
         r_cc: struct {

@@ -314,6 +314,7 @@ pub const Mnemonic = enum {
     cmovnp, cmovns, cmovnz, cmovo, cmovp, cmovpe, cmovpo, cmovs, cmovz,
     cmp,
     cmps, cmpsb, cmpsd, cmpsq, cmpsw,
+    cmpxchg, cmpxchg8b, cmpxchg16b,
     cqo, cwd, cwde,
     div,
     fisttp, fld,
@@ -321,10 +322,10 @@ pub const Mnemonic = enum {
     ja, jae, jb, jbe, jc, jrcxz, je, jg, jge, jl, jle, jna, jnae, jnb, jnbe,
     jnc, jne, jng, jnge, jnl, jnle, jno, jnp, jns, jnz, jo, jp, jpe, jpo, js, jz,
     jmp, 
-    lea,
+    lea, lfence,
     lods, lodsb, lodsd, lodsq, lodsw,
     lzcnt,
-    mov,
+    mfence, mov,
     movs, movsb, movsd, movsq, movsw,
     movsx, movsxd, movzx, mul,
     neg, nop, not,
@@ -337,10 +338,11 @@ pub const Mnemonic = enum {
     seta, setae, setb, setbe, setc, sete, setg, setge, setl, setle, setna, setnae,
     setnb, setnbe, setnc, setne, setng, setnge, setnl, setnle, setno, setnp, setns,
     setnz, seto, setp, setpe, setpo, sets, setz,
+    sfence,
     stos, stosb, stosd, stosq, stosw,
     @"test", tzcnt,
     ud2,
-    xor,
+    xadd, xchg, xor,
     // SSE
     addss,
     cmpss,
@@ -387,7 +389,7 @@ pub const Op = enum {
     cl,
     r8, r16, r32, r64,
     rm8, rm16, rm32, rm64,
-    m8, m16, m32, m64, m80,
+    m8, m16, m32, m64, m80, m128,
     rel8, rel16, rel32,
     m,
     moffs,
@@ -436,6 +438,7 @@ pub const Op = enum {
                         32 => .m32,
                         64 => .m64,
                         80 => .m80,
+                        128 => .m128,
                         else => unreachable,
                     };
                 },
@@ -473,7 +476,7 @@ pub const Op = enum {
             .imm32, .imm32s, .eax, .r32, .m32, .rm32, .rel32, .xmm_m32 => 32,
             .imm64, .rax, .r64, .m64, .rm64, .xmm_m64 => 64,
             .m80 => 80,
-            .xmm => 128,
+            .m128, .xmm => 128,
         };
     }
 
@@ -520,7 +523,7 @@ pub const Op = enum {
         // zig fmt: off
         return switch (op) {
             .rm8, .rm16, .rm32, .rm64,
-            .m8, .m16, .m32, .m64, .m80,
+            .m8, .m16, .m32, .m64, .m80, .m128,
             .m,
             .xmm_m32, .xmm_m64,
             =>  true,

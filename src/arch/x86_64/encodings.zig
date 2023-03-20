@@ -252,6 +252,15 @@ pub const table = &[_]Entry{
     .{ .cmpsd, .np, .none, .none, .none, .none, &.{ 0xa7 }, 0, .none  },
     .{ .cmpsq, .np, .none, .none, .none, .none, &.{ 0xa7 }, 0, .long  },
 
+    .{ .cmpxchg, .mr, .rm8,  .r8,  .none, .none, &.{ 0x0f, 0xb0 }, 0, .none },
+    .{ .cmpxchg, .mr, .rm8,  .r8,  .none, .none, &.{ 0x0f, 0xb0 }, 0, .rex  },
+    .{ .cmpxchg, .mr, .rm16, .r16, .none, .none, &.{ 0x0f, 0xb1 }, 0, .rex  },
+    .{ .cmpxchg, .mr, .rm32, .r32, .none, .none, &.{ 0x0f, 0xb1 }, 0, .rex  },
+    .{ .cmpxchg, .mr, .rm64, .r64, .none, .none, &.{ 0x0f, 0xb1 }, 0, .long },
+
+    .{ .cmpxchg8b , .m, .m64,  .none, .none, .none, &.{ 0x0f, 0xc7 }, 1, .none },
+    .{ .cmpxchg16b, .m, .m128, .none, .none, .none, &.{ 0x0f, 0xc7 }, 1, .long },
+
     .{ .div, .m, .rm8,  .none, .none, .none, &.{ 0xf6 }, 6, .none  },
     .{ .div, .m, .rm8,  .none, .none, .none, &.{ 0xf6 }, 6, .rex   },
     .{ .div, .m, .rm16, .none, .none, .none, &.{ 0xf7 }, 6, .none  },
@@ -328,6 +337,8 @@ pub const table = &[_]Entry{
     .{ .lea, .rm, .r32, .m, .none, .none, &.{ 0x8d }, 0, .none  },
     .{ .lea, .rm, .r64, .m, .none, .none, &.{ 0x8d }, 0, .long  },
 
+    .{ .lfence, .np, .none, .none, .none, .none, &.{ 0x0f, 0xae, 0xe8 }, 0, .none },
+
     .{ .lods,  .np, .m8,   .none, .none, .none, &.{ 0xac }, 0, .none  },
     .{ .lods,  .np, .m16,  .none, .none, .none, &.{ 0xad }, 0, .none  },
     .{ .lods,  .np, .m32,  .none, .none, .none, &.{ 0xad }, 0, .none  },
@@ -340,6 +351,8 @@ pub const table = &[_]Entry{
     .{ .lzcnt, .rm, .r16, .rm16, .none, .none, &.{ 0xf3, 0x0f, 0xbd }, 0, .none },
     .{ .lzcnt, .rm, .r32, .rm32, .none, .none, &.{ 0xf3, 0x0f, 0xbd }, 0, .none },
     .{ .lzcnt, .rm, .r64, .rm64, .none, .none, &.{ 0xf3, 0x0f, 0xbd }, 0, .long },
+
+    .{ .mfence, .np, .none, .none, .none, .none, &.{ 0x0f, 0xae, 0xf0 }, 0, .none },
 
     .{ .mov, .mr, .rm8,   .r8,     .none, .none, &.{ 0x88 }, 0, .none  },
     .{ .mov, .mr, .rm8,   .r8,     .none, .none, &.{ 0x88 }, 0, .rex   },
@@ -588,6 +601,8 @@ pub const table = &[_]Entry{
     .{ .setz,   .m, .rm8, .none, .none, .none, &.{ 0x0f, 0x94 }, 0, .none },
     .{ .setz,   .m, .rm8, .none, .none, .none, &.{ 0x0f, 0x94 }, 0, .rex  },
 
+    .{ .sfence, .np, .none, .none, .none, .none, &.{ 0x0f, 0xae, 0xf8 }, 0, .none },
+
     .{ .shl, .m1, .rm8,  .unity, .none, .none, &.{ 0xd0 }, 4, .none  },
     .{ .shl, .m1, .rm8,  .unity, .none, .none, &.{ 0xd0 }, 4, .rex   },
     .{ .shl, .m1, .rm16, .unity, .none, .none, &.{ 0xd1 }, 4, .none  },
@@ -674,6 +689,29 @@ pub const table = &[_]Entry{
     .{ .tzcnt, .rm, .r64, .rm64, .none, .none, &.{ 0xf3, 0x0f, 0xbc }, 0, .long },
 
     .{ .ud2, .np, .none, .none, .none, .none, &.{ 0x0f, 0x0b }, 0, .none  },
+
+    .{ .xadd, .mr, .rm8,  .r8,  .none, .none, &.{ 0x0f, 0xc0 }, 0, .none  },
+    .{ .xadd, .mr, .rm8,  .r8,  .none, .none, &.{ 0x0f, 0xc0 }, 0, .rex   },
+    .{ .xadd, .mr, .rm16, .r16, .none, .none, &.{ 0x0f, 0xc1 }, 0, .none  },
+    .{ .xadd, .mr, .rm32, .r32, .none, .none, &.{ 0x0f, 0xc1 }, 0, .none  },
+    .{ .xadd, .mr, .rm64, .r64, .none, .none, &.{ 0x0f, 0xc1 }, 0, .long  },
+
+    .{ .xchg, .o,  .ax,   .r16,  .none, .none, &.{ 0x90 }, 0, .none },
+    .{ .xchg, .o,  .r16,  .ax,   .none, .none, &.{ 0x90 }, 0, .none },
+    .{ .xchg, .o,  .eax,  .r32,  .none, .none, &.{ 0x90 }, 0, .none },
+    .{ .xchg, .o,  .rax,  .r64,  .none, .none, &.{ 0x90 }, 0, .long },
+    .{ .xchg, .o,  .r32,  .eax,  .none, .none, &.{ 0x90 }, 0, .none },
+    .{ .xchg, .o,  .r64,  .rax,  .none, .none, &.{ 0x90 }, 0, .long },
+    .{ .xchg, .mr, .rm8,  .r8,   .none, .none, &.{ 0x86 }, 0, .none },
+    .{ .xchg, .mr, .rm8,  .r8,   .none, .none, &.{ 0x86 }, 0, .rex  },
+    .{ .xchg, .rm, .r8,   .rm8,  .none, .none, &.{ 0x86 }, 0, .none },
+    .{ .xchg, .rm, .r8,   .rm8,  .none, .none, &.{ 0x86 }, 0, .rex  },
+    .{ .xchg, .mr, .rm16, .r16,  .none, .none, &.{ 0x87 }, 0, .none },
+    .{ .xchg, .rm, .r16,  .rm16, .none, .none, &.{ 0x87 }, 0, .none },
+    .{ .xchg, .mr, .rm32, .r32,  .none, .none, &.{ 0x87 }, 0, .none },
+    .{ .xchg, .mr, .rm64, .r64,  .none, .none, &.{ 0x87 }, 0, .long },
+    .{ .xchg, .rm, .r32,  .rm32, .none, .none, &.{ 0x87 }, 0, .none },
+    .{ .xchg, .rm, .r64,  .rm64, .none, .none, &.{ 0x87 }, 0, .long },
 
     .{ .xor, .zi, .al,   .imm8,   .none, .none, &.{ 0x34 }, 0, .none  },
     .{ .xor, .zi, .ax,   .imm16,  .none, .none, &.{ 0x35 }, 0, .none  },
