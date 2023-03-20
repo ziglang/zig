@@ -1,3 +1,7 @@
+const std = @import("std");
+const ConfigHeaderStep = @This();
+const Step = std.Build.Step;
+
 pub const Style = union(enum) {
     /// The configure format supported by autotools. It uses `#undef foo` to
     /// mark lines that can be substituted with different values.
@@ -431,7 +435,3 @@ fn renderValueNasm(output: *std.ArrayList(u8), name: []const u8, value: Value) !
         },
     }
 }
-
-const std = @import("../std.zig");
-const ConfigHeaderStep = @This();
-const Step = std.Build.Step;

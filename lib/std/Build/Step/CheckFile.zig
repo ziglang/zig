@@ -2,6 +2,11 @@
 //! TODO: make this more flexible, supporting more kinds of checks.
 //! TODO: generalize the code in std.testing.expectEqualStrings and make this
 //! CheckFileStep produce those helpful diagnostics when there is not a match.
+const CheckFileStep = @This();
+const std = @import("std");
+const Step = std.Build.Step;
+const fs = std.fs;
+const mem = std.mem;
 
 step: Step,
 expected_matches: []const []const u8,
@@ -80,9 +85,3 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 }
-
-const CheckFileStep = @This();
-const std = @import("../std.zig");
-const Step = std.Build.Step;
-const fs = std.fs;
-const mem = std.mem;
