@@ -5,6 +5,9 @@ pub const Style = union(enum) {
     /// The configure format supported by CMake. It uses `@@FOO@@` and
     /// `#cmakedefine` for template substitution.
     cmake: std.Build.FileSource,
+    /// The configure format supported by Meson. It uses `@FOO@` and
+    /// `#mesondefine` for template substitution.
+    meson: std.Build.FileSource,
     /// Instead of starting with an input file, start with nothing.
     blank,
     /// Start with nothing, like blank, and output a nasm .asm file.
@@ -12,7 +15,7 @@ pub const Style = union(enum) {
 
     pub fn getFileSource(style: Style) ?std.Build.FileSource {
         switch (style) {
-            .autoconf, .cmake => |s| return s,
+            .autoconf, .cmake, .meson => |s| return s,
             .blank, .nasm => return null,
         }
     }
@@ -188,6 +191,12 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             const contents = try std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes);
             try render_cmake(step, contents, &output, self.values, src_path);
         },
+        .meson => |file_source| {
+            try output.appendSlice(c_generated_line);
+            const src_path = file_source.getPath(b);
+            const contents = try std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes);
+            try render_meson(step, contents, &output, self.values, src_path);
+        },
         .blank => {
             try output.appendSlice(c_generated_line);
             try render_blank(&output, self.values, self.include_path);
@@ -303,6 +312,59 @@ fn render_cmake(
         var it = std.mem.tokenize(u8, line[1..], " \t\r");
         const cmakedefine = it.next().?;
         if (!std.mem.eql(u8, cmakedefine, "cmakedefine")) {
+            try output.appendSlice(line);
+            try output.appendSlice("\n");
+            continue;
+        }
+        const name = it.next() orelse {
+            try step.addError("{s}:{d}: error: missing define name", .{
+                src_path, line_index + 1,
+            });
+            any_errors = true;
+            continue;
+        };
+        const kv = values_copy.fetchSwapRemove(name) orelse {
+            try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
+                src_path, line_index + 1, name,
+            });
+            any_errors = true;
+            continue;
+        };
+        try renderValueC(output, name, kv.value);
+    }
+
+    for (values_copy.keys()) |name| {
+        try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
+        any_errors = true;
+    }
+
+    if (any_errors) {
+        return error.HeaderConfigFailed;
+    }
+}
+
+fn render_meson(
+    step: *Step,
+    contents: []const u8,
+    output: *std.ArrayList(u8),
+    values: std.StringArrayHashMap(Value),
+    src_path: []const u8,
+) !void {
+    var values_copy = try values.clone();
+    defer values_copy.deinit();
+
+    var any_errors = false;
+    var line_index: u32 = 0;
+    var line_it = std.mem.split(u8, contents, "\n");
+    while (line_it.next()) |line| : (line_index += 1) {
+        if (!std.mem.startsWith(u8, line, "#")) {
+            try output.appendSlice(line);
+            try output.appendSlice("\n");
+            continue;
+        }
+        var it = std.mem.tokenize(u8, line[1..], " \t\r");
+        const mesondefine = it.next().?;
+        if (!std.mem.eql(u8, mesondefine, "mesondefine")) {
             try output.appendSlice(line);
             try output.appendSlice("\n");
             continue;
