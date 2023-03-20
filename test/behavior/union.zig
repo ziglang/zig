@@ -1493,3 +1493,23 @@ test "union reassignment can use previous value" {
     a = U{ .b = a.a };
     try expect(a.b == 32);
 }
+
+test "packed union with zero-bit field" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    const S = packed struct {
+        nested: packed union {
+            zero: void,
+            sized: u32,
+        },
+        bar: u32,
+
+        fn doTest(self: @This()) !void {
+            try expect(self.bar == 42);
+        }
+    };
+    try S.doTest(.{ .nested = .{ .zero = {} }, .bar = 42 });
+}
