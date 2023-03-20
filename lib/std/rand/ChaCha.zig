@@ -29,16 +29,26 @@ pub fn init(secret_seed: [secret_seed_length]u8) Self {
 /// Inserts entropy to refresh the internal state.
 pub fn addEntropy(self: *Self, bytes: []const u8) void {
     var i: usize = 0;
-    while (i + Cipher.key_length < bytes.len) : (i += Cipher.key_length) {
-        for (bytes[i..][0..Cipher.key_length], 0..) |b, j| self.state[j] ^= b;
-        Cipher.stream(
+    while (i + Cipher.key_length <= bytes.len) : (i += Cipher.key_length) {
+        Cipher.xor(
+            self.state[0..Cipher.key_length],
             self.state[0..Cipher.key_length],
             0,
-            self.state[0..Cipher.key_length].*,
+            bytes[i..][0..Cipher.key_length].*,
             nonce,
         );
     }
-    for (bytes[i..], 0..) |b, j| self.state[j] ^= b;
+    if (i < bytes.len) {
+        var k = [_]u8{0} ** Cipher.key_length;
+        mem.copy(u8, k[0..], bytes[i..]);
+        Cipher.xor(
+            self.state[0..Cipher.key_length],
+            self.state[0..Cipher.key_length],
+            0,
+            k,
+            nonce,
+        );
+    }
     self.refill();
 }
 
