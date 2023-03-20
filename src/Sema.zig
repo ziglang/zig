@@ -2127,6 +2127,50 @@ fn failWithUseOfAsync(sema: *Sema, block: *Block, src: LazySrcLoc) CompileError 
     return sema.failWithOwnedErrorMsg(msg);
 }
 
+fn failWithInvalidFieldAccess(sema: *Sema, block: *Block, src: LazySrcLoc, object_ty: Type, field_name: []const u8) CompileError {
+    const inner_ty = if (object_ty.isSinglePointer()) object_ty.childType() else object_ty;
+
+    if (inner_ty.zigTypeTag() == .Optional) opt: {
+        var buf: Type.Payload.ElemType = undefined;
+        const child_ty = inner_ty.optionalChild(&buf);
+        if (!typeSupportsFieldAccess(child_ty, field_name)) break :opt;
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "optional type '{}' does not support field access", .{object_ty.fmt(sema.mod)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, src, msg, "consider using '.?', 'orelse', or 'if'", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    } else if (inner_ty.zigTypeTag() == .ErrorUnion) err: {
+        const child_ty = inner_ty.errorUnionPayload();
+        if (!typeSupportsFieldAccess(child_ty, field_name)) break :err;
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "error union type '{}' does not support field access", .{object_ty.fmt(sema.mod)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+    return sema.fail(block, src, "type '{}' does not support field access", .{object_ty.fmt(sema.mod)});
+}
+
+fn typeSupportsFieldAccess(ty: Type, field_name: []const u8) bool {
+    switch (ty.zigTypeTag()) {
+        .Array => return mem.eql(u8, field_name, "len"),
+        .Pointer => {
+            const ptr_info = ty.ptrInfo().data;
+            if (ptr_info.size == .Slice) {
+                return mem.eql(u8, field_name, "ptr") or mem.eql(u8, field_name, "len");
+            } else if (ptr_info.pointee_type.zigTypeTag() == .Array) {
+                return mem.eql(u8, field_name, "len");
+            } else return false;
+        },
+        .Type, .Struct, .Union => return true,
+        else => return false,
+    }
+}
+
 /// We don't return a pointer to the new error note because the pointer
 /// becomes invalid when you add another one.
 fn errNote(
@@ -23321,7 +23365,7 @@ fn fieldVal(
         },
         else => {},
     }
-    return sema.fail(block, src, "type '{}' does not support field access", .{object_ty.fmt(sema.mod)});
+    return sema.failWithInvalidFieldAccess(block, src, object_ty, field_name);
 }
 
 fn fieldPtr(
@@ -23535,7 +23579,7 @@ fn fieldPtr(
         },
         else => {},
     }
-    return sema.fail(block, src, "type '{}' does not support field access", .{object_ty.fmt(sema.mod)});
+    return sema.failWithInvalidFieldAccess(block, src, object_ty, field_name);
 }
 
 fn fieldCallBind(
