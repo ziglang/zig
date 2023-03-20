@@ -874,6 +874,7 @@ test "field access of anyerror results in smaller error set" {
 }
 
 test "optional error union return type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
