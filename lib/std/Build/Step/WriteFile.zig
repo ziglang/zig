@@ -8,6 +8,11 @@
 //! during the normal build process, but as a utility run by a developer with
 //! intention to update source files, which will then be committed to version
 //! control.
+const std = @import("std");
+const Step = std.Build.Step;
+const fs = std.fs;
+const ArrayList = std.ArrayList;
+const WriteFileStep = @This();
 
 step: Step,
 /// The elements here are pointers because we need stable pointers for the
@@ -284,10 +289,3 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try step.writeManifest(&man);
 }
-
-const std = @import("../std.zig");
-const Step = std.Build.Step;
-const fs = std.fs;
-const ArrayList = std.ArrayList;
-
-const WriteFileStep = @This();
