@@ -477,9 +477,9 @@ pub const Zld = struct {
                             mem.eql(u8, sectname, "__gosymtab") or
                             mem.eql(u8, sectname, "__gopclntab"))
                         {
-                            break :blk self.getSectionByName("__DATA_CONST", "__const") orelse try self.initSection(
-                                "__DATA_CONST",
-                                "__const",
+                            break :blk self.getSectionByName("__TEXT", sectname) orelse try self.initSection(
+                                "__TEXT",
+                                sectname,
                                 .{},
                             );
                         }
@@ -490,15 +490,13 @@ pub const Zld = struct {
                             mem.eql(u8, sectname, "__objc_classlist") or
                             mem.eql(u8, sectname, "__objc_imageinfo"))
                         {
-                            break :blk self.getSectionByName("__DATA_CONST", sectname) orelse
-                                try self.initSection(
+                            break :blk self.getSectionByName("__DATA_CONST", sectname) orelse try self.initSection(
                                 "__DATA_CONST",
                                 sectname,
                                 .{},
                             );
                         } else if (mem.eql(u8, sectname, "__data")) {
-                            break :blk self.getSectionByName("__DATA", "__data") orelse
-                                try self.initSection(
+                            break :blk self.getSectionByName("__DATA", "__data") orelse try self.initSection(
                                 "__DATA",
                                 "__data",
                                 .{},
