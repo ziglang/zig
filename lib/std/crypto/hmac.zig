@@ -18,7 +18,7 @@ pub fn Hmac(comptime Hash: type) type {
         const Self = @This();
         pub const mac_length = Hash.digest_length;
         pub const key_length_min = 0;
-        pub const key_length = 32; // recommended key length
+        pub const key_length = mac_length; // recommended key length
 
         o_key_pad: [Hash.block_length]u8,
         hash: Hash,
