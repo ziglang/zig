@@ -143,6 +143,8 @@ pub const TOOL = enum(u32) {
     CLANG = 0x1,
     SWIFT = 0x2,
     LD = 0x3,
+    LLD = 0x4, // LLVM's stock LLD linker
+    ZIG = 0x5, // Unofficially Zig
     _,
 };
 
