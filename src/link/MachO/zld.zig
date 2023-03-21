@@ -2456,6 +2456,17 @@ pub const Zld = struct {
         try self.writeStrtab();
     }
 
+    fn addLocalToSymtab(self: *Zld, sym_loc: SymbolWithLoc, locals: *std.ArrayList(macho.nlist_64)) !void {
+        const sym = self.getSymbol(sym_loc);
+        if (sym.n_strx == 0) return; // no name, skip
+        if (sym.ext()) return; // an export lands in its own symtab section, skip
+        if (self.symbolIsTemp(sym_loc)) return; // local temp symbol, skip
+
+        var out_sym = sym;
+        out_sym.n_strx = try self.strtab.insert(self.gpa, self.getSymbolName(sym_loc));
+        try locals.append(out_sym);
+    }
+
     fn writeSymtab(self: *Zld) !SymtabCtx {
         const gpa = self.gpa;
 
@@ -2466,14 +2477,12 @@ pub const Zld = struct {
             for (object.atoms.items) |atom_index| {
                 const atom = self.getAtom(atom_index);
                 const sym_loc = atom.getSymbolWithLoc();
-                const sym = self.getSymbol(sym_loc);
-                if (sym.n_strx == 0) continue; // no name, skip
-                if (sym.ext()) continue; // an export lands in its own symtab section, skip
-                if (self.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
+                try self.addLocalToSymtab(sym_loc, &locals);
 
-                var out_sym = sym;
-                out_sym.n_strx = try self.strtab.insert(gpa, self.getSymbolName(sym_loc));
-                try locals.append(out_sym);
+                var it = Atom.getInnerSymbolsIterator(self, atom_index);
+                while (it.next()) |inner_sym_loc| {
+                    try self.addLocalToSymtab(inner_sym_loc, &locals);
+                }
             }
         }
 
