@@ -3239,22 +3239,48 @@ pub fn isatty(handle: fd_t) bool {
 pub fn isCygwinPty(handle: fd_t) bool {
     if (builtin.os.tag != .windows) return false;
 
-    const size = @sizeOf(windows.FILE_NAME_INFO);
-    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = [_]u8{0} ** (size + windows.MAX_PATH);
+    // If this is a MSYS2/cygwin pty, then it will be a named pipe with a name in one of these formats:
+    //   msys-[...]-ptyN-[...]
+    //   cygwin-[...]-ptyN-[...]
+    //
+    // Example: msys-1888ae32e00d56aa-pty0-to-master
 
-    if (windows.kernel32.GetFileInformationByHandleEx(
-        handle,
-        windows.FileNameInfo,
-        @ptrCast(*anyopaque, &name_info_bytes),
-        name_info_bytes.len,
-    ) == 0) {
-        return false;
+    // First, just check that the handle is a named pipe.
+    // This allows us to avoid the more costly NtQueryInformationFile call
+    // for handles that aren't named pipes.
+    {
+        var io_status: windows.IO_STATUS_BLOCK = undefined;
+        var device_info: windows.FILE_FS_DEVICE_INFORMATION = undefined;
+        const rc = windows.ntdll.NtQueryVolumeInformationFile(handle, &io_status, &device_info, @sizeOf(windows.FILE_FS_DEVICE_INFORMATION), .FileFsDeviceInformation);
+        switch (rc) {
+            .SUCCESS => {},
+            else => return false,
+        }
+        if (device_info.DeviceType != windows.FILE_DEVICE_NAMED_PIPE) return false;
+    }
+
+    const name_bytes_offset = @offsetOf(windows.FILE_NAME_INFO, "FileName");
+    // `NAME_MAX` UTF-16 code units (2 bytes each)
+    // Note: This buffer may not be long enough to handle *all* possible paths (PATH_MAX_WIDE would be necessary for that),
+    //       but because we only care about certain paths and we know they must be within a reasonable length,
+    //       we can use this smaller buffer and just return false on any error from NtQueryInformationFile.
+    const num_name_bytes = windows.MAX_PATH * 2;
+    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = [_]u8{0} ** (name_bytes_offset + num_name_bytes);
+
+    var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+    const rc = windows.ntdll.NtQueryInformationFile(handle, &io_status_block, &name_info_bytes, @intCast(u32, name_info_bytes.len), .FileNameInformation);
+    switch (rc) {
+        .SUCCESS => {},
+        .INVALID_PARAMETER => unreachable,
+        else => return false,
     }
 
     const name_info = @ptrCast(*const windows.FILE_NAME_INFO, &name_info_bytes[0]);
-    const name_bytes = name_info_bytes[size .. size + @as(usize, name_info.FileNameLength)];
+    const name_bytes = name_info_bytes[name_bytes_offset .. name_bytes_offset + @as(usize, name_info.FileNameLength)];
     const name_wide = mem.bytesAsSlice(u16, name_bytes);
-    return mem.indexOf(u16, name_wide, &[_]u16{ 'm', 's', 'y', 's', '-' }) != null or
+    // Note: The name we get from NtQueryInformationFile will be prefixed with a '\', e.g. \msys-1888ae32e00d56aa-pty0-to-master
+    return (mem.startsWith(u16, name_wide, &[_]u16{ '\\', 'm', 's', 'y', 's', '-' }) or
+        mem.startsWith(u16, name_wide, &[_]u16{ '\\', 'c', 'y', 'g', 'w', 'i', 'n', '-' })) and
         mem.indexOf(u16, name_wide, &[_]u16{ '-', 'p', 't', 'y' }) != null;
 }
 

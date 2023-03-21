@@ -2452,6 +2452,29 @@ pub const FILE_INFORMATION_CLASS = enum(c_int) {
     FileMaximumInformation,
 };
 
+pub const FILE_FS_DEVICE_INFORMATION = extern struct {
+    DeviceType: DEVICE_TYPE,
+    Characteristics: ULONG,
+};
+
+pub const FS_INFORMATION_CLASS = enum(c_int) {
+    FileFsVolumeInformation = 1,
+    FileFsLabelInformation,
+    FileFsSizeInformation,
+    FileFsDeviceInformation,
+    FileFsAttributeInformation,
+    FileFsControlInformation,
+    FileFsFullSizeInformation,
+    FileFsObjectIdInformation,
+    FileFsDriverPathInformation,
+    FileFsVolumeFlagsInformation,
+    FileFsSectorSizeInformation,
+    FileFsDataCopyInformation,
+    FileFsMetadataSizeInformation,
+    FileFsFullSizeInformationEx,
+    FileFsMaximumInformation,
+};
+
 pub const OVERLAPPED = extern struct {
     Internal: ULONG_PTR,
     InternalHigh: ULONG_PTR,
