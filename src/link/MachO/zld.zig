@@ -2141,35 +2141,18 @@ pub const Zld = struct {
         const exec_segment = self.segments.items[segment_index];
         const base_address = exec_segment.vmaddr;
 
-        if (self.options.output_mode == .Exe) {
-            for (&[_]SymbolWithLoc{
-                self.getEntryPoint(),
-                self.globals.items[self.mh_execute_header_index.?],
-            }) |global| {
-                const sym = self.getSymbol(global);
-                const sym_name = self.getSymbolName(global);
-                log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
-                try trie.put(gpa, .{
-                    .name = sym_name,
-                    .vmaddr_offset = sym.n_value - base_address,
-                    .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
-                });
-            }
-        } else {
-            assert(self.options.output_mode == .Lib);
-            for (self.globals.items) |global| {
-                const sym = self.getSymbol(global);
-                if (sym.undf()) continue;
-                if (sym.n_desc == N_DEAD) continue;
+        for (self.globals.items) |global| {
+            const sym = self.getSymbol(global);
+            if (sym.undf()) continue;
+            if (sym.n_desc == N_DEAD) continue;
 
-                const sym_name = self.getSymbolName(global);
-                log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
-                try trie.put(gpa, .{
-                    .name = sym_name,
-                    .vmaddr_offset = sym.n_value - base_address,
-                    .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
-                });
-            }
+            const sym_name = self.getSymbolName(global);
+            log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
+            try trie.put(gpa, .{
+                .name = sym_name,
+                .vmaddr_offset = sym.n_value - base_address,
+                .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
+            });
         }
 
         try trie.finalize(gpa);
