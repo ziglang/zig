@@ -168,6 +168,17 @@ pub fn State(comptime endian: builtin.Endian) type {
             state.permuteR(12);
         }
 
+        /// Apply a permutation to the state and prevent backtracking.
+        /// The rate is expressed in bytes and must be a multiple of the word size (8).
+        pub inline fn permuteRatchet(state: *Self, comptime rounds: u4, comptime rate: u6) void {
+            const capacity = block_bytes - rate;
+            debug.assert(capacity > 0 and capacity % 8 == 0); // capacity must be a multiple of 64 bits
+            var mask: [capacity / 8]u64 = undefined;
+            inline for (&mask, state.st[state.st.len - mask.len ..]) |*m, x| m.* = x;
+            state.permuteR(rounds);
+            inline for (mask, state.st[state.st.len - mask.len ..]) |m, *x| x.* ^= m;
+        }
+
         // Core Ascon permutation.
         inline fn round(state: *Self, rk: u64) void {
             const x = &state.st;
