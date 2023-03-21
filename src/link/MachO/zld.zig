@@ -2158,9 +2158,7 @@ pub const Zld = struct {
         try trie.finalize(gpa);
     }
 
-    fn writeDyldInfoData(
-        self: *Zld,
-    ) !void {
+    fn writeDyldInfoData(self: *Zld) !void {
         const gpa = self.gpa;
 
         var rebase = Rebase{};
