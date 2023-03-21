@@ -99,12 +99,20 @@ pub const ChildProcess = struct {
                         return null;
                     }
                 },
+                .windows => {
+                    if (rus.rusage) |ru| {
+                        return ru.PeakWorkingSetSize;
+                    } else {
+                        return null;
+                    }
+                },
                 else => return null,
             }
         }
 
         const rusage_init = switch (builtin.os.tag) {
             .linux => @as(?std.os.rusage, null),
+            .windows => @as(?windows.PROCESS_MEMORY_COUNTERS, null),
             else => {},
         };
     };
@@ -363,6 +371,13 @@ pub const ChildProcess = struct {
                 break :x Term{ .Exited = @truncate(u8, exit_code) };
             }
         });
+
+        if (self.request_resource_usage_statistics) {
+            var pmc: windows.PROCESS_MEMORY_COUNTERS = undefined;
+            if (windows.kernel32.K32GetProcessMemoryInfo(self.id, &pmc, @sizeOf(windows.PROCESS_MEMORY_COUNTERS)) != 0) {
+                self.resource_usage_statistics.rusage = pmc;
+            }
+        }
 
         os.close(self.id);
         os.close(self.thread_handle);
