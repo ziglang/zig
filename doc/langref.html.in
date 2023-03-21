@@ -5452,6 +5452,22 @@ fn doAThing(str: []u8) void {
           a default value of 13. The type of the right hand side of the binary {#syntax#}catch{#endsyntax#} operator must
               match the unwrapped error union type, or be of type {#syntax#}noreturn{#endsyntax#}.
       </p>
+     <p>
+      If you want to provide a default value with
+      {#syntax#}catch{#endsyntax#} after performing some logic, you
+      can combine {#syntax#}catch{#endsyntax#} with named {#link|Blocks#}:
+      </p>
+      {#code_begin|syntax|handle_error_with_catch_block.zig#}
+const parseU64 = @import("error_union_parsing_u64.zig").parseU64;
+
+fn doAThing(str: []u8) void {
+     const number = parseU64(str, 10) catch blk: {
+         // do things
+         break :blk 13;
+     };
+    _ = number; // ...
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|try#}
       <p>Let's say you wanted to return the error if you got one, otherwise continue with the
@@ -5508,6 +5524,21 @@ fn doAThing(str: []u8) void {
         },
         // we promise that InvalidChar won't happen (or crash in debug mode if it does)
         error.InvalidChar => unreachable,
+    }
+}
+      {#end_syntax_block#}
+      <p>
+      You must use the variable capture syntax. If you don't need the
+      variable, you can capture with {#syntax#}_{#endsyntax#} and avoid the
+      {#syntax#}switch{#endsyntax#}.
+      </p>
+      {#syntax_block|zig|handle_no_error_scenarios.zig#}
+fn doADifferentThing(str: []u8) void {
+    if (parseU64(str, 10)) |number| {
+        doSomethingWithNumber(number);
+    } else |_| {
+        // do as you'd like
+        unreachable;
     }
 }
       {#end_syntax_block#}
