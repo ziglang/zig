@@ -790,10 +790,11 @@ fn resolveRelocsX86(
         const target = parseRelocTarget(zld, atom_index, rel);
         const rel_offset = @intCast(u32, rel.r_address - context.base_offset);
 
-        log.debug("  RELA({s}) @ {x} => %{d} in object({?})", .{
+        log.debug("  RELA({s}) @ {x} => %{d} ('{s}') in object({?})", .{
             @tagName(rel_type),
             rel.r_address,
             target.sym_index,
+            zld.getSymbolName(target),
             target.getFile(),
         });
 
