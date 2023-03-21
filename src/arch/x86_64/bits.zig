@@ -472,7 +472,7 @@ pub const Memory = union(enum) {
     }
 
     pub fn sib(ptr_size: PtrSize, args: struct {
-        disp: i32,
+        disp: i32 = 0,
         base: ?Register = null,
         scale_index: ?ScaleIndex = null,
     }) Memory {

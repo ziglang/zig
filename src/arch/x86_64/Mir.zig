@@ -42,6 +42,8 @@ pub const Inst = struct {
         bsf,
         /// Bit scan reverse
         bsr,
+        /// Byte swap
+        bswap,
         /// Bit test
         bt,
         /// Bit test and complement
@@ -94,6 +96,8 @@ pub const Inst = struct {
         mfence,
         /// Move
         mov,
+        /// Move data after swapping bytes
+        movbe,
         /// Move with sign extension
         movsx,
         /// Move with zero extension
@@ -114,8 +118,16 @@ pub const Inst = struct {
         popcnt,
         /// Push
         push,
+        /// Rotate left through carry
+        rcl,
+        /// Rotate right through carry
+        rcr,
         /// Return
         ret,
+        /// Rotate left
+        rol,
+        /// Rotate right
+        ror,
         /// Arithmetic shift left
         sal,
         /// Arithmetic shift right

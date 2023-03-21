@@ -2595,10 +2595,7 @@ fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
             try self.asmRegisterMemory(
                 .mov,
                 registerAlias(dst_mcv.register, elem_abi_size),
-                Memory.sib(Memory.PtrSize.fromSize(elem_abi_size), .{
-                    .base = dst_mcv.register,
-                    .disp = 0,
-                }),
+                Memory.sib(Memory.PtrSize.fromSize(elem_abi_size), .{ .base = dst_mcv.register }),
             );
             break :result .{ .register = registerAlias(dst_mcv.register, @intCast(u32, elem_abi_size)) };
         }
@@ -2956,21 +2953,197 @@ fn airPopcount(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn byteSwap(self: *Self, inst: Air.Inst.Index, src_ty: Type, src_mcv: MCValue, mem_ok: bool) !MCValue {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+
+    const src_bits = self.regBitSize(src_ty);
+    const src_lock = switch (src_mcv) {
+        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+        else => null,
+    };
+    defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
+
+    switch (src_bits) {
+        else => unreachable,
+        8 => return if ((mem_ok or src_mcv.isRegister()) and
+            self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_mcv
+        else
+            try self.copyToRegisterWithInstTracking(inst, src_ty, src_mcv),
+        16 => if ((mem_ok or src_mcv.isRegister()) and
+            self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+        {
+            try self.genBinOpMir(.rol, src_ty, src_mcv, .{ .immediate = 8 });
+            return src_mcv;
+        },
+        32, 64 => if (src_mcv.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) {
+            try self.genUnOpMir(.bswap, src_ty, src_mcv);
+            return src_mcv;
+        },
+    }
+
+    if (src_mcv.isRegister()) {
+        const dst_mcv: MCValue = if (mem_ok)
+            try self.allocRegOrMem(inst, true)
+        else
+            .{ .register = try self.register_manager.allocReg(inst, gp) };
+        if (dst_mcv.isRegister()) {
+            const dst_lock = self.register_manager.lockRegAssumeUnused(dst_mcv.register);
+            defer self.register_manager.unlockReg(dst_lock);
+
+            try self.genSetReg(src_ty, dst_mcv.register, src_mcv);
+            switch (src_bits) {
+                else => unreachable,
+                16 => try self.genBinOpMir(.rol, src_ty, dst_mcv, .{ .immediate = 8 }),
+                32, 64 => try self.genUnOpMir(.bswap, src_ty, dst_mcv),
+            }
+        } else try self.genBinOpMir(.movbe, src_ty, dst_mcv, src_mcv);
+        return dst_mcv;
+    }
+
+    const dst_reg = try self.register_manager.allocReg(inst, gp);
+    const dst_mcv = MCValue{ .register = dst_reg };
+    const dst_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
+    defer self.register_manager.unlockReg(dst_lock);
+
+    try self.genBinOpMir(.movbe, src_ty, dst_mcv, src_mcv);
+    return dst_mcv;
+}
+
 fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement airByteSwap for {}", .{self.target.cpu.arch});
+    const result = result: {
+        if (self.liveness.isUnused(inst)) break :result .dead;
+
+        const src_ty = self.air.typeOf(ty_op.operand);
+        const src_mcv = try self.resolveInst(ty_op.operand);
+
+        const dst_mcv = try self.byteSwap(inst, src_ty, src_mcv, true);
+        switch (self.regExtraBits(src_ty)) {
+            0 => {},
+            else => |extra| try self.genBinOpMir(
+                if (src_ty.isSignedInt()) .sar else .shr,
+                src_ty,
+                dst_mcv,
+                .{ .immediate = extra },
+            ),
+        }
+        break :result dst_mcv;
+    };
+
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airBitReverse(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst))
-        .dead
-    else
-        return self.fail("TODO implement airBitReverse for {}", .{self.target.cpu.arch});
+    const result = result: {
+        if (self.liveness.isUnused(inst)) break :result .dead;
+
+        const src_ty = self.air.typeOf(ty_op.operand);
+        const src_abi_size = @intCast(u32, src_ty.abiSize(self.target.*));
+        const src_mcv = try self.resolveInst(ty_op.operand);
+
+        const dst_mcv = try self.byteSwap(inst, src_ty, src_mcv, false);
+        const dst_reg = dst_mcv.register;
+        const dst_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
+        defer self.register_manager.unlockReg(dst_lock);
+
+        const tmp_reg = try self.register_manager.allocReg(null, gp);
+        const tmp_lock = self.register_manager.lockReg(tmp_reg);
+        defer if (tmp_lock) |lock| self.register_manager.unlockReg(lock);
+
+        {
+            const dst = registerAlias(dst_reg, src_abi_size);
+            const tmp = registerAlias(tmp_reg, src_abi_size);
+            const imm = if (src_abi_size > 4)
+                try self.register_manager.allocReg(null, gp)
+            else
+                undefined;
+
+            const mask = @as(u64, math.maxInt(u64)) >> @intCast(u6, 64 - src_abi_size * 8);
+            const imm_0000_1111 = Immediate.u(mask / 0b0001_0001);
+            const imm_00_11 = Immediate.u(mask / 0b01_01);
+            const imm_0_1 = Immediate.u(mask / 0b1_1);
+
+            // dst = temp1 = bswap(operand)
+            try self.asmRegisterRegister(.mov, tmp, dst);
+            // tmp = temp1
+            try self.asmRegisterImmediate(.shr, dst, Immediate.u(4));
+            // dst = temp1 >> 4
+            if (src_abi_size > 4) {
+                try self.asmRegisterImmediate(.mov, imm, imm_0000_1111);
+                try self.asmRegisterRegister(.@"and", tmp, imm);
+                try self.asmRegisterRegister(.@"and", dst, imm);
+            } else {
+                try self.asmRegisterImmediate(.@"and", tmp, imm_0000_1111);
+                try self.asmRegisterImmediate(.@"and", dst, imm_0000_1111);
+            }
+            // tmp = temp1 & 0x0F...0F
+            // dst = (temp1 >> 4) & 0x0F...0F
+            try self.asmRegisterImmediate(.shl, tmp, Immediate.u(4));
+            // tmp = (temp1 & 0x0F...0F) << 4
+            try self.asmRegisterRegister(.@"or", dst, tmp);
+            // dst = temp2 = ((temp1 >> 4) & 0x0F...0F) | ((temp1 & 0x0F...0F) << 4)
+            try self.asmRegisterRegister(.mov, tmp, dst);
+            // tmp = temp2
+            try self.asmRegisterImmediate(.shr, dst, Immediate.u(2));
+            // dst = temp2 >> 2
+            if (src_abi_size > 4) {
+                try self.asmRegisterImmediate(.mov, imm, imm_00_11);
+                try self.asmRegisterRegister(.@"and", tmp, imm);
+                try self.asmRegisterRegister(.@"and", dst, imm);
+            } else {
+                try self.asmRegisterImmediate(.@"and", tmp, imm_00_11);
+                try self.asmRegisterImmediate(.@"and", dst, imm_00_11);
+            }
+            // tmp = temp2 & 0x33...33
+            // dst = (temp2 >> 2) & 0x33...33
+            try self.asmRegisterMemory(
+                .lea,
+                if (src_abi_size > 4) tmp.to64() else tmp.to32(),
+                Memory.sib(.qword, .{
+                    .base = dst.to64(),
+                    .scale_index = .{ .index = tmp.to64(), .scale = 1 << 2 },
+                }),
+            );
+            // tmp = temp3 = ((temp2 >> 2) & 0x33...33) + ((temp2 & 0x33...33) << 2)
+            try self.asmRegisterRegister(.mov, dst, tmp);
+            // dst = temp3
+            try self.asmRegisterImmediate(.shr, tmp, Immediate.u(1));
+            // tmp = temp3 >> 1
+            if (src_abi_size > 4) {
+                try self.asmRegisterImmediate(.mov, imm, imm_0_1);
+                try self.asmRegisterRegister(.@"and", dst, imm);
+                try self.asmRegisterRegister(.@"and", tmp, imm);
+            } else {
+                try self.asmRegisterImmediate(.@"and", dst, imm_0_1);
+                try self.asmRegisterImmediate(.@"and", tmp, imm_0_1);
+            }
+            // dst = temp3 & 0x55...55
+            // tmp = (temp3 >> 1) & 0x55...55
+            try self.asmRegisterMemory(
+                .lea,
+                if (src_abi_size > 4) dst.to64() else dst.to32(),
+                Memory.sib(.qword, .{
+                    .base = tmp.to64(),
+                    .scale_index = .{ .index = dst.to64(), .scale = 1 << 1 },
+                }),
+            );
+            // dst = ((temp3 >> 1) & 0x55...55) + ((temp3 & 0x55...55) << 1)
+        }
+
+        switch (self.regExtraBits(src_ty)) {
+            0 => {},
+            else => |extra| try self.genBinOpMir(
+                if (src_ty.isSignedInt()) .sar else .shr,
+                src_ty,
+                dst_mcv,
+                .{ .immediate = extra },
+            ),
+        }
+        break :result dst_mcv;
+    };
+
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -3052,7 +3225,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                     try self.asmRegisterMemory(
                         .mov,
                         registerAlias(dst_reg, abi_size),
-                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg, .disp = 0 }),
+                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg }),
                     );
                 },
                 .stack_offset => |off| {
@@ -3167,7 +3340,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 .eflags => |cc| {
                     try self.asmSetccMemory(Memory.sib(
                         Memory.PtrSize.fromSize(abi_size),
-                        .{ .base = reg.to64(), .disp = 0 },
+                        .{ .base = reg.to64() },
                     ), cc);
                 },
                 .undef => {
@@ -3187,10 +3360,10 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 Immediate.s(@intCast(i32, @bitCast(i64, imm)))
                             else
                                 Immediate.u(@truncate(u32, imm));
-                            try self.asmMemoryImmediate(.mov, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
-                                .base = reg.to64(),
-                                .disp = 0,
-                            }), immediate);
+                            try self.asmMemoryImmediate(.mov, Memory.sib(
+                                Memory.PtrSize.fromSize(abi_size),
+                                .{ .base = reg.to64() },
+                            ), immediate);
                         },
                         8 => {
                             // TODO: optimization: if the imm is only using the lower
@@ -3262,10 +3435,11 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             try self.loadMemPtrIntoRegister(addr_reg, ptr_ty, ptr);
 
             // To get the actual address of the value we want to modify we have to go through the GOT
-            try self.asmRegisterMemory(.mov, addr_reg.to64(), Memory.sib(.qword, .{
-                .base = addr_reg.to64(),
-                .disp = 0,
-            }));
+            try self.asmRegisterMemory(
+                .mov,
+                addr_reg.to64(),
+                Memory.sib(.qword, .{ .base = addr_reg.to64() }),
+            );
 
             const new_ptr = MCValue{ .register = addr_reg.to64() };
 
@@ -3287,10 +3461,11 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                             return self.fail("TODO imm64 would get incorrectly sign extended", .{});
                         }
                     }
-                    try self.asmMemoryImmediate(.mov, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
-                        .base = addr_reg.to64(),
-                        .disp = 0,
-                    }), Immediate.u(@intCast(u32, imm)));
+                    try self.asmMemoryImmediate(
+                        .mov,
+                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = addr_reg.to64() }),
+                        Immediate.u(@intCast(u32, imm)),
+                    );
                 },
                 .register => {
                     return self.store(new_ptr, value, ptr_ty, value_ty);
@@ -3302,10 +3477,11 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         defer self.register_manager.unlockReg(tmp_reg_lock);
 
                         try self.loadMemPtrIntoRegister(tmp_reg, value_ty, value);
-                        try self.asmRegisterMemory(.mov, tmp_reg, Memory.sib(.qword, .{
-                            .base = tmp_reg,
-                            .disp = 0,
-                        }));
+                        try self.asmRegisterMemory(
+                            .mov,
+                            tmp_reg,
+                            Memory.sib(.qword, .{ .base = tmp_reg }),
+                        );
 
                         return self.store(new_ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                     }
@@ -3604,15 +3780,16 @@ fn genUnOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValue
             try self.loadMemPtrIntoRegister(addr_reg, Type.usize, dst_mcv);
 
             // To get the actual address of the value we want to modify we have to go through the GOT
-            try self.asmRegisterMemory(.mov, addr_reg, Memory.sib(.qword, .{
-                .base = addr_reg,
-                .disp = 0,
-            }));
+            try self.asmRegisterMemory(
+                .mov,
+                addr_reg,
+                Memory.sib(.qword, .{ .base = addr_reg }),
+            );
 
-            try self.asmMemory(mir_tag, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
-                .base = addr_reg,
-                .disp = 0,
-            }));
+            try self.asmMemory(
+                mir_tag,
+                Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = addr_reg }),
+            );
         },
     }
 }
@@ -4117,17 +4294,15 @@ fn genBinOp(
 
                             // To get the actual address of the value we want to modify we
                             // we have to go through the GOT
-                            try self.asmRegisterMemory(.mov, addr_reg, Memory.sib(.qword, .{
-                                .base = addr_reg,
-                                .disp = 0,
-                            }));
+                            try self.asmRegisterMemory(
+                                .mov,
+                                addr_reg,
+                                Memory.sib(.qword, .{ .base = addr_reg }),
+                            );
 
                             try self.asmCmovccRegisterMemory(
                                 registerAlias(dst_reg, abi_size),
-                                Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
-                                    .base = addr_reg,
-                                    .disp = 0,
-                                }),
+                                Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = addr_reg }),
                                 cc,
                             );
                         },
@@ -5175,10 +5350,11 @@ fn isNull(self: *Self, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
             try self.loadMemPtrIntoRegister(addr_reg, Type.usize, opt_mcv);
 
             // To get the actual address of the value we want to modify we have to go through the GOT
-            try self.asmRegisterMemory(.mov, addr_reg, Memory.sib(.qword, .{
-                .base = addr_reg,
-                .disp = 0,
-            }));
+            try self.asmRegisterMemory(
+                .mov,
+                addr_reg,
+                Memory.sib(.qword, .{ .base = addr_reg }),
+            );
 
             const some_abi_size = @intCast(u32, some_info.ty.abiSize(self.target.*));
             try self.asmMemoryImmediate(.cmp, Memory.sib(
@@ -6374,10 +6550,11 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                             .f64 => .qword,
                             else => unreachable,
                         };
-                        return self.asmRegisterMemory(tag, reg.to128(), Memory.sib(ptr_size, .{
-                            .base = base_reg.to64(),
-                            .disp = 0,
-                        }));
+                        return self.asmRegisterMemory(
+                            tag,
+                            reg.to128(),
+                            Memory.sib(ptr_size, .{ .base = base_reg.to64() }),
+                        );
                     }
 
                     return self.fail("TODO genSetReg from memory for float with no intrinsics", .{});
@@ -6387,7 +6564,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     try self.asmRegisterMemory(
                         .mov,
                         registerAlias(reg, abi_size),
-                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64(), .disp = 0 }),
+                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
                     );
                 },
             }
@@ -6408,10 +6585,11 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         .f64 => .qword,
                         else => unreachable,
                     };
-                    return self.asmRegisterMemory(tag, reg.to128(), Memory.sib(ptr_size, .{
-                        .base = base_reg.to64(),
-                        .disp = 0,
-                    }));
+                    return self.asmRegisterMemory(
+                        tag,
+                        reg.to128(),
+                        Memory.sib(ptr_size, .{ .base = base_reg.to64() }),
+                    );
                 }
 
                 return self.fail("TODO genSetReg from memory for float with no intrinsics", .{});
@@ -6447,7 +6625,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         try self.asmRegisterMemory(
                             .mov,
                             registerAlias(reg, abi_size),
-                            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64(), .disp = 0 }),
+                            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
                         );
                     }
                 }
@@ -6638,12 +6816,9 @@ fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
     const val_abi_size = @intCast(u32, val_ty.abiSize(self.target.*));
     const ptr_size = Memory.PtrSize.fromSize(val_abi_size);
     const ptr_mem: Memory = switch (ptr_mcv) {
-        .register => |reg| Memory.sib(ptr_size, .{ .base = reg, .disp = 0 }),
+        .register => |reg| Memory.sib(ptr_size, .{ .base = reg }),
         .ptr_stack_offset => |off| Memory.sib(ptr_size, .{ .base = .rbp, .disp = -off }),
-        else => Memory.sib(ptr_size, .{
-            .base = try self.copyToTmpRegister(ptr_ty, ptr_mcv),
-            .disp = 0,
-        }),
+        else => Memory.sib(ptr_size, .{ .base = try self.copyToTmpRegister(ptr_ty, ptr_mcv) }),
     };
     const mem_lock = if (ptr_mem.base()) |reg| self.register_manager.lockReg(reg) else null;
     defer if (mem_lock) |lock| self.register_manager.unlockReg(lock);
@@ -6692,12 +6867,9 @@ fn atomicOp(
     const val_abi_size = @intCast(u32, val_ty.abiSize(self.target.*));
     const ptr_size = Memory.PtrSize.fromSize(val_abi_size);
     const ptr_mem: Memory = switch (ptr_mcv) {
-        .register => |reg| Memory.sib(ptr_size, .{ .base = reg, .disp = 0 }),
+        .register => |reg| Memory.sib(ptr_size, .{ .base = reg }),
         .ptr_stack_offset => |off| Memory.sib(ptr_size, .{ .base = .rbp, .disp = -off }),
-        else => Memory.sib(ptr_size, .{
-            .base = try self.copyToTmpRegister(ptr_ty, ptr_mcv),
-            .disp = 0,
-        }),
+        else => Memory.sib(ptr_size, .{ .base = try self.copyToTmpRegister(ptr_ty, ptr_mcv) }),
     };
     const mem_lock = if (ptr_mem.base()) |reg| self.register_manager.lockReg(reg) else null;
     defer if (mem_lock) |lock| self.register_manager.unlockReg(lock);
@@ -6861,10 +7033,7 @@ fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
             .linker_load, .memory => {
                 const reg = try self.register_manager.allocReg(null, gp);
                 try self.loadMemPtrIntoRegister(reg, src_ty, src_ptr);
-                try self.asmRegisterMemory(.mov, reg, Memory.sib(.qword, .{
-                    .base = reg,
-                    .disp = 0,
-                }));
+                try self.asmRegisterMemory(.mov, reg, Memory.sib(.qword, .{ .base = reg }));
                 break :blk MCValue{ .register = reg };
             },
             else => break :blk src_ptr,
