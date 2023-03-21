@@ -1113,6 +1113,14 @@ pub const Value = extern union {
             .bool_true,
             => return BigIntMutable.init(&space.limbs, 1).toConst(),
 
+            .enum_field_index => {
+                const index = val.castTag(.enum_field_index).?.data;
+                return BigIntMutable.init(&space.limbs, index).toConst();
+            },
+            .runtime_value => {
+                const sub_val = val.castTag(.runtime_value).?.data;
+                return sub_val.toBigIntAdvanced(space, target, opt_sema);
+            },
             .int_u64 => return BigIntMutable.init(&space.limbs, val.castTag(.int_u64).?.data).toConst(),
             .int_i64 => return BigIntMutable.init(&space.limbs, val.castTag(.int_i64).?.data).toConst(),
             .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt(),
@@ -1979,6 +1987,13 @@ pub const Value = extern union {
             .variable,
             => .gt,
 
+            .enum_field_index => return std.math.order(lhs.castTag(.enum_field_index).?.data, 0),
+            .runtime_value => {
+                // This is needed to correctly handle hashing the value.
+                // Checks in Sema should prevent direct comparisons from reaching here.
+                const val = lhs.castTag(.runtime_value).?.data;
+                return val.orderAgainstZeroAdvanced(opt_sema);
+            },
             .int_u64 => std.math.order(lhs.castTag(.int_u64).?.data, 0),
             .int_i64 => std.math.order(lhs.castTag(.int_i64).?.data, 0),
             .int_big_positive => lhs.castTag(.int_big_positive).?.asBigInt().orderAgainstScalar(0),

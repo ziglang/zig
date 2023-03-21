@@ -3815,6 +3815,8 @@ pub const DeclGen = struct {
 
                 const field_ty = union_obj.fields.values()[field_index].ty;
                 if (union_obj.layout == .Packed) {
+                    if (!field_ty.hasRuntimeBits())
+                        return llvm_union_ty.constNull();
                     const non_int_val = try lowerValue(dg, .{ .ty = field_ty, .val = tag_and_val.val });
                     const ty_bit_size = @intCast(u16, field_ty.bitSize(target));
                     const small_int_ty = dg.context.intType(ty_bit_size);
