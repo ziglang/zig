@@ -2298,9 +2298,16 @@ pub const Zld = struct {
 
     const asc_u64 = std.sort.asc(u64);
 
+    fn addSymbolToFunctionStarts(self: *Zld, sym_loc: SymbolWithLoc, addresses: *std.ArrayList(u64)) !void {
+        const sym = self.getSymbol(sym_loc);
+        if (sym.n_strx == 0) return;
+        if (sym.n_desc == N_DEAD) return;
+        if (self.symbolIsTemp(sym_loc)) return;
+        try addresses.append(sym.n_value);
+    }
+
     fn writeFunctionStarts(self: *Zld) !void {
         const text_seg_index = self.getSegmentByName("__TEXT") orelse return;
-        const text_sect_index = self.getSectionByName("__TEXT", "__text") orelse return;
         const text_seg = self.segments.items[text_seg_index];
 
         const gpa = self.gpa;
@@ -2308,17 +2315,18 @@ pub const Zld = struct {
         // We need to sort by address first
         var addresses = std.ArrayList(u64).init(gpa);
         defer addresses.deinit();
-        try addresses.ensureTotalCapacityPrecise(self.globals.items.len);
 
-        for (self.globals.items) |global| {
-            const sym = self.getSymbol(global);
-            if (sym.undf()) continue;
-            if (sym.n_desc == N_DEAD) continue;
+        for (self.objects.items) |object| {
+            for (object.exec_atoms.items) |atom_index| {
+                const atom = self.getAtom(atom_index);
+                const sym_loc = atom.getSymbolWithLoc();
+                try self.addSymbolToFunctionStarts(sym_loc, &addresses);
 
-            const sect_id = sym.n_sect - 1;
-            if (sect_id != text_sect_index) continue;
-
-            addresses.appendAssumeCapacity(sym.n_value);
+                var it = Atom.getInnerSymbolsIterator(self, atom_index);
+                while (it.next()) |inner_sym_loc| {
+                    try self.addSymbolToFunctionStarts(inner_sym_loc, &addresses);
+                }
+            }
         }
 
         std.sort.sort(u64, addresses.items, {}, asc_u64);
@@ -2457,6 +2465,7 @@ pub const Zld = struct {
     fn addLocalToSymtab(self: *Zld, sym_loc: SymbolWithLoc, locals: *std.ArrayList(macho.nlist_64)) !void {
         const sym = self.getSymbol(sym_loc);
         if (sym.n_strx == 0) return; // no name, skip
+        if (sym.n_desc == N_DEAD) return; // garbage-collected, skip
         if (sym.ext()) return; // an export lands in its own symtab section, skip
         if (self.symbolIsTemp(sym_loc)) return; // local temp symbol, skip
 
