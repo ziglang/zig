@@ -73,6 +73,13 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .adc,
             .add,
             .@"and",
+            .bsf,
+            .bsr,
+            .bswap,
+            .bt,
+            .btc,
+            .btr,
+            .bts,
             .call,
             .cbw,
             .cwde,
@@ -81,6 +88,7 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .cdq,
             .cqo,
             .cmp,
+            .cmpxchg,
             .div,
             .fisttp,
             .fld,
@@ -89,34 +97,70 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .int3,
             .jmp,
             .lea,
+            .lfence,
+            .lzcnt,
+            .mfence,
             .mov,
+            .movbe,
             .movzx,
             .mul,
+            .neg,
             .nop,
+            .not,
             .@"or",
             .pop,
+            .popcnt,
             .push,
+            .rcl,
+            .rcr,
             .ret,
+            .rol,
+            .ror,
             .sal,
             .sar,
             .sbb,
+            .sfence,
             .shl,
             .shr,
             .sub,
             .syscall,
             .@"test",
+            .tzcnt,
             .ud2,
+            .xadd,
+            .xchg,
             .xor,
 
             .addss,
             .cmpss,
+            .divss,
+            .maxss,
+            .minss,
             .movss,
+            .mulss,
+            .roundss,
+            .subss,
             .ucomiss,
             .addsd,
             .cmpsd,
+            .divsd,
+            .maxsd,
+            .minsd,
             .movsd,
+            .mulsd,
+            .roundsd,
+            .subsd,
             .ucomisd,
             => try emit.mirEncodeGeneric(tag, inst),
+
+            .cmps,
+            .lods,
+            .movs,
+            .scas,
+            .stos,
+            => try emit.mirString(tag, inst),
+
+            .cmpxchgb => try emit.mirCmpxchgBytes(inst),
 
             .jmp_reloc => try emit.mirJmpReloc(inst),
 
@@ -171,18 +215,8 @@ fn fixupRelocs(emit: *Emit) InnerError!void {
     }
 }
 
-fn encode(emit: *Emit, mnemonic: Instruction.Mnemonic, ops: struct {
-    op1: Instruction.Operand = .none,
-    op2: Instruction.Operand = .none,
-    op3: Instruction.Operand = .none,
-    op4: Instruction.Operand = .none,
-}) InnerError!void {
-    const inst = try Instruction.new(mnemonic, .{
-        .op1 = ops.op1,
-        .op2 = ops.op2,
-        .op3 = ops.op3,
-        .op4 = ops.op4,
-    });
+fn encode(emit: *Emit, mnemonic: Instruction.Mnemonic, ops: Instruction.Init) InnerError!void {
+    const inst = try Instruction.new(mnemonic, ops);
     return inst.encode(emit.code.writer());
 }
 
@@ -193,6 +227,20 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
 
     const ops = emit.mir.instructions.items(.ops)[inst];
     const data = emit.mir.instructions.items(.data)[inst];
+
+    const prefix: Instruction.Prefix = switch (ops) {
+        .lock_m_sib,
+        .lock_m_rip,
+        .lock_mi_u_sib,
+        .lock_mi_u_rip,
+        .lock_mi_s_sib,
+        .lock_mi_s_rip,
+        .lock_mr_sib,
+        .lock_mr_rip,
+        .lock_moffs_rax,
+        => .lock,
+        else => .none,
+    };
 
     var op1: Instruction.Operand = .none;
     var op2: Instruction.Operand = .none;
@@ -232,35 +280,35 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
             op2 = .{ .reg = data.rri.r2 };
             op3 = .{ .imm = imm };
         },
-        .m_sib => {
+        .m_sib, .lock_m_sib => {
             const msib = emit.mir.extraData(Mir.MemorySib, data.payload).data;
             op1 = .{ .mem = Mir.MemorySib.decode(msib) };
         },
-        .m_rip => {
+        .m_rip, .lock_m_rip => {
             const mrip = emit.mir.extraData(Mir.MemoryRip, data.payload).data;
             op1 = .{ .mem = Mir.MemoryRip.decode(mrip) };
         },
-        .mi_s_sib, .mi_u_sib => {
+        .mi_s_sib, .mi_u_sib, .lock_mi_s_sib, .lock_mi_u_sib => {
             const msib = emit.mir.extraData(Mir.MemorySib, data.xi.payload).data;
             const imm = switch (ops) {
-                .mi_s_sib => Immediate.s(@bitCast(i32, data.xi.imm)),
-                .mi_u_sib => Immediate.u(data.xi.imm),
+                .mi_s_sib, .lock_mi_s_sib => Immediate.s(@bitCast(i32, data.xi.imm)),
+                .mi_u_sib, .lock_mi_u_sib => Immediate.u(data.xi.imm),
                 else => unreachable,
             };
             op1 = .{ .mem = Mir.MemorySib.decode(msib) };
             op2 = .{ .imm = imm };
         },
-        .mi_u_rip, .mi_s_rip => {
+        .mi_u_rip, .mi_s_rip, .lock_mi_u_rip, .lock_mi_s_rip => {
             const mrip = emit.mir.extraData(Mir.MemoryRip, data.xi.payload).data;
             const imm = switch (ops) {
-                .mi_s_rip => Immediate.s(@bitCast(i32, data.xi.imm)),
-                .mi_u_rip => Immediate.u(data.xi.imm),
+                .mi_s_rip, .lock_mi_s_rip => Immediate.s(@bitCast(i32, data.xi.imm)),
+                .mi_u_rip, .lock_mi_u_rip => Immediate.u(data.xi.imm),
                 else => unreachable,
             };
             op1 = .{ .mem = Mir.MemoryRip.decode(mrip) };
             op2 = .{ .imm = imm };
         },
-        .rm_sib, .mr_sib => {
+        .rm_sib, .mr_sib, .lock_mr_sib => {
             const msib = emit.mir.extraData(Mir.MemorySib, data.rx.payload).data;
             const op_r = .{ .reg = data.rx.r1 };
             const op_m = .{ .mem = Mir.MemorySib.decode(msib) };
@@ -269,23 +317,23 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
                     op1 = op_r;
                     op2 = op_m;
                 },
-                .mr_sib => {
+                .mr_sib, .lock_mr_sib => {
                     op1 = op_m;
                     op2 = op_r;
                 },
                 else => unreachable,
             }
         },
-        .rm_rip, .mr_rip => {
+        .rm_rip, .mr_rip, .lock_mr_rip => {
             const mrip = emit.mir.extraData(Mir.MemoryRip, data.rx.payload).data;
             const op_r = .{ .reg = data.rx.r1 };
             const op_m = .{ .mem = Mir.MemoryRip.decode(mrip) };
             switch (ops) {
-                .rm_sib => {
+                .rm_rip => {
                     op1 = op_r;
                     op2 = op_m;
                 },
-                .mr_sib => {
+                .mr_rip, .lock_mr_rip => {
                     op1 = op_m;
                     op2 = op_r;
                 },
@@ -299,10 +347,66 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
     }
 
     return emit.encode(mnemonic, .{
+        .prefix = prefix,
         .op1 = op1,
         .op2 = op2,
         .op3 = op3,
         .op4 = op4,
+    });
+}
+
+fn mirString(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = emit.mir.instructions.items(.ops)[inst];
+    switch (ops) {
+        .string => {
+            const data = emit.mir.instructions.items(.data)[inst].string;
+            const mnemonic = switch (tag) {
+                inline .cmps, .lods, .movs, .scas, .stos => |comptime_tag| switch (data.width) {
+                    inline else => |comptime_width| @field(
+                        Instruction.Mnemonic,
+                        @tagName(comptime_tag) ++ @tagName(comptime_width),
+                    ),
+                },
+                else => unreachable,
+            };
+            return emit.encode(mnemonic, .{ .prefix = switch (data.repeat) {
+                inline else => |comptime_repeat| @field(Instruction.Prefix, @tagName(comptime_repeat)),
+            } });
+        },
+        else => unreachable,
+    }
+}
+
+fn mirCmpxchgBytes(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const ops = emit.mir.instructions.items(.ops)[inst];
+    const data = emit.mir.instructions.items(.data)[inst];
+
+    var op1: Instruction.Operand = .none;
+    switch (ops) {
+        .m_sib, .lock_m_sib => {
+            const sib = emit.mir.extraData(Mir.MemorySib, data.payload).data;
+            op1 = .{ .mem = Mir.MemorySib.decode(sib) };
+        },
+        .m_rip, .lock_m_rip => {
+            const rip = emit.mir.extraData(Mir.MemoryRip, data.payload).data;
+            op1 = .{ .mem = Mir.MemoryRip.decode(rip) };
+        },
+        else => unreachable,
+    }
+
+    const mnemonic: Instruction.Mnemonic = switch (op1.mem.bitSize()) {
+        64 => .cmpxchg8b,
+        128 => .cmpxchg16b,
+        else => unreachable,
+    };
+
+    return emit.encode(mnemonic, .{
+        .prefix = switch (ops) {
+            .m_sib, .m_rip => .none,
+            .lock_m_sib, .lock_m_rip => .lock,
+            else => unreachable,
+        },
+        .op1 = op1,
     });
 }
 
@@ -319,8 +423,13 @@ fn mirMovMoffs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
                 .op2 = .{ .mem = Memory.moffs(seg, offset) },
             });
         },
-        .moffs_rax => {
+        .moffs_rax, .lock_moffs_rax => {
             try emit.encode(.mov, .{
+                .prefix = switch (ops) {
+                    .moffs_rax => .none,
+                    .lock_moffs_rax => .lock,
+                    else => unreachable,
+                },
                 .op1 = .{ .mem = Memory.moffs(seg, offset) },
                 .op2 = .{ .reg = .rax },
             });
@@ -365,35 +474,68 @@ fn mirMovsx(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 }
 
 fn mnemonicFromConditionCode(comptime basename: []const u8, cc: bits.Condition) Instruction.Mnemonic {
-    inline for (@typeInfo(bits.Condition).Enum.fields) |field| {
-        if (mem.eql(u8, field.name, @tagName(cc)))
-            return @field(Instruction.Mnemonic, basename ++ field.name);
-    } else unreachable;
+    return switch (cc) {
+        inline else => |comptime_cc| @field(Instruction.Mnemonic, basename ++ @tagName(comptime_cc)),
+    };
 }
 
 fn mirCmovcc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst];
     switch (ops) {
-        .rr_c => {
-            const data = emit.mir.instructions.items(.data)[inst].rr_c;
+        .rr_cc => {
+            const data = emit.mir.instructions.items(.data)[inst].rr_cc;
             const mnemonic = mnemonicFromConditionCode("cmov", data.cc);
             return emit.encode(mnemonic, .{
                 .op1 = .{ .reg = data.r1 },
                 .op2 = .{ .reg = data.r2 },
             });
         },
-        else => unreachable, // TODO
+        .rm_sib_cc => {
+            const data = emit.mir.instructions.items(.data)[inst].rx_cc;
+            const extra = emit.mir.extraData(Mir.MemorySib, data.payload).data;
+            const mnemonic = mnemonicFromConditionCode("cmov", data.cc);
+            return emit.encode(mnemonic, .{
+                .op1 = .{ .reg = data.r1 },
+                .op2 = .{ .mem = Mir.MemorySib.decode(extra) },
+            });
+        },
+        .rm_rip_cc => {
+            const data = emit.mir.instructions.items(.data)[inst].rx_cc;
+            const extra = emit.mir.extraData(Mir.MemoryRip, data.payload).data;
+            const mnemonic = mnemonicFromConditionCode("cmov", data.cc);
+            return emit.encode(mnemonic, .{
+                .op1 = .{ .reg = data.r1 },
+                .op2 = .{ .mem = Mir.MemoryRip.decode(extra) },
+            });
+        },
+        else => unreachable,
     }
 }
 
 fn mirSetcc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst];
     switch (ops) {
-        .r_c => {
-            const data = emit.mir.instructions.items(.data)[inst].r_c;
+        .r_cc => {
+            const data = emit.mir.instructions.items(.data)[inst].r_cc;
             const mnemonic = mnemonicFromConditionCode("set", data.cc);
             return emit.encode(mnemonic, .{
                 .op1 = .{ .reg = data.r1 },
+            });
+        },
+        .m_sib_cc => {
+            const data = emit.mir.instructions.items(.data)[inst].x_cc;
+            const extra = emit.mir.extraData(Mir.MemorySib, data.payload).data;
+            const mnemonic = mnemonicFromConditionCode("set", data.cc);
+            return emit.encode(mnemonic, .{
+                .op1 = .{ .mem = Mir.MemorySib.decode(extra) },
+            });
+        },
+        .m_rip_cc => {
+            const data = emit.mir.instructions.items(.data)[inst].x_cc;
+            const extra = emit.mir.extraData(Mir.MemoryRip, data.payload).data;
+            const mnemonic = mnemonicFromConditionCode("set", data.cc);
+            return emit.encode(mnemonic, .{
+                .op1 = .{ .mem = Mir.MemoryRip.decode(extra) },
             });
         },
         else => unreachable, // TODO

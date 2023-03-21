@@ -305,40 +305,32 @@ pub fn RegisterManager(
         pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) AllocateRegistersError!void {
             const index = indexOfRegIntoTracked(reg) orelse return;
             log.debug("getReg {} for inst {?}", .{ reg, inst });
-            self.markRegAllocated(reg);
 
-            if (inst) |tracked_inst|
-                if (!self.isRegFree(reg)) {
-                    // Move the instruction that was previously there to a
-                    // stack allocation.
-                    const spilled_inst = self.registers[index];
-                    self.registers[index] = tracked_inst;
-                    try self.getFunction().spillInstruction(reg, spilled_inst);
-                } else {
-                    self.getRegAssumeFree(reg, tracked_inst);
-                }
-            else {
-                if (!self.isRegFree(reg)) {
-                    // Move the instruction that was previously there to a
-                    // stack allocation.
-                    const spilled_inst = self.registers[index];
-                    try self.getFunction().spillInstruction(reg, spilled_inst);
-                    self.freeReg(reg);
-                }
-            }
+            if (!self.isRegFree(reg)) {
+                self.markRegAllocated(reg);
+
+                // Move the instruction that was previously there to a
+                // stack allocation.
+                const spilled_inst = self.registers[index];
+                if (inst) |tracked_inst| self.registers[index] = tracked_inst;
+                try self.getFunction().spillInstruction(reg, spilled_inst);
+                if (inst == null) self.freeReg(reg);
+            } else self.getRegAssumeFree(reg, inst);
         }
 
         /// Allocates the specified register with the specified
         /// instruction. Asserts that the register is free and no
         /// spilling is necessary.
-        pub fn getRegAssumeFree(self: *Self, reg: Register, inst: Air.Inst.Index) void {
+        pub fn getRegAssumeFree(self: *Self, reg: Register, inst: ?Air.Inst.Index) void {
             const index = indexOfRegIntoTracked(reg) orelse return;
-            log.debug("getRegAssumeFree {} for inst {}", .{ reg, inst });
+            log.debug("getRegAssumeFree {} for inst {?}", .{ reg, inst });
             self.markRegAllocated(reg);
 
             assert(self.isRegFree(reg));
-            self.registers[index] = inst;
-            self.markRegUsed(reg);
+            if (inst) |tracked_inst| {
+                self.registers[index] = tracked_inst;
+                self.markRegUsed(reg);
+            }
         }
 
         /// Marks the specified register as free
