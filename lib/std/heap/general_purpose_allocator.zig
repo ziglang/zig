@@ -160,6 +160,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         backing_allocator: Allocator = std.heap.page_allocator,
         buckets: [small_bucket_count]?*BucketHeader = [1]?*BucketHeader{null} ** small_bucket_count,
         large_allocations: LargeAllocTable = .{},
+        small_alloc_sizes: if (config.safety) AllocSizeTable else void = if (config.safety) .{} else {},
         empty_buckets: if (config.retain_metadata) ?*BucketHeader else void =
             if (config.retain_metadata) null else {},
 
@@ -227,6 +228,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
         };
         const LargeAllocTable = std.AutoHashMapUnmanaged(usize, LargeAlloc);
+        const AllocSizeTable = std.AutoHashMapUnmanaged(usize, usize);
 
         // Bucket: In memory, in order:
         // * BucketHeader
@@ -430,6 +432,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 self.freeRetainedMetadata();
             }
             self.large_allocations.deinit(self.backing_allocator);
+            if (config.safety) {
+                self.small_alloc_sizes.deinit(self.backing_allocator);
+            }
             self.* = undefined;
             return leaks;
         }
@@ -706,6 +711,24 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
 
             // Definitely an in-use small alloc now.
+            if (config.safety) {
+                const entry = self.small_alloc_sizes.getEntry(@ptrToInt(old_mem.ptr)) orelse
+                    @panic("Invalid free");
+                if (old_mem.len != entry.value_ptr.*) {
+                    var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
+                    var free_stack_trace = StackTrace{
+                        .instruction_addresses = &addresses,
+                        .index = 0,
+                    };
+                    std.debug.captureStackTrace(ret_addr, &free_stack_trace);
+                    log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
+                        entry.value_ptr.*,
+                        old_mem.len,
+                        bucketStackTrace(bucket, size_class, slot_index, .alloc),
+                        free_stack_trace,
+                    });
+                }
+            }
             const prev_req_bytes = self.total_requested_bytes;
             if (config.enable_memory_limit) {
                 const new_req_bytes = prev_req_bytes + new_size - old_mem.len;
@@ -725,6 +748,10 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     log.info("small resize {d} bytes at {*} to {d}", .{
                         old_mem.len, old_mem.ptr, new_size,
                     });
+                }
+                if (config.safety) {
+                    const entry = self.small_alloc_sizes.getEntry(@ptrToInt(old_mem.ptr)).?;
+                    entry.value_ptr.* = new_size;
                 }
                 return true;
             }
@@ -796,6 +823,25 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
 
             // Definitely an in-use small alloc now.
+            if (config.safety) {
+                const entry = self.small_alloc_sizes.getEntry(@ptrToInt(old_mem.ptr)) orelse
+                    @panic("Invalid free");
+                if (old_mem.len != entry.value_ptr.*) {
+                    var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
+                    var free_stack_trace = StackTrace{
+                        .instruction_addresses = &addresses,
+                        .index = 0,
+                    };
+                    std.debug.captureStackTrace(ret_addr, &free_stack_trace);
+                    log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
+                        entry.value_ptr.*,
+                        old_mem.len,
+                        bucketStackTrace(bucket, size_class, slot_index, .alloc),
+                        free_stack_trace,
+                    });
+                }
+            }
+
             if (config.enable_memory_limit) {
                 self.total_requested_bytes -= old_mem.len;
             }
@@ -839,6 +885,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 }
             } else {
                 @memset(old_mem.ptr, undefined, old_mem.len);
+            }
+            if (config.safety) {
+                assert(self.small_alloc_sizes.remove(@ptrToInt(old_mem.ptr)));
             }
             if (config.verbose_log) {
                 log.info("small free {d} bytes at {*}", .{ old_mem.len, old_mem.ptr });
@@ -903,8 +952,15 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 return slice.ptr;
             }
 
+            if (config.safety) {
+                try self.small_alloc_sizes.ensureUnusedCapacity(self.backing_allocator, 1);
+            }
             const new_size_class = math.ceilPowerOfTwoAssert(usize, new_aligned_size);
             const ptr = try self.allocSlot(new_size_class, ret_addr);
+            if (config.safety) {
+                const gop = self.small_alloc_sizes.getOrPutAssumeCapacity(@ptrToInt(ptr));
+                gop.value_ptr.* = len;
+            }
             if (config.verbose_log) {
                 log.info("small alloc {d} bytes at {*}", .{ len, ptr });
             }
