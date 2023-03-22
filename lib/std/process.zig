@@ -1093,7 +1093,7 @@ pub const can_execv = switch (builtin.os.tag) {
 
 /// Tells whether spawning child processes is supported (e.g. via ChildProcess)
 pub const can_spawn = switch (builtin.os.tag) {
-    .wasi => false,
+    .wasi, .watchos, .tvos => false,
     else => true,
 };
 
