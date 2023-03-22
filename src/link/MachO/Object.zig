@@ -239,6 +239,12 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
         self.strtab_lookup[i] = @intCast(u32, sym_name_len);
     }
 
+    // If there were no undefined symbols, make sure we populate the
+    // source section index lookup for the last scanned section.
+    if (section_index_lookup) |lookup| {
+        self.source_section_index_lookup[prev_sect_id - 1] = lookup;
+    }
+
     // Parse __TEXT,__eh_frame header if one exists
     self.eh_frame_sect_id = self.getSourceSectionIndexByName("__TEXT", "__eh_frame");
 
