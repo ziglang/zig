@@ -1884,13 +1884,9 @@ pub const Zld = struct {
                 if (should_rebase) {
                     log.debug("  ATOM({d}, %{d}, '{s}')", .{ atom_index, atom.sym_index, self.getSymbolName(atom.getSymbolWithLoc()) });
 
-                    const object = self.objects.items[atom.getFile().?];
-                    const base_rel_offset: i32 = blk: {
-                        const source_sym = object.getSourceSymbol(atom.sym_index) orelse break :blk 0;
-                        const source_sect = object.getSourceSection(source_sym.n_sect - 1);
-                        break :blk @intCast(i32, source_sym.n_value - source_sect.addr);
-                    };
+                    const code = Atom.getAtomCode(self, atom_index);
                     const relocs = Atom.getAtomRelocs(self, atom_index);
+                    const ctx = Atom.getRelocContext(self, atom_index);
 
                     for (relocs) |rel| {
                         switch (cpu_arch) {
@@ -1906,12 +1902,18 @@ pub const Zld = struct {
                             },
                             else => unreachable,
                         }
-                        const target = Atom.parseRelocTarget(self, atom_index, rel);
+                        const target = Atom.parseRelocTarget(self, .{
+                            .object_id = atom.getFile().?,
+                            .rel = rel,
+                            .code = code,
+                            .base_offset = ctx.base_offset,
+                            .base_addr = ctx.base_addr,
+                        });
                         const target_sym = self.getSymbol(target);
                         if (target_sym.undf()) continue;
 
                         const base_offset = @intCast(i32, sym.n_value - segment.vmaddr);
-                        const rel_offset = rel.r_address - base_rel_offset;
+                        const rel_offset = rel.r_address - ctx.base_offset;
                         const offset = @intCast(u64, base_offset + rel_offset);
                         log.debug("    | rebase at {x}", .{offset});
 
@@ -2021,13 +2023,9 @@ pub const Zld = struct {
                 };
 
                 if (should_bind) {
-                    const object = self.objects.items[atom.getFile().?];
-                    const base_rel_offset: i32 = blk: {
-                        const source_sym = object.getSourceSymbol(atom.sym_index) orelse break :blk 0;
-                        const source_sect = object.getSourceSection(source_sym.n_sect - 1);
-                        break :blk @intCast(i32, source_sym.n_value - source_sect.addr);
-                    };
+                    const code = Atom.getAtomCode(self, atom_index);
                     const relocs = Atom.getAtomRelocs(self, atom_index);
+                    const ctx = Atom.getRelocContext(self, atom_index);
 
                     for (relocs) |rel| {
                         switch (cpu_arch) {
@@ -2044,15 +2042,20 @@ pub const Zld = struct {
                             else => unreachable,
                         }
 
-                        const global = Atom.parseRelocTarget(self, atom_index, rel);
+                        const global = Atom.parseRelocTarget(self, .{
+                            .object_id = atom.getFile().?,
+                            .rel = rel,
+                            .code = code,
+                            .base_offset = ctx.base_offset,
+                            .base_addr = ctx.base_addr,
+                        });
                         const bind_sym_name = self.getSymbolName(global);
                         const bind_sym = self.getSymbol(global);
                         if (!bind_sym.undf()) continue;
 
                         const base_offset = sym.n_value - segment.vmaddr;
-                        const rel_offset = @intCast(u32, rel.r_address - base_rel_offset);
+                        const rel_offset = @intCast(u32, rel.r_address - ctx.base_offset);
                         const offset = @intCast(u64, base_offset + rel_offset);
-                        const code = Atom.getAtomCode(self, atom_index);
                         const addend = mem.readIntLittle(i64, code[rel_offset..][0..8]);
 
                         const dylib_ordinal = @divTrunc(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER);

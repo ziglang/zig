@@ -735,13 +735,12 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
                         assert(rel_pos.len > 0); // TODO convert to an error as the FDE eh frame is malformed
                         // Find function symbol that this record describes
                         const rel = relocs[rel_pos.start..][rel_pos.len - 1];
-                        const target = UnwindInfo.parseRelocTarget(
-                            zld,
-                            object_id,
-                            rel,
-                            it.data[offset..],
-                            @intCast(i32, offset),
-                        );
+                        const target = Atom.parseRelocTarget(zld, .{
+                            .object_id = object_id,
+                            .rel = rel,
+                            .code = it.data[offset..],
+                            .base_offset = @intCast(i32, offset),
+                        });
                         break :blk target;
                     },
                     .x86_64 => {
@@ -825,13 +824,12 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
 
         // Find function symbol that this record describes
         const rel = relocs[rel_pos.start..][rel_pos.len - 1];
-        const target = UnwindInfo.parseRelocTarget(
-            zld,
-            object_id,
-            rel,
-            mem.asBytes(&record),
-            @intCast(i32, offset),
-        );
+        const target = Atom.parseRelocTarget(zld, .{
+            .object_id = object_id,
+            .rel = rel,
+            .code = mem.asBytes(&record),
+            .base_offset = @intCast(i32, offset),
+        });
         log.debug("unwind record {d} tracks {s}", .{ record_id, zld.getSymbolName(target) });
         if (target.getFile() != object_id) {
             self.unwind_relocs_lookup[record_id].dead = true;
