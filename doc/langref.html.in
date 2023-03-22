@@ -5465,7 +5465,7 @@ fn doAThing(str: []u8) void {
          // do things
          break :blk 13;
      };
-    _ = number; // ...
+    _ = number; // number is now initialized
 }
       {#code_end#}
       {#header_close#}
@@ -5538,7 +5538,6 @@ fn doADifferentThing(str: []u8) void {
         doSomethingWithNumber(number);
     } else |_| {
         // do as you'd like
-        unreachable;
     }
 }
       {#end_syntax_block#}
