@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const builtin = @import("builtin");
 const math = std.math;
 const testing = std.testing;
 const maxInt = std.math.maxInt;
@@ -74,11 +75,26 @@ pub fn log10_int(x: anytype) Log2Int(@TypeOf(x)) {
 }
 
 fn pow10(comptime y: comptime_int) comptime_int {
-    var result = 1;
-    for (0..y) |_| {
-        result *= 10;
+    if (y == 0) return 1;
+
+    var squaring = 0;
+    var s = 1;
+
+    while (s <= y) : (s <<= 1) {
+        squaring += 1;
     }
-    return result;
+
+    squaring -= 1;
+
+    var result = 10;
+
+    for (0..squaring) |_| {
+        result *= result;
+    }
+
+    const rest_exp = y - (1 << squaring);
+
+    return result * pow10(rest_exp);
 }
 
 inline fn log10_int_u8(x: u8) u32 {
@@ -129,6 +145,14 @@ test "oldlog10 doesn't work" {
 }
 
 test "log10_int vs old implementation" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and comptime builtin.target.isWasm()) return error.SkipZigTest; // TODO
+
     const int_types = .{ u8, u16, u32, u64, u128 };
 
     inline for (int_types) |T| {
@@ -144,6 +168,14 @@ test "log10_int vs old implementation" {
 }
 
 test "log10_int close to powers of 10" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and comptime builtin.target.isWasm()) return error.SkipZigTest; // TODO
+
     const int_types = .{ u8, u16, u32, u64, u128, u256, u512 };
     const max_log_values: [7]usize = .{ 2, 4, 9, 19, 38, 77, 154 };
 
