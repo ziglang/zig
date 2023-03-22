@@ -17,7 +17,6 @@ const Os = std.builtin.Os;
 const TailQueue = std.TailQueue;
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
-const is_darwin = builtin.target.isDarwin();
 
 pub const ChildProcess = struct {
     pub const Id = switch (builtin.os.tag) {
@@ -77,7 +76,7 @@ pub const ChildProcess = struct {
     /// requested statistics may or may not be available. If they are
     /// available, then the `resource_usage_statistics` field will be populated
     /// after calling `wait`.
-    /// On Linux, this obtains rusage statistics from wait4().
+    /// On Linux and Darwin, this obtains rusage statistics from wait4().
     request_resource_usage_statistics: bool = false,
 
     /// This is available after calling wait if
@@ -106,12 +105,20 @@ pub const ChildProcess = struct {
                         return null;
                     }
                 },
+                .macos, .ios => {
+                    if (rus.rusage) |ru| {
+                        // Darwin oddly reports in bytes instead of kilobytes.
+                        return @intCast(usize, ru.maxrss);
+                    } else {
+                        return null;
+                    }
+                },
                 else => return null,
             }
         }
 
         const rusage_init = switch (builtin.os.tag) {
-            .linux => @as(?std.os.rusage, null),
+            .linux, .macos, .ios => @as(?std.os.rusage, null),
             .windows => @as(?windows.VM_COUNTERS, null),
             else => {},
         };
@@ -385,11 +392,16 @@ pub const ChildProcess = struct {
 
     fn waitUnwrapped(self: *ChildProcess) !void {
         const res: os.WaitPidResult = res: {
-            if (builtin.os.tag == .linux and self.request_resource_usage_statistics) {
-                var ru: std.os.rusage = undefined;
-                const res = os.wait4(self.id, 0, &ru);
-                self.resource_usage_statistics.rusage = ru;
-                break :res res;
+            if (self.request_resource_usage_statistics) {
+                switch (builtin.os.tag) {
+                    .linux, .macos, .ios => {
+                        var ru: std.os.rusage = undefined;
+                        const res = os.wait4(self.id, 0, &ru);
+                        self.resource_usage_statistics.rusage = ru;
+                        break :res res;
+                    },
+                    else => {},
+                }
             }
 
             break :res os.waitpid(self.id, 0);
