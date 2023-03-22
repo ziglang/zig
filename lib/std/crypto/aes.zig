@@ -14,6 +14,12 @@ impl: {
     break :impl @import("aes/soft.zig");
 };
 
+/// `true` if AES is backed by hardware (AES-NI on x86_64, ARM Crypto Extensions on AArch64).
+/// Software implementations are much slower, and should be avoided if possible.
+pub const has_hardware_support =
+    (builtin.cpu.arch == .x86_64 and has_aesni and has_avx) or
+    (builtin.cpu.arch == .aarch64 and has_armaes);
+
 pub const Block = impl.Block;
 pub const AesEncryptCtx = impl.AesEncryptCtx;
 pub const AesDecryptCtx = impl.AesDecryptCtx;
