@@ -137,6 +137,7 @@ pub const ChildProcess = struct {
         os.SetIdError ||
         os.ChangeCurDirError ||
         windows.CreateProcessError ||
+        windows.GetProcessMemoryInfoError ||
         windows.WaitForSingleObjectError;
 
     pub const Term = union(enum) {
@@ -374,9 +375,8 @@ pub const ChildProcess = struct {
 
         if (self.request_resource_usage_statistics) {
             var pmc: windows.PROCESS_MEMORY_COUNTERS = undefined;
-            if (windows.kernel32.K32GetProcessMemoryInfo(self.id, &pmc, @sizeOf(windows.PROCESS_MEMORY_COUNTERS)) != 0) {
-                self.resource_usage_statistics.rusage = pmc;
-            }
+            try windows.GetProcessMemoryInfo(self.id, &pmc);
+            self.resource_usage_statistics.rusage = pmc;
         }
 
         os.close(self.id);
