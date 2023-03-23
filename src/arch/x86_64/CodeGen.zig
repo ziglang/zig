@@ -214,11 +214,6 @@ const StackAllocation = struct {
 
 const BlockData = struct {
     relocs: std.ArrayListUnmanaged(Mir.Inst.Index),
-    /// The first break instruction encounters `null` here and chooses a
-    /// machine code value for the block result, populating this field.
-    /// Following break instructions encounter that value and use it for
-    /// the location to store their block results.
-    mcv: MCValue,
 };
 
 const BigTomb = struct {
@@ -1078,16 +1073,12 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
                 var it = self.register_manager.free_registers.iterator(.{ .kind = .unset });
                 while (it.next()) |index| {
                     const tracked_inst = self.register_manager.registers[index];
-                    switch (air_tags[tracked_inst]) {
-                        .block => {},
-                        else => assert(RegisterManager.indexOfRegIntoTracked(
-                            switch (self.getResolvedInstValue(tracked_inst).?) {
-                                .register => |reg| reg,
-                                .register_overflow => |ro| ro.reg,
-                                else => unreachable,
-                            },
-                        ).? == index),
-                    }
+                    const tracked_mcv = self.getResolvedInstValue(tracked_inst).?.*;
+                    assert(RegisterManager.indexOfRegIntoTracked(switch (tracked_mcv) {
+                        .register => |reg| reg,
+                        .register_overflow => |ro| ro.reg,
+                        else => unreachable,
+                    }).? == index);
                 }
             }
         }
@@ -1114,7 +1105,7 @@ fn freeValue(self: *Self, value: MCValue) void {
 fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     const air_tags = self.air.instructions.items(.tag);
     if (air_tags[inst] == .constant) return; // Constants are immortal.
-    const prev_value = self.getResolvedInstValue(inst) orelse return;
+    const prev_value = (self.getResolvedInstValue(inst) orelse return).*;
     log.debug("%{d} => {}", .{ inst, MCValue.dead });
     // When editing this function, note that the logic must synchronize with `reuseOperand`.
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -1259,45 +1250,29 @@ fn allocRegOrMemAdvanced(self: *Self, elem_ty: Type, inst: ?Air.Inst.Index, reg_
 }
 
 const State = struct {
-    next_stack_offset: u32,
     registers: abi.RegisterManager.TrackedRegisters,
     free_registers: abi.RegisterManager.RegisterBitSet,
     eflags_inst: ?Air.Inst.Index,
-    stack: std.AutoHashMapUnmanaged(u32, StackAllocation),
-
-    fn deinit(state: *State, gpa: Allocator) void {
-        state.stack.deinit(gpa);
-    }
 };
 
-fn captureState(self: *Self) !State {
+fn captureState(self: *Self) State {
     return State{
-        .next_stack_offset = self.next_stack_offset,
         .registers = self.register_manager.registers,
         .free_registers = self.register_manager.free_registers,
         .eflags_inst = self.eflags_inst,
-        .stack = try self.stack.clone(self.gpa),
     };
 }
 
-fn revertState(self: *Self, state: State) !void {
-    var stack = try state.stack.clone(self.gpa);
-    errdefer stack.deinit(self.gpa);
-
-    self.register_manager.registers = state.registers;
+fn revertState(self: *Self, state: State) void {
     self.eflags_inst = state.eflags_inst;
-
-    self.stack.deinit(self.gpa);
-    self.stack = stack;
-
-    self.next_stack_offset = state.next_stack_offset;
     self.register_manager.free_registers = state.free_registers;
+    self.register_manager.registers = state.registers;
 }
 
 pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void {
     const stack_mcv = try self.allocRegOrMem(inst, false);
     log.debug("spilling %{d} to stack mcv {any}", .{ inst, stack_mcv });
-    const reg_mcv = self.getResolvedInstValue(inst).?;
+    const reg_mcv = self.getResolvedInstValue(inst).?.*;
     switch (reg_mcv) {
         .register => |other| {
             assert(reg.to64() == other.to64());
@@ -1314,7 +1289,7 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
 
 pub fn spillEflagsIfOccupied(self: *Self) !void {
     if (self.eflags_inst) |inst_to_save| {
-        const mcv = self.getResolvedInstValue(inst_to_save).?;
+        const mcv = self.getResolvedInstValue(inst_to_save).?.*;
         const new_mcv = switch (mcv) {
             .register_overflow => try self.allocRegOrMem(inst_to_save, false),
             .eflags => try self.allocRegOrMem(inst_to_save, true),
@@ -2607,7 +2582,7 @@ fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const index_ty = self.air.typeOf(bin_op.rhs);
     const index = try self.resolveInst(bin_op.rhs);
     const index_lock: ?RegisterLock = switch (index) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+        .register => |reg| self.register_manager.lockReg(reg),
         else => null,
     };
     defer if (index_lock) |lock| self.register_manager.unlockReg(lock);
@@ -2656,7 +2631,7 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     const index_ty = self.air.typeOf(extra.rhs);
     const index = try self.resolveInst(extra.rhs);
     const index_lock: ?RegisterLock = switch (index) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+        .register => |reg| self.register_manager.lockReg(reg),
         else => null,
     };
     defer if (index_lock) |lock| self.register_manager.unlockReg(lock);
@@ -3202,8 +3177,8 @@ fn reuseOperand(
         .register => |reg| {
             // If it's in the registers table, need to associate the register with the
             // new instruction.
-            if (RegisterManager.indexOfRegIntoTracked(reg)) |index| {
-                if (!self.register_manager.isRegFree(reg)) {
+            if (!self.register_manager.isRegFree(reg)) {
+                if (RegisterManager.indexOfRegIntoTracked(reg)) |index| {
                     self.register_manager.registers[index] = inst;
                 }
             }
@@ -3542,7 +3517,7 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
     const value_ty = self.air.typeOf(bin_op.rhs);
     log.debug("airStore(%{d}): {} <- {}", .{ inst, ptr, value });
     try self.store(ptr, value, ptr_ty, value_ty);
-    return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+    return self.finishAir(inst, .none, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) !void {
@@ -5270,8 +5245,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     // Capture the state of register and stack allocation state so that we can revert to it.
-    var saved_state = try self.captureState();
-    defer saved_state.deinit(self.gpa);
+    const saved_state = self.captureState();
 
     {
         try self.branch_stack.append(.{});
@@ -5289,7 +5263,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     var then_branch = self.branch_stack.pop();
     defer then_branch.deinit(self.gpa);
 
-    try self.revertState(saved_state);
+    self.revertState(saved_state);
 
     try self.performReloc(reloc);
 
@@ -5632,14 +5606,20 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     try self.blocks.putNoClobber(self.gpa, inst, .{
         // A block is a setup to be able to jump to the end.
         .relocs = .{},
-        // It also acts as a receptacle for break operands.
-        // Here we use `MCValue.none` to represent a null value so that the first
-        // break instruction will choose a MCValue for the block result and overwrite
-        // this field. Following break instructions will use that MCValue to put their
-        // block results.
-        .mcv = if (self.liveness.isUnused(inst)) .dead else .none,
     });
     defer self.blocks.getPtr(inst).?.relocs.deinit(self.gpa);
+
+    {
+        // Here we use `.none` to represent a null value so that the first break
+        // instruction will choose a MCValue for the block result and overwrite
+        // this field. Following break instructions will use that MCValue to put
+        // their block results.
+        const ty = self.air.typeOfIndex(inst);
+        const result: MCValue =
+            if (!ty.hasRuntimeBitsIgnoreComptime() or self.liveness.isUnused(inst)) .dead else .none;
+        const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+        branch.inst_table.putAssumeCapacityNoClobber(inst, result);
+    }
 
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.Block, ty_pl.payload);
@@ -5647,9 +5627,7 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     try self.genBody(body);
 
     for (self.blocks.getPtr(inst).?.relocs.items) |reloc| try self.performReloc(reloc);
-
-    const result = self.blocks.getPtr(inst).?.mcv;
-    return self.finishAir(inst, result, .{ .none, .none, .none });
+    self.finishAirBookkeeping();
 }
 
 fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
@@ -5687,8 +5665,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     defer if (prev_branch) |*branch| branch.deinit(self.gpa);
 
     // Capture the state of register and stack allocation state so that we can revert to it.
-    var saved_state = try self.captureState();
-    defer saved_state.deinit(self.gpa);
+    const saved_state = self.captureState();
 
     const cases_len = switch_br.data.cases_len + @boolToInt(switch_br.data.else_body_len > 0);
     while (case_i < switch_br.data.cases_len) : (case_i += 1) {
@@ -5698,7 +5675,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         extra_index = case.end + items.len + case_body.len;
 
         // Revert to the previous register and stack allocation state.
-        if (prev_branch) |_| try self.revertState(saved_state);
+        if (prev_branch) |_| self.revertState(saved_state);
 
         var relocs = try self.gpa.alloc(u32, items.len);
         defer self.gpa.free(relocs);
@@ -5742,7 +5719,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
 
         // Revert to the previous register and stack allocation state.
-        if (prev_branch) |_| try self.revertState(saved_state);
+        if (prev_branch) |_| self.revertState(saved_state);
 
         {
             if (cases_len > 1) try self.branch_stack.append(.{});
@@ -5801,7 +5778,7 @@ fn canonicaliseBranches(
             if (target_value == .dead) continue;
             // The instruction is only overridden in the else branch.
             // If integer overflows occurs, the question is: why wasn't the instruction marked dead?
-            break :blk self.getResolvedInstValue(target_key).?;
+            break :blk self.getResolvedInstValue(target_key).?.*;
         };
         log.debug("consolidating target_entry {d} {}=>{}", .{ target_key, target_value, canon_mcv });
         // TODO make sure the destination stack offset / register does not already have something
@@ -5816,17 +5793,18 @@ fn canonicaliseBranches(
         // We already deleted the items from this table that matched the target_branch.
         // So these are all instructions that are only overridden in the canon branch.
         const parent_mcv =
-            if (canon_value != .dead) self.getResolvedInstValue(canon_key).? else undefined;
+            if (canon_value != .dead) self.getResolvedInstValue(canon_key).?.* else undefined;
+        if (canon_value != .dead) {
+            log.debug("consolidating canon_entry {d} {}=>{}", .{ canon_key, parent_mcv, canon_value });
+            // TODO make sure the destination stack offset / register does not already have something
+            // going on there.
+            try self.setRegOrMem(self.air.typeOfIndex(canon_key), canon_value, parent_mcv);
+            self.freeValue(parent_mcv);
+            // TODO track the new register / stack allocation
+        }
         if (update_parent) {
             parent_branch.inst_table.putAssumeCapacity(canon_key, canon_value);
         }
-        if (canon_value == .dead) continue;
-        log.debug("consolidating canon_entry {d} {}=>{}", .{ canon_key, parent_mcv, canon_value });
-        // TODO make sure the destination stack offset / register does not already have something
-        // going on there.
-        try self.setRegOrMem(self.air.typeOfIndex(canon_key), canon_value, parent_mcv);
-        self.freeValue(parent_mcv);
-        // TODO track the new register / stack allocation
     }
 }
 
@@ -5845,27 +5823,41 @@ fn performReloc(self: *Self, reloc: Mir.Inst.Index) !void {
 
 fn airBr(self: *Self, inst: Air.Inst.Index) !void {
     const branch = self.air.instructions.items(.data)[inst].br;
-    try self.br(branch.block_inst, branch.operand);
+    try self.br(inst, branch.block_inst, branch.operand);
     return self.finishAir(inst, .dead, .{ branch.operand, .none, .none });
 }
 
-fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
-    const block_data = self.blocks.getPtr(block).?;
-    if (block_data.mcv != .dead and self.air.typeOf(operand).hasRuntimeBits()) {
-        const operand_mcv = try self.resolveInst(operand);
-        if (block_data.mcv == .none) {
-            block_data.mcv = switch (operand_mcv) {
-                .none, .dead, .unreach => unreachable,
-                .register, .stack_offset, .memory => operand_mcv,
-                .eflags, .immediate, .ptr_stack_offset => blk: {
-                    const new_mcv = try self.allocRegOrMem(block, true);
-                    try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
-                    break :blk new_mcv;
-                },
-                else => return self.fail("TODO implement block_data.mcv = operand_mcv for {}", .{operand_mcv}),
-            };
-        } else {
-            try self.setRegOrMem(self.air.typeOfIndex(block), block_data.mcv, operand_mcv);
+fn br(self: *Self, inst: Air.Inst.Index, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
+    // The first break instruction encounters `.none` here and chooses a
+    // machine code value for the block result, populating this field.
+    // Following break instructions encounter that value and use it for
+    // the location to store their block results.
+    if (self.getResolvedInstValue(block)) |dst_mcv| {
+        const src_mcv = try self.resolveInst(operand);
+        switch (dst_mcv.*) {
+            .none => {
+                const result = result: {
+                    if (!self.reuseOperand(inst, operand, 0, src_mcv)) {
+                        const new_mcv = try self.allocRegOrMem(block, true);
+                        try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, src_mcv);
+                        break :result new_mcv;
+                    }
+
+                    // the value is actually tracked with block, not inst
+                    switch (src_mcv) {
+                        .register => |reg| if (!self.register_manager.isRegFree(reg)) {
+                            if (RegisterManager.indexOfRegIntoTracked(reg)) |index| {
+                                self.register_manager.registers[index] = block;
+                            }
+                        },
+                        .stack_offset => {},
+                        else => unreachable,
+                    }
+                    break :result src_mcv;
+                };
+                dst_mcv.* = result;
+            },
+            else => try self.setRegOrMem(self.air.typeOfIndex(block), dst_mcv.*, src_mcv),
         }
     }
     return self.brVoid(block);
@@ -7243,17 +7235,17 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
             return gop.value_ptr.*;
         },
         .const_ty => unreachable,
-        else => return self.getResolvedInstValue(inst_index).?,
+        else => return self.getResolvedInstValue(inst_index).?.*,
     }
 }
 
-fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) ?MCValue {
+fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) ?*MCValue {
     // Treat each stack item as a "layer" on top of the previous one.
     var i: usize = self.branch_stack.items.len;
     while (true) {
         i -= 1;
-        if (self.branch_stack.items[i].inst_table.get(inst)) |mcv| {
-            return if (mcv != .dead) mcv else null;
+        if (self.branch_stack.items[i].inst_table.getPtr(inst)) |mcv| {
+            return if (mcv.* != .dead) mcv else null;
         }
     }
 }
