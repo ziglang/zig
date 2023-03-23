@@ -58,6 +58,16 @@ pub fn runAndCompare(self: *CheckObjectStep) *std.Build.RunStep {
     return run;
 }
 
+const SearchPhrase = struct {
+    string: []const u8,
+    file_source: ?std.Build.FileSource = null,
+
+    fn resolve(phrase: SearchPhrase, b: *std.Build, step: *Step) []const u8 {
+        const file_source = phrase.file_source orelse return phrase.string;
+        return b.fmt("{s} {s}", .{ phrase.string, file_source.getPath2(b, step) });
+    }
+};
+
 /// There two types of actions currently suported:
 /// * `.match` - is the main building block of standard matchers with optional eat-all token `{*}`
 /// and extractors by name such as `{n_value}`. Please note this action is very simplistic in nature
@@ -72,7 +82,7 @@ pub fn runAndCompare(self: *CheckObjectStep) *std.Build.RunStep {
 /// they could then be added with this simple program `vmaddr entryoff +`.
 const Action = struct {
     tag: enum { match, not_present, compute_cmp },
-    phrase: []const u8,
+    phrase: SearchPhrase,
     expected: ?ComputeCompareExpected = null,
 
     /// Will return true if the `phrase` was found in the `haystack`.
@@ -83,12 +93,18 @@ const Action = struct {
     ///                             and save under `vmaddr` global name (see `global_vars` param)
     /// name {*}libobjc{*}.dylib => will match `name` followed by a token which contains `libobjc` and `.dylib`
     ///                             in that order with other letters in between
-    fn match(act: Action, haystack: []const u8, global_vars: anytype) !bool {
+    fn match(
+        act: Action,
+        b: *std.Build,
+        step: *Step,
+        haystack: []const u8,
+        global_vars: anytype,
+    ) !bool {
         assert(act.tag == .match or act.tag == .not_present);
-
+        const phrase = act.phrase.resolve(b, step);
         var candidate_var: ?struct { name: []const u8, value: u64 } = null;
         var hay_it = mem.tokenize(u8, mem.trim(u8, haystack, " "), " ");
-        var needle_it = mem.tokenize(u8, mem.trim(u8, act.phrase, " "), " ");
+        var needle_it = mem.tokenize(u8, mem.trim(u8, phrase, " "), " ");
 
         while (needle_it.next()) |needle_tok| {
             const hay_tok = hay_it.next() orelse return false;
@@ -133,12 +149,13 @@ const Action = struct {
     /// Will return true if the `phrase` is correctly parsed into an RPN program and
     /// its reduced, computed value compares using `op` with the expected value, either
     /// a literal or another extracted variable.
-    fn computeCmp(act: Action, step: *Step, global_vars: anytype) !bool {
+    fn computeCmp(act: Action, b: *std.Build, step: *Step, global_vars: anytype) !bool {
         const gpa = step.owner.allocator;
+        const phrase = act.phrase.resolve(b, step);
         var op_stack = std.ArrayList(enum { add, sub, mod, mul }).init(gpa);
         var values = std.ArrayList(u64).init(gpa);
 
-        var it = mem.tokenize(u8, act.phrase, " ");
+        var it = mem.tokenize(u8, phrase, " ");
         while (it.next()) |next| {
             if (mem.eql(u8, next, "+")) {
                 try op_stack.append(.add);
@@ -225,34 +242,32 @@ const ComputeCompareExpected = struct {
 };
 
 const Check = struct {
-    builder: *std.Build,
     actions: std.ArrayList(Action),
 
-    fn create(b: *std.Build) Check {
+    fn create(allocator: Allocator) Check {
         return .{
-            .builder = b,
-            .actions = std.ArrayList(Action).init(b.allocator),
+            .actions = std.ArrayList(Action).init(allocator),
         };
     }
 
-    fn match(self: *Check, phrase: []const u8) void {
+    fn match(self: *Check, phrase: SearchPhrase) void {
         self.actions.append(.{
             .tag = .match,
-            .phrase = self.builder.dupe(phrase),
+            .phrase = phrase,
         }) catch @panic("OOM");
     }
 
-    fn notPresent(self: *Check, phrase: []const u8) void {
+    fn notPresent(self: *Check, phrase: SearchPhrase) void {
         self.actions.append(.{
             .tag = .not_present,
-            .phrase = self.builder.dupe(phrase),
+            .phrase = phrase,
         }) catch @panic("OOM");
     }
 
-    fn computeCmp(self: *Check, phrase: []const u8, expected: ComputeCompareExpected) void {
+    fn computeCmp(self: *Check, phrase: SearchPhrase, expected: ComputeCompareExpected) void {
         self.actions.append(.{
             .tag = .compute_cmp,
-            .phrase = self.builder.dupe(phrase),
+            .phrase = phrase,
             .expected = expected,
         }) catch @panic("OOM");
     }
@@ -260,8 +275,8 @@ const Check = struct {
 
 /// Creates a new sequence of actions with `phrase` as the first anchor searched phrase.
 pub fn checkStart(self: *CheckObjectStep, phrase: []const u8) void {
-    var new_check = Check.create(self.step.owner);
-    new_check.match(phrase);
+    var new_check = Check.create(self.step.owner.allocator);
+    new_check.match(.{ .string = self.step.owner.dupe(phrase) });
     self.checks.append(new_check) catch @panic("OOM");
 }
 
@@ -270,7 +285,19 @@ pub fn checkStart(self: *CheckObjectStep, phrase: []const u8) void {
 pub fn checkNext(self: *CheckObjectStep, phrase: []const u8) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
-    last.match(phrase);
+    last.match(.{ .string = self.step.owner.dupe(phrase) });
+}
+
+/// Like `checkNext()` but takes an additional argument `FileSource` which will be
+/// resolved to a full search query in `make()`.
+pub fn checkNextFileSource(
+    self: *CheckObjectStep,
+    phrase: []const u8,
+    file_source: std.Build.FileSource,
+) void {
+    assert(self.checks.items.len > 0);
+    const last = &self.checks.items[self.checks.items.len - 1];
+    last.match(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
 }
 
 /// Adds another searched phrase to the latest created Check with `CheckObjectStep.checkStart(...)`
@@ -279,7 +306,7 @@ pub fn checkNext(self: *CheckObjectStep, phrase: []const u8) void {
 pub fn checkNotPresent(self: *CheckObjectStep, phrase: []const u8) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
-    last.notPresent(phrase);
+    last.notPresent(.{ .string = self.step.owner.dupe(phrase) });
 }
 
 /// Creates a new check checking specifically symbol table parsed and dumped from the object
@@ -302,8 +329,8 @@ pub fn checkComputeCompare(
     program: []const u8,
     expected: ComputeCompareExpected,
 ) void {
-    var new_check = Check.create(self.step.owner);
-    new_check.computeCmp(program, expected);
+    var new_check = Check.create(self.step.owner.allocator);
+    new_check.computeCmp(.{ .string = self.step.owner.dupe(program) }, expected);
     self.checks.append(new_check) catch @panic("OOM");
 }
 
@@ -343,7 +370,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             switch (act.tag) {
                 .match => {
                     while (it.next()) |line| {
-                        if (try act.match(line, &vars)) break;
+                        if (try act.match(b, step, line, &vars)) break;
                     } else {
                         return step.fail(
                             \\
@@ -352,12 +379,12 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             \\========= but parsed file does not contain it: =======
                             \\{s}
                             \\======================================================
-                        , .{ act.phrase, output });
+                        , .{ act.phrase.resolve(b, step), output });
                     }
                 },
                 .not_present => {
                     while (it.next()) |line| {
-                        if (try act.match(line, &vars)) {
+                        if (try act.match(b, step, line, &vars)) {
                             return step.fail(
                                 \\
                                 \\========= expected not to find: ===================
@@ -365,12 +392,12 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                                 \\========= but parsed file does contain it: ========
                                 \\{s}
                                 \\===================================================
-                            , .{ act.phrase, output });
+                            , .{ act.phrase.resolve(b, step), output });
                         }
                     }
                 },
                 .compute_cmp => {
-                    const res = act.computeCmp(step, vars) catch |err| switch (err) {
+                    const res = act.computeCmp(b, step, vars) catch |err| switch (err) {
                         error.UnknownVariable => {
                             return step.fail(
                                 \\========= from parsed file: =====================
@@ -388,7 +415,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             \\========= from parsed file: =======================
                             \\{s}
                             \\===================================================
-                        , .{ act.phrase, act.expected.?, output });
+                        , .{ act.phrase.resolve(b, step), act.expected.?, output });
                     }
                 },
             }
