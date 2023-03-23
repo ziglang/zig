@@ -3340,36 +3340,19 @@ fn collectExportData(self: *MachO, trie: *Trie) !void {
     const exec_segment = self.segments.items[self.header_segment_cmd_index.?];
     const base_address = exec_segment.vmaddr;
 
-    if (self.base.options.output_mode == .Exe) {
-        for (&[_]SymbolWithLoc{
-            try self.getEntryPoint(),
-            self.getGlobal("__mh_execute_header").?,
-        }) |global| {
-            const sym = self.getSymbol(global);
-            const sym_name = self.getSymbolName(global);
-            log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
-            try trie.put(gpa, .{
-                .name = sym_name,
-                .vmaddr_offset = sym.n_value - base_address,
-                .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
-            });
-        }
-    } else {
-        assert(self.base.options.output_mode == .Lib);
-        for (self.globals.items) |global| {
-            const sym = self.getSymbol(global);
+    for (self.globals.items) |global| {
+        const sym = self.getSymbol(global);
 
-            if (sym.undf()) continue;
-            if (!sym.ext()) continue;
+        if (sym.undf()) continue;
+        if (!sym.ext()) continue;
 
-            const sym_name = self.getSymbolName(global);
-            log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
-            try trie.put(gpa, .{
-                .name = sym_name,
-                .vmaddr_offset = sym.n_value - base_address,
-                .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
-            });
-        }
+        const sym_name = self.getSymbolName(global);
+        log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
+        try trie.put(gpa, .{
+            .name = sym_name,
+            .vmaddr_offset = sym.n_value - base_address,
+            .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
+        });
     }
 
     try trie.finalize(gpa);

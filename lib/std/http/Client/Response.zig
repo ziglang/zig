@@ -74,8 +74,6 @@ pub const Headers = struct {
                 if (headers.content_length != null) return error.HttpHeadersInvalid;
                 headers.content_length = try std.fmt.parseInt(u64, header_value, 10);
             } else if (std.ascii.eqlIgnoreCase(header_name, "transfer-encoding")) {
-                if (headers.transfer_encoding != null or headers.transfer_compression != null) return error.HttpHeadersInvalid;
-
                 // Transfer-Encoding: second, first
                 // Transfer-Encoding: deflate, chunked
                 var iter = std.mem.splitBackwards(u8, header_value, ",");
@@ -84,8 +82,10 @@ pub const Headers = struct {
                     const trimmed = std.mem.trim(u8, first, " ");
 
                     if (std.meta.stringToEnum(http.TransferEncoding, trimmed)) |te| {
+                        if (headers.transfer_encoding != null) return error.HttpHeadersInvalid;
                         headers.transfer_encoding = te;
                     } else if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                        if (headers.transfer_compression != null) return error.HttpHeadersInvalid;
                         headers.transfer_compression = ce;
                     } else {
                         return error.HttpTransferEncodingUnsupported;
