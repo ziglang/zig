@@ -41,13 +41,13 @@ fn listToSpan(p: *Parse, list: []const Node.Index) !Node.SubRange {
     };
 }
 
-fn addNode(p: *Parse, elem: Ast.NodeList.Elem) Allocator.Error!Node.Index {
+fn addNode(p: *Parse, elem: Ast.Node) Allocator.Error!Node.Index {
     const result = @intCast(Node.Index, p.nodes.len);
     try p.nodes.append(p.gpa, elem);
     return result;
 }
 
-fn setNode(p: *Parse, i: usize, elem: Ast.NodeList.Elem) Node.Index {
+fn setNode(p: *Parse, i: usize, elem: Ast.Node) Node.Index {
     p.nodes.set(i, elem);
     return @intCast(Node.Index, i);
 }
