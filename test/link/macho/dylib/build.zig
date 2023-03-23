@@ -1,11 +1,19 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{});
-    const target: std.zig.CrossTarget = .{ .os_tag = .macos };
+pub const requires_symlinks = true;
 
-    const test_step = b.step("test", "Test");
-    test_step.dependOn(b.getInstallStep());
+pub fn build(b: *std.Build) void {
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    add(b, test_step, .Debug);
+    add(b, test_step, .ReleaseFast);
+    add(b, test_step, .ReleaseSmall);
+    add(b, test_step, .ReleaseSafe);
+}
+
+fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
+    const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     const dylib = b.addSharedLibrary(.{
         .name = "a",
@@ -15,9 +23,8 @@ pub fn build(b: *std.Build) void {
     });
     dylib.addCSourceFile("a.c", &.{});
     dylib.linkLibC();
-    dylib.install();
 
-    const check_dylib = dylib.checkObject(.macho);
+    const check_dylib = dylib.checkObject();
     check_dylib.checkStart("cmd ID_DYLIB");
     check_dylib.checkNext("name @rpath/liba.dylib");
     check_dylib.checkNext("timestamp 2");
@@ -33,11 +40,11 @@ pub fn build(b: *std.Build) void {
     });
     exe.addCSourceFile("main.c", &.{});
     exe.linkSystemLibrary("a");
+    exe.addLibraryPathDirectorySource(dylib.getOutputDirectorySource());
+    exe.addRPathDirectorySource(dylib.getOutputDirectorySource());
     exe.linkLibC();
-    exe.addLibraryPath(b.pathFromRoot("zig-out/lib/"));
-    exe.addRPath(b.pathFromRoot("zig-out/lib"));
 
-    const check_exe = exe.checkObject(.macho);
+    const check_exe = exe.checkObject();
     check_exe.checkStart("cmd LOAD_DYLIB");
     check_exe.checkNext("name @rpath/liba.dylib");
     check_exe.checkNext("timestamp 2");
@@ -45,10 +52,12 @@ pub fn build(b: *std.Build) void {
     check_exe.checkNext("compatibility version 10000");
 
     check_exe.checkStart("cmd RPATH");
-    check_exe.checkNext(std.fmt.allocPrint(b.allocator, "path {s}", .{b.pathFromRoot("zig-out/lib")}) catch unreachable);
+    // TODO check this (perhaps with `checkNextFileSource(dylib.getOutputDirectorySource())`)
+    //check_exe.checkNext(std.fmt.allocPrint(b.allocator, "path {s}", .{
+    //    b.pathFromRoot("zig-out/lib"),
+    //}) catch unreachable);
 
     const run = check_exe.runAndCompare();
-    run.cwd = b.pathFromRoot(".");
     run.expectStdOutEqual("Hello world");
     test_step.dependOn(&run.step);
 }

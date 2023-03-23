@@ -294,7 +294,7 @@ pub fn writeBuildVersionLC(options: *const link.Options, lc_writer: anytype) !vo
         .ntools = 1,
     });
     try lc_writer.writeAll(mem.asBytes(&macho.build_tool_version{
-        .tool = .LD,
+        .tool = .ZIG,
         .version = 0x0,
     }));
 }

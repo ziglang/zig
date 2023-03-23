@@ -1,7 +1,18 @@
 const std = @import("std");
 
+pub const requires_symlinks = true;
+
 pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{});
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    add(b, test_step, .Debug);
+    add(b, test_step, .ReleaseFast);
+    add(b, test_step, .ReleaseSmall);
+    add(b, test_step, .ReleaseSafe);
+}
+
+fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     const lib = b.addSharedLibrary(.{
@@ -21,6 +32,8 @@ pub fn build(b: *std.Build) void {
     test_exe.linkLibrary(lib);
     test_exe.linkLibC();
 
-    const test_step = b.step("test", "Test it");
-    test_step.dependOn(&test_exe.step);
+    const run = test_exe.run();
+    run.skip_foreign_checks = true;
+
+    test_step.dependOn(&run.step);
 }

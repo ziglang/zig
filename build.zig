@@ -31,6 +31,11 @@ pub fn build(b: *std.Build) !void {
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
     const test_step = b.step("test", "Run all the tests");
+    const deprecated_skip_install_lib_files = b.option(bool, "skip-install-lib-files", "deprecated. see no-lib") orelse false;
+    if (deprecated_skip_install_lib_files) {
+        std.log.warn("-Dskip-install-lib-files is deprecated in favor of -Dno-lib", .{});
+    }
+    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse deprecated_skip_install_lib_files;
 
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
@@ -40,28 +45,35 @@ pub fn build(b: *std.Build) !void {
     });
     docgen_exe.single_threaded = single_threaded;
 
-    const langref_out_path = try b.cache_root.join(b.allocator, &.{"langref.html"});
-    const docgen_cmd = docgen_exe.run();
-    docgen_cmd.addArgs(&[_][]const u8{
-        "--zig",
-        b.zig_exe,
-        "doc" ++ fs.path.sep_str ++ "langref.html.in",
-        langref_out_path,
-    });
-    docgen_cmd.step.dependOn(&docgen_exe.step);
+    const docgen_cmd = b.addRunArtifact(docgen_exe);
+    docgen_cmd.addArgs(&.{ "--zig", b.zig_exe });
+    if (b.zig_lib_dir) |p| {
+        docgen_cmd.addArgs(&.{ "--zig-lib-dir", p });
+    }
+    docgen_cmd.addFileSourceArg(.{ .path = "doc/langref.html.in" });
+    const langref_file = docgen_cmd.addOutputFileArg("langref.html");
+    const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
+    if (!skip_install_lib_files) {
+        b.getInstallStep().dependOn(&install_langref.step);
+    }
 
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
 
-    const test_cases = b.addTest(.{
-        .root_source_file = .{ .path = "src/test.zig" },
+    // This is for legacy reasons, to be removed after our CI scripts are upgraded to use
+    // the file from the install prefix instead.
+    const legacy_write_to_cache = b.addWriteFiles();
+    legacy_write_to_cache.addCopyFileToSource(langref_file, "zig-cache/langref.html");
+    docs_step.dependOn(&legacy_write_to_cache.step);
+
+    const check_case_exe = b.addExecutable(.{
+        .name = "check-case",
+        .root_source_file = .{ .path = "test/src/Cases.zig" },
         .optimize = optimize,
     });
-    test_cases.main_pkg_path = ".";
-    test_cases.stack_size = stack_size;
-    test_cases.single_threaded = single_threaded;
-
-    const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
+    check_case_exe.main_pkg_path = ".";
+    check_case_exe.stack_size = stack_size;
+    check_case_exe.single_threaded = single_threaded;
 
     const skip_debug = b.option(bool, "skip-debug", "Main test suite skips debug builds") orelse false;
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
@@ -69,16 +81,12 @@ pub fn build(b: *std.Build) !void {
     const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
+    const skip_cross_glibc = b.option(bool, "skip-cross-glibc", "Main test suite skips builds that require cross glibc") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
     const skip_stage1 = b.option(bool, "skip-stage1", "Main test suite skips stage1 compile error tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
     const skip_stage2_tests = b.option(bool, "skip-stage2-tests", "Main test suite skips self-hosted compiler tests") orelse false;
-    const deprecated_skip_install_lib_files = b.option(bool, "skip-install-lib-files", "deprecated. see no-lib") orelse false;
-    if (deprecated_skip_install_lib_files) {
-        std.log.warn("-Dskip-install-lib-files is deprecated in favor of -Dno-lib", .{});
-    }
-    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files to installation prefix. Useful for development") orelse deprecated_skip_install_lib_files;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
@@ -145,6 +153,7 @@ pub fn build(b: *std.Build) !void {
     if (only_install_lib_files)
         return;
 
+    const entitlements = b.option([]const u8, "entitlements", "Path to entitlements file for hot-code swapping without sudo on macOS");
     const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
     const tracy_callstack = b.option(bool, "tracy-callstack", "Include callstack information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
     const tracy_allocation = b.option(bool, "tracy-allocation", "Include allocation information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
@@ -166,6 +175,7 @@ pub fn build(b: *std.Build) !void {
     exe.pie = pie;
     exe.sanitize_thread = sanitize_thread;
     exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
+    exe.entitlements = entitlements;
     exe.install();
 
     const compile_step = b.step("compile", "Build the self-hosted compiler");
@@ -175,13 +185,12 @@ pub fn build(b: *std.Build) !void {
         test_step.dependOn(&exe.step);
     }
 
-    b.default_step.dependOn(&exe.step);
     exe.single_threaded = single_threaded;
 
     if (target.isWindows() and target.getAbi() == .gnu) {
         // LTO is currently broken on mingw, this can be removed when it's fixed.
         exe.want_lto = false;
-        test_cases.want_lto = false;
+        check_case_exe.want_lto = false;
     }
 
     const exe_options = b.addOptions();
@@ -195,11 +204,11 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(bool, "only_c", only_c);
-    exe_options.addOption(bool, "omit_pkg_fetching_code", false);
+    exe_options.addOption(bool, "omit_pkg_fetching_code", only_c);
 
     if (link_libc) {
         exe.linkLibC();
-        test_cases.linkLibC();
+        check_case_exe.linkLibC();
     }
 
     const is_debug = optimize == .Debug;
@@ -285,14 +294,14 @@ pub fn build(b: *std.Build) !void {
             }
 
             try addCmakeCfgOptionsToExe(b, cfg, exe, use_zig_libcxx);
-            try addCmakeCfgOptionsToExe(b, cfg, test_cases, use_zig_libcxx);
+            try addCmakeCfgOptionsToExe(b, cfg, check_case_exe, use_zig_libcxx);
         } else {
             // Here we are -Denable-llvm but no cmake integration.
             try addStaticLlvmOptionsToExe(exe);
-            try addStaticLlvmOptionsToExe(test_cases);
+            try addStaticLlvmOptionsToExe(check_case_exe);
         }
         if (target.isWindows()) {
-            inline for (.{ exe, test_cases }) |artifact| {
+            inline for (.{ exe, check_case_exe }) |artifact| {
                 artifact.linkSystemLibrary("version");
                 artifact.linkSystemLibrary("uuid");
                 artifact.linkSystemLibrary("ole32");
@@ -337,11 +346,13 @@ pub fn build(b: *std.Build) !void {
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
 
     const test_cases_options = b.addOptions();
-    test_cases.addOptions("build_options", test_cases_options);
+    check_case_exe.addOptions("build_options", test_cases_options);
 
+    test_cases_options.addOption(bool, "enable_tracy", false);
     test_cases_options.addOption(bool, "enable_logging", enable_logging);
     test_cases_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     test_cases_options.addOption(bool, "skip_non_native", skip_non_native);
+    test_cases_options.addOption(bool, "skip_cross_glibc", skip_cross_glibc);
     test_cases_options.addOption(bool, "skip_stage1", skip_stage1);
     test_cases_options.addOption(bool, "have_llvm", enable_llvm);
     test_cases_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
@@ -360,12 +371,6 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption([:0]const u8, "version", version);
     test_cases_options.addOption(std.SemanticVersion, "semver", semver);
     test_cases_options.addOption(?[]const u8, "test_filter", test_filter);
-
-    const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
-    test_cases_step.dependOn(&test_cases.step);
-    if (!skip_stage2_tests) {
-        test_step.dependOn(test_cases_step);
-    }
 
     var chosen_opt_modes_buf: [4]builtin.Mode = undefined;
     var chosen_mode_index: usize = 0;
@@ -387,96 +392,105 @@ pub fn build(b: *std.Build) !void {
     }
     const optimization_modes = chosen_opt_modes_buf[0..chosen_mode_index];
 
-    // run stage1 `zig fmt` on this build.zig file just to make sure it works
-    test_step.dependOn(&fmt_build_zig.step);
-    const fmt_step = b.step("test-fmt", "Run zig fmt against build.zig to make sure it works");
-    fmt_step.dependOn(&fmt_build_zig.step);
+    const fmt_include_paths = &.{ "doc", "lib", "src", "test", "tools", "build.zig" };
+    const fmt_exclude_paths = &.{"test/cases"};
+    const do_fmt = b.addFmt(.{
+        .paths = fmt_include_paths,
+        .exclude_paths = fmt_exclude_paths,
+    });
 
-    test_step.dependOn(tests.addPkgTests(
-        b,
-        test_filter,
-        "test/behavior.zig",
-        "behavior",
-        "Run the behavior tests",
-        optimization_modes,
-        skip_single_threaded,
-        skip_non_native,
-        skip_libc,
-        skip_stage1,
-        skip_stage2_tests,
-    ));
+    b.step("test-fmt", "Check source files having conforming formatting").dependOn(&b.addFmt(.{
+        .paths = fmt_include_paths,
+        .exclude_paths = fmt_exclude_paths,
+        .check = true,
+    }).step);
 
-    test_step.dependOn(tests.addPkgTests(
-        b,
-        test_filter,
-        "lib/compiler_rt.zig",
-        "compiler-rt",
-        "Run the compiler_rt tests",
-        optimization_modes,
-        true, // skip_single_threaded
-        skip_non_native,
-        true, // skip_libc
-        skip_stage1,
-        skip_stage2_tests or true, // TODO get these all passing
-    ));
+    const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
+    try tests.addCases(b, test_cases_step, test_filter, check_case_exe);
+    if (!skip_stage2_tests) test_step.dependOn(test_cases_step);
 
-    test_step.dependOn(tests.addPkgTests(
-        b,
-        test_filter,
-        "lib/c.zig",
-        "universal-libc",
-        "Run the universal libc tests",
-        optimization_modes,
-        true, // skip_single_threaded
-        skip_non_native,
-        true, // skip_libc
-        skip_stage1,
-        skip_stage2_tests or true, // TODO get these all passing
-    ));
+    test_step.dependOn(tests.addModuleTests(b, .{
+        .test_filter = test_filter,
+        .root_src = "test/behavior.zig",
+        .name = "behavior",
+        .desc = "Run the behavior tests",
+        .optimize_modes = optimization_modes,
+        .skip_single_threaded = skip_single_threaded,
+        .skip_non_native = skip_non_native,
+        .skip_cross_glibc = skip_cross_glibc,
+        .skip_libc = skip_libc,
+        .skip_stage1 = skip_stage1,
+        .skip_stage2 = skip_stage2_tests,
+        .max_rss = 1 * 1024 * 1024 * 1024,
+    }));
+
+    test_step.dependOn(tests.addModuleTests(b, .{
+        .test_filter = test_filter,
+        .root_src = "lib/compiler_rt.zig",
+        .name = "compiler-rt",
+        .desc = "Run the compiler_rt tests",
+        .optimize_modes = optimization_modes,
+        .skip_single_threaded = true,
+        .skip_non_native = skip_non_native,
+        .skip_cross_glibc = skip_cross_glibc,
+        .skip_libc = true,
+        .skip_stage1 = skip_stage1,
+        .skip_stage2 = true, // TODO get all these passing
+    }));
+
+    test_step.dependOn(tests.addModuleTests(b, .{
+        .test_filter = test_filter,
+        .root_src = "lib/c.zig",
+        .name = "universal-libc",
+        .desc = "Run the universal libc tests",
+        .optimize_modes = optimization_modes,
+        .skip_single_threaded = true,
+        .skip_non_native = skip_non_native,
+        .skip_cross_glibc = skip_cross_glibc,
+        .skip_libc = true,
+        .skip_stage1 = skip_stage1,
+        .skip_stage2 = true, // TODO get all these passing
+    }));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, optimization_modes));
     test_step.dependOn(tests.addStandaloneTests(
         b,
-        test_filter,
         optimization_modes,
-        skip_non_native,
         enable_macos_sdk,
-        target,
         skip_stage2_tests,
-        b.enable_darling,
-        b.enable_qemu,
-        b.enable_rosetta,
-        b.enable_wasmtime,
-        b.enable_wine,
         enable_symlinks_windows,
     ));
     test_step.dependOn(tests.addCAbiTests(b, skip_non_native, skip_release));
-    test_step.dependOn(tests.addLinkTests(b, test_filter, optimization_modes, enable_macos_sdk, skip_stage2_tests, enable_symlinks_windows));
+    test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, skip_stage2_tests, enable_symlinks_windows));
     test_step.dependOn(tests.addStackTraceTests(b, test_filter, optimization_modes));
-    test_step.dependOn(tests.addCliTests(b, test_filter, optimization_modes));
+    test_step.dependOn(tests.addCliTests(b));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, optimization_modes));
     test_step.dependOn(tests.addTranslateCTests(b, test_filter));
     if (!skip_run_translated_c) {
         test_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
     }
-    // tests for this feature are disabled until we have the self-hosted compiler available
-    // test_step.dependOn(tests.addGenHTests(b, test_filter));
 
-    test_step.dependOn(tests.addPkgTests(
-        b,
-        test_filter,
-        "lib/std/std.zig",
-        "std",
-        "Run the standard library tests",
-        optimization_modes,
-        skip_single_threaded,
-        skip_non_native,
-        skip_libc,
-        skip_stage1,
-        true, // TODO get these all passing
-    ));
+    test_step.dependOn(tests.addModuleTests(b, .{
+        .test_filter = test_filter,
+        .root_src = "lib/std/std.zig",
+        .name = "std",
+        .desc = "Run the standard library tests",
+        .optimize_modes = optimization_modes,
+        .skip_single_threaded = skip_single_threaded,
+        .skip_non_native = skip_non_native,
+        .skip_cross_glibc = skip_cross_glibc,
+        .skip_libc = skip_libc,
+        .skip_stage1 = skip_stage1,
+        .skip_stage2 = true, // TODO get all these passing
+        // I observed a value of 3398275072 on my M1, and multiplied by 1.1 to
+        // get this amount:
+        .max_rss = 3738102579,
+    }));
 
     try addWasiUpdateStep(b, version);
+
+    b.step("fmt", "Modify source files in place to have conforming formatting")
+        .dependOn(&do_fmt.step);
 }
 
 fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
@@ -505,6 +519,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "enable_tracy_callstack", false);
     exe_options.addOption(bool, "enable_tracy_allocation", false);
     exe_options.addOption(bool, "value_tracing", false);
+    exe_options.addOption(bool, "omit_pkg_fetching_code", true);
 
     const run_opt = b.addSystemCommand(&.{ "wasm-opt", "-Oz", "--enable-bulk-memory" });
     run_opt.addArtifactArg(exe);
@@ -676,10 +691,7 @@ fn addCxxKnownPath(
 ) !void {
     if (!std.process.can_spawn)
         return error.RequiredLibraryNotFound;
-    const path_padded = try b.exec(&[_][]const u8{
-        ctx.cxx_compiler,
-        b.fmt("-print-file-name={s}", .{objname}),
-    });
+    const path_padded = b.exec(&.{ ctx.cxx_compiler, b.fmt("-print-file-name={s}", .{objname}) });
     var tokenizer = mem.tokenize(u8, path_padded, "\r\n");
     const path_unpadded = tokenizer.next().?;
     if (mem.eql(u8, path_unpadded, objname)) {

@@ -141,6 +141,7 @@ test {
     _ = @import("behavior/bugs/13664.zig");
     _ = @import("behavior/bugs/13714.zig");
     _ = @import("behavior/bugs/13785.zig");
+    _ = @import("behavior/bugs/14854.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
     _ = @import("behavior/call.zig");
@@ -190,6 +191,7 @@ test {
     _ = @import("behavior/pub_enum.zig");
     _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
     _ = @import("behavior/reflection.zig");
+    _ = @import("behavior/return_address.zig");
     _ = @import("behavior/saturating_arithmetic.zig");
     _ = @import("behavior/select.zig");
     _ = @import("behavior/shuffle.zig");

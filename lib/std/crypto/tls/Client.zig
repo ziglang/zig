@@ -158,6 +158,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
         // Only possible to happen if the private key is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
+    const kyber768_kp = crypto.kem.kyber_d00.Kyber768.KeyPair.create(null) catch {};
 
     const extensions_payload =
         tls.extension(.supported_versions, [_]u8{
@@ -175,6 +176,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
         .rsa_pkcs1_sha512,
         .ed25519,
     })) ++ tls.extension(.supported_groups, enum_array(tls.NamedGroup, &.{
+        .x25519_kyber768d00,
         .secp256r1,
         .x25519,
     })) ++ tls.extension(
@@ -182,7 +184,9 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
         array(1, int2(@enumToInt(tls.NamedGroup.x25519)) ++
             array(1, x25519_kp.public_key) ++
             int2(@enumToInt(tls.NamedGroup.secp256r1)) ++
-            array(1, secp256r1_kp.public_key.toUncompressedSec1())),
+            array(1, secp256r1_kp.public_key.toUncompressedSec1()) ++
+            int2(@enumToInt(tls.NamedGroup.x25519_kyber768d00)) ++
+            array(1, x25519_kp.public_key ++ kyber768_kp.public_key.toBytes())),
     ) ++
         int2(@enumToInt(tls.ExtensionType.server_name)) ++
         int2(host_len + 5) ++ // byte length of this extension payload
@@ -274,7 +278,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                 const extensions_size = hsd.decode(u16);
                 var all_extd = try hsd.sub(extensions_size);
                 var supported_version: u16 = 0;
-                var shared_key: [32]u8 = undefined;
+                var shared_key: []const u8 = undefined;
                 var have_shared_key = false;
                 while (!all_extd.eof()) {
                     try all_extd.ensure(2 + 2);
@@ -295,14 +299,29 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                             const key_size = extd.decode(u16);
                             try extd.ensure(key_size);
                             switch (named_group) {
-                                .x25519 => {
-                                    if (key_size != 32) return error.TlsIllegalParameter;
-                                    const server_pub_key = extd.array(32);
+                                .x25519_kyber768d00 => {
+                                    const xksl = crypto.dh.X25519.public_length;
+                                    const hksl = xksl + crypto.kem.kyber_d00.Kyber768.ciphertext_length;
+                                    if (key_size != hksl)
+                                        return error.TlsIllegalParameter;
+                                    const server_ks = extd.array(hksl);
 
-                                    shared_key = crypto.dh.X25519.scalarmult(
+                                    shared_key = &((crypto.dh.X25519.scalarmult(
+                                        x25519_kp.secret_key,
+                                        server_ks[0..xksl].*,
+                                    ) catch return error.TlsDecryptFailure) ++ (kyber768_kp.secret_key.decaps(
+                                        server_ks[xksl..hksl],
+                                    ) catch return error.TlsDecryptFailure));
+                                },
+                                .x25519 => {
+                                    const ksl = crypto.dh.X25519.public_length;
+                                    if (key_size != ksl) return error.TlsIllegalParameter;
+                                    const server_pub_key = extd.array(ksl);
+
+                                    shared_key = &(crypto.dh.X25519.scalarmult(
                                         x25519_kp.secret_key,
                                         server_pub_key.*,
-                                    ) catch return error.TlsDecryptFailure;
+                                    ) catch return error.TlsDecryptFailure);
                                 },
                                 .secp256r1 => {
                                     const server_pub_key = extd.slice(key_size);
@@ -314,7 +333,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     const mul = pk.p.mulPublic(secp256r1_kp.secret_key.bytes, .Big) catch {
                                         return error.TlsDecryptFailure;
                                     };
-                                    shared_key = mul.affineCoordinates().x.toBytes(.Big);
+                                    shared_key = &mul.affineCoordinates().x.toBytes(.Big);
                                 },
                                 else => {
                                     return error.TlsIllegalParameter;
@@ -358,7 +377,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                         const early_secret = P.Hkdf.extract(&[1]u8{0}, &zeroes);
                         const empty_hash = tls.emptyHash(P.Hash);
                         const hs_derived_secret = hkdfExpandLabel(P.Hkdf, early_secret, "derived", &empty_hash, P.Hash.digest_length);
-                        p.handshake_secret = P.Hkdf.extract(&hs_derived_secret, &shared_key);
+                        p.handshake_secret = P.Hkdf.extract(&hs_derived_secret, shared_key);
                         const ap_derived_secret = hkdfExpandLabel(P.Hkdf, p.handshake_secret, "derived", &empty_hash, P.Hash.digest_length);
                         p.master_secret = P.Hkdf.extract(&ap_derived_secret, &zeroes);
                         const client_secret = hkdfExpandLabel(P.Hkdf, p.handshake_secret, "c hs traffic", &hello_hash, P.Hash.digest_length);
@@ -1344,13 +1363,22 @@ fn limitVecs(iovecs: []std.os.iovec, len: usize) []std.os.iovec {
 ///        aegis-256:        461 MiB/s
 ///       aes128-gcm:        138 MiB/s
 ///       aes256-gcm:        120 MiB/s
-const cipher_suites = enum_array(tls.CipherSuite, &.{
-    .AEGIS_128L_SHA256,
-    .AEGIS_256_SHA384,
-    .AES_128_GCM_SHA256,
-    .AES_256_GCM_SHA384,
-    .CHACHA20_POLY1305_SHA256,
-});
+const cipher_suites = if (crypto.core.aes.has_hardware_support)
+    enum_array(tls.CipherSuite, &.{
+        .AEGIS_128L_SHA256,
+        .AEGIS_256_SHA384,
+        .AES_128_GCM_SHA256,
+        .AES_256_GCM_SHA384,
+        .CHACHA20_POLY1305_SHA256,
+    })
+else
+    enum_array(tls.CipherSuite, &.{
+        .CHACHA20_POLY1305_SHA256,
+        .AEGIS_128L_SHA256,
+        .AEGIS_256_SHA384,
+        .AES_128_GCM_SHA256,
+        .AES_256_GCM_SHA384,
+    });
 
 test {
     _ = StreamInterface;

@@ -105,41 +105,53 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
     // If we're not following symlinks, we need to ensure we don't pass in any synchronization flags such as FILE_SYNCHRONOUS_IO_NONALERT.
     const flags: ULONG = if (options.follow_symlinks) file_or_dir_flag | blocking_flag else file_or_dir_flag | FILE_OPEN_REPARSE_POINT;
 
-    const rc = ntdll.NtCreateFile(
-        &result,
-        options.access_mask,
-        &attr,
-        &io,
-        null,
-        FILE_ATTRIBUTE_NORMAL,
-        options.share_access,
-        options.creation,
-        flags,
-        null,
-        0,
-    );
-    switch (rc) {
-        .SUCCESS => {
-            if (std.io.is_async and options.io_mode == .evented) {
-                _ = CreateIoCompletionPort(result, std.event.Loop.instance.?.os_data.io_port, undefined, undefined) catch undefined;
-            }
-            return result;
-        },
-        .OBJECT_NAME_INVALID => unreachable,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NO_MEDIA_IN_DEVICE => return error.NoDevice,
-        .INVALID_PARAMETER => unreachable,
-        .SHARING_VIOLATION => return error.AccessDenied,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .PIPE_BUSY => return error.PipeBusy,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-        .FILE_IS_A_DIRECTORY => return error.IsDir,
-        .NOT_A_DIRECTORY => return error.NotDir,
-        .USER_MAPPED_FILE => return error.AccessDenied,
-        .INVALID_HANDLE => unreachable,
-        else => return unexpectedStatus(rc),
+    while (true) {
+        const rc = ntdll.NtCreateFile(
+            &result,
+            options.access_mask,
+            &attr,
+            &io,
+            null,
+            FILE_ATTRIBUTE_NORMAL,
+            options.share_access,
+            options.creation,
+            flags,
+            null,
+            0,
+        );
+        switch (rc) {
+            .SUCCESS => {
+                if (std.io.is_async and options.io_mode == .evented) {
+                    _ = CreateIoCompletionPort(result, std.event.Loop.instance.?.os_data.io_port, undefined, undefined) catch undefined;
+                }
+                return result;
+            },
+            .OBJECT_NAME_INVALID => unreachable,
+            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+            .INVALID_PARAMETER => unreachable,
+            .SHARING_VIOLATION => return error.AccessDenied,
+            .ACCESS_DENIED => return error.AccessDenied,
+            .PIPE_BUSY => return error.PipeBusy,
+            .OBJECT_PATH_SYNTAX_BAD => unreachable,
+            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+            .FILE_IS_A_DIRECTORY => return error.IsDir,
+            .NOT_A_DIRECTORY => return error.NotDir,
+            .USER_MAPPED_FILE => return error.AccessDenied,
+            .INVALID_HANDLE => unreachable,
+            .DELETE_PENDING => {
+                // This error means that there *was* a file in this location on
+                // the file system, but it was deleted. However, the OS is not
+                // finished with the deletion operation, and so this CreateFile
+                // call has failed. There is not really a sane way to handle
+                // this other than retrying the creation after the OS finishes
+                // the deletion.
+                std.time.sleep(std.time.ns_per_ms);
+                continue;
+            },
+            else => return unexpectedStatus(rc),
+        }
     }
 }
 
@@ -1218,23 +1230,6 @@ test "GetFinalPathNameByHandle" {
     _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0..required_len_in_u16]);
 }
 
-pub const QueryInformationFileError = error{Unexpected};
-
-pub fn QueryInformationFile(
-    handle: HANDLE,
-    info_class: FILE_INFORMATION_CLASS,
-    out_buffer: []u8,
-) QueryInformationFileError!void {
-    var io: IO_STATUS_BLOCK = undefined;
-    const len_bytes = std.math.cast(u32, out_buffer.len) orelse unreachable;
-    const rc = ntdll.NtQueryInformationFile(handle, &io, out_buffer.ptr, len_bytes, info_class);
-    switch (rc) {
-        .SUCCESS => {},
-        .INVALID_PARAMETER => unreachable,
-        else => return unexpectedStatus(rc),
-    }
-}
-
 pub const GetFileSizeError = error{Unexpected};
 
 pub fn GetFileSizeEx(hFile: HANDLE) GetFileSizeError!u64 {
@@ -1711,21 +1706,6 @@ pub fn HeapDestroy(hHeap: HANDLE) void {
 
 pub fn LocalFree(hMem: HLOCAL) void {
     assert(kernel32.LocalFree(hMem) == null);
-}
-
-pub const GetFileInformationByHandleError = error{Unexpected};
-
-pub fn GetFileInformationByHandle(
-    hFile: HANDLE,
-) GetFileInformationByHandleError!BY_HANDLE_FILE_INFORMATION {
-    var info: BY_HANDLE_FILE_INFORMATION = undefined;
-    const rc = ntdll.GetFileInformationByHandle(hFile, &info);
-    if (rc == 0) {
-        switch (kernel32.GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return info;
 }
 
 pub const SetFileTimeError = error{Unexpected};
@@ -2470,6 +2450,29 @@ pub const FILE_INFORMATION_CLASS = enum(c_int) {
     FileStorageReserveIdInformation,
     FileCaseSensitiveInformationForceAccessCheck,
     FileMaximumInformation,
+};
+
+pub const FILE_FS_DEVICE_INFORMATION = extern struct {
+    DeviceType: DEVICE_TYPE,
+    Characteristics: ULONG,
+};
+
+pub const FS_INFORMATION_CLASS = enum(c_int) {
+    FileFsVolumeInformation = 1,
+    FileFsLabelInformation,
+    FileFsSizeInformation,
+    FileFsDeviceInformation,
+    FileFsAttributeInformation,
+    FileFsControlInformation,
+    FileFsFullSizeInformation,
+    FileFsObjectIdInformation,
+    FileFsDriverPathInformation,
+    FileFsVolumeFlagsInformation,
+    FileFsSectorSizeInformation,
+    FileFsDataCopyInformation,
+    FileFsMetadataSizeInformation,
+    FileFsFullSizeInformationEx,
+    FileFsMaximumInformation,
 };
 
 pub const OVERLAPPED = extern struct {

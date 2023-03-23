@@ -50,7 +50,7 @@ reverse_symtab_lookup: []u32 = undefined,
 /// Can be undefined as set together with in_symtab.
 source_address_lookup: []i64 = undefined,
 /// Can be undefined as set together with in_symtab.
-source_section_index_lookup: []i64 = undefined,
+source_section_index_lookup: []Entry = undefined,
 /// Can be undefined as set together with in_symtab.
 strtab_lookup: []u32 = undefined,
 /// Can be undefined as set together with in_symtab.
@@ -58,7 +58,7 @@ atom_by_index_table: []AtomIndex = undefined,
 /// Can be undefined as set together with in_symtab.
 globals_lookup: []i64 = undefined,
 /// Can be undefined as set together with in_symtab.
-relocs_lookup: []RelocEntry = undefined,
+relocs_lookup: []Entry = undefined,
 
 /// All relocations sorted and flatened, sorted by address descending
 /// per section.
@@ -81,11 +81,14 @@ unwind_info_sect_id: ?u8 = null,
 unwind_relocs_lookup: []Record = undefined,
 unwind_records_lookup: std.AutoHashMapUnmanaged(AtomIndex, u32) = .{},
 
-const RelocEntry = struct { start: u32, len: u32 };
+const Entry = struct {
+    start: u32 = 0,
+    len: u32 = 0,
+};
 
 const Record = struct {
     dead: bool,
-    reloc: RelocEntry,
+    reloc: Entry,
 };
 
 pub fn deinit(self: *Object, gpa: Allocator) void {
@@ -170,11 +173,11 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
     self.strtab_lookup = try allocator.alloc(u32, self.in_symtab.?.len);
     self.globals_lookup = try allocator.alloc(i64, self.in_symtab.?.len);
     self.atom_by_index_table = try allocator.alloc(AtomIndex, self.in_symtab.?.len + nsects);
-    self.relocs_lookup = try allocator.alloc(RelocEntry, self.in_symtab.?.len + nsects);
+    self.relocs_lookup = try allocator.alloc(Entry, self.in_symtab.?.len + nsects);
     // This is wasteful but we need to be able to lookup source symbol address after stripping and
     // allocating of sections.
     self.source_address_lookup = try allocator.alloc(i64, self.in_symtab.?.len);
-    self.source_section_index_lookup = try allocator.alloc(i64, nsects);
+    self.source_section_index_lookup = try allocator.alloc(Entry, nsects);
 
     for (self.symtab) |*sym| {
         sym.* = .{
@@ -188,11 +191,8 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
 
     mem.set(i64, self.globals_lookup, -1);
     mem.set(AtomIndex, self.atom_by_index_table, 0);
-    mem.set(i64, self.source_section_index_lookup, -1);
-    mem.set(RelocEntry, self.relocs_lookup, .{
-        .start = 0,
-        .len = 0,
-    });
+    mem.set(Entry, self.source_section_index_lookup, .{});
+    mem.set(Entry, self.relocs_lookup, .{});
 
     // You would expect that the symbol table is at least pre-sorted based on symbol's type:
     // local < extern defined < undefined. Unfortunately, this is not guaranteed! For instance,
@@ -211,12 +211,24 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
     // is kind enough to specify the symbols in the correct order.
     sort.sort(SymbolAtIndex, sorted_all_syms.items, self, SymbolAtIndex.lessThan);
 
+    var prev_sect_id: u8 = 0;
+    var section_index_lookup: ?Entry = null;
     for (sorted_all_syms.items, 0..) |sym_id, i| {
         const sym = sym_id.getSymbol(self);
 
-        if (sym.sect() and self.source_section_index_lookup[sym.n_sect - 1] == -1) {
-            self.source_section_index_lookup[sym.n_sect - 1] = @intCast(i64, i);
+        if (section_index_lookup) |*lookup| {
+            if (sym.n_sect != prev_sect_id or sym.undf()) {
+                self.source_section_index_lookup[prev_sect_id - 1] = lookup.*;
+                section_index_lookup = null;
+            } else {
+                lookup.len += 1;
+            }
         }
+        if (sym.sect() and section_index_lookup == null) {
+            section_index_lookup = .{ .start = @intCast(u32, i), .len = 1 };
+        }
+
+        prev_sect_id = sym.n_sect;
 
         self.symtab[i] = sym;
         self.source_symtab_lookup[i] = sym_id.index;
@@ -227,6 +239,12 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
         self.strtab_lookup[i] = @intCast(u32, sym_name_len);
     }
 
+    // If there were no undefined symbols, make sure we populate the
+    // source section index lookup for the last scanned section.
+    if (section_index_lookup) |lookup| {
+        self.source_section_index_lookup[prev_sect_id - 1] = lookup;
+    }
+
     // Parse __TEXT,__eh_frame header if one exists
     self.eh_frame_sect_id = self.getSourceSectionIndexByName("__TEXT", "__eh_frame");
 
@@ -234,13 +252,7 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
     self.unwind_info_sect_id = self.getSourceSectionIndexByName("__LD", "__compact_unwind");
     if (self.hasUnwindRecords()) {
         self.unwind_relocs_lookup = try allocator.alloc(Record, self.getUnwindRecords().len);
-        mem.set(Record, self.unwind_relocs_lookup, .{
-            .dead = true,
-            .reloc = .{
-                .start = 0,
-                .len = 0,
-            },
-        });
+        mem.set(Record, self.unwind_relocs_lookup, .{ .dead = true, .reloc = .{} });
     }
 }
 
@@ -620,7 +632,7 @@ fn filterRelocs(
     relocs: []align(1) const macho.relocation_info,
     start_addr: u64,
     end_addr: u64,
-) RelocEntry {
+) Entry {
     const Predicate = struct {
         addr: u64,
 
@@ -712,9 +724,9 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
 
     while (try it.next()) |record| {
         const offset = it.pos - record.getSize();
-        const rel_pos = switch (cpu_arch) {
+        const rel_pos: Entry = switch (cpu_arch) {
             .aarch64 => filterRelocs(relocs, offset, offset + record.getSize()),
-            .x86_64 => RelocEntry{ .start = 0, .len = 0 },
+            .x86_64 => .{},
             else => unreachable,
         };
         self.eh_frame_relocs_lookup.putAssumeCapacityNoClobber(offset, .{
@@ -729,13 +741,12 @@ fn parseEhFrameSection(self: *Object, zld: *Zld, object_id: u32) !void {
                         assert(rel_pos.len > 0); // TODO convert to an error as the FDE eh frame is malformed
                         // Find function symbol that this record describes
                         const rel = relocs[rel_pos.start..][rel_pos.len - 1];
-                        const target = UnwindInfo.parseRelocTarget(
-                            zld,
-                            object_id,
-                            rel,
-                            it.data[offset..],
-                            @intCast(i32, offset),
-                        );
+                        const target = Atom.parseRelocTarget(zld, .{
+                            .object_id = object_id,
+                            .rel = rel,
+                            .code = it.data[offset..],
+                            .base_offset = @intCast(i32, offset),
+                        });
                         break :blk target;
                     },
                     .x86_64 => {
@@ -819,13 +830,12 @@ fn parseUnwindInfo(self: *Object, zld: *Zld, object_id: u32) !void {
 
         // Find function symbol that this record describes
         const rel = relocs[rel_pos.start..][rel_pos.len - 1];
-        const target = UnwindInfo.parseRelocTarget(
-            zld,
-            object_id,
-            rel,
-            mem.asBytes(&record),
-            @intCast(i32, offset),
-        );
+        const target = Atom.parseRelocTarget(zld, .{
+            .object_id = object_id,
+            .rel = rel,
+            .code = mem.asBytes(&record),
+            .base_offset = @intCast(i32, offset),
+        });
         log.debug("unwind record {d} tracks {s}", .{ record_id, zld.getSymbolName(target) });
         if (target.getFile() != object_id) {
             self.unwind_relocs_lookup[record_id].dead = true;
@@ -990,13 +1000,15 @@ pub fn getSymbolByAddress(self: Object, addr: u64, sect_hint: ?u8) u32 {
     };
 
     if (sect_hint) |sect_id| {
-        if (self.source_section_index_lookup[sect_id] > -1) {
-            const first_sym_index = @intCast(usize, self.source_section_index_lookup[sect_id]);
-            const target_sym_index = @import("zld.zig").lsearch(i64, self.source_address_lookup[first_sym_index..], Predicate{
-                .addr = @intCast(i64, addr),
-            });
+        if (self.source_section_index_lookup[sect_id].len > 0) {
+            const lookup = self.source_section_index_lookup[sect_id];
+            const target_sym_index = @import("zld.zig").lsearch(
+                i64,
+                self.source_address_lookup[lookup.start..][0..lookup.len],
+                Predicate{ .addr = @intCast(i64, addr) },
+            );
             if (target_sym_index > 0) {
-                return @intCast(u32, first_sym_index + target_sym_index - 1);
+                return @intCast(u32, lookup.start + target_sym_index - 1);
             }
         }
         return self.getSectionAliasSymbolIndex(sect_id);

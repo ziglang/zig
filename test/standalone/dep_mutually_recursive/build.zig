@@ -1,7 +1,10 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{});
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    const optimize: std.builtin.OptimizeMode = .Debug;
 
     const foo = b.createModule(.{
         .source_file = .{ .path = "foo.zig" },
@@ -21,6 +24,5 @@ pub fn build(b: *std.Build) void {
 
     const run = exe.run();
 
-    const test_step = b.step("test", "Test it");
     test_step.dependOn(&run.step);
 }

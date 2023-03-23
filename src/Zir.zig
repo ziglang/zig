@@ -2603,8 +2603,8 @@ pub const Inst = struct {
             }
         },
         @"break": struct {
-            block_inst: Index,
             operand: Ref,
+            payload_index: u32,
         },
         switch_capture: struct {
             switch_inst: Index,
@@ -2688,6 +2688,13 @@ pub const Inst = struct {
             save_err_ret_index,
             restore_err_ret_index,
         };
+    };
+
+    pub const Break = struct {
+        pub const no_src_node = std.math.maxInt(i32);
+
+        block_inst: Index,
+        operand_src_node: i32,
     };
 
     /// Trailing:
@@ -3594,6 +3601,12 @@ pub const Inst = struct {
             /// 0 or a payload index of a `Block`, each is a payload
             /// index of another `Item`.
             notes: u32,
+
+            pub fn notesLen(item: Item, zir: Zir) u32 {
+                if (item.notes == 0) return 0;
+                const block = zir.extraData(Block, item.notes);
+                return block.data.body_len;
+            }
         };
     };
 

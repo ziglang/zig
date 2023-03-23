@@ -5,7 +5,7 @@ const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
 
-pub fn buildTsan(comp: *Compilation) !void {
+pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -226,6 +226,7 @@ pub fn buildTsan(comp: *Compilation) !void {
         .verbose_link = comp.bin_file.options.verbose_link,
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
+        .verbose_llvm_bc = comp.verbose_llvm_bc,
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
@@ -235,7 +236,7 @@ pub fn buildTsan(comp: *Compilation) !void {
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.updateSubCompilation();
+    try comp.updateSubCompilation(sub_compilation, .libtsan, prog_node);
 
     assert(comp.tsan_static_lib == null);
     comp.tsan_static_lib = Compilation.CRTFile{

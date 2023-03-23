@@ -333,7 +333,11 @@ pub fn request(client: *Client, uri: Uri, headers: Request.Headers, options: Req
 
         try writer.writeAll(@tagName(headers.method));
         try writer.writeByte(' ');
-        try writer.writeAll(escaped_path);
+        if (escaped_path.len == 0) {
+            try writer.writeByte('/');
+        } else {
+            try writer.writeAll(escaped_path);
+        }
         if (escaped_query) |q| {
             try writer.writeByte('?');
             try writer.writeAll(q);

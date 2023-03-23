@@ -41,9 +41,11 @@ const maybe_have_wipe_on_fork = builtin.os.isAtLeast(.linux, .{
 }) orelse true;
 const is_haiku = builtin.os.tag == .haiku;
 
+const Rng = std.rand.DefaultCsprng;
+
 const Context = struct {
     init_state: enum(u8) { uninitialized = 0, initialized, failed },
-    gimli: std.crypto.core.Gimli,
+    rng: Rng,
 };
 
 var install_atfork_handler = std.once(struct {
@@ -93,7 +95,7 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
             const S = struct {
                 threadlocal var buf: Context align(mem.page_size) = .{
                     .init_state = .uninitialized,
-                    .gimli = undefined,
+                    .rng = undefined,
                 };
             };
             wipe_mem = mem.asBytes(&S.buf);
@@ -156,12 +158,7 @@ fn childAtForkHandler() callconv(.C) void {
 
 fn fillWithCsprng(buffer: []u8) void {
     const ctx = @ptrCast(*Context, wipe_mem.ptr);
-    if (buffer.len != 0) {
-        ctx.gimli.squeeze(buffer);
-    } else {
-        ctx.gimli.permute();
-    }
-    mem.set(u8, ctx.gimli.toSlice()[0..std.crypto.core.Gimli.RATE], 0);
+    return ctx.rng.fill(buffer);
 }
 
 pub fn defaultRandomSeed(buffer: []u8) void {
@@ -169,7 +166,7 @@ pub fn defaultRandomSeed(buffer: []u8) void {
 }
 
 fn initAndFill(buffer: []u8) void {
-    var seed: [std.crypto.core.Gimli.BLOCKBYTES]u8 = undefined;
+    var seed: [Rng.secret_seed_length]u8 = undefined;
     // Because we panic on getrandom() failing, we provide the opportunity
     // to override the default seed function. This also makes
     // `std.crypto.random` available on freestanding targets, provided that
@@ -177,7 +174,8 @@ fn initAndFill(buffer: []u8) void {
     std.options.cryptoRandomSeed(&seed);
 
     const ctx = @ptrCast(*Context, wipe_mem.ptr);
-    ctx.gimli = std.crypto.core.Gimli.init(seed);
+    ctx.rng = Rng.init(seed);
+    std.crypto.utils.secureZero(u8, &seed);
 
     // This is at the end so that accidental recursive dependencies result
     // in stack overflows instead of invalid random data.

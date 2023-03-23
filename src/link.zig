@@ -264,6 +264,8 @@ pub const File = struct {
     /// of this linking operation.
     lock: ?Cache.Lock = null,
 
+    child_pid: ?std.ChildProcess.Id = null,
+
     /// Attempts incremental linking, if the file already exists. If
     /// incremental linking fails, falls back to truncating the file and
     /// rewriting it. A malicious file is detected as incremental link failure
@@ -376,6 +378,26 @@ pub const File = struct {
                 if (build_options.only_c) unreachable;
                 if (base.file != null) return;
                 const emit = base.options.emit orelse return;
+                if (base.child_pid) |pid| {
+                    // If we try to open the output file in write mode while it is running,
+                    // it will return ETXTBSY. So instead, we copy the file, atomically rename it
+                    // over top of the exe path, and then proceed normally. This changes the inode,
+                    // avoiding the error.
+                    const tmp_sub_path = try std.fmt.allocPrint(base.allocator, "{s}-{x}", .{
+                        emit.sub_path, std.crypto.random.int(u32),
+                    });
+                    try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, tmp_sub_path, .{});
+                    try emit.directory.handle.rename(tmp_sub_path, emit.sub_path);
+                    switch (builtin.os.tag) {
+                        .linux => std.os.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0) catch |err| {
+                            log.warn("ptrace failure: {s}", .{@errorName(err)});
+                        },
+                        .macos => base.cast(MachO).?.ptraceAttach(pid) catch |err| {
+                            log.warn("attaching failed with error: {s}", .{@errorName(err)});
+                        },
+                        else => return error.HotSwapUnavailableOnHostOperatingSystem,
+                    }
+                }
                 base.file = try emit.directory.handle.createFile(emit.sub_path, .{
                     .truncate = false,
                     .read = true,
@@ -396,26 +418,7 @@ pub const File = struct {
             .Exe => {},
         }
         switch (base.tag) {
-            .macho => if (base.file) |f| {
-                if (build_options.only_c) unreachable;
-                if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
-                    if (base.options.target.cpu.arch == .aarch64) {
-                        // XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
-                        // Any change to the binary will effectively invalidate the kernel's cache
-                        // resulting in a SIGKILL on each subsequent run. Since when doing incremental
-                        // linking we're modifying a binary in-place, this will end up with the kernel
-                        // killing it on every subsequent run. To circumvent it, we will copy the file
-                        // into a new inode, remove the original file, and rename the copy to match
-                        // the original file. This is super messy, but there doesn't seem any other
-                        // way to please the XNU.
-                        const emit = base.options.emit orelse return;
-                        try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
-                    }
-                }
-                f.close();
-                base.file = null;
-            },
-            .coff, .elf, .plan9, .wasm => if (base.file) |f| {
+            .coff, .elf, .macho, .plan9, .wasm => if (base.file) |f| {
                 if (build_options.only_c) unreachable;
                 if (base.intermediary_basename != null) {
                     // The file we have open is not the final file that we want to
@@ -424,6 +427,18 @@ pub const File = struct {
                 }
                 f.close();
                 base.file = null;
+
+                if (base.child_pid) |pid| {
+                    switch (builtin.os.tag) {
+                        .linux => std.os.ptrace(std.os.linux.PTRACE.DETACH, pid, 0, 0) catch |err| {
+                            log.warn("ptrace failure: {s}", .{@errorName(err)});
+                        },
+                        .macos => base.cast(MachO).?.ptraceDetach(pid) catch |err| {
+                            log.warn("detaching failed with error: {s}", .{@errorName(err)});
+                        },
+                        else => return error.HotSwapUnavailableOnHostOperatingSystem,
+                    }
+                }
             },
             .c, .spirv, .nvptx => {},
         }
@@ -462,6 +477,7 @@ pub const File = struct {
         NetNameDeleted,
         DeviceBusy,
         InvalidArgument,
+        HotSwapUnavailableOnHostOperatingSystem,
     };
 
     /// Called from within the CodeGen to lower a local variable instantion as an unnamed
@@ -1053,9 +1069,11 @@ pub const File = struct {
                 log.warn("failed to save archive hash digest file: {s}", .{@errorName(err)});
             };
 
-            man.writeManifest() catch |err| {
-                log.warn("failed to write cache manifest when archiving: {s}", .{@errorName(err)});
-            };
+            if (man.have_exclusive_lock) {
+                man.writeManifest() catch |err| {
+                    log.warn("failed to write cache manifest when archiving: {s}", .{@errorName(err)});
+                };
+            }
 
             base.lock = man.toOwnedLock();
         }

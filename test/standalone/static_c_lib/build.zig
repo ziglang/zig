@@ -1,7 +1,10 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{});
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    const optimize: std.builtin.OptimizeMode = .Debug;
 
     const foo = b.addStaticLibrary(.{
         .name = "foo",
@@ -18,6 +21,5 @@ pub fn build(b: *std.Build) void {
     test_exe.linkLibrary(foo);
     test_exe.addIncludePath(".");
 
-    const test_step = b.step("test", "Test it");
-    test_step.dependOn(&test_exe.step);
+    test_step.dependOn(&test_exe.run().step);
 }

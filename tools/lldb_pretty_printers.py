@@ -1,6 +1,6 @@
 # pretty printing for the zig language, zig standard library, and zig stage 2 compiler.
 # put commands in ~/.lldbinit to run them automatically when starting lldb
-# `command script /path/to/stage2_lldb_pretty_printers.py` to import this file
+# `command script import /path/to/zig/tools/lldb_pretty_printers.py` to import this file
 # `type category enable zig` to enable pretty printing for the zig language
 # `type category enable zig.std` to enable pretty printing for the zig standard library
 # `type category enable zig.stage2` to enable pretty printing for the zig stage 2 compiler

@@ -119,7 +119,6 @@ test "slice of type" {
 }
 
 test "generic malloc free" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const a = memAlloc(u8, 10) catch unreachable;
@@ -171,7 +170,6 @@ test "comptime pointer cast array and then slice" {
 
 test "slicing zero length array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const s1 = ""[0..];
@@ -185,8 +183,6 @@ test "slicing zero length array" {
 const x = @intToPtr([*]i32, 0x1000)[0..0x500];
 const y = x[0x100..];
 test "compile time slice of pointer to hard coded address" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try expect(@ptrToInt(x) == 0x1000);
     try expect(x.len == 0x500);
 
@@ -231,6 +227,7 @@ fn sliceFromLenToLen(a_slice: []u8, start: usize, end: usize) []u8 {
 
 test "C pointer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     var buf: [*c]const u8 = "kjdhfkjdhfdkjhfkfjhdfkjdhfkdjhfdkjhf";
     var len: u32 = 10;
@@ -342,7 +339,6 @@ test "@ptrCast slice to pointer" {
 }
 
 test "slice syntax resulting in pointer-to-array" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -477,7 +473,6 @@ test "slice syntax resulting in pointer-to-array" {
 }
 
 test "slice pointer-to-array null terminated" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -497,7 +492,6 @@ test "slice pointer-to-array null terminated" {
 }
 
 test "slice pointer-to-array zero length" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     comptime {
@@ -530,7 +524,6 @@ test "slice pointer-to-array zero length" {
 }
 
 test "type coercion of pointer to anon struct literal to pointer to slice" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -730,7 +723,6 @@ test "slice with dereferenced value" {
 
 test "empty slice ptr is non null" {
     if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64 and (builtin.os.tag == .macos or builtin.os.tag == .windows)) return error.SkipZigTest; // TODO
 
     const empty_slice: []u8 = &[_]u8{};
     const p: [*]u8 = empty_slice.ptr + 0;
