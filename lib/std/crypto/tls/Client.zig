@@ -1363,13 +1363,22 @@ fn limitVecs(iovecs: []std.os.iovec, len: usize) []std.os.iovec {
 ///        aegis-256:        461 MiB/s
 ///       aes128-gcm:        138 MiB/s
 ///       aes256-gcm:        120 MiB/s
-const cipher_suites = enum_array(tls.CipherSuite, &.{
-    .AEGIS_128L_SHA256,
-    .AEGIS_256_SHA384,
-    .AES_128_GCM_SHA256,
-    .AES_256_GCM_SHA384,
-    .CHACHA20_POLY1305_SHA256,
-});
+const cipher_suites = if (crypto.core.aes.has_hardware_support)
+    enum_array(tls.CipherSuite, &.{
+        .AEGIS_128L_SHA256,
+        .AEGIS_256_SHA384,
+        .AES_128_GCM_SHA256,
+        .AES_256_GCM_SHA384,
+        .CHACHA20_POLY1305_SHA256,
+    })
+else
+    enum_array(tls.CipherSuite, &.{
+        .CHACHA20_POLY1305_SHA256,
+        .AEGIS_128L_SHA256,
+        .AEGIS_256_SHA384,
+        .AES_128_GCM_SHA256,
+        .AES_256_GCM_SHA384,
+    });
 
 test {
     _ = StreamInterface;
