@@ -84,7 +84,7 @@ pub const PROCESSINFOCLASS = enum(c_int) {
     ProcessTokenVirtualizationEnabled,
     ProcessConsoleHostProcess,
     ProcessWindowInformation,
-    MaxProcessInfoClass
+    MaxProcessInfoClass,
 };
 
 pub extern "ntdll" fn NtQueryInformationProcess(
