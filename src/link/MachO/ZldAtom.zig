@@ -227,22 +227,21 @@ pub fn parseRelocTarget(zld: *Zld, ctx: struct {
 
         // Find containing atom
         log.debug("  | locating symbol by address @{x} in section {d}", .{ address_in_section, sect_id });
-        const sym_index = object.getSymbolByAddress(address_in_section, sect_id);
-        break :sym_index sym_index;
+        const candidate = object.getSymbolByAddress(address_in_section, sect_id);
+        // Make sure we are not dealing with a local alias.
+        const atom_index = object.getAtomIndexForSymbol(candidate) orelse break :sym_index candidate;
+        const atom = zld.getAtom(atom_index);
+        break :sym_index atom.sym_index;
     } else object.reverse_symtab_lookup[ctx.rel.r_symbolnum];
 
     const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = ctx.object_id + 1 };
     const sym = zld.getSymbol(sym_loc);
-    const target = target: {
-        if (sym.sect() and !sym.ext()) {
-            // Make sure we are not dealing with a local alias.
-            const atom_index = object.getAtomIndexForSymbol(sym_index) orelse break :target sym_loc;
-            const atom = zld.getAtom(atom_index);
-            break :target atom.getSymbolWithLoc();
-        } else if (object.getGlobal(sym_index)) |global_index| {
-            break :target zld.globals.items[global_index];
-        } else break :target sym_loc;
-    };
+    const target = if (sym.sect() and !sym.ext())
+        sym_loc
+    else if (object.getGlobal(sym_index)) |global_index|
+        zld.globals.items[global_index]
+    else
+        sym_loc;
     log.debug("  | target %{d} ('{s}') in object({?d})", .{
         target.sym_index,
         zld.getSymbolName(target),
@@ -752,7 +751,7 @@ fn resolveRelocsArm64(
                     mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
 
                 if (rel.r_extern == 0) {
-                    const base_addr = if (target.sym_index > object.source_address_lookup.len)
+                    const base_addr = if (target.sym_index >= object.source_address_lookup.len)
                         @intCast(i64, object.getSourceSection(@intCast(u8, rel.r_symbolnum - 1)).addr)
                     else
                         object.source_address_lookup[target.sym_index];
@@ -902,7 +901,7 @@ fn resolveRelocsX86(
                 var addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]) + correction;
 
                 if (rel.r_extern == 0) {
-                    const base_addr = if (target.sym_index > object.source_address_lookup.len)
+                    const base_addr = if (target.sym_index >= object.source_address_lookup.len)
                         @intCast(i64, object.getSourceSection(@intCast(u8, rel.r_symbolnum - 1)).addr)
                     else
                         object.source_address_lookup[target.sym_index];
@@ -925,7 +924,7 @@ fn resolveRelocsX86(
                     mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
 
                 if (rel.r_extern == 0) {
-                    const base_addr = if (target.sym_index > object.source_address_lookup.len)
+                    const base_addr = if (target.sym_index >= object.source_address_lookup.len)
                         @intCast(i64, object.getSourceSection(@intCast(u8, rel.r_symbolnum - 1)).addr)
                     else
                         object.source_address_lookup[target.sym_index];
