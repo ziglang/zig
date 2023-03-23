@@ -112,7 +112,7 @@ pub const ChildProcess = struct {
 
         const rusage_init = switch (builtin.os.tag) {
             .linux => @as(?std.os.rusage, null),
-            .windows => @as(?windows.PROCESS_MEMORY_COUNTERS, null),
+            .windows => @as(?windows.VM_COUNTERS, null),
             else => {},
         };
     };
@@ -374,9 +374,7 @@ pub const ChildProcess = struct {
         });
 
         if (self.request_resource_usage_statistics) {
-            var pmc: windows.PROCESS_MEMORY_COUNTERS = undefined;
-            try windows.GetProcessMemoryInfo(self.id, &pmc);
-            self.resource_usage_statistics.rusage = pmc;
+            self.resource_usage_statistics.rusage = try windows.GetProcessMemoryInfo(self.id);
         }
 
         os.close(self.id);

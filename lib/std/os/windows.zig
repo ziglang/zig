@@ -3994,24 +3994,11 @@ pub const GetProcessMemoryInfoError = error{
     Unexpected,
 };
 
-pub fn GetProcessMemoryInfo(hProcess: HANDLE, out: *PROCESS_MEMORY_COUNTERS) GetProcessMemoryInfoError!void {
+pub fn GetProcessMemoryInfo(hProcess: HANDLE) GetProcessMemoryInfoError!VM_COUNTERS {
     var vmc: VM_COUNTERS = undefined;
     const rc = ntdll.NtQueryInformationProcess(hProcess, .ProcessVmCounters, &vmc, @sizeOf(VM_COUNTERS), null);
     switch (rc) {
-        .SUCCESS => {
-            out.* = PROCESS_MEMORY_COUNTERS{
-                .cb = @sizeOf(PROCESS_MEMORY_COUNTERS),
-                .PageFaultCount = vmc.PageFaultCount,
-                .PeakWorkingSetSize = vmc.PeakWorkingSetSize,
-                .WorkingSetSize = vmc.WorkingSetSize,
-                .QuotaPeakPagedPoolUsage = vmc.QuotaPeakPagedPoolUsage,
-                .QuotaPagedPoolUsage = vmc.QuotaPagedPoolUsage,
-                .QuotaPeakNonPagedPoolUsage = vmc.QuotaPeakNonPagedPoolUsage,
-                .QuotaNonPagedPoolUsage = vmc.QuotaNonPagedPoolUsage,
-                .PagefileUsage = vmc.PagefileUsage,
-                .PeakPagefileUsage = vmc.PeakPagefileUsage,
-            };
-        },
+        .SUCCESS => return vmc,
         .ACCESS_DENIED => return error.AccessDenied,
         .INVALID_HANDLE => return error.InvalidHandle,
         .INVALID_PARAMETER => unreachable,
