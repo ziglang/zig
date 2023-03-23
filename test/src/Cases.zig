@@ -466,6 +466,7 @@ pub fn lowerToBuildSteps(
         run.addArgs(&.{
             case_base_path_with_dir,
             b.zig_exe,
+            b.zig_lib_dir orelse "",
         });
         run.expectStdOutEqual("");
         parent_step.dependOn(&run.step);
@@ -1013,6 +1014,7 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(arena);
     const case_file_path = args[1];
     const zig_exe_path = args[2];
+    var override_lib_dir: ?[]const u8 = if (args[3].len > 0) args[3] else null;
 
     var filenames = std.ArrayList([]const u8).init(arena);
 
@@ -1119,10 +1121,10 @@ pub fn main() !void {
         return err;
     }
 
-    return runCases(&ctx, zig_exe_path);
+    return runCases(&ctx, zig_exe_path, override_lib_dir);
 }
 
-fn runCases(self: *Cases, zig_exe_path: []const u8) !void {
+fn runCases(self: *Cases, zig_exe_path: []const u8, override_lib_dir: ?[]const u8) !void {
     const host = try std.zig.system.NativeTargetInfo.detect(.{});
 
     var progress = std.Progress{};
@@ -1130,7 +1132,14 @@ fn runCases(self: *Cases, zig_exe_path: []const u8) !void {
     progress.terminal = null;
     defer root_node.end();
 
-    var zig_lib_directory = try introspect.findZigLibDir(self.gpa);
+    var zig_lib_directory = if (override_lib_dir) |lib_dir|
+        Compilation.Directory{
+            .handle = try std.fs.cwd().openDir(lib_dir, .{}),
+            .path = try introspect.resolvePath(self.gpa, lib_dir),
+        }
+    else
+        try introspect.findZigLibDir(self.gpa);
+
     defer zig_lib_directory.handle.close();
     defer self.gpa.free(zig_lib_directory.path.?);
 
