@@ -5771,6 +5771,9 @@ fn canonicaliseBranches(
     comptime set_values: bool,
     comptime assert_same_deaths: bool,
 ) !void {
+    var hazard_map = std.AutoHashMap(MCValue, void).init(self.gpa);
+    defer hazard_map.deinit();
+
     const parent_branch =
         if (update_parent) &self.branch_stack.items[self.branch_stack.items.len - 1] else undefined;
 
@@ -5804,8 +5807,10 @@ fn canonicaliseBranches(
             break :blk self.getResolvedInstValue(target_key).?.*;
         };
         log.debug("consolidating target_entry {d} {}=>{}", .{ target_key, target_value, canon_mcv });
-        // TODO make sure the destination stack offset / register does not already have something
+        // TODO handle the case where the destination stack offset / register has something
         // going on there.
+        assert(!hazard_map.contains(target_value));
+        try hazard_map.putNoClobber(canon_mcv, {});
         if (set_values) {
             try self.setRegOrMem(self.air.typeOfIndex(target_key), canon_mcv, target_value);
         } else self.getValue(canon_mcv, target_key);
@@ -5824,8 +5829,10 @@ fn canonicaliseBranches(
             if (canon_value != .dead) self.getResolvedInstValue(canon_key).?.* else undefined;
         if (canon_value != .dead) {
             log.debug("consolidating canon_entry {d} {}=>{}", .{ canon_key, parent_mcv, canon_value });
-            // TODO make sure the destination stack offset / register does not already have something
+            // TODO handle the case where the destination stack offset / register has something
             // going on there.
+            assert(!hazard_map.contains(parent_mcv));
+            try hazard_map.putNoClobber(canon_value, {});
             if (set_values) {
                 try self.setRegOrMem(self.air.typeOfIndex(canon_key), canon_value, parent_mcv);
             } else self.getValue(canon_value, canon_key);
