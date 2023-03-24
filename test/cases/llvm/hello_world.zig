@@ -7,6 +7,7 @@ pub fn main() void {
 // run
 // backend=llvm
 // target=x86_64-linux,x86_64-macos
+// link_libc=1
 //
 // hello world!
 //

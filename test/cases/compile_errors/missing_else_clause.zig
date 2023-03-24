@@ -31,7 +31,9 @@ export fn entry() void {
 // target=native
 //
 // :2:21: error: incompatible types: 'i32' and 'void'
+// :2:31: note: type 'i32' here
 // :6:15: error: incompatible types: 'i32' and 'void'
+// :6:25: note: type 'i32' here
 // :12:16: error: expected type 'tmp.h.T', found 'void'
 // :11:15: note: struct declared here
 // :18:9: error: incompatible types: 'void' and 'tmp.k.T'

@@ -3,7 +3,10 @@ export fn entry() void {
     var good = {};
     _ = for(foo()) |_| {}
     var bad = {};
+    _ = good;
+    _ = bad;
 }
+fn foo() void {}
 
 // error
 // backend=stage2

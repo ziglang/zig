@@ -18,6 +18,7 @@ const IO_STATUS_BLOCK = windows.IO_STATUS_BLOCK;
 const LARGE_INTEGER = windows.LARGE_INTEGER;
 const OBJECT_INFORMATION_CLASS = windows.OBJECT_INFORMATION_CLASS;
 const FILE_INFORMATION_CLASS = windows.FILE_INFORMATION_CLASS;
+const FS_INFORMATION_CLASS = windows.FS_INFORMATION_CLASS;
 const UNICODE_STRING = windows.UNICODE_STRING;
 const RTL_OSVERSIONINFOW = windows.RTL_OSVERSIONINFOW;
 const FILE_BASIC_INFORMATION = windows.FILE_BASIC_INFORMATION;
@@ -30,6 +31,69 @@ const UNWIND_HISTORY_TABLE = windows.UNWIND_HISTORY_TABLE;
 const RUNTIME_FUNCTION = windows.RUNTIME_FUNCTION;
 const KNONVOLATILE_CONTEXT_POINTERS = windows.KNONVOLATILE_CONTEXT_POINTERS;
 const EXCEPTION_ROUTINE = windows.EXCEPTION_ROUTINE;
+
+pub const PROCESSINFOCLASS = enum(c_int) {
+    ProcessBasicInformation,
+    ProcessQuotaLimits,
+    ProcessIoCounters,
+    ProcessVmCounters,
+    ProcessTimes,
+    ProcessBasePriority,
+    ProcessRaisePriority,
+    ProcessDebugPort,
+    ProcessExceptionPort,
+    ProcessAccessToken,
+    ProcessLdtInformation,
+    ProcessLdtSize,
+    ProcessDefaultHardErrorMode,
+    ProcessIoPortHandlers,
+    ProcessPooledUsageAndLimits,
+    ProcessWorkingSetWatch,
+    ProcessUserModeIOPL,
+    ProcessEnableAlignmentFaultFixup,
+    ProcessPriorityClass,
+    ProcessWx86Information,
+    ProcessHandleCount,
+    ProcessAffinityMask,
+    ProcessPriorityBoost,
+    ProcessDeviceMap,
+    ProcessSessionInformation,
+    ProcessForegroundInformation,
+    ProcessWow64Information,
+    ProcessImageFileName,
+    ProcessLUIDDeviceMapsEnabled,
+    ProcessBreakOnTermination,
+    ProcessDebugObjectHandle,
+    ProcessDebugFlags,
+    ProcessHandleTracing,
+    ProcessIoPriority,
+    ProcessExecuteFlags,
+    ProcessTlsInformation,
+    ProcessCookie,
+    ProcessImageInformation,
+    ProcessCycleTime,
+    ProcessPagePriority,
+    ProcessInstrumentationCallback,
+    ProcessThreadStackAllocation,
+    ProcessWorkingSetWatchEx,
+    ProcessImageFileNameWin32,
+    ProcessImageFileMapping,
+    ProcessAffinityUpdateMode,
+    ProcessMemoryAllocationMode,
+    ProcessGroupInformation,
+    ProcessTokenVirtualizationEnabled,
+    ProcessConsoleHostProcess,
+    ProcessWindowInformation,
+    MaxProcessInfoClass,
+};
+
+pub extern "ntdll" fn NtQueryInformationProcess(
+    ProcessHandle: HANDLE,
+    ProcessInformationClass: PROCESSINFOCLASS,
+    ProcessInformation: *anyopaque,
+    ProcessInformationLength: ULONG,
+    ReturnLength: ?*ULONG,
+) callconv(WINAPI) NTSTATUS;
 
 pub const THREADINFOCLASS = enum(c_int) {
     ThreadBasicInformation,
@@ -230,6 +294,14 @@ pub extern "ntdll" fn NtQueryObject(
     ObjectInformation: PVOID,
     ObjectInformationLength: ULONG,
     ReturnLength: ?*ULONG,
+) callconv(WINAPI) NTSTATUS;
+
+pub extern "ntdll" fn NtQueryVolumeInformationFile(
+    FileHandle: HANDLE,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+    FsInformation: *anyopaque,
+    Length: ULONG,
+    FsInformationClass: FS_INFORMATION_CLASS,
 ) callconv(WINAPI) NTSTATUS;
 
 pub extern "ntdll" fn RtlWakeAddressAll(

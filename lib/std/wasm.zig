@@ -189,7 +189,9 @@ pub const Opcode = enum(u8) {
     i64_extend16_s = 0xC3,
     i64_extend32_s = 0xC4,
 
-    prefixed = 0xFC,
+    misc_prefix = 0xFC,
+    simd_prefix = 0xFD,
+    atomics_prefix = 0xFE,
     _,
 };
 
@@ -217,7 +219,7 @@ test "Wasm - opcodes" {
 /// Opcodes that require a prefix `0xFC`
 /// Each opcode represents a varuint32, meaning
 /// they are encoded as leb128 in binary.
-pub const PrefixedOpcode = enum(u32) {
+pub const MiscOpcode = enum(u32) {
     i32_trunc_sat_f32_s = 0x00,
     i32_trunc_sat_f32_u = 0x01,
     i32_trunc_sat_f64_s = 0x02,
@@ -238,6 +240,12 @@ pub const PrefixedOpcode = enum(u32) {
     table_fill = 0x11,
     _,
 };
+
+/// Returns the integer value of an `MiscOpcode`. Used by the Zig compiler
+/// to write instructions to the wasm binary file
+pub fn miscOpcode(op: MiscOpcode) u32 {
+    return @enumToInt(op);
+}
 
 /// Simd opcodes that require a prefix `0xFD`.
 /// Each opcode represents a varuint32, meaning
@@ -510,6 +518,86 @@ pub fn simdOpcode(op: SimdOpcode) u32 {
     return @enumToInt(op);
 }
 
+/// Simd opcodes that require a prefix `0xFE`.
+/// Each opcode represents a varuint32, meaning
+/// they are encoded as leb128 in binary.
+pub const AtomicsOpcode = enum(u32) {
+    memory_atomic_notify = 0x00,
+    memory_atomic_wait32 = 0x01,
+    memory_atomic_wait64 = 0x02,
+    atomic_fence = 0x03,
+    i32_atomic_load = 0x10,
+    i64_atomic_load = 0x11,
+    i32_atomic_load8_u = 0x12,
+    i32_atomic_load16_u = 0x13,
+    i64_atomic_load8_u = 0x14,
+    i64_atomic_load16_u = 0x15,
+    i64_atomic_load32_u = 0x16,
+    i32_atomic_store = 0x17,
+    i64_atomic_store = 0x18,
+    i32_atomic_store8 = 0x19,
+    i32_atomic_store16 = 0x1A,
+    i64_atomic_store8 = 0x1B,
+    i64_atomic_store16 = 0x1C,
+    i64_atomic_store32 = 0x1D,
+    i32_atomic_rmw_add = 0x1E,
+    i64_atomic_rmw_add = 0x1F,
+    i32_atomic_rmw8_add_u = 0x20,
+    i32_atomic_rmw16_add_u = 0x21,
+    i64_atomic_rmw8_add_u = 0x22,
+    i64_atomic_rmw16_add_u = 0x23,
+    i64_atomic_rmw32_add_u = 0x24,
+    i32_atomic_rmw_sub = 0x25,
+    i64_atomic_rmw_sub = 0x26,
+    i32_atomic_rmw8_sub_u = 0x27A,
+    i32_atomic_rmw16_sub_u = 0x28A,
+    i64_atomic_rmw8_sub_u = 0x29A,
+    i64_atomic_rmw16_sub_u = 0x2A,
+    i64_atomic_rmw32_sub_u = 0x2B,
+    i32_atomic_rmw_and = 0x2C,
+    i64_atomic_rmw_and = 0x2D,
+    i32_atomic_rmw8_and_u = 0x2E,
+    i32_atomic_rmw16_and_u = 0x2F,
+    i64_atomic_rmw8_and_u = 0x30,
+    i64_atomic_rmw16_and_u = 0x31,
+    i64_atomic_rmw32_and_u = 0x32,
+    i32_atomic_rmw_or = 0x33,
+    i64_atomic_rmw_or = 0x34,
+    i32_atomic_rmw8_or_u = 0x35,
+    i32_atomic_rmw16_or_u = 0x36,
+    i64_atomic_rmw8_or_u = 0x37,
+    i64_atomic_rmw16_or_u = 0x38,
+    i64_atomic_rmw32_or_u = 0x39,
+    i32_atomic_rmw_xor = 0x3A,
+    i64_atomic_rmw_xor = 0x3B,
+    i32_atomic_rmw8_xor_u = 0x3C,
+    i32_atomic_rmw16_xor_u = 0x3D,
+    i64_atomic_rmw8_xor_u = 0x3E,
+    i64_atomic_rmw16_xor_u = 0x3F,
+    i64_atomic_rmw32_xor_u = 0x40,
+    i32_atomic_rmw_xchg = 0x41,
+    i64_atomic_rmw_xchg = 0x42,
+    i32_atomic_rmw8_xchg_u = 0x43,
+    i32_atomic_rmw16_xchg_u = 0x44,
+    i64_atomic_rmw8_xchg_u = 0x45,
+    i64_atomic_rmw16_xchg_u = 0x46,
+    i64_atomic_rmw32_xchg_u = 0x47,
+
+    i32_atomic_rmw_cmpxchg = 0x48,
+    i64_atomic_rmw_cmpxchg = 0x49,
+    i32_atomic_rmw8_cmpxchg_u = 0x4A,
+    i32_atomic_rmw16_cmpxchg_u = 0x4B,
+    i64_atomic_rmw8_cmpxchg_u = 0x4C,
+    i64_atomic_rmw16_cmpxchg_u = 0x4D,
+    i64_atomic_rmw32_cmpxchg_u = 0x4E,
+};
+
+/// Returns the integer value of an `AtomicsOpcode`. Used by the Zig compiler
+/// to write instructions to the wasm binary file
+pub fn atomicsOpcode(op: AtomicsOpcode) u32 {
+    return @enumToInt(op);
+}
+
 /// Enum representing all Wasm value types as per spec:
 /// https://webassembly.github.io/spec/core/binary/types.html
 pub const Valtype = enum(u8) {
@@ -551,8 +639,22 @@ test "Wasm - valtypes" {
 
 /// Limits classify the size range of resizeable storage associated with memory types and table types.
 pub const Limits = struct {
+    flags: u8,
     min: u32,
-    max: ?u32,
+    max: u32,
+
+    pub const Flags = enum(u8) {
+        WASM_LIMITS_FLAG_HAS_MAX = 0x1,
+        WASM_LIMITS_FLAG_IS_SHARED = 0x2,
+    };
+
+    pub fn hasFlag(limits: Limits, flag: Flags) bool {
+        return limits.flags & @enumToInt(flag) != 0;
+    }
+
+    pub fn setFlag(limits: *Limits, flag: Flags) void {
+        limits.flags |= @enumToInt(flag);
+    }
 };
 
 /// Initialization expressions are used to set the initial value on an object

@@ -497,8 +497,6 @@ uint32_t wasi_snapshot_preview1_fd_read(uint32_t fd, uint32_t iovs, uint32_t iov
         size_t read_size = 0;
         if (fds[fd].stream != NULL)
             read_size = fread(&m[iovs_ptr[i].ptr], 1, iovs_ptr[i].len, fds[fd].stream);
-        else
-            panic("unimplemented");
         size += read_size;
         if (read_size < iovs_ptr[i].len) break;
     }

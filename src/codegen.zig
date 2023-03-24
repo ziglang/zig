@@ -608,7 +608,6 @@ pub fn generateSymbol(
             const payload_type = typed_value.ty.optionalChild(&opt_buf);
             const is_pl = !typed_value.val.isNull();
             const abi_size = math.cast(usize, typed_value.ty.abiSize(target)) orelse return error.Overflow;
-            const offset = abi_size - (math.cast(usize, payload_type.abiSize(target)) orelse return error.Overflow);
 
             if (!payload_type.hasRuntimeBits()) {
                 try code.writer().writeByteNTimes(@boolToInt(is_pl), abi_size);
@@ -639,8 +638,8 @@ pub fn generateSymbol(
                 return Result.ok;
             }
 
+            const padding = abi_size - (math.cast(usize, payload_type.abiSize(target)) orelse return error.Overflow) - 1;
             const value = if (typed_value.val.castTag(.opt_payload)) |payload| payload.data else Value.initTag(.undef);
-            try code.writer().writeByteNTimes(@boolToInt(is_pl), offset);
             switch (try generateSymbol(bin_file, src_loc, .{
                 .ty = payload_type,
                 .val = value,
@@ -648,6 +647,8 @@ pub fn generateSymbol(
                 .ok => {},
                 .fail => |em| return Result{ .fail = em },
             }
+            try code.writer().writeByte(@boolToInt(is_pl));
+            try code.writer().writeByteNTimes(0, padding);
 
             return Result.ok;
         },

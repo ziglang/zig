@@ -16,6 +16,8 @@ pub const Mutex = @import("Thread/Mutex.zig");
 pub const Semaphore = @import("Thread/Semaphore.zig");
 pub const Condition = @import("Thread/Condition.zig");
 pub const RwLock = @import("Thread/RwLock.zig");
+pub const Pool = @import("Thread/Pool.zig");
+pub const WaitGroup = @import("Thread/WaitGroup.zig");
 
 pub const use_pthreads = target.os.tag != .windows and target.os.tag != .wasi and builtin.link_libc;
 const is_gnu = target.abi.isGnu();
@@ -945,6 +947,7 @@ const LinuxThreadImpl = struct {
 
         // map all memory needed without read/write permissions
         // to avoid committing the whole region right away
+        // anonymous mapping ensures file descriptor limits are not exceeded
         const mapped = os.mmap(
             null,
             map_bytes,
@@ -956,6 +959,8 @@ const LinuxThreadImpl = struct {
             error.MemoryMappingNotSupported => unreachable,
             error.AccessDenied => unreachable,
             error.PermissionDenied => unreachable,
+            error.ProcessFdQuotaExceeded => unreachable,
+            error.SystemFdQuotaExceeded => unreachable,
             else => |e| return e,
         };
         assert(mapped.len >= map_bytes);

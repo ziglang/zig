@@ -17,3 +17,12 @@ export fn baz() void {
 //
 // :5:5: error: found compile log statement
 // :11:5: note: also here
+//
+// Compile Log Output:
+// @as(*const [5:0]u8, "begin")
+// @as(*const [1:0]u8, "a"), @as(i32, 12), @as(*const [1:0]u8, "b"), @as([]const u8, "hi")
+// @as(*const [3:0]u8, "end")
+// @as(comptime_int, 4)
+// @as(*const [5:0]u8, "begin")
+// @as(*const [1:0]u8, "a"), @as(i32, [runtime value]), @as(*const [1:0]u8, "b"), @as([]const u8, [runtime value])
+// @as(*const [3:0]u8, "end")

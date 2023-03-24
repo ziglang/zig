@@ -1,8 +1,11 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{});
-    const target = b.standardTargetOptions(.{});
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    const optimize: std.builtin.OptimizeMode = .Debug;
+    const target: std.zig.CrossTarget = .{};
     const lib = b.addSharedLibrary(.{
         .name = "mathtest",
         .root_source_file = .{ .path = "mathtest.zig" },
@@ -20,10 +23,7 @@ pub fn build(b: *std.Build) void {
     exe.linkLibrary(lib);
     exe.linkSystemLibrary("c");
 
-    b.default_step.dependOn(&exe.step);
-
     const run_cmd = exe.run();
 
-    const test_step = b.step("test", "Test the program");
     test_step.dependOn(&run_cmd.step);
 }

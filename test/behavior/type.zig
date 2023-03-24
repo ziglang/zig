@@ -449,8 +449,6 @@ test "Type.Union" {
 }
 
 test "Type.Union from Type.Enum" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-
     const Tag = @Type(.{
         .Enum = .{
             .tag_type = u0,
@@ -475,8 +473,6 @@ test "Type.Union from Type.Enum" {
 }
 
 test "Type.Union from regular enum" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-
     const E = enum { working_as_expected };
     const T = @Type(.{
         .Union = .{

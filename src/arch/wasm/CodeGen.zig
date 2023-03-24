@@ -895,10 +895,10 @@ fn addTag(func: *CodeGen, tag: Mir.Inst.Tag) error{OutOfMemory}!void {
     try func.addInst(.{ .tag = tag, .data = .{ .tag = {} } });
 }
 
-fn addExtended(func: *CodeGen, opcode: wasm.PrefixedOpcode) error{OutOfMemory}!void {
+fn addExtended(func: *CodeGen, opcode: wasm.MiscOpcode) error{OutOfMemory}!void {
     const extra_index = @intCast(u32, func.mir_extra.items.len);
     try func.mir_extra.append(func.gpa, @enumToInt(opcode));
-    try func.addInst(.{ .tag = .extended, .data = .{ .payload = extra_index } });
+    try func.addInst(.{ .tag = .misc_prefix, .data = .{ .payload = extra_index } });
 }
 
 fn addLabel(func: *CodeGen, tag: Mir.Inst.Tag, label: u32) error{OutOfMemory}!void {
@@ -925,7 +925,7 @@ fn addImm128(func: *CodeGen, index: u32) error{OutOfMemory}!void {
     try func.mir_extra.ensureUnusedCapacity(func.gpa, 5);
     func.mir_extra.appendAssumeCapacity(std.wasm.simdOpcode(.v128_const));
     func.mir_extra.appendSliceAssumeCapacity(@alignCast(4, mem.bytesAsSlice(u32, &simd_values)));
-    try func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+    try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
 }
 
 fn addFloat64(func: *CodeGen, float: f64) error{OutOfMemory}!void {
@@ -2310,7 +2310,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
                     offset + lhs.offset(),
                     ty.abiAlignment(func.target),
                 });
-                return func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+                return func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
             },
         },
         .Pointer => {
@@ -2420,7 +2420,7 @@ fn load(func: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValu
             offset + operand.offset(),
             ty.abiAlignment(func.target),
         });
-        try func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+        try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
         return WValue{ .stack = {} };
     }
 
@@ -2715,20 +2715,7 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, ptr_child_ty: Type) InnerError
         },
         .opt_payload_ptr => {
             const payload_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
-            const parent_ptr = try func.lowerParentPtr(payload_ptr.container_ptr, payload_ptr.container_ty);
-            var buf: Type.Payload.ElemType = undefined;
-            const payload_ty = payload_ptr.container_ty.optionalChild(&buf);
-            if (!payload_ty.hasRuntimeBitsIgnoreComptime() or payload_ty.optionalReprIsPayload()) {
-                return parent_ptr;
-            }
-
-            const abi_size = payload_ptr.container_ty.abiSize(func.target);
-            const offset = abi_size - payload_ty.abiSize(func.target);
-
-            return WValue{ .memory_offset = .{
-                .pointer = parent_ptr.memory,
-                .offset = @intCast(u32, offset),
-            } };
+            return func.lowerParentPtr(payload_ptr.container_ptr, payload_ptr.container_ty);
         },
         else => |tag| return func.fail("TODO: Implement lowerParentPtr for tag: {}", .{tag}),
     }
@@ -2889,7 +2876,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             }
         } else {
             const is_pl = val.tag() == .opt_payload;
-            return WValue{ .imm32 = if (is_pl) @as(u32, 1) else 0 };
+            return WValue{ .imm32 = @boolToInt(is_pl) };
         },
         .Struct => {
             const struct_obj = ty.castTag(.@"struct").?.data;
@@ -3882,7 +3869,11 @@ fn isNull(func: *CodeGen, operand: WValue, optional_ty: Type, opcode: wasm.Opcod
         // When payload is zero-bits, we can treat operand as a value, rather than
         // a pointer to the stack value
         if (payload_ty.hasRuntimeBitsIgnoreComptime()) {
-            try func.addMemArg(.i32_load8_u, .{ .offset = operand.offset(), .alignment = 1 });
+            const offset = std.math.cast(u32, payload_ty.abiSize(func.target)) orelse {
+                const module = func.bin_file.base.options.module.?;
+                return func.fail("Optional type {} too big to fit into stack frame", .{optional_ty.fmt(module)});
+            };
+            try func.addMemArg(.i32_load8_u, .{ .offset = operand.offset() + offset, .alignment = 1 });
         }
     } else if (payload_ty.isSlice()) {
         switch (func.arch()) {
@@ -3911,13 +3902,11 @@ fn airOptionalPayload(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const operand = try func.resolveInst(ty_op.operand);
         if (opt_ty.optionalReprIsPayload()) break :result func.reuseOperand(ty_op.operand, operand);
 
-        const offset = opt_ty.abiSize(func.target) - payload_ty.abiSize(func.target);
-
         if (isByRef(payload_ty, func.target)) {
-            break :result try func.buildPointerOffset(operand, offset, .new);
+            break :result try func.buildPointerOffset(operand, 0, .new);
         }
 
-        const payload = try func.load(operand, payload_ty, @intCast(u32, offset));
+        const payload = try func.load(operand, payload_ty, 0);
         break :result try payload.toLocal(func, payload_ty);
     };
     func.finishAir(inst, result, &.{ty_op.operand});
@@ -3936,8 +3925,7 @@ fn airOptionalPayloadPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result func.reuseOperand(ty_op.operand, operand);
         }
 
-        const offset = opt_ty.abiSize(func.target) - payload_ty.abiSize(func.target);
-        break :result try func.buildPointerOffset(operand, offset, .new);
+        break :result try func.buildPointerOffset(operand, 0, .new);
     };
     func.finishAir(inst, result, &.{ty_op.operand});
 }
@@ -3956,16 +3944,16 @@ fn airOptionalPayloadPtrSet(func: *CodeGen, inst: Air.Inst.Index) InnerError!voi
         return func.finishAir(inst, operand, &.{ty_op.operand});
     }
 
-    const offset = std.math.cast(u32, opt_ty.abiSize(func.target) - payload_ty.abiSize(func.target)) orelse {
+    const offset = std.math.cast(u32, payload_ty.abiSize(func.target)) orelse {
         const module = func.bin_file.base.options.module.?;
         return func.fail("Optional type {} too big to fit into stack frame", .{opt_ty.fmt(module)});
     };
 
     try func.emitWValue(operand);
     try func.addImm32(1);
-    try func.addMemArg(.i32_store8, .{ .offset = operand.offset(), .alignment = 1 });
+    try func.addMemArg(.i32_store8, .{ .offset = operand.offset() + offset, .alignment = 1 });
 
-    const result = try func.buildPointerOffset(operand, offset, .new);
+    const result = try func.buildPointerOffset(operand, 0, .new);
     return func.finishAir(inst, result, &.{ty_op.operand});
 }
 
@@ -3988,7 +3976,7 @@ fn airWrapOptional(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         if (op_ty.optionalReprIsPayload()) {
             break :result func.reuseOperand(ty_op.operand, operand);
         }
-        const offset = std.math.cast(u32, op_ty.abiSize(func.target) - payload_ty.abiSize(func.target)) orelse {
+        const offset = std.math.cast(u32, payload_ty.abiSize(func.target)) orelse {
             const module = func.bin_file.base.options.module.?;
             return func.fail("Optional type {} too big to fit into stack frame", .{op_ty.fmt(module)});
         };
@@ -3997,9 +3985,9 @@ fn airWrapOptional(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const result_ptr = try func.allocStack(op_ty);
         try func.emitWValue(result_ptr);
         try func.addImm32(1);
-        try func.addMemArg(.i32_store8, .{ .offset = result_ptr.offset(), .alignment = 1 });
+        try func.addMemArg(.i32_store8, .{ .offset = result_ptr.offset() + offset, .alignment = 1 });
 
-        const payload_ptr = try func.buildPointerOffset(result_ptr, offset, .new);
+        const payload_ptr = try func.buildPointerOffset(result_ptr, 0, .new);
         try func.store(payload_ptr, operand, payload_ty, 0);
         break :result result_ptr;
     };
@@ -4477,7 +4465,7 @@ fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     operand.offset(),
                     elem_ty.abiAlignment(func.target),
                 });
-                try func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+                try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
                 try func.addLabel(.local_set, result.local.value);
                 return func.finishAir(inst, result, &.{ty_op.operand});
             },
@@ -4493,7 +4481,7 @@ fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 try func.emitWValue(operand);
                 const extra_index = @intCast(u32, func.mir_extra.items.len);
                 try func.mir_extra.append(func.gpa, opcode);
-                try func.addInst(.{ .tag = .simd, .data = .{ .payload = extra_index } });
+                try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
                 try func.addLabel(.local_set, result.local.value);
                 return func.finishAir(inst, result, &.{ty_op.operand});
             },
@@ -4719,7 +4707,6 @@ fn cmpOptionals(func: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: 
     assert(op == .eq or op == .neq);
     var buf: Type.Payload.ElemType = undefined;
     const payload_ty = operand_ty.optionalChild(&buf);
-    const offset = @intCast(u32, operand_ty.abiSize(func.target) - payload_ty.abiSize(func.target));
 
     // We store the final result in here that will be validated
     // if the optional is truly equal.
@@ -4732,8 +4719,8 @@ fn cmpOptionals(func: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: 
     try func.addTag(.i32_ne); // inverse so we can exit early
     try func.addLabel(.br_if, 0);
 
-    _ = try func.load(lhs, payload_ty, offset);
-    _ = try func.load(rhs, payload_ty, offset);
+    _ = try func.load(lhs, payload_ty, 0);
+    _ = try func.load(rhs, payload_ty, 0);
     const opcode = buildOpcode(.{ .op = .ne, .valtype1 = typeToValtype(payload_ty, func.target) });
     try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
     try func.addLabel(.br_if, 0);

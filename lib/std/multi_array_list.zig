@@ -68,6 +68,15 @@ pub fn MultiArrayList(comptime S: type) type {
                 other.deinit(gpa);
                 self.* = undefined;
             }
+
+            /// This function is used in the debugger pretty formatters in tools/ to fetch the
+            /// child field order and entry type to facilitate fancy debug printing for this type.
+            fn dbHelper(self: *Slice, child: *S, field: *Field, entry: *Entry) void {
+                _ = self;
+                _ = child;
+                _ = field;
+                _ = entry;
+            }
         };
 
         const Self = @This();
@@ -463,16 +472,18 @@ pub fn MultiArrayList(comptime S: type) type {
             } });
         };
         /// This function is used in the debugger pretty formatters in tools/ to fetch the
-        /// child type to facilitate fancy debug printing for this type.
-        fn dbHelper(self: *Self, child: *S, entry: *Entry) void {
+        /// child field order and entry type to facilitate fancy debug printing for this type.
+        fn dbHelper(self: *Self, child: *S, field: *Field, entry: *Entry) void {
             _ = self;
             _ = child;
+            _ = field;
             _ = entry;
         }
 
         comptime {
             if (builtin.mode == .Debug) {
                 _ = dbHelper;
+                _ = Slice.dbHelper;
             }
         }
     };

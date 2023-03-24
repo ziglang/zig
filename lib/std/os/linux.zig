@@ -944,6 +944,16 @@ pub fn waitpid(pid: pid_t, status: *u32, flags: u32) usize {
     return syscall4(.wait4, @bitCast(usize, @as(isize, pid)), @ptrToInt(status), flags, 0);
 }
 
+pub fn wait4(pid: pid_t, status: *u32, flags: u32, usage: ?*rusage) usize {
+    return syscall4(
+        .wait4,
+        @bitCast(usize, @as(isize, pid)),
+        @ptrToInt(status),
+        flags,
+        @ptrToInt(usage),
+    );
+}
+
 pub fn waitid(id_type: P, id: i32, infop: *siginfo_t, flags: u32) usize {
     return syscall5(.waitid, @enumToInt(id_type), @bitCast(usize, @as(isize, id)), @ptrToInt(infop), flags, 0);
 }
@@ -1716,26 +1726,26 @@ pub fn pidfd_send_signal(pidfd: fd_t, sig: i32, info: ?*siginfo_t, flags: u32) u
     );
 }
 
-pub fn process_vm_readv(pid: pid_t, local: [*]const iovec, local_count: usize, remote: [*]const iovec, remote_count: usize, flags: usize) usize {
+pub fn process_vm_readv(pid: pid_t, local: []iovec, remote: []const iovec_const, flags: usize) usize {
     return syscall6(
         .process_vm_readv,
         @bitCast(usize, @as(isize, pid)),
-        @ptrToInt(local),
-        local_count,
-        @ptrToInt(remote),
-        remote_count,
+        @ptrToInt(local.ptr),
+        local.len,
+        @ptrToInt(remote.ptr),
+        remote.len,
         flags,
     );
 }
 
-pub fn process_vm_writev(pid: pid_t, local: [*]const iovec, local_count: usize, remote: [*]const iovec, remote_count: usize, flags: usize) usize {
+pub fn process_vm_writev(pid: pid_t, local: []const iovec_const, remote: []const iovec_const, flags: usize) usize {
     return syscall6(
         .process_vm_writev,
         @bitCast(usize, @as(isize, pid)),
-        @ptrToInt(local),
-        local_count,
-        @ptrToInt(remote),
-        remote_count,
+        @ptrToInt(local.ptr),
+        local.len,
+        @ptrToInt(remote.ptr),
+        remote.len,
         flags,
     );
 }
@@ -1818,6 +1828,23 @@ pub fn perf_event_open(
 
 pub fn seccomp(operation: u32, flags: u32, args: ?*const anyopaque) usize {
     return syscall3(.seccomp, operation, flags, @ptrToInt(args));
+}
+
+pub fn ptrace(
+    req: u32,
+    pid: pid_t,
+    addr: usize,
+    data: usize,
+    addr2: usize,
+) usize {
+    return syscall5(
+        .ptrace,
+        req,
+        @bitCast(usize, @as(isize, pid)),
+        addr,
+        data,
+        addr2,
+    );
 }
 
 pub const E = switch (native_arch) {
@@ -5720,4 +5747,41 @@ pub const AUDIT = struct {
             return res;
         }
     };
+};
+
+pub const PTRACE = struct {
+    pub const TRACEME = 0;
+    pub const PEEKTEXT = 1;
+    pub const PEEKDATA = 2;
+    pub const PEEKUSER = 3;
+    pub const POKETEXT = 4;
+    pub const POKEDATA = 5;
+    pub const POKEUSER = 6;
+    pub const CONT = 7;
+    pub const KILL = 8;
+    pub const SINGLESTEP = 9;
+    pub const GETREGS = 12;
+    pub const SETREGS = 13;
+    pub const GETFPREGS = 14;
+    pub const SETFPREGS = 15;
+    pub const ATTACH = 16;
+    pub const DETACH = 17;
+    pub const GETFPXREGS = 18;
+    pub const SETFPXREGS = 19;
+    pub const SYSCALL = 24;
+    pub const SETOPTIONS = 0x4200;
+    pub const GETEVENTMSG = 0x4201;
+    pub const GETSIGINFO = 0x4202;
+    pub const SETSIGINFO = 0x4203;
+    pub const GETREGSET = 0x4204;
+    pub const SETREGSET = 0x4205;
+    pub const SEIZE = 0x4206;
+    pub const INTERRUPT = 0x4207;
+    pub const LISTEN = 0x4208;
+    pub const PEEKSIGINFO = 0x4209;
+    pub const GETSIGMASK = 0x420a;
+    pub const SETSIGMASK = 0x420b;
+    pub const SECCOMP_GET_FILTER = 0x420c;
+    pub const SECCOMP_GET_METADATA = 0x420d;
+    pub const GET_SYSCALL_INFO = 0x420e;
 };
