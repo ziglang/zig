@@ -663,7 +663,6 @@ pub fn addCliTests(b: *std.Build) *Step {
     const s = std.fs.path.sep_str;
 
     {
-
         // Test `zig init-lib`.
         const tmp_path = b.makeTempPath();
         const init_lib = b.addSystemCommand(&.{ b.zig_exe, "init-lib" });
