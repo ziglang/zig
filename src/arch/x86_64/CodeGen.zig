@@ -214,11 +214,11 @@ const StackAllocation = struct {
 
 const BlockData = struct {
     relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
-    branch: ?Branch = null,
+    branch: Branch = .{},
     branch_depth: u32,
 
     fn deinit(self: *BlockData, gpa: Allocator) void {
-        if (self.branch) |*branch| branch.deinit(gpa);
+        self.branch.deinit(gpa);
         self.relocs.deinit(gpa);
         self.* = undefined;
     }
@@ -2759,7 +2759,7 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
         };
         defer if (mat_src_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const dst_reg = try self.register_manager.allocReg(inst, gp);
+        const dst_reg = try self.register_manager.allocReg(null, gp);
         const dst_mcv = MCValue{ .register = dst_reg };
         const dst_lock = self.register_manager.lockReg(dst_reg);
         defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
@@ -2774,14 +2774,14 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
         }
 
         const src_bits = src_ty.bitSize(self.target.*);
-        const width_reg = try self.copyToTmpRegister(dst_ty, .{ .immediate = src_bits });
-        const width_mcv = MCValue{ .register = width_reg };
+        const width_mcv =
+            try self.copyToRegisterWithInstTracking(inst, dst_ty, .{ .immediate = src_bits });
         try self.genBinOpMir(.bsr, src_ty, dst_mcv, mat_src_mcv);
 
         const dst_abi_size = @intCast(u32, @max(dst_ty.abiSize(self.target.*), 2));
         try self.asmCmovccRegisterRegister(
             registerAlias(dst_reg, dst_abi_size),
-            registerAlias(width_reg, dst_abi_size),
+            registerAlias(width_mcv.register, dst_abi_size),
             .z,
         );
 
@@ -2845,7 +2845,6 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
             registerAlias(width_reg, abi_size),
             .z,
         );
-
         break :result dst_mcv;
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
@@ -5297,7 +5296,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     log.debug("Then branch: {}", .{then_branch.fmtDebug()});
     log.debug("Else branch: {}", .{else_branch.fmtDebug()});
 
-    try self.canonicaliseBranches(true, &then_branch, &else_branch, true);
+    try self.canonicaliseBranches(true, &then_branch, &else_branch, true, true);
 
     // We already took care of pl_op.operand earlier, so we're going
     // to pass .none here
@@ -5611,41 +5610,32 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
         block_data.deinit(self.gpa);
     }
 
-    try self.branch_stack.append(.{});
-    defer _ = self.branch_stack.pop();
-
     const ty = self.air.typeOfIndex(inst);
     const unused = !ty.hasRuntimeBitsIgnoreComptime() or self.liveness.isUnused(inst);
+
     {
         // Here we use `.none` to represent a null value so that the first break
         // instruction will choose a MCValue for the block result and overwrite
         // this field. Following break instructions will use that MCValue to put
         // their block results.
         const result: MCValue = if (unused) .dead else .none;
-        const branch = &self.branch_stack.items[branch_depth];
+        const branch = &self.branch_stack.items[branch_depth - 1];
         try branch.inst_table.putNoClobber(self.gpa, inst, result);
     }
 
-    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-    const extra = self.air.extraData(Air.Block, ty_pl.payload);
-    const body = self.air.extra[extra.end..][0..extra.data.body_len];
-    try self.genBody(body);
+    {
+        try self.branch_stack.append(.{});
+        errdefer _ = self.branch_stack.pop();
+
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const extra = self.air.extraData(Air.Block, ty_pl.payload);
+        const body = self.air.extra[extra.end..][0..extra.data.body_len];
+        try self.genBody(body);
+    }
 
     const block_data = self.blocks.getPtr(inst).?;
-    {
-        const src_branch = block_data.branch orelse self.branch_stack.items[branch_depth];
-        const dst_branch = &self.branch_stack.items[branch_depth - 1];
-        try dst_branch.inst_table.ensureUnusedCapacity(self.gpa, src_branch.inst_table.count());
-        var it = src_branch.inst_table.iterator();
-        while (it.next()) |entry| {
-            const tracked_inst = entry.key_ptr.*;
-            const tracked_value = entry.value_ptr.*;
-            if (dst_branch.inst_table.fetchPutAssumeCapacity(tracked_inst, tracked_value)) |old_entry| {
-                self.freeValue(old_entry.value);
-            }
-            self.getValue(tracked_value, tracked_inst);
-        }
-    }
+    const target_branch = self.branch_stack.pop();
+    try self.canonicaliseBranches(true, &block_data.branch, &target_branch, false, false);
 
     for (block_data.relocs.items) |reloc| try self.performReloc(reloc);
 
@@ -5727,7 +5717,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
             log.debug("Case-{d} branch: {}", .{ case_i, case_branch.fmtDebug() });
             const final = case_i == cases_len - 1;
             if (prev_branch) |*canon_branch| {
-                try self.canonicaliseBranches(final, canon_branch, &case_branch, true);
+                try self.canonicaliseBranches(final, canon_branch, &case_branch, true, true);
                 canon_branch.deinit(self.gpa);
             }
             prev_branch = case_branch;
@@ -5762,7 +5752,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
             log.debug("Else branch: {}", .{else_branch.fmtDebug()});
             if (prev_branch) |*canon_branch| {
-                try self.canonicaliseBranches(true, canon_branch, &else_branch, true);
+                try self.canonicaliseBranches(true, canon_branch, &else_branch, true, true);
                 canon_branch.deinit(self.gpa);
             }
             prev_branch = else_branch;
@@ -5778,6 +5768,7 @@ fn canonicaliseBranches(
     update_parent: bool,
     canon_branch: *Branch,
     target_branch: *const Branch,
+    comptime set_values: bool,
     comptime assert_same_deaths: bool,
 ) !void {
     const parent_branch =
@@ -5790,16 +5781,24 @@ fn canonicaliseBranches(
         const target_value = target_entry.value_ptr.*;
         const canon_mcv = if (canon_branch.inst_table.fetchSwapRemove(target_key)) |canon_entry| blk: {
             // The instruction's MCValue is overridden in both branches.
-            if (update_parent) {
-                parent_branch.inst_table.putAssumeCapacity(target_key, canon_entry.value);
-            }
             if (target_value == .dead) {
+                if (update_parent) {
+                    parent_branch.inst_table.putAssumeCapacity(target_key, .dead);
+                }
                 if (assert_same_deaths) assert(canon_entry.value == .dead);
                 continue;
             }
+            if (update_parent) {
+                parent_branch.inst_table.putAssumeCapacity(target_key, canon_entry.value);
+            }
             break :blk canon_entry.value;
         } else blk: {
-            if (target_value == .dead) continue;
+            if (target_value == .dead) {
+                if (update_parent) {
+                    parent_branch.inst_table.putAssumeCapacity(target_key, .dead);
+                }
+                continue;
+            }
             // The instruction is only overridden in the else branch.
             // If integer overflow occurs, the question is: why wasn't the instruction marked dead?
             break :blk self.getResolvedInstValue(target_key).?.*;
@@ -5807,7 +5806,9 @@ fn canonicaliseBranches(
         log.debug("consolidating target_entry {d} {}=>{}", .{ target_key, target_value, canon_mcv });
         // TODO make sure the destination stack offset / register does not already have something
         // going on there.
-        try self.setRegOrMem(self.air.typeOfIndex(target_key), canon_mcv, target_value);
+        if (set_values) {
+            try self.setRegOrMem(self.air.typeOfIndex(target_key), canon_mcv, target_value);
+        } else self.getValue(canon_mcv, target_key);
         self.freeValue(target_value);
         // TODO track the new register / stack allocation
     }
@@ -5825,7 +5826,9 @@ fn canonicaliseBranches(
             log.debug("consolidating canon_entry {d} {}=>{}", .{ canon_key, parent_mcv, canon_value });
             // TODO make sure the destination stack offset / register does not already have something
             // going on there.
-            try self.setRegOrMem(self.air.typeOfIndex(canon_key), canon_value, parent_mcv);
+            if (set_values) {
+                try self.setRegOrMem(self.air.typeOfIndex(canon_key), canon_value, parent_mcv);
+            } else self.getValue(canon_value, canon_key);
             self.freeValue(parent_mcv);
             // TODO track the new register / stack allocation
         }
@@ -5890,23 +5893,28 @@ fn airBr(self: *Self, inst: Air.Inst.Index) !void {
             try branch.inst_table.ensureUnusedCapacity(self.gpa, table.count());
             var it = table.iterator();
             while (it.next()) |entry| {
+                // This loop could be avoided by tracking inst depth, which
+                // will be needed later anyway for reusing loop deaths.
+                var parent_branch_i = block_data.branch_depth - 1;
+                while (parent_branch_i > 0) : (parent_branch_i -= 1) {
+                    const parent_table = &self.branch_stack.items[parent_branch_i].inst_table;
+                    if (parent_table.contains(entry.key_ptr.*)) break;
+                } else continue;
                 const gop = branch.inst_table.getOrPutAssumeCapacity(entry.key_ptr.*);
                 if (!gop.found_existing) gop.value_ptr.* = entry.value_ptr.*;
             }
         }
 
-        if (block_data.branch) |*prev_branch| {
-            log.debug("brVoid: %{d}", .{inst});
-            log.debug("Upper branches:", .{});
-            for (self.branch_stack.items) |bs| {
-                log.debug("{}", .{bs.fmtDebug()});
-            }
-            log.debug("Prev branch: {}", .{prev_branch.fmtDebug()});
-            log.debug("Cur branch: {}", .{branch.fmtDebug()});
-
-            try self.canonicaliseBranches(false, prev_branch, &branch, false);
-            prev_branch.deinit(self.gpa);
+        log.debug("airBr: %{d}", .{inst});
+        log.debug("Upper branches:", .{});
+        for (self.branch_stack.items) |bs| {
+            log.debug("{}", .{bs.fmtDebug()});
         }
+        log.debug("Prev branch: {}", .{block_data.branch.fmtDebug()});
+        log.debug("Cur branch: {}", .{branch.fmtDebug()});
+
+        try self.canonicaliseBranches(false, &block_data.branch, &branch, true, false);
+        block_data.branch.deinit(self.gpa);
         block_data.branch = branch;
     }
 
