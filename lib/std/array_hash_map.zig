@@ -1679,8 +1679,14 @@ pub fn ArrayHashMapUnmanaged(
         }
         inline fn checkedEql(ctx: anytype, a: anytype, b: K, b_index: usize) bool {
             comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(a), K, u32, true);
-            // If you get a compile error on the next line, it means that
-            const eql = ctx.eql(a, b, b_index); // your generic eql function doesn't accept (self, adapt key, K, index)
+            const param_infos = @typeInfo(@TypeOf(@TypeOf(ctx).eql)).Fn.params;
+
+            const eql = switch (comptime param_infos.len) {
+                4 => ctx.eql(a, b, b_index),
+                3 => ctx.eql(a, b),
+                else => comptime unreachable,
+            };
+
             if (@TypeOf(eql) != bool) {
                 @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type!\n" ++
                     @typeName(bool) ++ " was expected, but found " ++ @typeName(@TypeOf(eql)));

@@ -1193,3 +1193,185 @@ test "isError" {
     try std.testing.expect(isError(math.absInt(@as(i8, -128))));
     try std.testing.expect(!isError(math.absInt(@as(i8, -127))));
 }
+
+pub inline fn allowedCoercion(comptime Dst: type, comptime Src: type) bool {
+    comptime switch (@typeInfo(Src)) {
+        .NoReturn, .Undefined => return true,
+        else => {},
+    };
+    comptime return switch (@typeInfo(Dst)) {
+        .Type,
+        .Void,
+        .Bool,
+        .NoReturn,
+        .Struct,
+        .Undefined,
+        .Null,
+        .Fn,
+        .Frame,
+        .EnumLiteral,
+        => Dst == Src,
+
+        .Int => |dst| switch (@typeInfo(Src)) {
+            .ComptimeInt, .ComptimeFloat => true,
+            .Int => |src| if (dst.signedness == src.signedness)
+                dst.bits >= src.bits
+            else switch (dst.signedness) {
+                .unsigned => src.bits == 0,
+                .signed => dst.bits >= src.bits -| 1,
+            },
+            else => false,
+        },
+
+        .Float => |dst| switch (@typeInfo(Src)) {
+            .ComptimeInt, .ComptimeFloat => true,
+            .Float => |src| dst.bits >= src.bits,
+            else => false,
+        },
+
+        .Pointer => |dst| switch (@typeInfo(Src)) {
+            .Pointer => |src| blk: {
+                if (!dst.is_const and src.is_const) break :blk false;
+                if (!dst.is_volatile and src.is_volatile) break :blk false;
+                if (!dst.is_allowzero and src.is_allowzero) break :blk false;
+                if (dst.alignment > src.alignment) break :blk false;
+                if (dst.address_space != src.address_space) break :blk false;
+
+                // special case `@as(*anyopaque, @as(*T, ...))`
+                // special case `@as(*anyopaque, @as(**T, ...))` => false
+                if (dst.child == anyopaque) {
+                    std.debug.assert(dst.size == .One);
+                    break :blk @typeInfo(src.child) != .Pointer;
+                }
+
+                // special case `@as(*[1]T, @as(*T, ...))`
+                if (dst.size == .One) special_case: {
+                    const dst_array = switch (@typeInfo(dst.child)) {
+                        .Array => |dst_array| dst_array,
+                        else => break :special_case,
+                    };
+                    if (dst_array.child != src.child) break :special_case;
+                    if (dst_array.len != 1) break :special_case;
+                    if (dst_array.sentinel != null) break :special_case;
+                    break :blk true;
+                }
+
+                // special case `@as([]T, @as(*[n]T, ...))`
+                // special case `@as([*]T, @as(*[n]T, ...))`
+                if (dst.size == .Slice or
+                    dst.size == .Many)
+                special_case: {
+                    const src_array = switch (@typeInfo(src.child)) {
+                        .Array => |src_array| src_array,
+                        else => break :special_case,
+                    };
+                    if (dst.child != src_array.child) break :special_case;
+                    const dst_sentinel = @ptrCast(*align(1) const dst.child, dst.sentinel orelse break :blk true).*;
+                    const src_sentinel = @ptrCast(*align(1) const dst.child, src_array.sentinel orelse break :blk false).*;
+                    break :blk std.meta.eql(dst_sentinel, src_sentinel);
+                }
+
+                // special case `@as(*[n]T, @as(*[n:s]T, ...))`
+                // special case `@as(*[n:s]T, @as(*[n:s]T, ...))`
+                if (dst.size == .One and
+                    src.size == .One)
+                special_case: {
+                    if (@typeInfo(dst.child) != .Array) break :special_case;
+                    if (@typeInfo(src.child) != .Array) break :special_case;
+                    break :blk allowedCoercion(dst.child, src.child);
+                }
+
+                if (dst.size != src.size) break :blk false;
+                if (dst.child != src.child) break :blk false;
+
+                const dst_sentinel = @ptrCast(*align(1) const dst.child, dst.sentinel orelse break :blk true).*;
+                const src_sentinel = @ptrCast(*align(1) const src.child, src.sentinel orelse break :blk false).*;
+
+                break :blk std.meta.eql(dst_sentinel, src_sentinel);
+            },
+            else => false,
+        },
+
+        .Array => |dst| switch (@typeInfo(Src)) {
+            .Array => |src| blk: {
+                if (dst.child != src.child) break :blk false;
+                if (dst.len != src.len) break :blk false;
+                const dst_sentinel = @ptrCast(*align(1) const dst.child, dst.sentinel orelse break :blk true).*;
+                const src_sentinel = @ptrCast(*align(1) const src.child, src.sentinel orelse break :blk false).*;
+                break :blk std.meta.eql(dst_sentinel, src_sentinel);
+            },
+            .Vector => |src| blk: {
+                if (dst.child != src.child) break :blk false;
+                if (dst.len != src.len) break :blk false;
+                break :blk true;
+            },
+            else => false,
+        },
+
+        .ComptimeFloat, .ComptimeInt => switch (@typeInfo(Src)) {
+            .ComptimeInt,
+            .ComptimeFloat,
+            .Int,
+            .Float,
+            => true,
+            else => false,
+        },
+
+        .Optional => |dst| switch (@typeInfo(Src)) {
+            .Null => true,
+            .Optional => |src| allowedCoercion(dst.child, src.child),
+            else => allowedCoercion(dst.child, Src),
+        },
+
+        .ErrorUnion => |dst| switch (@typeInfo(Src)) {
+            .ErrorUnion => |src| blk: {
+                if (!allowedCoercion(dst.error_set, src.error_set)) break :blk false;
+                if (!allowedCoercion(dst.payload, src.payload)) break :blk false;
+                break :blk true;
+            },
+            .ErrorSet => allowedCoercion(dst.error_set, Src),
+            else => false,
+        },
+        .ErrorSet => |dst| switch (@typeInfo(Src)) {
+            .ErrorSet => |src| blk: {
+                const dst_set = dst orelse break :blk true;
+                const src_set = src orelse break :blk false;
+
+                if (dst_set.len < src_set.len) break :blk false;
+                const combined_set = @typeInfo(Dst || Src).ErrorSet.?;
+
+                if (dst_set.len < combined_set.len) break :blk false;
+                break :blk true;
+            },
+            else => false,
+        },
+        .Enum => switch (@typeInfo(Src)) {
+            .Enum => Dst == Src,
+            .Union => |src| Dst == src.tag_type,
+            .EnumLiteral => true,
+            else => false,
+        },
+        .Union => switch (@typeInfo(Src)) {
+            .Union => Dst == Src,
+            .EnumLiteral => true,
+            else => false,
+        },
+
+        .Opaque => Dst == Src or Dst == anyopaque,
+
+        .AnyFrame => |dst| switch (@typeInfo(Src)) {
+            .Frame => true,
+            .AnyFrame => |src| blk: {
+                const dst_child = dst.child orelse break :blk true;
+                const src_child = src.child orelse break :blk false;
+                break :blk dst_child == src_child;
+            },
+            else => false,
+        },
+        .Vector => switch (@typeInfo(Src)) {
+            .Array => allowedCoercion(Src, Dst),
+            .Vector => Dst == Src,
+            else => false,
+        },
+    };
+}

@@ -130,7 +130,7 @@ pub const default_max_load_percentage = 80;
 /// If you are passing a context to a *Adapted function, PseudoKey is the type
 /// of the key parameter.  Otherwise, when creating a HashMap or HashMapUnmanaged
 /// type, PseudoKey = Key = K.
-pub fn verifyContext(
+pub inline fn verifyContext(
     comptime RawContext: type,
     comptime PseudoKey: type,
     comptime Key: type,
@@ -174,170 +174,191 @@ pub fn verifyContext(
             const index_param = if (is_array) ", b_index: usize" else "";
             const eql_signature = "fn (self, " ++ @typeName(PseudoKey) ++ ", " ++
                 @typeName(Key) ++ index_param ++ ") bool";
-            const err_invalid_hash_signature = prefix ++ @typeName(Context) ++ ".hash must be " ++ hash_signature ++
-                deep_prefix ++ "but is actually " ++ @typeName(@TypeOf(Context.hash));
-            const err_invalid_eql_signature = prefix ++ @typeName(Context) ++ ".eql must be " ++ eql_signature ++
-                deep_prefix ++ "but is actually " ++ @typeName(@TypeOf(Context.eql));
+            const err_invalid_hash_signature = std.fmt.comptimePrint(
+                \\
+                \\{[ctx]s}.hash
+                \\  must be:         {[expected]s}
+                \\  but is actually: {[actual]s}
+            , .{
+                .ctx = @typeName(Context),
+                .expected = hash_signature,
+                .actual = @typeName(@TypeOf(Context.hash)),
+            });
+
+            const err_invalid_eql_signature = std.fmt.comptimePrint(
+                \\
+                \\{[ctx]s}.eql
+                \\  must be:         {[expected]s}
+                \\  but is actually: {[actual]s}
+            , .{
+                .ctx = @typeName(Context),
+                .expected = eql_signature,
+                .actual = @typeName(@TypeOf(Context.eql)),
+            });
         };
 
         // Verify Context.hash(self, PseudoKey) => Hash
-        if (@hasDecl(Context, "hash")) {
-            const hash = Context.hash;
-            const info = @typeInfo(@TypeOf(hash));
-            if (info == .Fn) {
-                const func = info.Fn;
-                if (func.params.len != 2) {
-                    errors = errors ++ lazy.err_invalid_hash_signature;
-                } else {
-                    var emitted_signature = false;
-                    if (func.params[0].type) |Self| {
-                        if (Self == Context) {
-                            // pass, this is always fine.
-                        } else if (Self == *const Context) {
-                            if (!allow_const_ptr) {
-                                if (!emitted_signature) {
-                                    errors = errors ++ lazy.err_invalid_hash_signature;
-                                    emitted_signature = true;
-                                }
-                                errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
-                                errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
-                            }
-                        } else if (Self == *Context) {
-                            if (!allow_mutable_ptr) {
-                                if (!emitted_signature) {
-                                    errors = errors ++ lazy.err_invalid_hash_signature;
-                                    emitted_signature = true;
-                                }
-                                if (!allow_const_ptr) {
-                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
-                                    errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
-                                } else {
-                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ " or " ++ @typeName(*const Context) ++ ", but is " ++ @typeName(Self);
-                                    errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be non-const because it is passed by const pointer.";
-                                }
-                            }
-                        } else {
-                            if (!emitted_signature) {
-                                errors = errors ++ lazy.err_invalid_hash_signature;
-                                emitted_signature = true;
-                            }
-                            errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context);
-                            if (allow_const_ptr) {
-                                errors = errors ++ " or " ++ @typeName(*const Context);
-                                if (allow_mutable_ptr) {
-                                    errors = errors ++ " or " ++ @typeName(*Context);
-                                }
-                            }
-                            errors = errors ++ ", but is " ++ @typeName(Self);
-                        }
-                    }
-                    if (func.params[1].type != null and func.params[1].type.? != PseudoKey) {
-                        if (!emitted_signature) {
-                            errors = errors ++ lazy.err_invalid_hash_signature;
-                            emitted_signature = true;
-                        }
-                        errors = errors ++ lazy.deep_prefix ++ "Second parameter must be " ++ @typeName(PseudoKey) ++ ", but is " ++ @typeName(func.params[1].type.?);
-                    }
-                    if (func.return_type != null and func.return_type.? != Hash) {
-                        if (!emitted_signature) {
-                            errors = errors ++ lazy.err_invalid_hash_signature;
-                            emitted_signature = true;
-                        }
-                        errors = errors ++ lazy.deep_prefix ++ "Return type must be " ++ @typeName(Hash) ++ ", but was " ++ @typeName(func.return_type.?);
-                    }
-                    // If any of these are generic (null), we cannot verify them.
-                    // The call sites check the return type, but cannot check the
-                    // parameters.  This may cause compile errors with generic hash/eql functions.
-                }
-            } else {
-                errors = errors ++ lazy.err_invalid_hash_signature;
-            }
-        } else {
+        if (!@hasDecl(Context, "hash")) {
             errors = errors ++ lazy.prefix ++ @typeName(Context) ++ " must declare a hash function with signature " ++ lazy.hash_signature;
+        } else check_hash_fn: {
+            const hash = Context.hash;
+            const func = switch (@typeInfo(@TypeOf(hash))) {
+                .Fn => |info| info,
+                else => {
+                    errors = errors ++ lazy.err_invalid_hash_signature;
+                    break :check_hash_fn;
+                },
+            };
+
+            if (func.params.len != 2) {
+                errors = errors ++ lazy.err_invalid_hash_signature;
+                break :check_hash_fn;
+            }
+
+            var emitted_signature = false;
+            if (func.params[0].type) |Self| switch (Self) {
+                Context => {}, // pass, this is always fine.
+                *const Context => if (!allow_const_ptr) {
+                    if (!emitted_signature) {
+                        errors = errors ++ lazy.err_invalid_hash_signature;
+                        emitted_signature = true;
+                    }
+                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
+                    errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
+                },
+                *Context => if (!allow_mutable_ptr) {
+                    if (!emitted_signature) {
+                        errors = errors ++ lazy.err_invalid_hash_signature;
+                        emitted_signature = true;
+                    }
+                    if (!allow_const_ptr) {
+                        errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
+                        errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
+                    } else {
+                        errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ " or " ++ @typeName(*const Context) ++ ", but is " ++ @typeName(Self);
+                        errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be non-const because it is passed by const pointer.";
+                    }
+                },
+                else => {
+                    if (!emitted_signature) {
+                        errors = errors ++ lazy.err_invalid_hash_signature;
+                        emitted_signature = true;
+                    }
+                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context);
+                    if (allow_const_ptr) {
+                        errors = errors ++ " or " ++ @typeName(*const Context);
+                        if (allow_mutable_ptr) {
+                            errors = errors ++ " or " ++ @typeName(*Context);
+                        }
+                    }
+                    errors = errors ++ ", but is " ++ @typeName(Self);
+                },
+            };
+            if (func.params[1].type) |HashPseudoKey| if (!std.meta.allowedCoercion(HashPseudoKey, PseudoKey)) {
+                if (!emitted_signature) {
+                    errors = errors ++ lazy.err_invalid_hash_signature;
+                    emitted_signature = true;
+                }
+                errors = errors ++ lazy.deep_prefix ++ "Second parameter must be " ++ @typeName(PseudoKey) ++ ", but is " ++ @typeName(func.params[1].type.?);
+            };
+
+            if (func.return_type) |HashRet| if (!std.meta.allowedCoercion(Hash, HashRet)) {
+                if (!emitted_signature) {
+                    errors = errors ++ lazy.err_invalid_hash_signature;
+                    emitted_signature = true;
+                }
+                errors = errors ++ lazy.deep_prefix ++ "Return type must be " ++ @typeName(Hash) ++ ", but was " ++ @typeName(func.return_type.?);
+            };
+            // If any of these are generic (null), we cannot verify them.
+            // The call sites check the return type, but cannot check the
+            // parameters.  This may cause compile errors with generic hash/eql functions.
+
         }
 
         // Verify Context.eql(self, PseudoKey, Key) => bool
-        if (@hasDecl(Context, "eql")) {
-            const eql = Context.eql;
-            const info = @typeInfo(@TypeOf(eql));
-            if (info == .Fn) {
-                const func = info.Fn;
-                const args_len = if (is_array) 4 else 3;
-                if (func.params.len != args_len) {
-                    errors = errors ++ lazy.err_invalid_eql_signature;
-                } else {
-                    var emitted_signature = false;
-                    if (func.params[0].type) |Self| {
-                        if (Self == Context) {
-                            // pass, this is always fine.
-                        } else if (Self == *const Context) {
-                            if (!allow_const_ptr) {
-                                if (!emitted_signature) {
-                                    errors = errors ++ lazy.err_invalid_eql_signature;
-                                    emitted_signature = true;
-                                }
-                                errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
-                                errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
-                            }
-                        } else if (Self == *Context) {
-                            if (!allow_mutable_ptr) {
-                                if (!emitted_signature) {
-                                    errors = errors ++ lazy.err_invalid_eql_signature;
-                                    emitted_signature = true;
-                                }
-                                if (!allow_const_ptr) {
-                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
-                                    errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
-                                } else {
-                                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ " or " ++ @typeName(*const Context) ++ ", but is " ++ @typeName(Self);
-                                    errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be non-const because it is passed by const pointer.";
-                                }
-                            }
-                        } else {
-                            if (!emitted_signature) {
-                                errors = errors ++ lazy.err_invalid_eql_signature;
-                                emitted_signature = true;
-                            }
-                            errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context);
-                            if (allow_const_ptr) {
-                                errors = errors ++ " or " ++ @typeName(*const Context);
-                                if (allow_mutable_ptr) {
-                                    errors = errors ++ " or " ++ @typeName(*Context);
-                                }
-                            }
-                            errors = errors ++ ", but is " ++ @typeName(Self);
-                        }
-                    }
-                    if (func.params[1].type.? != PseudoKey) {
-                        if (!emitted_signature) {
-                            errors = errors ++ lazy.err_invalid_eql_signature;
-                            emitted_signature = true;
-                        }
-                        errors = errors ++ lazy.deep_prefix ++ "Second parameter must be " ++ @typeName(PseudoKey) ++ ", but is " ++ @typeName(func.params[1].type.?);
-                    }
-                    if (func.params[2].type.? != Key) {
-                        if (!emitted_signature) {
-                            errors = errors ++ lazy.err_invalid_eql_signature;
-                            emitted_signature = true;
-                        }
-                        errors = errors ++ lazy.deep_prefix ++ "Third parameter must be " ++ @typeName(Key) ++ ", but is " ++ @typeName(func.params[2].type.?);
-                    }
-                    if (func.return_type.? != bool) {
-                        if (!emitted_signature) {
-                            errors = errors ++ lazy.err_invalid_eql_signature;
-                            emitted_signature = true;
-                        }
-                        errors = errors ++ lazy.deep_prefix ++ "Return type must be bool, but was " ++ @typeName(func.return_type.?);
-                    }
-                    // If any of these are generic (null), we cannot verify them.
-                    // The call sites check the return type, but cannot check the
-                    // parameters.  This may cause compile errors with generic hash/eql functions.
-                }
-            } else {
-                errors = errors ++ lazy.err_invalid_eql_signature;
-            }
-        } else {
+        if (!@hasDecl(Context, "eql")) {
             errors = errors ++ lazy.prefix ++ @typeName(Context) ++ " must declare a eql function with signature " ++ lazy.eql_signature;
+        } else check_eql_fn: {
+            const eql = Context.eql;
+            const func = switch (@typeInfo(@TypeOf(eql))) {
+                .Fn => |info| info,
+                else => {
+                    errors = errors ++ lazy.err_invalid_eql_signature;
+                    break :check_eql_fn;
+                },
+            };
+
+            if (func.params.len != 3 and
+                (func.params.len != 4 or !is_array))
+            {
+                errors = errors ++ lazy.err_invalid_eql_signature;
+                break :check_eql_fn;
+            }
+
+            var emitted_signature = false;
+            if (func.params[0].type) |Self| switch (Self) {
+                Context => {}, // pass, this is always fine.
+                *const Context => if (!allow_const_ptr) {
+                    if (!emitted_signature) {
+                        errors = errors ++ lazy.err_invalid_eql_signature;
+                        emitted_signature = true;
+                    }
+                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
+                    errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
+                },
+                *Context => if (!allow_mutable_ptr) {
+                    if (!emitted_signature) {
+                        errors = errors ++ lazy.err_invalid_eql_signature;
+                        emitted_signature = true;
+                    }
+                    if (!allow_const_ptr) {
+                        errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ ", but is " ++ @typeName(Self);
+                        errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be a pointer because it is passed by value.";
+                    } else {
+                        errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context) ++ " or " ++ @typeName(*const Context) ++ ", but is " ++ @typeName(Self);
+                        errors = errors ++ lazy.deep_prefix ++ "Note: Cannot be non-const because it is passed by const pointer.";
+                    }
+                },
+                else => {
+                    if (!emitted_signature) {
+                        errors = errors ++ lazy.err_invalid_eql_signature;
+                        emitted_signature = true;
+                    }
+                    errors = errors ++ lazy.deep_prefix ++ "First parameter must be " ++ @typeName(Context);
+                    if (allow_const_ptr) {
+                        errors = errors ++ " or " ++ @typeName(*const Context);
+                        if (allow_mutable_ptr) {
+                            errors = errors ++ " or " ++ @typeName(*Context);
+                        }
+                    }
+                    errors = errors ++ ", but is " ++ @typeName(Self);
+                },
+            };
+            if (func.params[1].type) |EqlPseudoKey| if (!std.meta.allowedCoercion(EqlPseudoKey, PseudoKey)) {
+                if (!emitted_signature) {
+                    errors = errors ++ lazy.err_invalid_eql_signature;
+                    emitted_signature = true;
+                }
+                errors = errors ++ lazy.deep_prefix ++ "Second parameter must be " ++ @typeName(PseudoKey) ++ ", but is " ++ @typeName(EqlPseudoKey);
+            };
+            if (func.params[2].type) |EqlKey| if (!std.meta.allowedCoercion(EqlKey, Key)) {
+                if (!emitted_signature) {
+                    errors = errors ++ lazy.err_invalid_eql_signature;
+                    emitted_signature = true;
+                }
+                errors = errors ++ lazy.deep_prefix ++ "Third parameter must be " ++ @typeName(Key) ++ ", but is " ++ @typeName(EqlKey);
+            };
+            if (func.return_type) |EqlRet| if (EqlRet != bool) {
+                if (!emitted_signature) {
+                    errors = errors ++ lazy.err_invalid_eql_signature;
+                    emitted_signature = true;
+                }
+                errors = errors ++ lazy.deep_prefix ++ "Return type must be bool, but was " ++ @typeName(EqlRet);
+            };
+            // If any of these are generic (null), we cannot verify them.
+            // The call sites check the return type, but cannot check the
+            // parameters.  This may cause compile errors with generic hash/eql functions.
+
         }
 
         if (errors.len != 0) {
@@ -1031,7 +1052,7 @@ pub fn HashMapUnmanaged(
         pub fn putAssumeCapacityNoClobberContext(self: *Self, key: K, value: V, ctx: Context) void {
             assert(!self.containsContext(key, ctx));
 
-            const hash = ctx.hash(key);
+            const hash = checkedHash(ctx, key);
             const mask = self.capacity() - 1;
             var idx = @truncate(usize, hash & mask);
 
@@ -1134,14 +1155,7 @@ pub fn HashMapUnmanaged(
                 return null;
             }
 
-            // If you get a compile error on this line, it means that your generic hash
-            // function is invalid for these parameters.
-            const hash = ctx.hash(key);
-            // verifyContext can't verify the return type of generic hash functions,
-            // so we need to double-check it here.
-            if (@TypeOf(hash) != Hash) {
-                @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type! " ++ @typeName(Hash) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
-            }
+            const hash = checkedHash(ctx, key);
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
             // Don't loop indefinitely when there are no empty slots.
@@ -1152,15 +1166,7 @@ pub fn HashMapUnmanaged(
             while (!metadata[0].isFree() and limit != 0) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     const test_key = &self.keys()[idx];
-                    // If you get a compile error on this line, it means that your generic eql
-                    // function is invalid for these parameters.
-                    const eql = ctx.eql(key, test_key.*);
-                    // verifyContext can't verify the return type of generic eql functions,
-                    // so we need to double-check it here.
-                    if (@TypeOf(eql) != bool) {
-                        @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type! bool was expected, but found " ++ @typeName(@TypeOf(eql)));
-                    }
-                    if (eql) {
+                    if (checkedEql(ctx, key, test_key.*)) {
                         return idx;
                     }
                 }
@@ -1313,14 +1319,7 @@ pub fn HashMapUnmanaged(
         pub fn getOrPutAssumeCapacityAdapted(self: *Self, key: anytype, ctx: anytype) GetOrPutResult {
             comptime verifyContext(@TypeOf(ctx), @TypeOf(key), K, Hash, false);
 
-            // If you get a compile error on this line, it means that your generic hash
-            // function is invalid for these parameters.
-            const hash = ctx.hash(key);
-            // verifyContext can't verify the return type of generic hash functions,
-            // so we need to double-check it here.
-            if (@TypeOf(hash) != Hash) {
-                @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type! " ++ @typeName(Hash) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
-            }
+            const hash = checkedHash(ctx, key);
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
             var limit = self.capacity();
@@ -1331,15 +1330,7 @@ pub fn HashMapUnmanaged(
             while (!metadata[0].isFree() and limit != 0) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     const test_key = &self.keys()[idx];
-                    // If you get a compile error on this line, it means that your generic eql
-                    // function is invalid for these parameters.
-                    const eql = ctx.eql(key, test_key.*);
-                    // verifyContext can't verify the return type of generic eql functions,
-                    // so we need to double-check it here.
-                    if (@TypeOf(eql) != bool) {
-                        @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type! bool was expected, but found " ++ @typeName(@TypeOf(eql)));
-                    }
-                    if (eql) {
+                    if (checkedEql(ctx, key, test_key.*)) {
                         return GetOrPutResult{
                             .key_ptr = test_key,
                             .value_ptr = &self.values()[idx],
@@ -1593,6 +1584,26 @@ pub fn HashMapUnmanaged(
 
             self.metadata = null;
             self.available = 0;
+        }
+
+        inline fn checkedHash(ctx: anytype, key: anytype) u64 {
+            comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(key), K, u64, false);
+            // If you get a compile error on the next line, it means that
+            const hash = ctx.hash(key); // your generic hash function doesn't accept your key
+            if (@TypeOf(hash) != u64) {
+                @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type!\n" ++
+                    @typeName(u64) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
+            }
+            return hash;
+        }
+        inline fn checkedEql(ctx: anytype, a: anytype, b: K) bool {
+            comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(a), K, u64, false);
+            const eql = ctx.eql(a, b);
+            if (@TypeOf(eql) != bool) {
+                @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type!\n" ++
+                    @typeName(bool) ++ " was expected, but found " ++ @typeName(@TypeOf(eql)));
+            }
+            return eql;
         }
 
         /// This function is used in the debugger pretty formatters in tools/ to fetch the
