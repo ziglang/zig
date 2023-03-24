@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
     });
     lib.addIncludePath("lib");
     lib.addCSourceFile("lib/lib.c", &.{""});
-    lib.setOutputDir("test/standalone/module_add_library_path/lib_out");
+    lib.setOutputDir("lib_out");
     lib.install();
 
     var module = b.addModule("test_module", .{
@@ -25,14 +25,12 @@ pub fn build(b: *std.Build) void {
         .dependencies = &.{},
     });
     module.addIncludePath("lib");
-    module.addLibraryPath("test/standalone/module_add_library_path/lib_out");
+    module.addLibraryPath("lib_out");
     module.linkSystemLibrary("lib");
 
     exe.addModule("test_module", module);
     exe.step.dependOn(&lib.step);
 
     const run = exe.run();
-
-    const test_step = b.step("test", "Test it");
-    test_step.dependOn(&run.step);
+    b.default_step = &run.step;
 }

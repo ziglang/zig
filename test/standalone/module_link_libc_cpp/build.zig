@@ -8,16 +8,19 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "test.zig" },
         .optimize = optimize,
     });
+
     var module = b.addModule("test_module", .{
         .source_file = .{
             .path = "test_module.zig",
         },
         .dependencies = &.{},
     });
-    module.addIncludePath("include");
+    module.linkLibC();
+    module.linkLibCpp();
 
     exe.addModule("test_module", module);
 
     const run = exe.run();
-    b.default_step = &run.step;
+
+    b.default_step =  &run.step;
 }

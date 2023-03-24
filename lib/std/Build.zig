@@ -1596,11 +1596,11 @@ pub const Module = struct {
     }
 
     pub fn linkLibC(m: *Module) void {
-        m.system_libs.append("c") catch @panic("OOM");
+        m.linkSystemLibrary("c");
     }
 
     pub fn linkLibCpp(m: *Module) void {
-        m.system_libs.append("c++") catch @panic("OOM");
+        m.linkSystemLibrary("c++");
     }
 
     pub fn linkLibrary(m: *Module, lib: *CompileStep) void {
