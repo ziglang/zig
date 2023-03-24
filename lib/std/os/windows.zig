@@ -3947,6 +3947,20 @@ pub const PSAPI_WS_WATCH_INFORMATION = extern struct {
     FaultingVa: LPVOID,
 };
 
+pub const VM_COUNTERS = extern struct {
+    PeakVirtualSize: SIZE_T,
+    VirtualSize: SIZE_T,
+    PageFaultCount: ULONG,
+    PeakWorkingSetSize: SIZE_T,
+    WorkingSetSize: SIZE_T,
+    QuotaPeakPagedPoolUsage: SIZE_T,
+    QuotaPagedPoolUsage: SIZE_T,
+    QuotaPeakNonPagedPoolUsage: SIZE_T,
+    QuotaNonPagedPoolUsage: SIZE_T,
+    PagefileUsage: SIZE_T,
+    PeakPagefileUsage: SIZE_T,
+};
+
 pub const PROCESS_MEMORY_COUNTERS = extern struct {
     cb: DWORD,
     PageFaultCount: DWORD,
@@ -3973,6 +3987,24 @@ pub const PROCESS_MEMORY_COUNTERS_EX = extern struct {
     PeakPagefileUsage: SIZE_T,
     PrivateUsage: SIZE_T,
 };
+
+pub const GetProcessMemoryInfoError = error{
+    AccessDenied,
+    InvalidHandle,
+    Unexpected,
+};
+
+pub fn GetProcessMemoryInfo(hProcess: HANDLE) GetProcessMemoryInfoError!VM_COUNTERS {
+    var vmc: VM_COUNTERS = undefined;
+    const rc = ntdll.NtQueryInformationProcess(hProcess, .ProcessVmCounters, &vmc, @sizeOf(VM_COUNTERS), null);
+    switch (rc) {
+        .SUCCESS => return vmc,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .INVALID_HANDLE => return error.InvalidHandle,
+        .INVALID_PARAMETER => unreachable,
+        else => return unexpectedStatus(rc),
+    }
+}
 
 pub const PERFORMANCE_INFORMATION = extern struct {
     cb: DWORD,

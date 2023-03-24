@@ -99,12 +99,20 @@ pub const ChildProcess = struct {
                         return null;
                     }
                 },
+                .windows => {
+                    if (rus.rusage) |ru| {
+                        return ru.PeakWorkingSetSize;
+                    } else {
+                        return null;
+                    }
+                },
                 else => return null,
             }
         }
 
         const rusage_init = switch (builtin.os.tag) {
             .linux => @as(?std.os.rusage, null),
+            .windows => @as(?windows.VM_COUNTERS, null),
             else => {},
         };
     };
@@ -129,6 +137,7 @@ pub const ChildProcess = struct {
         os.SetIdError ||
         os.ChangeCurDirError ||
         windows.CreateProcessError ||
+        windows.GetProcessMemoryInfoError ||
         windows.WaitForSingleObjectError;
 
     pub const Term = union(enum) {
@@ -363,6 +372,10 @@ pub const ChildProcess = struct {
                 break :x Term{ .Exited = @truncate(u8, exit_code) };
             }
         });
+
+        if (self.request_resource_usage_statistics) {
+            self.resource_usage_statistics.rusage = try windows.GetProcessMemoryInfo(self.id);
+        }
 
         os.close(self.id);
         os.close(self.thread_handle);
