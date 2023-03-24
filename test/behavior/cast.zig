@@ -38,8 +38,6 @@ fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
 }
 
 test "resolve undefined with integer" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testResolveUndefWithInt(true, 1234);
     comptime try testResolveUndefWithInt(true, 1234);
 }

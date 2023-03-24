@@ -213,7 +213,15 @@ const StackAllocation = struct {
 };
 
 const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Mir.Inst.Index),
+    relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
+    branch: ?Branch = null,
+    branch_depth: u32,
+
+    fn deinit(self: *BlockData, gpa: Allocator) void {
+        if (self.branch) |*branch| branch.deinit(gpa);
+        self.relocs.deinit(gpa);
+        self.* = undefined;
+    }
 };
 
 const BigTomb = struct {
@@ -5233,11 +5241,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
     if (self.liveness.operandDies(inst, 0)) {
-        const op_int = @enumToInt(pl_op.operand);
-        if (op_int >= Air.Inst.Ref.typed_value_map.len) {
-            const op_index = @intCast(Air.Inst.Index, op_int - Air.Inst.Ref.typed_value_map.len);
-            self.processDeath(op_index);
-        }
+        if (Air.refToIndex(pl_op.operand)) |op_inst| self.processDeath(op_inst);
     }
 
     // Capture the state of register and stack allocation state so that we can revert to it.
@@ -5290,10 +5294,10 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     for (self.branch_stack.items) |bs| {
         log.debug("{}", .{bs.fmtDebug()});
     }
-
     log.debug("Then branch: {}", .{then_branch.fmtDebug()});
     log.debug("Else branch: {}", .{else_branch.fmtDebug()});
-    try self.canonicaliseBranches(true, &then_branch, &else_branch);
+
+    try self.canonicaliseBranches(true, &then_branch, &else_branch, true);
 
     // We already took care of pl_op.operand earlier, so we're going
     // to pass .none here
@@ -5599,11 +5603,16 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
-    try self.blocks.putNoClobber(self.gpa, inst, .{
-        // A block is a setup to be able to jump to the end.
-        .relocs = .{},
-    });
-    defer self.blocks.getPtr(inst).?.relocs.deinit(self.gpa);
+    // A block is a setup to be able to jump to the end.
+    const branch_depth = @intCast(u32, self.branch_stack.items.len);
+    try self.blocks.putNoClobber(self.gpa, inst, .{ .branch_depth = branch_depth });
+    defer {
+        var block_data = self.blocks.fetchRemove(inst).?.value;
+        block_data.deinit(self.gpa);
+    }
+
+    try self.branch_stack.append(.{});
+    defer _ = self.branch_stack.pop();
 
     const ty = self.air.typeOfIndex(inst);
     const unused = !ty.hasRuntimeBitsIgnoreComptime() or self.liveness.isUnused(inst);
@@ -5613,8 +5622,8 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
         // this field. Following break instructions will use that MCValue to put
         // their block results.
         const result: MCValue = if (unused) .dead else .none;
-        const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-        branch.inst_table.putAssumeCapacityNoClobber(inst, result);
+        const branch = &self.branch_stack.items[branch_depth];
+        try branch.inst_table.putNoClobber(self.gpa, inst, result);
     }
 
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
@@ -5622,7 +5631,23 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     const body = self.air.extra[extra.end..][0..extra.data.body_len];
     try self.genBody(body);
 
-    for (self.blocks.getPtr(inst).?.relocs.items) |reloc| try self.performReloc(reloc);
+    const block_data = self.blocks.getPtr(inst).?;
+    {
+        const src_branch = block_data.branch orelse self.branch_stack.items[branch_depth];
+        const dst_branch = &self.branch_stack.items[branch_depth - 1];
+        try dst_branch.inst_table.ensureUnusedCapacity(self.gpa, src_branch.inst_table.count());
+        var it = src_branch.inst_table.iterator();
+        while (it.next()) |entry| {
+            const tracked_inst = entry.key_ptr.*;
+            const tracked_value = entry.value_ptr.*;
+            if (dst_branch.inst_table.fetchPutAssumeCapacity(tracked_inst, tracked_value)) |old_entry| {
+                self.freeValue(old_entry.value);
+            }
+            self.getValue(tracked_value, tracked_inst);
+        }
+    }
+
+    for (block_data.relocs.items) |reloc| try self.performReloc(reloc);
 
     const result = if (unused) .dead else self.getResolvedInstValue(inst).?.*;
     self.getValue(result, inst);
@@ -5647,11 +5672,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
     if (self.liveness.operandDies(inst, 0)) {
-        const op_int = @enumToInt(pl_op.operand);
-        if (op_int >= Air.Inst.Ref.typed_value_map.len) {
-            const op_index = @intCast(Air.Inst.Index, op_int - Air.Inst.Ref.typed_value_map.len);
-            self.processDeath(op_index);
-        }
+        if (Air.refToIndex(pl_op.operand)) |op_inst| self.processDeath(op_inst);
     }
 
     log.debug("airSwitch: %{d}", .{inst});
@@ -5704,8 +5725,9 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
             errdefer case_branch.deinit(self.gpa);
 
             log.debug("Case-{d} branch: {}", .{ case_i, case_branch.fmtDebug() });
+            const final = case_i == cases_len - 1;
             if (prev_branch) |*canon_branch| {
-                try self.canonicaliseBranches(case_i == cases_len - 1, canon_branch, &case_branch);
+                try self.canonicaliseBranches(final, canon_branch, &case_branch, true);
                 canon_branch.deinit(self.gpa);
             }
             prev_branch = case_branch;
@@ -5740,7 +5762,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
             log.debug("Else branch: {}", .{else_branch.fmtDebug()});
             if (prev_branch) |*canon_branch| {
-                try self.canonicaliseBranches(true, canon_branch, &else_branch);
+                try self.canonicaliseBranches(true, canon_branch, &else_branch, true);
                 canon_branch.deinit(self.gpa);
             }
             prev_branch = else_branch;
@@ -5756,27 +5778,30 @@ fn canonicaliseBranches(
     update_parent: bool,
     canon_branch: *Branch,
     target_branch: *const Branch,
+    comptime assert_same_deaths: bool,
 ) !void {
     const parent_branch =
         if (update_parent) &self.branch_stack.items[self.branch_stack.items.len - 1] else undefined;
-    if (update_parent) try self.ensureProcessDeathCapacity(target_branch.inst_table.count());
 
-    const target_slice = target_branch.inst_table.entries.slice();
-    for (target_slice.items(.key), target_slice.items(.value)) |target_key, target_value| {
+    if (update_parent) try self.ensureProcessDeathCapacity(target_branch.inst_table.count());
+    var target_it = target_branch.inst_table.iterator();
+    while (target_it.next()) |target_entry| {
+        const target_key = target_entry.key_ptr.*;
+        const target_value = target_entry.value_ptr.*;
         const canon_mcv = if (canon_branch.inst_table.fetchSwapRemove(target_key)) |canon_entry| blk: {
             // The instruction's MCValue is overridden in both branches.
             if (update_parent) {
                 parent_branch.inst_table.putAssumeCapacity(target_key, canon_entry.value);
             }
             if (target_value == .dead) {
-                assert(canon_entry.value == .dead);
+                if (assert_same_deaths) assert(canon_entry.value == .dead);
                 continue;
             }
             break :blk canon_entry.value;
         } else blk: {
             if (target_value == .dead) continue;
             // The instruction is only overridden in the else branch.
-            // If integer overflows occurs, the question is: why wasn't the instruction marked dead?
+            // If integer overflow occurs, the question is: why wasn't the instruction marked dead?
             break :blk self.getResolvedInstValue(target_key).?.*;
         };
         log.debug("consolidating target_entry {d} {}=>{}", .{ target_key, target_value, canon_mcv });
@@ -5786,9 +5811,12 @@ fn canonicaliseBranches(
         self.freeValue(target_value);
         // TODO track the new register / stack allocation
     }
+
     if (update_parent) try self.ensureProcessDeathCapacity(canon_branch.inst_table.count());
-    const canon_slice = canon_branch.inst_table.entries.slice();
-    for (canon_slice.items(.key), canon_slice.items(.value)) |canon_key, canon_value| {
+    var canon_it = canon_branch.inst_table.iterator();
+    while (canon_it.next()) |canon_entry| {
+        const canon_key = canon_entry.key_ptr.*;
+        const canon_value = canon_entry.value_ptr.*;
         // We already deleted the items from this table that matched the target_branch.
         // So these are all instructions that are only overridden in the canon branch.
         const parent_mcv =
@@ -5821,22 +5849,19 @@ fn performReloc(self: *Self, reloc: Mir.Inst.Index) !void {
 }
 
 fn airBr(self: *Self, inst: Air.Inst.Index) !void {
-    const branch = self.air.instructions.items(.data)[inst].br;
-    try self.br(inst, branch.block_inst, branch.operand);
-    return self.finishAir(inst, .dead, .{ branch.operand, .none, .none });
-}
+    const br = self.air.instructions.items(.data)[inst].br;
+    const block = br.block_inst;
 
-fn br(self: *Self, inst: Air.Inst.Index, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
     // The first break instruction encounters `.none` here and chooses a
     // machine code value for the block result, populating this field.
     // Following break instructions encounter that value and use it for
     // the location to store their block results.
     if (self.getResolvedInstValue(block)) |dst_mcv| {
-        const src_mcv = try self.resolveInst(operand);
+        const src_mcv = try self.resolveInst(br.operand);
         switch (dst_mcv.*) {
             .none => {
                 const result = result: {
-                    if (self.reuseOperand(inst, operand, 0, src_mcv)) break :result src_mcv;
+                    if (self.reuseOperand(inst, br.operand, 0, src_mcv)) break :result src_mcv;
 
                     const new_mcv = try self.allocRegOrMem(block, true);
                     try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, src_mcv);
@@ -5848,16 +5873,50 @@ fn br(self: *Self, inst: Air.Inst.Index, block: Air.Inst.Index, operand: Air.Ins
             else => try self.setRegOrMem(self.air.typeOfIndex(block), dst_mcv.*, src_mcv),
         }
     }
-    return self.brVoid(block);
-}
 
-fn brVoid(self: *Self, block: Air.Inst.Index) !void {
+    // Process operand death early so that it is properly accounted for in the Branch below.
+    if (self.liveness.operandDies(inst, 0)) {
+        if (Air.refToIndex(br.operand)) |op_inst| self.processDeath(op_inst);
+    }
+
     const block_data = self.blocks.getPtr(block).?;
+    {
+        var branch = Branch{};
+        errdefer branch.deinit(self.gpa);
+
+        var branch_i = self.branch_stack.items.len - 1;
+        while (branch_i >= block_data.branch_depth) : (branch_i -= 1) {
+            const table = &self.branch_stack.items[branch_i].inst_table;
+            try branch.inst_table.ensureUnusedCapacity(self.gpa, table.count());
+            var it = table.iterator();
+            while (it.next()) |entry| {
+                const gop = branch.inst_table.getOrPutAssumeCapacity(entry.key_ptr.*);
+                if (!gop.found_existing) gop.value_ptr.* = entry.value_ptr.*;
+            }
+        }
+
+        if (block_data.branch) |*prev_branch| {
+            log.debug("brVoid: %{d}", .{inst});
+            log.debug("Upper branches:", .{});
+            for (self.branch_stack.items) |bs| {
+                log.debug("{}", .{bs.fmtDebug()});
+            }
+            log.debug("Prev branch: {}", .{prev_branch.fmtDebug()});
+            log.debug("Cur branch: {}", .{branch.fmtDebug()});
+
+            try self.canonicaliseBranches(false, prev_branch, &branch, false);
+            prev_branch.deinit(self.gpa);
+        }
+        block_data.branch = branch;
+    }
+
     // Emit a jump with a relocation. It will be patched up after the block ends.
     try block_data.relocs.ensureUnusedCapacity(self.gpa, 1);
     // Leave the jump offset undefined
     const jmp_reloc = try self.asmJmpReloc(undefined);
     block_data.relocs.appendAssumeCapacity(jmp_reloc);
+
+    self.finishAirBookkeeping();
 }
 
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
