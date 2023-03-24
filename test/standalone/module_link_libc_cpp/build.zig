@@ -22,5 +22,5 @@ pub fn build(b: *std.Build) void {
 
     const run = exe.run();
 
-    b.default_step =  &run.step;
+    b.default_step = &run.step;
 }
