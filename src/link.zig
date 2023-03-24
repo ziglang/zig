@@ -183,6 +183,7 @@ pub const Options = struct {
     wasi_emulated_libs: []const wasi_libc.CRTFile,
     lib_dirs: []const []const u8,
     rpath_list: []const []const u8,
+    wrap_list: []const []const u8,
 
     /// List of symbols forced as undefined in the symbol table
     /// thus forcing their resolution by the linker.

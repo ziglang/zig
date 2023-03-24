@@ -494,6 +494,7 @@ pub const InitOptions = struct {
     clang_argv: []const []const u8 = &[0][]const u8{},
     lib_dirs: []const []const u8 = &[0][]const u8{},
     rpath_list: []const []const u8 = &[0][]const u8{},
+    wrap_list: []const []const u8 = &[0][]const u8{},
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
     link_objects: []LinkObject = &[0]LinkObject{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
@@ -1438,6 +1439,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .wasi_emulated_libs = options.wasi_emulated_libs,
             .lib_dirs = options.lib_dirs,
             .rpath_list = options.rpath_list,
+            .wrap_list = options.wrap_list,
             .strip = strip,
             .is_native_os = options.is_native_os,
             .is_native_abi = options.is_native_abi,
@@ -2259,6 +2261,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.rdynamic);
     man.hash.addListOfBytes(comp.bin_file.options.lib_dirs);
     man.hash.addListOfBytes(comp.bin_file.options.rpath_list);
+    man.hash.addListOfBytes(comp.bin_file.options.wrap_list);
     man.hash.add(comp.bin_file.options.each_lib_rpath);
     man.hash.add(comp.bin_file.options.build_id);
     man.hash.add(comp.bin_file.options.skip_linker_dependencies);
