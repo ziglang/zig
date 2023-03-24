@@ -1154,7 +1154,7 @@ fn runCases(self: *Cases, zig_exe_path: []const u8) !void {
     progress.terminal = null;
     defer root_node.end();
 
-    var zig_lib_directory = try introspect.findZigLibDir(self.gpa);
+    var zig_lib_directory = try introspect.findZigLibDirFromSelfExe(self.gpa, zig_exe_path);
     defer zig_lib_directory.handle.close();
     defer self.gpa.free(zig_lib_directory.path.?);
 
