@@ -52,10 +52,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     check_exe.checkNext("compatibility version 10000");
 
     check_exe.checkStart("cmd RPATH");
-    // TODO check this (perhaps with `checkNextFileSource(dylib.getOutputDirectorySource())`)
-    //check_exe.checkNext(std.fmt.allocPrint(b.allocator, "path {s}", .{
-    //    b.pathFromRoot("zig-out/lib"),
-    //}) catch unreachable);
+    check_exe.checkNextFileSource("path", dylib.getOutputDirectorySource());
 
     const run = check_exe.runAndCompare();
     run.expectStdOutEqual("Hello world");

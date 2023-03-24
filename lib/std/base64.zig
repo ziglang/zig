@@ -117,7 +117,7 @@ pub const Base64Encoder = struct {
             out_idx += 1;
         }
         if (encoder.pad_char) |pad_char| {
-            for (dest[out_idx..]) |*pad| {
+            for (dest[out_idx..out_len]) |*pad| {
                 pad.* = pad_char;
             }
         }
@@ -303,6 +303,20 @@ test "base64" {
     @setEvalBranchQuota(8000);
     try testBase64();
     comptime try testAllApis(standard, "comptime", "Y29tcHRpbWU=");
+}
+
+test "base64 padding dest overflow" {
+    const input = "foo";
+
+    var expect: [128]u8 = undefined;
+    std.mem.set(u8, &expect, 0);
+    _ = url_safe.Encoder.encode(expect[0..url_safe.Encoder.calcSize(input.len)], input);
+
+    var got: [128]u8 = undefined;
+    std.mem.set(u8, &got, 0);
+    _ = url_safe.Encoder.encode(&got, input);
+
+    try std.testing.expectEqualSlices(u8, &expect, &got);
 }
 
 test "base64 url_safe_no_pad" {
