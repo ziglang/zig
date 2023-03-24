@@ -1085,6 +1085,17 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     }
 }
 
+fn getValue(self: *Self, value: MCValue, inst: ?Air.Inst.Index) void {
+    const reg = switch (value) {
+        .register => |reg| reg,
+        .register_overflow => |ro| ro.reg,
+        else => return,
+    };
+    if (self.register_manager.isRegFree(reg)) {
+        self.register_manager.getRegAssumeFree(reg, inst);
+    }
+}
+
 fn freeValue(self: *Self, value: MCValue) void {
     switch (value) {
         .register => |reg| {
@@ -1136,25 +1147,10 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
         log.debug("%{d} => {}", .{ inst, result });
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         branch.inst_table.putAssumeCapacityNoClobber(inst, result);
-
-        // In some cases (such as bitcast), an operand
-        // may be the same MCValue as the result. If
-        // that operand died and was a register, it
-        // was freed by processDeath. We have to
-        // "re-allocate" the register.
-        switch (result) {
-            .register => |reg| {
-                if (self.register_manager.isRegFree(reg)) {
-                    self.register_manager.getRegAssumeFree(reg, inst);
-                }
-            },
-            .register_overflow => |ro| {
-                if (self.register_manager.isRegFree(ro.reg)) {
-                    self.register_manager.getRegAssumeFree(ro.reg, inst);
-                }
-            },
-            else => {},
-        }
+        // In some cases, an operand may be reused as the result.
+        // If that operand died and was a register, it was freed by
+        // processDeath, so we have to "re-allocate" the register.
+        self.getValue(result, inst);
     } else switch (result) {
         .none, .dead, .unreach => {},
         else => unreachable, // Why didn't the result die?
@@ -5609,14 +5605,14 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     });
     defer self.blocks.getPtr(inst).?.relocs.deinit(self.gpa);
 
+    const ty = self.air.typeOfIndex(inst);
+    const unused = !ty.hasRuntimeBitsIgnoreComptime() or self.liveness.isUnused(inst);
     {
         // Here we use `.none` to represent a null value so that the first break
         // instruction will choose a MCValue for the block result and overwrite
         // this field. Following break instructions will use that MCValue to put
         // their block results.
-        const ty = self.air.typeOfIndex(inst);
-        const result: MCValue =
-            if (!ty.hasRuntimeBitsIgnoreComptime() or self.liveness.isUnused(inst)) .dead else .none;
+        const result: MCValue = if (unused) .dead else .none;
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         branch.inst_table.putAssumeCapacityNoClobber(inst, result);
     }
@@ -5627,6 +5623,9 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     try self.genBody(body);
 
     for (self.blocks.getPtr(inst).?.relocs.items) |reloc| try self.performReloc(reloc);
+
+    const result = if (unused) .dead else self.getResolvedInstValue(inst).?.*;
+    self.getValue(result, inst);
     self.finishAirBookkeeping();
 }
 
@@ -5837,25 +5836,14 @@ fn br(self: *Self, inst: Air.Inst.Index, block: Air.Inst.Index, operand: Air.Ins
         switch (dst_mcv.*) {
             .none => {
                 const result = result: {
-                    if (!self.reuseOperand(inst, operand, 0, src_mcv)) {
-                        const new_mcv = try self.allocRegOrMem(block, true);
-                        try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, src_mcv);
-                        break :result new_mcv;
-                    }
+                    if (self.reuseOperand(inst, operand, 0, src_mcv)) break :result src_mcv;
 
-                    // the value is actually tracked with block, not inst
-                    switch (src_mcv) {
-                        .register => |reg| if (!self.register_manager.isRegFree(reg)) {
-                            if (RegisterManager.indexOfRegIntoTracked(reg)) |index| {
-                                self.register_manager.registers[index] = block;
-                            }
-                        },
-                        .stack_offset => {},
-                        else => unreachable,
-                    }
-                    break :result src_mcv;
+                    const new_mcv = try self.allocRegOrMem(block, true);
+                    try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, src_mcv);
+                    break :result new_mcv;
                 };
                 dst_mcv.* = result;
+                self.freeValue(result);
             },
             else => try self.setRegOrMem(self.air.typeOfIndex(block), dst_mcv.*, src_mcv),
         }
