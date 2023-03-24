@@ -1725,6 +1725,22 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try zig_args.ensureUnusedCapacity(2 * self.rpaths.items.len);
     for (self.rpaths.items) |rpath| {
         zig_args.appendAssumeCapacity("-rpath");
+
+        if (self.target_info.target.isDarwin()) switch (rpath) {
+            .path => |path| {
+                // On Darwin, we should not try to expand special runtime paths such as
+                // * @executable_path
+                // * @loader_path
+                if (mem.startsWith(u8, path, "@executable_path") or
+                    mem.startsWith(u8, path, "@loader_path"))
+                {
+                    zig_args.appendAssumeCapacity(path);
+                    continue;
+                }
+            },
+            .generated => {},
+        };
+
         zig_args.appendAssumeCapacity(rpath.getPath2(b, step));
     }
 
