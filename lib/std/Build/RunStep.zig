@@ -73,7 +73,10 @@ captured_stderr: ?*Output = null,
 has_side_effects: bool = false,
 
 /// Set this to true if RunStep runs a zig test.
-/// See https://github.com/ziglang/zig/issues/15104.
+///
+/// This is necessary to prevent the first child process to close stdin, and
+/// the grandchild process to make stdin a pipe, causing the test executable to
+/// fail to spawn with a NotDir error.
 is_test_command: bool = false,
 
 pub const StdIo = union(enum) {

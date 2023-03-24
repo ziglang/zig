@@ -663,7 +663,6 @@ pub fn addCliTests(b: *std.Build) *Step {
     const s = std.fs.path.sep_str;
 
     {
-
         // Test `zig init-lib`.
         const tmp_path = b.makeTempPath();
         const init_lib = b.addSystemCommand(&.{ b.zig_exe, "init-lib" });
@@ -676,6 +675,7 @@ pub fn addCliTests(b: *std.Build) *Step {
 
         const run_test = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
         run_test.cwd = tmp_path;
+        run_test.is_test_command = true;
         run_test.setName("zig build test");
         run_test.expectStdOutEqual("");
         run_test.step.dependOn(&init_lib.step);
@@ -710,6 +710,7 @@ pub fn addCliTests(b: *std.Build) *Step {
 
         const run_test = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
         run_test.cwd = tmp_path;
+        run_test.is_test_command = true;
         run_test.setName("zig build test");
         run_test.expectStdOutEqual("");
         run_test.step.dependOn(&init_exe.step);
