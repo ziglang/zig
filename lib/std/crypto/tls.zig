@@ -215,6 +215,10 @@ pub const NamedGroup = enum(u16) {
     ffdhe6144 = 0x0103,
     ffdhe8192 = 0x0104,
 
+    // Hybrid post-quantum key agreements
+    x25519_kyber512d00 = 0xFE30,
+    x25519_kyber768d00 = 0xFE31,
+
     _,
 };
 

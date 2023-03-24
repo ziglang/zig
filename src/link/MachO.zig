@@ -60,6 +60,17 @@ pub const SearchStrategy = enum {
     dylibs_first,
 };
 
+/// Mode of operation of the linker.
+pub const Mode = enum {
+    /// Incremental mode will preallocate segments/sections and is compatible with
+    /// watch and HCS modes of operation.
+    incremental,
+    /// Zld mode will link relocatables in a traditional, one-shot
+    /// fashion (default for LLVM backend). It acts as a drop-in replacement for
+    /// LLD.
+    zld,
+};
+
 const Section = struct {
     header: macho.section_64,
     segment_index: u8,
@@ -98,10 +109,7 @@ d_sym: ?DebugSymbols = null,
 /// For x86_64 that's 4KB, whereas for aarch64, that's 16KB.
 page_size: u16,
 
-/// Mode of operation: incremental - will preallocate segments/sections and is compatible with
-/// watch and HCS modes of operation; one_shot - will link relocatables in a traditional, one-shot
-/// fashion (default for LLVM backend).
-mode: enum { incremental, one_shot },
+mode: Mode,
 
 dyld_info_cmd: macho.dyld_info_command = .{},
 symtab_cmd: macho.symtab_command = .{},
@@ -213,6 +221,14 @@ lazy_bindings: BindingTable = .{},
 /// Table of tracked Decls.
 decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
 
+/// Hot-code swapping state.
+hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
+
+const is_hot_update_compatible = switch (builtin.target.os.tag) {
+    .macos => true,
+    else => false,
+};
+
 const DeclMetadata = struct {
     atom: Atom.Index,
     section: u8,
@@ -292,6 +308,10 @@ pub const SymbolWithLoc = struct {
     }
 };
 
+const HotUpdateState = struct {
+    mach_task: ?std.os.darwin.MachTask = null,
+};
+
 /// When allocating, the ideal_capacity is calculated by
 /// actual_capacity + (actual_capacity / ideal_factor)
 const ideal_factor = 3;
@@ -314,33 +334,42 @@ pub const default_headerpad_size: u32 = 0x1000;
 pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
     assert(options.target.ofmt == .macho);
 
-    if (options.emit == null or options.module == null) {
+    if (options.emit == null) {
         return createEmpty(allocator, options);
     }
 
     const emit = options.emit.?;
-    const self = try createEmpty(allocator, options);
-    errdefer {
-        self.base.file = null;
-        self.base.destroy();
-    }
+    const mode: Mode = mode: {
+        if (options.use_llvm or options.module == null or options.cache_mode == .whole)
+            break :mode .zld;
+        break :mode .incremental;
+    };
+    const sub_path = if (mode == .zld) blk: {
+        if (options.module == null) {
+            // No point in opening a file, we would not write anything to it.
+            // Initialize with empty.
+            return createEmpty(allocator, options);
+        }
+        // Open a temporary object file, not the final output file because we
+        // want to link with LLD.
+        break :blk try std.fmt.allocPrint(allocator, "{s}{s}", .{
+            emit.sub_path, options.target.ofmt.fileExt(options.target.cpu.arch),
+        });
+    } else emit.sub_path;
+    errdefer if (mode == .zld) allocator.free(sub_path);
 
-    if (build_options.have_llvm and options.use_llvm and options.module != null) {
+    const self = try createEmpty(allocator, options);
+    errdefer self.base.destroy();
+
+    if (mode == .zld) {
         // TODO this intermediary_basename isn't enough; in the case of `zig build-exe`,
         // we also want to put the intermediary object file in the cache while the
         // main emit directory is the cwd.
-        self.base.intermediary_basename = try std.fmt.allocPrint(allocator, "{s}{s}", .{
-            emit.sub_path, options.target.ofmt.fileExt(options.target.cpu.arch),
-        });
+        self.base.intermediary_basename = sub_path;
+        return self;
     }
 
-    if (self.base.intermediary_basename != null) switch (options.output_mode) {
-        .Obj => return self,
-        .Lib => if (options.link_mode == .Static) return self,
-        else => {},
-    };
-
-    const file = try emit.directory.handle.createFile(emit.sub_path, .{
+    const file = try emit.directory.handle.createFile(sub_path, .{
         .truncate = false,
         .read = true,
         .mode = link.determineMode(options),
@@ -348,23 +377,21 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
     errdefer file.close();
     self.base.file = file;
 
-    if (self.mode == .one_shot) return self;
-
     if (!options.strip and options.module != null) {
         // Create dSYM bundle.
-        log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
+        log.debug("creating {s}.dSYM bundle", .{sub_path});
 
         const d_sym_path = try fmt.allocPrint(
             allocator,
             "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
-            .{emit.sub_path},
+            .{sub_path},
         );
         defer allocator.free(d_sym_path);
 
         var d_sym_bundle = try emit.directory.handle.makeOpenPath(d_sym_path, .{});
         defer d_sym_bundle.close();
 
-        const d_sym_file = try d_sym_bundle.createFile(emit.sub_path, .{
+        const d_sym_file = try d_sym_bundle.createFile(sub_path, .{
             .truncate = false,
             .read = true,
         });
@@ -413,7 +440,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
         },
         .page_size = page_size,
         .mode = if (use_llvm or options.module == null or options.cache_mode == .whole)
-            .one_shot
+            .zld
         else
             .incremental,
     };
@@ -447,7 +474,7 @@ pub fn flush(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) li
     }
 
     switch (self.mode) {
-        .one_shot => return zld.linkWithZld(self, comp, prog_node),
+        .zld => return zld.linkWithZld(self, comp, prog_node),
         .incremental => return self.flushModule(comp, prog_node),
     }
 }
@@ -569,7 +596,26 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     try self.allocateSpecialSymbols();
 
     for (self.relocs.keys()) |atom_index| {
-        try Atom.resolveRelocations(self, atom_index);
+        const relocs = self.relocs.get(atom_index).?;
+        const needs_update = for (relocs.items) |reloc| {
+            if (reloc.dirty) break true;
+        } else false;
+
+        if (!needs_update) continue;
+
+        const atom = self.getAtom(atom_index);
+        const sym = atom.getSymbol(self);
+        const section = self.sections.get(sym.n_sect - 1).header;
+        const file_offset = section.offset + sym.n_value - section.addr;
+
+        var code = std.ArrayList(u8).init(self.base.allocator);
+        defer code.deinit();
+        try code.resize(math.cast(usize, atom.size) orelse return error.Overflow);
+
+        const amt = try self.base.file.?.preadAll(code.items, file_offset);
+        if (amt != code.items.len) return error.InputOutput;
+
+        try self.writeAtom(atom_index, code.items);
     }
 
     if (build_options.enable_logging) {
@@ -662,6 +708,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     if (codesig) |*csig| {
         try self.writeCodeSignature(comp, csig); // code signing always comes last
+        const emit = self.base.options.emit.?;
+        try invalidateKernelCache(emit.directory.handle, emit.sub_path);
     }
 
     if (self.d_sym) |*d_sym| {
@@ -691,6 +739,21 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     self.cold_start = false;
 }
+
+/// XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
+/// Any change to the binary will effectively invalidate the kernel's cache
+/// resulting in a SIGKILL on each subsequent run. Since when doing incremental
+/// linking we're modifying a binary in-place, this will end up with the kernel
+/// killing it on every subsequent run. To circumvent it, we will copy the file
+/// into a new inode, remove the original file, and rename the copy to match
+/// the original file. This is super messy, but there doesn't seem any other
+/// way to please the XNU.
+pub fn invalidateKernelCache(dir: std.fs.Dir, sub_path: []const u8) !void {
+    if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
+        try dir.copyFile(sub_path, dir, sub_path, .{});
+    }
+}
+
 inline fn conformUuid(out: *[Md5.digest_length]u8) void {
     // LC_UUID uuids should conform to RFC 4122 UUID version 4 & UUID version 5 formats
     out[6] = (out[6] & 0x0F) | (3 << 4);
@@ -1020,14 +1083,40 @@ pub fn parseDependentLibs(self: *MachO, syslibroot: ?[]const u8, dependent_libs:
     }
 }
 
-pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []const u8) !void {
+pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
     const atom = self.getAtom(atom_index);
     const sym = atom.getSymbol(self);
     const section = self.sections.get(sym.n_sect - 1);
     const file_offset = section.header.offset + sym.n_value - section.header.addr;
     log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ atom.getName(self), file_offset });
+
+    if (self.relocs.get(atom_index)) |relocs| {
+        try Atom.resolveRelocations(self, atom_index, relocs.items, code);
+    }
+
+    if (is_hot_update_compatible) {
+        if (self.base.child_pid) |pid| blk: {
+            const task = self.hot_state.mach_task orelse {
+                log.warn("cannot hot swap: no Mach task acquired for child process with pid {d}", .{pid});
+                break :blk;
+            };
+            self.updateAtomInMemory(task, section.segment_index, sym.n_value, code) catch |err| {
+                log.warn("cannot hot swap: writing to memory failed: {s}", .{@errorName(err)});
+            };
+        }
+    }
+
     try self.base.file.?.pwriteAll(code, file_offset);
-    try Atom.resolveRelocations(self, atom_index);
+}
+
+fn updateAtomInMemory(self: *MachO, task: std.os.darwin.MachTask, segment_index: u8, addr: u64, code: []const u8) !void {
+    const segment = self.segments.items[segment_index];
+    const cpu_arch = self.base.options.target.cpu.arch;
+    const nwritten = if (!segment.isWriteable())
+        try task.writeMemProtected(addr, code, cpu_arch)
+    else
+        try task.writeMem(addr, code, cpu_arch);
+    if (nwritten != code.len) return error.InputOutput;
 }
 
 fn writePtrWidthAtom(self: *MachO, atom_index: Atom.Index) !void {
@@ -1036,6 +1125,7 @@ fn writePtrWidthAtom(self: *MachO, atom_index: Atom.Index) !void {
 }
 
 fn markRelocsDirtyByTarget(self: *MachO, target: SymbolWithLoc) void {
+    log.debug("marking relocs dirty by target: {}", .{target});
     // TODO: reverse-lookup might come in handy here
     for (self.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
@@ -1046,6 +1136,7 @@ fn markRelocsDirtyByTarget(self: *MachO, target: SymbolWithLoc) void {
 }
 
 fn markRelocsDirtyByAddress(self: *MachO, addr: u64) void {
+    log.debug("marking relocs dirty by address: {x}", .{addr});
     for (self.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
             const target_atom_index = reloc.getTargetAtomIndex(self) orelse continue;
@@ -1670,6 +1761,8 @@ pub fn resolveDyldStubBinder(self: *MachO) !void {
     if (self.dyld_stub_binder_index != null) return;
     if (self.unresolved.count() == 0) return; // no need for a stub binder if we don't have any imports
 
+    log.debug("resolving dyld_stub_binder", .{});
+
     const gpa = self.base.allocator;
     const sym_index = try self.allocateSymbol();
     const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
@@ -2031,7 +2124,7 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     else
         try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
 
-    const code = switch (res) {
+    var code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2083,7 +2176,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
-    const code = switch (res) {
+    var code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2170,7 +2263,7 @@ pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) 
             .parent_atom_index = atom.getSymbolIndex().?,
         });
 
-    const code = switch (res) {
+    var code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -2343,7 +2436,7 @@ pub fn getOutputSection(self: *MachO, sect: macho.section_64) !?u8 {
     return sect_id;
 }
 
-fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []const u8) !u64 {
+fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
@@ -2756,6 +2849,7 @@ pub fn populateMissingMetadata(self: *MachO) !void {
 
     if (self.linkedit_segment_cmd_index == null) {
         self.linkedit_segment_cmd_index = @intCast(u8, self.segments.items.len);
+
         try self.segments.append(gpa, .{
             .segname = makeStaticString("__LINKEDIT"),
             .maxprot = macho.PROT.READ,
@@ -3246,36 +3340,19 @@ fn collectExportData(self: *MachO, trie: *Trie) !void {
     const exec_segment = self.segments.items[self.header_segment_cmd_index.?];
     const base_address = exec_segment.vmaddr;
 
-    if (self.base.options.output_mode == .Exe) {
-        for (&[_]SymbolWithLoc{
-            try self.getEntryPoint(),
-            self.getGlobal("__mh_execute_header").?,
-        }) |global| {
-            const sym = self.getSymbol(global);
-            const sym_name = self.getSymbolName(global);
-            log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
-            try trie.put(gpa, .{
-                .name = sym_name,
-                .vmaddr_offset = sym.n_value - base_address,
-                .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
-            });
-        }
-    } else {
-        assert(self.base.options.output_mode == .Lib);
-        for (self.globals.items) |global| {
-            const sym = self.getSymbol(global);
+    for (self.globals.items) |global| {
+        const sym = self.getSymbol(global);
 
-            if (sym.undf()) continue;
-            if (!sym.ext()) continue;
+        if (sym.undf()) continue;
+        if (!sym.ext()) continue;
 
-            const sym_name = self.getSymbolName(global);
-            log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
-            try trie.put(gpa, .{
-                .name = sym_name,
-                .vmaddr_offset = sym.n_value - base_address,
-                .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
-            });
-        }
+        const sym_name = self.getSymbolName(global);
+        log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
+        try trie.put(gpa, .{
+            .name = sym_name,
+            .vmaddr_offset = sym.n_value - base_address,
+            .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
+        });
     }
 
     try trie.finalize(gpa);
@@ -3726,6 +3803,32 @@ pub fn allocatedVirtualSize(self: *MachO, start: u64) u64 {
         if (segment.vmaddr < min_pos) min_pos = segment.vmaddr;
     }
     return min_pos - start;
+}
+
+pub fn ptraceAttach(self: *MachO, pid: std.os.pid_t) !void {
+    if (!is_hot_update_compatible) return;
+
+    const mach_task = try std.os.darwin.machTaskForPid(pid);
+    log.debug("Mach task for pid {d}: {any}", .{ pid, mach_task });
+    self.hot_state.mach_task = mach_task;
+
+    // TODO start exception handler in another thread
+
+    // TODO enable ones we register for exceptions
+    // try std.os.ptrace(std.os.darwin.PT.ATTACHEXC, pid, 0, 0);
+}
+
+pub fn ptraceDetach(self: *MachO, pid: std.os.pid_t) !void {
+    if (!is_hot_update_compatible) return;
+
+    _ = pid;
+
+    // TODO stop exception handler
+
+    // TODO see comment in ptraceAttach
+    // try std.os.ptrace(std.os.darwin.PT.DETACH, pid, 0, 0);
+
+    self.hot_state.mach_task = null;
 }
 
 pub fn makeStaticString(bytes: []const u8) [16]u8 {

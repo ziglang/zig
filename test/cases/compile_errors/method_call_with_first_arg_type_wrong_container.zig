@@ -29,3 +29,4 @@ export fn foo() void {
 //
 // :23:6: error: no field or member function named 'init' in 'tmp.List'
 // :1:18: note: struct declared here
+// :5:9: note: 'init' is not a member function

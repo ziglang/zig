@@ -5452,6 +5452,22 @@ fn doAThing(str: []u8) void {
           a default value of 13. The type of the right hand side of the binary {#syntax#}catch{#endsyntax#} operator must
               match the unwrapped error union type, or be of type {#syntax#}noreturn{#endsyntax#}.
       </p>
+     <p>
+      If you want to provide a default value with
+      {#syntax#}catch{#endsyntax#} after performing some logic, you
+      can combine {#syntax#}catch{#endsyntax#} with named {#link|Blocks#}:
+      </p>
+      {#code_begin|syntax|handle_error_with_catch_block.zig#}
+const parseU64 = @import("error_union_parsing_u64.zig").parseU64;
+
+fn doAThing(str: []u8) void {
+    const number = parseU64(str, 10) catch blk: {
+        // do things
+        break :blk 13;
+    };
+    _ = number; // number is now initialized
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|try#}
       <p>Let's say you wanted to return the error if you got one, otherwise continue with the
@@ -5508,6 +5524,20 @@ fn doAThing(str: []u8) void {
         },
         // we promise that InvalidChar won't happen (or crash in debug mode if it does)
         error.InvalidChar => unreachable,
+    }
+}
+      {#end_syntax_block#}
+      <p>
+      You must use the variable capture syntax. If you don't need the
+      variable, you can capture with {#syntax#}_{#endsyntax#} and avoid the
+      {#syntax#}switch{#endsyntax#}.
+      </p>
+      {#syntax_block|zig|handle_no_error_scenarios.zig#}
+fn doADifferentThing(str: []u8) void {
+    if (parseU64(str, 10)) |number| {
+        doSomethingWithNumber(number);
+    } else |_| {
+        // do as you'd like
     }
 }
       {#end_syntax_block#}
@@ -7457,20 +7487,20 @@ pub const STDOUT_FILENO = 1;
 
 pub fn syscall1(number: usize, arg1: usize) usize {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize)
+        : [ret] "={rax}" (-> usize),
         : [number] "{rax}" (number),
-          [arg1] "{rdi}" (arg1)
+          [arg1] "{rdi}" (arg1),
         : "rcx", "r11"
     );
 }
 
 pub fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize)
+        : [ret] "={rax}" (-> usize),
         : [number] "{rax}" (number),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
-          [arg3] "{rdx}" (arg3)
+          [arg3] "{rdx}" (arg3),
         : "rcx", "r11"
     );
 }
@@ -7519,14 +7549,14 @@ pub fn syscall1(number: usize, arg1: usize) usize {
     // type is the result type of the inline assembly expression.
     // If it is a value binding, then `%[ret]` syntax would be used
     // to refer to the register bound to the value.
-        (-> usize)
+        (-> usize),
     // Next is the list of inputs.
     // The constraint for these inputs means, "when the assembly code is
     // executed, $rax shall have the value of `number` and $rdi shall have
     // the value of `arg1`". Any number of input parameters is allowed,
     // including none.
         : [number] "{rax}" (number),
-            [arg1] "{rdi}" (arg1)
+            [arg1] "{rdi}" (arg1),
     // Next is the list of clobbers. These declare a set of registers whose
     // values will not be preserved by the execution of this assembly code.
     // These do not include output or input registers. The special clobber
@@ -7814,16 +7844,18 @@ comptime {
       {#header_close#}
 
       {#header_open|@breakpoint#}
-      <pre>{#syntax#}@breakpoint(){#endsyntax#}</pre>
+      <pre>{#syntax#}@breakpoint() void{#endsyntax#}</pre>
       <p>
       This function inserts a platform-specific debug trap instruction which causes
       debuggers to break there.
+      Unlike for {#syntax#}@trap(){#endsyntax#}, execution may continue after this point if the program is resumed.
       </p>
       <p>
       This function is only valid within function scope.
       </p>
-
+      {#see_also|@trap#}
       {#header_close#}
+
       {#header_open|@mulAdd#}
       <pre>{#syntax#}@mulAdd(comptime T: type, a: T, b: T, c: T) T{#endsyntax#}</pre>
       <p>
@@ -7931,7 +7963,7 @@ pub const CallModifier = enum {
       {#header_close#}
 
       {#header_open|@cDefine#}
-      <pre>{#syntax#}@cDefine(comptime name: []u8, value){#endsyntax#}</pre>
+      <pre>{#syntax#}@cDefine(comptime name: []u8, value) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -7975,7 +8007,7 @@ pub const CallModifier = enum {
       {#see_also|Import from C Header File|@cInclude|@cDefine|@cUndef#}
       {#header_close#}
       {#header_open|@cInclude#}
-      <pre>{#syntax#}@cInclude(comptime path: []u8){#endsyntax#}</pre>
+      <pre>{#syntax#}@cInclude(comptime path: []u8) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -7987,7 +8019,7 @@ pub const CallModifier = enum {
       {#header_close#}
 
       {#header_open|@clz#}
-      <pre>{#syntax#}@clz(operand: anytype){#endsyntax#}</pre>
+      <pre>{#syntax#}@clz(operand: anytype) anytype{#endsyntax#}</pre>
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type or an integer vector type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>
@@ -8066,7 +8098,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@compileError#}
-      <pre>{#syntax#}@compileError(comptime msg: []u8){#endsyntax#}</pre>
+      <pre>{#syntax#}@compileError(comptime msg: []u8) noreturn{#endsyntax#}</pre>
       <p>
       This function, when semantically analyzed, causes a compile error with the
       message {#syntax#}msg{#endsyntax#}.
@@ -8079,7 +8111,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@compileLog#}
-      <pre>{#syntax#}@compileLog(args: ...){#endsyntax#}</pre>
+      <pre>{#syntax#}@compileLog(args: ...) void{#endsyntax#}</pre>
       <p>
       This function prints the arguments passed to it at compile-time.
       </p>
@@ -8137,7 +8169,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@ctz#}
-      <pre>{#syntax#}@ctz(operand: anytype){#endsyntax#}</pre>
+      <pre>{#syntax#}@ctz(operand: anytype) anytype{#endsyntax#}</pre>
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type or an integer vector type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>
@@ -8157,7 +8189,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@cUndef#}
-      <pre>{#syntax#}@cUndef(comptime name: []u8){#endsyntax#}</pre>
+      <pre>{#syntax#}@cUndef(comptime name: []u8) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -8368,7 +8400,7 @@ export fn @"A function name that is a complete sentence."() void {}
       {#header_close#}
 
       {#header_open|@fence#}
-      <pre>{#syntax#}@fence(order: AtomicOrder){#endsyntax#}</pre>
+      <pre>{#syntax#}@fence(order: AtomicOrder) void{#endsyntax#}</pre>
       <p>
       The {#syntax#}fence{#endsyntax#} function is used to introduce happens-before edges between operations.
       </p>
@@ -8620,7 +8652,7 @@ test "integer cast panic" {
       {#header_close#}
 
       {#header_open|@memcpy#}
-      <pre>{#syntax#}@memcpy(noalias dest: [*]u8, noalias source: [*]const u8, byte_count: usize){#endsyntax#}</pre>
+      <pre>{#syntax#}@memcpy(noalias dest: [*]u8, noalias source: [*]const u8, byte_count: usize) void{#endsyntax#}</pre>
       <p>
       This function copies bytes from one region of memory to another. {#syntax#}dest{#endsyntax#} and
           {#syntax#}source{#endsyntax#} are both pointers and must not overlap.
@@ -8639,7 +8671,7 @@ mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
       {#header_close#}
 
       {#header_open|@memset#}
-      <pre>{#syntax#}@memset(dest: [*]u8, c: u8, byte_count: usize){#endsyntax#}</pre>
+      <pre>{#syntax#}@memset(dest: [*]u8, c: u8, byte_count: usize) void{#endsyntax#}</pre>
       <p>
       This function sets a region of memory to {#syntax#}c{#endsyntax#}. {#syntax#}dest{#endsyntax#} is a pointer.
       </p>
@@ -8751,7 +8783,7 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@popCount#}
-      <pre>{#syntax#}@popCount(operand: anytype){#endsyntax#}</pre>
+      <pre>{#syntax#}@popCount(operand: anytype) anytype{#endsyntax#}</pre>
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>Counts the number of bits set in an integer.</p>
@@ -8765,7 +8797,7 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@prefetch#}
-      <pre>{#syntax#}@prefetch(ptr: anytype, comptime options: std.builtin.PrefetchOptions){#endsyntax#}</pre>
+      <pre>{#syntax#}@prefetch(ptr: anytype, comptime options: std.builtin.PrefetchOptions) void{#endsyntax#}</pre>
       <p>
       This builtin tells the compiler to emit a prefetch instruction if supported by the
       target CPU. If the target CPU does not support the requested prefetch instruction,
@@ -8879,21 +8911,21 @@ pub const PrefetchOptions = struct {
       {#header_close#}
 
       {#header_open|@setAlignStack#}
-      <pre>{#syntax#}@setAlignStack(comptime alignment: u29){#endsyntax#}</pre>
+      <pre>{#syntax#}@setAlignStack(comptime alignment: u29) void{#endsyntax#}</pre>
       <p>
       Ensures that a function will have a stack alignment of at least {#syntax#}alignment{#endsyntax#} bytes.
       </p>
       {#header_close#}
 
       {#header_open|@setCold#}
-      <pre>{#syntax#}@setCold(comptime is_cold: bool){#endsyntax#}</pre>
+      <pre>{#syntax#}@setCold(comptime is_cold: bool) void{#endsyntax#}</pre>
       <p>
       Tells the optimizer that a function is rarely called.
       </p>
       {#header_close#}
 
       {#header_open|@setEvalBranchQuota#}
-      <pre>{#syntax#}@setEvalBranchQuota(comptime new_quota: u32){#endsyntax#}</pre>
+      <pre>{#syntax#}@setEvalBranchQuota(comptime new_quota: u32) void{#endsyntax#}</pre>
       <p>
       Changes the maximum number of backwards branches that compile-time code
       execution can use before giving up and making a compile error.
@@ -8928,7 +8960,7 @@ test "foo" {
       {#header_close#}
 
       {#header_open|@setFloatMode#}
-      <pre>{#syntax#}@setFloatMode(comptime mode: @import("std").builtin.FloatMode){#endsyntax#}</pre>
+      <pre>{#syntax#}@setFloatMode(comptime mode: @import("std").builtin.FloatMode) void{#endsyntax#}</pre>
       <p>
       Sets the floating point mode of the current scope. Possible values are:
       </p>
@@ -9393,6 +9425,19 @@ fn List(comptime T: type) type {
       </p>
       {#header_close#}
 
+      {#header_open|@trap#}
+      <pre>{#syntax#}@trap() noreturn{#endsyntax#}</pre>
+      <p>
+      This function inserts a platform-specific trap/jam instruction which can be used to exit the program abnormally.
+      This may be implemented by explicitly emitting an invalid instruction which may cause an illegal instruction exception of some sort.
+      Unlike for {#syntax#}@breakpoint(){#endsyntax#}, execution does not continue after this point.
+      </p>
+      <p>
+      Outside function scope, this builtin causes a compile error.
+      </p>
+      {#see_also|@breakpoint#}
+      {#header_close#}
+
       {#header_open|@truncate#}
       <pre>{#syntax#}@truncate(comptime T: type, integer: anytype) T{#endsyntax#}</pre>
       <p>
@@ -9565,9 +9610,10 @@ pub fn build(b: *std.Build) void {
       This causes these options to be available:
       </p>
       <dl>
-        <dt><kbd>-Drelease-safe=[bool]</kbd></dt><dd>Optimizations on and safety on</dd>
-        <dt><kbd>-Drelease-fast=[bool]</kbd></dt><dd>Optimizations on and safety off</dd>
-        <dt><kbd>-Drelease-small=[bool]</kbd></dt><dd>Size optimizations on and safety off</dd>
+        <dt><kbd>-Doptimize=Debug</kbd></dt><dd>Optimizations off and safety on (default)</dd>
+        <dt><kbd>-Doptimize=ReleaseSafe</kbd></dt><dd>Optimizations on and safety on</dd>
+        <dt><kbd>-Doptimize=ReleaseFast</kbd></dt><dd>Optimizations on and safety off</dd>
+        <dt><kbd>-Doptimize=ReleaseSmall</kbd></dt><dd>Size optimizations on and safety off</dd>
       </dl>
       {#header_open|Debug#}
       {#shell_samp#}$ zig build-exe example.zig{#end_shell_samp#}
@@ -9788,8 +9834,8 @@ pub fn main() !void {
       {#header_close#}
       {#header_open|Builtin Overflow Functions#}
       <p>
-      These builtins return a {#syntax#}bool{#endsyntax#} of whether or not overflow
-      occurred, as well as returning the overflowed bits:
+      These builtins return a tuple containing whether there was an overflow
+      (as a {#syntax#}u1{#endsyntax#}) and the possibly overflowed bits of the operation:
       </p>
       <ul>
           <li>{#link|@addWithOverflow#}</li>

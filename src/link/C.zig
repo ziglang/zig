@@ -221,14 +221,19 @@ pub fn flush(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) !void 
     return self.flushModule(comp, prog_node);
 }
 
-fn abiDefine(comp: *Compilation) ?[]const u8 {
-    return switch (comp.getTarget().abi) {
-        .msvc => "#define ZIG_TARGET_ABI_MSVC\n",
-        else => null,
-    };
+fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
+    var defines = std.ArrayList(u8).init(self.base.allocator);
+    errdefer defines.deinit();
+    const writer = defines.writer();
+    switch (target.abi) {
+        .msvc => try writer.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
+        else => {},
+    }
+    try writer.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{target.maxIntAlignment()});
+    return defines;
 }
 
-pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -245,12 +250,13 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
     var f: Flush = .{};
     defer f.deinit(gpa);
 
-    const abi_define = abiDefine(comp);
+    const abi_defines = try self.abiDefines(module.getTarget());
+    defer abi_defines.deinit();
 
     // Covers defines, zig.h, ctypes, asm, lazy fwd.
     try f.all_buffers.ensureUnusedCapacity(gpa, 5);
 
-    if (abi_define) |buf| f.appendBufAssumeCapacity(buf);
+    f.appendBufAssumeCapacity(abi_defines.items);
     f.appendBufAssumeCapacity(zig_h);
 
     const ctypes_index = f.all_buffers.items.len;

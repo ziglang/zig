@@ -29,7 +29,7 @@ const Allocator = std.mem.Allocator;
 const Preopen = std.fs.wasi.Preopen;
 const PreopenList = std.fs.wasi.PreopenList;
 
-pub const darwin = @import("os/darwin.zig");
+pub const darwin = std.c;
 pub const dragonfly = std.c;
 pub const freebsd = std.c;
 pub const haiku = std.c;
@@ -41,8 +41,6 @@ pub const plan9 = @import("os/plan9.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
 pub const windows = @import("os/windows.zig");
-pub const posix_spawn = @import("os/posix_spawn.zig");
-pub const ptrace = @import("os/ptrace.zig");
 
 comptime {
     assert(@import("std") == std); // std lib tests require --zig-lib-dir
@@ -56,7 +54,6 @@ test {
     }
     _ = wasi;
     _ = windows;
-    _ = posix_spawn;
 
     _ = @import("os/test.zig");
 }
@@ -252,6 +249,25 @@ pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (builtin.
     .wasi => @compileError("argv isn't supported on WASI: use std.process.argsAlloc instead"),
     else => undefined,
 };
+
+pub const have_sigpipe_support = @hasDecl(@This(), "SIG") and @hasDecl(SIG, "PIPE");
+
+fn noopSigHandler(_: c_int) callconv(.C) void {}
+
+/// On default executed by posix startup code before main(), if SIGPIPE is supported.
+pub fn maybeIgnoreSigpipe() void {
+    if (have_sigpipe_support and !std.options.keep_sigpipe) {
+        const act = Sigaction{
+            // We set handler to a noop function instead of SIG.IGN so we don't leak our
+            // signal disposition to a child process
+            .handler = .{ .handler = noopSigHandler },
+            .mask = empty_sigset,
+            .flags = 0,
+        };
+        sigaction(SIG.PIPE, &act, null) catch |err|
+            std.debug.panic("failed to install noop SIGPIPE handler with '{s}'", .{@errorName(err)});
+    }
+}
 
 /// To obtain errno, call this function with the return value of the
 /// system function call. For some systems this will obtain the value directly
@@ -575,21 +591,11 @@ pub fn abort() noreturn {
         raise(SIG.KILL) catch {};
         exit(127); // Pid 1 might not be signalled in some containers.
     }
-    if (builtin.os.tag == .uefi) {
-        exit(0); // TODO choose appropriate exit code
+    switch (builtin.os.tag) {
+        .uefi, .wasi, .cuda => @trap(),
+        else => system.abort(),
     }
-    if (builtin.os.tag == .wasi) {
-        exit(1);
-    }
-    if (builtin.os.tag == .cuda) {
-        // TODO: introduce `@trap` instead of abusing https://github.com/ziglang/zig/issues/2291
-        @"llvm.trap"();
-    }
-
-    system.abort();
 }
-
-extern fn @"llvm.trap"() noreturn;
 
 pub const RaiseError = UnexpectedError;
 
@@ -759,6 +765,9 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 /// This operation is non-atomic on the following systems:
 /// * Windows
 /// On these systems, the read races with concurrent writes to the same file descriptor.
+///
+/// This function assumes that all vectors, including zero-length vectors, have
+/// a pointer within the address space of the application.
 pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
     if (builtin.os.tag == .windows) {
         // TODO improve this to use ReadFileScatter
@@ -1036,6 +1045,8 @@ pub const WriteError = error{
     FileTooBig,
     InputOutput,
     NoSpaceLeft,
+    DeviceBusy,
+    InvalidArgument,
 
     /// In WASI, this error may occur when the file descriptor does
     /// not hold the required rights to write to it.
@@ -1122,7 +1133,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
         switch (errno(rc)) {
             .SUCCESS => return @intCast(usize, rc),
             .INTR => continue,
-            .INVAL => unreachable,
+            .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // can be a race condition.
@@ -1134,6 +1145,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .PERM => return error.AccessDenied,
             .PIPE => return error.BrokenPipe,
             .CONNRESET => return error.ConnectionResetByPeer,
+            .BUSY => return error.DeviceBusy,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1157,6 +1169,9 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 ///
 /// If `iov.len` is larger than `IOV_MAX`, a partial write will occur.
+///
+/// This function assumes that all vectors, including zero-length vectors, have
+/// a pointer within the address space of the application.
 pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
     if (builtin.os.tag == .windows) {
         // TODO improve this to use WriteFileScatter
@@ -1191,7 +1206,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
         switch (errno(rc)) {
             .SUCCESS => return @intCast(usize, rc),
             .INTR => continue,
-            .INVAL => unreachable,
+            .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
@@ -1203,6 +1218,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
             .PERM => return error.AccessDenied,
             .PIPE => return error.BrokenPipe,
             .CONNRESET => return error.ConnectionResetByPeer,
+            .BUSY => return error.DeviceBusy,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1285,7 +1301,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
         switch (errno(rc)) {
             .SUCCESS => return @intCast(usize, rc),
             .INTR => continue,
-            .INVAL => unreachable,
+            .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
@@ -1299,6 +1315,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
+            .BUSY => return error.DeviceBusy,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1374,7 +1391,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
         switch (errno(rc)) {
             .SUCCESS => return @intCast(usize, rc),
             .INTR => continue,
-            .INVAL => unreachable,
+            .INVAL => return error.InvalidArgument,
             .FAULT => unreachable,
             .AGAIN => return error.WouldBlock,
             .BADF => return error.NotOpenForWriting, // Can be a race condition.
@@ -1388,6 +1405,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
             .OVERFLOW => return error.Unseekable,
+            .BUSY => return error.DeviceBusy,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -3221,22 +3239,48 @@ pub fn isatty(handle: fd_t) bool {
 pub fn isCygwinPty(handle: fd_t) bool {
     if (builtin.os.tag != .windows) return false;
 
-    const size = @sizeOf(windows.FILE_NAME_INFO);
-    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = [_]u8{0} ** (size + windows.MAX_PATH);
+    // If this is a MSYS2/cygwin pty, then it will be a named pipe with a name in one of these formats:
+    //   msys-[...]-ptyN-[...]
+    //   cygwin-[...]-ptyN-[...]
+    //
+    // Example: msys-1888ae32e00d56aa-pty0-to-master
 
-    if (windows.kernel32.GetFileInformationByHandleEx(
-        handle,
-        windows.FileNameInfo,
-        @ptrCast(*anyopaque, &name_info_bytes),
-        name_info_bytes.len,
-    ) == 0) {
-        return false;
+    // First, just check that the handle is a named pipe.
+    // This allows us to avoid the more costly NtQueryInformationFile call
+    // for handles that aren't named pipes.
+    {
+        var io_status: windows.IO_STATUS_BLOCK = undefined;
+        var device_info: windows.FILE_FS_DEVICE_INFORMATION = undefined;
+        const rc = windows.ntdll.NtQueryVolumeInformationFile(handle, &io_status, &device_info, @sizeOf(windows.FILE_FS_DEVICE_INFORMATION), .FileFsDeviceInformation);
+        switch (rc) {
+            .SUCCESS => {},
+            else => return false,
+        }
+        if (device_info.DeviceType != windows.FILE_DEVICE_NAMED_PIPE) return false;
+    }
+
+    const name_bytes_offset = @offsetOf(windows.FILE_NAME_INFO, "FileName");
+    // `NAME_MAX` UTF-16 code units (2 bytes each)
+    // Note: This buffer may not be long enough to handle *all* possible paths (PATH_MAX_WIDE would be necessary for that),
+    //       but because we only care about certain paths and we know they must be within a reasonable length,
+    //       we can use this smaller buffer and just return false on any error from NtQueryInformationFile.
+    const num_name_bytes = windows.MAX_PATH * 2;
+    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = [_]u8{0} ** (name_bytes_offset + num_name_bytes);
+
+    var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+    const rc = windows.ntdll.NtQueryInformationFile(handle, &io_status_block, &name_info_bytes, @intCast(u32, name_info_bytes.len), .FileNameInformation);
+    switch (rc) {
+        .SUCCESS => {},
+        .INVALID_PARAMETER => unreachable,
+        else => return false,
     }
 
     const name_info = @ptrCast(*const windows.FILE_NAME_INFO, &name_info_bytes[0]);
-    const name_bytes = name_info_bytes[size .. size + @as(usize, name_info.FileNameLength)];
+    const name_bytes = name_info_bytes[name_bytes_offset .. name_bytes_offset + @as(usize, name_info.FileNameLength)];
     const name_wide = mem.bytesAsSlice(u16, name_bytes);
-    return mem.indexOf(u16, name_wide, &[_]u16{ 'm', 's', 'y', 's', '-' }) != null or
+    // Note: The name we get from NtQueryInformationFile will be prefixed with a '\', e.g. \msys-1888ae32e00d56aa-pty0-to-master
+    return (mem.startsWith(u16, name_wide, &[_]u16{ '\\', 'm', 's', 'y', 's', '-' }) or
+        mem.startsWith(u16, name_wide, &[_]u16{ '\\', 'c', 'y', 'g', 'w', 'i', 'n', '-' })) and
         mem.indexOf(u16, name_wide, &[_]u16{ '-', 'p', 't', 'y' }) != null;
 }
 
@@ -3456,7 +3500,7 @@ pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!voi
         const rc = system.bind(sock, addr, len);
         switch (errno(rc)) {
             .SUCCESS => return,
-            .ACCES => return error.AccessDenied,
+            .ACCES, .PERM => return error.AccessDenied,
             .ADDRINUSE => return error.AddressInUse,
             .BADF => unreachable, // always a race condition if this error is returned
             .INVAL => unreachable, // invalid parameters
@@ -3983,13 +4027,32 @@ pub const WaitPidResult = struct {
 };
 
 /// Use this version of the `waitpid` wrapper if you spawned your child process using explicit
-/// `fork` and `execve` method. If you spawned your child process using `posix_spawn` method,
-/// use `std.os.posix_spawn.waitpid` instead.
+/// `fork` and `execve` method.
 pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
     const Status = if (builtin.link_libc) c_int else u32;
     var status: Status = undefined;
+    const coerced_flags = if (builtin.link_libc) @intCast(c_int, flags) else flags;
     while (true) {
-        const rc = system.waitpid(pid, &status, if (builtin.link_libc) @intCast(c_int, flags) else flags);
+        const rc = system.waitpid(pid, &status, coerced_flags);
+        switch (errno(rc)) {
+            .SUCCESS => return .{
+                .pid = @intCast(pid_t, rc),
+                .status = @bitCast(u32, status),
+            },
+            .INTR => continue,
+            .CHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
+            .INVAL => unreachable, // Invalid flags.
+            else => unreachable,
+        }
+    }
+}
+
+pub fn wait4(pid: pid_t, flags: u32, ru: ?*rusage) WaitPidResult {
+    const Status = if (builtin.link_libc) c_int else u32;
+    var status: Status = undefined;
+    const coerced_flags = if (builtin.link_libc) @intCast(c_int, flags) else flags;
+    while (true) {
+        const rc = system.wait4(pid, &status, coerced_flags, ru);
         switch (errno(rc)) {
             .SUCCESS => return .{
                 .pid = @intCast(pid_t, rc),
@@ -4310,6 +4373,8 @@ pub const MMapError = error{
     /// a filesystem that was mounted no-exec.
     PermissionDenied,
     LockedMemoryLimitExceeded,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
     OutOfMemory,
 } || UnexpectedError;
 
@@ -4351,6 +4416,8 @@ pub fn mmap(
         .OVERFLOW => unreachable, // The number of pages used for length + offset would overflow.
         .NODEV => return error.MemoryMappingNotSupported,
         .INVAL => unreachable, // Invalid parameters to mmap()
+        .MFILE => return error.ProcessFdQuotaExceeded,
+        .NFILE => return error.SystemFdQuotaExceeded,
         .NOMEM => return error.OutOfMemory,
         else => return unexpectedErrno(err),
     }
@@ -7088,20 +7155,51 @@ pub fn timerfd_gettime(fd: i32) TimerFdGetError!linux.itimerspec {
     };
 }
 
-pub const have_sigpipe_support = @hasDecl(@This(), "SIG") and @hasDecl(SIG, "PIPE");
+pub const PtraceError = error{
+    DeviceBusy,
+    InputOutput,
+    Overflow,
+    ProcessNotFound,
+    PermissionDenied,
+} || UnexpectedError;
 
-fn noopSigHandler(_: c_int) callconv(.C) void {}
+pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!void {
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+        @compileError("Unsupported OS");
 
-pub fn maybeIgnoreSigpipe() void {
-    if (have_sigpipe_support and !std.options.keep_sigpipe) {
-        const act = Sigaction{
-            // We set handler to a noop function instead of SIG.IGN so we don't leak our
-            // signal disposition to a child process
-            .handler = .{ .handler = noopSigHandler },
-            .mask = empty_sigset,
-            .flags = 0,
-        };
-        sigaction(SIG.PIPE, &act, null) catch |err|
-            std.debug.panic("failed to install noop SIGPIPE handler with '{s}'", .{@errorName(err)});
-    }
+    return switch (builtin.os.tag) {
+        .linux => switch (errno(linux.ptrace(request, pid, addr, signal, 0))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .IO => return error.InputOutput,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            else => |err| return unexpectedErrno(err),
+        },
+
+        .macos, .ios, .tvos, .watchos => switch (errno(darwin.ptrace(
+            math.cast(i32, request) orelse return error.Overflow,
+            pid,
+            @intToPtr(?[*]u8, addr),
+            math.cast(i32, signal) orelse return error.Overflow,
+        ))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .INVAL => unreachable,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            else => |err| return unexpectedErrno(err),
+        },
+
+        else => switch (errno(system.ptrace(request, pid, addr, signal))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .INVAL => unreachable,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            else => |err| return unexpectedErrno(err),
+        },
+    };
 }

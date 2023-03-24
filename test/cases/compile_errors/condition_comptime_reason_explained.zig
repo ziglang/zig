@@ -45,4 +45,6 @@ pub export fn entry2() void {
 // :22:13: error: unable to resolve comptime value
 // :22:13: note: condition in comptime switch must be comptime-known
 // :21:17: note: expression is evaluated at comptime because the function returns a comptime-only type 'tmp.S'
+// :2:12: note: struct requires comptime because of this field
+// :2:12: note: use '*const fn() void' for a function pointer type
 // :32:19: note: called from here

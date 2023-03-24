@@ -194,6 +194,7 @@ const Writer = struct {
             .c_va_end,
             => try w.writeUnOp(s, inst),
 
+            .trap,
             .breakpoint,
             .unreach,
             .ret_addr,

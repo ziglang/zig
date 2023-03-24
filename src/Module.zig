@@ -3528,6 +3528,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     const digest = hash: {
         var path_hash: Cache.HashHelper = .{};
         path_hash.addBytes(build_options.version);
+        path_hash.add(builtin.zig_backend);
         if (!want_local_cache) {
             path_hash.addOptionalBytes(file.pkg.root_src_directory.path);
         }
@@ -3537,44 +3538,66 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     const cache_directory = if (want_local_cache) mod.local_zir_cache else mod.global_zir_cache;
     const zir_dir = cache_directory.handle;
 
-    var cache_file: ?std.fs.File = null;
-    defer if (cache_file) |f| f.close();
-
     // Determine whether we need to reload the file from disk and redo parsing and AstGen.
-    switch (file.status) {
-        .never_loaded, .retryable_failure => cached: {
+    var lock: std.fs.File.Lock = switch (file.status) {
+        .never_loaded, .retryable_failure => lock: {
             // First, load the cached ZIR code, if any.
             log.debug("AstGen checking cache: {s} (local={}, digest={s})", .{
                 file.sub_file_path, want_local_cache, &digest,
             });
 
-            // We ask for a lock in order to coordinate with other zig processes.
-            // If another process is already working on this file, we will get the cached
-            // version. Likewise if we're working on AstGen and another process asks for
-            // the cached file, they'll get it.
-            cache_file = zir_dir.openFile(&digest, .{ .lock = .Shared }) catch |err| switch (err) {
-                error.PathAlreadyExists => unreachable, // opening for reading
-                error.NoSpaceLeft => unreachable, // opening for reading
-                error.NotDir => unreachable, // no dir components
-                error.InvalidUtf8 => unreachable, // it's a hex encoded name
-                error.BadPathName => unreachable, // it's a hex encoded name
-                error.NameTooLong => unreachable, // it's a fixed size name
-                error.PipeBusy => unreachable, // it's not a pipe
-                error.WouldBlock => unreachable, // not asking for non-blocking I/O
+            break :lock .Shared;
+        },
+        .parse_failure, .astgen_failure, .success_zir => lock: {
+            const unchanged_metadata =
+                stat.size == file.stat.size and
+                stat.mtime == file.stat.mtime and
+                stat.inode == file.stat.inode;
 
-                error.SymLinkLoop,
-                error.FileNotFound,
-                error.Unexpected,
-                => break :cached,
+            if (unchanged_metadata) {
+                log.debug("unmodified metadata of file: {s}", .{file.sub_file_path});
+                return;
+            }
 
-                else => |e| return e, // Retryable errors are handled at callsite.
-            };
+            log.debug("metadata changed: {s}", .{file.sub_file_path});
 
+            break :lock .Exclusive;
+        },
+    };
+
+    // We ask for a lock in order to coordinate with other zig processes.
+    // If another process is already working on this file, we will get the cached
+    // version. Likewise if we're working on AstGen and another process asks for
+    // the cached file, they'll get it.
+    const cache_file = while (true) {
+        break zir_dir.createFile(&digest, .{
+            .read = true,
+            .truncate = false,
+            .lock = lock,
+        }) catch |err| switch (err) {
+            error.NotDir => unreachable, // no dir components
+            error.InvalidUtf8 => unreachable, // it's a hex encoded name
+            error.BadPathName => unreachable, // it's a hex encoded name
+            error.NameTooLong => unreachable, // it's a fixed size name
+            error.PipeBusy => unreachable, // it's not a pipe
+            error.WouldBlock => unreachable, // not asking for non-blocking I/O
+            // There are no dir components, so you would think that this was
+            // unreachable, however we have observed on macOS two processes racing
+            // to do openat() with O_CREAT manifest in ENOENT.
+            error.FileNotFound => continue,
+
+            else => |e| return e, // Retryable errors are handled at callsite.
+        };
+    };
+    defer cache_file.close();
+
+    while (true) {
+        update: {
             // First we read the header to determine the lengths of arrays.
-            const header = cache_file.?.reader().readStruct(Zir.Header) catch |err| switch (err) {
+            const header = cache_file.reader().readStruct(Zir.Header) catch |err| switch (err) {
                 // This can happen if Zig bails out of this function between creating
                 // the cached file and writing it.
-                error.EndOfStream => break :cached,
+                error.EndOfStream => break :update,
                 else => |e| return e,
             };
             const unchanged_metadata =
@@ -3584,7 +3607,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
 
             if (!unchanged_metadata) {
                 log.debug("AstGen cache stale: {s}", .{file.sub_file_path});
-                break :cached;
+                break :update;
             }
             log.debug("AstGen cache hit: {s} instructions_len={d}", .{
                 file.sub_file_path, header.instructions_len,
@@ -3636,13 +3659,13 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
                     .iov_len = header.extra_len * 4,
                 },
             };
-            const amt_read = try cache_file.?.readvAll(&iovecs);
+            const amt_read = try cache_file.readvAll(&iovecs);
             const amt_expected = zir.instructions.len * 9 +
                 zir.string_bytes.len +
                 zir.extra.len * 4;
             if (amt_read != amt_expected) {
                 log.warn("unexpected EOF reading cached ZIR for {s}", .{file.sub_file_path});
-                break :cached;
+                break :update;
             }
             if (data_has_safety_tag) {
                 const tags = zir.instructions.items(.tag);
@@ -3678,42 +3701,22 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
                 return error.AnalysisFail;
             }
             return;
-        },
-        .parse_failure, .astgen_failure, .success_zir => {
-            const unchanged_metadata =
-                stat.size == file.stat.size and
-                stat.mtime == file.stat.mtime and
-                stat.inode == file.stat.inode;
+        }
 
-            if (unchanged_metadata) {
-                log.debug("unmodified metadata of file: {s}", .{file.sub_file_path});
-                return;
-            }
-
-            log.debug("metadata changed: {s}", .{file.sub_file_path});
-        },
+        // If we already have the exclusive lock then it is our job to update.
+        if (builtin.os.tag == .wasi or lock == .Exclusive) break;
+        // Otherwise, unlock to give someone a chance to get the exclusive lock
+        // and then upgrade to an exclusive lock.
+        cache_file.unlock();
+        lock = .Exclusive;
+        try cache_file.lock(lock);
     }
-    if (cache_file) |f| {
-        f.close();
-        cache_file = null;
-    }
-    cache_file = zir_dir.createFile(&digest, .{ .lock = .Exclusive }) catch |err| switch (err) {
-        error.NotDir => unreachable, // no dir components
-        error.InvalidUtf8 => unreachable, // it's a hex encoded name
-        error.BadPathName => unreachable, // it's a hex encoded name
-        error.NameTooLong => unreachable, // it's a fixed size name
-        error.PipeBusy => unreachable, // it's not a pipe
-        error.WouldBlock => unreachable, // not asking for non-blocking I/O
-        error.FileNotFound => unreachable, // no dir components
 
-        else => |e| {
-            const pkg_path = file.pkg.root_src_directory.path orelse ".";
-            const cache_path = cache_directory.path orelse ".";
-            log.warn("unable to save cached ZIR code for {s}/{s} to {s}/{s}: {s}", .{
-                pkg_path, file.sub_file_path, cache_path, &digest, @errorName(e),
-            });
-            return;
-        },
+    // The cache is definitely stale so delete the contents to avoid an underwrite later.
+    cache_file.setEndPos(0) catch |err| switch (err) {
+        error.FileTooBig => unreachable, // 0 is not too big
+
+        else => |e| return e,
     };
 
     mod.lockAndClearFileCompileError(file);
@@ -3753,67 +3756,9 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     file.source_loaded = true;
 
     file.tree = try Ast.parse(gpa, source, .zig);
-    defer if (!file.tree_loaded) file.tree.deinit(gpa);
-
-    if (file.tree.errors.len != 0) {
-        const parse_err = file.tree.errors[0];
-
-        var msg = std.ArrayList(u8).init(gpa);
-        defer msg.deinit();
-
-        const token_starts = file.tree.tokens.items(.start);
-        const token_tags = file.tree.tokens.items(.tag);
-
-        const extra_offset = file.tree.errorOffset(parse_err);
-        try file.tree.renderError(parse_err, msg.writer());
-        const err_msg = try gpa.create(ErrorMsg);
-        err_msg.* = .{
-            .src_loc = .{
-                .file_scope = file,
-                .parent_decl_node = 0,
-                .lazy = if (extra_offset == 0) .{
-                    .token_abs = parse_err.token,
-                } else .{
-                    .byte_abs = token_starts[parse_err.token] + extra_offset,
-                },
-            },
-            .msg = try msg.toOwnedSlice(),
-        };
-        if (token_tags[parse_err.token + @boolToInt(parse_err.token_is_prev)] == .invalid) {
-            const bad_off = @intCast(u32, file.tree.tokenSlice(parse_err.token + @boolToInt(parse_err.token_is_prev)).len);
-            const byte_abs = token_starts[parse_err.token + @boolToInt(parse_err.token_is_prev)] + bad_off;
-            try mod.errNoteNonLazy(.{
-                .file_scope = file,
-                .parent_decl_node = 0,
-                .lazy = .{ .byte_abs = byte_abs },
-            }, err_msg, "invalid byte: '{'}'", .{std.zig.fmtEscapes(source[byte_abs..][0..1])});
-        }
-
-        for (file.tree.errors[1..]) |note| {
-            if (!note.is_note) break;
-
-            try file.tree.renderError(note, msg.writer());
-            err_msg.notes = try mod.gpa.realloc(err_msg.notes, err_msg.notes.len + 1);
-            err_msg.notes[err_msg.notes.len - 1] = .{
-                .src_loc = .{
-                    .file_scope = file,
-                    .parent_decl_node = 0,
-                    .lazy = .{ .token_abs = note.token },
-                },
-                .msg = try msg.toOwnedSlice(),
-            };
-        }
-
-        {
-            comp.mutex.lock();
-            defer comp.mutex.unlock();
-            try mod.failed_files.putNoClobber(gpa, file, err_msg);
-        }
-        file.status = .parse_failure;
-        return error.AnalysisFail;
-    }
     file.tree_loaded = true;
 
+    // Any potential AST errors are converted to ZIR errors here.
     file.zir = try AstGen.generate(gpa, file.tree);
     file.zir_loaded = true;
     file.status = .success_zir;
@@ -3870,7 +3815,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
             .iov_len = file.zir.extra.len * 4,
         },
     };
-    cache_file.?.writevAll(&iovecs) catch |err| {
+    cache_file.writevAll(&iovecs) catch |err| {
         const pkg_path = file.pkg.root_src_directory.path orelse ".";
         const cache_path = cache_directory.path orelse ".";
         log.warn("unable to write cached ZIR code for {s}/{s} to {s}/{s}: {s}", .{
@@ -3922,6 +3867,9 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
     const gpa = mod.gpa;
     const new_zir = file.zir;
 
+    // The root decl will be null if the previous ZIR had AST errors.
+    const root_decl = file.root_decl.unwrap() orelse return;
+
     // Maps from old ZIR to new ZIR, struct_decl, enum_decl, etc. Any instruction which
     // creates a namespace, gets mapped from old to new here.
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
@@ -3939,7 +3887,6 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
     var decl_stack: ArrayListUnmanaged(Decl.Index) = .{};
     defer decl_stack.deinit(gpa);
 
-    const root_decl = file.root_decl.unwrap().?;
     try decl_stack.append(gpa, root_decl);
 
     file.deleted_decls.clearRetainingCapacity();
@@ -4316,7 +4263,7 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
                 comp.emit_llvm_bc == null);
 
             const dump_air = builtin.mode == .Debug and comp.verbose_air;
-            const dump_llvm_ir = builtin.mode == .Debug and comp.verbose_llvm_ir;
+            const dump_llvm_ir = builtin.mode == .Debug and (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
 
             if (no_bin_file and !dump_air and !dump_llvm_ir) return;
 
@@ -6002,7 +5949,7 @@ pub const PeerTypeCandidateSrc = union(enum) {
     none: void,
     /// When we want to know the the src of candidate i, look up at
     /// index i in this slice
-    override: []LazySrcLoc,
+    override: []?LazySrcLoc,
     /// resolvePeerTypes originates from a @TypeOf(...) call
     typeof_builtin_call_node_offset: i32,
 
@@ -6448,7 +6395,7 @@ pub fn linkerUpdateDecl(mod: *Module, decl_index: Decl.Index) !void {
         comp.emit_llvm_ir == null and
         comp.emit_llvm_bc == null);
 
-    const dump_llvm_ir = builtin.mode == .Debug and comp.verbose_llvm_ir;
+    const dump_llvm_ir = builtin.mode == .Debug and (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
 
     if (no_bin_file and !dump_llvm_ir) return;
 

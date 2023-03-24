@@ -144,15 +144,11 @@ test "implicit cast to optional to error union to return result loc" {
 }
 
 test "fn returning empty error set can be passed as fn returning any error" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-
     entry();
     comptime entry();
 }
 
 test "fn returning empty error set can be passed as fn returning any error - pointer" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-
     entryPtr();
     comptime entryPtr();
 }
@@ -219,7 +215,6 @@ fn testErrorSetType() !void {
 }
 
 test "explicit error set cast" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testExplicitErrorSetCast(Set1.A);
@@ -238,7 +233,6 @@ fn testExplicitErrorSetCast(set1: Set1) !void {
 }
 
 test "comptime test error for empty error set" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testComptimeTestErrorEmptySet(1234);
@@ -255,8 +249,6 @@ fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) !void {
 }
 
 test "comptime err to int of error set with only 1 possible value" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-
     testErrToIntWithOnePossibleValue(error.A, @errorToInt(error.A));
     comptime testErrToIntWithOnePossibleValue(error.A, @errorToInt(error.A));
 }
@@ -426,7 +418,6 @@ test "nested error union function call in optional unwrap" {
 }
 
 test "return function call to error set from error union function" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -460,7 +451,6 @@ test "optional error set is the same size as error set" {
 }
 
 test "nested catch" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -486,7 +476,6 @@ test "nested catch" {
 }
 
 test "function pointer with return type that is error union with payload which is pointer of parent struct" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -741,7 +730,6 @@ test "pointer to error union payload" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var err_union: anyerror!u8 = 15;
@@ -886,6 +874,7 @@ test "field access of anyerror results in smaller error set" {
 }
 
 test "optional error union return type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {

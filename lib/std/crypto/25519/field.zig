@@ -1,10 +1,17 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const crypto = std.crypto;
 const readIntLittle = std.mem.readIntLittle;
 const writeIntLittle = std.mem.writeIntLittle;
 
 const NonCanonicalError = crypto.errors.NonCanonicalError;
 const NotSquareError = crypto.errors.NotSquareError;
+
+// Inline conditionally, when it can result in large code generation.
+const bloaty_inline = switch (builtin.mode) {
+    .ReleaseSafe, .ReleaseFast => .Inline,
+    .Debug, .ReleaseSmall => .Unspecified,
+};
 
 pub const Fe = struct {
     limbs: [5]u64,
@@ -264,7 +271,7 @@ pub const Fe = struct {
     }
 
     /// Multiply two field elements
-    pub inline fn mul(a: Fe, b: Fe) Fe {
+    pub fn mul(a: Fe, b: Fe) callconv(bloaty_inline) Fe {
         var ax: [5]u128 = undefined;
         var bx: [5]u128 = undefined;
         var a19: [5]u128 = undefined;

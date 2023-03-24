@@ -119,6 +119,7 @@ test "fmt.parseFloat hex.f16" {
 }
 
 test "fmt.parseFloat hex.f32" {
+    try testing.expectError(error.InvalidCharacter, parseFloat(f32, "0x"));
     try testing.expectEqual(try parseFloat(f32, "0x1p0"), 1.0);
     try testing.expectEqual(try parseFloat(f32, "-0x1p-1"), -0.5);
     try testing.expectEqual(try parseFloat(f32, "0x10p+10"), 16384.0);

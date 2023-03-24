@@ -9,7 +9,7 @@ pub fn binarySearch(
     key: anytype,
     items: []const T,
     context: anytype,
-    comptime compareFn: fn (context: @TypeOf(context), key: @TypeOf(key), mid: T) math.Order,
+    comptime compareFn: fn (context: @TypeOf(context), key: @TypeOf(key), mid_item: T) math.Order,
 ) ?usize {
     var left: usize = 0;
     var right: usize = items.len;
@@ -79,14 +79,14 @@ test "binarySearch" {
             return @This(){ .b = b, .e = e };
         }
 
-        fn order(context: void, key: i32, mid: @This()) math.Order {
+        fn order(context: void, key: i32, mid_item: @This()) math.Order {
             _ = context;
 
-            if (key < mid.b) {
+            if (key < mid_item.b) {
                 return .lt;
             }
 
-            if (key > mid.e) {
+            if (key > mid_item.e) {
                 return .gt;
             }
 
@@ -1069,8 +1069,8 @@ fn binaryFirst(
         const offset = size % 2;
 
         size /= 2;
-        const mid = items[curr + size];
-        if (lessThan(context, mid, value)) {
+        const mid_item = items[curr + size];
+        if (lessThan(context, mid_item, value)) {
             curr += size + offset;
         }
     }
@@ -1092,8 +1092,8 @@ fn binaryLast(
         const offset = size % 2;
 
         size /= 2;
-        const mid = items[curr + size];
-        if (!lessThan(context, value, mid)) {
+        const mid_item = items[curr + size];
+        if (!lessThan(context, value, mid_item)) {
             curr += size + offset;
         }
     }

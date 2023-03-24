@@ -1338,7 +1338,6 @@ fn walkInstruction(
         .embed_file,
         .error_name,
         .panic,
-        .set_cold, // @check
         .set_runtime_safety, // @check
         .sqrt,
         .sin,

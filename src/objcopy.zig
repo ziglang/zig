@@ -4,22 +4,25 @@ const fs = std.fs;
 const elf = std.elf;
 const Allocator = std.mem.Allocator;
 const File = std.fs.File;
+const assert = std.debug.assert;
+
 const main = @import("main.zig");
 const fatal = main.fatal;
-const cleanExit = main.cleanExit;
+const Server = std.zig.Server;
+const build_options = @import("build_options");
 
 pub fn cmdObjCopy(
     gpa: Allocator,
     arena: Allocator,
     args: []const []const u8,
 ) !void {
-    _ = gpa;
     var i: usize = 0;
     var opt_out_fmt: ?std.Target.ObjectFormat = null;
     var opt_input: ?[]const u8 = null;
     var opt_output: ?[]const u8 = null;
     var only_section: ?[]const u8 = null;
     var pad_to: ?u64 = null;
+    var listen = false;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (!mem.startsWith(u8, arg, "-")) {
@@ -54,6 +57,8 @@ pub fn cmdObjCopy(
             i += 1;
             if (i >= args.len) fatal("expected another argument after '{s}'", .{arg});
             only_section = args[i];
+        } else if (mem.eql(u8, arg, "--listen=-")) {
+            listen = true;
         } else if (mem.startsWith(u8, arg, "--only-section=")) {
             only_section = arg["--output-target=".len..];
         } else if (mem.eql(u8, arg, "--pad-to")) {
@@ -102,10 +107,45 @@ pub fn cmdObjCopy(
                 .only_section = only_section,
                 .pad_to = pad_to,
             });
-            return cleanExit();
         },
         else => fatal("unsupported output object format: {s}", .{@tagName(out_fmt)}),
     }
+
+    if (listen) {
+        var server = try Server.init(.{
+            .gpa = gpa,
+            .in = std.io.getStdIn(),
+            .out = std.io.getStdOut(),
+            .zig_version = build_options.version,
+        });
+        defer server.deinit();
+
+        var seen_update = false;
+        while (true) {
+            const hdr = try server.receiveMessage();
+            switch (hdr.tag) {
+                .exit => {
+                    return std.process.cleanExit();
+                },
+                .update => {
+                    if (seen_update) {
+                        std.debug.print("zig objcopy only supports 1 update for now\n", .{});
+                        std.process.exit(1);
+                    }
+                    seen_update = true;
+
+                    try server.serveEmitBinPath(output, .{
+                        .flags = .{ .cache_hit = false },
+                    });
+                },
+                else => {
+                    std.debug.print("unsupported message: {s}", .{@tagName(hdr.tag)});
+                    std.process.exit(1);
+                },
+            }
+        }
+    }
+    return std.process.cleanExit();
 }
 
 const usage =
@@ -417,7 +457,7 @@ const HexWriter = struct {
         }
 
         fn Address(address: u32) Record {
-            std.debug.assert(address > 0xFFFF);
+            assert(address > 0xFFFF);
             const segment = @intCast(u16, address / 0x10000);
             if (address > 0xFFFFF) {
                 return Record{
@@ -460,7 +500,7 @@ const HexWriter = struct {
             const BUFSIZE = 1 + (1 + 2 + 1 + MAX_PAYLOAD_LEN + 1) * 2 + linesep.len;
             var outbuf: [BUFSIZE]u8 = undefined;
             const payload_bytes = self.getPayloadBytes();
-            std.debug.assert(payload_bytes.len <= MAX_PAYLOAD_LEN);
+            assert(payload_bytes.len <= MAX_PAYLOAD_LEN);
 
             const line = try std.fmt.bufPrint(&outbuf, ":{0X:0>2}{1X:0>4}{2X:0>2}{3s}{4X:0>2}" ++ linesep, .{
                 @intCast(u8, payload_bytes.len),

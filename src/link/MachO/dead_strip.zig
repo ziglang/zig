@@ -102,7 +102,7 @@ fn collectRoots(zld: *Zld, roots: *AtomTable) !void {
             };
 
             if (is_gc_root) {
-                try roots.putNoClobber(atom_index, {});
+                _ = try roots.getOrPut(atom_index);
 
                 log.debug("root(ATOM({d}, %{d}, {?d}))", .{
                     atom_index,
@@ -130,14 +130,29 @@ fn markLive(zld: *Zld, atom_index: AtomIndex, alive: *AtomTable) void {
     const header = zld.sections.items(.header)[sym.n_sect - 1];
     if (header.isZerofill()) return;
 
+    const code = Atom.getAtomCode(zld, atom_index);
     const relocs = Atom.getAtomRelocs(zld, atom_index);
+    const ctx = Atom.getRelocContext(zld, atom_index);
+
     for (relocs) |rel| {
         const target = switch (cpu_arch) {
             .aarch64 => switch (@intToEnum(macho.reloc_type_arm64, rel.r_type)) {
                 .ARM64_RELOC_ADDEND => continue,
-                else => Atom.parseRelocTarget(zld, atom_index, rel),
+                else => Atom.parseRelocTarget(zld, .{
+                    .object_id = atom.getFile().?,
+                    .rel = rel,
+                    .code = code,
+                    .base_offset = ctx.base_offset,
+                    .base_addr = ctx.base_addr,
+                }),
             },
-            .x86_64 => Atom.parseRelocTarget(zld, atom_index, rel),
+            .x86_64 => Atom.parseRelocTarget(zld, .{
+                .object_id = atom.getFile().?,
+                .rel = rel,
+                .code = code,
+                .base_offset = ctx.base_offset,
+                .base_addr = ctx.base_addr,
+            }),
             else => unreachable,
         };
         const target_sym = zld.getSymbol(target);
@@ -175,14 +190,29 @@ fn refersLive(zld: *Zld, atom_index: AtomIndex, alive: AtomTable) bool {
     const header = zld.sections.items(.header)[sym.n_sect - 1];
     assert(!header.isZerofill());
 
+    const code = Atom.getAtomCode(zld, atom_index);
     const relocs = Atom.getAtomRelocs(zld, atom_index);
+    const ctx = Atom.getRelocContext(zld, atom_index);
+
     for (relocs) |rel| {
         const target = switch (cpu_arch) {
             .aarch64 => switch (@intToEnum(macho.reloc_type_arm64, rel.r_type)) {
                 .ARM64_RELOC_ADDEND => continue,
-                else => Atom.parseRelocTarget(zld, atom_index, rel),
+                else => Atom.parseRelocTarget(zld, .{
+                    .object_id = atom.getFile().?,
+                    .rel = rel,
+                    .code = code,
+                    .base_offset = ctx.base_offset,
+                    .base_addr = ctx.base_addr,
+                }),
             },
-            .x86_64 => Atom.parseRelocTarget(zld, atom_index, rel),
+            .x86_64 => Atom.parseRelocTarget(zld, .{
+                .object_id = atom.getFile().?,
+                .rel = rel,
+                .code = code,
+                .base_offset = ctx.base_offset,
+                .base_addr = ctx.base_addr,
+            }),
             else => unreachable,
         };
 
@@ -283,13 +313,12 @@ fn markUnwindRecords(zld: *Zld, object_id: u32, alive: *AtomTable) !void {
             try markEhFrameRecord(zld, object_id, atom_index, alive);
         } else {
             if (UnwindInfo.getPersonalityFunctionReloc(zld, object_id, record_id)) |rel| {
-                const target = UnwindInfo.parseRelocTarget(
-                    zld,
-                    object_id,
-                    rel,
-                    mem.asBytes(&record),
-                    @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry)),
-                );
+                const target = Atom.parseRelocTarget(zld, .{
+                    .object_id = object_id,
+                    .rel = rel,
+                    .code = mem.asBytes(&record),
+                    .base_offset = @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry)),
+                });
                 const target_sym = zld.getSymbol(target);
                 if (!target_sym.undf()) {
                     const target_object = zld.objects.items[target.getFile().?];
@@ -299,13 +328,12 @@ fn markUnwindRecords(zld: *Zld, object_id: u32, alive: *AtomTable) !void {
             }
 
             if (UnwindInfo.getLsdaReloc(zld, object_id, record_id)) |rel| {
-                const target = UnwindInfo.parseRelocTarget(
-                    zld,
-                    object_id,
-                    rel,
-                    mem.asBytes(&record),
-                    @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry)),
-                );
+                const target = Atom.parseRelocTarget(zld, .{
+                    .object_id = object_id,
+                    .rel = rel,
+                    .code = mem.asBytes(&record),
+                    .base_offset = @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry)),
+                });
                 const target_object = zld.objects.items[target.getFile().?];
                 const target_atom_index = target_object.getAtomIndexForSymbol(target.sym_index).?;
                 markLive(zld, target_atom_index, alive);
@@ -333,13 +361,12 @@ fn markEhFrameRecord(zld: *Zld, object_id: u32, atom_index: AtomIndex, alive: *A
             // Mark FDE references which should include any referenced LSDA record
             const relocs = eh_frame.getRelocs(zld, object_id, fde_offset);
             for (relocs) |rel| {
-                const target = UnwindInfo.parseRelocTarget(
-                    zld,
-                    object_id,
-                    rel,
-                    fde.data,
-                    @intCast(i32, fde_offset) + 4,
-                );
+                const target = Atom.parseRelocTarget(zld, .{
+                    .object_id = object_id,
+                    .rel = rel,
+                    .code = fde.data,
+                    .base_offset = @intCast(i32, fde_offset) + 4,
+                });
                 const target_sym = zld.getSymbol(target);
                 if (!target_sym.undf()) blk: {
                     const target_object = zld.objects.items[target.getFile().?];

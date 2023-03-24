@@ -175,12 +175,12 @@ pub fn KeccakF(comptime f: u11) type {
         /// Apply a (possibly) reduced-round permutation to the state.
         pub fn permuteR(self: *Self, comptime rounds: u5) void {
             var i = RC.len - rounds;
-            while (i < rounds - rounds % 3) : (i += 3) {
+            while (i < RC.len - RC.len % 3) : (i += 3) {
                 self.round(RC[i]);
                 self.round(RC[i + 1]);
                 self.round(RC[i + 2]);
             }
-            while (i < rounds) : (i += 1) {
+            while (i < RC.len) : (i += 1) {
                 self.round(RC[i]);
             }
         }
@@ -231,7 +231,7 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime delim: u8, compti
                 bytes = bytes[rate..];
             }
             if (bytes.len > 0) {
-                self.st.addBytes(bytes[0..]);
+                mem.copy(u8, &self.buf, bytes);
                 self.offset = bytes.len;
             }
         }

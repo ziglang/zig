@@ -1,21 +1,30 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
-    const test_step = b.step("test", "Test");
-    test_step.dependOn(b.getInstallStep());
+pub const requires_stage2 = true;
 
+pub fn build(b: *std.Build) void {
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    add(b, test_step, .Debug);
+    add(b, test_step, .ReleaseFast);
+    add(b, test_step, .ReleaseSmall);
+    add(b, test_step, .ReleaseSafe);
+}
+
+fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const lib = b.addSharedLibrary(.{
         .name = "lib",
         .root_source_file = .{ .path = "lib.zig" },
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
-        .optimize = b.standardOptimizeOption(.{}),
+        .optimize = optimize,
     });
     lib.use_llvm = false;
     lib.use_lld = false;
     lib.strip = false;
     lib.install();
 
-    const check_lib = lib.checkObject(.wasm);
+    const check_lib = lib.checkObject();
     check_lib.checkStart("Section type");
     // only 2 entries, although we have 3 functions.
     // This is to test functions with the same function signature

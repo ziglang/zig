@@ -1,4 +1,4 @@
-//! This file contains the functionality for lowering AArch64 MIR into
+//! This file contains the functionality for lowering AArch32 MIR into
 //! machine code
 
 const Emit = @This();
@@ -15,7 +15,7 @@ const Target = std.Target;
 const assert = std.debug.assert;
 const Instruction = bits.Instruction;
 const Register = bits.Register;
-const log = std.log.scoped(.aarch64_emit);
+const log = std.log.scoped(.aarch32_emit);
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const CodeGen = @import("CodeGen.zig");
 
@@ -100,6 +100,7 @@ pub fn emitMir(
 
             .b => try emit.mirBranch(inst),
 
+            .undefined_instruction => try emit.mirUndefinedInstruction(),
             .bkpt => try emit.mirExceptionGeneration(inst),
 
             .blx => try emit.mirBranchExchange(inst),
@@ -492,6 +493,10 @@ fn mirBranch(emit: *Emit, inst: Mir.Inst.Index) !void {
             else => unreachable,
         },
     }
+}
+
+fn mirUndefinedInstruction(emit: *Emit) !void {
+    try emit.writeInstruction(Instruction.undefinedInstruction());
 }
 
 fn mirExceptionGeneration(emit: *Emit, inst: Mir.Inst.Index) !void {

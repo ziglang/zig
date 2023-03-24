@@ -617,7 +617,7 @@ pub const Inst = struct {
         /// Uses the `un_node` field.
         typeof_log2_int_type,
         /// Asserts control-flow will not reach this instruction (`unreachable`).
-        /// Uses the `unreachable` union field.
+        /// Uses the `@"unreachable"` union field.
         @"unreachable",
         /// Bitwise XOR. `^`
         /// Uses the `pl_node` union field. Payload is `Bin`.
@@ -808,8 +808,9 @@ pub const Inst = struct {
         panic,
         /// Same as `panic` but forces comptime.
         panic_comptime,
-        /// Implement builtin `@setCold`. Uses `un_node`.
-        set_cold,
+        /// Implements `@trap`.
+        /// Uses the `node` field.
+        trap,
         /// Implement builtin `@setRuntimeSafety`. Uses `un_node`.
         set_runtime_safety,
         /// Implement builtin `@sqrt`. Uses `un_node`.
@@ -1187,7 +1188,6 @@ pub const Inst = struct {
                 .bool_to_int,
                 .embed_file,
                 .error_name,
-                .set_cold,
                 .set_runtime_safety,
                 .sqrt,
                 .sin,
@@ -1277,6 +1277,7 @@ pub const Inst = struct {
                 .repeat_inline,
                 .panic,
                 .panic_comptime,
+                .trap,
                 .check_comptime_control_flow,
                 => true,
             };
@@ -1323,7 +1324,6 @@ pub const Inst = struct {
                 .validate_deref,
                 .@"export",
                 .export_value,
-                .set_cold,
                 .set_runtime_safety,
                 .memcpy,
                 .memset,
@@ -1553,6 +1553,7 @@ pub const Inst = struct {
                 .repeat_inline,
                 .panic,
                 .panic_comptime,
+                .trap,
                 .for_len,
                 .@"try",
                 .try_ptr,
@@ -1561,7 +1562,7 @@ pub const Inst = struct {
                 => false,
 
                 .extended => switch (data.extended.opcode) {
-                    .breakpoint, .fence => true,
+                    .fence, .set_cold, .breakpoint => true,
                     else => false,
                 },
             };
@@ -1750,7 +1751,7 @@ pub const Inst = struct {
                 .error_name = .un_node,
                 .panic = .un_node,
                 .panic_comptime = .un_node,
-                .set_cold = .un_node,
+                .trap = .node,
                 .set_runtime_safety = .un_node,
                 .sqrt = .un_node,
                 .sin = .un_node,
@@ -1979,11 +1980,15 @@ pub const Inst = struct {
         /// Implement builtin `@setAlignStack`.
         /// `operand` is payload index to `UnNode`.
         set_align_stack,
+        /// Implements `@setCold`.
+        /// `operand` is payload index to `UnNode`.
+        set_cold,
         /// Implements the `@errSetCast` builtin.
         /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
         err_set_cast,
         /// `operand` is payload index to `UnNode`.
         await_nosuspend,
+        /// Implements `@breakpoint`.
         /// `operand` is `src_node: i32`.
         breakpoint,
         /// Implements the `@select` builtin.
@@ -1997,7 +2002,7 @@ pub const Inst = struct {
         int_to_error,
         /// Implement builtin `@Type`.
         /// `operand` is payload index to `UnNode`.
-        /// `small` contains `NameStrategy
+        /// `small` contains `NameStrategy`.
         reify,
         /// Implements the `@asyncCall` builtin.
         /// `operand` is payload index to `AsyncCall`.
@@ -2040,8 +2045,7 @@ pub const Inst = struct {
 
     /// A reference to a TypedValue or ZIR instruction.
     ///
-    /// If the Ref has a tag in this enum, it refers to a TypedValue which may be
-    /// retrieved with Ref.toTypedValue().
+    /// If the Ref has a tag in this enum, it refers to a TypedValue.
     ///
     /// If the value of a Ref does not have a tag, it refers to a ZIR instruction.
     ///
@@ -2599,8 +2603,8 @@ pub const Inst = struct {
             }
         },
         @"break": struct {
-            block_inst: Index,
             operand: Ref,
+            payload_index: u32,
         },
         switch_capture: struct {
             switch_inst: Index,
@@ -2684,6 +2688,13 @@ pub const Inst = struct {
             save_err_ret_index,
             restore_err_ret_index,
         };
+    };
+
+    pub const Break = struct {
+        pub const no_src_node = std.math.maxInt(i32);
+
+        block_inst: Index,
+        operand_src_node: i32,
     };
 
     /// Trailing:
@@ -3590,6 +3601,12 @@ pub const Inst = struct {
             /// 0 or a payload index of a `Block`, each is a payload
             /// index of another `Item`.
             notes: u32,
+
+            pub fn notesLen(item: Item, zir: Zir) u32 {
+                if (item.notes == 0) return 0;
+                const block = zir.extraData(Block, item.notes);
+                return block.data.body_len;
+            }
         };
     };
 

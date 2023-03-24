@@ -79,16 +79,16 @@ fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
             }
             break;
         }
-        var carry: u64 = 0;
+        var carry: i64 = 0;
         i = 0;
         while (i <= n) : (i += 1) {
             const p = qhat * limb(&vn, i);
             const t = limb(&un, i + j) - carry - @truncate(u32, p);
-            limb_set(&un, i + j, @truncate(u32, t));
-            carry = @intCast(u64, p >> 32) - @intCast(u64, t >> 32);
+            limb_set(&un, i + j, @truncate(u32, @bitCast(u64, t)));
+            carry = @intCast(i64, p >> 32) - @intCast(i64, t >> 32);
         }
-        const t = limb(&un, j + n + 1) - carry;
-        limb_set(&un, j + n + 1, @truncate(u32, t));
+        const t = limb(&un, j + n + 1) -% carry;
+        limb_set(&un, j + n + 1, @truncate(u32, @bitCast(u64, t)));
         if (q) |q_| limb_set(q_, j, @truncate(u32, qhat));
         if (t < 0) {
             if (q) |q_| limb_set(q_, j, limb(q_, j) - 1);
@@ -99,7 +99,7 @@ fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
                 limb_set(&un, i + j, @truncate(u32, t2));
                 carry2 = t2 >> 32;
             }
-            limb_set(un, j + n + 1, @truncate(u32, limb(&un, j + n + 1) + carry2));
+            limb_set(&un, j + n + 1, @truncate(u32, limb(&un, j + n + 1) + carry2));
         }
         if (j == 0) break;
     }

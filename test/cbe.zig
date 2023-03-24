@@ -1,5 +1,5 @@
 const std = @import("std");
-const TestContext = @import("../../src/test.zig").TestContext;
+const Cases = @import("src/Cases.zig");
 
 // These tests should work with all platforms, but we're using linux_x64 for
 // now for consistency. Will be expanded eventually.
@@ -8,7 +8,7 @@ const linux_x64 = std.zig.CrossTarget{
     .os_tag = .linux,
 };
 
-pub fn addCases(ctx: *TestContext) !void {
+pub fn addCases(ctx: *Cases) !void {
     {
         var case = ctx.exeFromCompiledC("hello world with updates", .{});
 
@@ -71,7 +71,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("@intToError", .{});
+        var case = ctx.exeFromCompiledC("intToError", .{});
 
         case.addCompareOutput(
             \\pub export fn main() c_int {
@@ -837,7 +837,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("shift right + left", .{});
+        var case = ctx.exeFromCompiledC("shift right and left", .{});
         case.addCompareOutput(
             \\pub export fn main() c_int {
             \\    var i: u32 = 16;
@@ -883,7 +883,7 @@ pub fn addCases(ctx: *TestContext) !void {
 
     {
         // TODO: add u64 tests, ran into issues with the literal generated for std.math.maxInt(u64)
-        var case = ctx.exeFromCompiledC("add/sub wrapping operations", .{});
+        var case = ctx.exeFromCompiledC("add and sub wrapping operations", .{});
         case.addCompareOutput(
             \\pub export fn main() c_int {
             \\    // Addition
@@ -932,7 +932,7 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
-        var case = ctx.exeFromCompiledC("@rem", linux_x64);
+        var case = ctx.exeFromCompiledC("rem", linux_x64);
         case.addCompareOutput(
             \\fn assert(ok: bool) void {
             \\    if (!ok) unreachable;
@@ -947,69 +947,4 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , "");
     }
-
-    ctx.h("simple header", linux_x64,
-        \\export fn start() void{}
-    ,
-        \\zig_extern void start(void);
-        \\
-    );
-    ctx.h("header with single param function", linux_x64,
-        \\export fn start(a: u8) void{
-        \\    _ = a;
-        \\}
-    ,
-        \\zig_extern void start(uint8_t const a0);
-        \\
-    );
-    ctx.h("header with multiple param function", linux_x64,
-        \\export fn start(a: u8, b: u8, c: u8) void{
-        \\  _ = a; _ = b; _ = c;
-        \\}
-    ,
-        \\zig_extern void start(uint8_t const a0, uint8_t const a1, uint8_t const a2);
-        \\
-    );
-    ctx.h("header with u32 param function", linux_x64,
-        \\export fn start(a: u32) void{ _ = a; }
-    ,
-        \\zig_extern void start(uint32_t const a0);
-        \\
-    );
-    ctx.h("header with usize param function", linux_x64,
-        \\export fn start(a: usize) void{ _ = a; }
-    ,
-        \\zig_extern void start(uintptr_t const a0);
-        \\
-    );
-    ctx.h("header with bool param function", linux_x64,
-        \\export fn start(a: bool) void{_ = a;}
-    ,
-        \\zig_extern void start(bool const a0);
-        \\
-    );
-    ctx.h("header with noreturn function", linux_x64,
-        \\export fn start() noreturn {
-        \\    unreachable;
-        \\}
-    ,
-        \\zig_extern zig_noreturn void start(void);
-        \\
-    );
-    ctx.h("header with multiple functions", linux_x64,
-        \\export fn a() void{}
-        \\export fn b() void{}
-        \\export fn c() void{}
-    ,
-        \\zig_extern void a(void);
-        \\zig_extern void b(void);
-        \\zig_extern void c(void);
-        \\
-    );
-    ctx.h("header with multiple includes", linux_x64,
-        \\export fn start(a: u32, b: usize) void{ _ = a; _ = b; }
-    ,
-        \\zig_extern void start(uint32_t const a0, uintptr_t const a1);
-        \\
-    );
 }

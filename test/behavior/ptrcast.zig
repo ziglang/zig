@@ -18,7 +18,6 @@ fn testReinterpretBytesAsInteger() !void {
 }
 
 test "reinterpret an array over multiple elements, with no well-defined layout" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -53,7 +52,6 @@ fn testReinterpretStructWrappedBytesAsInteger() !void {
 }
 
 test "reinterpret bytes of an array into an extern struct" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -171,6 +169,7 @@ test "lower reinterpreted comptime field ptr" {
 
 test "reinterpret struct field at comptime" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const numNative = comptime Bytes.init(0x12345678);
     if (native_endian != .Little) {
@@ -233,6 +232,7 @@ test "ptrcast of const integer has the correct object size" {
 test "implicit optional pointer to optional anyopaque pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     var buf: [4]u8 = "aoeu".*;
     var x: ?[*]u8 = &buf;

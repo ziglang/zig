@@ -1511,6 +1511,34 @@ fn parseInternal(
             }
         },
         .Struct => |structInfo| {
+            if (structInfo.is_tuple) {
+                switch (token) {
+                    .ArrayBegin => {},
+                    else => return error.UnexpectedToken,
+                }
+                var r: T = undefined;
+                var child_options = options;
+                child_options.allow_trailing_data = true;
+                var fields_seen: usize = 0;
+                errdefer {
+                    inline for (0..structInfo.fields.len) |i| {
+                        if (i < fields_seen) {
+                            parseFree(structInfo.fields[i].type, r[i], options);
+                        }
+                    }
+                }
+                inline for (0..structInfo.fields.len) |i| {
+                    r[i] = try parse(structInfo.fields[i].type, tokens, child_options);
+                    fields_seen = i + 1;
+                }
+                const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
+                switch (tok) {
+                    .ArrayEnd => {},
+                    else => return error.UnexpectedToken,
+                }
+                return r;
+            }
+
             switch (token) {
                 .ObjectBegin => {},
                 else => return error.UnexpectedToken,
@@ -1534,30 +1562,25 @@ fn parseInternal(
                         child_options.allow_trailing_data = true;
                         var found = false;
                         inline for (structInfo.fields, 0..) |field, i| {
-                            // TODO: using switches here segfault the compiler (#2727?)
-                            if ((stringToken.escapes == .None and mem.eql(u8, field.name, key_source_slice)) or (stringToken.escapes == .Some and (field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)))) {
-                                // if (switch (stringToken.escapes) {
-                                //     .None => mem.eql(u8, field.name, key_source_slice),
-                                //     .Some => (field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)),
-                                // }) {
+                            if (switch (stringToken.escapes) {
+                                .None => mem.eql(u8, field.name, key_source_slice),
+                                .Some => (field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)),
+                            }) {
                                 if (fields_seen[i]) {
-                                    // switch (options.duplicate_field_behavior) {
-                                    //     .UseFirst => {},
-                                    //     .Error => {},
-                                    //     .UseLast => {},
-                                    // }
-                                    if (options.duplicate_field_behavior == .UseFirst) {
-                                        // unconditonally ignore value. for comptime fields, this skips check against default_value
-                                        parseFree(field.type, try parse(field.type, tokens, child_options), child_options);
-                                        found = true;
-                                        break;
-                                    } else if (options.duplicate_field_behavior == .Error) {
-                                        return error.DuplicateJSONField;
-                                    } else if (options.duplicate_field_behavior == .UseLast) {
-                                        if (!field.is_comptime) {
-                                            parseFree(field.type, @field(r, field.name), child_options);
-                                        }
-                                        fields_seen[i] = false;
+                                    switch (options.duplicate_field_behavior) {
+                                        .UseFirst => {
+                                            // unconditonally ignore value. for comptime fields, this skips check against default_value
+                                            parseFree(field.type, try parse(field.type, tokens, child_options), child_options);
+                                            found = true;
+                                            break;
+                                        },
+                                        .Error => return error.DuplicateJSONField,
+                                        .UseLast => {
+                                            if (!field.is_comptime) {
+                                                parseFree(field.type, @field(r, field.name), child_options);
+                                            }
+                                            fields_seen[i] = false;
+                                        },
                                     }
                                 }
                                 if (field.is_comptime) {
@@ -2295,7 +2318,7 @@ pub fn stringify(
                 return value.jsonStringify(options, out_stream);
             }
 
-            try out_stream.writeByte('{');
+            try out_stream.writeByte(if (S.is_tuple) '[' else '{');
             var field_output = false;
             var child_options = options;
             if (child_options.whitespace) |*child_whitespace| {
@@ -2325,11 +2348,13 @@ pub fn stringify(
                     if (child_options.whitespace) |child_whitespace| {
                         try child_whitespace.outputIndent(out_stream);
                     }
-                    try encodeJsonString(Field.name, options, out_stream);
-                    try out_stream.writeByte(':');
-                    if (child_options.whitespace) |child_whitespace| {
-                        if (child_whitespace.separator) {
-                            try out_stream.writeByte(' ');
+                    if (!S.is_tuple) {
+                        try encodeJsonString(Field.name, options, out_stream);
+                        try out_stream.writeByte(':');
+                        if (child_options.whitespace) |child_whitespace| {
+                            if (child_whitespace.separator) {
+                                try out_stream.writeByte(' ');
+                            }
                         }
                     }
                     try stringify(@field(value, Field.name), child_options, out_stream);
@@ -2340,7 +2365,7 @@ pub fn stringify(
                     try whitespace.outputIndent(out_stream);
                 }
             }
-            try out_stream.writeByte('}');
+            try out_stream.writeByte(if (S.is_tuple) ']' else '}');
             return;
         },
         .ErrorSet => return stringify(@as([]const u8, @errorName(value)), options, out_stream),
@@ -2355,10 +2380,13 @@ pub fn stringify(
                     return stringify(value.*, options, out_stream);
                 },
             },
-            // TODO: .Many when there is a sentinel (waiting for https://github.com/ziglang/zig/pull/3972)
-            .Slice => {
-                if (ptr_info.child == u8 and options.string == .String and std.unicode.utf8ValidateSlice(value)) {
-                    try encodeJsonString(value, options, out_stream);
+            .Many, .Slice => {
+                if (ptr_info.size == .Many and ptr_info.sentinel == null)
+                    @compileError("unable to stringify type '" ++ @typeName(T) ++ "' without sentinel");
+                const slice = if (ptr_info.size == .Many) mem.span(value) else value;
+
+                if (ptr_info.child == u8 and options.string == .String and std.unicode.utf8ValidateSlice(slice)) {
+                    try encodeJsonString(slice, options, out_stream);
                     return;
                 }
 
@@ -2367,7 +2395,7 @@ pub fn stringify(
                 if (child_options.whitespace) |*whitespace| {
                     whitespace.indent_level += 1;
                 }
-                for (value, 0..) |x, i| {
+                for (slice, 0..) |x, i| {
                     if (i != 0) {
                         try out_stream.writeByte(',');
                     }
@@ -2376,7 +2404,7 @@ pub fn stringify(
                     }
                     try stringify(x, child_options, out_stream);
                 }
-                if (value.len != 0) {
+                if (slice.len != 0) {
                     if (options.whitespace) |whitespace| {
                         try whitespace.outputIndent(out_stream);
                     }
@@ -2531,6 +2559,12 @@ test "stringify string" {
     try teststringify("\"\\/\"", "/", StringifyOptions{ .string = .{ .String = .{ .escape_solidus = true } } });
 }
 
+test "stringify many-item sentinel-terminated string" {
+    try teststringify("\"hello\"", @as([*:0]const u8, "hello"), StringifyOptions{});
+    try teststringify("\"with\\nescapes\\r\"", @as([*:0]const u8, "with\nescapes\r"), StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
+    try teststringify("\"with unicode\\u0001\"", @as([*:0]const u8, "with unicode\u{1}"), StringifyOptions{ .string = .{ .String = .{ .escape_unicode = true } } });
+}
+
 test "stringify tagged unions" {
     try teststringify("42", union(enum) {
         Foo: u32,
@@ -2645,6 +2679,10 @@ test "stringify vector" {
     try teststringify("[1,1]", @splat(2, @as(u32, 1)), StringifyOptions{});
 }
 
+test "stringify tuple" {
+    try teststringify("[\"foo\",42]", std.meta.Tuple(&.{ []const u8, usize }){ "foo", 42 }, StringifyOptions{});
+}
+
 fn teststringify(expected: []const u8, value: anytype, options: StringifyOptions) !void {
     const ValidationWriter = struct {
         const Self = @This();
@@ -2717,7 +2755,7 @@ test "encodesTo" {
     try testing.expectEqual(true, encodesTo("withąunicode😂", "with\\u0105unicode\\ud83d\\ude02"));
 }
 
-test "issue 14600" {
+test "deserializing string with escape sequence into sentinel slice" {
     const json = "\"\\n\"";
     var token_stream = std.json.TokenStream.init(json);
     const options = ParseOptions{ .allocator = std.testing.allocator };

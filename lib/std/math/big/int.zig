@@ -1674,6 +1674,7 @@ pub const Mutable = struct {
 
     /// If a is positive, this passes through to truncate.
     /// If a is negative, then r is set to positive with the bit pattern ~(a - 1).
+    /// r may alias a.
     ///
     /// Asserts `r` has enough storage to store the result.
     /// The upper bound is `calcTwosCompLimbCount(a.len)`.

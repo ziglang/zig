@@ -24,6 +24,11 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 test "chdir smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14968
+        return error.SkipZigTest;
+    }
+
     // Get current working directory path
     var old_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
     const old_cwd = try os.getcwd(old_cwd_buf[0..]);
@@ -173,6 +178,10 @@ test "openat smoke test" {
 test "symlink with relative paths" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14968
+        return error.SkipZigTest;
+    }
     const cwd = fs.cwd();
     cwd.deleteFile("file.txt") catch {};
     cwd.deleteFile("symlinked") catch {};
@@ -228,6 +237,10 @@ test "link with relative paths" {
         .wasi, .linux, .solaris => {},
         else => return error.SkipZigTest,
     }
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14968
+        return error.SkipZigTest;
+    }
     var cwd = fs.cwd();
 
     cwd.deleteFile("example.txt") catch {};
@@ -266,6 +279,10 @@ test "linkat with different directories" {
     switch (native_os) {
         .wasi, .linux, .solaris => {},
         else => return error.SkipZigTest,
+    }
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14968
+        return error.SkipZigTest;
     }
     var cwd = fs.cwd();
     var tmp = tmpDir(.{});

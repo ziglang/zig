@@ -3,6 +3,8 @@ export fn entry() void {
     var good = {};
     _ = comptime {}
     var bad = {};
+    _ = good;
+    _ = bad;
 }
 
 // error

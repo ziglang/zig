@@ -1,34 +1,41 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{});
-    const target: std.zig.CrossTarget = .{ .os_tag = .macos };
+pub const requires_symlinks = true;
 
-    const test_step = b.step("test", "Test");
-    test_step.dependOn(b.getInstallStep());
+pub fn build(b: *std.Build) void {
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    add(b, test_step, .Debug);
+    add(b, test_step, .ReleaseFast);
+    add(b, test_step, .ReleaseSmall);
+    add(b, test_step, .ReleaseSafe);
+}
+
+fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
+    const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     {
         // -search_dylibs_first
-        const exe = createScenario(b, optimize, target);
+        const exe = createScenario(b, optimize, target, "search_dylibs_first");
         exe.search_strategy = .dylibs_first;
 
-        const check = exe.checkObject(.macho);
+        const check = exe.checkObject();
         check.checkStart("cmd LOAD_DYLIB");
-        check.checkNext("name @rpath/liba.dylib");
+        check.checkNext("name @rpath/libsearch_dylibs_first.dylib");
 
         const run = check.runAndCompare();
-        run.cwd = b.pathFromRoot(".");
         run.expectStdOutEqual("Hello world");
         test_step.dependOn(&run.step);
     }
 
     {
         // -search_paths_first
-        const exe = createScenario(b, optimize, target);
+        const exe = createScenario(b, optimize, target, "search_paths_first");
         exe.search_strategy = .paths_first;
 
-        const run = std.Build.EmulatableRunStep.create(b, "run", exe);
-        run.cwd = b.pathFromRoot(".");
+        const run = b.addRunArtifact(exe);
+        run.skip_foreign_checks = true;
         run.expectStdOutEqual("Hello world");
         test_step.dependOn(&run.step);
     }
@@ -38,9 +45,10 @@ fn createScenario(
     b: *std.Build,
     optimize: std.builtin.OptimizeMode,
     target: std.zig.CrossTarget,
+    name: []const u8,
 ) *std.Build.CompileStep {
     const static = b.addStaticLibrary(.{
-        .name = "a",
+        .name = name,
         .optimize = optimize,
         .target = target,
     });
@@ -49,10 +57,9 @@ fn createScenario(
     static.override_dest_dir = std.Build.InstallDir{
         .custom = "static",
     };
-    static.install();
 
     const dylib = b.addSharedLibrary(.{
-        .name = "a",
+        .name = name,
         .version = .{ .major = 1, .minor = 0 },
         .optimize = optimize,
         .target = target,
@@ -62,18 +69,17 @@ fn createScenario(
     dylib.override_dest_dir = std.Build.InstallDir{
         .custom = "dynamic",
     };
-    dylib.install();
 
     const exe = b.addExecutable(.{
-        .name = "main",
+        .name = name,
         .optimize = optimize,
         .target = target,
     });
     exe.addCSourceFile("main.c", &.{});
-    exe.linkSystemLibraryName("a");
+    exe.linkSystemLibraryName(name);
     exe.linkLibC();
-    exe.addLibraryPath(b.pathFromRoot("zig-out/static"));
-    exe.addLibraryPath(b.pathFromRoot("zig-out/dynamic"));
-    exe.addRPath(b.pathFromRoot("zig-out/dynamic"));
+    exe.addLibraryPathDirectorySource(static.getOutputDirectorySource());
+    exe.addLibraryPathDirectorySource(dylib.getOutputDirectorySource());
+    exe.addRPathDirectorySource(dylib.getOutputDirectorySource());
     return exe;
 }
