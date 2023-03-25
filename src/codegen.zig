@@ -1063,13 +1063,12 @@ pub fn genTypedValue(
         },
         .Optional => {
             if (typed_value.ty.isPtrLikeOptional()) {
-                if (typed_value.val.isNull())
-                    return GenResult.mcv(.{ .immediate = 0 });
+                if (typed_value.val.tag() == .null_value) return GenResult.mcv(.{ .immediate = 0 });
 
                 var buf: Type.Payload.ElemType = undefined;
                 return genTypedValue(bin_file, src_loc, .{
                     .ty = typed_value.ty.optionalChild(&buf),
-                    .val = typed_value.val,
+                    .val = if (typed_value.val.castTag(.opt_payload)) |pl| pl.data else typed_value.val,
                 }, owner_decl_index);
             } else if (typed_value.ty.abiSize(target) == 1) {
                 return GenResult.mcv(.{ .immediate = @boolToInt(!typed_value.val.isNull()) });
