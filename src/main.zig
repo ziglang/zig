@@ -3342,7 +3342,13 @@ fn buildOutputType(
     }
 
     if (arg_mode == .translate_c) {
-        return cmdTranslateC(comp, arena, null);
+        if (have_enable_cache) {
+            var output: TranslateCOutput = undefined;
+            try cmdTranslateC(comp, arena, &output);
+            return std.io.getStdOut().writer().print("{s}\n", .{output.path});
+        } else {
+            return cmdTranslateC(comp, arena, null);
+        }
     }
 
     const hook: AfterUpdateHook = blk: {
