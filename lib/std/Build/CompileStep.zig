@@ -453,7 +453,7 @@ fn computeOutFileNames(self: *CompileStep) void {
 
 pub fn setOutputDir(self: *CompileStep, dir: []const u8) void {
     const b = self.step.owner;
-    self.output_dir = b.dupePath(dir);
+    self.output_dir = b.pathFromRoot(b.dupePath(dir));
 }
 
 pub fn install(self: *CompileStep) void {

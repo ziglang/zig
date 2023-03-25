@@ -26,7 +26,7 @@ pub fn build(b: *std.Build) void {
     });
     module.addIncludePath("lib");
     module.addLibraryPath("lib_out");
-    module.linkSystemLibrary("lib");
+    module.linkSystemLibraryName("lib");
 
     exe.addModule("test_module", module);
     exe.step.dependOn(&lib.step);
