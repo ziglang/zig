@@ -3659,34 +3659,37 @@ fn airStore(self: *Self, inst: Air.Inst.Index) !void {
 fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
-    const result = try self.structFieldPtr(inst, extra.struct_operand, extra.field_index);
+    const result = try self.fieldPtr(inst, extra.struct_operand, extra.field_index);
     return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
 fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result = try self.structFieldPtr(inst, ty_op.operand, index);
+    const result = try self.fieldPtr(inst, ty_op.operand, index);
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32) !MCValue {
+fn fieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32) !MCValue {
     if (self.liveness.isUnused(inst)) {
         return MCValue.dead;
     }
 
     const mcv = try self.resolveInst(operand);
     const ptr_ty = self.air.typeOf(operand);
-    const struct_ty = ptr_ty.childType();
-    if (struct_ty.zigTypeTag() == .Struct and struct_ty.containerLayout() == .Packed) {
-        return self.fail("TODO structFieldPtr implement packed structs", .{});
-    }
-    const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
+    const container_ty = ptr_ty.childType();
+    const field_offset = switch (container_ty.containerLayout()) {
+        .Auto, .Extern => @intCast(u32, container_ty.structFieldOffset(index, self.target.*)),
+        .Packed => if (container_ty.zigTypeTag() == .Struct and ptr_ty.ptrInfo().data.host_size == 0)
+            container_ty.packedStructFieldByteOffset(index, self.target.*)
+        else
+            0,
+    };
 
     const dst_mcv: MCValue = result: {
         switch (mcv) {
             .stack_offset => {
                 const offset_reg = try self.copyToTmpRegister(ptr_ty, .{
-                    .immediate = struct_field_offset,
+                    .immediate = field_offset,
                 });
                 const offset_reg_lock = self.register_manager.lockRegAssumeUnused(offset_reg);
                 defer self.register_manager.unlockReg(offset_reg_lock);
@@ -3696,7 +3699,7 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
                 break :result dst_mcv;
             },
             .ptr_stack_offset => |off| {
-                const ptr_stack_offset = off - @intCast(i32, struct_field_offset);
+                const ptr_stack_offset = off - @intCast(i32, field_offset);
                 break :result MCValue{ .ptr_stack_offset = ptr_stack_offset };
             },
             .register => |reg| {
@@ -3704,7 +3707,7 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
                 defer self.register_manager.unlockReg(reg_lock);
 
                 const offset_reg = try self.copyToTmpRegister(ptr_ty, .{
-                    .immediate = struct_field_offset,
+                    .immediate = field_offset,
                 });
                 const offset_reg_lock = self.register_manager.lockRegAssumeUnused(offset_reg);
                 defer self.register_manager.unlockReg(offset_reg_lock);
@@ -3725,7 +3728,7 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
                 try self.genBinOpMir(.add, ptr_ty, .{ .register = result_reg }, .{ .register = offset_reg });
                 break :result MCValue{ .register = result_reg };
             },
-            else => return self.fail("TODO implement codegen struct_field_ptr for {}", .{mcv}),
+            else => return self.fail("TODO implement fieldPtr for {}", .{mcv}),
         }
     };
     return dst_mcv;
