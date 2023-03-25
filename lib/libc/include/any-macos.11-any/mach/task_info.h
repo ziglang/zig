@@ -494,7 +494,6 @@ typedef struct task_flags_info * task_flags_info_t;
 typedef uint32_t task_exc_guard_behavior_t;
 
 /* EXC_GUARD optional delivery settings on a per-task basis */
-#define TASK_EXC_GUARD_NONE                  0x00
 #define TASK_EXC_GUARD_VM_DELIVER            0x01 /* Deliver virtual memory EXC_GUARD exceptions */
 #define TASK_EXC_GUARD_VM_ONCE               0x02 /* Deliver them only once */
 #define TASK_EXC_GUARD_VM_CORPSE             0x04 /* Deliver them via a forked corpse */
@@ -508,15 +507,6 @@ typedef uint32_t task_exc_guard_behavior_t;
 #define TASK_EXC_GUARD_MP_ALL                0xf0
 
 #define TASK_EXC_GUARD_ALL                   0xff /* All optional deliver settings */
-
-
-/*
- * Type to control corpse forking options for a task
- * via task_get/set_corpse_forking_behavior interface(s).
- */
-typedef uint32_t task_corpse_forking_behavior_t;
-
-#define TASK_CORPSE_FORKING_DISABLED_MEM_DIAG  0x01 /* Disable corpse forking because the task is running under a diagnostic tool */
 
 
 /*

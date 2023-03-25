@@ -32,11 +32,13 @@
 #ifndef _MACH_ARM_THREAD_STATE_H_
 #define _MACH_ARM_THREAD_STATE_H_
 
-#if defined (__arm__) || defined (__arm64__)
-
 /* Size of maximum exported thread state in words */
 #define ARM_THREAD_STATE_MAX    (1296)    /* Size of biggest state possible */
 
-#endif /* defined (__arm__) || defined (__arm64__) */
+#if defined (__arm__) || defined(__arm64__)
+#define THREAD_STATE_MAX        ARM_THREAD_STATE_MAX
+#else
+#error Unsupported arch
+#endif
 
 #endif  /* _MACH_ARM_THREAD_STATE_H_ */

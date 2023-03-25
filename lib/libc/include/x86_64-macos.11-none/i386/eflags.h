@@ -59,8 +59,6 @@
 #ifndef _I386_EFLAGS_H_
 #define _I386_EFLAGS_H_
 
-#if defined (__i386__) || defined (__x86_64__)
-
 /*
  *	i386 flags register
  */
@@ -92,7 +90,5 @@
 
 #define EFL_USER_SET    (EFL_IF)
 #define EFL_USER_CLEAR  (EFL_IOPL|EFL_NT|EFL_RF)
-
-#endif /* defined (__i386__) || defined (__x86_64__) */
 
 #endif  /* _I386_EFLAGS_H_ */

@@ -29,8 +29,6 @@
 #ifndef _MACH_ARM_PROCESSOR_INFO_H_
 #define _MACH_ARM_PROCESSOR_INFO_H_
 
-#if defined (__arm__) || defined (__arm64__)
-
 #define PROCESSOR_CPU_STAT   0x10000003 /* Low-level CPU statistics */
 #define PROCESSOR_CPU_STAT64 0x10000004 /* Low-level CPU statistics, in full 64-bit */
 
@@ -70,7 +68,5 @@ typedef struct processor_cpu_stat64  processor_cpu_stat64_data_t;
 typedef struct processor_cpu_stat64 *processor_cpu_stat64_t;
 #define PROCESSOR_CPU_STAT64_COUNT ((mach_msg_type_number_t) \
 	        (sizeof(processor_cpu_stat64_data_t) / sizeof(integer_t)))
-
-#endif /* defined (__arm__) || defined (__arm64__) */
 
 #endif /* _MACH_ARM_PROCESSOR_INFO_H_ */

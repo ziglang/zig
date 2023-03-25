@@ -29,8 +29,6 @@
 #ifndef __I386_MCONTEXT_H_
 #define __I386_MCONTEXT_H_
 
-#if defined (__i386__) || defined (__x86_64__)
-
 #include <sys/cdefs.h> /* __DARWIN_UNIX03 */
 #include <sys/appleapiopts.h>
 #include <mach/machine/_structs.h>
@@ -210,7 +208,5 @@ typedef _STRUCT_MCONTEXT32      *mcontext_t;
 #define _STRUCT_MCONTEXT        _STRUCT_MCONTEXT32
 #endif
 #endif /* _MCONTEXT_T */
-
-#endif /* defined (__i386__) || defined (__x86_64__) */
 
 #endif /* __I386_MCONTEXT_H_ */
