@@ -1410,38 +1410,80 @@ fn airFpext(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    if (self.liveness.isUnused(inst))
-        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
-
-    const operand_ty = self.air.typeOf(ty_op.operand);
-    const operand = try self.resolveInst(ty_op.operand);
-    const info_a = operand_ty.intInfo(self.target.*);
-    const info_b = self.air.typeOfIndex(inst).intInfo(self.target.*);
-
-    const operand_abi_size = operand_ty.abiSize(self.target.*);
-    const dest_ty = self.air.typeOfIndex(inst);
-    const dest_abi_size = dest_ty.abiSize(self.target.*);
-    const dst_mcv: MCValue = blk: {
-        if (info_a.bits == info_b.bits) {
-            break :blk operand;
-        }
-        if (operand_abi_size > 8 or dest_abi_size > 8) {
-            return self.fail("TODO implement intCast for abi sizes larger than 8", .{});
-        }
-
-        const operand_lock: ?RegisterLock = switch (operand) {
+    const result = if (self.liveness.isUnused(inst)) .dead else result: {
+        const src_ty = self.air.typeOf(ty_op.operand);
+        const src_int_info = src_ty.intInfo(self.target.*);
+        const src_abi_size = @intCast(u32, src_ty.abiSize(self.target.*));
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        const src_lock = switch (src_mcv) {
             .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
             else => null,
         };
-        defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
+        defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const reg = try self.register_manager.allocReg(inst, gp);
-        try self.genSetReg(dest_ty, reg, .{ .immediate = 0 });
-        try self.genSetReg(operand_ty, reg, operand);
-        break :blk MCValue{ .register = reg };
+        const dst_ty = self.air.typeOfIndex(inst);
+        const dst_int_info = dst_ty.intInfo(self.target.*);
+        const dst_abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
+        const dst_mcv = if (dst_abi_size <= src_abi_size and
+            self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_mcv
+        else
+            try self.allocRegOrMem(inst, true);
+
+        const min_ty = if (dst_int_info.bits < src_int_info.bits) dst_ty else src_ty;
+        const signedness: std.builtin.Signedness = if (dst_int_info.signedness == .signed and
+            src_int_info.signedness == .signed) .signed else .unsigned;
+        switch (dst_mcv) {
+            .register => |dst_reg| {
+                const min_abi_size = @min(dst_abi_size, src_abi_size);
+                const tag: Mir.Inst.Tag = switch (signedness) {
+                    .signed => .movsx,
+                    .unsigned => if (min_abi_size == 4) .mov else .movzx,
+                };
+                const dst_alias = switch (tag) {
+                    .movsx => dst_reg.to64(),
+                    .mov, .movzx => if (min_abi_size > 4) dst_reg.to64() else dst_reg.to32(),
+                    else => unreachable,
+                };
+                switch (src_mcv) {
+                    .register => |src_reg| {
+                        try self.asmRegisterRegister(
+                            tag,
+                            dst_alias,
+                            registerAlias(src_reg, min_abi_size),
+                        );
+                    },
+                    .stack_offset => |src_off| {
+                        try self.asmRegisterMemory(tag, dst_alias, Memory.sib(
+                            Memory.PtrSize.fromSize(min_abi_size),
+                            .{ .base = .rbp, .disp = -src_off },
+                        ));
+                    },
+                    else => return self.fail("TODO airIntCast from {s} to {s}", .{
+                        @tagName(src_mcv),
+                        @tagName(dst_mcv),
+                    }),
+                }
+                if (self.regExtraBits(min_ty) > 0) try self.truncateRegister(min_ty, dst_reg);
+            },
+            else => {
+                try self.setRegOrMem(min_ty, dst_mcv, src_mcv);
+                const extra = dst_abi_size * 8 - dst_int_info.bits;
+                if (extra > 0) {
+                    try self.genShiftBinOpMir(switch (signedness) {
+                        .signed => .sal,
+                        .unsigned => .shl,
+                    }, dst_ty, dst_mcv, .{ .immediate = extra });
+                    try self.genShiftBinOpMir(switch (signedness) {
+                        .signed => .sar,
+                        .unsigned => .shr,
+                    }, dst_ty, dst_mcv, .{ .immediate = extra });
+                }
+            },
+        }
+        break :result dst_mcv;
     };
-
-    return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
@@ -6555,20 +6597,25 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                         .disp = -stack_offset,
                     }), immediate);
                 },
-                8 => {
+                3, 5...7 => unreachable,
+                else => {
                     // 64 bit write to memory would take two mov's anyways so we
                     // insted just use two 32 bit writes to avoid register allocation
-                    try self.asmMemoryImmediate(.mov, Memory.sib(.dword, .{
-                        .base = base_reg,
-                        .disp = -stack_offset + 4,
-                    }), Immediate.u(@truncate(u32, x_big >> 32)));
-                    try self.asmMemoryImmediate(.mov, Memory.sib(.dword, .{
-                        .base = base_reg,
-                        .disp = -stack_offset,
-                    }), Immediate.u(@truncate(u32, x_big)));
-                },
-                else => {
-                    return self.fail("TODO implement set abi_size=large stack variable with immediate", .{});
+                    var offset: i32 = 0;
+                    while (offset < abi_size) : (offset += 4) try self.asmMemoryImmediate(
+                        .mov,
+                        Memory.sib(.dword, .{ .base = base_reg, .disp = offset - stack_offset }),
+                        if (ty.isSignedInt())
+                            Immediate.s(@truncate(
+                                i32,
+                                @bitCast(i64, x_big) >> (math.cast(u6, offset * 8) orelse 63),
+                            ))
+                        else
+                            Immediate.u(@truncate(
+                                u32,
+                                if (math.cast(u6, offset * 8)) |shift| x_big >> shift else 0,
+                            )),
+                    );
                 },
             }
         },
