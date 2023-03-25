@@ -7,7 +7,7 @@ const iovec_const = std.os.iovec_const;
 
 pub const CPU_SETSIZE = 256;
 pub const cpuset_t = extern struct {
-    __bits: [CPU_SETSIZE / (@sizeOf(c_long) * 8)]c_long,
+    __bits: [(CPU_SETSIZE + (@bitSizeOf(c_long) - 1)) / @bitSizeOf(c_long)]c_long,
 };
 pub const cpulevel_t = c_int;
 pub const cpuwhich_t = c_int;
@@ -214,8 +214,6 @@ pub const clock_t = isize;
 
 pub const socklen_t = u32;
 pub const suseconds_t = c_long;
-
-pub const id_t = i64;
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
 pub const Kevent = extern struct {
