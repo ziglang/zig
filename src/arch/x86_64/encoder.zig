@@ -174,7 +174,7 @@ pub const Instruction = struct {
             .td => try encoder.imm64(inst.op1.mem.moffs.offset),
             else => {
                 const mem_op = switch (encoding.op_en) {
-                    .m, .mi, .m1, .mc, .mr => inst.op1,
+                    .m, .mi, .m1, .mc, .mr, .mri, .mrc => inst.op1,
                     .rm, .rmi => inst.op2,
                     else => unreachable,
                 };
@@ -182,7 +182,7 @@ pub const Instruction = struct {
                     .reg => |reg| {
                         const rm = switch (encoding.op_en) {
                             .m, .mi, .m1, .mc => encoding.modRmExt(),
-                            .mr => inst.op2.reg.lowEnc(),
+                            .mr, .mri, .mrc => inst.op2.reg.lowEnc(),
                             .rm, .rmi => inst.op1.reg.lowEnc(),
                             else => unreachable,
                         };
@@ -191,7 +191,7 @@ pub const Instruction = struct {
                     .mem => |mem| {
                         const op = switch (encoding.op_en) {
                             .m, .mi, .m1, .mc => .none,
-                            .mr => inst.op2,
+                            .mr, .mri, .mrc => inst.op2,
                             .rm, .rmi => inst.op1,
                             else => unreachable,
                         };
@@ -202,7 +202,7 @@ pub const Instruction = struct {
 
                 switch (encoding.op_en) {
                     .mi => try encodeImm(inst.op2.imm, encoding.op2, encoder),
-                    .rmi => try encodeImm(inst.op3.imm, encoding.op3, encoder),
+                    .rmi, .mri => try encodeImm(inst.op3.imm, encoding.op3, encoder),
                     else => {},
                 }
             },
@@ -251,7 +251,7 @@ pub const Instruction = struct {
                     else => unreachable,
                 };
             } else null,
-            .m, .mi, .m1, .mc, .mr => if (inst.op1.isSegmentRegister()) blk: {
+            .m, .mi, .m1, .mc, .mr, .mri, .mrc => if (inst.op1.isSegmentRegister()) blk: {
                 break :blk switch (inst.op1) {
                     .reg => |r| r,
                     .mem => |m| m.base().?,
@@ -275,13 +275,11 @@ pub const Instruction = struct {
 
         switch (op_en) {
             .np, .i, .zi, .fd, .td, .d => {},
-            .o, .oi => {
-                rex.b = inst.op1.reg.isExtended();
-            },
-            .m, .mi, .m1, .mc, .mr, .rm, .rmi => {
+            .o, .oi => rex.b = inst.op1.reg.isExtended(),
+            .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc => {
                 const r_op = switch (op_en) {
                     .rm, .rmi => inst.op1,
-                    .mr => inst.op2,
+                    .mr, .mri, .mrc => inst.op2,
                     else => null,
                 };
                 if (r_op) |op| {
@@ -290,7 +288,7 @@ pub const Instruction = struct {
 
                 const b_x_op = switch (op_en) {
                     .rm, .rmi => inst.op2,
-                    .m, .mi, .m1, .mc, .mr => inst.op1,
+                    .m, .mi, .m1, .mc, .mr, .mri, .mrc => inst.op1,
                     else => unreachable,
                 };
                 switch (b_x_op) {
