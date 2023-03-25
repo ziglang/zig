@@ -6265,13 +6265,23 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     const inputs = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.inputs_len]);
     extra_i += inputs.len;
 
-    const dead = !is_volatile and self.liveness.isUnused(inst);
-    const result: MCValue = if (dead) .dead else result: {
+    var result: MCValue = .none;
+    if (!is_volatile and self.liveness.isUnused(inst)) result = .dead else {
+        var args = std.StringArrayHashMap(MCValue).init(self.gpa);
+        try args.ensureTotalCapacity(outputs.len + inputs.len + clobbers_len);
+        defer {
+            for (args.values()) |arg| switch (arg) {
+                .register => |reg| self.register_manager.unlockReg(.{ .register = reg }),
+                else => {},
+            };
+            args.deinit();
+        }
+
         if (outputs.len > 1) {
             return self.fail("TODO implement codegen for asm with more than 1 output", .{});
         }
 
-        const output_constraint: ?[]const u8 = for (outputs) |output| {
+        for (outputs) |output| {
             if (output != .none) {
                 return self.fail("TODO implement codegen for non-expr asm", .{});
             }
@@ -6282,8 +6292,21 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-            break constraint;
-        } else null;
+            const mcv: MCValue = if (mem.eql(u8, constraint, "=r"))
+                .{ .register = self.register_manager.tryAllocReg(inst, gp) orelse
+                    return self.fail("ran out of registers lowering inline asm", .{}) }
+            else if (mem.startsWith(u8, constraint, "={") and mem.endsWith(u8, constraint, "}"))
+                .{ .register = parseRegName(constraint["={".len .. constraint.len - "}".len]) orelse
+                    return self.fail("unrecognized register constraint: '{s}'", .{constraint}) }
+            else
+                return self.fail("unrecognized constraint: '{s}'", .{constraint});
+            args.putAssumeCapacity(name, mcv);
+            switch (mcv) {
+                .register => |reg| _ = self.register_manager.lockRegAssumeUnused(reg),
+                else => {},
+            }
+            if (output == .none) result = mcv;
+        }
 
         for (inputs) |input| {
             const input_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
@@ -6317,52 +6340,73 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             }
         }
 
-        const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
-
-        {
-            var iter = std.mem.tokenize(u8, asm_source, "\n\r");
-            while (iter.next()) |ins| {
-                if (mem.eql(u8, ins, "syscall")) {
-                    try self.asmOpOnly(.syscall);
-                } else if (mem.indexOf(u8, ins, "push")) |_| {
-                    const arg = ins[4..];
-                    if (mem.indexOf(u8, arg, "$")) |l| {
-                        const n = std.fmt.parseInt(u8, ins[4 + l + 1 ..], 10) catch {
-                            return self.fail("TODO implement more inline asm int parsing", .{});
-                        };
-                        try self.asmImmediate(.push, Immediate.u(n));
-                    } else if (mem.indexOf(u8, arg, "%%")) |l| {
-                        const reg_name = ins[4 + l + 2 ..];
-                        const reg = parseRegName(reg_name) orelse
-                            return self.fail("unrecognized register: '{s}'", .{reg_name});
-                        try self.asmRegister(.push, reg);
-                    } else return self.fail("TODO more push operands", .{});
-                } else if (mem.indexOf(u8, ins, "pop")) |_| {
-                    const arg = ins[3..];
-                    if (mem.indexOf(u8, arg, "%%")) |l| {
-                        const reg_name = ins[3 + l + 2 ..];
-                        const reg = parseRegName(reg_name) orelse
-                            return self.fail("unrecognized register: '{s}'", .{reg_name});
-                        try self.asmRegister(.pop, reg);
-                    } else return self.fail("TODO more pop operands", .{});
-                } else {
-                    return self.fail("TODO implement support for more x86 assembly instructions", .{});
+        const asm_source = mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
+        var line_it = mem.tokenize(u8, asm_source, "\n\r");
+        while (line_it.next()) |line| {
+            var mnem_it = mem.tokenize(u8, line, " \t");
+            const mnem = mnem_it.next() orelse continue;
+            if (mem.startsWith(u8, mnem, "#")) continue;
+            var arg_it = mem.tokenize(u8, mnem_it.rest(), ", ");
+            if (std.ascii.eqlIgnoreCase(mnem, "syscall")) {
+                if (arg_it.next()) |trailing| if (!mem.startsWith(u8, trailing, "#"))
+                    return self.fail("Too many operands: '{s}'", .{line});
+                try self.asmOpOnly(.syscall);
+            } else if (std.ascii.eqlIgnoreCase(mnem, "push")) {
+                const src = arg_it.next() orelse
+                    return self.fail("Not enough operands: '{s}'", .{line});
+                if (arg_it.next()) |trailing| if (!mem.startsWith(u8, trailing, "#"))
+                    return self.fail("Too many operands: '{s}'", .{line});
+                if (mem.startsWith(u8, src, "$")) {
+                    const imm = std.fmt.parseInt(u32, src["$".len..], 0) catch
+                        return self.fail("Invalid immediate: '{s}'", .{src});
+                    try self.asmImmediate(.push, Immediate.u(imm));
+                } else if (mem.startsWith(u8, src, "%%")) {
+                    const reg = parseRegName(src["%%".len..]) orelse
+                        return self.fail("Invalid register: '{s}'", .{src});
+                    try self.asmRegister(.push, reg);
+                } else return self.fail("Unsupported operand: '{s}'", .{src});
+            } else if (std.ascii.eqlIgnoreCase(mnem, "pop")) {
+                const dst = arg_it.next() orelse
+                    return self.fail("Not enough operands: '{s}'", .{line});
+                if (arg_it.next()) |trailing| if (!mem.startsWith(u8, trailing, "#"))
+                    return self.fail("Too many operands: '{s}'", .{line});
+                if (mem.startsWith(u8, dst, "%%")) {
+                    const reg = parseRegName(dst["%%".len..]) orelse
+                        return self.fail("Invalid register: '{s}'", .{dst});
+                    try self.asmRegister(.pop, reg);
+                } else return self.fail("Unsupported operand: '{s}'", .{dst});
+            } else if (std.ascii.eqlIgnoreCase(mnem, "movq")) {
+                const src = arg_it.next() orelse
+                    return self.fail("Not enough operands: '{s}'", .{line});
+                const dst = arg_it.next() orelse
+                    return self.fail("Not enough operands: '{s}'", .{line});
+                if (arg_it.next()) |trailing| if (!mem.startsWith(u8, trailing, "#"))
+                    return self.fail("Too many operands: '{s}'", .{line});
+                if (mem.startsWith(u8, src, "%%")) {
+                    const colon = mem.indexOfScalarPos(u8, src, "%%".len + 2, ':');
+                    const src_reg = parseRegName(src["%%".len .. colon orelse src.len]) orelse
+                        return self.fail("Invalid register: '{s}'", .{src});
+                    if (colon) |colon_pos| {
+                        const src_disp = std.fmt.parseInt(i32, src[colon_pos + 1 ..], 0) catch
+                            return self.fail("Invalid immediate: '{s}'", .{src});
+                        if (mem.startsWith(u8, dst, "%[") and mem.endsWith(u8, dst, "]")) {
+                            switch (args.get(dst["%[".len .. dst.len - "]".len]) orelse
+                                return self.fail("no matching constraint for: '{s}'", .{dst})) {
+                                .register => |dst_reg| try self.asmRegisterMemory(
+                                    .mov,
+                                    dst_reg,
+                                    Memory.sib(.qword, .{ .base = src_reg, .disp = src_disp }),
+                                ),
+                                else => return self.fail("Invalid constraint: '{s}'", .{dst}),
+                            }
+                        } else return self.fail("Unsupported operand: '{s}'", .{dst});
+                    } else return self.fail("Unsupported operand: '{s}'", .{src});
                 }
+            } else {
+                return self.fail("Unsupported instruction: '{s}'", .{mnem});
             }
         }
-
-        if (output_constraint) |output| {
-            if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
-                return self.fail("unrecognized asm output constraint: '{s}'", .{output});
-            }
-            const reg_name = output[2 .. output.len - 1];
-            const reg = parseRegName(reg_name) orelse
-                return self.fail("unrecognized register: '{s}'", .{reg_name});
-            break :result .{ .register = reg };
-        } else {
-            break :result .none;
-        }
-    };
+    }
 
     simple: {
         var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
