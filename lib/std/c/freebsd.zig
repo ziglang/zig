@@ -622,6 +622,11 @@ pub const MAP = struct {
     pub const NOCORE = 0x00020000;
     pub const PREFAULT_READ = 0x00040000;
     pub const @"32BIT" = 0x00080000;
+
+    pub fn ALIGNED(alignment: u32) u32 {
+        return alignment << 24;
+    }
+    pub const ALIGNED_SUPER = ALIGNED(1);
 };
 
 pub const MSF = struct {
