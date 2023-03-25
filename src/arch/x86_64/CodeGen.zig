@@ -2586,7 +2586,7 @@ fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const index_ty = self.air.typeOf(bin_op.rhs);
     const index = try self.resolveInst(bin_op.rhs);
     const index_lock: ?RegisterLock = switch (index) {
-        .register => |reg| self.register_manager.lockReg(reg),
+        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
         else => null,
     };
     defer if (index_lock) |lock| self.register_manager.unlockReg(lock);
@@ -2635,7 +2635,7 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     const index_ty = self.air.typeOf(extra.rhs);
     const index = try self.resolveInst(extra.rhs);
     const index_lock: ?RegisterLock = switch (index) {
-        .register => |reg| self.register_manager.lockReg(reg),
+        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
         else => null,
     };
     defer if (index_lock) |lock| self.register_manager.unlockReg(lock);
