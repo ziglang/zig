@@ -149,17 +149,26 @@ pub fn RegisterManager(
             return RegisterLock{ .register = reg };
         }
 
+        /// Like `lockReg` but locks multiple registers.
+        pub fn lockRegs(
+            self: *Self,
+            comptime count: comptime_int,
+            regs: [count]Register,
+        ) [count]?RegisterLock {
+            var results: [count]?RegisterLock = undefined;
+            for (&results, regs) |*result, reg| result.* = self.lockReg(reg);
+            return results;
+        }
+
         /// Like `lockRegAssumeUnused` but locks multiple registers.
         pub fn lockRegsAssumeUnused(
             self: *Self,
             comptime count: comptime_int,
             regs: [count]Register,
         ) [count]RegisterLock {
-            var buf: [count]RegisterLock = undefined;
-            for (regs, 0..) |reg, i| {
-                buf[i] = self.lockRegAssumeUnused(reg);
-            }
-            return buf;
+            var results: [count]RegisterLock = undefined;
+            for (&results, regs) |*result, reg| result.* = self.lockRegAssumeUnused(reg);
+            return results;
         }
 
         /// Unlocks the register allowing its re-allocation and re-use.

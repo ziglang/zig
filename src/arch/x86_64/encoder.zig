@@ -117,7 +117,7 @@ pub const Instruction = struct {
 
     pub fn new(mnemonic: Mnemonic, args: Init) !Instruction {
         const encoding = (try Encoding.findByMnemonic(mnemonic, args)) orelse {
-            log.debug("no encoding found for: {s} {s} {s} {s} {s} {s}", .{
+            log.err("no encoding found for: {s} {s} {s} {s} {s} {s}", .{
                 @tagName(args.prefix),
                 @tagName(mnemonic),
                 @tagName(Encoding.Op.fromOperand(args.op1)),
