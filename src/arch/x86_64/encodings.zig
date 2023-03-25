@@ -257,8 +257,8 @@ pub const table = &[_]Entry{
 
     .{ .cmpxchg, .mr, .rm8,  .r8,  .none, .none, &.{ 0x0f, 0xb0 }, 0, .none },
     .{ .cmpxchg, .mr, .rm8,  .r8,  .none, .none, &.{ 0x0f, 0xb0 }, 0, .rex  },
-    .{ .cmpxchg, .mr, .rm16, .r16, .none, .none, &.{ 0x0f, 0xb1 }, 0, .rex  },
-    .{ .cmpxchg, .mr, .rm32, .r32, .none, .none, &.{ 0x0f, 0xb1 }, 0, .rex  },
+    .{ .cmpxchg, .mr, .rm16, .r16, .none, .none, &.{ 0x0f, 0xb1 }, 0, .none },
+    .{ .cmpxchg, .mr, .rm32, .r32, .none, .none, &.{ 0x0f, 0xb1 }, 0, .none },
     .{ .cmpxchg, .mr, .rm64, .r64, .none, .none, &.{ 0x0f, 0xb1 }, 0, .long },
 
     .{ .cmpxchg8b , .m, .m64,  .none, .none, .none, &.{ 0x0f, 0xc7 }, 1, .none },

@@ -7242,7 +7242,7 @@ fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
 
     try self.spillEflagsIfOccupied();
     _ = try self.addInst(.{ .tag = .cmpxchg, .ops = .lock_mr_sib, .data = .{ .rx = .{
-        .r = new_reg,
+        .r = registerAlias(new_reg, val_abi_size),
         .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
     } } });
 
