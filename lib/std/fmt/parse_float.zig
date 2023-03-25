@@ -149,7 +149,7 @@ test "fmt.parseFloat hex.f64" {
     try testing.expectEqual(try parseFloat(f64, "0x1p-1022"), math.floatMin(f64));
     try testing.expectEqual(try parseFloat(f64, "-0x1p-1022"), -math.floatMin(f64));
     // Min denormalized value.
-    //try testing.expectEqual(try parseFloat(f64, "0x1p-1074"), math.floatTrueMin(f64));
+    try testing.expectEqual(try parseFloat(f64, "0x1p-1074"), math.floatTrueMin(f64));
     try testing.expectEqual(try parseFloat(f64, "-0x1p-1074"), -math.floatTrueMin(f64));
 }
 test "fmt.parseFloat hex.f128" {
@@ -166,7 +166,6 @@ test "fmt.parseFloat hex.f128" {
     // // Min denormalized value.
     try testing.expectEqual(try parseFloat(f128, "0x1p-16494"), math.floatTrueMin(f128));
     try testing.expectEqual(try parseFloat(f128, "-0x1p-16494"), -math.floatTrueMin(f128));
-
-    // NOTE: We are performing round-to-even. Previous behavior was round-up.
-    // try testing.expectEqual(try parseFloat(f128, "0x1.edcb34a235253948765432134674fp-1"), 0x1.edcb34a235253948765432134674fp-1);
+    // ensure round-to-even
+    try testing.expectEqual(try parseFloat(f128, "0x1.edcb34a235253948765432134674fp-1"), 0x1.edcb34a235253948765432134674fp-1);
 }
