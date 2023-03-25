@@ -3745,18 +3745,22 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     const mcv = try self.resolveInst(operand);
-    const struct_ty = self.air.typeOf(operand);
-    if (struct_ty.zigTypeTag() == .Struct and struct_ty.containerLayout() == .Packed) {
-        return self.fail("TODO airStructFieldVal implement packed structs", .{});
-    }
-    const struct_field_offset = struct_ty.structFieldOffset(index, self.target.*);
-    const struct_field_ty = struct_ty.structFieldType(index);
+    const container_ty = self.air.typeOf(operand);
+    const field_ty = container_ty.structFieldType(index);
+    const field_bit_offset = switch (container_ty.containerLayout()) {
+        .Auto, .Extern => @intCast(u32, container_ty.structFieldOffset(index, self.target.*) * 8),
+        .Packed => if (container_ty.castTag(.@"struct")) |struct_obj|
+            struct_obj.data.packedFieldBitOffset(self.target.*, index)
+        else
+            0,
+    };
 
     const result: MCValue = result: {
         switch (mcv) {
             .stack_offset => |off| {
-                const stack_offset = off - @intCast(i32, struct_field_offset);
-                break :result MCValue{ .stack_offset = stack_offset };
+                const byte_offset = std.math.divExact(u32, field_bit_offset, 8) catch
+                    return self.fail("TODO implement struct_field_val for a packed struct", .{});
+                break :result MCValue{ .stack_offset = off - @intCast(i32, byte_offset) };
             },
             .register => |reg| {
                 const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
@@ -3779,27 +3783,28 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 defer if (dst_mcv_lock) |lock| self.register_manager.unlockReg(lock);
 
                 // Shift by struct_field_offset.
-                const shift = @intCast(u8, struct_field_offset * 8);
-                try self.genShiftBinOpMir(.shr, Type.usize, dst_mcv.register, .{ .immediate = shift });
+                try self.genShiftBinOpMir(
+                    .shr,
+                    Type.usize,
+                    dst_mcv.register,
+                    .{ .immediate = field_bit_offset },
+                );
 
-                // Mask with reg.bitSize() - struct_field_size
-                const max_reg_bit_width = Register.rax.bitSize();
-                const mask_shift = @intCast(u6, (max_reg_bit_width - struct_field_ty.bitSize(self.target.*)));
-                const mask = (~@as(u64, 0)) >> mask_shift;
+                // Mask to field_bit_size bits
+                const field_bit_size = field_ty.bitSize(self.target.*);
+                const mask = ~@as(u64, 0) >> @intCast(u6, 64 - field_bit_size);
 
                 const tmp_reg = try self.copyToTmpRegister(Type.usize, .{ .immediate = mask });
                 try self.genBinOpMir(.@"and", Type.usize, dst_mcv, .{ .register = tmp_reg });
 
-                const signedness: std.builtin.Signedness = blk: {
-                    if (struct_field_ty.zigTypeTag() != .Int) break :blk .unsigned;
-                    break :blk struct_field_ty.intInfo(self.target.*).signedness;
-                };
-                const field_size = @intCast(u32, struct_field_ty.abiSize(self.target.*));
-                if (signedness == .signed and field_size < 8) {
+                const signedness =
+                    if (field_ty.isAbiInt()) field_ty.intInfo(self.target.*).signedness else .unsigned;
+                const field_byte_size = @intCast(u32, field_ty.abiSize(self.target.*));
+                if (signedness == .signed and field_byte_size < 8) {
                     try self.asmRegisterRegister(
                         .movsx,
                         dst_mcv.register,
-                        registerAlias(dst_mcv.register, field_size),
+                        registerAlias(dst_mcv.register, field_byte_size),
                     );
                 }
 
