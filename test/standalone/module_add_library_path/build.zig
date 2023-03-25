@@ -30,6 +30,7 @@ pub fn build(b: *std.Build) void {
 
     exe.addModule("test_module", module);
     exe.step.dependOn(&lib.step);
+    exe.step.dependOn(b.getInstallStep());
 
     const run = exe.run();
     b.default_step = &run.step;
