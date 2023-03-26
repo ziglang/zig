@@ -65,10 +65,6 @@
 #ifndef _MACH_ARM_BOOLEAN_H_
 #define _MACH_ARM_BOOLEAN_H_
 
-#if defined (__arm__) || defined (__arm64__)
-
 typedef int             boolean_t;
-
-#endif /* defined (__arm__) || defined (__arm64__) */
 
 #endif  /* _MACH_ARM_BOOLEAN_H_ */

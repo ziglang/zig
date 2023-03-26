@@ -33,12 +33,10 @@
 #ifndef _ARM_THREAD_STATUS_H_
 #define _ARM_THREAD_STATUS_H_
 
-#if defined (__arm__) || defined (__arm64__)
-
 #include <mach/machine/_structs.h>
-#include <mach/machine/thread_state.h>
 #include <mach/message.h>
 #include <mach/vm_types.h>
+#include <mach/arm/thread_state.h>
 
 /*
  *    Support for determining the state of a thread
@@ -69,11 +67,12 @@
 #define ARM_CPMU_STATE64         18
 
 
+/* API */
+#define ARM_AMX_STATE            24
+#define ARM_AMX_STATE_V1         25
+#define ARM_STATE_FLAVOR_IS_OTHER_VALID(_flavor_) \
+	((_flavor_) == ARM_AMX_STATE_V1)
 #define ARM_PAGEIN_STATE         27
-
-#ifndef ARM_STATE_FLAVOR_IS_OTHER_VALID
-#define ARM_STATE_FLAVOR_IS_OTHER_VALID(_flavor_) 0
-#endif
 
 #define VALID_THREAD_STATE_FLAVOR(x) \
 	((x == ARM_THREAD_STATE) ||           \
@@ -171,6 +170,7 @@ typedef _STRUCT_ARM_NEON_STATE        arm_neon_state_t;
 typedef _STRUCT_ARM_NEON_STATE        arm_neon_state32_t;
 typedef _STRUCT_ARM_NEON_STATE64      arm_neon_state64_t;
 
+typedef _STRUCT_ARM_AMX_STATE_V1       arm_amx_state_v1_t;
 
 typedef _STRUCT_ARM_EXCEPTION_STATE   arm_exception_state_t;
 typedef _STRUCT_ARM_EXCEPTION_STATE   arm_exception_state32_t;
@@ -224,12 +224,26 @@ typedef _STRUCT_ARM_LEGACY_DEBUG_STATE arm_debug_state_t;
 #define MACHINE_THREAD_STATE_COUNT ARM_UNIFIED_THREAD_STATE_COUNT
 
 
+struct arm_amx_state {
+	arm_state_hdr_t ash;
+	union {
+		arm_amx_state_v1_t as_v1;
+	} uas;
+};
+#define as_v1 uas.as_v1
+typedef struct arm_amx_state arm_amx_state_t;
+
+#define ARM_AMX_STATE_V1_COUNT ((mach_msg_type_number_t) \
+	(sizeof(arm_amx_state_v1_t)/sizeof(unsigned int)))
+
+#define ARM_AMX_STATE_COUNT ((mach_msg_type_number_t) \
+	(sizeof(arm_amx_state_t)/sizeof(unsigned int)))
+
+
 /*
  * Largest state on this machine:
  */
 #define THREAD_MACHINE_STATE_MAX THREAD_STATE_MAX
 
-
-#endif /* defined (__arm__) || defined (__arm64__) */
 
 #endif /* _ARM_THREAD_STATUS_H_ */

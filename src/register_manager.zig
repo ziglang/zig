@@ -149,17 +149,26 @@ pub fn RegisterManager(
             return RegisterLock{ .register = reg };
         }
 
+        /// Like `lockReg` but locks multiple registers.
+        pub fn lockRegs(
+            self: *Self,
+            comptime count: comptime_int,
+            regs: [count]Register,
+        ) [count]?RegisterLock {
+            var results: [count]?RegisterLock = undefined;
+            for (&results, regs) |*result, reg| result.* = self.lockReg(reg);
+            return results;
+        }
+
         /// Like `lockRegAssumeUnused` but locks multiple registers.
         pub fn lockRegsAssumeUnused(
             self: *Self,
             comptime count: comptime_int,
             regs: [count]Register,
         ) [count]RegisterLock {
-            var buf: [count]RegisterLock = undefined;
-            for (regs, 0..) |reg, i| {
-                buf[i] = self.lockRegAssumeUnused(reg);
-            }
-            return buf;
+            var results: [count]RegisterLock = undefined;
+            for (&results, regs) |*result, reg| result.* = self.lockRegAssumeUnused(reg);
+            return results;
         }
 
         /// Unlocks the register allowing its re-allocation and re-use.
@@ -210,13 +219,14 @@ pub fn RegisterManager(
             }
             assert(i == count);
 
-            for (regs, 0..) |reg, j| {
+            for (regs, insts) |reg, inst| {
+                log.debug("tryAllocReg {} for inst {?}", .{ reg, inst });
                 self.markRegAllocated(reg);
 
-                if (insts[j]) |inst| {
+                if (inst) |tracked_inst| {
                     // Track the register
                     const index = indexOfRegIntoTracked(reg).?; // indexOfReg() on a callee-preserved reg should never return null
-                    self.registers[index] = inst;
+                    self.registers[index] = tracked_inst;
                     self.markRegUsed(reg);
                 }
             }
@@ -258,6 +268,7 @@ pub fn RegisterManager(
                     if (excludeRegister(reg, register_class)) break;
                     if (self.isRegLocked(reg)) continue;
 
+                    log.debug("allocReg {} for inst {?}", .{ reg, insts[i] });
                     regs[i] = reg;
                     self.markRegAllocated(reg);
                     const index = indexOfRegIntoTracked(reg).?; // indexOfReg() on a callee-preserved reg should never return null

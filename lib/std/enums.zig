@@ -775,6 +775,18 @@ pub fn IndexedSet(comptime I: type, comptime Ext: fn (type) type) type {
             return .{ .bits = BitSet.initFull() };
         }
 
+        /// Returns a set containing multiple keys.
+        pub fn initMany(keys: []const Key) Self {
+            var set = initEmpty();
+            for (keys) |key| set.insert(key);
+            return set;
+        }
+
+        /// Returns a set containing a single key.
+        pub fn initOne(key: Key) Self {
+            return initMany(&[_]Key{key});
+        }
+
         /// Returns the number of keys in the set.
         pub fn count(self: Self) usize {
             return self.bits.count();
@@ -900,20 +912,8 @@ test "pure EnumSet fns" {
 
     const empty = EnumSet(Suit).initEmpty();
     const full = EnumSet(Suit).initFull();
-
-    const black = black: {
-        var set = EnumSet(Suit).initEmpty();
-        set.insert(.spades);
-        set.insert(.clubs);
-        break :black set;
-    };
-
-    const red = red: {
-        var set = EnumSet(Suit).initEmpty();
-        set.insert(.hearts);
-        set.insert(.diamonds);
-        break :red set;
-    };
+    const black = EnumSet(Suit).initMany(&[_]Suit{ .spades, .clubs });
+    const red = EnumSet(Suit).initMany(&[_]Suit{ .hearts, .diamonds });
 
     try testing.expect(empty.eql(empty));
     try testing.expect(full.eql(full));

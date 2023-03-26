@@ -152,7 +152,7 @@ struct if_clonereq {
 #define IFNET_SLOWHZ    1       /* granularity is 1 second */
 #define IFQ_DEF_C_TARGET_DELAY        (10ULL * 1000 * 1000)   /* 10 ms */
 #define IFQ_DEF_C_UPDATE_INTERVAL     (100ULL * 1000 * 1000)  /* 100 ms */
-#define IFQ_DEF_L4S_TARGET_DELAY        (10ULL * 1000 * 1000)   /* 10 ms */
+#define IFQ_DEF_L4S_TARGET_DELAY        (2ULL * 1000 * 1000)   /* 2 ms */
 #define IFQ_DEF_L4S_UPDATE_INTERVAL     (100ULL * 1000 * 1000)  /* 100 ms */
 #define IFQ_LL_C_TARGET_DELAY     (10ULL * 1000 * 1000)   /* 10 ms */
 #define IFQ_LL_C_UPDATE_INTERVAL  (100ULL * 1000 * 1000)  /* 100 ms */

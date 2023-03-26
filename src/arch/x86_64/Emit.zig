@@ -121,7 +121,9 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .sbb,
             .sfence,
             .shl,
+            .shld,
             .shr,
+            .shrd,
             .sub,
             .syscall,
             .@"test",
@@ -231,10 +233,10 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
     const prefix: Instruction.Prefix = switch (ops) {
         .lock_m_sib,
         .lock_m_rip,
-        .lock_mi_u_sib,
-        .lock_mi_u_rip,
-        .lock_mi_s_sib,
-        .lock_mi_s_rip,
+        .lock_mi_sib_u,
+        .lock_mi_rip_u,
+        .lock_mi_sib_s,
+        .lock_mi_rip_s,
         .lock_mr_sib,
         .lock_mr_rip,
         .lock_moffs_rax,
@@ -249,31 +251,36 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
 
     switch (ops) {
         .none => {},
-        .imm_s => op1 = .{ .imm = Immediate.s(@bitCast(i32, data.imm)) },
-        .imm_u => op1 = .{ .imm = Immediate.u(data.imm) },
+        .i_s => op1 = .{ .imm = Immediate.s(@bitCast(i32, data.i)) },
+        .i_u => op1 = .{ .imm = Immediate.u(data.i) },
         .r => op1 = .{ .reg = data.r },
         .rr => {
             op1 = .{ .reg = data.rr.r1 };
             op2 = .{ .reg = data.rr.r2 };
         },
+        .rrr => {
+            op1 = .{ .reg = data.rrr.r1 };
+            op2 = .{ .reg = data.rrr.r2 };
+            op3 = .{ .reg = data.rrr.r3 };
+        },
         .ri_s, .ri_u => {
             const imm = switch (ops) {
-                .ri_s => Immediate.s(@bitCast(i32, data.ri.imm)),
-                .ri_u => Immediate.u(data.ri.imm),
+                .ri_s => Immediate.s(@bitCast(i32, data.ri.i)),
+                .ri_u => Immediate.u(data.ri.i),
                 else => unreachable,
             };
-            op1 = .{ .reg = data.ri.r1 };
+            op1 = .{ .reg = data.ri.r };
             op2 = .{ .imm = imm };
         },
         .ri64 => {
             const imm64 = emit.mir.extraData(Mir.Imm64, data.rx.payload).data;
-            op1 = .{ .reg = data.rx.r1 };
+            op1 = .{ .reg = data.rx.r };
             op2 = .{ .imm = Immediate.u(Mir.Imm64.decode(imm64)) };
         },
         .rri_s, .rri_u => {
             const imm = switch (ops) {
-                .rri_s => Immediate.s(@bitCast(i32, data.rri.imm)),
-                .rri_u => Immediate.u(data.rri.imm),
+                .rri_s => Immediate.s(@bitCast(i32, data.rri.i)),
+                .rri_u => Immediate.u(data.rri.i),
                 else => unreachable,
             };
             op1 = .{ .reg = data.rri.r1 };
@@ -288,21 +295,21 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
             const mrip = emit.mir.extraData(Mir.MemoryRip, data.payload).data;
             op1 = .{ .mem = Mir.MemoryRip.decode(mrip) };
         },
-        .mi_s_sib, .mi_u_sib, .lock_mi_s_sib, .lock_mi_u_sib => {
-            const msib = emit.mir.extraData(Mir.MemorySib, data.xi.payload).data;
+        .mi_sib_s, .mi_sib_u, .lock_mi_sib_s, .lock_mi_sib_u => {
+            const msib = emit.mir.extraData(Mir.MemorySib, data.ix.payload).data;
             const imm = switch (ops) {
-                .mi_s_sib, .lock_mi_s_sib => Immediate.s(@bitCast(i32, data.xi.imm)),
-                .mi_u_sib, .lock_mi_u_sib => Immediate.u(data.xi.imm),
+                .mi_sib_s, .lock_mi_sib_s => Immediate.s(@bitCast(i32, data.ix.i)),
+                .mi_sib_u, .lock_mi_sib_u => Immediate.u(data.ix.i),
                 else => unreachable,
             };
             op1 = .{ .mem = Mir.MemorySib.decode(msib) };
             op2 = .{ .imm = imm };
         },
-        .mi_u_rip, .mi_s_rip, .lock_mi_u_rip, .lock_mi_s_rip => {
-            const mrip = emit.mir.extraData(Mir.MemoryRip, data.xi.payload).data;
+        .mi_rip_u, .mi_rip_s, .lock_mi_rip_u, .lock_mi_rip_s => {
+            const mrip = emit.mir.extraData(Mir.MemoryRip, data.ix.payload).data;
             const imm = switch (ops) {
-                .mi_s_rip, .lock_mi_s_rip => Immediate.s(@bitCast(i32, data.xi.imm)),
-                .mi_u_rip, .lock_mi_u_rip => Immediate.u(data.xi.imm),
+                .mi_rip_s, .lock_mi_rip_s => Immediate.s(@bitCast(i32, data.ix.i)),
+                .mi_rip_u, .lock_mi_rip_u => Immediate.u(data.ix.i),
                 else => unreachable,
             };
             op1 = .{ .mem = Mir.MemoryRip.decode(mrip) };
@@ -310,7 +317,7 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
         },
         .rm_sib, .mr_sib, .lock_mr_sib => {
             const msib = emit.mir.extraData(Mir.MemorySib, data.rx.payload).data;
-            const op_r = .{ .reg = data.rx.r1 };
+            const op_r = .{ .reg = data.rx.r };
             const op_m = .{ .mem = Mir.MemorySib.decode(msib) };
             switch (ops) {
                 .rm_sib => {
@@ -326,7 +333,7 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
         },
         .rm_rip, .mr_rip, .lock_mr_rip => {
             const mrip = emit.mir.extraData(Mir.MemoryRip, data.rx.payload).data;
-            const op_r = .{ .reg = data.rx.r1 };
+            const op_r = .{ .reg = data.rx.r };
             const op_m = .{ .mem = Mir.MemoryRip.decode(mrip) };
             switch (ops) {
                 .rm_rip => {
@@ -339,6 +346,30 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
                 },
                 else => unreachable,
             }
+        },
+        .mrr_sib => {
+            const msib = emit.mir.extraData(Mir.MemorySib, data.rrx.payload).data;
+            op1 = .{ .mem = Mir.MemorySib.decode(msib) };
+            op2 = .{ .reg = data.rrx.r1 };
+            op2 = .{ .reg = data.rrx.r2 };
+        },
+        .mrr_rip => {
+            const mrip = emit.mir.extraData(Mir.MemoryRip, data.rrx.payload).data;
+            op1 = .{ .mem = Mir.MemoryRip.decode(mrip) };
+            op2 = .{ .reg = data.rrx.r1 };
+            op2 = .{ .reg = data.rrx.r2 };
+        },
+        .mri_sib => {
+            const msib = emit.mir.extraData(Mir.MemorySib, data.rix.payload).data;
+            op1 = .{ .mem = Mir.MemorySib.decode(msib) };
+            op2 = .{ .reg = data.rix.r };
+            op3 = .{ .imm = Immediate.u(data.rix.i) };
+        },
+        .mri_rip => {
+            const mrip = emit.mir.extraData(Mir.MemoryRip, data.rix.payload).data;
+            op1 = .{ .mem = Mir.MemoryRip.decode(mrip) };
+            op2 = .{ .reg = data.rix.r };
+            op3 = .{ .imm = Immediate.u(data.rix.i) };
         },
         else => return emit.fail("TODO handle generic encoding: {s}, {s}", .{
             @tagName(mnemonic),
@@ -451,12 +482,12 @@ fn mirMovsx(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         },
         .rm_sib => {
             const msib = emit.mir.extraData(Mir.MemorySib, data.rx.payload).data;
-            op1 = .{ .reg = data.rx.r1 };
+            op1 = .{ .reg = data.rx.r };
             op2 = .{ .mem = Mir.MemorySib.decode(msib) };
         },
         .rm_rip => {
             const mrip = emit.mir.extraData(Mir.MemoryRip, data.rx.payload).data;
-            op1 = .{ .reg = data.rx.r1 };
+            op1 = .{ .reg = data.rx.r };
             op2 = .{ .mem = Mir.MemoryRip.decode(mrip) };
         },
         else => unreachable, // TODO
@@ -495,7 +526,7 @@ fn mirCmovcc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             const extra = emit.mir.extraData(Mir.MemorySib, data.payload).data;
             const mnemonic = mnemonicFromConditionCode("cmov", data.cc);
             return emit.encode(mnemonic, .{
-                .op1 = .{ .reg = data.r1 },
+                .op1 = .{ .reg = data.r },
                 .op2 = .{ .mem = Mir.MemorySib.decode(extra) },
             });
         },
@@ -504,7 +535,7 @@ fn mirCmovcc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             const extra = emit.mir.extraData(Mir.MemoryRip, data.payload).data;
             const mnemonic = mnemonicFromConditionCode("cmov", data.cc);
             return emit.encode(mnemonic, .{
-                .op1 = .{ .reg = data.r1 },
+                .op1 = .{ .reg = data.r },
                 .op2 = .{ .mem = Mir.MemoryRip.decode(extra) },
             });
         },
@@ -519,7 +550,7 @@ fn mirSetcc(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             const data = emit.mir.instructions.items(.data)[inst].r_cc;
             const mnemonic = mnemonicFromConditionCode("set", data.cc);
             return emit.encode(mnemonic, .{
-                .op1 = .{ .reg = data.r1 },
+                .op1 = .{ .reg = data.r },
             });
         },
         .m_sib_cc => {
