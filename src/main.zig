@@ -1371,6 +1371,8 @@ fn buildOutputType(
                         linker_opt_bisect_limit = std.math.lossyCast(i32, parseIntSuffix(arg, "-fopt-bisect-limit=".len));
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
+                    } else if (mem.eql(u8, arg, "--dynamicbase")) {
+                        linker_dynamicbase = true;
                     } else if (mem.eql(u8, arg, "--no-dynamicbase")) {
                         linker_dynamicbase = false;
                     } else if (mem.eql(u8, arg, "--emit-relocs")) {
