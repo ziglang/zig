@@ -257,8 +257,8 @@ pub const table = &[_]Entry{
 
     .{ .cmpxchg, .mr, .rm8,  .r8,  .none, .none, &.{ 0x0f, 0xb0 }, 0, .none },
     .{ .cmpxchg, .mr, .rm8,  .r8,  .none, .none, &.{ 0x0f, 0xb0 }, 0, .rex  },
-    .{ .cmpxchg, .mr, .rm16, .r16, .none, .none, &.{ 0x0f, 0xb1 }, 0, .rex  },
-    .{ .cmpxchg, .mr, .rm32, .r32, .none, .none, &.{ 0x0f, 0xb1 }, 0, .rex  },
+    .{ .cmpxchg, .mr, .rm16, .r16, .none, .none, &.{ 0x0f, 0xb1 }, 0, .none },
+    .{ .cmpxchg, .mr, .rm32, .r32, .none, .none, &.{ 0x0f, 0xb1 }, 0, .none },
     .{ .cmpxchg, .mr, .rm64, .r64, .none, .none, &.{ 0x0f, 0xb1 }, 0, .long },
 
     .{ .cmpxchg8b , .m, .m64,  .none, .none, .none, &.{ 0x0f, 0xc7 }, 1, .none },
@@ -693,6 +693,13 @@ pub const table = &[_]Entry{
     .{ .shl, .mi, .rm32, .imm8,  .none, .none, &.{ 0xc1 }, 4, .none  },
     .{ .shl, .mi, .rm64, .imm8,  .none, .none, &.{ 0xc1 }, 4, .long  },
 
+    .{ .shld, .mri, .rm16, .r16, .imm8, .none, &.{ 0x0f, 0xa4 }, 0, .none },
+    .{ .shld, .mrc, .rm16, .r16, .cl,   .none, &.{ 0x0f, 0xa5 }, 0, .none },
+    .{ .shld, .mri, .rm32, .r32, .imm8, .none, &.{ 0x0f, 0xa4 }, 0, .none },
+    .{ .shld, .mri, .rm64, .r64, .imm8, .none, &.{ 0x0f, 0xa4 }, 0, .long },
+    .{ .shld, .mrc, .rm32, .r32, .cl,   .none, &.{ 0x0f, 0xa5 }, 0, .none },
+    .{ .shld, .mrc, .rm64, .r64, .cl,   .none, &.{ 0x0f, 0xa5 }, 0, .long },
+
     .{ .shr, .m1, .rm8,  .unity, .none, .none, &.{ 0xd0 }, 5, .none  },
     .{ .shr, .m1, .rm8,  .unity, .none, .none, &.{ 0xd0 }, 5, .rex   },
     .{ .shr, .m1, .rm16, .unity, .none, .none, &.{ 0xd1 }, 5, .none  },
@@ -708,6 +715,13 @@ pub const table = &[_]Entry{
     .{ .shr, .mi, .rm16, .imm8,  .none, .none, &.{ 0xc1 }, 5, .none  },
     .{ .shr, .mi, .rm32, .imm8,  .none, .none, &.{ 0xc1 }, 5, .none  },
     .{ .shr, .mi, .rm64, .imm8,  .none, .none, &.{ 0xc1 }, 5, .long  },
+
+    .{ .shrd, .mri, .rm16, .r16, .imm8, .none, &.{ 0x0f, 0xac }, 0, .none },
+    .{ .shrd, .mrc, .rm16, .r16, .cl,   .none, &.{ 0x0f, 0xad }, 0, .none },
+    .{ .shrd, .mri, .rm32, .r32, .imm8, .none, &.{ 0x0f, 0xac }, 0, .none },
+    .{ .shrd, .mri, .rm64, .r64, .imm8, .none, &.{ 0x0f, 0xac }, 0, .long },
+    .{ .shrd, .mrc, .rm32, .r32, .cl,   .none, &.{ 0x0f, 0xad }, 0, .none },
+    .{ .shrd, .mrc, .rm64, .r64, .cl,   .none, &.{ 0x0f, 0xad }, 0, .long },
 
     .{ .stos,  .np, .m8,   .none, .none, .none, &.{ 0xaa }, 0, .none  },
     .{ .stos,  .np, .m16,  .none, .none, .none, &.{ 0xab }, 0, .none  },
