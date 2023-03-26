@@ -60,11 +60,9 @@ pub fn build(b: *std.Build) void {
     });
     const exe_tests_run = b.addRunArtifact(exe_tests);
 
-
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&exe_tests_run.step);
-
 }
