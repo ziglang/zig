@@ -343,18 +343,12 @@ pub const Inst = struct {
         /// Memory (RIP), register, register operands.
         /// Uses `rrx` payload with extra data of type `MemoryRip`.
         mrr_rip,
-        /// Memory (SIB), register, immediate (unsigned) operands.
+        /// Memory (SIB), register, immediate (byte) operands.
         /// Uses `rix` payload with extra data of type `MemorySib`.
-        mri_sib_u,
-        /// Memory (RIP), register, immediate (unsigned) operands.
+        mri_sib,
+        /// Memory (RIP), register, immediate (byte) operands.
         /// Uses `rix` payload with extra data of type `MemoryRip`.
-        mri_rip_u,
-        /// Memory (SIB), register, immediate (signed) operands.
-        /// Uses `rix` payload with extra data of type `MemorySib`.
-        mri_sib_s,
-        /// Memory (RIP), register, immediate (signed) operands.
-        /// Uses `rix` payload with extra data of type `MemoryRip`.
-        mri_rip_s,
+        mri_rip,
         /// Rax, Memory moffs.
         /// Uses `payload` with extra data of type `MemoryMoffs`.
         rax_moffs,
@@ -481,10 +475,10 @@ pub const Inst = struct {
             r2: Register,
             payload: u32,
         },
-        /// Register, immediate, followed by Custom payload found in extra.
+        /// Register, byte immediate, followed by Custom payload found in extra.
         rix: struct {
             r: Register,
-            i: u32,
+            i: u8,
             payload: u32,
         },
         /// String instruction prefix and width.

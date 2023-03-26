@@ -668,20 +668,11 @@ fn asmMemoryRegisterImmediate(
     _ = try self.addInst(.{
         .tag = tag,
         .ops = switch (m) {
-            .sib => switch (imm) {
-                .signed => .mri_sib_s,
-                .unsigned => .mri_sib_u,
-            },
-            .rip => switch (imm) {
-                .signed => .mri_rip_s,
-                .unsigned => .mri_sib_u,
-            },
+            .sib => .mri_sib,
+            .rip => .mri_rip,
             else => unreachable,
         },
-        .data = .{ .rix = .{ .r = reg, .i = switch (imm) {
-            .signed => |s| @bitCast(u32, s),
-            .unsigned => |u| @intCast(u32, u),
-        }, .payload = switch (m) {
+        .data = .{ .rix = .{ .r = reg, .i = @intCast(u8, imm.unsigned), .payload = switch (m) {
             .sib => try self.addExtra(Mir.MemorySib.encode(m)),
             .rip => try self.addExtra(Mir.MemoryRip.encode(m)),
             else => unreachable,

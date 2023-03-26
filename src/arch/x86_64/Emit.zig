@@ -359,27 +359,17 @@ fn mirEncodeGeneric(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerE
             op2 = .{ .reg = data.rrx.r1 };
             op2 = .{ .reg = data.rrx.r2 };
         },
-        .mri_sib_u, .mri_sib_s => {
+        .mri_sib => {
             const msib = emit.mir.extraData(Mir.MemorySib, data.rix.payload).data;
-            const imm = switch (ops) {
-                .mri_sib_s => Immediate.s(@bitCast(i32, data.rix.i)),
-                .mri_sib_u, .lock_mi_rip_u => Immediate.u(data.rix.i),
-                else => unreachable,
-            };
             op1 = .{ .mem = Mir.MemorySib.decode(msib) };
             op2 = .{ .reg = data.rix.r };
-            op3 = .{ .imm = imm };
+            op3 = .{ .imm = Immediate.u(data.rix.i) };
         },
-        .mri_rip_u, .mri_rip_s => {
+        .mri_rip => {
             const mrip = emit.mir.extraData(Mir.MemoryRip, data.rix.payload).data;
-            const imm = switch (ops) {
-                .mri_rip_s => Immediate.s(@bitCast(i32, data.rix.i)),
-                .mri_rip_u, .lock_mi_rip_u => Immediate.u(data.rix.i),
-                else => unreachable,
-            };
             op1 = .{ .mem = Mir.MemoryRip.decode(mrip) };
             op2 = .{ .reg = data.rix.r };
-            op3 = .{ .imm = imm };
+            op3 = .{ .imm = Immediate.u(data.rix.i) };
         },
         else => return emit.fail("TODO handle generic encoding: {s}, {s}", .{
             @tagName(mnemonic),
