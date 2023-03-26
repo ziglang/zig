@@ -620,11 +620,12 @@ struct kqueue_dyninfo {
 };
 
 /* keep in sync with KQ_* in sys/eventvar.h */
-#define PROC_KQUEUE_SELECT      0x0001
-#define PROC_KQUEUE_SLEEP       0x0002
-#define PROC_KQUEUE_32          0x0008
-#define PROC_KQUEUE_64          0x0010
-#define PROC_KQUEUE_QOS         0x0020
+#define PROC_KQUEUE_SELECT      0x01
+#define PROC_KQUEUE_SLEEP       0x02
+#define PROC_KQUEUE_32          0x08
+#define PROC_KQUEUE_64          0x10
+#define PROC_KQUEUE_QOS         0x20
+
 
 struct kqueue_fdinfo {
 	struct proc_fileinfo    pfi;

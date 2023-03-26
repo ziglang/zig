@@ -39,8 +39,6 @@
 #ifndef _ARM_LIMITS_H_
 #define _ARM_LIMITS_H_
 
-#if defined (__arm__) || defined (__arm64__)
-
 #include <sys/cdefs.h>
 #include <arm/_limits.h>
 
@@ -108,7 +106,5 @@
 
 #endif /* (!_POSIX_C_SOURCE && !_XOPEN_SOURCE) || _DARWIN_C_SOURCE */
 #endif /* !_ANSI_SOURCE */
-
-#endif /* defined (__arm__) || defined (__arm64__) */
 
 #endif /* _ARM_LIMITS_H_ */

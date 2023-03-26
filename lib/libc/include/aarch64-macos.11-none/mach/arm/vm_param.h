@@ -36,8 +36,6 @@
 #ifndef _MACH_ARM_VM_PARAM_H_
 #define _MACH_ARM_VM_PARAM_H_
 
-#if defined (__arm__) || defined (__arm64__)
-
 
 #if !defined (KERNEL) && !defined (__ASSEMBLER__)
 #include <mach/vm_page_size.h>
@@ -105,7 +103,5 @@
 #endif  /* !__ASSEMBLER__ */
 
 #define SWI_SYSCALL     0x80
-
-#endif /* defined (__arm__) || defined (__arm64__) */
 
 #endif  /* _MACH_ARM_VM_PARAM_H_ */

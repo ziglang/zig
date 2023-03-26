@@ -66,8 +66,6 @@
 #ifndef _I386__ENDIAN_H_
 #define _I386__ENDIAN_H_
 
-#if defined (__i386__) || defined (__x86_64__)
-
 #include <sys/cdefs.h>
 /*
  * Define _NOQUAD if the compiler does NOT support 64-bit integers.
@@ -101,5 +99,4 @@
 #include <sys/_endian.h>
 
 #endif /* defined(KERNEL) || (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)) */
-#endif /* defined (__i386__) || defined (__x86_64__) */
 #endif /* !_I386__ENDIAN_H_ */
