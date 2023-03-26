@@ -33,15 +33,11 @@
 #ifndef _I386_SIGNAL_H_
 #define _I386_SIGNAL_H_ 1
 
-#if defined (__i386__) || defined (__x86_64__)
-
 #include <sys/cdefs.h>
 
 #ifndef _ANSI_SOURCE
 typedef int sig_atomic_t;
 
 #endif /* ! _ANSI_SOURCE */
-
-#endif /* defined (__i386__) || defined (__x86_64__) */
 
 #endif  /* _I386_SIGNAL_H_ */

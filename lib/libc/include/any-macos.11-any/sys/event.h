@@ -58,9 +58,7 @@
 
 #include <machine/types.h>
 #include <sys/cdefs.h>
-#include <sys/queue.h>
 #include <stdint.h>
-#include <sys/types.h>
 
 /*
  * Filter types
@@ -368,9 +366,12 @@ enum {
 
 
 /* Temporay solution for BootX to use inode.h till kqueue moves to vfs layer */
+#include <sys/queue.h>
 struct knote;
 SLIST_HEAD(klist, knote);
 
+
+#include <sys/types.h>
 
 struct timespec;
 

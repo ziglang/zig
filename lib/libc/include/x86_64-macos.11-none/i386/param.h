@@ -72,8 +72,6 @@
 #ifndef _I386_PARAM_H_
 #define _I386_PARAM_H_
 
-#if defined (__i386__) || defined (__x86_64__)
-
 #include <i386/_param.h>
 
 /*
@@ -169,7 +167,5 @@
 #else   /* defined(KERNEL) || defined(STANDALONE) */
 #define DELAY(n)        { int N = (n); while (--N > 0); }
 #endif  /* defined(KERNEL) || defined(STANDALONE) */
-
-#endif /* defined (__i386__) || defined (__x86_64__) */
 
 #endif /* _I386_PARAM_H_ */

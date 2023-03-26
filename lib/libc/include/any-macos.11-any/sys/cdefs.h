@@ -152,16 +152,8 @@
 #endif /* !NO_ANSI_KEYWORDS */
 #endif /* !(__STDC__ || __cplusplus) */
 
-/*
- * __pure2 can be used for functions that are only a function of their scalar
- * arguments (meaning they can't dereference pointers).
- *
- * __stateful_pure can be used for functions that have no side effects,
- * but depend on the state of the memory.
- */
 #define __dead2         __attribute__((__noreturn__))
 #define __pure2         __attribute__((__const__))
-#define __stateful_pure __attribute__((__pure__))
 
 /* __unused denotes variables and functions that may not be used, preventing
  * the compiler from warning about it if not used.
@@ -187,9 +179,9 @@
  * __exported_push/_exported_pop are pragmas used to delimit a range of
  *  symbols that should be exported even when symbols are hidden by default.
  */
-#define __exported      __attribute__((__visibility__("default")))
-#define __exported_push _Pragma("GCC visibility push(default)")
-#define __exported_pop  _Pragma("GCC visibility pop")
+#define __exported                      __attribute__((__visibility__("default")))
+#define __exported_push         _Pragma("GCC visibility push(default)")
+#define __exported_pop          _Pragma("GCC visibility pop")
 
 /* __deprecated causes the compiler to produce a warning when encountering
  * code using the deprecated functionality.
@@ -825,7 +817,6 @@
 #define __XNU_PRIVATE_EXTERN __attribute__((visibility("hidden")))
 #endif
 
-
 /*
  * Architecture validation for current SDK
  */
@@ -881,12 +872,5 @@
 #define __options_closed_decl(_name, _type, ...) \
 	        typedef _type _name; enum __VA_ARGS__ __enum_closed __enum_options
 #endif
-
-
-
-#define __kernel_ptr_semantics
-#define __kernel_data_semantics
-#define __kernel_dual_semantics
-
 
 #endif /* !_CDEFS_H_ */

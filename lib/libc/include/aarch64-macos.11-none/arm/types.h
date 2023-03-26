@@ -39,11 +39,8 @@
  *	@(#)types.h	8.3 (Berkeley) 1/5/94
  */
 
-#ifndef _ARM_MACHTYPES_H_
-#define _ARM_MACHTYPES_H_
+#ifndef _MACHTYPES_H_
 #define _MACHTYPES_H_
-
-#if defined (__arm__) || defined (__arm64__)
 
 #ifndef __ASSEMBLER__
 #include <arm/_types.h>
@@ -107,5 +104,4 @@ typedef u_int64_t               syscall_arg_t;
 #endif
 
 #endif /* __ASSEMBLER__ */
-#endif /* defined (__arm__) || defined (__arm64__) */
-#endif  /* _ARM_MACHTYPES_H_ */
+#endif  /* _MACHTYPES_H_ */
