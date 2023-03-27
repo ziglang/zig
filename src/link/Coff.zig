@@ -1526,7 +1526,8 @@ pub fn getDeclVAddr(self: *Coff, decl_index: Module.Decl.Index, reloc_info: link
     return 0;
 }
 
-pub fn getGlobalSymbol(self: *Coff, name: []const u8) !u32 {
+pub fn getGlobalSymbol(self: *Coff, name: []const u8, lib_name: ?[]const u8) !u32 {
+    _ = lib_name;
     const gop = try self.getOrPutGlobalPtr(name);
     const global_index = self.getGlobalIndex(name).?;
 

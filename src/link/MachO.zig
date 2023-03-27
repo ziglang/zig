@@ -3202,7 +3202,8 @@ fn insertSection(self: *MachO, segment_index: u8, header: macho.section_64) !u8 
     return insertion_index;
 }
 
-pub fn getGlobalSymbol(self: *MachO, name: []const u8) !u32 {
+pub fn getGlobalSymbol(self: *MachO, name: []const u8, lib_name: ?[]const u8) !u32 {
+    _ = lib_name;
     const gpa = self.base.allocator;
 
     const sym_name = try std.fmt.allocPrint(gpa, "_{s}", .{name});
