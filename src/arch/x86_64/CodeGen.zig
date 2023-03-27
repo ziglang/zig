@@ -341,19 +341,22 @@ pub fn generate(
     defer mir.deinit(bin_file.allocator);
 
     var emit = Emit{
-        .mir = mir,
+        .lower = .{
+            .allocator = bin_file.allocator,
+            .mir = mir,
+            .target = &bin_file.options.target,
+            .src_loc = src_loc,
+        },
         .bin_file = bin_file,
         .debug_output = debug_output,
-        .target = &bin_file.options.target,
-        .src_loc = src_loc,
         .code = code,
         .prev_di_pc = 0,
         .prev_di_line = module_fn.lbrace_line,
         .prev_di_column = module_fn.lbrace_column,
     };
     defer emit.deinit();
-    emit.lowerMir() catch |err| switch (err) {
-        error.EmitFail => return Result{ .fail = emit.err_msg.? },
+    emit.emitMir() catch |err| switch (err) {
+        error.LowerFail, error.EmitFail => return Result{ .fail = emit.lower.err_msg.? },
         error.InvalidInstruction, error.CannotEncode => |e| {
             const msg = switch (e) {
                 error.InvalidInstruction => "CodeGen failed to find a viable instruction.",
@@ -7070,16 +7073,10 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     if (reg.to64() == .rax) {
                         // If this is RAX, we can use a direct load.
                         // Otherwise, we need to load the address, then indirectly load the value.
-                        var moffs: Mir.MemoryMoffs = .{
-                            .seg = @enumToInt(Register.ds),
-                            .msb = undefined,
-                            .lsb = undefined,
-                        };
-                        moffs.encodeOffset(x);
                         _ = try self.addInst(.{
                             .tag = .mov_moffs,
                             .ops = .rax_moffs,
-                            .data = .{ .payload = try self.addExtra(moffs) },
+                            .data = .{ .payload = try self.addExtra(Mir.MemoryMoffs.encode(.ds, x)) },
                         });
                     } else {
                         // Rather than duplicate the logic used for the move, we just use a self-call with a new MCValue.
