@@ -4010,9 +4010,6 @@ fn genUnOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValue
         .register_overflow => unreachable,
         .register => |dst_reg| try self.asmRegister(mir_tag, registerAlias(dst_reg, abi_size)),
         .ptr_stack_offset, .stack_offset => |off| {
-            if (off > math.maxInt(i32)) {
-                return self.fail("stack offset too large", .{});
-            }
             if (abi_size > 8) {
                 return self.fail("TODO implement {} for stack dst with large ABI", .{mir_tag});
             }
@@ -4454,9 +4451,6 @@ fn genBinOp(
     if (lhs_ty.zigTypeTag() == .Vector) {
         return self.fail("TODO implement genBinOp for {}", .{lhs_ty.fmt(self.bin_file.options.module.?)});
     }
-    if (lhs_ty.abiSize(self.target.*) > 8) {
-        return self.fail("TODO implement genBinOp for {}", .{lhs_ty.fmt(self.bin_file.options.module.?)});
-    }
 
     switch (lhs) {
         .immediate => |imm| switch (imm) {
@@ -4686,7 +4680,6 @@ fn genBinOp(
                         const addr_reg = (try self.register_manager.allocReg(null, gp)).to64();
                         const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
                         defer self.register_manager.unlockReg(addr_reg_lock);
-
                         try self.loadMemPtrIntoRegister(addr_reg, Type.usize, mat_src_mcv);
 
                         // To get the actual address of the value we want to modify we
@@ -4801,9 +4794,6 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                     return self.genBinOpMir(mir_tag, ty, dst_mcv, .{ .register = reg });
                 },
                 .stack_offset => |off| {
-                    if (off > math.maxInt(i32)) {
-                        return self.fail("stack offset too large", .{});
-                    }
                     try self.asmRegisterMemory(
                         mir_tag,
                         registerAlias(dst_reg, abi_size),
@@ -4812,78 +4802,155 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                 },
             }
         },
-        .ptr_stack_offset, .stack_offset => |off| {
-            if (off > math.maxInt(i32)) {
-                return self.fail("stack offset too large", .{});
-            }
-            if (abi_size > 8) {
-                return self.fail("TODO implement {} for stack dst with large ABI", .{mir_tag});
-            }
+        .ptr_stack_offset, .stack_offset => |dst_off| {
+            const src: ?struct {
+                limb_reg: Register,
+                limb_lock: RegisterLock,
+                addr_reg: Register,
+                addr_lock: RegisterLock,
+            } = switch (src_mcv) {
+                else => null,
+                .memory, .linker_load => addr: {
+                    const src_limb_reg = try self.register_manager.allocReg(null, gp);
+                    const src_limb_lock = self.register_manager.lockRegAssumeUnused(src_limb_reg);
+                    errdefer self.register_manager.unlockReg(src_limb_lock);
 
-            switch (src_mcv) {
-                .none => unreachable,
-                .undef => unreachable,
-                .dead, .unreach => unreachable,
-                .register_overflow => unreachable,
-                .register => |src_reg| {
-                    try self.asmMemoryRegister(mir_tag, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
-                        .base = .rbp,
-                        .disp = -off,
-                    }), registerAlias(src_reg, abi_size));
+                    const src_addr_reg = try self.register_manager.allocReg(null, gp);
+                    const src_addr_lock = self.register_manager.lockRegAssumeUnused(src_addr_reg);
+                    errdefer self.register_manager.unlockReg(src_addr_lock);
+
+                    try self.loadMemPtrIntoRegister(src_addr_reg, Type.usize, src_mcv);
+                    // To get the actual address of the value we want to modify we
+                    // we have to go through the GOT
+                    try self.asmRegisterMemory(
+                        .mov,
+                        src_addr_reg,
+                        Memory.sib(.qword, .{ .base = src_addr_reg }),
+                    );
+
+                    break :addr .{
+                        .addr_reg = src_addr_reg,
+                        .addr_lock = src_addr_lock,
+                        .limb_reg = src_limb_reg,
+                        .limb_lock = src_limb_lock,
+                    };
                 },
-                .immediate => |imm| {
-                    switch (self.regBitSize(ty)) {
-                        8, 16, 32 => {
-                            try self.asmMemoryImmediate(
-                                mir_tag,
-                                Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
-                                    .base = .rbp,
-                                    .disp = -off,
-                                }),
-                                if (math.cast(i32, @bitCast(i64, imm))) |small|
-                                    Immediate.s(small)
-                                else
-                                    Immediate.u(@intCast(u32, imm)),
-                            );
-                        },
-                        64 => {
-                            if (math.cast(i32, @bitCast(i64, imm))) |small| {
+            };
+            defer if (src) |locks| {
+                self.register_manager.unlockReg(locks.limb_lock);
+                self.register_manager.unlockReg(locks.addr_lock);
+            };
+
+            const ty_signedness =
+                if (ty.isAbiInt()) ty.intInfo(self.target.*).signedness else .unsigned;
+            const limb_ty = if (abi_size <= 8) ty else switch (ty_signedness) {
+                .signed => Type.usize,
+                .unsigned => Type.isize,
+            };
+            const limb_abi_size = @min(abi_size, 8);
+            var off: i32 = 0;
+            while (off < abi_size) : (off += 8) {
+                const mir_limb_tag = switch (off) {
+                    0 => mir_tag,
+                    else => switch (mir_tag) {
+                        .add => .adc,
+                        .sub => .sbb,
+                        .@"or", .@"and", .xor => mir_tag,
+                        else => return self.fail("TODO genBinOpMir implement large ABI for {s}", .{
+                            @tagName(mir_tag),
+                        }),
+                    },
+                };
+                const dst_limb_mem = Memory.sib(
+                    Memory.PtrSize.fromSize(limb_abi_size),
+                    .{ .base = .rbp, .disp = off - dst_off },
+                );
+                switch (src_mcv) {
+                    .none => unreachable,
+                    .undef => unreachable,
+                    .dead, .unreach => unreachable,
+                    .register_overflow => unreachable,
+                    .register => |src_reg| {
+                        assert(off == 0);
+                        try self.asmMemoryRegister(
+                            mir_limb_tag,
+                            dst_limb_mem,
+                            registerAlias(src_reg, limb_abi_size),
+                        );
+                    },
+                    .immediate => |src_imm| {
+                        const imm = if (off == 0) src_imm else switch (ty_signedness) {
+                            .signed => @bitCast(u64, @bitCast(i64, src_imm) >> 63),
+                            .unsigned => 0,
+                        };
+                        switch (self.regBitSize(limb_ty)) {
+                            8, 16, 32 => {
                                 try self.asmMemoryImmediate(
-                                    mir_tag,
-                                    Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
-                                        .base = .rbp,
-                                        .disp = -off,
-                                    }),
-                                    Immediate.s(small),
+                                    mir_limb_tag,
+                                    dst_limb_mem,
+                                    if (math.cast(i32, @bitCast(i64, imm))) |small|
+                                        Immediate.s(small)
+                                    else
+                                        Immediate.u(@intCast(u32, imm)),
                                 );
-                            } else {
-                                try self.asmMemoryRegister(
-                                    mir_tag,
-                                    Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
-                                        .base = .rbp,
-                                        .disp = -off,
-                                    }),
-                                    registerAlias(try self.copyToTmpRegister(ty, src_mcv), abi_size),
-                                );
-                            }
-                        },
-                        else => return self.fail("TODO genBinOpMir implement large immediate ABI", .{}),
-                    }
-                },
-                .memory,
-                .linker_load,
-                .stack_offset,
-                .ptr_stack_offset,
-                .eflags,
-                => {
-                    assert(abi_size <= 8);
+                            },
+                            64 => {
+                                if (math.cast(i32, @bitCast(i64, imm))) |small| {
+                                    try self.asmMemoryImmediate(
+                                        mir_limb_tag,
+                                        dst_limb_mem,
+                                        Immediate.s(small),
+                                    );
+                                } else {
+                                    try self.asmMemoryRegister(
+                                        mir_limb_tag,
+                                        dst_limb_mem,
+                                        registerAlias(
+                                            try self.copyToTmpRegister(limb_ty, .{ .immediate = imm }),
+                                            limb_abi_size,
+                                        ),
+                                    );
+                                }
+                            },
+                            else => unreachable,
+                        }
+                    },
+                    .memory, .linker_load => {
+                        try self.asmRegisterMemory(
+                            .mov,
+                            registerAlias(src.?.limb_reg, limb_abi_size),
+                            Memory.sib(
+                                Memory.PtrSize.fromSize(limb_abi_size),
+                                .{ .base = src.?.addr_reg, .disp = off },
+                            ),
+                        );
+                        try self.asmMemoryRegister(
+                            mir_limb_tag,
+                            dst_limb_mem,
+                            registerAlias(src.?.limb_reg, limb_abi_size),
+                        );
+                    },
+                    .stack_offset, .ptr_stack_offset, .eflags => {
+                        const src_limb_reg = try self.copyToTmpRegister(limb_ty, switch (src_mcv) {
+                            .stack_offset => |src_off| .{ .stack_offset = src_off - off },
+                            .ptr_stack_offset,
+                            .eflags,
+                            => off: {
+                                assert(off == 0);
+                                break :off src_mcv;
+                            },
+                            else => unreachable,
+                        });
+                        const src_limb_lock = self.register_manager.lockReg(src_limb_reg);
+                        defer if (src_limb_lock) |lock| self.register_manager.unlockReg(lock);
 
-                    const tmp_reg = try self.copyToTmpRegister(ty, src_mcv);
-                    const tmp_lock = self.register_manager.lockReg(tmp_reg);
-                    defer if (tmp_lock) |lock| self.register_manager.unlockReg(lock);
-
-                    return self.genBinOpMir(mir_tag, ty, dst_mcv, .{ .register = tmp_reg });
-                },
+                        try self.asmMemoryRegister(
+                            mir_limb_tag,
+                            dst_limb_mem,
+                            registerAlias(src_limb_reg, limb_abi_size),
+                        );
+                    },
+                }
             }
         },
         .memory => {
@@ -6735,10 +6802,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
             }
         },
         .register => |reg| {
-            if (stack_offset > math.maxInt(i32)) {
-                return self.fail("stack offset too large", .{});
-            }
-
             const base_reg = opts.dest_stack_base orelse .rbp;
 
             switch (ty.zigTypeTag()) {
@@ -6973,13 +7036,11 @@ fn genInlineMemset(
 
 fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
     const abi_size = @intCast(u32, ty.abiSize(self.target.*));
+    if (abi_size > 8) return self.fail("genSetReg called with a value larger than one register", .{});
     switch (mcv) {
         .dead => unreachable,
         .register_overflow => unreachable,
         .ptr_stack_offset => |off| {
-            if (off < std.math.minInt(i32) or off > std.math.maxInt(i32)) {
-                return self.fail("stack offset too large", .{});
-            }
             try self.asmRegisterMemory(
                 .lea,
                 registerAlias(reg, abi_size),
@@ -7158,10 +7219,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             },
         },
         .stack_offset => |off| {
-            if (off < std.math.minInt(i32) or off > std.math.maxInt(i32)) {
-                return self.fail("stack offset too large", .{});
-            }
-
             switch (ty.zigTypeTag()) {
                 .Int => switch (ty.intInfo(self.target.*).signedness) {
                     .signed => {
