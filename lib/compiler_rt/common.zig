@@ -84,7 +84,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?
 pub const F16T = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be, .aarch64_32 => f16,
     .riscv64 => if (builtin.zig_backend == .stage1) u16 else f16,
-    .x86, .x86_64 => f16,
+    .x86, .x86_64 => if (builtin.target.isDarwin()) u16 else f16,
     else => u16,
 };
 
