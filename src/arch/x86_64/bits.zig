@@ -515,7 +515,7 @@ pub const Memory = union(enum) {
         return switch (mem) {
             .rip => |r| r.ptr_size.bitSize(),
             .sib => |s| s.ptr_size.bitSize(),
-            .moffs => unreachable,
+            .moffs => 64,
         };
     }
 };

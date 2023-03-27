@@ -655,16 +655,19 @@ pub const MemoryMoffs = struct {
     msb: u32,
     lsb: u32,
 
-    pub fn encodeOffset(moffs: *MemoryMoffs, v: u64) void {
-        moffs.msb = @truncate(u32, v >> 32);
-        moffs.lsb = @truncate(u32, v);
+    pub fn encode(seg: Register, offset: u64) MemoryMoffs {
+        return .{
+            .seg = @enumToInt(seg),
+            .msb = @truncate(u32, offset >> 32),
+            .lsb = @truncate(u32, offset >> 0),
+        };
     }
 
-    pub fn decodeOffset(moffs: *const MemoryMoffs) u64 {
-        var res: u64 = 0;
-        res |= (@intCast(u64, moffs.msb) << 32);
-        res |= @intCast(u64, moffs.lsb);
-        return res;
+    pub fn decode(moffs: MemoryMoffs) Memory {
+        return .{ .moffs = .{
+            .seg = @intToEnum(Register, moffs.seg),
+            .offset = @as(u64, moffs.msb) << 32 | @as(u64, moffs.lsb) << 0,
+        } };
     }
 };
 
