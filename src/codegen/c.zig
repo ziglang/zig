@@ -751,8 +751,8 @@ pub const DeclGen = struct {
                 .Int, .Enum, .ErrorSet => return writer.print("{x}", .{try dg.fmtIntLiteral(ty, val, location)}),
                 .Float => {
                     const bits = ty.floatBits(target);
-                    var int_pl = Type.Payload.Bits{ .base = .{ .tag = .int_signed }, .data = bits };
-                    const int_ty = Type.initPayload(&int_pl.base);
+                    var repr_pl = Type.Payload.Bits{ .base = .{ .tag = .int_unsigned }, .data = bits };
+                    const repr_ty = Type.initPayload(&repr_pl.base);
 
                     try writer.writeAll("zig_cast_");
                     try dg.renderTypeForBuiltinFnName(writer, ty);
@@ -768,7 +768,7 @@ pub const DeclGen = struct {
                         else => unreachable,
                     }
                     try writer.writeAll(", ");
-                    try dg.renderValue(writer, int_ty, Value.undef, .FunctionArgument);
+                    try dg.renderValue(writer, repr_ty, Value.undef, .FunctionArgument);
                     return writer.writeByte(')');
                 },
                 .Pointer => if (ty.isSlice()) {
@@ -935,31 +935,33 @@ pub const DeclGen = struct {
                 const bits = ty.floatBits(target);
                 const f128_val = val.toFloat(f128);
 
-                var int_ty_pl = Type.Payload.Bits{ .base = .{ .tag = .int_signed }, .data = bits };
-                const int_ty = Type.initPayload(&int_ty_pl.base);
+                var repr_ty_pl = Type.Payload.Bits{ .base = .{ .tag = .int_unsigned }, .data = bits };
+                const repr_ty = Type.initPayload(&repr_ty_pl.base);
 
                 assert(bits <= 128);
-                var int_val_limbs: [BigInt.calcTwosCompLimbCount(128)]BigIntLimb = undefined;
-                var int_val_big = BigInt.Mutable{
-                    .limbs = &int_val_limbs,
+                var repr_val_limbs: [BigInt.calcTwosCompLimbCount(128)]BigIntLimb = undefined;
+                var repr_val_big = BigInt.Mutable{
+                    .limbs = &repr_val_limbs,
                     .len = undefined,
                     .positive = undefined,
                 };
 
                 switch (bits) {
-                    16 => int_val_big.set(@bitCast(i16, val.toFloat(f16))),
-                    32 => int_val_big.set(@bitCast(i32, val.toFloat(f32))),
-                    64 => int_val_big.set(@bitCast(i64, val.toFloat(f64))),
-                    80 => int_val_big.set(@bitCast(i80, val.toFloat(f80))),
-                    128 => int_val_big.set(@bitCast(i128, f128_val)),
+                    16 => repr_val_big.set(@bitCast(u16, val.toFloat(f16))),
+                    32 => repr_val_big.set(@bitCast(u32, val.toFloat(f32))),
+                    64 => repr_val_big.set(@bitCast(u64, val.toFloat(f64))),
+                    80 => repr_val_big.set(@bitCast(u80, val.toFloat(f80))),
+                    128 => repr_val_big.set(@bitCast(u128, f128_val)),
                     else => unreachable,
                 }
 
-                var int_val_pl = Value.Payload.BigInt{
-                    .base = .{ .tag = if (int_val_big.positive) .int_big_positive else .int_big_negative },
-                    .data = int_val_big.limbs[0..int_val_big.len],
+                var repr_val_pl = Value.Payload.BigInt{
+                    .base = .{
+                        .tag = if (repr_val_big.positive) .int_big_positive else .int_big_negative,
+                    },
+                    .data = repr_val_big.limbs[0..repr_val_big.len],
                 };
-                const int_val = Value.initPayload(&int_val_pl.base);
+                const repr_val = Value.initPayload(&repr_val_pl.base);
 
                 try writer.writeAll("zig_cast_");
                 try dg.renderTypeForBuiltinFnName(writer, ty);
@@ -1023,7 +1025,7 @@ pub const DeclGen = struct {
                     try writer.writeAll(", ");
                     empty = false;
                 }
-                try writer.print("{x}", .{try dg.fmtIntLiteral(int_ty, int_val, location)});
+                try writer.print("{x}", .{try dg.fmtIntLiteral(repr_ty, repr_val, location)});
                 if (!empty) try writer.writeByte(')');
                 return;
             },
