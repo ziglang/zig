@@ -64,6 +64,8 @@ globals_free_list: std.ArrayListUnmanaged(u32) = .{},
 strtab: StringTable(.strtab) = .{},
 strtab_offset: ?u32 = null,
 
+temp_strtab: StringTable(.temp_strtab) = .{},
+
 got_entries: std.ArrayListUnmanaged(Entry) = .{},
 got_entries_free_list: std.ArrayListUnmanaged(u32) = .{},
 got_entries_table: std.AutoHashMapUnmanaged(SymbolWithLoc, u32) = .{},
@@ -309,6 +311,7 @@ pub fn deinit(self: *Coff) void {
     self.locals_free_list.deinit(gpa);
     self.globals_free_list.deinit(gpa);
     self.strtab.deinit(gpa);
+    self.temp_strtab.deinit(gpa);
     self.got_entries.deinit(gpa);
     self.got_entries_free_list.deinit(gpa);
     self.got_entries_table.deinit(gpa);
@@ -357,6 +360,8 @@ fn populateMissingMetadata(self: *Coff) !void {
 
     try self.strtab.buffer.ensureUnusedCapacity(gpa, @sizeOf(u32));
     self.strtab.buffer.appendNTimesAssumeCapacity(0, @sizeOf(u32));
+
+    try self.temp_strtab.buffer.append(gpa, 0);
 
     // Index 0 is always a null symbol.
     try self.locals.append(gpa, .{
@@ -1526,8 +1531,7 @@ pub fn getDeclVAddr(self: *Coff, decl_index: Module.Decl.Index, reloc_info: link
     return 0;
 }
 
-pub fn getGlobalSymbol(self: *Coff, name: []const u8, lib_name: ?[]const u8) !u32 {
-    _ = lib_name;
+pub fn getGlobalSymbol(self: *Coff, name: []const u8, lib_name_name: ?[]const u8) !u32 {
     const gop = try self.getOrPutGlobalPtr(name);
     const global_index = self.getGlobalIndex(name).?;
 
@@ -1543,6 +1547,12 @@ pub fn getGlobalSymbol(self: *Coff, name: []const u8, lib_name: ?[]const u8) !u3
     const sym = self.getSymbolPtr(sym_loc);
     try self.setSymbolName(sym, name);
     sym.storage_class = .EXTERNAL;
+
+    if (lib_name_name) |lib_name| {
+        // We repurpose the 'value' of the Symbol struct to store an offset into
+        // temporary string table where we will store the library name hint.
+        sym.value = try self.temp_strtab.insert(gpa, lib_name);
+    }
 
     try self.unresolved.putNoClobber(gpa, global_index, true);
 
