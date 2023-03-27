@@ -72,6 +72,7 @@ pub const FormatOptions = struct {
 /// ```
 /// with `?` being the type formatted, this function will be called instead of the default implementation.
 /// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
+/// The `any` specifier forces using the default format, even if the user type has a `format` function.
 ///
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
 ///
@@ -478,7 +479,7 @@ pub fn formatType(
         return formatAddress(value, options, writer);
     }
 
-    if (comptime std.meta.trait.hasFn("format")(T)) {
+    if (comptime std.meta.trait.hasFn("format")(T) and !std.mem.eql(u8, fmt, ANY)) {
         return try value.format(actual_fmt, options, writer);
     }
 
@@ -2450,6 +2451,50 @@ test "custom" {
     // same thing but not passing a pointer
     try expectFmt("point: (10.200,2.220)\n", "point: {}\n", .{value});
     try expectFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{value});
+}
+
+test "custom with default fallback" {
+    const Rgb = struct {
+        const Self = @This();
+        r: u8,
+        g: u8,
+        b: u8,
+
+        pub fn format(
+            self: Self,
+            comptime fmt: []const u8,
+            options: FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = fmt;
+            _ = options;
+            if (self.r == 0 and self.g == 0 and self.b == 0) {
+                return std.fmt.format(writer, "black", .{});
+            } else if (self.r == 255 and self.g == 255 and self.b == 255) {
+                return std.fmt.format(writer, "white", .{});
+            } else {
+                return std.fmt.format(writer, "{any}", .{self});
+            }
+        }
+    };
+
+    try expectFmt("color: black\n", "color: {}\n", .{Rgb{ .r = 0, .g = 0, .b = 0 }});
+    try expectFmt("color: white\n", "color: {}\n", .{Rgb{ .r = 255, .g = 255, .b = 255 }});
+    try expectFmt(
+        "color: fmt.test.custom with default fallback.Rgb{ .r = 80, .g = 120, .b = 4 }\n",
+        "color: {}\n",
+        .{Rgb{ .r = 80, .g = 120, .b = 4 }},
+    );
+    try expectFmt(
+        "color: fmt.test.custom with default fallback.Rgb{ .r = 0, .g = 0, .b = 0 }\n",
+        "color: {any}\n",
+        .{Rgb{ .r = 0, .g = 0, .b = 0 }},
+    );
+    try expectFmt(
+        "color: fmt.test.custom with default fallback.Rgb{ .r = 255, .g = 255, .b = 255 }\n",
+        "color: {any}\n",
+        .{Rgb{ .r = 255, .g = 255, .b = 255 }},
+    );
 }
 
 test "struct" {
