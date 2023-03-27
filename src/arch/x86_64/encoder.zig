@@ -54,18 +54,17 @@ pub const Instruction = struct {
             };
         }
 
-        pub fn fmtPrint(op: Operand, enc_op: Encoding.Op, writer: anytype) !void {
+        pub fn fmtPrint(op: Operand, enc_op: Encoding.Op, writer: anytype) @TypeOf(writer).Error!void {
             switch (op) {
                 .none => {},
                 .reg => |reg| try writer.writeAll(@tagName(reg)),
                 .mem => |mem| switch (mem) {
                     .rip => |rip| {
                         try writer.print("{s} ptr [rip", .{@tagName(rip.ptr_size)});
-                        if (rip.disp != 0) {
-                            const sign_bit = if (sign(rip.disp) < 0) "-" else "+";
-                            const disp_abs = try std.math.absInt(rip.disp);
-                            try writer.print(" {s} 0x{x}", .{ sign_bit, disp_abs });
-                        }
+                        if (rip.disp != 0) try writer.print(" {c} 0x{x}", .{
+                            @as(u8, if (rip.disp < 0) '-' else '+'),
+                            std.math.absCast(rip.disp),
+                        });
                         try writer.writeByte(']');
                     },
                     .sib => |sib| {
@@ -77,27 +76,31 @@ pub const Instruction = struct {
 
                         try writer.writeByte('[');
 
+                        var any = false;
                         if (sib.base) |base| {
                             try writer.print("{s}", .{@tagName(base)});
+                            any = true;
                         }
                         if (sib.scale_index) |si| {
-                            if (sib.base != null) {
-                                try writer.writeAll(" + ");
-                            }
+                            if (any) try writer.writeAll(" + ");
                             try writer.print("{s} * {d}", .{ @tagName(si.index), si.scale });
+                            any = true;
                         }
-                        if (sib.disp != 0) {
-                            if (sib.base != null or sib.scale_index != null) {
-                                try writer.writeByte(' ');
-                            }
-                            try writer.writeByte(if (sign(sib.disp) < 0) '-' else '+');
-                            const disp_abs = try std.math.absInt(sib.disp);
-                            try writer.print(" 0x{x}", .{disp_abs});
+                        if (sib.disp != 0 or !any) {
+                            if (any)
+                                try writer.print(" {c} ", .{@as(u8, if (sib.disp < 0) '-' else '+')})
+                            else if (sib.disp < 0)
+                                try writer.writeByte('-');
+                            try writer.print("0x{x}", .{std.math.absCast(sib.disp)});
+                            any = true;
                         }
 
                         try writer.writeByte(']');
                     },
-                    .moffs => |moffs| try writer.print("{s}:0x{x}", .{ @tagName(moffs.seg), moffs.offset }),
+                    .moffs => |moffs| try writer.print("{s}:0x{x}", .{
+                        @tagName(moffs.seg),
+                        moffs.offset,
+                    }),
                 },
                 .imm => |imm| try writer.print("0x{x}", .{imm.asUnsigned(enc_op.bitSize())}),
             }
@@ -127,10 +130,10 @@ pub const Instruction = struct {
         return inst;
     }
 
-    pub fn fmtPrint(inst: Instruction, writer: anytype) !void {
+    pub fn fmtPrint(inst: Instruction, writer: anytype) @TypeOf(writer).Error!void {
         if (inst.prefix != .none) try writer.print("{s} ", .{@tagName(inst.prefix)});
         try writer.print("{s}", .{@tagName(inst.encoding.mnemonic)});
-        for (inst.ops, inst.encodings.ops, 0..) |op, enc, i| {
+        for (inst.ops, inst.encoding.data.ops, 0..) |op, enc, i| {
             if (op == .none) break;
             if (i > 0) try writer.writeByte(',');
             try writer.writeByte(' ');
@@ -389,10 +392,6 @@ pub const Instruction = struct {
         }
     }
 };
-
-inline fn sign(i: anytype) @TypeOf(i) {
-    return @as(@TypeOf(i), @boolToInt(i > 0)) - @boolToInt(i < 0);
-}
 
 pub const LegacyPrefixes = packed struct {
     /// LOCK
