@@ -4974,6 +4974,10 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
         .ptr_stack_offset => unreachable,
         .register_overflow => unreachable,
         .register => |dst_reg| {
+            const dst_alias = registerAlias(dst_reg, abi_size);
+            const dst_lock = self.register_manager.lockReg(dst_reg);
+            defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
+
             switch (src_mcv) {
                 .none => unreachable,
                 .undef => try self.genSetReg(dst_ty, dst_reg, .undef),
@@ -4982,21 +4986,18 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
                 .register_overflow => unreachable,
                 .register => |src_reg| try self.asmRegisterRegister(
                     .imul,
-                    registerAlias(dst_reg, abi_size),
+                    dst_alias,
                     registerAlias(src_reg, abi_size),
                 ),
                 .immediate => |imm| {
-                    if (math.minInt(i32) <= imm and imm <= math.maxInt(i32)) {
-                        // TODO take into account the type's ABI size when selecting the register alias
-                        // register, immediate
+                    if (std.math.cast(i32, imm)) |small| {
                         try self.asmRegisterRegisterImmediate(
                             .imul,
-                            dst_reg.to32(),
-                            dst_reg.to32(),
-                            Immediate.u(@intCast(u32, imm)),
+                            dst_alias,
+                            dst_alias,
+                            Immediate.s(small),
                         );
                     } else {
-                        // TODO verify we don't spill and assign to the same register as dst_mcv
                         const src_reg = try self.copyToTmpRegister(dst_ty, src_mcv);
                         return self.genIntMulComplexOpMir(dst_ty, dst_mcv, MCValue{ .register = src_reg });
                     }
@@ -5004,7 +5005,7 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
                 .stack_offset => |off| {
                     try self.asmRegisterMemory(
                         .imul,
-                        registerAlias(dst_reg, abi_size),
+                        dst_alias,
                         Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = .rbp, .disp = -off }),
                     );
                 },
