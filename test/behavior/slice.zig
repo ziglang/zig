@@ -723,10 +723,18 @@ test "slice with dereferenced value" {
 test "empty slice ptr is non null" {
     if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest; // TODO
 
-    const empty_slice: []u8 = &[_]u8{};
-    const p: [*]u8 = empty_slice.ptr + 0;
-    const t = @ptrCast([*]i8, p);
-    try expect(@ptrToInt(t) == @ptrToInt(empty_slice.ptr));
+    {
+        const empty_slice: []u8 = &[_]u8{};
+        const p: [*]u8 = empty_slice.ptr + 0;
+        const t = @ptrCast([*]i8, p);
+        try expect(@ptrToInt(t) == @ptrToInt(empty_slice.ptr));
+    }
+    {
+        const empty_slice: []u8 = &.{};
+        const p: [*]u8 = empty_slice.ptr + 0;
+        const t = @ptrCast([*]i8, p);
+        try expect(@ptrToInt(t) == @ptrToInt(empty_slice.ptr));
+    }
 }
 
 test "slice decays to many pointer" {

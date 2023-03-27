@@ -25152,7 +25152,7 @@ fn coerceExtra(
                             .ptr = if (dest_info.@"align" != 0)
                                 try Value.Tag.int_u64.create(sema.arena, dest_info.@"align")
                             else
-                                try inst_child_ty.lazyAbiAlignment(target, sema.arena),
+                                try dest_info.pointee_type.lazyAbiAlignment(target, sema.arena),
                             .len = Value.zero,
                         });
                         return sema.addConstant(dest_ty, slice_val);
@@ -30212,6 +30212,11 @@ fn resolveLazyValue(sema: *Sema, val: Value) CompileError!void {
             for (aggregate) |elem_val| {
                 try sema.resolveLazyValue(elem_val);
             }
+        },
+        .slice => {
+            const slice = val.castTag(.slice).?.data;
+            try sema.resolveLazyValue(slice.ptr);
+            return sema.resolveLazyValue(slice.len);
         },
         else => return,
     }
