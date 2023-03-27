@@ -8,7 +8,6 @@ const link = @import("../../link.zig");
 const log = std.log.scoped(.codegen);
 const math = std.math;
 const mem = std.mem;
-const print_air = @import("../../print_air.zig");
 const trace = @import("../../tracy.zig").trace;
 
 const Air = @import("../../Air.zig");
@@ -107,11 +106,7 @@ air_bookkeeping: @TypeOf(air_bookkeeping_init) = air_bookkeeping_init,
 /// For mir debug info, maps a mir index to a air index
 mir_to_air_map: if (builtin.mode == .Debug) std.AutoHashMap(Mir.Inst.Index, Air.Inst.Index) else void,
 
-debug_wip_mir_inst: @TypeOf(debug_wip_mir_inst_init) = debug_wip_mir_inst_init,
-
 const air_bookkeeping_init = if (std.debug.runtime_safety) @as(usize, 0) else {};
-
-const debug_wip_mir_inst_init = if (debug_wip_mir) @as(Mir.Inst.Index, 0) else {};
 
 pub const MCValue = union(enum) {
     /// No runtime bits. `void` types, empty structs, u0, enums with 1 tag, etc.
@@ -395,11 +390,49 @@ pub fn generate(
     }
 }
 
+fn dumpWipMir(self: *Self, inst: Mir.Inst) !void {
+    if (!debug_wip_mir) return;
+    const stderr = std.io.getStdErr().writer();
+
+    var lower = Lower{
+        .allocator = self.gpa,
+        .mir = .{
+            .instructions = self.mir_instructions.slice(),
+            .extra = self.mir_extra.items,
+        },
+        .target = self.target,
+        .src_loc = self.src_loc,
+    };
+    for (lower.lowerMir(inst) catch |err| switch (err) {
+        error.LowerFail => {
+            defer {
+                lower.err_msg.?.deinit(self.gpa);
+                lower.err_msg = null;
+            }
+            try stderr.print("{s}\n", .{lower.err_msg.?.msg});
+            return;
+        },
+        error.InvalidInstruction, error.CannotEncode => |e| {
+            try stderr.writeAll(switch (e) {
+                error.InvalidInstruction => "CodeGen failed to find a viable instruction.\n",
+                error.CannotEncode => "CodeGen failed to encode the instruction.\n",
+            });
+            return;
+        },
+        else => |e| return e,
+    }) |lower_inst| {
+        try stderr.writeAll("  | ");
+        try lower_inst.fmtPrint(stderr);
+        try stderr.writeByte('\n');
+    }
+}
+
 fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
     const gpa = self.gpa;
     try self.mir_instructions.ensureUnusedCapacity(gpa, 1);
     const result_index = @intCast(Mir.Inst.Index, self.mir_instructions.len);
     self.mir_instructions.appendAssumeCapacity(inst);
+    self.dumpWipMir(inst) catch {};
     return result_index;
 }
 
@@ -697,56 +730,6 @@ fn asmMemoryRegisterImmediate(
     });
 }
 
-fn printWipMir(self: *Self, stream: anytype, air_inst: ?Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
-    if (!debug_wip_mir) return;
-
-    var lower = Lower{
-        .allocator = self.gpa,
-        .mir = .{
-            .instructions = self.mir_instructions.slice(),
-            .extra = self.mir_extra.items,
-        },
-        .target = self.target,
-        .src_loc = self.src_loc,
-    };
-    var mir_inst = self.debug_wip_mir_inst;
-    var mir_end = @intCast(Mir.Inst.Index, self.mir_instructions.len);
-    defer self.debug_wip_mir_inst = mir_end;
-    while (mir_inst < mir_end) : (mir_inst += 1) {
-        for (lower.lowerMir(lower.mir.instructions.get(mir_inst)) catch |err| switch (err) {
-            error.LowerFail => {
-                defer {
-                    lower.err_msg.?.deinit(self.gpa);
-                    lower.err_msg = null;
-                }
-                try stream.print("{s}\n", .{lower.err_msg.?.msg});
-                continue;
-            },
-            error.InvalidInstruction, error.CannotEncode => |e| {
-                try stream.writeAll(switch (e) {
-                    error.InvalidInstruction => "CodeGen failed to find a viable instruction.\n",
-                    error.CannotEncode => "CodeGen failed to encode the instruction.\n",
-                });
-                continue;
-            },
-            else => |e| return e,
-        }) |lower_inst| {
-            try stream.writeAll("  | ");
-            try lower_inst.fmtPrint(stream);
-            try stream.writeByte('\n');
-        }
-    }
-
-    if (air_inst) |inst| {
-        print_air.writeInst(stream, inst, mod, self.air, self.liveness);
-    }
-}
-
-fn dumpWipMir(self: *Self, air_inst: ?Air.Inst.Index) void {
-    self.printWipMir(std.io.getStdErr().writer(), air_inst) catch return;
-}
-
 fn gen(self: *Self) InnerError!void {
     const cc = self.fn_type.fnCallingConvention();
     if (cc != .Naked) {
@@ -900,8 +883,6 @@ fn gen(self: *Self) InnerError!void {
         .ops = undefined,
         .data = .{ .payload = payload },
     });
-
-    self.dumpWipMir(null);
 }
 
 fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
@@ -913,7 +894,12 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
         if (builtin.mode == .Debug) {
             try self.mir_to_air_map.put(@intCast(Mir.Inst.Index, self.mir_instructions.len), inst);
         }
-        self.dumpWipMir(inst);
+        if (debug_wip_mir) @import("../../print_air.zig").dumpInst(
+            inst,
+            self.bin_file.options.module.?,
+            self.air,
+            self.liveness,
+        );
 
         switch (air_tags[inst]) {
             // zig fmt: off
