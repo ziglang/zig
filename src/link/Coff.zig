@@ -1625,12 +1625,10 @@ fn writeBaseRelocations(self: *Coff) !void {
     const needed_size = @intCast(u32, buffer.items.len);
     if (needed_size > sect_capacity) {
         const new_offset = self.findFreeSpace(needed_size, default_file_alignment);
-        log.debug("writing {s} at 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
+        log.debug("moving {s} from 0x{x} to 0x{x}", .{
             self.getSectionName(header),
             header.pointer_to_raw_data,
-            header.pointer_to_raw_data + needed_size,
             new_offset,
-            new_offset + needed_size,
         });
         header.pointer_to_raw_data = new_offset;
 
@@ -1656,11 +1654,11 @@ fn writeImportTable(self: *Coff) !void {
 
     const gpa = self.base.allocator;
 
-    const section = self.sections.get(self.idata_section_index.?);
-    const last_atom_index = section.last_atom_index orelse return;
+    const last_atom_index = self.sections.items(.last_atom_index)[self.idata_section_index.?] orelse return;
+    const header = &self.sections.items(.header)[self.idata_section_index.?];
     const last_atom = self.getAtom(last_atom_index);
 
-    const iat_rva = section.header.virtual_address;
+    const iat_rva = header.virtual_address;
     const iat_size = last_atom.getSymbol(self).value + last_atom.size * 2 - iat_rva; // account for sentinel zero pointer
 
     const dll_name = "KERNEL32.dll";
@@ -1696,9 +1694,18 @@ fn writeImportTable(self: *Coff) !void {
     try lookup_table.append(.{ .name_table_rva = 0 }); // the sentinel
 
     const dir_entry_size = @sizeOf(coff.ImportDirectoryEntry) + lookup_table.items.len * @sizeOf(coff.ImportLookupEntry64.ByName) + names_table.items.len + dll_name.len + 1;
-    const needed_size = iat_size + dir_entry_size + @sizeOf(coff.ImportDirectoryEntry);
-    const sect_capacity = self.allocatedSize(section.header.pointer_to_raw_data);
-    assert(needed_size < sect_capacity); // TODO: implement expanding .idata section
+    const sect_capacity = self.allocatedSize(header.pointer_to_raw_data);
+    const needed_size = @intCast(u32, iat_size + dir_entry_size + @sizeOf(coff.ImportDirectoryEntry));
+    if (needed_size > sect_capacity) {
+        const new_offset = self.findFreeSpace(needed_size, default_file_alignment);
+        log.debug("moving .idata from 0x{x} to 0x{x}", .{ header.pointer_to_raw_data, new_offset });
+        header.pointer_to_raw_data = new_offset;
+
+        const sect_vm_capacity = self.allocatedVirtualSize(header.virtual_address);
+        if (needed_size > sect_vm_capacity) {
+            try self.growSectionVM(self.idata_section_index.?, needed_size);
+        }
+    }
 
     // Fixup offsets
     const base_rva = iat_rva + iat_size;
@@ -1719,10 +1726,10 @@ fn writeImportTable(self: *Coff) !void {
     buffer.appendSliceAssumeCapacity(dll_name);
     buffer.appendAssumeCapacity(0);
 
-    try self.base.file.?.pwriteAll(buffer.items, section.header.pointer_to_raw_data + iat_size);
+    try self.base.file.?.pwriteAll(buffer.items, header.pointer_to_raw_data + iat_size);
     // Override the IAT atoms
     // TODO: we should rewrite only dirtied atoms, but that's for way later
-    try self.base.file.?.pwriteAll(mem.sliceAsBytes(lookup_table.items), section.header.pointer_to_raw_data);
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(lookup_table.items), header.pointer_to_raw_data);
 
     self.data_directories[@enumToInt(coff.DirectoryEntry.IMPORT)] = .{
         .virtual_address = iat_rva + iat_size,
