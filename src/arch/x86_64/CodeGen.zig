@@ -1549,43 +1549,31 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    if (self.liveness.isUnused(inst))
-        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
-
-    const src_ty = self.air.typeOf(ty_op.operand);
-    const dst_ty = self.air.typeOfIndex(inst);
-    const operand = try self.resolveInst(ty_op.operand);
-
-    const src_ty_size = src_ty.abiSize(self.target.*);
-    const dst_ty_size = dst_ty.abiSize(self.target.*);
-
-    if (src_ty_size > 8 or dst_ty_size > 8) {
-        return self.fail("TODO implement trunc for abi sizes larger than 8", .{});
-    }
-
-    const operand_lock: ?RegisterLock = switch (operand) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-        else => null,
-    };
-    defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
-
-    const reg: Register = blk: {
-        if (operand.isRegister()) {
-            if (self.reuseOperand(inst, ty_op.operand, 0, operand)) {
-                break :blk operand.register.to64();
-            }
+    const result = if (self.liveness.isUnused(inst)) .dead else result: {
+        const dst_ty = self.air.typeOfIndex(inst);
+        const dst_abi_size = dst_ty.abiSize(self.target.*);
+        if (dst_abi_size > 8) {
+            return self.fail("TODO implement trunc for abi sizes larger than 8", .{});
         }
-        const mcv = try self.copyToRegisterWithInstTracking(inst, src_ty, operand);
-        break :blk mcv.register.to64();
+
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        const src_lock = switch (src_mcv) {
+            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_mcv
+        else
+            try self.copyToRegisterWithInstTracking(inst, dst_ty, src_mcv);
+
+        // when truncating a `u16` to `u5`, for example, those top 3 bits in the result
+        // have to be removed. this only happens if the dst if not a power-of-two size.
+        if (self.regExtraBits(dst_ty) > 0) try self.truncateRegister(dst_ty, dst_mcv.register.to64());
+        break :result dst_mcv;
     };
-
-    // when truncating a `u16` to `u5`, for example, those top 3 bits in the result
-    // have to be removed. this only happens if the dst if not a power-of-two size.
-    if (self.regExtraBits(dst_ty) > 0) {
-        try self.truncateRegister(dst_ty, reg);
-    }
-
-    return self.finishAir(inst, .{ .register = reg }, .{ ty_op.operand, .none, .none });
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airBoolToInt(self: *Self, inst: Air.Inst.Index) !void {
@@ -3499,23 +3487,21 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     const elem_ty = self.air.typeOfIndex(inst);
     const elem_size = elem_ty.abiSize(self.target.*);
     const result: MCValue = result: {
-        if (!elem_ty.hasRuntimeBitsIgnoreComptime())
-            break :result MCValue.none;
+        if (!elem_ty.hasRuntimeBitsIgnoreComptime()) break :result .none;
+
+        try self.spillRegisters(&.{ .rdi, .rsi, .rcx });
+        const reg_locks = self.register_manager.lockRegsAssumeUnused(3, .{ .rdi, .rsi, .rcx });
+        defer for (reg_locks) |lock| self.register_manager.unlockReg(lock);
 
         const ptr = try self.resolveInst(ty_op.operand);
         const is_volatile = self.air.typeOf(ty_op.operand).isVolatilePtr();
-        if (self.liveness.isUnused(inst) and !is_volatile)
-            break :result MCValue.dead;
+        if (self.liveness.isUnused(inst) and !is_volatile) break :result .dead;
 
-        const dst_mcv: MCValue = blk: {
-            if (elem_size <= 8 and self.reuseOperand(inst, ty_op.operand, 0, ptr)) {
-                // The MCValue that holds the pointer can be re-used as the value.
-                break :blk ptr;
-            } else {
-                break :blk try self.allocRegOrMem(inst, true);
-            }
-        };
-        log.debug("airLoad(%{d}): {} <- {}", .{ inst, dst_mcv, ptr });
+        const dst_mcv: MCValue = if (elem_size <= 8 and self.reuseOperand(inst, ty_op.operand, 0, ptr))
+            // The MCValue that holds the pointer can be re-used as the value.
+            ptr
+        else
+            try self.allocRegOrMem(inst, true);
         try self.load(dst_mcv, ptr, self.air.typeOf(ty_op.operand));
         break :result dst_mcv;
     };
