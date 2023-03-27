@@ -3095,7 +3095,8 @@ fn airPopcount(self: *Self, inst: Air.Inst.Index) !void {
             };
             defer if (mat_src_lock) |lock| self.register_manager.unlockReg(lock);
 
-            const dst_mcv: MCValue = if (self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            const dst_mcv: MCValue =
+                if (src_mcv.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
                 src_mcv
             else
                 .{ .register = try self.register_manager.allocReg(inst, gp) };
@@ -5478,6 +5479,9 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     }
 
     const ty = self.air.typeOf(bin_op.lhs);
+    const abi_size = ty.abiSize(self.target.*);
+    if (abi_size > 8) return self.fail("TODO implement cmp for large values", .{});
+
     const signedness: std.builtin.Signedness = blk: {
         // For non-int types, we treat the values as unsigned
         if (ty.zigTypeTag() != .Int) break :blk .unsigned;
