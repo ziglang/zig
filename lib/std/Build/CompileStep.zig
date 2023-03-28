@@ -140,6 +140,9 @@ link_function_sections: bool = false,
 /// exported symbols.
 link_gc_sections: ?bool = null,
 
+/// (Windows) Whether or not to enable ASLR. Maps to the /DYNAMICBASE[:NO] linker argument.
+linker_dynamicbase: bool = true,
+
 linker_allow_shlib_undefined: ?bool = null,
 
 /// Permit read-only relocations in read-only segments. Disallowed by default.
@@ -1473,6 +1476,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
     if (self.link_gc_sections) |x| {
         try zig_args.append(if (x) "--gc-sections" else "--no-gc-sections");
+    }
+    if (!self.linker_dynamicbase) {
+        try zig_args.append("--no-dynamicbase");
     }
     if (self.linker_allow_shlib_undefined) |x| {
         try zig_args.append(if (x) "-fallow-shlib-undefined" else "-fno-allow-shlib-undefined");
