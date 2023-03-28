@@ -1451,6 +1451,8 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         self.error_flags.no_entry_point_found = false;
         try self.writeHeader();
     }
+
+    assert(!self.imports_count_dirty);
 }
 
 pub fn getDeclVAddr(self: *Coff, decl_index: Module.Decl.Index, reloc_info: link.File.RelocInfo) !u64 {
