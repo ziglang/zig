@@ -49,11 +49,8 @@ imports_count_dirty: bool = true,
 /// Virtual address of the entry point procedure relative to image base.
 entry_addr: ?u32 = null,
 
-/// Table of Decls that are currently alive.
-/// We store them here so that we can properly dispose of any allocated
-/// memory within the atom in the incremental linker.
-/// TODO consolidate this.
-decls: std.AutoHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
+/// Table of tracked Decls.
+decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
 
 /// List of atoms that are either synthetic or map directly to the Zig source program.
 atoms: std.ArrayListUnmanaged(Atom) = .{},
@@ -98,9 +95,9 @@ const Entry = struct {
     sym_index: u32,
 };
 
-const RelocTable = std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
-const BaseRelocationTable = std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
-const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
+const RelocTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
+const BaseRelocationTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
+const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
 
 const default_file_alignment: u16 = 0x200;
 const default_size_of_stack_reserve: u32 = 0x1000000;
@@ -136,6 +133,10 @@ const DeclMetadata = struct {
     section: u16,
     /// A list of all exports aliases of this Decl.
     exports: std.ArrayListUnmanaged(u32) = .{},
+
+    fn deinit(m: *DeclMetadata, allocator: Allocator) void {
+        m.exports.deinit(allocator);
+    }
 
     fn getExport(m: DeclMetadata, coff_file: *const Coff, name: []const u8) ?u32 {
         for (m.exports.items) |exp| {
@@ -293,39 +294,27 @@ pub fn deinit(self: *Coff) void {
     }
     self.import_tables.deinit(gpa);
 
-    {
-        var it = self.decls.iterator();
-        while (it.next()) |entry| {
-            entry.value_ptr.exports.deinit(gpa);
-        }
-        self.decls.deinit(gpa);
+    for (self.decls.values()) |*metadata| {
+        metadata.deinit(gpa);
     }
+    self.decls.deinit(gpa);
 
     self.atom_by_index_table.deinit(gpa);
 
-    {
-        var it = self.unnamed_const_atoms.valueIterator();
-        while (it.next()) |atoms| {
-            atoms.deinit(gpa);
-        }
-        self.unnamed_const_atoms.deinit(gpa);
+    for (self.unnamed_const_atoms.values()) |*atoms| {
+        atoms.deinit(gpa);
     }
+    self.unnamed_const_atoms.deinit(gpa);
 
-    {
-        var it = self.relocs.valueIterator();
-        while (it.next()) |relocs| {
-            relocs.deinit(gpa);
-        }
-        self.relocs.deinit(gpa);
+    for (self.relocs.values()) |*relocs| {
+        relocs.deinit(gpa);
     }
+    self.relocs.deinit(gpa);
 
-    {
-        var it = self.base_relocs.valueIterator();
-        while (it.next()) |relocs| {
-            relocs.deinit(gpa);
-        }
-        self.base_relocs.deinit(gpa);
+    for (self.base_relocs.values()) |*relocs| {
+        relocs.deinit(gpa);
     }
+    self.base_relocs.deinit(gpa);
 }
 
 fn populateMissingMetadata(self: *Coff) !void {
@@ -800,8 +789,7 @@ fn writePtrWidthAtom(self: *Coff, atom_index: Atom.Index) !void {
 
 fn markRelocsDirtyByTarget(self: *Coff, target: SymbolWithLoc) void {
     // TODO: reverse-lookup might come in handy here
-    var it = self.relocs.valueIterator();
-    while (it.next()) |relocs| {
+    for (self.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
             if (!reloc.target.eql(target)) continue;
             reloc.dirty = true;
@@ -810,8 +798,7 @@ fn markRelocsDirtyByTarget(self: *Coff, target: SymbolWithLoc) void {
 }
 
 fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
-    var it = self.relocs.valueIterator();
-    while (it.next()) |relocs| {
+    for (self.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
             const target_vaddr = reloc.getTargetAddress(self) orelse continue;
             if (target_vaddr < addr) continue;
@@ -821,7 +808,7 @@ fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
 }
 
 fn resolveRelocs(self: *Coff, atom_index: Atom.Index, code: []u8) void {
-    const relocs = self.relocs.get(atom_index) orelse return;
+    const relocs = self.relocs.getPtr(atom_index) orelse return;
 
     log.debug("relocating '{s}'", .{self.getAtom(atom_index).getName(self)});
 
@@ -1196,7 +1183,7 @@ pub fn freeDecl(self: *Coff, decl_index: Module.Decl.Index) void {
 
     log.debug("freeDecl {*}", .{decl});
 
-    if (self.decls.fetchRemove(decl_index)) |const_kv| {
+    if (self.decls.fetchOrderedRemove(decl_index)) |const_kv| {
         var kv = const_kv;
         self.freeAtom(kv.value.atom);
         self.freeUnnamedConsts(decl_index);
@@ -1423,32 +1410,29 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     }
 
     try self.writeImportTables();
-    {
-        var it = self.relocs.keyIterator();
-        while (it.next()) |atom_index_ptr| {
-            const atom_index = atom_index_ptr.*;
-            const relocs = self.relocs.get(atom_index).?;
-            const needs_update = for (relocs.items) |reloc| {
-                if (reloc.dirty) break true;
-            } else false;
 
-            if (!needs_update) continue;
+    for (self.relocs.keys(), self.relocs.values()) |atom_index, relocs| {
+        const needs_update = for (relocs.items) |reloc| {
+            if (reloc.dirty) break true;
+        } else false;
 
-            const atom = self.getAtom(atom_index);
-            const sym = atom.getSymbol(self);
-            const section = self.sections.get(@enumToInt(sym.section_number) - 1).header;
-            const file_offset = section.pointer_to_raw_data + sym.value - section.virtual_address;
+        if (!needs_update) continue;
 
-            var code = std.ArrayList(u8).init(gpa);
-            defer code.deinit();
-            try code.resize(math.cast(usize, atom.size) orelse return error.Overflow);
+        const atom = self.getAtom(atom_index);
+        const sym = atom.getSymbol(self);
+        const section = self.sections.get(@enumToInt(sym.section_number) - 1).header;
+        const file_offset = section.pointer_to_raw_data + sym.value - section.virtual_address;
 
-            const amt = try self.base.file.?.preadAll(code.items, file_offset);
-            if (amt != code.items.len) return error.InputOutput;
+        var code = std.ArrayList(u8).init(gpa);
+        defer code.deinit();
+        try code.resize(math.cast(usize, atom.size) orelse return error.Overflow);
 
-            try self.writeAtom(atom_index, code.items);
-        }
+        const amt = try self.base.file.?.preadAll(code.items, file_offset);
+        if (amt != code.items.len) return error.InputOutput;
+
+        try self.writeAtom(atom_index, code.items);
     }
+
     try self.writeBaseRelocations();
 
     if (self.getEntryPoint()) |entry_sym_loc| {

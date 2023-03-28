@@ -72,7 +72,7 @@ pub fn getTargetAddress(self: Relocation, coff_file: *const Coff) ?u32 {
     }
 }
 
-pub fn resolve(self: *Relocation, atom_index: Atom.Index, code: []u8, coff_file: *Coff) void {
+pub fn resolve(self: Relocation, atom_index: Atom.Index, code: []u8, coff_file: *Coff) void {
     const atom = coff_file.getAtom(atom_index);
     const source_sym = atom.getSymbol(coff_file);
     const source_vaddr = source_sym.value + self.offset;
