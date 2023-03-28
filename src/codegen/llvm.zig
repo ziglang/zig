@@ -2719,6 +2719,9 @@ pub const DeclGen = struct {
         if (comp.bin_file.options.llvm_cpu_features) |s| {
             llvm_fn.addFunctionAttr("target-features", s);
         }
+        if (comp.getTarget().cpu.arch.isBpf()) {
+            llvm_fn.addFunctionAttr("no-builtins", "");
+        }
     }
 
     fn resolveGlobalDecl(dg: *DeclGen, decl_index: Module.Decl.Index) Error!*llvm.Value {
