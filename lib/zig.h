@@ -2873,6 +2873,12 @@ typedef zig_repr_f16 zig_f16;
 #undef zig_init_special_f16
 #define zig_init_special_f16(sign, name, arg, repr) repr
 #endif
+#if __APPLE__
+typedef zig_repr_f16 zig_compiler_rt_f16;
+#else
+typedef zig_f16 zig_compiler_rt_f16;
+#endif
+#define zig_compiler_rt_abbrev_zig_compiler_rt_f16 zig_compiler_rt_abbrev_zig_f16
 
 #define zig_has_f32 1
 #define zig_bitSizeOf_f32 32
@@ -3088,15 +3094,15 @@ zig_float_from_repr(f128)
 #define zig_convert_builtin(ResType, operation, ArgType, version) \
     zig_extern ResType zig_expand_concat(zig_expand_concat(zig_expand_concat(__##operation, \
         zig_compiler_rt_abbrev_##ArgType), zig_compiler_rt_abbrev_##ResType), version)(ArgType);
-zig_convert_builtin(zig_f16,  trunc,  zig_f32,  2)
-zig_convert_builtin(zig_f16,  trunc,  zig_f64,  2)
+zig_convert_builtin(zig_compiler_rt_f16,  trunc,  zig_f32,  2)
+zig_convert_builtin(zig_compiler_rt_f16,  trunc,  zig_f64,  2)
 zig_convert_builtin(zig_f16,  trunc,  zig_f80,  2)
 zig_convert_builtin(zig_f16,  trunc,  zig_f128, 2)
-zig_convert_builtin(zig_f32,  extend, zig_f16,  2)
+zig_convert_builtin(zig_f32,  extend, zig_compiler_rt_f16,  2)
 zig_convert_builtin(zig_f32,  trunc,  zig_f64,  2)
 zig_convert_builtin(zig_f32,  trunc,  zig_f80,  2)
 zig_convert_builtin(zig_f32,  trunc,  zig_f128, 2)
-zig_convert_builtin(zig_f64,  extend, zig_f16,  2)
+zig_convert_builtin(zig_f64,  extend, zig_compiler_rt_f16,  2)
 zig_convert_builtin(zig_f64,  extend, zig_f32,  2)
 zig_convert_builtin(zig_f64,  trunc,  zig_f80,  2)
 zig_convert_builtin(zig_f64,  trunc,  zig_f128, 2)

@@ -45,7 +45,7 @@ fn test__extenddftf2(a: f64, expected_hi: u64, expected_lo: u64) !void {
 }
 
 fn test__extendhfsf2(a: u16, expected: u32) !void {
-    const x = __extendhfsf2(@bitCast(F16T, a));
+    const x = __extendhfsf2(@bitCast(F16T(f32), a));
     const rep = @bitCast(u32, x);
 
     if (rep == expected) {
@@ -208,7 +208,7 @@ fn makeInf32() f32 {
 }
 
 fn test__extendhftf2(a: u16, expected_hi: u64, expected_lo: u64) !void {
-    const x = __extendhftf2(@bitCast(F16T, a));
+    const x = __extendhftf2(@bitCast(F16T(f128), a));
 
     const rep = @bitCast(u128, x);
     const hi = @intCast(u64, rep >> 64);
