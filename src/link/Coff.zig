@@ -444,7 +444,44 @@ fn allocateSection(self: *Coff, name: []const u8, size: u32, flags: coff.Section
     return index;
 }
 
-fn growSectionVM(self: *Coff, sect_id: u32, needed_size: u32) !void {
+fn growSection(self: *Coff, sect_id: u32, needed_size: u32) !void {
+    const header = &self.sections.items(.header)[sect_id];
+    const maybe_last_atom_index = self.sections.items(.last_atom_index)[sect_id];
+    const sect_capacity = self.allocatedSize(header.pointer_to_raw_data);
+
+    if (needed_size > sect_capacity) {
+        const new_offset = self.findFreeSpace(needed_size, default_file_alignment);
+        const current_size = if (maybe_last_atom_index) |last_atom_index| blk: {
+            const last_atom = self.getAtom(last_atom_index);
+            const sym = last_atom.getSymbol(self);
+            break :blk (sym.value + last_atom.size) - header.virtual_address;
+        } else 0;
+        log.debug("moving {s} from 0x{x} to 0x{x}", .{
+            self.getSectionName(header),
+            header.pointer_to_raw_data,
+            new_offset,
+        });
+        const amt = try self.base.file.?.copyRangeAll(
+            header.pointer_to_raw_data,
+            self.base.file.?,
+            new_offset,
+            current_size,
+        );
+        if (amt != current_size) return error.InputOutput;
+        header.pointer_to_raw_data = new_offset;
+    }
+
+    const sect_vm_capacity = self.allocatedVirtualSize(header.virtual_address);
+    if (needed_size > sect_vm_capacity) {
+        try self.growSectionVirtualMemory(sect_id, needed_size);
+        self.markRelocsDirtyByAddress(header.virtual_address + needed_size);
+    }
+
+    header.virtual_size = @max(header.virtual_size, needed_size);
+    header.size_of_raw_data = needed_size;
+}
+
+fn growSectionVirtualMemory(self: *Coff, sect_id: u32, needed_size: u32) !void {
     const header = &self.sections.items(.header)[sect_id];
     const increased_size = padToIdeal(needed_size);
     const old_aligned_end = header.virtual_address + mem.alignForwardGeneric(u32, header.virtual_size, self.page_size);
@@ -551,38 +588,8 @@ fn allocateAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignme
     else
         true;
     if (expand_section) {
-        const sect_capacity = self.allocatedSize(header.pointer_to_raw_data);
         const needed_size: u32 = (vaddr + new_atom_size) - header.virtual_address;
-        if (needed_size > sect_capacity) {
-            const new_offset = self.findFreeSpace(needed_size, default_file_alignment);
-            const current_size = if (maybe_last_atom_index.*) |last_atom_index| blk: {
-                const last_atom = self.getAtom(last_atom_index);
-                const sym = last_atom.getSymbol(self);
-                break :blk (sym.value + last_atom.size) - header.virtual_address;
-            } else 0;
-            log.debug("moving {s} from 0x{x} to 0x{x}", .{
-                self.getSectionName(header),
-                header.pointer_to_raw_data,
-                new_offset,
-            });
-            const amt = try self.base.file.?.copyRangeAll(
-                header.pointer_to_raw_data,
-                self.base.file.?,
-                new_offset,
-                current_size,
-            );
-            if (amt != current_size) return error.InputOutput;
-            header.pointer_to_raw_data = new_offset;
-        }
-
-        const sect_vm_capacity = self.allocatedVirtualSize(header.virtual_address);
-        if (needed_size > sect_vm_capacity) {
-            try self.growSectionVM(sect_id, needed_size);
-            self.markRelocsDirtyByAddress(header.virtual_address + needed_size);
-        }
-
-        header.virtual_size = @max(header.virtual_size, needed_size);
-        header.size_of_raw_data = needed_size;
+        try self.growSection(sect_id, needed_size);
         maybe_last_atom_index.* = atom_index;
     }
 
@@ -814,8 +821,9 @@ fn resolveRelocs(self: *Coff, atom_index: Atom.Index, code: []u8) void {
 
     for (relocs.items) |*reloc| {
         if (!reloc.dirty) continue;
-        reloc.resolve(atom_index, code, self);
-        reloc.dirty = false;
+        if (reloc.resolve(atom_index, code, self)) {
+            reloc.dirty = false;
+        }
     }
 }
 
@@ -1581,25 +1589,8 @@ fn writeBaseRelocations(self: *Coff) !void {
     }
 
     const header = &self.sections.items(.header)[self.reloc_section_index.?];
-    const sect_capacity = self.allocatedSize(header.pointer_to_raw_data);
     const needed_size = @intCast(u32, buffer.items.len);
-    if (needed_size > sect_capacity) {
-        const new_offset = self.findFreeSpace(needed_size, default_file_alignment);
-        log.debug("moving {s} from 0x{x} to 0x{x}", .{
-            self.getSectionName(header),
-            header.pointer_to_raw_data,
-            new_offset,
-        });
-        header.pointer_to_raw_data = new_offset;
-
-        const sect_vm_capacity = self.allocatedVirtualSize(header.virtual_address);
-        if (needed_size > sect_vm_capacity) {
-            // TODO: we want to enforce .reloc after every alloc section.
-            try self.growSectionVM(self.reloc_section_index.?, needed_size);
-        }
-    }
-    header.virtual_size = @max(header.virtual_size, needed_size);
-    header.size_of_raw_data = needed_size;
+    try self.growSection(self.reloc_section_index.?, needed_size);
 
     try self.base.file.?.pwriteAll(buffer.items, header.pointer_to_raw_data);
 
@@ -1638,21 +1629,7 @@ fn writeImportTables(self: *Coff) !void {
     }
 
     const needed_size = iat_size + dir_table_size + lookup_table_size + names_table_size + dll_names_size;
-    const sect_capacity = self.allocatedSize(header.pointer_to_raw_data);
-    if (needed_size > sect_capacity) {
-        const new_offset = self.findFreeSpace(needed_size, default_file_alignment);
-        log.debug("moving .idata from 0x{x} to 0x{x}", .{ header.pointer_to_raw_data, new_offset });
-        header.pointer_to_raw_data = new_offset;
-
-        const sect_vm_capacity = self.allocatedVirtualSize(header.virtual_address);
-        if (needed_size > sect_vm_capacity) {
-            try self.growSectionVM(self.idata_section_index.?, needed_size);
-            self.markRelocsDirtyByAddress(header.virtual_address + needed_size);
-        }
-
-        header.virtual_size = @max(header.virtual_size, needed_size);
-        header.size_of_raw_data = needed_size;
-    }
+    try self.growSection(self.idata_section_index.?, needed_size);
 
     // Do the actual writes
     var buffer = std.ArrayList(u8).init(gpa);

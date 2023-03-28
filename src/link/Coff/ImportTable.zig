@@ -121,7 +121,7 @@ pub fn fmtDebug(itab: ImportTable, ctx: Context) std.fmt.Formatter(fmt) {
     return .{ .data = .{ .itab = itab, .ctx = ctx } };
 }
 
-const ImportIndex = u32;
+pub const ImportIndex = u32;
 const ImportTable = @This();
 
 const std = @import("std");
