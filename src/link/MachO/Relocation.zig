@@ -50,7 +50,7 @@ pub fn getTargetAtomIndex(self: Relocation, macho_file: *MachO) ?Atom.Index {
     return macho_file.getAtomIndexForSymbol(self.target);
 }
 
-pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, code: []u8) !void {
+pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, code: []u8) void {
     const arch = macho_file.base.options.target.cpu.arch;
     const atom = macho_file.getAtom(atom_index);
     const source_sym = atom.getSymbol(macho_file);
@@ -68,18 +68,13 @@ pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, cod
     });
 
     switch (arch) {
-        .aarch64 => return self.resolveAarch64(source_addr, target_addr, code),
-        .x86_64 => return self.resolveX8664(source_addr, target_addr, code),
+        .aarch64 => self.resolveAarch64(source_addr, target_addr, code),
+        .x86_64 => self.resolveX8664(source_addr, target_addr, code),
         else => unreachable,
     }
 }
 
-fn resolveAarch64(
-    self: Relocation,
-    source_addr: u64,
-    target_addr: i64,
-    code: []u8,
-) !void {
+fn resolveAarch64(self: Relocation, source_addr: u64, target_addr: i64, code: []u8) void {
     const rel_type = @intToEnum(macho.reloc_type_arm64, self.type);
     if (rel_type == .ARM64_RELOC_UNSIGNED) {
         return switch (self.length) {
@@ -212,12 +207,7 @@ fn resolveAarch64(
     }
 }
 
-fn resolveX8664(
-    self: Relocation,
-    source_addr: u64,
-    target_addr: i64,
-    code: []u8,
-) !void {
+fn resolveX8664(self: Relocation, source_addr: u64, target_addr: i64, code: []u8) void {
     const rel_type = @intToEnum(macho.reloc_type_x86_64, self.type);
     switch (rel_type) {
         .X86_64_RELOC_BRANCH,

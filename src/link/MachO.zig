@@ -1091,7 +1091,7 @@ pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
     log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ atom.getName(self), file_offset });
 
     if (self.relocs.get(atom_index)) |relocs| {
-        try Atom.resolveRelocations(self, atom_index, relocs.items, code);
+        Atom.resolveRelocations(self, atom_index, relocs.items, code);
     }
 
     if (is_hot_update_compatible) {
