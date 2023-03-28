@@ -450,6 +450,7 @@ const usage_build_generic =
     \\  -fno-strip                Keep debug symbols
     \\  -fformatted-panics        Enable formatted safety panics
     \\  -fno-formatted-panics     Disable formatted safety panics
+    \\  -foptimization-remarks [path]File to save optimization remarks
     \\  -ofmt=[mode]              Override target object format
     \\    elf                     Executable and Linking Format
     \\    c                       C source code
@@ -767,6 +768,7 @@ fn buildOutputType(
     var linker_print_icf_sections: bool = false;
     var linker_print_map: bool = false;
     var linker_opt_bisect_limit: i32 = -1;
+    var linker_remarks_output: ?[*:0]const u8 = null;
     var linker_z_nocopyreloc = false;
     var linker_z_nodelete = false;
     var linker_z_notext = false;
@@ -1369,6 +1371,12 @@ fn buildOutputType(
                         no_builtin = true;
                     } else if (mem.startsWith(u8, arg, "-fopt-bisect-limit=")) {
                         linker_opt_bisect_limit = std.math.lossyCast(i32, parseIntSuffix(arg, "-fopt-bisect-limit=".len));
+                    } else if (mem.eql(u8, arg, "-fpass-remarks-output")) {
+                        const remarks_output = args_iter.next();
+                        if (remarks_output) |output| {
+                            linker_remarks_output = try gpa.dupeZ(u8, output);
+                            std.log.info("root {?s}, remark {s}", .{ root_src_file, output });
+                        } else fatal("Expected 1 arguments after {s}", .{arg});
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
                     } else if (mem.eql(u8, arg, "--dynamicbase")) {
@@ -3197,6 +3205,7 @@ fn buildOutputType(
         .linker_print_icf_sections = linker_print_icf_sections,
         .linker_print_map = linker_print_map,
         .linker_opt_bisect_limit = linker_opt_bisect_limit,
+        .linker_remarks_output = linker_remarks_output,
         .linker_global_base = linker_global_base,
         .linker_export_symbol_names = linker_export_symbol_names.items,
         .linker_z_nocopyreloc = linker_z_nocopyreloc,

@@ -175,6 +175,7 @@ pub const Options = struct {
     print_icf_sections: bool,
     print_map: bool,
     opt_bisect_limit: i32,
+    remarks_output: ?[*:0]const u8,
 
     objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,

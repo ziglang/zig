@@ -69,6 +69,8 @@ ZIG_EXTERN_C LLVMTypeRef ZigLLVMTokenTypeInContext(LLVMContextRef context_ref);
 
 ZIG_EXTERN_C void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit);
 
+ZIG_EXTERN_C int ZigLLVMSetupOptimizationRemarks(LLVMContextRef context_ref, const char *RemarksFilename, const char *RemarksPasses);
+
 ZIG_EXTERN_C LLVMValueRef ZigLLVMAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name,
         LLVMTypeRef FunctionTy, unsigned AddressSpace);
 

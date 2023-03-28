@@ -30,6 +30,7 @@
 #include <llvm/IR/InlineAsm.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/LegacyPassManager.h>
+#include <llvm/IR/LLVMRemarkStreamer.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/OptBisect.h>
 #include <llvm/IR/PassManager.h>
@@ -53,6 +54,7 @@
 #include <llvm/Support/TargetParser.h>
 #include <llvm/Support/TimeProfiler.h>
 #include <llvm/Support/Timer.h>
+#include <llvm/Support/ToolOutputFile.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/CodeGenCWrappers.h>
@@ -65,7 +67,6 @@
 #include <llvm/Transforms/Utils/AddDiscriminators.h>
 #include <llvm/Transforms/Utils/CanonicalizeAliases.h>
 #include <llvm/Transforms/Utils/NameAnonGlobals.h>
-
 #include <lld/Common/Driver.h>
 
 #if __GNUC__ >= 9
@@ -423,6 +424,15 @@ ZIG_EXTERN_C void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit
     // static OptBisect _opt_bisector;
     // _opt_bisector.setLimit(limit);
     // unwrap(context_ref)->setOptPassGate(_opt_bisector);
+}
+
+ZIG_EXTERN_C int ZigLLVMSetupOptimizationRemarks(LLVMContextRef context_ref, const char *RemarksFilename, const char *RemarksPasses) {
+    auto res = llvm::setupLLVMOptimizationRemarks(*unwrap(context_ref), RemarksFilename, RemarksPasses, "yaml", false, 0);
+    if (Error E = res.takeError())
+        return 1;
+
+    (*res)->keep();
+    return 0;
 }
 
 LLVMValueRef ZigLLVMAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name, LLVMTypeRef FunctionTy, unsigned AddressSpace) {
