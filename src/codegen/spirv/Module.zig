@@ -556,6 +556,39 @@ fn decorateStruct(self: *Module, target: IdRef, info: *const Type.Payload.Struct
     }
 }
 
+pub fn simpleStructType(self: *Module, members: []const Type.Payload.Struct.Member) !Type.Ref {
+    const payload = try self.arena.create(Type.Payload.Struct);
+    payload.* = .{
+        .members = try self.arena.dupe(Type.Payload.Struct.Member, members),
+        .decorations = .{},
+    };
+    return try self.resolveType(Type.initPayload(&payload.base));
+}
+
+pub fn arrayType(self: *Module, len: u32, ty: Type.Ref) !Type.Ref {
+    const payload = try self.arena.create(Type.Payload.Array);
+    payload.* = .{
+        .element_type = ty,
+        .length = len,
+    };
+    return try self.resolveType(Type.initPayload(&payload.base));
+}
+
+pub fn ptrType(
+    self: *Module,
+    child: Type.Ref,
+    storage_class: spec.StorageClass,
+    alignment: ?u32,
+) !Type.Ref {
+    const ptr_payload = try self.arena.create(Type.Payload.Pointer);
+    ptr_payload.* = .{
+        .storage_class = storage_class,
+        .child_type = child,
+        .alignment = alignment,
+    };
+    return try self.resolveType(Type.initPayload(&ptr_payload.base));
+}
+
 pub fn changePtrStorageClass(self: *Module, ptr_ty_ref: Type.Ref, new_storage_class: spec.StorageClass) !Type.Ref {
     const payload = try self.arena.create(Type.Payload.Pointer);
     payload.* = self.typeRefType(ptr_ty_ref).payload(.pointer).*;
@@ -579,7 +612,7 @@ pub fn emitConstant(
 /// Decorate a result-id.
 pub fn decorate(
     self: *Module,
-    target: spec.IdRef,
+    target: IdRef,
     decoration: spec.Decoration.Extended,
 ) !void {
     try self.sections.annotations.emit(self.gpa, .OpDecorate, .{
@@ -591,7 +624,7 @@ pub fn decorate(
 /// Decorate a result-id which is a member of some struct.
 pub fn decorateMember(
     self: *Module,
-    structure_type: spec.IdRef,
+    structure_type: IdRef,
     member: u32,
     decoration: spec.Decoration.Extended,
 ) !void {

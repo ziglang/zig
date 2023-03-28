@@ -65,6 +65,25 @@ pub fn emit(
     section.writeOperands(opcode.Operands(), operands);
 }
 
+pub fn emitSpecConstantOp(
+    section: *Section,
+    allocator: Allocator,
+    comptime opcode: spec.Opcode,
+    operands: opcode.Operands(),
+) !void {
+    const word_count = operandsSize(opcode.Operands(), operands);
+    try section.emitRaw(allocator, .OpSpecConstantOp, 1 + word_count);
+    section.writeOperand(spec.IdRef, operands.id_result_type);
+    section.writeOperand(spec.IdRef, operands.id_result);
+    section.writeOperand(Opcode, opcode);
+
+    const fields = @typeInfo(opcode.Operands()).Struct.fields;
+    // First 2 fields are always id_result_type and id_result.
+    inline for (fields[2..]) |field| {
+        section.writeOperand(field.type, @field(operands, field.name));
+    }
+}
+
 pub fn writeWord(section: *Section, word: Word) void {
     section.instructions.appendAssumeCapacity(word);
 }

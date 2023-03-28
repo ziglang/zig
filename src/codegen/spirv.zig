@@ -238,7 +238,7 @@ pub const DeclGen = struct {
                 return try self.resolveDecl(fn_decl_index);
             }
 
-            return try self.constant(ty, val, .direct);
+            return try self.constant(ty, val);
         }
         const index = Air.refToIndex(inst).?;
         return self.inst_results.get(index).?; // Assertion means instruction does not dominate usage.
@@ -404,320 +404,493 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn constant(self: *DeclGen, ty: Type, val: Value, repr: Repr) Error!IdRef {
-        const result_id = self.spv.allocId();
-        try self.genConstant(result_id, ty, val, repr);
-        return result_id;
-    }
+    const IndirectConstantLowering = struct {
+        const undef = 0xAA;
 
-    /// Generate a constant representing `val`.
-    /// TODO: Deduplication?
-    fn genConstant(self: *DeclGen, result_id: IdRef, ty: Type, val: Value, repr: Repr) Error!void {
-        const target = self.getTarget();
-        const section = &self.spv.sections.types_globals_constants;
-        const result_ty_ref = try self.resolveType(ty, repr);
-        const result_ty_id = self.typeId(result_ty_ref);
+        dg: *DeclGen,
+        /// Cached reference of the u32 type.
+        u32_ty_ref: SpvType.Ref,
+        /// Cached type id of the u32 type.
+        u32_ty_id: IdRef,
+        /// The members of the resulting structure type
+        members: std.ArrayList(SpvType.Payload.Struct.Member),
+        /// The initializers of each of the members.
+        initializers: std.ArrayList(IdRef),
+        /// The current size of the structure. Includes
+        /// the bytes in partial_word.
+        size: u32 = 0,
+        /// The partially filled last constant.
+        /// If full, its flushed.
+        partial_word: std.BoundedArray(u8, @sizeOf(Word)) = .{},
 
-        log.debug("genConstant: ty = {}, val = {}", .{ ty.fmtDebug(), val.fmtDebug() });
+        /// Flush the partial_word to the members. If the partial_word is not
+        /// filled, this adds padding bytes (which are undefined).
+        fn flush(self: *@This()) !void {
+            if (self.partial_word.len == 0) {
+                // No need to add it there.
+                return;
+            }
+
+            for (self.partial_word.unusedCapacitySlice()) |*unused| {
+                // TODO: Perhaps we should generate OpUndef for these bytes?
+                unused.* = undef;
+            }
+
+            const word = @bitCast(Word, self.partial_word.buffer);
+            const result_id = self.dg.spv.allocId();
+            try self.dg.spv.emitConstant(self.u32_ty_id, result_id, .{ .uint32 = word });
+            try self.members.append(.{ .ty = self.u32_ty_ref });
+            try self.initializers.append(result_id);
+
+            self.partial_word.len = 0;
+            self.size = std.mem.alignForwardGeneric(u32, self.size, @sizeOf(Word));
+        }
+
+        /// Fill the buffer with undefined values until the size is aligned to `align`.
+        fn fillToAlign(self: *@This(), alignment: u32) !void {
+            const target_size = std.mem.alignForwardGeneric(u32, self.size, alignment);
+            try self.addUndef(target_size - self.size);
+        }
+
+        fn addUndef(self: *@This(), amt: u64) !void {
+            for (0..@intCast(usize, amt)) |_| {
+                try self.addByte(undef);
+            }
+        }
+
+        /// Add a single byte of data to the constant.
+        fn addByte(self: *@This(), data: u8) !void {
+            self.partial_word.append(data) catch {
+                try self.flush();
+                self.partial_word.append(data) catch unreachable;
+            };
+            self.size += 1;
+        }
+
+        /// Add many bytes of data to the constnat.
+        fn addBytes(self: *@This(), data: []const u8) !void {
+            // TODO: Improve performance by adding in bulk, or something?
+            for (data) |byte| {
+                try self.addByte(byte);
+            }
+        }
+
+        fn addPtr(self: *@This(), ptr_ty_ref: SpvType.Ref, ptr_id: IdRef) !void {
+            // TODO: Double check pointer sizes here.
+            // shared pointers might be u32...
+            const target = self.dg.getTarget();
+            const width = @divExact(target.cpu.arch.ptrBitWidth(), 8);
+            if (self.size % width != 0) {
+                return self.dg.todo("misaligned pointer constants", .{});
+            }
+            try self.members.append(.{ .ty = ptr_ty_ref });
+            try self.initializers.append(ptr_id);
+            self.size += width;
+        }
+
+        fn addNullPtr(self: *@This(), ptr_ty_ref: SpvType.Ref) !void {
+            const result_id = self.dg.spv.allocId();
+            try self.dg.spv.sections.types_globals_constants.emit(self.dg.spv.gpa, .OpConstantNull, .{
+                .id_result_type = self.dg.typeId(ptr_ty_ref),
+                .id_result = result_id,
+            });
+            try self.addPtr(ptr_ty_ref, result_id);
+        }
+
+        fn addConstInt(self: *@This(), comptime T: type, value: T) !void {
+            if (@bitSizeOf(T) % 8 != 0) {
+                @compileError("todo: non byte aligned int constants");
+            }
+
+            // TODO: Swap endianness if the compiler is big endian.
+            try self.addBytes(std.mem.asBytes(&value));
+        }
+
+        fn addConstBool(self: *@This(), value: bool) !void {
+            try self.addByte(@boolToInt(value)); // TODO: Keep in sync with something?
+        }
+
+        fn addInt(self: *@This(), ty: Type, val: Value) !void {
+            const target = self.dg.getTarget();
+            const int_info = ty.intInfo(target);
+            const int_bits = switch (int_info.signedness) {
+                .signed => @bitCast(u64, val.toSignedInt(target)),
+                .unsigned => val.toUnsignedInt(target),
+            };
+
+            // TODO: Swap endianess if the compiler is big endian.
+            const len = ty.abiSize(target);
+            try self.addBytes(std.mem.asBytes(&int_bits)[0..@intCast(usize, len)]);
+        }
+
+        fn lower(self: *@This(), ty: Type, val: Value) !void {
+            const target = self.dg.getTarget();
+            const dg = self.dg;
+
+            switch (ty.zigTypeTag()) {
+                .Int => try self.addInt(ty, val),
+                .Bool => try self.addConstBool(val.toBool()),
+                .Array => switch (val.tag()) {
+                    .aggregate => {
+                        const elem_vals = val.castTag(.aggregate).?.data;
+                        const elem_ty = ty.elemType();
+                        const len = @intCast(u32, ty.arrayLenIncludingSentinel()); // TODO: limit spir-v to 32 bit arrays in a more elegant way.
+                        for (elem_vals[0..len]) |elem_val| {
+                            try self.lower(elem_ty, elem_val);
+                        }
+                    },
+                    .repeated => {
+                        const elem_val = val.castTag(.repeated).?.data;
+                        const elem_ty = ty.elemType();
+                        const len = @intCast(u32, ty.arrayLen());
+                        for (0..len) |_| {
+                            try self.lower(elem_ty, elem_val);
+                        }
+                        if (ty.sentinel()) |sentinel| {
+                            try self.lower(elem_ty, sentinel);
+                        }
+                    },
+                    .str_lit => {
+                        const str_lit = val.castTag(.str_lit).?.data;
+                        const bytes = dg.module.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                        try self.addBytes(bytes);
+                        if (ty.sentinel()) |sentinel| {
+                            try self.addByte(@intCast(u8, sentinel.toUnsignedInt(target)));
+                        }
+                    },
+                    else => |tag| return dg.todo("indirect array constant with tag {s}", .{@tagName(tag)}),
+                },
+                .Pointer => switch (val.tag()) {
+                    .decl_ref_mut => {
+                        const ptr_ty_ref = try dg.resolveType(ty, .indirect);
+                        const ptr_id = dg.spv.allocId();
+                        const decl_index = val.castTag(.decl_ref_mut).?.data.decl_index;
+                        try dg.genDeclRef(ptr_ty_ref, ptr_id, decl_index);
+                        try self.addPtr(ptr_ty_ref, ptr_id);
+                    },
+                    .decl_ref => {
+                        const ptr_ty_ref = try dg.resolveType(ty, .indirect);
+                        const ptr_id = dg.spv.allocId();
+                        const decl_index = val.castTag(.decl_ref).?.data;
+                        try dg.genDeclRef(ptr_ty_ref, ptr_id, decl_index);
+                        try self.addPtr(ptr_ty_ref, ptr_id);
+                    },
+                    .slice => {
+                        const slice = val.castTag(.slice).?.data;
+
+                        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                        const ptr_ty = ty.slicePtrFieldType(&buf);
+
+                        try self.lower(ptr_ty, slice.ptr);
+                        try self.addInt(Type.usize, slice.len);
+                    },
+                    else => |tag| return dg.todo("pointer value of type {s}", .{@tagName(tag)}),
+                },
+                .Struct => {
+                    if (ty.isSimpleTupleOrAnonStruct()) {
+                        unreachable; // TODO
+                    } else {
+                        const struct_ty = ty.castTag(.@"struct").?.data;
+
+                        if (struct_ty.layout == .Packed) {
+                            return dg.todo("packed struct constants", .{});
+                        }
+
+                        const struct_begin = self.size;
+                        const field_vals = val.castTag(.aggregate).?.data;
+                        for (struct_ty.fields.values(), 0..) |field, i| {
+                            if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
+                            try self.lower(field.ty, field_vals[i]);
+
+                            // Add padding if required.
+                            // TODO: Add to type generation as well?
+                            const unpadded_field_end = self.size - struct_begin;
+                            const padded_field_end = ty.structFieldOffset(i + 1, target);
+                            const padding = padded_field_end - unpadded_field_end;
+                            try self.addUndef(padding);
+                        }
+                    }
+                },
+                .Optional => {
+                    var opt_buf: Type.Payload.ElemType = undefined;
+                    const payload_ty = ty.optionalChild(&opt_buf);
+                    const has_payload = !val.isNull();
+                    const abi_size = ty.abiSize(target);
+
+                    if (!payload_ty.hasRuntimeBits()) {
+                        try self.addConstBool(has_payload);
+                        return;
+                    } else if (ty.optionalReprIsPayload()) {
+                        // Optional representation is a nullable pointer.
+                        if (val.castTag(.opt_payload)) |payload| {
+                            try self.lower(payload_ty, payload.data);
+                        } else if (has_payload) {
+                            try self.lower(payload_ty, val);
+                        } else {
+                            const ptr_ty_ref = try dg.resolveType(ty, .indirect);
+                            try self.addNullPtr(ptr_ty_ref);
+                        }
+                        return;
+                    }
+
+                    // Optional representation is a structure.
+                    // { Payload, Bool }
+
+                    // Subtract 1 for @sizeOf(bool).
+                    // TODO: Make this not hardcoded.
+                    const payload_size = payload_ty.abiSize(target);
+                    const padding = abi_size - payload_size - 1;
+
+                    if (val.castTag(.opt_payload)) |payload| {
+                        try self.lower(payload_ty, payload.data);
+                    } else {
+                        try self.addUndef(payload_size);
+                    }
+                    try self.addConstBool(has_payload);
+                    try self.addUndef(padding);
+                },
+                .Enum => {
+                    var int_val_buffer: Value.Payload.U64 = undefined;
+                    const int_val = val.enumToInt(ty, &int_val_buffer);
+
+                    var int_ty_buffer: Type.Payload.Bits = undefined;
+                    const int_ty = ty.intTagType(&int_ty_buffer);
+
+                    try self.lower(int_ty, int_val);
+                },
+                .Union => {
+                    const tag_and_val = val.castTag(.@"union").?.data;
+                    const layout = ty.unionGetLayout(target);
+
+                    if (layout.payload_size == 0) {
+                        return try self.lower(ty.unionTagTypeSafety().?, tag_and_val.tag);
+                    }
+
+                    const union_ty = ty.cast(Type.Payload.Union).?.data;
+                    if (union_ty.layout == .Packed) {
+                        return dg.todo("packed union constants", .{});
+                    }
+
+                    const active_field = ty.unionTagFieldIndex(tag_and_val.tag, dg.module).?;
+                    const active_field_ty = union_ty.fields.values()[active_field].ty;
+
+                    const has_tag = layout.tag_size != 0;
+                    const tag_first = layout.tag_align >= layout.payload_align;
+
+                    if (has_tag and tag_first) {
+                        try self.lower(ty.unionTagTypeSafety().?, tag_and_val.tag);
+                    }
+
+                    const active_field_size = if (active_field_ty.hasRuntimeBitsIgnoreComptime()) blk: {
+                        try self.lower(active_field_ty, tag_and_val.val);
+                        break :blk active_field_ty.abiSize(target);
+                    } else 0;
+
+                    const payload_padding_len = layout.payload_size - active_field_size;
+                    try self.addUndef(payload_padding_len);
+
+                    if (has_tag and !tag_first) {
+                        try self.lower(ty.unionTagTypeSafety().?, tag_and_val.tag);
+                    }
+
+                    try self.addUndef(layout.padding);
+                },
+                else => |tag| return dg.todo("indirect constant of type {s}", .{@tagName(tag)}),
+            }
+        }
+    };
+
+    /// Returns a pointer to `val`. The value is placed directly
+    /// into the storage class `storage_class`, and this is also where the resulting
+    /// pointer points to. Note: result is not necessarily an OpVariable instruction!
+    fn lowerIndirectConstant(
+        self: *DeclGen,
+        result_id: IdRef,
+        ty: Type,
+        val: Value,
+        storage_class: spec.StorageClass,
+        alignment: u32,
+    ) Error!void {
+        // To simplify constant generation, we're going to generate constants as a word-array, and
+        // pointer cast the result to the right type.
+        // This means that the final constant will be generated as follows:
+        //   %T = OpTypeStruct %members...
+        //   %P = OpTypePointer %T
+        //   %U = OpTypePointer %ty
+        //   %1 = OpConstantComposite %T %initializers...
+        //   %2 = OpVariable %P %1
+        //   %result_id = OpSpecConstantOp OpBitcast %U %2
+        //
+        // The members consist of two options:
+        // - Literal values: ints, strings, etc. These are generated as u32 words.
+        // - Relocations, such as pointers: These are generated by embedding the pointer into the
+        //   to-be-generated structure. There are two options here, depending on the alignment of the
+        //   pointer value itself (not the alignment of the pointee).
+        //   - Natively or over-aligned values. These can just be generated directly.
+        //   - Underaligned pointers. These need to be packed into the word array by using a mixture of
+        //     OpSpecConstantOp instructions such as OpConvertPtrToU, OpBitcast, OpShift, etc.
+
+        log.debug("lowerIndirectConstant: ty = {}, val = {}", .{ ty.fmtDebug(), val.fmtDebug() });
+
+        const constant_section = &self.spv.sections.types_globals_constants;
+
+        const ty_ref = try self.resolveType(ty, .indirect);
+        const ptr_ty_ref = try self.spv.ptrType(ty_ref, storage_class, alignment);
 
         if (val.isUndef()) {
-            try section.emit(self.spv.gpa, .OpUndef, .{ .id_result_type = result_ty_id, .id_result = result_id });
+            // Special case: the entire value is undefined. In this case, we can just
+            // generate an OpVariable with no initializer.
+            try constant_section.emit(self.spv.gpa, .OpVariable, .{
+                .id_result_type = self.typeId(ptr_ty_ref),
+                .id_result = result_id,
+                .storage_class = storage_class,
+            });
+            return;
+        }
+
+        const u32_ty_ref = try self.intType(.unsigned, 32);
+        var icl = IndirectConstantLowering{
+            .dg = self,
+            .u32_ty_ref = u32_ty_ref,
+            .u32_ty_id = self.typeId(u32_ty_ref),
+            .members = std.ArrayList(SpvType.Payload.Struct.Member).init(self.gpa),
+            .initializers = std.ArrayList(IdRef).init(self.gpa),
+        };
+
+        try icl.lower(ty, val);
+        try icl.flush();
+
+        defer icl.members.deinit();
+        defer icl.initializers.deinit();
+
+        const constant_struct_ty_ref = try self.spv.simpleStructType(icl.members.items);
+        const ptr_constant_struct_ty_ref = try self.spv.ptrType(constant_struct_ty_ref, storage_class, alignment);
+
+        const constant_struct_id = self.spv.allocId();
+        try constant_section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
+            .id_result_type = self.typeId(constant_struct_ty_ref),
+            .id_result = constant_struct_id,
+            .constituents = icl.initializers.items,
+        });
+
+        const var_id = self.spv.allocId();
+        switch (storage_class) {
+            .Generic => unreachable,
+            .Function => {
+                try self.func.prologue.emit(self.spv.gpa, .OpVariable, .{
+                    .id_result_type = self.typeId(ptr_constant_struct_ty_ref),
+                    .id_result = var_id,
+                    .storage_class = storage_class,
+                    .initializer = constant_struct_id,
+                });
+                // TODO: Set alignment of OpVariable.
+
+                try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                    .id_result_type = self.typeId(ptr_ty_ref),
+                    .id_result = result_id,
+                    .operand = var_id,
+                });
+            },
+            else => {
+                try constant_section.emit(self.spv.gpa, .OpVariable, .{
+                    .id_result_type = self.typeId(ptr_constant_struct_ty_ref),
+                    .id_result = var_id,
+                    .storage_class = storage_class,
+                    .initializer = constant_struct_id,
+                });
+                // TODO: Set alignment of OpVariable.
+
+                try constant_section.emitSpecConstantOp(self.spv.gpa, .OpBitcast, .{
+                    .id_result_type = self.typeId(ptr_ty_ref),
+                    .id_result = result_id,
+                    .operand = var_id,
+                });
+            },
+        }
+    }
+
+    /// This function generates a load for a constant in direct (ie, non-memory) representation.
+    /// When the constant is simple, it can be generated directly using OpConstant instructions. When
+    /// the constant is more complicated however, it needs to be lowered to an indirect constant, which
+    /// is then loaded using OpLoad. Such values are loaded into the Function address space by default.
+    /// This function should only be called during function code generation.
+    fn constant(self: *DeclGen, ty: Type, val: Value) !IdRef {
+        const target = self.getTarget();
+        const section = &self.spv.sections.types_globals_constants;
+        const result_ty_ref = try self.resolveType(ty, .direct);
+        const result_ty_id = self.typeId(result_ty_ref);
+        const result_id = self.spv.allocId();
+
+        if (val.isUndef()) {
+            try section.emit(self.spv.gpa, .OpUndef, .{
+                .id_result_type = result_ty_id,
+                .id_result = result_id,
+            });
+            return result_id;
         }
 
         switch (ty.zigTypeTag()) {
             .Int => {
-                const int_bits = if (ty.isSignedInt()) @bitCast(u64, val.toSignedInt(target)) else val.toUnsignedInt(target);
+                const int_bits = if (ty.isSignedInt())
+                    @bitCast(u64, val.toSignedInt(target))
+                else
+                    val.toUnsignedInt(target);
                 try self.genConstInt(result_ty_ref, result_id, int_bits);
             },
-            .Bool => switch (repr) {
-                .direct => {
-                    const operands = .{ .id_result_type = result_ty_id, .id_result = result_id };
-                    if (val.toBool()) {
-                        try section.emit(self.spv.gpa, .OpConstantTrue, operands);
-                    } else {
-                        try section.emit(self.spv.gpa, .OpConstantFalse, operands);
-                    }
-                },
-                .indirect => try self.genConstInt(result_ty_ref, result_id, @boolToInt(val.toBool())),
+            .Bool => {
+                const operands = .{ .id_result_type = result_ty_id, .id_result = result_id };
+                if (val.toBool()) {
+                    try section.emit(self.spv.gpa, .OpConstantTrue, operands);
+                } else {
+                    try section.emit(self.spv.gpa, .OpConstantFalse, operands);
+                }
             },
-            .Float => {
-                // At this point we are guaranteed that the target floating point type is supported, otherwise the function
-                // would have exited at resolveTypeId(ty).
-                const literal: spec.LiteralContextDependentNumber = switch (ty.floatBits(target)) {
-                    // Prevent upcasting to f32 by bitcasting and writing as a uint32.
-                    16 => .{ .uint32 = @bitCast(u16, val.toFloat(f16)) },
-                    32 => .{ .float32 = val.toFloat(f32) },
-                    64 => .{ .float64 = val.toFloat(f64) },
-                    128 => unreachable, // Filtered out in the call to resolveTypeId.
-                    // TODO: Insert case for long double when the layout for that is determined?
-                    else => unreachable,
-                };
-
-                try self.spv.emitConstant(result_ty_id, result_id, literal);
-            },
-            .Array => switch (val.tag()) {
-                .aggregate => { // todo: combine with Vector
-                    const elem_vals = val.castTag(.aggregate).?.data;
-                    const elem_ty = ty.elemType();
-                    const len = @intCast(u32, ty.arrayLenIncludingSentinel()); // TODO: limit spir-v to 32 bit arrays in a more elegant way.
-                    const constituents = try self.spv.gpa.alloc(IdRef, len);
-                    defer self.spv.gpa.free(constituents);
-                    for (elem_vals[0..len], 0..) |elem_val, i| {
-                        constituents[i] = try self.constant(elem_ty, elem_val, repr);
-                    }
-                    try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
-                        .id_result_type = result_ty_id,
-                        .id_result = result_id,
-                        .constituents = constituents,
-                    });
-                },
-                .repeated => {
-                    const elem_val = val.castTag(.repeated).?.data;
-                    const elem_ty = ty.elemType();
-                    const len = @intCast(u32, ty.arrayLen());
-                    const total_len = @intCast(u32, ty.arrayLenIncludingSentinel()); // TODO: limit spir-v to 32 bit arrays in a more elegant way.
-                    const constituents = try self.spv.gpa.alloc(IdRef, total_len);
-                    defer self.spv.gpa.free(constituents);
-
-                    const elem_val_id = try self.constant(elem_ty, elem_val, repr);
-                    for (constituents[0..len]) |*elem| {
-                        elem.* = elem_val_id;
-                    }
-                    if (ty.sentinel()) |sentinel| {
-                        constituents[len] = try self.constant(elem_ty, sentinel, repr);
-                    }
-                    try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
-                        .id_result_type = result_ty_id,
-                        .id_result = result_id,
-                        .constituents = constituents,
-                    });
-                },
-                .str_lit => {
-                    // TODO: This is very efficient code generation, should probably implement constant caching for this.
-                    const str_lit = val.castTag(.str_lit).?.data;
-                    const bytes = self.module.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                    const elem_ty = ty.elemType();
-                    const elem_ty_id = try self.resolveTypeId(elem_ty);
-                    const len = @intCast(u32, ty.arrayLen());
-                    const total_len = @intCast(u32, ty.arrayLenIncludingSentinel());
-                    const constituents = try self.spv.gpa.alloc(IdRef, total_len);
-                    defer self.spv.gpa.free(constituents);
-                    for (bytes, 0..) |byte, i| {
-                        constituents[i] = self.spv.allocId();
-                        try self.spv.emitConstant(elem_ty_id, constituents[i], .{ .uint32 = byte });
-                    }
-                    if (ty.sentinel()) |sentinel| {
-                        constituents[len] = self.spv.allocId();
-                        const byte = @intCast(u8, sentinel.toUnsignedInt(target));
-                        try self.spv.emitConstant(elem_ty_id, constituents[len], .{ .uint32 = byte });
-                    }
-                    try section.emit(self.spv.gpa, .OpConstantComposite, .{
-                        .id_result_type = result_ty_id,
-                        .id_result = result_id,
-                        .constituents = constituents,
-                    });
-                },
-                else => return self.todo("array constant with tag {s}", .{@tagName(val.tag())}),
-            },
-            .Vector => switch (val.tag()) {
-                .aggregate => {
-                    const elem_vals = val.castTag(.aggregate).?.data;
-                    const vector_len = @intCast(usize, ty.vectorLen());
-                    const elem_ty = ty.elemType();
-
-                    const elem_refs = try self.gpa.alloc(IdRef, vector_len);
-                    defer self.gpa.free(elem_refs);
-                    for (elem_refs, 0..) |*elem, i| {
-                        elem.* = try self.constant(elem_ty, elem_vals[i], repr);
-                    }
-                    try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
-                        .id_result_type = result_ty_id,
-                        .id_result = result_id,
-                        .constituents = elem_refs,
-                    });
-                },
-                else => return self.todo("vector constant with tag {s}", .{@tagName(val.tag())}),
-            },
-            .Enum => {
-                var int_buffer: Value.Payload.U64 = undefined;
-                const int_val = val.enumToInt(ty, &int_buffer).toUnsignedInt(target); // TODO: composite integer constants
-                return self.genConstInt(result_ty_ref, result_id, int_val);
-            },
-            .Struct => {
-                const constituents = if (ty.isSimpleTupleOrAnonStruct()) blk: {
-                    const tuple = ty.tupleFields();
-                    const constituents = try self.spv.gpa.alloc(IdRef, tuple.types.len);
-                    errdefer self.spv.gpa.free(constituents);
-
-                    var member_i: usize = 0;
-                    for (tuple.types, 0..) |field_ty, i| {
-                        const field_val = tuple.values[i];
-                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
-                        constituents[member_i] = try self.constant(field_ty, field_val, .indirect);
-                        member_i += 1;
-                    }
-
-                    break :blk constituents[0..member_i];
-                } else blk: {
-                    const struct_ty = ty.castTag(.@"struct").?.data;
-
-                    if (struct_ty.layout == .Packed) {
-                        return self.todo("packed struct constants", .{});
-                    }
-
-                    const field_vals = val.castTag(.aggregate).?.data;
-                    const constituents = try self.spv.gpa.alloc(IdRef, struct_ty.fields.count());
-                    errdefer self.spv.gpa.free(constituents);
-                    var member_i: usize = 0;
-                    for (struct_ty.fields.values(), 0..) |field, i| {
-                        if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
-                        constituents[member_i] = try self.constant(field.ty, field_vals[i], .indirect);
-                        member_i += 1;
-                    }
-
-                    break :blk constituents[0..member_i];
-                };
-                defer self.spv.gpa.free(constituents);
-
-                try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
+            else => {
+                // The value cannot be generated directly, so generate it as an indirect function-local
+                // constant, and then perform an OpLoad.
+                const ptr_id = self.spv.allocId();
+                const alignment = ty.abiAlignment(target);
+                try self.lowerIndirectConstant(ptr_id, ty, val, .Function, alignment);
+                try self.func.body.emit(self.spv.gpa, .OpLoad, .{
                     .id_result_type = result_ty_id,
                     .id_result = result_id,
-                    .constituents = constituents,
+                    .pointer = ptr_id,
                 });
+                // TODO: Convert bools? This logic should hook into `load`.
             },
-            .Pointer => switch (val.tag()) {
-                .decl_ref_mut => try self.genDeclRef(result_ty_ref, result_id, val.castTag(.decl_ref_mut).?.data.decl_index),
-                .decl_ref => try self.genDeclRef(result_ty_ref, result_id, val.castTag(.decl_ref).?.data),
-                .slice => {
-                    const slice = val.castTag(.slice).?.data;
-                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-
-                    const ptr_id = try self.constant(ty.slicePtrFieldType(&buf), slice.ptr, .indirect);
-                    const len_id = try self.constant(Type.usize, slice.len, .indirect);
-
-                    const constituents = [_]IdRef{ ptr_id, len_id };
-                    try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
-                        .id_result_type = result_ty_id,
-                        .id_result = result_id,
-                        .constituents = &constituents,
-                    });
-                },
-                else => return self.todo("pointer of value type {s}", .{@tagName(val.tag())}),
-            },
-            .Optional => {
-                var buf: Type.Payload.ElemType = undefined;
-                const payload_ty = ty.optionalChild(&buf);
-
-                const has_payload = !val.isNull();
-
-                // Note: keep in sync with the resolveType implementation for optionals.
-                if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
-                    // Just a bool. Note: always in indirect representation.
-                    try self.genConstInt(result_ty_ref, result_id, @boolToInt(has_payload));
-                } else if (ty.optionalReprIsPayload()) {
-                    // A nullable pointer.
-                    if (val.castTag(.opt_payload)) |payload| {
-                        try self.genConstant(result_id, payload_ty, payload.data, repr);
-                    } else if (has_payload) {
-                        try self.genConstant(result_id, payload_ty, val, repr);
-                    } else {
-                        try section.emit(self.spv.gpa, .OpConstantNull, .{
-                            .id_result_type = result_ty_id,
-                            .id_result = result_id,
-                        });
-                    }
-                    return;
-                }
-
-                // Struct-and-field pair.
-                // Note: If this optional has no payload, we initialize the the data member with OpUndef.
-                const bool_ty_ref = try self.resolveType(Type.bool, .indirect);
-                const valid_id = try self.constInt(bool_ty_ref, @boolToInt(has_payload));
-                const payload_val = if (val.castTag(.opt_payload)) |pl| pl.data else Value.undef;
-                const payload_id = try self.constant(payload_ty, payload_val, .indirect);
-
-                const constituents = [_]IdRef{ payload_id, valid_id };
-                try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
-                    .id_result_type = result_ty_id,
-                    .id_result = result_id,
-                    .constituents = &constituents,
-                });
-            },
-            .Union => {
-                const tag_and_val = val.castTag(.@"union").?.data;
-                const layout = ty.unionGetLayout(target);
-
-                if (layout.payload_size == 0) {
-                    return try self.genConstant(result_id, ty.unionTagTypeSafety().?, tag_and_val.tag, .indirect);
-                }
-
-                const union_ty = ty.cast(Type.Payload.Union).?.data;
-                if (union_ty.layout == .Packed) {
-                    return self.todo("packed union constants", .{});
-                }
-
-                const active_field = ty.unionTagFieldIndex(tag_and_val.tag, self.module).?;
-                const union_ty_ref = try self.resolveUnionType(ty, active_field);
-                const active_field_ty = union_ty.fields.values()[active_field].ty;
-
-                const tag_first = layout.tag_align >= layout.payload_align;
-                const u8_ty_ref = try self.intType(.unsigned, 8);
-
-                const tag = if (layout.tag_size != 0)
-                    try self.constant(ty.unionTagTypeSafety().?, tag_and_val.tag, .indirect)
-                else
-                    null;
-
-                var members = std.BoundedArray(IdRef, 4){};
-
-                if (tag_first) {
-                    if (tag) |id| members.appendAssumeCapacity(id);
-                }
-
-                const active_field_size = if (active_field_ty.hasRuntimeBitsIgnoreComptime()) blk: {
-                    const payload = try self.constant(active_field_ty, tag_and_val.val, .indirect);
-                    members.appendAssumeCapacity(payload);
-                    break :blk active_field_ty.abiSize(target);
-                } else 0;
-
-                const payload_padding_len = layout.payload_size - active_field_size;
-                if (payload_padding_len != 0) {
-                    const payload_padding_ty_ref = try self.arrayType(@intCast(u32, payload_padding_len), u8_ty_ref);
-                    members.appendAssumeCapacity(try self.genUndef(payload_padding_ty_ref));
-                }
-
-                if (!tag_first) {
-                    if (tag) |id| members.appendAssumeCapacity(id);
-                }
-
-                if (layout.padding != 0) {
-                    const padding_ty_ref = try self.arrayType(layout.padding, u8_ty_ref);
-                    members.appendAssumeCapacity(try self.genUndef(padding_ty_ref));
-                }
-
-                try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
-                    .id_result_type = self.typeId(union_ty_ref),
-                    .id_result = result_id,
-                    .constituents = members.slice(),
-                });
-
-                // TODO: Cast to general union type? Required for pointers only or something?
-            },
-
-            .Fn => switch (repr) {
-                .direct => unreachable,
-                .indirect => return self.todo("function pointers", .{}),
-            },
-            .Void => unreachable,
-            else => return self.todo("constant generation of type {s}: {}", .{ @tagName(ty.zigTypeTag()), ty.fmtDebug() }),
         }
+
+        return result_id;
     }
 
     fn genDeclRef(self: *DeclGen, result_ty_ref: SpvType.Ref, result_id: IdRef, decl_index: Decl.Index) Error!void {
+        // TODO: Clean up
         const decl = self.module.declPtr(decl_index);
         self.module.markDeclAlive(decl);
-        const decl_id = try self.constant(decl.ty, decl.val, .indirect);
-        try self.variable(.global, result_id, result_ty_ref, decl_id);
+        // _ = result_ty_ref;
+        // const decl_id = try self.constant(decl.ty, decl.val, .indirect);
+        // try self.variable(.global, result_id, result_ty_ref, decl_id);
+        const result_storage_class = self.spv.typeRefType(result_ty_ref).payload(.pointer).storage_class;
+        const indirect_result_id = if (result_storage_class != .CrossWorkgroup)
+            self.spv.allocId()
+        else
+            result_id;
+
+        try self.lowerIndirectConstant(
+            indirect_result_id,
+            decl.ty,
+            decl.val,
+            .CrossWorkgroup, // TODO: Make this .Function if required
+            decl.@"align",
+        );
+        const section = &self.spv.sections.types_globals_constants;
+        if (result_storage_class != .CrossWorkgroup) {
+            try section.emitSpecConstantOp(self.spv.gpa, .OpPtrCastToGeneric, .{
+                .id_result_type = self.typeId(result_ty_ref),
+                .id_result = result_id,
+                .pointer = indirect_result_id,
+            });
+        }
     }
 
     /// Turn a Zig type into a SPIR-V Type, and return its type result-id.
@@ -744,32 +917,6 @@ pub const DeclGen = struct {
     /// Create an integer type that represents 'usize'.
     fn sizeType(self: *DeclGen) !SpvType.Ref {
         return try self.intType(.unsigned, self.getTarget().cpu.arch.ptrBitWidth());
-    }
-
-    /// Construct a simple struct type which consists of some members, and no decorations.
-    /// `members` lifetime only needs to last for this function as it is copied.
-    fn simpleStructType(self: *DeclGen, members: []const SpvType.Payload.Struct.Member) !SpvType.Ref {
-        const payload = try self.spv.arena.create(SpvType.Payload.Struct);
-        payload.* = .{
-            .members = try self.spv.arena.dupe(SpvType.Payload.Struct.Member, members),
-            .decorations = .{},
-        };
-        return try self.spv.resolveType(SpvType.initPayload(&payload.base));
-    }
-
-    fn simpleStructTypeId(self: *DeclGen, members: []const SpvType.Payload.Struct.Member) !IdResultType {
-        const type_ref = try self.simpleStructType(members);
-        return self.typeId(type_ref);
-    }
-
-    /// Construct an array type which has 'len' elements of 'type'
-    fn arrayType(self: *DeclGen, len: u32, ty: SpvType.Ref) !SpvType.Ref {
-        const payload = try self.spv.arena.create(SpvType.Payload.Array);
-        payload.* = .{
-            .element_type = ty,
-            .length = len,
-        };
-        return try self.spv.resolveType(SpvType.initPayload(&payload.base));
     }
 
     /// Generate a union type, optionally with a known field. If the tag alignment is greater
@@ -831,7 +978,7 @@ pub const DeclGen = struct {
 
         const payload_padding_len = layout.payload_size - active_field_size;
         if (payload_padding_len != 0) {
-            const payload_padding_ty_ref = try self.arrayType(@intCast(u32, payload_padding_len), u8_ty_ref);
+            const payload_padding_ty_ref = try self.spv.arrayType(@intCast(u32, payload_padding_len), u8_ty_ref);
             members.appendAssumeCapacity(.{ .name = "padding_payload", .ty = payload_padding_ty_ref });
         }
 
@@ -840,11 +987,11 @@ pub const DeclGen = struct {
         }
 
         if (layout.padding != 0) {
-            const padding_ty_ref = try self.arrayType(layout.padding, u8_ty_ref);
+            const padding_ty_ref = try self.spv.arrayType(layout.padding, u8_ty_ref);
             members.appendAssumeCapacity(.{ .name = "padding", .ty = padding_ty_ref });
         }
 
-        return try self.simpleStructType(members.slice());
+        return try self.spv.simpleStructType(members.slice());
     }
 
     /// Turn a Zig type into a SPIR-V Type, and return a reference to it.
@@ -893,7 +1040,7 @@ pub const DeclGen = struct {
                 const total_len = std.math.cast(u32, ty.arrayLenIncludingSentinel()) orelse {
                     return self.fail("array type of {} elements is too large", .{ty.arrayLenIncludingSentinel()});
                 };
-                return try self.arrayType(total_len, elem_ty_ref);
+                return try self.spv.arrayType(total_len, elem_ty_ref);
             },
             .Fn => {
                 // TODO: Put this somewhere in Sema.zig
@@ -918,7 +1065,7 @@ pub const DeclGen = struct {
 
                 const ptr_payload = try self.spv.arena.create(SpvType.Payload.Pointer);
                 ptr_payload.* = .{
-                    .storage_class = spirvStorageClass(ptr_info.@"addrspace"),
+                    .storage_class = spvStorageClass(ptr_info.@"addrspace"),
                     .child_type = try self.resolveType(ptr_info.pointee_type, .indirect),
                     // Note: only available in Kernels!
                     .alignment = ty.ptrAlignment(target) * 8,
@@ -929,7 +1076,7 @@ pub const DeclGen = struct {
                     return ptr_ty_id;
                 }
 
-                return try self.simpleStructType(&.{
+                return try self.spv.simpleStructType(&.{
                     .{ .ty = ptr_ty_id, .name = "ptr" },
                     .{ .ty = try self.sizeType(), .name = "len" },
                 });
@@ -1018,7 +1165,7 @@ pub const DeclGen = struct {
                 const bool_ty_ref = try self.resolveType(Type.bool, .indirect);
 
                 // its an actual optional
-                return try self.simpleStructType(&.{
+                return try self.spv.simpleStructType(&.{
                     .{ .ty = payload_ty_ref, .name = "payload" },
                     .{ .ty = bool_ty_ref, .name = "valid" },
                 });
@@ -1037,7 +1184,7 @@ pub const DeclGen = struct {
         }
     }
 
-    fn spirvStorageClass(as: std.builtin.AddressSpace) spec.StorageClass {
+    fn spvStorageClass(as: std.builtin.AddressSpace) spec.StorageClass {
         return switch (as) {
             .generic => .Generic, // TODO: Disallow?
             .gs, .fs, .ss => unreachable,
@@ -1100,7 +1247,46 @@ pub const DeclGen = struct {
                 .name = fqn,
             });
         } else {
-            try self.genConstant(result_id, decl.ty, decl.val, .direct);
+            const init_val = if (decl.val.castTag(.variable)) |payload|
+                payload.data.init
+            else
+                decl.val;
+
+            if (init_val.tag() == .unreachable_value) {
+                return self.todo("importing extern variables", .{});
+            }
+
+            // TODO: integrate with variable().
+
+            const storage_class = spvStorageClass(decl.@"addrspace");
+            const actual_storage_class = switch (storage_class) {
+                .Generic => .CrossWorkgroup,
+                else => storage_class,
+            };
+
+            const var_result_id = switch (storage_class) {
+                .Generic => self.spv.allocId(),
+                else => result_id,
+            };
+
+            try self.lowerIndirectConstant(
+                var_result_id,
+                decl.ty,
+                init_val,
+                actual_storage_class,
+                decl.@"align",
+            );
+
+            if (storage_class == .Generic) {
+                const section = &self.spv.sections.types_globals_constants;
+                const ty_ref = try self.resolveType(decl.ty, .indirect);
+                const ptr_ty_ref = try self.spv.ptrType(ty_ref, storage_class, decl.@"align");
+                try section.emitSpecConstantOp(self.spv.gpa, .OpPtrCastToGeneric, .{
+                    .id_result_type = self.typeId(ptr_ty_ref),
+                    .id_result = result_id,
+                    .pointer = var_result_id,
+                });
+            }
         }
     }
 
@@ -1358,13 +1544,13 @@ pub const DeclGen = struct {
             // Construct the SPIR-V result type.
             // It is almost the same as the zig one, except that the fields must be the same type
             // and they must be unsigned.
-            const overflow_result_ty = try self.simpleStructTypeId(&.{
+            const overflow_result_ty_ref = try self.spv.simpleStructType(&.{
                 .{ .ty = overflow_member_ty, .name = "res" },
                 .{ .ty = overflow_member_ty, .name = "ov" },
             });
             const result_id = self.spv.allocId();
             try self.func.body.emit(self.spv.gpa, .OpIAddCarry, .{
-                .id_result_type = overflow_result_ty,
+                .id_result_type = self.typeId(overflow_result_ty_ref),
                 .id_result = result_id,
                 .operand_1 = lhs,
                 .operand_2 = rhs,
@@ -1786,13 +1972,11 @@ pub const DeclGen = struct {
                 .id_result = result_id,
                 .pointer = alloc_result_id,
             }),
-            else => {
-                try section.emitRaw(self.spv.gpa, .OpSpecConstantOp, 3 + 1);
-                section.writeOperand(IdRef, self.typeId(ptr_ty_ref));
-                section.writeOperand(IdRef, result_id);
-                section.writeOperand(Opcode, .OpPtrCastToGeneric);
-                section.writeOperand(IdRef, alloc_result_id);
-            },
+            else => try section.emitSpecConstantOp(self.spv.gpa, .OpPtrCastToGeneric, .{
+                .id_result_type = self.typeId(ptr_ty_ref),
+                .id_result = result_id,
+                .pointer = alloc_result_id,
+            }),
         }
     }
 
