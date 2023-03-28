@@ -4318,16 +4318,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             });
         } else if (func_value.castTag(.extern_fn)) |func_payload| {
             const extern_fn = func_payload.data;
-            const decl_name = mod.declPtr(extern_fn.owner_decl).name;
-            if (extern_fn.lib_name) |lib_name| {
-                log.debug("TODO enforce that '{s}' is expected in '{s}' library", .{
-                    decl_name,
-                    lib_name,
-                });
-            }
-
+            const decl_name = mem.sliceTo(mod.declPtr(extern_fn.owner_decl).name, 0);
+            const lib_name = mem.sliceTo(extern_fn.lib_name, 0);
             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                const sym_index = try macho_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
+                const sym_index = try macho_file.getGlobalSymbol(decl_name, lib_name);
                 const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
                 const atom_index = macho_file.getAtom(atom).getSymbolIndex().?;
                 _ = try self.addInst(.{
@@ -4340,7 +4334,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     },
                 });
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-                const sym_index = try coff_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
+                const sym_index = try coff_file.getGlobalSymbol(decl_name, lib_name);
                 try self.genSetReg(Type.initTag(.u64), .x30, .{
                     .linker_load = .{
                         .type = .import,

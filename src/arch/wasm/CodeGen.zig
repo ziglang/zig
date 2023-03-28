@@ -6121,7 +6121,7 @@ fn callIntrinsic(
     args: []const WValue,
 ) InnerError!WValue {
     assert(param_types.len == args.len);
-    const symbol_index = func.bin_file.base.getGlobalSymbol(name) catch |err| {
+    const symbol_index = func.bin_file.base.getGlobalSymbol(name, null) catch |err| {
         return func.fail("Could not find or create global symbol '{s}'", .{@errorName(err)});
     };
 

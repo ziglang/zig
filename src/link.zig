@@ -504,18 +504,20 @@ pub const File = struct {
     /// Called from within CodeGen to retrieve the symbol index of a global symbol.
     /// If no symbol exists yet with this name, a new undefined global symbol will
     /// be created. This symbol may get resolved once all relocatables are (re-)linked.
-    pub fn getGlobalSymbol(base: *File, name: []const u8) UpdateDeclError!u32 {
+    /// Optionally, it is possible to specify where to expect the symbol defined if it
+    /// is an import.
+    pub fn getGlobalSymbol(base: *File, name: []const u8, lib_name: ?[]const u8) UpdateDeclError!u32 {
         if (build_options.only_c) @compileError("unreachable");
-        log.debug("getGlobalSymbol '{s}'", .{name});
+        log.debug("getGlobalSymbol '{s}' (expected in '{?s}')", .{ name, lib_name });
         switch (base.tag) {
             // zig fmt: off
-            .coff  => return @fieldParentPtr(Coff, "base", base).getGlobalSymbol(name),
+            .coff  => return @fieldParentPtr(Coff, "base", base).getGlobalSymbol(name, lib_name),
             .elf   => unreachable,
-            .macho => return @fieldParentPtr(MachO, "base", base).getGlobalSymbol(name),
+            .macho => return @fieldParentPtr(MachO, "base", base).getGlobalSymbol(name, lib_name),
             .plan9 => unreachable,
             .spirv => unreachable,
             .c     => unreachable,
-            .wasm  => return @fieldParentPtr(Wasm,  "base", base).getGlobalSymbol(name),
+            .wasm  => return @fieldParentPtr(Wasm,  "base", base).getGlobalSymbol(name, lib_name),
             .nvptx => unreachable,
             // zig fmt: on
         }

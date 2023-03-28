@@ -112,7 +112,6 @@ const test_targets = blk: {
                 .os_tag = .windows,
                 .abi = .gnu,
             },
-            .single_threaded = true, // https://github.com/ziglang/zig/issues/15075
             .backend = .stage2_x86_64,
         },
 

@@ -45,23 +45,30 @@ pcrel: bool,
 length: u2,
 dirty: bool = true,
 
-/// Returns an Atom which is the target node of this relocation edge (if any).
-pub fn getTargetAtomIndex(self: Relocation, coff_file: *const Coff) ?Atom.Index {
+/// Returns address of the target if any.
+pub fn getTargetAddress(self: Relocation, coff_file: *const Coff) ?u32 {
     switch (self.type) {
-        .got,
-        .got_page,
-        .got_pageoff,
-        => return coff_file.getGotAtomIndexForSymbol(self.target),
+        .got, .got_page, .got_pageoff, .direct, .page, .pageoff => {
+            const maybe_target_atom_index = switch (self.type) {
+                .got, .got_page, .got_pageoff => coff_file.getGotAtomIndexForSymbol(self.target),
+                .direct, .page, .pageoff => coff_file.getAtomIndexForSymbol(self.target),
+                else => unreachable,
+            };
+            const target_atom_index = maybe_target_atom_index orelse return null;
+            const target_atom = coff_file.getAtom(target_atom_index);
+            return target_atom.getSymbol(coff_file).value;
+        },
 
-        .direct,
-        .page,
-        .pageoff,
-        => return coff_file.getAtomIndexForSymbol(self.target),
-
-        .import,
-        .import_page,
-        .import_pageoff,
-        => return coff_file.getImportAtomIndexForSymbol(self.target),
+        .import, .import_page, .import_pageoff => {
+            const sym = coff_file.getSymbol(self.target);
+            const index = coff_file.import_tables.getIndex(sym.value) orelse return null;
+            const itab = coff_file.import_tables.values()[index];
+            return itab.getImportAddress(self.target, .{
+                .coff_file = coff_file,
+                .index = index,
+                .name_off = sym.value,
+            });
+        },
     }
 }
 
@@ -73,9 +80,7 @@ pub fn resolve(self: *Relocation, atom_index: Atom.Index, coff_file: *Coff) !voi
 
     const file_offset = source_section.pointer_to_raw_data + source_sym.value - source_section.virtual_address;
 
-    const target_atom_index = self.getTargetAtomIndex(coff_file) orelse return;
-    const target_atom = coff_file.getAtom(target_atom_index);
-    const target_vaddr = target_atom.getSymbol(coff_file).value;
+    const target_vaddr = self.getTargetAddress(coff_file) orelse return;
     const target_vaddr_with_addend = target_vaddr + self.addend;
 
     log.debug("  ({x}: [() => 0x{x} ({s})) ({s}) (in file at 0x{x})", .{

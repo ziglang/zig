@@ -1573,7 +1573,8 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
 /// such as an exported or imported symbol.
 /// If the symbol does not yet exist, creates a new one symbol instead
 /// and then returns the index to it.
-pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8) !u32 {
+pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !u32 {
+    _ = lib_name;
     const name_index = try wasm.string_table.put(wasm.base.allocator, name);
     const gop = try wasm.globals.getOrPut(wasm.base.allocator, name_index);
     if (gop.found_existing) {
