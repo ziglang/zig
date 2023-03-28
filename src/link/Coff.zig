@@ -771,7 +771,7 @@ fn shrinkAtom(self: *Coff, atom_index: Atom.Index, new_block_size: u32) void {
     // capacity, insert a free list node for it.
 }
 
-fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []const u8) !void {
+fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
     const atom = self.getAtom(atom_index);
     const sym = atom.getSymbol(self);
     const section = self.sections.get(@enumToInt(sym.section_number) - 1);
@@ -781,8 +781,8 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []const u8) !void {
         file_offset,
         file_offset + code.len,
     });
+    self.resolveRelocs(atom_index, code);
     try self.base.file.?.pwriteAll(code, file_offset);
-    try self.resolveRelocs(atom_index);
 }
 
 fn writePtrWidthAtom(self: *Coff, atom_index: Atom.Index) !void {
@@ -820,14 +820,15 @@ fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
     }
 }
 
-fn resolveRelocs(self: *Coff, atom_index: Atom.Index) !void {
+fn resolveRelocs(self: *Coff, atom_index: Atom.Index, code: []u8) void {
     const relocs = self.relocs.get(atom_index) orelse return;
 
     log.debug("relocating '{s}'", .{self.getAtom(atom_index).getName(self)});
 
     for (relocs.items) |*reloc| {
         if (!reloc.dirty) continue;
-        try reloc.resolve(atom_index, self);
+        reloc.resolve(atom_index, code, self);
+        reloc.dirty = false;
     }
 }
 
@@ -944,7 +945,7 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
         &code_buffer,
         .none,
     );
-    const code = switch (res) {
+    var code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -994,7 +995,7 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), tv, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
-    const code = switch (res) {
+    var code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1057,7 +1058,7 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
     }, &code_buffer, .none, .{
         .parent_atom_index = atom.getSymbolIndex().?,
     });
-    const code = switch (res) {
+    var code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1110,7 +1111,7 @@ fn getDeclOutputSection(self: *Coff, decl_index: Module.Decl.Index) u16 {
     return index;
 }
 
-fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, complex_type: coff.ComplexType) !void {
+fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, complex_type: coff.ComplexType) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
@@ -1424,8 +1425,28 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     try self.writeImportTables();
     {
         var it = self.relocs.keyIterator();
-        while (it.next()) |atom| {
-            try self.resolveRelocs(atom.*);
+        while (it.next()) |atom_index_ptr| {
+            const atom_index = atom_index_ptr.*;
+            const relocs = self.relocs.get(atom_index).?;
+            const needs_update = for (relocs.items) |reloc| {
+                if (reloc.dirty) break true;
+            } else false;
+
+            if (!needs_update) continue;
+
+            const atom = self.getAtom(atom_index);
+            const sym = atom.getSymbol(self);
+            const section = self.sections.get(@enumToInt(sym.section_number) - 1).header;
+            const file_offset = section.pointer_to_raw_data + sym.value - section.virtual_address;
+
+            var code = std.ArrayList(u8).init(gpa);
+            defer code.deinit();
+            try code.resize(math.cast(usize, atom.size) orelse return error.Overflow);
+
+            const amt = try self.base.file.?.preadAll(code.items, file_offset);
+            if (amt != code.items.len) return error.InputOutput;
+
+            try self.writeAtom(atom_index, code.items);
         }
     }
     try self.writeBaseRelocations();
@@ -1642,6 +1663,7 @@ fn writeImportTables(self: *Coff) !void {
         const sect_vm_capacity = self.allocatedVirtualSize(header.virtual_address);
         if (needed_size > sect_vm_capacity) {
             try self.growSectionVM(self.idata_section_index.?, needed_size);
+            self.markRelocsDirtyByAddress(header.virtual_address + needed_size);
         }
 
         header.virtual_size = @max(header.virtual_size, needed_size);
