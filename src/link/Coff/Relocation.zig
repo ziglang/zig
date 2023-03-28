@@ -61,8 +61,13 @@ pub fn getTargetAddress(self: Relocation, coff_file: *const Coff) ?u32 {
 
         .import, .import_page, .import_pageoff => {
             const sym = coff_file.getSymbol(self.target);
-            const itab = coff_file.import_tables.get(sym.value) orelse return null;
-            return itab.getImportAddress(coff_file, self.target);
+            const index = coff_file.import_tables.getIndex(sym.value) orelse return null;
+            const itab = coff_file.import_tables.values()[index];
+            return itab.getImportAddress(self.target, .{
+                .coff_file = coff_file,
+                .index = index,
+                .name_off = sym.value,
+            });
         },
     }
 }

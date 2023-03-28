@@ -1,36 +1,7 @@
-const Coff = @This();
-
-const std = @import("std");
-const build_options = @import("build_options");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-const coff = std.coff;
-const fmt = std.fmt;
-const log = std.log.scoped(.link);
-const math = std.math;
-const mem = std.mem;
-
-const Allocator = std.mem.Allocator;
-
-const codegen = @import("../codegen.zig");
-const link = @import("../link.zig");
-const lld = @import("Coff/lld.zig");
-const trace = @import("../tracy.zig").trace;
-
-const Air = @import("../Air.zig");
-pub const Atom = @import("Coff/Atom.zig");
-const Compilation = @import("../Compilation.zig");
-const Liveness = @import("../Liveness.zig");
-const LlvmObject = @import("../codegen/llvm.zig").Object;
-const Module = @import("../Module.zig");
-const Object = @import("Coff/Object.zig");
-const Relocation = @import("Coff/Relocation.zig");
-const StringTable = @import("strtab.zig").StringTable;
-const TypedValue = @import("../TypedValue.zig");
-
-pub const base_tag: link.File.Tag = .coff;
-
-const msdos_stub = @embedFile("msdos-stub.bin");
+//! The main driver of the COFF linker.
+//! Currently uses our own implementation for the incremental linker, and falls back to
+//! LLD for traditional linking (linking relocatable object files).
+//! LLD is also the default linker for LLVM.
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
 llvm_object: ?*LlvmObject = null,
@@ -158,92 +129,6 @@ const Section = struct {
     /// allocate a fresh atom, which will have ideal capacity, and then grow it
     /// by 1 byte. It will then have -1 overcapacity.
     free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
-};
-
-/// Represents an import table in the .idata section where each contained pointer
-/// is to a symbol from the same DLL.
-///
-/// The layout of .idata section is as follows:
-///
-/// --- ADDR1 : IAT (all import tables concatenated together)
-///     ptr
-///     ptr
-///     0 sentinel
-///     ptr
-///     0 sentinel
-/// --- ADDR2: headers
-///     ImportDirectoryEntry header
-///     ImportDirectoryEntry header
-///     sentinel
-/// --- ADDR2: lookup tables
-///     Lookup table
-///     0 sentinel
-///     Lookup table
-///     0 sentinel
-/// --- ADDR3: name hint tables
-///     hint-symname
-///     hint-symname
-/// --- ADDR4: DLL names
-///     DLL#1 name
-///     DLL#2 name
-/// --- END
-const ImportTable = struct {
-    entries: std.ArrayListUnmanaged(SymbolWithLoc) = .{},
-    free_list: std.ArrayListUnmanaged(u32) = .{},
-    lookup: std.AutoHashMapUnmanaged(SymbolWithLoc, u32) = .{},
-    index: u8,
-
-    const ITable = @This();
-
-    fn deinit(itab: *ITable, allocator: Allocator) void {
-        itab.entries.deinit(allocator);
-        itab.free_list.deinit(allocator);
-        itab.lookup.deinit(allocator);
-    }
-
-    fn size(itab: ITable) u32 {
-        return @intCast(u32, itab.entries.items.len) * @sizeOf(u64);
-    }
-
-    fn addImport(itab: *ITable, allocator: Allocator, target: SymbolWithLoc) !u32 {
-        try itab.entries.ensureUnusedCapacity(allocator, 1);
-        const index: u32 = blk: {
-            if (itab.free_list.popOrNull()) |index| {
-                log.debug("  (reusing import entry index {d})", .{index});
-                break :blk index;
-            } else {
-                log.debug("  (allocating import entry at index {d})", .{itab.entries.items.len});
-                const index = @intCast(u32, itab.entries.items.len);
-                _ = itab.entries.addOneAssumeCapacity();
-                break :blk index;
-            }
-        };
-        itab.entries.items[index] = target;
-        try itab.lookup.putNoClobber(allocator, target, index);
-        return index;
-    }
-
-    fn getBaseAddress(itab: *const ITable, coff_file: *const Coff) u32 {
-        const header = coff_file.sections.items(.header)[coff_file.idata_section_index.?];
-        var addr = header.virtual_address;
-        for (coff_file.import_tables.values(), 0..) |other_itab, i| {
-            if (itab.index == i) break;
-            addr += @intCast(u32, other_itab.entries.items.len * @sizeOf(u64)) + 8;
-        }
-        return addr;
-    }
-
-    pub fn getImportAddress(itab: *const ITable, coff_file: *const Coff, target: SymbolWithLoc) ?u32 {
-        const index = itab.lookup.get(target) orelse return null;
-        const base_vaddr = itab.getBaseAddress(coff_file);
-        return base_vaddr + index * @sizeOf(u64);
-    }
-
-    pub fn write(itab: ITable, writer: anytype) !void {
-        for (itab.entries.items) |_| {
-            try writer.writeIntLittle(u64, 0);
-        }
-    }
 };
 
 const DeclMetadata = struct {
@@ -1527,7 +1412,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         const res = try self.import_tables.getOrPut(gpa, sym.value);
         const itable = res.value_ptr;
         if (!res.found_existing) {
-            itable.* = .{ .index = @intCast(u8, self.import_tables.values().len - 1) };
+            itable.* = .{};
         }
         if (itable.lookup.contains(global)) continue;
         // TODO: we could technically write the pointer placeholder for to-be-bound import here,
@@ -2367,15 +2252,46 @@ fn logSections(self: *Coff) void {
 fn logImportTables(self: *const Coff) void {
     log.debug("import tables:", .{});
     for (self.import_tables.keys(), 0..) |off, i| {
-        const lib_name = self.temp_strtab.getAssumeExists(off);
         const itable = self.import_tables.values()[i];
-        log.debug("IAT({s}) @{x}:", .{ lib_name, itable.getBaseAddress(self) });
-        for (itable.entries.items, 0..) |entry, j| {
-            log.debug("  {d}@{?x} => {s}", .{
-                j,
-                itable.getImportAddress(self, entry),
-                self.getSymbolName(entry),
-            });
-        }
+        log.debug("{}", .{itable.fmtDebug(.{
+            .coff_file = self,
+            .index = i,
+            .name_off = off,
+        })});
     }
 }
+
+const Coff = @This();
+
+const std = @import("std");
+const build_options = @import("build_options");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const coff = std.coff;
+const fmt = std.fmt;
+const log = std.log.scoped(.link);
+const math = std.math;
+const mem = std.mem;
+
+const Allocator = std.mem.Allocator;
+
+const codegen = @import("../codegen.zig");
+const link = @import("../link.zig");
+const lld = @import("Coff/lld.zig");
+const trace = @import("../tracy.zig").trace;
+
+const Air = @import("../Air.zig");
+pub const Atom = @import("Coff/Atom.zig");
+const Compilation = @import("../Compilation.zig");
+const ImportTable = @import("Coff/ImportTable.zig");
+const Liveness = @import("../Liveness.zig");
+const LlvmObject = @import("../codegen/llvm.zig").Object;
+const Module = @import("../Module.zig");
+const Object = @import("Coff/Object.zig");
+const Relocation = @import("Coff/Relocation.zig");
+const StringTable = @import("strtab.zig").StringTable;
+const TypedValue = @import("../TypedValue.zig");
+
+pub const base_tag: link.File.Tag = .coff;
+
+const msdos_stub = @embedFile("msdos-stub.bin");
