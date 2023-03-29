@@ -1069,7 +1069,7 @@ pub const DeclGen = struct {
                     const extern_fn = val.castTag(.extern_fn).?.data;
                     try dg.renderDeclName(writer, extern_fn.owner_decl, 0);
                 },
-                .int_u64, .one => {
+                .int_u64, .one, .int_big_positive, .lazy_align, .lazy_size => {
                     try writer.writeAll("((");
                     try dg.renderType(writer, ty);
                     return writer.print("){x})", .{try dg.fmtIntLiteral(Type.usize, val, .Other)});
