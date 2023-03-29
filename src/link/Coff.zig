@@ -827,6 +827,11 @@ fn resolveRelocs(self: *Coff, atom_index: Atom.Index, code: []u8) void {
     }
 }
 
+pub fn ptraceAttach(self: *Coff, handle: std.os.pid_t) !void {
+    _ = self;
+    log.warn("attaching to process with handle {*}", .{handle});
+}
+
 fn freeAtom(self: *Coff, atom_index: Atom.Index) void {
     log.debug("freeAtom {d}", .{atom_index});
 
