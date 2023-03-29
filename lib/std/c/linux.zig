@@ -289,6 +289,12 @@ pub extern "c" fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: *con
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
 
+pub extern "c" fn mincore(
+    addr: *align(std.mem.page_size) anyopaque,
+    length: usize,
+    vec: [*]u8,
+) c_int;
+
 pub extern "c" fn madvise(
     addr: *align(std.mem.page_size) anyopaque,
     length: usize,

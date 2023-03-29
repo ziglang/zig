@@ -6974,6 +6974,35 @@ pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void 
     }
 }
 
+pub const MincoreError = error{
+    /// A kernel resource was temporarily unavailable.
+    SystemResources,
+    /// vec points to an invalid address.
+    InvalidAddress,
+    /// addr is not page-aligned.
+    InvalidSyscall,
+    /// One of the following:
+    /// * length is greater than user space TASK_SIZE - addr
+    /// * addr + length contains unmapped memory
+    OutOfMemory,
+    /// The mincore syscall is not available on this version and configuration
+    /// of this UNIX-like kernel.
+    MincoreUnavailable,
+} || UnexpectedError;
+
+/// Determine whether pages are resident in memory.
+pub fn mincore(ptr: [*]align(mem.page_size) u8, length: usize, vec: [*]u8) MincoreError!void {
+    return switch (errno(system.mincore(ptr, length, vec))) {
+        .SUCCESS => {},
+        .AGAIN => error.SystemResources,
+        .FAULT => error.InvalidAddress,
+        .INVAL => error.InvalidSyscall,
+        .NOMEM => error.OutOfMemory,
+        .NOSYS => error.MincoreUnavailable,
+        else => |err| unexpectedErrno(err),
+    };
+}
+
 pub const MadviseError = error{
     /// advice is MADV.REMOVE, but the specified address range is not a shared writable mapping.
     AccessDenied,
