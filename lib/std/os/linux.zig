@@ -1699,6 +1699,10 @@ pub fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: ?*const rlimit,
     );
 }
 
+pub fn mincore(address: [*]u8, len: usize, vec: [*]u8) usize {
+    return syscall3(.mincore, @ptrToInt(address), len, @ptrToInt(vec));
+}
+
 pub fn madvise(address: [*]u8, len: usize, advice: u32) usize {
     return syscall3(.madvise, @ptrToInt(address), len, advice);
 }
