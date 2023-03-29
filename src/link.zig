@@ -395,6 +395,7 @@ pub const File = struct {
                         .macos => base.cast(MachO).?.ptraceAttach(pid) catch |err| {
                             log.warn("attaching failed with error: {s}", .{@errorName(err)});
                         },
+                        .windows => {},
                         else => return error.HotSwapUnavailableOnHostOperatingSystem,
                     }
                 }
@@ -436,6 +437,7 @@ pub const File = struct {
                         .macos => base.cast(MachO).?.ptraceDetach(pid) catch |err| {
                             log.warn("detaching failed with error: {s}", .{@errorName(err)});
                         },
+                        .windows => {},
                         else => return error.HotSwapUnavailableOnHostOperatingSystem,
                     }
                 }
