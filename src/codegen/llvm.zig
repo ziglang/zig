@@ -3397,7 +3397,7 @@ pub const DeclGen = struct {
                     };
                     return dg.context.constStruct(&fields, fields.len, .False);
                 },
-                .int_u64, .one, .int_big_positive => {
+                .int_u64, .one, .int_big_positive, .lazy_align, .lazy_size => {
                     const llvm_usize = try dg.lowerType(Type.usize);
                     const llvm_int = llvm_usize.constInt(tv.val.toUnsignedInt(target), .False);
                     return llvm_int.constIntToPtr(try dg.lowerType(tv.ty));

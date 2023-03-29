@@ -381,7 +381,6 @@ test "tuple of struct concatenation and coercion to array" {
 test "nested runtime conditionals in tuple initializer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var data: u8 = 0;
     const x = .{

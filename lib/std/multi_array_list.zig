@@ -49,6 +49,20 @@ pub fn MultiArrayList(comptime S: type) type {
                 return casted_ptr[0..self.len];
             }
 
+            pub fn set(self: Slice, index: usize, elem: S) void {
+                inline for (fields) |field_info| {
+                    self.items(@field(Field, field_info.name))[index] = @field(elem, field_info.name);
+                }
+            }
+
+            pub fn get(self: Slice, index: usize) S {
+                var elem: S = undefined;
+                inline for (fields) |field_info| {
+                    @field(elem, field_info.name) = self.items(@field(Field, field_info.name))[index];
+                }
+                return elem;
+            }
+
             pub fn toMultiArrayList(self: Slice) Self {
                 if (self.ptrs.len == 0) {
                     return .{};
@@ -156,20 +170,12 @@ pub fn MultiArrayList(comptime S: type) type {
 
         /// Overwrite one array element with new data.
         pub fn set(self: *Self, index: usize, elem: S) void {
-            const slices = self.slice();
-            inline for (fields, 0..) |field_info, i| {
-                slices.items(@intToEnum(Field, i))[index] = @field(elem, field_info.name);
-            }
+            return self.slice().set(index, elem);
         }
 
         /// Obtain all the data for one array element.
         pub fn get(self: Self, index: usize) S {
-            const slices = self.slice();
-            var result: S = undefined;
-            inline for (fields, 0..) |field_info, i| {
-                @field(result, field_info.name) = slices.items(@intToEnum(Field, i))[index];
-            }
-            return result;
+            return self.slice().get(index);
         }
 
         /// Extend the list by 1 element. Allocates more memory as necessary.

@@ -223,8 +223,8 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         if (self.base.options.nxcompat) {
             try argv.append("-nxcompat");
         }
-        if (self.base.options.dynamicbase) {
-            try argv.append("-dynamicbase");
+        if (!self.base.options.dynamicbase) {
+            try argv.append("-dynamicbase:NO");
         }
 
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
