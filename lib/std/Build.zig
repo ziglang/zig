@@ -904,7 +904,7 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
     const run_step = Step.Run.create(b, b.fmt("run {s}", .{exe.name}));
     run_step.addArtifactArg(exe);
 
-    if (exe.kind == .@"test") {
+    if (exe.kind == .@"test" and exe.test_server_mode) {
         run_step.enableTestRunnerMode();
     }
 
