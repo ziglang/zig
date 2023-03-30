@@ -74,7 +74,7 @@ pub fn getTargetAddress(self: Relocation, coff_file: *const Coff) ?u32 {
 
 /// Returns `false` if obtaining the target address has been deferred until `flushModule`.
 /// This can happen when trying to resolve address of an import table entry ahead of time.
-pub fn resolve(self: Relocation, atom_index: Atom.Index, code: []u8, coff_file: *Coff) bool {
+pub fn resolve(self: Relocation, atom_index: Atom.Index, code: []u8, image_base: u64, coff_file: *Coff) bool {
     const atom = coff_file.getAtom(atom_index);
     const source_sym = atom.getSymbol(coff_file);
     const source_vaddr = source_sym.value + self.offset;
@@ -92,7 +92,7 @@ pub fn resolve(self: Relocation, atom_index: Atom.Index, code: []u8, coff_file: 
     const ctx: Context = .{
         .source_vaddr = source_vaddr,
         .target_vaddr = target_vaddr_with_addend,
-        .image_base = coff_file.hot_state.loaded_base_address orelse coff_file.getImageBase(),
+        .image_base = image_base,
         .code = code,
         .ptr_width = coff_file.ptr_width,
     };
