@@ -820,6 +820,14 @@ extern "ntdll" fn NtWriteVirtualMemory(
     NumberOfBytesWritten: ?*std.os.windows.SIZE_T,
 ) std.os.windows.NTSTATUS;
 
+extern "ntdll" fn NtProtectVirtualMemory(
+    ProcessHandle: std.os.windows.HANDLE,
+    BaseAddress: *std.os.windows.PVOID,
+    NumberOfBytesToProtect: *std.os.windows.SIZE_T,
+    NewAccessProtection: std.os.windows.ULONG,
+    OldAccessProtection: *std.os.windows.ULONG,
+) std.os.windows.NTSTATUS;
+
 fn ReadProcessMemory(handle: std.os.windows.HANDLE, base_addr: usize, buffer: []u8) ![]u8 {
     var nread: usize = 0;
     switch (NtReadVirtualMemory(
@@ -848,13 +856,21 @@ fn WriteProcessMemory(handle: std.os.windows.HANDLE, base_addr: usize, buffer: [
     }
 }
 
-extern "kernel32" fn VirtualProtectEx(
-    hProcess: std.os.windows.HANDLE,
-    lpAddress: std.os.windows.LPVOID,
-    dwSize: std.os.windows.SIZE_T,
-    flNewProtect: std.os.windows.DWORD,
-    lpflOldProtect: *std.os.windows.DWORD,
-) std.os.windows.BOOL;
+fn VirtualProtectEx(handle: std.os.windows.HANDLE, base_addr: usize, size: usize, new_prot: u32) !u32 {
+    var out_paddr = @intToPtr(*anyopaque, base_addr);
+    var out_size = size;
+    var old_prot: u32 = undefined;
+    switch (NtProtectVirtualMemory(
+        handle,
+        &out_paddr,
+        &out_size,
+        new_prot,
+        &old_prot,
+    )) {
+        .SUCCESS => return old_prot,
+        else => |rc| return std.os.windows.unexpectedStatus(rc),
+    }
+}
 
 const PROCESS_BASIC_INFORMATION = extern struct {
     ExitStatus: std.os.windows.NTSTATUS,
@@ -895,22 +911,12 @@ fn debugMem(allocator: Allocator, handle: std.ChildProcess.Id, vaddr: u64, code:
 }
 
 fn writeMemProtected(handle: std.ChildProcess.Id, vaddr: u64, code: []const u8) !void {
-    const pvaddr = @intToPtr(*anyopaque, vaddr);
-    var new_prot: std.os.windows.DWORD = std.os.windows.PAGE_EXECUTE_WRITECOPY;
-    var old_prot: std.os.windows.DWORD = undefined;
-    if (VirtualProtectEx(handle, pvaddr, code.len, new_prot, &old_prot) == 0) {
-        const err = std.os.windows.kernel32.GetLastError();
-        log.warn("making page(s) writeable failed with error: {s}({x})", .{ @tagName(err), @enumToInt(err) });
-        return;
-    }
+    const old_prot = try VirtualProtectEx(handle, vaddr, code.len, std.os.windows.PAGE_EXECUTE_WRITECOPY);
     const amt = try WriteProcessMemory(handle, vaddr, code);
     if (amt != code.len) return error.InputOutput;
     // TODO: We can probably just set the pages writeable and leave it at that without having to restore the attributes.
     // For that though, we want to track which page has already been modified.
-    if (VirtualProtectEx(handle, pvaddr, code.len, old_prot, &new_prot) == 0) {
-        const err = std.os.windows.kernel32.GetLastError();
-        log.warn("restoring page(s) attributes failed with error: {s}({x})", .{ @tagName(err), @enumToInt(err) });
-    }
+    _ = try VirtualProtectEx(handle, vaddr, code.len, old_prot);
 }
 
 fn writePtrWidthAtom(self: *Coff, atom_index: Atom.Index) !void {

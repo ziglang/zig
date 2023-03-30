@@ -367,7 +367,7 @@ pub extern "ntdll" fn RtlQueryRegistryValues(
 pub extern "ntdll" fn NtProtectVirtualMemory(
     ProcessHandle: HANDLE,
     BaseAddress: *PVOID,
-    NumberOfBytesToProtect: *ULONG,
+    NumberOfBytesToProtect: *SIZE_T,
     NewAccessProtection: ULONG,
     OldAccessProtection: *ULONG,
 ) callconv(WINAPI) NTSTATUS;
