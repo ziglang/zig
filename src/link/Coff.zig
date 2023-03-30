@@ -781,24 +781,47 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
     const sym = atom.getSymbol(self);
     const section = self.sections.get(@enumToInt(sym.section_number) - 1);
     const file_offset = section.header.pointer_to_raw_data + sym.value - section.header.virtual_address;
+
     log.debug("writing atom for symbol {s} at file offset 0x{x} to 0x{x}", .{
         atom.getName(self),
         file_offset,
         file_offset + code.len,
     });
 
+    const gpa = self.base.allocator;
+
+    // Gather relocs which can be resolved.
+    // We need to do this as we will be applying different slide values depending
+    // if we are running in hot-code swapping mode or not.
+    // TODO: how crazy would it be to try and apply the actual image base of the loaded
+    // process for the in-file values rather than the Windows defaults?
+    var relocs = std.ArrayList(*Relocation).init(gpa);
+    defer relocs.deinit();
+
+    if (self.relocs.getPtr(atom_index)) |rels| {
+        try relocs.ensureTotalCapacityPrecise(rels.items.len);
+        for (rels.items) |*reloc| {
+            if (reloc.isResolvable(self)) relocs.appendAssumeCapacity(reloc);
+        }
+    }
+
     if (self.base.child_pid) |handle| {
         const slide = @ptrToInt(self.hot_state.loaded_base_address.?);
 
-        const mem_code = try self.base.allocator.dupe(u8, code);
-        defer self.base.allocator.free(mem_code);
-        self.resolveRelocs(atom_index, mem_code, slide);
+        const mem_code = try gpa.dupe(u8, code);
+        defer gpa.free(mem_code);
+        self.resolveRelocs(atom_index, relocs.items, mem_code, slide);
 
         const vaddr = sym.value + slide;
         const pvaddr = @intToPtr(*anyopaque, vaddr);
+
         log.debug("writing to memory at address {x}", .{vaddr});
+
+        if (build_options.enable_logging) {
+            try debugMem(gpa, handle, pvaddr, mem_code);
+        }
+
         if (section.header.flags.MEM_WRITE == 0) {
-            log.debug("page not mapped for write access; re-mapping...", .{});
             writeMemProtected(handle, pvaddr, mem_code) catch |err| {
                 log.warn("writing to protected memory failed with error: {s}", .{@errorName(err)});
             };
@@ -809,25 +832,29 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
         }
     }
 
-    self.resolveRelocs(atom_index, code, self.getImageBase());
+    self.resolveRelocs(atom_index, relocs.items, code, self.getImageBase());
     try self.base.file.?.pwriteAll(code, file_offset);
+
+    // Now we can mark the relocs as resolved.
+    while (relocs.popOrNull()) |reloc| {
+        reloc.dirty = false;
+    }
 }
 
 fn debugMem(allocator: Allocator, handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
     var buffer = try allocator.alloc(u8, code.len);
     defer allocator.free(buffer);
     const memread = try std.os.windows.ReadProcessMemory(handle, pvaddr, buffer);
-    log.debug("in memory: {x}", .{std.fmt.fmtSliceHexLower(memread)});
     log.debug("to write: {x}", .{std.fmt.fmtSliceHexLower(code)});
+    log.debug("in memory: {x}", .{std.fmt.fmtSliceHexLower(memread)});
 }
 
 fn writeMemProtected(handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
-    var old_prot: std.os.windows.DWORD = undefined;
-    try std.os.windows.VirtualProtectEx(handle, pvaddr, code.len, std.os.windows.PAGE_EXECUTE_WRITECOPY, &old_prot);
+    const old_prot = try std.os.windows.VirtualProtectEx(handle, pvaddr, code.len, std.os.windows.PAGE_EXECUTE_WRITECOPY);
     try writeMem(handle, pvaddr, code);
     // TODO: We can probably just set the pages writeable and leave it at that without having to restore the attributes.
     // For that though, we want to track which page has already been modified.
-    try std.os.windows.VirtualProtectEx(handle, pvaddr, code.len, old_prot, null);
+    _ = try std.os.windows.VirtualProtectEx(handle, pvaddr, code.len, old_prot);
 }
 
 fn writeMem(handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
@@ -868,16 +895,10 @@ fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
     }
 }
 
-fn resolveRelocs(self: *Coff, atom_index: Atom.Index, code: []u8, image_base: u64) void {
-    const relocs = self.relocs.getPtr(atom_index) orelse return;
-
+fn resolveRelocs(self: *Coff, atom_index: Atom.Index, relocs: []*const Relocation, code: []u8, image_base: u64) void {
     log.debug("relocating '{s}'", .{self.getAtom(atom_index).getName(self)});
-
-    for (relocs.items) |*reloc| {
-        if (!reloc.dirty) continue;
-        if (reloc.resolve(atom_index, code, image_base, self)) {
-            reloc.dirty = false;
-        }
+    for (relocs) |reloc| {
+        reloc.resolve(atom_index, code, image_base, self);
     }
 }
 
@@ -1488,7 +1509,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
     for (self.relocs.keys(), self.relocs.values()) |atom_index, relocs| {
         const needs_update = for (relocs.items) |reloc| {
-            if (reloc.dirty) break true;
+            if (reloc.isResolvable(self)) break true;
         } else false;
 
         if (!needs_update) continue;

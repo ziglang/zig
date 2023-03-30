@@ -72,14 +72,18 @@ pub fn getTargetAddress(self: Relocation, coff_file: *const Coff) ?u32 {
     }
 }
 
-/// Returns `false` if obtaining the target address has been deferred until `flushModule`.
-/// This can happen when trying to resolve address of an import table entry ahead of time.
-pub fn resolve(self: Relocation, atom_index: Atom.Index, code: []u8, image_base: u64, coff_file: *Coff) bool {
+/// Returns true if and only if the reloc is dirty AND the target address is available.
+pub fn isResolvable(self: Relocation, coff_file: *Coff) bool {
+    _ = self.getTargetAddress(coff_file) orelse return false;
+    return self.dirty;
+}
+
+pub fn resolve(self: Relocation, atom_index: Atom.Index, code: []u8, image_base: u64, coff_file: *Coff) void {
     const atom = coff_file.getAtom(atom_index);
     const source_sym = atom.getSymbol(coff_file);
     const source_vaddr = source_sym.value + self.offset;
 
-    const target_vaddr = self.getTargetAddress(coff_file) orelse return false;
+    const target_vaddr = self.getTargetAddress(coff_file).?; // Oops, you didn't check if the relocation can be resolved with isResolvable().
     const target_vaddr_with_addend = target_vaddr + self.addend;
 
     log.debug("  ({x}: [() => 0x{x} ({s})) ({s}) ", .{
@@ -102,8 +106,6 @@ pub fn resolve(self: Relocation, atom_index: Atom.Index, code: []u8, image_base:
         .x86, .x86_64 => self.resolveX86(ctx),
         else => unreachable, // unhandled target architecture
     }
-
-    return true;
 }
 
 const Context = struct {
