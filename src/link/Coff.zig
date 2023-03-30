@@ -788,10 +788,9 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
 
     if (self.base.child_pid) |handle| {
         const vaddr = sym.value + (self.hot_state.loaded_base_address orelse self.getImageBase());
-        log.warn("hcs: writing to memory at address {x}", .{vaddr});
-        try debugMem(self.base.allocator, handle, vaddr, code);
+        log.debug("writing to memory at address {x}", .{vaddr});
         if (section.header.flags.MEM_WRITE == 0) {
-            log.warn("  page not mapped for write access; re-mapping...", .{});
+            log.debug("page not mapped for write access; re-mapping...", .{});
             try writeMemProtected(handle, vaddr, code);
         } else {
             try writeMem(handle, vaddr, code);
@@ -859,7 +858,7 @@ fn getProcessBaseAddress(handle: std.ChildProcess.Id) !u64 {
         &peb_nread,
     ) == 0) {
         const err = std.os.windows.kernel32.GetLastError();
-        log.warn("hcs: reading from process memory failed with err: {s}({x})", .{ @tagName(err), @enumToInt(err) });
+        log.warn("reading from process memory failed with err: {s}({x})", .{ @tagName(err), @enumToInt(err) });
         return error.FailedToReadPebForProcess;
     }
     if (peb_nread != @sizeOf(std.os.windows.PEB)) return error.InputOutput;
@@ -880,14 +879,14 @@ fn debugMem(allocator: Allocator, handle: std.ChildProcess.Id, vaddr: u64, code:
         &nread,
     ) == 0) {
         const err = std.os.windows.kernel32.GetLastError();
-        log.warn("hcs: reading from process memory failed with err: {s}({x})", .{ @tagName(err), @enumToInt(err) });
+        log.warn("reading from process memory failed with err: {s}({x})", .{ @tagName(err), @enumToInt(err) });
     }
     if (nread != code.len) {
-        log.warn("hcs: reading from process memory InputOutput error: read != requested: {x} != {x}", .{ nread, code.len });
+        log.warn("reading from process memory InputOutput error: read != requested: {x} != {x}", .{ nread, code.len });
     }
 
-    log.warn("in memory: {x}", .{std.fmt.fmtSliceHexLower(buffer)});
-    log.warn("to write: {x}", .{std.fmt.fmtSliceHexLower(code)});
+    log.debug("in memory: {x}", .{std.fmt.fmtSliceHexLower(buffer)});
+    log.debug("to write: {x}", .{std.fmt.fmtSliceHexLower(code)});
 }
 
 fn writeMemProtected(handle: std.ChildProcess.Id, vaddr: u64, code: []const u8) !void {
@@ -896,16 +895,15 @@ fn writeMemProtected(handle: std.ChildProcess.Id, vaddr: u64, code: []const u8) 
     var old_prot: std.os.windows.DWORD = undefined;
     if (VirtualProtectEx(handle, pvaddr, code.len, new_prot, &old_prot) == 0) {
         const err = std.os.windows.kernel32.GetLastError();
-        log.warn("hcs: making page(s) writeable failed with error: {s}({x})", .{ @tagName(err), @enumToInt(err) });
+        log.warn("making page(s) writeable failed with error: {s}({x})", .{ @tagName(err), @enumToInt(err) });
         return;
     }
-    log.warn("old = {x}, new = {x}", .{ old_prot, new_prot });
     try writeMem(handle, vaddr, code);
     // TODO: We can probably just set the pages writeable and leave it at that without having to restore the attributes.
     // For that though, we want to track which page has already been modified.
     if (VirtualProtectEx(handle, pvaddr, code.len, old_prot, &new_prot) == 0) {
         const err = std.os.windows.kernel32.GetLastError();
-        log.warn("hcs: restoring page(s) attributes failed with error: {s}({x})", .{ @tagName(err), @enumToInt(err) });
+        log.warn("restoring page(s) attributes failed with error: {s}({x})", .{ @tagName(err), @enumToInt(err) });
     }
 }
 
@@ -919,10 +917,10 @@ fn writeMem(handle: std.ChildProcess.Id, vaddr: u64, code: []const u8) !void {
         &nwritten,
     ) == 0) {
         const err = std.os.windows.kernel32.GetLastError();
-        log.warn("hcs: writing to process memory failed with err: {s}({x})", .{ @tagName(err), @enumToInt(err) });
+        log.warn("writing to process memory failed with err: {s}({x})", .{ @tagName(err), @enumToInt(err) });
     }
     if (nwritten != code.len) {
-        log.warn("hcs: writing to process memory InputOutput error: written != requested: {x} != {x}", .{ nwritten, code.len });
+        log.warn("writing to process memory InputOutput error: written != requested: {x} != {x}", .{ nwritten, code.len });
     }
 }
 
@@ -973,15 +971,15 @@ fn resolveRelocs(self: *Coff, atom_index: Atom.Index, code: []u8) void {
 }
 
 pub fn ptraceAttach(self: *Coff, handle: std.ChildProcess.Id) !void {
-    log.warn("hcs: attaching to process with handle {*}", .{handle});
+    log.debug("attaching to process with handle {*}", .{handle});
     self.hot_state.loaded_base_address = getProcessBaseAddress(handle) catch |err| {
-        log.warn("hcs: failed to get base address for the process with error: {s}", .{@errorName(err)});
+        log.warn("failed to get base address for the process with error: {s}", .{@errorName(err)});
         return;
     };
 }
 
 pub fn ptraceDetach(self: *Coff, handle: std.ChildProcess.Id) void {
-    log.warn("hcs: detaching from process with handle {*}", .{handle});
+    log.debug("detaching from process with handle {*}", .{handle});
     self.hot_state.loaded_base_address = null;
 }
 

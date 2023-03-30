@@ -92,7 +92,7 @@ pub fn resolve(self: Relocation, atom_index: Atom.Index, code: []u8, coff_file: 
     const ctx: Context = .{
         .source_vaddr = source_vaddr,
         .target_vaddr = target_vaddr_with_addend,
-        .image_base = coff_file.getImageBase(),
+        .image_base = coff_file.hot_state.loaded_base_address orelse coff_file.getImageBase(),
         .code = code,
         .ptr_width = coff_file.ptr_width,
     };
