@@ -793,28 +793,60 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
             log.debug("page not mapped for write access; re-mapping...", .{});
             try writeMemProtected(handle, vaddr, code);
         } else {
-            try writeMem(handle, vaddr, code);
+            if (WriteProcessMemory(handle, vaddr, code)) |amt| {
+                if (amt != code.len) return error.InputOutput;
+            } else |err| {
+                log.warn("writing to process memory failed with error: {s}", .{@errorName(err)});
+            }
         }
     }
 
     try self.base.file.?.pwriteAll(code, file_offset);
 }
 
-extern "kernel32" fn ReadProcessMemory(
-    hProcess: std.os.windows.HANDLE,
-    lpBaseAddress: std.os.windows.LPCVOID,
-    lpBuffer: std.os.windows.LPVOID,
-    nSize: std.os.windows.SIZE_T,
-    lpNumberOfBytesRead: *std.os.windows.SIZE_T,
-) std.os.windows.BOOL;
+extern "ntdll" fn NtReadVirtualMemory(
+    ProcessHandle: std.os.windows.HANDLE,
+    BaseAddress: std.os.windows.PVOID,
+    Buffer: std.os.windows.LPVOID,
+    NumberOfBytesToRead: std.os.windows.SIZE_T,
+    NumberOfBytesRead: ?*std.os.windows.SIZE_T,
+) std.os.windows.NTSTATUS;
 
-extern "kernel32" fn WriteProcessMemory(
-    hProcess: std.os.windows.HANDLE,
-    lpBaseAddress: std.os.windows.LPVOID,
-    lpBuffer: std.os.windows.LPCVOID,
-    nSize: std.os.windows.SIZE_T,
-    lpNumberOfBytesWritten: *std.os.windows.SIZE_T,
-) std.os.windows.BOOL;
+extern "ntdll" fn NtWriteVirtualMemory(
+    ProcessHandle: std.os.windows.HANDLE,
+    BaseAddress: std.os.windows.PVOID,
+    Buffer: std.os.windows.LPCVOID,
+    NumberOfBytesToWrite: std.os.windows.SIZE_T,
+    NumberOfBytesWritten: ?*std.os.windows.SIZE_T,
+) std.os.windows.NTSTATUS;
+
+fn ReadProcessMemory(handle: std.os.windows.HANDLE, base_addr: usize, buffer: []u8) ![]u8 {
+    var nread: usize = 0;
+    switch (NtReadVirtualMemory(
+        handle,
+        @intToPtr(*anyopaque, base_addr),
+        buffer.ptr,
+        buffer.len,
+        &nread,
+    )) {
+        .SUCCESS => return buffer[0..nread],
+        else => |rc| return std.os.windows.unexpectedStatus(rc),
+    }
+}
+
+fn WriteProcessMemory(handle: std.os.windows.HANDLE, base_addr: usize, buffer: []const u8) !usize {
+    var nwritten: usize = 0;
+    switch (NtWriteVirtualMemory(
+        handle,
+        @intToPtr(*anyopaque, base_addr),
+        @ptrCast(*const anyopaque, buffer.ptr),
+        buffer.len,
+        &nwritten,
+    )) {
+        .SUCCESS => return nwritten,
+        else => |rc| return std.os.windows.unexpectedStatus(rc),
+    }
+}
 
 extern "kernel32" fn VirtualProtectEx(
     hProcess: std.os.windows.HANDLE,
@@ -849,43 +881,16 @@ fn getProcessBaseAddress(handle: std.ChildProcess.Id) !u64 {
     }
 
     var peb_buf: [@sizeOf(std.os.windows.PEB)]u8 align(@alignOf(std.os.windows.PEB)) = undefined;
-    var peb_nread: usize = 0;
-    if (ReadProcessMemory(
-        handle,
-        info.PebBaseAddress,
-        &peb_buf,
-        @sizeOf(std.os.windows.PEB),
-        &peb_nread,
-    ) == 0) {
-        const err = std.os.windows.kernel32.GetLastError();
-        log.warn("reading from process memory failed with err: {s}({x})", .{ @tagName(err), @enumToInt(err) });
-        return error.FailedToReadPebForProcess;
-    }
-    if (peb_nread != @sizeOf(std.os.windows.PEB)) return error.InputOutput;
-
-    const peb = @ptrCast(*const std.os.windows.PEB, &peb_buf);
+    const pebout = try ReadProcessMemory(handle, @ptrToInt(info.PebBaseAddress), &peb_buf);
+    const peb = @ptrCast(*const std.os.windows.PEB, @alignCast(@alignOf(std.os.windows.PEB), pebout.ptr));
     return @ptrToInt(peb.ImageBaseAddress);
 }
 
 fn debugMem(allocator: Allocator, handle: std.ChildProcess.Id, vaddr: u64, code: []const u8) !void {
     var buffer = try allocator.alloc(u8, code.len);
     defer allocator.free(buffer);
-    var nread: usize = 0;
-    if (ReadProcessMemory(
-        handle,
-        @intToPtr(*anyopaque, vaddr),
-        buffer.ptr,
-        code.len,
-        &nread,
-    ) == 0) {
-        const err = std.os.windows.kernel32.GetLastError();
-        log.warn("reading from process memory failed with err: {s}({x})", .{ @tagName(err), @enumToInt(err) });
-    }
-    if (nread != code.len) {
-        log.warn("reading from process memory InputOutput error: read != requested: {x} != {x}", .{ nread, code.len });
-    }
-
-    log.debug("in memory: {x}", .{std.fmt.fmtSliceHexLower(buffer)});
+    const memread = try ReadProcessMemory(handle, vaddr, buffer);
+    log.debug("in memory: {x}", .{std.fmt.fmtSliceHexLower(memread)});
     log.debug("to write: {x}", .{std.fmt.fmtSliceHexLower(code)});
 }
 
@@ -898,29 +903,13 @@ fn writeMemProtected(handle: std.ChildProcess.Id, vaddr: u64, code: []const u8) 
         log.warn("making page(s) writeable failed with error: {s}({x})", .{ @tagName(err), @enumToInt(err) });
         return;
     }
-    try writeMem(handle, vaddr, code);
+    const amt = try WriteProcessMemory(handle, vaddr, code);
+    if (amt != code.len) return error.InputOutput;
     // TODO: We can probably just set the pages writeable and leave it at that without having to restore the attributes.
     // For that though, we want to track which page has already been modified.
     if (VirtualProtectEx(handle, pvaddr, code.len, old_prot, &new_prot) == 0) {
         const err = std.os.windows.kernel32.GetLastError();
         log.warn("restoring page(s) attributes failed with error: {s}({x})", .{ @tagName(err), @enumToInt(err) });
-    }
-}
-
-fn writeMem(handle: std.ChildProcess.Id, vaddr: u64, code: []const u8) !void {
-    var nwritten: usize = 0;
-    if (WriteProcessMemory(
-        handle,
-        @intToPtr(*anyopaque, vaddr),
-        code.ptr,
-        code.len,
-        &nwritten,
-    ) == 0) {
-        const err = std.os.windows.kernel32.GetLastError();
-        log.warn("writing to process memory failed with err: {s}({x})", .{ @tagName(err), @enumToInt(err) });
-    }
-    if (nwritten != code.len) {
-        log.warn("writing to process memory InputOutput error: written != requested: {x} != {x}", .{ nwritten, code.len });
     }
 }
 
