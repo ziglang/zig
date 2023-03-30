@@ -283,5 +283,5 @@ pub extern "ntdll" fn NtProtectVirtualMemory(
     BaseAddress: *?PVOID,
     NumberOfBytesToProtect: *SIZE_T,
     NewAccessProtection: ULONG,
-    OldAccessProtection: ?*ULONG,
+    OldAccessProtection: *ULONG,
 ) callconv(WINAPI) NTSTATUS;

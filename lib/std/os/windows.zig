@@ -1514,7 +1514,8 @@ pub fn VirtualProtect(lpAddress: ?LPVOID, dwSize: SIZE_T, flNewProtect: DWORD, l
     }
 }
 
-pub fn VirtualProtectEx(handle: HANDLE, addr: ?LPVOID, size: usize, new_prot: DWORD, old_prot: ?*DWORD) VirtualProtectError!void {
+pub fn VirtualProtectEx(handle: HANDLE, addr: ?LPVOID, size: SIZE_T, new_prot: DWORD) VirtualProtectError!DWORD {
+    var old_prot: DWORD = undefined;
     var out_addr = addr;
     var out_size = size;
     switch (ntdll.NtProtectVirtualMemory(
@@ -1522,9 +1523,9 @@ pub fn VirtualProtectEx(handle: HANDLE, addr: ?LPVOID, size: usize, new_prot: DW
         &out_addr,
         &out_size,
         new_prot,
-        old_prot,
+        &old_prot,
     )) {
-        .SUCCESS => {},
+        .SUCCESS => return old_prot,
         .INVALID_ADDRESS => return error.InvalidAddress,
         // TODO: map errors
         else => |rc| return std.os.windows.unexpectedStatus(rc),
