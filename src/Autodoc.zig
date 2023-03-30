@@ -2984,7 +2984,7 @@ fn walkInstruction(
                     const param_index = self.exprs.items.len;
                     try self.exprs.append(self.arena, param.expr);
 
-                    self.exprs.items[bin_index] = .{ .builtin = .{ .name = @tagName(tags[inst_index]), .param = param_index } };
+                    self.exprs.items[bin_index] = .{ .builtin = .{ .name = @tagName(extended.opcode), .param = param_index } };
 
                     return DocData.WalkResult{
                         .typeRef = param.typeRef orelse .{ .type = @enumToInt(Ref.type_type) },
