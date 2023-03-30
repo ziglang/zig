@@ -90,7 +90,12 @@ relocs: RelocTable = .{},
 base_relocs: BaseRelocationTable = .{},
 
 /// Hot-code swapping state.
-hot_state: HotUpdateState = .{},
+hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
+
+const is_hot_update_compatible = switch (builtin.target.os.tag) {
+    .windows => true,
+    else => false,
+};
 
 const HotUpdateState = struct {
     /// Base address at which the process (image) got loaded.
@@ -805,30 +810,32 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
         }
     }
 
-    if (self.base.child_pid) |handle| {
-        const slide = @ptrToInt(self.hot_state.loaded_base_address.?);
+    if (is_hot_update_compatible) {
+        if (self.base.child_pid) |handle| {
+            const slide = @ptrToInt(self.hot_state.loaded_base_address.?);
 
-        const mem_code = try gpa.dupe(u8, code);
-        defer gpa.free(mem_code);
-        self.resolveRelocs(atom_index, relocs.items, mem_code, slide);
+            const mem_code = try gpa.dupe(u8, code);
+            defer gpa.free(mem_code);
+            self.resolveRelocs(atom_index, relocs.items, mem_code, slide);
 
-        const vaddr = sym.value + slide;
-        const pvaddr = @intToPtr(*anyopaque, vaddr);
+            const vaddr = sym.value + slide;
+            const pvaddr = @intToPtr(*anyopaque, vaddr);
 
-        log.debug("writing to memory at address {x}", .{vaddr});
+            log.debug("writing to memory at address {x}", .{vaddr});
 
-        if (build_options.enable_logging) {
-            try debugMem(gpa, handle, pvaddr, mem_code);
-        }
+            if (build_options.enable_logging) {
+                try debugMem(gpa, handle, pvaddr, mem_code);
+            }
 
-        if (section.header.flags.MEM_WRITE == 0) {
-            writeMemProtected(handle, pvaddr, mem_code) catch |err| {
-                log.warn("writing to protected memory failed with error: {s}", .{@errorName(err)});
-            };
-        } else {
-            writeMem(handle, pvaddr, mem_code) catch |err| {
-                log.warn("writing to protected memory failed with error: {s}", .{@errorName(err)});
-            };
+            if (section.header.flags.MEM_WRITE == 0) {
+                writeMemProtected(handle, pvaddr, mem_code) catch |err| {
+                    log.warn("writing to protected memory failed with error: {s}", .{@errorName(err)});
+                };
+            } else {
+                writeMem(handle, pvaddr, mem_code) catch |err| {
+                    log.warn("writing to protected memory failed with error: {s}", .{@errorName(err)});
+                };
+            }
         }
     }
 
@@ -903,6 +910,8 @@ fn resolveRelocs(self: *Coff, atom_index: Atom.Index, relocs: []*const Relocatio
 }
 
 pub fn ptraceAttach(self: *Coff, handle: std.ChildProcess.Id) !void {
+    if (!is_hot_update_compatible) return;
+
     log.debug("attaching to process with handle {*}", .{handle});
     self.hot_state.loaded_base_address = std.os.windows.ProcessBaseAddress(handle) catch |err| {
         log.warn("failed to get base address for the process with error: {s}", .{@errorName(err)});
@@ -911,6 +920,8 @@ pub fn ptraceAttach(self: *Coff, handle: std.ChildProcess.Id) !void {
 }
 
 pub fn ptraceDetach(self: *Coff, handle: std.ChildProcess.Id) void {
+    if (!is_hot_update_compatible) return;
+
     log.debug("detaching from process with handle {*}", .{handle});
     self.hot_state.loaded_base_address = null;
 }
