@@ -443,7 +443,7 @@ pub const File = struct {
                         .macos => base.cast(MachO).?.ptraceDetach(pid) catch |err| {
                             log.warn("detaching failed with error: {s}", .{@errorName(err)});
                         },
-                        .windows => {},
+                        .windows => base.cast(Coff).?.ptraceDetach(pid),
                         else => return error.HotSwapUnavailableOnHostOperatingSystem,
                     }
                 }

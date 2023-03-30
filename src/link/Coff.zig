@@ -89,6 +89,13 @@ relocs: RelocTable = .{},
 /// this will be a table indexed by index into the list of Atoms.
 base_relocs: BaseRelocationTable = .{},
 
+/// Hot-code swapping state.
+hot_state: HotUpdateState = .{},
+
+const HotUpdateState = struct {
+    loaded_base_address: ?u64 = null,
+};
+
 const Entry = struct {
     target: SymbolWithLoc,
     // Index into the synthetic symbol table (i.e., file == null).
@@ -778,7 +785,145 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
         file_offset + code.len,
     });
     self.resolveRelocs(atom_index, code);
+
+    if (self.base.child_pid) |handle| {
+        const vaddr = sym.value + (self.hot_state.loaded_base_address orelse self.getImageBase());
+        log.warn("hcs: writing to memory at address {x}", .{vaddr});
+        try debugMem(self.base.allocator, handle, vaddr, code);
+        if (section.header.flags.MEM_WRITE == 0) {
+            log.warn("  page not mapped for write access; re-mapping...", .{});
+            try writeMemProtected(handle, vaddr, code);
+        } else {
+            try writeMem(handle, vaddr, code);
+        }
+    }
+
     try self.base.file.?.pwriteAll(code, file_offset);
+}
+
+extern "kernel32" fn ReadProcessMemory(
+    hProcess: std.os.windows.HANDLE,
+    lpBaseAddress: std.os.windows.LPCVOID,
+    lpBuffer: std.os.windows.LPVOID,
+    nSize: std.os.windows.SIZE_T,
+    lpNumberOfBytesRead: *std.os.windows.SIZE_T,
+) std.os.windows.BOOL;
+
+extern "kernel32" fn WriteProcessMemory(
+    hProcess: std.os.windows.HANDLE,
+    lpBaseAddress: std.os.windows.LPVOID,
+    lpBuffer: std.os.windows.LPCVOID,
+    nSize: std.os.windows.SIZE_T,
+    lpNumberOfBytesWritten: *std.os.windows.SIZE_T,
+) std.os.windows.BOOL;
+
+extern "kernel32" fn VirtualProtectEx(
+    hProcess: std.os.windows.HANDLE,
+    lpAddress: std.os.windows.LPVOID,
+    dwSize: std.os.windows.SIZE_T,
+    flNewProtect: std.os.windows.DWORD,
+    lpflOldProtect: *std.os.windows.DWORD,
+) std.os.windows.BOOL;
+
+const PROCESS_BASIC_INFORMATION = extern struct {
+    ExitStatus: std.os.windows.NTSTATUS,
+    PebBaseAddress: *std.os.windows.PEB,
+    AffinityMask: std.os.windows.ULONG_PTR,
+    BasePriority: std.os.windows.KPRIORITY,
+    UniqueProcessId: std.os.windows.ULONG_PTR,
+    InheritedFromUniqueProcessId: std.os.windows.ULONG_PTR,
+};
+
+fn getProcessBaseAddress(handle: std.ChildProcess.Id) !u64 {
+    var info: PROCESS_BASIC_INFORMATION = undefined;
+    var nread: std.os.windows.DWORD = 0;
+    const rc = std.os.windows.ntdll.NtQueryInformationProcess(
+        handle,
+        .ProcessBasicInformation,
+        &info,
+        @sizeOf(PROCESS_BASIC_INFORMATION),
+        &nread,
+    );
+    switch (rc) {
+        .SUCCESS => {},
+        else => return std.os.windows.unexpectedStatus(rc),
+    }
+
+    var peb_buf: [@sizeOf(std.os.windows.PEB)]u8 align(@alignOf(std.os.windows.PEB)) = undefined;
+    var peb_nread: usize = 0;
+    if (ReadProcessMemory(
+        handle,
+        info.PebBaseAddress,
+        &peb_buf,
+        @sizeOf(std.os.windows.PEB),
+        &peb_nread,
+    ) == 0) {
+        const err = std.os.windows.kernel32.GetLastError();
+        log.warn("hcs: reading from process memory failed with err: {s}({x})", .{ @tagName(err), @enumToInt(err) });
+        return error.FailedToReadPebForProcess;
+    }
+    if (peb_nread != @sizeOf(std.os.windows.PEB)) return error.InputOutput;
+
+    const peb = @ptrCast(*const std.os.windows.PEB, &peb_buf);
+    return @ptrToInt(peb.ImageBaseAddress);
+}
+
+fn debugMem(allocator: Allocator, handle: std.ChildProcess.Id, vaddr: u64, code: []const u8) !void {
+    var buffer = try allocator.alloc(u8, code.len);
+    defer allocator.free(buffer);
+    var nread: usize = 0;
+    if (ReadProcessMemory(
+        handle,
+        @intToPtr(*anyopaque, vaddr),
+        buffer.ptr,
+        code.len,
+        &nread,
+    ) == 0) {
+        const err = std.os.windows.kernel32.GetLastError();
+        log.warn("hcs: reading from process memory failed with err: {s}({x})", .{ @tagName(err), @enumToInt(err) });
+    }
+    if (nread != code.len) {
+        log.warn("hcs: reading from process memory InputOutput error: read != requested: {x} != {x}", .{ nread, code.len });
+    }
+
+    log.warn("in memory: {x}", .{std.fmt.fmtSliceHexLower(buffer)});
+    log.warn("to write: {x}", .{std.fmt.fmtSliceHexLower(code)});
+}
+
+fn writeMemProtected(handle: std.ChildProcess.Id, vaddr: u64, code: []const u8) !void {
+    const pvaddr = @intToPtr(*anyopaque, vaddr);
+    var new_prot: std.os.windows.DWORD = std.os.windows.PAGE_EXECUTE_WRITECOPY;
+    var old_prot: std.os.windows.DWORD = undefined;
+    if (VirtualProtectEx(handle, pvaddr, code.len, new_prot, &old_prot) == 0) {
+        const err = std.os.windows.kernel32.GetLastError();
+        log.warn("hcs: making page(s) writeable failed with error: {s}({x})", .{ @tagName(err), @enumToInt(err) });
+        return;
+    }
+    log.warn("old = {x}, new = {x}", .{ old_prot, new_prot });
+    try writeMem(handle, vaddr, code);
+    // TODO: We can probably just set the pages writeable and leave it at that without having to restore the attributes.
+    // For that though, we want to track which page has already been modified.
+    if (VirtualProtectEx(handle, pvaddr, code.len, old_prot, &new_prot) == 0) {
+        const err = std.os.windows.kernel32.GetLastError();
+        log.warn("hcs: restoring page(s) attributes failed with error: {s}({x})", .{ @tagName(err), @enumToInt(err) });
+    }
+}
+
+fn writeMem(handle: std.ChildProcess.Id, vaddr: u64, code: []const u8) !void {
+    var nwritten: usize = 0;
+    if (WriteProcessMemory(
+        handle,
+        @intToPtr(*anyopaque, vaddr),
+        code.ptr,
+        code.len,
+        &nwritten,
+    ) == 0) {
+        const err = std.os.windows.kernel32.GetLastError();
+        log.warn("hcs: writing to process memory failed with err: {s}({x})", .{ @tagName(err), @enumToInt(err) });
+    }
+    if (nwritten != code.len) {
+        log.warn("hcs: writing to process memory InputOutput error: written != requested: {x} != {x}", .{ nwritten, code.len });
+    }
 }
 
 fn writePtrWidthAtom(self: *Coff, atom_index: Atom.Index) !void {
@@ -827,9 +972,17 @@ fn resolveRelocs(self: *Coff, atom_index: Atom.Index, code: []u8) void {
     }
 }
 
-pub fn ptraceAttach(self: *Coff, handle: std.os.pid_t) !void {
-    _ = self;
-    log.warn("attaching to process with handle {*}", .{handle});
+pub fn ptraceAttach(self: *Coff, handle: std.ChildProcess.Id) !void {
+    log.warn("hcs: attaching to process with handle {*}", .{handle});
+    self.hot_state.loaded_base_address = getProcessBaseAddress(handle) catch |err| {
+        log.warn("hcs: failed to get base address for the process with error: {s}", .{@errorName(err)});
+        return;
+    };
+}
+
+pub fn ptraceDetach(self: *Coff, handle: std.ChildProcess.Id) void {
+    log.warn("hcs: detaching from process with handle {*}", .{handle});
+    self.hot_state.loaded_base_address = null;
 }
 
 fn freeAtom(self: *Coff, atom_index: Atom.Index) void {
