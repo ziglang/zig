@@ -932,6 +932,34 @@ pub const Zld = struct {
         }
     }
 
+    fn resolveSymbols(self: *Zld, resolver: *SymbolResolver) !void {
+        // We add the specified entrypoint as the first unresolved symbols so that
+        // we search for it in libraries should there be no object files specified
+        // on the linker line.
+        if (self.options.output_mode == .Exe) {
+            const entry_name = self.options.entry orelse load_commands.default_entry_point;
+            const sym_index = try self.allocateSymbol();
+            const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
+            const sym = self.getSymbolPtr(sym_loc);
+            sym.n_strx = try self.strtab.insert(self.gpa, entry_name);
+            sym.n_type = macho.N_UNDF | macho.N_EXT;
+            const global_index = try self.addGlobal(sym_loc);
+            try resolver.table.putNoClobber(entry_name, global_index);
+            try resolver.unresolved.putNoClobber(global_index, {});
+        }
+
+        for (self.objects.items, 0..) |_, object_id| {
+            try self.resolveSymbolsInObject(@intCast(u32, object_id), resolver);
+        }
+
+        try self.resolveSymbolsInArchives(resolver);
+        try self.resolveDyldStubBinder(resolver);
+        try self.resolveSymbolsInDylibs(resolver);
+        try self.createMhExecuteHeaderSymbol(resolver);
+        try self.createDsoHandleSymbol(resolver);
+        try self.resolveSymbolsAtLoading(resolver);
+    }
+
     fn resolveSymbolsInObject(self: *Zld, object_id: u32, resolver: *SymbolResolver) !void {
         const object = &self.objects.items[object_id];
         const in_symtab = object.in_symtab orelse return;
@@ -975,9 +1003,7 @@ pub const Zld = struct {
             const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = object_id + 1 };
 
             const global_index = resolver.table.get(sym_name) orelse {
-                const gpa = self.gpa;
-                const global_index = @intCast(u32, self.globals.items.len);
-                try self.globals.append(gpa, sym_loc);
+                const global_index = try self.addGlobal(sym_loc);
                 try resolver.table.putNoClobber(sym_name, global_index);
                 if (sym.undf() and !sym.tentative()) {
                     try resolver.unresolved.putNoClobber(global_index, {});
@@ -1034,8 +1060,10 @@ pub const Zld = struct {
             };
 
             if (update_global) {
-                const global_object = &self.objects.items[global.getFile().?];
-                global_object.globals_lookup[global.sym_index] = global_index;
+                if (global.getFile()) |file| {
+                    const global_object = &self.objects.items[file];
+                    global_object.globals_lookup[global.sym_index] = global_index;
+                }
                 _ = resolver.unresolved.swapRemove(resolver.table.get(sym_name).?);
                 global.* = sym_loc;
             } else {
@@ -1180,9 +1208,7 @@ pub const Zld = struct {
             global.* = sym_loc;
             self.mh_execute_header_index = global_index;
         } else {
-            const global_index = @intCast(u32, self.globals.items.len);
-            try self.globals.append(gpa, sym_loc);
-            self.mh_execute_header_index = global_index;
+            self.mh_execute_header_index = try self.addGlobal(sym_loc);
         }
     }
 
@@ -1356,6 +1382,12 @@ pub const Zld = struct {
             .n_value = 0,
         };
         return index;
+    }
+
+    fn addGlobal(self: *Zld, sym_loc: SymbolWithLoc) !u32 {
+        const global_index = @intCast(u32, self.globals.items.len);
+        try self.globals.append(self.gpa, sym_loc);
+        return global_index;
     }
 
     fn allocateSpecialSymbols(self: *Zld) !void {
@@ -3980,17 +4012,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             .table = std.StringHashMap(u32).init(arena),
             .unresolved = std.AutoArrayHashMap(u32, void).init(arena),
         };
-
-        for (zld.objects.items, 0..) |_, object_id| {
-            try zld.resolveSymbolsInObject(@intCast(u32, object_id), &resolver);
-        }
-
-        try zld.resolveSymbolsInArchives(&resolver);
-        try zld.resolveDyldStubBinder(&resolver);
-        try zld.resolveSymbolsInDylibs(&resolver);
-        try zld.createMhExecuteHeaderSymbol(&resolver);
-        try zld.createDsoHandleSymbol(&resolver);
-        try zld.resolveSymbolsAtLoading(&resolver);
+        try zld.resolveSymbols(&resolver);
 
         if (resolver.unresolved.count() > 0) {
             return error.UndefinedSymbolReference;
@@ -4003,11 +4025,8 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         }
 
         if (options.output_mode == .Exe) {
-            const entry_name = options.entry orelse "_main";
-            const global_index = resolver.table.get(entry_name) orelse {
-                log.err("entrypoint '{s}' not found", .{entry_name});
-                return error.MissingMainEntrypoint;
-            };
+            const entry_name = options.entry orelse load_commands.default_entry_point;
+            const global_index = resolver.table.get(entry_name).?; // Error was flagged earlier
             zld.entry_index = global_index;
         }
 
