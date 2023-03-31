@@ -2984,10 +2984,30 @@ fn walkInstruction(
                     const param_index = self.exprs.items.len;
                     try self.exprs.append(self.arena, param.expr);
 
-                    self.exprs.items[bin_index] = .{ .builtin = .{ .name = @tagName(tags[inst_index]), .param = param_index } };
+                    self.exprs.items[bin_index] = .{ .builtin = .{ .name = @tagName(extended.opcode), .param = param_index } };
 
                     return DocData.WalkResult{
                         .typeRef = param.typeRef orelse .{ .type = @enumToInt(Ref.type_type) },
+                        .expr = .{ .builtinIndex = bin_index },
+                    };
+                },
+                .work_item_id,
+                .work_group_size,
+                .work_group_id,
+                => {
+                    const extra = file.zir.extraData(Zir.Inst.UnNode, extended.operand).data;
+                    const bin_index = self.exprs.items.len;
+                    try self.exprs.append(self.arena, .{ .builtin = .{ .param = 0 } });
+                    const param = try self.walkRef(file, parent_scope, parent_src, extra.operand, false);
+
+                    const param_index = self.exprs.items.len;
+                    try self.exprs.append(self.arena, param.expr);
+
+                    self.exprs.items[bin_index] = .{ .builtin = .{ .name = @tagName(extended.opcode), .param = param_index } };
+
+                    return DocData.WalkResult{
+                        // from docs we know they return u32
+                        .typeRef = .{ .type = @enumToInt(Ref.u32_type) },
                         .expr = .{ .builtinIndex = bin_index },
                     };
                 },
