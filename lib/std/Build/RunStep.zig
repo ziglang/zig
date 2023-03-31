@@ -72,6 +72,10 @@ captured_stderr: ?*Output = null,
 
 has_side_effects: bool = false,
 
+/// Set this to true if RunStep runs a zig test.
+/// See https://github.com/ziglang/zig/issues/15104.
+is_test_command: bool = false,
+
 pub const StdIo = union(enum) {
     /// Whether the RunStep has side-effects will be determined by whether or not one
     /// of the args is an output file (added with `addOutputFileArg`).
@@ -866,9 +870,9 @@ fn spawnChildAndCollect(
     child.request_resource_usage_statistics = true;
 
     child.stdin_behavior = switch (self.stdio) {
-        .infer_from_args => if (has_side_effects) .Inherit else .Close,
+        .infer_from_args => if (has_side_effects) .Inherit else if (self.is_test_command) .Ignore else .Close,
         .inherit => .Inherit,
-        .check => .Close,
+        .check => if (self.is_test_command) .Ignore else .Close,
         .zig_test => .Pipe,
     };
     child.stdout_behavior = switch (self.stdio) {
