@@ -1540,3 +1540,19 @@ test "access the tag of a global tagged union" {
     };
     try expect(U.u == .a);
 }
+
+test "coerce enum literal to union in result loc" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const U = union(enum) {
+        a,
+        b: u8,
+
+        fn doTest(c: bool) !void {
+            var u = if (c) .a else @This(){ .b = 0 };
+            try expect(u == .a);
+        }
+    };
+    try U.doTest(true);
+    comptime try U.doTest(true);
+}
