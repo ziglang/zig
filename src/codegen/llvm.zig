@@ -8216,7 +8216,6 @@ pub const FuncGen = struct {
         const dest_ptr = try self.resolveInst(bin_op.lhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         const operand_ty = ptr_ty.childType();
-        if (!operand_ty.isFnOrHasRuntimeBitsIgnoreComptime()) return null;
 
         // TODO Sema should emit a different instruction when the store should
         // possibly do the safety 0xaa bytes for undefined.
