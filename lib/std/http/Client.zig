@@ -19,11 +19,54 @@ pub const connection_pool_size = std.options.http_connection_pool_size;
 /// managed buffer is not provided.
 allocator: Allocator,
 ca_bundle: std.crypto.Certificate.Bundle = .{},
+ca_bundle_mutex: std.Thread.Mutex = .{},
 /// When this is `true`, the next time this client performs an HTTPS request,
 /// it will first rescan the system for root certificates.
 next_https_rescan_certs: bool = true,
 
 connection_pool: ConnectionPool = .{},
+
+last_error: ?ExtraError = null,
+
+pub const ExtraError = union(enum) {
+    fn impliedErrorSet(comptime f: anytype) type {
+        const set = @typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?).ErrorUnion.error_set;
+        if (@typeName(set)[0] != '@') @compileError(@typeName(f) ++ " doesn't have an implied error set any more.");
+        return set;
+    }
+
+    // There's apparently a dependency loop with using Client.DeflateDecompressor.
+    const FakeTransferError = proto.HeadersParser.ReadError || error{ReadFailed};
+    const FakeTransferReader = std.io.Reader(void, FakeTransferError, fakeRead);
+    fn fakeRead(ctx: void, buf: []u8) FakeTransferError!usize {
+        _ = .{ buf, ctx };
+        return 0;
+    }
+
+    const FakeDeflateDecompressor = std.compress.zlib.ZlibStream(FakeTransferReader);
+    const FakeGzipDecompressor = std.compress.gzip.Decompress(FakeTransferReader);
+    const FakeZstdDecompressor = std.compress.zstd.DecompressStream(FakeTransferReader, .{});
+
+    pub const TcpConnectError = std.net.TcpConnectToHostError;
+    pub const TlsError = std.crypto.tls.Client.InitError(net.Stream);
+    pub const WriteError = BufferedConnection.WriteError;
+    pub const ReadError = BufferedConnection.ReadError || error{HttpChunkInvalid};
+    pub const CaBundleError = impliedErrorSet(std.crypto.Certificate.Bundle.rescan);
+
+    pub const ZlibInitError = error{ BadHeader, InvalidCompression, InvalidWindowSize, Unsupported, EndOfStream, OutOfMemory } || Request.TransferReadError;
+    pub const GzipInitError = error{ BadHeader, InvalidCompression, OutOfMemory, WrongChecksum, EndOfStream, StreamTooLong } || Request.TransferReadError;
+    // pub const DecompressError = Client.DeflateDecompressor.Error || Client.GzipDecompressor.Error || Client.ZstdDecompressor.Error;
+    pub const DecompressError = FakeDeflateDecompressor.Error || FakeGzipDecompressor.Error || FakeZstdDecompressor.Error;
+
+    zlib_init: ZlibInitError, // error.CompressionInitializationFailed
+    gzip_init: GzipInitError, // error.CompressionInitializationFailed
+    connect: TcpConnectError, // error.ConnectionFailed
+    ca_bundle: CaBundleError, // error.CertificateAuthorityBundleFailed
+    tls: TlsError, // error.TlsInitializationFailed
+    write: WriteError, // error.WriteFailed
+    read: ReadError, // error.ReadFailed
+    decompress: DecompressError, // error.ReadFailed
+};
 
 pub const ConnectionPool = struct {
     pub const Criteria = struct {
@@ -145,10 +188,6 @@ pub const ConnectionPool = struct {
         pool.* = undefined;
     }
 };
-
-pub const DeflateDecompressor = std.compress.zlib.ZlibStream(Request.TransferReader);
-pub const GzipDecompressor = std.compress.gzip.Decompress(Request.TransferReader);
-pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Request.TransferReader, .{});
 
 pub const Connection = struct {
     stream: net.Stream,
@@ -312,6 +351,10 @@ pub const RequestTransfer = union(enum) {
 };
 
 pub const Compression = union(enum) {
+    pub const DeflateDecompressor = std.compress.zlib.ZlibStream(Request.TransferReader);
+    pub const GzipDecompressor = std.compress.gzip.Decompress(Request.TransferReader);
+    pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Request.TransferReader, .{});
+
     deflate: DeflateDecompressor,
     gzip: GzipDecompressor,
     zstd: ZstdDecompressor,
@@ -336,10 +379,11 @@ pub const Response = struct {
             HttpHeaderContinuationsUnsupported,
             HttpTransferEncodingUnsupported,
             HttpConnectionHeaderUnsupported,
-            InvalidCharacter,
+            InvalidContentLength,
+            CompressionNotSupported,
         };
 
-        pub fn parse(bytes: []const u8) !Headers {
+        pub fn parse(bytes: []const u8) ParseError!Headers {
             var it = mem.tokenize(u8, bytes[0 .. bytes.len - 4], "\r\n");
 
             const first_line = it.next() orelse return error.HttpHeadersInvalid;
@@ -374,7 +418,7 @@ pub const Response = struct {
                     headers.location = header_value;
                 } else if (std.ascii.eqlIgnoreCase(header_name, "content-length")) {
                     if (headers.content_length != null) return error.HttpHeadersInvalid;
-                    headers.content_length = try std.fmt.parseInt(u64, header_value, 10);
+                    headers.content_length = std.fmt.parseInt(u64, header_value, 10) catch return error.InvalidContentLength;
                 } else if (std.ascii.eqlIgnoreCase(header_name, "transfer-encoding")) {
                     // Transfer-Encoding: second, first
                     // Transfer-Encoding: deflate, chunked
@@ -457,6 +501,14 @@ pub const Response = struct {
     skip: bool = false,
 };
 
+/// A HTTP request.
+///
+/// Order of operations:
+/// - request
+/// - write
+/// - finish
+/// - do
+/// - read
 pub const Request = struct {
     pub const Headers = struct {
         version: http.Version = .@"HTTP/1.1",
@@ -506,7 +558,67 @@ pub const Request = struct {
         req.* = undefined;
     }
 
-    pub const TransferReadError = BufferedConnection.ReadError || proto.HeadersParser.ReadError;
+    pub fn start(req: *Request, uri: Uri, headers: Headers) !void {
+        var buffered = std.io.bufferedWriter(req.connection.data.buffered.writer());
+        const w = buffered.writer();
+
+        const escaped_path = try Uri.escapePath(req.client.allocator, uri.path);
+        defer req.client.allocator.free(escaped_path);
+
+        const escaped_query = if (uri.query) |q| try Uri.escapeQuery(req.client.allocator, q) else null;
+        defer if (escaped_query) |q| req.client.allocator.free(q);
+
+        const escaped_fragment = if (uri.fragment) |f| try Uri.escapeQuery(req.client.allocator, f) else null;
+        defer if (escaped_fragment) |f| req.client.allocator.free(f);
+
+        try w.writeAll(@tagName(headers.method));
+        try w.writeByte(' ');
+        if (escaped_path.len == 0) {
+            try w.writeByte('/');
+        } else {
+            try w.writeAll(escaped_path);
+        }
+        if (escaped_query) |q| {
+            try w.writeByte('?');
+            try w.writeAll(q);
+        }
+        if (escaped_fragment) |f| {
+            try w.writeByte('#');
+            try w.writeAll(f);
+        }
+        try w.writeByte(' ');
+        try w.writeAll(@tagName(headers.version));
+        try w.writeAll("\r\nHost: ");
+        try w.writeAll(uri.host.?);
+        try w.writeAll("\r\nUser-Agent: ");
+        try w.writeAll(headers.user_agent);
+        if (headers.connection == .close) {
+            try w.writeAll("\r\nConnection: close");
+        } else {
+            try w.writeAll("\r\nConnection: keep-alive");
+        }
+        try w.writeAll("\r\nAccept-Encoding: gzip, deflate, zstd");
+        try w.writeAll("\r\nTE: trailers, gzip, deflate");
+
+        switch (headers.transfer_encoding) {
+            .chunked => try w.writeAll("\r\nTransfer-Encoding: chunked"),
+            .content_length => |content_length| try w.print("\r\nContent-Length: {d}", .{content_length}),
+            .none => {},
+        }
+
+        for (headers.custom) |header| {
+            try w.writeAll("\r\n");
+            try w.writeAll(header.name);
+            try w.writeAll(": ");
+            try w.writeAll(header.value);
+        }
+
+        try w.writeAll("\r\n\r\n");
+
+        try buffered.flush();
+    }
+
+    pub const TransferReadError = proto.HeadersParser.ReadError || error{ReadFailed};
 
     pub const TransferReader = std.io.Reader(*Request, TransferReadError, transferRead);
 
@@ -519,7 +631,10 @@ pub const Request = struct {
 
         var index: usize = 0;
         while (index == 0) {
-            const amt = try req.response.parser.read(&req.connection.data.buffered, buf[index..], req.response.skip);
+            const amt = req.response.parser.read(&req.connection.data.buffered, buf[index..], req.response.skip) catch |err| {
+                req.client.last_error = .{ .read = err };
+                return error.ReadFailed;
+            };
             if (amt == 0 and req.response.parser.isComplete()) break;
             index += amt;
         }
@@ -527,78 +642,60 @@ pub const Request = struct {
         return index;
     }
 
-    pub const WaitForCompleteHeadError = BufferedConnection.ReadError || proto.HeadersParser.CheckCompleteHeadError || Response.Headers.ParseError || error{ BadHeader, InvalidCompression, StreamTooLong, InvalidWindowSize } || error{CompressionNotSupported};
+    pub const DoError = RequestError || TransferReadError || proto.HeadersParser.CheckCompleteHeadError || Response.Headers.ParseError || Uri.ParseError || error{ TooManyHttpRedirects, HttpRedirectMissingLocation, CompressionInitializationFailed };
 
-    pub fn waitForCompleteHead(req: *Request) !void {
-        while (true) {
-            try req.connection.data.buffered.fill();
+    /// Waits for a response from the server and parses any headers that are sent.
+    /// This function will block until the final response is received.
+    ///
+    /// If `handle_redirects` is true, then this function will automatically follow
+    /// redirects.
+    pub fn do(req: *Request) DoError!void {
+        while (true) { // handle redirects
+            while (true) { // read headers
+                req.connection.data.buffered.fill() catch |err| {
+                    req.client.last_error = .{ .read = err };
+                    return error.ReadFailed;
+                };
 
-            const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.data.buffered.peek());
-            req.connection.data.buffered.clear(@intCast(u16, nchecked));
+                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.data.buffered.peek());
+                req.connection.data.buffered.clear(@intCast(u16, nchecked));
 
-            if (req.response.parser.state.isContent()) break;
-        }
-
-        req.response.headers = try Response.Headers.parse(req.response.parser.header_bytes.items);
-
-        if (req.response.headers.status == .switching_protocols) {
-            req.connection.data.closing = false;
-            req.response.parser.done = true;
-        }
-
-        if (req.headers.connection == .keep_alive and req.response.headers.connection == .keep_alive) {
-            req.connection.data.closing = false;
-        } else {
-            req.connection.data.closing = true;
-        }
-
-        if (req.response.headers.transfer_encoding) |te| {
-            switch (te) {
-                .chunked => {
-                    req.response.parser.next_chunk_length = 0;
-                    req.response.parser.state = .chunk_head_size;
-                },
+                if (req.response.parser.state.isContent()) break;
             }
-        } else if (req.response.headers.content_length) |cl| {
-            req.response.parser.next_chunk_length = cl;
 
-            if (cl == 0) req.response.parser.done = true;
-        } else {
-            req.response.parser.done = true;
-        }
+            req.response.headers = try Response.Headers.parse(req.response.parser.header_bytes.items);
 
-        if (!req.response.parser.done) {
-            if (req.response.headers.transfer_compression) |tc| switch (tc) {
-                .compress => return error.CompressionNotSupported,
-                .deflate => req.response.compression = .{
-                    .deflate = try std.compress.zlib.zlibStream(req.client.allocator, req.transferReader()),
-                },
-                .gzip => req.response.compression = .{
-                    .gzip = try std.compress.gzip.decompress(req.client.allocator, req.transferReader()),
-                },
-                .zstd => req.response.compression = .{
-                    .zstd = std.compress.zstd.decompressStream(req.client.allocator, req.transferReader()),
-                },
-            };
-        }
+            if (req.response.headers.status == .switching_protocols) {
+                req.connection.data.closing = false;
+                req.response.parser.done = true;
+            }
 
-        if (req.response.headers.status.class() == .redirect and req.handle_redirects) req.response.skip = true;
-    }
+            if (req.headers.connection == .keep_alive and req.response.headers.connection == .keep_alive) {
+                req.connection.data.closing = false;
+            } else {
+                req.connection.data.closing = true;
+            }
 
-    pub const ReadError = RequestError || Client.DeflateDecompressor.Error || Client.GzipDecompressor.Error || Client.ZstdDecompressor.Error || WaitForCompleteHeadError || error{ TooManyHttpRedirects, HttpRedirectMissingLocation, InvalidFormat, InvalidPort, UnexpectedCharacter };
+            if (req.response.headers.transfer_encoding) |te| {
+                switch (te) {
+                    .chunked => {
+                        req.response.parser.next_chunk_length = 0;
+                        req.response.parser.state = .chunk_head_size;
+                    },
+                }
+            } else if (req.response.headers.content_length) |cl| {
+                req.response.parser.next_chunk_length = cl;
 
-    pub const Reader = std.io.Reader(*Request, ReadError, read);
+                if (cl == 0) req.response.parser.done = true;
+            } else {
+                req.response.parser.done = true;
+            }
 
-    pub fn reader(req: *Request) Reader {
-        return .{ .context = req };
-    }
+            if (req.response.headers.status.class() == .redirect and req.handle_redirects) {
+                req.response.skip = true;
 
-    pub fn read(req: *Request, buffer: []u8) ReadError!usize {
-        while (true) {
-            if (!req.response.parser.state.isContent()) try req.waitForCompleteHead();
-
-            if (req.handle_redirects and req.response.headers.status.class() == .redirect) {
-                assert(try req.transferRead(buffer) == 0);
+                const empty = @as([*]u8, undefined)[0..0];
+                assert(try req.transferRead(empty) == 0); // we're skipping, no buffer is necessary
 
                 if (req.redirects_left == 0) return error.TooManyHttpRedirects;
 
@@ -624,29 +721,80 @@ pub const Request = struct {
                 req.deinit();
                 req.* = new_req;
             } else {
+                req.response.skip = false;
+                if (!req.response.parser.done) {
+                    if (req.response.headers.transfer_compression) |tc| switch (tc) {
+                        .compress => return error.CompressionNotSupported,
+                        .deflate => req.response.compression = .{
+                            .deflate = std.compress.zlib.zlibStream(req.client.allocator, req.transferReader()) catch |err| {
+                                req.client.last_error = .{ .zlib_init = err };
+                                return error.CompressionInitializationFailed;
+                            },
+                        },
+                        .gzip => req.response.compression = .{
+                            .gzip = std.compress.gzip.decompress(req.client.allocator, req.transferReader()) catch |err| {
+                                req.client.last_error = .{ .gzip_init = err };
+                                return error.CompressionInitializationFailed;
+                            },
+                        },
+                        .zstd => req.response.compression = .{
+                            .zstd = std.compress.zstd.decompressStream(req.client.allocator, req.transferReader()),
+                        },
+                    };
+                }
+
                 break;
             }
         }
+    }
+
+    pub const ReadError = TransferReadError;
+
+    pub const Reader = std.io.Reader(*Request, ReadError, read);
+
+    pub fn reader(req: *Request) Reader {
+        return .{ .context = req };
+    }
+
+    /// Reads data from the response body. Must be called after `do`.
+    pub fn read(req: *Request, buffer: []u8) ReadError!usize {
+        assert(req.response.parser.state.isContent());
 
         return switch (req.response.compression) {
-            .deflate => |*deflate| try deflate.read(buffer),
-            .gzip => |*gzip| try gzip.read(buffer),
-            .zstd => |*zstd| try zstd.read(buffer),
+            .deflate => |*deflate| deflate.read(buffer) catch |err| {
+                req.client.last_error = .{ .decompress = err };
+                err catch {};
+                return error.ReadFailed;
+            },
+            .gzip => |*gzip| gzip.read(buffer) catch |err| {
+                req.client.last_error = .{ .decompress = err };
+                err catch {};
+                return error.ReadFailed;
+            },
+            .zstd => |*zstd| zstd.read(buffer) catch |err| {
+                req.client.last_error = .{ .decompress = err };
+                err catch {};
+                return error.ReadFailed;
+            },
             else => try req.transferRead(buffer),
         };
     }
 
+    /// Reads data from the response body. Must be called after `do`.
     pub fn readAll(req: *Request, buffer: []u8) !usize {
         var index: usize = 0;
         while (index < buffer.len) {
-            const amt = try read(req, buffer[index..]);
+            const amt = read(req, buffer[index..]) catch |err| {
+                req.client.last_error = .{ .read = err };
+                return error.ReadFailed;
+            };
             if (amt == 0) break;
             index += amt;
         }
         return index;
     }
 
-    pub const WriteError = BufferedConnection.WriteError || error{ NotWriteable, MessageTooLong };
+    pub const WriteError = error{ WriteFailed, NotWriteable, MessageTooLong };
 
     pub const Writer = std.io.Writer(*Request, WriteError, write);
 
@@ -658,16 +806,28 @@ pub const Request = struct {
     pub fn write(req: *Request, bytes: []const u8) WriteError!usize {
         switch (req.headers.transfer_encoding) {
             .chunked => {
-                try req.connection.data.conn.writer().print("{x}\r\n", .{bytes.len});
-                try req.connection.data.conn.writeAll(bytes);
-                try req.connection.data.conn.writeAll("\r\n");
+                req.connection.data.conn.writer().print("{x}\r\n", .{bytes.len}) catch |err| {
+                    req.client.last_error = .{ .write = err };
+                    return error.WriteFailed;
+                };
+                req.connection.data.conn.writeAll(bytes) catch |err| {
+                    req.client.last_error = .{ .write = err };
+                    return error.WriteFailed;
+                };
+                req.connection.data.conn.writeAll("\r\n") catch |err| {
+                    req.client.last_error = .{ .write = err };
+                    return error.WriteFailed;
+                };
 
                 return bytes.len;
             },
             .content_length => |*len| {
                 if (len.* < bytes.len) return error.MessageTooLong;
 
-                const amt = try req.connection.data.conn.write(bytes);
+                const amt = req.connection.data.conn.write(bytes) catch |err| {
+                    req.client.last_error = .{ .write = err };
+                    return error.WriteFailed;
+                };
                 len.* -= amt;
                 return amt;
             },
@@ -678,7 +838,10 @@ pub const Request = struct {
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     pub fn finish(req: *Request) !void {
         switch (req.headers.transfer_encoding) {
-            .chunked => try req.connection.data.conn.writeAll("0\r\n"),
+            .chunked => req.connection.data.conn.writeAll("0\r\n") catch |err| {
+                req.client.last_error = .{ .write = err };
+                return error.WriteFailed;
+            },
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
             .none => {},
         }
@@ -692,7 +855,7 @@ pub fn deinit(client: *Client) void {
     client.* = undefined;
 }
 
-pub const ConnectError = Allocator.Error || net.TcpConnectToHostError || std.crypto.tls.Client.InitError(net.Stream);
+pub const ConnectError = Allocator.Error || error{ ConnectionFailed, TlsInitializationFailed };
 
 pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) ConnectError!*ConnectionPool.Node {
     if (client.connection_pool.findConnection(.{
@@ -706,7 +869,11 @@ pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connectio
     errdefer client.allocator.destroy(conn);
     conn.* = .{ .data = undefined };
 
-    const stream = try net.tcpConnectToHost(client.allocator, host, port);
+    const stream = net.tcpConnectToHost(client.allocator, host, port) catch |err| {
+        client.last_error = .{ .connect = err };
+        return error.ConnectionFailed;
+    };
+    errdefer stream.close();
 
     conn.data = .{
         .buffered = .{ .conn = .{
@@ -717,12 +884,18 @@ pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connectio
         .host = try client.allocator.dupe(u8, host),
         .port = port,
     };
+    errdefer client.allocator.free(conn.data.host);
 
     switch (protocol) {
         .plain => {},
         .tls => {
             conn.data.buffered.conn.tls_client = try client.allocator.create(std.crypto.tls.Client);
-            conn.data.buffered.conn.tls_client.* = try std.crypto.tls.Client.init(stream, client.ca_bundle, host);
+            errdefer client.allocator.destroy(conn.data.buffered.conn.tls_client);
+
+            conn.data.buffered.conn.tls_client.* = std.crypto.tls.Client.init(stream, client.ca_bundle, host) catch |err| {
+                client.last_error = .{ .tls = err };
+                return error.TlsInitializationFailed;
+            };
             // This is appropriate for HTTPS because the HTTP headers contain
             // the content length which is used to detect truncation attacks.
             conn.data.buffered.conn.tls_client.allow_truncation_attacks = true;
@@ -734,15 +907,12 @@ pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connectio
     return conn;
 }
 
-pub const RequestError = ConnectError || BufferedConnection.WriteError || error{
+pub const RequestError = ConnectError || error{
     UnsupportedUrlScheme,
     UriMissingHost,
 
-    CertificateAuthorityBundleTooBig,
-    InvalidPadding,
-    MissingEndCertificateMarker,
-    Unseekable,
-    EndOfStream,
+    CertificateAuthorityBundleFailed,
+    WriteFailed,
 };
 
 pub const Options = struct {
@@ -764,13 +934,15 @@ pub const Options = struct {
     };
 };
 
+pub const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
+    .{ "http", .plain },
+    .{ "ws", .plain },
+    .{ "https", .tls },
+    .{ "wss", .tls },
+});
+
 pub fn request(client: *Client, uri: Uri, headers: Request.Headers, options: Options) RequestError!Request {
-    const protocol: Connection.Protocol = if (mem.eql(u8, uri.scheme, "http"))
-        .plain
-    else if (mem.eql(u8, uri.scheme, "https"))
-        .tls
-    else
-        return error.UnsupportedUrlScheme;
+    const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
 
     const port: u16 = uri.port orelse switch (protocol) {
         .plain => 80,
@@ -779,13 +951,16 @@ pub fn request(client: *Client, uri: Uri, headers: Request.Headers, options: Opt
 
     const host = uri.host orelse return error.UriMissingHost;
 
-    if (client.next_https_rescan_certs and protocol == .tls) {
-        client.connection_pool.mutex.lock(); // TODO: this could be so much better than reusing the connection pool mutex.
-        defer client.connection_pool.mutex.unlock();
+    if (protocol == .tls and @atomicLoad(bool, &client.next_https_rescan_certs, .Acquire)) {
+        client.ca_bundle_mutex.lock();
+        defer client.ca_bundle_mutex.unlock();
 
         if (client.next_https_rescan_certs) {
-            try client.ca_bundle.rescan(client.allocator);
-            client.next_https_rescan_certs = false;
+            client.ca_bundle.rescan(client.allocator) catch |err| {
+                client.last_error = .{ .ca_bundle = err };
+                return error.CertificateAuthorityBundleFailed;
+            };
+            @atomicStore(bool, &client.next_https_rescan_certs, false, .Release);
         }
     }
 
@@ -804,68 +979,17 @@ pub fn request(client: *Client, uri: Uri, headers: Request.Headers, options: Opt
         },
         .arena = undefined,
     };
+    errdefer req.deinit();
 
     req.arena = std.heap.ArenaAllocator.init(client.allocator);
 
-    {
-        var buffered = std.io.bufferedWriter(req.connection.data.buffered.writer());
-        const writer = buffered.writer();
+    req.start(uri, headers) catch |err| {
+        if (err == error.OutOfMemory) return error.OutOfMemory;
+        const err_casted = @errSetCast(BufferedConnection.WriteError, err);
 
-        const escaped_path = try Uri.escapePath(client.allocator, uri.path);
-        defer client.allocator.free(escaped_path);
-
-        const escaped_query = if (uri.query) |q| try Uri.escapeQuery(client.allocator, q) else null;
-        defer if (escaped_query) |q| client.allocator.free(q);
-
-        const escaped_fragment = if (uri.fragment) |f| try Uri.escapeQuery(client.allocator, f) else null;
-        defer if (escaped_fragment) |f| client.allocator.free(f);
-
-        try writer.writeAll(@tagName(headers.method));
-        try writer.writeByte(' ');
-        if (escaped_path.len == 0) {
-            try writer.writeByte('/');
-        } else {
-            try writer.writeAll(escaped_path);
-        }
-        if (escaped_query) |q| {
-            try writer.writeByte('?');
-            try writer.writeAll(q);
-        }
-        if (escaped_fragment) |f| {
-            try writer.writeByte('#');
-            try writer.writeAll(f);
-        }
-        try writer.writeByte(' ');
-        try writer.writeAll(@tagName(headers.version));
-        try writer.writeAll("\r\nHost: ");
-        try writer.writeAll(host);
-        try writer.writeAll("\r\nUser-Agent: ");
-        try writer.writeAll(headers.user_agent);
-        if (headers.connection == .close) {
-            try writer.writeAll("\r\nConnection: close");
-        } else {
-            try writer.writeAll("\r\nConnection: keep-alive");
-        }
-        try writer.writeAll("\r\nAccept-Encoding: gzip, deflate, zstd");
-        try writer.writeAll("\r\nTE: trailers, gzip, deflate");
-
-        switch (headers.transfer_encoding) {
-            .chunked => try writer.writeAll("\r\nTransfer-Encoding: chunked"),
-            .content_length => |content_length| try writer.print("\r\nContent-Length: {d}", .{content_length}),
-            .none => {},
-        }
-
-        for (headers.custom) |header| {
-            try writer.writeAll("\r\n");
-            try writer.writeAll(header.name);
-            try writer.writeAll(": ");
-            try writer.writeAll(header.value);
-        }
-
-        try writer.writeAll("\r\n\r\n");
-
-        try buffered.flush();
-    }
+        client.last_error = .{ .write = err_casted };
+        return error.WriteFailed;
+    };
 
     return req;
 }
@@ -880,5 +1004,5 @@ test {
 
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    _ = Request;
+    std.testing.refAllDecls(@This());
 }
