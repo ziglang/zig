@@ -74,6 +74,89 @@ pub const Connection = struct {
     }
 };
 
+pub const BufferedConnection = struct {
+    pub const buffer_size = 0x2000;
+
+    conn: Connection,
+    buf: [buffer_size]u8 = undefined,
+    start: u16 = 0,
+    end: u16 = 0,
+
+    pub fn fill(bconn: *BufferedConnection) ReadError!void {
+        if (bconn.end != bconn.start) return;
+
+        const nread = try bconn.conn.read(bconn.buf[0..]);
+        if (nread == 0) return error.EndOfStream;
+        bconn.start = 0;
+        bconn.end = @truncate(u16, nread);
+    }
+
+    pub fn peek(bconn: *BufferedConnection) []const u8 {
+        return bconn.buf[bconn.start..bconn.end];
+    }
+
+    pub fn clear(bconn: *BufferedConnection, num: u16) void {
+        bconn.start += num;
+    }
+
+    pub fn readAtLeast(bconn: *BufferedConnection, buffer: []u8, len: usize) ReadError!usize {
+        var out_index: u16 = 0;
+        while (out_index < len) {
+            const available = bconn.end - bconn.start;
+            const left = buffer.len - out_index;
+
+            if (available > 0) {
+                const can_read = @truncate(u16, @min(available, left));
+
+                std.mem.copy(u8, buffer[out_index..], bconn.buf[bconn.start..][0..can_read]);
+                out_index += can_read;
+                bconn.start += can_read;
+
+                continue;
+            }
+
+            if (left > bconn.buf.len) {
+                // skip the buffer if the output is large enough
+                return bconn.conn.read(buffer[out_index..]);
+            }
+
+            try bconn.fill();
+        }
+
+        return out_index;
+    }
+
+    pub fn read(bconn: *BufferedConnection, buffer: []u8) ReadError!usize {
+        return bconn.readAtLeast(buffer, 1);
+    }
+
+    pub const ReadError = Connection.ReadError || error{EndOfStream};
+    pub const Reader = std.io.Reader(*BufferedConnection, ReadError, read);
+
+    pub fn reader(bconn: *BufferedConnection) Reader {
+        return Reader{ .context = bconn };
+    }
+
+    pub fn writeAll(bconn: *BufferedConnection, buffer: []const u8) WriteError!void {
+        return bconn.conn.writeAll(buffer);
+    }
+
+    pub fn write(bconn: *BufferedConnection, buffer: []const u8) WriteError!usize {
+        return bconn.conn.write(buffer);
+    }
+
+    pub const WriteError = Connection.WriteError;
+    pub const Writer = std.io.Writer(*BufferedConnection, WriteError, write);
+
+    pub fn writer(bconn: *BufferedConnection) Writer {
+        return Writer{ .context = bconn };
+    }
+
+    pub fn close(bconn: *BufferedConnection) void {
+        bconn.conn.close();
+    }
+};
+
 pub const Request = struct {
     pub const Headers = struct {
         method: http.Method,
@@ -222,7 +305,7 @@ pub const Response = struct {
 
     server: *Server,
     address: net.Address,
-    connection: Connection,
+    connection: BufferedConnection,
 
     headers: Headers = .{},
     request: Request,
@@ -237,10 +320,10 @@ pub const Response = struct {
 
         if (!res.request.parser.done) {
             // If the response wasn't fully read, then we need to close the connection.
-            res.connection.closing = true;
+            res.connection.conn.closing = true;
         }
 
-        if (res.connection.closing) {
+        if (res.connection.conn.closing) {
             res.connection.close();
 
             if (res.request.parser.header_bytes_owned) {
@@ -296,7 +379,7 @@ pub const Response = struct {
         try buffered.flush();
     }
 
-    pub const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
+    pub const TransferReadError = BufferedConnection.ReadError || proto.HeadersParser.ReadError;
 
     pub const TransferReader = std.io.Reader(*Response, TransferReadError, transferRead);
 
@@ -309,7 +392,7 @@ pub const Response = struct {
 
         var index: usize = 0;
         while (index == 0) {
-            const amt = try res.request.parser.read(res.connection.reader(), buf[index..], false);
+            const amt = try res.request.parser.read(&res.connection, buf[index..], false);
             if (amt == 0 and res.request.parser.isComplete()) break;
             index += amt;
         }
@@ -317,17 +400,24 @@ pub const Response = struct {
         return index;
     }
 
-    pub const WaitForCompleteHeadError = Connection.ReadError || proto.HeadersParser.WaitForCompleteHeadError || Request.Headers.ParseError || error{ BadHeader, InvalidCompression, StreamTooLong, InvalidWindowSize } || error{CompressionNotSupported};
+    pub const WaitForCompleteHeadError = BufferedConnection.ReadError || proto.HeadersParser.WaitForCompleteHeadError || Request.Headers.ParseError || error{ BadHeader, InvalidCompression, StreamTooLong, InvalidWindowSize } || error{CompressionNotSupported};
 
     pub fn waitForCompleteHead(res: *Response) !void {
-        try res.request.parser.waitForCompleteHead(res.connection.reader(), res.server.allocator);
+        while (true) {
+            try res.connection.fill();
+
+            const nchecked = try res.request.parser.checkCompleteHead(res.server.allocator, res.connection.peek());
+            res.connection.clear(@intCast(u16, nchecked));
+
+            if (res.request.parser.state.isContent()) break;
+        }
 
         res.request.headers = try Request.Headers.parse(res.request.parser.header_bytes.items);
 
         if (res.headers.connection == .keep_alive and res.request.headers.connection == .keep_alive) {
-            res.connection.closing = false;
+            res.connection.conn.closing = false;
         } else {
-            res.connection.closing = true;
+            res.connection.conn.closing = true;
         }
 
         if (res.request.headers.transfer_encoding) |te| {
@@ -388,7 +478,7 @@ pub const Response = struct {
         return index;
     }
 
-    pub const WriteError = Connection.WriteError || error{ NotWriteable, MessageTooLong };
+    pub const WriteError = BufferedConnection.WriteError || error{ NotWriteable, MessageTooLong };
 
     pub const Writer = std.io.Writer(*Response, WriteError, write);
 
@@ -479,10 +569,10 @@ pub fn accept(server: *Server, options: HeaderStrategy) AcceptError!*Response {
     res.* = .{
         .server = server,
         .address = in.address,
-        .connection = .{
+        .connection = .{ .conn = .{
             .stream = in.stream,
             .protocol = .plain,
-        },
+        } },
         .request = .{
             .parser = switch (options) {
                 .dynamic => |max| proto.HeadersParser.initDynamic(max),

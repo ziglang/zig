@@ -29,9 +29,6 @@ pub const State = enum {
     }
 };
 
-const read_buffer_size = 0x4000;
-const ReadBufferIndex = std.math.IntFittingRange(0, read_buffer_size);
-
 pub const HeadersParser = struct {
     state: State = .start,
     /// Wether or not `header_bytes` is allocated or was provided as a fixed buffer.
@@ -45,10 +42,6 @@ pub const HeadersParser = struct {
     /// Wether this parser is done parsing a complete message.
     /// A message is only done when the entire payload has been read
     done: bool = false,
-
-    read_buffer: [read_buffer_size]u8 = undefined,
-    read_buffer_start: ReadBufferIndex = 0,
-    read_buffer_len: ReadBufferIndex = 0,
 
     pub fn initDynamic(max: usize) HeadersParser {
         return .{
@@ -232,7 +225,7 @@ pub const HeadersParser = struct {
                                 }
                             },
                             4...vector_len - 1 => {
-                                for (0..vector_len - 4) |i_usize| {
+                                inline for (0..vector_len - 3) |i_usize| {
                                     const i = @truncate(u32, i_usize);
 
                                     const b32 = int32(chunk[i..][0..4]);
@@ -245,6 +238,27 @@ pub const HeadersParser = struct {
                                         r.state = .finished;
                                         return index + i + 2;
                                     }
+                                }
+
+                                const b24 = int24(chunk[vector_len - 3 ..][0..3]);
+                                const b16 = intShift(u16, b24);
+                                const b8 = intShift(u8, b24);
+
+                                switch (b8) {
+                                    '\r' => r.state = .seen_r,
+                                    '\n' => r.state = .seen_n,
+                                    else => {},
+                                }
+
+                                switch (b16) {
+                                    int16("\r\n") => r.state = .seen_rn,
+                                    int16("\n\n") => r.state = .finished,
+                                    else => {},
+                                }
+
+                                switch (b24) {
+                                    int24("\r\n\r") => r.state = .seen_rnr,
+                                    else => {},
                                 }
                             },
                             else => unreachable,
@@ -475,30 +489,6 @@ pub const HeadersParser = struct {
         return i;
     }
 
-    /// Set of errors that `waitForCompleteHead` can throw except any errors inherited by `reader`
-    pub const WaitForCompleteHeadError = CheckCompleteHeadError || error{UnexpectedEndOfStream};
-
-    /// Waits for the complete head to be available. This function will continue trying to read until the head is complete
-    /// or an error occurs.
-    pub fn waitForCompleteHead(r: *HeadersParser, reader: anytype, allocator: std.mem.Allocator) !void {
-        if (r.state.isContent()) return;
-
-        while (true) {
-            if (r.read_buffer_start == r.read_buffer_len) {
-                const nread = try reader.read(r.read_buffer[0..]);
-                if (nread == 0) return error.UnexpectedEndOfStream;
-
-                r.read_buffer_start = 0;
-                r.read_buffer_len = @intCast(ReadBufferIndex, nread);
-            }
-
-            const amt = try r.checkCompleteHead(allocator, r.read_buffer[r.read_buffer_start..r.read_buffer_len]);
-            r.read_buffer_start += @intCast(ReadBufferIndex, amt);
-
-            if (amt != 0) return;
-        }
-    }
-
     pub const ReadError = error{
         UnexpectedEndOfStream,
         HttpHeadersExceededSizeLimit,
@@ -507,48 +497,40 @@ pub const HeadersParser = struct {
 
     /// Reads the body of the message into `buffer`. If `skip` is true, the buffer will be unused and the body will be
     /// skipped. Returns the number of bytes placed in the buffer.
-    pub fn read(r: *HeadersParser, reader: anytype, buffer: []u8, skip: bool) !usize {
+    pub fn read(r: *HeadersParser, bconn: anytype, buffer: []u8, skip: bool) !usize {
         assert(r.state.isContent());
         if (r.done) return 0;
-
-        if (r.read_buffer_start == r.read_buffer_len) {
-            const nread = try reader.read(r.read_buffer[0..]);
-            if (nread == 0) return error.UnexpectedEndOfStream;
-
-            r.read_buffer_start = 0;
-            r.read_buffer_len = @intCast(ReadBufferIndex, nread);
-        }
 
         var out_index: usize = 0;
         while (true) {
             switch (r.state) {
                 .invalid, .start, .seen_n, .seen_r, .seen_rn, .seen_rnr => unreachable,
                 .finished => {
-                    const buf_avail = r.read_buffer_len - r.read_buffer_start;
                     const data_avail = r.next_chunk_length;
-                    const out_avail = buffer.len;
 
-                    // TODO https://github.com/ziglang/zig/issues/14039
-                    const read_available = @intCast(usize, @min(buf_avail, data_avail));
                     if (skip) {
-                        r.next_chunk_length -= read_available;
-                        r.read_buffer_start += @intCast(ReadBufferIndex, read_available);
-                    } else {
-                        const can_read = @min(read_available, out_avail);
-                        r.next_chunk_length -= can_read;
+                        try bconn.fill();
 
-                        mem.copy(u8, buffer[out_index..], r.read_buffer[r.read_buffer_start..][0..can_read]);
-                        r.read_buffer_start += @intCast(ReadBufferIndex, can_read);
-                        out_index += can_read;
+                        const nread = @min(bconn.peek().len, data_avail);
+                        bconn.clear(@intCast(u16, nread));
+                        r.next_chunk_length -= nread;
+
+                        return 0;
                     }
 
-                    if (r.next_chunk_length == 0) r.done = true;
+                    const out_avail = buffer.len;
 
-                    return out_index;
+                    const can_read = @min(data_avail, out_avail);
+                    const nread = try bconn.read(buffer[0..can_read]);
+                    r.next_chunk_length -= nread;
+
+                    return nread;
                 },
                 .chunk_data_suffix, .chunk_data_suffix_r, .chunk_head_size, .chunk_head_ext, .chunk_head_r => {
-                    const i = r.findChunkedLen(r.read_buffer[r.read_buffer_start..r.read_buffer_len]);
-                    r.read_buffer_start += @intCast(ReadBufferIndex, i);
+                    try bconn.fill();
+
+                    const i = r.findChunkedLen(bconn.peek());
+                    bconn.clear(@intCast(u16, i));
 
                     switch (r.state) {
                         .invalid => return error.HttpChunkInvalid,
@@ -565,22 +547,20 @@ pub const HeadersParser = struct {
                     continue;
                 },
                 .chunk_data => {
-                    const buf_avail = r.read_buffer_len - r.read_buffer_start;
                     const data_avail = r.next_chunk_length;
-                    const out_avail = buffer.len;
+                    const out_avail = buffer.len - out_index;
 
-                    // TODO https://github.com/ziglang/zig/issues/14039
-                    const read_available = @intCast(usize, @min(buf_avail, data_avail));
                     if (skip) {
-                        r.next_chunk_length -= read_available;
-                        r.read_buffer_start += @intCast(ReadBufferIndex, read_available);
-                    } else {
-                        const can_read = @min(read_available, out_avail);
-                        r.next_chunk_length -= can_read;
+                        try bconn.fill();
 
-                        mem.copy(u8, buffer[out_index..], r.read_buffer[r.read_buffer_start..][0..can_read]);
-                        r.read_buffer_start += @intCast(ReadBufferIndex, can_read);
-                        out_index += can_read;
+                        const nread = @min(bconn.peek().len, data_avail);
+                        bconn.clear(@intCast(u16, nread));
+                        r.next_chunk_length -= nread;
+                    } else {
+                        const can_read = @min(data_avail, out_avail);
+                        const nread = try bconn.read(buffer[out_index..][0..can_read]);
+                        r.next_chunk_length -= nread;
+                        out_index += nread;
                     }
 
                     if (r.next_chunk_length == 0) {

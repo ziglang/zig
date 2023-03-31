@@ -32,7 +32,20 @@ pub const ConnectionPool = struct {
         is_tls: bool,
     };
 
-    const Queue = std.TailQueue(Connection);
+    pub const StoredConnection = struct {
+        buffered: BufferedConnection,
+        host: []u8,
+        port: u16,
+
+        closing: bool = false,
+
+        pub fn deinit(self: *StoredConnection, client: *Client) void {
+            self.buffered.close(client);
+            client.allocator.free(self.host);
+        }
+    };
+
+    const Queue = std.TailQueue(StoredConnection);
     pub const Node = Queue.Node;
 
     mutex: std.Thread.Mutex = .{},
@@ -49,7 +62,7 @@ pub const ConnectionPool = struct {
 
         var next = pool.free.last;
         while (next) |node| : (next = node.prev) {
-            if ((node.data.protocol == .tls) != criteria.is_tls) continue;
+            if ((node.data.buffered.conn.protocol == .tls) != criteria.is_tls) continue;
             if (node.data.port != criteria.port) continue;
             if (mem.eql(u8, node.data.host, criteria.host)) continue;
 
@@ -85,7 +98,7 @@ pub const ConnectionPool = struct {
         pool.used.remove(node);
 
         if (node.data.closing) {
-            node.data.close(client);
+            node.data.deinit(client);
 
             return client.allocator.destroy(node);
         }
@@ -93,7 +106,7 @@ pub const ConnectionPool = struct {
         if (pool.free_len + 1 >= pool.free_size) {
             const popped = pool.free.popFirst() orelse unreachable;
 
-            popped.data.close(client);
+            popped.data.deinit(client);
 
             return client.allocator.destroy(popped);
         }
@@ -118,7 +131,7 @@ pub const ConnectionPool = struct {
             defer client.allocator.destroy(node);
             next = node.next;
 
-            node.data.close(client);
+            node.data.deinit(client);
         }
 
         next = pool.used.first;
@@ -126,7 +139,7 @@ pub const ConnectionPool = struct {
             defer client.allocator.destroy(node);
             next = node.next;
 
-            node.data.close(client);
+            node.data.deinit(client);
         }
 
         pool.* = undefined;
@@ -140,13 +153,8 @@ pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Request.Transfer
 pub const Connection = struct {
     stream: net.Stream,
     /// undefined unless protocol is tls.
-    tls_client: *std.crypto.tls.Client, // TODO: allocate this, it's currently 16 KB.
+    tls_client: *std.crypto.tls.Client,
     protocol: Protocol,
-    host: []u8,
-    port: u16,
-
-    // This connection has been part of a non keepalive request and cannot be added to the pool.
-    closing: bool = false,
 
     pub const Protocol = enum { plain, tls };
 
@@ -211,8 +219,89 @@ pub const Connection = struct {
         }
 
         conn.stream.close();
+    }
+};
 
-        client.allocator.free(conn.host);
+pub const BufferedConnection = struct {
+    pub const buffer_size = 0x2000;
+
+    conn: Connection,
+    buf: [buffer_size]u8 = undefined,
+    start: u16 = 0,
+    end: u16 = 0,
+
+    pub fn fill(bconn: *BufferedConnection) ReadError!void {
+        if (bconn.end != bconn.start) return;
+
+        const nread = try bconn.conn.read(bconn.buf[0..]);
+        if (nread == 0) return error.EndOfStream;
+        bconn.start = 0;
+        bconn.end = @truncate(u16, nread);
+    }
+
+    pub fn peek(bconn: *BufferedConnection) []const u8 {
+        return bconn.buf[bconn.start..bconn.end];
+    }
+
+    pub fn clear(bconn: *BufferedConnection, num: u16) void {
+        bconn.start += num;
+    }
+
+    pub fn readAtLeast(bconn: *BufferedConnection, buffer: []u8, len: usize) ReadError!usize {
+        var out_index: u16 = 0;
+        while (out_index < len) {
+            const available = bconn.end - bconn.start;
+            const left = buffer.len - out_index;
+
+            if (available > 0) {
+                const can_read = @truncate(u16, @min(available, left));
+
+                std.mem.copy(u8, buffer[out_index..], bconn.buf[bconn.start..][0..can_read]);
+                out_index += can_read;
+                bconn.start += can_read;
+
+                continue;
+            }
+
+            if (left > bconn.buf.len) {
+                // skip the buffer if the output is large enough
+                return bconn.conn.read(buffer[out_index..]);
+            }
+
+            try bconn.fill();
+        }
+
+        return out_index;
+    }
+
+    pub fn read(bconn: *BufferedConnection, buffer: []u8) ReadError!usize {
+        return bconn.readAtLeast(buffer, 1);
+    }
+
+    pub const ReadError = Connection.ReadError || error{EndOfStream};
+    pub const Reader = std.io.Reader(*BufferedConnection, ReadError, read);
+
+    pub fn reader(bconn: *BufferedConnection) Reader {
+        return Reader{ .context = bconn };
+    }
+
+    pub fn writeAll(bconn: *BufferedConnection, buffer: []const u8) WriteError!void {
+        return bconn.conn.writeAll(buffer);
+    }
+
+    pub fn write(bconn: *BufferedConnection, buffer: []const u8) WriteError!usize {
+        return bconn.conn.write(buffer);
+    }
+
+    pub const WriteError = Connection.WriteError;
+    pub const Writer = std.io.Writer(*BufferedConnection, WriteError, write);
+
+    pub fn writer(bconn: *BufferedConnection) Writer {
+        return Writer{ .context = bconn };
+    }
+
+    pub fn close(bconn: *BufferedConnection, client: *const Client) void {
+        bconn.conn.close(client);
     }
 };
 
@@ -417,7 +506,7 @@ pub const Request = struct {
         req.* = undefined;
     }
 
-    pub const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
+    pub const TransferReadError = BufferedConnection.ReadError || proto.HeadersParser.ReadError;
 
     pub const TransferReader = std.io.Reader(*Request, TransferReadError, transferRead);
 
@@ -430,7 +519,7 @@ pub const Request = struct {
 
         var index: usize = 0;
         while (index == 0) {
-            const amt = try req.response.parser.read(req.connection.data.reader(), buf[index..], req.response.skip);
+            const amt = try req.response.parser.read(&req.connection.data.buffered, buf[index..], req.response.skip);
             if (amt == 0 and req.response.parser.isComplete()) break;
             index += amt;
         }
@@ -438,10 +527,17 @@ pub const Request = struct {
         return index;
     }
 
-    pub const WaitForCompleteHeadError = Connection.ReadError || proto.HeadersParser.WaitForCompleteHeadError || Response.Headers.ParseError || error{ BadHeader, InvalidCompression, StreamTooLong, InvalidWindowSize } || error{CompressionNotSupported};
+    pub const WaitForCompleteHeadError = BufferedConnection.ReadError || proto.HeadersParser.CheckCompleteHeadError || Response.Headers.ParseError || error{ BadHeader, InvalidCompression, StreamTooLong, InvalidWindowSize } || error{CompressionNotSupported};
 
     pub fn waitForCompleteHead(req: *Request) !void {
-        try req.response.parser.waitForCompleteHead(req.connection.data.reader(), req.client.allocator);
+        while (true) {
+            try req.connection.data.buffered.fill();
+
+            const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.data.buffered.peek());
+            req.connection.data.buffered.clear(@intCast(u16, nchecked));
+
+            if (req.response.parser.state.isContent()) break;
+        }
 
         req.response.headers = try Response.Headers.parse(req.response.parser.header_bytes.items);
 
@@ -550,7 +646,7 @@ pub const Request = struct {
         return index;
     }
 
-    pub const WriteError = Connection.WriteError || error{ NotWriteable, MessageTooLong };
+    pub const WriteError = BufferedConnection.WriteError || error{ NotWriteable, MessageTooLong };
 
     pub const Writer = std.io.Writer(*Request, WriteError, write);
 
@@ -562,16 +658,16 @@ pub const Request = struct {
     pub fn write(req: *Request, bytes: []const u8) WriteError!usize {
         switch (req.headers.transfer_encoding) {
             .chunked => {
-                try req.connection.data.writer().print("{x}\r\n", .{bytes.len});
-                try req.connection.data.writeAll(bytes);
-                try req.connection.data.writeAll("\r\n");
+                try req.connection.data.conn.writer().print("{x}\r\n", .{bytes.len});
+                try req.connection.data.conn.writeAll(bytes);
+                try req.connection.data.conn.writeAll("\r\n");
 
                 return bytes.len;
             },
             .content_length => |*len| {
                 if (len.* < bytes.len) return error.MessageTooLong;
 
-                const amt = try req.connection.data.write(bytes);
+                const amt = try req.connection.data.conn.write(bytes);
                 len.* -= amt;
                 return amt;
             },
@@ -582,7 +678,7 @@ pub const Request = struct {
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     pub fn finish(req: *Request) !void {
         switch (req.headers.transfer_encoding) {
-            .chunked => try req.connection.data.writeAll("0\r\n"),
+            .chunked => try req.connection.data.conn.writeAll("0\r\n"),
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
             .none => {},
         }
@@ -610,10 +706,14 @@ pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connectio
     errdefer client.allocator.destroy(conn);
     conn.* = .{ .data = undefined };
 
+    const stream = try net.tcpConnectToHost(client.allocator, host, port);
+
     conn.data = .{
-        .stream = try net.tcpConnectToHost(client.allocator, host, port),
-        .tls_client = undefined,
-        .protocol = protocol,
+        .buffered = .{ .conn = .{
+            .stream = stream,
+            .tls_client = undefined,
+            .protocol = protocol,
+        } },
         .host = try client.allocator.dupe(u8, host),
         .port = port,
     };
@@ -621,11 +721,11 @@ pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connectio
     switch (protocol) {
         .plain => {},
         .tls => {
-            conn.data.tls_client = try client.allocator.create(std.crypto.tls.Client);
-            conn.data.tls_client.* = try std.crypto.tls.Client.init(conn.data.stream, client.ca_bundle, host);
+            conn.data.buffered.conn.tls_client = try client.allocator.create(std.crypto.tls.Client);
+            conn.data.buffered.conn.tls_client.* = try std.crypto.tls.Client.init(stream, client.ca_bundle, host);
             // This is appropriate for HTTPS because the HTTP headers contain
             // the content length which is used to detect truncation attacks.
-            conn.data.tls_client.allow_truncation_attacks = true;
+            conn.data.buffered.conn.tls_client.allow_truncation_attacks = true;
         },
     }
 
@@ -634,7 +734,7 @@ pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connectio
     return conn;
 }
 
-pub const RequestError = ConnectError || Connection.WriteError || error{
+pub const RequestError = ConnectError || BufferedConnection.WriteError || error{
     UnsupportedUrlScheme,
     UriMissingHost,
 
@@ -708,7 +808,7 @@ pub fn request(client: *Client, uri: Uri, headers: Request.Headers, options: Opt
     req.arena = std.heap.ArenaAllocator.init(client.allocator);
 
     {
-        var buffered = std.io.bufferedWriter(req.connection.data.writer());
+        var buffered = std.io.bufferedWriter(req.connection.data.buffered.writer());
         const writer = buffered.writer();
 
         const escaped_path = try Uri.escapePath(client.allocator, uri.path);
