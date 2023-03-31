@@ -3616,6 +3616,25 @@ fn tryResolveRefPath(
                     continue :outer;
                 },
             },
+            .@"struct" => |st| {
+                for (st) |field| {
+                    if (std.mem.eql(u8, field.name, child_string)) {
+                        path[i + 1] = field.val.expr;
+                        continue :outer;
+                    }
+                }
+
+                // if we got here, our search failed
+                printWithContext(
+                    file,
+                    inst_index,
+                    "failed to match `{s}` in struct",
+                    .{child_string},
+                );
+
+                path[i + 1] = (try self.cteTodo("match failure")).expr;
+                continue :outer;
+            },
         }
     }
 
