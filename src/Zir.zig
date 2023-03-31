@@ -2032,6 +2032,15 @@ pub const Inst = struct {
         /// Implements the `@volatileCast` builtin.
         /// `operand` is payload index to `UnNode`.
         volatile_cast,
+        /// Implements the `@workItemId` builtin.
+        /// `operand` is payload index to `UnNode`.
+        work_item_id,
+        /// Implements the `@workGroupSize` builtin.
+        /// `operand` is payload index to `UnNode`.
+        work_group_size,
+        /// Implements the `@workGroupId` builtin.
+        /// `operand` is payload index to `UnNode`.
+        work_group_id,
 
         pub const InstData = struct {
             opcode: Extended,

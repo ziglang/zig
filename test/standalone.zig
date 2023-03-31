@@ -78,6 +78,10 @@ pub const build_cases = [_]BuildCase{
         .import = @import("standalone/test_runner_path/build.zig"),
     },
     .{
+        .build_root = "test/standalone/test_runner_module_imports",
+        .import = @import("standalone/test_runner_module_imports/build.zig"),
+    },
+    .{
         .build_root = "test/standalone/issue_13970",
         .import = @import("standalone/issue_13970/build.zig"),
     },

@@ -3817,11 +3817,25 @@ fn runOrTestHotSwap(
     runtime_args_start: ?usize,
 ) !std.ChildProcess.Id {
     const exe_emit = comp.bin_file.options.emit.?;
-    // A naive `directory.join` here will indeed get the correct path to the binary,
-    // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
-    const exe_path = try fs.path.join(gpa, &[_][]const u8{
-        exe_emit.directory.path orelse ".", exe_emit.sub_path,
-    });
+
+    const exe_path = switch (builtin.target.os.tag) {
+        // On Windows it seems impossible to perform an atomic rename of a file that is currently
+        // running in a process. Therefore, we do the opposite. We create a copy of the file in
+        // tmp zig-cache and use it to spawn the child process. This way we are free to update
+        // the binary with each requested hot update.
+        .windows => blk: {
+            try exe_emit.directory.handle.copyFile(exe_emit.sub_path, comp.local_cache_directory.handle, exe_emit.sub_path, .{});
+            break :blk try fs.path.join(gpa, &[_][]const u8{
+                comp.local_cache_directory.path orelse ".", exe_emit.sub_path,
+            });
+        },
+
+        // A naive `directory.join` here will indeed get the correct path to the binary,
+        // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
+        else => try fs.path.join(gpa, &[_][]const u8{
+            exe_emit.directory.path orelse ".", exe_emit.sub_path,
+        }),
+    };
     defer gpa.free(exe_path);
 
     var argv = std.ArrayList([]const u8).init(gpa);

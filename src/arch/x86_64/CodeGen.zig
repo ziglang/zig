@@ -1132,6 +1132,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .wasm_memory_size => unreachable,
             .wasm_memory_grow => unreachable,
+
+            .work_item_id => unreachable,
+            .work_group_size => unreachable,
+            .work_group_id => unreachable,
             // zig fmt: on
         }
 

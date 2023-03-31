@@ -328,6 +328,11 @@ const Writer = struct {
             .vector_store_elem => try w.writeVectorStoreElem(s, inst),
 
             .dbg_block_begin, .dbg_block_end => {},
+
+            .work_item_id,
+            .work_group_size,
+            .work_group_id,
+            => try w.writeWorkDimension(s, inst),
         }
         try s.writeAll(")\n");
     }
@@ -867,6 +872,11 @@ const Writer = struct {
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
         try s.print("{d}, ", .{pl_op.payload});
         try w.writeOperand(s, inst, 0, pl_op.operand);
+    }
+
+    fn writeWorkDimension(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        try s.print("{d}", .{pl_op.payload});
     }
 
     fn writeOperand(
