@@ -148,7 +148,7 @@ pub fn format(
         comptime assert(fmt[i] == '}');
         i += 1;
 
-        const placeholder = comptime parsePlaceholder(fmt[fmt_begin..fmt_end].*);
+        const placeholder = comptime Placeholder.parse(fmt[fmt_begin..fmt_end].*);
         const arg_pos = comptime switch (placeholder.arg) {
             .none => null,
             .number => |pos| pos,
@@ -205,102 +205,102 @@ pub fn format(
     }
 }
 
-fn parsePlaceholder(comptime str: anytype) Placeholder {
-    comptime var parser = Parser{ .buf = &str };
-
-    // Parse the positional argument number
-    const arg = comptime parser.specifier() catch |err|
-        @compileError(@errorName(err));
-
-    // Parse the format specifier
-    const specifier_arg = comptime parser.until(':');
-
-    // Skip the colon, if present
-    if (comptime parser.char()) |ch| {
-        if (ch != ':') {
-            @compileError("expected : or }, found '" ++ [1]u8{ch} ++ "'");
-        }
-    }
-
-    // Parse the fill character
-    // The fill parameter requires the alignment parameter to be specified
-    // too
-    const fill = comptime if (parser.peek(1)) |ch|
-        switch (ch) {
-            '<', '^', '>' => parser.char().?,
-            else => ' ',
-        }
-    else
-        ' ';
-
-    // Parse the alignment parameter
-    const alignment: Alignment = comptime if (parser.peek(0)) |ch| init: {
-        switch (ch) {
-            '<', '^', '>' => _ = parser.char(),
-            else => {},
-        }
-        break :init switch (ch) {
-            '<' => .Left,
-            '^' => .Center,
-            else => .Right,
-        };
-    } else .Right;
-
-    // Parse the width parameter
-    const width = comptime parser.specifier() catch |err|
-        @compileError(@errorName(err));
-
-    // Skip the dot, if present
-    if (comptime parser.char()) |ch| {
-        if (ch != '.') {
-            @compileError("expected . or }, found '" ++ [1]u8{ch} ++ "'");
-        }
-    }
-
-    // Parse the precision parameter
-    const precision = comptime parser.specifier() catch |err|
-        @compileError(@errorName(err));
-
-    if (comptime parser.char()) |ch| {
-        @compileError("extraneous trailing character '" ++ [1]u8{ch} ++ "'");
-    }
-
-    return Placeholder{
-        .specifier_arg = cacheString(specifier_arg[0..specifier_arg.len].*),
-        .fill = fill,
-        .alignment = alignment,
-        .arg = arg,
-        .width = width,
-        .precision = precision,
-    };
-}
-
 fn cacheString(str: anytype) []const u8 {
     return &str;
 }
 
-const Placeholder = struct {
+pub const Placeholder = struct {
     specifier_arg: []const u8,
     fill: u8,
     alignment: Alignment,
     arg: Specifier,
     width: Specifier,
     precision: Specifier,
+
+    pub fn parse(comptime str: anytype) Placeholder {
+        comptime var parser = Parser{ .buf = &str };
+
+        // Parse the positional argument number
+        const arg = comptime parser.specifier() catch |err|
+            @compileError(@errorName(err));
+
+        // Parse the format specifier
+        const specifier_arg = comptime parser.until(':');
+
+        // Skip the colon, if present
+        if (comptime parser.char()) |ch| {
+            if (ch != ':') {
+                @compileError("expected : or }, found '" ++ [1]u8{ch} ++ "'");
+            }
+        }
+
+        // Parse the fill character
+        // The fill parameter requires the alignment parameter to be specified
+        // too
+        const fill = comptime if (parser.peek(1)) |ch|
+            switch (ch) {
+                '<', '^', '>' => parser.char().?,
+                else => ' ',
+            }
+        else
+            ' ';
+
+        // Parse the alignment parameter
+        const alignment: Alignment = comptime if (parser.peek(0)) |ch| init: {
+            switch (ch) {
+                '<', '^', '>' => _ = parser.char(),
+                else => {},
+            }
+            break :init switch (ch) {
+                '<' => .Left,
+                '^' => .Center,
+                else => .Right,
+            };
+        } else .Right;
+
+        // Parse the width parameter
+        const width = comptime parser.specifier() catch |err|
+            @compileError(@errorName(err));
+
+        // Skip the dot, if present
+        if (comptime parser.char()) |ch| {
+            if (ch != '.') {
+                @compileError("expected . or }, found '" ++ [1]u8{ch} ++ "'");
+            }
+        }
+
+        // Parse the precision parameter
+        const precision = comptime parser.specifier() catch |err|
+            @compileError(@errorName(err));
+
+        if (comptime parser.char()) |ch| {
+            @compileError("extraneous trailing character '" ++ [1]u8{ch} ++ "'");
+        }
+
+        return Placeholder{
+            .specifier_arg = cacheString(specifier_arg[0..specifier_arg.len].*),
+            .fill = fill,
+            .alignment = alignment,
+            .arg = arg,
+            .width = width,
+            .precision = precision,
+        };
+    }
 };
 
-const Specifier = union(enum) {
+pub const Specifier = union(enum) {
     none,
     number: usize,
     named: []const u8,
 };
 
-const Parser = struct {
+pub const Parser = struct {
     buf: []const u8,
     pos: usize = 0,
 
     // Returns a decimal number or null if the current character is not a
     // digit
-    fn number(self: *@This()) ?usize {
+    pub fn number(self: *@This()) ?usize {
         var r: ?usize = null;
 
         while (self.pos < self.buf.len) : (self.pos += 1) {
@@ -319,7 +319,7 @@ const Parser = struct {
 
     // Returns a substring of the input starting from the current position
     // and ending where `ch` is found or until the end if not found
-    fn until(self: *@This(), ch: u8) []const u8 {
+    pub fn until(self: *@This(), ch: u8) []const u8 {
         const start = self.pos;
 
         if (start >= self.buf.len)
@@ -332,7 +332,7 @@ const Parser = struct {
     }
 
     // Returns one character, if available
-    fn char(self: *@This()) ?u8 {
+    pub fn char(self: *@This()) ?u8 {
         if (self.pos < self.buf.len) {
             const ch = self.buf[self.pos];
             self.pos += 1;
@@ -341,7 +341,7 @@ const Parser = struct {
         return null;
     }
 
-    fn maybe(self: *@This(), val: u8) bool {
+    pub fn maybe(self: *@This(), val: u8) bool {
         if (self.pos < self.buf.len and self.buf[self.pos] == val) {
             self.pos += 1;
             return true;
@@ -351,7 +351,7 @@ const Parser = struct {
 
     // Returns a decimal number or null if the current character is not a
     // digit
-    fn specifier(self: *@This()) !Specifier {
+    pub fn specifier(self: *@This()) !Specifier {
         if (self.maybe('[')) {
             const arg_name = self.until(']');
 
@@ -367,24 +367,24 @@ const Parser = struct {
     }
 
     // Returns the n-th next character or null if that's past the end
-    fn peek(self: *@This(), n: usize) ?u8 {
+    pub fn peek(self: *@This(), n: usize) ?u8 {
         return if (self.pos + n < self.buf.len) self.buf[self.pos + n] else null;
     }
 };
 
-const ArgSetType = u32;
+pub const ArgSetType = u32;
 const max_format_args = @typeInfo(ArgSetType).Int.bits;
 
-const ArgState = struct {
+pub const ArgState = struct {
     next_arg: usize = 0,
     used_args: ArgSetType = 0,
     args_len: usize,
 
-    fn hasUnusedArgs(self: *@This()) bool {
+    pub fn hasUnusedArgs(self: *@This()) bool {
         return @popCount(self.used_args) != self.args_len;
     }
 
-    fn nextArg(self: *@This(), arg_index: ?usize) ?usize {
+    pub fn nextArg(self: *@This(), arg_index: ?usize) ?usize {
         const next_index = arg_index orelse init: {
             const arg = self.next_arg;
             self.next_arg += 1;
@@ -430,7 +430,7 @@ pub fn formatAddress(value: anytype, options: FormatOptions, writer: anytype) @T
 // This ANY const is a workaround for: https://github.com/ziglang/zig/issues/7948
 const ANY = "any";
 
-fn defaultSpec(comptime T: type) [:0]const u8 {
+pub fn defaultSpec(comptime T: type) [:0]const u8 {
     switch (@typeInfo(T)) {
         .Array => |_| return ANY,
         .Pointer => |ptr_info| switch (ptr_info.size) {
