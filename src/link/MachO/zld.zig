@@ -4042,6 +4042,16 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         try zld.createTentativeDefAtoms();
         try zld.createStubHelperPreambleAtom();
 
+        if (zld.options.output_mode == .Exe) {
+            const global = zld.getEntryPoint();
+            if (zld.getSymbol(global).undf()) {
+                // We do one additional check here in case the entry point was found in one of the dylibs.
+                // (I actually have no idea what this would imply but it is a possible outcome and so we
+                // support it.)
+                try Atom.addStub(&zld, global);
+            }
+        }
+
         for (zld.objects.items) |object| {
             for (object.atoms.items) |atom_index| {
                 const atom = zld.getAtom(atom_index);
@@ -4153,8 +4163,18 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             const seg = zld.segments.items[seg_id];
             const global = zld.getEntryPoint();
             const sym = zld.getSymbol(global);
+
+            const addr: u64 = if (sym.undf()) blk: {
+                // In this case, the symbol has been resolved in one of dylibs and so we point
+                // to the stub as its vmaddr value.
+                const stub_atom_index = zld.getStubsAtomIndexForSymbol(global).?;
+                const stub_atom = zld.getAtom(stub_atom_index);
+                const stub_sym = zld.getSymbol(stub_atom.getSymbolWithLoc());
+                break :blk stub_sym.n_value;
+            } else sym.n_value;
+
             try lc_writer.writeStruct(macho.entry_point_command{
-                .entryoff = @intCast(u32, sym.n_value - seg.vmaddr),
+                .entryoff = @intCast(u32, addr - seg.vmaddr),
                 .stacksize = options.stack_size_override orelse 0,
             });
         } else {
