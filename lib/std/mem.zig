@@ -3014,6 +3014,7 @@ fn ReverseIterator(comptime T: type) type {
         @compileError("expected slice or pointer to array, found '" ++ @typeName(T) ++ "'");
     };
     const Element = std.meta.Elem(Pointer);
+    const ElementPointer = @TypeOf(&@as(Pointer, undefined)[0]);
     return struct {
         ptr: Pointer,
         index: usize,
@@ -3021,6 +3022,11 @@ fn ReverseIterator(comptime T: type) type {
             if (self.index == 0) return null;
             self.index -= 1;
             return self.ptr[self.index];
+        }
+        pub fn nextPtr(self: *@This()) ?ElementPointer {
+            if (self.index == 0) return null;
+            self.index -= 1;
+            return &self.ptr[self.index];
         }
     };
 }
@@ -3051,6 +3057,18 @@ test "reverseIterator" {
         try testing.expectEqual(@as(?i32, 7), it.next());
         try testing.expectEqual(@as(?i32, 3), it.next());
         try testing.expectEqual(@as(?i32, null), it.next());
+
+        it = reverseIterator(slice);
+        try testing.expect(trait.isConstPtr(@TypeOf(it.nextPtr().?)));
+        try testing.expectEqual(@as(?i32, 7), it.nextPtr().?.*);
+        try testing.expectEqual(@as(?i32, 3), it.nextPtr().?.*);
+        try testing.expectEqual(@as(?*const i32, null), it.nextPtr());
+
+        var mut_slice: []i32 = &array;
+        var mut_it = reverseIterator(mut_slice);
+        mut_it.nextPtr().?.* += 1;
+        mut_it.nextPtr().?.* += 2;
+        try testing.expectEqual([2]i32{ 5, 8 }, array);
     }
     {
         var array = [2]i32{ 3, 7 };
@@ -3059,6 +3077,18 @@ test "reverseIterator" {
         try testing.expectEqual(@as(?i32, 7), it.next());
         try testing.expectEqual(@as(?i32, 3), it.next());
         try testing.expectEqual(@as(?i32, null), it.next());
+
+        it = reverseIterator(ptr_to_array);
+        try testing.expect(trait.isConstPtr(@TypeOf(it.nextPtr().?)));
+        try testing.expectEqual(@as(?i32, 7), it.nextPtr().?.*);
+        try testing.expectEqual(@as(?i32, 3), it.nextPtr().?.*);
+        try testing.expectEqual(@as(?*const i32, null), it.nextPtr());
+
+        var mut_ptr_to_array: *[2]i32 = &array;
+        var mut_it = reverseIterator(mut_ptr_to_array);
+        mut_it.nextPtr().?.* += 1;
+        mut_it.nextPtr().?.* += 2;
+        try testing.expectEqual([2]i32{ 5, 8 }, array);
     }
 }
 
