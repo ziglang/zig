@@ -3981,7 +3981,7 @@ pub fn getStubsAtomIndexForSymbol(self: *MachO, sym_with_loc: SymbolWithLoc) ?At
 /// Returns symbol location corresponding to the set entrypoint.
 /// Asserts output mode is executable.
 pub fn getEntryPoint(self: MachO) error{MissingMainEntrypoint}!SymbolWithLoc {
-    const entry_name = self.base.options.entry orelse "_main";
+    const entry_name = self.base.options.entry orelse load_commands.default_entry_point;
     const global = self.getGlobal(entry_name) orelse {
         log.err("entrypoint '{s}' not found", .{entry_name});
         return error.MissingMainEntrypoint;
