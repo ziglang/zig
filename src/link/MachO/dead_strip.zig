@@ -43,15 +43,19 @@ fn collectRoots(zld: *Zld, roots: *AtomTable) !void {
         .Exe => {
             // Add entrypoint as GC root
             const global: SymbolWithLoc = zld.getEntryPoint();
-            const object = zld.objects.items[global.getFile().?];
-            const atom_index = object.getAtomIndexForSymbol(global.sym_index).?; // panic here means fatal error
-            _ = try roots.getOrPut(atom_index);
+            if (global.getFile()) |file| {
+                const object = zld.objects.items[file];
+                const atom_index = object.getAtomIndexForSymbol(global.sym_index).?; // panic here means fatal error
+                _ = try roots.getOrPut(atom_index);
 
-            log.debug("root(ATOM({d}, %{d}, {?d}))", .{
-                atom_index,
-                zld.getAtom(atom_index).sym_index,
-                zld.getAtom(atom_index).getFile(),
-            });
+                log.debug("root(ATOM({d}, %{d}, {?d}))", .{
+                    atom_index,
+                    zld.getAtom(atom_index).sym_index,
+                    zld.getAtom(atom_index).getFile(),
+                });
+            } else {
+                assert(zld.getSymbol(global).undf()); // Stub as our entrypoint is in a dylib.
+            }
         },
         else => |other| {
             assert(other == .Lib);
