@@ -214,6 +214,13 @@ pub fn createModule(self: *OptionsStep) *std.Build.Module {
     });
 }
 
+pub fn addModule(self: *OptionsStep, name: []const u8) *std.Build.Module {
+    return self.step.owner.addModule(name, .{
+        .source_file = self.getSource(),
+        .dependencies = &.{},
+    });
+}
+
 pub fn getSource(self: *OptionsStep) FileSource {
     return .{ .generated = &self.generated_file };
 }

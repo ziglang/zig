@@ -238,6 +238,10 @@ pub const build_cases = [_]BuildCase{
         .build_root = "test/standalone/module_link_libc_cpp",
         .import = @import("standalone/module_link_libc_cpp/build.zig"),
     },
+    .{
+        .build_root = "test/standalone/module_add_options",
+        .import = @import("standalone/module_add_options/build.zig"),
+    },
 };
 
 const std = @import("std");
