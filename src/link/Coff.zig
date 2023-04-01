@@ -49,6 +49,9 @@ imports_count_dirty: bool = true,
 /// Virtual address of the entry point procedure relative to image base.
 entry_addr: ?u32 = null,
 
+/// Table of tracked LazySymbols.
+lazy_syms: LazySymbolTable = .{},
+
 /// Table of tracked Decls.
 decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
 
@@ -140,6 +143,18 @@ const Section = struct {
     /// allocate a fresh atom, which will have ideal capacity, and then grow it
     /// by 1 byte. It will then have -1 overcapacity.
     free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
+};
+
+const LazySymbolTable = std.ArrayHashMapUnmanaged(
+    link.File.LazySymbol,
+    LazySymbolMetadata,
+    link.File.LazySymbol.Context,
+    true,
+);
+
+const LazySymbolMetadata = struct {
+    atom: Atom.Index,
+    section: u16,
 };
 
 const DeclMetadata = struct {
@@ -1168,6 +1183,100 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
     return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
 }
 
+fn updateLazySymbol(
+    self: *Coff,
+    lazy_sym: link.File.LazySymbol,
+    lazy_metadata: LazySymbolMetadata,
+) !void {
+    const gpa = self.base.allocator;
+    const mod = self.base.options.module.?;
+
+    var code_buffer = std.ArrayList(u8).init(gpa);
+    defer code_buffer.deinit();
+
+    const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
+        @tagName(lazy_sym.kind),
+        lazy_sym.ty.fmt(mod),
+    });
+    defer gpa.free(name);
+
+    const atom_index = lazy_metadata.atom;
+    const atom = self.getAtomPtr(atom_index);
+    const local_sym_index = atom.getSymbolIndex().?;
+
+    const src = if (lazy_sym.ty.getOwnerDeclOrNull()) |owner_decl|
+        mod.declPtr(owner_decl).srcLoc()
+    else
+        Module.SrcLoc{
+            .file_scope = undefined,
+            .parent_decl_node = undefined,
+            .lazy = .unneeded,
+        };
+    const res = try codegen.generateLazySymbol(
+        &self.base,
+        src,
+        lazy_sym,
+        &code_buffer,
+        .none,
+        .{ .parent_atom_index = local_sym_index },
+    );
+    const code = switch (res) {
+        .ok => code_buffer.items,
+        .fail => |em| {
+            log.err("{s}", .{em.msg});
+            return error.CodegenFail;
+        },
+    };
+
+    const required_alignment = atom.alignment;
+    const code_len = @intCast(u32, code.len);
+    const symbol = atom.getSymbolPtr(self);
+    try self.setSymbolName(symbol, name);
+    symbol.section_number = @intToEnum(coff.SectionNumber, lazy_metadata.section + 1);
+    symbol.type = .{ .complex_type = .NULL, .base_type = .NULL };
+
+    const vaddr = try self.allocateAtom(atom_index, code_len, required_alignment);
+    errdefer self.freeAtom(atom_index);
+
+    log.debug("allocated atom for {s} at 0x{x}", .{ name, vaddr });
+    log.debug("  (required alignment 0x{x})", .{required_alignment});
+
+    atom.size = code_len;
+    symbol.value = vaddr;
+
+    const got_target = SymbolWithLoc{ .sym_index = local_sym_index, .file = null };
+    const got_index = try self.allocateGotEntry(got_target);
+    const got_atom_index = try self.createGotAtom(got_target);
+    const got_atom = self.getAtom(got_atom_index);
+    self.got_entries.items[got_index].sym_index = got_atom.getSymbolIndex().?;
+    try self.writePtrWidthAtom(got_atom_index);
+
+    self.markRelocsDirtyByTarget(atom.getSymbolWithLoc());
+    try self.writeAtom(atom_index, code);
+}
+
+pub fn getOrCreateAtomForLazySymbol(
+    self: *Coff,
+    lazy_sym: link.File.LazySymbol,
+    alignment: u32,
+) !Atom.Index {
+    const gop = try self.lazy_syms.getOrPutContext(self.base.allocator, lazy_sym, .{
+        .mod = self.base.options.module.?,
+    });
+    errdefer _ = self.lazy_syms.pop();
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{
+            .atom = try self.createAtom(),
+            .section = switch (lazy_sym.kind) {
+                .code => self.text_section_index.?,
+                .const_data => self.rdata_section_index.?,
+            },
+        };
+        self.getAtomPtr(gop.value_ptr.atom).alignment = alignment;
+    }
+    return gop.value_ptr.atom;
+}
+
 pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: Module.Decl.Index) !Atom.Index {
     const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
     if (!gop.found_existing) {
@@ -1497,6 +1606,19 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     var sub_prog_node = prog_node.start("COFF Flush", 0);
     sub_prog_node.activate();
     defer sub_prog_node.end();
+
+    {
+        var lazy_it = self.lazy_syms.iterator();
+        while (lazy_it.next()) |lazy_entry| {
+            self.updateLazySymbol(
+                lazy_entry.key_ptr.*,
+                lazy_entry.value_ptr.*,
+            ) catch |err| switch (err) {
+                error.CodegenFail => return error.FlushFailure,
+                else => |e| return e,
+            };
+        }
+    }
 
     const gpa = self.base.allocator;
 

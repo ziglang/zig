@@ -1923,7 +1923,7 @@ fn genSetStackTruncatedOverflowCompare(
     );
 
     try self.genSetStack(ty, stack_offset, .{ .register = scratch_reg }, .{});
-    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{
+    try self.genSetStack(Type.u1, stack_offset - overflow_bit_offset, .{
         .register = overflow_reg.to8(),
     }, .{});
 }
@@ -5280,8 +5280,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                 const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
-                const atom = elf_file.getAtom(atom_index);
-                const got_addr = atom.getOffsetTableAddress(elf_file);
+                const got_addr = elf_file.getAtom(atom_index).getOffsetTableAddress(elf_file);
                 try self.asmMemory(.call, Memory.sib(.qword, .{
                     .base = .ds,
                     .disp = @intCast(i32, got_addr),
@@ -5289,22 +5288,18 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const atom_index = try coff_file.getOrCreateAtomForDecl(func.owner_decl);
                 const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
-                try self.genSetReg(Type.initTag(.usize), .rax, .{
-                    .linker_load = .{
-                        .type = .got,
-                        .sym_index = sym_index,
-                    },
-                });
+                try self.genSetReg(Type.usize, .rax, .{ .linker_load = .{
+                    .type = .got,
+                    .sym_index = sym_index,
+                } });
                 try self.asmRegister(.call, .rax);
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
                 const atom_index = try macho_file.getOrCreateAtomForDecl(func.owner_decl);
                 const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
-                try self.genSetReg(Type.initTag(.usize), .rax, .{
-                    .linker_load = .{
-                        .type = .got,
-                        .sym_index = sym_index,
-                    },
-                });
+                try self.genSetReg(Type.usize, .rax, .{ .linker_load = .{
+                    .type = .got,
+                    .sym_index = sym_index,
+                } });
                 try self.asmRegister(.call, .rax);
             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
                 const decl_block_index = try p9.seeDecl(func.owner_decl);
@@ -5325,7 +5320,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             const lib_name = mem.sliceTo(extern_fn.lib_name, 0);
             if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const sym_index = try coff_file.getGlobalSymbol(decl_name, lib_name);
-                try self.genSetReg(Type.initTag(.usize), .rax, .{
+                try self.genSetReg(Type.usize, .rax, .{
                     .linker_load = .{
                         .type = .import,
                         .sym_index = sym_index,
@@ -5353,7 +5348,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     } else {
         assert(ty.zigTypeTag() == .Pointer);
         const mcv = try self.resolveInst(callee);
-        try self.genSetReg(Type.initTag(.usize), .rax, mcv);
+        try self.genSetReg(Type.usize, .rax, mcv);
         try self.asmRegister(.call, .rax);
     }
 
@@ -7299,7 +7294,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else blk: {
         const stack_offset = @intCast(i32, try self.allocMem(inst, 16, 16));
         try self.genSetStack(ptr_ty, stack_offset, ptr, .{});
-        try self.genSetStack(Type.initTag(.u64), stack_offset - 8, .{ .immediate = array_len }, .{});
+        try self.genSetStack(Type.u64, stack_offset - 8, .{ .immediate = array_len }, .{});
         break :blk .{ .stack_offset = stack_offset };
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
@@ -7809,10 +7804,92 @@ fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
-    const operand = try self.resolveInst(un_op);
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else {
-        _ = operand;
-        return self.fail("TODO implement airErrorName for x86_64", .{});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const err_ty = self.air.typeOf(un_op);
+        const err_mcv = try self.resolveInst(un_op);
+        const err_reg = try self.copyToTmpRegister(err_ty, err_mcv);
+        const err_lock = self.register_manager.lockRegAssumeUnused(err_reg);
+        defer self.register_manager.unlockReg(err_lock);
+
+        const addr_reg = try self.register_manager.allocReg(null, gp);
+        const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
+        defer self.register_manager.unlockReg(addr_lock);
+
+        if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+            const atom_index = try elf_file.getOrCreateAtomForLazySymbol(
+                .{ .kind = .const_data, .ty = Type.anyerror },
+                4, // dword alignment
+            );
+            const got_addr = elf_file.getAtom(atom_index).getOffsetTableAddress(elf_file);
+            try self.asmRegisterMemory(.mov, addr_reg.to64(), Memory.sib(.qword, .{
+                .base = .ds,
+                .disp = @intCast(i32, got_addr),
+            }));
+        } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+            const atom_index = try coff_file.getOrCreateAtomForLazySymbol(
+                .{ .kind = .const_data, .ty = Type.anyerror },
+                4, // dword alignment
+            );
+            const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
+            try self.genSetReg(Type.usize, addr_reg, .{ .linker_load = .{
+                .type = .got,
+                .sym_index = sym_index,
+            } });
+        } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+            const atom_index = try macho_file.getOrCreateAtomForLazySymbol(
+                .{ .kind = .const_data, .ty = Type.anyerror },
+                4, // dword alignment
+            );
+            const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
+            try self.genSetReg(Type.usize, addr_reg, .{ .linker_load = .{
+                .type = .got,
+                .sym_index = sym_index,
+            } });
+        } else {
+            return self.fail("TODO implement airErrorName for x86_64 {s}", .{@tagName(self.bin_file.tag)});
+        }
+
+        const start_reg = try self.register_manager.allocReg(null, gp);
+        const start_lock = self.register_manager.lockRegAssumeUnused(start_reg);
+        defer self.register_manager.unlockReg(start_lock);
+
+        const end_reg = try self.register_manager.allocReg(null, gp);
+        const end_lock = self.register_manager.lockRegAssumeUnused(end_reg);
+        defer self.register_manager.unlockReg(end_lock);
+
+        try self.truncateRegister(err_ty, err_reg.to32());
+
+        try self.asmRegisterMemory(.mov, start_reg.to32(), Memory.sib(.dword, .{
+            .base = addr_reg.to64(),
+            .scale_index = .{ .scale = 4, .index = err_reg.to64() },
+            .disp = 0,
+        }));
+        try self.asmRegisterMemory(.mov, end_reg.to32(), Memory.sib(.dword, .{
+            .base = addr_reg.to64(),
+            .scale_index = .{ .scale = 4, .index = err_reg.to64() },
+            .disp = 4,
+        }));
+        try self.asmRegisterRegister(.sub, end_reg.to32(), start_reg.to32());
+        try self.asmRegisterMemory(.lea, start_reg.to64(), Memory.sib(.byte, .{
+            .base = addr_reg.to64(),
+            .scale_index = .{ .scale = 1, .index = start_reg.to64() },
+            .disp = 0,
+        }));
+        try self.asmRegisterMemory(.lea, end_reg.to32(), Memory.sib(.byte, .{
+            .base = end_reg.to64(),
+            .disp = -1,
+        }));
+
+        const dst_mcv = try self.allocRegOrMem(inst, false);
+        try self.asmMemoryRegister(.mov, Memory.sib(.qword, .{
+            .base = .rbp,
+            .disp = 0 - dst_mcv.stack_offset,
+        }), start_reg.to64());
+        try self.asmMemoryRegister(.mov, Memory.sib(.qword, .{
+            .base = .rbp,
+            .disp = 8 - dst_mcv.stack_offset,
+        }), end_reg.to64());
+        break :result dst_mcv;
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -8046,7 +8123,7 @@ fn limitImmediateType(self: *Self, operand: Air.Inst.Ref, comptime T: type) !MCV
             // This immediate is unsigned.
             const U = std.meta.Int(.unsigned, ti.bits - @boolToInt(ti.signedness == .signed));
             if (imm >= math.maxInt(U)) {
-                return MCValue{ .register = try self.copyToTmpRegister(Type.initTag(.usize), mcv) };
+                return MCValue{ .register = try self.copyToTmpRegister(Type.usize, mcv) };
             }
         },
         else => {},
@@ -8321,8 +8398,8 @@ fn truncateRegister(self: *Self, ty: Type, reg: Register) !void {
         .unsigned => {
             const shift = @intCast(u6, max_reg_bit_width - int_info.bits);
             const mask = (~@as(u64, 0)) >> shift;
-            if (int_info.bits < 32) {
-                try self.genBinOpMir(.@"and", Type.usize, .{ .register = reg }, .{ .immediate = mask });
+            if (int_info.bits <= 32) {
+                try self.genBinOpMir(.@"and", Type.u32, .{ .register = reg }, .{ .immediate = mask });
             } else {
                 const tmp_reg = try self.copyToTmpRegister(Type.usize, .{ .immediate = mask });
                 try self.genBinOpMir(.@"and", Type.usize, .{ .register = reg }, .{ .register = tmp_reg });
