@@ -66,7 +66,7 @@ typedef uint32_t        reg64_t;
  * addresses (that are page aligned) as 32-bit page numbers.
  * This limits the physical address space to 16TB of RAM.
  */
-typedef uint32_t ppnum_t;               /* Physical page number */
+typedef uint32_t ppnum_t __kernel_ptr_semantics; /* Physical page number */
 #define PPNUM_MAX UINT32_MAX
 
 
