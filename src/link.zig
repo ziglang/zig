@@ -186,8 +186,7 @@ pub const Options = struct {
 
     /// List of symbols forced as undefined in the symbol table
     /// thus forcing their resolution by the linker.
-    /// Corresponds to `-u <symbol>` for ELF and `/include:<symbol>` for COFF/PE.
-    /// TODO add handling for MachO.
+    /// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
     force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
 
     version: ?std.builtin.Version,

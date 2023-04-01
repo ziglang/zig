@@ -932,20 +932,29 @@ pub const Zld = struct {
         }
     }
 
+    fn forceSymbolDefined(self: *Zld, name: []const u8, resolver: *SymbolResolver) !void {
+        const sym_index = try self.allocateSymbol();
+        const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
+        const sym = self.getSymbolPtr(sym_loc);
+        sym.n_strx = try self.strtab.insert(self.gpa, name);
+        sym.n_type = macho.N_UNDF | macho.N_EXT;
+        const global_index = try self.addGlobal(sym_loc);
+        try resolver.table.putNoClobber(name, global_index);
+        try resolver.unresolved.putNoClobber(global_index, {});
+    }
+
     fn resolveSymbols(self: *Zld, resolver: *SymbolResolver) !void {
         // We add the specified entrypoint as the first unresolved symbols so that
         // we search for it in libraries should there be no object files specified
         // on the linker line.
         if (self.options.output_mode == .Exe) {
             const entry_name = self.options.entry orelse load_commands.default_entry_point;
-            const sym_index = try self.allocateSymbol();
-            const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
-            const sym = self.getSymbolPtr(sym_loc);
-            sym.n_strx = try self.strtab.insert(self.gpa, entry_name);
-            sym.n_type = macho.N_UNDF | macho.N_EXT;
-            const global_index = try self.addGlobal(sym_loc);
-            try resolver.table.putNoClobber(entry_name, global_index);
-            try resolver.unresolved.putNoClobber(global_index, {});
+            try self.forceSymbolDefined(entry_name, resolver);
+        }
+
+        // Force resolution of any symbols requested by the user.
+        for (self.options.force_undefined_symbols.keys()) |sym_name| {
+            try self.forceSymbolDefined(sym_name, resolver);
         }
 
         for (self.objects.items, 0..) |_, object_id| {
@@ -3539,7 +3548,7 @@ pub const SymbolWithLoc = extern struct {
     }
 };
 
-const SymbolResolver = struct {
+pub const SymbolResolver = struct {
     arena: Allocator,
     table: std.StringHashMap(u32),
     unresolved: std.AutoArrayHashMap(u32, void),
@@ -3600,7 +3609,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         // We are about to obtain this lock, so here we give other processes a chance first.
         macho_file.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 7);
+        comptime assert(Compilation.link_hash_implementation_version == 8);
 
         for (options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -3630,6 +3639,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         }
         link.hashAddSystemLibs(&man.hash, options.system_libs);
         man.hash.addOptionalBytes(options.sysroot);
+        man.hash.addListOfBytes(options.force_undefined_symbols.keys());
         try man.addOptionalFile(options.entitlements);
 
         // We don't actually care whether it's a cache hit or miss; we just
@@ -4035,7 +4045,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         }
 
         if (gc_sections) {
-            try dead_strip.gcAtoms(&zld);
+            try dead_strip.gcAtoms(&zld, &resolver);
         }
 
         try zld.createDyldPrivateAtom();

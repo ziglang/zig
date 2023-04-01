@@ -469,6 +469,10 @@ const known_options = [_]KnownOpt{
         .ident = "entry",
     },
     .{
+        .name = "u",
+        .ident = "force_undefined_symbol",
+    },
+    .{
         .name = "weak-l",
         .ident = "weak_library",
     },
