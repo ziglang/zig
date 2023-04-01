@@ -2995,6 +2995,11 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .c_va_arg => try airCVaArg(f, inst),
             .c_va_end => try airCVaEnd(f, inst),
             .c_va_copy => try airCVaCopy(f, inst),
+
+            .work_item_id,
+            .work_group_size,
+            .work_group_id,
+            => unreachable,
             // zig fmt: on
         };
         if (result_value == .new_local) {

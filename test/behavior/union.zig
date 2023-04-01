@@ -1529,3 +1529,14 @@ test "reinterpreting enum value inside packed union" {
     try U.doTest();
     comptime try U.doTest();
 }
+
+test "access the tag of a global tagged union" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const U = union(enum) {
+        a,
+        b: u8,
+        var u: @This() = .a;
+    };
+    try expect(U.u == .a);
+}

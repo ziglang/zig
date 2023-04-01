@@ -132,6 +132,12 @@
  */
 #define THREAD_MACHINE_STATE_MAX        THREAD_STATE_MAX
 
+#define FLAVOR_MODIFIES_CORE_CPU_REGISTERS(x) \
+((x == x86_THREAD_STATE) ||     \
+ (x == x86_THREAD_STATE32) ||   \
+ (x == x86_THREAD_STATE64) ||   \
+ (x == x86_THREAD_FULL_STATE64))
+
 /*
  * VALID_THREAD_STATE_FLAVOR is a platform specific macro that when passed
  * an exception flavor will return if that is a defined flavor for that

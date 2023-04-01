@@ -1514,6 +1514,24 @@ pub fn VirtualProtect(lpAddress: ?LPVOID, dwSize: SIZE_T, flNewProtect: DWORD, l
     }
 }
 
+pub fn VirtualProtectEx(handle: HANDLE, addr: ?LPVOID, size: SIZE_T, new_prot: DWORD) VirtualProtectError!DWORD {
+    var old_prot: DWORD = undefined;
+    var out_addr = addr;
+    var out_size = size;
+    switch (ntdll.NtProtectVirtualMemory(
+        handle,
+        &out_addr,
+        &out_size,
+        new_prot,
+        &old_prot,
+    )) {
+        .SUCCESS => return old_prot,
+        .INVALID_ADDRESS => return error.InvalidAddress,
+        // TODO: map errors
+        else => |rc| return std.os.windows.unexpectedStatus(rc),
+    }
+}
+
 pub const VirtualQueryError = error{Unexpected};
 
 pub fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) VirtualQueryError!SIZE_T {
@@ -4457,3 +4475,184 @@ pub const MODULEENTRY32 = extern struct {
     szModule: [MAX_MODULE_NAME32 + 1]CHAR,
     szExePath: [MAX_PATH]CHAR,
 };
+
+pub const THREADINFOCLASS = enum(c_int) {
+    ThreadBasicInformation,
+    ThreadTimes,
+    ThreadPriority,
+    ThreadBasePriority,
+    ThreadAffinityMask,
+    ThreadImpersonationToken,
+    ThreadDescriptorTableEntry,
+    ThreadEnableAlignmentFaultFixup,
+    ThreadEventPair_Reusable,
+    ThreadQuerySetWin32StartAddress,
+    ThreadZeroTlsCell,
+    ThreadPerformanceCount,
+    ThreadAmILastThread,
+    ThreadIdealProcessor,
+    ThreadPriorityBoost,
+    ThreadSetTlsArrayAddress,
+    ThreadIsIoPending,
+    // Windows 2000+ from here
+    ThreadHideFromDebugger,
+    // Windows XP+ from here
+    ThreadBreakOnTermination,
+    ThreadSwitchLegacyState,
+    ThreadIsTerminated,
+    // Windows Vista+ from here
+    ThreadLastSystemCall,
+    ThreadIoPriority,
+    ThreadCycleTime,
+    ThreadPagePriority,
+    ThreadActualBasePriority,
+    ThreadTebInformation,
+    ThreadCSwitchMon,
+    // Windows 7+ from here
+    ThreadCSwitchPmu,
+    ThreadWow64Context,
+    ThreadGroupInformation,
+    ThreadUmsInformation,
+    ThreadCounterProfiling,
+    ThreadIdealProcessorEx,
+    // Windows 8+ from here
+    ThreadCpuAccountingInformation,
+    // Windows 8.1+ from here
+    ThreadSuspendCount,
+    // Windows 10+ from here
+    ThreadHeterogeneousCpuPolicy,
+    ThreadContainerId,
+    ThreadNameInformation,
+    ThreadSelectedCpuSets,
+    ThreadSystemThreadInformation,
+    ThreadActualGroupAffinity,
+};
+
+pub const PROCESSINFOCLASS = enum(c_int) {
+    ProcessBasicInformation,
+    ProcessQuotaLimits,
+    ProcessIoCounters,
+    ProcessVmCounters,
+    ProcessTimes,
+    ProcessBasePriority,
+    ProcessRaisePriority,
+    ProcessDebugPort,
+    ProcessExceptionPort,
+    ProcessAccessToken,
+    ProcessLdtInformation,
+    ProcessLdtSize,
+    ProcessDefaultHardErrorMode,
+    ProcessIoPortHandlers,
+    ProcessPooledUsageAndLimits,
+    ProcessWorkingSetWatch,
+    ProcessUserModeIOPL,
+    ProcessEnableAlignmentFaultFixup,
+    ProcessPriorityClass,
+    ProcessWx86Information,
+    ProcessHandleCount,
+    ProcessAffinityMask,
+    ProcessPriorityBoost,
+    ProcessDeviceMap,
+    ProcessSessionInformation,
+    ProcessForegroundInformation,
+    ProcessWow64Information,
+    ProcessImageFileName,
+    ProcessLUIDDeviceMapsEnabled,
+    ProcessBreakOnTermination,
+    ProcessDebugObjectHandle,
+    ProcessDebugFlags,
+    ProcessHandleTracing,
+    ProcessIoPriority,
+    ProcessExecuteFlags,
+    ProcessTlsInformation,
+    ProcessCookie,
+    ProcessImageInformation,
+    ProcessCycleTime,
+    ProcessPagePriority,
+    ProcessInstrumentationCallback,
+    ProcessThreadStackAllocation,
+    ProcessWorkingSetWatchEx,
+    ProcessImageFileNameWin32,
+    ProcessImageFileMapping,
+    ProcessAffinityUpdateMode,
+    ProcessMemoryAllocationMode,
+    ProcessGroupInformation,
+    ProcessTokenVirtualizationEnabled,
+    ProcessConsoleHostProcess,
+    ProcessWindowInformation,
+    MaxProcessInfoClass,
+};
+
+pub const PROCESS_BASIC_INFORMATION = extern struct {
+    ExitStatus: NTSTATUS,
+    PebBaseAddress: *PEB,
+    AffinityMask: ULONG_PTR,
+    BasePriority: KPRIORITY,
+    UniqueProcessId: ULONG_PTR,
+    InheritedFromUniqueProcessId: ULONG_PTR,
+};
+
+pub const ReadMemoryError = error{
+    Unexpected,
+};
+
+pub fn ReadProcessMemory(handle: HANDLE, addr: ?LPVOID, buffer: []u8) ReadMemoryError![]u8 {
+    var nread: usize = 0;
+    switch (ntdll.NtReadVirtualMemory(
+        handle,
+        addr,
+        buffer.ptr,
+        buffer.len,
+        &nread,
+    )) {
+        .SUCCESS => return buffer[0..nread],
+        // TODO: map errors
+        else => |rc| return unexpectedStatus(rc),
+    }
+}
+
+pub const WriteMemoryError = error{
+    Unexpected,
+};
+
+pub fn WriteProcessMemory(handle: HANDLE, addr: ?LPVOID, buffer: []const u8) WriteMemoryError!usize {
+    var nwritten: usize = 0;
+    switch (ntdll.NtWriteVirtualMemory(
+        handle,
+        addr,
+        @ptrCast(*const anyopaque, buffer.ptr),
+        buffer.len,
+        &nwritten,
+    )) {
+        .SUCCESS => return nwritten,
+        // TODO: map errors
+        else => |rc| return unexpectedStatus(rc),
+    }
+}
+
+pub const ProcessBaseAddressError = GetProcessMemoryInfoError || ReadMemoryError;
+
+/// Returns the base address of the process loaded into memory.
+pub fn ProcessBaseAddress(handle: HANDLE) ProcessBaseAddressError!HMODULE {
+    var info: PROCESS_BASIC_INFORMATION = undefined;
+    var nread: DWORD = 0;
+    const rc = ntdll.NtQueryInformationProcess(
+        handle,
+        .ProcessBasicInformation,
+        &info,
+        @sizeOf(PROCESS_BASIC_INFORMATION),
+        &nread,
+    );
+    switch (rc) {
+        .SUCCESS => {},
+        .ACCESS_DENIED => return error.AccessDenied,
+        .INVALID_HANDLE => return error.InvalidHandle,
+        .INVALID_PARAMETER => unreachable,
+        else => return unexpectedStatus(rc),
+    }
+
+    var peb_buf: [@sizeOf(PEB)]u8 align(@alignOf(PEB)) = undefined;
+    const peb_out = try ReadProcessMemory(handle, info.PebBaseAddress, &peb_buf);
+    const ppeb = @ptrCast(*const PEB, @alignCast(@alignOf(PEB), peb_out.ptr));
+    return ppeb.ImageBaseAddress;
+}
