@@ -7853,19 +7853,85 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
         if (self.liveness.isUnused(inst)) break :res MCValue.dead;
         switch (result_ty.zigTypeTag()) {
             .Struct => {
-                if (result_ty.containerLayout() == .Packed) {
-                    return self.fail("TODO airAggregateInit implement packed structs", .{});
-                }
                 const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
-                for (elements, 0..) |elem, elem_i| {
-                    if (result_ty.structFieldValueComptime(elem_i) != null) continue; // comptime elem
+                const dst_mcv = MCValue{ .stack_offset = stack_offset };
+                if (result_ty.containerLayout() == .Packed) {
+                    const struct_obj = result_ty.castTag(.@"struct").?.data;
+                    try self.genInlineMemset(
+                        dst_mcv,
+                        .{ .immediate = 0 },
+                        .{ .immediate = abi_size },
+                        .{},
+                    );
+                    for (elements, 0..) |elem, elem_i| {
+                        if (result_ty.structFieldValueComptime(elem_i) != null) continue;
+
+                        const elem_ty = result_ty.structFieldType(elem_i);
+                        const elem_bit_size = @intCast(u32, elem_ty.bitSize(self.target.*));
+                        if (elem_bit_size > 64) {
+                            return self.fail("TODO airAggregateInit implement packed structs with large fields", .{});
+                        }
+                        const elem_abi_size = @intCast(u32, elem_ty.abiSize(self.target.*));
+                        const elem_abi_bits = elem_abi_size * 8;
+                        const elem_off = struct_obj.packedFieldBitOffset(self.target.*, elem_i);
+                        const elem_byte_off = @intCast(i32, elem_off / elem_abi_bits * elem_abi_size);
+                        const elem_bit_off = elem_off % elem_abi_bits;
+                        const elem_mcv = try self.resolveInst(elem);
+                        const elem_lock = switch (elem_mcv) {
+                            .register => |reg| self.register_manager.lockReg(reg),
+                            .immediate => |imm| lock: {
+                                if (imm == 0) continue;
+                                break :lock null;
+                            },
+                            else => null,
+                        };
+                        defer if (elem_lock) |lock| self.register_manager.unlockReg(lock);
+                        const elem_reg = try self.copyToTmpRegister(elem_ty, elem_mcv);
+                        const elem_extra_bits = self.regExtraBits(elem_ty);
+                        if (elem_bit_off < elem_extra_bits) {
+                            try self.truncateRegister(elem_ty, registerAlias(elem_reg, elem_abi_size));
+                        }
+                        if (elem_bit_off > 0) try self.genShiftBinOpMir(
+                            .sal,
+                            elem_ty,
+                            .{ .register = elem_reg },
+                            .{ .immediate = elem_bit_off },
+                        );
+                        try self.genBinOpMir(
+                            .@"or",
+                            elem_ty,
+                            .{ .stack_offset = stack_offset - elem_byte_off },
+                            .{ .register = elem_reg },
+                        );
+                        if (elem_bit_off > elem_extra_bits) {
+                            const reg = try self.copyToTmpRegister(elem_ty, elem_mcv);
+                            if (elem_extra_bits > 0) {
+                                try self.truncateRegister(elem_ty, registerAlias(reg, elem_abi_size));
+                            }
+                            try self.genShiftBinOpMir(
+                                .sar,
+                                elem_ty,
+                                .{ .register = reg },
+                                .{ .immediate = elem_abi_bits - elem_bit_off },
+                            );
+                            try self.genBinOpMir(
+                                .@"or",
+                                elem_ty,
+                                .{ .stack_offset = stack_offset - elem_byte_off -
+                                    @intCast(i32, elem_abi_size) },
+                                .{ .register = reg },
+                            );
+                        }
+                    }
+                } else for (elements, 0..) |elem, elem_i| {
+                    if (result_ty.structFieldValueComptime(elem_i) != null) continue;
 
                     const elem_ty = result_ty.structFieldType(elem_i);
-                    const elem_off = result_ty.structFieldOffset(elem_i, self.target.*);
+                    const elem_off = @intCast(i32, result_ty.structFieldOffset(elem_i, self.target.*));
                     const elem_mcv = try self.resolveInst(elem);
-                    try self.genSetStack(elem_ty, stack_offset - @intCast(i32, elem_off), elem_mcv, .{});
+                    try self.genSetStack(elem_ty, stack_offset - elem_off, elem_mcv, .{});
                 }
-                break :res MCValue{ .stack_offset = stack_offset };
+                break :res dst_mcv;
             },
             .Array => {
                 const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
