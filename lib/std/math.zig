@@ -1293,6 +1293,7 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
             }
         },
         .Int => {
+            assert(!isNan(value));
             switch (@typeInfo(@TypeOf(value))) {
                 .Int, .ComptimeInt => {
                     if (value >= maxInt(T)) {
@@ -1324,6 +1325,7 @@ test "lossyCast" {
     try testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
     try testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
     try testing.expect(lossyCast(u32, @as(f32, maxInt(u32))) == maxInt(u32));
+    try testing.expect(lossyCast(u32, nan(f32)) == 0);
 }
 
 /// Returns the maximum value of integer type T.
