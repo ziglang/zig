@@ -4298,6 +4298,8 @@ pub const usage_build =
     \\   -fno-reference-trace          Disable reference trace
     \\   -fsummary                     Print the build summary, even on success
     \\   -fno-summary                  Omit the build summary, even on failure
+    \\   -fsingle-threaded             Code assumes there is only one thread
+    \\   -fno-single-threaded          Code may not assume there is only one thread
     \\   --build-file [file]           Override path to build.zig
     \\   --cache-dir [path]            Override path to local Zig cache directory
     \\   --global-cache-dir [path]     Override path to global Zig cache directory
@@ -4323,6 +4325,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         var child_argv = std.ArrayList([]const u8).init(arena);
         var reference_trace: ?u32 = null;
         var debug_compile_errors = false;
+        var single_threaded: ?bool = false;
 
         const argv_index_exe = child_argv.items.len;
         _ = try child_argv.addOne();
@@ -4340,6 +4343,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
         {
             var i: usize = 0;
+            var ignore: bool = false;
             while (i < args.len) : (i += 1) {
                 const arg = args[i];
                 if (mem.startsWith(u8, arg, "-")) {
@@ -4381,12 +4385,18 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                     } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
                         try child_argv.append(arg);
                         reference_trace = null;
+                    } else if (mem.eql(u8, arg, "-fsingle-threaded")) {
+                        single_threaded = true;
+                        ignore = true;
+                    } else if (mem.eql(u8, arg, "-fno-single-threaded")) {
+                        single_threaded = null;
+                        ignore = true;
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                         try child_argv.append(arg);
                         debug_compile_errors = true;
                     }
                 }
-                try child_argv.append(arg);
+                if (!ignore) try child_argv.append(arg) else ignore = false;
             }
         }
 
@@ -4599,6 +4609,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .cache_mode = .whole,
             .reference_trace = reference_trace,
             .debug_compile_errors = debug_compile_errors,
+            .single_threaded = single_threaded,
         }) catch |err| {
             fatal("unable to create compilation: {s}", .{@errorName(err)});
         };
