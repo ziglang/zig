@@ -12,6 +12,7 @@ const Allocator = mem.Allocator;
 const AtomIndex = @import("zld.zig").AtomIndex;
 const Atom = @import("ZldAtom.zig");
 const SymbolWithLoc = @import("zld.zig").SymbolWithLoc;
+const SymbolResolver = @import("zld.zig").SymbolResolver;
 const UnwindInfo = @import("UnwindInfo.zig");
 const Zld = @import("zld.zig").Zld;
 
@@ -19,7 +20,7 @@ const N_DEAD = @import("zld.zig").N_DEAD;
 
 const AtomTable = std.AutoHashMap(AtomIndex, void);
 
-pub fn gcAtoms(zld: *Zld) !void {
+pub fn gcAtoms(zld: *Zld, resolver: *const SymbolResolver) !void {
     const gpa = zld.gpa;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -31,27 +32,36 @@ pub fn gcAtoms(zld: *Zld) !void {
     var alive = AtomTable.init(arena.allocator());
     try alive.ensureTotalCapacity(@intCast(u32, zld.atoms.items.len));
 
-    try collectRoots(zld, &roots);
+    try collectRoots(zld, &roots, resolver);
     try mark(zld, roots, &alive);
     prune(zld, alive);
 }
 
-fn collectRoots(zld: *Zld, roots: *AtomTable) !void {
+fn addRoot(zld: *Zld, roots: *AtomTable, file: u32, sym_loc: SymbolWithLoc) !void {
+    const sym = zld.getSymbol(sym_loc);
+    assert(!sym.undf());
+    const object = &zld.objects.items[file];
+    const atom_index = object.getAtomIndexForSymbol(sym_loc.sym_index).?; // panic here means fatal error
+    log.debug("root(ATOM({d}, %{d}, {d}))", .{
+        atom_index,
+        zld.getAtom(atom_index).sym_index,
+        file,
+    });
+    _ = try roots.getOrPut(atom_index);
+}
+
+fn collectRoots(zld: *Zld, roots: *AtomTable, resolver: *const SymbolResolver) !void {
     log.debug("collecting roots", .{});
 
     switch (zld.options.output_mode) {
         .Exe => {
             // Add entrypoint as GC root
             const global: SymbolWithLoc = zld.getEntryPoint();
-            const object = zld.objects.items[global.getFile().?];
-            const atom_index = object.getAtomIndexForSymbol(global.sym_index).?; // panic here means fatal error
-            _ = try roots.getOrPut(atom_index);
-
-            log.debug("root(ATOM({d}, %{d}, {?d}))", .{
-                atom_index,
-                zld.getAtom(atom_index).sym_index,
-                zld.getAtom(atom_index).getFile(),
-            });
+            if (global.getFile()) |file| {
+                try addRoot(zld, roots, file, global);
+            } else {
+                assert(zld.getSymbol(global).undf()); // Stub as our entrypoint is in a dylib.
+            }
         },
         else => |other| {
             assert(other == .Lib);
@@ -60,18 +70,20 @@ fn collectRoots(zld: *Zld, roots: *AtomTable) !void {
                 const sym = zld.getSymbol(global);
                 if (sym.undf()) continue;
 
-                const file = global.getFile() orelse continue; // synthetic globals are atomless
-                const object = zld.objects.items[file];
-                const atom_index = object.getAtomIndexForSymbol(global.sym_index).?; // panic here means fatal error
-                _ = try roots.getOrPut(atom_index);
-
-                log.debug("root(ATOM({d}, %{d}, {?d}))", .{
-                    atom_index,
-                    zld.getAtom(atom_index).sym_index,
-                    zld.getAtom(atom_index).getFile(),
-                });
+                if (global.getFile()) |file| {
+                    try addRoot(zld, roots, file, global);
+                }
             }
         },
+    }
+
+    // Add all symbols force-defined by the user.
+    for (zld.options.force_undefined_symbols.keys()) |sym_name| {
+        const global_index = resolver.table.get(sym_name).?;
+        const global = zld.globals.items[global_index];
+        const sym = zld.getSymbol(global);
+        assert(!sym.undf());
+        try addRoot(zld, roots, global.getFile().?, global);
     }
 
     for (zld.objects.items) |object| {

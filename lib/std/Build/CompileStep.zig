@@ -202,6 +202,11 @@ subsystem: ?std.Target.SubSystem = null,
 
 entry_symbol_name: ?[]const u8 = null,
 
+/// List of symbols forced as undefined in the symbol table
+/// thus forcing their resolution by the linker.
+/// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
+force_undefined_symbols: std.StringHashMap(void),
+
 /// Overrides the default stack size
 stack_size: ?u64 = null,
 
@@ -386,6 +391,7 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         .override_dest_dir = null,
         .installed_path = null,
         .install_step = null,
+        .force_undefined_symbols = StringHashMap(void).init(owner.allocator),
 
         .output_path_source = GeneratedFile{ .step = &self.step },
         .output_lib_path_source = GeneratedFile{ .step = &self.step },
@@ -566,6 +572,11 @@ pub fn setLinkerScriptPath(self: *CompileStep, source: FileSource) void {
     const b = self.step.owner;
     self.linker_script = source.dupe(b);
     source.addStepDependencies(&self.step);
+}
+
+pub fn forceUndefinedSymbol(self: *CompileStep, symbol_name: []const u8) void {
+    const b = self.step.owner;
+    self.force_undefined_symbols.put(b.dupe(symbol_name), {}) catch @panic("OOM");
 }
 
 pub fn linkFramework(self: *CompileStep, framework_name: []const u8) void {
@@ -1264,6 +1275,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (self.entry_symbol_name) |entry| {
         try zig_args.append("--entry");
         try zig_args.append(entry);
+    }
+
+    {
+        var it = self.force_undefined_symbols.keyIterator();
+        while (it.next()) |symbol_name| {
+            try zig_args.append("--force_undefined");
+            try zig_args.append(symbol_name.*);
+        }
     }
 
     if (self.stack_size) |stack_size| {

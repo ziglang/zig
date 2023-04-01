@@ -478,6 +478,7 @@ const usage_build_generic =
     \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
     \\  --entry [name]                 Set the entrypoint symbol name
+    \\  --force_undefined [name]       Specify the symbol must be defined for the link to succeed
     \\  -fsoname[=name]                Override the default SONAME value
     \\  -fno-soname                    Disable emitting a SONAME
     \\  -fLLD                          Force using LLD as the linker
@@ -680,6 +681,28 @@ const Listen = union(enum) {
     stdio,
 };
 
+const ArgsIterator = struct {
+    resp_file: ?ArgIteratorResponseFile = null,
+    args: []const []const u8,
+    i: usize = 0,
+    fn next(it: *@This()) ?[]const u8 {
+        if (it.i >= it.args.len) {
+            if (it.resp_file) |*resp| return resp.next();
+            return null;
+        }
+        defer it.i += 1;
+        return it.args[it.i];
+    }
+    fn nextOrFatal(it: *@This()) []const u8 {
+        if (it.i >= it.args.len) {
+            if (it.resp_file) |*resp| if (resp.next()) |ret| return ret;
+            fatal("expected parameter after {s}", .{it.args[it.i - 1]});
+        }
+        defer it.i += 1;
+        return it.args[it.i];
+    }
+};
+
 fn buildOutputType(
     gpa: Allocator,
     arena: Allocator,
@@ -784,6 +807,7 @@ fn buildOutputType(
     var test_evented_io = false;
     var test_no_exec = false;
     var entry: ?[]const u8 = null;
+    var force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{};
     var stack_size_override: ?u64 = null;
     var image_base_override: ?u64 = null;
     var use_llvm: ?bool = null;
@@ -917,28 +941,7 @@ fn buildOutputType(
 
             soname = .yes_default_value;
 
-            const Iterator = struct {
-                resp_file: ?ArgIteratorResponseFile = null,
-                args: []const []const u8,
-                i: usize = 0,
-                fn next(it: *@This()) ?[]const u8 {
-                    if (it.i >= it.args.len) {
-                        if (it.resp_file) |*resp| return resp.next();
-                        return null;
-                    }
-                    defer it.i += 1;
-                    return it.args[it.i];
-                }
-                fn nextOrFatal(it: *@This()) []const u8 {
-                    if (it.i >= it.args.len) {
-                        if (it.resp_file) |*resp| if (resp.next()) |ret| return ret;
-                        fatal("expected parameter after {s}", .{it.args[it.i - 1]});
-                    }
-                    defer it.i += 1;
-                    return it.args[it.i];
-                }
-            };
-            var args_iter = Iterator{
+            var args_iter = ArgsIterator{
                 .args = all_args[2..],
             };
 
@@ -1029,6 +1032,8 @@ fn buildOutputType(
                         optimize_mode_string = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--entry")) {
                         entry = args_iter.nextOrFatal();
+                    } else if (mem.eql(u8, arg, "--force_undefined")) {
+                        try force_undefined_symbols.put(gpa, args_iter.nextOrFatal(), {});
                     } else if (mem.eql(u8, arg, "--stack")) {
                         const next_arg = args_iter.nextOrFatal();
                         stack_size_override = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
@@ -1816,6 +1821,9 @@ fn buildOutputType(
                     .entry => {
                         entry = it.only_arg;
                     },
+                    .force_undefined_symbol => {
+                        try force_undefined_symbols.put(gpa, it.only_arg, {});
+                    },
                     .weak_library => try system_libs.put(it.only_arg, .{ .weak = true }),
                     .weak_framework => try frameworks.put(gpa, it.only_arg, .{ .weak = true }),
                     .headerpad_max_install_names => headerpad_max_install_names = true,
@@ -1843,17 +1851,14 @@ fn buildOutputType(
                 }
             }
             // Parse linker args.
-            var i: usize = 0;
-            while (i < linker_args.items.len) : (i += 1) {
-                const arg = linker_args.items[i];
+            var linker_args_it = ArgsIterator{
+                .args = linker_args.items,
+            };
+            while (linker_args_it.next()) |arg| {
                 if (mem.eql(u8, arg, "-soname") or
                     mem.eql(u8, arg, "--soname"))
                 {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    const name = linker_args.items[i];
+                    const name = linker_args_it.nextOrFatal();
                     soname = .{ .yes = name };
                     // Use it as --name.
                     // Example: libsoundio.so.2
@@ -1881,64 +1886,37 @@ fn buildOutputType(
                     }
                     provided_name = name[prefix..end];
                 } else if (mem.eql(u8, arg, "-rpath")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    try rpath_list.append(linker_args.items[i]);
+                    try rpath_list.append(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--subsystem")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    subsystem = try parseSubSystem(linker_args.items[i]);
+                    subsystem = try parseSubSystem(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "-I") or
                     mem.eql(u8, arg, "--dynamic-linker") or
                     mem.eql(u8, arg, "-dynamic-linker"))
                 {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    target_dynamic_linker = linker_args.items[i];
+                    target_dynamic_linker = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "-E") or
                     mem.eql(u8, arg, "--export-dynamic") or
                     mem.eql(u8, arg, "-export-dynamic"))
                 {
                     rdynamic = true;
                 } else if (mem.eql(u8, arg, "--version-script")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    version_script = linker_args.items[i];
+                    version_script = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "-O")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    linker_optimization = std.fmt.parseUnsigned(u8, linker_args.items[i], 10) catch |err| {
-                        fatal("unable to parse optimization level '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
+                    const opt = linker_args_it.nextOrFatal();
+                    linker_optimization = std.fmt.parseUnsigned(u8, opt, 10) catch |err| {
+                        fatal("unable to parse optimization level '{s}': {s}", .{ opt, @errorName(err) });
                     };
                 } else if (mem.startsWith(u8, arg, "-O")) {
                     linker_optimization = std.fmt.parseUnsigned(u8, arg["-O".len..], 10) catch |err| {
                         fatal("unable to parse optimization level '{s}': {s}", .{ arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "-pagezero_size")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    const next_arg = linker_args.items[i];
+                    const next_arg = linker_args_it.nextOrFatal();
                     pagezero_size = std.fmt.parseUnsigned(u64, eatIntPrefix(next_arg, 16), 16) catch |err| {
                         fatal("unable to parse pagezero size '{s}': {s}", .{ next_arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "-headerpad")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    const next_arg = linker_args.items[i];
+                    const next_arg = linker_args_it.nextOrFatal();
                     headerpad_size = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
                         fatal("unable to parse  headerpad size '{s}': {s}", .{ next_arg, @errorName(err) });
                     };
@@ -1961,11 +1939,7 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "--print-map")) {
                     linker_print_map = true;
                 } else if (mem.eql(u8, arg, "--sort-section")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    const arg1 = linker_args.items[i];
+                    const arg1 = linker_args_it.nextOrFatal();
                     linker_sort_section = std.meta.stringToEnum(link.SortSection, arg1) orelse {
                         fatal("expected [name|alignment] after --sort-section, found '{s}'", .{arg1});
                     };
@@ -1998,28 +1972,16 @@ fn buildOutputType(
                 } else if (mem.startsWith(u8, arg, "--export=")) {
                     try linker_export_symbol_names.append(arg["--export=".len..]);
                 } else if (mem.eql(u8, arg, "--export")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    try linker_export_symbol_names.append(linker_args.items[i]);
+                    try linker_export_symbol_names.append(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    const arg1 = linker_args.items[i];
+                    const arg1 = linker_args_it.nextOrFatal();
                     linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, arg1) orelse {
                         fatal("expected [none|zlib] after --compress-debug-sections, found '{s}'", .{arg1});
                     };
                 } else if (mem.startsWith(u8, arg, "-z")) {
                     var z_arg = arg[2..];
                     if (z_arg.len == 0) {
-                        i += 1;
-                        if (i >= linker_args.items.len) {
-                            fatal("expected linker extension flag after '{s}'", .{arg});
-                        }
-                        z_arg = linker_args.items[i];
+                        z_arg = linker_args_it.nextOrFatal();
                     }
                     if (mem.eql(u8, z_arg, "nodelete")) {
                         linker_z_nodelete = true;
@@ -2056,51 +2018,33 @@ fn buildOutputType(
                         fatal("unsupported linker extension flag: -z {s}", .{z_arg});
                     }
                 } else if (mem.eql(u8, arg, "--major-image-version")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    version.major = std.fmt.parseUnsigned(u32, linker_args.items[i], 10) catch |err| {
-                        fatal("unable to parse major image version '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
+                    const major = linker_args_it.nextOrFatal();
+                    version.major = std.fmt.parseUnsigned(u32, major, 10) catch |err| {
+                        fatal("unable to parse major image version '{s}': {s}", .{ major, @errorName(err) });
                     };
                     have_version = true;
                 } else if (mem.eql(u8, arg, "--minor-image-version")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    version.minor = std.fmt.parseUnsigned(u32, linker_args.items[i], 10) catch |err| {
-                        fatal("unable to parse minor image version '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
+                    const minor = linker_args_it.nextOrFatal();
+                    version.minor = std.fmt.parseUnsigned(u32, minor, 10) catch |err| {
+                        fatal("unable to parse minor image version '{s}': {s}", .{ minor, @errorName(err) });
                     };
                     have_version = true;
                 } else if (mem.eql(u8, arg, "-e") or mem.eql(u8, arg, "--entry")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    entry = linker_args.items[i];
+                    entry = linker_args_it.nextOrFatal();
+                } else if (mem.eql(u8, arg, "-u")) {
+                    try force_undefined_symbols.put(gpa, linker_args_it.nextOrFatal(), {});
                 } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack_size")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    stack_size_override = std.fmt.parseUnsigned(u64, linker_args.items[i], 0) catch |err| {
-                        fatal("unable to parse stack size override '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
+                    const stack_size = linker_args_it.nextOrFatal();
+                    stack_size_override = std.fmt.parseUnsigned(u64, stack_size, 0) catch |err| {
+                        fatal("unable to parse stack size override '{s}': {s}", .{ stack_size, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--image-base")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    image_base_override = std.fmt.parseUnsigned(u64, linker_args.items[i], 0) catch |err| {
-                        fatal("unable to parse image base override '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
+                    const image_base = linker_args_it.nextOrFatal();
+                    image_base_override = std.fmt.parseUnsigned(u64, image_base, 0) catch |err| {
+                        fatal("unable to parse image base override '{s}': {s}", .{ image_base, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    linker_script = linker_args.items[i];
+                    linker_script = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                     link_eh_frame_hdr = true;
                 } else if (mem.eql(u8, arg, "--no-eh-frame-hdr")) {
@@ -2138,130 +2082,74 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "--major-os-version") or
                     mem.eql(u8, arg, "--minor-os-version"))
                 {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
                     // This option does not do anything.
+                    _ = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "--major-subsystem-version")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-
+                    const major = linker_args_it.nextOrFatal();
                     major_subsystem_version = std.fmt.parseUnsigned(
                         u32,
-                        linker_args.items[i],
+                        major,
                         10,
                     ) catch |err| {
-                        fatal("unable to parse major subsystem version '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
+                        fatal("unable to parse major subsystem version '{s}': {s}", .{ major, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--minor-subsystem-version")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-
+                    const minor = linker_args_it.nextOrFatal();
                     minor_subsystem_version = std.fmt.parseUnsigned(
                         u32,
-                        linker_args.items[i],
+                        minor,
                         10,
                     ) catch |err| {
-                        fatal("unable to parse minor subsystem version '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
+                        fatal("unable to parse minor subsystem version '{s}': {s}", .{ minor, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "-framework")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    try frameworks.put(gpa, linker_args.items[i], .{});
+                    try frameworks.put(gpa, linker_args_it.nextOrFatal(), .{});
                 } else if (mem.eql(u8, arg, "-weak_framework")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    try frameworks.put(gpa, linker_args.items[i], .{ .weak = true });
+                    try frameworks.put(gpa, linker_args_it.nextOrFatal(), .{ .weak = true });
                 } else if (mem.eql(u8, arg, "-needed_framework")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    try frameworks.put(gpa, linker_args.items[i], .{ .needed = true });
+                    try frameworks.put(gpa, linker_args_it.nextOrFatal(), .{ .needed = true });
                 } else if (mem.eql(u8, arg, "-needed_library")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    try system_libs.put(linker_args.items[i], .{ .needed = true });
+                    try system_libs.put(linker_args_it.nextOrFatal(), .{ .needed = true });
                 } else if (mem.startsWith(u8, arg, "-weak-l")) {
                     try system_libs.put(arg["-weak-l".len..], .{ .weak = true });
                 } else if (mem.eql(u8, arg, "-weak_library")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    try system_libs.put(linker_args.items[i], .{ .weak = true });
+                    try system_libs.put(linker_args_it.nextOrFatal(), .{ .weak = true });
                 } else if (mem.eql(u8, arg, "-compatibility_version")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    compatibility_version = std.builtin.Version.parse(linker_args.items[i]) catch |err| {
-                        fatal("unable to parse -compatibility_version '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
+                    const compat_version = linker_args_it.nextOrFatal();
+                    compatibility_version = std.builtin.Version.parse(compat_version) catch |err| {
+                        fatal("unable to parse -compatibility_version '{s}': {s}", .{ compat_version, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "-current_version")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    version = std.builtin.Version.parse(linker_args.items[i]) catch |err| {
-                        fatal("unable to parse -current_version '{s}': {s}", .{ linker_args.items[i], @errorName(err) });
+                    const curr_version = linker_args_it.nextOrFatal();
+                    version = std.builtin.Version.parse(curr_version) catch |err| {
+                        fatal("unable to parse -current_version '{s}': {s}", .{ curr_version, @errorName(err) });
                     };
                     have_version = true;
                 } else if (mem.eql(u8, arg, "--out-implib") or
                     mem.eql(u8, arg, "-implib"))
                 {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    emit_implib = .{ .yes = linker_args.items[i] };
+                    emit_implib = .{ .yes = linker_args_it.nextOrFatal() };
                     emit_implib_arg_provided = true;
                 } else if (mem.eql(u8, arg, "-undefined")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    if (mem.eql(u8, "dynamic_lookup", linker_args.items[i])) {
+                    const lookup_type = linker_args_it.nextOrFatal();
+                    if (mem.eql(u8, "dynamic_lookup", lookup_type)) {
                         linker_allow_shlib_undefined = true;
-                    } else if (mem.eql(u8, "error", linker_args.items[i])) {
+                    } else if (mem.eql(u8, "error", lookup_type)) {
                         linker_allow_shlib_undefined = false;
                     } else {
-                        fatal("unsupported -undefined option '{s}'", .{linker_args.items[i]});
+                        fatal("unsupported -undefined option '{s}'", .{lookup_type});
                     }
                 } else if (mem.eql(u8, arg, "-install_name")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    install_name = linker_args.items[i];
+                    install_name = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "-force_load")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
                     try link_objects.append(.{
-                        .path = linker_args.items[i],
+                        .path = linker_args_it.nextOrFatal(),
                         .must_link = true,
                     });
                 } else if (mem.eql(u8, arg, "-hash-style") or
                     mem.eql(u8, arg, "--hash-style"))
                 {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker arg after '{s}'", .{arg});
-                    }
-                    const next_arg = linker_args.items[i];
+                    const next_arg = linker_args_it.nextOrFatal();
                     hash_style = std.meta.stringToEnum(link.HashStyle, next_arg) orelse {
                         fatal("expected [sysv|gnu|both] after --hash-style, found '{s}'", .{
                             next_arg,
@@ -3219,6 +3107,7 @@ fn buildOutputType(
         .link_eh_frame_hdr = link_eh_frame_hdr,
         .link_emit_relocs = link_emit_relocs,
         .entry = entry,
+        .force_undefined_symbols = force_undefined_symbols,
         .stack_size_override = stack_size_override,
         .image_base_override = image_base_override,
         .strip = strip,
@@ -3817,11 +3706,25 @@ fn runOrTestHotSwap(
     runtime_args_start: ?usize,
 ) !std.ChildProcess.Id {
     const exe_emit = comp.bin_file.options.emit.?;
-    // A naive `directory.join` here will indeed get the correct path to the binary,
-    // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
-    const exe_path = try fs.path.join(gpa, &[_][]const u8{
-        exe_emit.directory.path orelse ".", exe_emit.sub_path,
-    });
+
+    const exe_path = switch (builtin.target.os.tag) {
+        // On Windows it seems impossible to perform an atomic rename of a file that is currently
+        // running in a process. Therefore, we do the opposite. We create a copy of the file in
+        // tmp zig-cache and use it to spawn the child process. This way we are free to update
+        // the binary with each requested hot update.
+        .windows => blk: {
+            try exe_emit.directory.handle.copyFile(exe_emit.sub_path, comp.local_cache_directory.handle, exe_emit.sub_path, .{});
+            break :blk try fs.path.join(gpa, &[_][]const u8{
+                comp.local_cache_directory.path orelse ".", exe_emit.sub_path,
+            });
+        },
+
+        // A naive `directory.join` here will indeed get the correct path to the binary,
+        // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
+        else => try fs.path.join(gpa, &[_][]const u8{
+            exe_emit.directory.path orelse ".", exe_emit.sub_path,
+        }),
+    };
     defer gpa.free(exe_path);
 
     var argv = std.ArrayList([]const u8).init(gpa);
@@ -5281,6 +5184,7 @@ pub const ClangArgIterator = struct {
         emit_llvm,
         sysroot,
         entry,
+        force_undefined_symbol,
         weak_library,
         weak_framework,
         headerpad_max_install_names,

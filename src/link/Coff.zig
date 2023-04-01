@@ -89,6 +89,20 @@ relocs: RelocTable = .{},
 /// this will be a table indexed by index into the list of Atoms.
 base_relocs: BaseRelocationTable = .{},
 
+/// Hot-code swapping state.
+hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
+
+const is_hot_update_compatible = switch (builtin.target.os.tag) {
+    .windows => true,
+    else => false,
+};
+
+const HotUpdateState = struct {
+    /// Base address at which the process (image) got loaded.
+    /// We need this info to correctly slide pointers when relocating.
+    loaded_base_address: ?std.os.windows.HMODULE = null,
+};
+
 const Entry = struct {
     target: SymbolWithLoc,
     // Index into the synthetic symbol table (i.e., file == null).
@@ -772,13 +786,87 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
     const sym = atom.getSymbol(self);
     const section = self.sections.get(@enumToInt(sym.section_number) - 1);
     const file_offset = section.header.pointer_to_raw_data + sym.value - section.header.virtual_address;
+
     log.debug("writing atom for symbol {s} at file offset 0x{x} to 0x{x}", .{
         atom.getName(self),
         file_offset,
         file_offset + code.len,
     });
-    self.resolveRelocs(atom_index, code);
+
+    const gpa = self.base.allocator;
+
+    // Gather relocs which can be resolved.
+    // We need to do this as we will be applying different slide values depending
+    // if we are running in hot-code swapping mode or not.
+    // TODO: how crazy would it be to try and apply the actual image base of the loaded
+    // process for the in-file values rather than the Windows defaults?
+    var relocs = std.ArrayList(*Relocation).init(gpa);
+    defer relocs.deinit();
+
+    if (self.relocs.getPtr(atom_index)) |rels| {
+        try relocs.ensureTotalCapacityPrecise(rels.items.len);
+        for (rels.items) |*reloc| {
+            if (reloc.isResolvable(self)) relocs.appendAssumeCapacity(reloc);
+        }
+    }
+
+    if (is_hot_update_compatible) {
+        if (self.base.child_pid) |handle| {
+            const slide = @ptrToInt(self.hot_state.loaded_base_address.?);
+
+            const mem_code = try gpa.dupe(u8, code);
+            defer gpa.free(mem_code);
+            self.resolveRelocs(atom_index, relocs.items, mem_code, slide);
+
+            const vaddr = sym.value + slide;
+            const pvaddr = @intToPtr(*anyopaque, vaddr);
+
+            log.debug("writing to memory at address {x}", .{vaddr});
+
+            if (build_options.enable_logging) {
+                try debugMem(gpa, handle, pvaddr, mem_code);
+            }
+
+            if (section.header.flags.MEM_WRITE == 0) {
+                writeMemProtected(handle, pvaddr, mem_code) catch |err| {
+                    log.warn("writing to protected memory failed with error: {s}", .{@errorName(err)});
+                };
+            } else {
+                writeMem(handle, pvaddr, mem_code) catch |err| {
+                    log.warn("writing to protected memory failed with error: {s}", .{@errorName(err)});
+                };
+            }
+        }
+    }
+
+    self.resolveRelocs(atom_index, relocs.items, code, self.getImageBase());
     try self.base.file.?.pwriteAll(code, file_offset);
+
+    // Now we can mark the relocs as resolved.
+    while (relocs.popOrNull()) |reloc| {
+        reloc.dirty = false;
+    }
+}
+
+fn debugMem(allocator: Allocator, handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
+    var buffer = try allocator.alloc(u8, code.len);
+    defer allocator.free(buffer);
+    const memread = try std.os.windows.ReadProcessMemory(handle, pvaddr, buffer);
+    log.debug("to write: {x}", .{std.fmt.fmtSliceHexLower(code)});
+    log.debug("in memory: {x}", .{std.fmt.fmtSliceHexLower(memread)});
+}
+
+fn writeMemProtected(handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
+    const old_prot = try std.os.windows.VirtualProtectEx(handle, pvaddr, code.len, std.os.windows.PAGE_EXECUTE_WRITECOPY);
+    try writeMem(handle, pvaddr, code);
+    // TODO: We can probably just set the pages writeable and leave it at that without having to restore the attributes.
+    // For that though, we want to track which page has already been modified.
+    _ = try std.os.windows.VirtualProtectEx(handle, pvaddr, code.len, old_prot);
+}
+
+fn writeMem(handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
+    const amt = try std.os.windows.WriteProcessMemory(handle, pvaddr, code);
+    if (amt != code.len) return error.InputOutput;
 }
 
 fn writePtrWidthAtom(self: *Coff, atom_index: Atom.Index) !void {
@@ -814,17 +902,28 @@ fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
     }
 }
 
-fn resolveRelocs(self: *Coff, atom_index: Atom.Index, code: []u8) void {
-    const relocs = self.relocs.getPtr(atom_index) orelse return;
-
+fn resolveRelocs(self: *Coff, atom_index: Atom.Index, relocs: []*const Relocation, code: []u8, image_base: u64) void {
     log.debug("relocating '{s}'", .{self.getAtom(atom_index).getName(self)});
-
-    for (relocs.items) |*reloc| {
-        if (!reloc.dirty) continue;
-        if (reloc.resolve(atom_index, code, self)) {
-            reloc.dirty = false;
-        }
+    for (relocs) |reloc| {
+        reloc.resolve(atom_index, code, image_base, self);
     }
+}
+
+pub fn ptraceAttach(self: *Coff, handle: std.ChildProcess.Id) !void {
+    if (!is_hot_update_compatible) return;
+
+    log.debug("attaching to process with handle {*}", .{handle});
+    self.hot_state.loaded_base_address = std.os.windows.ProcessBaseAddress(handle) catch |err| {
+        log.warn("failed to get base address for the process with error: {s}", .{@errorName(err)});
+        return;
+    };
+}
+
+pub fn ptraceDetach(self: *Coff, handle: std.ChildProcess.Id) void {
+    if (!is_hot_update_compatible) return;
+
+    log.debug("detaching from process with handle {*}", .{handle});
+    self.hot_state.loaded_base_address = null;
 }
 
 fn freeAtom(self: *Coff, atom_index: Atom.Index) void {
@@ -1421,7 +1520,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
     for (self.relocs.keys(), self.relocs.values()) |atom_index, relocs| {
         const needs_update = for (relocs.items) |reloc| {
-            if (reloc.dirty) break true;
+            if (reloc.isResolvable(self)) break true;
         } else false;
 
         if (!needs_update) continue;

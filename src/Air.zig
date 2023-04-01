@@ -761,6 +761,22 @@ pub const Inst = struct {
         /// Uses the `ty` field.
         c_va_start,
 
+        /// Implements @workItemId builtin.
+        /// Result type is always `u32`
+        /// Uses the `pl_op` field, payload is the dimension to get the work item id for.
+        /// Operand is unused and set to Ref.none
+        work_item_id,
+        /// Implements @workGroupSize builtin.
+        /// Result type is always `u32`
+        /// Uses the `pl_op` field, payload is the dimension to get the work group size for.
+        /// Operand is unused and set to Ref.none
+        work_group_size,
+        /// Implements @workGroupId builtin.
+        /// Result type is always `u32`
+        /// Uses the `pl_op` field, payload is the dimension to get the work group id for.
+        /// Operand is unused and set to Ref.none
+        work_group_id,
+
         pub fn fromCmpOp(op: std.math.CompareOperator, optimized: bool) Tag {
             switch (op) {
                 .lt => return if (optimized) .cmp_lt_optimized else .cmp_lt,
@@ -1267,6 +1283,11 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
             const err_union_ty = air.typeOf(datas[inst].pl_op.operand);
             return err_union_ty.errorUnionPayload();
         },
+
+        .work_item_id,
+        .work_group_size,
+        .work_group_id,
+        => return Type.u32,
     }
 }
 
