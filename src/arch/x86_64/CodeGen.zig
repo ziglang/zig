@@ -5483,15 +5483,16 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         // Source operand can be an immediate, 8 bits or 32 bits.
         // TODO look into reusing the operand
         const lhs = try self.resolveInst(bin_op.lhs);
-        const lhs_lock: ?RegisterLock = switch (lhs) {
-            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-            else => null,
-        };
-        defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const dst_reg = try self.copyToTmpRegister(ty, lhs);
-        const dst_reg_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
+        const dst_reg_lock: RegisterLock = switch (lhs) {
+            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            else => blk: {
+                const tmp_reg = try self.copyToTmpRegister(ty, lhs);
+                break :blk self.register_manager.lockRegAssumeUnused(tmp_reg);
+            },
+        };
         defer self.register_manager.unlockReg(dst_reg_lock);
+        const dst_reg = dst_reg_lock.register;
 
         const dst_mcv = MCValue{ .register = dst_reg };
 
