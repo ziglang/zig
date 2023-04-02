@@ -63,6 +63,12 @@ const Section = struct {
     free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
 };
 
+const LazySymbolMetadata = struct {
+    atom: Atom.Index,
+    shdr: u16,
+    alignment: u32,
+};
+
 const DeclMetadata = struct {
     atom: Atom.Index,
     shdr: u16,
@@ -157,6 +163,9 @@ debug_line_header_dirty: bool = false,
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
+/// Table of tracked LazySymbols.
+lazy_syms: LazySymbolTable = .{},
+
 /// Table of tracked Decls.
 decls: std.AutoHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
 
@@ -194,6 +203,7 @@ relocs: RelocTable = .{},
 
 const RelocTable = std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Atom.Reloc));
 const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
+const LazySymbolTable = std.ArrayHashMapUnmanaged(File.LazySymbol, LazySymbolMetadata, File.LazySymbol.Context, true);
 
 /// When allocating, the ideal_capacity is calculated by
 /// actual_capacity + (actual_capacity / ideal_factor)
@@ -1010,6 +1020,19 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     var sub_prog_node = prog_node.start("ELF Flush", 0);
     sub_prog_node.activate();
     defer sub_prog_node.end();
+
+    {
+        var lazy_it = self.lazy_syms.iterator();
+        while (lazy_it.next()) |lazy_entry| {
+            self.updateLazySymbol(
+                lazy_entry.key_ptr.*,
+                lazy_entry.value_ptr.*,
+            ) catch |err| switch (err) {
+                error.CodegenFail => return error.FlushFailure,
+                else => |e| return e,
+            };
+        }
+    }
 
     // TODO This linker code currently assumes there is only 1 compilation unit and it
     // corresponds to the Zig source code.
@@ -2344,6 +2367,24 @@ pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
     }
 }
 
+pub fn getOrCreateAtomForLazySymbol(self: *Elf, lazy_sym: File.LazySymbol, alignment: u32) !Atom.Index {
+    const gop = try self.lazy_syms.getOrPutContext(self.base.allocator, lazy_sym, .{
+        .mod = self.base.options.module.?,
+    });
+    errdefer _ = self.lazy_syms.pop();
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{
+            .atom = try self.createAtom(),
+            .shdr = switch (lazy_sym.kind) {
+                .code => self.text_section_index.?,
+                .const_data => self.rodata_section_index.?,
+            },
+            .alignment = alignment,
+        };
+    }
+    return gop.value_ptr.atom;
+}
+
 pub fn getOrCreateAtomForDecl(self: *Elf, decl_index: Module.Decl.Index) !Atom.Index {
     const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
     if (!gop.found_existing) {
@@ -2608,6 +2649,79 @@ pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !v
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
     return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
+}
+
+fn updateLazySymbol(self: *Elf, lazy_sym: File.LazySymbol, lazy_metadata: LazySymbolMetadata) !void {
+    const gpa = self.base.allocator;
+    const mod = self.base.options.module.?;
+
+    var code_buffer = std.ArrayList(u8).init(gpa);
+    defer code_buffer.deinit();
+
+    const name_str_index = blk: {
+        const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
+            @tagName(lazy_sym.kind),
+            lazy_sym.ty.fmt(mod),
+        });
+        defer gpa.free(name);
+        break :blk try self.shstrtab.insert(gpa, name);
+    };
+    const name = self.shstrtab.get(name_str_index).?;
+
+    const atom_index = lazy_metadata.atom;
+    const atom = self.getAtom(atom_index);
+    const local_sym_index = atom.getSymbolIndex().?;
+
+    const src = if (lazy_sym.ty.getOwnerDeclOrNull()) |owner_decl|
+        mod.declPtr(owner_decl).srcLoc()
+    else
+        Module.SrcLoc{
+            .file_scope = undefined,
+            .parent_decl_node = undefined,
+            .lazy = .unneeded,
+        };
+    const res = try codegen.generateLazySymbol(
+        &self.base,
+        src,
+        lazy_sym,
+        &code_buffer,
+        .none,
+        .{ .parent_atom_index = local_sym_index },
+    );
+    const code = switch (res) {
+        .ok => code_buffer.items,
+        .fail => |em| {
+            log.err("{s}", .{em.msg});
+            return error.CodegenFail;
+        },
+    };
+
+    const shdr_index = lazy_metadata.shdr;
+    const phdr_index = self.sections.items(.phdr_index)[shdr_index];
+    const local_sym = atom.getSymbolPtr(self);
+    local_sym.* = .{
+        .st_name = name_str_index,
+        .st_info = (elf.STB_LOCAL << 4) | elf.STT_OBJECT,
+        .st_other = 0,
+        .st_shndx = shdr_index,
+        .st_value = 0,
+        .st_size = 0,
+    };
+    const required_alignment = lazy_metadata.alignment;
+    const vaddr = try self.allocateAtom(atom_index, code.len, required_alignment);
+    errdefer self.freeAtom(atom_index);
+    log.debug("allocated text block for {s} at 0x{x}", .{ name, vaddr });
+
+    self.offset_table.items[atom.offset_table_index] = vaddr;
+    local_sym.st_value = vaddr;
+    local_sym.st_size = code.len;
+
+    try self.writeSymbol(local_sym_index);
+    try self.writeOffsetTableEntry(atom.offset_table_index);
+
+    const section_offset = vaddr - self.program_headers.items[phdr_index].p_vaddr;
+    const file_offset = self.sections.items(.shdr)[shdr_index].sh_offset + section_offset;
+    try self.base.file.?.pwriteAll(code, file_offset);
 }
 
 pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module.Decl.Index) !u32 {
