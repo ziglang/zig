@@ -16,3 +16,5 @@ zig-out/
 /build/
 /build-*/
 /docgen_tmp/
+.idea
+*.iml
