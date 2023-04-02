@@ -860,7 +860,6 @@ fn spawnChildAndCollect(
         child.cwd = b.pathFromRoot(cwd);
     } else {
         child.cwd = b.build_root.path;
-        if (!child.cwd) child.cwd_dir = b.build_root.handle;
     }
     child.env_map = self.env_map orelse b.env_map;
     child.request_resource_usage_statistics = true;
