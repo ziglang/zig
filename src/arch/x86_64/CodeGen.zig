@@ -1625,24 +1625,68 @@ fn airPtrArithmetic(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void 
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
+fn activeIntBits(self: *Self, dst_air: Air.Inst.Ref) u16 {
+    const air_tag = self.air.instructions.items(.tag);
+    const air_data = self.air.instructions.items(.data);
+
+    const dst_ty = self.air.typeOf(dst_air);
+    const dst_info = dst_ty.intInfo(self.target.*);
+    if (Air.refToIndex(dst_air)) |inst| {
+        switch (air_tag[inst]) {
+            .constant => {
+                const src_val = self.air.values[air_data[inst].ty_pl.payload];
+                var space: Value.BigIntSpace = undefined;
+                const src_int = src_val.toBigInt(&space, self.target.*);
+                return @intCast(u16, src_int.bitCountTwosComp()) +
+                    @boolToInt(src_int.positive and dst_info.signedness == .signed);
+            },
+            .intcast => {
+                const src_ty = self.air.typeOf(air_data[inst].ty_op.operand);
+                const src_info = src_ty.intInfo(self.target.*);
+                return @min(switch (src_info.signedness) {
+                    .signed => switch (dst_info.signedness) {
+                        .signed => src_info.bits,
+                        .unsigned => src_info.bits - 1,
+                    },
+                    .unsigned => switch (dst_info.signedness) {
+                        .signed => src_info.bits + 1,
+                        .unsigned => src_info.bits,
+                    },
+                }, dst_info.bits);
+            },
+            else => {},
+        }
+    }
+    return dst_info.bits;
+}
+
 fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result = result: {
-        if (self.liveness.isUnused(inst)) break :result .dead;
-
+    const result = if (self.liveness.isUnused(inst)) .dead else result: {
         const tag = self.air.instructions.items(.tag)[inst];
-        const ty = self.air.typeOfIndex(inst);
-
-        if (ty.zigTypeTag() == .Float) {
+        const dst_ty = self.air.typeOfIndex(inst);
+        if (dst_ty.zigTypeTag() == .Float)
             break :result try self.genBinOp(inst, tag, bin_op.lhs, bin_op.rhs);
-        }
+
+        const dst_info = dst_ty.intInfo(self.target.*);
+        var src_pl = Type.Payload.Bits{ .base = .{ .tag = switch (dst_info.signedness) {
+            .signed => .int_signed,
+            .unsigned => .int_unsigned,
+        } }, .data = switch (tag) {
+            else => unreachable,
+            .mul, .mulwrap => std.math.max3(
+                self.activeIntBits(bin_op.lhs),
+                self.activeIntBits(bin_op.rhs),
+                dst_info.bits / 2,
+            ),
+            .div_trunc, .div_floor, .div_exact, .rem, .mod => dst_info.bits,
+        } };
+        const src_ty = Type.initPayload(&src_pl.base);
 
         try self.spillRegisters(&.{ .rax, .rdx });
-
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-
-        break :result try self.genMulDivBinOp(tag, inst, ty, lhs, rhs);
+        break :result try self.genMulDivBinOp(tag, inst, dst_ty, src_ty, lhs, rhs);
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
@@ -1795,7 +1839,7 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
             break :cc .c;
         };
 
-        const dst_mcv = try self.genMulDivBinOp(.mul, inst, ty, lhs_mcv, rhs_mcv);
+        const dst_mcv = try self.genMulDivBinOp(.mul, inst, ty, ty, lhs_mcv, rhs_mcv);
         const abi_size = @intCast(u32, @max(ty.abiSize(self.target.*), 2));
         try self.asmCmovccRegisterRegister(
             registerAlias(dst_mcv.register, abi_size),
@@ -1809,9 +1853,9 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airAddSubShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-    const tag = self.air.instructions.items(.tag)[inst];
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const result = if (self.liveness.isUnused(inst)) .dead else result: {
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const tag = self.air.instructions.items(.tag)[inst];
         const ty = self.air.typeOf(bin_op.lhs);
         const abi_size = ty.abiSize(self.target.*);
         switch (ty.zigTypeTag()) {
@@ -1842,20 +1886,16 @@ fn airAddSubShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
                 const int_info = ty.intInfo(self.target.*);
 
-                if (math.isPowerOfTwo(int_info.bits) and int_info.bits >= 8) {
+                if (int_info.bits >= 8 and math.isPowerOfTwo(int_info.bits)) {
                     self.eflags_inst = inst;
-
-                    const cc: Condition = switch (int_info.signedness) {
-                        .unsigned => .c,
-                        .signed => .o,
-                    };
-                    break :result MCValue{ .register_overflow = .{
+                    break :result .{ .register_overflow = .{
                         .reg = partial.register,
-                        .eflags = cc,
+                        .eflags = switch (int_info.signedness) {
+                            .unsigned => .c,
+                            .signed => .o,
+                        },
                     } };
                 }
-
-                self.eflags_inst = null;
 
                 const tuple_ty = self.air.typeOfIndex(inst);
                 const tuple_size = @intCast(u32, tuple_ty.abiSize(self.target.*));
@@ -1865,12 +1905,11 @@ fn airAddSubShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
                 try self.genSetStackTruncatedOverflowCompare(ty, stack_offset, overflow_bit_offset, partial.register);
 
-                break :result MCValue{ .stack_offset = stack_offset };
+                break :result .{ .stack_offset = stack_offset };
             },
             else => unreachable,
         }
     };
-
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1931,48 +1970,56 @@ fn genSetStackTruncatedOverflowCompare(
 fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-
-    if (self.liveness.isUnused(inst)) {
-        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
-    }
-
-    const ty = self.air.typeOf(bin_op.lhs);
-    const abi_size = ty.abiSize(self.target.*);
-    const result: MCValue = result: {
-        switch (ty.zigTypeTag()) {
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const dst_ty = self.air.typeOf(bin_op.lhs);
+        switch (dst_ty.zigTypeTag()) {
             .Vector => return self.fail("TODO implement mul_with_overflow for Vector type", .{}),
             .Int => {
-                if (abi_size > 8) {
-                    return self.fail("TODO implement mul_with_overflow for Ints larger than 64bits", .{});
-                }
+                try self.spillEflagsIfOccupied();
 
-                const int_info = ty.intInfo(self.target.*);
-
-                if (math.isPowerOfTwo(int_info.bits) and int_info.bits >= 8) {
-                    try self.spillEflagsIfOccupied();
-                    self.eflags_inst = inst;
+                const dst_info = dst_ty.intInfo(self.target.*);
+                if (dst_info.bits >= 8 and math.isPowerOfTwo(dst_info.bits)) {
+                    var src_pl = Type.Payload.Bits{ .base = .{ .tag = switch (dst_info.signedness) {
+                        .signed => .int_signed,
+                        .unsigned => .int_unsigned,
+                    } }, .data = std.math.max3(
+                        self.activeIntBits(bin_op.lhs),
+                        self.activeIntBits(bin_op.rhs),
+                        dst_info.bits / 2,
+                    ) };
+                    const src_ty = Type.initPayload(&src_pl.base);
 
                     try self.spillRegisters(&.{ .rax, .rdx });
-
                     const lhs = try self.resolveInst(bin_op.lhs);
                     const rhs = try self.resolveInst(bin_op.rhs);
 
-                    const partial = try self.genMulDivBinOp(.mul, null, ty, lhs, rhs);
-                    const cc: Condition = switch (int_info.signedness) {
+                    const partial = try self.genMulDivBinOp(.mul, null, dst_ty, src_ty, lhs, rhs);
+                    const cc: Condition = switch (dst_info.signedness) {
                         .unsigned => .c,
                         .signed => .o,
                     };
-                    break :result MCValue{ .register_overflow = .{
-                        .reg = partial.register,
-                        .eflags = cc,
-                    } };
+                    switch (partial) {
+                        .register => |reg| {
+                            self.eflags_inst = inst;
+                            break :result .{ .register_overflow = .{ .reg = reg, .eflags = cc } };
+                        },
+                        else => {},
+                    }
+
+                    const dst_abi_size = @intCast(i32, dst_ty.abiSize(self.target.*));
+                    const dst_mcv = try self.allocRegOrMem(inst, false);
+                    try self.genSetStack(
+                        Type.u1,
+                        dst_mcv.stack_offset - dst_abi_size,
+                        .{ .eflags = cc },
+                        .{},
+                    );
+                    try self.genSetStack(dst_ty, dst_mcv.stack_offset, partial, .{});
+                    break :result dst_mcv;
                 }
 
-                try self.spillEflagsIfOccupied();
-                self.eflags_inst = null;
-
                 const dst_reg: Register = dst_reg: {
-                    switch (int_info.signedness) {
+                    switch (dst_info.signedness) {
                         .signed => {
                             const lhs = try self.resolveInst(bin_op.lhs);
                             const rhs = try self.resolveInst(bin_op.rhs);
@@ -1985,14 +2032,14 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
                             const dst_reg: Register = blk: {
                                 if (lhs.isRegister()) break :blk lhs.register;
-                                break :blk try self.copyToTmpRegister(ty, lhs);
+                                break :blk try self.copyToTmpRegister(dst_ty, lhs);
                             };
                             const dst_reg_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
                             defer self.register_manager.unlockReg(dst_reg_lock);
 
                             const rhs_mcv: MCValue = blk: {
                                 if (rhs.isRegister() or rhs.isMemory()) break :blk rhs;
-                                break :blk MCValue{ .register = try self.copyToTmpRegister(ty, rhs) };
+                                break :blk MCValue{ .register = try self.copyToTmpRegister(dst_ty, rhs) };
                             };
                             const rhs_mcv_lock: ?RegisterLock = switch (rhs_mcv) {
                                 .register => |reg| self.register_manager.lockReg(reg),
@@ -2010,7 +2057,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                             const lhs = try self.resolveInst(bin_op.lhs);
                             const rhs = try self.resolveInst(bin_op.rhs);
 
-                            const dst_mcv = try self.genMulDivBinOp(.mul, null, ty, lhs, rhs);
+                            const dst_mcv = try self.genMulDivBinOp(.mul, null, dst_ty, dst_ty, lhs, rhs);
                             break :dst_reg dst_mcv.register;
                         },
                     }
@@ -2022,14 +2069,13 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 const overflow_bit_offset = @intCast(i32, tuple_ty.structFieldOffset(1, self.target.*));
                 const stack_offset = @intCast(i32, try self.allocMem(inst, tuple_size, tuple_align));
 
-                try self.genSetStackTruncatedOverflowCompare(ty, stack_offset, overflow_bit_offset, dst_reg);
+                try self.genSetStackTruncatedOverflowCompare(dst_ty, stack_offset, overflow_bit_offset, dst_reg);
 
-                break :result MCValue{ .stack_offset = stack_offset };
+                break :result .{ .stack_offset = stack_offset };
             },
             else => unreachable,
         }
     };
-
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -2040,7 +2086,6 @@ fn genIntMulDivOpMir(
     self: *Self,
     tag: Mir.Inst.Tag,
     ty: Type,
-    signedness: std.builtin.Signedness,
     lhs: MCValue,
     rhs: MCValue,
 ) !void {
@@ -2057,26 +2102,23 @@ fn genIntMulDivOpMir(
         try self.genSetReg(ty, .rax, lhs);
     }
 
-    switch (signedness) {
-        .signed => try self.asmOpOnly(.cqo),
-        .unsigned => try self.asmRegisterRegister(.xor, .rdx, .rdx),
+    switch (tag) {
+        else => unreachable,
+        .mul, .imul => {},
+        .div => try self.asmRegisterRegister(.xor, .edx, .edx),
+        .idiv => try self.asmOpOnly(.cqo),
     }
 
-    const factor = switch (rhs) {
-        .register => rhs,
-        .stack_offset => rhs,
-        else => blk: {
-            const reg = try self.copyToTmpRegister(ty, rhs);
-            break :blk MCValue{ .register = reg };
-        },
+    const factor: MCValue = switch (rhs) {
+        .register, .stack_offset => rhs,
+        else => .{ .register = try self.copyToTmpRegister(ty, rhs) },
     };
-
     switch (factor) {
         .register => |reg| try self.asmRegister(tag, reg),
-        .stack_offset => |off| try self.asmMemory(tag, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
-            .base = .rbp,
-            .disp = -off,
-        })),
+        .stack_offset => |off| try self.asmMemory(tag, Memory.sib(
+            Memory.PtrSize.fromSize(abi_size),
+            .{ .base = .rbp, .disp = -off },
+        )),
         else => unreachable,
     }
 }
@@ -2102,7 +2144,7 @@ fn genInlineIntDivFloor(self: *Self, ty: Type, lhs: MCValue, rhs: MCValue) !MCVa
     try self.genIntMulDivOpMir(switch (signedness) {
         .signed => .idiv,
         .unsigned => .div,
-    }, Type.isize, signedness, .{ .register = dividend }, .{ .register = divisor });
+    }, Type.isize, .{ .register = dividend }, .{ .register = divisor });
 
     try self.asmRegisterRegister(.xor, divisor.to64(), dividend.to64());
     try self.asmRegisterImmediate(.sar, divisor.to64(), Immediate.u(63));
@@ -3938,14 +3980,14 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
             .register_overflow => |ro| {
                 switch (index) {
                     // Get wrapped value for overflow operation.
-                    0 => if (self.liveness.operandDies(inst, 0)) {
-                        self.eflags_inst = null;
-                        break :result .{ .register = ro.reg };
-                    } else break :result try self.copyToRegisterWithInstTracking(
-                        inst,
-                        Type.usize,
-                        .{ .register = ro.reg },
-                    ),
+                    0 => break :result if (self.liveness.operandDies(inst, 0))
+                        .{ .register = ro.reg }
+                    else
+                        try self.copyToRegisterWithInstTracking(
+                            inst,
+                            Type.usize,
+                            .{ .register = ro.reg },
+                        ),
                     // Get overflow bit.
                     1 => if (self.liveness.operandDies(inst, 0)) {
                         self.eflags_inst = inst;
@@ -4318,20 +4360,26 @@ fn genMulDivBinOp(
     self: *Self,
     tag: Air.Inst.Tag,
     maybe_inst: ?Air.Inst.Index,
-    ty: Type,
+    dst_ty: Type,
+    src_ty: Type,
     lhs: MCValue,
     rhs: MCValue,
 ) !MCValue {
-    if (ty.zigTypeTag() == .Vector or ty.zigTypeTag() == .Float) {
-        return self.fail("TODO implement genMulDivBinOp for {}", .{ty.fmtDebug()});
+    if (dst_ty.zigTypeTag() == .Vector or dst_ty.zigTypeTag() == .Float) {
+        return self.fail("TODO implement genMulDivBinOp for {}", .{dst_ty.fmtDebug()});
     }
-    const abi_size = @intCast(u32, ty.abiSize(self.target.*));
-    if (abi_size > 8) {
-        return self.fail("TODO implement genMulDivBinOp for {}", .{ty.fmtDebug()});
-    }
-    if (tag == .div_float) {
-        return self.fail("TODO implement genMulDivBinOp for div_float", .{});
-    }
+    const dst_abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
+    const src_abi_size = @intCast(u32, src_ty.abiSize(self.target.*));
+    if (switch (tag) {
+        else => unreachable,
+        .mul, .mulwrap => dst_abi_size != src_abi_size and dst_abi_size != src_abi_size * 2,
+        .div_trunc, .div_floor, .div_exact, .rem, .mod => dst_abi_size != src_abi_size,
+    } or src_abi_size > 8) return self.fail("TODO implement genMulDivBinOp from {} to {}", .{
+        src_ty.fmt(self.bin_file.options.module.?),
+        dst_ty.fmt(self.bin_file.options.module.?),
+    });
+    const ty = if (dst_abi_size <= 8) dst_ty else src_ty;
+    const abi_size = if (dst_abi_size <= 8) dst_abi_size else src_abi_size;
 
     assert(self.register_manager.isRegFree(.rax));
     assert(self.register_manager.isRegFree(.rdx));
@@ -4339,9 +4387,7 @@ fn genMulDivBinOp(
     const reg_locks = self.register_manager.lockRegs(2, .{ .rax, .rdx });
     defer for (reg_locks) |reg_lock| if (reg_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const int_info = ty.intInfo(self.target.*);
-    const signedness = int_info.signedness;
-
+    const signedness = ty.intInfo(self.target.*).signedness;
     switch (tag) {
         .mul,
         .mulwrap,
@@ -4349,11 +4395,12 @@ fn genMulDivBinOp(
         .div_trunc,
         .div_exact,
         => {
-            const track_inst_rax: ?Air.Inst.Index = switch (tag) {
-                .mul, .mulwrap, .div_exact, .div_trunc => maybe_inst,
+            const track_inst_rax = switch (tag) {
+                .mul, .mulwrap => if (dst_abi_size <= 8) maybe_inst else null,
+                .div_exact, .div_trunc => maybe_inst,
                 else => null,
             };
-            const track_inst_rdx: ?Air.Inst.Index = switch (tag) {
+            const track_inst_rdx = switch (tag) {
                 .rem => maybe_inst,
                 else => null,
             };
@@ -4373,13 +4420,24 @@ fn genMulDivBinOp(
                 },
             };
 
-            try self.genIntMulDivOpMir(mir_tag, ty, .signed, lhs, rhs);
+            try self.genIntMulDivOpMir(mir_tag, ty, lhs, rhs);
 
-            return .{ .register = registerAlias(switch (tag) {
+            if (dst_abi_size <= 8) return .{ .register = registerAlias(switch (tag) {
                 .mul, .mulwrap, .div_trunc, .div_exact => .rax,
                 .rem => .rdx,
                 else => unreachable,
-            }, abi_size) };
+            }, dst_abi_size) };
+
+            const dst_mcv = try self.allocRegOrMemAdvanced(dst_ty, maybe_inst, false);
+            try self.asmMemoryRegister(.mov, Memory.sib(.qword, .{
+                .base = .rbp,
+                .disp = 0 - dst_mcv.stack_offset,
+            }), .rax);
+            try self.asmMemoryRegister(.mov, Memory.sib(.qword, .{
+                .base = .rbp,
+                .disp = 8 - dst_mcv.stack_offset,
+            }), .rdx);
+            return dst_mcv;
         },
 
         .mod => {
@@ -4402,7 +4460,7 @@ fn genMulDivBinOp(
                     return result;
                 },
                 .unsigned => {
-                    try self.genIntMulDivOpMir(.div, ty, .unsigned, lhs, rhs);
+                    try self.genIntMulDivOpMir(.div, ty, lhs, rhs);
                     return .{ .register = registerAlias(.rdx, abi_size) };
                 },
             }
@@ -4441,18 +4499,13 @@ fn genMulDivBinOp(
             };
             defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-            const result: MCValue = result: {
-                switch (signedness) {
-                    .signed => break :result try self.genInlineIntDivFloor(ty, lhs, actual_rhs),
-                    .unsigned => {
-                        try self.genIntMulDivOpMir(.div, ty, .unsigned, lhs, actual_rhs);
-                        break :result MCValue{
-                            .register = registerAlias(.rax, @intCast(u32, ty.abiSize(self.target.*))),
-                        };
-                    },
-                }
-            };
-            return result;
+            switch (signedness) {
+                .signed => return try self.genInlineIntDivFloor(ty, lhs, actual_rhs),
+                .unsigned => {
+                    try self.genIntMulDivOpMir(.div, ty, lhs, actual_rhs);
+                    return .{ .register = registerAlias(.rax, abi_size) };
+                },
+            }
         },
 
         else => unreachable,
@@ -6718,6 +6771,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
 }
 
 fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: InlineMemcpyOpts) InnerError!void {
+    const base_reg = opts.dest_stack_base orelse .rbp;
     const abi_size = @intCast(u32, ty.abiSize(self.target.*));
     switch (mcv) {
         .dead => unreachable,
@@ -6733,12 +6787,17 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                         4 => 0xaaaaaaaa,
                         else => unreachable,
                     };
-                    return self.asmMemoryImmediate(.mov, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
-                        .base = opts.dest_stack_base orelse .rbp,
-                        .disp = -stack_offset,
-                    }), Immediate.u(value));
+                    return self.asmMemoryImmediate(.mov, Memory.sib(
+                        Memory.PtrSize.fromSize(abi_size),
+                        .{ .base = base_reg, .disp = -stack_offset },
+                    ), Immediate.u(value));
                 },
-                8 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaaaaaaaaaa }, opts),
+                8 => return self.genSetStack(
+                    ty,
+                    stack_offset,
+                    .{ .immediate = 0xaaaaaaaaaaaaaaaa },
+                    opts,
+                ),
                 else => |x| return self.genInlineMemset(
                     .{ .stack_offset = stack_offset },
                     .{ .immediate = 0xaa },
@@ -6766,12 +6825,11 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                 .{},
             );
         },
-        .eflags => {
-            const reg = try self.copyToTmpRegister(ty, mcv);
-            return self.genSetStack(ty, stack_offset, .{ .register = reg }, opts);
-        },
-        .immediate => |x_big| {
-            const base_reg = opts.dest_stack_base orelse .rbp;
+        .eflags => |cc| try self.asmSetccMemory(
+            Memory.sib(.byte, .{ .base = base_reg, .disp = -stack_offset }),
+            cc,
+        ),
+        .immediate => |imm| {
             // TODO
             switch (abi_size) {
                 0 => {
@@ -6779,13 +6837,13 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                     try self.asmMemoryImmediate(.mov, Memory.sib(.byte, .{
                         .base = base_reg,
                         .disp = -stack_offset,
-                    }), Immediate.u(@truncate(u8, x_big)));
+                    }), Immediate.u(@truncate(u8, imm)));
                 },
                 1, 2, 4 => {
                     const immediate = if (ty.isSignedInt())
-                        Immediate.s(@truncate(i32, @bitCast(i64, x_big)))
+                        Immediate.s(@truncate(i32, @bitCast(i64, imm)))
                     else
-                        Immediate.u(@intCast(u32, x_big));
+                        Immediate.u(@intCast(u32, imm));
                     try self.asmMemoryImmediate(.mov, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
                         .base = base_reg,
                         .disp = -stack_offset,
@@ -6795,27 +6853,32 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                 else => {
                     // 64 bit write to memory would take two mov's anyways so we
                     // insted just use two 32 bit writes to avoid register allocation
-                    var offset: i32 = 0;
-                    while (offset < abi_size) : (offset += 4) try self.asmMemoryImmediate(
-                        .mov,
-                        Memory.sib(.dword, .{ .base = base_reg, .disp = offset - stack_offset }),
-                        if (ty.isSignedInt())
-                            Immediate.s(@truncate(
-                                i32,
-                                @bitCast(i64, x_big) >> (math.cast(u6, offset * 8) orelse 63),
-                            ))
-                        else
-                            Immediate.u(@truncate(
-                                u32,
-                                if (math.cast(u6, offset * 8)) |shift| x_big >> shift else 0,
-                            )),
-                    );
+                    if (std.math.cast(i32, @bitCast(i64, imm))) |small| {
+                        try self.asmMemoryImmediate(.mov, Memory.sib(
+                            Memory.PtrSize.fromSize(abi_size),
+                            .{ .base = base_reg, .disp = -stack_offset },
+                        ), Immediate.s(small));
+                    } else {
+                        var offset: i32 = 0;
+                        while (offset < abi_size) : (offset += 4) try self.asmMemoryImmediate(
+                            .mov,
+                            Memory.sib(.dword, .{ .base = base_reg, .disp = offset - stack_offset }),
+                            if (ty.isSignedInt())
+                                Immediate.s(@truncate(
+                                    i32,
+                                    @bitCast(i64, imm) >> (math.cast(u6, offset * 8) orelse 63),
+                                ))
+                            else
+                                Immediate.u(@truncate(
+                                    u32,
+                                    if (math.cast(u6, offset * 8)) |shift| imm >> shift else 0,
+                                )),
+                        );
+                    }
                 },
             }
         },
         .register => |reg| {
-            const base_reg = opts.dest_stack_base orelse .rbp;
-
             switch (ty.zigTypeTag()) {
                 .Float => {
                     if (intrinsicsAllowed(self.target.*, ty)) {
