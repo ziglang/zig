@@ -1857,18 +1857,15 @@ fn airAddSubShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const tag = self.air.instructions.items(.tag)[inst];
         const ty = self.air.typeOf(bin_op.lhs);
-        const abi_size = ty.abiSize(self.target.*);
         switch (ty.zigTypeTag()) {
             .Vector => return self.fail("TODO implement add/sub/shl with overflow for Vector type", .{}),
             .Int => {
-                if (abi_size > 8) {
-                    return self.fail("TODO implement add/sub/shl with overflow for Ints larger than 64bits", .{});
-                }
-
                 try self.spillEflagsIfOccupied();
 
                 if (tag == .shl_with_overflow) {
                     try self.spillRegisters(&.{.rcx});
+                    // cf/of don't work for shifts other than 1
+                    return self.fail("TODO implement shl_with_overflow for x86_64", .{});
                 }
 
                 const partial: MCValue = switch (tag) {
@@ -1885,16 +1882,29 @@ fn airAddSubShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 };
 
                 const int_info = ty.intInfo(self.target.*);
-
                 if (int_info.bits >= 8 and math.isPowerOfTwo(int_info.bits)) {
-                    self.eflags_inst = inst;
-                    break :result .{ .register_overflow = .{
-                        .reg = partial.register,
-                        .eflags = switch (int_info.signedness) {
-                            .unsigned => .c,
-                            .signed => .o,
+                    const cc: Condition = switch (int_info.signedness) {
+                        .unsigned => .c,
+                        .signed => .o,
+                    };
+                    switch (partial) {
+                        .register => |reg| {
+                            self.eflags_inst = inst;
+                            break :result .{ .register_overflow = .{ .reg = reg, .eflags = cc } };
                         },
-                    } };
+                        else => {},
+                    }
+
+                    const abi_size = @intCast(i32, ty.abiSize(self.target.*));
+                    const dst_mcv = try self.allocRegOrMem(inst, false);
+                    try self.genSetStack(
+                        Type.u1,
+                        dst_mcv.stack_offset - abi_size,
+                        .{ .eflags = cc },
+                        .{},
+                    );
+                    try self.genSetStack(ty, dst_mcv.stack_offset, partial, .{});
+                    break :result dst_mcv;
                 }
 
                 const tuple_ty = self.air.typeOfIndex(inst);
