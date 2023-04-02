@@ -99,6 +99,47 @@ fn writeFloat(comptime F: type, f: F, target: Target, endian: std.builtin.Endian
     mem.writeInt(Int, code[0..@sizeOf(Int)], int, endian);
 }
 
+pub fn generateLazySymbol(
+    bin_file: *link.File,
+    src_loc: Module.SrcLoc,
+    lazy_sym: link.File.LazySymbol,
+    code: *std.ArrayList(u8),
+    debug_output: DebugInfoOutput,
+    reloc_info: RelocInfo,
+) CodeGenError!Result {
+    _ = debug_output;
+    _ = reloc_info;
+
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const target = bin_file.options.target;
+    const endian = target.cpu.arch.endian();
+
+    const mod = bin_file.options.module.?;
+    log.debug("generateLazySymbol: kind = {s}, ty = {}", .{
+        @tagName(lazy_sym.kind),
+        lazy_sym.ty.fmt(mod),
+    });
+
+    if (lazy_sym.kind == .const_data and lazy_sym.ty.isAnyError()) {
+        const err_names = mod.error_name_list.items;
+        try code.resize(err_names.len * 4);
+        for (err_names, 0..) |err_name, index| {
+            mem.writeInt(u32, code.items[index * 4 ..][0..4], @intCast(u32, code.items.len), endian);
+            try code.ensureUnusedCapacity(err_name.len + 1);
+            code.appendSliceAssumeCapacity(err_name);
+            code.appendAssumeCapacity(0);
+        }
+        return Result.ok;
+    } else return .{ .fail = try ErrorMsg.create(
+        bin_file.allocator,
+        src_loc,
+        "TODO implement generateLazySymbol for {s} {}",
+        .{ @tagName(lazy_sym.kind), lazy_sym.ty.fmt(mod) },
+    ) };
+}
+
 pub fn generateSymbol(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
@@ -118,9 +159,10 @@ pub fn generateSymbol(
     const target = bin_file.options.target;
     const endian = target.cpu.arch.endian();
 
+    const mod = bin_file.options.module.?;
     log.debug("generateSymbol: ty = {}, val = {}", .{
-        typed_value.ty.fmtDebug(),
-        typed_value.val.fmtDebug(),
+        typed_value.ty.fmt(mod),
+        typed_value.val.fmtValue(typed_value.ty, mod),
     });
 
     if (typed_value.val.isUndefDeep()) {
@@ -170,7 +212,6 @@ pub fn generateSymbol(
             },
             .str_lit => {
                 const str_lit = typed_value.val.castTag(.str_lit).?.data;
-                const mod = bin_file.options.module.?;
                 const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
                 try code.ensureUnusedCapacity(bytes.len + 1);
                 code.appendSliceAssumeCapacity(bytes);
@@ -300,7 +341,6 @@ pub fn generateSymbol(
                 switch (container_ptr.tag()) {
                     .decl_ref => {
                         const decl_index = container_ptr.castTag(.decl_ref).?.data;
-                        const mod = bin_file.options.module.?;
                         const decl = mod.declPtr(decl_index);
                         const addend = blk: {
                             switch (decl.ty.zigTypeTag()) {
@@ -493,7 +533,6 @@ pub fn generateSymbol(
                 const field_vals = typed_value.val.castTag(.aggregate).?.data;
                 const abi_size = math.cast(usize, typed_value.ty.abiSize(target)) orelse return error.Overflow;
                 const current_pos = code.items.len;
-                const mod = bin_file.options.module.?;
                 try code.resize(current_pos + abi_size);
                 var bits: u16 = 0;
 
@@ -570,7 +609,6 @@ pub fn generateSymbol(
             }
 
             const union_ty = typed_value.ty.cast(Type.Payload.Union).?.data;
-            const mod = bin_file.options.module.?;
             const field_index = typed_value.ty.unionTagFieldIndex(union_obj.tag, mod).?;
             assert(union_ty.haveFieldTypes());
             const field_ty = union_ty.fields.values()[field_index].ty;
@@ -776,7 +814,6 @@ pub fn generateSymbol(
             },
             .str_lit => {
                 const str_lit = typed_value.val.castTag(.str_lit).?.data;
-                const mod = bin_file.options.module.?;
                 const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
                 try code.ensureUnusedCapacity(str_lit.len);
                 code.appendSliceAssumeCapacity(bytes);

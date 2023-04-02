@@ -218,6 +218,9 @@ bindings: BindingTable = .{},
 /// this will be a table indexed by index into the list of Atoms.
 lazy_bindings: BindingTable = .{},
 
+/// Table of tracked LazySymbols.
+lazy_syms: LazySymbolTable = .{},
+
 /// Table of tracked Decls.
 decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
 
@@ -227,6 +230,18 @@ hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
 const is_hot_update_compatible = switch (builtin.target.os.tag) {
     .macos => true,
     else => false,
+};
+
+const LazySymbolTable = std.ArrayHashMapUnmanaged(
+    link.File.LazySymbol,
+    LazySymbolMetadata,
+    link.File.LazySymbol.Context,
+    true,
+);
+
+const LazySymbolMetadata = struct {
+    atom: Atom.Index,
+    section: u8,
 };
 
 const DeclMetadata = struct {
@@ -496,6 +511,19 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     var sub_prog_node = prog_node.start("MachO Flush", 0);
     sub_prog_node.activate();
     defer sub_prog_node.end();
+
+    {
+        var lazy_it = self.lazy_syms.iterator();
+        while (lazy_it.next()) |lazy_entry| {
+            self.updateLazySymbol(
+                lazy_entry.key_ptr.*,
+                lazy_entry.value_ptr.*,
+            ) catch |err| switch (err) {
+                error.CodegenFail => return error.FlushFailure,
+                else => |e| return e,
+            };
+        }
+    }
 
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
@@ -2163,13 +2191,13 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
 
     const name_str_index = blk: {
         const index = unnamed_consts.items.len;
-        const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
+        const name = try std.fmt.allocPrint(gpa, "___unnamed_{s}_{d}", .{ decl_name, index });
         defer gpa.free(name);
         break :blk try self.strtab.insert(gpa, name);
     };
-    const name = self.strtab.get(name_str_index);
+    const name = self.strtab.get(name_str_index).?;
 
-    log.debug("allocating symbol indexes for {?s}", .{name});
+    log.debug("allocating symbol indexes for {s}", .{name});
 
     const atom_index = try self.createAtom();
 
@@ -2202,7 +2230,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
 
     try unnamed_consts.append(gpa, atom_index);
 
-    log.debug("allocated atom for {?s} at 0x{x}", .{ name, symbol.n_value });
+    log.debug("allocated atom for {s} at 0x{x}", .{ name, symbol.n_value });
     log.debug("  (required alignment 0x{x})", .{required_alignment});
 
     try self.writeAtom(atom_index, code);
@@ -2280,6 +2308,100 @@ pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) 
     // Since we updated the vaddr and the size, each corresponding export symbol also
     // needs to be updated.
     try self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
+}
+
+fn updateLazySymbol(self: *MachO, lazy_sym: File.LazySymbol, lazy_metadata: LazySymbolMetadata) !void {
+    const gpa = self.base.allocator;
+    const mod = self.base.options.module.?;
+
+    var code_buffer = std.ArrayList(u8).init(gpa);
+    defer code_buffer.deinit();
+
+    const name_str_index = blk: {
+        const name = try std.fmt.allocPrint(gpa, "___lazy_{s}_{}", .{
+            @tagName(lazy_sym.kind),
+            lazy_sym.ty.fmt(mod),
+        });
+        defer gpa.free(name);
+        break :blk try self.strtab.insert(gpa, name);
+    };
+    const name = self.strtab.get(name_str_index).?;
+
+    const atom_index = lazy_metadata.atom;
+    const atom = self.getAtomPtr(atom_index);
+    const local_sym_index = atom.getSymbolIndex().?;
+
+    const src = if (lazy_sym.ty.getOwnerDeclOrNull()) |owner_decl|
+        mod.declPtr(owner_decl).srcLoc()
+    else
+        Module.SrcLoc{
+            .file_scope = undefined,
+            .parent_decl_node = undefined,
+            .lazy = .unneeded,
+        };
+    const res = try codegen.generateLazySymbol(
+        &self.base,
+        src,
+        lazy_sym,
+        &code_buffer,
+        .none,
+        .{ .parent_atom_index = local_sym_index },
+    );
+    const code = switch (res) {
+        .ok => code_buffer.items,
+        .fail => |em| {
+            log.err("{s}", .{em.msg});
+            return error.CodegenFail;
+        },
+    };
+
+    const required_alignment = atom.alignment;
+    const symbol = atom.getSymbolPtr(self);
+    symbol.n_strx = name_str_index;
+    symbol.n_type = macho.N_SECT;
+    symbol.n_sect = lazy_metadata.section + 1;
+    symbol.n_desc = 0;
+
+    const vaddr = try self.allocateAtom(atom_index, code.len, required_alignment);
+    errdefer self.freeAtom(atom_index);
+
+    log.debug("allocated atom for {s} at 0x{x}", .{ name, vaddr });
+    log.debug("  (required alignment 0x{x}", .{required_alignment});
+
+    atom.size = code.len;
+    symbol.n_value = vaddr;
+
+    const got_target = SymbolWithLoc{ .sym_index = local_sym_index, .file = null };
+    const got_index = try self.allocateGotEntry(got_target);
+    const got_atom_index = try self.createGotAtom(got_target);
+    const got_atom = self.getAtom(got_atom_index);
+    self.got_entries.items[got_index].sym_index = got_atom.getSymbolIndex().?;
+    try self.writePtrWidthAtom(got_atom_index);
+
+    self.markRelocsDirtyByTarget(atom.getSymbolWithLoc());
+    try self.writeAtom(atom_index, code);
+}
+
+pub fn getOrCreateAtomForLazySymbol(
+    self: *MachO,
+    lazy_sym: File.LazySymbol,
+    alignment: u32,
+) !Atom.Index {
+    const gop = try self.lazy_syms.getOrPutContext(self.base.allocator, lazy_sym, .{
+        .mod = self.base.options.module.?,
+    });
+    errdefer _ = self.lazy_syms.pop();
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{
+            .atom = try self.createAtom(),
+            .section = switch (lazy_sym.kind) {
+                .code => self.text_section_index.?,
+                .const_data => self.data_const_section_index.?,
+            },
+        };
+        self.getAtomPtr(gop.value_ptr.atom).alignment = alignment;
+    }
+    return gop.value_ptr.atom;
 }
 
 pub fn getOrCreateAtomForDecl(self: *MachO, decl_index: Module.Decl.Index) !Atom.Index {

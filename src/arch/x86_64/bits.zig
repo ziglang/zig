@@ -100,6 +100,16 @@ pub const Condition = enum(u5) {
         };
     }
 
+    pub fn fromCompareOperator(
+        signedness: std.builtin.Signedness,
+        op: std.math.CompareOperator,
+    ) Condition {
+        return switch (signedness) {
+            .signed => fromCompareOperatorSigned(op),
+            .unsigned => fromCompareOperatorUnsigned(op),
+        };
+    }
+
     /// Returns the condition which is true iff the given condition is false
     pub fn negate(cond: Condition) Condition {
         return switch (cond) {
