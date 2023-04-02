@@ -3986,7 +3986,7 @@ fn genUnOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValue
         .eflags => unreachable,
         .register_overflow => unreachable,
         .register => |dst_reg| try self.asmRegister(mir_tag, registerAlias(dst_reg, abi_size)),
-        .ptr_stack_offset, .stack_offset => |off| {
+        .stack_offset => |off| {
             if (abi_size > 8) {
                 return self.fail("TODO implement {} for stack dst with large ABI", .{mir_tag});
             }
@@ -3996,20 +3996,13 @@ fn genUnOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValue
                 .disp = -off,
             }));
         },
+        .ptr_stack_offset => unreachable,
         .memory, .linker_load => {
             const addr_reg = (try self.register_manager.allocReg(null, gp)).to64();
             const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
             defer self.register_manager.unlockReg(addr_reg_lock);
 
             try self.loadMemPtrIntoRegister(addr_reg, Type.usize, dst_mcv);
-
-            // To get the actual address of the value we want to modify we have to go through the GOT
-            try self.asmRegisterMemory(
-                .mov,
-                addr_reg,
-                Memory.sib(.qword, .{ .base = addr_reg }),
-            );
-
             try self.asmMemory(
                 mir_tag,
                 Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = addr_reg }),
@@ -4454,7 +4447,7 @@ fn genBinOp(
 
         else => false,
     };
-    const needs_reg_dst = switch (tag) {
+    const dst_mem_ok = switch (tag) {
         .add,
         .addwrap,
         .sub,
@@ -4464,9 +4457,9 @@ fn genBinOp(
         .div_exact,
         .div_trunc,
         .div_floor,
-        => lhs_ty.isRuntimeFloat(),
+        => !lhs_ty.isRuntimeFloat(),
 
-        else => false,
+        else => true,
     };
 
     const lhs_lock: ?RegisterLock = switch (lhs) {
@@ -4482,18 +4475,21 @@ fn genBinOp(
     defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
     var flipped: bool = false;
-    const dst_mcv: MCValue = blk: {
+    const dst_mcv: MCValue = dst: {
         if (maybe_inst) |inst| {
-            if ((!needs_reg_dst or lhs.isRegister()) and self.reuseOperand(inst, lhs_air, 0, lhs)) {
-                break :blk lhs;
+            if ((dst_mem_ok or lhs.isRegister()) and self.reuseOperand(inst, lhs_air, 0, lhs)) {
+                break :dst lhs;
             }
-            if (is_commutative and (!needs_reg_dst or rhs.isRegister()) and self.reuseOperand(inst, rhs_air, 1, rhs)) {
+            if (is_commutative and (dst_mem_ok or rhs.isRegister()) and
+                self.reuseOperand(inst, rhs_air, 1, rhs))
+            {
                 flipped = true;
-                break :blk rhs;
+                break :dst rhs;
             }
-            break :blk try self.copyToRegisterWithInstTracking(inst, lhs_ty, lhs);
         }
-        break :blk MCValue{ .register = try self.copyToTmpRegister(lhs_ty, lhs) };
+        const dst_mcv = try self.allocRegOrMemAdvanced(lhs_ty, maybe_inst, true);
+        try self.setRegOrMem(lhs_ty, dst_mcv, lhs);
+        break :dst dst_mcv;
     };
     const dst_mcv_lock: ?RegisterLock = switch (dst_mcv) {
         .register => |reg| self.register_manager.lockReg(reg),
@@ -4501,17 +4497,7 @@ fn genBinOp(
     };
     defer if (dst_mcv_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const src_mcv: MCValue = blk: {
-        const mcv = if (flipped) lhs else rhs;
-        if (mcv.isRegister() or mcv.isMemory()) break :blk mcv;
-        break :blk MCValue{ .register = try self.copyToTmpRegister(rhs_ty, mcv) };
-    };
-    const src_mcv_lock: ?RegisterLock = switch (src_mcv) {
-        .register => |reg| self.register_manager.lockReg(reg),
-        else => null,
-    };
-    defer if (src_mcv_lock) |lock| self.register_manager.unlockReg(lock);
-
+    const src_mcv = if (flipped) lhs else rhs;
     switch (tag) {
         .add,
         .addwrap,
@@ -4573,14 +4559,18 @@ fn genBinOp(
         .ptr_add,
         .ptr_sub,
         => {
-            const mir_tag: Mir.Inst.Tag = switch (tag) {
+            const tmp_reg = try self.copyToTmpRegister(rhs_ty, src_mcv);
+            const tmp_mcv = MCValue{ .register = tmp_reg };
+            const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+            defer self.register_manager.unlockReg(tmp_lock);
+
+            const elem_size = lhs_ty.elemType2().abiSize(self.target.*);
+            try self.genIntMulComplexOpMir(rhs_ty, tmp_mcv, .{ .immediate = elem_size });
+            try self.genBinOpMir(switch (tag) {
                 .ptr_add => .add,
                 .ptr_sub => .sub,
                 else => unreachable,
-            };
-            const elem_size = lhs_ty.elemType2().abiSize(self.target.*);
-            try self.genIntMulComplexOpMir(rhs_ty, src_mcv, .{ .immediate = elem_size });
-            try self.genBinOpMir(mir_tag, lhs_ty, dst_mcv, src_mcv);
+            }, lhs_ty, dst_mcv, tmp_mcv);
         },
 
         .bool_or,
@@ -4657,16 +4647,8 @@ fn genBinOp(
                         const addr_reg = (try self.register_manager.allocReg(null, gp)).to64();
                         const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
                         defer self.register_manager.unlockReg(addr_reg_lock);
+
                         try self.loadMemPtrIntoRegister(addr_reg, Type.usize, mat_src_mcv);
-
-                        // To get the actual address of the value we want to modify we
-                        // we have to go through the GOT
-                        try self.asmRegisterMemory(
-                            .mov,
-                            addr_reg,
-                            Memory.sib(.qword, .{ .base = addr_reg }),
-                        );
-
                         try self.asmCmovccRegisterMemory(
                             registerAlias(tmp_reg, abi_size),
                             Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = addr_reg }),
@@ -4706,6 +4688,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
         .eflags => unreachable,
         .register_overflow => unreachable,
         .register => |dst_reg| {
+            const dst_alias = registerAlias(dst_reg, abi_size);
             switch (src_mcv) {
                 .none => unreachable,
                 .undef => unreachable,
@@ -4728,41 +4711,47 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                     },
                     else => try self.asmRegisterRegister(
                         mir_tag,
-                        registerAlias(dst_reg, abi_size),
+                        dst_alias,
                         registerAlias(src_reg, abi_size),
                     ),
                 },
                 .immediate => |imm| {
                     switch (self.regBitSize(ty)) {
-                        8, 16, 32 => {
-                            try self.asmRegisterImmediate(
-                                mir_tag,
-                                registerAlias(dst_reg, abi_size),
+                        8 => try self.asmRegisterImmediate(
+                            mir_tag,
+                            dst_alias,
+                            if (math.cast(i8, @bitCast(i64, imm))) |small|
+                                Immediate.s(small)
+                            else
+                                Immediate.u(@intCast(u8, imm)),
+                        ),
+                        16 => try self.asmRegisterImmediate(
+                            mir_tag,
+                            dst_alias,
+                            if (math.cast(i16, @bitCast(i64, imm))) |small|
+                                Immediate.s(small)
+                            else
+                                Immediate.u(@intCast(u16, imm)),
+                        ),
+                        32 => try self.asmRegisterImmediate(
+                            mir_tag,
+                            dst_alias,
+                            if (math.cast(i32, @bitCast(i64, imm))) |small|
+                                Immediate.s(small)
+                            else
                                 Immediate.u(@intCast(u32, imm)),
-                            );
-                        },
-                        64 => {
-                            if (math.cast(i32, @bitCast(i64, imm))) |small| {
-                                try self.asmRegisterImmediate(
-                                    mir_tag,
-                                    registerAlias(dst_reg, abi_size),
-                                    Immediate.s(small),
-                                );
-                            } else {
-                                try self.asmRegisterRegister(
-                                    mir_tag,
-                                    registerAlias(dst_reg, abi_size),
-                                    registerAlias(try self.copyToTmpRegister(ty, src_mcv), abi_size),
-                                );
-                            }
-                        },
-                        else => return self.fail("TODO genBinOpMir implement large immediate ABI", .{}),
+                        ),
+                        64 => if (math.cast(i32, @bitCast(i64, imm))) |small|
+                            try self.asmRegisterImmediate(mir_tag, dst_alias, Immediate.s(small))
+                        else
+                            try self.asmRegisterRegister(mir_tag, dst_alias, registerAlias(
+                                try self.copyToTmpRegister(ty, src_mcv),
+                                abi_size,
+                            )),
+                        else => unreachable,
                     }
                 },
-                .memory,
-                .linker_load,
-                .eflags,
-                => {
+                .memory, .linker_load, .eflags => {
                     assert(abi_size <= 8);
                     const dst_reg_lock = self.register_manager.lockReg(dst_reg);
                     defer if (dst_reg_lock) |lock| self.register_manager.unlockReg(lock);
@@ -4779,7 +4768,27 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                 },
             }
         },
-        .ptr_stack_offset, .stack_offset => |dst_off| {
+        .memory, .linker_load, .stack_offset => {
+            const dst: ?struct {
+                addr_reg: Register,
+                addr_lock: RegisterLock,
+            } = switch (dst_mcv) {
+                else => unreachable,
+                .memory, .linker_load => dst: {
+                    const dst_addr_reg = try self.register_manager.allocReg(null, gp);
+                    const dst_addr_lock = self.register_manager.lockRegAssumeUnused(dst_addr_reg);
+                    errdefer self.register_manager.unlockReg(dst_addr_lock);
+
+                    try self.loadMemPtrIntoRegister(dst_addr_reg, Type.usize, dst_mcv);
+                    break :dst .{
+                        .addr_reg = dst_addr_reg,
+                        .addr_lock = dst_addr_lock,
+                    };
+                },
+                .stack_offset => null,
+            };
+            defer if (dst) |lock| self.register_manager.unlockReg(lock.addr_lock);
+
             const src: ?struct {
                 limb_reg: Register,
                 limb_lock: RegisterLock,
@@ -4787,7 +4796,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                 addr_lock: RegisterLock,
             } = switch (src_mcv) {
                 else => null,
-                .memory, .linker_load => addr: {
+                .memory, .linker_load => src: {
                     const src_limb_reg = try self.register_manager.allocReg(null, gp);
                     const src_limb_lock = self.register_manager.lockRegAssumeUnused(src_limb_reg);
                     errdefer self.register_manager.unlockReg(src_limb_lock);
@@ -4797,15 +4806,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                     errdefer self.register_manager.unlockReg(src_addr_lock);
 
                     try self.loadMemPtrIntoRegister(src_addr_reg, Type.usize, src_mcv);
-                    // To get the actual address of the value we want to modify we
-                    // we have to go through the GOT
-                    try self.asmRegisterMemory(
-                        .mov,
-                        src_addr_reg,
-                        Memory.sib(.qword, .{ .base = src_addr_reg }),
-                    );
-
-                    break :addr .{
+                    break :src .{
                         .addr_reg = src_addr_reg,
                         .addr_lock = src_addr_lock,
                         .limb_reg = src_limb_reg,
@@ -4831,7 +4832,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                     0 => mir_tag,
                     else => switch (mir_tag) {
                         .add => .adc,
-                        .sub => .sbb,
+                        .sub, .cmp => .sbb,
                         .@"or", .@"and", .xor => mir_tag,
                         else => return self.fail("TODO genBinOpMir implement large ABI for {s}", .{
                             @tagName(mir_tag),
@@ -4840,7 +4841,14 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                 };
                 const dst_limb_mem = Memory.sib(
                     Memory.PtrSize.fromSize(limb_abi_size),
-                    .{ .base = .rbp, .disp = off - dst_off },
+                    switch (dst_mcv) {
+                        else => unreachable,
+                        .stack_offset => |dst_off| .{
+                            .base = .rbp,
+                            .disp = off - dst_off,
+                        },
+                        .memory, .linker_load => .{ .base = dst.?.addr_reg, .disp = off },
+                    },
                 );
                 switch (src_mcv) {
                     .none => unreachable,
@@ -4861,34 +4869,45 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                             .unsigned => 0,
                         };
                         switch (self.regBitSize(limb_ty)) {
-                            8, 16, 32 => {
+                            8 => try self.asmMemoryImmediate(
+                                mir_limb_tag,
+                                dst_limb_mem,
+                                if (math.cast(i8, @bitCast(i64, imm))) |small|
+                                    Immediate.s(small)
+                                else
+                                    Immediate.u(@intCast(u8, imm)),
+                            ),
+                            16 => try self.asmMemoryImmediate(
+                                mir_limb_tag,
+                                dst_limb_mem,
+                                if (math.cast(i16, @bitCast(i64, imm))) |small|
+                                    Immediate.s(small)
+                                else
+                                    Immediate.u(@intCast(u16, imm)),
+                            ),
+                            32 => try self.asmMemoryImmediate(
+                                mir_limb_tag,
+                                dst_limb_mem,
+                                if (math.cast(i32, @bitCast(i64, imm))) |small|
+                                    Immediate.s(small)
+                                else
+                                    Immediate.u(@intCast(u32, imm)),
+                            ),
+                            64 => if (math.cast(i32, @bitCast(i64, imm))) |small|
                                 try self.asmMemoryImmediate(
                                     mir_limb_tag,
                                     dst_limb_mem,
-                                    if (math.cast(i32, @bitCast(i64, imm))) |small|
-                                        Immediate.s(small)
-                                    else
-                                        Immediate.u(@intCast(u32, imm)),
-                                );
-                            },
-                            64 => {
-                                if (math.cast(i32, @bitCast(i64, imm))) |small| {
-                                    try self.asmMemoryImmediate(
-                                        mir_limb_tag,
-                                        dst_limb_mem,
-                                        Immediate.s(small),
-                                    );
-                                } else {
-                                    try self.asmMemoryRegister(
-                                        mir_limb_tag,
-                                        dst_limb_mem,
-                                        registerAlias(
-                                            try self.copyToTmpRegister(limb_ty, .{ .immediate = imm }),
-                                            limb_abi_size,
-                                        ),
-                                    );
-                                }
-                            },
+                                    Immediate.s(small),
+                                )
+                            else
+                                try self.asmMemoryRegister(
+                                    mir_limb_tag,
+                                    dst_limb_mem,
+                                    registerAlias(
+                                        try self.copyToTmpRegister(limb_ty, .{ .immediate = imm }),
+                                        limb_abi_size,
+                                    ),
+                                ),
                             else => unreachable,
                         }
                     },
@@ -4930,12 +4949,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                 }
             }
         },
-        .memory => {
-            return self.fail("TODO implement x86 genBinOpMir destination memory", .{});
-        },
-        .linker_load => {
-            return self.fail("TODO implement x86 genBinOpMir destination symbol at index", .{});
-        },
+        .ptr_stack_offset => unreachable,
     }
 }
 
@@ -5452,79 +5466,61 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ty = self.air.typeOf(bin_op.lhs);
+        const ty_abi_size = ty.abiSize(self.target.*);
+        const can_reuse = ty_abi_size <= 8;
 
-    if (self.liveness.isUnused(inst)) {
-        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
-    }
+        try self.spillEflagsIfOccupied();
+        self.eflags_inst = inst;
 
-    const ty = self.air.typeOf(bin_op.lhs);
-    const abi_size = ty.abiSize(self.target.*);
-    if (abi_size > 8) return self.fail("TODO implement cmp for large values", .{});
-
-    const signedness: std.builtin.Signedness = blk: {
-        // For non-int types, we treat the values as unsigned
-        if (ty.zigTypeTag() != .Int) break :blk .unsigned;
-
-        // Otherwise, we take the signedness of the actual int
-        break :blk ty.intInfo(self.target.*).signedness;
-    };
-
-    try self.spillEflagsIfOccupied();
-    self.eflags_inst = inst;
-
-    const result: MCValue = result: {
-        // There are 2 operands, destination and source.
-        // Either one, but not both, can be a memory operand.
-        // Source operand can be an immediate, 8 bits or 32 bits.
-        // TODO look into reusing the operand
-        const lhs = try self.resolveInst(bin_op.lhs);
-        const lhs_lock: ?RegisterLock = switch (lhs) {
+        const lhs_mcv = try self.resolveInst(bin_op.lhs);
+        const lhs_lock = switch (lhs_mcv) {
             .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
             else => null,
         };
         defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const dst_reg = try self.copyToTmpRegister(ty, lhs);
-        const dst_reg_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
-        defer self.register_manager.unlockReg(dst_reg_lock);
-
-        const dst_mcv = MCValue{ .register = dst_reg };
-
-        const rhs_ty = self.air.typeOf(bin_op.rhs);
-        // This instruction supports only signed 32-bit immediates at most.
-        const src_mcv: MCValue = blk: {
-            switch (rhs_ty.zigTypeTag()) {
-                .Float => {
-                    const rhs = try self.resolveInst(bin_op.rhs);
-                    const rhs_lock: ?RegisterLock = switch (rhs) {
-                        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-                        else => null,
-                    };
-                    defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
-                    const src_reg = try self.copyToTmpRegister(rhs_ty, rhs);
-                    break :blk MCValue{ .register = src_reg };
-                },
-                else => break :blk try self.limitImmediateType(bin_op.rhs, i32),
-            }
+        const rhs_mcv = try self.resolveInst(bin_op.rhs);
+        const rhs_lock = switch (rhs_mcv) {
+            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            else => null,
         };
-        const src_lock: ?RegisterLock = switch (src_mcv) {
+        defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const dst_mem_ok = !ty.isRuntimeFloat();
+        var flipped = false;
+        const dst_mcv: MCValue = if (can_reuse and !lhs_mcv.isImmediate() and
+            (dst_mem_ok or lhs_mcv.isRegister()) and self.liveness.operandDies(inst, 0))
+            lhs_mcv
+        else if (can_reuse and !rhs_mcv.isImmediate() and
+            (dst_mem_ok or rhs_mcv.isRegister()) and self.liveness.operandDies(inst, 1))
+        dst: {
+            flipped = true;
+            break :dst rhs_mcv;
+        } else if (dst_mem_ok) dst: {
+            const dst_mcv = try self.allocTempRegOrMem(ty, true);
+            try self.setRegOrMem(ty, dst_mcv, lhs_mcv);
+            break :dst dst_mcv;
+        } else .{ .register = try self.copyToTmpRegister(ty, lhs_mcv) };
+        const dst_lock = switch (dst_mcv) {
             .register => |reg| self.register_manager.lockReg(reg),
             else => null,
         };
-        defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
+        defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
+        const src_mcv = if (flipped) lhs_mcv else rhs_mcv;
         try self.genBinOpMir(switch (ty.tag()) {
             else => .cmp,
             .f32 => .ucomiss,
             .f64 => .ucomisd,
         }, ty, dst_mcv, src_mcv);
 
-        break :result switch (signedness) {
-            .signed => MCValue{ .eflags = Condition.fromCompareOperatorSigned(op) },
-            .unsigned => MCValue{ .eflags = Condition.fromCompareOperatorUnsigned(op) },
+        const signedness = if (ty.isAbiInt()) ty.intInfo(self.target.*).signedness else .unsigned;
+        break :result .{
+            .eflags = Condition.fromCompareOperator(signedness, if (flipped) op.reverse() else op),
         };
     };
-
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -5784,13 +5780,6 @@ fn isNull(self: *Self, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
             defer self.register_manager.unlockReg(addr_reg_lock);
 
             try self.loadMemPtrIntoRegister(addr_reg, Type.usize, opt_mcv);
-
-            // To get the actual address of the value we want to modify we have to go through the GOT
-            try self.asmRegisterMemory(
-                .mov,
-                addr_reg,
-                Memory.sib(.qword, .{ .base = addr_reg }),
-            );
 
             const some_abi_size = @intCast(u32, some_info.ty.abiSize(self.target.*));
             try self.asmMemoryImmediate(.cmp, Memory.sib(
@@ -6803,22 +6792,14 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                 },
             }
         },
-        .memory, .linker_load => {
-            if (abi_size <= 8) {
-                const reg = try self.copyToTmpRegister(ty, mcv);
-                return self.genSetStack(ty, stack_offset, MCValue{ .register = reg }, opts);
-            }
-
-            try self.genInlineMemcpy(.{ .stack_offset = stack_offset }, mcv, .{ .immediate = abi_size }, opts);
-        },
-        .ptr_stack_offset => {
-            const reg = try self.copyToTmpRegister(ty, mcv);
-            return self.genSetStack(ty, stack_offset, MCValue{ .register = reg }, opts);
-        },
-        .stack_offset => |off| {
-            if (stack_offset == off) {
-                // Copy stack variable to itself; nothing to do.
-                return;
+        .memory, .linker_load, .stack_offset, .ptr_stack_offset => {
+            switch (mcv) {
+                else => unreachable,
+                .memory, .linker_load, .ptr_stack_offset => {},
+                .stack_offset => |src_off| if (stack_offset == src_off) {
+                    // Copy stack variable to itself; nothing to do.
+                    return;
+                },
             }
 
             if (abi_size <= 8) {
@@ -7096,33 +7077,30 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
 
             try self.asmRegisterRegister(.mov, registerAlias(reg, abi_size), registerAlias(src_reg, abi_size));
         },
-        .linker_load => {
-            switch (ty.zigTypeTag()) {
-                .Float => {
-                    const base_reg = try self.register_manager.allocReg(null, gp);
-                    try self.loadMemPtrIntoRegister(base_reg, Type.usize, mcv);
+        .memory, .linker_load => switch (ty.zigTypeTag()) {
+            .Float => {
+                const base_reg = try self.register_manager.allocReg(null, gp);
+                try self.loadMemPtrIntoRegister(base_reg, Type.usize, mcv);
 
-                    if (intrinsicsAllowed(self.target.*, ty)) {
-                        const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                if (intrinsicsAllowed(self.target.*, ty)) {
+                    return self.asmRegisterMemory(
+                        switch (ty.tag()) {
                             .f32 => .movss,
                             .f64 => .movsd,
-                            else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
-                        };
-                        const ptr_size: Memory.PtrSize = switch (ty.tag()) {
-                            .f32 => .dword,
-                            .f64 => .qword,
-                            else => unreachable,
-                        };
-                        return self.asmRegisterMemory(
-                            tag,
-                            reg.to128(),
-                            Memory.sib(ptr_size, .{ .base = base_reg.to64() }),
-                        );
-                    }
+                            else => return self.fail("TODO genSetReg from memory for {}", .{
+                                ty.fmt(self.bin_file.options.module.?),
+                            }),
+                        },
+                        reg.to128(),
+                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = base_reg.to64() }),
+                    );
+                }
 
-                    return self.fail("TODO genSetReg from memory for float with no intrinsics", .{});
-                },
-                else => {
+                return self.fail("TODO genSetReg from memory for float with no intrinsics", .{});
+            },
+            else => switch (mcv) {
+                else => unreachable,
+                .linker_load => {
                     try self.loadMemPtrIntoRegister(reg, Type.usize, mcv);
                     try self.asmRegisterMemory(
                         .mov,
@@ -7130,35 +7108,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
                     );
                 },
-            }
-        },
-        .memory => |x| switch (ty.zigTypeTag()) {
-            .Float => {
-                const base_reg = try self.register_manager.allocReg(null, gp);
-                try self.loadMemPtrIntoRegister(base_reg, Type.usize, mcv);
-
-                if (intrinsicsAllowed(self.target.*, ty)) {
-                    const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                        .f32 => .movss,
-                        .f64 => .movsd,
-                        else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
-                    };
-                    const ptr_size: Memory.PtrSize = switch (ty.tag()) {
-                        .f32 => .dword,
-                        .f64 => .qword,
-                        else => unreachable,
-                    };
-                    return self.asmRegisterMemory(
-                        tag,
-                        reg.to128(),
-                        Memory.sib(ptr_size, .{ .base = base_reg.to64() }),
-                    );
-                }
-
-                return self.fail("TODO genSetReg from memory for float with no intrinsics", .{});
-            },
-            else => {
-                if (x <= math.maxInt(i32)) {
+                .memory => |x| if (x <= math.maxInt(i32)) {
                     try self.asmRegisterMemory(
                         .mov,
                         registerAlias(reg, abi_size),
@@ -7185,7 +7135,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                             Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
                         );
                     }
-                }
+                },
             },
         },
         .stack_offset => |off| {
@@ -7226,15 +7176,10 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                                 .{ty.fmtDebug()},
                             ),
                         };
-                        const ptr_size: Memory.PtrSize = switch (ty.tag()) {
-                            .f32 => .dword,
-                            .f64 => .qword,
-                            else => unreachable,
-                        };
-                        return self.asmRegisterMemory(tag, reg.to128(), Memory.sib(ptr_size, .{
-                            .base = .rbp,
-                            .disp = -off,
-                        }));
+                        return self.asmRegisterMemory(tag, reg.to128(), Memory.sib(
+                            Memory.PtrSize.fromSize(abi_size),
+                            .{ .base = .rbp, .disp = -off },
+                        ));
                     }
                     return self.fail("TODO genSetReg from stack offset for float with no intrinsics", .{});
                 },

@@ -14,22 +14,24 @@ var argc_argv_ptr: [*]usize = undefined;
 
 const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 
+// The self-hosted compiler is not fully capable of handling all of this start.zig file.
+// Until then, we have simplified logic here for self-hosted. TODO remove this once
+// self-hosted is capable enough to handle all of the real start.zig logic.
+pub const simplified_logic =
+    builtin.zig_backend == .stage2_wasm or
+    builtin.zig_backend == .stage2_x86_64 or
+    builtin.zig_backend == .stage2_x86 or
+    builtin.zig_backend == .stage2_aarch64 or
+    builtin.zig_backend == .stage2_arm or
+    builtin.zig_backend == .stage2_riscv64 or
+    builtin.zig_backend == .stage2_sparc64;
+
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
     // decls there get run.
     _ = root;
 
-    // The self-hosted compiler is not fully capable of handling all of this start.zig file.
-    // Until then, we have simplified logic here for self-hosted. TODO remove this once
-    // self-hosted is capable enough to handle all of the real start.zig logic.
-    if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_x86_64 or
-        builtin.zig_backend == .stage2_x86 or
-        builtin.zig_backend == .stage2_aarch64 or
-        builtin.zig_backend == .stage2_arm or
-        builtin.zig_backend == .stage2_riscv64 or
-        builtin.zig_backend == .stage2_sparc64)
-    {
+    if (simplified_logic) {
         if (builtin.output_mode == .Exe) {
             if ((builtin.link_libc or builtin.object_format == .c) and @hasDecl(root, "main")) {
                 if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
