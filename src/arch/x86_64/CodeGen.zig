@@ -952,10 +952,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .neg,
             => try self.airUnaryMath(inst),
 
-            .add_with_overflow => try self.airAddSubShlWithOverflow(inst),
-            .sub_with_overflow => try self.airAddSubShlWithOverflow(inst),
+            .add_with_overflow => try self.airAddSubWithOverflow(inst),
+            .sub_with_overflow => try self.airAddSubWithOverflow(inst),
             .mul_with_overflow => try self.airMulWithOverflow(inst),
-            .shl_with_overflow => try self.airAddSubShlWithOverflow(inst),
+            .shl_with_overflow => try self.airShlWithOverflow(inst),
 
             .div_float, .div_trunc, .div_floor, .div_exact => try self.airMulDivBinOp(inst),
 
@@ -1851,43 +1851,30 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-fn airAddSubShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
+fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const tag = self.air.instructions.items(.tag)[inst];
         const ty = self.air.typeOf(bin_op.lhs);
         switch (ty.zigTypeTag()) {
-            .Vector => return self.fail("TODO implement add/sub/shl with overflow for Vector type", .{}),
+            .Vector => return self.fail("TODO implement add/sub with overflow for Vector type", .{}),
             .Int => {
                 try self.spillEflagsIfOccupied();
 
-                if (tag == .shl_with_overflow) {
-                    try self.spillRegisters(&.{.rcx});
-                    // cf/of don't work for shifts other than 1
-                    return self.fail("TODO implement shl_with_overflow for x86_64", .{});
-                }
-
-                const partial: MCValue = switch (tag) {
+                const partial_mcv = switch (tag) {
                     .add_with_overflow => try self.genBinOp(null, .add, bin_op.lhs, bin_op.rhs),
                     .sub_with_overflow => try self.genBinOp(null, .sub, bin_op.lhs, bin_op.rhs),
-                    .shl_with_overflow => blk: {
-                        try self.register_manager.getReg(.rcx, null);
-                        const lhs = try self.resolveInst(bin_op.lhs);
-                        const rhs = try self.resolveInst(bin_op.rhs);
-                        const shift_ty = self.air.typeOf(bin_op.rhs);
-                        break :blk try self.genShiftBinOp(.shl, null, lhs, rhs, ty, shift_ty);
-                    },
                     else => unreachable,
                 };
-
                 const int_info = ty.intInfo(self.target.*);
+                const cc: Condition = switch (int_info.signedness) {
+                    .unsigned => .c,
+                    .signed => .o,
+                };
+
                 if (int_info.bits >= 8 and math.isPowerOfTwo(int_info.bits)) {
-                    const cc: Condition = switch (int_info.signedness) {
-                        .unsigned => .c,
-                        .signed => .o,
-                    };
-                    switch (partial) {
+                    switch (partial_mcv) {
                         .register => |reg| {
                             self.eflags_inst = inst;
                             break :result .{ .register_overflow = .{ .reg = reg, .eflags = cc } };
@@ -1903,7 +1890,7 @@ fn airAddSubShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                         .{ .eflags = cc },
                         .{},
                     );
-                    try self.genSetStack(ty, dst_mcv.stack_offset, partial, .{});
+                    try self.genSetStack(ty, dst_mcv.stack_offset, partial_mcv, .{});
                     break :result dst_mcv;
                 }
 
@@ -1913,7 +1900,78 @@ fn airAddSubShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 const overflow_bit_offset = @intCast(i32, tuple_ty.structFieldOffset(1, self.target.*));
                 const stack_offset = @intCast(i32, try self.allocMem(inst, tuple_size, tuple_align));
 
-                try self.genSetStackTruncatedOverflowCompare(ty, stack_offset, overflow_bit_offset, partial.register);
+                try self.genSetStackTruncatedOverflowCompare(ty, stack_offset, overflow_bit_offset, partial_mcv.register, cc);
+
+                break :result .{ .stack_offset = stack_offset };
+            },
+            else => unreachable,
+        }
+    };
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const lhs_ty = self.air.typeOf(bin_op.lhs);
+        const rhs_ty = self.air.typeOf(bin_op.rhs);
+        switch (lhs_ty.zigTypeTag()) {
+            .Vector => return self.fail("TODO implement shl with overflow for Vector type", .{}),
+            .Int => {
+                try self.spillEflagsIfOccupied();
+
+                try self.register_manager.getReg(.rcx, null);
+                const lhs = try self.resolveInst(bin_op.lhs);
+                const rhs = try self.resolveInst(bin_op.rhs);
+
+                const int_info = lhs_ty.intInfo(self.target.*);
+
+                const partial_mcv = try self.genShiftBinOp(.shl, null, lhs, rhs, lhs_ty, rhs_ty);
+                const partial_lock = switch (partial_mcv) {
+                    .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+                    else => null,
+                };
+                defer if (partial_lock) |lock| self.register_manager.unlockReg(lock);
+
+                const tmp_mcv = try self.genShiftBinOp(.shr, null, partial_mcv, rhs, lhs_ty, rhs_ty);
+                const tmp_lock = switch (tmp_mcv) {
+                    .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+                    else => null,
+                };
+                defer if (tmp_lock) |lock| self.register_manager.unlockReg(lock);
+
+                try self.genBinOpMir(.cmp, lhs_ty, tmp_mcv, lhs);
+                const cc = Condition.ne;
+
+                if (int_info.bits >= 8 and math.isPowerOfTwo(int_info.bits)) {
+                    switch (partial_mcv) {
+                        .register => |reg| {
+                            self.eflags_inst = inst;
+                            break :result .{ .register_overflow = .{ .reg = reg, .eflags = cc } };
+                        },
+                        else => {},
+                    }
+
+                    const abi_size = @intCast(i32, lhs_ty.abiSize(self.target.*));
+                    const dst_mcv = try self.allocRegOrMem(inst, false);
+                    try self.genSetStack(
+                        Type.u1,
+                        dst_mcv.stack_offset - abi_size,
+                        .{ .eflags = cc },
+                        .{},
+                    );
+                    try self.genSetStack(lhs_ty, dst_mcv.stack_offset, partial_mcv, .{});
+                    break :result dst_mcv;
+                }
+
+                const tuple_ty = self.air.typeOfIndex(inst);
+                const tuple_size = @intCast(u32, tuple_ty.abiSize(self.target.*));
+                const tuple_align = tuple_ty.abiAlignment(self.target.*);
+                const overflow_bit_offset = @intCast(i32, tuple_ty.structFieldOffset(1, self.target.*));
+                const stack_offset = @intCast(i32, try self.allocMem(inst, tuple_size, tuple_align));
+
+                try self.genSetStackTruncatedOverflowCompare(lhs_ty, stack_offset, overflow_bit_offset, partial_mcv.register, cc);
 
                 break :result .{ .stack_offset = stack_offset };
             },
@@ -1929,6 +1987,7 @@ fn genSetStackTruncatedOverflowCompare(
     stack_offset: i32,
     overflow_bit_offset: i32,
     reg: Register,
+    cc: Condition,
 ) !void {
     const reg_lock = self.register_manager.lockReg(reg);
     defer if (reg_lock) |lock| self.register_manager.unlockReg(lock);
@@ -1946,10 +2005,6 @@ fn genSetStackTruncatedOverflowCompare(
     };
 
     const overflow_reg = temp_regs[0];
-    const cc: Condition = switch (int_info.signedness) {
-        .signed => .o,
-        .unsigned => .c,
-    };
     try self.asmSetccRegister(overflow_reg.to8(), cc);
 
     const scratch_reg = temp_regs[1];
@@ -1988,6 +2043,10 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 try self.spillEflagsIfOccupied();
 
                 const dst_info = dst_ty.intInfo(self.target.*);
+                const cc: Condition = switch (dst_info.signedness) {
+                    .unsigned => .c,
+                    .signed => .o,
+                };
                 if (dst_info.bits >= 8 and math.isPowerOfTwo(dst_info.bits)) {
                     var src_pl = Type.Payload.Bits{ .base = .{ .tag = switch (dst_info.signedness) {
                         .signed => .int_signed,
@@ -2003,12 +2062,8 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     const lhs = try self.resolveInst(bin_op.lhs);
                     const rhs = try self.resolveInst(bin_op.rhs);
 
-                    const partial = try self.genMulDivBinOp(.mul, null, dst_ty, src_ty, lhs, rhs);
-                    const cc: Condition = switch (dst_info.signedness) {
-                        .unsigned => .c,
-                        .signed => .o,
-                    };
-                    switch (partial) {
+                    const partial_mcv = try self.genMulDivBinOp(.mul, null, dst_ty, src_ty, lhs, rhs);
+                    switch (partial_mcv) {
                         .register => |reg| {
                             self.eflags_inst = inst;
                             break :result .{ .register_overflow = .{ .reg = reg, .eflags = cc } };
@@ -2024,7 +2079,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                         .{ .eflags = cc },
                         .{},
                     );
-                    try self.genSetStack(dst_ty, dst_mcv.stack_offset, partial, .{});
+                    try self.genSetStack(dst_ty, dst_mcv.stack_offset, partial_mcv, .{});
                     break :result dst_mcv;
                 }
 
@@ -2079,7 +2134,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 const overflow_bit_offset = @intCast(i32, tuple_ty.structFieldOffset(1, self.target.*));
                 const stack_offset = @intCast(i32, try self.allocMem(inst, tuple_size, tuple_align));
 
-                try self.genSetStackTruncatedOverflowCompare(dst_ty, stack_offset, overflow_bit_offset, dst_reg);
+                try self.genSetStackTruncatedOverflowCompare(dst_ty, stack_offset, overflow_bit_offset, dst_reg, cc);
 
                 break :result .{ .stack_offset = stack_offset };
             },

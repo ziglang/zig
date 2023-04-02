@@ -1237,8 +1237,6 @@ fn testShlTrunc(x: u16) !void {
 }
 
 test "exact shift left" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-
     try testShlExact(0b00110101);
     comptime try testShlExact(0b00110101);
 }
