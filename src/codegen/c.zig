@@ -3597,10 +3597,6 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
     const ptr_ty = f.air.typeOf(bin_op.lhs);
     const ptr_scalar_ty = ptr_ty.scalarType();
     const ptr_info = ptr_scalar_ty.ptrInfo().data;
-    if (!ptr_info.pointee_type.hasRuntimeBitsIgnoreComptime()) {
-        try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
-        return .none;
-    }
 
     const ptr_val = try f.resolveInst(bin_op.lhs);
     const src_ty = f.air.typeOf(bin_op.rhs);
@@ -4461,9 +4457,7 @@ fn airBr(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const dest_ty = f.air.typeOfIndex(inst);
-    // No IgnoreComptime until Sema stops giving us garbage Air.
-    // https://github.com/ziglang/zig/issues/13410
-    if (f.liveness.isUnused(inst) or !dest_ty.hasRuntimeBits()) {
+    if (f.liveness.isUnused(inst)) {
         try reap(f, inst, &.{ty_op.operand});
         return .none;
     }
