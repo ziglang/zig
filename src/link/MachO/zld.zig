@@ -932,6 +932,43 @@ pub const Zld = struct {
         }
     }
 
+    fn forceSymbolDefined(self: *Zld, name: []const u8, resolver: *SymbolResolver) !void {
+        const sym_index = try self.allocateSymbol();
+        const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
+        const sym = self.getSymbolPtr(sym_loc);
+        sym.n_strx = try self.strtab.insert(self.gpa, name);
+        sym.n_type = macho.N_UNDF | macho.N_EXT;
+        const global_index = try self.addGlobal(sym_loc);
+        try resolver.table.putNoClobber(name, global_index);
+        try resolver.unresolved.putNoClobber(global_index, {});
+    }
+
+    fn resolveSymbols(self: *Zld, resolver: *SymbolResolver) !void {
+        // We add the specified entrypoint as the first unresolved symbols so that
+        // we search for it in libraries should there be no object files specified
+        // on the linker line.
+        if (self.options.output_mode == .Exe) {
+            const entry_name = self.options.entry orelse load_commands.default_entry_point;
+            try self.forceSymbolDefined(entry_name, resolver);
+        }
+
+        // Force resolution of any symbols requested by the user.
+        for (self.options.force_undefined_symbols.keys()) |sym_name| {
+            try self.forceSymbolDefined(sym_name, resolver);
+        }
+
+        for (self.objects.items, 0..) |_, object_id| {
+            try self.resolveSymbolsInObject(@intCast(u32, object_id), resolver);
+        }
+
+        try self.resolveSymbolsInArchives(resolver);
+        try self.resolveDyldStubBinder(resolver);
+        try self.resolveSymbolsInDylibs(resolver);
+        try self.createMhExecuteHeaderSymbol(resolver);
+        try self.createDsoHandleSymbol(resolver);
+        try self.resolveSymbolsAtLoading(resolver);
+    }
+
     fn resolveSymbolsInObject(self: *Zld, object_id: u32, resolver: *SymbolResolver) !void {
         const object = &self.objects.items[object_id];
         const in_symtab = object.in_symtab orelse return;
@@ -975,9 +1012,7 @@ pub const Zld = struct {
             const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = object_id + 1 };
 
             const global_index = resolver.table.get(sym_name) orelse {
-                const gpa = self.gpa;
-                const global_index = @intCast(u32, self.globals.items.len);
-                try self.globals.append(gpa, sym_loc);
+                const global_index = try self.addGlobal(sym_loc);
                 try resolver.table.putNoClobber(sym_name, global_index);
                 if (sym.undf() and !sym.tentative()) {
                     try resolver.unresolved.putNoClobber(global_index, {});
@@ -1034,8 +1069,10 @@ pub const Zld = struct {
             };
 
             if (update_global) {
-                const global_object = &self.objects.items[global.getFile().?];
-                global_object.globals_lookup[global.sym_index] = global_index;
+                if (global.getFile()) |file| {
+                    const global_object = &self.objects.items[file];
+                    global_object.globals_lookup[global.sym_index] = global_index;
+                }
                 _ = resolver.unresolved.swapRemove(resolver.table.get(sym_name).?);
                 global.* = sym_loc;
             } else {
@@ -1180,9 +1217,7 @@ pub const Zld = struct {
             global.* = sym_loc;
             self.mh_execute_header_index = global_index;
         } else {
-            const global_index = @intCast(u32, self.globals.items.len);
-            try self.globals.append(gpa, sym_loc);
-            self.mh_execute_header_index = global_index;
+            self.mh_execute_header_index = try self.addGlobal(sym_loc);
         }
     }
 
@@ -1356,6 +1391,12 @@ pub const Zld = struct {
             .n_value = 0,
         };
         return index;
+    }
+
+    fn addGlobal(self: *Zld, sym_loc: SymbolWithLoc) !u32 {
+        const global_index = @intCast(u32, self.globals.items.len);
+        try self.globals.append(self.gpa, sym_loc);
+        return global_index;
     }
 
     fn allocateSpecialSymbols(self: *Zld) !void {
@@ -3507,7 +3548,7 @@ pub const SymbolWithLoc = extern struct {
     }
 };
 
-const SymbolResolver = struct {
+pub const SymbolResolver = struct {
     arena: Allocator,
     table: std.StringHashMap(u32),
     unresolved: std.AutoArrayHashMap(u32, void),
@@ -3568,7 +3609,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         // We are about to obtain this lock, so here we give other processes a chance first.
         macho_file.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 7);
+        comptime assert(Compilation.link_hash_implementation_version == 8);
 
         for (options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -3598,6 +3639,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         }
         link.hashAddSystemLibs(&man.hash, options.system_libs);
         man.hash.addOptionalBytes(options.sysroot);
+        man.hash.addListOfBytes(options.force_undefined_symbols.keys());
         try man.addOptionalFile(options.entitlements);
 
         // We don't actually care whether it's a cache hit or miss; we just
@@ -3980,17 +4022,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             .table = std.StringHashMap(u32).init(arena),
             .unresolved = std.AutoArrayHashMap(u32, void).init(arena),
         };
-
-        for (zld.objects.items, 0..) |_, object_id| {
-            try zld.resolveSymbolsInObject(@intCast(u32, object_id), &resolver);
-        }
-
-        try zld.resolveSymbolsInArchives(&resolver);
-        try zld.resolveDyldStubBinder(&resolver);
-        try zld.resolveSymbolsInDylibs(&resolver);
-        try zld.createMhExecuteHeaderSymbol(&resolver);
-        try zld.createDsoHandleSymbol(&resolver);
-        try zld.resolveSymbolsAtLoading(&resolver);
+        try zld.resolveSymbols(&resolver);
 
         if (resolver.unresolved.count() > 0) {
             return error.UndefinedSymbolReference;
@@ -4003,11 +4035,8 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         }
 
         if (options.output_mode == .Exe) {
-            const entry_name = options.entry orelse "_main";
-            const global_index = resolver.table.get(entry_name) orelse {
-                log.err("entrypoint '{s}' not found", .{entry_name});
-                return error.MissingMainEntrypoint;
-            };
+            const entry_name = options.entry orelse load_commands.default_entry_point;
+            const global_index = resolver.table.get(entry_name).?; // Error was flagged earlier
             zld.entry_index = global_index;
         }
 
@@ -4016,12 +4045,22 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         }
 
         if (gc_sections) {
-            try dead_strip.gcAtoms(&zld);
+            try dead_strip.gcAtoms(&zld, &resolver);
         }
 
         try zld.createDyldPrivateAtom();
         try zld.createTentativeDefAtoms();
         try zld.createStubHelperPreambleAtom();
+
+        if (zld.options.output_mode == .Exe) {
+            const global = zld.getEntryPoint();
+            if (zld.getSymbol(global).undf()) {
+                // We do one additional check here in case the entry point was found in one of the dylibs.
+                // (I actually have no idea what this would imply but it is a possible outcome and so we
+                // support it.)
+                try Atom.addStub(&zld, global);
+            }
+        }
 
         for (zld.objects.items) |object| {
             for (object.atoms.items) |atom_index| {
@@ -4134,8 +4173,18 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             const seg = zld.segments.items[seg_id];
             const global = zld.getEntryPoint();
             const sym = zld.getSymbol(global);
+
+            const addr: u64 = if (sym.undf()) blk: {
+                // In this case, the symbol has been resolved in one of dylibs and so we point
+                // to the stub as its vmaddr value.
+                const stub_atom_index = zld.getStubsAtomIndexForSymbol(global).?;
+                const stub_atom = zld.getAtom(stub_atom_index);
+                const stub_sym = zld.getSymbol(stub_atom.getSymbolWithLoc());
+                break :blk stub_sym.n_value;
+            } else sym.n_value;
+
             try lc_writer.writeStruct(macho.entry_point_command{
-                .entryoff = @intCast(u32, sym.n_value - seg.vmaddr),
+                .entryoff = @intCast(u32, addr - seg.vmaddr),
                 .stacksize = options.stack_size_override orelse 0,
             });
         } else {
