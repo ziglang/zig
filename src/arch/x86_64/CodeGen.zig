@@ -3818,45 +3818,95 @@ fn fieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
-    const operand = extra.struct_operand;
-    const index = extra.field_index;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand = extra.struct_operand;
+        const index = extra.field_index;
 
-    if (self.liveness.isUnused(inst)) {
-        return self.finishAir(inst, .dead, .{ extra.struct_operand, .none, .none });
-    }
+        const container_ty = self.air.typeOf(operand);
+        const field_ty = container_ty.structFieldType(index);
+        if (!field_ty.hasRuntimeBitsIgnoreComptime()) break :result .none;
 
-    const mcv = try self.resolveInst(operand);
-    const container_ty = self.air.typeOf(operand);
-    const field_ty = container_ty.structFieldType(index);
-    const field_bit_offset = switch (container_ty.containerLayout()) {
-        .Auto, .Extern => @intCast(u32, container_ty.structFieldOffset(index, self.target.*) * 8),
-        .Packed => if (container_ty.castTag(.@"struct")) |struct_obj|
-            struct_obj.data.packedFieldBitOffset(self.target.*, index)
-        else
-            0,
-    };
+        const src_mcv = try self.resolveInst(operand);
+        const field_off = switch (container_ty.containerLayout()) {
+            .Auto, .Extern => @intCast(u32, container_ty.structFieldOffset(index, self.target.*) * 8),
+            .Packed => if (container_ty.castTag(.@"struct")) |struct_obj|
+                struct_obj.data.packedFieldBitOffset(self.target.*, index)
+            else
+                0,
+        };
 
-    const result: MCValue = result: {
-        switch (mcv) {
-            .stack_offset => |off| {
-                const byte_offset = std.math.divExact(u32, field_bit_offset, 8) catch
-                    return self.fail("TODO implement struct_field_val for a packed struct", .{});
-                break :result MCValue{ .stack_offset = off - @intCast(i32, byte_offset) };
+        switch (src_mcv) {
+            .stack_offset => |src_off| {
+                const field_abi_size = @intCast(u32, field_ty.abiSize(self.target.*));
+                const limb_abi_size = @min(field_abi_size, 8);
+                const limb_abi_bits = limb_abi_size * 8;
+                const field_byte_off = @intCast(i32, field_off / limb_abi_bits * limb_abi_size);
+                const field_bit_off = field_off % limb_abi_bits;
+
+                if (field_bit_off == 0) {
+                    const off_mcv = MCValue{ .stack_offset = src_off - field_byte_off };
+                    if (self.reuseOperand(inst, operand, 0, src_mcv)) break :result off_mcv;
+
+                    const dst_mcv = try self.allocRegOrMem(inst, true);
+                    try self.setRegOrMem(field_ty, dst_mcv, off_mcv);
+                    break :result dst_mcv;
+                }
+
+                if (field_abi_size > 8) {
+                    return self.fail("TODO implement struct_field_val with large packed field", .{});
+                }
+
+                const dst_reg = try self.register_manager.allocReg(inst, gp);
+                const field_extra_bits = self.regExtraBits(field_ty);
+                const load_abi_size =
+                    if (field_bit_off < field_extra_bits) field_abi_size else field_abi_size * 2;
+                if (load_abi_size <= 8) {
+                    const load_reg = registerAlias(dst_reg, load_abi_size);
+                    try self.asmRegisterMemory(.mov, load_reg, Memory.sib(
+                        Memory.PtrSize.fromSize(load_abi_size),
+                        .{ .base = .rbp, .disp = field_byte_off - src_off },
+                    ));
+                    try self.asmRegisterImmediate(.shr, load_reg, Immediate.u(field_bit_off));
+                } else {
+                    const tmp_reg = registerAlias(
+                        try self.register_manager.allocReg(null, gp),
+                        field_abi_size,
+                    );
+                    const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                    defer self.register_manager.unlockReg(tmp_lock);
+
+                    const dst_alias = registerAlias(dst_reg, field_abi_size);
+                    try self.asmRegisterMemory(.mov, dst_alias, Memory.sib(
+                        Memory.PtrSize.fromSize(field_abi_size),
+                        .{ .base = .rbp, .disp = field_byte_off - src_off },
+                    ));
+                    try self.asmRegisterMemory(.mov, tmp_reg, Memory.sib(
+                        Memory.PtrSize.fromSize(field_abi_size),
+                        .{ .base = .rbp, .disp = field_byte_off + 1 - src_off },
+                    ));
+                    try self.asmRegisterRegisterImmediate(
+                        .shrd,
+                        dst_alias,
+                        tmp_reg,
+                        Immediate.u(field_bit_off),
+                    );
+                }
+
+                if (field_extra_bits > 0) try self.truncateRegister(field_ty, dst_reg);
+                break :result .{ .register = dst_reg };
             },
             .register => |reg| {
                 const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
                 defer self.register_manager.unlockReg(reg_lock);
 
-                const dst_mcv: MCValue = blk: {
-                    if (self.reuseOperand(inst, operand, 0, mcv)) {
-                        break :blk mcv;
-                    } else {
-                        const dst_mcv = try self.copyToRegisterWithInstTracking(inst, Type.usize, .{
-                            .register = reg.to64(),
-                        });
-                        break :blk dst_mcv;
-                    }
-                };
+                const dst_mcv = if (self.reuseOperand(inst, operand, 0, src_mcv))
+                    src_mcv
+                else
+                    try self.copyToRegisterWithInstTracking(
+                        inst,
+                        Type.usize,
+                        .{ .register = reg.to64() },
+                    );
                 const dst_mcv_lock: ?RegisterLock = switch (dst_mcv) {
                     .register => |a_reg| self.register_manager.lockReg(a_reg),
                     else => null,
@@ -3864,7 +3914,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 defer if (dst_mcv_lock) |lock| self.register_manager.unlockReg(lock);
 
                 // Shift by struct_field_offset.
-                try self.genShiftBinOpMir(.shr, Type.usize, dst_mcv, .{ .immediate = field_bit_offset });
+                try self.genShiftBinOpMir(.shr, Type.usize, dst_mcv, .{ .immediate = field_off });
 
                 // Mask to field_bit_size bits
                 const field_bit_size = field_ty.bitSize(self.target.*);
@@ -3883,31 +3933,34 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                         registerAlias(dst_mcv.register, field_byte_size),
                     );
                 }
-
                 break :result dst_mcv;
             },
             .register_overflow => |ro| {
                 switch (index) {
-                    0 => {
-                        // Get wrapped value for overflow operation.
-                        break :result MCValue{ .register = ro.reg };
-                    },
-                    1 => {
-                        // Get overflow bit.
-                        const reg_lock = self.register_manager.lockRegAssumeUnused(ro.reg);
-                        defer self.register_manager.unlockReg(reg_lock);
-
+                    // Get wrapped value for overflow operation.
+                    0 => if (self.liveness.operandDies(inst, 0)) {
+                        self.eflags_inst = null;
+                        break :result .{ .register = ro.reg };
+                    } else break :result try self.copyToRegisterWithInstTracking(
+                        inst,
+                        Type.usize,
+                        .{ .register = ro.reg },
+                    ),
+                    // Get overflow bit.
+                    1 => if (self.liveness.operandDies(inst, 0)) {
+                        self.eflags_inst = inst;
+                        break :result .{ .eflags = ro.eflags };
+                    } else {
                         const dst_reg = try self.register_manager.allocReg(inst, gp);
                         try self.asmSetccRegister(dst_reg.to8(), ro.eflags);
-                        break :result MCValue{ .register = dst_reg.to8() };
+                        break :result .{ .register = dst_reg.to8() };
                     },
                     else => unreachable,
                 }
             },
-            else => return self.fail("TODO implement codegen struct_field_val for {}", .{mcv}),
+            else => return self.fail("TODO implement codegen struct_field_val for {}", .{src_mcv}),
         }
     };
-
     return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
@@ -7908,13 +7961,16 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                             else => null,
                         };
                         defer if (elem_lock) |lock| self.register_manager.unlockReg(lock);
-                        const elem_reg = try self.copyToTmpRegister(elem_ty, elem_mcv);
+                        const elem_reg = registerAlias(
+                            try self.copyToTmpRegister(elem_ty, elem_mcv),
+                            elem_abi_size,
+                        );
                         const elem_extra_bits = self.regExtraBits(elem_ty);
                         if (elem_bit_off < elem_extra_bits) {
-                            try self.truncateRegister(elem_ty, registerAlias(elem_reg, elem_abi_size));
+                            try self.truncateRegister(elem_ty, elem_reg);
                         }
                         if (elem_bit_off > 0) try self.genShiftBinOpMir(
-                            .sal,
+                            .shl,
                             elem_ty,
                             .{ .register = elem_reg },
                             .{ .immediate = elem_bit_off },
@@ -7931,7 +7987,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                                 try self.truncateRegister(elem_ty, registerAlias(reg, elem_abi_size));
                             }
                             try self.genShiftBinOpMir(
-                                .sar,
+                                .shr,
                                 elem_ty,
                                 .{ .register = reg },
                                 .{ .immediate = elem_abi_bits - elem_bit_off },
