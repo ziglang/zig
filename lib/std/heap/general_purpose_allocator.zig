@@ -160,7 +160,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         backing_allocator: Allocator = std.heap.page_allocator,
         buckets: [small_bucket_count]?*BucketHeader = [1]?*BucketHeader{null} ** small_bucket_count,
         large_allocations: LargeAllocTable = .{},
-        small_alloc_sizes: if (config.safety) AllocSizeTable else void = if (config.safety) .{} else {},
+        small_allocations: if (config.safety) SmallAllocTable else void = if (config.safety) .{} else {},
         empty_buckets: if (config.retain_metadata) ?*BucketHeader else void =
             if (config.retain_metadata) null else {},
 
@@ -195,6 +195,11 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         const small_bucket_count = math.log2(page_size);
         const largest_bucket_object_size = 1 << (small_bucket_count - 1);
 
+        const SmallAlloc = struct {
+            requested_size: usize,
+            log2_ptr_align: u8,
+        };
+
         const LargeAlloc = struct {
             bytes: []u8,
             requested_size: if (config.enable_memory_limit) usize else void,
@@ -228,7 +233,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
         };
         const LargeAllocTable = std.AutoHashMapUnmanaged(usize, LargeAlloc);
-        const AllocSizeTable = std.AutoHashMapUnmanaged(usize, usize);
+        const SmallAllocTable = std.AutoHashMapUnmanaged(usize, SmallAlloc);
 
         // Bucket: In memory, in order:
         // * BucketHeader
@@ -433,7 +438,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
             self.large_allocations.deinit(self.backing_allocator);
             if (config.safety) {
-                self.small_alloc_sizes.deinit(self.backing_allocator);
+                self.small_allocations.deinit(self.backing_allocator);
             }
             self.* = undefined;
             return leaks;
@@ -712,21 +717,31 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
             // Definitely an in-use small alloc now.
             if (config.safety) {
-                const entry = self.small_alloc_sizes.getEntry(@ptrToInt(old_mem.ptr)) orelse
+                const entry = self.small_allocations.getEntry(@ptrToInt(old_mem.ptr)) orelse
                     @panic("Invalid free");
-                if (old_mem.len != entry.value_ptr.*) {
+                if (old_mem.len != entry.value_ptr.requested_size or log2_old_align != entry.value_ptr.log2_ptr_align) {
                     var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
                     var free_stack_trace = StackTrace{
                         .instruction_addresses = &addresses,
                         .index = 0,
                     };
                     std.debug.captureStackTrace(ret_addr, &free_stack_trace);
-                    log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
-                        entry.value_ptr.*,
-                        old_mem.len,
-                        bucketStackTrace(bucket, size_class, slot_index, .alloc),
-                        free_stack_trace,
-                    });
+                    if (old_mem.len != entry.value_ptr.requested_size) {
+                        log.err("Allocation size {d} bytes does not match resize size {d}. Allocation: {} Resize: {}", .{
+                            entry.value_ptr.requested_size,
+                            old_mem.len,
+                            bucketStackTrace(bucket, size_class, slot_index, .alloc),
+                            free_stack_trace,
+                        });
+                    }
+                    if (log2_old_align != entry.value_ptr.log2_ptr_align) {
+                        log.err("Allocation alignment {d} does not match resize alignment {d}. Allocation: {} Resize: {}", .{
+                            @as(usize, 1) << @intCast(math.Log2Int(usize), entry.value_ptr.log2_ptr_align),
+                            @as(usize, 1) << @intCast(math.Log2Int(usize), log2_old_align),
+                            bucketStackTrace(bucket, size_class, slot_index, .alloc),
+                            free_stack_trace,
+                        });
+                    }
                 }
             }
             const prev_req_bytes = self.total_requested_bytes;
@@ -750,8 +765,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     });
                 }
                 if (config.safety) {
-                    const entry = self.small_alloc_sizes.getEntry(@ptrToInt(old_mem.ptr)).?;
-                    entry.value_ptr.* = new_size;
+                    const entry = self.small_allocations.getEntry(@ptrToInt(old_mem.ptr)).?;
+                    entry.value_ptr.requested_size = new_size;
                 }
                 return true;
             }
@@ -824,21 +839,31 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
             // Definitely an in-use small alloc now.
             if (config.safety) {
-                const entry = self.small_alloc_sizes.getEntry(@ptrToInt(old_mem.ptr)) orelse
+                const entry = self.small_allocations.getEntry(@ptrToInt(old_mem.ptr)) orelse
                     @panic("Invalid free");
-                if (old_mem.len != entry.value_ptr.*) {
+                if (old_mem.len != entry.value_ptr.requested_size or log2_old_align != entry.value_ptr.log2_ptr_align) {
                     var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
                     var free_stack_trace = StackTrace{
                         .instruction_addresses = &addresses,
                         .index = 0,
                     };
                     std.debug.captureStackTrace(ret_addr, &free_stack_trace);
-                    log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
-                        entry.value_ptr.*,
-                        old_mem.len,
-                        bucketStackTrace(bucket, size_class, slot_index, .alloc),
-                        free_stack_trace,
-                    });
+                    if (old_mem.len != entry.value_ptr.requested_size) {
+                        log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
+                            entry.value_ptr.requested_size,
+                            old_mem.len,
+                            bucketStackTrace(bucket, size_class, slot_index, .alloc),
+                            free_stack_trace,
+                        });
+                    }
+                    if (log2_old_align != entry.value_ptr.log2_ptr_align) {
+                        log.err("Allocation alignment {d} does not match free alignment {d}. Allocation: {} Free: {}", .{
+                            @as(usize, 1) << @intCast(math.Log2Int(usize), entry.value_ptr.log2_ptr_align),
+                            @as(usize, 1) << @intCast(math.Log2Int(usize), log2_old_align),
+                            bucketStackTrace(bucket, size_class, slot_index, .alloc),
+                            free_stack_trace,
+                        });
+                    }
                 }
             }
 
@@ -887,7 +912,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 @memset(old_mem.ptr, undefined, old_mem.len);
             }
             if (config.safety) {
-                assert(self.small_alloc_sizes.remove(@ptrToInt(old_mem.ptr)));
+                assert(self.small_allocations.remove(@ptrToInt(old_mem.ptr)));
             }
             if (config.verbose_log) {
                 log.info("small free {d} bytes at {*}", .{ old_mem.len, old_mem.ptr });
@@ -953,13 +978,14 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
 
             if (config.safety) {
-                try self.small_alloc_sizes.ensureUnusedCapacity(self.backing_allocator, 1);
+                try self.small_allocations.ensureUnusedCapacity(self.backing_allocator, 1);
             }
             const new_size_class = math.ceilPowerOfTwoAssert(usize, new_aligned_size);
             const ptr = try self.allocSlot(new_size_class, ret_addr);
             if (config.safety) {
-                const gop = self.small_alloc_sizes.getOrPutAssumeCapacity(@ptrToInt(ptr));
-                gop.value_ptr.* = len;
+                const gop = self.small_allocations.getOrPutAssumeCapacity(@ptrToInt(ptr));
+                gop.value_ptr.requested_size = len;
+                gop.value_ptr.log2_ptr_align = log2_ptr_align;
             }
             if (config.verbose_log) {
                 log.info("small alloc {d} bytes at {*}", .{ len, ptr });
