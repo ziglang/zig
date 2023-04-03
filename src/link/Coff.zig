@@ -155,6 +155,7 @@ const LazySymbolTable = std.ArrayHashMapUnmanaged(
 const LazySymbolMetadata = struct {
     atom: Atom.Index,
     section: u16,
+    alignment: u32,
 };
 
 const DeclMetadata = struct {
@@ -625,7 +626,6 @@ fn allocateAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignme
     {
         const atom_ptr = self.getAtomPtr(atom_index);
         atom_ptr.size = new_atom_size;
-        atom_ptr.alignment = alignment;
     }
 
     if (atom.prev_index) |prev_index| {
@@ -739,7 +739,6 @@ pub fn createAtom(self: *Coff) !Atom.Index {
         .sym_index = sym_index,
         .file = null,
         .size = 0,
-        .alignment = 0,
         .prev_index = null,
         .next_index = null,
     };
@@ -751,11 +750,10 @@ fn createGotAtom(self: *Coff, target: SymbolWithLoc) !Atom.Index {
     const atom_index = try self.createAtom();
     const atom = self.getAtomPtr(atom_index);
     atom.size = @sizeOf(u64);
-    atom.alignment = @alignOf(u64);
 
     const sym = atom.getSymbolPtr(self);
     sym.section_number = @intToEnum(coff.SectionNumber, self.got_section_index.? + 1);
-    sym.value = try self.allocateAtom(atom_index, atom.size, atom.alignment);
+    sym.value = try self.allocateAtom(atom_index, atom.size, @sizeOf(u64));
 
     log.debug("allocated GOT atom at 0x{x}", .{sym.value});
 
@@ -1116,9 +1114,8 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
 
     const required_alignment = tv.ty.abiAlignment(self.base.options.target);
     const atom = self.getAtomPtr(atom_index);
-    atom.alignment = required_alignment;
     atom.size = @intCast(u32, code.len);
-    atom.getSymbolPtr(self).value = try self.allocateAtom(atom_index, atom.size, atom.alignment);
+    atom.getSymbolPtr(self).value = try self.allocateAtom(atom_index, atom.size, required_alignment);
     errdefer self.freeAtom(atom_index);
 
     try unnamed_consts.append(gpa, atom_index);
@@ -1228,7 +1225,7 @@ fn updateLazySymbol(
         },
     };
 
-    const required_alignment = atom.alignment;
+    const required_alignment = lazy_metadata.alignment;
     const code_len = @intCast(u32, code.len);
     const symbol = atom.getSymbolPtr(self);
     try self.setSymbolName(symbol, name);
@@ -1271,8 +1268,8 @@ pub fn getOrCreateAtomForLazySymbol(
                 .code => self.text_section_index.?,
                 .const_data => self.rdata_section_index.?,
             },
+            .alignment = alignment,
         };
-        self.getAtomPtr(gop.value_ptr.atom).alignment = alignment;
     }
     return gop.value_ptr.atom;
 }
