@@ -28,10 +28,11 @@ const Type = @import("../../type.zig").Type;
 const TypedValue = @import("../../TypedValue.zig");
 const Value = @import("../../value.zig").Value;
 
-const bits = @import("bits.zig");
 const abi = @import("abi.zig");
-const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
+const bits = @import("bits.zig");
+const encoder = @import("encoder.zig");
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
+const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
 
 const Condition = bits.Condition;
 const Immediate = bits.Immediate;
@@ -6570,7 +6571,8 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                 return self.fail("unrecognized constraint: '{s}'", .{constraint});
             args.putAssumeCapacity(name, mcv);
             switch (mcv) {
-                .register => |reg| _ = self.register_manager.lockRegAssumeUnused(reg),
+                .register => |reg| _ = if (RegisterManager.indexOfRegIntoTracked(reg)) |_|
+                    self.register_manager.lockRegAssumeUnused(reg),
                 else => {},
             }
             if (output == .none) result = mcv;
@@ -6609,70 +6611,139 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         }
 
         const asm_source = mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
-        var line_it = mem.tokenize(u8, asm_source, "\n\r");
+        var line_it = mem.tokenize(u8, asm_source, "\n\r;");
         while (line_it.next()) |line| {
             var mnem_it = mem.tokenize(u8, line, " \t");
-            const mnem = mnem_it.next() orelse continue;
-            if (mem.startsWith(u8, mnem, "#")) continue;
-            var arg_it = mem.tokenize(u8, mnem_it.rest(), ", ");
-            if (std.ascii.eqlIgnoreCase(mnem, "syscall")) {
-                if (arg_it.next()) |trailing| if (!mem.startsWith(u8, trailing, "#"))
-                    return self.fail("Too many operands: '{s}'", .{line});
-                try self.asmOpOnly(.syscall);
-            } else if (std.ascii.eqlIgnoreCase(mnem, "push")) {
-                const src = arg_it.next() orelse
-                    return self.fail("Not enough operands: '{s}'", .{line});
-                if (arg_it.next()) |trailing| if (!mem.startsWith(u8, trailing, "#"))
-                    return self.fail("Too many operands: '{s}'", .{line});
-                if (mem.startsWith(u8, src, "$")) {
-                    const imm = std.fmt.parseInt(u32, src["$".len..], 0) catch
-                        return self.fail("Invalid immediate: '{s}'", .{src});
-                    try self.asmImmediate(.push, Immediate.u(imm));
-                } else if (mem.startsWith(u8, src, "%%")) {
-                    const reg = parseRegName(src["%%".len..]) orelse
-                        return self.fail("Invalid register: '{s}'", .{src});
-                    try self.asmRegister(.push, reg);
-                } else return self.fail("Unsupported operand: '{s}'", .{src});
-            } else if (std.ascii.eqlIgnoreCase(mnem, "pop")) {
-                const dst = arg_it.next() orelse
-                    return self.fail("Not enough operands: '{s}'", .{line});
-                if (arg_it.next()) |trailing| if (!mem.startsWith(u8, trailing, "#"))
-                    return self.fail("Too many operands: '{s}'", .{line});
-                if (mem.startsWith(u8, dst, "%%")) {
-                    const reg = parseRegName(dst["%%".len..]) orelse
-                        return self.fail("Invalid register: '{s}'", .{dst});
-                    try self.asmRegister(.pop, reg);
-                } else return self.fail("Unsupported operand: '{s}'", .{dst});
-            } else if (std.ascii.eqlIgnoreCase(mnem, "movq")) {
-                const src = arg_it.next() orelse
-                    return self.fail("Not enough operands: '{s}'", .{line});
-                const dst = arg_it.next() orelse
-                    return self.fail("Not enough operands: '{s}'", .{line});
-                if (arg_it.next()) |trailing| if (!mem.startsWith(u8, trailing, "#"))
-                    return self.fail("Too many operands: '{s}'", .{line});
-                if (mem.startsWith(u8, src, "%%")) {
-                    const colon = mem.indexOfScalarPos(u8, src, "%%".len + 2, ':');
-                    const src_reg = parseRegName(src["%%".len .. colon orelse src.len]) orelse
-                        return self.fail("Invalid register: '{s}'", .{src});
+            const mnem_str = mnem_it.next() orelse continue;
+            if (mem.startsWith(u8, mnem_str, "#")) continue;
+
+            const mnem_size: ?Memory.PtrSize = if (mem.endsWith(u8, mnem_str, "b"))
+                .byte
+            else if (mem.endsWith(u8, mnem_str, "w"))
+                .word
+            else if (mem.endsWith(u8, mnem_str, "l"))
+                .dword
+            else if (mem.endsWith(u8, mnem_str, "q"))
+                .qword
+            else
+                null;
+            const mnem = std.meta.stringToEnum(Mir.Inst.Tag, mnem_str) orelse
+                (if (mnem_size) |_|
+                std.meta.stringToEnum(Mir.Inst.Tag, mnem_str[0 .. mnem_str.len - 1])
+            else
+                null) orelse return self.fail("Invalid mnemonic: '{s}'", .{mnem_str});
+
+            var op_it = mem.tokenize(u8, mnem_it.rest(), ",");
+            var ops = [1]encoder.Instruction.Operand{.none} ** 4;
+            for (&ops) |*op| {
+                const op_str = mem.trim(u8, op_it.next() orelse break, " \t");
+                if (mem.startsWith(u8, op_str, "#")) break;
+                if (mem.startsWith(u8, op_str, "%%")) {
+                    const colon = mem.indexOfScalarPos(u8, op_str, "%%".len + 2, ':');
+                    const reg = parseRegName(op_str["%%".len .. colon orelse op_str.len]) orelse
+                        return self.fail("Invalid register: '{s}'", .{op_str});
                     if (colon) |colon_pos| {
-                        const src_disp = std.fmt.parseInt(i32, src[colon_pos + 1 ..], 0) catch
-                            return self.fail("Invalid immediate: '{s}'", .{src});
-                        if (mem.startsWith(u8, dst, "%[") and mem.endsWith(u8, dst, "]")) {
-                            switch (args.get(dst["%[".len .. dst.len - "]".len]) orelse
-                                return self.fail("no matching constraint for: '{s}'", .{dst})) {
-                                .register => |dst_reg| try self.asmRegisterMemory(
-                                    .mov,
-                                    dst_reg,
-                                    Memory.sib(.qword, .{ .base = src_reg, .disp = src_disp }),
-                                ),
-                                else => return self.fail("Invalid constraint: '{s}'", .{dst}),
-                            }
-                        } else return self.fail("Unsupported operand: '{s}'", .{dst});
-                    } else return self.fail("Unsupported operand: '{s}'", .{src});
-                }
-            } else {
-                return self.fail("Unsupported instruction: '{s}'", .{mnem});
-            }
+                        const disp = std.fmt.parseInt(i32, op_str[colon_pos + 1 ..], 0) catch
+                            return self.fail("Invalid displacement: '{s}'", .{op_str});
+                        op.* = .{ .mem = Memory.sib(
+                            mnem_size orelse return self.fail("Unknown size: '{s}'", .{op_str}),
+                            .{ .base = reg, .disp = disp },
+                        ) };
+                    } else {
+                        if (mnem_size) |size| if (reg.bitSize() != size.bitSize())
+                            return self.fail("Invalid register size: '{s}'", .{op_str});
+                        op.* = .{ .reg = reg };
+                    }
+                } else if (mem.startsWith(u8, op_str, "%[") and mem.endsWith(u8, op_str, "]")) {
+                    switch (args.get(op_str["%[".len .. op_str.len - "]".len]) orelse
+                        return self.fail("No matching constraint: '{s}'", .{op_str})) {
+                        .register => |reg| op.* = .{ .reg = reg },
+                        else => return self.fail("Invalid constraint: '{s}'", .{op_str}),
+                    }
+                } else if (mem.startsWith(u8, op_str, "$")) {
+                    if (std.fmt.parseInt(i32, op_str["$".len..], 0)) |s| {
+                        if (mnem_size) |size| {
+                            const max = @as(u64, std.math.maxInt(u64)) >>
+                                @intCast(u6, 64 - (size.bitSize() - 1));
+                            if ((if (s < 0) ~s else s) > max)
+                                return self.fail("Invalid immediate size: '{s}'", .{op_str});
+                        }
+                        op.* = .{ .imm = Immediate.s(s) };
+                    } else |_| if (std.fmt.parseInt(u64, op_str["$".len..], 0)) |u| {
+                        if (mnem_size) |size| {
+                            const max = @as(u64, std.math.maxInt(u64)) >>
+                                @intCast(u6, 64 - size.bitSize());
+                            if (u > max)
+                                return self.fail("Invalid immediate size: '{s}'", .{op_str});
+                        }
+                        op.* = .{ .imm = Immediate.u(u) };
+                    } else |_| return self.fail("Invalid immediate: '{s}'", .{op_str});
+                } else return self.fail("Invalid operand: '{s}'", .{op_str});
+            } else if (op_it.next()) |op_str| return self.fail("Extra operand: '{s}'", .{op_str});
+
+            (switch (ops[0]) {
+                .none => self.asmOpOnly(mnem),
+                .reg => |reg0| switch (ops[1]) {
+                    .none => self.asmRegister(mnem, reg0),
+                    .reg => |reg1| switch (ops[2]) {
+                        .none => self.asmRegisterRegister(mnem, reg1, reg0),
+                        .reg => |reg2| switch (ops[3]) {
+                            .none => self.asmRegisterRegisterRegister(mnem, reg2, reg1, reg0),
+                            else => error.InvalidInstruction,
+                        },
+                        .mem => |mem2| switch (ops[3]) {
+                            .none => self.asmMemoryRegisterRegister(mnem, mem2, reg1, reg0),
+                            else => error.InvalidInstruction,
+                        },
+                        else => error.InvalidInstruction,
+                    },
+                    .mem => |mem1| switch (ops[2]) {
+                        .none => self.asmMemoryRegister(mnem, mem1, reg0),
+                        else => error.InvalidInstruction,
+                    },
+                    else => error.InvalidInstruction,
+                },
+                .mem => |mem0| switch (ops[1]) {
+                    .none => self.asmMemory(mnem, mem0),
+                    .reg => |reg1| switch (ops[2]) {
+                        .none => self.asmRegisterMemory(mnem, reg1, mem0),
+                        else => error.InvalidInstruction,
+                    },
+                    else => error.InvalidInstruction,
+                },
+                .imm => |imm0| switch (ops[1]) {
+                    .none => self.asmImmediate(mnem, imm0),
+                    .reg => |reg1| switch (ops[2]) {
+                        .none => self.asmRegisterImmediate(mnem, reg1, imm0),
+                        .reg => |reg2| switch (ops[3]) {
+                            .none => self.asmRegisterRegisterImmediate(mnem, reg2, reg1, imm0),
+                            else => error.InvalidInstruction,
+                        },
+                        .mem => |mem2| switch (ops[3]) {
+                            .none => self.asmMemoryRegisterImmediate(mnem, mem2, reg1, imm0),
+                            else => error.InvalidInstruction,
+                        },
+                        else => error.InvalidInstruction,
+                    },
+                    .mem => |mem1| switch (ops[2]) {
+                        .none => self.asmMemoryImmediate(mnem, mem1, imm0),
+                        else => error.InvalidInstruction,
+                    },
+                    else => error.InvalidInstruction,
+                },
+            }) catch |err| switch (err) {
+                error.InvalidInstruction => return self.fail(
+                    "Invalid instruction: '{s} {s} {s} {s} {s}'",
+                    .{
+                        @tagName(mnem),
+                        @tagName(ops[0]),
+                        @tagName(ops[1]),
+                        @tagName(ops[2]),
+                        @tagName(ops[3]),
+                    },
+                ),
+                else => |e| return e,
+            };
         }
     }
 
