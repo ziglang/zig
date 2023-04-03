@@ -3669,52 +3669,67 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 .none => unreachable,
                 .dead => unreachable,
                 .unreach => unreachable,
-                .eflags => |cc| {
-                    try self.asmSetccMemory(Memory.sib(
-                        Memory.PtrSize.fromSize(abi_size),
-                        .{ .base = reg.to64() },
-                    ), cc);
+                .eflags => |cc| try self.asmSetccMemory(
+                    Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
+                    cc,
+                ),
+                .undef => if (self.wantSafety()) switch (abi_size) {
+                    1 => try self.store(ptr, .{ .immediate = 0xaa }, ptr_ty, value_ty),
+                    2 => try self.store(ptr, .{ .immediate = 0xaaaa }, ptr_ty, value_ty),
+                    4 => try self.store(ptr, .{ .immediate = 0xaaaaaaaa }, ptr_ty, value_ty),
+                    8 => try self.store(ptr, .{ .immediate = 0xaaaaaaaaaaaaaaaa }, ptr_ty, value_ty),
+                    else => try self.genInlineMemset(
+                        ptr,
+                        .{ .immediate = 0xaa },
+                        .{ .immediate = abi_size },
+                        .{},
+                    ),
                 },
-                .undef => {
-                    if (!self.wantSafety()) return; // The already existing value will do just fine.
-                    switch (abi_size) {
-                        1 => try self.store(ptr, .{ .immediate = 0xaa }, ptr_ty, value_ty),
-                        2 => try self.store(ptr, .{ .immediate = 0xaaaa }, ptr_ty, value_ty),
-                        4 => try self.store(ptr, .{ .immediate = 0xaaaaaaaa }, ptr_ty, value_ty),
-                        8 => try self.store(ptr, .{ .immediate = 0xaaaaaaaaaaaaaaaa }, ptr_ty, value_ty),
-                        else => try self.genInlineMemset(ptr, .{ .immediate = 0xaa }, .{ .immediate = abi_size }, .{}),
-                    }
+                .immediate => |imm| switch (self.regBitSize(value_ty)) {
+                    8 => try self.asmMemoryImmediate(
+                        .mov,
+                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
+                        if (math.cast(i8, @bitCast(i64, imm))) |small|
+                            Immediate.s(small)
+                        else
+                            Immediate.u(@intCast(u8, imm)),
+                    ),
+                    16 => try self.asmMemoryImmediate(
+                        .mov,
+                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
+                        if (math.cast(i16, @bitCast(i64, imm))) |small|
+                            Immediate.s(small)
+                        else
+                            Immediate.u(@intCast(u16, imm)),
+                    ),
+                    32 => try self.asmMemoryImmediate(
+                        .mov,
+                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
+                        if (math.cast(i32, @bitCast(i64, imm))) |small|
+                            Immediate.s(small)
+                        else
+                            Immediate.u(@intCast(u32, imm)),
+                    ),
+                    64 => if (math.cast(i32, @bitCast(i64, imm))) |small|
+                        try self.asmMemoryImmediate(
+                            .mov,
+                            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
+                            Immediate.s(small),
+                        )
+                    else
+                        try self.asmMemoryRegister(
+                            .mov,
+                            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
+                            registerAlias(try self.copyToTmpRegister(value_ty, value), abi_size),
+                        ),
+                    else => unreachable,
                 },
-                .immediate => |imm| {
-                    switch (abi_size) {
-                        1, 2, 4 => {
-                            const immediate = if (value_ty.isSignedInt())
-                                Immediate.s(@intCast(i32, @bitCast(i64, imm)))
-                            else
-                                Immediate.u(@truncate(u32, imm));
-                            try self.asmMemoryImmediate(.mov, Memory.sib(
-                                Memory.PtrSize.fromSize(abi_size),
-                                .{ .base = reg.to64() },
-                            ), immediate);
-                        },
-                        8 => {
-                            // TODO: optimization: if the imm is only using the lower
-                            // 4 bytes and can be sign extended we can use a normal mov
-                            // with indirect addressing (mov [reg64], imm32).
-
-                            // movabs does not support indirect register addressing
-                            // so we need an extra register and an extra mov.
-                            const tmp_reg = try self.copyToTmpRegister(value_ty, value);
-                            return self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
-                        },
-                        else => {
-                            return self.fail("TODO implement set pointee with immediate of ABI size {d}", .{abi_size});
-                        },
-                    }
-                },
-                .register => |src_reg| {
-                    try self.genInlineMemcpyRegisterRegister(value_ty, reg, src_reg, 0);
-                },
+                .register => |src_reg| try self.genInlineMemcpyRegisterRegister(
+                    value_ty,
+                    reg,
+                    src_reg,
+                    0,
+                ),
                 .register_overflow => |ro| {
                     const ro_reg_lock = self.register_manager.lockReg(ro.reg);
                     defer if (ro_reg_lock) |lock| self.register_manager.unlockReg(lock);
@@ -3765,8 +3780,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             defer self.register_manager.unlockReg(addr_reg_lock);
 
             try self.loadMemPtrIntoRegister(addr_reg, ptr_ty, ptr);
-
-            // To get the actual address of the value we want to modify we have to go through the GOT
+            // Load the pointer, which is stored in memory
             try self.asmRegisterMemory(
                 .mov,
                 addr_reg.to64(),
@@ -3774,62 +3788,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             );
 
             const new_ptr = MCValue{ .register = addr_reg.to64() };
-
-            switch (value) {
-                .immediate => |imm| {
-                    if (abi_size > 8) {
-                        return self.fail("TODO saving imm to memory for abi_size {}", .{abi_size});
-                    }
-
-                    if (abi_size == 8) {
-                        // TODO
-                        const top_bits: u32 = @intCast(u32, imm >> 32);
-                        const can_extend = if (value_ty.isUnsignedInt())
-                            (top_bits == 0) and (imm & 0x8000_0000) == 0
-                        else
-                            top_bits == 0xffff_ffff;
-
-                        if (!can_extend) {
-                            return self.fail("TODO imm64 would get incorrectly sign extended", .{});
-                        }
-                    }
-                    try self.asmMemoryImmediate(
-                        .mov,
-                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = addr_reg.to64() }),
-                        Immediate.u(@intCast(u32, imm)),
-                    );
-                },
-                .register => {
-                    return self.store(new_ptr, value, ptr_ty, value_ty);
-                },
-                .linker_load, .memory => {
-                    if (abi_size <= 8) {
-                        const tmp_reg = try self.register_manager.allocReg(null, gp);
-                        const tmp_reg_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
-                        defer self.register_manager.unlockReg(tmp_reg_lock);
-
-                        try self.loadMemPtrIntoRegister(tmp_reg, value_ty, value);
-                        try self.asmRegisterMemory(
-                            .mov,
-                            tmp_reg,
-                            Memory.sib(.qword, .{ .base = tmp_reg }),
-                        );
-
-                        return self.store(new_ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
-                    }
-
-                    try self.genInlineMemcpy(new_ptr, value, .{ .immediate = abi_size }, .{});
-                },
-                .stack_offset => {
-                    if (abi_size <= 8) {
-                        const tmp_reg = try self.copyToTmpRegister(value_ty, value);
-                        return self.store(new_ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
-                    }
-
-                    try self.genInlineMemcpy(new_ptr, value, .{ .immediate = abi_size }, .{});
-                },
-                else => return self.fail("TODO implement storing {} to MCValue.memory", .{value}),
-            }
+            return self.store(new_ptr, value, ptr_ty, value_ty);
         },
     }
 }
@@ -4887,41 +4846,39 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                         registerAlias(src_reg, abi_size),
                     ),
                 },
-                .immediate => |imm| {
-                    switch (self.regBitSize(ty)) {
-                        8 => try self.asmRegisterImmediate(
-                            mir_tag,
-                            dst_alias,
-                            if (math.cast(i8, @bitCast(i64, imm))) |small|
-                                Immediate.s(small)
-                            else
-                                Immediate.u(@intCast(u8, imm)),
-                        ),
-                        16 => try self.asmRegisterImmediate(
-                            mir_tag,
-                            dst_alias,
-                            if (math.cast(i16, @bitCast(i64, imm))) |small|
-                                Immediate.s(small)
-                            else
-                                Immediate.u(@intCast(u16, imm)),
-                        ),
-                        32 => try self.asmRegisterImmediate(
-                            mir_tag,
-                            dst_alias,
-                            if (math.cast(i32, @bitCast(i64, imm))) |small|
-                                Immediate.s(small)
-                            else
-                                Immediate.u(@intCast(u32, imm)),
-                        ),
-                        64 => if (math.cast(i32, @bitCast(i64, imm))) |small|
-                            try self.asmRegisterImmediate(mir_tag, dst_alias, Immediate.s(small))
+                .immediate => |imm| switch (self.regBitSize(ty)) {
+                    8 => try self.asmRegisterImmediate(
+                        mir_tag,
+                        dst_alias,
+                        if (math.cast(i8, @bitCast(i64, imm))) |small|
+                            Immediate.s(small)
                         else
-                            try self.asmRegisterRegister(mir_tag, dst_alias, registerAlias(
-                                try self.copyToTmpRegister(ty, src_mcv),
-                                abi_size,
-                            )),
-                        else => unreachable,
-                    }
+                            Immediate.u(@intCast(u8, imm)),
+                    ),
+                    16 => try self.asmRegisterImmediate(
+                        mir_tag,
+                        dst_alias,
+                        if (math.cast(i16, @bitCast(i64, imm))) |small|
+                            Immediate.s(small)
+                        else
+                            Immediate.u(@intCast(u16, imm)),
+                    ),
+                    32 => try self.asmRegisterImmediate(
+                        mir_tag,
+                        dst_alias,
+                        if (math.cast(i32, @bitCast(i64, imm))) |small|
+                            Immediate.s(small)
+                        else
+                            Immediate.u(@intCast(u32, imm)),
+                    ),
+                    64 => if (math.cast(i32, @bitCast(i64, imm))) |small|
+                        try self.asmRegisterImmediate(mir_tag, dst_alias, Immediate.s(small))
+                    else
+                        try self.asmRegisterRegister(mir_tag, dst_alias, registerAlias(
+                            try self.copyToTmpRegister(ty, src_mcv),
+                            abi_size,
+                        )),
+                    else => unreachable,
                 },
                 .memory, .linker_load, .eflags => {
                     assert(abi_size <= 8);
@@ -4931,13 +4888,11 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                     const reg = try self.copyToTmpRegister(ty, src_mcv);
                     return self.genBinOpMir(mir_tag, ty, dst_mcv, .{ .register = reg });
                 },
-                .stack_offset => |off| {
-                    try self.asmRegisterMemory(
-                        mir_tag,
-                        registerAlias(dst_reg, abi_size),
-                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = .rbp, .disp = -off }),
-                    );
-                },
+                .stack_offset => |off| try self.asmRegisterMemory(
+                    mir_tag,
+                    registerAlias(dst_reg, abi_size),
+                    Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = .rbp, .disp = -off }),
+                ),
             }
         },
         .memory, .linker_load, .stack_offset => {
