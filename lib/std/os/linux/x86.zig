@@ -125,36 +125,44 @@ pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *
 
 pub fn restore() callconv(.Naked) void {
     switch (@import("builtin").zig_backend) {
-        .stage2_c => return asm volatile (
+        .stage2_c => asm volatile (
             \\ movl %[number], %%eax
             \\ int $0x80
+            \\ ret
             :
             : [number] "i" (@enumToInt(SYS.sigreturn)),
             : "memory"
         ),
-        else => return asm volatile ("int $0x80"
+        else => asm volatile (
+            \\ int $0x80
+            \\ ret
             :
             : [number] "{eax}" (@enumToInt(SYS.sigreturn)),
             : "memory"
         ),
     }
+    unreachable;
 }
 
 pub fn restore_rt() callconv(.Naked) void {
     switch (@import("builtin").zig_backend) {
-        .stage2_c => return asm volatile (
+        .stage2_c => asm volatile (
             \\ movl %[number], %%eax
             \\ int $0x80
+            \\ ret
             :
             : [number] "i" (@enumToInt(SYS.rt_sigreturn)),
             : "memory"
         ),
-        else => return asm volatile ("int $0x80"
+        else => asm volatile (
+            \\ int $0x80
+            \\ ret
             :
             : [number] "{eax}" (@enumToInt(SYS.rt_sigreturn)),
             : "memory"
         ),
     }
+    unreachable;
 }
 
 pub const O = struct {
