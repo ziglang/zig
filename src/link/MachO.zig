@@ -3053,7 +3053,51 @@ fn allocateSection(self: *MachO, segname: []const u8, sectname: []const u8, opts
     return section_id;
 }
 
-fn moveSectionInVirtualMemory(self: *MachO, sect_id: u8, needed_size: u64) !void {
+fn growSection(self: *MachO, sect_id: u8, needed_size: u64) !void {
+    const header = &self.sections.items(.header)[sect_id];
+    const segment_index = self.sections.items(.segment_index)[sect_id];
+    const segment = &self.segments.items[segment_index];
+    const maybe_last_atom_index = self.sections.items(.last_atom_index)[sect_id];
+    const sect_capacity = self.allocatedSize(header.offset);
+
+    if (needed_size > sect_capacity) {
+        const new_offset = self.findFreeSpace(needed_size, self.page_size);
+        const current_size = if (maybe_last_atom_index) |last_atom_index| blk: {
+            const last_atom = self.getAtom(last_atom_index);
+            const sym = last_atom.getSymbol(self);
+            break :blk (sym.n_value + last_atom.size) - segment.vmaddr;
+        } else 0;
+
+        log.debug("moving {s},{s} from 0x{x} to 0x{x}", .{
+            header.segName(),
+            header.sectName(),
+            header.offset,
+            new_offset,
+        });
+
+        const amt = try self.base.file.?.copyRangeAll(
+            header.offset,
+            self.base.file.?,
+            new_offset,
+            current_size,
+        );
+        if (amt != current_size) return error.InputOutput;
+        header.offset = @intCast(u32, new_offset);
+        segment.fileoff = new_offset;
+    }
+
+    const sect_vm_capacity = self.allocatedVirtualSize(segment.vmaddr);
+    if (needed_size > sect_vm_capacity) {
+        self.markRelocsDirtyByAddress(segment.vmaddr + needed_size);
+        try self.growSectionVirtualMemory(sect_id, needed_size);
+    }
+
+    header.size = needed_size;
+    segment.filesize = mem.alignForwardGeneric(u64, needed_size, self.page_size);
+    segment.vmsize = mem.alignForwardGeneric(u64, needed_size, self.page_size);
+}
+
+fn growSectionVirtualMemory(self: *MachO, sect_id: u8, needed_size: u64) !void {
     const header = &self.sections.items(.header)[sect_id];
     const segment = self.getSegmentPtr(sect_id);
     const increased_size = padToIdeal(needed_size);
@@ -3172,45 +3216,9 @@ fn allocateAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignm
     else
         true;
     if (expand_section) {
-        const sect_capacity = self.allocatedSize(header.offset);
         const needed_size = (vaddr + new_atom_size) - segment.vmaddr;
-        if (needed_size > sect_capacity) {
-            const new_offset = self.findFreeSpace(needed_size, self.page_size);
-            const current_size = if (maybe_last_atom_index.*) |last_atom_index| blk: {
-                const last_atom = self.getAtom(last_atom_index);
-                const sym = last_atom.getSymbol(self);
-                break :blk (sym.n_value + last_atom.size) - segment.vmaddr;
-            } else 0;
-
-            log.debug("moving {s},{s} from 0x{x} to 0x{x}", .{
-                header.segName(),
-                header.sectName(),
-                header.offset,
-                new_offset,
-            });
-
-            const amt = try self.base.file.?.copyRangeAll(
-                header.offset,
-                self.base.file.?,
-                new_offset,
-                current_size,
-            );
-            if (amt != current_size) return error.InputOutput;
-            header.offset = @intCast(u32, new_offset);
-            segment.fileoff = new_offset;
-        }
-
-        const sect_vm_capacity = self.allocatedVirtualSize(segment.vmaddr);
-        if (needed_size > sect_vm_capacity) {
-            self.markRelocsDirtyByAddress(segment.vmaddr + needed_size);
-            try self.moveSectionInVirtualMemory(sect_id, needed_size);
-        }
-
-        header.size = needed_size;
-        segment.filesize = mem.alignForwardGeneric(u64, needed_size, self.page_size);
-        segment.vmsize = mem.alignForwardGeneric(u64, needed_size, self.page_size);
+        try self.growSection(sect_id, needed_size);
         maybe_last_atom_index.* = atom_index;
-
         self.segment_table_dirty = true;
     }
 
@@ -3218,10 +3226,7 @@ fn allocateAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignm
     if (header.@"align" < align_pow) {
         header.@"align" = align_pow;
     }
-    {
-        const atom_ptr = self.getAtomPtr(atom_index);
-        atom_ptr.size = new_atom_size;
-    }
+    self.getAtomPtr(atom_index).size = new_atom_size;
 
     if (atom.prev_index) |prev_index| {
         const prev = self.getAtomPtr(prev_index);

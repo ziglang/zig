@@ -622,11 +622,7 @@ fn allocateAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignme
         try self.growSection(sect_id, needed_size);
         maybe_last_atom_index.* = atom_index;
     }
-
-    {
-        const atom_ptr = self.getAtomPtr(atom_index);
-        atom_ptr.size = new_atom_size;
-    }
+    self.getAtomPtr(atom_index).size = new_atom_size;
 
     if (atom.prev_index) |prev_index| {
         const prev = self.getAtomPtr(prev_index);
