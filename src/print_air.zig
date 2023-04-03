@@ -804,6 +804,7 @@ const Writer = struct {
         var case_i: u32 = 0;
 
         try w.writeOperand(s, inst, 0, pl_op.operand);
+        if (w.skip_body) return s.writeAll(", ...");
         const old_indent = w.indent;
         w.indent += 2;
 

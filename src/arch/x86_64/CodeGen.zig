@@ -2528,7 +2528,7 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
         const dst_lock = self.register_manager.lockReg(dst_reg);
         defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const pl_off = @intCast(i32, errUnionErrorOffset(pl_ty, self.target.*));
+        const pl_off = @intCast(i32, errUnionPayloadOffset(pl_ty, self.target.*));
         const dst_abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
         try self.asmRegisterMemory(
             .lea,
@@ -5602,7 +5602,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
 
         const rhs_mcv = try self.resolveInst(bin_op.rhs);
         const rhs_lock = switch (rhs_mcv) {
-            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            .register => |reg| self.register_manager.lockReg(reg),
             else => null,
         };
         defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
