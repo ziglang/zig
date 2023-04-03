@@ -3651,10 +3651,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
         .dead => unreachable,
         .eflags => unreachable,
         .register_overflow => unreachable,
-        .immediate => |imm| {
-            try self.setRegOrMem(value_ty, .{ .memory = imm }, value);
-        },
-        .stack_offset => {
+        .immediate, .stack_offset => {
             const reg = try self.copyToTmpRegister(ptr_ty, ptr);
             try self.store(.{ .register = reg }, value, ptr_ty, value_ty);
         },
@@ -3748,23 +3745,18 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         -@intCast(i32, overflow_bit_offset),
                     );
                 },
-                .linker_load,
-                .memory,
-                .stack_offset,
-                => {
-                    if (abi_size <= 8) {
-                        const tmp_reg = try self.copyToTmpRegister(value_ty, value);
-                        return self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
-                    }
-
-                    try self.genInlineMemcpy(.{ .stack_offset = 0 }, value, .{ .immediate = abi_size }, .{
-                        .source_stack_base = .rbp,
-                        .dest_stack_base = reg.to64(),
-                    });
-                },
+                .linker_load, .memory, .stack_offset => if (abi_size <= 8) {
+                    const tmp_reg = try self.copyToTmpRegister(value_ty, value);
+                    try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
+                } else try self.genInlineMemcpy(
+                    .{ .stack_offset = 0 },
+                    value,
+                    .{ .immediate = abi_size },
+                    .{ .source_stack_base = .rbp, .dest_stack_base = reg.to64() },
+                ),
                 .ptr_stack_offset => {
                     const tmp_reg = try self.copyToTmpRegister(value_ty, value);
-                    return self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
+                    try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                 },
             }
         },
@@ -3788,7 +3780,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             );
 
             const new_ptr = MCValue{ .register = addr_reg.to64() };
-            return self.store(new_ptr, value, ptr_ty, value_ty);
+            try self.store(new_ptr, value, ptr_ty, value_ty);
         },
     }
 }
