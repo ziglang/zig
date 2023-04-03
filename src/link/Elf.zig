@@ -106,7 +106,12 @@ shdr_table_offset: ?u64 = null,
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
 program_headers: std.ArrayListUnmanaged(elf.Elf64_Phdr) = .{},
-phdr_table_offset: ?u64 = null,
+/// The index into the program headers of the PT_PHDR program header
+phdr_table_index: ?u16 = null,
+/// The index into the program headers of the PT_LOAD program header containing the phdr
+/// Most linkers would merge this with phdr_load_ro_index,
+/// but hot swap means we can't ensure they are consecutive.
+phdr_table_load_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Read and Execute flags
 phdr_load_re_index: ?u16 = null,
 /// The index into the program headers of the global offset table.
@@ -386,9 +391,10 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
 
     const end = start + padToIdeal(size);
 
-    if (self.shdr_table_offset) |off| {
-        const shdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Shdr) else @sizeOf(elf.Elf64_Shdr);
-        const tight_size = self.sections.slice().len * shdr_size;
+    if (self.phdr_table_index) |index| {
+        const off = self.program_headers.items[index].p_offset;
+        const phdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Phdr) else @sizeOf(elf.Elf64_Phdr);
+        const tight_size = self.program_headers.items.len * phdr_size;
         const increased_size = padToIdeal(tight_size);
         const test_end = off + increased_size;
         if (end > off and start < test_end) {
@@ -396,9 +402,9 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
         }
     }
 
-    if (self.phdr_table_offset) |off| {
-        const phdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Phdr) else @sizeOf(elf.Elf64_Phdr);
-        const tight_size = self.sections.slice().len * phdr_size;
+    if (self.shdr_table_offset) |off| {
+        const shdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Shdr) else @sizeOf(elf.Elf64_Shdr);
+        const tight_size = self.sections.slice().len * shdr_size;
         const increased_size = padToIdeal(tight_size);
         const test_end = off + increased_size;
         if (end > off and start < test_end) {
@@ -427,10 +433,11 @@ pub fn allocatedSize(self: *Elf, start: u64) u64 {
     if (start == 0)
         return 0;
     var min_pos: u64 = std.math.maxInt(u64);
-    if (self.shdr_table_offset) |off| {
+    if (self.phdr_table_index) |index| {
+        const off = self.program_headers.items[index].p_offset;
         if (off > start and off < min_pos) min_pos = off;
     }
-    if (self.phdr_table_offset) |off| {
+    if (self.shdr_table_offset) |off| {
         if (off > start and off < min_pos) min_pos = off;
     }
     for (self.sections.items(.shdr)) |section| {
@@ -462,96 +469,146 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     };
     const ptr_size: u8 = self.ptrWidthBytes();
 
-    if (self.phdr_load_re_index == null) {
-        self.phdr_load_re_index = @intCast(u16, self.program_headers.items.len);
-        const file_size = self.base.options.program_code_size_hint;
-        const p_align = self.page_size;
-        const off = self.findFreeSpace(file_size, p_align);
-        log.debug("found PT_LOAD RE free space 0x{x} to 0x{x}", .{ off, off + file_size });
-        const entry_addr: u64 = self.entry_addr orelse if (self.base.options.target.cpu.arch == .spu_2) @as(u64, 0) else default_entry_addr;
-        try self.program_headers.append(gpa, .{
-            .p_type = elf.PT_LOAD,
-            .p_offset = off,
-            .p_filesz = file_size,
-            .p_vaddr = entry_addr,
-            .p_paddr = entry_addr,
-            .p_memsz = file_size,
-            .p_align = p_align,
-            .p_flags = elf.PF_X | elf.PF_R | elf.PF_W,
-        });
-        self.entry_addr = null;
-        self.phdr_table_dirty = true;
-    }
+    { // Program Headers
+        var new_phdr_table_index: ?u16 = null;
+        if (self.phdr_table_index == null) {
+            new_phdr_table_index = @intCast(u16, self.program_headers.items.len);
+            const phalign: u16 = switch (self.ptr_width) {
+                .p32 => @alignOf(elf.Elf32_Phdr),
+                .p64 => @alignOf(elf.Elf64_Phdr),
+            };
+            try self.program_headers.append(gpa, .{
+                .p_type = elf.PT_PHDR,
+                .p_offset = undefined,
+                .p_filesz = undefined,
+                .p_vaddr = undefined,
+                .p_paddr = undefined,
+                .p_memsz = undefined,
+                .p_align = phalign,
+                .p_flags = elf.PF_R,
+            });
+            self.phdr_table_dirty = true;
+        }
 
-    if (self.phdr_got_index == null) {
-        self.phdr_got_index = @intCast(u16, self.program_headers.items.len);
-        const file_size = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
-        // We really only need ptr alignment but since we are using PROGBITS, linux requires
-        // page align.
-        const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
-        const off = self.findFreeSpace(file_size, p_align);
-        log.debug("found PT_LOAD GOT free space 0x{x} to 0x{x}", .{ off, off + file_size });
-        // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
-        // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
-        // else in virtual memory.
-        const got_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x4000000 else 0x8000;
-        try self.program_headers.append(gpa, .{
-            .p_type = elf.PT_LOAD,
-            .p_offset = off,
-            .p_filesz = file_size,
-            .p_vaddr = got_addr,
-            .p_paddr = got_addr,
-            .p_memsz = file_size,
-            .p_align = p_align,
-            .p_flags = elf.PF_R | elf.PF_W,
-        });
-        self.phdr_table_dirty = true;
-    }
+        if (self.phdr_table_load_index == null) {
+            self.phdr_table_load_index = @intCast(u16, self.program_headers.items.len);
+            // TODO Same as for GOT
+            const phdr_addr: u64 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x1000000 else 0x1000;
+            try self.program_headers.append(gpa, .{
+                .p_type = elf.PT_LOAD,
+                .p_offset = undefined,
+                .p_filesz = undefined,
+                .p_vaddr = phdr_addr,
+                .p_paddr = phdr_addr,
+                .p_memsz = undefined,
+                .p_align = self.page_size,
+                .p_flags = elf.PF_R,
+            });
+            self.phdr_table_dirty = true;
+        }
 
-    if (self.phdr_load_ro_index == null) {
-        self.phdr_load_ro_index = @intCast(u16, self.program_headers.items.len);
-        // TODO Find a hint about how much data need to be in rodata ?
-        const file_size = 1024;
-        // Same reason as for GOT
-        const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
-        const off = self.findFreeSpace(file_size, p_align);
-        log.debug("found PT_LOAD RO free space 0x{x} to 0x{x}", .{ off, off + file_size });
-        // TODO Same as for GOT
-        const rodata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0xc000000 else 0xa000;
-        try self.program_headers.append(gpa, .{
-            .p_type = elf.PT_LOAD,
-            .p_offset = off,
-            .p_filesz = file_size,
-            .p_vaddr = rodata_addr,
-            .p_paddr = rodata_addr,
-            .p_memsz = file_size,
-            .p_align = p_align,
-            .p_flags = elf.PF_R | elf.PF_W,
-        });
-        self.phdr_table_dirty = true;
-    }
+        if (self.phdr_load_re_index == null) {
+            self.phdr_load_re_index = @intCast(u16, self.program_headers.items.len);
+            const file_size = self.base.options.program_code_size_hint;
+            const p_align = self.page_size;
+            const off = self.findFreeSpace(file_size, p_align);
+            log.debug("found PT_LOAD RE free space 0x{x} to 0x{x}", .{ off, off + file_size });
+            const entry_addr: u64 = self.entry_addr orelse if (self.base.options.target.cpu.arch == .spu_2) @as(u64, 0) else default_entry_addr;
+            try self.program_headers.append(gpa, .{
+                .p_type = elf.PT_LOAD,
+                .p_offset = off,
+                .p_filesz = file_size,
+                .p_vaddr = entry_addr,
+                .p_paddr = entry_addr,
+                .p_memsz = file_size,
+                .p_align = p_align,
+                .p_flags = elf.PF_X | elf.PF_R | elf.PF_W,
+            });
+            self.entry_addr = null;
+            self.phdr_table_dirty = true;
+        }
 
-    if (self.phdr_load_rw_index == null) {
-        self.phdr_load_rw_index = @intCast(u16, self.program_headers.items.len);
-        // TODO Find a hint about how much data need to be in data ?
-        const file_size = 1024;
-        // Same reason as for GOT
-        const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
-        const off = self.findFreeSpace(file_size, p_align);
-        log.debug("found PT_LOAD RW free space 0x{x} to 0x{x}", .{ off, off + file_size });
-        // TODO Same as for GOT
-        const rwdata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x10000000 else 0xc000;
-        try self.program_headers.append(gpa, .{
-            .p_type = elf.PT_LOAD,
-            .p_offset = off,
-            .p_filesz = file_size,
-            .p_vaddr = rwdata_addr,
-            .p_paddr = rwdata_addr,
-            .p_memsz = file_size,
-            .p_align = p_align,
-            .p_flags = elf.PF_R | elf.PF_W,
-        });
-        self.phdr_table_dirty = true;
+        if (self.phdr_got_index == null) {
+            self.phdr_got_index = @intCast(u16, self.program_headers.items.len);
+            const file_size = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
+            // We really only need ptr alignment but since we are using PROGBITS, linux requires
+            // page align.
+            const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
+            const off = self.findFreeSpace(file_size, p_align);
+            log.debug("found PT_LOAD GOT free space 0x{x} to 0x{x}", .{ off, off + file_size });
+            // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
+            // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
+            // else in virtual memory.
+            const got_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x4000000 else 0x8000;
+            try self.program_headers.append(gpa, .{
+                .p_type = elf.PT_LOAD,
+                .p_offset = off,
+                .p_filesz = file_size,
+                .p_vaddr = got_addr,
+                .p_paddr = got_addr,
+                .p_memsz = file_size,
+                .p_align = p_align,
+                .p_flags = elf.PF_R | elf.PF_W,
+            });
+            self.phdr_table_dirty = true;
+        }
+
+        if (self.phdr_load_ro_index == null) {
+            self.phdr_load_ro_index = @intCast(u16, self.program_headers.items.len);
+            // TODO Find a hint about how much data need to be in rodata ?
+            const file_size = 1024;
+            // Same reason as for GOT
+            const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
+            const off = self.findFreeSpace(file_size, p_align);
+            log.debug("found PT_LOAD RO free space 0x{x} to 0x{x}", .{ off, off + file_size });
+            // TODO Same as for GOT
+            const rodata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0xc000000 else 0xa000;
+            try self.program_headers.append(gpa, .{
+                .p_type = elf.PT_LOAD,
+                .p_offset = off,
+                .p_filesz = file_size,
+                .p_vaddr = rodata_addr,
+                .p_paddr = rodata_addr,
+                .p_memsz = file_size,
+                .p_align = p_align,
+                .p_flags = elf.PF_R | elf.PF_W,
+            });
+            self.phdr_table_dirty = true;
+        }
+
+        if (self.phdr_load_rw_index == null) {
+            self.phdr_load_rw_index = @intCast(u16, self.program_headers.items.len);
+            // TODO Find a hint about how much data need to be in data ?
+            const file_size = 1024;
+            // Same reason as for GOT
+            const p_align = if (self.base.options.target.os.tag == .linux) self.page_size else @as(u16, ptr_size);
+            const off = self.findFreeSpace(file_size, p_align);
+            log.debug("found PT_LOAD RW free space 0x{x} to 0x{x}", .{ off, off + file_size });
+            // TODO Same as for GOT
+            const rwdata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x10000000 else 0xc000;
+            try self.program_headers.append(gpa, .{
+                .p_type = elf.PT_LOAD,
+                .p_offset = off,
+                .p_filesz = file_size,
+                .p_vaddr = rwdata_addr,
+                .p_paddr = rwdata_addr,
+                .p_memsz = file_size,
+                .p_align = p_align,
+                .p_flags = elf.PF_R | elf.PF_W,
+            });
+            self.phdr_table_dirty = true;
+        }
+
+        if (new_phdr_table_index) |index| {
+            const phsize: u64 = switch (self.ptr_width) {
+                .p32 => @sizeOf(elf.Elf32_Phdr),
+                .p64 => @sizeOf(elf.Elf64_Phdr),
+            };
+            const phdr_table = &self.program_headers.items[index];
+            phdr_table.p_offset = self.findFreeSpace(self.program_headers.items.len * phsize, @intCast(u32, phdr_table.p_align));
+            self.phdr_table_index = index;
+            self.phdr_table_dirty = true;
+        }
     }
 
     if (self.shstrtab_index == null) {
@@ -849,19 +906,6 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.shdr_table_dirty = true;
     }
 
-    const phsize: u64 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Phdr),
-        .p64 => @sizeOf(elf.Elf64_Phdr),
-    };
-    const phalign: u16 = switch (self.ptr_width) {
-        .p32 => @alignOf(elf.Elf32_Phdr),
-        .p64 => @alignOf(elf.Elf64_Phdr),
-    };
-    if (self.phdr_table_offset == null) {
-        self.phdr_table_offset = self.findFreeSpace(self.program_headers.items.len * phsize, phalign);
-        self.phdr_table_dirty = true;
-    }
-
     {
         // Iterate over symbols, populating free_list and last_text_block.
         if (self.local_symbols.items.len != 1) {
@@ -1132,17 +1176,29 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             .p32 => @sizeOf(elf.Elf32_Phdr),
             .p64 => @sizeOf(elf.Elf64_Phdr),
         };
-        const phalign: u16 = switch (self.ptr_width) {
-            .p32 => @alignOf(elf.Elf32_Phdr),
-            .p64 => @alignOf(elf.Elf64_Phdr),
-        };
-        const allocated_size = self.allocatedSize(self.phdr_table_offset.?);
+
+        const phdr_table_index = self.phdr_table_index.?;
+        const phdr_table = &self.program_headers.items[phdr_table_index];
+        const phdr_table_load = &self.program_headers.items[self.phdr_table_load_index.?];
+
+        const allocated_size = self.allocatedSize(phdr_table.p_offset);
         const needed_size = self.program_headers.items.len * phsize;
 
         if (needed_size > allocated_size) {
-            self.phdr_table_offset = null; // free the space
-            self.phdr_table_offset = self.findFreeSpace(needed_size, phalign);
+            self.phdr_table_index = null; // free the space
+            defer self.phdr_table_index = phdr_table_index;
+            phdr_table.p_offset = self.findFreeSpace(needed_size, @intCast(u32, phdr_table.p_align));
         }
+
+        phdr_table_load.p_offset = mem.alignBackwardGeneric(u64, phdr_table.p_offset, phdr_table_load.p_align);
+        const load_align_offset = phdr_table.p_offset - phdr_table_load.p_offset;
+        phdr_table_load.p_filesz = load_align_offset + needed_size;
+        phdr_table_load.p_memsz = load_align_offset + needed_size;
+
+        phdr_table.p_filesz = needed_size;
+        phdr_table.p_vaddr = phdr_table_load.p_vaddr + load_align_offset;
+        phdr_table.p_paddr = phdr_table_load.p_paddr + load_align_offset;
+        phdr_table.p_memsz = needed_size;
 
         switch (self.ptr_width) {
             .p32 => {
@@ -1155,7 +1211,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                         mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
                     }
                 }
-                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
+                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
             },
             .p64 => {
                 const buf = try gpa.alloc(elf.Elf64_Phdr, self.program_headers.items.len);
@@ -1167,7 +1223,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                         mem.byteSwapAllFields(elf.Elf64_Phdr, phdr);
                     }
                 }
-                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
+                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
             },
         }
         self.phdr_table_dirty = false;
@@ -1992,13 +2048,14 @@ fn writeElfHeader(self: *Elf) !void {
 
     const e_entry = if (elf_type == .REL) 0 else self.entry_addr.?;
 
+    const phdr_table_offset = self.program_headers.items[self.phdr_table_index.?].p_offset;
     switch (self.ptr_width) {
         .p32 => {
             mem.writeInt(u32, hdr_buf[index..][0..4], @intCast(u32, e_entry), endian);
             index += 4;
 
             // e_phoff
-            mem.writeInt(u32, hdr_buf[index..][0..4], @intCast(u32, self.phdr_table_offset.?), endian);
+            mem.writeInt(u32, hdr_buf[index..][0..4], @intCast(u32, phdr_table_offset), endian);
             index += 4;
 
             // e_shoff
@@ -2011,7 +2068,7 @@ fn writeElfHeader(self: *Elf) !void {
             index += 8;
 
             // e_phoff
-            mem.writeInt(u64, hdr_buf[index..][0..8], self.phdr_table_offset.?, endian);
+            mem.writeInt(u64, hdr_buf[index..][0..8], phdr_table_offset, endian);
             index += 8;
 
             // e_shoff
