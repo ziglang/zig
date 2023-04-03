@@ -1609,3 +1609,21 @@ test "coercion from single-item pointer to @as to slice" {
 
     try expect(t[0] == 1);
 }
+
+test "peer type resolution of tuple to array" {
+    const empty_array: [0]u8 = .{};
+    const empty_tuple = .{};
+    try std.testing.expect(@TypeOf(empty_array, empty_tuple) == [0]u8);
+
+    const a_array: [4]i16 = .{ 1, 2, 3, 4 };
+    const a_tuple = .{ 1, 2, 3, 4 };
+    try std.testing.expect(@TypeOf(a_array, a_tuple) == [4]i16);
+
+    const b_array: [4]f32 = .{ 1, 2, 3, 4 };
+    const b_tuple = .{ 1, 2.0, @as(f32, 2.4), @as(f16, 4) };
+    try std.testing.expect(@TypeOf(b_array, b_tuple) == [4]f32);
+
+    const c_array: [4]i32 = .{ 1, 2, 3, 4 };
+    const c_tuple = .{ @as(i32, 1), @as(i16, 2), @as(u31, 3), 4 };
+    try std.testing.expect(@TypeOf(c_array, c_tuple) == [4]i32);
+}

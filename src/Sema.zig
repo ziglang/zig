@@ -30709,6 +30709,65 @@ fn resolvePeerTypes(
             },
             .Array => switch (chosen_ty_tag) {
                 .Vector => continue,
+                .Struct => {
+                    if (chosen_ty.isTuple() and candidate_ty.arrayLen() == chosen_ty.arrayLen()) {
+                        const candidate_child_ty = candidate_ty.childType();
+                        const candidate_child_ty_tag = try candidate_child_ty.zigTypeTagOrPoison();
+                        for (chosen_ty.tupleFields().types) |chosen_child_ty| {
+                            const chosen_child_ty_tag = try chosen_child_ty.zigTypeTagOrPoison();
+                            if (chosen_child_ty_tag == .ComptimeInt and (candidate_child_ty_tag == .Int or candidate_child_ty_tag == .Float) or
+                                chosen_child_ty_tag == .ComptimeFloat and candidate_child_ty_tag == .Float)
+                            {
+                                continue;
+                            } else if (chosen_child_ty_tag == .Int and candidate_child_ty_tag == .Int) {
+                                if (chosen_child_ty.intInfo(target).bits < candidate_child_ty.intInfo(target).bits) {
+                                    continue;
+                                }
+                            } else if (chosen_child_ty_tag == .Float and candidate_child_ty_tag == .Float) {
+                                if (chosen_child_ty.floatBits(target) < candidate_child_ty.floatBits(target)) {
+                                    continue;
+                                }
+                            }
+                            if (.ok != try sema.coerceInMemoryAllowed(block, candidate_child_ty, chosen_child_ty, false, target, src, src)) {
+                                break;
+                            }
+                        } else {
+                            chosen = candidate;
+                            chosen_i = candidate_i + 1;
+                            continue;
+                        }
+                    }
+                },
+                else => {},
+            },
+            .Struct => switch (chosen_ty_tag) {
+                .Array => {
+                    if (candidate_ty.isTuple() and candidate_ty.arrayLen() == chosen_ty.arrayLen()) {
+                        const chosen_child_ty = chosen_ty.childType();
+                        const chosen_child_ty_tag = try chosen_child_ty.zigTypeTagOrPoison();
+                        for (candidate_ty.tupleFields().types) |candidate_child_ty| {
+                            const candidate_child_ty_tag = try candidate_child_ty.zigTypeTagOrPoison();
+                            if (candidate_child_ty_tag == .ComptimeInt and (chosen_child_ty_tag == .Int or chosen_child_ty_tag == .Float) or
+                                candidate_child_ty_tag == .ComptimeFloat and chosen_child_ty_tag == .Float)
+                            {
+                                continue;
+                            } else if (candidate_child_ty_tag == .Int and chosen_child_ty_tag == .Int) {
+                                if (candidate_child_ty.intInfo(target).bits < chosen_child_ty.intInfo(target).bits) {
+                                    continue;
+                                }
+                            } else if (candidate_child_ty_tag == .Float and chosen_child_ty_tag == .Float) {
+                                if (candidate_child_ty.floatBits(target) < chosen_child_ty.floatBits(target)) {
+                                    continue;
+                                }
+                            }
+                            if (.ok != try sema.coerceInMemoryAllowed(block, chosen_child_ty, candidate_child_ty, false, target, src, src)) {
+                                break;
+                            }
+                        } else {
+                            continue;
+                        }
+                    }
+                },
                 else => {},
             },
             .Fn => if (chosen_ty.isSinglePointer() and chosen_ty.isConstPtr() and chosen_ty.childType().zigTypeTag() == .Fn) {
