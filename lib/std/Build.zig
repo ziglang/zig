@@ -1578,6 +1578,8 @@ pub const FileSource = union(enum) {
             .path => |p| return src_builder.pathFromRoot(p),
             .generated => |gen| return gen.path orelse {
                 std.debug.getStderrMutex().lock();
+                defer std.debug.getStderrMutex().unlock();
+
                 const stderr = std.io.getStdErr();
                 dumpBadGetPathHelp(gen.step, stderr, src_builder, asking_step) catch {};
                 @panic("misconfigured build script");
