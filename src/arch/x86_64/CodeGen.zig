@@ -5650,9 +5650,62 @@ fn airCmpVector(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
-    const operand = try self.resolveInst(un_op);
-    _ = operand;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airCmpLtErrorsLen for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const addr_reg = try self.register_manager.allocReg(null, gp);
+        const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
+        defer self.register_manager.unlockReg(addr_lock);
+
+        if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+            const atom_index = try elf_file.getOrCreateAtomForLazySymbol(
+                .{ .kind = .const_data, .ty = Type.anyerror },
+                4, // dword alignment
+            );
+            const got_addr = elf_file.getAtom(atom_index).getOffsetTableAddress(elf_file);
+            try self.asmRegisterMemory(.mov, addr_reg.to64(), Memory.sib(.qword, .{
+                .base = .ds,
+                .disp = @intCast(i32, got_addr),
+            }));
+        } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+            const atom_index = try coff_file.getOrCreateAtomForLazySymbol(
+                .{ .kind = .const_data, .ty = Type.anyerror },
+                4, // dword alignment
+            );
+            const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
+            try self.genSetReg(Type.usize, addr_reg, .{ .linker_load = .{
+                .type = .got,
+                .sym_index = sym_index,
+            } });
+        } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+            const atom_index = try macho_file.getOrCreateAtomForLazySymbol(
+                .{ .kind = .const_data, .ty = Type.anyerror },
+                4, // dword alignment
+            );
+            const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
+            try self.genSetReg(Type.usize, addr_reg, .{ .linker_load = .{
+                .type = .got,
+                .sym_index = sym_index,
+            } });
+        } else {
+            return self.fail("TODO implement airErrorName for x86_64 {s}", .{@tagName(self.bin_file.tag)});
+        }
+
+        try self.spillEflagsIfOccupied();
+        self.eflags_inst = inst;
+
+        const op_ty = self.air.typeOf(un_op);
+        const op_abi_size = @intCast(u32, op_ty.abiSize(self.target.*));
+        const op_mcv = try self.resolveInst(un_op);
+        const dst_reg = switch (op_mcv) {
+            .register => |reg| reg,
+            else => try self.copyToTmpRegister(op_ty, op_mcv),
+        };
+        try self.asmRegisterMemory(
+            .cmp,
+            registerAlias(dst_reg, op_abi_size),
+            Memory.sib(Memory.PtrSize.fromSize(op_abi_size), .{ .base = addr_reg }),
+        );
+        break :result .{ .eflags = .b };
+    };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
@@ -8027,12 +8080,12 @@ fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
         try self.asmRegisterMemory(.mov, start_reg.to32(), Memory.sib(.dword, .{
             .base = addr_reg.to64(),
             .scale_index = .{ .scale = 4, .index = err_reg.to64() },
-            .disp = 0,
+            .disp = 4,
         }));
         try self.asmRegisterMemory(.mov, end_reg.to32(), Memory.sib(.dword, .{
             .base = addr_reg.to64(),
             .scale_index = .{ .scale = 4, .index = err_reg.to64() },
-            .disp = 4,
+            .disp = 8,
         }));
         try self.asmRegisterRegister(.sub, end_reg.to32(), start_reg.to32());
         try self.asmRegisterMemory(.lea, start_reg.to64(), Memory.sib(.byte, .{
