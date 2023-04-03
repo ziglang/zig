@@ -110,7 +110,7 @@ program_headers: std.ArrayListUnmanaged(elf.Elf64_Phdr) = .{},
 phdr_table_index: ?u16 = null,
 /// The index into the program headers of the PT_LOAD program header containing the phdr
 /// Most linkers would merge this with phdr_load_ro_index,
-/// but hot swap means we can't ensure they are consecutive.
+/// but incremental linking means we can't ensure they are consecutive.
 phdr_table_load_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Read and Execute flags
 phdr_load_re_index: ?u16 = null,
@@ -473,18 +473,19 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         var new_phdr_table_index: ?u16 = null;
         if (self.phdr_table_index == null) {
             new_phdr_table_index = @intCast(u16, self.program_headers.items.len);
-            const phalign: u16 = switch (self.ptr_width) {
+            const p_align: u16 = switch (self.ptr_width) {
                 .p32 => @alignOf(elf.Elf32_Phdr),
                 .p64 => @alignOf(elf.Elf64_Phdr),
             };
+            const off = self.findFreeSpace(1, p_align);
             try self.program_headers.append(gpa, .{
                 .p_type = elf.PT_PHDR,
-                .p_offset = undefined,
-                .p_filesz = undefined,
-                .p_vaddr = undefined,
-                .p_paddr = undefined,
-                .p_memsz = undefined,
-                .p_align = phalign,
+                .p_offset = off,
+                .p_filesz = 1,
+                .p_vaddr = 0,
+                .p_paddr = 0,
+                .p_memsz = 0,
+                .p_align = p_align,
                 .p_flags = elf.PF_R,
             });
             self.phdr_table_dirty = true;
@@ -494,14 +495,18 @@ pub fn populateMissingMetadata(self: *Elf) !void {
             self.phdr_table_load_index = @intCast(u16, self.program_headers.items.len);
             // TODO Same as for GOT
             const phdr_addr: u64 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x1000000 else 0x1000;
+            const p_align = self.page_size;
+            const off = self.findFreeSpace(1, p_align);
+            const file_size: u32 = 1;
+            log.debug("found PT_LOAD free space 0x{x} to 0x{x}", .{ off, off + file_size });
             try self.program_headers.append(gpa, .{
                 .p_type = elf.PT_LOAD,
-                .p_offset = undefined,
-                .p_filesz = undefined,
+                .p_offset = off,
+                .p_filesz = file_size,
                 .p_vaddr = phdr_addr,
                 .p_paddr = phdr_addr,
-                .p_memsz = undefined,
-                .p_align = self.page_size,
+                .p_memsz = file_size,
+                .p_align = p_align,
                 .p_flags = elf.PF_R,
             });
             self.phdr_table_dirty = true;
