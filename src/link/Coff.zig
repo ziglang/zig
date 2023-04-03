@@ -145,16 +145,11 @@ const Section = struct {
     free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
 };
 
-const LazySymbolTable = std.ArrayHashMapUnmanaged(
-    link.File.LazySymbol,
-    LazySymbolMetadata,
-    link.File.LazySymbol.Context,
-    true,
-);
+const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
 
 const LazySymbolMetadata = struct {
-    atom: Atom.Index,
-    section: u16,
+    text_atom: ?Atom.Index = null,
+    rdata_atom: ?Atom.Index = null,
     alignment: u32,
 };
 
@@ -1176,10 +1171,28 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
     return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
 }
 
-fn updateLazySymbol(
+fn updateLazySymbol(self: *Coff, decl: Module.Decl.OptionalIndex, metadata: LazySymbolMetadata) !void {
+    const mod = self.base.options.module.?;
+    if (metadata.text_atom) |atom| try self.updateLazySymbolAtom(
+        link.File.LazySymbol.initDecl(.code, decl, mod),
+        atom,
+        self.text_section_index.?,
+        metadata.alignment,
+    );
+    if (metadata.rdata_atom) |atom| try self.updateLazySymbolAtom(
+        link.File.LazySymbol.initDecl(.const_data, decl, mod),
+        atom,
+        self.rdata_section_index.?,
+        metadata.alignment,
+    );
+}
+
+fn updateLazySymbolAtom(
     self: *Coff,
-    lazy_sym: link.File.LazySymbol,
-    lazy_metadata: LazySymbolMetadata,
+    sym: link.File.LazySymbol,
+    atom_index: Atom.Index,
+    section_index: u16,
+    required_alignment: u32,
 ) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
@@ -1188,16 +1201,15 @@ fn updateLazySymbol(
     defer code_buffer.deinit();
 
     const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
-        @tagName(lazy_sym.kind),
-        lazy_sym.ty.fmt(mod),
+        @tagName(sym.kind),
+        sym.ty.fmt(mod),
     });
     defer gpa.free(name);
 
-    const atom_index = lazy_metadata.atom;
     const atom = self.getAtomPtr(atom_index);
     const local_sym_index = atom.getSymbolIndex().?;
 
-    const src = if (lazy_sym.ty.getOwnerDeclOrNull()) |owner_decl|
+    const src = if (sym.ty.getOwnerDeclOrNull()) |owner_decl|
         mod.declPtr(owner_decl).srcLoc()
     else
         Module.SrcLoc{
@@ -1205,14 +1217,9 @@ fn updateLazySymbol(
             .parent_decl_node = undefined,
             .lazy = .unneeded,
         };
-    const res = try codegen.generateLazySymbol(
-        &self.base,
-        src,
-        lazy_sym,
-        &code_buffer,
-        .none,
-        .{ .parent_atom_index = local_sym_index },
-    );
+    const res = try codegen.generateLazySymbol(&self.base, src, sym, &code_buffer, .none, .{
+        .parent_atom_index = local_sym_index,
+    });
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
@@ -1221,11 +1228,10 @@ fn updateLazySymbol(
         },
     };
 
-    const required_alignment = lazy_metadata.alignment;
     const code_len = @intCast(u32, code.len);
     const symbol = atom.getSymbolPtr(self);
     try self.setSymbolName(symbol, name);
-    symbol.section_number = @intToEnum(coff.SectionNumber, lazy_metadata.section + 1);
+    symbol.section_number = @intToEnum(coff.SectionNumber, section_index + 1);
     symbol.type = .{ .complex_type = .NULL, .base_type = .NULL };
 
     const vaddr = try self.allocateAtom(atom_index, code_len, required_alignment);
@@ -1250,24 +1256,18 @@ fn updateLazySymbol(
 
 pub fn getOrCreateAtomForLazySymbol(
     self: *Coff,
-    lazy_sym: link.File.LazySymbol,
+    sym: link.File.LazySymbol,
     alignment: u32,
 ) !Atom.Index {
-    const gop = try self.lazy_syms.getOrPutContext(self.base.allocator, lazy_sym, .{
-        .mod = self.base.options.module.?,
-    });
+    const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl());
     errdefer _ = self.lazy_syms.pop();
-    if (!gop.found_existing) {
-        gop.value_ptr.* = .{
-            .atom = try self.createAtom(),
-            .section = switch (lazy_sym.kind) {
-                .code => self.text_section_index.?,
-                .const_data => self.rdata_section_index.?,
-            },
-            .alignment = alignment,
-        };
-    }
-    return gop.value_ptr.atom;
+    if (!gop.found_existing) gop.value_ptr.* = .{ .alignment = alignment };
+    const atom = switch (sym.kind) {
+        .code => &gop.value_ptr.text_atom,
+        .const_data => &gop.value_ptr.rdata_atom,
+    };
+    if (atom.* == null) atom.* = try self.createAtom();
+    return atom.*.?;
 }
 
 pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: Module.Decl.Index) !Atom.Index {
@@ -1600,17 +1600,13 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    {
-        var lazy_it = self.lazy_syms.iterator();
-        while (lazy_it.next()) |lazy_entry| {
-            self.updateLazySymbol(
-                lazy_entry.key_ptr.*,
-                lazy_entry.value_ptr.*,
-            ) catch |err| switch (err) {
-                error.CodegenFail => return error.FlushFailure,
-                else => |e| return e,
-            };
-        }
+    // Most lazy symbols can be updated when the corresponding decl is,
+    // so we only have to worry about the one without an associated decl.
+    if (self.lazy_syms.get(.none)) |metadata| {
+        self.updateLazySymbol(.none, metadata) catch |err| switch (err) {
+            error.CodegenFail => return error.FlushFailure,
+            else => |e| return e,
+        };
     }
 
     const gpa = self.base.allocator;
@@ -2489,6 +2485,7 @@ const Module = @import("../Module.zig");
 const Object = @import("Coff/Object.zig");
 const Relocation = @import("Coff/Relocation.zig");
 const StringTable = @import("strtab.zig").StringTable;
+const Type = @import("../type.zig").Type;
 const TypedValue = @import("../TypedValue.zig");
 
 pub const base_tag: link.File.Tag = .coff;

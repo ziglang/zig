@@ -64,8 +64,8 @@ const Section = struct {
 };
 
 const LazySymbolMetadata = struct {
-    atom: Atom.Index,
-    shdr: u16,
+    text_atom: ?Atom.Index = null,
+    rodata_atom: ?Atom.Index = null,
     alignment: u32,
 };
 
@@ -208,7 +208,7 @@ relocs: RelocTable = .{},
 
 const RelocTable = std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Atom.Reloc));
 const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
-const LazySymbolTable = std.ArrayHashMapUnmanaged(File.LazySymbol, LazySymbolMetadata, File.LazySymbol.Context, true);
+const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
 
 /// When allocating, the ideal_capacity is calculated by
 /// actual_capacity + (actual_capacity / ideal_factor)
@@ -1065,17 +1065,13 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    {
-        var lazy_it = self.lazy_syms.iterator();
-        while (lazy_it.next()) |lazy_entry| {
-            self.updateLazySymbol(
-                lazy_entry.key_ptr.*,
-                lazy_entry.value_ptr.*,
-            ) catch |err| switch (err) {
-                error.CodegenFail => return error.FlushFailure,
-                else => |e| return e,
-            };
-        }
+    // Most lazy symbols can be updated when the corresponding decl is,
+    // so we only have to worry about the one without an associated decl.
+    if (self.lazy_syms.get(.none)) |metadata| {
+        self.updateLazySymbol(.none, metadata) catch |err| switch (err) {
+            error.CodegenFail => return error.FlushFailure,
+            else => |e| return e,
+        };
     }
 
     // TODO This linker code currently assumes there is only 1 compilation unit and it
@@ -2424,22 +2420,16 @@ pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn getOrCreateAtomForLazySymbol(self: *Elf, lazy_sym: File.LazySymbol, alignment: u32) !Atom.Index {
-    const gop = try self.lazy_syms.getOrPutContext(self.base.allocator, lazy_sym, .{
-        .mod = self.base.options.module.?,
-    });
+pub fn getOrCreateAtomForLazySymbol(self: *Elf, sym: File.LazySymbol, alignment: u32) !Atom.Index {
+    const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl());
     errdefer _ = self.lazy_syms.pop();
-    if (!gop.found_existing) {
-        gop.value_ptr.* = .{
-            .atom = try self.createAtom(),
-            .shdr = switch (lazy_sym.kind) {
-                .code => self.text_section_index.?,
-                .const_data => self.rodata_section_index.?,
-            },
-            .alignment = alignment,
-        };
-    }
-    return gop.value_ptr.atom;
+    if (!gop.found_existing) gop.value_ptr.* = .{ .alignment = alignment };
+    const atom = switch (sym.kind) {
+        .code => &gop.value_ptr.text_atom,
+        .const_data => &gop.value_ptr.rodata_atom,
+    };
+    if (atom.* == null) atom.* = try self.createAtom();
+    return atom.*.?;
 }
 
 pub fn getOrCreateAtomForDecl(self: *Elf, decl_index: Module.Decl.Index) !Atom.Index {
@@ -2708,7 +2698,29 @@ pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !v
     return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
 }
 
-fn updateLazySymbol(self: *Elf, lazy_sym: File.LazySymbol, lazy_metadata: LazySymbolMetadata) !void {
+fn updateLazySymbol(self: *Elf, decl: Module.Decl.OptionalIndex, metadata: LazySymbolMetadata) !void {
+    const mod = self.base.options.module.?;
+    if (metadata.text_atom) |atom| try self.updateLazySymbolAtom(
+        File.LazySymbol.initDecl(.code, decl, mod),
+        atom,
+        self.text_section_index.?,
+        metadata.alignment,
+    );
+    if (metadata.rodata_atom) |atom| try self.updateLazySymbolAtom(
+        File.LazySymbol.initDecl(.const_data, decl, mod),
+        atom,
+        self.rodata_section_index.?,
+        metadata.alignment,
+    );
+}
+
+fn updateLazySymbolAtom(
+    self: *Elf,
+    sym: File.LazySymbol,
+    atom_index: Atom.Index,
+    shdr_index: u16,
+    required_alignment: u32,
+) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
 
@@ -2717,19 +2729,18 @@ fn updateLazySymbol(self: *Elf, lazy_sym: File.LazySymbol, lazy_metadata: LazySy
 
     const name_str_index = blk: {
         const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
-            @tagName(lazy_sym.kind),
-            lazy_sym.ty.fmt(mod),
+            @tagName(sym.kind),
+            sym.ty.fmt(mod),
         });
         defer gpa.free(name);
         break :blk try self.shstrtab.insert(gpa, name);
     };
     const name = self.shstrtab.get(name_str_index).?;
 
-    const atom_index = lazy_metadata.atom;
     const atom = self.getAtom(atom_index);
     const local_sym_index = atom.getSymbolIndex().?;
 
-    const src = if (lazy_sym.ty.getOwnerDeclOrNull()) |owner_decl|
+    const src = if (sym.ty.getOwnerDeclOrNull()) |owner_decl|
         mod.declPtr(owner_decl).srcLoc()
     else
         Module.SrcLoc{
@@ -2737,14 +2748,9 @@ fn updateLazySymbol(self: *Elf, lazy_sym: File.LazySymbol, lazy_metadata: LazySy
             .parent_decl_node = undefined,
             .lazy = .unneeded,
         };
-    const res = try codegen.generateLazySymbol(
-        &self.base,
-        src,
-        lazy_sym,
-        &code_buffer,
-        .none,
-        .{ .parent_atom_index = local_sym_index },
-    );
+    const res = try codegen.generateLazySymbol(&self.base, src, sym, &code_buffer, .none, .{
+        .parent_atom_index = local_sym_index,
+    });
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
@@ -2753,7 +2759,6 @@ fn updateLazySymbol(self: *Elf, lazy_sym: File.LazySymbol, lazy_metadata: LazySy
         },
     };
 
-    const shdr_index = lazy_metadata.shdr;
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
     const local_sym = atom.getSymbolPtr(self);
     local_sym.* = .{
@@ -2764,7 +2769,6 @@ fn updateLazySymbol(self: *Elf, lazy_sym: File.LazySymbol, lazy_metadata: LazySy
         .st_value = 0,
         .st_size = 0,
     };
-    const required_alignment = lazy_metadata.alignment;
     const vaddr = try self.allocateAtom(atom_index, code.len, required_alignment);
     errdefer self.freeAtom(atom_index);
     log.debug("allocated text block for {s} at 0x{x}", .{ name, vaddr });

@@ -1106,23 +1106,21 @@ pub const File = struct {
     };
 
     pub const LazySymbol = struct {
-        kind: enum { code, const_data },
+        pub const Kind = enum { code, const_data };
+
+        kind: Kind,
         ty: Type,
 
-        pub const Context = struct {
-            mod: *Module,
+        pub fn initDecl(kind: Kind, decl: Module.Decl.OptionalIndex, mod: *Module) LazySymbol {
+            return .{ .kind = kind, .ty = if (decl.unwrap()) |decl_index|
+                mod.declPtr(decl_index).val.castTag(.ty).?.data
+            else
+                Type.anyerror };
+        }
 
-            pub fn hash(ctx: @This(), sym: LazySymbol) u32 {
-                var hasher = std.hash.Wyhash.init(0);
-                std.hash.autoHash(&hasher, sym.kind);
-                sym.ty.hashWithHasher(&hasher, ctx.mod);
-                return @truncate(u32, hasher.final());
-            }
-
-            pub fn eql(ctx: @This(), lhs: LazySymbol, rhs: LazySymbol, _: usize) bool {
-                return lhs.kind == rhs.kind and lhs.ty.eql(rhs.ty, ctx.mod);
-            }
-        };
+        pub fn getDecl(self: LazySymbol) Module.Decl.OptionalIndex {
+            return Module.Decl.OptionalIndex.init(self.ty.getOwnerDeclOrNull());
+        }
     };
 
     pub const C = @import("link/C.zig");
