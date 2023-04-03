@@ -598,7 +598,7 @@ pub const Request = struct {
             try w.writeAll("\r\nConnection: keep-alive");
         }
         try w.writeAll("\r\nAccept-Encoding: gzip, deflate, zstd");
-        try w.writeAll("\r\nTE: trailers, gzip, deflate");
+        try w.writeAll("\r\nTE: gzip, deflate"); // TODO: add trailers when someone finds a nice way to integrate them without completely invalidating all pointers to headers.
 
         switch (headers.transfer_encoding) {
             .chunked => try w.writeAll("\r\nTransfer-Encoding: chunked"),
@@ -627,7 +627,7 @@ pub const Request = struct {
     }
 
     pub fn transferRead(req: *Request, buf: []u8) TransferReadError!usize {
-        if (req.response.parser.isComplete()) return 0;
+        if (req.response.parser.done) return 0;
 
         var index: usize = 0;
         while (index == 0) {
@@ -635,7 +635,7 @@ pub const Request = struct {
                 req.client.last_error = .{ .read = err };
                 return error.ReadFailed;
             };
-            if (amt == 0 and req.response.parser.isComplete()) break;
+            if (amt == 0 and req.response.parser.done) break;
             index += amt;
         }
 
@@ -748,7 +748,7 @@ pub const Request = struct {
         }
     }
 
-    pub const ReadError = TransferReadError;
+    pub const ReadError = TransferReadError || proto.HeadersParser.CheckCompleteHeadError;
 
     pub const Reader = std.io.Reader(*Request, ReadError, read);
 
@@ -758,26 +758,40 @@ pub const Request = struct {
 
     /// Reads data from the response body. Must be called after `do`.
     pub fn read(req: *Request, buffer: []u8) ReadError!usize {
-        assert(req.response.parser.state.isContent());
+        while (true) {
+            const out_index = switch (req.response.compression) {
+                .deflate => |*deflate| deflate.read(buffer) catch |err| {
+                    req.client.last_error = .{ .decompress = err };
+                    err catch {};
+                    return error.ReadFailed;
+                },
+                .gzip => |*gzip| gzip.read(buffer) catch |err| {
+                    req.client.last_error = .{ .decompress = err };
+                    err catch {};
+                    return error.ReadFailed;
+                },
+                .zstd => |*zstd| zstd.read(buffer) catch |err| {
+                    req.client.last_error = .{ .decompress = err };
+                    err catch {};
+                    return error.ReadFailed;
+                },
+                else => try req.transferRead(buffer),
+            };
 
-        return switch (req.response.compression) {
-            .deflate => |*deflate| deflate.read(buffer) catch |err| {
-                req.client.last_error = .{ .decompress = err };
-                err catch {};
-                return error.ReadFailed;
-            },
-            .gzip => |*gzip| gzip.read(buffer) catch |err| {
-                req.client.last_error = .{ .decompress = err };
-                err catch {};
-                return error.ReadFailed;
-            },
-            .zstd => |*zstd| zstd.read(buffer) catch |err| {
-                req.client.last_error = .{ .decompress = err };
-                err catch {};
-                return error.ReadFailed;
-            },
-            else => try req.transferRead(buffer),
-        };
+            if (out_index == 0) {
+                while (!req.response.parser.state.isContent()) { // read trailing headers
+                    req.connection.data.buffered.fill() catch |err| {
+                        req.client.last_error = .{ .read = err };
+                        return error.ReadFailed;
+                    };
+
+                    const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.data.buffered.peek());
+                    req.connection.data.buffered.clear(@intCast(u16, nchecked));
+                }
+            }
+
+            return out_index;
+        }
     }
 
     /// Reads data from the response body. Must be called after `do`.
