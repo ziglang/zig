@@ -6132,7 +6132,28 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     const loop = self.air.extraData(Air.Block, ty_pl.payload);
     const body = self.air.extra[loop.end..][0..loop.data.body_len];
     const jmp_target = @intCast(u32, self.mir_instructions.len);
-    try self.genBody(body);
+
+    {
+        try self.branch_stack.append(.{});
+        errdefer _ = self.branch_stack.pop();
+
+        try self.genBody(body);
+    }
+
+    var branch = self.branch_stack.pop();
+    defer branch.deinit(self.gpa);
+
+    log.debug("airLoop: %{d}", .{inst});
+    log.debug("Upper branches:", .{});
+    for (self.branch_stack.items) |bs| {
+        log.debug("{}", .{bs.fmtDebug()});
+    }
+    log.debug("Loop branch: {}", .{branch.fmtDebug()});
+
+    var dummy_branch = Branch{};
+    defer dummy_branch.deinit(self.gpa);
+    try self.canonicaliseBranches(true, &dummy_branch, &branch, true, false);
+
     _ = try self.asmJmpReloc(jmp_target);
     return self.finishAirBookkeeping();
 }
