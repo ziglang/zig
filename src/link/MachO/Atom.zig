@@ -33,10 +33,6 @@ file: ?u32,
 /// the atom since macho.nlist_64 lacks this information.
 size: u64,
 
-/// Alignment of this atom as a power of 2.
-/// For instance, alignment of 0 should be read as 2^0 = 1 byte aligned.
-alignment: u32,
-
 /// Points to the previous and next neighbours
 /// TODO use the same trick as with symbols: reserve index 0 as null atom
 next_index: ?Index,

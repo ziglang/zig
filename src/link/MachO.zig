@@ -242,6 +242,7 @@ const LazySymbolTable = std.ArrayHashMapUnmanaged(
 const LazySymbolMetadata = struct {
     atom: Atom.Index,
     section: u8,
+    alignment: u32,
 };
 
 const DeclMetadata = struct {
@@ -1205,7 +1206,6 @@ pub fn createAtom(self: *MachO) !Atom.Index {
         .sym_index = sym_index,
         .file = null,
         .size = 0,
-        .alignment = 0,
         .prev_index = null,
         .next_index = null,
     };
@@ -1217,7 +1217,6 @@ pub fn createGotAtom(self: *MachO, target: SymbolWithLoc) !Atom.Index {
     const atom_index = try self.createAtom();
     const atom = self.getAtomPtr(atom_index);
     atom.size = @sizeOf(u64);
-    atom.alignment = @alignOf(u64);
 
     const sym = atom.getSymbolPtr(self);
     sym.n_type = macho.N_SECT;
@@ -1259,7 +1258,6 @@ pub fn createDyldPrivateAtom(self: *MachO) !void {
     const atom_index = try self.createAtom();
     const atom = self.getAtomPtr(atom_index);
     atom.size = @sizeOf(u64);
-    atom.alignment = @alignOf(u64);
 
     const sym = atom.getSymbolPtr(self);
     sym.n_type = macho.N_SECT;
@@ -1285,7 +1283,8 @@ pub fn createStubHelperPreambleAtom(self: *MachO) !void {
     const atom_index = try self.createAtom();
     const atom = self.getAtomPtr(atom_index);
     atom.size = size;
-    atom.alignment = switch (arch) {
+
+    const required_alignment: u32 = switch (arch) {
         .x86_64 => 1,
         .aarch64 => @alignOf(u32),
         else => unreachable,
@@ -1392,7 +1391,7 @@ pub fn createStubHelperPreambleAtom(self: *MachO) !void {
     }
     self.stub_helper_preamble_atom_index = atom_index;
 
-    sym.n_value = try self.allocateAtom(atom_index, size, atom.alignment);
+    sym.n_value = try self.allocateAtom(atom_index, size, required_alignment);
     log.debug("allocated stub preamble atom at 0x{x}", .{sym.n_value});
     try self.writeAtom(atom_index, code);
 }
@@ -1408,7 +1407,8 @@ pub fn createStubHelperAtom(self: *MachO) !Atom.Index {
     const atom_index = try self.createAtom();
     const atom = self.getAtomPtr(atom_index);
     atom.size = size;
-    atom.alignment = switch (arch) {
+
+    const required_alignment: u32 = switch (arch) {
         .x86_64 => 1,
         .aarch64 => @alignOf(u32),
         else => unreachable,
@@ -1470,7 +1470,7 @@ pub fn createStubHelperAtom(self: *MachO) !Atom.Index {
         else => unreachable,
     }
 
-    sym.n_value = try self.allocateAtom(atom_index, size, atom.alignment);
+    sym.n_value = try self.allocateAtom(atom_index, size, required_alignment);
     log.debug("allocated stub helper atom at 0x{x}", .{sym.n_value});
     try self.writeAtom(atom_index, code);
 
@@ -1481,7 +1481,6 @@ pub fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, target: SymbolWi
     const atom_index = try self.createAtom();
     const atom = self.getAtomPtr(atom_index);
     atom.size = @sizeOf(u64);
-    atom.alignment = @alignOf(u64);
 
     const sym = atom.getSymbolPtr(self);
     sym.n_type = macho.N_SECT;
@@ -1523,7 +1522,8 @@ pub fn createStubAtom(self: *MachO, laptr_sym_index: u32) !Atom.Index {
     const atom_index = try self.createAtom();
     const atom = self.getAtomPtr(atom_index);
     atom.size = size;
-    atom.alignment = switch (arch) {
+
+    const required_alignment: u32 = switch (arch) {
         .x86_64 => 1,
         .aarch64 => @alignOf(u32),
         else => unreachable, // unhandled architecture type
@@ -1587,7 +1587,7 @@ pub fn createStubAtom(self: *MachO, laptr_sym_index: u32) !Atom.Index {
         else => unreachable,
     }
 
-    sym.n_value = try self.allocateAtom(atom_index, size, atom.alignment);
+    sym.n_value = try self.allocateAtom(atom_index, size, required_alignment);
     log.debug("allocated stub atom at 0x{x}", .{sym.n_value});
     try self.writeAtom(atom_index, code);
 
@@ -2217,7 +2217,6 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
     const atom = self.getAtomPtr(atom_index);
     atom.size = code.len;
-    atom.alignment = required_alignment;
     // TODO: work out logic for disambiguating functions from function pointers
     // const sect_id = self.getDeclOutputSection(decl_index);
     const sect_id = self.data_const_section_index.?;
@@ -2355,7 +2354,7 @@ fn updateLazySymbol(self: *MachO, lazy_sym: File.LazySymbol, lazy_metadata: Lazy
         },
     };
 
-    const required_alignment = atom.alignment;
+    const required_alignment = lazy_metadata.alignment;
     const symbol = atom.getSymbolPtr(self);
     symbol.n_strx = name_str_index;
     symbol.n_type = macho.N_SECT;
@@ -2398,8 +2397,8 @@ pub fn getOrCreateAtomForLazySymbol(
                 .code => self.text_section_index.?,
                 .const_data => self.data_const_section_index.?,
             },
+            .alignment = alignment,
         };
-        self.getAtomPtr(gop.value_ptr.atom).alignment = alignment;
     }
     return gop.value_ptr.atom;
 }
@@ -3054,7 +3053,51 @@ fn allocateSection(self: *MachO, segname: []const u8, sectname: []const u8, opts
     return section_id;
 }
 
-fn moveSectionInVirtualMemory(self: *MachO, sect_id: u8, needed_size: u64) !void {
+fn growSection(self: *MachO, sect_id: u8, needed_size: u64) !void {
+    const header = &self.sections.items(.header)[sect_id];
+    const segment_index = self.sections.items(.segment_index)[sect_id];
+    const segment = &self.segments.items[segment_index];
+    const maybe_last_atom_index = self.sections.items(.last_atom_index)[sect_id];
+    const sect_capacity = self.allocatedSize(header.offset);
+
+    if (needed_size > sect_capacity) {
+        const new_offset = self.findFreeSpace(needed_size, self.page_size);
+        const current_size = if (maybe_last_atom_index) |last_atom_index| blk: {
+            const last_atom = self.getAtom(last_atom_index);
+            const sym = last_atom.getSymbol(self);
+            break :blk (sym.n_value + last_atom.size) - segment.vmaddr;
+        } else 0;
+
+        log.debug("moving {s},{s} from 0x{x} to 0x{x}", .{
+            header.segName(),
+            header.sectName(),
+            header.offset,
+            new_offset,
+        });
+
+        const amt = try self.base.file.?.copyRangeAll(
+            header.offset,
+            self.base.file.?,
+            new_offset,
+            current_size,
+        );
+        if (amt != current_size) return error.InputOutput;
+        header.offset = @intCast(u32, new_offset);
+        segment.fileoff = new_offset;
+    }
+
+    const sect_vm_capacity = self.allocatedVirtualSize(segment.vmaddr);
+    if (needed_size > sect_vm_capacity) {
+        self.markRelocsDirtyByAddress(segment.vmaddr + needed_size);
+        try self.growSectionVirtualMemory(sect_id, needed_size);
+    }
+
+    header.size = needed_size;
+    segment.filesize = mem.alignForwardGeneric(u64, needed_size, self.page_size);
+    segment.vmsize = mem.alignForwardGeneric(u64, needed_size, self.page_size);
+}
+
+fn growSectionVirtualMemory(self: *MachO, sect_id: u8, needed_size: u64) !void {
     const header = &self.sections.items(.header)[sect_id];
     const segment = self.getSegmentPtr(sect_id);
     const increased_size = padToIdeal(needed_size);
@@ -3173,45 +3216,9 @@ fn allocateAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignm
     else
         true;
     if (expand_section) {
-        const sect_capacity = self.allocatedSize(header.offset);
         const needed_size = (vaddr + new_atom_size) - segment.vmaddr;
-        if (needed_size > sect_capacity) {
-            const new_offset = self.findFreeSpace(needed_size, self.page_size);
-            const current_size = if (maybe_last_atom_index.*) |last_atom_index| blk: {
-                const last_atom = self.getAtom(last_atom_index);
-                const sym = last_atom.getSymbol(self);
-                break :blk (sym.n_value + last_atom.size) - segment.vmaddr;
-            } else 0;
-
-            log.debug("moving {s},{s} from 0x{x} to 0x{x}", .{
-                header.segName(),
-                header.sectName(),
-                header.offset,
-                new_offset,
-            });
-
-            const amt = try self.base.file.?.copyRangeAll(
-                header.offset,
-                self.base.file.?,
-                new_offset,
-                current_size,
-            );
-            if (amt != current_size) return error.InputOutput;
-            header.offset = @intCast(u32, new_offset);
-            segment.fileoff = new_offset;
-        }
-
-        const sect_vm_capacity = self.allocatedVirtualSize(segment.vmaddr);
-        if (needed_size > sect_vm_capacity) {
-            self.markRelocsDirtyByAddress(segment.vmaddr + needed_size);
-            try self.moveSectionInVirtualMemory(sect_id, needed_size);
-        }
-
-        header.size = needed_size;
-        segment.filesize = mem.alignForwardGeneric(u64, needed_size, self.page_size);
-        segment.vmsize = mem.alignForwardGeneric(u64, needed_size, self.page_size);
+        try self.growSection(sect_id, needed_size);
         maybe_last_atom_index.* = atom_index;
-
         self.segment_table_dirty = true;
     }
 
@@ -3219,11 +3226,7 @@ fn allocateAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignm
     if (header.@"align" < align_pow) {
         header.@"align" = align_pow;
     }
-    {
-        const atom_ptr = self.getAtomPtr(atom_index);
-        atom_ptr.size = new_atom_size;
-        atom_ptr.alignment = @intCast(u32, alignment);
-    }
+    self.getAtomPtr(atom_index).size = new_atom_size;
 
     if (atom.prev_index) |prev_index| {
         const prev = self.getAtomPtr(prev_index);
@@ -4510,12 +4513,11 @@ pub fn logAtom(self: *MachO, atom_index: Atom.Index) void {
     const atom = self.getAtom(atom_index);
     const sym = atom.getSymbol(self);
     const sym_name = atom.getName(self);
-    log.debug("  ATOM(%{?d}, '{s}') @ {x} (sizeof({x}), alignof({x})) in object({?d}) in sect({d})", .{
+    log.debug("  ATOM(%{?d}, '{s}') @ {x} sizeof({x}) in object({?d}) in sect({d})", .{
         atom.getSymbolIndex(),
         sym_name,
         sym.n_value,
         atom.size,
-        atom.alignment,
         atom.file,
         sym.n_sect,
     });

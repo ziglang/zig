@@ -19,11 +19,8 @@ sym_index: u32,
 /// null means symbol defined by Zig source.
 file: ?u32,
 
-/// Used size of the atom
+/// Size of the atom
 size: u32,
-
-/// Alignment of the atom
-alignment: u32,
 
 /// Points to the previous and next neighbors, based on the `text_offset`.
 /// This can be used to find, for example, the capacity of this `Atom`.
