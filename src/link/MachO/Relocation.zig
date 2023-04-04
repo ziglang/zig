@@ -21,6 +21,12 @@ pcrel: bool,
 length: u2,
 dirty: bool = true,
 
+/// Returns true if and only if the reloc is dirty AND the target address is available.
+pub fn isResolvable(self: Relocation, macho_file: *MachO) bool {
+    _ = self.getTargetAtomIndex(macho_file) orelse return false;
+    return self.dirty;
+}
+
 pub fn fmtType(self: Relocation, target: std.Target) []const u8 {
     switch (target.cpu.arch) {
         .aarch64 => return @tagName(@intToEnum(macho.reloc_type_arm64, self.type)),
@@ -56,7 +62,7 @@ pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, cod
     const source_sym = atom.getSymbol(macho_file);
     const source_addr = source_sym.n_value + self.offset;
 
-    const target_atom_index = self.getTargetAtomIndex(macho_file) orelse return;
+    const target_atom_index = self.getTargetAtomIndex(macho_file).?; // Oops, you didn't check if the relocation can be resolved with isResolvable().
     const target_atom = macho_file.getAtom(target_atom_index);
     const target_addr = @intCast(i64, target_atom.getSymbol(macho_file).n_value) + self.addend;
 

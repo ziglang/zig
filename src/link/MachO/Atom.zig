@@ -179,12 +179,15 @@ pub fn addLazyBinding(macho_file: *MachO, atom_index: Index, binding: Binding) !
     try gop.value_ptr.append(gpa, binding);
 }
 
-pub fn resolveRelocations(macho_file: *MachO, atom_index: Index, relocs: []Relocation, code: []u8) void {
+pub fn resolveRelocations(
+    macho_file: *MachO,
+    atom_index: Index,
+    relocs: []*const Relocation,
+    code: []u8,
+) void {
     log.debug("relocating '{s}'", .{macho_file.getAtom(atom_index).getName(macho_file)});
-    for (relocs) |*reloc| {
-        if (!reloc.dirty) continue;
+    for (relocs) |reloc| {
         reloc.resolve(macho_file, atom_index, code);
-        reloc.dirty = false;
     }
 }
 
