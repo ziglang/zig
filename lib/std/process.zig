@@ -1164,7 +1164,8 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
         },
         .windows => {
             var kilobytes: std.os.windows.ULONGLONG = undefined;
-            assert(std.os.windows.kernel32.GetPhysicallyInstalledSystemMemory(&kilobytes) == std.os.windows.TRUE);
+            if (std.os.windows.kernel32.GetPhysicallyInstalledSystemMemory(&kilobytes) != std.os.windows.TRUE)
+                return error.UnknownTotalSystemMemory;
             return kilobytes * 1024;
         },
         else => return error.UnknownTotalSystemMemory,
