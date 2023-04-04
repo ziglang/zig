@@ -9963,6 +9963,26 @@ fn zirSwitchCapture(
             const field_index = @intCast(u32, operand_ty.unionTagFieldIndex(item_val, sema.mod).?);
             const union_obj = operand_ty.cast(Type.Payload.Union).?.data;
             const field_ty = union_obj.fields.values()[field_index].ty;
+            if (try sema.resolveDefinedValue(block, sema.src, operand_ptr)) |union_val| {
+                if (is_ref) {
+                    const ptr_field_ty = try Type.ptr(sema.arena, sema.mod, .{
+                        .pointee_type = field_ty,
+                        .mutable = operand_ptr_ty.ptrIsMutable(),
+                        .@"volatile" = operand_ptr_ty.isVolatilePtr(),
+                        .@"addrspace" = operand_ptr_ty.ptrAddressSpace(),
+                    });
+                    return sema.addConstant(
+                        ptr_field_ty,
+                        try Value.Tag.field_ptr.create(sema.arena, .{
+                            .container_ptr = union_val,
+                            .container_ty = operand_ty,
+                            .field_index = field_index,
+                        }),
+                    );
+                }
+                const tag_and_val = union_val.castTag(.@"union").?.data;
+                return sema.addConstant(field_ty, tag_and_val.val);
+            }
             if (is_ref) {
                 const ptr_field_ty = try Type.ptr(sema.arena, sema.mod, .{
                     .pointee_type = field_ty,

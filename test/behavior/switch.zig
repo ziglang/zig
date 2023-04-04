@@ -694,3 +694,15 @@ test "switch item sizeof" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "comptime inline switch" {
+    const U = union(enum) { a: type, b: type };
+    const value = comptime blk: {
+        var u: U = .{ .a = u32 };
+        break :blk switch (u) {
+            inline .a, .b => |v| v,
+        };
+    };
+
+    try expectEqual(u32, value);
+}
