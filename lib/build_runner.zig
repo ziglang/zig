@@ -285,6 +285,7 @@ pub fn main() !void {
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
     const main_progress_node = progress.start("", 0);
 
+    builder.ttyconf = ttyconf;
     builder.debug_log_scopes = debug_log_scopes.items;
     builder.resolveInstallPrefix(install_prefix, dir_list);
     {

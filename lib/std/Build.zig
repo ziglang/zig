@@ -59,6 +59,7 @@ verbose_llvm_bc: ?[]const u8,
 verbose_cimport: bool,
 verbose_llvm_cpu_features: bool,
 reference_trace: ?u32 = null,
+ttyconf: debug.TTY.Config,
 invalid_user_input: bool,
 zig_exe: [:0]const u8,
 default_step: *Step,
@@ -194,6 +195,7 @@ pub fn create(
     const env_map = try allocator.create(EnvMap);
     env_map.* = try process.getEnvMap(allocator);
 
+    const stderr = std.io.getStdErr();
     const self = try allocator.create(Build);
     self.* = .{
         .zig_exe = zig_exe,
@@ -209,6 +211,7 @@ pub fn create(
         .verbose_llvm_bc = null,
         .verbose_cimport = false,
         .verbose_llvm_cpu_features = false,
+        .ttyconf = std.debug.detectTTYConfig(stderr),
         .invalid_user_input = false,
         .allocator = allocator,
         .user_input_options = UserInputOptionsMap.init(allocator),
@@ -298,6 +301,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .verbose_cimport = parent.verbose_cimport,
         .verbose_llvm_cpu_features = parent.verbose_llvm_cpu_features,
         .reference_trace = parent.reference_trace,
+        .ttyconf = parent.ttyconf,
         .invalid_user_input = false,
         .zig_exe = parent.zig_exe,
         .default_step = undefined,
@@ -1612,34 +1616,34 @@ fn dumpBadGetPathHelp(
         s.name,
     });
 
-    const tty_config = std.debug.detectTTYConfig(stderr);
-    tty_config.setColor(w, .Red) catch {};
+    const ttyconf = src_builder.ttyconf;
+    ttyconf.setColor(w, .Red) catch {};
     try stderr.writeAll("    The step was created by this stack trace:\n");
-    tty_config.setColor(w, .Reset) catch {};
+    ttyconf.setColor(w, .Reset) catch {};
 
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
         try w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         return;
     };
     const ally = debug_info.allocator;
-    std.debug.writeStackTrace(s.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
+    std.debug.writeStackTrace(s.getStackTrace(), w, ally, debug_info, ttyconf) catch |err| {
         try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
         return;
     };
     if (asking_step) |as| {
-        tty_config.setColor(w, .Red) catch {};
+        ttyconf.setColor(w, .Red) catch {};
         try stderr.writeAll("    The step that is missing a dependency on the above step was created by this stack trace:\n");
-        tty_config.setColor(w, .Reset) catch {};
+        ttyconf.setColor(w, .Reset) catch {};
 
-        std.debug.writeStackTrace(as.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
+        std.debug.writeStackTrace(as.getStackTrace(), w, ally, debug_info, ttyconf) catch |err| {
             try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
             return;
         };
     }
 
-    tty_config.setColor(w, .Red) catch {};
+    ttyconf.setColor(w, .Red) catch {};
     try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
-    tty_config.setColor(w, .Reset) catch {};
+    ttyconf.setColor(w, .Reset) catch {};
 }
 
 /// Allocates a new string for assigning a value to a named macro.

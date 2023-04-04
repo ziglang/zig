@@ -220,9 +220,9 @@ pub fn dump(step: *Step) void {
     std.debug.getStderrMutex().lock();
     defer std.debug.getStderrMutex().unlock();
 
+    const ttyconf = step.owner.ttyconf;
     const stderr = std.io.getStdErr();
     const w = stderr.writer();
-    const tty_config = std.debug.detectTTYConfig(stderr);
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
         w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
             @errorName(err),
@@ -231,7 +231,7 @@ pub fn dump(step: *Step) void {
     };
     const ally = debug_info.allocator;
     w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
-    std.debug.writeStackTrace(step.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
+    std.debug.writeStackTrace(step.getStackTrace(), w, ally, debug_info, ttyconf) catch |err| {
         stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
         return;
     };
