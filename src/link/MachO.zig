@@ -142,7 +142,7 @@ data_section_index: ?u8 = null,
 locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 globals: std.ArrayListUnmanaged(SymbolWithLoc) = .{},
 resolver: std.StringHashMapUnmanaged(u32) = .{},
-unresolved: std.AutoArrayHashMapUnmanaged(u32, bool) = .{},
+unresolved: std.AutoArrayHashMapUnmanaged(u32, ResolveAction.Kind) = .{},
 
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 globals_free_list: std.ArrayListUnmanaged(u32) = .{},
@@ -295,10 +295,15 @@ const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.A
 const RebaseTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
 const RelocationTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
 
-const PendingUpdate = union(enum) {
-    resolve_undef: u32,
-    add_stub_entry: u32,
-    add_got_entry: u32,
+const ResolveAction = struct {
+    kind: Kind,
+    target: SymbolWithLoc,
+
+    const Kind = enum {
+        none,
+        add_got,
+        add_stub,
+    };
 };
 
 pub const SymbolWithLoc = struct {
@@ -603,15 +608,28 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         try self.parseDependentLibs(self.base.options.sysroot, &dependent_libs);
     }
 
+    if (self.dyld_stub_binder_index == null) {
+        self.dyld_stub_binder_index = try self.addUndefined("dyld_stub_binder", .add_got);
+    }
+
     try self.createMhExecuteHeaderSymbol();
-    try self.resolveDyldStubBinder();
-    try self.createDyldPrivateAtom();
-    try self.createStubHelperPreambleAtom();
-    try self.resolveSymbolsInDylibs();
+
+    var actions = std.ArrayList(ResolveAction).init(self.base.allocator);
+    defer actions.deinit();
+    try self.resolveSymbolsInDylibs(&actions);
 
     if (self.unresolved.count() > 0) {
         return error.UndefinedSymbolReference;
     }
+
+    try self.createDyldPrivateAtom();
+    try self.createStubHelperPreambleAtom();
+
+    for (actions.items) |action| switch (action.kind) {
+        .none => {},
+        .add_got => try self.addGotEntry(action.target),
+        .add_stub => try self.addStubEntry(action.target),
+    };
 
     try self.allocateSpecialSymbols();
 
@@ -1242,8 +1260,7 @@ pub fn createGotAtom(self: *MachO, target: SymbolWithLoc) !Atom.Index {
     return atom_index;
 }
 
-pub fn createDyldPrivateAtom(self: *MachO) !void {
-    if (self.dyld_stub_binder_index == null) return;
+fn createDyldPrivateAtom(self: *MachO) !void {
     if (self.dyld_private_atom_index != null) return;
 
     const atom_index = try self.createAtom();
@@ -1260,8 +1277,7 @@ pub fn createDyldPrivateAtom(self: *MachO) !void {
     try self.writePtrWidthAtom(atom_index);
 }
 
-pub fn createStubHelperPreambleAtom(self: *MachO) !void {
-    if (self.dyld_stub_binder_index == null) return;
+fn createStubHelperPreambleAtom(self: *MachO) !void {
     if (self.stub_helper_preamble_atom_index != null) return;
 
     const gpa = self.base.allocator;
@@ -1285,10 +1301,8 @@ pub fn createStubHelperPreambleAtom(self: *MachO) !void {
     sym.n_type = macho.N_SECT;
     sym.n_sect = self.stub_helper_section_index.? + 1;
 
-    const dyld_private_sym_index = if (self.dyld_private_atom_index) |dyld_index|
-        self.getAtom(dyld_index).getSymbolIndex().?
-    else
-        unreachable;
+    const dyld_private = self.getAtom(self.dyld_private_atom_index.?).getSymbolWithLoc();
+    const dyld_stub_binder = self.globals.items[self.dyld_stub_binder_index.?];
 
     const code = try gpa.alloc(u8, size);
     defer gpa.free(code);
@@ -1309,14 +1323,14 @@ pub fn createStubHelperPreambleAtom(self: *MachO) !void {
 
             try Atom.addRelocations(self, atom_index, 2, .{ .{
                 .type = @enumToInt(macho.reloc_type_x86_64.X86_64_RELOC_SIGNED),
-                .target = .{ .sym_index = dyld_private_sym_index, .file = null },
+                .target = dyld_private,
                 .offset = 3,
                 .addend = 0,
                 .pcrel = true,
                 .length = 2,
             }, .{
                 .type = @enumToInt(macho.reloc_type_x86_64.X86_64_RELOC_GOT),
-                .target = .{ .sym_index = self.dyld_stub_binder_index.?, .file = null },
+                .target = dyld_stub_binder,
                 .offset = 11,
                 .addend = 0,
                 .pcrel = true,
@@ -1349,28 +1363,28 @@ pub fn createStubHelperPreambleAtom(self: *MachO) !void {
 
             try Atom.addRelocations(self, atom_index, 4, .{ .{
                 .type = @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_PAGE21),
-                .target = .{ .sym_index = dyld_private_sym_index, .file = null },
+                .target = dyld_private,
                 .offset = 0,
                 .addend = 0,
                 .pcrel = true,
                 .length = 2,
             }, .{
                 .type = @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_PAGEOFF12),
-                .target = .{ .sym_index = dyld_private_sym_index, .file = null },
+                .target = dyld_private,
                 .offset = 4,
                 .addend = 0,
                 .pcrel = false,
                 .length = 2,
             }, .{
                 .type = @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGE21),
-                .target = .{ .sym_index = self.dyld_stub_binder_index.?, .file = null },
+                .target = dyld_stub_binder,
                 .offset = 12,
                 .addend = 0,
                 .pcrel = true,
                 .length = 2,
             }, .{
                 .type = @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGEOFF12),
-                .target = .{ .sym_index = self.dyld_stub_binder_index.?, .file = null },
+                .target = dyld_stub_binder,
                 .offset = 16,
                 .addend = 0,
                 .pcrel = false,
@@ -1387,7 +1401,7 @@ pub fn createStubHelperPreambleAtom(self: *MachO) !void {
     try self.writeAtom(atom_index, code);
 }
 
-pub fn createStubHelperAtom(self: *MachO) !Atom.Index {
+fn createStubHelperAtom(self: *MachO) !Atom.Index {
     const gpa = self.base.allocator;
     const arch = self.base.options.target.cpu.arch;
     const size: u4 = switch (arch) {
@@ -1468,7 +1482,7 @@ pub fn createStubHelperAtom(self: *MachO) !Atom.Index {
     return atom_index;
 }
 
-pub fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, target: SymbolWithLoc) !Atom.Index {
+fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, target: SymbolWithLoc) !Atom.Index {
     const atom_index = try self.createAtom();
     const atom = self.getAtomPtr(atom_index);
     atom.size = @sizeOf(u64);
@@ -1502,7 +1516,7 @@ pub fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, target: SymbolWi
     return atom_index;
 }
 
-pub fn createStubAtom(self: *MachO, laptr_sym_index: u32) !Atom.Index {
+fn createStubAtom(self: *MachO, laptr_sym_index: u32) !Atom.Index {
     const gpa = self.base.allocator;
     const arch = self.base.options.target.cpu.arch;
     const size: u4 = switch (arch) {
@@ -1585,7 +1599,7 @@ pub fn createStubAtom(self: *MachO, laptr_sym_index: u32) !Atom.Index {
     return atom_index;
 }
 
-pub fn createMhExecuteHeaderSymbol(self: *MachO) !void {
+fn createMhExecuteHeaderSymbol(self: *MachO) !void {
     if (self.base.options.output_mode != .Exe) return;
     if (self.getGlobal("__mh_execute_header")) |global| {
         const sym = self.getSymbol(global);
@@ -1608,7 +1622,7 @@ pub fn createMhExecuteHeaderSymbol(self: *MachO) !void {
     gop.value_ptr.* = sym_loc;
 }
 
-pub fn createDsoHandleSymbol(self: *MachO) !void {
+fn createDsoHandleSymbol(self: *MachO) !void {
     const global = self.getGlobalPtr("___dso_handle") orelse return;
     if (!self.getSymbol(global.*).undf()) return;
 
@@ -1636,7 +1650,7 @@ fn resolveGlobalSymbol(self: *MachO, current: SymbolWithLoc) !void {
     if (!gop.found_existing) {
         gop.value_ptr.* = current;
         if (sym.undf() and !sym.tentative()) {
-            try self.unresolved.putNoClobber(gpa, self.getGlobalIndex(sym_name).?, false);
+            try self.unresolved.putNoClobber(gpa, self.getGlobalIndex(sym_name).?, .none);
         }
         return;
     }
@@ -1683,7 +1697,7 @@ fn resolveGlobalSymbol(self: *MachO, current: SymbolWithLoc) !void {
     gop.value_ptr.* = current;
 }
 
-pub fn resolveSymbolsInDylibs(self: *MachO) !void {
+fn resolveSymbolsInDylibs(self: *MachO, actions: *std.ArrayList(ResolveAction)) !void {
     if (self.dylibs.items.len == 0) return;
 
     const gpa = self.base.allocator;
@@ -1711,19 +1725,8 @@ pub fn resolveSymbolsInDylibs(self: *MachO) !void {
             }
 
             if (self.unresolved.fetchSwapRemove(global_index)) |entry| blk: {
-                if (!entry.value) break :blk;
                 if (!sym.undf()) break :blk;
-                if (self.stubs_table.contains(global)) break :blk;
-
-                const stub_index = try self.allocateStubEntry(global);
-                const stub_helper_atom_index = try self.createStubHelperAtom();
-                const stub_helper_atom = self.getAtom(stub_helper_atom_index);
-                const laptr_atom_index = try self.createLazyPointerAtom(stub_helper_atom.getSymbolIndex().?, global);
-                const laptr_atom = self.getAtom(laptr_atom_index);
-                const stub_atom_index = try self.createStubAtom(laptr_atom.getSymbolIndex().?);
-                const stub_atom = self.getAtom(stub_atom_index);
-                self.stubs.items[stub_index].sym_index = stub_atom.getSymbolIndex().?;
-                self.markRelocsDirtyByTarget(global);
+                try actions.append(.{ .kind = entry.value, .target = global });
             }
 
             continue :loop;
@@ -1731,101 +1734,6 @@ pub fn resolveSymbolsInDylibs(self: *MachO) !void {
 
         next_sym += 1;
     }
-}
-
-pub fn resolveSymbolsAtLoading(self: *MachO) !void {
-    const is_lib = self.base.options.output_mode == .Lib;
-    const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
-    const allow_undef = is_dyn_lib and (self.base.options.allow_shlib_undefined orelse false);
-
-    var next_sym: usize = 0;
-    while (next_sym < self.unresolved.count()) {
-        const global_index = self.unresolved.keys()[next_sym];
-        const global = self.globals.items[global_index];
-        const sym = self.getSymbolPtr(global);
-        const sym_name = self.getSymbolName(global);
-
-        if (sym.discarded()) {
-            sym.* = .{
-                .n_strx = 0,
-                .n_type = macho.N_UNDF,
-                .n_sect = 0,
-                .n_desc = 0,
-                .n_value = 0,
-            };
-            _ = self.unresolved.swapRemove(global_index);
-            continue;
-        } else if (allow_undef) {
-            const n_desc = @bitCast(
-                u16,
-                macho.BIND_SPECIAL_DYLIB_FLAT_LOOKUP * @intCast(i16, macho.N_SYMBOL_RESOLVER),
-            );
-            // TODO allow_shlib_undefined is an ELF flag so figure out macOS specific flags too.
-            sym.n_type = macho.N_EXT;
-            sym.n_desc = n_desc;
-            _ = self.unresolved.swapRemove(global_index);
-            continue;
-        }
-
-        log.err("undefined reference to symbol '{s}'", .{sym_name});
-        if (global.file) |file| {
-            log.err("  first referenced in '{s}'", .{self.objects.items[file].name});
-        }
-
-        next_sym += 1;
-    }
-}
-
-pub fn resolveDyldStubBinder(self: *MachO) !void {
-    if (self.dyld_stub_binder_index != null) return;
-    if (self.unresolved.count() == 0) return; // no need for a stub binder if we don't have any imports
-
-    log.debug("resolving dyld_stub_binder", .{});
-
-    const gpa = self.base.allocator;
-    const sym_index = try self.allocateSymbol();
-    const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
-    const sym = self.getSymbolPtr(sym_loc);
-    const sym_name = "dyld_stub_binder";
-    sym.* = .{
-        .n_strx = try self.strtab.insert(gpa, sym_name),
-        .n_type = macho.N_UNDF,
-        .n_sect = 0,
-        .n_desc = 0,
-        .n_value = 0,
-    };
-    const gop = try self.getOrPutGlobalPtr(sym_name);
-    gop.value_ptr.* = sym_loc;
-    const global = gop.value_ptr.*;
-
-    for (self.dylibs.items, 0..) |dylib, id| {
-        if (!dylib.symbols.contains(sym_name)) continue;
-
-        const dylib_id = @intCast(u16, id);
-        if (!self.referenced_dylibs.contains(dylib_id)) {
-            try self.referenced_dylibs.putNoClobber(gpa, dylib_id, {});
-        }
-
-        const ordinal = self.referenced_dylibs.getIndex(dylib_id) orelse unreachable;
-        sym.n_type |= macho.N_EXT;
-        sym.n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER;
-        self.dyld_stub_binder_index = sym_index;
-
-        break;
-    }
-
-    if (self.dyld_stub_binder_index == null) {
-        log.err("undefined reference to symbol '{s}'", .{sym_name});
-        return error.UndefinedSymbolReference;
-    }
-
-    // Add dyld_stub_binder as the final GOT entry.
-    const got_index = try self.allocateGotEntry(global);
-    const got_atom_index = try self.createGotAtom(global);
-    const got_atom = self.getAtom(got_atom_index);
-    self.got_entries.items[got_index].sym_index = got_atom.getSymbolIndex().?;
-
-    try self.writePtrWidthAtom(got_atom_index);
 }
 
 pub fn deinit(self: *MachO) void {
@@ -2016,7 +1924,7 @@ fn growAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignment:
     return self.allocateAtom(atom_index, new_atom_size, alignment);
 }
 
-pub fn allocateSymbol(self: *MachO) !u32 {
+fn allocateSymbol(self: *MachO) !u32 {
     try self.locals.ensureUnusedCapacity(self.base.allocator, 1);
 
     const index = blk: {
@@ -2065,7 +1973,7 @@ fn allocateGlobal(self: *MachO) !u32 {
     return index;
 }
 
-pub fn allocateGotEntry(self: *MachO, target: SymbolWithLoc) !u32 {
+fn allocateGotEntry(self: *MachO, target: SymbolWithLoc) !u32 {
     const gpa = self.base.allocator;
     try self.got_entries.ensureUnusedCapacity(gpa, 1);
 
@@ -2087,7 +1995,17 @@ pub fn allocateGotEntry(self: *MachO, target: SymbolWithLoc) !u32 {
     return index;
 }
 
-pub fn allocateStubEntry(self: *MachO, target: SymbolWithLoc) !u32 {
+fn addGotEntry(self: *MachO, target: SymbolWithLoc) !void {
+    if (self.got_entries_table.contains(target)) return;
+
+    const got_index = try self.allocateGotEntry(target);
+    const got_atom_index = try self.createGotAtom(target);
+    const got_atom = self.getAtom(got_atom_index);
+    self.got_entries.items[got_index].sym_index = got_atom.getSymbolIndex().?;
+    try self.writePtrWidthAtom(got_atom_index);
+}
+
+fn allocateStubEntry(self: *MachO, target: SymbolWithLoc) !u32 {
     try self.stubs.ensureUnusedCapacity(self.base.allocator, 1);
 
     const index = blk: {
@@ -2106,6 +2024,20 @@ pub fn allocateStubEntry(self: *MachO, target: SymbolWithLoc) !u32 {
     try self.stubs_table.putNoClobber(self.base.allocator, target, index);
 
     return index;
+}
+
+fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
+    if (self.stubs_table.contains(target)) return;
+
+    const stub_index = try self.allocateStubEntry(target);
+    const stub_helper_atom_index = try self.createStubHelperAtom();
+    const stub_helper_atom = self.getAtom(stub_helper_atom_index);
+    const laptr_atom_index = try self.createLazyPointerAtom(stub_helper_atom.getSymbolIndex().?, target);
+    const laptr_atom = self.getAtom(laptr_atom_index);
+    const stub_atom_index = try self.createStubAtom(laptr_atom.getSymbolIndex().?);
+    const stub_atom = self.getAtom(stub_atom_index);
+    self.stubs.items[stub_index].sym_index = stub_atom.getSymbolIndex().?;
+    self.markRelocsDirtyByTarget(target);
 }
 
 pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
@@ -2376,13 +2308,7 @@ fn updateLazySymbolAtom(
     atom.size = code.len;
     symbol.n_value = vaddr;
 
-    const got_target = SymbolWithLoc{ .sym_index = local_sym_index, .file = null };
-    const got_index = try self.allocateGotEntry(got_target);
-    const got_atom_index = try self.createGotAtom(got_target);
-    const got_atom = self.getAtom(got_atom_index);
-    self.got_entries.items[got_index].sym_index = got_atom.getSymbolIndex().?;
-    try self.writePtrWidthAtom(got_atom_index);
-
+    try self.addGotEntry(.{ .sym_index = local_sym_index });
     self.markRelocsDirtyByTarget(atom.getSymbolWithLoc());
     try self.writeAtom(atom_index, code);
 }
@@ -2440,114 +2366,6 @@ fn getDeclOutputSection(self: *MachO, decl_index: Module.Decl.Index) u8 {
                 }
                 break :blk self.data_const_section_index.?;
             },
-        }
-    };
-    return sect_id;
-}
-
-pub fn getOutputSection(self: *MachO, sect: macho.section_64) !?u8 {
-    const segname = sect.segName();
-    const sectname = sect.sectName();
-    const sect_id: ?u8 = blk: {
-        if (mem.eql(u8, "__LLVM", segname)) {
-            log.debug("TODO LLVM section: type 0x{x}, name '{s},{s}'", .{
-                sect.flags, segname, sectname,
-            });
-            break :blk null;
-        }
-
-        if (sect.isCode()) {
-            if (self.text_section_index == null) {
-                self.text_section_index = try self.initSection("__TEXT", "__text", .{
-                    .flags = macho.S_REGULAR |
-                        macho.S_ATTR_PURE_INSTRUCTIONS |
-                        macho.S_ATTR_SOME_INSTRUCTIONS,
-                });
-            }
-            break :blk self.text_section_index.?;
-        }
-
-        if (sect.isDebug()) {
-            // TODO debug attributes
-            if (mem.eql(u8, "__LD", segname) and mem.eql(u8, "__compact_unwind", sectname)) {
-                log.debug("TODO compact unwind section: type 0x{x}, name '{s},{s}'", .{
-                    sect.flags, segname, sectname,
-                });
-            }
-            break :blk null;
-        }
-
-        switch (sect.type()) {
-            macho.S_4BYTE_LITERALS,
-            macho.S_8BYTE_LITERALS,
-            macho.S_16BYTE_LITERALS,
-            => {
-                if (self.getSectionByName("__TEXT", "__const")) |sect_id| break :blk sect_id;
-                break :blk try self.initSection("__TEXT", "__const", .{});
-            },
-            macho.S_CSTRING_LITERALS => {
-                if (mem.startsWith(u8, sectname, "__objc")) {
-                    if (self.getSectionByName(segname, sectname)) |sect_id| break :blk sect_id;
-                    break :blk try self.initSection(segname, sectname, .{});
-                }
-                if (self.getSectionByName("__TEXT", "__cstring")) |sect_id| break :blk sect_id;
-                break :blk try self.initSection("__TEXT", "__cstring", .{
-                    .flags = macho.S_CSTRING_LITERALS,
-                });
-            },
-            macho.S_MOD_INIT_FUNC_POINTERS,
-            macho.S_MOD_TERM_FUNC_POINTERS,
-            => {
-                if (self.getSectionByName("__DATA_CONST", sectname)) |sect_id| break :blk sect_id;
-                break :blk try self.initSection("__DATA_CONST", sectname, .{
-                    .flags = sect.flags,
-                });
-            },
-            macho.S_LITERAL_POINTERS,
-            macho.S_ZEROFILL,
-            macho.S_THREAD_LOCAL_VARIABLES,
-            macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
-            macho.S_THREAD_LOCAL_REGULAR,
-            macho.S_THREAD_LOCAL_ZEROFILL,
-            => {
-                if (self.getSectionByName(segname, sectname)) |sect_id| break :blk sect_id;
-                break :blk try self.initSection(segname, sectname, .{ .flags = sect.flags });
-            },
-            macho.S_COALESCED => {
-                if (self.getSectionByName(segname, sectname)) |sect_id| break :blk sect_id;
-                break :blk try self.initSection(segname, sectname, .{});
-            },
-            macho.S_REGULAR => {
-                if (mem.eql(u8, segname, "__TEXT")) {
-                    if (mem.eql(u8, sectname, "__rodata") or
-                        mem.eql(u8, sectname, "__typelink") or
-                        mem.eql(u8, sectname, "__itablink") or
-                        mem.eql(u8, sectname, "__gosymtab") or
-                        mem.eql(u8, sectname, "__gopclntab"))
-                    {
-                        if (self.getSectionByName("__DATA_CONST", "__const")) |sect_id| break :blk sect_id;
-                        break :blk try self.initSection("__DATA_CONST", "__const", .{});
-                    }
-                }
-                if (mem.eql(u8, segname, "__DATA")) {
-                    if (mem.eql(u8, sectname, "__const") or
-                        mem.eql(u8, sectname, "__cfstring") or
-                        mem.eql(u8, sectname, "__objc_classlist") or
-                        mem.eql(u8, sectname, "__objc_imageinfo"))
-                    {
-                        if (self.getSectionByName("__DATA_CONST", sectname)) |sect_id| break :blk sect_id;
-                        break :blk try self.initSection("__DATA_CONST", sectname, .{});
-                    } else if (mem.eql(u8, sectname, "__data")) {
-                        if (self.data_section_index == null) {
-                            self.data_section_index = try self.initSection(segname, sectname, .{});
-                        }
-                        break :blk self.data_section_index.?;
-                    }
-                }
-                if (self.getSectionByName(segname, sectname)) |sect_id| break :blk sect_id;
-                break :blk try self.initSection(segname, sectname, .{});
-            },
-            else => break :blk null,
         }
     };
     return sect_id;
@@ -2619,12 +2437,7 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
         self.getAtomPtr(atom_index).size = code_len;
         sym.n_value = vaddr;
 
-        const got_target = SymbolWithLoc{ .sym_index = sym_index, .file = null };
-        const got_index = try self.allocateGotEntry(got_target);
-        const got_atom_index = try self.createGotAtom(got_target);
-        const got_atom = self.getAtom(got_atom_index);
-        self.got_entries.items[got_index].sym_index = got_atom.getSymbolIndex().?;
-        try self.writePtrWidthAtom(got_atom_index);
+        try self.addGotEntry(.{ .sym_index = sym_index });
     }
 
     self.markRelocsDirtyByTarget(atom.getSymbolWithLoc());
@@ -2837,7 +2650,7 @@ pub fn getDeclVAddr(self: *MachO, decl_index: Module.Decl.Index, reloc_info: Fil
     return 0;
 }
 
-pub fn populateMissingMetadata(self: *MachO) !void {
+fn populateMissingMetadata(self: *MachO) !void {
     assert(self.mode == .incremental);
 
     const gpa = self.base.allocator;
@@ -3273,79 +3086,12 @@ fn getSectionPrecedence(header: macho.section_64) u4 {
     }
 }
 
-const InitSectionOpts = struct {
-    flags: u32 = macho.S_REGULAR,
-    reserved1: u32 = 0,
-    reserved2: u32 = 0,
-};
-
-pub fn initSection(self: *MachO, segname: []const u8, sectname: []const u8, opts: InitSectionOpts) !u8 {
-    const segment_id = self.getSegmentByName(segname).?;
-    const seg = &self.segments.items[segment_id];
-    const index = try self.insertSection(segment_id, .{
-        .sectname = makeStaticString(sectname),
-        .segname = seg.segname,
-        .flags = opts.flags,
-        .reserved1 = opts.reserved1,
-        .reserved2 = opts.reserved2,
-    });
-    seg.cmdsize += @sizeOf(macho.section_64);
-    seg.nsects += 1;
-    return index;
-}
-
-fn insertSection(self: *MachO, segment_index: u8, header: macho.section_64) !u8 {
-    const precedence = getSectionPrecedence(header);
-    const indexes = self.getSectionIndexes(segment_index);
-    const insertion_index = for (self.sections.items(.header)[indexes.start..indexes.end], 0..) |hdr, i| {
-        if (getSectionPrecedence(hdr) > precedence) break @intCast(u8, i + indexes.start);
-    } else indexes.end;
-    log.debug("inserting section '{s},{s}' at index {d}", .{
-        header.segName(),
-        header.sectName(),
-        insertion_index,
-    });
-    for (&[_]*?u8{
-        &self.text_section_index,
-        &self.stubs_section_index,
-        &self.stub_helper_section_index,
-        &self.got_section_index,
-        &self.la_symbol_ptr_section_index,
-        &self.data_section_index,
-    }) |maybe_index| {
-        const index = maybe_index.* orelse continue;
-        if (insertion_index <= index) maybe_index.* = index + 1;
-    }
-    try self.sections.insert(self.base.allocator, insertion_index, .{
-        .segment_index = segment_index,
-        .header = header,
-    });
-    return insertion_index;
-}
-
 pub fn getGlobalSymbol(self: *MachO, name: []const u8, lib_name: ?[]const u8) !u32 {
     _ = lib_name;
     const gpa = self.base.allocator;
-
     const sym_name = try std.fmt.allocPrint(gpa, "_{s}", .{name});
     defer gpa.free(sym_name);
-    const gop = try self.getOrPutGlobalPtr(sym_name);
-    const global_index = self.getGlobalIndex(sym_name).?;
-
-    if (gop.found_existing) {
-        return global_index;
-    }
-
-    const sym_index = try self.allocateSymbol();
-    const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
-    gop.value_ptr.* = sym_loc;
-
-    const sym = self.getSymbolPtr(sym_loc);
-    sym.n_strx = try self.strtab.insert(gpa, sym_name);
-
-    try self.unresolved.putNoClobber(gpa, global_index, true);
-
-    return global_index;
+    return self.addUndefined(sym_name, .add_stub);
 }
 
 fn writeSegmentHeaders(self: *MachO, writer: anytype) !void {
@@ -3951,6 +3697,29 @@ pub fn ptraceDetach(self: *MachO, pid: std.os.pid_t) !void {
     // try std.os.ptrace(std.os.darwin.PT.DETACH, pid, 0, 0);
 
     self.hot_state.mach_task = null;
+}
+
+fn addUndefined(self: *MachO, name: []const u8, action: ResolveAction.Kind) !u32 {
+    const gpa = self.base.allocator;
+
+    const gop = try self.getOrPutGlobalPtr(name);
+    const global_index = self.getGlobalIndex(name).?;
+
+    if (gop.found_existing) {
+        return global_index;
+    }
+
+    const sym_index = try self.allocateSymbol();
+    const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
+    gop.value_ptr.* = sym_loc;
+
+    const sym = self.getSymbolPtr(sym_loc);
+    sym.n_strx = try self.strtab.insert(gpa, name);
+    sym.n_type = macho.N_UNDF;
+
+    try self.unresolved.putNoClobber(gpa, global_index, action);
+
+    return global_index;
 }
 
 pub fn makeStaticString(bytes: []const u8) [16]u8 {
