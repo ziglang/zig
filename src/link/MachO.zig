@@ -1128,8 +1128,15 @@ pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
     const file_offset = section.header.offset + sym.n_value - section.header.addr;
     log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ atom.getName(self), file_offset });
 
-    if (self.relocs.get(atom_index)) |relocs| {
-        Atom.resolveRelocations(self, atom_index, relocs.items, code);
+    // Gather relocs which can be resolved.
+    var relocs = std.ArrayList(*Relocation).init(self.base.allocator);
+    defer relocs.deinit();
+
+    if (self.relocs.getPtr(atom_index)) |rels| {
+        try relocs.ensureTotalCapacityPrecise(rels.items.len);
+        for (rels.items) |*reloc| {
+            if (reloc.isResolvable(self)) relocs.appendAssumeCapacity(reloc);
+        }
     }
 
     if (is_hot_update_compatible) {
@@ -1144,7 +1151,13 @@ pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
         }
     }
 
+    Atom.resolveRelocations(self, atom_index, relocs.items, code);
     try self.base.file.?.pwriteAll(code, file_offset);
+
+    // Now we can mark the relocs as resolved.
+    while (relocs.popOrNull()) |reloc| {
+        reloc.dirty = false;
+    }
 }
 
 fn updateAtomInMemory(self: *MachO, task: std.os.darwin.MachTask, segment_index: u8, addr: u64, code: []const u8) !void {
