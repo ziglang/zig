@@ -590,9 +590,9 @@ pub const Zld = struct {
     }
 
     fn createDyldStubBinderGotAtom(self: *Zld) !void {
-        const sym_index = self.dyld_stub_binder_index orelse return;
         const gpa = self.gpa;
-        const target = SymbolWithLoc{ .sym_index = sym_index };
+        const global_index = self.dyld_stub_binder_index orelse return;
+        const target = self.globals.items[global_index];
         const atom_index = try self.createGotAtom();
         const got_index = @intCast(u32, self.got_entries.items.len);
         try self.got_entries.append(gpa, .{
@@ -661,7 +661,8 @@ pub const Zld = struct {
             break :blk sym.n_value;
         };
         const dyld_stub_binder_got_addr = blk: {
-            const index = self.got_table.get(.{ .sym_index = self.dyld_stub_binder_index.? }).?;
+            const sym_loc = self.globals.items[self.dyld_stub_binder_index.?];
+            const index = self.got_table.get(sym_loc).?;
             const entry = self.got_entries.items[index];
             break :blk entry.getAtomSymbol(self).n_value;
         };
@@ -932,12 +933,12 @@ pub const Zld = struct {
         }
     }
 
-    fn forceSymbolDefined(self: *Zld, name: []const u8, resolver: *SymbolResolver) !void {
+    fn addUndefined(self: *Zld, name: []const u8, resolver: *SymbolResolver) !void {
         const sym_index = try self.allocateSymbol();
         const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
         const sym = self.getSymbolPtr(sym_loc);
         sym.n_strx = try self.strtab.insert(self.gpa, name);
-        sym.n_type = macho.N_UNDF | macho.N_EXT;
+        sym.n_type = macho.N_UNDF;
         const global_index = try self.addGlobal(sym_loc);
         try resolver.table.putNoClobber(name, global_index);
         try resolver.unresolved.putNoClobber(global_index, {});
@@ -949,12 +950,12 @@ pub const Zld = struct {
         // on the linker line.
         if (self.options.output_mode == .Exe) {
             const entry_name = self.options.entry orelse load_commands.default_entry_point;
-            try self.forceSymbolDefined(entry_name, resolver);
+            try self.addUndefined(entry_name, resolver);
         }
 
         // Force resolution of any symbols requested by the user.
         for (self.options.force_undefined_symbols.keys()) |sym_name| {
-            try self.forceSymbolDefined(sym_name, resolver);
+            try self.addUndefined(sym_name, resolver);
         }
 
         for (self.objects.items, 0..) |_, object_id| {
@@ -962,8 +963,17 @@ pub const Zld = struct {
         }
 
         try self.resolveSymbolsInArchives(resolver);
-        try self.resolveDyldStubBinder(resolver);
+
+        // Finally, force resolution of dyld_stub_binder if there are imports
+        // requested.
+        if (resolver.unresolved.count() > 0) {
+            try self.addUndefined("dyld_stub_binder", resolver);
+        }
+
         try self.resolveSymbolsInDylibs(resolver);
+
+        self.dyld_stub_binder_index = resolver.table.get("dyld_stub_binder");
+
         try self.createMhExecuteHeaderSymbol(resolver);
         try self.createDsoHandleSymbol(resolver);
         try self.resolveSymbolsAtLoading(resolver);
@@ -1239,43 +1249,6 @@ pub const Zld = struct {
         global_object.globals_lookup[global.sym_index] = global_index;
         _ = resolver.unresolved.swapRemove(resolver.table.get("___dso_handle").?);
         global.* = sym_loc;
-    }
-
-    fn resolveDyldStubBinder(self: *Zld, resolver: *SymbolResolver) !void {
-        if (self.dyld_stub_binder_index != null) return;
-        if (resolver.unresolved.count() == 0) return; // no need for a stub binder if we don't have any imports
-
-        const gpa = self.gpa;
-        const sym_name = "dyld_stub_binder";
-        const sym_index = try self.allocateSymbol();
-        const sym_loc = SymbolWithLoc{ .sym_index = sym_index };
-        const sym = self.getSymbolPtr(sym_loc);
-        sym.n_strx = try self.strtab.insert(gpa, sym_name);
-        sym.n_type = macho.N_UNDF;
-
-        const global = SymbolWithLoc{ .sym_index = sym_index };
-        try self.globals.append(gpa, global);
-
-        for (self.dylibs.items, 0..) |dylib, id| {
-            if (!dylib.symbols.contains(sym_name)) continue;
-
-            const dylib_id = @intCast(u16, id);
-            if (!self.referenced_dylibs.contains(dylib_id)) {
-                try self.referenced_dylibs.putNoClobber(gpa, dylib_id, {});
-            }
-
-            const ordinal = self.referenced_dylibs.getIndex(dylib_id) orelse unreachable;
-            sym.n_type |= macho.N_EXT;
-            sym.n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER;
-            self.dyld_stub_binder_index = sym_index;
-
-            break;
-        }
-
-        if (self.dyld_stub_binder_index == null) {
-            log.err("undefined reference to symbol '{s}'", .{sym_name});
-            return error.UndefinedSymbolReference;
-        }
     }
 
     pub fn deinit(self: *Zld) void {
