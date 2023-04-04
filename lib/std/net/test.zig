@@ -230,6 +230,22 @@ test "listen on ipv4 try connect on ipv6 then ipv4" {
     try await client_frame;
 }
 
+test "listen on an in use port" {
+    const localhost = try net.Address.parseIp("127.0.0.1", 0);
+
+    var server1 = net.StreamServer.init(net.StreamServer.Options{
+        .reuse_port = true,
+    });
+    defer server1.deinit();
+    try server1.listen(localhost);
+
+    var server2 = net.StreamServer.init(net.StreamServer.Options{
+        .reuse_port = true,
+    });
+    defer server2.deinit();
+    try server2.listen(server1.listen_address);
+}
+
 fn testClientToHost(allocator: mem.Allocator, name: []const u8, port: u16) anyerror!void {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 

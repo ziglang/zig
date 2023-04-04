@@ -1867,6 +1867,7 @@ pub const StreamServer = struct {
     /// Copied from `Options` on `init`.
     kernel_backlog: u31,
     reuse_address: bool,
+    reuse_port: bool,
 
     /// `undefined` until `listen` returns successfully.
     listen_address: Address,
@@ -1881,6 +1882,9 @@ pub const StreamServer = struct {
 
         /// Enable SO.REUSEADDR on the socket.
         reuse_address: bool = false,
+
+        /// Enable SO.REUSEPORT on the socket.
+        reuse_port: bool = false,
     };
 
     /// After this call succeeds, resources have been acquired and must
@@ -1890,6 +1894,7 @@ pub const StreamServer = struct {
             .sockfd = null,
             .kernel_backlog = options.kernel_backlog,
             .reuse_address = options.reuse_address,
+            .reuse_port = options.reuse_port,
             .listen_address = undefined,
         };
     }
@@ -1917,6 +1922,14 @@ pub const StreamServer = struct {
                 sockfd,
                 os.SOL.SOCKET,
                 os.SO.REUSEADDR,
+                &mem.toBytes(@as(c_int, 1)),
+            );
+        }
+        if (self.reuse_port) {
+            try os.setsockopt(
+                sockfd,
+                os.SOL.SOCKET,
+                os.SO.REUSEPORT,
                 &mem.toBytes(@as(c_int, 1)),
             );
         }
