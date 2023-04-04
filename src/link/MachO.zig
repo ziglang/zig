@@ -138,6 +138,8 @@ got_section_index: ?u8 = null,
 data_const_section_index: ?u8 = null,
 la_symbol_ptr_section_index: ?u8 = null,
 data_section_index: ?u8 = null,
+tls_vars_section_index: ?u8 = null,
+tls_data_section_index: ?u8 = null,
 
 locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 globals: std.ArrayListUnmanaged(SymbolWithLoc) = .{},
@@ -2366,6 +2368,7 @@ fn getDeclOutputSection(self: *MachO, decl_index: Module.Decl.Index) u8 {
     const val = decl.val;
     const zig_ty = ty.zigTypeTag();
     const mode = self.base.options.optimize_mode;
+    const single_threaded = self.base.options.single_threaded;
     const sect_id: u8 = blk: {
         // TODO finish and audit this function
         if (val.isUndefDeep()) {
@@ -2376,7 +2379,10 @@ fn getDeclOutputSection(self: *MachO, decl_index: Module.Decl.Index) u8 {
             }
         }
 
-        if (val.castTag(.variable)) |_| {
+        if (val.castTag(.variable)) |variable| {
+            if (variable.data.is_threadlocal and !single_threaded) {
+                break :blk self.tls_data_section_index.?;
+            }
             break :blk self.data_section_index.?;
         }
 
@@ -2798,6 +2804,28 @@ fn populateMissingMetadata(self: *MachO) !void {
             .prot = macho.PROT.READ | macho.PROT.WRITE,
         });
         self.segment_table_dirty = true;
+    }
+
+    if (!self.base.options.single_threaded) {
+        if (self.tls_vars_section_index == null) {
+            self.tls_vars_section_index = try self.allocateSection("__DATA2", "__thread_vars", .{
+                .size = @sizeOf(u64) * 3,
+                .alignment = @alignOf(u64),
+                .flags = macho.S_THREAD_LOCAL_VARIABLES,
+                .prot = macho.PROT.READ | macho.PROT.WRITE,
+            });
+            self.segment_table_dirty = true;
+        }
+
+        if (self.tls_data_section_index == null) {
+            self.tls_data_section_index = try self.allocateSection("__DATA3", "__thread_data", .{
+                .size = @sizeOf(u64),
+                .alignment = @alignOf(u64),
+                .flags = macho.S_THREAD_LOCAL_REGULAR,
+                .prot = macho.PROT.READ | macho.PROT.WRITE,
+            });
+            self.segment_table_dirty = true;
+        }
     }
 
     if (self.linkedit_segment_cmd_index == null) {
