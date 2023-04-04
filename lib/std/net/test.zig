@@ -240,6 +240,8 @@ test "listen on an in use port" {
     try server1.listen(localhost);
 
     var server2 = net.StreamServer.init(net.StreamServer.Options{
+        // Also specify reuse_address for Windows binding.
+        .reuse_address = true,
         .reuse_port = true,
     });
     defer server2.deinit();
