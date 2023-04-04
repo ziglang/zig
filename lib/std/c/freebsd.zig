@@ -629,6 +629,20 @@ pub const MAP = struct {
     pub const ALIGNED_SUPER = ALIGNED(1);
 };
 
+pub const MADV = struct {
+    pub const NORMAL = 0;
+    pub const RANDOM = 1;
+    pub const SEQUENTIAL = 2;
+    pub const WILLNEED = 3;
+    pub const DONTNEED = 4;
+    pub const FREE = 5;
+    pub const NOSYNC = 6;
+    pub const AUTOSYNC = 7;
+    pub const NOCORE = 8;
+    pub const CORE = 9;
+    pub const PROTECT = 10;
+};
+
 pub const MSF = struct {
     pub const ASYNC = 1;
     pub const INVALIDATE = 2;
