@@ -1088,21 +1088,19 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
             if (ascii.eqlIgnoreCase(from_component, to_component))
                 continue;
         }
-        var up_count: usize = 1;
+        var up_index_end = "..".len;
         while (from_it.next()) |_| {
-            up_count += 1;
+            up_index_end += "\\..".len;
         }
-        const up_index_end = up_count * "..\\".len;
-        const result = try allocator.alloc(u8, up_index_end + to_rest.len);
+        const result = try allocator.alloc(u8, up_index_end + @boolToInt(to_rest.len > 0) + to_rest.len);
         errdefer allocator.free(result);
 
-        var result_index: usize = 0;
+        result[0..2].* = "..".*;
+        var result_index: usize = 2;
         while (result_index < up_index_end) {
-            result[result_index..][0..3].* = "..\\".*;
+            result[result_index..][0..3].* = "\\..".*;
             result_index += 3;
         }
-        // shave off the trailing slash
-        result_index -= 1;
 
         var rest_it = mem.tokenize(u8, to_rest, "/\\");
         while (rest_it.next()) |to_component| {
@@ -1112,7 +1110,7 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
             result_index += to_component.len;
         }
 
-        return result[0..result_index];
+        return allocator.realloc(result, result_index);
     }
 
     return [_]u8{};
