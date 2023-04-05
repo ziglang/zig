@@ -15,8 +15,6 @@ const proto = @import("protocol.zig");
 pub const default_connection_pool_size = 32;
 pub const connection_pool_size = std.options.http_connection_pool_size;
 
-/// Used for tcpConnectToHost and storing HTTP headers when an externally
-/// managed buffer is not provided.
 allocator: Allocator,
 ca_bundle: std.crypto.Certificate.Bundle = .{},
 ca_bundle_mutex: std.Thread.Mutex = .{},
@@ -24,8 +22,10 @@ ca_bundle_mutex: std.Thread.Mutex = .{},
 /// it will first rescan the system for root certificates.
 next_https_rescan_certs: bool = true,
 
+/// The pool of connections that can be reused (and currently in use).
 connection_pool: ConnectionPool = .{},
 
+/// The last error that occurred on this client. This is not threadsafe, do not expect it to be completely accurate.
 last_error: ?ExtraError = null,
 
 pub const ExtraError = union(enum) {
@@ -68,7 +68,9 @@ pub const ExtraError = union(enum) {
     decompress: DecompressError, // error.ReadFailed
 };
 
+/// A set of linked lists of connections that can be reused.
 pub const ConnectionPool = struct {
+    /// The criteria for a connection to be considered a match.
     pub const Criteria = struct {
         host: []const u8,
         port: u16,
@@ -92,7 +94,9 @@ pub const ConnectionPool = struct {
     pub const Node = Queue.Node;
 
     mutex: std.Thread.Mutex = .{},
+    /// Open connections that are currently in use.
     used: Queue = .{},
+    /// Open connections that are not currently in use.
     free: Queue = .{},
     free_len: usize = 0,
     free_size: usize = connection_pool_size,
@@ -189,6 +193,7 @@ pub const ConnectionPool = struct {
     }
 };
 
+/// An interface to either a plain or TLS connection.
 pub const Connection = struct {
     stream: net.Stream,
     /// undefined unless protocol is tls.
@@ -261,6 +266,7 @@ pub const Connection = struct {
     }
 };
 
+/// A buffered (and peekable) Connection.
 pub const BufferedConnection = struct {
     pub const buffer_size = 0x2000;
 
@@ -344,12 +350,14 @@ pub const BufferedConnection = struct {
     }
 };
 
+/// The mode of transport for requests.
 pub const RequestTransfer = union(enum) {
     content_length: u64,
     chunked: void,
     none: void,
 };
 
+/// The decompressor for response messages.
 pub const Compression = union(enum) {
     pub const DeflateDecompressor = std.compress.zlib.ZlibStream(Request.TransferReader);
     pub const GzipDecompressor = std.compress.gzip.Decompress(Request.TransferReader);
@@ -361,6 +369,7 @@ pub const Compression = union(enum) {
     none: void,
 };
 
+/// A HTTP response originating from a server.
 pub const Response = struct {
     pub const Headers = struct {
         status: http.Status,
@@ -501,14 +510,9 @@ pub const Response = struct {
     skip: bool = false,
 };
 
-/// A HTTP request.
+/// A HTTP request that has been sent.
 ///
-/// Order of operations:
-/// - request
-/// - write
-/// - finish
-/// - do
-/// - read
+/// Order of operations: request[ -> write -> finish] -> do -> read
 pub const Request = struct {
     pub const Headers = struct {
         version: http.Version = .@"HTTP/1.1",
@@ -862,6 +866,8 @@ pub const Request = struct {
     }
 };
 
+/// Release all associated resources with the client.
+/// TODO: currently leaks all request allocated data
 pub fn deinit(client: *Client) void {
     client.connection_pool.deinit(client);
 
@@ -871,6 +877,8 @@ pub fn deinit(client: *Client) void {
 
 pub const ConnectError = Allocator.Error || error{ ConnectionFailed, TlsInitializationFailed };
 
+/// Connect to `host:port` using the specified protocol. This will reuse a connection if one is already open.
+/// This function is threadsafe.
 pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) ConnectError!*ConnectionPool.Node {
     if (client.connection_pool.findConnection(.{
         .host = host,
@@ -955,6 +963,8 @@ pub const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
     .{ "wss", .tls },
 });
 
+/// Form and send a http request to a server.
+/// This function is threadsafe.
 pub fn request(client: *Client, uri: Uri, headers: Request.Headers, options: Options) RequestError!Request {
     const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
 

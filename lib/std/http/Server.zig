@@ -14,10 +14,7 @@ allocator: Allocator,
 
 socket: net.StreamServer,
 
-pub const DeflateDecompressor = std.compress.zlib.ZlibStream(Response.TransferReader);
-pub const GzipDecompressor = std.compress.gzip.Decompress(Response.TransferReader);
-pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Response.TransferReader, .{});
-
+/// An interface to either a plain or TLS connection.
 pub const Connection = struct {
     stream: net.Stream,
     protocol: Protocol,
@@ -74,6 +71,7 @@ pub const Connection = struct {
     }
 };
 
+/// A buffered (and peekable) Connection.
 pub const BufferedConnection = struct {
     pub const buffer_size = 0x2000;
 
@@ -157,6 +155,7 @@ pub const BufferedConnection = struct {
     }
 };
 
+/// A HTTP request originating from a client.
 pub const Request = struct {
     pub const Headers = struct {
         method: http.Method,
@@ -290,6 +289,11 @@ pub const Request = struct {
     compression: Compression = .none,
 };
 
+/// A HTTP response waiting to be sent.
+///
+///                                  [/ <----------------------------------- \]
+/// Order of operations: accept -> wait -> do  [ -> write -> finish][ -> reset /]
+///                                   \ -> read /
 pub const Response = struct {
     pub const Headers = struct {
         version: http.Version = .@"HTTP/1.1",
@@ -310,6 +314,7 @@ pub const Response = struct {
     headers: Headers = .{},
     request: Request,
 
+    /// Reset this response to its initial state. This must be called before handling a second request on the same connection.
     pub fn reset(res: *Response) void {
         switch (res.request.compression) {
             .none => {},
@@ -336,7 +341,8 @@ pub const Response = struct {
         }
     }
 
-    pub fn sendResponseHead(res: *Response) !void {
+    /// Send the response headers.
+    pub fn do(res: *Response) !void {
         var buffered = std.io.bufferedWriter(res.connection.writer());
         const w = buffered.writer();
 
@@ -402,7 +408,8 @@ pub const Response = struct {
 
     pub const WaitForCompleteHeadError = BufferedConnection.ReadError || proto.HeadersParser.WaitForCompleteHeadError || Request.Headers.ParseError || error{ BadHeader, InvalidCompression, StreamTooLong, InvalidWindowSize } || error{CompressionNotSupported};
 
-    pub fn waitForCompleteHead(res: *Response) !void {
+    /// Wait for the client to send a complete request head.
+    pub fn wait(res: *Response) !void {
         while (true) {
             try res.connection.fill();
 
@@ -451,7 +458,7 @@ pub const Response = struct {
         }
     }
 
-    pub const ReadError = DeflateDecompressor.Error || GzipDecompressor.Error || ZstdDecompressor.Error || WaitForCompleteHeadError;
+    pub const ReadError = Compression.DeflateDecompressor.Error || Compression.GzipDecompressor.Error || Compression.ZstdDecompressor.Error || WaitForCompleteHeadError;
 
     pub const Reader = std.io.Reader(*Response, ReadError, read);
 
@@ -517,13 +524,19 @@ pub const Response = struct {
     }
 };
 
+/// The mode of transport for responses.
 pub const RequestTransfer = union(enum) {
     content_length: u64,
     chunked: void,
     none: void,
 };
 
+/// The decompressor for request messages.
 pub const Compression = union(enum) {
+    pub const DeflateDecompressor = std.compress.zlib.ZlibStream(Response.TransferReader);
+    pub const GzipDecompressor = std.compress.gzip.Decompress(Response.TransferReader);
+    pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Response.TransferReader, .{});
+
     deflate: DeflateDecompressor,
     gzip: GzipDecompressor,
     zstd: ZstdDecompressor,
@@ -543,6 +556,7 @@ pub fn deinit(server: *Server) void {
 
 pub const ListenError = std.os.SocketError || std.os.BindError || std.os.ListenError || std.os.SetSockOptError || std.os.GetSockNameError;
 
+/// Start the HTTP server listening on the given address.
 pub fn listen(server: *Server, address: net.Address) !void {
     try server.socket.listen(address);
 }
@@ -562,6 +576,7 @@ pub const HeaderStrategy = union(enum) {
     static: []u8,
 };
 
+/// Accept a new connection and allocate a Response for it.
 pub fn accept(server: *Server, options: HeaderStrategy) AcceptError!*Response {
     const in = try server.socket.accept();
 

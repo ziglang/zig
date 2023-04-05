@@ -21,6 +21,7 @@ pub const State = enum {
     chunk_data_suffix,
     chunk_data_suffix_r,
 
+    /// Returns true if the parser is in a content state (ie. not waiting for more headers).
     pub fn isContent(self: State) bool {
         return switch (self) {
             .invalid, .start, .seen_n, .seen_r, .seen_rn, .seen_rnr => false,
@@ -31,7 +32,7 @@ pub const State = enum {
 
 pub const HeadersParser = struct {
     state: State = .start,
-    /// Wether or not `header_bytes` is allocated or was provided as a fixed buffer.
+    /// Whether or not `header_bytes` is allocated or was provided as a fixed buffer.
     header_bytes_owned: bool,
     /// Either a fixed buffer of len `max_header_bytes` or a dynamic buffer that can grow up to `max_header_bytes`.
     /// Pointers into this buffer are not stable until after a message is complete.
@@ -39,10 +40,11 @@ pub const HeadersParser = struct {
     /// The maximum allowed size of `header_bytes`.
     max_header_bytes: usize,
     next_chunk_length: u64 = 0,
-    /// Wether this parser is done parsing a complete message.
-    /// A message is only done when the entire payload has been read
+    /// Whether this parser is done parsing a complete message.
+    /// A message is only done when the entire payload has been read.
     done: bool = false,
 
+    /// Initializes the parser with a dynamically growing header buffer of up to `max` bytes.
     pub fn initDynamic(max: usize) HeadersParser {
         return .{
             .header_bytes = .{},
@@ -51,6 +53,7 @@ pub const HeadersParser = struct {
         };
     }
 
+    /// Initializes the parser with a provided buffer `buf`.
     pub fn initStatic(buf: []u8) HeadersParser {
         return .{
             .header_bytes = .{ .items = buf[0..0], .capacity = buf.len },
@@ -59,7 +62,11 @@ pub const HeadersParser = struct {
         };
     }
 
+    /// Completely resets the parser to it's initial state.
+    /// This must be called after a message is complete.
     pub fn reset(r: *HeadersParser) void {
+        assert(r.done); // The message must be completely read before reset, otherwise the parser is in an invalid state.
+
         r.header_bytes.clearRetainingCapacity();
 
         r.* = .{
@@ -69,13 +76,14 @@ pub const HeadersParser = struct {
         };
     }
 
-    /// Returns how many bytes are part of HTTP headers. Always less than or
-    /// equal to bytes.len. If the amount returned is less than bytes.len, it
-    /// means the headers ended and the first byte after the double \r\n\r\n is
-    /// located at `bytes[result]`.
+    /// Returns the number of bytes consumed by headers. This is always less than or equal to `bytes.len`.
+    /// You should check `r.state.isContent()` after this to check if the headers are done.
+    ///
+    /// If the amount returned is less than `bytes.len`, you may assume that the parser is in a content state and the
+    /// first byte of content is located at `bytes[result]`.
     pub fn findHeadersEnd(r: *HeadersParser, bytes: []const u8) u32 {
-        const vector_len = 16;
-        const len = @truncate(u32, bytes.len);
+        const vector_len: comptime_int = comptime std.simd.suggestVectorSize(u8) orelse 8;
+        const len = @intCast(u32, bytes.len);
         var index: u32 = 0;
 
         while (true) {
@@ -390,8 +398,13 @@ pub const HeadersParser = struct {
         }
     }
 
+    /// Returns the number of bytes consumed by the chunk size. This is always less than or equal to `bytes.len`.
+    /// You should check `r.state == .chunk_data` after this to check if the chunk size has been fully parsed.
+    ///
+    /// If the amount returned is less than `bytes.len`, you may assume that the parser is in the `chunk_data` state
+    /// and that the first byte of the chunk is at `bytes[result]`.
     pub fn findChunkedLen(r: *HeadersParser, bytes: []const u8) u32 {
-        const len = @truncate(u32, bytes.len);
+        const len = @intCast(u32, bytes.len);
 
         for (bytes[0..], 0..) |c, i| {
             const index = @intCast(u32, i);
@@ -471,8 +484,10 @@ pub const HeadersParser = struct {
 
     pub const CheckCompleteHeadError = mem.Allocator.Error || error{HttpHeadersExceededSizeLimit};
 
-    /// Pumps `in` bytes into the parser. Returns the number of bytes consumed. This function will return 0 if the parser
-    /// is not in a state to parse more headers.
+    /// Pushes `in` into the parser. Returns the number of bytes consumed by the header. Any header bytes are appended
+    /// to the `header_bytes` buffer.
+    ///
+    /// This function only uses `allocator` if `r.header_bytes_owned` is true, and may be undefined otherwise.
     pub fn checkCompleteHead(r: *HeadersParser, allocator: std.mem.Allocator, in: []const u8) CheckCompleteHeadError!u32 {
         if (r.state.isContent()) return 0;
 
@@ -493,8 +508,11 @@ pub const HeadersParser = struct {
         HttpChunkInvalid,
     };
 
-    /// Reads the body of the message into `buffer`. If `skip` is true, the buffer will be unused and the body will be
-    /// skipped. Returns the number of bytes placed in the buffer.
+    /// Reads the body of the message into `buffer`. Returns the number of bytes placed in the buffer.
+    ///
+    /// If `skip` is true, the buffer will be unused and the body will be skipped.
+    ///
+    /// See `std.http.Client.BufferedConnection for an example of `bconn`.
     pub fn read(r: *HeadersParser, bconn: anytype, buffer: []u8, skip: bool) !usize {
         assert(r.state.isContent());
         if (r.done) return 0;
