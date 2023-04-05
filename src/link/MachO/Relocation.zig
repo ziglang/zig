@@ -46,13 +46,15 @@ pub fn isResolvable(self: Relocation, macho_file: *MachO) bool {
 }
 
 pub fn getTargetAtomIndex(self: Relocation, macho_file: *MachO) ?Atom.Index {
-    switch (self.type) {
-        .got, .got_page, .got_pageoff => return macho_file.getGotAtomIndexForSymbol(self.target),
-        .tlv, .tlv_page, .tlv_pageoff => return macho_file.getTlvpAtomIndexForSymbol(self.target),
-        else => {},
-    }
-    if (macho_file.getStubsAtomIndexForSymbol(self.target)) |stubs_atom| return stubs_atom;
-    return macho_file.getAtomIndexForSymbol(self.target);
+    return switch (self.type) {
+        .got, .got_page, .got_pageoff => macho_file.got_table.getAtomIndex(macho_file, self.target),
+        .tlv, .tlv_page, .tlv_pageoff => macho_file.tlvp_table.getAtomIndex(macho_file, self.target),
+        .branch => if (macho_file.stubs_table.getAtomIndex(macho_file, self.target)) |index|
+            index
+        else
+            macho_file.getAtomIndexForSymbol(self.target),
+        else => macho_file.getAtomIndexForSymbol(self.target),
+    };
 }
 
 pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, code: []u8) void {

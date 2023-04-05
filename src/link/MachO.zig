@@ -5,7 +5,6 @@ const build_options = @import("build_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const dwarf = std.dwarf;
-const fmt = std.fmt;
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const macho = std.macho;
@@ -155,13 +154,9 @@ stub_helper_preamble_atom_index: ?Atom.Index = null,
 
 strtab: StringTable(.strtab) = .{},
 
-got_entries: std.ArrayListUnmanaged(Entry) = .{},
-got_entries_free_list: std.ArrayListUnmanaged(u32) = .{},
-got_entries_table: std.AutoHashMapUnmanaged(SymbolWithLoc, u32) = .{},
-
-stubs: std.ArrayListUnmanaged(Entry) = .{},
-stubs_free_list: std.ArrayListUnmanaged(u32) = .{},
-stubs_table: std.AutoHashMapUnmanaged(SymbolWithLoc, u32) = .{},
+got_table: SectionTable = .{},
+stubs_table: SectionTable = .{},
+tlvp_table: SectionTable = .{},
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
@@ -270,26 +265,120 @@ const DeclMetadata = struct {
     }
 };
 
-const Entry = struct {
-    target: SymbolWithLoc,
-    // Index into the synthetic symbol table (i.e., file == null).
-    sym_index: u32,
+const SectionTable = struct {
+    entries: std.ArrayListUnmanaged(Entry) = .{},
+    free_list: std.ArrayListUnmanaged(u32) = .{},
+    lookup: std.AutoHashMapUnmanaged(SymbolWithLoc, u32) = .{},
 
-    pub fn getSymbol(entry: Entry, macho_file: *MachO) macho.nlist_64 {
-        return macho_file.getSymbol(.{ .sym_index = entry.sym_index, .file = null });
+    pub fn deinit(st: *ST, allocator: Allocator) void {
+        st.entries.deinit(allocator);
+        st.free_list.deinit(allocator);
+        st.lookup.deinit(allocator);
     }
 
-    pub fn getSymbolPtr(entry: Entry, macho_file: *MachO) *macho.nlist_64 {
-        return macho_file.getSymbolPtr(.{ .sym_index = entry.sym_index, .file = null });
+    pub fn allocateEntry(st: *ST, allocator: Allocator, target: SymbolWithLoc) !u32 {
+        try st.entries.ensureUnusedCapacity(allocator, 1);
+        const index = blk: {
+            if (st.free_list.popOrNull()) |index| {
+                log.debug("  (reusing entry index {d})", .{index});
+                break :blk index;
+            } else {
+                log.debug("  (allocating entry at index {d})", .{st.entries.items.len});
+                const index = @intCast(u32, st.entries.items.len);
+                _ = st.entries.addOneAssumeCapacity();
+                break :blk index;
+            }
+        };
+        st.entries.items[index] = .{ .target = target, .sym_index = 0 };
+        try st.lookup.putNoClobber(allocator, target, index);
+        return index;
     }
 
-    pub fn getAtomIndex(entry: Entry, macho_file: *MachO) ?Atom.Index {
-        return macho_file.getAtomIndexForSymbol(.{ .sym_index = entry.sym_index, .file = null });
+    pub fn freeEntry(st: *ST, allocator: Allocator, target: SymbolWithLoc) void {
+        const index = st.lookup.get(target) orelse return;
+        st.free_list.append(allocator, index) catch {};
+        st.entries.items[index] = .{
+            .target = .{ .sym_index = 0 },
+            .sym_index = 0,
+        };
+        _ = st.lookup.remove(target);
     }
 
-    pub fn getName(entry: Entry, macho_file: *MachO) []const u8 {
-        return macho_file.getSymbolName(.{ .sym_index = entry.sym_index, .file = null });
+    pub fn getAtomIndex(st: *const ST, macho_file: *MachO, target: SymbolWithLoc) ?Atom.Index {
+        const index = st.lookup.get(target) orelse return null;
+        return st.entries.items[index].getAtomIndex(macho_file);
     }
+
+    const FormatContext = struct {
+        macho_file: *MachO,
+        st: *const ST,
+    };
+
+    fn fmt(
+        ctx: FormatContext,
+        comptime unused_format_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        _ = options;
+        comptime assert(unused_format_string.len == 0);
+        try writer.writeAll("SectionTable:\n");
+        for (ctx.st.entries.items, 0..) |entry, i| {
+            const atom_sym = entry.getSymbol(ctx.macho_file);
+            const target_sym = ctx.macho_file.getSymbol(entry.target);
+            try writer.print("  {d}@{x} => ", .{ i, atom_sym.n_value });
+            if (target_sym.undf()) {
+                try writer.print("import('{s}')", .{
+                    ctx.macho_file.getSymbolName(entry.target),
+                });
+            } else {
+                try writer.print("local(%{d}) in object({?d})", .{
+                    entry.target.sym_index,
+                    entry.target.file,
+                });
+            }
+            try writer.writeByte('\n');
+        }
+    }
+
+    fn format(st: *const ST, comptime unused_format_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = st;
+        _ = unused_format_string;
+        _ = options;
+        _ = writer;
+        @compileError("do not format SectionTable directly; use st.fmtDebug()");
+    }
+
+    pub fn fmtDebug(st: *const ST, macho_file: *MachO) std.fmt.Formatter(fmt) {
+        return .{ .data = .{
+            .macho_file = macho_file,
+            .st = st,
+        } };
+    }
+
+    const ST = @This();
+
+    const Entry = struct {
+        target: SymbolWithLoc,
+        // Index into the synthetic symbol table (i.e., file == null).
+        sym_index: u32,
+
+        pub fn getSymbol(entry: Entry, macho_file: *MachO) macho.nlist_64 {
+            return macho_file.getSymbol(.{ .sym_index = entry.sym_index });
+        }
+
+        pub fn getSymbolPtr(entry: Entry, macho_file: *MachO) *macho.nlist_64 {
+            return macho_file.getSymbolPtr(.{ .sym_index = entry.sym_index });
+        }
+
+        pub fn getAtomIndex(entry: Entry, macho_file: *MachO) ?Atom.Index {
+            return macho_file.getAtomIndexForSymbol(.{ .sym_index = entry.sym_index });
+        }
+
+        pub fn getName(entry: Entry, macho_file: *MachO) []const u8 {
+            return macho_file.getSymbolName(.{ .sym_index = entry.sym_index });
+        }
+    };
 };
 
 const BindingTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Atom.Binding));
@@ -399,7 +488,7 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
         // Create dSYM bundle.
         log.debug("creating {s}.dSYM bundle", .{sub_path});
 
-        const d_sym_path = try fmt.allocPrint(
+        const d_sym_path = try std.fmt.allocPrint(
             allocator,
             "{s}.dSYM" ++ fs.path.sep_str ++ "Contents" ++ fs.path.sep_str ++ "Resources" ++ fs.path.sep_str ++ "DWARF",
             .{sub_path},
@@ -613,9 +702,9 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     if (self.dyld_stub_binder_index == null) {
         self.dyld_stub_binder_index = try self.addUndefined("dyld_stub_binder", .add_got);
     }
-    if (!self.base.options.single_threaded) {
-        _ = try self.addUndefined("_tlv_bootstrap", .none);
-    }
+    // if (!self.base.options.single_threaded) {
+    //     _ = try self.addUndefined("_tlv_bootstrap", .none);
+    // }
 
     try self.createMhExecuteHeaderSymbol();
 
@@ -1757,12 +1846,9 @@ pub fn deinit(self: *MachO) void {
         d_sym.deinit();
     }
 
-    self.got_entries.deinit(gpa);
-    self.got_entries_free_list.deinit(gpa);
-    self.got_entries_table.deinit(gpa);
-    self.stubs.deinit(gpa);
-    self.stubs_free_list.deinit(gpa);
+    self.got_table.deinit(gpa);
     self.stubs_table.deinit(gpa);
+    self.tlvp_table.deinit(gpa);
     self.strtab.deinit(gpa);
 
     self.locals.deinit(gpa);
@@ -1895,20 +1981,10 @@ fn freeAtom(self: *MachO, atom_index: Atom.Index) void {
     self.locals_free_list.append(gpa, sym_index) catch {};
 
     // Try freeing GOT atom if this decl had one
-    const got_target = SymbolWithLoc{ .sym_index = sym_index, .file = null };
-    if (self.got_entries_table.get(got_target)) |got_index| {
-        self.got_entries_free_list.append(gpa, @intCast(u32, got_index)) catch {};
-        self.got_entries.items[got_index] = .{
-            .target = .{ .sym_index = 0, .file = null },
-            .sym_index = 0,
-        };
-        _ = self.got_entries_table.remove(got_target);
+    self.got_table.freeEntry(gpa, .{ .sym_index = sym_index });
 
-        if (self.d_sym) |*d_sym| {
-            d_sym.swapRemoveRelocs(sym_index);
-        }
-
-        log.debug("  adding GOT index {d} to free list (target local@{d})", .{ got_index, sym_index });
+    if (self.d_sym) |*d_sym| {
+        d_sym.swapRemoveRelocs(sym_index);
     }
 
     self.locals.items[sym_index].n_type = 0;
@@ -1983,70 +2059,25 @@ fn allocateGlobal(self: *MachO) !u32 {
     return index;
 }
 
-fn allocateGotEntry(self: *MachO, target: SymbolWithLoc) !u32 {
-    const gpa = self.base.allocator;
-    try self.got_entries.ensureUnusedCapacity(gpa, 1);
-
-    const index = blk: {
-        if (self.got_entries_free_list.popOrNull()) |index| {
-            log.debug("  (reusing GOT entry index {d})", .{index});
-            break :blk index;
-        } else {
-            log.debug("  (allocating GOT entry at index {d})", .{self.got_entries.items.len});
-            const index = @intCast(u32, self.got_entries.items.len);
-            _ = self.got_entries.addOneAssumeCapacity();
-            break :blk index;
-        }
-    };
-
-    self.got_entries.items[index] = .{ .target = target, .sym_index = 0 };
-    try self.got_entries_table.putNoClobber(gpa, target, index);
-
-    return index;
-}
-
 fn addGotEntry(self: *MachO, target: SymbolWithLoc) !void {
-    if (self.got_entries_table.contains(target)) return;
-
-    const got_index = try self.allocateGotEntry(target);
+    if (self.got_table.lookup.contains(target)) return;
+    const got_index = try self.got_table.allocateEntry(self.base.allocator, target);
     const got_atom_index = try self.createGotAtom(target);
     const got_atom = self.getAtom(got_atom_index);
-    self.got_entries.items[got_index].sym_index = got_atom.getSymbolIndex().?;
+    self.got_table.entries.items[got_index].sym_index = got_atom.getSymbolIndex().?;
     try self.writePtrWidthAtom(got_atom_index);
 }
 
-fn allocateStubEntry(self: *MachO, target: SymbolWithLoc) !u32 {
-    try self.stubs.ensureUnusedCapacity(self.base.allocator, 1);
-
-    const index = blk: {
-        if (self.stubs_free_list.popOrNull()) |index| {
-            log.debug("  (reusing stub entry index {d})", .{index});
-            break :blk index;
-        } else {
-            log.debug("  (allocating stub entry at index {d})", .{self.stubs.items.len});
-            const index = @intCast(u32, self.stubs.items.len);
-            _ = self.stubs.addOneAssumeCapacity();
-            break :blk index;
-        }
-    };
-
-    self.stubs.items[index] = .{ .target = target, .sym_index = 0 };
-    try self.stubs_table.putNoClobber(self.base.allocator, target, index);
-
-    return index;
-}
-
 fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
-    if (self.stubs_table.contains(target)) return;
-
-    const stub_index = try self.allocateStubEntry(target);
+    if (self.stubs_table.lookup.contains(target)) return;
+    const stub_index = try self.stubs_table.allocateEntry(self.base.allocator, target);
     const stub_helper_atom_index = try self.createStubHelperAtom();
     const stub_helper_atom = self.getAtom(stub_helper_atom_index);
     const laptr_atom_index = try self.createLazyPointerAtom(stub_helper_atom.getSymbolIndex().?, target);
     const laptr_atom = self.getAtom(laptr_atom_index);
     const stub_atom_index = try self.createStubAtom(laptr_atom.getSymbolIndex().?);
     const stub_atom = self.getAtom(stub_atom_index);
-    self.stubs.items[stub_index].sym_index = stub_atom.getSymbolIndex().?;
+    self.stubs_table.entries.items[stub_index].sym_index = stub_atom.getSymbolIndex().?;
     self.markRelocsDirtyByTarget(target);
 }
 
@@ -2431,7 +2462,7 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
                 sym.n_value = vaddr;
                 log.debug("  (updating GOT entry)", .{});
                 const got_target = SymbolWithLoc{ .sym_index = sym_index, .file = null };
-                const got_atom_index = self.getGotAtomIndexForSymbol(got_target).?;
+                const got_atom_index = self.got_table.getAtomIndex(self, got_target).?;
                 self.markRelocsDirtyByTarget(got_target);
                 try self.writePtrWidthAtom(got_atom_index);
             }
@@ -3481,8 +3512,8 @@ const SymtabCtx = struct {
 
 fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
     const gpa = self.base.allocator;
-    const nstubs = @intCast(u32, self.stubs_table.count());
-    const ngot_entries = @intCast(u32, self.got_entries_table.count());
+    const nstubs = @intCast(u32, self.stubs_table.lookup.count());
+    const ngot_entries = @intCast(u32, self.got_table.lookup.count());
     const nindirectsyms = nstubs * 2 + ngot_entries;
     const iextdefsym = ctx.nlocalsym;
     const iundefsym = iextdefsym + ctx.nextdefsym;
@@ -3504,7 +3535,7 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
     if (self.stubs_section_index) |sect_id| {
         const stubs = &self.sections.items(.header)[sect_id];
         stubs.reserved1 = 0;
-        for (self.stubs.items) |entry| {
+        for (self.stubs_table.entries.items) |entry| {
             if (entry.sym_index == 0) continue;
             const target_sym = self.getSymbol(entry.target);
             assert(target_sym.undf());
@@ -3515,7 +3546,7 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
     if (self.got_section_index) |sect_id| {
         const got = &self.sections.items(.header)[sect_id];
         got.reserved1 = nstubs;
-        for (self.got_entries.items) |entry| {
+        for (self.got_table.entries.items) |entry| {
             if (entry.sym_index == 0) continue;
             const target_sym = self.getSymbol(entry.target);
             if (target_sym.undf()) {
@@ -3529,7 +3560,7 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
     if (self.la_symbol_ptr_section_index) |sect_id| {
         const la_symbol_ptr = &self.sections.items(.header)[sect_id];
         la_symbol_ptr.reserved1 = nstubs + ngot_entries;
-        for (self.stubs.items) |entry| {
+        for (self.stubs_table.entries.items) |entry| {
             if (entry.sym_index == 0) continue;
             const target_sym = self.getSymbol(entry.target);
             assert(target_sym.undf());
@@ -3872,20 +3903,6 @@ pub fn getAtomPtr(self: *MachO, atom_index: Atom.Index) *Atom {
 pub fn getAtomIndexForSymbol(self: *MachO, sym_with_loc: SymbolWithLoc) ?Atom.Index {
     assert(sym_with_loc.file == null);
     return self.atom_by_index_table.get(sym_with_loc.sym_index);
-}
-
-/// Returns GOT atom that references `sym_with_loc` if one exists.
-/// Returns null otherwise.
-pub fn getGotAtomIndexForSymbol(self: *MachO, sym_with_loc: SymbolWithLoc) ?Atom.Index {
-    const got_index = self.got_entries_table.get(sym_with_loc) orelse return null;
-    return self.got_entries.items[got_index].getAtomIndex(self);
-}
-
-/// Returns stubs atom that references `sym_with_loc` if one exists.
-/// Returns null otherwise.
-pub fn getStubsAtomIndexForSymbol(self: *MachO, sym_with_loc: SymbolWithLoc) ?Atom.Index {
-    const stubs_index = self.stubs_table.get(sym_with_loc) orelse return null;
-    return self.stubs.items[stubs_index].getAtomIndex(self);
 }
 
 /// Returns symbol location corresponding to the set entrypoint.
@@ -4234,37 +4251,10 @@ pub fn logSymtab(self: *MachO) void {
     }
 
     log.debug("GOT entries:", .{});
-    for (self.got_entries.items, 0..) |entry, i| {
-        const atom_sym = entry.getSymbol(self);
-        const target_sym = self.getSymbol(entry.target);
-        if (target_sym.undf()) {
-            log.debug("  {d}@{x} => import('{s}')", .{
-                i,
-                atom_sym.n_value,
-                self.getSymbolName(entry.target),
-            });
-        } else {
-            log.debug("  {d}@{x} => local(%{d}) in object({?d}) {s}", .{
-                i,
-                atom_sym.n_value,
-                entry.target.sym_index,
-                entry.target.file,
-                logSymAttributes(target_sym, &buf),
-            });
-        }
-    }
+    log.debug("{}", .{self.got_table.fmtDebug(self)});
 
     log.debug("stubs entries:", .{});
-    for (self.stubs.items, 0..) |entry, i| {
-        const target_sym = self.getSymbol(entry.target);
-        const atom_sym = entry.getSymbol(self);
-        assert(target_sym.undf());
-        log.debug("  {d}@{x} => import('{s}')", .{
-            i,
-            atom_sym.n_value,
-            self.getSymbolName(entry.target),
-        });
-    }
+    log.debug("{}", .{self.stubs_table.fmtDebug(self)});
 }
 
 pub fn logAtoms(self: *MachO) void {
