@@ -555,7 +555,7 @@ pub const Decl = struct {
         _,
 
         pub fn init(oi: ?Index) OptionalIndex {
-            return oi orelse .none;
+            return @intToEnum(OptionalIndex, @enumToInt(oi orelse return .none));
         }
 
         pub fn unwrap(oi: OptionalIndex) ?Index {

@@ -28,10 +28,11 @@ const Type = @import("../../type.zig").Type;
 const TypedValue = @import("../../TypedValue.zig");
 const Value = @import("../../value.zig").Value;
 
-const bits = @import("bits.zig");
 const abi = @import("abi.zig");
-const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
+const bits = @import("bits.zig");
+const encoder = @import("encoder.zig");
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
+const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
 
 const Condition = bits.Condition;
 const Immediate = bits.Immediate;
@@ -2527,7 +2528,7 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
         const dst_lock = self.register_manager.lockReg(dst_reg);
         defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const pl_off = @intCast(i32, errUnionErrorOffset(pl_ty, self.target.*));
+        const pl_off = @intCast(i32, errUnionPayloadOffset(pl_ty, self.target.*));
         const dst_abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
         try self.asmRegisterMemory(
             .lea,
@@ -3650,10 +3651,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
         .dead => unreachable,
         .eflags => unreachable,
         .register_overflow => unreachable,
-        .immediate => |imm| {
-            try self.setRegOrMem(value_ty, .{ .memory = imm }, value);
-        },
-        .stack_offset => {
+        .immediate, .stack_offset => {
             const reg = try self.copyToTmpRegister(ptr_ty, ptr);
             try self.store(.{ .register = reg }, value, ptr_ty, value_ty);
         },
@@ -3668,52 +3666,67 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 .none => unreachable,
                 .dead => unreachable,
                 .unreach => unreachable,
-                .eflags => |cc| {
-                    try self.asmSetccMemory(Memory.sib(
-                        Memory.PtrSize.fromSize(abi_size),
-                        .{ .base = reg.to64() },
-                    ), cc);
+                .eflags => |cc| try self.asmSetccMemory(
+                    Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
+                    cc,
+                ),
+                .undef => if (self.wantSafety()) switch (abi_size) {
+                    1 => try self.store(ptr, .{ .immediate = 0xaa }, ptr_ty, value_ty),
+                    2 => try self.store(ptr, .{ .immediate = 0xaaaa }, ptr_ty, value_ty),
+                    4 => try self.store(ptr, .{ .immediate = 0xaaaaaaaa }, ptr_ty, value_ty),
+                    8 => try self.store(ptr, .{ .immediate = 0xaaaaaaaaaaaaaaaa }, ptr_ty, value_ty),
+                    else => try self.genInlineMemset(
+                        ptr,
+                        .{ .immediate = 0xaa },
+                        .{ .immediate = abi_size },
+                        .{},
+                    ),
                 },
-                .undef => {
-                    if (!self.wantSafety()) return; // The already existing value will do just fine.
-                    switch (abi_size) {
-                        1 => try self.store(ptr, .{ .immediate = 0xaa }, ptr_ty, value_ty),
-                        2 => try self.store(ptr, .{ .immediate = 0xaaaa }, ptr_ty, value_ty),
-                        4 => try self.store(ptr, .{ .immediate = 0xaaaaaaaa }, ptr_ty, value_ty),
-                        8 => try self.store(ptr, .{ .immediate = 0xaaaaaaaaaaaaaaaa }, ptr_ty, value_ty),
-                        else => try self.genInlineMemset(ptr, .{ .immediate = 0xaa }, .{ .immediate = abi_size }, .{}),
-                    }
+                .immediate => |imm| switch (self.regBitSize(value_ty)) {
+                    8 => try self.asmMemoryImmediate(
+                        .mov,
+                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
+                        if (math.cast(i8, @bitCast(i64, imm))) |small|
+                            Immediate.s(small)
+                        else
+                            Immediate.u(@intCast(u8, imm)),
+                    ),
+                    16 => try self.asmMemoryImmediate(
+                        .mov,
+                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
+                        if (math.cast(i16, @bitCast(i64, imm))) |small|
+                            Immediate.s(small)
+                        else
+                            Immediate.u(@intCast(u16, imm)),
+                    ),
+                    32 => try self.asmMemoryImmediate(
+                        .mov,
+                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
+                        if (math.cast(i32, @bitCast(i64, imm))) |small|
+                            Immediate.s(small)
+                        else
+                            Immediate.u(@intCast(u32, imm)),
+                    ),
+                    64 => if (math.cast(i32, @bitCast(i64, imm))) |small|
+                        try self.asmMemoryImmediate(
+                            .mov,
+                            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
+                            Immediate.s(small),
+                        )
+                    else
+                        try self.asmMemoryRegister(
+                            .mov,
+                            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
+                            registerAlias(try self.copyToTmpRegister(value_ty, value), abi_size),
+                        ),
+                    else => unreachable,
                 },
-                .immediate => |imm| {
-                    switch (abi_size) {
-                        1, 2, 4 => {
-                            const immediate = if (value_ty.isSignedInt())
-                                Immediate.s(@intCast(i32, @bitCast(i64, imm)))
-                            else
-                                Immediate.u(@truncate(u32, imm));
-                            try self.asmMemoryImmediate(.mov, Memory.sib(
-                                Memory.PtrSize.fromSize(abi_size),
-                                .{ .base = reg.to64() },
-                            ), immediate);
-                        },
-                        8 => {
-                            // TODO: optimization: if the imm is only using the lower
-                            // 4 bytes and can be sign extended we can use a normal mov
-                            // with indirect addressing (mov [reg64], imm32).
-
-                            // movabs does not support indirect register addressing
-                            // so we need an extra register and an extra mov.
-                            const tmp_reg = try self.copyToTmpRegister(value_ty, value);
-                            return self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
-                        },
-                        else => {
-                            return self.fail("TODO implement set pointee with immediate of ABI size {d}", .{abi_size});
-                        },
-                    }
-                },
-                .register => |src_reg| {
-                    try self.genInlineMemcpyRegisterRegister(value_ty, reg, src_reg, 0);
-                },
+                .register => |src_reg| try self.genInlineMemcpyRegisterRegister(
+                    value_ty,
+                    reg,
+                    src_reg,
+                    0,
+                ),
                 .register_overflow => |ro| {
                     const ro_reg_lock = self.register_manager.lockReg(ro.reg);
                     defer if (ro_reg_lock) |lock| self.register_manager.unlockReg(lock);
@@ -3732,23 +3745,18 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         -@intCast(i32, overflow_bit_offset),
                     );
                 },
-                .linker_load,
-                .memory,
-                .stack_offset,
-                => {
-                    if (abi_size <= 8) {
-                        const tmp_reg = try self.copyToTmpRegister(value_ty, value);
-                        return self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
-                    }
-
-                    try self.genInlineMemcpy(.{ .stack_offset = 0 }, value, .{ .immediate = abi_size }, .{
-                        .source_stack_base = .rbp,
-                        .dest_stack_base = reg.to64(),
-                    });
-                },
+                .linker_load, .memory, .stack_offset => if (abi_size <= 8) {
+                    const tmp_reg = try self.copyToTmpRegister(value_ty, value);
+                    try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
+                } else try self.genInlineMemcpy(
+                    .{ .stack_offset = 0 },
+                    value,
+                    .{ .immediate = abi_size },
+                    .{ .source_stack_base = .rbp, .dest_stack_base = reg.to64() },
+                ),
                 .ptr_stack_offset => {
                     const tmp_reg = try self.copyToTmpRegister(value_ty, value);
-                    return self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
+                    try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                 },
             }
         },
@@ -3764,8 +3772,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             defer self.register_manager.unlockReg(addr_reg_lock);
 
             try self.loadMemPtrIntoRegister(addr_reg, ptr_ty, ptr);
-
-            // To get the actual address of the value we want to modify we have to go through the GOT
+            // Load the pointer, which is stored in memory
             try self.asmRegisterMemory(
                 .mov,
                 addr_reg.to64(),
@@ -3773,62 +3780,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             );
 
             const new_ptr = MCValue{ .register = addr_reg.to64() };
-
-            switch (value) {
-                .immediate => |imm| {
-                    if (abi_size > 8) {
-                        return self.fail("TODO saving imm to memory for abi_size {}", .{abi_size});
-                    }
-
-                    if (abi_size == 8) {
-                        // TODO
-                        const top_bits: u32 = @intCast(u32, imm >> 32);
-                        const can_extend = if (value_ty.isUnsignedInt())
-                            (top_bits == 0) and (imm & 0x8000_0000) == 0
-                        else
-                            top_bits == 0xffff_ffff;
-
-                        if (!can_extend) {
-                            return self.fail("TODO imm64 would get incorrectly sign extended", .{});
-                        }
-                    }
-                    try self.asmMemoryImmediate(
-                        .mov,
-                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = addr_reg.to64() }),
-                        Immediate.u(@intCast(u32, imm)),
-                    );
-                },
-                .register => {
-                    return self.store(new_ptr, value, ptr_ty, value_ty);
-                },
-                .linker_load, .memory => {
-                    if (abi_size <= 8) {
-                        const tmp_reg = try self.register_manager.allocReg(null, gp);
-                        const tmp_reg_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
-                        defer self.register_manager.unlockReg(tmp_reg_lock);
-
-                        try self.loadMemPtrIntoRegister(tmp_reg, value_ty, value);
-                        try self.asmRegisterMemory(
-                            .mov,
-                            tmp_reg,
-                            Memory.sib(.qword, .{ .base = tmp_reg }),
-                        );
-
-                        return self.store(new_ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
-                    }
-
-                    try self.genInlineMemcpy(new_ptr, value, .{ .immediate = abi_size }, .{});
-                },
-                .stack_offset => {
-                    if (abi_size <= 8) {
-                        const tmp_reg = try self.copyToTmpRegister(value_ty, value);
-                        return self.store(new_ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
-                    }
-
-                    try self.genInlineMemcpy(new_ptr, value, .{ .immediate = abi_size }, .{});
-                },
-                else => return self.fail("TODO implement storing {} to MCValue.memory", .{value}),
-            }
+            try self.store(new_ptr, value, ptr_ty, value_ty);
         },
     }
 }
@@ -4886,41 +4838,39 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                         registerAlias(src_reg, abi_size),
                     ),
                 },
-                .immediate => |imm| {
-                    switch (self.regBitSize(ty)) {
-                        8 => try self.asmRegisterImmediate(
-                            mir_tag,
-                            dst_alias,
-                            if (math.cast(i8, @bitCast(i64, imm))) |small|
-                                Immediate.s(small)
-                            else
-                                Immediate.u(@intCast(u8, imm)),
-                        ),
-                        16 => try self.asmRegisterImmediate(
-                            mir_tag,
-                            dst_alias,
-                            if (math.cast(i16, @bitCast(i64, imm))) |small|
-                                Immediate.s(small)
-                            else
-                                Immediate.u(@intCast(u16, imm)),
-                        ),
-                        32 => try self.asmRegisterImmediate(
-                            mir_tag,
-                            dst_alias,
-                            if (math.cast(i32, @bitCast(i64, imm))) |small|
-                                Immediate.s(small)
-                            else
-                                Immediate.u(@intCast(u32, imm)),
-                        ),
-                        64 => if (math.cast(i32, @bitCast(i64, imm))) |small|
-                            try self.asmRegisterImmediate(mir_tag, dst_alias, Immediate.s(small))
+                .immediate => |imm| switch (self.regBitSize(ty)) {
+                    8 => try self.asmRegisterImmediate(
+                        mir_tag,
+                        dst_alias,
+                        if (math.cast(i8, @bitCast(i64, imm))) |small|
+                            Immediate.s(small)
                         else
-                            try self.asmRegisterRegister(mir_tag, dst_alias, registerAlias(
-                                try self.copyToTmpRegister(ty, src_mcv),
-                                abi_size,
-                            )),
-                        else => unreachable,
-                    }
+                            Immediate.u(@intCast(u8, imm)),
+                    ),
+                    16 => try self.asmRegisterImmediate(
+                        mir_tag,
+                        dst_alias,
+                        if (math.cast(i16, @bitCast(i64, imm))) |small|
+                            Immediate.s(small)
+                        else
+                            Immediate.u(@intCast(u16, imm)),
+                    ),
+                    32 => try self.asmRegisterImmediate(
+                        mir_tag,
+                        dst_alias,
+                        if (math.cast(i32, @bitCast(i64, imm))) |small|
+                            Immediate.s(small)
+                        else
+                            Immediate.u(@intCast(u32, imm)),
+                    ),
+                    64 => if (math.cast(i32, @bitCast(i64, imm))) |small|
+                        try self.asmRegisterImmediate(mir_tag, dst_alias, Immediate.s(small))
+                    else
+                        try self.asmRegisterRegister(mir_tag, dst_alias, registerAlias(
+                            try self.copyToTmpRegister(ty, src_mcv),
+                            abi_size,
+                        )),
+                    else => unreachable,
                 },
                 .memory, .linker_load, .eflags => {
                     assert(abi_size <= 8);
@@ -4930,13 +4880,11 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                     const reg = try self.copyToTmpRegister(ty, src_mcv);
                     return self.genBinOpMir(mir_tag, ty, dst_mcv, .{ .register = reg });
                 },
-                .stack_offset => |off| {
-                    try self.asmRegisterMemory(
-                        mir_tag,
-                        registerAlias(dst_reg, abi_size),
-                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = .rbp, .disp = -off }),
-                    );
-                },
+                .stack_offset => |off| try self.asmRegisterMemory(
+                    mir_tag,
+                    registerAlias(dst_reg, abi_size),
+                    Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = .rbp, .disp = -off }),
+                ),
             }
         },
         .memory, .linker_load, .stack_offset => {
@@ -5654,7 +5602,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
 
         const rhs_mcv = try self.resolveInst(bin_op.rhs);
         const rhs_lock = switch (rhs_mcv) {
-            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            .register => |reg| self.register_manager.lockReg(reg),
             else => null,
         };
         defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
@@ -5702,9 +5650,62 @@ fn airCmpVector(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
-    const operand = try self.resolveInst(un_op);
-    _ = operand;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airCmpLtErrorsLen for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const addr_reg = try self.register_manager.allocReg(null, gp);
+        const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
+        defer self.register_manager.unlockReg(addr_lock);
+
+        if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+            const atom_index = try elf_file.getOrCreateAtomForLazySymbol(
+                .{ .kind = .const_data, .ty = Type.anyerror },
+                4, // dword alignment
+            );
+            const got_addr = elf_file.getAtom(atom_index).getOffsetTableAddress(elf_file);
+            try self.asmRegisterMemory(.mov, addr_reg.to64(), Memory.sib(.qword, .{
+                .base = .ds,
+                .disp = @intCast(i32, got_addr),
+            }));
+        } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+            const atom_index = try coff_file.getOrCreateAtomForLazySymbol(
+                .{ .kind = .const_data, .ty = Type.anyerror },
+                4, // dword alignment
+            );
+            const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
+            try self.genSetReg(Type.usize, addr_reg, .{ .linker_load = .{
+                .type = .got,
+                .sym_index = sym_index,
+            } });
+        } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+            const atom_index = try macho_file.getOrCreateAtomForLazySymbol(
+                .{ .kind = .const_data, .ty = Type.anyerror },
+                4, // dword alignment
+            );
+            const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
+            try self.genSetReg(Type.usize, addr_reg, .{ .linker_load = .{
+                .type = .got,
+                .sym_index = sym_index,
+            } });
+        } else {
+            return self.fail("TODO implement airErrorName for x86_64 {s}", .{@tagName(self.bin_file.tag)});
+        }
+
+        try self.spillEflagsIfOccupied();
+        self.eflags_inst = inst;
+
+        const op_ty = self.air.typeOf(un_op);
+        const op_abi_size = @intCast(u32, op_ty.abiSize(self.target.*));
+        const op_mcv = try self.resolveInst(un_op);
+        const dst_reg = switch (op_mcv) {
+            .register => |reg| reg,
+            else => try self.copyToTmpRegister(op_ty, op_mcv),
+        };
+        try self.asmRegisterMemory(
+            .cmp,
+            registerAlias(dst_reg, op_abi_size),
+            Memory.sib(Memory.PtrSize.fromSize(op_abi_size), .{ .base = addr_reg }),
+        );
+        break :result .{ .eflags = .b };
+    };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
@@ -6184,7 +6185,28 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     const loop = self.air.extraData(Air.Block, ty_pl.payload);
     const body = self.air.extra[loop.end..][0..loop.data.body_len];
     const jmp_target = @intCast(u32, self.mir_instructions.len);
-    try self.genBody(body);
+
+    {
+        try self.branch_stack.append(.{});
+        errdefer _ = self.branch_stack.pop();
+
+        try self.genBody(body);
+    }
+
+    var branch = self.branch_stack.pop();
+    defer branch.deinit(self.gpa);
+
+    log.debug("airLoop: %{d}", .{inst});
+    log.debug("Upper branches:", .{});
+    for (self.branch_stack.items) |bs| {
+        log.debug("{}", .{bs.fmtDebug()});
+    }
+    log.debug("Loop branch: {}", .{branch.fmtDebug()});
+
+    var dummy_branch = Branch{};
+    defer dummy_branch.deinit(self.gpa);
+    try self.canonicaliseBranches(true, &dummy_branch, &branch, true, false);
+
     _ = try self.asmJmpReloc(jmp_target);
     return self.finishAirBookkeeping();
 }
@@ -6570,7 +6592,8 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                 return self.fail("unrecognized constraint: '{s}'", .{constraint});
             args.putAssumeCapacity(name, mcv);
             switch (mcv) {
-                .register => |reg| _ = self.register_manager.lockRegAssumeUnused(reg),
+                .register => |reg| _ = if (RegisterManager.indexOfRegIntoTracked(reg)) |_|
+                    self.register_manager.lockRegAssumeUnused(reg),
                 else => {},
             }
             if (output == .none) result = mcv;
@@ -6609,70 +6632,139 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         }
 
         const asm_source = mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
-        var line_it = mem.tokenize(u8, asm_source, "\n\r");
+        var line_it = mem.tokenize(u8, asm_source, "\n\r;");
         while (line_it.next()) |line| {
             var mnem_it = mem.tokenize(u8, line, " \t");
-            const mnem = mnem_it.next() orelse continue;
-            if (mem.startsWith(u8, mnem, "#")) continue;
-            var arg_it = mem.tokenize(u8, mnem_it.rest(), ", ");
-            if (std.ascii.eqlIgnoreCase(mnem, "syscall")) {
-                if (arg_it.next()) |trailing| if (!mem.startsWith(u8, trailing, "#"))
-                    return self.fail("Too many operands: '{s}'", .{line});
-                try self.asmOpOnly(.syscall);
-            } else if (std.ascii.eqlIgnoreCase(mnem, "push")) {
-                const src = arg_it.next() orelse
-                    return self.fail("Not enough operands: '{s}'", .{line});
-                if (arg_it.next()) |trailing| if (!mem.startsWith(u8, trailing, "#"))
-                    return self.fail("Too many operands: '{s}'", .{line});
-                if (mem.startsWith(u8, src, "$")) {
-                    const imm = std.fmt.parseInt(u32, src["$".len..], 0) catch
-                        return self.fail("Invalid immediate: '{s}'", .{src});
-                    try self.asmImmediate(.push, Immediate.u(imm));
-                } else if (mem.startsWith(u8, src, "%%")) {
-                    const reg = parseRegName(src["%%".len..]) orelse
-                        return self.fail("Invalid register: '{s}'", .{src});
-                    try self.asmRegister(.push, reg);
-                } else return self.fail("Unsupported operand: '{s}'", .{src});
-            } else if (std.ascii.eqlIgnoreCase(mnem, "pop")) {
-                const dst = arg_it.next() orelse
-                    return self.fail("Not enough operands: '{s}'", .{line});
-                if (arg_it.next()) |trailing| if (!mem.startsWith(u8, trailing, "#"))
-                    return self.fail("Too many operands: '{s}'", .{line});
-                if (mem.startsWith(u8, dst, "%%")) {
-                    const reg = parseRegName(dst["%%".len..]) orelse
-                        return self.fail("Invalid register: '{s}'", .{dst});
-                    try self.asmRegister(.pop, reg);
-                } else return self.fail("Unsupported operand: '{s}'", .{dst});
-            } else if (std.ascii.eqlIgnoreCase(mnem, "movq")) {
-                const src = arg_it.next() orelse
-                    return self.fail("Not enough operands: '{s}'", .{line});
-                const dst = arg_it.next() orelse
-                    return self.fail("Not enough operands: '{s}'", .{line});
-                if (arg_it.next()) |trailing| if (!mem.startsWith(u8, trailing, "#"))
-                    return self.fail("Too many operands: '{s}'", .{line});
-                if (mem.startsWith(u8, src, "%%")) {
-                    const colon = mem.indexOfScalarPos(u8, src, "%%".len + 2, ':');
-                    const src_reg = parseRegName(src["%%".len .. colon orelse src.len]) orelse
-                        return self.fail("Invalid register: '{s}'", .{src});
+            const mnem_str = mnem_it.next() orelse continue;
+            if (mem.startsWith(u8, mnem_str, "#")) continue;
+
+            const mnem_size: ?Memory.PtrSize = if (mem.endsWith(u8, mnem_str, "b"))
+                .byte
+            else if (mem.endsWith(u8, mnem_str, "w"))
+                .word
+            else if (mem.endsWith(u8, mnem_str, "l"))
+                .dword
+            else if (mem.endsWith(u8, mnem_str, "q"))
+                .qword
+            else
+                null;
+            const mnem = std.meta.stringToEnum(Mir.Inst.Tag, mnem_str) orelse
+                (if (mnem_size) |_|
+                std.meta.stringToEnum(Mir.Inst.Tag, mnem_str[0 .. mnem_str.len - 1])
+            else
+                null) orelse return self.fail("Invalid mnemonic: '{s}'", .{mnem_str});
+
+            var op_it = mem.tokenize(u8, mnem_it.rest(), ",");
+            var ops = [1]encoder.Instruction.Operand{.none} ** 4;
+            for (&ops) |*op| {
+                const op_str = mem.trim(u8, op_it.next() orelse break, " \t");
+                if (mem.startsWith(u8, op_str, "#")) break;
+                if (mem.startsWith(u8, op_str, "%%")) {
+                    const colon = mem.indexOfScalarPos(u8, op_str, "%%".len + 2, ':');
+                    const reg = parseRegName(op_str["%%".len .. colon orelse op_str.len]) orelse
+                        return self.fail("Invalid register: '{s}'", .{op_str});
                     if (colon) |colon_pos| {
-                        const src_disp = std.fmt.parseInt(i32, src[colon_pos + 1 ..], 0) catch
-                            return self.fail("Invalid immediate: '{s}'", .{src});
-                        if (mem.startsWith(u8, dst, "%[") and mem.endsWith(u8, dst, "]")) {
-                            switch (args.get(dst["%[".len .. dst.len - "]".len]) orelse
-                                return self.fail("no matching constraint for: '{s}'", .{dst})) {
-                                .register => |dst_reg| try self.asmRegisterMemory(
-                                    .mov,
-                                    dst_reg,
-                                    Memory.sib(.qword, .{ .base = src_reg, .disp = src_disp }),
-                                ),
-                                else => return self.fail("Invalid constraint: '{s}'", .{dst}),
-                            }
-                        } else return self.fail("Unsupported operand: '{s}'", .{dst});
-                    } else return self.fail("Unsupported operand: '{s}'", .{src});
-                }
-            } else {
-                return self.fail("Unsupported instruction: '{s}'", .{mnem});
-            }
+                        const disp = std.fmt.parseInt(i32, op_str[colon_pos + 1 ..], 0) catch
+                            return self.fail("Invalid displacement: '{s}'", .{op_str});
+                        op.* = .{ .mem = Memory.sib(
+                            mnem_size orelse return self.fail("Unknown size: '{s}'", .{op_str}),
+                            .{ .base = reg, .disp = disp },
+                        ) };
+                    } else {
+                        if (mnem_size) |size| if (reg.bitSize() != size.bitSize())
+                            return self.fail("Invalid register size: '{s}'", .{op_str});
+                        op.* = .{ .reg = reg };
+                    }
+                } else if (mem.startsWith(u8, op_str, "%[") and mem.endsWith(u8, op_str, "]")) {
+                    switch (args.get(op_str["%[".len .. op_str.len - "]".len]) orelse
+                        return self.fail("No matching constraint: '{s}'", .{op_str})) {
+                        .register => |reg| op.* = .{ .reg = reg },
+                        else => return self.fail("Invalid constraint: '{s}'", .{op_str}),
+                    }
+                } else if (mem.startsWith(u8, op_str, "$")) {
+                    if (std.fmt.parseInt(i32, op_str["$".len..], 0)) |s| {
+                        if (mnem_size) |size| {
+                            const max = @as(u64, std.math.maxInt(u64)) >>
+                                @intCast(u6, 64 - (size.bitSize() - 1));
+                            if ((if (s < 0) ~s else s) > max)
+                                return self.fail("Invalid immediate size: '{s}'", .{op_str});
+                        }
+                        op.* = .{ .imm = Immediate.s(s) };
+                    } else |_| if (std.fmt.parseInt(u64, op_str["$".len..], 0)) |u| {
+                        if (mnem_size) |size| {
+                            const max = @as(u64, std.math.maxInt(u64)) >>
+                                @intCast(u6, 64 - size.bitSize());
+                            if (u > max)
+                                return self.fail("Invalid immediate size: '{s}'", .{op_str});
+                        }
+                        op.* = .{ .imm = Immediate.u(u) };
+                    } else |_| return self.fail("Invalid immediate: '{s}'", .{op_str});
+                } else return self.fail("Invalid operand: '{s}'", .{op_str});
+            } else if (op_it.next()) |op_str| return self.fail("Extra operand: '{s}'", .{op_str});
+
+            (switch (ops[0]) {
+                .none => self.asmOpOnly(mnem),
+                .reg => |reg0| switch (ops[1]) {
+                    .none => self.asmRegister(mnem, reg0),
+                    .reg => |reg1| switch (ops[2]) {
+                        .none => self.asmRegisterRegister(mnem, reg1, reg0),
+                        .reg => |reg2| switch (ops[3]) {
+                            .none => self.asmRegisterRegisterRegister(mnem, reg2, reg1, reg0),
+                            else => error.InvalidInstruction,
+                        },
+                        .mem => |mem2| switch (ops[3]) {
+                            .none => self.asmMemoryRegisterRegister(mnem, mem2, reg1, reg0),
+                            else => error.InvalidInstruction,
+                        },
+                        else => error.InvalidInstruction,
+                    },
+                    .mem => |mem1| switch (ops[2]) {
+                        .none => self.asmMemoryRegister(mnem, mem1, reg0),
+                        else => error.InvalidInstruction,
+                    },
+                    else => error.InvalidInstruction,
+                },
+                .mem => |mem0| switch (ops[1]) {
+                    .none => self.asmMemory(mnem, mem0),
+                    .reg => |reg1| switch (ops[2]) {
+                        .none => self.asmRegisterMemory(mnem, reg1, mem0),
+                        else => error.InvalidInstruction,
+                    },
+                    else => error.InvalidInstruction,
+                },
+                .imm => |imm0| switch (ops[1]) {
+                    .none => self.asmImmediate(mnem, imm0),
+                    .reg => |reg1| switch (ops[2]) {
+                        .none => self.asmRegisterImmediate(mnem, reg1, imm0),
+                        .reg => |reg2| switch (ops[3]) {
+                            .none => self.asmRegisterRegisterImmediate(mnem, reg2, reg1, imm0),
+                            else => error.InvalidInstruction,
+                        },
+                        .mem => |mem2| switch (ops[3]) {
+                            .none => self.asmMemoryRegisterImmediate(mnem, mem2, reg1, imm0),
+                            else => error.InvalidInstruction,
+                        },
+                        else => error.InvalidInstruction,
+                    },
+                    .mem => |mem1| switch (ops[2]) {
+                        .none => self.asmMemoryImmediate(mnem, mem1, imm0),
+                        else => error.InvalidInstruction,
+                    },
+                    else => error.InvalidInstruction,
+                },
+            }) catch |err| switch (err) {
+                error.InvalidInstruction => return self.fail(
+                    "Invalid instruction: '{s} {s} {s} {s} {s}'",
+                    .{
+                        @tagName(mnem),
+                        @tagName(ops[0]),
+                        @tagName(ops[1]),
+                        @tagName(ops[2]),
+                        @tagName(ops[3]),
+                    },
+                ),
+                else => |e| return e,
+            };
         }
     }
 
@@ -7988,12 +8080,12 @@ fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
         try self.asmRegisterMemory(.mov, start_reg.to32(), Memory.sib(.dword, .{
             .base = addr_reg.to64(),
             .scale_index = .{ .scale = 4, .index = err_reg.to64() },
-            .disp = 0,
+            .disp = 4,
         }));
         try self.asmRegisterMemory(.mov, end_reg.to32(), Memory.sib(.dword, .{
             .base = addr_reg.to64(),
             .scale_index = .{ .scale = 4, .index = err_reg.to64() },
-            .disp = 4,
+            .disp = 8,
         }));
         try self.asmRegisterRegister(.sub, end_reg.to32(), start_reg.to32());
         try self.asmRegisterMemory(.lea, start_reg.to64(), Memory.sib(.byte, .{

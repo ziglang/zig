@@ -17,7 +17,6 @@ fn foo(id: u64) !FormValue {
 test "switch prong implicit cast" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const result = switch (foo(2) catch unreachable) {

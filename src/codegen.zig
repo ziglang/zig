@@ -124,13 +124,17 @@ pub fn generateLazySymbol(
 
     if (lazy_sym.kind == .const_data and lazy_sym.ty.isAnyError()) {
         const err_names = mod.error_name_list.items;
-        try code.resize(err_names.len * 4);
-        for (err_names, 0..) |err_name, index| {
-            mem.writeInt(u32, code.items[index * 4 ..][0..4], @intCast(u32, code.items.len), endian);
+        mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, err_names.len), endian);
+        var offset = code.items.len;
+        try code.resize((1 + err_names.len + 1) * 4);
+        for (err_names) |err_name| {
+            mem.writeInt(u32, code.items[offset..][0..4], @intCast(u32, code.items.len), endian);
+            offset += 4;
             try code.ensureUnusedCapacity(err_name.len + 1);
             code.appendSliceAssumeCapacity(err_name);
             code.appendAssumeCapacity(0);
         }
+        mem.writeInt(u32, code.items[offset..][0..4], @intCast(u32, code.items.len), endian);
         return Result.ok;
     } else return .{ .fail = try ErrorMsg.create(
         bin_file.allocator,

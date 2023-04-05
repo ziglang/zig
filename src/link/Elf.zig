@@ -64,8 +64,8 @@ const Section = struct {
 };
 
 const LazySymbolMetadata = struct {
-    atom: Atom.Index,
-    shdr: u16,
+    text_atom: ?Atom.Index = null,
+    rodata_atom: ?Atom.Index = null,
     alignment: u32,
 };
 
@@ -106,7 +106,12 @@ shdr_table_offset: ?u64 = null,
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
 program_headers: std.ArrayListUnmanaged(elf.Elf64_Phdr) = .{},
-phdr_table_offset: ?u64 = null,
+/// The index into the program headers of the PT_PHDR program header
+phdr_table_index: ?u16 = null,
+/// The index into the program headers of the PT_LOAD program header containing the phdr
+/// Most linkers would merge this with phdr_load_ro_index,
+/// but incremental linking means we can't ensure they are consecutive.
+phdr_table_load_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Read and Execute flags
 phdr_load_re_index: ?u16 = null,
 /// The index into the program headers of the global offset table.
@@ -203,7 +208,7 @@ relocs: RelocTable = .{},
 
 const RelocTable = std.AutoHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Atom.Reloc));
 const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
-const LazySymbolTable = std.ArrayHashMapUnmanaged(File.LazySymbol, LazySymbolMetadata, File.LazySymbol.Context, true);
+const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
 
 /// When allocating, the ideal_capacity is calculated by
 /// actual_capacity + (actual_capacity / ideal_factor)
@@ -396,16 +401,6 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
         }
     }
 
-    if (self.phdr_table_offset) |off| {
-        const phdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Phdr) else @sizeOf(elf.Elf64_Phdr);
-        const tight_size = self.sections.slice().len * phdr_size;
-        const increased_size = padToIdeal(tight_size);
-        const test_end = off + increased_size;
-        if (end > off and start < test_end) {
-            return test_end;
-        }
-    }
-
     for (self.sections.items(.shdr)) |section| {
         const increased_size = padToIdeal(section.sh_size);
         const test_end = section.sh_offset + increased_size;
@@ -428,9 +423,6 @@ pub fn allocatedSize(self: *Elf, start: u64) u64 {
         return 0;
     var min_pos: u64 = std.math.maxInt(u64);
     if (self.shdr_table_offset) |off| {
-        if (off > start and off < min_pos) min_pos = off;
-    }
-    if (self.phdr_table_offset) |off| {
         if (off > start and off < min_pos) min_pos = off;
     }
     for (self.sections.items(.shdr)) |section| {
@@ -461,6 +453,43 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         .p64 => false,
     };
     const ptr_size: u8 = self.ptrWidthBytes();
+
+    if (self.phdr_table_index == null) {
+        self.phdr_table_index = @intCast(u16, self.program_headers.items.len);
+        const p_align: u16 = switch (self.ptr_width) {
+            .p32 => @alignOf(elf.Elf32_Phdr),
+            .p64 => @alignOf(elf.Elf64_Phdr),
+        };
+        try self.program_headers.append(gpa, .{
+            .p_type = elf.PT_PHDR,
+            .p_offset = 0,
+            .p_filesz = 0,
+            .p_vaddr = 0,
+            .p_paddr = 0,
+            .p_memsz = 0,
+            .p_align = p_align,
+            .p_flags = elf.PF_R,
+        });
+        self.phdr_table_dirty = true;
+    }
+
+    if (self.phdr_table_load_index == null) {
+        self.phdr_table_load_index = @intCast(u16, self.program_headers.items.len);
+        // TODO Same as for GOT
+        const phdr_addr: u64 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x1000000 else 0x1000;
+        const p_align = self.page_size;
+        try self.program_headers.append(gpa, .{
+            .p_type = elf.PT_LOAD,
+            .p_offset = 0,
+            .p_filesz = 0,
+            .p_vaddr = phdr_addr,
+            .p_paddr = phdr_addr,
+            .p_memsz = 0,
+            .p_align = p_align,
+            .p_flags = elf.PF_R,
+        });
+        self.phdr_table_dirty = true;
+    }
 
     if (self.phdr_load_re_index == null) {
         self.phdr_load_re_index = @intCast(u16, self.program_headers.items.len);
@@ -849,19 +878,6 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         self.shdr_table_dirty = true;
     }
 
-    const phsize: u64 = switch (self.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Phdr),
-        .p64 => @sizeOf(elf.Elf64_Phdr),
-    };
-    const phalign: u16 = switch (self.ptr_width) {
-        .p32 => @alignOf(elf.Elf32_Phdr),
-        .p64 => @alignOf(elf.Elf64_Phdr),
-    };
-    if (self.phdr_table_offset == null) {
-        self.phdr_table_offset = self.findFreeSpace(self.program_headers.items.len * phsize, phalign);
-        self.phdr_table_dirty = true;
-    }
-
     {
         // Iterate over symbols, populating free_list and last_text_block.
         if (self.local_symbols.items.len != 1) {
@@ -1021,17 +1037,13 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    {
-        var lazy_it = self.lazy_syms.iterator();
-        while (lazy_it.next()) |lazy_entry| {
-            self.updateLazySymbol(
-                lazy_entry.key_ptr.*,
-                lazy_entry.value_ptr.*,
-            ) catch |err| switch (err) {
-                error.CodegenFail => return error.FlushFailure,
-                else => |e| return e,
-            };
-        }
+    // Most lazy symbols can be updated when the corresponding decl is,
+    // so we only have to worry about the one without an associated decl.
+    if (self.lazy_syms.get(.none)) |metadata| {
+        self.updateLazySymbol(.none, metadata) catch |err| switch (err) {
+            error.CodegenFail => return error.FlushFailure,
+            else => |e| return e,
+        };
     }
 
     // TODO This linker code currently assumes there is only 1 compilation unit and it
@@ -1132,17 +1144,28 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             .p32 => @sizeOf(elf.Elf32_Phdr),
             .p64 => @sizeOf(elf.Elf64_Phdr),
         };
-        const phalign: u16 = switch (self.ptr_width) {
-            .p32 => @alignOf(elf.Elf32_Phdr),
-            .p64 => @alignOf(elf.Elf64_Phdr),
-        };
-        const allocated_size = self.allocatedSize(self.phdr_table_offset.?);
+
+        const phdr_table_index = self.phdr_table_index.?;
+        const phdr_table = &self.program_headers.items[phdr_table_index];
+        const phdr_table_load = &self.program_headers.items[self.phdr_table_load_index.?];
+
+        const allocated_size = self.allocatedSize(phdr_table.p_offset);
         const needed_size = self.program_headers.items.len * phsize;
 
         if (needed_size > allocated_size) {
-            self.phdr_table_offset = null; // free the space
-            self.phdr_table_offset = self.findFreeSpace(needed_size, phalign);
+            phdr_table.p_offset = 0; // free the space
+            phdr_table.p_offset = self.findFreeSpace(needed_size, @intCast(u32, phdr_table.p_align));
         }
+
+        phdr_table_load.p_offset = mem.alignBackwardGeneric(u64, phdr_table.p_offset, phdr_table_load.p_align);
+        const load_align_offset = phdr_table.p_offset - phdr_table_load.p_offset;
+        phdr_table_load.p_filesz = load_align_offset + needed_size;
+        phdr_table_load.p_memsz = load_align_offset + needed_size;
+
+        phdr_table.p_filesz = needed_size;
+        phdr_table.p_vaddr = phdr_table_load.p_vaddr + load_align_offset;
+        phdr_table.p_paddr = phdr_table_load.p_paddr + load_align_offset;
+        phdr_table.p_memsz = needed_size;
 
         switch (self.ptr_width) {
             .p32 => {
@@ -1155,7 +1178,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                         mem.byteSwapAllFields(elf.Elf32_Phdr, phdr);
                     }
                 }
-                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
+                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
             },
             .p64 => {
                 const buf = try gpa.alloc(elf.Elf64_Phdr, self.program_headers.items.len);
@@ -1167,9 +1190,14 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                         mem.byteSwapAllFields(elf.Elf64_Phdr, phdr);
                     }
                 }
-                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), self.phdr_table_offset.?);
+                try self.base.file.?.pwriteAll(mem.sliceAsBytes(buf), phdr_table.p_offset);
             },
         }
+
+        // We don't actually care if the phdr load section overlaps, only the phdr section matters.
+        phdr_table_load.p_offset = 0;
+        phdr_table_load.p_filesz = 0;
+
         self.phdr_table_dirty = false;
     }
 
@@ -1992,13 +2020,14 @@ fn writeElfHeader(self: *Elf) !void {
 
     const e_entry = if (elf_type == .REL) 0 else self.entry_addr.?;
 
+    const phdr_table_offset = self.program_headers.items[self.phdr_table_index.?].p_offset;
     switch (self.ptr_width) {
         .p32 => {
             mem.writeInt(u32, hdr_buf[index..][0..4], @intCast(u32, e_entry), endian);
             index += 4;
 
             // e_phoff
-            mem.writeInt(u32, hdr_buf[index..][0..4], @intCast(u32, self.phdr_table_offset.?), endian);
+            mem.writeInt(u32, hdr_buf[index..][0..4], @intCast(u32, phdr_table_offset), endian);
             index += 4;
 
             // e_shoff
@@ -2011,7 +2040,7 @@ fn writeElfHeader(self: *Elf) !void {
             index += 8;
 
             // e_phoff
-            mem.writeInt(u64, hdr_buf[index..][0..8], self.phdr_table_offset.?, endian);
+            mem.writeInt(u64, hdr_buf[index..][0..8], phdr_table_offset, endian);
             index += 8;
 
             // e_shoff
@@ -2367,22 +2396,16 @@ pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn getOrCreateAtomForLazySymbol(self: *Elf, lazy_sym: File.LazySymbol, alignment: u32) !Atom.Index {
-    const gop = try self.lazy_syms.getOrPutContext(self.base.allocator, lazy_sym, .{
-        .mod = self.base.options.module.?,
-    });
+pub fn getOrCreateAtomForLazySymbol(self: *Elf, sym: File.LazySymbol, alignment: u32) !Atom.Index {
+    const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl());
     errdefer _ = self.lazy_syms.pop();
-    if (!gop.found_existing) {
-        gop.value_ptr.* = .{
-            .atom = try self.createAtom(),
-            .shdr = switch (lazy_sym.kind) {
-                .code => self.text_section_index.?,
-                .const_data => self.rodata_section_index.?,
-            },
-            .alignment = alignment,
-        };
-    }
-    return gop.value_ptr.atom;
+    if (!gop.found_existing) gop.value_ptr.* = .{ .alignment = alignment };
+    const atom = switch (sym.kind) {
+        .code => &gop.value_ptr.text_atom,
+        .const_data => &gop.value_ptr.rodata_atom,
+    };
+    if (atom.* == null) atom.* = try self.createAtom();
+    return atom.*.?;
 }
 
 pub fn getOrCreateAtomForDecl(self: *Elf, decl_index: Module.Decl.Index) !Atom.Index {
@@ -2651,7 +2674,29 @@ pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !v
     return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
 }
 
-fn updateLazySymbol(self: *Elf, lazy_sym: File.LazySymbol, lazy_metadata: LazySymbolMetadata) !void {
+fn updateLazySymbol(self: *Elf, decl: Module.Decl.OptionalIndex, metadata: LazySymbolMetadata) !void {
+    const mod = self.base.options.module.?;
+    if (metadata.text_atom) |atom| try self.updateLazySymbolAtom(
+        File.LazySymbol.initDecl(.code, decl, mod),
+        atom,
+        self.text_section_index.?,
+        metadata.alignment,
+    );
+    if (metadata.rodata_atom) |atom| try self.updateLazySymbolAtom(
+        File.LazySymbol.initDecl(.const_data, decl, mod),
+        atom,
+        self.rodata_section_index.?,
+        metadata.alignment,
+    );
+}
+
+fn updateLazySymbolAtom(
+    self: *Elf,
+    sym: File.LazySymbol,
+    atom_index: Atom.Index,
+    shdr_index: u16,
+    required_alignment: u32,
+) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
 
@@ -2660,19 +2705,18 @@ fn updateLazySymbol(self: *Elf, lazy_sym: File.LazySymbol, lazy_metadata: LazySy
 
     const name_str_index = blk: {
         const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
-            @tagName(lazy_sym.kind),
-            lazy_sym.ty.fmt(mod),
+            @tagName(sym.kind),
+            sym.ty.fmt(mod),
         });
         defer gpa.free(name);
         break :blk try self.shstrtab.insert(gpa, name);
     };
     const name = self.shstrtab.get(name_str_index).?;
 
-    const atom_index = lazy_metadata.atom;
     const atom = self.getAtom(atom_index);
     const local_sym_index = atom.getSymbolIndex().?;
 
-    const src = if (lazy_sym.ty.getOwnerDeclOrNull()) |owner_decl|
+    const src = if (sym.ty.getOwnerDeclOrNull()) |owner_decl|
         mod.declPtr(owner_decl).srcLoc()
     else
         Module.SrcLoc{
@@ -2680,14 +2724,9 @@ fn updateLazySymbol(self: *Elf, lazy_sym: File.LazySymbol, lazy_metadata: LazySy
             .parent_decl_node = undefined,
             .lazy = .unneeded,
         };
-    const res = try codegen.generateLazySymbol(
-        &self.base,
-        src,
-        lazy_sym,
-        &code_buffer,
-        .none,
-        .{ .parent_atom_index = local_sym_index },
-    );
+    const res = try codegen.generateLazySymbol(&self.base, src, sym, &code_buffer, .none, .{
+        .parent_atom_index = local_sym_index,
+    });
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
@@ -2696,7 +2735,6 @@ fn updateLazySymbol(self: *Elf, lazy_sym: File.LazySymbol, lazy_metadata: LazySy
         },
     };
 
-    const shdr_index = lazy_metadata.shdr;
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
     const local_sym = atom.getSymbolPtr(self);
     local_sym.* = .{
@@ -2707,7 +2745,6 @@ fn updateLazySymbol(self: *Elf, lazy_sym: File.LazySymbol, lazy_metadata: LazySy
         .st_value = 0,
         .st_size = 0,
     };
-    const required_alignment = lazy_metadata.alignment;
     const vaddr = try self.allocateAtom(atom_index, code.len, required_alignment);
     errdefer self.freeAtom(atom_index);
     log.debug("allocated text block for {s} at 0x{x}", .{ name, vaddr });
