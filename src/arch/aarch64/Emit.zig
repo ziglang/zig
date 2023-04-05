@@ -673,7 +673,7 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
         const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
         const target = macho_file.getGlobalByIndex(relocation.sym_index);
         try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
-            .type = @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_BRANCH26),
+            .type = .branch,
             .target = target,
             .offset = offset,
             .addend = 0,
@@ -883,41 +883,32 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+        const Atom = link.File.MachO.Atom;
+        const Relocation = Atom.Relocation;
         const atom_index = macho_file.getAtomIndexForSymbol(.{ .sym_index = data.atom_index, .file = null }).?;
-        // TODO this causes segfault in stage1
-        // try atom.addRelocations(macho_file, 2, .{
-        try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
+        try Atom.addRelocations(macho_file, atom_index, &[_]Relocation{ .{
             .target = .{ .sym_index = data.sym_index, .file = null },
             .offset = offset,
             .addend = 0,
             .pcrel = true,
             .length = 2,
             .type = switch (tag) {
-                .load_memory_got,
-                .load_memory_ptr_got,
-                => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGE21),
-                .load_memory_direct,
-                .load_memory_ptr_direct,
-                => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_PAGE21),
+                .load_memory_got, .load_memory_ptr_got => Relocation.Type.got_page,
+                .load_memory_direct, .load_memory_ptr_direct => Relocation.Type.page,
                 else => unreachable,
             },
-        });
-        try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
+        }, .{
             .target = .{ .sym_index = data.sym_index, .file = null },
             .offset = offset + 4,
             .addend = 0,
             .pcrel = false,
             .length = 2,
             .type = switch (tag) {
-                .load_memory_got,
-                .load_memory_ptr_got,
-                => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGEOFF12),
-                .load_memory_direct,
-                .load_memory_ptr_direct,
-                => @enumToInt(std.macho.reloc_type_arm64.ARM64_RELOC_PAGEOFF12),
+                .load_memory_got, .load_memory_ptr_got => Relocation.Type.got_pageoff,
+                .load_memory_direct, .load_memory_ptr_direct => Relocation.Type.pageoff,
                 else => unreachable,
             },
-        });
+        } });
     } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
         const atom_index = coff_file.getAtomIndexForSymbol(.{ .sym_index = data.atom_index, .file = null }).?;
         const target = switch (tag) {

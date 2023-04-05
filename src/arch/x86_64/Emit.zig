@@ -42,7 +42,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                 ).?;
                 const target = macho_file.getGlobalByIndex(inst.data.relocation.sym_index);
                 try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
-                    .type = @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_BRANCH),
+                    .type = .branch,
                     .target = target,
                     .offset = end_offset - 4,
                     .addend = 0,
@@ -68,17 +68,16 @@ pub fn emitMir(emit: *Emit) Error!void {
             .mov_linker, .lea_linker => if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
                 const metadata =
                     emit.lower.mir.extraData(Mir.LeaRegisterReloc, inst.data.payload).data;
-                const reloc_type = switch (inst.ops) {
-                    .got_reloc => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_GOT),
-                    .direct_reloc => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_SIGNED),
-                    else => unreachable,
-                };
                 const atom_index = macho_file.getAtomIndexForSymbol(.{
                     .sym_index = metadata.atom_index,
                     .file = null,
                 }).?;
                 try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
-                    .type = reloc_type,
+                    .type = switch (inst.ops) {
+                        .got_reloc => .got,
+                        .direct_reloc => .signed,
+                        else => unreachable,
+                    },
                     .target = .{ .sym_index = metadata.sym_index, .file = null },
                     .offset = @intCast(u32, end_offset - 4),
                     .addend = 0,

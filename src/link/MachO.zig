@@ -1250,11 +1250,7 @@ pub fn createGotAtom(self: *MachO, target: SymbolWithLoc) !Atom.Index {
     log.debug("allocated GOT atom at 0x{x}", .{sym.n_value});
 
     try Atom.addRelocation(self, atom_index, .{
-        .type = switch (self.base.options.target.cpu.arch) {
-            .aarch64 => @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_UNSIGNED),
-            .x86_64 => @enumToInt(macho.reloc_type_x86_64.X86_64_RELOC_UNSIGNED),
-            else => unreachable,
-        },
+        .type = .unsigned,
         .target = target,
         .offset = 0,
         .addend = 0,
@@ -1336,15 +1332,15 @@ fn createStubHelperPreambleAtom(self: *MachO) !void {
             code[9] = 0xff;
             code[10] = 0x25;
 
-            try Atom.addRelocations(self, atom_index, 2, .{ .{
-                .type = @enumToInt(macho.reloc_type_x86_64.X86_64_RELOC_SIGNED),
+            try Atom.addRelocations(self, atom_index, &[_]Relocation{ .{
+                .type = .signed,
                 .target = dyld_private,
                 .offset = 3,
                 .addend = 0,
                 .pcrel = true,
                 .length = 2,
             }, .{
-                .type = @enumToInt(macho.reloc_type_x86_64.X86_64_RELOC_GOT),
+                .type = .got,
                 .target = dyld_stub_binder,
                 .offset = 11,
                 .addend = 0,
@@ -1376,29 +1372,29 @@ fn createStubHelperPreambleAtom(self: *MachO) !void {
             // br x16
             mem.writeIntLittle(u32, code[20..][0..4], aarch64.Instruction.br(.x16).toU32());
 
-            try Atom.addRelocations(self, atom_index, 4, .{ .{
-                .type = @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_PAGE21),
+            try Atom.addRelocations(self, atom_index, &[_]Relocation{ .{
+                .type = .page,
                 .target = dyld_private,
                 .offset = 0,
                 .addend = 0,
                 .pcrel = true,
                 .length = 2,
             }, .{
-                .type = @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_PAGEOFF12),
+                .type = .pageoff,
                 .target = dyld_private,
                 .offset = 4,
                 .addend = 0,
                 .pcrel = false,
                 .length = 2,
             }, .{
-                .type = @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGE21),
+                .type = .got_page,
                 .target = dyld_stub_binder,
                 .offset = 12,
                 .addend = 0,
                 .pcrel = true,
                 .length = 2,
             }, .{
-                .type = @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_GOT_LOAD_PAGEOFF12),
+                .type = .got_pageoff,
                 .target = dyld_stub_binder,
                 .offset = 16,
                 .addend = 0,
@@ -1456,7 +1452,7 @@ fn createStubHelperAtom(self: *MachO) !Atom.Index {
             code[5] = 0xe9;
 
             try Atom.addRelocation(self, atom_index, .{
-                .type = @enumToInt(macho.reloc_type_x86_64.X86_64_RELOC_BRANCH),
+                .type = .branch,
                 .target = .{ .sym_index = stub_helper_preamble_atom_sym_index, .file = null },
                 .offset = 6,
                 .addend = 0,
@@ -1479,7 +1475,7 @@ fn createStubHelperAtom(self: *MachO) !Atom.Index {
             // Next 4 bytes 8..12 are just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
 
             try Atom.addRelocation(self, atom_index, .{
-                .type = @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_BRANCH26),
+                .type = .branch,
                 .target = .{ .sym_index = stub_helper_preamble_atom_sym_index, .file = null },
                 .offset = 4,
                 .addend = 0,
@@ -1507,11 +1503,7 @@ fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, target: SymbolWithLo
     sym.n_sect = self.la_symbol_ptr_section_index.? + 1;
 
     try Atom.addRelocation(self, atom_index, .{
-        .type = switch (self.base.options.target.cpu.arch) {
-            .aarch64 => @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_UNSIGNED),
-            .x86_64 => @enumToInt(macho.reloc_type_x86_64.X86_64_RELOC_UNSIGNED),
-            else => unreachable,
-        },
+        .type = .unsigned,
         .target = .{ .sym_index = stub_sym_index, .file = null },
         .offset = 0,
         .addend = 0,
@@ -1565,7 +1557,7 @@ fn createStubAtom(self: *MachO, laptr_sym_index: u32) !Atom.Index {
             code[1] = 0x25;
 
             try Atom.addRelocation(self, atom_index, .{
-                .type = @enumToInt(macho.reloc_type_x86_64.X86_64_RELOC_BRANCH),
+                .type = .branch,
                 .target = .{ .sym_index = laptr_sym_index, .file = null },
                 .offset = 2,
                 .addend = 0,
@@ -1585,9 +1577,9 @@ fn createStubAtom(self: *MachO, laptr_sym_index: u32) !Atom.Index {
             // br x16
             mem.writeIntLittle(u32, code[8..12], aarch64.Instruction.br(.x16).toU32());
 
-            try Atom.addRelocations(self, atom_index, 2, .{
+            try Atom.addRelocations(self, atom_index, &[_]Relocation{
                 .{
-                    .type = @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_PAGE21),
+                    .type = .page,
                     .target = .{ .sym_index = laptr_sym_index, .file = null },
                     .offset = 0,
                     .addend = 0,
@@ -1595,7 +1587,7 @@ fn createStubAtom(self: *MachO, laptr_sym_index: u32) !Atom.Index {
                     .length = 2,
                 },
                 .{
-                    .type = @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_PAGEOFF12),
+                    .type = .pageoff,
                     .target = .{ .sym_index = laptr_sym_index, .file = null },
                     .offset = 4,
                     .addend = 0,
@@ -2663,11 +2655,7 @@ pub fn getDeclVAddr(self: *MachO, decl_index: Module.Decl.Index, reloc_info: Fil
     const sym_index = self.getAtom(this_atom_index).getSymbolIndex().?;
     const atom_index = self.getAtomIndexForSymbol(.{ .sym_index = reloc_info.parent_atom_index, .file = null }).?;
     try Atom.addRelocation(self, atom_index, .{
-        .type = switch (self.base.options.target.cpu.arch) {
-            .aarch64 => @enumToInt(macho.reloc_type_arm64.ARM64_RELOC_UNSIGNED),
-            .x86_64 => @enumToInt(macho.reloc_type_x86_64.X86_64_RELOC_UNSIGNED),
-            else => unreachable,
-        },
+        .type = .unsigned,
         .target = .{ .sym_index = sym_index, .file = null },
         .offset = @intCast(u32, reloc_info.offset),
         .addend = reloc_info.addend,
@@ -3113,28 +3101,6 @@ fn allocateAtom(self: *MachO, atom_index: Atom.Index, new_atom_size: u64, alignm
     }
 
     return vaddr;
-}
-
-fn getSectionPrecedence(header: macho.section_64) u4 {
-    if (header.isCode()) {
-        if (mem.eql(u8, "__text", header.sectName())) return 0x0;
-        if (header.type() == macho.S_SYMBOL_STUBS) return 0x1;
-        return 0x2;
-    }
-    switch (header.type()) {
-        macho.S_NON_LAZY_SYMBOL_POINTERS,
-        macho.S_LAZY_SYMBOL_POINTERS,
-        => return 0x0,
-        macho.S_MOD_INIT_FUNC_POINTERS => return 0x1,
-        macho.S_MOD_TERM_FUNC_POINTERS => return 0x2,
-        macho.S_ZEROFILL => return 0xf,
-        macho.S_THREAD_LOCAL_REGULAR => return 0xd,
-        macho.S_THREAD_LOCAL_ZEROFILL => return 0xe,
-        else => if (mem.eql(u8, "__eh_frame", header.sectName()))
-            return 0xf
-        else
-            return 0x3,
-    }
 }
 
 pub fn getGlobalSymbol(self: *MachO, name: []const u8, lib_name: ?[]const u8) !u32 {
