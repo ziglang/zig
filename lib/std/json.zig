@@ -2770,10 +2770,17 @@ test "deserializing string with escape sequence into sentinel slice" {
 
 test "stringify struct with custom stringify that returns a custom error" {
     var ret = std.json.stringify(struct {
-        const Self = @This();
-        pub fn jsonStringify(_: Self, _: StringifyOptions, _: anytype) !void {
-            return error.CustomError;
-        }
+        field: Field = .{},
+
+        pub const Field = struct {
+            field: ?[]*Field = null,
+
+            const Self = @This();
+            pub fn jsonStringify(_: Self, _: StringifyOptions, _: anytype) error{CustomError}!void {
+                return error.CustomError;
+            }
+        };
     }{}, StringifyOptions{}, std.io.null_writer);
+
     try std.testing.expectError(error.CustomError, ret);
 }
