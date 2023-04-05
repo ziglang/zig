@@ -702,9 +702,9 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     if (self.dyld_stub_binder_index == null) {
         self.dyld_stub_binder_index = try self.addUndefined("dyld_stub_binder", .add_got);
     }
-    // if (!self.base.options.single_threaded) {
-    //     _ = try self.addUndefined("_tlv_bootstrap", .none);
-    // }
+    if (!self.base.options.single_threaded) {
+        _ = try self.addUndefined("__tlv_bootstrap", .none);
+    }
 
     try self.createMhExecuteHeaderSymbol();
 
@@ -713,6 +713,12 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     try self.resolveSymbolsInDylibs(&actions);
 
     if (self.unresolved.count() > 0) {
+        for (self.unresolved.keys()) |index| {
+            // TODO: convert into compiler errors.
+            const global = self.globals.items[index];
+            const sym_name = self.getSymbolName(global);
+            log.err("undefined symbol reference '{s}'", .{sym_name});
+        }
         return error.UndefinedSymbolReference;
     }
 
