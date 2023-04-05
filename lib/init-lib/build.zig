@@ -29,16 +29,20 @@ pub fn build(b: *std.Build) void {
     // running `zig build`).
     lib.install();
 
-    // Creates a step for unit testing.
+    // Creates a step for unit testing executable.
     const main_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
     });
 
+    // Similar to creating RunStep for executable, this creating such step for
+    // test executable, so the tests can run.
+    const run_tests = main_tests.run();
+
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build test`
     // This will evaluate the `test` step rather than the default, which is "install".
     const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&main_tests.step);
+    test_step.dependOn(&run_tests.step);
 }
