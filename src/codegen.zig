@@ -493,7 +493,7 @@ pub fn generateSymbol(
                         bin_file.allocator,
                         src_loc,
                         "TODO implement generateSymbol for big int enums ('{}')",
-                        .{typed_value.ty.fmtDebug()},
+                        .{typed_value.ty.fmt(mod)},
                     ),
                 };
             }
@@ -957,13 +957,13 @@ fn genDeclRef(
     tv: TypedValue,
     decl_index: Module.Decl.Index,
 ) CodeGenError!GenResult {
-    log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
+    const module = bin_file.options.module.?;
+    log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmt(module), tv.val.fmtValue(tv.ty, module) });
 
     const target = bin_file.options.target;
     const ptr_bits = target.cpu.arch.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
-    const module = bin_file.options.module.?;
     const decl = module.declPtr(decl_index);
 
     if (!decl.ty.isFnOrHasRuntimeBitsIgnoreComptime()) {
@@ -1025,7 +1025,8 @@ fn genUnnamedConst(
     tv: TypedValue,
     owner_decl_index: Module.Decl.Index,
 ) CodeGenError!GenResult {
-    log.debug("genUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
+    const mod = bin_file.options.module.?;
+    log.debug("genUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmt(mod), tv.val.fmtValue(tv.ty, mod) });
 
     const target = bin_file.options.target;
     const local_sym_index = bin_file.lowerUnnamedConst(tv, owner_decl_index) catch |err| {
@@ -1065,7 +1066,11 @@ pub fn genTypedValue(
         typed_value.val = rt.data;
     }
 
-    log.debug("genTypedValue: ty = {}, val = {}", .{ typed_value.ty.fmtDebug(), typed_value.val.fmtDebug() });
+    const mod = bin_file.options.module.?;
+    log.debug("genTypedValue: ty = {}, val = {}", .{
+        typed_value.ty.fmt(mod),
+        typed_value.val.fmtValue(typed_value.ty, mod),
+    });
 
     if (typed_value.val.isUndef())
         return GenResult.mcv(.undef);
