@@ -231,6 +231,11 @@ test "listen on ipv4 try connect on ipv6 then ipv4" {
 }
 
 test "listen on an in use port" {
+    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) {
+        // TODO build abstractions for other operating systems
+        return error.SkipZigTest;
+    }
+
     const localhost = try net.Address.parseIp("127.0.0.1", 0);
 
     var server1 = net.StreamServer.init(net.StreamServer.Options{
@@ -240,8 +245,6 @@ test "listen on an in use port" {
     try server1.listen(localhost);
 
     var server2 = net.StreamServer.init(net.StreamServer.Options{
-        // Also specify reuse_address for Windows binding.
-        .reuse_address = true,
         .reuse_port = true,
     });
     defer server2.deinit();
