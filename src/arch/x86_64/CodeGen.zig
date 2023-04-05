@@ -3569,7 +3569,12 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         return self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg }, .{});
                     }
 
-                    try self.genInlineMemcpy(dst_mcv, ptr, .{ .immediate = abi_size }, .{});
+                    try self.genInlineMemcpy(
+                        .{ .ptr_stack_offset = off },
+                        ptr,
+                        .{ .immediate = abi_size },
+                        .{},
+                    );
                 },
                 else => return self.fail("TODO implement loading from register into {}", .{dst_mcv}),
             }
@@ -3745,22 +3750,47 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         -@intCast(i32, overflow_bit_offset),
                     );
                 },
-                .linker_load, .memory, .stack_offset => if (abi_size <= 8) {
+                .memory, .linker_load => if (abi_size <= 8) {
                     const tmp_reg = try self.copyToTmpRegister(value_ty, value);
+                    const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                    defer self.register_manager.unlockReg(tmp_lock);
+
+                    try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
+                } else {
+                    const addr_reg = try self.register_manager.allocReg(null, gp);
+                    const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
+                    defer self.register_manager.unlockReg(addr_lock);
+
+                    try self.loadMemPtrIntoRegister(addr_reg, Type.usize, value);
+                    try self.genInlineMemcpy(
+                        ptr,
+                        .{ .register = addr_reg },
+                        .{ .immediate = abi_size },
+                        .{},
+                    );
+                },
+                .stack_offset => |off| if (abi_size <= 8) {
+                    const tmp_reg = try self.copyToTmpRegister(value_ty, value);
+                    const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                    defer self.register_manager.unlockReg(tmp_lock);
+
                     try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                 } else try self.genInlineMemcpy(
-                    .{ .stack_offset = 0 },
-                    value,
+                    ptr,
+                    .{ .ptr_stack_offset = off },
                     .{ .immediate = abi_size },
-                    .{ .source_stack_base = .rbp, .dest_stack_base = reg.to64() },
+                    .{},
                 ),
                 .ptr_stack_offset => {
                     const tmp_reg = try self.copyToTmpRegister(value_ty, value);
+                    const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                    defer self.register_manager.unlockReg(tmp_lock);
+
                     try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                 },
             }
         },
-        .linker_load, .memory => {
+        .memory, .linker_load => {
             const value_lock: ?RegisterLock = switch (value) {
                 .register => |reg| self.register_manager.lockReg(reg),
                 else => null,
@@ -5530,14 +5560,7 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
             assert(ret_ty.isError());
         },
         .stack_offset => {
-            const reg = try self.copyToTmpRegister(Type.usize, self.ret_mcv);
-            const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
-            defer self.register_manager.unlockReg(reg_lock);
-
-            try self.genSetStack(ret_ty, 0, operand, .{
-                .source_stack_base = .rbp,
-                .dest_stack_base = reg,
-            });
+            try self.store(self.ret_mcv, operand, Type.usize, ret_ty);
         },
         else => {
             try self.setRegOrMem(ret_ty, self.ret_mcv, operand);
@@ -5556,6 +5579,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     const ptr = try self.resolveInst(un_op);
     const ptr_ty = self.air.typeOf(un_op);
     const elem_ty = ptr_ty.elemType();
+    const abi_size = elem_ty.abiSize(self.target.*);
     switch (self.ret_mcv) {
         .immediate => {
             assert(elem_ty.isError());
@@ -5565,10 +5589,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
             const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
             defer self.register_manager.unlockReg(reg_lock);
 
-            try self.genInlineMemcpy(.{ .stack_offset = 0 }, ptr, .{ .immediate = elem_ty.abiSize(self.target.*) }, .{
-                .source_stack_base = .rbp,
-                .dest_stack_base = reg,
-            });
+            try self.genInlineMemcpy(.{ .register = reg }, ptr, .{ .immediate = abi_size }, .{});
         },
         else => {
             try self.load(self.ret_mcv, ptr, ptr_ty);
@@ -6838,7 +6859,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                 return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
             }
             try self.genInlineMemset(
-                .{ .stack_offset = stack_offset },
+                .{ .ptr_stack_offset = stack_offset },
                 .{ .immediate = 0xaa },
                 .{ .immediate = abi_size },
                 .{ .dest_stack_base = .rsp },
@@ -6877,10 +6898,17 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                 return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
             }
 
-            try self.genInlineMemcpy(.{ .stack_offset = stack_offset }, mcv, .{ .immediate = abi_size }, .{
-                .source_stack_base = .rbp,
-                .dest_stack_base = .rsp,
-            });
+            const addr_reg = try self.register_manager.allocReg(null, gp);
+            const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
+            defer self.register_manager.unlockReg(addr_lock);
+
+            try self.loadMemPtrIntoRegister(addr_reg, Type.usize, mcv);
+            try self.genInlineMemcpy(
+                .{ .ptr_stack_offset = stack_offset },
+                .{ .register = addr_reg },
+                .{ .immediate = abi_size },
+                .{ .dest_stack_base = .rsp },
+            );
         },
         .register => |reg| {
             switch (ty.zigTypeTag()) {
@@ -6920,16 +6948,18 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
             const reg = try self.copyToTmpRegister(ty, mcv);
             return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
         },
-        .stack_offset => {
+        .stack_offset => |mcv_off| {
             if (abi_size <= 8) {
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
             }
 
-            try self.genInlineMemcpy(.{ .stack_offset = stack_offset }, mcv, .{ .immediate = abi_size }, .{
-                .source_stack_base = .rbp,
-                .dest_stack_base = .rsp,
-            });
+            try self.genInlineMemcpy(
+                .{ .ptr_stack_offset = stack_offset },
+                .{ .ptr_stack_offset = mcv_off },
+                .{ .immediate = abi_size },
+                .{ .dest_stack_base = .rsp },
+            );
         },
     }
 }
@@ -6963,7 +6993,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                     opts,
                 ),
                 else => |x| return self.genInlineMemset(
-                    .{ .stack_offset = stack_offset },
+                    .{ .ptr_stack_offset = stack_offset },
                     .{ .immediate = 0xaa },
                     .{ .immediate = x },
                     opts,
@@ -7072,22 +7102,40 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                 },
             }
         },
-        .memory, .linker_load, .stack_offset, .ptr_stack_offset => {
-            switch (mcv) {
-                else => unreachable,
-                .memory, .linker_load, .ptr_stack_offset => {},
-                .stack_offset => |src_off| if (stack_offset == src_off) {
-                    // Copy stack variable to itself; nothing to do.
-                    return;
-                },
-            }
+        .memory, .linker_load => if (abi_size <= 8) {
+            const reg = try self.copyToTmpRegister(ty, mcv);
+            return self.genSetStack(ty, stack_offset, MCValue{ .register = reg }, opts);
+        } else {
+            const addr_reg = try self.register_manager.allocReg(null, gp);
+            const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
+            defer self.register_manager.unlockReg(addr_lock);
 
-            if (abi_size <= 8) {
-                const reg = try self.copyToTmpRegister(ty, mcv);
-                return self.genSetStack(ty, stack_offset, MCValue{ .register = reg }, opts);
-            }
+            try self.loadMemPtrIntoRegister(addr_reg, Type.usize, mcv);
+            try self.genInlineMemcpy(
+                .{ .ptr_stack_offset = stack_offset },
+                .{ .register = addr_reg },
+                .{ .immediate = abi_size },
+                .{},
+            );
+        },
+        .stack_offset => |off| if (abi_size <= 8) {
+            const tmp_reg = try self.copyToTmpRegister(ty, mcv);
+            const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+            defer self.register_manager.unlockReg(tmp_lock);
 
-            try self.genInlineMemcpy(.{ .stack_offset = stack_offset }, mcv, .{ .immediate = abi_size }, opts);
+            try self.genSetStack(ty, stack_offset, .{ .register = tmp_reg }, opts);
+        } else try self.genInlineMemcpy(
+            .{ .ptr_stack_offset = stack_offset },
+            .{ .ptr_stack_offset = off },
+            .{ .immediate = abi_size },
+            .{},
+        ),
+        .ptr_stack_offset => {
+            const tmp_reg = try self.copyToTmpRegister(ty, mcv);
+            const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+            defer self.register_manager.unlockReg(tmp_lock);
+
+            try self.genSetStack(ty, stack_offset, .{ .register = tmp_reg }, opts);
         },
     }
 }
@@ -7134,10 +7182,14 @@ fn genInlineMemcpyRegisterRegister(
             next_offset -= nearest_power_of_two;
         }
     } else {
-        try self.asmMemoryRegister(.mov, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
-            .base = dst_reg,
-            .disp = -offset,
-        }), registerAlias(src_reg, abi_size));
+        try self.asmMemoryRegister(
+            switch (src_reg.class()) {
+                .general_purpose, .segment => .mov,
+                .floating_point => .movss,
+            },
+            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = dst_reg, .disp = -offset }),
+            registerAlias(src_reg, abi_size),
+        );
     }
 }
 
@@ -7170,9 +7222,15 @@ fn genInlineMemcpy(
     switch (dst_ptr) {
         .memory, .linker_load => {
             try self.loadMemPtrIntoRegister(.rdi, Type.usize, dst_ptr);
+            // Load the pointer, which is stored in memory
+            try self.asmRegisterMemory(.mov, .rdi, Memory.sib(.qword, .{ .base = .rdi }));
         },
-        .ptr_stack_offset, .stack_offset => |off| {
-            try self.asmRegisterMemory(.lea, .rdi, Memory.sib(.qword, .{
+        .stack_offset, .ptr_stack_offset => |off| {
+            try self.asmRegisterMemory(switch (dst_ptr) {
+                .stack_offset => .mov,
+                .ptr_stack_offset => .lea,
+                else => unreachable,
+            }, .rdi, Memory.sib(.qword, .{
                 .base = opts.dest_stack_base orelse .rbp,
                 .disp = -off,
             }));
@@ -7192,9 +7250,15 @@ fn genInlineMemcpy(
     switch (src_ptr) {
         .memory, .linker_load => {
             try self.loadMemPtrIntoRegister(.rsi, Type.usize, src_ptr);
+            // Load the pointer, which is stored in memory
+            try self.asmRegisterMemory(.mov, .rsi, Memory.sib(.qword, .{ .base = .rsi }));
         },
-        .ptr_stack_offset, .stack_offset => |off| {
-            try self.asmRegisterMemory(.lea, .rsi, Memory.sib(.qword, .{
+        .stack_offset, .ptr_stack_offset => |off| {
+            try self.asmRegisterMemory(switch (src_ptr) {
+                .stack_offset => .mov,
+                .ptr_stack_offset => .lea,
+                else => unreachable,
+            }, .rsi, Memory.sib(.qword, .{
                 .base = opts.source_stack_base orelse .rbp,
                 .disp = -off,
             }));
@@ -7237,9 +7301,15 @@ fn genInlineMemset(
     switch (dst_ptr) {
         .memory, .linker_load => {
             try self.loadMemPtrIntoRegister(.rdi, Type.usize, dst_ptr);
+            // Load the pointer, which is stored in memory
+            try self.asmRegisterMemory(.mov, .rdi, Memory.sib(.qword, .{ .base = .rdi }));
         },
-        .ptr_stack_offset, .stack_offset => |off| {
-            try self.asmRegisterMemory(.lea, .rdi, Memory.sib(.qword, .{
+        .stack_offset, .ptr_stack_offset => |off| {
+            try self.asmRegisterMemory(switch (dst_ptr) {
+                .stack_offset => .mov,
+                .ptr_stack_offset => .lea,
+                else => unreachable,
+            }, .rdi, Memory.sib(.qword, .{
                 .base = opts.dest_stack_base orelse .rbp,
                 .disp = -off,
             }));
@@ -7979,7 +8049,6 @@ fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
     };
     defer if (dst_ptr_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const src_ty = self.air.typeOf(extra.lhs);
     const src_ptr = try self.resolveInst(extra.lhs);
     const src_ptr_lock: ?RegisterLock = switch (src_ptr) {
         .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
@@ -7994,25 +8063,7 @@ fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
     };
     defer if (len_lock) |lock| self.register_manager.unlockReg(lock);
 
-    // TODO Is this the only condition for pointer dereference for memcpy?
-    const src: MCValue = blk: {
-        switch (src_ptr) {
-            .linker_load, .memory => {
-                const reg = try self.register_manager.allocReg(null, gp);
-                try self.loadMemPtrIntoRegister(reg, src_ty, src_ptr);
-                try self.asmRegisterMemory(.mov, reg, Memory.sib(.qword, .{ .base = reg }));
-                break :blk MCValue{ .register = reg };
-            },
-            else => break :blk src_ptr,
-        }
-    };
-    const src_lock: ?RegisterLock = switch (src) {
-        .register => |reg| self.register_manager.lockReg(reg),
-        else => null,
-    };
-    defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
-
-    try self.genInlineMemcpy(dst_ptr, src, len, .{});
+    try self.genInlineMemcpy(dst_ptr, src_ptr, len, .{});
 
     return self.finishAir(inst, .none, .{ pl_op.operand, extra.lhs, extra.rhs });
 }
@@ -8156,11 +8207,10 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
         switch (result_ty.zigTypeTag()) {
             .Struct => {
                 const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
-                const dst_mcv = MCValue{ .stack_offset = stack_offset };
                 if (result_ty.containerLayout() == .Packed) {
                     const struct_obj = result_ty.castTag(.@"struct").?.data;
                     try self.genInlineMemset(
-                        dst_mcv,
+                        .{ .ptr_stack_offset = stack_offset },
                         .{ .immediate = 0 },
                         .{ .immediate = abi_size },
                         .{},
@@ -8236,7 +8286,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                     const elem_mcv = try self.resolveInst(elem);
                     try self.genSetStack(elem_ty, stack_offset - elem_off, elem_mcv, .{});
                 }
-                break :res dst_mcv;
+                break :res .{ .stack_offset = stack_offset };
             },
             .Array => {
                 const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
