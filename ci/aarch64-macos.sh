@@ -9,7 +9,7 @@ set -e
 ZIGDIR="$(pwd)"
 TARGET="$ARCH-macos-none"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.1869+df4cfc2ec"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.2441+eb19f73af"
 PREFIX="$HOME/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
