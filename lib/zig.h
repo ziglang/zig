@@ -2877,7 +2877,7 @@ typedef zig_repr_f16 zig_f16;
 #undef zig_init_special_f16
 #define zig_init_special_f16(sign, name, arg, repr) repr
 #endif
-#if __APPLE__
+#if __APPLE__ && (defined(__i386__) || defined(__x86_64__))
 typedef zig_repr_f16 zig_compiler_rt_f16;
 #else
 typedef zig_f16 zig_compiler_rt_f16;
