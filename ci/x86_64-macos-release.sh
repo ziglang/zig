@@ -61,7 +61,7 @@ stage3/bin/zig build \
   --prefix stage4 \
   -Denable-llvm \
   -Dno-lib \
-  -Drelease \
+  -Doptimize=ReleaseFast \
   -Dstrip \
   -Dtarget=$TARGET \
   -Duse-zig-libcxx \
