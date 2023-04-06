@@ -137,8 +137,9 @@ got_section_index: ?u8 = null,
 data_const_section_index: ?u8 = null,
 la_symbol_ptr_section_index: ?u8 = null,
 data_section_index: ?u8 = null,
-tls_vars_section_index: ?u8 = null,
-tls_data_section_index: ?u8 = null,
+thread_ptr_section_index: ?u8 = null,
+thread_vars_section_index: ?u8 = null,
+thread_data_section_index: ?u8 = null,
 
 locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 globals: std.ArrayListUnmanaged(SymbolWithLoc) = .{},
@@ -1365,6 +1366,7 @@ pub fn createGotAtom(self: *MachO, target: SymbolWithLoc) !Atom.Index {
     } else {
         try Atom.addRebase(self, atom_index, 0);
     }
+    try self.writePtrWidthAtom(atom_index);
 
     return atom_index;
 }
@@ -2071,7 +2073,7 @@ fn addGotEntry(self: *MachO, target: SymbolWithLoc) !void {
     const got_atom_index = try self.createGotAtom(target);
     const got_atom = self.getAtom(got_atom_index);
     self.got_table.entries.items[got_index].sym_index = got_atom.getSymbolIndex().?;
-    try self.writePtrWidthAtom(got_atom_index);
+    self.markRelocsDirtyByTarget(target);
 }
 
 fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
@@ -2085,6 +2087,10 @@ fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
     const stub_atom = self.getAtom(stub_atom_index);
     self.stubs_table.entries.items[stub_index].sym_index = stub_atom.getSymbolIndex().?;
     self.markRelocsDirtyByTarget(target);
+}
+
+fn addTlvEntry(self: *MachO, target: SymbolWithLoc) !void {
+    if (self.tlvp_table.lookup.contains(target)) return;
 }
 
 pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
@@ -2366,7 +2372,6 @@ fn updateLazySymbolAtom(
     symbol.n_value = vaddr;
 
     try self.addGotEntry(.{ .sym_index = local_sym_index });
-    self.markRelocsDirtyByTarget(atom.getSymbolWithLoc());
     try self.writeAtom(atom_index, code);
 }
 
@@ -2413,7 +2418,7 @@ fn getDeclOutputSection(self: *MachO, decl_index: Module.Decl.Index) u8 {
 
         if (val.castTag(.variable)) |variable| {
             if (variable.data.is_threadlocal and !single_threaded) {
-                break :blk self.tls_data_section_index.?;
+                break :blk self.thread_data_section_index.?;
             }
             break :blk self.data_section_index.?;
         }
@@ -2501,7 +2506,6 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
         try self.addGotEntry(.{ .sym_index = sym_index });
     }
 
-    self.markRelocsDirtyByTarget(atom.getSymbolWithLoc());
     try self.writeAtom(atom_index, code);
 
     return atom.getSymbol(self).n_value;
@@ -2835,8 +2839,17 @@ fn populateMissingMetadata(self: *MachO) !void {
     }
 
     if (!self.base.options.single_threaded) {
-        if (self.tls_vars_section_index == null) {
-            self.tls_vars_section_index = try self.allocateSection("__DATA2", "__thread_vars", .{
+        if (self.thread_ptr_section_index == null) {
+            self.thread_ptr_section_index = try self.allocateSection("__DATA2", "__thread_ptrs", .{
+                .size = @sizeOf(u64),
+                .alignment = @alignOf(u64),
+                .flags = macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
+                .prot = macho.PROT.READ | macho.PROT.WRITE,
+            });
+            self.segment_table_dirty = true;
+        }
+        if (self.thread_vars_section_index == null) {
+            self.thread_vars_section_index = try self.allocateSection("__DATA3", "__thread_vars", .{
                 .size = @sizeOf(u64) * 3,
                 .alignment = @alignOf(u64),
                 .flags = macho.S_THREAD_LOCAL_VARIABLES,
@@ -2845,8 +2858,8 @@ fn populateMissingMetadata(self: *MachO) !void {
             self.segment_table_dirty = true;
         }
 
-        if (self.tls_data_section_index == null) {
-            self.tls_data_section_index = try self.allocateSection("__DATA3", "__thread_data", .{
+        if (self.thread_data_section_index == null) {
+            self.thread_data_section_index = try self.allocateSection("__DATA4", "__thread_data", .{
                 .size = @sizeOf(u64),
                 .alignment = @alignOf(u64),
                 .flags = macho.S_THREAD_LOCAL_REGULAR,
