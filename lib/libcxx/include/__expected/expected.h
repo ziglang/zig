@@ -292,7 +292,8 @@ private:
           "be reverted to the previous state in case an exception is thrown during the assignment.");
       _T2 __tmp(std::move(__oldval));
       std::destroy_at(std::addressof(__oldval));
-      __exception_guard __trans([&] { std::construct_at(std::addressof(__oldval), std::move(__tmp)); });
+      auto __trans =
+          std::__make_exception_guard([&] { std::construct_at(std::addressof(__oldval), std::move(__tmp)); });
       std::construct_at(std::addressof(__newval), std::forward<_Args>(__args)...);
       __trans.__complete();
     }
@@ -451,7 +452,7 @@ public:
       if constexpr (is_nothrow_move_constructible_v<_Err>) {
         _Err __tmp(std::move(__with_err.__union_.__unex_));
         std::destroy_at(std::addressof(__with_err.__union_.__unex_));
-        __exception_guard __trans([&] {
+        auto __trans = std::__make_exception_guard([&] {
           std::construct_at(std::addressof(__with_err.__union_.__unex_), std::move(__tmp));
         });
         std::construct_at(std::addressof(__with_err.__union_.__val_), std::move(__with_val.__union_.__val_));
@@ -464,7 +465,7 @@ public:
                       "that it can be reverted to the previous state in case an exception is thrown during swap.");
         _Tp __tmp(std::move(__with_val.__union_.__val_));
         std::destroy_at(std::addressof(__with_val.__union_.__val_));
-        __exception_guard __trans([&] {
+        auto __trans = std::__make_exception_guard([&] {
           std::construct_at(std::addressof(__with_val.__union_.__val_), std::move(__tmp));
         });
         std::construct_at(std::addressof(__with_val.__union_.__unex_), std::move(__with_err.__union_.__unex_));

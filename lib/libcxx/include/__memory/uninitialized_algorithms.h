@@ -421,7 +421,7 @@ constexpr void __allocator_construct_at_multidimensional(_Alloc& __alloc, _Tp* _
         _Tp& __array = *__loc;
 
         // If an exception is thrown, destroy what we have constructed so far in reverse order.
-        __exception_guard __guard([&]() {
+        auto __guard = std::__make_exception_guard([&]() {
           std::__allocator_destroy_multidimensional(__elem_alloc, __array, __array + __i);
         });
 
@@ -461,7 +461,7 @@ constexpr void __allocator_construct_at_multidimensional(_Alloc& __alloc, _Tp* _
         _Tp& __array = *__loc;
 
         // If an exception is thrown, destroy what we have constructed so far in reverse order.
-        __exception_guard __guard([&]() {
+        auto __guard = std::__make_exception_guard([&]() {
           std::__allocator_destroy_multidimensional(__elem_alloc, __array, __array + __i);
         });
         for (; __i != extent_v<_Tp>; ++__i) {
@@ -488,7 +488,7 @@ __uninitialized_allocator_fill_n_multidimensional(_Alloc& __alloc, _BidirIter __
     _BidirIter __begin = __it;
 
     // If an exception is thrown, destroy what we have constructed so far in reverse order.
-    __exception_guard __guard([&]() { std::__allocator_destroy_multidimensional(__value_alloc, __begin, __it); });
+    auto __guard = std::__make_exception_guard([&]() { std::__allocator_destroy_multidimensional(__value_alloc, __begin, __it); });
     for (; __n != 0; --__n, ++__it) {
         std::__allocator_construct_at_multidimensional(__value_alloc, std::addressof(*__it), __value);
     }
@@ -505,7 +505,7 @@ __uninitialized_allocator_value_construct_n_multidimensional(_Alloc& __alloc, _B
     _BidirIter __begin = __it;
 
     // If an exception is thrown, destroy what we have constructed so far in reverse order.
-    __exception_guard __guard([&]() { std::__allocator_destroy_multidimensional(__value_alloc, __begin, __it); });
+    auto __guard = std::__make_exception_guard([&]() { std::__allocator_destroy_multidimensional(__value_alloc, __begin, __it); });
     for (; __n != 0; --__n, ++__it) {
         std::__allocator_construct_at_multidimensional(__value_alloc, std::addressof(*__it));
     }

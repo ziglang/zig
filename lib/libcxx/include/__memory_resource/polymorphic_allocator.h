@@ -98,7 +98,7 @@ public:
   template <class _Type, class... _CtorArgs>
   [[nodiscard]] _Type* new_object(_CtorArgs&&... __ctor_args) {
     _Type* __ptr = allocate_object<_Type>();
-    __exception_guard __guard([&] { deallocate_object(__ptr); });
+    auto __guard = std::__make_exception_guard([&] { deallocate_object(__ptr); });
     construct(__ptr, std::forward<_CtorArgs>(__ctor_args)...);
     __guard.__complete();
     return __ptr;

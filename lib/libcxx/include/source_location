@@ -35,7 +35,8 @@ namespace std {
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER >= 20 && __has_builtin(__builtin_source_location)
+#if _LIBCPP_STD_VER >= 20 && __has_builtin(__builtin_source_location) &&                                               \
+    !(defined(_LIBCPP_APPLE_CLANG_VER) && _LIBCPP_APPLE_CLANG_VER <= 1403)
 
 class source_location {
   // The names source_location::__impl, _M_file_name, _M_function_name, _M_line, and _M_column
@@ -78,7 +79,8 @@ public:
   }
 };
 
-#endif // _LIBCPP_STD_VER >= 20 && __has_builtin(__builtin_source_location)
+#endif // _LIBCPP_STD_VER >= 20 && __has_builtin(__builtin_source_location) && !(defined(_LIBCPP_APPLE_CLANG_VER) &&
+       // _LIBCPP_APPLE_CLANG_VER <= 1403)
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -366,7 +366,7 @@ __cpp_lib_void_t                                        201411L <type_traits>
 # define __cpp_lib_shared_ptr_arrays                    201707L
 # define __cpp_lib_shift                                201806L
 // # define __cpp_lib_smart_ptr_for_overwrite              202002L
-# if __has_builtin(__builtin_source_location)
+# if __has_builtin(__builtin_source_location) && !(defined(_LIBCPP_APPLE_CLANG_VER) && _LIBCPP_APPLE_CLANG_VER <= 1403)
 #   define __cpp_lib_source_location                    201907L
 # endif
 # define __cpp_lib_span                                 202002L
