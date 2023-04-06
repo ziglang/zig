@@ -512,6 +512,9 @@ const Writer = struct {
             .c_va_end,
             .const_cast,
             .volatile_cast,
+            .work_item_id,
+            .work_group_size,
+            .work_group_id,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 const src = LazySrcLoc.nodeOffset(inst_data.node);
@@ -2321,8 +2324,9 @@ const Writer = struct {
 
     fn writeBreak(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].@"break";
+        const extra = self.code.extraData(Zir.Inst.Break, inst_data.payload_index).data;
 
-        try self.writeInstIndex(stream, inst_data.block_inst);
+        try self.writeInstIndex(stream, extra.block_inst);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, inst_data.operand);
         try stream.writeAll(")");

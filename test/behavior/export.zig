@@ -70,3 +70,22 @@ test "exporting using field access" {
 
     _ = S.Inner.x;
 }
+
+test "exporting comptime-known value" {
+    const x: u32 = 10;
+    @export(x, .{ .name = "exporting_comptime_known_value_foo" });
+    const S = struct {
+        extern const exporting_comptime_known_value_foo: u32;
+    };
+    try expect(S.exporting_comptime_known_value_foo == 10);
+}
+
+test "exporting comptime var" {
+    comptime var x: u32 = 5;
+    @export(x, .{ .name = "exporting_comptime_var_foo" });
+    x = 7; // modifying this now shouldn't change anything
+    const S = struct {
+        extern const exporting_comptime_var_foo: u32;
+    };
+    try expect(S.exporting_comptime_var_foo == 5);
+}

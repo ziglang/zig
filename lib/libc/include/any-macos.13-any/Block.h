@@ -18,7 +18,12 @@
 #   endif
 #endif
 
+#if __has_include(<Availability.h>)
 #include <Availability.h>
+#else
+#define __OSX_AVAILABLE_STARTING(m,i)
+#endif
+
 #include <TargetConditionals.h>
 #include <sys/cdefs.h>
 
@@ -58,8 +63,8 @@ BLOCK_EXPORT void * _NSConcreteStackBlock[32]
 
 // Type correct macros
 
-#define Block_copy(...) ((__typeof(__VA_ARGS__))_Block_copy((const void *)(__VA_ARGS__)))
-#define Block_release(...) _Block_release((const void *)(__VA_ARGS__))
+#define Block_copy(...) ((__typeof(__VA_ARGS__))_Block_copy(__unsafe_forge_single(const void *, (const void *)(__VA_ARGS__))))
+#define Block_release(...) _Block_release(__unsafe_forge_single(const void *, (const void *)(__VA_ARGS__)))
 
 
 #endif

@@ -890,6 +890,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .wasm_memory_size => unreachable,
             .wasm_memory_grow => unreachable,
+
+            .work_item_id => unreachable,
+            .work_group_size => unreachable,
+            .work_group_id => unreachable,
             // zig fmt: on
         }
 
@@ -3011,41 +3015,16 @@ fn optionalPayload(self: *Self, inst: Air.Inst.Index, mcv: MCValue, optional_ty:
         return MCValue{ .register = reg };
     }
 
-    const offset = @intCast(u32, optional_ty.abiSize(self.target.*) - payload_ty.abiSize(self.target.*));
     switch (mcv) {
-        .register => |source_reg| {
+        .register => {
             // TODO should we reuse the operand here?
             const raw_reg = try self.register_manager.allocReg(inst, gp);
             const dest_reg = raw_reg.toX();
 
-            const shift = @intCast(u6, offset * 8);
-            if (shift == 0) {
-                try self.genSetReg(payload_ty, dest_reg, mcv);
-            } else {
-                _ = try self.addInst(.{
-                    .tag = if (payload_ty.isSignedInt())
-                        Mir.Inst.Tag.asr_immediate
-                    else
-                        Mir.Inst.Tag.lsr_immediate,
-                    .data = .{ .rr_shift = .{
-                        .rd = dest_reg,
-                        .rn = source_reg.toX(),
-                        .shift = shift,
-                    } },
-                });
-            }
-
+            try self.genSetReg(payload_ty, dest_reg, mcv);
             return MCValue{ .register = self.registerAlias(dest_reg, payload_ty) };
         },
-        .stack_argument_offset => |off| {
-            return MCValue{ .stack_argument_offset = off + offset };
-        },
-        .stack_offset => |off| {
-            return MCValue{ .stack_offset = off - offset };
-        },
-        .memory => |addr| {
-            return MCValue{ .memory = addr + offset };
-        },
+        .stack_argument_offset, .stack_offset, .memory => return mcv,
         else => unreachable, // invalid MCValue for an error union
     }
 }
@@ -3289,12 +3268,11 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
 
         const optional_abi_size = @intCast(u32, optional_ty.abiSize(self.target.*));
         const optional_abi_align = optional_ty.abiAlignment(self.target.*);
-        const payload_abi_size = @intCast(u32, payload_ty.abiSize(self.target.*));
-        const offset = optional_abi_size - payload_abi_size;
+        const offset = @intCast(u32, payload_ty.abiSize(self.target.*));
 
         const stack_offset = try self.allocMem(optional_abi_size, optional_abi_align, inst);
-        try self.genSetStack(Type.bool, stack_offset, .{ .immediate = 1 });
-        try self.genSetStack(payload_ty, stack_offset - @intCast(u32, offset), operand);
+        try self.genSetStack(payload_ty, stack_offset, operand);
+        try self.genSetStack(Type.bool, stack_offset - offset, .{ .immediate = 1 });
 
         break :result MCValue{ .stack_offset = stack_offset };
     };
@@ -4344,16 +4322,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             });
         } else if (func_value.castTag(.extern_fn)) |func_payload| {
             const extern_fn = func_payload.data;
-            const decl_name = mod.declPtr(extern_fn.owner_decl).name;
-            if (extern_fn.lib_name) |lib_name| {
-                log.debug("TODO enforce that '{s}' is expected in '{s}' library", .{
-                    decl_name,
-                    lib_name,
-                });
-            }
-
+            const decl_name = mem.sliceTo(mod.declPtr(extern_fn.owner_decl).name, 0);
+            const lib_name = mem.sliceTo(extern_fn.lib_name, 0);
             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                const sym_index = try macho_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
+                const sym_index = try macho_file.getGlobalSymbol(decl_name, lib_name);
                 const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
                 const atom_index = macho_file.getAtom(atom).getSymbolIndex().?;
                 _ = try self.addInst(.{
@@ -4366,7 +4338,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     },
                 });
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-                const sym_index = try coff_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
+                const sym_index = try coff_file.getGlobalSymbol(decl_name, lib_name);
                 try self.genSetReg(Type.initTag(.u64), .x30, .{
                     .linker_load = .{
                         .type = .import,
@@ -4834,13 +4806,49 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn isNull(self: *Self, operand_bind: ReadArg.Bind, operand_ty: Type) !MCValue {
-    const sentinel_ty: Type = if (!operand_ty.isPtrLikeOptional()) blk: {
+    const sentinel: struct { ty: Type, bind: ReadArg.Bind } = if (!operand_ty.isPtrLikeOptional()) blk: {
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = operand_ty.optionalChild(&buf);
-        break :blk if (payload_ty.hasRuntimeBitsIgnoreComptime()) Type.bool else operand_ty;
-    } else operand_ty;
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime())
+            break :blk .{ .ty = operand_ty, .bind = operand_bind };
+
+        const offset = @intCast(u32, payload_ty.abiSize(self.target.*));
+        const operand_mcv = try operand_bind.resolveToMcv(self);
+        const new_mcv: MCValue = switch (operand_mcv) {
+            .register => |source_reg| new: {
+                // TODO should we reuse the operand here?
+                const raw_reg = try self.register_manager.allocReg(null, gp);
+                const dest_reg = raw_reg.toX();
+
+                const shift = @intCast(u6, offset * 8);
+                if (shift == 0) {
+                    try self.genSetReg(payload_ty, dest_reg, operand_mcv);
+                } else {
+                    _ = try self.addInst(.{
+                        .tag = if (payload_ty.isSignedInt())
+                            Mir.Inst.Tag.asr_immediate
+                        else
+                            Mir.Inst.Tag.lsr_immediate,
+                        .data = .{ .rr_shift = .{
+                            .rd = dest_reg,
+                            .rn = source_reg.toX(),
+                            .shift = shift,
+                        } },
+                    });
+                }
+
+                break :new .{ .register = self.registerAlias(dest_reg, payload_ty) };
+            },
+            .stack_argument_offset => |off| .{ .stack_argument_offset = off + offset },
+            .stack_offset => |off| .{ .stack_offset = off - offset },
+            .memory => |addr| .{ .memory = addr + offset },
+            else => unreachable, // invalid MCValue for an optional
+        };
+
+        break :blk .{ .ty = Type.bool, .bind = .{ .mcv = new_mcv } };
+    } else .{ .ty = operand_ty, .bind = operand_bind };
     const imm_bind: ReadArg.Bind = .{ .mcv = .{ .immediate = 0 } };
-    return self.cmp(operand_bind, imm_bind, sentinel_ty, .eq);
+    return self.cmp(sentinel.bind, imm_bind, sentinel.ty, .eq);
 }
 
 fn isNonNull(self: *Self, operand_bind: ReadArg.Bind, operand_ty: Type) !MCValue {

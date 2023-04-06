@@ -32,3 +32,14 @@ test "@src used as a comptime parameter" {
     const T2 = S.Foo(@src());
     try expect(T1 != T2);
 }
+
+test "@src in tuple passed to anytype function" {
+    const S = struct {
+        fn Foo(a: anytype) u32 {
+            return a[0].line;
+        }
+    };
+    const l1 = S.Foo(.{@src()});
+    const l2 = S.Foo(.{@src()});
+    try expect(l1 != l2);
+}

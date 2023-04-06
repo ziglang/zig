@@ -90,6 +90,10 @@ pub fn requiresImport(symbol: Symbol) bool {
     return true;
 }
 
+pub fn isTLS(symbol: Symbol) bool {
+    return symbol.flags & @enumToInt(Flag.WASM_SYM_TLS) != 0;
+}
+
 pub fn hasFlag(symbol: Symbol, flag: Flag) bool {
     return symbol.flags & @enumToInt(flag) != 0;
 }

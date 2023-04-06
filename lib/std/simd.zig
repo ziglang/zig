@@ -43,6 +43,8 @@ pub fn suggestVectorSizeForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?
             //       for multiple processing, but I don't know what's optimal here, if using
             //       the 2048 bits or using just 64 per vector or something in between
             if (std.Target.sparc.featureSetHasAny(cpu.features, .{ .vis, .vis2, .vis3 })) break :blk 64;
+        } else if (cpu.arch.isWasm()) {
+            if (std.Target.wasm.featureSetHas(cpu.features, .simd128)) break :blk 128;
         }
         return null;
     };

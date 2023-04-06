@@ -23,7 +23,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         .name = "test",
         .optimize = optimize,
     });
-    exe.addIncludePath(std.fs.path.join(b.allocator, &.{ sdk.path, "/usr/include" }) catch unreachable);
+    exe.addSystemIncludePath(std.fs.path.join(b.allocator, &.{ sdk.path, "/usr/include" }) catch unreachable);
     exe.addIncludePath(std.fs.path.join(b.allocator, &.{ sdk.path, "/usr/include/c++/v1" }) catch unreachable);
     exe.addCSourceFile("test.cpp", &.{
         "-nostdlib++",

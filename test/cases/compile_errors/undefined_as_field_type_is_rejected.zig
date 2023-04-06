@@ -7,7 +7,7 @@ export fn entry1() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:8: error: use of undefined value here causes undefined behavior
+// :2:8: error: use of undefined value here causes undefined behavior

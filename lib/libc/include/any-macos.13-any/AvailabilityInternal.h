@@ -55,7 +55,7 @@
     #ifdef __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__
         /* compiler sets __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__ when -mtvos-version-min is used */
         #define __TV_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__
-        #define __TV_OS_VERSION_MAX_ALLOWED __TVOS_16_1
+        #define __TV_OS_VERSION_MAX_ALLOWED __TVOS_16_4
         /* for compatibility with existing code.  New code should use platform specific checks */
         #define __IPHONE_OS_VERSION_MIN_REQUIRED 90000
     #endif
@@ -65,7 +65,7 @@
     #ifdef __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__
         /* compiler sets __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__ when -mwatchos-version-min is used */
         #define __WATCH_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__
-        #define __WATCH_OS_VERSION_MAX_ALLOWED __WATCHOS_9_1
+        #define __WATCH_OS_VERSION_MAX_ALLOWED __WATCHOS_9_4
         /* for compatibility with existing code.  New code should use platform specific checks */
         #define __IPHONE_OS_VERSION_MIN_REQUIRED 90000
     #endif
@@ -75,7 +75,7 @@
     #ifdef __ENVIRONMENT_BRIDGE_OS_VERSION_MIN_REQUIRED__
         
         #define __BRIDGE_OS_VERSION_MIN_REQUIRED __ENVIRONMENT_BRIDGE_OS_VERSION_MIN_REQUIRED__
-        #define __BRIDGE_OS_VERSION_MAX_ALLOWED 70100
+        #define __BRIDGE_OS_VERSION_MAX_ALLOWED 70300
         /* for compatibility with existing code.  New code should use platform specific checks */
         #define __IPHONE_OS_VERSION_MIN_REQUIRED 110000
     #endif
@@ -90,14 +90,14 @@
 #ifdef __MAC_OS_X_VERSION_MIN_REQUIRED
     /* make sure a default max version is set */
     #ifndef __MAC_OS_X_VERSION_MAX_ALLOWED
-        #define __MAC_OS_X_VERSION_MAX_ALLOWED __MAC_13_0
+        #define __MAC_OS_X_VERSION_MAX_ALLOWED __MAC_13_3
     #endif
 #endif /* __MAC_OS_X_VERSION_MIN_REQUIRED */
 
 #ifdef __IPHONE_OS_VERSION_MIN_REQUIRED
     /* make sure a default max version is set */
     #ifndef __IPHONE_OS_VERSION_MAX_ALLOWED
-        #define __IPHONE_OS_VERSION_MAX_ALLOWED     __IPHONE_16_1
+        #define __IPHONE_OS_VERSION_MAX_ALLOWED     __IPHONE_16_4
     #endif
     /* make sure a valid min is set */
     #if __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_2_0

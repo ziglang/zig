@@ -81,6 +81,7 @@ pub fn build(b: *std.Build) !void {
     const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
+    const skip_cross_glibc = b.option(bool, "skip-cross-glibc", "Main test suite skips builds that require cross glibc") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
     const skip_stage1 = b.option(bool, "skip-stage1", "Main test suite skips stage1 compile error tests") orelse false;
@@ -157,6 +158,7 @@ pub fn build(b: *std.Build) !void {
     if (only_install_lib_files)
         return;
 
+    const entitlements = b.option([]const u8, "entitlements", "Path to entitlements file for hot-code swapping without sudo on macOS");
     const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
     const tracy_callstack = b.option(bool, "tracy-callstack", "Include callstack information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
     const tracy_allocation = b.option(bool, "tracy-allocation", "Include allocation information with Tracy data. Does nothing if -Dtracy is not provided") orelse (tracy != null);
@@ -178,6 +180,7 @@ pub fn build(b: *std.Build) !void {
     exe.pie = pie;
     exe.sanitize_thread = sanitize_thread;
     exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
+    exe.entitlements = entitlements;
     exe.install();
 
     const compile_step = b.step("compile", "Build the self-hosted compiler");
@@ -355,6 +358,7 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(bool, "enable_logging", enable_logging);
     test_cases_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     test_cases_options.addOption(bool, "skip_non_native", skip_non_native);
+    test_cases_options.addOption(bool, "skip_cross_glibc", skip_cross_glibc);
     test_cases_options.addOption(bool, "skip_stage1", skip_stage1);
     test_cases_options.addOption(bool, "have_llvm", enable_llvm);
     test_cases_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
@@ -420,6 +424,7 @@ pub fn build(b: *std.Build) !void {
         .optimize_modes = optimization_modes,
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
+        .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = skip_libc,
         .skip_stage1 = skip_stage1,
         .skip_stage2 = skip_stage2_tests,
@@ -434,6 +439,7 @@ pub fn build(b: *std.Build) !void {
         .optimize_modes = optimization_modes,
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = true,
         .skip_stage1 = skip_stage1,
         .skip_stage2 = true, // TODO get all these passing
@@ -447,6 +453,7 @@ pub fn build(b: *std.Build) !void {
         .optimize_modes = optimization_modes,
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = true,
         .skip_stage1 = skip_stage1,
         .skip_stage2 = true, // TODO get all these passing
@@ -478,6 +485,7 @@ pub fn build(b: *std.Build) !void {
         .optimize_modes = optimization_modes,
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
+        .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = skip_libc,
         .skip_stage1 = skip_stage1,
         .skip_stage2 = true, // TODO get all these passing

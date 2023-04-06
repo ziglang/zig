@@ -18,6 +18,7 @@ const IO_STATUS_BLOCK = windows.IO_STATUS_BLOCK;
 const LARGE_INTEGER = windows.LARGE_INTEGER;
 const OBJECT_INFORMATION_CLASS = windows.OBJECT_INFORMATION_CLASS;
 const FILE_INFORMATION_CLASS = windows.FILE_INFORMATION_CLASS;
+const FS_INFORMATION_CLASS = windows.FS_INFORMATION_CLASS;
 const UNICODE_STRING = windows.UNICODE_STRING;
 const RTL_OSVERSIONINFOW = windows.RTL_OSVERSIONINFOW;
 const FILE_BASIC_INFORMATION = windows.FILE_BASIC_INFORMATION;
@@ -30,58 +31,19 @@ const UNWIND_HISTORY_TABLE = windows.UNWIND_HISTORY_TABLE;
 const RUNTIME_FUNCTION = windows.RUNTIME_FUNCTION;
 const KNONVOLATILE_CONTEXT_POINTERS = windows.KNONVOLATILE_CONTEXT_POINTERS;
 const EXCEPTION_ROUTINE = windows.EXCEPTION_ROUTINE;
+const THREADINFOCLASS = windows.THREADINFOCLASS;
+const PROCESSINFOCLASS = windows.PROCESSINFOCLASS;
+const LPVOID = windows.LPVOID;
+const LPCVOID = windows.LPCVOID;
 
-pub const THREADINFOCLASS = enum(c_int) {
-    ThreadBasicInformation,
-    ThreadTimes,
-    ThreadPriority,
-    ThreadBasePriority,
-    ThreadAffinityMask,
-    ThreadImpersonationToken,
-    ThreadDescriptorTableEntry,
-    ThreadEnableAlignmentFaultFixup,
-    ThreadEventPair_Reusable,
-    ThreadQuerySetWin32StartAddress,
-    ThreadZeroTlsCell,
-    ThreadPerformanceCount,
-    ThreadAmILastThread,
-    ThreadIdealProcessor,
-    ThreadPriorityBoost,
-    ThreadSetTlsArrayAddress,
-    ThreadIsIoPending,
-    // Windows 2000+ from here
-    ThreadHideFromDebugger,
-    // Windows XP+ from here
-    ThreadBreakOnTermination,
-    ThreadSwitchLegacyState,
-    ThreadIsTerminated,
-    // Windows Vista+ from here
-    ThreadLastSystemCall,
-    ThreadIoPriority,
-    ThreadCycleTime,
-    ThreadPagePriority,
-    ThreadActualBasePriority,
-    ThreadTebInformation,
-    ThreadCSwitchMon,
-    // Windows 7+ from here
-    ThreadCSwitchPmu,
-    ThreadWow64Context,
-    ThreadGroupInformation,
-    ThreadUmsInformation,
-    ThreadCounterProfiling,
-    ThreadIdealProcessorEx,
-    // Windows 8+ from here
-    ThreadCpuAccountingInformation,
-    // Windows 8.1+ from here
-    ThreadSuspendCount,
-    // Windows 10+ from here
-    ThreadHeterogeneousCpuPolicy,
-    ThreadContainerId,
-    ThreadNameInformation,
-    ThreadSelectedCpuSets,
-    ThreadSystemThreadInformation,
-    ThreadActualGroupAffinity,
-};
+pub extern "ntdll" fn NtQueryInformationProcess(
+    ProcessHandle: HANDLE,
+    ProcessInformationClass: PROCESSINFOCLASS,
+    ProcessInformation: *anyopaque,
+    ProcessInformationLength: ULONG,
+    ReturnLength: ?*ULONG,
+) callconv(WINAPI) NTSTATUS;
+
 pub extern "ntdll" fn NtQueryInformationThread(
     ThreadHandle: HANDLE,
     ThreadInformationClass: THREADINFOCLASS,
@@ -232,6 +194,14 @@ pub extern "ntdll" fn NtQueryObject(
     ReturnLength: ?*ULONG,
 ) callconv(WINAPI) NTSTATUS;
 
+pub extern "ntdll" fn NtQueryVolumeInformationFile(
+    FileHandle: HANDLE,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+    FsInformation: *anyopaque,
+    Length: ULONG,
+    FsInformationClass: FS_INFORMATION_CLASS,
+) callconv(WINAPI) NTSTATUS;
+
 pub extern "ntdll" fn RtlWakeAddressAll(
     Address: ?*const anyopaque,
 ) callconv(WINAPI) void;
@@ -292,10 +262,26 @@ pub extern "ntdll" fn RtlQueryRegistryValues(
     Environment: ?*anyopaque,
 ) callconv(WINAPI) NTSTATUS;
 
+pub extern "ntdll" fn NtReadVirtualMemory(
+    ProcessHandle: HANDLE,
+    BaseAddress: ?PVOID,
+    Buffer: LPVOID,
+    NumberOfBytesToRead: SIZE_T,
+    NumberOfBytesRead: ?*SIZE_T,
+) callconv(WINAPI) NTSTATUS;
+
+pub extern "ntdll" fn NtWriteVirtualMemory(
+    ProcessHandle: HANDLE,
+    BaseAddress: ?PVOID,
+    Buffer: LPCVOID,
+    NumberOfBytesToWrite: SIZE_T,
+    NumberOfBytesWritten: ?*SIZE_T,
+) callconv(WINAPI) NTSTATUS;
+
 pub extern "ntdll" fn NtProtectVirtualMemory(
     ProcessHandle: HANDLE,
-    BaseAddress: *PVOID,
-    NumberOfBytesToProtect: *ULONG,
+    BaseAddress: *?PVOID,
+    NumberOfBytesToProtect: *SIZE_T,
     NewAccessProtection: ULONG,
     OldAccessProtection: *ULONG,
 ) callconv(WINAPI) NTSTATUS;

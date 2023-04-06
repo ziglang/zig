@@ -65,14 +65,10 @@
 #ifndef _MACH_I386_BOOLEAN_H_
 #define _MACH_I386_BOOLEAN_H_
 
-#if defined (__i386__) || defined (__x86_64__)
-
 #if defined(__x86_64__) && !defined(KERNEL)
 typedef unsigned int    boolean_t;
 #else
 typedef int             boolean_t;
 #endif
-
-#endif /* defined (__i386__) || defined (__x86_64__) */
 
 #endif  /* _MACH_I386_BOOLEAN_H_ */

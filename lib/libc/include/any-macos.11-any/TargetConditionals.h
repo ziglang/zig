@@ -61,10 +61,8 @@
  *  The IOS/TV/WATCH conditionals are mutually exclusive.
  *
  *
- *      TARGET_OS_WIN32           - Generated code will run under WIN32 API
- *      TARGET_OS_WINDOWS         - Generated code will run under Windows
+ *      TARGET_OS_WIN32           - Generated code will run under 32-bit Windows
  *      TARGET_OS_UNIX            - Generated code will run under some Unix (not OSX)
- *      TARGET_OS_LINUX           - Generated code will run under Linux
  *      TARGET_OS_MAC             - Generated code will run under Mac OS X variant
  *         TARGET_OS_OSX          - Generated code will run under OS X devices
  *         TARGET_OS_IPHONE          - Generated code for firmware, devices, or simulator
@@ -180,7 +178,7 @@
     /* -target=x86_64-apple-driverkit19.0 */
     /* -target=arm64-apple-driverkit19.0 */
     /* -target=arm64e-apple-driverkit19.0 */
-    #if __is_target_vendor(apple) && __is_target_os(driverkit)
+    #if (__is_target_arch(x86_64) || __is_target_arch(arm64) || __is_target_arch(arm64e)) && __is_target_vendor(apple) && __is_target_os(driverkit)
         #define TARGET_OS_OSX               0
         #define TARGET_OS_IPHONE            0
         #define TARGET_OS_IOS               0
@@ -216,9 +214,7 @@
 #if defined(__GNUC__) && ( defined(__APPLE_CPP__) || defined(__APPLE_CC__) || defined(__MACOS_CLASSIC__) )
     #define TARGET_OS_MAC               1
     #define TARGET_OS_WIN32             0
-    #define TARGET_OS_WINDOWS           0
     #define TARGET_OS_UNIX              0
-    #define TARGET_OS_LINUX             0
 
     #if !DYNAMIC_TARGETS_ENABLED
         #define TARGET_OS_OSX               1
@@ -359,9 +355,7 @@
 #elif defined(__MWERKS__)
     #define TARGET_OS_MAC               1
     #define TARGET_OS_WIN32             0
-    #define TARGET_OS_WINDOWS           0
     #define TARGET_OS_UNIX              0
-    #define TARGET_OS_LINUX             0
     #define TARGET_OS_EMBEDDED          0
     #if defined(__POWERPC__)
         #define TARGET_CPU_PPC          1
@@ -487,9 +481,7 @@
     #endif
     #define TARGET_OS_MAC                1
     #define TARGET_OS_WIN32              0
-    #define TARGET_OS_WINDOWS            0
     #define TARGET_OS_UNIX               0
-    #define TARGET_OS_LINUX              0
     #define TARGET_OS_EMBEDDED           0
     #if TARGET_CPU_PPC || TARGET_CPU_PPC64
         #define TARGET_RT_BIG_ENDIAN     1

@@ -404,12 +404,27 @@ struct fhandle {
 };
 typedef struct fhandle  fhandle_t;
 
+/*
+ * Cryptex authentication
+ * Note: these 2 enums are used in conjunction, graftdmg_type is used for authentication while grafting
+ * cryptexes and cryptex_auth_type is currently used for authentication while mounting generic
+ * cryptexes. We need to make sure we do not use the reserved values in each for a new authentication type.
+ */
+
 OS_ENUM(graftdmg_type, uint32_t,
     GRAFTDMG_CRYPTEX_BOOT = 1,
     GRAFTDMG_CRYPTEX_PREBOOT = 2,
-    GRAFTDMG_CRYPTEX_DOWNLEVEL = 3);
+    GRAFTDMG_CRYPTEX_DOWNLEVEL = 3
+    // Reserved: CRYPTEX1_AUTH_ENV_GENERIC = 4,
+    // Reserved: CRYPTEX1_AUTH_ENV_GENERIC_SUPPLEMENTAL = 5
+    );
 
-
+OS_ENUM(cryptex_auth_type, uint32_t,
+    // Reserved: GRAFTDMG_CRYPTEX_BOOT = 1,
+    // Reserved: GRAFTDMG_CRYPTEX_PREBOOT = 2,
+    // Reserved: GRAFTDMG_CRYPTEX_DOWNLEVEL = 3,
+    CRYPTEX1_AUTH_ENV_GENERIC = 4,
+    CRYPTEX1_AUTH_ENV_GENERIC_SUPPLEMENTAL = 5);
 
 
 __BEGIN_DECLS

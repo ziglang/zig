@@ -203,47 +203,6 @@ pub extern "c" fn mach_timebase_info(tinfo: ?*mach_timebase_info_data) kern_retu
 pub extern "c" fn malloc_size(?*const anyopaque) usize;
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 
-pub const posix_spawnattr_t = *opaque {};
-pub const posix_spawn_file_actions_t = *opaque {};
-pub extern "c" fn posix_spawnattr_init(attr: *posix_spawnattr_t) c_int;
-pub extern "c" fn posix_spawnattr_destroy(attr: *posix_spawnattr_t) c_int;
-pub extern "c" fn posix_spawnattr_setflags(attr: *posix_spawnattr_t, flags: c_short) c_int;
-pub extern "c" fn posix_spawnattr_getflags(attr: *const posix_spawnattr_t, flags: *c_short) c_int;
-pub extern "c" fn posix_spawn_file_actions_init(actions: *posix_spawn_file_actions_t) c_int;
-pub extern "c" fn posix_spawn_file_actions_destroy(actions: *posix_spawn_file_actions_t) c_int;
-pub extern "c" fn posix_spawn_file_actions_addclose(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
-pub extern "c" fn posix_spawn_file_actions_addopen(
-    actions: *posix_spawn_file_actions_t,
-    filedes: fd_t,
-    path: [*:0]const u8,
-    oflag: c_int,
-    mode: mode_t,
-) c_int;
-pub extern "c" fn posix_spawn_file_actions_adddup2(
-    actions: *posix_spawn_file_actions_t,
-    filedes: fd_t,
-    newfiledes: fd_t,
-) c_int;
-pub extern "c" fn posix_spawn_file_actions_addinherit_np(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
-pub extern "c" fn posix_spawn_file_actions_addchdir_np(actions: *posix_spawn_file_actions_t, path: [*:0]const u8) c_int;
-pub extern "c" fn posix_spawn_file_actions_addfchdir_np(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
-pub extern "c" fn posix_spawn(
-    pid: *pid_t,
-    path: [*:0]const u8,
-    actions: ?*const posix_spawn_file_actions_t,
-    attr: ?*const posix_spawnattr_t,
-    argv: [*:null]?[*:0]const u8,
-    env: [*:null]?[*:0]const u8,
-) c_int;
-pub extern "c" fn posix_spawnp(
-    pid: *pid_t,
-    path: [*:0]const u8,
-    actions: ?*const posix_spawn_file_actions_t,
-    attr: ?*const posix_spawnattr_t,
-    argv: [*:null]?[*:0]const u8,
-    env: [*:null]?[*:0]const u8,
-) c_int;
-
 pub extern "c" fn kevent64(
     kq: c_int,
     changelist: [*]const kevent64_s,
@@ -475,6 +434,10 @@ pub const VM_REGION_SUBMAP_SHORT_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf
 pub const VM_REGION_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_basic_info_64) / @sizeOf(c_int);
 pub const VM_REGION_EXTENDED_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_extended_info) / @sizeOf(natural_t);
 pub const VM_REGION_TOP_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_top_info) / @sizeOf(natural_t);
+
+pub fn VM_MAKE_TAG(tag: u8) u32 {
+    return @as(u32, tag) << 24;
+}
 
 pub const vm_region_basic_info_64 = extern struct {
     protection: vm_prot_t,
@@ -890,6 +853,21 @@ pub const EAI = enum(c_int) {
 
 pub const EAI_MAX = 15;
 
+pub const qos_class_t = enum(c_uint) {
+    /// highest priority QOS class for critical tasks
+    QOS_CLASS_USER_INTERACTIVE = 0x21,
+    /// slightly more moderate priority QOS class
+    QOS_CLASS_USER_INITIATED = 0x19,
+    /// default QOS class when none is set
+    QOS_CLASS_DEFAULT = 0x15,
+    /// more energy efficient QOS class than default
+    QOS_CLASS_UTILITY = 0x11,
+    /// QOS class more appropriate for background tasks
+    QOS_CLASS_BACKGROUND = 0x09,
+    /// QOS class as a return value
+    QOS_CLASS_UNSPECIFIED = 0x00,
+};
+
 pub const pthread_mutex_t = extern struct {
     __sig: c_long = 0x32AAABA7,
     __opaque: [__PTHREAD_MUTEX_SIZE__]u8 = [_]u8{0} ** __PTHREAD_MUTEX_SIZE__,
@@ -914,6 +892,10 @@ pub const pthread_attr_t = extern struct {
 pub extern "c" fn pthread_threadid_np(thread: ?std.c.pthread_t, thread_id: *u64) c_int;
 pub extern "c" fn pthread_setname_np(name: [*:0]const u8) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
+pub extern "c" fn pthread_attr_set_qos_class_np(attr: *pthread_attr_t, qos_class: qos_class_t, relative_priority: c_int) c_int;
+pub extern "c" fn pthread_attr_get_qos_class_np(attr: *pthread_attr_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
+pub extern "c" fn pthread_set_qos_class_self_np(qos_class: qos_class_t, relative_priority: c_int) c_int;
+pub extern "c" fn pthread_get_qos_class_np(pthread: std.c.pthread_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
 
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
@@ -2176,18 +2158,6 @@ pub const E = enum(u16) {
     _,
 };
 
-pub fn getKernError(err: kern_return_t) KernE {
-    return @intToEnum(KernE, @truncate(u32, @intCast(usize, err)));
-}
-
-pub fn unexpectedKernError(err: KernE) std.os.UnexpectedError {
-    if (std.os.unexpected_error_tracing) {
-        std.debug.print("unexpected errno: {d}\n", .{@enumToInt(err)});
-        std.debug.dumpCurrentStackTrace(null);
-    }
-    return error.Unexpected;
-}
-
 /// Kernel return values
 pub const KernE = enum(u32) {
     SUCCESS = 0,
@@ -3063,37 +3033,319 @@ pub const CPUFAMILY = enum(u32) {
     _,
 };
 
-pub const POSIX_SPAWN_RESETIDS = 0x0001;
-pub const POSIX_SPAWN_SETPGROUP = 0x0002;
-pub const POSIX_SPAWN_SETSIGDEF = 0x0004;
-pub const POSIX_SPAWN_SETSIGMASK = 0x0008;
-pub const POSIX_SPAWN_SETEXEC = 0x0040;
-pub const POSIX_SPAWN_START_SUSPENDED = 0x0080;
-pub const _POSIX_SPAWN_DISABLE_ASLR = 0x0100;
-pub const POSIX_SPAWN_SETSID = 0x0400;
-pub const _POSIX_SPAWN_RESLIDE = 0x0800;
-pub const POSIX_SPAWN_CLOEXEC_DEFAULT = 0x4000;
-
-pub const PT_TRACE_ME = 0;
-pub const PT_READ_I = 1;
-pub const PT_READ_D = 2;
-pub const PT_READ_U = 3;
-pub const PT_WRITE_I = 4;
-pub const PT_WRITE_D = 5;
-pub const PT_WRITE_U = 6;
-pub const PT_CONTINUE = 7;
-pub const PT_KILL = 8;
-pub const PT_STEP = 9;
-pub const PT_DETACH = 11;
-pub const PT_SIGEXC = 12;
-pub const PT_THUPDATE = 13;
-pub const PT_ATTACHEXC = 14;
-pub const PT_FORCEQUOTA = 30;
-pub const PT_DENY_ATTACH = 31;
+pub const PT = struct {
+    pub const TRACE_ME = 0;
+    pub const READ_I = 1;
+    pub const READ_D = 2;
+    pub const READ_U = 3;
+    pub const WRITE_I = 4;
+    pub const WRITE_D = 5;
+    pub const WRITE_U = 6;
+    pub const CONTINUE = 7;
+    pub const KILL = 8;
+    pub const STEP = 9;
+    pub const DETACH = 11;
+    pub const SIGEXC = 12;
+    pub const THUPDATE = 13;
+    pub const ATTACHEXC = 14;
+    pub const FORCEQUOTA = 30;
+    pub const DENY_ATTACH = 31;
+};
 
 pub const caddr_t = ?[*]u8;
 
 pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: caddr_t, data: c_int) c_int;
+
+pub const POSIX_SPAWN = struct {
+    pub const RESETIDS = 0x0001;
+    pub const SETPGROUP = 0x0002;
+    pub const SETSIGDEF = 0x0004;
+    pub const SETSIGMASK = 0x0008;
+    pub const SETEXEC = 0x0040;
+    pub const START_SUSPENDED = 0x0080;
+    pub const DISABLE_ASLR = 0x0100;
+    pub const SETSID = 0x0400;
+    pub const RESLIDE = 0x0800;
+    pub const CLOEXEC_DEFAULT = 0x4000;
+};
+
+pub const posix_spawnattr_t = *opaque {};
+pub const posix_spawn_file_actions_t = *opaque {};
+pub extern "c" fn posix_spawnattr_init(attr: *posix_spawnattr_t) c_int;
+pub extern "c" fn posix_spawnattr_destroy(attr: *posix_spawnattr_t) c_int;
+pub extern "c" fn posix_spawnattr_setflags(attr: *posix_spawnattr_t, flags: c_short) c_int;
+pub extern "c" fn posix_spawnattr_getflags(attr: *const posix_spawnattr_t, flags: *c_short) c_int;
+pub extern "c" fn posix_spawn_file_actions_init(actions: *posix_spawn_file_actions_t) c_int;
+pub extern "c" fn posix_spawn_file_actions_destroy(actions: *posix_spawn_file_actions_t) c_int;
+pub extern "c" fn posix_spawn_file_actions_addclose(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
+pub extern "c" fn posix_spawn_file_actions_addopen(
+    actions: *posix_spawn_file_actions_t,
+    filedes: fd_t,
+    path: [*:0]const u8,
+    oflag: c_int,
+    mode: mode_t,
+) c_int;
+pub extern "c" fn posix_spawn_file_actions_adddup2(
+    actions: *posix_spawn_file_actions_t,
+    filedes: fd_t,
+    newfiledes: fd_t,
+) c_int;
+pub extern "c" fn posix_spawn_file_actions_addinherit_np(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
+pub extern "c" fn posix_spawn_file_actions_addchdir_np(actions: *posix_spawn_file_actions_t, path: [*:0]const u8) c_int;
+pub extern "c" fn posix_spawn_file_actions_addfchdir_np(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
+pub extern "c" fn posix_spawn(
+    pid: *pid_t,
+    path: [*:0]const u8,
+    actions: ?*const posix_spawn_file_actions_t,
+    attr: ?*const posix_spawnattr_t,
+    argv: [*:null]?[*:0]const u8,
+    env: [*:null]?[*:0]const u8,
+) c_int;
+pub extern "c" fn posix_spawnp(
+    pid: *pid_t,
+    path: [*:0]const u8,
+    actions: ?*const posix_spawn_file_actions_t,
+    attr: ?*const posix_spawnattr_t,
+    argv: [*:null]?[*:0]const u8,
+    env: [*:null]?[*:0]const u8,
+) c_int;
+
+pub const PosixSpawn = struct {
+    const errno = std.os.errno;
+    const unexpectedErrno = std.os.unexpectedErrno;
+
+    pub const Error = error{
+        SystemResources,
+        InvalidFileDescriptor,
+        NameTooLong,
+        TooBig,
+        PermissionDenied,
+        InputOutput,
+        FileSystem,
+        FileNotFound,
+        InvalidExe,
+        NotDir,
+        FileBusy,
+        /// Returned when the child fails to execute either in the pre-exec() initialization step, or
+        /// when exec(3) is invoked.
+        ChildExecFailed,
+    } || std.os.UnexpectedError;
+
+    pub const Attr = struct {
+        attr: posix_spawnattr_t,
+
+        pub fn init() Error!Attr {
+            var attr: posix_spawnattr_t = undefined;
+            switch (errno(posix_spawnattr_init(&attr))) {
+                .SUCCESS => return Attr{ .attr = attr },
+                .NOMEM => return error.SystemResources,
+                .INVAL => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn deinit(self: *Attr) void {
+            defer self.* = undefined;
+            switch (errno(posix_spawnattr_destroy(&self.attr))) {
+                .SUCCESS => return,
+                .INVAL => unreachable, // Invalid parameters.
+                else => unreachable,
+            }
+        }
+
+        pub fn get(self: Attr) Error!u16 {
+            var flags: c_short = undefined;
+            switch (errno(posix_spawnattr_getflags(&self.attr, &flags))) {
+                .SUCCESS => return @bitCast(u16, flags),
+                .INVAL => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn set(self: *Attr, flags: u16) Error!void {
+            switch (errno(posix_spawnattr_setflags(&self.attr, @bitCast(c_short, flags)))) {
+                .SUCCESS => return,
+                .INVAL => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+    };
+
+    pub const Actions = struct {
+        actions: posix_spawn_file_actions_t,
+
+        pub fn init() Error!Actions {
+            var actions: posix_spawn_file_actions_t = undefined;
+            switch (errno(posix_spawn_file_actions_init(&actions))) {
+                .SUCCESS => return Actions{ .actions = actions },
+                .NOMEM => return error.SystemResources,
+                .INVAL => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn deinit(self: *Actions) void {
+            defer self.* = undefined;
+            switch (errno(posix_spawn_file_actions_destroy(&self.actions))) {
+                .SUCCESS => return,
+                .INVAL => unreachable, // Invalid parameters.
+                else => unreachable,
+            }
+        }
+
+        pub fn open(self: *Actions, fd: fd_t, path: []const u8, flags: u32, mode: mode_t) Error!void {
+            const posix_path = try std.os.toPosixPath(path);
+            return self.openZ(fd, &posix_path, flags, mode);
+        }
+
+        pub fn openZ(self: *Actions, fd: fd_t, path: [*:0]const u8, flags: u32, mode: mode_t) Error!void {
+            switch (errno(posix_spawn_file_actions_addopen(&self.actions, fd, path, @bitCast(c_int, flags), mode))) {
+                .SUCCESS => return,
+                .BADF => return error.InvalidFileDescriptor,
+                .NOMEM => return error.SystemResources,
+                .NAMETOOLONG => return error.NameTooLong,
+                .INVAL => unreachable, // the value of file actions is invalid
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn close(self: *Actions, fd: fd_t) Error!void {
+            switch (errno(posix_spawn_file_actions_addclose(&self.actions, fd))) {
+                .SUCCESS => return,
+                .BADF => return error.InvalidFileDescriptor,
+                .NOMEM => return error.SystemResources,
+                .INVAL => unreachable, // the value of file actions is invalid
+                .NAMETOOLONG => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn dup2(self: *Actions, fd: fd_t, newfd: fd_t) Error!void {
+            switch (errno(posix_spawn_file_actions_adddup2(&self.actions, fd, newfd))) {
+                .SUCCESS => return,
+                .BADF => return error.InvalidFileDescriptor,
+                .NOMEM => return error.SystemResources,
+                .INVAL => unreachable, // the value of file actions is invalid
+                .NAMETOOLONG => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn inherit(self: *Actions, fd: fd_t) Error!void {
+            switch (errno(posix_spawn_file_actions_addinherit_np(&self.actions, fd))) {
+                .SUCCESS => return,
+                .BADF => return error.InvalidFileDescriptor,
+                .NOMEM => return error.SystemResources,
+                .INVAL => unreachable, // the value of file actions is invalid
+                .NAMETOOLONG => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn chdir(self: *Actions, path: []const u8) Error!void {
+            const posix_path = try std.os.toPosixPath(path);
+            return self.chdirZ(&posix_path);
+        }
+
+        pub fn chdirZ(self: *Actions, path: [*:0]const u8) Error!void {
+            switch (errno(posix_spawn_file_actions_addchdir_np(&self.actions, path))) {
+                .SUCCESS => return,
+                .NOMEM => return error.SystemResources,
+                .NAMETOOLONG => return error.NameTooLong,
+                .BADF => unreachable,
+                .INVAL => unreachable, // the value of file actions is invalid
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+
+        pub fn fchdir(self: *Actions, fd: fd_t) Error!void {
+            switch (errno(posix_spawn_file_actions_addfchdir_np(&self.actions, fd))) {
+                .SUCCESS => return,
+                .BADF => return error.InvalidFileDescriptor,
+                .NOMEM => return error.SystemResources,
+                .INVAL => unreachable, // the value of file actions is invalid
+                .NAMETOOLONG => unreachable,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+    };
+
+    pub fn spawn(
+        path: []const u8,
+        actions: ?Actions,
+        attr: ?Attr,
+        argv: [*:null]?[*:0]const u8,
+        envp: [*:null]?[*:0]const u8,
+    ) Error!pid_t {
+        const posix_path = try std.os.toPosixPath(path);
+        return spawnZ(&posix_path, actions, attr, argv, envp);
+    }
+
+    pub fn spawnZ(
+        path: [*:0]const u8,
+        actions: ?Actions,
+        attr: ?Attr,
+        argv: [*:null]?[*:0]const u8,
+        envp: [*:null]?[*:0]const u8,
+    ) Error!pid_t {
+        var pid: pid_t = undefined;
+        switch (errno(posix_spawn(
+            &pid,
+            path,
+            if (actions) |a| &a.actions else null,
+            if (attr) |a| &a.attr else null,
+            argv,
+            envp,
+        ))) {
+            .SUCCESS => return pid,
+            .@"2BIG" => return error.TooBig,
+            .NOMEM => return error.SystemResources,
+            .BADF => return error.InvalidFileDescriptor,
+            .ACCES => return error.PermissionDenied,
+            .IO => return error.InputOutput,
+            .LOOP => return error.FileSystem,
+            .NAMETOOLONG => return error.NameTooLong,
+            .NOENT => return error.FileNotFound,
+            .NOEXEC => return error.InvalidExe,
+            .NOTDIR => return error.NotDir,
+            .TXTBSY => return error.FileBusy,
+            .BADARCH => return error.InvalidExe,
+            .BADEXEC => return error.InvalidExe,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    pub fn waitpid(pid: pid_t, flags: u32) Error!std.os.WaitPidResult {
+        var status: c_int = undefined;
+        while (true) {
+            const rc = waitpid(pid, &status, @intCast(c_int, flags));
+            switch (errno(rc)) {
+                .SUCCESS => return std.os.WaitPidResult{
+                    .pid = @intCast(pid_t, rc),
+                    .status = @bitCast(u32, status),
+                },
+                .INTR => continue,
+                .CHILD => return error.ChildExecFailed,
+                .INVAL => unreachable, // Invalid flags.
+                else => unreachable,
+            }
+        }
+    }
+};
+
+pub fn getKernError(err: kern_return_t) KernE {
+    return @intToEnum(KernE, @truncate(u32, @intCast(usize, err)));
+}
+
+pub fn unexpectedKernError(err: KernE) std.os.UnexpectedError {
+    if (std.os.unexpected_error_tracing) {
+        std.debug.print("unexpected error: {d}\n", .{@enumToInt(err)});
+        std.debug.dumpCurrentStackTrace(null);
+    }
+    return error.Unexpected;
+}
 
 pub const MachError = error{
     /// Not enough permissions held to perform the requested kernel
@@ -3562,3 +3814,35 @@ pub fn machTaskForPid(pid: std.os.pid_t) MachError!MachTask {
 pub fn machTaskForSelf() MachTask {
     return .{ .port = mach_task_self() };
 }
+
+pub const os_signpost_id_t = u64;
+
+pub const OS_SIGNPOST_ID_NULL: os_signpost_id_t = 0;
+pub const OS_SIGNPOST_ID_INVALID: os_signpost_id_t = !0;
+pub const OS_SIGNPOST_ID_EXCLUSIVE: os_signpost_id_t = 0xeeeeb0b5b2b2eeee;
+
+pub const os_log_t = opaque {};
+pub const os_log_type_t = enum(u8) {
+    /// default messages always captures
+    OS_LOG_TYPE_DEFAULT = 0x00,
+    /// messages with additional infos
+    OS_LOG_TYPE_INFO = 0x01,
+    /// debug messages
+    OS_LOG_TYPE_DEBUG = 0x02,
+    /// error messages
+    OS_LOG_TYPE_ERROR = 0x10,
+    /// unexpected conditions messages
+    OS_LOG_TYPE_FAULT = 0x11,
+};
+
+pub const OS_LOG_CATEGORY_POINTS_OF_INTEREST: *const u8 = "PointsOfInterest";
+pub const OS_LOG_CATEGORY_DYNAMIC_TRACING: *const u8 = "DynamicTracing";
+pub const OS_LOG_CATEGORY_DYNAMIC_STACK_TRACING: *const u8 = "DynamicStackTracing";
+
+pub extern "c" fn os_log_create(subsystem: [*]const u8, category: [*]const u8) os_log_t;
+pub extern "c" fn os_log_type_enabled(log: os_log_t, tpe: os_log_type_t) bool;
+pub extern "c" fn os_signpost_id_generate(log: os_log_t) os_signpost_id_t;
+pub extern "c" fn os_signpost_interval_begin(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
+pub extern "c" fn os_signpost_interval_end(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
+pub extern "c" fn os_signpost_id_make_with_pointer(log: os_log_t, ptr: ?*anyopaque) os_signpost_id_t;
+pub extern "c" fn os_signpost_enabled(log: os_log_t) bool;

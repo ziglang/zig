@@ -4,17 +4,17 @@ targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatal
                    arm64e-macos, arm64e-maccatalyst ]
 uuids:
   - target:          x86_64-macos
-    value:           89E331F9-9A00-3EA4-B49F-FA2B91AE9182
+    value:           EADFB1D1-E113-35B4-BD2D-C1E4C38010D4
   - target:          x86_64-maccatalyst
-    value:           89E331F9-9A00-3EA4-B49F-FA2B91AE9182
+    value:           EADFB1D1-E113-35B4-BD2D-C1E4C38010D4
   - target:          arm64-macos
     value:           00000000-0000-0000-0000-000000000000
   - target:          arm64-maccatalyst
     value:           00000000-0000-0000-0000-000000000000
   - target:          arm64e-macos
-    value:           A9F7E132-0FFC-31FC-83C6-3848CA460DF3
+    value:           A03485B7-4C44-3F47-8BF9-5D6E1BE0CF27
   - target:          arm64e-maccatalyst
-    value:           A9F7E132-0FFC-31FC-83C6-3848CA460DF3
+    value:           A03485B7-4C44-3F47-8BF9-5D6E1BE0CF27
 install-name:    '/usr/lib/libSystem.B.dylib'
 current-version: 1292.100.5
 reexported-libraries:
@@ -2058,19 +2058,19 @@ targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatal
                    arm64e-macos, arm64e-maccatalyst ]
 uuids:
   - target:          x86_64-macos
-    value:           A78F60F4-ABD5-3646-93F9-1F1109C4552D
+    value:           62A19DE4-50C5-3866-B5B2-43220E379C3B
   - target:          x86_64-maccatalyst
-    value:           A78F60F4-ABD5-3646-93F9-1F1109C4552D
+    value:           62A19DE4-50C5-3866-B5B2-43220E379C3B
   - target:          arm64-macos
-    value:           B7A2A355-3D98-3BBF-82CC-A82E05B30F1B
+    value:           C11F3472-54B1-3A61-A02F-6A80EA06F414
   - target:          arm64-maccatalyst
-    value:           B7A2A355-3D98-3BBF-82CC-A82E05B30F1B
+    value:           C11F3472-54B1-3A61-A02F-6A80EA06F414
   - target:          arm64e-macos
-    value:           1B63FA43-CA44-3EB6-BF55-54F2E306B3CE
+    value:           D4C172DA-4E97-32E4-8969-C738E4AC9559
   - target:          arm64e-maccatalyst
-    value:           1B63FA43-CA44-3EB6-BF55-54F2E306B3CE
+    value:           D4C172DA-4E97-32E4-8969-C738E4AC9559
 install-name:    '/usr/lib/system/libsystem_kernel.dylib'
-current-version: 7195.101.1
+current-version: 7195.101.2
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]

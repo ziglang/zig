@@ -59,8 +59,6 @@
 #ifndef _MACH_I386_EXCEPTION_H_
 #define _MACH_I386_EXCEPTION_H_
 
-#if defined (__i386__) || defined (__x86_64__)
-
 /*
  * No machine dependent types for the 80386
  */
@@ -133,7 +131,5 @@
  *	machine dependent exception masks
  */
 #define EXC_MASK_MACHINE        0
-
-#endif /* defined (__i386__) || defined (__x86_64__) */
 
 #endif  /* _MACH_I386_EXCEPTION_H_ */

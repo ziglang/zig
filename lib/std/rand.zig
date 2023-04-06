@@ -18,11 +18,12 @@ const maxInt = std.math.maxInt;
 pub const DefaultPrng = Xoshiro256;
 
 /// Cryptographically secure random numbers.
-pub const DefaultCsprng = Ascon;
+pub const DefaultCsprng = ChaCha;
 
 pub const Ascon = @import("rand/Ascon.zig");
+pub const ChaCha = @import("rand/ChaCha.zig");
+
 pub const Isaac64 = @import("rand/Isaac64.zig");
-pub const Xoodoo = @import("rand/Xoodoo.zig");
 pub const Pcg = @import("rand/Pcg.zig");
 pub const Xoroshiro128 = @import("rand/Xoroshiro128.zig");
 pub const Xoshiro256 = @import("rand/Xoshiro256.zig");

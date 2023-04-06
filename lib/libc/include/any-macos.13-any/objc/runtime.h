@@ -542,7 +542,7 @@ class_getInstanceMethod(Class _Nullable cls, SEL _Nonnull name)
  * 
  * @return A pointer to the \c Method data structure that corresponds to the implementation of the 
  *  selector specified by aSelector for the class specified by aClass, or NULL if the specified 
- *  class or its superclasses do not contain an instance method with the specified selector.
+ *  class or its superclasses do not contain a class method with the specified selector.
  *
  * @note Note that this function searches superclasses for implementations, 
  *  whereas \c class_copyMethodList does not.
@@ -1898,6 +1898,17 @@ _objc_realizeClassFromSwift(Class _Nullable cls, void * _Nullable previously)
 
 struct objc_method_list;
 
+/* Used for testing only */
+
+OBJC_EXPORT void
+_objc_flush_caches(Class _Nullable cls) 
+    __OSX_DEPRECATED(10.0, 10.5, "not recommended")
+    __IOS_DEPRECATED(2.0, 2.0, "not recommended")
+    __TVOS_DEPRECATED(9.0, 9.0, "not recommended")
+    __WATCHOS_DEPRECATED(1.0, 1.0, "not recommended")
+
+;
+
 /* Obsolete functions */
 
 #if !0
@@ -1916,15 +1927,6 @@ class_respondsToMethod(Class _Nullable cls, SEL _Nonnull sel)
     __IOS_DEPRECATED(2.0, 2.0, "use class_respondsToSelector instead")
     __TVOS_DEPRECATED(9.0, 9.0, "use class_respondsToSelector instead")
     __WATCHOS_DEPRECATED(1.0, 1.0, "use class_respondsToSelector instead")
-
-;
-
-OBJC_EXPORT void
-_objc_flush_caches(Class _Nullable cls) 
-    __OSX_DEPRECATED(10.0, 10.5, "not recommended")
-    __IOS_DEPRECATED(2.0, 2.0, "not recommended")
-    __TVOS_DEPRECATED(9.0, 9.0, "not recommended")
-    __WATCHOS_DEPRECATED(1.0, 1.0, "not recommended")
 
 ;
 

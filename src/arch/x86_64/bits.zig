@@ -6,6 +6,9 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const DW = std.dwarf;
 
+pub const StringRepeat = enum(u3) { none, rep, repe, repz, repne, repnz };
+pub const StringWidth = enum(u2) { b, w, d, q };
+
 /// EFLAGS condition codes
 pub const Condition = enum(u5) {
     /// above
@@ -97,8 +100,17 @@ pub const Condition = enum(u5) {
         };
     }
 
-    /// Returns the condition which is true iff the given condition is
-    /// false (if such a condition exists)
+    pub fn fromCompareOperator(
+        signedness: std.builtin.Signedness,
+        op: std.math.CompareOperator,
+    ) Condition {
+        return switch (signedness) {
+            .signed => fromCompareOperatorSigned(op),
+            .unsigned => fromCompareOperatorUnsigned(op),
+        };
+    }
+
+    /// Returns the condition which is true iff the given condition is false
     pub fn negate(cond: Condition) Condition {
         return switch (cond) {
             .a => .na,
@@ -127,8 +139,8 @@ pub const Condition = enum(u5) {
             .nz => .z,
             .o => .no,
             .p => .np,
-            .pe => unreachable,
-            .po => unreachable,
+            .pe => .po,
+            .po => .pe,
             .s => .ns,
             .z => .nz,
         };
@@ -409,20 +421,17 @@ pub const Memory = union(enum) {
         dword,
         qword,
         tbyte,
+        dqword,
 
         pub fn fromSize(size: u32) PtrSize {
-            return if (size <= 1)
-                .byte
-            else if (size <= 2)
-                .word
-            else if (size <= 4)
-                .dword
-            else if (size <= 8)
-                .qword
-            else if (size == 10)
-                .tbyte
-            else
-                unreachable;
+            return switch (size) {
+                1...1 => .byte,
+                2...2 => .word,
+                3...4 => .dword,
+                5...8 => .qword,
+                9...16 => .dqword,
+                else => unreachable,
+            };
         }
 
         pub fn fromBitSize(bit_size: u64) PtrSize {
@@ -432,6 +441,7 @@ pub const Memory = union(enum) {
                 32 => .dword,
                 64 => .qword,
                 80 => .tbyte,
+                128 => .dqword,
                 else => unreachable,
             };
         }
@@ -443,6 +453,7 @@ pub const Memory = union(enum) {
                 .dword => 32,
                 .qword => 64,
                 .tbyte => 80,
+                .dqword => 128,
             };
         }
     };
@@ -470,10 +481,11 @@ pub const Memory = union(enum) {
     }
 
     pub fn sib(ptr_size: PtrSize, args: struct {
-        disp: i32,
+        disp: i32 = 0,
         base: ?Register = null,
         scale_index: ?ScaleIndex = null,
     }) Memory {
+        if (args.scale_index) |si| assert(std.math.isPowerOfTwo(si.scale));
         return .{ .sib = .{
             .base = args.base,
             .disp = args.disp,
@@ -513,7 +525,7 @@ pub const Memory = union(enum) {
         return switch (mem) {
             .rip => |r| r.ptr_size.bitSize(),
             .sib => |s| s.ptr_size.bitSize(),
-            .moffs => unreachable,
+            .moffs => 64,
         };
     }
 };

@@ -63,7 +63,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 7);
+        comptime assert(Compilation.link_hash_implementation_version == 8);
 
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -223,8 +223,8 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         if (self.base.options.nxcompat) {
             try argv.append("-nxcompat");
         }
-        if (self.base.options.dynamicbase) {
-            try argv.append("-dynamicbase");
+        if (!self.base.options.dynamicbase) {
+            try argv.append("-dynamicbase:NO");
         }
 
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));

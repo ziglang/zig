@@ -18,13 +18,13 @@ const tmp_dir_name = "docgen_tmp";
 const test_out_path = tmp_dir_name ++ fs.path.sep_str ++ "test" ++ exe_ext;
 
 const usage =
-    \\Usage: docgen [--zig] [--skip-code-test] input output"
+    \\Usage: docgen [--zig] [--skip-code-tests] input output"
     \\
     \\   Generates an HTML document from a docgen template.
     \\
     \\Options:
     \\   -h, --help             Print this help and exit
-    \\   --skip-code-test       Skip the doctests
+    \\   --skip-code-tests      Skip the doctests
     \\
 ;
 
@@ -329,6 +329,7 @@ const Code = struct {
     link_mode: ?std.builtin.LinkMode,
     disable_cache: bool,
     verbose_cimport: bool,
+    additional_options: []const []const u8,
 
     const Id = union(enum) {
         Test,
@@ -596,6 +597,8 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     var disable_cache = false;
                     var verbose_cimport = false;
                     var backend_stage1 = false;
+                    var additional_options = std.ArrayList([]const u8).init(allocator);
+                    defer additional_options.deinit();
 
                     const source_token = while (true) {
                         const content_tok = try eatToken(tokenizer, Token.Id.Content);
@@ -630,6 +633,10 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             link_mode = .Dynamic;
                         } else if (mem.eql(u8, end_tag_name, "backend_stage1")) {
                             backend_stage1 = true;
+                        } else if (mem.eql(u8, end_tag_name, "additonal_option")) {
+                            _ = try eatToken(tokenizer, Token.Id.Separator);
+                            const option = try eatToken(tokenizer, Token.Id.TagContent);
+                            try additional_options.append(tokenizer.buffer[option.start..option.end]);
                         } else if (mem.eql(u8, end_tag_name, "code_end")) {
                             _ = try eatToken(tokenizer, Token.Id.BracketClose);
                             break content_tok;
@@ -657,6 +664,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             .link_mode = link_mode,
                             .disable_cache = disable_cache,
                             .verbose_cimport = verbose_cimport,
+                            .additional_options = try additional_options.toOwnedSlice(),
                         },
                     });
                     tokenizer.code_node_count += 1;
@@ -1418,6 +1426,10 @@ fn genHtml(
                             try build_args.append("--verbose-cimport");
                             try shell_out.print("--verbose-cimport ", .{});
                         }
+                        for (code.additional_options) |option| {
+                            try build_args.append(option);
+                            try shell_out.print("{s} ", .{option});
+                        }
 
                         try shell_out.print("\n", .{});
 
@@ -1729,6 +1741,10 @@ fn genHtml(
                             try build_args.appendSlice(&[_][]const u8{ "-target", triple });
                             try shell_out.print("-target {s} ", .{triple});
                         }
+                        for (code.additional_options) |option| {
+                            try build_args.append(option);
+                            try shell_out.print("{s} ", .{option});
+                        }
 
                         if (maybe_error_match) |error_match| {
                             const result = try ChildProcess.exec(.{
@@ -1810,6 +1826,10 @@ fn genHtml(
                                     try shell_out.print("-dynamic ", .{});
                                 },
                             }
+                        }
+                        for (code.additional_options) |option| {
+                            try test_args.append(option);
+                            try shell_out.print("{s} ", .{option});
                         }
                         const result = exec(allocator, &env_map, test_args.items) catch return parseError(tokenizer, code.source_token, "test failed", .{});
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);

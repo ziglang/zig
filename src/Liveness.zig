@@ -240,6 +240,9 @@ pub fn categorizeOperand(
         .err_return_trace,
         .save_err_return_trace_index,
         .c_va_start,
+        .work_item_id,
+        .work_group_size,
+        .work_group_id,
         => return .none,
 
         .fence => return .write,
@@ -864,6 +867,9 @@ fn analyzeInst(
         .err_return_trace,
         .save_err_return_trace_index,
         .c_va_start,
+        .work_item_id,
+        .work_group_size,
+        .work_group_id,
         => return trackOperands(a, new_set, inst, main_tomb, .{ .none, .none, .none }),
 
         .not,

@@ -38,6 +38,20 @@ pub const Inst = struct {
         add,
         /// Logical and
         @"and",
+        /// Bit scan forward
+        bsf,
+        /// Bit scan reverse
+        bsr,
+        /// Byte swap
+        bswap,
+        /// Bit test
+        bt,
+        /// Bit test and complement
+        btc,
+        /// Bit test and reset
+        btr,
+        /// Bit test and set
+        bts,
         /// Call
         call,
         /// Convert byte to word
@@ -54,6 +68,10 @@ pub const Inst = struct {
         cqo,
         /// Logical compare
         cmp,
+        /// Compare and exchange
+        cmpxchg,
+        /// Compare and exchange bytes
+        cmpxchgb,
         /// Unsigned division
         div,
         /// Store integer with truncation
@@ -70,61 +88,130 @@ pub const Inst = struct {
         jmp,
         /// Load effective address
         lea,
+        /// Load fence
+        lfence,
+        /// Count the number of leading zero bits
+        lzcnt,
+        /// Memory fence
+        mfence,
         /// Move
         mov,
+        /// Move data after swapping bytes
+        movbe,
         /// Move with sign extension
         movsx,
         /// Move with zero extension
         movzx,
         /// Multiply
         mul,
+        /// Two's complement negation
+        neg,
         /// No-op
         nop,
+        /// One's complement negation
+        not,
         /// Logical or
         @"or",
         /// Pop
         pop,
+        /// Return the count of number of bits set to 1
+        popcnt,
         /// Push
         push,
+        /// Rotate left through carry
+        rcl,
+        /// Rotate right through carry
+        rcr,
         /// Return
         ret,
+        /// Rotate left
+        rol,
+        /// Rotate right
+        ror,
         /// Arithmetic shift left
         sal,
         /// Arithmetic shift right
         sar,
         /// Integer subtraction with borrow
         sbb,
+        /// Store fence
+        sfence,
         /// Logical shift left
         shl,
+        /// Double precision shift left
+        shld,
         /// Logical shift right
         shr,
+        /// Double precision shift right
+        shrd,
         /// Subtract
         sub,
         /// Syscall
         syscall,
         /// Test condition
         @"test",
+        /// Count the number of trailing zero bits
+        tzcnt,
         /// Undefined instruction
         ud2,
+        /// Exchange and add
+        xadd,
+        /// Exchange register/memory with register
+        xchg,
         /// Logical exclusive-or
         xor,
 
-        /// Add single precision floating point
+        /// Add single precision floating point values
         addss,
         /// Compare scalar single-precision floating-point values
         cmpss,
+        /// Divide scalar single-precision floating-point values
+        divss,
+        /// Return maximum single-precision floating-point value
+        maxss,
+        /// Return minimum single-precision floating-point value
+        minss,
         /// Move scalar single-precision floating-point value
         movss,
+        /// Multiply scalar single-precision floating-point values
+        mulss,
+        /// Round scalar single-precision floating-point values
+        roundss,
+        /// Subtract scalar single-precision floating-point values
+        subss,
         /// Unordered compare scalar single-precision floating-point values
         ucomiss,
-        /// Add double precision floating point
+        /// Add double precision floating point values
         addsd,
         /// Compare scalar double-precision floating-point values
         cmpsd,
+        /// Divide scalar double-precision floating-point values
+        divsd,
+        /// Return maximum double-precision floating-point value
+        maxsd,
+        /// Return minimum double-precision floating-point value
+        minsd,
         /// Move scalar double-precision floating-point value
         movsd,
+        /// Multiply scalar double-precision floating-point values
+        mulsd,
+        /// Round scalar double-precision floating-point values
+        roundsd,
+        /// Subtract scalar double-precision floating-point values
+        subsd,
         /// Unordered compare scalar double-precision floating-point values
         ucomisd,
+
+        /// Compare string operands
+        cmps,
+        /// Load string
+        lods,
+        /// Move data from string to string
+        movs,
+        /// Scan string
+        scas,
+        /// Store string
+        stos,
 
         /// Conditional move
         cmovcc,
@@ -185,11 +272,11 @@ pub const Inst = struct {
         /// Uses `rri`  payload.
         rri_u,
         /// Register with condition code (CC).
-        /// Uses `r_c` payload.
-        r_c,
+        /// Uses `r_cc` payload.
+        r_cc,
         /// Register, register with condition code (CC).
-        /// Uses `rr_c` payload.
-        rr_c,
+        /// Uses `rr_cc` payload.
+        rr_cc,
         /// Register, immediate (sign-extended) operands.
         /// Uses `ri` payload.
         ri_s,
@@ -201,10 +288,10 @@ pub const Inst = struct {
         ri64,
         /// Immediate (sign-extended) operand.
         /// Uses `imm` payload.
-        imm_s,
+        i_s,
         /// Immediate (unsigned) operand.
         /// Uses `imm` payload.
-        imm_u,
+        i_u,
         /// Relative displacement operand.
         /// Uses `imm` payload.
         rel,
@@ -214,46 +301,96 @@ pub const Inst = struct {
         /// Register, memory (RIP) operands.
         /// Uses `rx` payload.
         rm_rip,
+        /// Register, memory (SIB) operands with condition code (CC).
+        /// Uses `rx_cc` payload.
+        rm_sib_cc,
+        /// Register, memory (RIP) operands with condition code (CC).
+        /// Uses `rx_cc` payload.
+        rm_rip_cc,
         /// Single memory (SIB) operand.
         /// Uses `payload` with extra data of type `MemorySib`.
         m_sib,
         /// Single memory (RIP) operand.
         /// Uses `payload` with extra data of type `MemoryRip`.
         m_rip,
+        /// Single memory (SIB) operand with condition code (CC).
+        /// Uses `x_cc` with extra data of type `MemorySib`.
+        m_sib_cc,
+        /// Single memory (RIP) operand with condition code (CC).
+        /// Uses `x_cc` with extra data of type `MemoryRip`.
+        m_rip_cc,
         /// Memory (SIB), immediate (unsigned) operands.
-        /// Uses `xi` payload with extra data of type `MemorySib`.
-        mi_u_sib,
+        /// Uses `ix` payload with extra data of type `MemorySib`.
+        mi_sib_u,
         /// Memory (RIP), immediate (unsigned) operands.
-        /// Uses `xi` payload with extra data of type `MemoryRip`.
-        mi_u_rip,
+        /// Uses `ix` payload with extra data of type `MemoryRip`.
+        mi_rip_u,
         /// Memory (SIB), immediate (sign-extend) operands.
-        /// Uses `xi` payload with extra data of type `MemorySib`.
-        mi_s_sib,
+        /// Uses `ix` payload with extra data of type `MemorySib`.
+        mi_sib_s,
         /// Memory (RIP), immediate (sign-extend) operands.
-        /// Uses `xi` payload with extra data of type `MemoryRip`.
-        mi_s_rip,
+        /// Uses `ix` payload with extra data of type `MemoryRip`.
+        mi_rip_s,
         /// Memory (SIB), register operands.
         /// Uses `rx` payload with extra data of type `MemorySib`.
         mr_sib,
         /// Memory (RIP), register operands.
         /// Uses `rx` payload with extra data of type `MemoryRip`.
         mr_rip,
+        /// Memory (SIB), register, register operands.
+        /// Uses `rrx` payload with extra data of type `MemorySib`.
+        mrr_sib,
+        /// Memory (RIP), register, register operands.
+        /// Uses `rrx` payload with extra data of type `MemoryRip`.
+        mrr_rip,
+        /// Memory (SIB), register, immediate (byte) operands.
+        /// Uses `rix` payload with extra data of type `MemorySib`.
+        mri_sib,
+        /// Memory (RIP), register, immediate (byte) operands.
+        /// Uses `rix` payload with extra data of type `MemoryRip`.
+        mri_rip,
         /// Rax, Memory moffs.
         /// Uses `payload` with extra data of type `MemoryMoffs`.
         rax_moffs,
         /// Memory moffs, rax.
         /// Uses `payload` with extra data of type `MemoryMoffs`.
         moffs_rax,
+        /// Single memory (SIB) operand with lock prefix.
+        /// Uses `payload` with extra data of type `MemorySib`.
+        lock_m_sib,
+        /// Single memory (RIP) operand with lock prefix.
+        /// Uses `payload` with extra data of type `MemoryRip`.
+        lock_m_rip,
+        /// Memory (SIB), immediate (unsigned) operands with lock prefix.
+        /// Uses `xi` payload with extra data of type `MemorySib`.
+        lock_mi_sib_u,
+        /// Memory (RIP), immediate (unsigned) operands with lock prefix.
+        /// Uses `xi` payload with extra data of type `MemoryRip`.
+        lock_mi_rip_u,
+        /// Memory (SIB), immediate (sign-extend) operands with lock prefix.
+        /// Uses `xi` payload with extra data of type `MemorySib`.
+        lock_mi_sib_s,
+        /// Memory (RIP), immediate (sign-extend) operands with lock prefix.
+        /// Uses `xi` payload with extra data of type `MemoryRip`.
+        lock_mi_rip_s,
+        /// Memory (SIB), register operands with lock prefix.
+        /// Uses `rx` payload with extra data of type `MemorySib`.
+        lock_mr_sib,
+        /// Memory (RIP), register operands with lock prefix.
+        /// Uses `rx` payload with extra data of type `MemoryRip`.
+        lock_mr_rip,
+        /// Memory moffs, rax with lock prefix.
+        /// Uses `payload` with extra data of type `MemoryMoffs`.
+        lock_moffs_rax,
         /// References another Mir instruction directly.
         /// Uses `inst` payload.
         inst,
         /// References another Mir instruction directly with condition code (CC).
         /// Uses `inst_cc` payload.
         inst_cc,
-        /// Uses `payload` payload with data of type `MemoryConditionCode`.
-        m_cc,
-        /// Uses `rx` payload with extra data of type `MemoryConditionCode`.
-        rm_cc,
+        /// String repeat and width
+        /// Uses `string` payload.
+        string,
         /// Uses `reloc` payload.
         reloc,
         /// Linker relocation - GOT indirection.
@@ -279,7 +416,7 @@ pub const Inst = struct {
             cc: bits.Condition,
         },
         /// A 32-bit immediate value.
-        imm: u32,
+        i: u32,
         r: Register,
         rr: struct {
             r1: Register,
@@ -293,33 +430,61 @@ pub const Inst = struct {
         rri: struct {
             r1: Register,
             r2: Register,
-            imm: u32,
+            i: u32,
+        },
+        /// Condition code (CC), followed by custom payload found in extra.
+        x_cc: struct {
+            cc: bits.Condition,
+            payload: u32,
         },
         /// Register with condition code (CC).
-        r_c: struct {
-            r1: Register,
+        r_cc: struct {
+            r: Register,
             cc: bits.Condition,
         },
         /// Register, register with condition code (CC).
-        rr_c: struct {
+        rr_cc: struct {
             r1: Register,
             r2: Register,
             cc: bits.Condition,
         },
         /// Register, immediate.
         ri: struct {
-            r1: Register,
-            imm: u32,
+            r: Register,
+            i: u32,
         },
         /// Register, followed by custom payload found in extra.
         rx: struct {
-            r1: Register,
+            r: Register,
             payload: u32,
         },
-        /// Custom payload followed by an immediate.
-        xi: struct {
+        /// Register with condition code (CC), followed by custom payload found in extra.
+        rx_cc: struct {
+            r: Register,
+            cc: bits.Condition,
             payload: u32,
-            imm: u32,
+        },
+        /// Immediate, followed by Custom payload found in extra.
+        ix: struct {
+            i: u32,
+            payload: u32,
+        },
+        /// Register, register, followed by Custom payload found in extra.
+        rrx: struct {
+            r1: Register,
+            r2: Register,
+            payload: u32,
+        },
+        /// Register, byte immediate, followed by Custom payload found in extra.
+        rix: struct {
+            r: Register,
+            i: u8,
+            payload: u32,
+        },
+        /// String instruction prefix and width.
+        string: struct {
+            repeat: bits.StringRepeat,
+            width: bits.StringWidth,
         },
         /// Relocation for the linker where:
         /// * `atom_index` is the index of the source
@@ -490,16 +655,19 @@ pub const MemoryMoffs = struct {
     msb: u32,
     lsb: u32,
 
-    pub fn encodeOffset(moffs: *MemoryMoffs, v: u64) void {
-        moffs.msb = @truncate(u32, v >> 32);
-        moffs.lsb = @truncate(u32, v);
+    pub fn encode(seg: Register, offset: u64) MemoryMoffs {
+        return .{
+            .seg = @enumToInt(seg),
+            .msb = @truncate(u32, offset >> 32),
+            .lsb = @truncate(u32, offset >> 0),
+        };
     }
 
-    pub fn decodeOffset(moffs: *const MemoryMoffs) u64 {
-        var res: u64 = 0;
-        res |= (@intCast(u64, moffs.msb) << 32);
-        res |= @intCast(u64, moffs.lsb);
-        return res;
+    pub fn decode(moffs: MemoryMoffs) Memory {
+        return .{ .moffs = .{
+            .seg = @intToEnum(Register, moffs.seg),
+            .offset = @as(u64, moffs.msb) << 32 | @as(u64, moffs.lsb) << 0,
+        } };
     }
 };
 

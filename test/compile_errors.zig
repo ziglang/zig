@@ -136,4 +136,51 @@ pub fn addCases(ctx: *Cases) !void {
             \\const dummy = 0;
         );
     }
+
+    {
+        const case = ctx.obj("wrong same named struct", .{});
+
+        case.addError(
+            \\const a = @import("a.zig");
+            \\const b = @import("b.zig");
+            \\
+            \\export fn entry() void {
+            \\    var a1: a.Foo = undefined;
+            \\    bar(&a1);
+            \\}
+            \\
+            \\fn bar(_: *b.Foo) void {}
+        , &[_][]const u8{
+            ":6:9: error: expected type '*b.Foo', found '*a.Foo'",
+            ":6:9: note: pointer type child 'a.Foo' cannot cast into pointer type child 'b.Foo'",
+            ":1:17: note: struct declared here",
+            ":1:17: note: struct declared here",
+            ":9:11: note: parameter type declared here",
+        });
+
+        case.addSourceFile("a.zig",
+            \\pub const Foo = struct {
+            \\    x: i32,
+            \\};
+        );
+
+        case.addSourceFile("b.zig",
+            \\pub const Foo = struct {
+            \\    z: f64,
+            \\};
+        );
+    }
+
+    {
+        const case = ctx.obj("non-printable invalid character", .{});
+
+        case.addError("\xff\xfe" ++
+            \\export fn foo() bool {
+            \\    return true;
+            \\}
+        , &[_][]const u8{
+            ":1:1: error: expected type expression, found 'invalid bytes'",
+            ":1:1: note: invalid byte: '\\xff'",
+        });
+    }
 }

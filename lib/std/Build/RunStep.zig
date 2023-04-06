@@ -594,7 +594,8 @@ fn runCommand(
                 .qemu => |bin_name| {
                     if (b.enable_qemu) {
                         const glibc_dir_arg = if (need_cross_glibc)
-                            b.glibc_runtimes_dir orelse return
+                            b.glibc_runtimes_dir orelse
+                                return failForeign(self, "--glibc-runtimes", argv[0], exe)
                         else
                             null;
 

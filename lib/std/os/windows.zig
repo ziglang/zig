@@ -1230,23 +1230,6 @@ test "GetFinalPathNameByHandle" {
     _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0..required_len_in_u16]);
 }
 
-pub const QueryInformationFileError = error{Unexpected};
-
-pub fn QueryInformationFile(
-    handle: HANDLE,
-    info_class: FILE_INFORMATION_CLASS,
-    out_buffer: []u8,
-) QueryInformationFileError!void {
-    var io: IO_STATUS_BLOCK = undefined;
-    const len_bytes = std.math.cast(u32, out_buffer.len) orelse unreachable;
-    const rc = ntdll.NtQueryInformationFile(handle, &io, out_buffer.ptr, len_bytes, info_class);
-    switch (rc) {
-        .SUCCESS => {},
-        .INVALID_PARAMETER => unreachable,
-        else => return unexpectedStatus(rc),
-    }
-}
-
 pub const GetFileSizeError = error{Unexpected};
 
 pub fn GetFileSizeEx(hFile: HANDLE) GetFileSizeError!u64 {
@@ -1531,6 +1514,24 @@ pub fn VirtualProtect(lpAddress: ?LPVOID, dwSize: SIZE_T, flNewProtect: DWORD, l
     }
 }
 
+pub fn VirtualProtectEx(handle: HANDLE, addr: ?LPVOID, size: SIZE_T, new_prot: DWORD) VirtualProtectError!DWORD {
+    var old_prot: DWORD = undefined;
+    var out_addr = addr;
+    var out_size = size;
+    switch (ntdll.NtProtectVirtualMemory(
+        handle,
+        &out_addr,
+        &out_size,
+        new_prot,
+        &old_prot,
+    )) {
+        .SUCCESS => return old_prot,
+        .INVALID_ADDRESS => return error.InvalidAddress,
+        // TODO: map errors
+        else => |rc| return std.os.windows.unexpectedStatus(rc),
+    }
+}
+
 pub const VirtualQueryError = error{Unexpected};
 
 pub fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) VirtualQueryError!SIZE_T {
@@ -1723,21 +1724,6 @@ pub fn HeapDestroy(hHeap: HANDLE) void {
 
 pub fn LocalFree(hMem: HLOCAL) void {
     assert(kernel32.LocalFree(hMem) == null);
-}
-
-pub const GetFileInformationByHandleError = error{Unexpected};
-
-pub fn GetFileInformationByHandle(
-    hFile: HANDLE,
-) GetFileInformationByHandleError!BY_HANDLE_FILE_INFORMATION {
-    var info: BY_HANDLE_FILE_INFORMATION = undefined;
-    const rc = ntdll.GetFileInformationByHandle(hFile, &info);
-    if (rc == 0) {
-        switch (kernel32.GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return info;
 }
 
 pub const SetFileTimeError = error{Unexpected};
@@ -2482,6 +2468,29 @@ pub const FILE_INFORMATION_CLASS = enum(c_int) {
     FileStorageReserveIdInformation,
     FileCaseSensitiveInformationForceAccessCheck,
     FileMaximumInformation,
+};
+
+pub const FILE_FS_DEVICE_INFORMATION = extern struct {
+    DeviceType: DEVICE_TYPE,
+    Characteristics: ULONG,
+};
+
+pub const FS_INFORMATION_CLASS = enum(c_int) {
+    FileFsVolumeInformation = 1,
+    FileFsLabelInformation,
+    FileFsSizeInformation,
+    FileFsDeviceInformation,
+    FileFsAttributeInformation,
+    FileFsControlInformation,
+    FileFsFullSizeInformation,
+    FileFsObjectIdInformation,
+    FileFsDriverPathInformation,
+    FileFsVolumeFlagsInformation,
+    FileFsSectorSizeInformation,
+    FileFsDataCopyInformation,
+    FileFsMetadataSizeInformation,
+    FileFsFullSizeInformationEx,
+    FileFsMaximumInformation,
 };
 
 pub const OVERLAPPED = extern struct {
@@ -3956,6 +3965,20 @@ pub const PSAPI_WS_WATCH_INFORMATION = extern struct {
     FaultingVa: LPVOID,
 };
 
+pub const VM_COUNTERS = extern struct {
+    PeakVirtualSize: SIZE_T,
+    VirtualSize: SIZE_T,
+    PageFaultCount: ULONG,
+    PeakWorkingSetSize: SIZE_T,
+    WorkingSetSize: SIZE_T,
+    QuotaPeakPagedPoolUsage: SIZE_T,
+    QuotaPagedPoolUsage: SIZE_T,
+    QuotaPeakNonPagedPoolUsage: SIZE_T,
+    QuotaNonPagedPoolUsage: SIZE_T,
+    PagefileUsage: SIZE_T,
+    PeakPagefileUsage: SIZE_T,
+};
+
 pub const PROCESS_MEMORY_COUNTERS = extern struct {
     cb: DWORD,
     PageFaultCount: DWORD,
@@ -3982,6 +4005,24 @@ pub const PROCESS_MEMORY_COUNTERS_EX = extern struct {
     PeakPagefileUsage: SIZE_T,
     PrivateUsage: SIZE_T,
 };
+
+pub const GetProcessMemoryInfoError = error{
+    AccessDenied,
+    InvalidHandle,
+    Unexpected,
+};
+
+pub fn GetProcessMemoryInfo(hProcess: HANDLE) GetProcessMemoryInfoError!VM_COUNTERS {
+    var vmc: VM_COUNTERS = undefined;
+    const rc = ntdll.NtQueryInformationProcess(hProcess, .ProcessVmCounters, &vmc, @sizeOf(VM_COUNTERS), null);
+    switch (rc) {
+        .SUCCESS => return vmc,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .INVALID_HANDLE => return error.InvalidHandle,
+        .INVALID_PARAMETER => unreachable,
+        else => return unexpectedStatus(rc),
+    }
+}
 
 pub const PERFORMANCE_INFORMATION = extern struct {
     cb: DWORD,
@@ -4434,3 +4475,184 @@ pub const MODULEENTRY32 = extern struct {
     szModule: [MAX_MODULE_NAME32 + 1]CHAR,
     szExePath: [MAX_PATH]CHAR,
 };
+
+pub const THREADINFOCLASS = enum(c_int) {
+    ThreadBasicInformation,
+    ThreadTimes,
+    ThreadPriority,
+    ThreadBasePriority,
+    ThreadAffinityMask,
+    ThreadImpersonationToken,
+    ThreadDescriptorTableEntry,
+    ThreadEnableAlignmentFaultFixup,
+    ThreadEventPair_Reusable,
+    ThreadQuerySetWin32StartAddress,
+    ThreadZeroTlsCell,
+    ThreadPerformanceCount,
+    ThreadAmILastThread,
+    ThreadIdealProcessor,
+    ThreadPriorityBoost,
+    ThreadSetTlsArrayAddress,
+    ThreadIsIoPending,
+    // Windows 2000+ from here
+    ThreadHideFromDebugger,
+    // Windows XP+ from here
+    ThreadBreakOnTermination,
+    ThreadSwitchLegacyState,
+    ThreadIsTerminated,
+    // Windows Vista+ from here
+    ThreadLastSystemCall,
+    ThreadIoPriority,
+    ThreadCycleTime,
+    ThreadPagePriority,
+    ThreadActualBasePriority,
+    ThreadTebInformation,
+    ThreadCSwitchMon,
+    // Windows 7+ from here
+    ThreadCSwitchPmu,
+    ThreadWow64Context,
+    ThreadGroupInformation,
+    ThreadUmsInformation,
+    ThreadCounterProfiling,
+    ThreadIdealProcessorEx,
+    // Windows 8+ from here
+    ThreadCpuAccountingInformation,
+    // Windows 8.1+ from here
+    ThreadSuspendCount,
+    // Windows 10+ from here
+    ThreadHeterogeneousCpuPolicy,
+    ThreadContainerId,
+    ThreadNameInformation,
+    ThreadSelectedCpuSets,
+    ThreadSystemThreadInformation,
+    ThreadActualGroupAffinity,
+};
+
+pub const PROCESSINFOCLASS = enum(c_int) {
+    ProcessBasicInformation,
+    ProcessQuotaLimits,
+    ProcessIoCounters,
+    ProcessVmCounters,
+    ProcessTimes,
+    ProcessBasePriority,
+    ProcessRaisePriority,
+    ProcessDebugPort,
+    ProcessExceptionPort,
+    ProcessAccessToken,
+    ProcessLdtInformation,
+    ProcessLdtSize,
+    ProcessDefaultHardErrorMode,
+    ProcessIoPortHandlers,
+    ProcessPooledUsageAndLimits,
+    ProcessWorkingSetWatch,
+    ProcessUserModeIOPL,
+    ProcessEnableAlignmentFaultFixup,
+    ProcessPriorityClass,
+    ProcessWx86Information,
+    ProcessHandleCount,
+    ProcessAffinityMask,
+    ProcessPriorityBoost,
+    ProcessDeviceMap,
+    ProcessSessionInformation,
+    ProcessForegroundInformation,
+    ProcessWow64Information,
+    ProcessImageFileName,
+    ProcessLUIDDeviceMapsEnabled,
+    ProcessBreakOnTermination,
+    ProcessDebugObjectHandle,
+    ProcessDebugFlags,
+    ProcessHandleTracing,
+    ProcessIoPriority,
+    ProcessExecuteFlags,
+    ProcessTlsInformation,
+    ProcessCookie,
+    ProcessImageInformation,
+    ProcessCycleTime,
+    ProcessPagePriority,
+    ProcessInstrumentationCallback,
+    ProcessThreadStackAllocation,
+    ProcessWorkingSetWatchEx,
+    ProcessImageFileNameWin32,
+    ProcessImageFileMapping,
+    ProcessAffinityUpdateMode,
+    ProcessMemoryAllocationMode,
+    ProcessGroupInformation,
+    ProcessTokenVirtualizationEnabled,
+    ProcessConsoleHostProcess,
+    ProcessWindowInformation,
+    MaxProcessInfoClass,
+};
+
+pub const PROCESS_BASIC_INFORMATION = extern struct {
+    ExitStatus: NTSTATUS,
+    PebBaseAddress: *PEB,
+    AffinityMask: ULONG_PTR,
+    BasePriority: KPRIORITY,
+    UniqueProcessId: ULONG_PTR,
+    InheritedFromUniqueProcessId: ULONG_PTR,
+};
+
+pub const ReadMemoryError = error{
+    Unexpected,
+};
+
+pub fn ReadProcessMemory(handle: HANDLE, addr: ?LPVOID, buffer: []u8) ReadMemoryError![]u8 {
+    var nread: usize = 0;
+    switch (ntdll.NtReadVirtualMemory(
+        handle,
+        addr,
+        buffer.ptr,
+        buffer.len,
+        &nread,
+    )) {
+        .SUCCESS => return buffer[0..nread],
+        // TODO: map errors
+        else => |rc| return unexpectedStatus(rc),
+    }
+}
+
+pub const WriteMemoryError = error{
+    Unexpected,
+};
+
+pub fn WriteProcessMemory(handle: HANDLE, addr: ?LPVOID, buffer: []const u8) WriteMemoryError!usize {
+    var nwritten: usize = 0;
+    switch (ntdll.NtWriteVirtualMemory(
+        handle,
+        addr,
+        @ptrCast(*const anyopaque, buffer.ptr),
+        buffer.len,
+        &nwritten,
+    )) {
+        .SUCCESS => return nwritten,
+        // TODO: map errors
+        else => |rc| return unexpectedStatus(rc),
+    }
+}
+
+pub const ProcessBaseAddressError = GetProcessMemoryInfoError || ReadMemoryError;
+
+/// Returns the base address of the process loaded into memory.
+pub fn ProcessBaseAddress(handle: HANDLE) ProcessBaseAddressError!HMODULE {
+    var info: PROCESS_BASIC_INFORMATION = undefined;
+    var nread: DWORD = 0;
+    const rc = ntdll.NtQueryInformationProcess(
+        handle,
+        .ProcessBasicInformation,
+        &info,
+        @sizeOf(PROCESS_BASIC_INFORMATION),
+        &nread,
+    );
+    switch (rc) {
+        .SUCCESS => {},
+        .ACCESS_DENIED => return error.AccessDenied,
+        .INVALID_HANDLE => return error.InvalidHandle,
+        .INVALID_PARAMETER => unreachable,
+        else => return unexpectedStatus(rc),
+    }
+
+    var peb_buf: [@sizeOf(PEB)]u8 align(@alignOf(PEB)) = undefined;
+    const peb_out = try ReadProcessMemory(handle, info.PebBaseAddress, &peb_buf);
+    const ppeb = @ptrCast(*const PEB, @alignCast(@alignOf(PEB), peb_out.ptr));
+    return ppeb.ImageBaseAddress;
+}

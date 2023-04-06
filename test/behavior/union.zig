@@ -1227,7 +1227,6 @@ test "union tag is set when initiated as a temporary value at runtime" {
 }
 
 test "extern union most-aligned field is smaller" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -1409,7 +1408,6 @@ test "union field ptr - zero sized field" {
 }
 
 test "packed union in packed struct" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -1492,4 +1490,69 @@ test "union reassignment can use previous value" {
     var a = U{ .a = 32 };
     a = U{ .b = a.a };
     try expect(a.b == 32);
+}
+
+test "packed union with zero-bit field" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    const S = packed struct {
+        nested: packed union {
+            zero: void,
+            sized: u32,
+        },
+        bar: u32,
+
+        fn doTest(self: @This()) !void {
+            try expect(self.bar == 42);
+        }
+    };
+    try S.doTest(.{ .nested = .{ .zero = {} }, .bar = 42 });
+}
+
+test "reinterpreting enum value inside packed union" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    const U = packed union {
+        tag: enum { a, b },
+        val: u8,
+
+        fn doTest() !void {
+            var u: @This() = .{ .tag = .a };
+            u.val += 1;
+            try expect(u.tag == .b);
+        }
+    };
+    try U.doTest();
+    comptime try U.doTest();
+}
+
+test "access the tag of a global tagged union" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const U = union(enum) {
+        a,
+        b: u8,
+        var u: @This() = .a;
+    };
+    try expect(U.u == .a);
+}
+
+test "coerce enum literal to union in result loc" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const U = union(enum) {
+        a,
+        b: u8,
+
+        fn doTest(c: bool) !void {
+            var u = if (c) .a else @This(){ .b = 0 };
+            try expect(u == .a);
+        }
+    };
+    try U.doTest(true);
+    comptime try U.doTest(true);
 }

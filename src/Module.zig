@@ -555,7 +555,7 @@ pub const Decl = struct {
         _,
 
         pub fn init(oi: ?Index) OptionalIndex {
-            return oi orelse .none;
+            return @intToEnum(OptionalIndex, @enumToInt(oi orelse return .none));
         }
 
         pub fn unwrap(oi: OptionalIndex) ?Index {
@@ -2459,7 +2459,7 @@ pub const SrcLoc = struct {
                 return nodeToSpan(tree, node_datas[asm_output].lhs);
             },
 
-            .node_offset_for_cond, .node_offset_if_cond => |node_off| {
+            .node_offset_if_cond => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_tags = tree.nodes.items(.tag);
@@ -2471,9 +2471,16 @@ pub const SrcLoc = struct {
                     .while_simple,
                     .while_cont,
                     .@"while",
+                    => tree.fullWhile(node).?.ast.cond_expr,
+
                     .for_simple,
                     .@"for",
-                    => tree.fullWhile(node).?.ast.cond_expr,
+                    => {
+                        const inputs = tree.fullFor(node).?.ast.inputs;
+                        const start = tree.firstToken(inputs[0]);
+                        const end = tree.lastToken(inputs[inputs.len - 1]);
+                        return tokensToSpan(tree, start, end, start);
+                    },
 
                     .@"orelse" => node,
                     .@"catch" => node,
@@ -2967,12 +2974,6 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to the initializer of a var decl.
     /// The Decl is determined contextually.
     node_offset_var_decl_init: i32,
-    /// The source location points to a for loop condition expression,
-    /// found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a for loop AST node. Next, navigate
-    /// to the condition expression.
-    /// The Decl is determined contextually.
-    node_offset_for_cond: i32,
     /// The source location points to the first parameter of a builtin
     /// function call, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a builtin call AST node. Next, navigate
@@ -3233,7 +3234,6 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_var_decl_section,
             .node_offset_var_decl_addrspace,
             .node_offset_var_decl_init,
-            .node_offset_for_cond,
             .node_offset_builtin_call_arg0,
             .node_offset_builtin_call_arg1,
             .node_offset_builtin_call_arg2,
@@ -5949,7 +5949,7 @@ pub const PeerTypeCandidateSrc = union(enum) {
     none: void,
     /// When we want to know the the src of candidate i, look up at
     /// index i in this slice
-    override: []LazySrcLoc,
+    override: []?LazySrcLoc,
     /// resolvePeerTypes originates from a @TypeOf(...) call
     typeof_builtin_call_node_offset: i32,
 

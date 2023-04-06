@@ -241,33 +241,75 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         );
     }
 
-    var options_dir = try b.cache_root.handle.makeOpenPath("options", .{});
-    defer options_dir.close();
+    const basename = "options.zig";
 
-    const basename = self.hashContentsToFileName();
+    // Hash contents to file name.
+    var hash = b.cache.hash;
+    // Random bytes to make unique. Refresh this with new random bytes when
+    // implementation is modified in a non-backwards-compatible way.
+    hash.add(@as(u32, 0x38845ef8));
+    hash.addBytes(self.contents.items);
+    const sub_path = "c" ++ fs.path.sep_str ++ hash.final() ++ fs.path.sep_str ++ basename;
 
-    try options_dir.writeFile(&basename, self.contents.items);
+    self.generated_file.path = try b.cache_root.join(b.allocator, &.{sub_path});
 
-    self.generated_file.path = try b.cache_root.join(b.allocator, &.{ "options", &basename });
-}
+    // Optimize for the hot path. Stat the file, and if it already exists,
+    // cache hit.
+    if (b.cache_root.handle.access(sub_path, .{})) |_| {
+        // This is the hot path, success.
+        step.result_cached = true;
+        return;
+    } else |outer_err| switch (outer_err) {
+        error.FileNotFound => {
+            const sub_dirname = fs.path.dirname(sub_path).?;
+            b.cache_root.handle.makePath(sub_dirname) catch |e| {
+                return step.fail("unable to make path '{}{s}': {s}", .{
+                    b.cache_root, sub_dirname, @errorName(e),
+                });
+            };
 
-fn hashContentsToFileName(self: *OptionsStep) [64]u8 {
-    // TODO update to use the cache system instead of this
-    // This implementation is copied from `WriteFileStep.make`
+            const rand_int = std.crypto.random.int(u64);
+            const tmp_sub_path = "tmp" ++ fs.path.sep_str ++
+                std.Build.hex64(rand_int) ++ fs.path.sep_str ++
+                basename;
+            const tmp_sub_path_dirname = fs.path.dirname(tmp_sub_path).?;
 
-    var hash = std.crypto.hash.blake2.Blake2b384.init(.{});
+            b.cache_root.handle.makePath(tmp_sub_path_dirname) catch |err| {
+                return step.fail("unable to make temporary directory '{}{s}': {s}", .{
+                    b.cache_root, tmp_sub_path_dirname, @errorName(err),
+                });
+            };
 
-    // Random bytes to make OptionsStep unique. Refresh this with
-    // new random bytes when OptionsStep implementation is modified
-    // in a non-backwards-compatible way.
-    hash.update("yL0Ya4KkmcCjBlP8");
-    hash.update(self.contents.items);
+            b.cache_root.handle.writeFile(tmp_sub_path, self.contents.items) catch |err| {
+                return step.fail("unable to write options to '{}{s}': {s}", .{
+                    b.cache_root, tmp_sub_path, @errorName(err),
+                });
+            };
 
-    var digest: [48]u8 = undefined;
-    hash.final(&digest);
-    var hash_basename: [64]u8 = undefined;
-    _ = fs.base64_encoder.encode(&hash_basename, &digest);
-    return hash_basename;
+            b.cache_root.handle.rename(tmp_sub_path, sub_path) catch |err| switch (err) {
+                error.PathAlreadyExists => {
+                    // Other process beat us to it. Clean up the temp file.
+                    b.cache_root.handle.deleteFile(tmp_sub_path) catch |e| {
+                        try step.addError("warning: unable to delete temp file '{}{s}': {s}", .{
+                            b.cache_root, tmp_sub_path, @errorName(e),
+                        });
+                    };
+                    step.result_cached = true;
+                    return;
+                },
+                else => {
+                    return step.fail("unable to rename options from '{}{s}' to '{}{s}': {s}", .{
+                        b.cache_root,    tmp_sub_path,
+                        b.cache_root,    sub_path,
+                        @errorName(err),
+                    });
+                },
+            };
+        },
+        else => |e| return step.fail("unable to access options file '{}{s}': {s}", .{
+            b.cache_root, sub_path, @errorName(e),
+        }),
+    }
 }
 
 const OptionArtifactArg = struct {

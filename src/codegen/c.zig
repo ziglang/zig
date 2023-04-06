@@ -1071,7 +1071,7 @@ pub const DeclGen = struct {
                     const extern_fn = val.castTag(.extern_fn).?.data;
                     try dg.renderDeclName(writer, extern_fn.owner_decl, 0);
                 },
-                .int_u64, .one => {
+                .int_u64, .one, .int_big_positive, .lazy_align, .lazy_size => {
                     try writer.writeAll("((");
                     try dg.renderType(writer, ty);
                     return writer.print("){x})", .{try dg.fmtIntLiteral(Type.usize, val, .Other)});
@@ -2997,6 +2997,11 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .c_va_arg => try airCVaArg(f, inst),
             .c_va_end => try airCVaEnd(f, inst),
             .c_va_copy => try airCVaCopy(f, inst),
+
+            .work_item_id,
+            .work_group_size,
+            .work_group_id,
+            => unreachable,
             // zig fmt: on
         };
         if (result_value == .new_local) {
@@ -3594,10 +3599,6 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
     const ptr_ty = f.air.typeOf(bin_op.lhs);
     const ptr_scalar_ty = ptr_ty.scalarType();
     const ptr_info = ptr_scalar_ty.ptrInfo().data;
-    if (!ptr_info.pointee_type.hasRuntimeBitsIgnoreComptime()) {
-        try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
-        return .none;
-    }
 
     const ptr_val = try f.resolveInst(bin_op.lhs);
     const src_ty = f.air.typeOf(bin_op.rhs);
@@ -4458,9 +4459,7 @@ fn airBr(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const dest_ty = f.air.typeOfIndex(inst);
-    // No IgnoreComptime until Sema stops giving us garbage Air.
-    // https://github.com/ziglang/zig/issues/13410
-    if (f.liveness.isUnused(inst) or !dest_ty.hasRuntimeBits()) {
+    if (f.liveness.isUnused(inst)) {
         try reap(f, inst, &.{ty_op.operand});
         return .none;
     }
@@ -6854,17 +6853,35 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
     switch (inst_ty.zigTypeTag()) {
         .Array, .Vector => {
             const elem_ty = inst_ty.childType();
-            for (resolved_elements, 0..) |element, i| {
-                try f.writeCValue(writer, local, .Other);
-                try writer.print("[{d}] = ", .{i});
-                try f.writeCValue(writer, element, .Other);
-                try writer.writeAll(";\n");
-            }
-            if (inst_ty.sentinel()) |sentinel| {
-                try f.writeCValue(writer, local, .Other);
-                try writer.print("[{d}] = ", .{resolved_elements.len});
-                try f.object.dg.renderValue(writer, elem_ty, sentinel, .Other);
-                try writer.writeAll(";\n");
+
+            const is_array = lowersToArray(elem_ty, target);
+            const need_memcpy = is_array;
+            if (need_memcpy) {
+                for (resolved_elements, 0..) |element, i| {
+                    try writer.writeAll("memcpy(");
+                    try f.writeCValue(writer, local, .Other);
+                    try writer.print("[{d}]", .{i});
+                    try writer.writeAll(", ");
+                    try f.writeCValue(writer, element, .Other);
+                    try writer.writeAll(", sizeof(");
+                    try f.renderType(writer, elem_ty);
+                    try writer.writeAll("))");
+                    try writer.writeAll(";\n");
+                }
+                assert(inst_ty.sentinel() == null);
+            } else {
+                for (resolved_elements, 0..) |element, i| {
+                    try f.writeCValue(writer, local, .Other);
+                    try writer.print("[{d}] = ", .{i});
+                    try f.writeCValue(writer, element, .Other);
+                    try writer.writeAll(";\n");
+                }
+                if (inst_ty.sentinel()) |sentinel| {
+                    try f.writeCValue(writer, local, .Other);
+                    try writer.print("[{d}] = ", .{resolved_elements.len});
+                    try f.object.dg.renderValue(writer, elem_ty, sentinel, .Other);
+                    try writer.writeAll(";\n");
+                }
             }
         },
         .Struct => switch (inst_ty.containerLayout()) {

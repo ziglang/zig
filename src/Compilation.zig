@@ -575,7 +575,7 @@ pub const InitOptions = struct {
     linker_z_max_page_size: ?u64 = null,
     linker_tsaware: bool = false,
     linker_nxcompat: bool = false,
-    linker_dynamicbase: bool = false,
+    linker_dynamicbase: bool = true,
     linker_optimization: ?u8 = null,
     linker_compress_debug_sections: ?link.CompressDebugSections = null,
     linker_module_definition_file: ?[]const u8 = null,
@@ -602,6 +602,7 @@ pub const InitOptions = struct {
     parent_compilation_link_libc: bool = false,
     hash_style: link.HashStyle = .both,
     entry: ?[]const u8 = null,
+    force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{},
     stack_size_override: ?u64 = null,
     image_base_override: ?u64 = null,
     self_exe_path: ?[]const u8 = null,
@@ -1523,7 +1524,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .headerpad_size = options.headerpad_size,
             .headerpad_max_install_names = options.headerpad_max_install_names,
             .dead_strip_dylibs = options.dead_strip_dylibs,
-            .force_undefined_symbols = .{},
+            .force_undefined_symbols = options.force_undefined_symbols,
             .pdb_source_path = options.pdb_source_path,
             .pdb_out_path = options.pdb_out_path,
         });
@@ -2186,7 +2187,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 7;
+pub const link_hash_implementation_version = 8;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
@@ -2196,7 +2197,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    comptime assert(link_hash_implementation_version == 7);
+    comptime assert(link_hash_implementation_version == 8);
 
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{

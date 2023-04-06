@@ -280,13 +280,13 @@ pub const Target = struct {
                         .aarch64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 0 },
+                                .max = .{ .major = 13, .minor = 3 },
                             },
                         },
                         .x86_64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 0 },
+                                .max = .{ .major = 13, .minor = 3 },
                             },
                         },
                         else => unreachable,
