@@ -818,7 +818,8 @@ pub const ArgIterator = struct {
     }
 };
 
-/// Use argsWithAllocator() for cross-platform code
+/// Holds the command-line arguments, with the program name as the first entry.
+/// Use argsWithAllocator() for cross-platform code.
 pub fn args() ArgIterator {
     return ArgIterator.init();
 }
