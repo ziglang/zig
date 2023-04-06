@@ -231,7 +231,7 @@ test "listen on ipv4 try connect on ipv6 then ipv4" {
 }
 
 test "listen on an in use port" {
-    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) {
+    if (builtin.os.tag != .linux and comptime !builtin.os.tag.isDarwin()) {
         // TODO build abstractions for other operating systems
         return error.SkipZigTest;
     }
