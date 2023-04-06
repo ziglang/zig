@@ -267,9 +267,9 @@ const Writer = struct {
             .c_va_copy,
             => try w.writeTyOp(s, inst),
 
-            .block,
-            .loop,
-            => try w.writeBlock(s, inst),
+            .block => try w.writeBlock(s, inst),
+
+            .loop => try w.writeLoop(s, inst),
 
             .slice,
             .slice_elem_ptr,
@@ -396,6 +396,31 @@ const Writer = struct {
         const old_indent = w.indent;
         w.indent += 2;
         try w.writeBody(s, body);
+        w.indent = old_indent;
+        try s.writeByteNTimes(' ', w.indent);
+        try s.writeAll("}");
+    }
+
+    fn writeLoop(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.Block, ty_pl.payload);
+        const body = w.air.extra[extra.end..][0..extra.data.body_len];
+        const liveness_loop = w.liveness.getLoop(inst);
+
+        try w.writeType(s, w.air.getRefType(ty_pl.ty));
+        if (w.skip_body) return s.writeAll(", ...");
+        try s.writeAll(", {\n");
+        const old_indent = w.indent;
+        w.indent += 2;
+        try w.writeBody(s, body);
+        if (liveness_loop.deaths.len != 0) {
+            try s.writeByteNTimes(' ', w.indent);
+            for (liveness_loop.deaths, 0..) |operand, i| {
+                if (i != 0) try s.writeAll(" ");
+                try s.print("%{d}!", .{operand});
+            }
+            try s.writeAll("\n");
+        }
         w.indent = old_indent;
         try s.writeByteNTimes(' ', w.indent);
         try s.writeAll("}");

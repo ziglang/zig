@@ -77,9 +77,8 @@ pub const LazyFnMap = std.AutoArrayHashMapUnmanaged(LazyFnKey, LazyFnValue);
 const LoopDepth = u16;
 const Local = struct {
     cty_idx: CType.Index,
-    /// How many loops the last definition was nested in.
-    loop_depth: LoopDepth,
     alignas: CType.AlignAs,
+    is_in_clone: bool,
 
     pub fn getType(local: Local) LocalType {
         return .{ .cty_idx = local.cty_idx, .alignas = local.alignas };
@@ -90,7 +89,6 @@ const LocalIndex = u16;
 const LocalType = struct { cty_idx: CType.Index, alignas: CType.AlignAs };
 const LocalsList = std.AutoArrayHashMapUnmanaged(LocalIndex, void);
 const LocalsMap = std.AutoArrayHashMapUnmanaged(LocalType, LocalsList);
-const LocalsStack = std.ArrayListUnmanaged(LocalsMap);
 
 const ValueRenderLocation = enum {
     FunctionArgument,
@@ -279,16 +277,16 @@ pub const Function = struct {
     /// Which locals are available for reuse, based on Type.
     /// Only locals in the last stack entry are available for reuse,
     /// other entries will become available on loop exit.
-    free_locals_stack: LocalsStack = .{},
-    free_locals_clone_depth: LoopDepth = 0,
+    free_locals_map: LocalsMap = .{},
+    is_in_clone: bool = false,
     /// Locals which will not be freed by Liveness. This is used after a
-    /// Function body is lowered in order to make `free_locals_stack` have
+    /// Function body is lowered in order to make `free_locals_map` have
     /// 100% of the locals within so that it can be used to render the block
     /// of variable declarations at the top of a function, sorted descending
     /// by type alignment.
     /// The value is whether the alloc is static or not.
     allocs: std.AutoArrayHashMapUnmanaged(LocalIndex, bool) = .{},
-    /// Needed for memory used by the keys of free_locals_stack entries.
+    /// Needed for memory used by the keys of free_locals_map entries.
     arena: std.heap.ArenaAllocator,
 
     fn resolveInst(f: *Function, inst: Air.Inst.Ref) !CValue {
@@ -323,18 +321,14 @@ pub const Function = struct {
         };
     }
 
-    fn getFreeLocals(f: *Function) *LocalsMap {
-        return &f.free_locals_stack.items[f.free_locals_stack.items.len - 1];
-    }
-
     /// Skips the reuse logic.
     fn allocLocalValue(f: *Function, ty: Type, alignment: u32) !CValue {
         const gpa = f.object.dg.gpa;
         const target = f.object.dg.module.getTarget();
         try f.locals.append(gpa, .{
             .cty_idx = try f.typeToIndex(ty, .complete),
-            .loop_depth = @intCast(LoopDepth, f.free_locals_stack.items.len - 1),
             .alignas = CType.AlignAs.init(alignment, ty.abiAlignment(target)),
+            .is_in_clone = f.is_in_clone,
         });
         return .{ .new_local = @intCast(LocalIndex, f.locals.items.len - 1) };
     }
@@ -348,13 +342,11 @@ pub const Function = struct {
     /// Only allocates the local; does not print anything.
     fn allocAlignedLocal(f: *Function, ty: Type, _: CQualifiers, alignment: u32) !CValue {
         const target = f.object.dg.module.getTarget();
-        if (f.getFreeLocals().getPtr(.{
+        if (f.free_locals_map.getPtr(.{
             .cty_idx = try f.typeToIndex(ty, .complete),
             .alignas = CType.AlignAs.init(alignment, ty.abiAlignment(target)),
         })) |locals_list| {
             if (locals_list.popOrNull()) |local_entry| {
-                const local = &f.locals.items[local_entry.key];
-                local.loop_depth = @intCast(LoopDepth, f.free_locals_stack.items.len - 1);
                 return .{ .new_local = local_entry.key };
             }
         }
@@ -485,10 +477,7 @@ pub const Function = struct {
         const gpa = f.object.dg.gpa;
         f.allocs.deinit(gpa);
         f.locals.deinit(gpa);
-        for (f.free_locals_stack.items) |*free_locals| {
-            deinitFreeLocalsMap(gpa, free_locals);
-        }
-        f.free_locals_stack.deinit(gpa);
+        deinitFreeLocalsMap(gpa, &f.free_locals_map);
         f.blocks.deinit(gpa);
         f.value_map.deinit();
         f.lazy_fns.deinit(gpa);
@@ -2592,8 +2581,7 @@ pub fn genFunc(f: *Function) !void {
     o.code_header.appendSliceAssumeCapacity("{\n ");
     const empty_header_len = o.code_header.items.len;
 
-    f.free_locals_stack.clearRetainingCapacity();
-    try f.free_locals_stack.append(gpa, .{});
+    f.free_locals_map.clearRetainingCapacity();
 
     const main_body = f.air.getMainBody();
     try genBody(f, main_body);
@@ -2605,7 +2593,7 @@ pub fn genFunc(f: *Function) !void {
     // Liveness analysis, however, locals from alloc instructions will be
     // missing. These are added now to complete the map. Then we can sort by
     // alignment, descending.
-    const free_locals = f.getFreeLocals();
+    const free_locals = &f.free_locals_map;
     for (f.allocs.keys(), f.allocs.values()) |local_index, value| {
         if (value) continue; // static
         const local = f.locals.items[local_index];
@@ -4630,30 +4618,16 @@ fn airLoop(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const loop = f.air.extraData(Air.Block, ty_pl.payload);
     const body = f.air.extra[loop.end..][0..loop.data.body_len];
+    const liveness_loop = f.liveness.getLoop(inst);
     const writer = f.object.writer();
-
-    const gpa = f.object.dg.gpa;
-    try f.free_locals_stack.insert(gpa, f.free_locals_stack.items.len - 1, .{});
 
     try writer.writeAll("for (;;) ");
     try genBody(f, body);
     try writer.writeByte('\n');
 
-    var old_free_locals = f.free_locals_stack.pop();
-    defer deinitFreeLocalsMap(gpa, &old_free_locals);
-    const new_free_locals = f.getFreeLocals();
-    var it = new_free_locals.iterator();
-    while (it.next()) |entry| {
-        const gop = try old_free_locals.getOrPut(gpa, entry.key_ptr.*);
-        if (gop.found_existing) {
-            try gop.value_ptr.ensureUnusedCapacity(gpa, entry.value_ptr.count());
-            for (entry.value_ptr.keys()) |local_index| {
-                gop.value_ptr.putAssumeCapacityNoClobber(local_index, {});
-            }
-        } else gop.value_ptr.* = entry.value_ptr.move();
+    for (liveness_loop.deaths) |operand| {
+        try die(f, inst, Air.indexToRef(operand));
     }
-    deinitFreeLocalsMap(gpa, new_free_locals);
-    new_free_locals.* = old_free_locals.move();
 
     return .none;
 }
@@ -4673,7 +4647,7 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
     const gpa = f.object.dg.gpa;
     var cloned_map = try f.value_map.clone();
     defer cloned_map.deinit();
-    var cloned_frees = try cloneFreeLocalsMap(gpa, f.getFreeLocals());
+    var cloned_frees = try cloneFreeLocalsMap(gpa, &f.free_locals_map);
     defer deinitFreeLocalsMap(gpa, &cloned_frees);
 
     // Remember how many locals there were before entering the then branch so
@@ -4684,8 +4658,8 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
     // that we can notice and make sure not to use them in the else branch.
     // Any new allocs must be removed from the free list.
     const pre_allocs_len = @intCast(LocalIndex, f.allocs.count());
-    const pre_clone_depth = f.free_locals_clone_depth;
-    f.free_locals_clone_depth = @intCast(LoopDepth, f.free_locals_stack.items.len);
+    const was_in_clone = f.is_in_clone;
+    f.is_in_clone = true;
 
     for (liveness_condbr.then_deaths) |operand| {
         try die(f, inst, Air.indexToRef(operand));
@@ -4706,10 +4680,10 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
 
     f.value_map.deinit();
     f.value_map = cloned_map.move();
-    const free_locals = f.getFreeLocals();
+    const free_locals = &f.free_locals_map;
     deinitFreeLocalsMap(gpa, free_locals);
     free_locals.* = cloned_frees.move();
-    f.free_locals_clone_depth = pre_clone_depth;
+    f.is_in_clone = was_in_clone;
     for (liveness_condbr.else_deaths) |operand| {
         try die(f, inst, Air.indexToRef(operand));
     }
@@ -4781,7 +4755,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
         if (case_i != last_case_i) {
             const old_value_map = f.value_map;
             f.value_map = try old_value_map.clone();
-            var free_locals = f.getFreeLocals();
+            var free_locals = &f.free_locals_map;
             const old_free_locals = free_locals.*;
             free_locals.* = try cloneFreeLocalsMap(gpa, free_locals);
 
@@ -4793,14 +4767,13 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
             // we can notice and make sure not to use them in subsequent branches.
             // Any new allocs must be removed from the free list.
             const pre_allocs_len = @intCast(LocalIndex, f.allocs.count());
-            const pre_clone_depth = f.free_locals_clone_depth;
-            f.free_locals_clone_depth = @intCast(LoopDepth, f.free_locals_stack.items.len);
+            const was_in_clone = f.is_in_clone;
+            f.is_in_clone = true;
 
             {
                 defer {
-                    f.free_locals_clone_depth = pre_clone_depth;
+                    f.is_in_clone = was_in_clone;
                     f.value_map.deinit();
-                    free_locals = f.getFreeLocals();
                     deinitFreeLocalsMap(gpa, free_locals);
                     f.value_map = old_value_map;
                     free_locals.* = old_free_locals;
@@ -7870,8 +7843,8 @@ fn freeLocal(f: *Function, inst: Air.Inst.Index, local_index: LocalIndex, ref_in
     const gpa = f.object.dg.gpa;
     const local = &f.locals.items[local_index];
     log.debug("%{d}: freeing t{d} (operand %{d})", .{ inst, local_index, ref_inst });
-    if (local.loop_depth < f.free_locals_clone_depth) return;
-    const gop = try f.free_locals_stack.items[local.loop_depth].getOrPut(gpa, local.getType());
+    if (f.is_in_clone != local.is_in_clone) return;
+    const gop = try f.free_locals_map.getOrPut(gpa, local.getType());
     if (!gop.found_existing) gop.value_ptr.* = .{};
     if (std.debug.runtime_safety) {
         // If this trips, an unfreeable allocation was attempted to be freed.
@@ -7935,23 +7908,21 @@ fn noticeBranchFrees(
     pre_allocs_len: LocalIndex,
     inst: Air.Inst.Index,
 ) !void {
-    const free_locals = f.getFreeLocals();
-
     for (f.locals.items[pre_locals_len..], pre_locals_len..) |*local, local_i| {
         const local_index = @intCast(LocalIndex, local_i);
         if (f.allocs.contains(local_index)) {
             if (std.debug.runtime_safety) {
                 // new allocs are no longer freeable, so make sure they aren't in the free list
-                if (free_locals.getPtr(local.getType())) |locals_list| {
+                if (f.free_locals_map.getPtr(local.getType())) |locals_list| {
                     assert(!locals_list.contains(local_index));
                 }
             }
             continue;
         }
 
-        // free more deeply nested locals from other branches at current depth
-        assert(local.loop_depth >= f.free_locals_stack.items.len - 1);
-        local.loop_depth = @intCast(LoopDepth, f.free_locals_stack.items.len - 1);
+        // free cloned locals from other branches at current cloned-ness
+        std.debug.assert(local.is_in_clone or !f.is_in_clone);
+        local.is_in_clone = f.is_in_clone;
         try freeLocal(f, inst, local_index, 0);
     }
 
@@ -7959,6 +7930,6 @@ fn noticeBranchFrees(
         const local_index = @intCast(LocalIndex, local_i);
         const local = &f.locals.items[local_index];
         // new allocs are no longer freeable, so remove them from the free list
-        if (free_locals.getPtr(local.getType())) |locals_list| _ = locals_list.swapRemove(local_index);
+        if (f.free_locals_map.getPtr(local.getType())) |locals_list| _ = locals_list.swapRemove(local_index);
     }
 }
