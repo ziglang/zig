@@ -662,8 +662,8 @@ pub fn addCliTests(b: *std.Build) *Step {
     const step = b.step("test-cli", "Test the command line interface");
     const s = std.fs.path.sep_str;
 
-    {
-
+    // Disabled until https://github.com/ziglang/zig/issues/15104 is fixed.
+    if (false) {
         // Test `zig init-lib`.
         const tmp_path = b.makeTempPath();
         const init_lib = b.addSystemCommand(&.{ b.zig_exe, "init-lib" });
@@ -686,7 +686,8 @@ pub fn addCliTests(b: *std.Build) *Step {
         step.dependOn(&cleanup.step);
     }
 
-    {
+    // Disabled until https://github.com/ziglang/zig/issues/15104 is fixed.
+    if (false) {
         // Test `zig init-exe`.
         const tmp_path = b.makeTempPath();
         const init_exe = b.addSystemCommand(&.{ b.zig_exe, "init-exe" });
