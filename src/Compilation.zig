@@ -620,6 +620,7 @@ pub const InitOptions = struct {
     test_name_prefix: ?[]const u8 = null,
     test_runner_path: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
+    dwarf_format: ?std.dwarf.Format = null,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     /// (Zig compiler development) Enable dumping linker's state as JSON.
@@ -1517,6 +1518,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
             .subsystem = options.subsystem,
             .is_test = options.is_test,
+            .dwarf_format = options.dwarf_format,
             .wasi_exec_model = wasi_exec_model,
             .hash_style = options.hash_style,
             .enable_link_snapshots = options.enable_link_snapshots,

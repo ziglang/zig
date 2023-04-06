@@ -409,7 +409,7 @@ pub const Module = opaque {
     extern fn LLVMSetTarget(M: *Module, Triple: [*:0]const u8) void;
 
     pub const addModuleDebugInfoFlag = ZigLLVMAddModuleDebugInfoFlag;
-    extern fn ZigLLVMAddModuleDebugInfoFlag(module: *Module) void;
+    extern fn ZigLLVMAddModuleDebugInfoFlag(module: *Module, dwarf64: bool) void;
 
     pub const addModuleCodeViewFlag = ZigLLVMAddModuleCodeViewFlag;
     extern fn ZigLLVMAddModuleCodeViewFlag(module: *Module) void;

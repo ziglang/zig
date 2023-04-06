@@ -69,6 +69,7 @@ disable_stack_probing: bool,
 disable_sanitize_c: bool,
 sanitize_thread: bool,
 rdynamic: bool,
+dwarf_format: ?std.dwarf.Format = null,
 import_memory: bool = false,
 /// For WebAssembly targets, this will allow for undefined symbols to
 /// be imported from the host environment.
@@ -1449,6 +1450,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try addFlag(&zig_args, "strip", self.strip);
     try addFlag(&zig_args, "unwind-tables", self.unwind_tables);
+    if (!self.producesPdbFile()) {
+        if (self.dwarf_format) |dwarf_format| {
+            try zig_args.append(switch (dwarf_format) {
+                .dwarf32 => "-gdwarf32",
+                .dwarf64 => "-gdwarf64",
+            });
+        }
+    }
 
     switch (self.compress_debug_sections) {
         .none => {},

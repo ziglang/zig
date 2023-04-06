@@ -433,7 +433,14 @@ pub const Object = struct {
         if (!options.strip) {
             switch (options.target.ofmt) {
                 .coff => llvm_module.addModuleCodeViewFlag(),
-                else => llvm_module.addModuleDebugInfoFlag(),
+                else => {
+                    const dwarf_format = options.dwarf_format orelse .dwarf32;
+                    const produce_dwarf64 = switch (dwarf_format) {
+                        .dwarf32 => false,
+                        .dwarf64 => true,
+                    };
+                    llvm_module.addModuleDebugInfoFlag(produce_dwarf64);
+                },
             }
             const di_builder = llvm_module.createDIBuilder(true);
             opt_di_builder = di_builder;

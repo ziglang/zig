@@ -200,6 +200,8 @@ pub const Options = struct {
     compatibility_version: ?std.builtin.Version,
     libc_installation: ?*const LibCInstallation,
 
+    dwarf_format: ?std.dwarf.Format = null,
+
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: std.builtin.WasiExecModel = undefined,
 
