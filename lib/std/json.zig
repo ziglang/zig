@@ -2268,7 +2268,7 @@ pub fn stringify(
     value: anytype,
     options: StringifyOptions,
     out_stream: anytype,
-) @TypeOf(out_stream).Error!void {
+) !void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
         .Float, .ComptimeFloat => {
@@ -2766,4 +2766,21 @@ test "deserializing string with escape sequence into sentinel slice" {
 
     // Double-check that we're getting the right result
     try testing.expect(mem.eql(u8, result, "\n"));
+}
+
+test "stringify struct with custom stringify that returns a custom error" {
+    var ret = std.json.stringify(struct {
+        field: Field = .{},
+
+        pub const Field = struct {
+            field: ?[]*Field = null,
+
+            const Self = @This();
+            pub fn jsonStringify(_: Self, _: StringifyOptions, _: anytype) error{CustomError}!void {
+                return error.CustomError;
+            }
+        };
+    }{}, StringifyOptions{}, std.io.null_writer);
+
+    try std.testing.expectError(error.CustomError, ret);
 }

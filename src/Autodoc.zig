@@ -770,7 +770,7 @@ const DocData = struct {
             self: Expr,
             opts: std.json.StringifyOptions,
             w: anytype,
-        ) !void {
+        ) @TypeOf(w).Error!void {
             const active_tag = std.meta.activeTag(self);
             var jsw = std.json.writeStream(w, 15);
             if (opts.whitespace) |ws| jsw.whitespace = ws;
