@@ -1080,7 +1080,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .constant => unreachable, // excluded from function bodies
             .const_ty => unreachable, // excluded from function bodies
-            .unreach  => self.finishAirBookkeeping(),
+            .unreach  => if (self.wantSafety()) try self.airTrap() else self.finishAirBookkeeping(),
 
             .optional_payload           => try self.airOptionalPayload(inst),
             .optional_payload_ptr       => try self.airOptionalPayloadPtr(inst),
@@ -6273,6 +6273,15 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
 
     const block_data = self.blocks.getPtr(inst).?;
     const target_branch = self.branch_stack.pop();
+
+    log.debug("airBlock: %{d}", .{inst});
+    log.debug("Upper branches:", .{});
+    for (self.branch_stack.items) |bs| {
+        log.debug("{}", .{bs.fmtDebug()});
+    }
+    log.debug("Block branch: {}", .{block_data.branch.fmtDebug()});
+    log.debug("Target branch: {}", .{target_branch.fmtDebug()});
+
     try self.canonicaliseBranches(true, &block_data.branch, &target_branch, false, false);
 
     for (block_data.relocs.items) |reloc| try self.performReloc(reloc);
@@ -6444,7 +6453,7 @@ fn canonicaliseBranches(
             // If integer overflow occurs, the question is: why wasn't the instruction marked dead?
             break :blk self.getResolvedInstValue(target_key).?.*;
         };
-        log.debug("consolidating target_entry {d} {}=>{}", .{ target_key, target_value, canon_mcv });
+        log.debug("consolidating target_entry %{d} {}=>{}", .{ target_key, target_value, canon_mcv });
         // TODO handle the case where the destination stack offset / register has something
         // going on there.
         assert(!hazard_map.contains(target_value));
@@ -6466,7 +6475,7 @@ fn canonicaliseBranches(
         const parent_mcv =
             if (canon_value != .dead) self.getResolvedInstValue(canon_key).?.* else undefined;
         if (canon_value != .dead) {
-            log.debug("consolidating canon_entry {d} {}=>{}", .{ canon_key, parent_mcv, canon_value });
+            log.debug("consolidating canon_entry %{d} {}=>{}", .{ canon_key, parent_mcv, canon_value });
             // TODO handle the case where the destination stack offset / register has something
             // going on there.
             assert(!hazard_map.contains(parent_mcv));
