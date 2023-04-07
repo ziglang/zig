@@ -1929,10 +1929,11 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         .memcpy => func.airMemcpy(inst),
 
+        .ret_addr => func.airRetAddr(inst),
+
         .mul_sat,
         .mod,
         .assembly,
-        .ret_addr,
         .frame_addr,
         .bit_reverse,
         .is_err_ptr,
@@ -4965,6 +4966,10 @@ fn airMemcpy(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try func.memcpy(dst, src, len);
 
     func.finishAir(inst, .none, &.{ pl_op.operand, bin_op.lhs, bin_op.rhs });
+}
+
+fn airRetAddr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    func.finishAir(inst, .{ .imm32 = 0 }, &.{});
 }
 
 fn airPopcount(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
