@@ -37,6 +37,8 @@ pub const Type = enum {
     branch,
     /// Absolute pointer value
     unsigned,
+    /// Relative offset to TLV initializer
+    tlv_initializer,
 };
 
 /// Returns true if and only if the reloc is dirty AND the target address is available.
@@ -65,7 +67,16 @@ pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, cod
 
     const target_atom_index = self.getTargetAtomIndex(macho_file).?; // Oops, you didn't check if the relocation can be resolved with isResolvable().
     const target_atom = macho_file.getAtom(target_atom_index);
-    const target_addr = @intCast(i64, target_atom.getSymbol(macho_file).n_value) + self.addend;
+
+    const target_addr: i64 = switch (self.type) {
+        .tlv_initializer => blk: {
+            assert(self.addend == 0); // Addend here makes no sense.
+            const header = macho_file.sections.items(.header)[macho_file.thread_data_section_index.?];
+            const target_sym = target_atom.getSymbol(macho_file);
+            break :blk @intCast(i64, target_sym.n_value - header.addr);
+        },
+        else => @intCast(i64, target_atom.getSymbol(macho_file).n_value) + self.addend,
+    };
 
     log.debug("  ({x}: [() => 0x{x} ({s})) ({s})", .{
         source_addr,
@@ -190,7 +201,7 @@ fn resolveAarch64(self: Relocation, source_addr: u64, target_addr: i64, code: []
             };
             mem.writeIntLittle(u32, buffer[0..4], inst.toU32());
         },
-        .unsigned => switch (self.length) {
+        .tlv_initializer, .unsigned => switch (self.length) {
             2 => mem.writeIntLittle(u32, buffer[0..4], @truncate(u32, @bitCast(u64, target_addr))),
             3 => mem.writeIntLittle(u64, buffer[0..8], @bitCast(u64, target_addr)),
             else => unreachable,
@@ -205,7 +216,7 @@ fn resolveX8664(self: Relocation, source_addr: u64, target_addr: i64, code: []u8
             const displacement = @intCast(i32, @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4);
             mem.writeIntLittle(u32, code[self.offset..][0..4], @bitCast(u32, displacement));
         },
-        .unsigned => {
+        .tlv_initializer, .unsigned => {
             switch (self.length) {
                 2 => {
                     mem.writeIntLittle(u32, code[self.offset..][0..4], @truncate(u32, @bitCast(u64, target_addr)));

@@ -1338,13 +1338,12 @@ pub fn createAtom(self: *MachO) !Atom.Index {
 
 pub fn createGotAtom(self: *MachO, target: SymbolWithLoc) !Atom.Index {
     const atom_index = try self.createAtom();
-    const atom = self.getAtomPtr(atom_index);
-    atom.size = @sizeOf(u64);
+    self.getAtomPtr(atom_index).size = @sizeOf(u64);
 
-    const sym = atom.getSymbolPtr(self);
+    const sym = self.getAtom(atom_index).getSymbolPtr(self);
     sym.n_type = macho.N_SECT;
     sym.n_sect = self.got_section_index.? + 1;
-    sym.n_value = try self.allocateAtom(atom_index, atom.size, @alignOf(u64));
+    sym.n_value = try self.allocateAtom(atom_index, @sizeOf(u64), @alignOf(u64));
 
     log.debug("allocated GOT atom at 0x{x}", .{sym.n_value});
 
@@ -1553,7 +1552,7 @@ fn createStubHelperAtom(self: *MachO) !Atom.Index {
 
             try Atom.addRelocation(self, atom_index, .{
                 .type = .branch,
-                .target = .{ .sym_index = stub_helper_preamble_atom_sym_index, .file = null },
+                .target = .{ .sym_index = stub_helper_preamble_atom_sym_index },
                 .offset = 6,
                 .addend = 0,
                 .pcrel = true,
@@ -1576,7 +1575,7 @@ fn createStubHelperAtom(self: *MachO) !Atom.Index {
 
             try Atom.addRelocation(self, atom_index, .{
                 .type = .branch,
-                .target = .{ .sym_index = stub_helper_preamble_atom_sym_index, .file = null },
+                .target = .{ .sym_index = stub_helper_preamble_atom_sym_index },
                 .offset = 4,
                 .addend = 0,
                 .pcrel = true,
@@ -1604,7 +1603,7 @@ fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, target: SymbolWithLo
 
     try Atom.addRelocation(self, atom_index, .{
         .type = .unsigned,
-        .target = .{ .sym_index = stub_sym_index, .file = null },
+        .target = .{ .sym_index = stub_sym_index },
         .offset = 0,
         .addend = 0,
         .pcrel = false,
@@ -1658,7 +1657,7 @@ fn createStubAtom(self: *MachO, laptr_sym_index: u32) !Atom.Index {
 
             try Atom.addRelocation(self, atom_index, .{
                 .type = .branch,
-                .target = .{ .sym_index = laptr_sym_index, .file = null },
+                .target = .{ .sym_index = laptr_sym_index },
                 .offset = 2,
                 .addend = 0,
                 .pcrel = true,
@@ -1680,7 +1679,7 @@ fn createStubAtom(self: *MachO, laptr_sym_index: u32) !Atom.Index {
             try Atom.addRelocations(self, atom_index, &[_]Relocation{
                 .{
                     .type = .page,
-                    .target = .{ .sym_index = laptr_sym_index, .file = null },
+                    .target = .{ .sym_index = laptr_sym_index },
                     .offset = 0,
                     .addend = 0,
                     .pcrel = true,
@@ -1688,7 +1687,7 @@ fn createStubAtom(self: *MachO, laptr_sym_index: u32) !Atom.Index {
                 },
                 .{
                     .type = .pageoff,
-                    .target = .{ .sym_index = laptr_sym_index, .file = null },
+                    .target = .{ .sym_index = laptr_sym_index },
                     .offset = 4,
                     .addend = 0,
                     .pcrel = false,
@@ -1702,6 +1701,67 @@ fn createStubAtom(self: *MachO, laptr_sym_index: u32) !Atom.Index {
     sym.n_value = try self.allocateAtom(atom_index, size, required_alignment);
     log.debug("allocated stub atom at 0x{x}", .{sym.n_value});
     try self.writeAtom(atom_index, code);
+
+    return atom_index;
+}
+
+fn createThreadLocalDescriptorAtom(self: *MachO, target: SymbolWithLoc) !Atom.Index {
+    const gpa = self.base.allocator;
+    const size = 3 * @sizeOf(u64);
+    const required_alignment: u32 = 1;
+    const atom_index = try self.createAtom();
+    self.getAtomPtr(atom_index).size = size;
+
+    const target_sym_name = self.getSymbolName(target);
+    const name_delimiter = mem.indexOf(u8, target_sym_name, "$").?;
+    const sym_name = try gpa.dupe(u8, target_sym_name[0..name_delimiter]);
+    defer gpa.free(sym_name);
+
+    const sym = self.getAtom(atom_index).getSymbolPtr(self);
+    sym.n_type = macho.N_SECT;
+    sym.n_sect = self.thread_vars_section_index.? + 1;
+    sym.n_strx = try self.strtab.insert(gpa, sym_name);
+    sym.n_value = try self.allocateAtom(atom_index, size, required_alignment);
+
+    log.debug("allocated threadlocal descriptor atom '{s}' at 0x{x}", .{ sym_name, sym.n_value });
+
+    try Atom.addRelocation(self, atom_index, .{
+        .type = .tlv_initializer,
+        .target = target,
+        .offset = 0x10,
+        .addend = 0,
+        .pcrel = false,
+        .length = 3,
+    });
+
+    var code: [size]u8 = undefined;
+    mem.set(u8, &code, 0);
+    try self.writeAtom(atom_index, &code);
+
+    return atom_index;
+}
+
+fn createThreadLocalPointerAtom(self: *MachO, tlv_desc_sym_index: u32) !Atom.Index {
+    const atom_index = try self.createAtom();
+    self.getAtomPtr(atom_index).size = @sizeOf(u64);
+
+    const sym = self.getAtom(atom_index).getSymbolPtr(self);
+    sym.n_type = macho.N_SECT;
+    sym.n_sect = self.thread_ptr_section_index.? + 1;
+    sym.n_value = try self.allocateAtom(atom_index, @sizeOf(u64), @alignOf(u64));
+
+    log.debug("allocated threadlocal pointer atom at 0x{x}", .{sym.n_value});
+
+    try Atom.addRelocation(self, atom_index, .{
+        .type = .unsigned,
+        .target = .{ .sym_index = tlv_desc_sym_index },
+        .offset = 0,
+        .addend = 0,
+        .pcrel = false,
+        .length = 3,
+    });
+    try Atom.addRebase(self, atom_index, 0);
+    try self.writePtrWidthAtom(atom_index);
 
     return atom_index;
 }
@@ -2091,6 +2151,13 @@ fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
 
 fn addTlvEntry(self: *MachO, target: SymbolWithLoc) !void {
     if (self.tlvp_table.lookup.contains(target)) return;
+    const tlvp_index = try self.tlvp_table.allocateEntry(self.base.allocator, target);
+    const tlv_desc_atom_index = try self.createThreadLocalDescriptorAtom(target);
+    const tlv_desc_atom = self.getAtom(tlv_desc_atom_index);
+    const tlv_ptr_atom_index = try self.createThreadLocalPointerAtom(tlv_desc_atom.getSymbolIndex().?);
+    const tlv_ptr_atom = self.getAtom(tlv_ptr_atom_index);
+    self.tlvp_table.entries.items[tlvp_index].sym_index = tlv_ptr_atom.getSymbolIndex().?;
+    self.markRelocsDirtyByTarget(target);
 }
 
 pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
@@ -2444,15 +2511,27 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
 
     const required_alignment = decl.getAlignment(self.base.options.target);
 
-    const sym_name = try decl.getFullyQualifiedName(mod);
-    defer self.base.allocator.free(sym_name);
+    const decl_name = try decl.getFullyQualifiedName(mod);
+    defer gpa.free(decl_name);
 
     const decl_metadata = self.decls.get(decl_index).?;
     const atom_index = decl_metadata.atom;
     const atom = self.getAtom(atom_index);
     const sym_index = atom.getSymbolIndex().?;
     const sect_id = decl_metadata.section;
+    const header = &self.sections.items(.header)[sect_id];
+    const segment = self.getSegment(sect_id);
+    const is_threadlocal = if (!self.base.options.single_threaded)
+        header.flags == macho.S_THREAD_LOCAL_REGULAR or header.flags == macho.S_THREAD_LOCAL_ZEROFILL
+    else
+        false;
     const code_len = code.len;
+
+    const sym_name = if (is_threadlocal)
+        try std.fmt.allocPrint(gpa, "{s}$tlv$init", .{decl_name})
+    else
+        decl_name;
+    defer if (is_threadlocal) gpa.free(sym_name);
 
     if (atom.size != 0) {
         const sym = atom.getSymbolPtr(self);
@@ -2471,25 +2550,29 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
 
             if (vaddr != sym.n_value) {
                 sym.n_value = vaddr;
-                log.debug("  (updating GOT entry)", .{});
-                const got_target = SymbolWithLoc{ .sym_index = sym_index, .file = null };
-                const got_atom_index = self.got_table.getAtomIndex(self, got_target).?;
-                self.markRelocsDirtyByTarget(got_target);
-                try self.writePtrWidthAtom(got_atom_index);
+                const target = SymbolWithLoc{ .sym_index = sym_index };
+                self.markRelocsDirtyByTarget(target);
+                if (is_threadlocal) {
+                    @panic("TODO update the threadlocal variable's name also");
+                    // log.debug("  (updating threadlocal pointer entry)", .{});
+                    // const tlvp_atom_index = self.tlvp_table.getAtomIndex(self, target).?;
+                    // try self.writePtrWidthAtom(tlvp_atom_index);
+                } else {
+                    log.debug("  (updating GOT entry)", .{});
+                    const got_atom_index = self.got_table.getAtomIndex(self, target).?;
+                    try self.writePtrWidthAtom(got_atom_index);
+                }
             }
         } else if (code_len < atom.size) {
             self.shrinkAtom(atom_index, code_len);
         } else if (atom.next_index == null) {
-            const header = &self.sections.items(.header)[sect_id];
-            const segment = self.getSegment(sect_id);
             const needed_size = (sym.n_value + code_len) - segment.vmaddr;
             header.size = needed_size;
         }
         self.getAtomPtr(atom_index).size = code_len;
     } else {
-        const name_str_index = try self.strtab.insert(gpa, sym_name);
         const sym = atom.getSymbolPtr(self);
-        sym.n_strx = name_str_index;
+        sym.n_strx = try self.strtab.insert(gpa, sym_name);
         sym.n_type = macho.N_SECT;
         sym.n_sect = sect_id + 1;
         sym.n_desc = 0;
@@ -2503,7 +2586,12 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
         self.getAtomPtr(atom_index).size = code_len;
         sym.n_value = vaddr;
 
-        try self.addGotEntry(.{ .sym_index = sym_index });
+        const target: SymbolWithLoc = .{ .sym_index = sym_index };
+        if (is_threadlocal) {
+            try self.addTlvEntry(target);
+        } else {
+            try self.addGotEntry(target);
+        }
     }
 
     try self.writeAtom(atom_index, code);
@@ -2851,7 +2939,7 @@ fn populateMissingMetadata(self: *MachO) !void {
         if (self.thread_vars_section_index == null) {
             self.thread_vars_section_index = try self.allocateSection("__DATA3", "__thread_vars", .{
                 .size = @sizeOf(u64) * 3,
-                .alignment = @alignOf(u64),
+                .alignment = @sizeOf(u64),
                 .flags = macho.S_THREAD_LOCAL_VARIABLES,
                 .prot = macho.PROT.READ | macho.PROT.WRITE,
             });
@@ -3650,6 +3738,10 @@ fn writeHeader(self: *MachO, ncmds: u32, sizeofcmds: u32) !void {
     var header: macho.mach_header_64 = .{};
     header.flags = macho.MH_NOUNDEFS | macho.MH_DYLDLINK | macho.MH_PIE | macho.MH_TWOLEVEL;
 
+    if (!self.base.options.single_threaded) {
+        header.flags |= macho.MH_HAS_TLV_DESCRIPTORS;
+    }
+
     switch (self.base.options.target.cpu.arch) {
         .aarch64 => {
             header.cputype = macho.CPU_TYPE_ARM64;
@@ -3672,12 +3764,6 @@ fn writeHeader(self: *MachO, ncmds: u32, sizeofcmds: u32) !void {
             header.flags |= macho.MH_NO_REEXPORTED_DYLIBS;
         },
         else => unreachable,
-    }
-
-    if (self.getSectionByName("__DATA", "__thread_vars")) |sect_id| {
-        if (self.sections.items(.header)[sect_id].size > 0) {
-            header.flags |= macho.MH_HAS_TLV_DESCRIPTORS;
-        }
     }
 
     header.ncmds = ncmds;
@@ -3859,8 +3945,7 @@ pub fn getSymbol(self: *const MachO, sym_with_loc: SymbolWithLoc) macho.nlist_64
 
 /// Returns name of the symbol described by `sym_with_loc` descriptor.
 pub fn getSymbolName(self: *const MachO, sym_with_loc: SymbolWithLoc) []const u8 {
-    assert(sym_with_loc.file == null);
-    const sym = self.locals.items[sym_with_loc.sym_index];
+    const sym = self.getSymbol(sym_with_loc);
     return self.strtab.get(sym.n_strx).?;
 }
 
@@ -4274,6 +4359,9 @@ pub fn logSymtab(self: *MachO) void {
 
     log.debug("stubs entries:", .{});
     log.debug("{}", .{self.stubs_table.fmtDebug(self)});
+
+    log.debug("threadlocal entries:", .{});
+    log.debug("{}", .{self.tlvp_table.fmtDebug(self)});
 }
 
 pub fn logAtoms(self: *MachO) void {
