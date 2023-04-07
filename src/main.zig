@@ -1567,7 +1567,7 @@ fn buildOutputType(
                             out_path = it.only_arg;
                         }
                     },
-                    .c => c_out_mode = .object, // -c
+                    .c, .r => c_out_mode = .object, // -c or -r
                     .asm_only => c_out_mode = .assembly, // -S
                     .preprocess_only => c_out_mode = .preprocessor, // -E
                     .emit_llvm => emit_llvm = true,
@@ -5128,6 +5128,7 @@ pub const ClangArgIterator = struct {
         target,
         o,
         c,
+        r,
         m,
         x,
         other,
