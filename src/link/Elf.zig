@@ -1386,7 +1386,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             man.hash.add(stack_size);
             man.hash.add(self.base.options.build_id);
         }
-        man.hash.addListOfBytes(self.base.options.wrap_list);
+        man.hash.addListOfBytes(self.base.options.symbol_wrap_set.keys());
         man.hash.add(self.base.options.skip_linker_dependencies);
         man.hash.add(self.base.options.z_nodelete);
         man.hash.add(self.base.options.z_notext);
@@ -1667,14 +1667,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             }
         }
 
-        // wrap
-        var wrap_table = std.StringHashMap(void).init(self.base.allocator);
-        defer wrap_table.deinit();
-        for (self.base.options.wrap_list) |wrap| {
-            if ((try wrap_table.fetchPut(wrap, {})) == null) {
-                try argv.append("-wrap");
-                try argv.append(wrap);
-            }
+        for (self.base.options.symbol_wrap_set.keys()) |symbol_name| {
+            try argv.appendSlice(&.{ "-wrap", symbol_name });
         }
 
         if (self.base.options.each_lib_rpath) {

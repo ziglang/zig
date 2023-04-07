@@ -183,12 +183,18 @@ pub const Options = struct {
     wasi_emulated_libs: []const wasi_libc.CRTFile,
     lib_dirs: []const []const u8,
     rpath_list: []const []const u8,
-    wrap_list: []const []const u8,
 
     /// List of symbols forced as undefined in the symbol table
     /// thus forcing their resolution by the linker.
     /// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
     force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
+    /// Use a wrapper function for symbol. Any undefined reference to symbol
+    /// will be resolved to __wrap_symbol. Any undefined reference to
+    /// __real_symbol will be resolved to symbol. This can be used to provide a
+    /// wrapper for a system function. The wrapper function should be called
+    /// __wrap_symbol. If it wishes to call the system function, it should call
+    /// __real_symbol.
+    symbol_wrap_set: std.StringArrayHashMapUnmanaged(void),
 
     version: ?std.builtin.Version,
     compatibility_version: ?std.builtin.Version,
