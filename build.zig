@@ -22,9 +22,7 @@ pub fn build(b: *std.Build) !void {
         break :t b.standardTargetOptions(.{ .default_target = default_target });
     };
 
-    // TODO remove type annotation with ziglang/zig#13749
-    const optimize: std.builtin.Mode = b.option(std.builtin.Mode, "optimize", "Prioritize performance, safety, or binary size (-O flag)") orelse
-        if (target.getCpuArch() == .wasm32) .ReleaseSmall else .Debug;
+    const optimize = b.standardOptimizeOption(.{});
 
     const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
