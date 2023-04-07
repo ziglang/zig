@@ -435,10 +435,12 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
         .Annotation => &self.spv.sections.annotations,
         .TypeDeclaration => unreachable, // Handled elsewhere.
         else => switch (self.inst.opcode) {
-            .OpEntryPoint => &self.spv.sections.entry_points,
+            // TODO: This should emit a proper entry point.
+            .OpEntryPoint => unreachable, // &self.spv.sections.entry_points,
             .OpExecutionMode, .OpExecutionModeId => &self.spv.sections.execution_modes,
             .OpVariable => switch (@intToEnum(spec.StorageClass, operands[2].value)) {
                 .Function => &self.func.prologue,
+                // TODO: Emit a decl dependency
                 else => &self.spv.sections.types_globals_constants,
             },
             // Default case - to be worked out further.

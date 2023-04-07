@@ -1343,7 +1343,7 @@ pub const DeclGen = struct {
     ///   OpFunctionEnd
     /// TODO is to also write out the error as a function call parameter, and to somehow fetch
     /// the name of an error in the text executor.
-    fn generateTestEntryPoint(self: *DeclGen, name: []const u8, func: IdResult) !void {
+    fn generateTestEntryPoint(self: *DeclGen, name: []const u8, spv_test_decl_index: SpvModule.Decl.Index) !void {
         const anyerror_ty_ref = try self.resolveType(Type.anyerror, .direct);
         const ptr_anyerror_ty_ref = try self.spv.ptrType(anyerror_ty_ref, .CrossWorkgroup, null);
         const void_ty_ref = try self.resolveType(Type.void, .direct);
@@ -1357,7 +1357,11 @@ pub const DeclGen = struct {
             break :blk try self.spv.resolveType(SpvType.initPayload(&proto_payload.base));
         };
 
-        const kernel_id = self.spv.allocId();
+        const test_id = self.spv.declPtr(spv_test_decl_index).result_id;
+
+        const spv_decl_index = try self.spv.allocDecl(.func);
+        const kernel_id = self.spv.declPtr(spv_decl_index).result_id;
+
         const error_id = self.spv.allocId();
         const p_error_id = self.spv.allocId();
 
@@ -1378,7 +1382,7 @@ pub const DeclGen = struct {
         try section.emit(self.spv.gpa, .OpFunctionCall, .{
             .id_result_type = self.typeId(anyerror_ty_ref),
             .id_result = error_id,
-            .function = func,
+            .function = test_id,
         });
         try section.emit(self.spv.gpa, .OpStore, .{
             .pointer = p_error_id,
@@ -1387,11 +1391,13 @@ pub const DeclGen = struct {
         try section.emit(self.spv.gpa, .OpReturn, {});
         try section.emit(self.spv.gpa, .OpFunctionEnd, {});
 
-        try self.spv.sections.entry_points.emit(self.spv.gpa, .OpEntryPoint, .{
-            .execution_model = .Kernel,
-            .entry_point = kernel_id,
-            .name = name,
-        });
+        try self.spv.declareDeclDeps(spv_decl_index, &.{spv_test_decl_index});
+
+        // Just generate a quick other name because the intel runtime crashes when the entry-
+        // point name is the same as a different OpName.
+        const test_name = try std.fmt.allocPrint(self.gpa, "test {s}", .{name});
+        defer self.gpa.free(test_name);
+        try self.spv.declareEntryPoint(spv_decl_index, test_name);
     }
 
     fn genDecl(self: *DeclGen) !void {
@@ -1451,7 +1457,7 @@ pub const DeclGen = struct {
             });
 
             if (self.module.test_functions.contains(self.decl_index)) {
-                try self.generateTestEntryPoint(fqn, decl_id);
+                try self.generateTestEntryPoint(fqn, spv_decl_index);
             }
         } else {
             const init_val = if (decl.val.castTag(.variable)) |payload|
