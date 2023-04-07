@@ -1734,10 +1734,10 @@ fn airAddSat(self: *Self, inst: Air.Inst.Index) !void {
         };
         try self.genBinOpMir(.add, ty, dst_mcv, rhs_mcv);
 
-        const abi_size = @intCast(u32, @max(ty.abiSize(self.target.*), 2));
+        const cmov_abi_size = @max(@intCast(u32, ty.abiSize(self.target.*)), 2);
         try self.asmCmovccRegisterRegister(
-            registerAlias(dst_reg, abi_size),
-            registerAlias(limit_reg, abi_size),
+            registerAlias(dst_reg, cmov_abi_size),
+            registerAlias(limit_reg, cmov_abi_size),
             cc,
         );
         break :result dst_mcv;
@@ -1785,10 +1785,10 @@ fn airSubSat(self: *Self, inst: Air.Inst.Index) !void {
         };
         try self.genBinOpMir(.sub, ty, dst_mcv, rhs_mcv);
 
-        const abi_size = @intCast(u32, @max(ty.abiSize(self.target.*), 2));
+        const cmov_abi_size = @max(@intCast(u32, ty.abiSize(self.target.*)), 2);
         try self.asmCmovccRegisterRegister(
-            registerAlias(dst_reg, abi_size),
-            registerAlias(limit_reg, abi_size),
+            registerAlias(dst_reg, cmov_abi_size),
+            registerAlias(limit_reg, cmov_abi_size),
             cc,
         );
         break :result dst_mcv;
@@ -1841,10 +1841,10 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
         };
 
         const dst_mcv = try self.genMulDivBinOp(.mul, inst, ty, ty, lhs_mcv, rhs_mcv);
-        const abi_size = @intCast(u32, @max(ty.abiSize(self.target.*), 2));
+        const cmov_abi_size = @max(@intCast(u32, ty.abiSize(self.target.*)), 2);
         try self.asmCmovccRegisterRegister(
-            registerAlias(dst_mcv.register, abi_size),
-            registerAlias(limit_reg, abi_size),
+            registerAlias(dst_mcv.register, cmov_abi_size),
+            registerAlias(limit_reg, cmov_abi_size),
             cc,
         );
         break :result dst_mcv;
@@ -3102,10 +3102,10 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
             try self.copyToRegisterWithInstTracking(inst, dst_ty, .{ .immediate = src_bits });
         try self.genBinOpMir(.bsr, src_ty, dst_mcv, mat_src_mcv);
 
-        const dst_abi_size = @intCast(u32, @max(dst_ty.abiSize(self.target.*), 2));
+        const cmov_abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
         try self.asmCmovccRegisterRegister(
-            registerAlias(dst_reg, dst_abi_size),
-            registerAlias(width_mcv.register, dst_abi_size),
+            registerAlias(dst_reg, cmov_abi_size),
+            registerAlias(width_mcv.register, cmov_abi_size),
             .z,
         );
 
@@ -3162,10 +3162,10 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
         const width_reg = try self.copyToTmpRegister(dst_ty, .{ .immediate = src_bits });
         try self.genBinOpMir(.bsf, src_ty, dst_mcv, mat_src_mcv);
 
-        const abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
+        const cmov_abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
         try self.asmCmovccRegisterRegister(
-            registerAlias(dst_reg, abi_size),
-            registerAlias(width_reg, abi_size),
+            registerAlias(dst_reg, cmov_abi_size),
+            registerAlias(width_reg, cmov_abi_size),
             .z,
         );
         break :result dst_mcv;
@@ -4766,7 +4766,7 @@ fn genBinOp(
                     },
                 };
 
-                const abi_size = @intCast(u32, lhs_ty.abiSize(self.target.*));
+                const cmov_abi_size = @max(@intCast(u32, lhs_ty.abiSize(self.target.*)), 2);
                 const tmp_reg = switch (dst_mcv) {
                     .register => |reg| reg,
                     else => try self.copyToTmpRegister(lhs_ty, dst_mcv),
@@ -4784,13 +4784,13 @@ fn genBinOp(
                     .ptr_stack_offset,
                     => unreachable,
                     .register => |src_reg| try self.asmCmovccRegisterRegister(
-                        registerAlias(tmp_reg, abi_size),
-                        registerAlias(src_reg, abi_size),
+                        registerAlias(tmp_reg, cmov_abi_size),
+                        registerAlias(src_reg, cmov_abi_size),
                         cc,
                     ),
                     .stack_offset => |off| try self.asmCmovccRegisterMemory(
-                        registerAlias(tmp_reg, abi_size),
-                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
+                        registerAlias(tmp_reg, cmov_abi_size),
+                        Memory.sib(Memory.PtrSize.fromSize(cmov_abi_size), .{
                             .base = .rbp,
                             .disp = -off,
                         }),
@@ -4803,8 +4803,8 @@ fn genBinOp(
 
                         try self.loadMemPtrIntoRegister(addr_reg, Type.usize, mat_src_mcv);
                         try self.asmCmovccRegisterMemory(
-                            registerAlias(tmp_reg, abi_size),
-                            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = addr_reg }),
+                            registerAlias(tmp_reg, cmov_abi_size),
+                            Memory.sib(Memory.PtrSize.fromSize(cmov_abi_size), .{ .base = addr_reg }),
                             cc,
                         );
                     },
@@ -7727,7 +7727,6 @@ fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
 
 fn atomicOp(
     self: *Self,
-    dst_reg: Register,
     ptr_mcv: MCValue,
     val_mcv: MCValue,
     ptr_ty: Type,
@@ -7735,11 +7734,7 @@ fn atomicOp(
     unused: bool,
     rmw_op: ?std.builtin.AtomicRmwOp,
     order: std.builtin.AtomicOrder,
-) InnerError!void {
-    const dst_mcv = MCValue{ .register = dst_reg };
-    const dst_lock = self.register_manager.lockReg(dst_reg);
-    defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
-
+) InnerError!MCValue {
     const ptr_lock = switch (ptr_mcv) {
         .register => |reg| self.register_manager.lockReg(reg),
         else => null,
@@ -7794,9 +7789,14 @@ fn atomicOp(
                 .SeqCst => .xchg,
             };
 
+            const dst_reg = try self.register_manager.allocReg(null, gp);
+            const dst_mcv = MCValue{ .register = dst_reg };
+            const dst_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
+            defer self.register_manager.unlockReg(dst_lock);
+
             try self.genSetReg(val_ty, dst_reg, val_mcv);
             if (rmw_op == std.builtin.AtomicRmwOp.Sub and tag == .xadd) {
-                try self.genUnOpMir(.neg, val_ty, .{ .register = dst_reg });
+                try self.genUnOpMir(.neg, val_ty, dst_mcv);
             }
             _ = try self.addInst(.{ .tag = tag, .ops = switch (tag) {
                 .mov, .xchg => .mr_sib,
@@ -7806,25 +7806,31 @@ fn atomicOp(
                 .r = registerAlias(dst_reg, val_abi_size),
                 .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
             } } });
+
+            return if (unused) .none else dst_mcv;
         },
-        .loop => _ = try self.asmJccReloc(if (val_abi_size <= 8) loop: {
-            try self.genSetReg(val_ty, dst_reg, val_mcv);
+        .loop => _ = if (val_abi_size <= 8) {
+            const tmp_reg = try self.register_manager.allocReg(null, gp);
+            const tmp_mcv = MCValue{ .register = tmp_reg };
+            const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+            defer self.register_manager.unlockReg(tmp_lock);
+
             try self.asmRegisterMemory(.mov, registerAlias(.rax, val_abi_size), ptr_mem);
             const loop = @intCast(u32, self.mir_instructions.len);
             if (rmw_op != std.builtin.AtomicRmwOp.Xchg) {
-                try self.genSetReg(val_ty, dst_reg, .{ .register = .rax });
+                try self.genSetReg(val_ty, tmp_reg, .{ .register = .rax });
             }
             if (rmw_op) |op| switch (op) {
-                .Xchg => try self.genSetReg(val_ty, dst_reg, val_mcv),
-                .Add => try self.genBinOpMir(.add, val_ty, dst_mcv, val_mcv),
-                .Sub => try self.genBinOpMir(.sub, val_ty, dst_mcv, val_mcv),
-                .And => try self.genBinOpMir(.@"and", val_ty, dst_mcv, val_mcv),
+                .Xchg => try self.genSetReg(val_ty, tmp_reg, val_mcv),
+                .Add => try self.genBinOpMir(.add, val_ty, tmp_mcv, val_mcv),
+                .Sub => try self.genBinOpMir(.sub, val_ty, tmp_mcv, val_mcv),
+                .And => try self.genBinOpMir(.@"and", val_ty, tmp_mcv, val_mcv),
                 .Nand => {
-                    try self.genBinOpMir(.@"and", val_ty, dst_mcv, val_mcv);
-                    try self.genUnOpMir(.not, val_ty, dst_mcv);
+                    try self.genBinOpMir(.@"and", val_ty, tmp_mcv, val_mcv);
+                    try self.genUnOpMir(.not, val_ty, tmp_mcv);
                 },
-                .Or => try self.genBinOpMir(.@"or", val_ty, dst_mcv, val_mcv),
-                .Xor => try self.genBinOpMir(.xor, val_ty, dst_mcv, val_mcv),
+                .Or => try self.genBinOpMir(.@"or", val_ty, tmp_mcv, val_mcv),
+                .Xor => try self.genBinOpMir(.xor, val_ty, tmp_mcv, val_mcv),
                 .Min, .Max => {
                     const cc: Condition = switch (if (val_ty.isAbiInt())
                         val_ty.intInfo(self.target.*).signedness
@@ -7842,17 +7848,18 @@ fn atomicOp(
                         },
                     };
 
-                    try self.genBinOpMir(.cmp, val_ty, dst_mcv, val_mcv);
+                    try self.genBinOpMir(.cmp, val_ty, tmp_mcv, val_mcv);
+                    const cmov_abi_size = @max(val_abi_size, 2);
                     switch (val_mcv) {
                         .register => |val_reg| try self.asmCmovccRegisterRegister(
-                            registerAlias(dst_reg, val_abi_size),
-                            registerAlias(val_reg, val_abi_size),
+                            registerAlias(tmp_reg, cmov_abi_size),
+                            registerAlias(val_reg, cmov_abi_size),
                             cc,
                         ),
                         .stack_offset => |val_off| try self.asmCmovccRegisterMemory(
-                            registerAlias(dst_reg, val_abi_size),
+                            registerAlias(tmp_reg, cmov_abi_size),
                             Memory.sib(
-                                Memory.PtrSize.fromSize(val_abi_size),
+                                Memory.PtrSize.fromSize(cmov_abi_size),
                                 .{ .base = .rbp, .disp = -val_off },
                             ),
                             cc,
@@ -7860,8 +7867,8 @@ fn atomicOp(
                         else => {
                             const val_reg = try self.copyToTmpRegister(val_ty, val_mcv);
                             try self.asmCmovccRegisterRegister(
-                                registerAlias(dst_reg, val_abi_size),
-                                registerAlias(val_reg, val_abi_size),
+                                registerAlias(tmp_reg, cmov_abi_size),
+                                registerAlias(val_reg, cmov_abi_size),
                                 cc,
                             );
                         },
@@ -7869,11 +7876,12 @@ fn atomicOp(
                 },
             };
             _ = try self.addInst(.{ .tag = .cmpxchg, .ops = .lock_mr_sib, .data = .{ .rx = .{
-                .r = registerAlias(dst_reg, val_abi_size),
+                .r = registerAlias(tmp_reg, val_abi_size),
                 .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
             } } });
-            break :loop loop;
-        } else loop: {
+            _ = try self.asmJccReloc(loop, .ne);
+            return if (unused) .none else .{ .register = .rax };
+        } else {
             try self.asmRegisterMemory(.mov, .rax, Memory.sib(.qword, .{
                 .base = ptr_mem.sib.base,
                 .scale_index = ptr_mem.sib.scale_index,
@@ -7939,8 +7947,22 @@ fn atomicOp(
             _ = try self.addInst(.{ .tag = .cmpxchgb, .ops = .lock_m_sib, .data = .{
                 .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
             } });
-            break :loop loop;
-        }, .ne),
+            _ = try self.asmJccReloc(loop, .ne);
+
+            if (unused) return .none;
+            const dst_mcv = try self.allocTempRegOrMem(val_ty, false);
+            try self.asmMemoryRegister(
+                .mov,
+                Memory.sib(.qword, .{ .base = .rbp, .disp = 0 - dst_mcv.stack_offset }),
+                .rax,
+            );
+            try self.asmMemoryRegister(
+                .mov,
+                Memory.sib(.qword, .{ .base = .rbp, .disp = 8 - dst_mcv.stack_offset }),
+                .rdx,
+            );
+            return dst_mcv;
+        },
         .libcall => return self.fail("TODO implement x86 atomic libcall", .{}),
     }
 }
@@ -7954,7 +7976,6 @@ fn airAtomicRmw(self: *Self, inst: Air.Inst.Index) !void {
     defer for (regs_lock) |lock| self.register_manager.unlockReg(lock);
 
     const unused = self.liveness.isUnused(inst);
-    const dst_reg = try self.register_manager.allocReg(if (unused) null else inst, gp);
 
     const ptr_ty = self.air.typeOf(pl_op.operand);
     const ptr_mcv = try self.resolveInst(pl_op.operand);
@@ -7962,8 +7983,8 @@ fn airAtomicRmw(self: *Self, inst: Air.Inst.Index) !void {
     const val_ty = self.air.typeOf(extra.operand);
     const val_mcv = try self.resolveInst(extra.operand);
 
-    try self.atomicOp(dst_reg, ptr_mcv, val_mcv, ptr_ty, val_ty, unused, extra.op(), extra.ordering());
-    const result: MCValue = if (unused) .dead else .{ .register = dst_reg };
+    const result =
+        try self.atomicOp(ptr_mcv, val_mcv, ptr_ty, val_ty, unused, extra.op(), extra.ordering());
     return self.finishAir(inst, result, .{ pl_op.operand, extra.operand, .none });
 }
 
@@ -7996,16 +8017,14 @@ fn airAtomicLoad(self: *Self, inst: Air.Inst.Index) !void {
 fn airAtomicStore(self: *Self, inst: Air.Inst.Index, order: std.builtin.AtomicOrder) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
-    const dst_reg = try self.register_manager.allocReg(null, gp);
-
     const ptr_ty = self.air.typeOf(bin_op.lhs);
     const ptr_mcv = try self.resolveInst(bin_op.lhs);
 
     const val_ty = self.air.typeOf(bin_op.rhs);
     const val_mcv = try self.resolveInst(bin_op.rhs);
 
-    try self.atomicOp(dst_reg, ptr_mcv, val_mcv, ptr_ty, val_ty, true, null, order);
-    return self.finishAir(inst, .none, .{ bin_op.lhs, bin_op.rhs, .none });
+    const result = try self.atomicOp(ptr_mcv, val_mcv, ptr_ty, val_ty, true, null, order);
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
