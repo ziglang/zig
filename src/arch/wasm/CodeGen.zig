@@ -4670,11 +4670,40 @@ fn airSelect(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airShuffle(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const ty_op = func.air.instructions.items(.data)[inst].ty_op;
-    const operand = try func.resolveInst(ty_op.operand);
+    const inst_ty = func.air.typeOfIndex(inst);
+    const ty_pl = func.air.instructions.items(.data)[inst].ty_pl;
+    const extra = func.air.extraData(Air.Shuffle, ty_pl.payload).data;
 
-    _ = operand;
-    return func.fail("TODO: Implement wasm airShuffle", .{});
+    const a = try func.resolveInst(extra.a);
+    const b = try func.resolveInst(extra.b);
+    const mask = func.air.values[extra.mask];
+    const mask_len = extra.mask_len;
+
+    const child_ty = inst_ty.childType();
+    const elem_size = child_ty.abiSize(func.target);
+
+    if (func.liveness.isUnused(inst)) {
+        return func.finishAir(inst, .none, &.{ extra.a, extra.b });
+    }
+
+    const module = func.bin_file.base.options.module.?;
+    const result = try func.allocStack(inst_ty);
+
+    for (0..mask_len) |index| {
+        var buf: Value.ElemValueBuffer = undefined;
+        const value = mask.elemValueBuffer(module, index, &buf).toSignedInt(func.target);
+
+        try func.emitWValue(result);
+
+        const loaded = if (value >= 0)
+            try func.load(a, child_ty, @intCast(u32, @intCast(i64, elem_size) * value))
+        else
+            try func.load(b, child_ty, @intCast(u32, @intCast(i64, elem_size) * ~value));
+
+        try func.store(.stack, loaded, child_ty, result.stack_offset.value + @intCast(u32, elem_size) * @intCast(u32, index));
+    }
+
+    return func.finishAir(inst, result, &.{ extra.a, extra.b });
 }
 
 fn airReduce(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -5125,7 +5154,12 @@ fn airMemcpy(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airRetAddr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    func.finishAir(inst, .{ .imm32 = 0 }, &.{});
+    // TODO: Implement this properly once stack serialization is solved
+    func.finishAir(inst, switch (func.arch()) {
+        .wasm32 => .{ .imm32 = 0 },
+        .wasm64 => .{ .imm64 = 0 },
+        else => unreachable,
+    }, &.{});
 }
 
 fn airPopcount(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
