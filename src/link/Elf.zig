@@ -1386,6 +1386,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             man.hash.add(stack_size);
             man.hash.add(self.base.options.build_id);
         }
+        man.hash.addListOfBytes(self.base.options.symbol_wrap_set.keys());
         man.hash.add(self.base.options.skip_linker_dependencies);
         man.hash.add(self.base.options.z_nodelete);
         man.hash.add(self.base.options.z_notext);
@@ -1665,6 +1666,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                 try argv.append(rpath);
             }
         }
+
+        for (self.base.options.symbol_wrap_set.keys()) |symbol_name| {
+            try argv.appendSlice(&.{ "-wrap", symbol_name });
+        }
+
         if (self.base.options.each_lib_rpath) {
             var test_path = std.ArrayList(u8).init(self.base.allocator);
             defer test_path.deinit();

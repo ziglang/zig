@@ -494,6 +494,7 @@ pub const InitOptions = struct {
     clang_argv: []const []const u8 = &[0][]const u8{},
     lib_dirs: []const []const u8 = &[0][]const u8{},
     rpath_list: []const []const u8 = &[0][]const u8{},
+    symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{},
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
     link_objects: []LinkObject = &[0]LinkObject{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
@@ -825,7 +826,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 options.output_mode == .Lib or
                 options.linker_script != null or options.version_script != null or
                 options.emit_implib != null or
-                build_id)
+                build_id or
+                options.symbol_wrap_set.count() > 0)
             {
                 break :blk true;
             }
@@ -1438,6 +1440,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .wasi_emulated_libs = options.wasi_emulated_libs,
             .lib_dirs = options.lib_dirs,
             .rpath_list = options.rpath_list,
+            .symbol_wrap_set = options.symbol_wrap_set,
             .strip = strip,
             .is_native_os = options.is_native_os,
             .is_native_abi = options.is_native_abi,
@@ -2259,6 +2262,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.rdynamic);
     man.hash.addListOfBytes(comp.bin_file.options.lib_dirs);
     man.hash.addListOfBytes(comp.bin_file.options.rpath_list);
+    man.hash.addListOfBytes(comp.bin_file.options.symbol_wrap_set.keys());
     man.hash.add(comp.bin_file.options.each_lib_rpath);
     man.hash.add(comp.bin_file.options.build_id);
     man.hash.add(comp.bin_file.options.skip_linker_dependencies);
