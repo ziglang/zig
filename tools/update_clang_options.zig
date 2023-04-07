@@ -35,6 +35,10 @@ const known_options = [_]KnownOpt{
         .ident = "c",
     },
     .{
+        .name = "r",
+        .ident = "r",
+    },
+    .{
         .name = "l",
         .ident = "l",
     },
