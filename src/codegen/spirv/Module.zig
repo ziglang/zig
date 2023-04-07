@@ -39,41 +39,58 @@ pub const Fn = struct {
     /// This section should also contain the OpFunctionEnd instruction marking
     /// the end of this function definition.
     body: Section = .{},
+    /// The decl dependencies that this function depends on.
+    decl_deps: std.ArrayListUnmanaged(Decl.Index) = .{},
 
     /// Reset this function without deallocating resources, so that
     /// it may be used to emit code for another function.
     pub fn reset(self: *Fn) void {
         self.prologue.reset();
         self.body.reset();
+        self.decl_deps.items.len = 0;
     }
 
     /// Free the resources owned by this function.
     pub fn deinit(self: *Fn, a: Allocator) void {
         self.prologue.deinit(a);
         self.body.deinit(a);
+        self.decl_deps.deinit(a);
         self.* = undefined;
     }
+};
+
+/// Declarations, both functions and globals, can have dependencies. These are used for 2 things:
+/// - Globals must be declared before they are used, also between globals. The compiler processes
+///   globals unordered, so we must use the dependencies here to figure out how to order the globals
+///   in the final module. The Globals structure is also used for that.
+/// - Entry points must declare the complete list of OpVariable instructions that they access.
+///   For these we use the same dependency structure.
+/// In this mechanism, globals will only depend on other globals, while functions may depend on
+/// globals or other functions.
+pub const Decl = struct {
+    /// Index to refer to a Decl by.
+    pub const Index = enum(u32) { _ };
+
+    /// The result-id to be used for this declaration. This is the final result-id
+    /// of the decl, which may be an OpFunction, OpVariable, or the result of a sequence
+    /// of OpSpecConstantOp operations.
+    result_id: IdRef,
+    /// The offset of the first dependency of this decl in the `decl_deps` array.
+    begin_dep: u32,
+    /// The past-end offset of the dependencies of this decl in the `decl_deps` array.
+    end_dep: u32,
 };
 
 /// Globals must be kept in order: operations involving globals must be ordered
 /// so that the global declaration precedes any usage.
 pub const Global = struct {
-    /// Index type to refer to a global by.
-    pub const Index = enum(u32) { _ };
-
-    /// The result-id to be used for this global declaration. Note that this does not
-    /// necessarily refer to an OpVariable instruction - it may also be the final result
-    /// id of a number of OpSpecConstantOp instructions.
+    /// This is the result-id of the OpVariable instruction that declares the global.
     result_id: IdRef,
     /// The offset into `self.globals.section` of the first instruction of this global
     /// declaration.
     begin_inst: u32,
     /// The past-end offset into `self.flobals.section`.
     end_inst: u32,
-    /// The first dependency in the `self.globals.dependencies` array list.
-    begin_dep: u32,
-    /// The past-end dependency in `self.globals.dependencies`.
-    end_dep: u32,
 };
 
 /// A general-purpose allocator which may be used to allocate resources for this module
@@ -123,18 +140,19 @@ source_file_names: std.StringHashMapUnmanaged(IdRef) = .{},
 /// Note: Uses ArrayHashMap which is insertion ordered, so that we may refer to other types by index (Type.Ref).
 type_cache: TypeCache = .{},
 
+/// Set of Decls, referred to by Decl.Index.
+decls: std.ArrayListUnmanaged(Decl) = .{},
+
+decl_deps: std.ArrayListUnmanaged(Decl.Index) = .{},
+
 /// The fields in this structure help to maintain the required order for global variables.
 globals: struct {
-    /// The graph nodes of global variables present in the module.
-    nodes: std.ArrayListUnmanaged(Global) = .{},
+    /// Set of globals, referred to by Decl.Index.
+    globals: std.AutoArrayHashMapUnmanaged(Decl.Index, Global) = .{},
     /// This pseudo-section contains the initialization code for all the globals. Instructions from
     /// here are reordered when flushing the module. Its contents should be part of the
     /// `types_globals_constants` SPIR-V section.
     section: Section = .{},
-    /// Holds a list of dependent global variables for each global variable.
-    dependencies: std.ArrayListUnmanaged(Global.Index) = .{},
-    /// The global that initialization code/dependencies are currently being generated for, if any.
-    current_global: ?Global.Index = null,
 } = .{},
 
 pub fn init(gpa: Allocator, arena: Allocator) Module {
@@ -159,9 +177,11 @@ pub fn deinit(self: *Module) void {
     self.source_file_names.deinit(self.gpa);
     self.type_cache.deinit(self.gpa);
 
-    self.globals.nodes.deinit(self.gpa);
+    self.decls.deinit(self.gpa);
+    self.decl_deps.deinit(self.gpa);
+
+    self.globals.globals.deinit(self.gpa);
     self.globals.section.deinit(self.gpa);
-    self.globals.dependencies.deinit(self.gpa);
 
     self.* = undefined;
 }
@@ -181,16 +201,17 @@ pub fn idBound(self: Module) Word {
 }
 
 fn orderGlobalsInto(
-    self: Module,
-    global_index: Global.Index,
+    self: *Module,
+    index: Decl.Index,
     section: *Section,
     seen: *std.DynamicBitSetUnmanaged,
 ) !void {
-    const node = self.globals.nodes.items[@enumToInt(global_index)];
-    const deps = self.globals.dependencies.items[node.begin_dep..node.end_dep];
-    const insts = self.globals.section.instructions.items[node.begin_inst..node.end_inst];
+    const decl = self.declPtr(index);
+    const deps = self.decl_deps.items[decl.begin_dep..decl.end_dep];
+    const global = self.globalPtr(index).?;
+    const insts = self.globals.section.instructions.items[global.begin_inst..global.end_inst];
 
-    seen.set(@enumToInt(global_index));
+    seen.set(@enumToInt(index));
 
     for (deps) |dep| {
         if (!seen.isSet(@enumToInt(dep))) {
@@ -201,17 +222,16 @@ fn orderGlobalsInto(
     try section.instructions.appendSlice(self.gpa, insts);
 }
 
-fn orderGlobals(self: Module) !Section {
-    const nodes = self.globals.nodes.items;
+fn orderGlobals(self: *Module) !Section {
+    const globals = self.globals.globals.keys();
 
-    var seen = try std.DynamicBitSetUnmanaged.initEmpty(self.gpa, nodes.len);
+    var seen = try std.DynamicBitSetUnmanaged.initEmpty(self.gpa, self.decls.items.len);
     defer seen.deinit(self.gpa);
 
     var ordered_globals = Section{};
-
-    for (0..nodes.len) |global_index| {
-        if (!seen.isSet(global_index)) {
-            try self.orderGlobalsInto(@intToEnum(Global.Index, @intCast(u32, global_index)), &ordered_globals, &seen);
+    for (globals) |decl_index| {
+        if (!seen.isSet(@enumToInt(decl_index))) {
+            try self.orderGlobalsInto(decl_index, &ordered_globals, &seen);
         }
     }
 
@@ -219,12 +239,14 @@ fn orderGlobals(self: Module) !Section {
 }
 
 /// Emit this module as a spir-v binary.
-pub fn flush(self: Module, file: std.fs.File) !void {
+pub fn flush(self: *Module, file: std.fs.File) !void {
     // See SPIR-V Spec section 2.3, "Physical Layout of a SPIR-V Module and Instruction"
 
     const header = [_]Word{
         spec.magic_number,
-        (1 << 16) | (4 << 8), // TODO: From cpu features
+        // TODO: From cpu features
+        //   Emit SPIR-V 1.4 for now. This is the highest version that Intel's CPU OpenCL supports.
+        (1 << 16) | (4 << 8),
         0, // TODO: Register Zig compiler magic number.
         self.idBound(),
         0, // Schema (currently reserved for future use)
@@ -265,9 +287,10 @@ pub fn flush(self: Module, file: std.fs.File) !void {
 }
 
 /// Merge the sections making up a function declaration into this module.
-pub fn addFunction(self: *Module, func: Fn) !void {
+pub fn addFunction(self: *Module, decl_index: Decl.Index, func: Fn) !void {
     try self.sections.functions.append(self.gpa, func.prologue);
     try self.sections.functions.append(self.gpa, func.body);
+    try self.declareDeclDeps(decl_index, func.decl_deps.items);
 }
 
 /// Fetch the result-id of an OpString instruction that encodes the path of the source
@@ -719,43 +742,56 @@ pub fn decorateMember(
     });
 }
 
-pub fn allocGlobal(self: *Module) !Global.Index {
-    try self.globals.nodes.append(self.gpa, .{
+pub const DeclKind = enum {
+    func,
+    global,
+};
+
+pub fn allocDecl(self: *Module, kind: DeclKind) !Decl.Index {
+    try self.decls.append(self.gpa, .{
         .result_id = self.allocId(),
-        .begin_inst = undefined,
-        .end_inst = undefined,
         .begin_dep = undefined,
         .end_dep = undefined,
     });
-    return @intToEnum(Global.Index, @intCast(u32, self.globals.nodes.items.len - 1));
+    const index = @intToEnum(Decl.Index, @intCast(u32, self.decls.items.len - 1));
+    switch (kind) {
+        .func => {},
+        // If the decl represents a global, also allocate a global node.
+        .global => try self.globals.globals.putNoClobber(self.gpa, index, .{
+            .result_id = undefined,
+            .begin_inst = undefined,
+            .end_inst = undefined,
+        }),
+    }
+
+    return index;
 }
 
-pub fn globalPtr(self: *Module, index: Global.Index) *Global {
-    return &self.globals.nodes.items[@enumToInt(index)];
+pub fn declPtr(self: *Module, index: Decl.Index) *Decl {
+    return &self.decls.items[@enumToInt(index)];
 }
 
-/// Begin generating the global for `index`. The previous global is finalized
-/// at this point, and the global for `index` is made active. Any new calls to
-/// `addGlobalDependency` will affect this global. After a new call to this function,
-/// the prior active global cannot be modified again.
-pub fn beginGlobal(self: *Module, index: Global.Index) IdRef {
-    const global = self.globalPtr(index);
-    global.begin_inst = @intCast(u32, self.globals.section.instructions.items.len);
-    global.begin_dep = @intCast(u32, self.globals.dependencies.items.len);
-    self.globals.current_global = index;
-    return global.result_id;
+pub fn globalPtr(self: *Module, index: Decl.Index) ?*Global {
+    return self.globals.globals.getPtr(index);
 }
 
-/// Finalize the global. After this point, the current global cannot be modified anymore.
-pub fn endGlobal(self: *Module) void {
-    const global = self.globalPtr(self.globals.current_global.?);
+/// Declare ALL dependencies for a decl.
+pub fn declareDeclDeps(self: *Module, decl_index: Decl.Index, deps: []const Decl.Index) !void {
+    const begin_dep = @intCast(u32, self.decl_deps.items.len);
+    try self.decl_deps.appendSlice(self.gpa, deps);
+    const end_dep = @intCast(u32, self.decl_deps.items.len);
+
+    const decl = self.declPtr(decl_index);
+    decl.begin_dep = begin_dep;
+    decl.end_dep = end_dep;
+}
+
+pub fn beginGlobal(self: *Module) u32 {
+    return @intCast(u32, self.globals.section.instructions.items.len);
+}
+
+pub fn endGlobal(self: *Module, global_index: Decl.Index, begin_inst: u32) void {
+    const global = self.globalPtr(global_index).?;
+    global.begin_inst = begin_inst;
     global.end_inst = @intCast(u32, self.globals.section.instructions.items.len);
-    global.end_dep = @intCast(u32, self.globals.dependencies.items.len);
-    self.globals.current_global = null;
-}
-
-pub fn addGlobalDependency(self: *Module, dependency: Global.Index) !void {
-    assert(self.globals.current_global != null);
-    assert(self.globals.current_global.? != dependency);
-    try self.globals.dependencies.append(self.gpa, dependency);
 }

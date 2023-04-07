@@ -19,6 +19,7 @@ const Word = spec.Word;
 const IdRef = spec.IdRef;
 const IdResult = spec.IdResult;
 const IdResultType = spec.IdResultType;
+const StorageClass = spec.StorageClass;
 
 const SpvModule = @import("spirv/Module.zig");
 const SpvSection = @import("spirv/Section.zig");
@@ -37,23 +38,8 @@ const BlockMap = std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
     incoming_blocks: *std.ArrayListUnmanaged(IncomingBlock),
 });
 
-/// Linking information about a particular decl.
-/// The active field of this enum depends on the type of the corresponding decl.
-const DeclLink = union {
-    /// Linking information about a function.
-    /// Active when the decl is a function.
-    func: struct {
-        /// Result-id of the OpFunction instruction.
-        result_id: IdResult,
-    },
-    /// Linking information about a global. This index points into the
-    /// SPIR-V module's `globals` array.
-    /// Active when the decl is a variable.
-    global: SpvModule.Global.Index,
-};
-
 /// Maps Zig decl indices to linking SPIR-V linking information.
-pub const DeclLinkMap = std.AutoHashMap(Module.Decl.Index, DeclLink);
+pub const DeclLinkMap = std.AutoHashMap(Module.Decl.Index, SpvModule.Decl.Index);
 
 /// This structure is used to compile a declaration, and contains all relevant meta-information to deal with that.
 pub const DeclGen = struct {
@@ -251,8 +237,8 @@ pub const DeclGen = struct {
                     .function => val.castTag(.function).?.data.owner_decl,
                     else => unreachable,
                 };
-                const link = try self.resolveDecl(fn_decl_index);
-                return link.func.result_id;
+                const spv_decl_index = try self.resolveDecl(fn_decl_index);
+                return self.spv.declPtr(spv_decl_index).result_id;
             }
 
             return try self.constant(ty, val);
@@ -263,19 +249,19 @@ pub const DeclGen = struct {
 
     /// Fetch or allocate a result id for decl index. This function also marks the decl as alive.
     /// Note: Function does not actually generate the decl.
-    fn resolveDecl(self: *DeclGen, decl_index: Module.Decl.Index) !DeclLink {
+    fn resolveDecl(self: *DeclGen, decl_index: Module.Decl.Index) !SpvModule.Decl.Index {
         const decl = self.module.declPtr(decl_index);
         self.module.markDeclAlive(decl);
 
         const entry = try self.decl_link.getOrPut(decl_index);
-        const result_id = self.spv.allocId();
-
         if (!entry.found_existing) {
-            if (decl.val.castTag(.function)) |_| {
-                entry.value_ptr.* = .{ .func = .{ .result_id = result_id } };
-            } else {
-                entry.value_ptr.* = .{ .global = try self.spv.allocGlobal() };
-            }
+            // TODO: Extern fn?
+            const kind: SpvModule.DeclKind = if (decl.val.tag() == .function)
+                .func
+            else
+                .global;
+
+            entry.value_ptr.* = try self.spv.allocDecl(kind);
         }
 
         return entry.value_ptr.*;
@@ -440,6 +426,8 @@ pub const DeclGen = struct {
         /// The partially filled last constant.
         /// If full, its flushed.
         partial_word: std.BoundedArray(u8, @sizeOf(Word)) = .{},
+        /// The declaration dependencies of the constant we are lowering.
+        decl_deps: std.ArrayList(SpvModule.Decl.Index),
 
         /// Utility function to get the section that instructions should be lowered to.
         fn section(self: *@This()) *SpvSection {
@@ -554,7 +542,7 @@ pub const DeclGen = struct {
             const ty_id = dg.typeId(ty_ref);
 
             const decl = dg.module.declPtr(decl_index);
-            const link = try dg.resolveDecl(decl_index);
+            const spv_decl_index = try dg.resolveDecl(decl_index);
 
             switch (decl.val.tag()) {
                 .function => {
@@ -569,14 +557,15 @@ pub const DeclGen = struct {
                     const result_id = dg.spv.allocId();
                     log.debug("addDeclRef {s} = {}", .{ decl.name, result_id.id });
 
-                    const global = dg.spv.globalPtr(link.global);
-                    try dg.spv.addGlobalDependency(link.global);
+                    try self.decl_deps.append(spv_decl_index);
+
+                    const decl_id = dg.spv.declPtr(spv_decl_index).result_id;
                     // TODO: Do we need a storage class cast here?
                     // TODO: We can probably eliminate these casts
                     try dg.spv.globals.section.emitSpecConstantOp(dg.spv.gpa, .OpBitcast, .{
                         .id_result_type = ty_id,
                         .id_result = result_id,
-                        .operand = global.result_id,
+                        .operand = decl_id,
                     });
 
                     try self.addPtr(ty_ref, result_id);
@@ -810,10 +799,11 @@ pub const DeclGen = struct {
     /// pointer points to. Note: result is not necessarily an OpVariable instruction!
     fn lowerIndirectConstant(
         self: *DeclGen,
-        result_id: IdRef,
+        spv_decl_index: SpvModule.Decl.Index,
         ty: Type,
         val: Value,
-        storage_class: spec.StorageClass,
+        storage_class: StorageClass,
+        cast_to_generic: bool,
         alignment: u32,
     ) Error!void {
         // To simplify constant generation, we're going to generate constants as a word-array, and
@@ -844,23 +834,27 @@ pub const DeclGen = struct {
         const ty_ref = try self.resolveType(ty, .indirect);
         const ptr_ty_ref = try self.spv.ptrType(ty_ref, storage_class, alignment);
 
-        const target = self.getTarget();
+        // const target = self.getTarget();
 
-        if (val.isUndef()) {
-            // Special case: the entire value is undefined. In this case, we can just
-            // generate an OpVariable with no initializer.
-            return try section.emit(self.spv.gpa, .OpVariable, .{
-                .id_result_type = self.typeId(ptr_ty_ref),
-                .id_result = result_id,
-                .storage_class = storage_class,
-            });
-        } else if (ty.abiSize(target) == 0) {
-            // Special case: if the type has no size, then return an undefined pointer.
-            return try section.emit(self.spv.gpa, .OpUndef, .{
-                .id_result_type = self.typeId(ptr_ty_ref),
-                .id_result = result_id,
-            });
-        }
+        // TODO: Fix the resulting global linking for these paths.
+        // if (val.isUndef()) {
+        //     // Special case: the entire value is undefined. In this case, we can just
+        //     // generate an OpVariable with no initializer.
+        //     return try section.emit(self.spv.gpa, .OpVariable, .{
+        //         .id_result_type = self.typeId(ptr_ty_ref),
+        //         .id_result = result_id,
+        //         .storage_class = storage_class,
+        //     });
+        // } else if (ty.abiSize(target) == 0) {
+        //     // Special case: if the type has no size, then return an undefined pointer.
+        //     return try section.emit(self.spv.gpa, .OpUndef, .{
+        //         .id_result_type = self.typeId(ptr_ty_ref),
+        //         .id_result = result_id,
+        //     });
+        // }
+
+        // TODO: Capture the above stuff in here as well...
+        const begin_inst = self.spv.beginGlobal();
 
         const u32_ty_ref = try self.intType(.unsigned, 32);
         var icl = IndirectConstantLowering{
@@ -869,10 +863,12 @@ pub const DeclGen = struct {
             .u32_ty_id = self.typeId(u32_ty_ref),
             .members = std.ArrayList(SpvType.Payload.Struct.Member).init(self.gpa),
             .initializers = std.ArrayList(IdRef).init(self.gpa),
+            .decl_deps = std.ArrayList(SpvModule.Decl.Index).init(self.gpa),
         };
 
         defer icl.members.deinit();
         defer icl.initializers.deinit();
+        defer icl.decl_deps.deinit();
 
         try icl.lower(ty, val);
         try icl.flush();
@@ -888,6 +884,7 @@ pub const DeclGen = struct {
         });
 
         const var_id = self.spv.allocId();
+        self.spv.globalPtr(spv_decl_index).?.result_id = var_id;
         try section.emit(self.spv.gpa, .OpVariable, .{
             .id_result_type = self.typeId(ptr_constant_struct_ty_ref),
             .id_result = var_id,
@@ -896,12 +893,32 @@ pub const DeclGen = struct {
         });
         // TODO: Set alignment of OpVariable.
         // TODO: We may be able to eliminate these casts.
+
         const const_ptr_id = try self.makePointerConstant(section, ptr_constant_struct_ty_ref, var_id);
+        const result_id = self.spv.declPtr(spv_decl_index).result_id;
+
+        const bitcast_result_id = if (cast_to_generic)
+            self.spv.allocId()
+        else
+            result_id;
+
         try section.emitSpecConstantOp(self.spv.gpa, .OpBitcast, .{
             .id_result_type = self.typeId(ptr_ty_ref),
-            .id_result = result_id,
+            .id_result = bitcast_result_id,
             .operand = const_ptr_id,
         });
+
+        if (cast_to_generic) {
+            const generic_ptr_ty_ref = try self.spv.ptrType(ty_ref, .Generic, alignment);
+            try section.emitSpecConstantOp(self.spv.gpa, .OpPtrCastToGeneric, .{
+                .id_result_type = self.typeId(generic_ptr_ty_ref),
+                .id_result = result_id,
+                .pointer = bitcast_result_id,
+            });
+        }
+
+        try self.spv.declareDeclDeps(spv_decl_index, icl.decl_deps.items);
+        self.spv.endGlobal(spv_decl_index, begin_inst);
     }
 
     /// This function generates a load for a constant in direct (ie, non-memory) representation.
@@ -940,19 +957,28 @@ pub const DeclGen = struct {
                     try section.emit(self.spv.gpa, .OpConstantFalse, operands);
                 }
             },
+            // TODO: We can handle most pointers here (decl refs etc), because now they emit an extra
+            // OpVariable that is not really required.
             else => {
                 // The value cannot be generated directly, so generate it as an indirect constant,
                 // and then perform an OpLoad.
                 const alignment = ty.abiAlignment(target);
-                const global_index = try self.spv.allocGlobal();
-                log.debug("constant {}", .{global_index});
-                const ptr_id = self.spv.beginGlobal(global_index);
-                defer self.spv.endGlobal();
-                try self.lowerIndirectConstant(ptr_id, ty, val, .UniformConstant, alignment);
+                const spv_decl_index = try self.spv.allocDecl(.global);
+
+                try self.lowerIndirectConstant(
+                    spv_decl_index,
+                    ty,
+                    val,
+                    .UniformConstant,
+                    false,
+                    alignment,
+                );
+                try self.func.decl_deps.append(self.spv.gpa, spv_decl_index);
+
                 try self.func.body.emit(self.spv.gpa, .OpLoad, .{
                     .id_result_type = result_ty_id,
                     .id_result = result_id,
-                    .pointer = ptr_id,
+                    .pointer = self.spv.declPtr(spv_decl_index).result_id,
                 });
                 // TODO: Convert bools? This logic should hook into `load`. It should be a dead
                 // path though considering .Bool is handled above.
@@ -1289,7 +1315,7 @@ pub const DeclGen = struct {
         }
     }
 
-    fn spvStorageClass(as: std.builtin.AddressSpace) spec.StorageClass {
+    fn spvStorageClass(as: std.builtin.AddressSpace) StorageClass {
         return switch (as) {
             .generic => .Generic, // TODO: Disallow?
             .gs, .fs, .ss => unreachable,
@@ -1370,16 +1396,17 @@ pub const DeclGen = struct {
 
     fn genDecl(self: *DeclGen) !void {
         const decl = self.module.declPtr(self.decl_index);
-        const link = try self.resolveDecl(self.decl_index);
+        const spv_decl_index = try self.resolveDecl(self.decl_index);
+
+        const decl_id = self.spv.declPtr(spv_decl_index).result_id;
+        log.debug("genDecl {s} = {}", .{ decl.name, decl_id });
 
         if (decl.val.castTag(.function)) |_| {
-            log.debug("genDecl function {s} = {}", .{ decl.name, link.func.result_id.id });
-
             assert(decl.ty.zigTypeTag() == .Fn);
             const prototype_id = try self.resolveTypeId(decl.ty);
             try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
                 .id_result_type = try self.resolveTypeId(decl.ty.fnReturnType()),
-                .id_result = link.func.result_id,
+                .id_result = decl_id,
                 .function_control = .{}, // TODO: We can set inline here if the type requires it.
                 .function_type = prototype_id,
             });
@@ -1413,18 +1440,18 @@ pub const DeclGen = struct {
 
             // Append the actual code into the functions section.
             try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
-            try self.spv.addFunction(self.func);
+            try self.spv.addFunction(spv_decl_index, self.func);
 
             const fqn = try decl.getFullyQualifiedName(self.module);
             defer self.module.gpa.free(fqn);
 
             try self.spv.sections.debug_names.emit(self.gpa, .OpName, .{
-                .target = link.func.result_id,
+                .target = decl_id,
                 .name = fqn,
             });
 
             if (self.module.test_functions.contains(self.decl_index)) {
-                try self.generateTestEntryPoint(fqn, link.func.result_id);
+                try self.generateTestEntryPoint(fqn, decl_id);
             }
         } else {
             const init_val = if (decl.val.castTag(.variable)) |payload|
@@ -1438,41 +1465,33 @@ pub const DeclGen = struct {
 
             // TODO: integrate with variable().
 
-            const storage_class = spvStorageClass(decl.@"addrspace");
-            const actual_storage_class = switch (storage_class) {
+            const final_storage_class = spvStorageClass(decl.@"addrspace");
+            const actual_storage_class = switch (final_storage_class) {
                 .Generic => .CrossWorkgroup,
-                else => storage_class,
-            };
-
-            const global_result_id = self.spv.beginGlobal(link.global);
-            defer self.spv.endGlobal();
-            log.debug("genDecl {}", .{link.global});
-
-            const var_result_id = switch (storage_class) {
-                .Generic => self.spv.allocId(),
-                else => global_result_id,
+                else => final_storage_class,
             };
 
             try self.lowerIndirectConstant(
-                var_result_id,
+                spv_decl_index,
                 decl.ty,
                 init_val,
                 actual_storage_class,
+                final_storage_class == .Generic,
                 decl.@"align",
             );
 
-            if (storage_class == .Generic) {
-                const section = &self.spv.globals.section;
-                const ty_ref = try self.resolveType(decl.ty, .indirect);
-                const ptr_ty_ref = try self.spv.ptrType(ty_ref, storage_class, decl.@"align");
-                // TODO: Can we eliminate this cast?
-                // TODO: Const-wash pointer
-                try section.emitSpecConstantOp(self.spv.gpa, .OpPtrCastToGeneric, .{
-                    .id_result_type = self.typeId(ptr_ty_ref),
-                    .id_result = global_result_id,
-                    .pointer = var_result_id,
-                });
-            }
+            // if (storage_class == .Generic) {
+            //     const section = &self.spv.globals.section;
+            //     const ty_ref = try self.resolveType(decl.ty, .indirect);
+            //     const ptr_ty_ref = try self.spv.ptrType(ty_ref, storage_class, decl.@"align");
+            //     // TODO: Can we eliminate this cast?
+            //     // TODO: Const-wash pointer?
+            //     try section.emitSpecConstantOp(self.spv.gpa, .OpPtrCastToGeneric, .{
+            //         .id_result_type = self.typeId(ptr_ty_ref),
+            //         .id_result = global_result_id,
+            //         .pointer = casted_result_id,
+            //     });
+            // }
         }
     }
 
