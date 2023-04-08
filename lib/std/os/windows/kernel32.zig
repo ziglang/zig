@@ -320,6 +320,8 @@ pub extern "kernel32" fn RtlVirtualUnwind(
     ContextPointers: ?*KNONVOLATILE_CONTEXT_POINTERS,
 ) callconv(WINAPI) *EXCEPTION_ROUTINE;
 
+pub extern "kernel32" fn SetConsoleMode(in_hConsoleHandle: HANDLE, in_Mode: DWORD) callconv(WINAPI) BOOL;
+
 pub extern "kernel32" fn SetConsoleTextAttribute(hConsoleOutput: HANDLE, wAttributes: WORD) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn SetConsoleCtrlHandler(

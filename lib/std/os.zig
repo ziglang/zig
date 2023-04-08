@@ -3199,8 +3199,16 @@ pub fn isatty(handle: fd_t) bool {
         if (isCygwinPty(handle))
             return true;
 
-        var out: windows.DWORD = undefined;
-        return windows.kernel32.GetConsoleMode(handle, &out) != 0;
+        // Support for ANSI escapes sequences was added to Windows 10 1511
+        // on 2016.
+        // See https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences.
+        const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
+
+        var mode: windows.DWORD = undefined;
+        if (windows.kernel32.GetConsoleMode(handle, &mode) == 0) return false;
+
+        mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+        return windows.kernel32.SetConsoleMode(handle, mode) != 0;
     }
     if (builtin.link_libc) {
         return system.isatty(handle) != 0;
