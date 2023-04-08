@@ -969,9 +969,8 @@ fn chopSlice(ptr: []const u8, offset: u64, size: u64) error{Overflow}![]const u8
 /// This takes ownership of elf_file: users of this function should not close
 /// it themselves, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
-pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugInfo {
+pub fn readElfDebugInfo(allocator: mem.Allocator, mapped_mem: []align(mem.page_size) const u8) !ModuleDebugInfo {
     nosuspend {
-        const mapped_mem = try mapWholeFile(elf_file);
         const hdr = @ptrCast(*const elf.Ehdr, &mapped_mem[0]);
         if (!mem.eql(u8, hdr.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
         if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
@@ -1480,7 +1479,8 @@ pub const DebugInfo = struct {
             else => return err,
         };
 
-        obj_di.* = try readElfDebugInfo(self.allocator, elf_file);
+        const mapped_mem = try mapWholeFile(elf_file);
+        obj_di.* = try readElfDebugInfo(self.allocator, mapped_mem);
         obj_di.base_address = ctx.base_address;
 
         try self.address_map.putNoClobber(ctx.base_address, obj_di);
