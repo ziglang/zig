@@ -334,6 +334,7 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
         resetSegfaultHandler();
     }
 
+    // Note there is similar logic in handleSegfaultPosix and handleSegfaultWindowsExtra.
     nosuspend switch (panic_stage) {
         0 => {
             panic_stage = 1;
@@ -359,16 +360,7 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
                 dumpCurrentStackTrace(first_trace_addr);
             }
 
-            if (panicking.fetchSub(1, .SeqCst) != 1) {
-                // Another thread is panicking, wait for the last one to finish
-                // and call abort()
-                if (builtin.single_threaded) unreachable;
-
-                // Sleep forever without hammering the CPU
-                var futex = std.atomic.Atomic(u32).init(0);
-                while (true) std.Thread.Futex.wait(&futex, 0);
-                unreachable;
-            }
+            waitForOtherThreadToFinishPanicking();
         },
         1 => {
             panic_stage = 2;
@@ -385,6 +377,20 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
     };
 
     os.abort();
+}
+
+/// Must be called only after adding 1 to `panicking`. There are three callsites.
+fn waitForOtherThreadToFinishPanicking() void {
+    if (panicking.fetchSub(1, .SeqCst) != 1) {
+        // Another thread is panicking, wait for the last one to finish
+        // and call abort()
+        if (builtin.single_threaded) unreachable;
+
+        // Sleep forever without hammering the CPU
+        var futex = std.atomic.Atomic(u32).init(0);
+        while (true) std.Thread.Futex.wait(&futex, 0);
+        unreachable;
+    }
 }
 
 pub fn writeStackTrace(
@@ -1971,17 +1977,41 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
         else => unreachable,
     };
 
-    // Don't use std.debug.print() as stderr_mutex may still be locked.
-    nosuspend {
-        const stderr = io.getStdErr().writer();
-        _ = switch (sig) {
-            os.SIG.SEGV => stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
-            os.SIG.ILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
-            os.SIG.BUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
-            os.SIG.FPE => stderr.print("Arithmetic exception at address 0x{x}\n", .{addr}),
-            else => unreachable,
-        } catch os.abort();
-    }
+    nosuspend switch (panic_stage) {
+        0 => {
+            panic_stage = 1;
+            _ = panicking.fetchAdd(1, .SeqCst);
+
+            {
+                panic_mutex.lock();
+                defer panic_mutex.unlock();
+
+                dumpSegfaultInfoPosix(sig, addr, ctx_ptr);
+            }
+
+            waitForOtherThreadToFinishPanicking();
+        },
+        else => {
+            // panic mutex already locked
+            dumpSegfaultInfoPosix(sig, addr, ctx_ptr);
+        },
+    };
+
+    // We cannot allow the signal handler to return because when it runs the original instruction
+    // again, the memory may be mapped and undefined behavior would occur rather than repeating
+    // the segfault. So we simply abort here.
+    os.abort();
+}
+
+fn dumpSegfaultInfoPosix(sig: i32, addr: usize, ctx_ptr: ?*const anyopaque) void {
+    const stderr = io.getStdErr().writer();
+    _ = switch (sig) {
+        os.SIG.SEGV => stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
+        os.SIG.ILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
+        os.SIG.BUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
+        os.SIG.FPE => stderr.print("Arithmetic exception at address 0x{x}\n", .{addr}),
+        else => unreachable,
+    } catch os.abort();
 
     switch (native_arch) {
         .x86 => {
@@ -2033,11 +2063,6 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
         },
         else => {},
     }
-
-    // We cannot allow the signal handler to return because when it runs the original instruction
-    // again, the memory may be mapped and undefined behavior would occur rather than repeating
-    // the segfault. So we simply abort here.
-    os.abort();
 }
 
 fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(windows.WINAPI) c_long {
@@ -2050,27 +2075,36 @@ fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(windows.WIN
     }
 }
 
-// zig won't let me use an anon enum here https://github.com/ziglang/zig/issues/3707
-fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, comptime msg: u8, comptime format: ?[]const u8) noreturn {
+fn handleSegfaultWindowsExtra(
+    info: *windows.EXCEPTION_POINTERS,
+    msg: u8,
+    label: ?[]const u8,
+) noreturn {
     const exception_address = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
     if (@hasDecl(windows, "CONTEXT")) {
-        const regs = info.ContextRecord.getRegs();
-        // Don't use std.debug.print() as stderr_mutex may still be locked.
-        nosuspend {
-            const stderr = io.getStdErr().writer();
-            _ = switch (msg) {
-                0 => stderr.print("{s}\n", .{format.?}),
-                1 => stderr.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
-                2 => stderr.print("Illegal instruction at address 0x{x}\n", .{regs.ip}),
-                else => unreachable,
-            } catch os.abort();
-        }
+        nosuspend switch (panic_stage) {
+            0 => {
+                panic_stage = 1;
+                _ = panicking.fetchAdd(1, .SeqCst);
 
-        dumpStackTraceFromBase(regs.bp, regs.ip);
+                {
+                    panic_mutex.lock();
+                    defer panic_mutex.unlock();
+
+                    dumpSegfaultInfoWindows(info, msg, label);
+                }
+
+                waitForOtherThreadToFinishPanicking();
+            },
+            else => {
+                // panic mutex already locked
+                dumpSegfaultInfoWindows(info, msg, label);
+            },
+        };
         os.abort();
     } else {
         switch (msg) {
-            0 => panicImpl(null, exception_address, format.?),
+            0 => panicImpl(null, exception_address, "{s}", label.?),
             1 => {
                 const format_item = "Segmentation fault at address 0x{x}";
                 var buf: [format_item.len + 64]u8 = undefined; // 64 is arbitrary, but sufficiently large
@@ -2081,6 +2115,19 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, comptime msg: u
             else => unreachable,
         }
     }
+}
+
+fn dumpSegfaultInfoWindows(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8) void {
+    const regs = info.ContextRecord.getRegs();
+    const stderr = io.getStdErr().writer();
+    _ = switch (msg) {
+        0 => stderr.print("{s}\n", .{label.?}),
+        1 => stderr.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
+        2 => stderr.print("Illegal instruction at address 0x{x}\n", .{regs.ip}),
+        else => unreachable,
+    } catch os.abort();
+
+    dumpStackTraceFromBase(regs.bp, regs.ip);
 }
 
 pub fn dumpStackPointerAddr(prefix: []const u8) void {
