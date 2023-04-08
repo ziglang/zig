@@ -8883,7 +8883,7 @@ fn funcCommon(
             };
             return sema.failWithOwnedErrorMsg(msg);
         }
-        if (!ret_poison and !Type.fnCallingConventionAllowsZigTypes(cc_resolved) and !try sema.validateExternType(return_type, .ret_ty)) {
+        if (!ret_poison and !Type.fnCallingConventionAllowsZigTypes(target, cc_resolved) and !try sema.validateExternType(return_type, .ret_ty)) {
             const msg = msg: {
                 const msg = try sema.errMsg(block, ret_ty_src, "return type '{}' not allowed in function with calling convention '{s}'", .{
                     return_type.fmt(sema.mod), @tagName(cc_resolved),
@@ -8961,13 +8961,9 @@ fn funcCommon(
                 .x86_64 => null,
                 else => @as([]const u8, "x86_64"),
             },
-            .PtxKernel => switch (arch) {
-                .nvptx, .nvptx64 => null,
-                else => @as([]const u8, "nvptx and nvptx64"),
-            },
-            .AmdgpuKernel => switch (arch) {
-                .amdgcn => null,
-                else => @as([]const u8, "amdgcn"),
+            .Kernel => switch (arch) {
+                .nvptx, .nvptx64, .amdgcn, .spirv32, .spirv64 => null,
+                else => @as([]const u8, "nvptx, amdgcn and SPIR-V"),
             },
         }) |allowed_platform| {
             return sema.fail(block, cc_src, "callconv '{s}' is only available on {s}, not {s}", .{
@@ -9093,10 +9089,11 @@ fn analyzeParameter(
     comptime_params[i] = param.is_comptime or requires_comptime;
     const this_generic = param.ty.tag() == .generic_poison;
     is_generic.* = is_generic.* or this_generic;
-    if (param.is_comptime and !Type.fnCallingConventionAllowsZigTypes(cc)) {
+    const target = sema.mod.getTarget();
+    if (param.is_comptime and !Type.fnCallingConventionAllowsZigTypes(target, cc)) {
         return sema.fail(block, param_src, "comptime parameters not allowed in function with calling convention '{s}'", .{@tagName(cc)});
     }
-    if (this_generic and !sema.no_partial_func_ty and !Type.fnCallingConventionAllowsZigTypes(cc)) {
+    if (this_generic and !sema.no_partial_func_ty and !Type.fnCallingConventionAllowsZigTypes(target, cc)) {
         return sema.fail(block, param_src, "generic parameters not allowed in function with calling convention '{s}'", .{@tagName(cc)});
     }
     if (!param.ty.isValidParamType()) {
@@ -9112,7 +9109,7 @@ fn analyzeParameter(
         };
         return sema.failWithOwnedErrorMsg(msg);
     }
-    if (!this_generic and !Type.fnCallingConventionAllowsZigTypes(cc) and !try sema.validateExternType(param.ty, .param_ty)) {
+    if (!this_generic and !Type.fnCallingConventionAllowsZigTypes(target, cc) and !try sema.validateExternType(param.ty, .param_ty)) {
         const msg = msg: {
             const msg = try sema.errMsg(block, param_src, "parameter of type '{}' not allowed in function with calling convention '{s}'", .{
                 param.ty.fmt(sema.mod), @tagName(cc),
@@ -22786,12 +22783,13 @@ fn validateExternType(
         },
         .Fn => {
             if (position != .other) return false;
-            return switch (ty.fnCallingConvention()) {
-                // For now we want to authorize PTX kernel to use zig objects, even if we end up exposing the ABI.
-                // The goal is to experiment with more integrated CPU/GPU code.
-                .PtxKernel => true,
-                else => !Type.fnCallingConventionAllowsZigTypes(ty.fnCallingConvention()),
-            };
+            const target = sema.mod.getTarget();
+            // For now we want to authorize PTX kernel to use zig objects, even if we end up exposing the ABI.
+            // The goal is to experiment with more integrated CPU/GPU code.
+            if (ty.fnCallingConvention() == .Kernel and (target.cpu.arch == .nvptx or target.cpu.arch == .nvptx64)) {
+                return true;
+            }
+            return !Type.fnCallingConventionAllowsZigTypes(target, ty.fnCallingConvention());
         },
         .Enum => {
             var buf: Type.Payload.Bits = undefined;

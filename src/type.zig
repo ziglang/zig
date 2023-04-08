@@ -4796,9 +4796,12 @@ pub const Type = extern union {
     }
 
     /// Asserts the type is a function.
-    pub fn fnCallingConventionAllowsZigTypes(cc: std.builtin.CallingConvention) bool {
+    pub fn fnCallingConventionAllowsZigTypes(target: Target, cc: std.builtin.CallingConvention) bool {
         return switch (cc) {
-            .Unspecified, .Async, .Inline, .PtxKernel => true,
+            .Unspecified, .Async, .Inline => true,
+            // For now we want to authorize PTX kernel to use zig objects, even if we end up exposing the ABI.
+            // The goal is to experiment with more integrated CPU/GPU code.
+            .Kernel => target.cpu.arch == .nvptx or target.cpu.arch == .nvptx64,
             else => false,
         };
     }
