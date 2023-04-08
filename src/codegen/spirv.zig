@@ -1317,11 +1317,22 @@ pub const DeclGen = struct {
 
     fn spvStorageClass(as: std.builtin.AddressSpace) StorageClass {
         return switch (as) {
-            .generic => .Generic, // TODO: Disallow?
-            .gs, .fs, .ss => unreachable,
+            .generic => .Generic,
             .shared => .Workgroup,
             .local => .Private,
-            .global, .param, .constant, .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => unreachable,
+            .global => .CrossWorkgroup,
+            .constant => .UniformConstant,
+            .gs,
+            .fs,
+            .ss,
+            .param,
+            .flash,
+            .flash1,
+            .flash2,
+            .flash3,
+            .flash4,
+            .flash5,
+            => unreachable,
         };
     }
 
