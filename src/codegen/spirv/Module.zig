@@ -187,8 +187,8 @@ fn orderGlobalsInto(
     seen: *std.DynamicBitSetUnmanaged,
 ) !void {
     const node = self.globals.nodes.items[@enumToInt(global_index)];
-    const deps = self.globals.dependencies.items[node.begin_dep .. node.end_dep];
-    const insts = self.globals.section.instructions.items[node.begin_inst .. node.end_inst];
+    const deps = self.globals.dependencies.items[node.begin_dep..node.end_dep];
+    const insts = self.globals.section.instructions.items[node.begin_inst..node.end_inst];
 
     seen.set(@enumToInt(global_index));
 
@@ -725,7 +725,7 @@ pub fn allocGlobal(self: *Module) !Global.Index {
         .begin_inst = undefined,
         .end_inst = undefined,
         .begin_dep = undefined,
-            .end_dep = undefined,
+        .end_dep = undefined,
     });
     return @intToEnum(Global.Index, @intCast(u32, self.globals.nodes.items.len - 1));
 }
