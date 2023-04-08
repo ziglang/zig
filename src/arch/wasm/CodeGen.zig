@@ -4527,17 +4527,38 @@ fn airArrayElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     } else {
         std.debug.assert(array_ty.zigTypeTag() == .Vector);
 
-        // TODO: Check if index is constant; if so, use a lane extract
+        switch (index) {
+            inline .imm32, .imm64 => |lane| {
+                const opcode: wasm.SimdOpcode = switch (elem_ty.bitSize(func.target)) {
+                    8 => if (elem_ty.isSignedInt()) .i8x16_extract_lane_s else .i8x16_extract_lane_u,
+                    16 => if (elem_ty.isSignedInt()) .i16x8_extract_lane_s else .i16x8_extract_lane_u,
+                    32 => if (elem_ty.isInt()) .i32x4_extract_lane else .f32x4_extract_lane,
+                    64 => if (elem_ty.isInt()) .i64x2_extract_lane else .f64x2_extract_lane,
+                    else => unreachable,
+                };
 
-        var stack_vec = try func.allocStack(array_ty);
-        try func.store(stack_vec, array, array_ty, 0);
+                var operands = [_]u32{ std.wasm.simdOpcode(opcode), @intCast(u8, lane) };
 
-        // Is a non-unrolled vector (v128)
-        try func.lowerToStack(stack_vec);
-        try func.emitWValue(index);
-        try func.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
-        try func.addTag(.i32_mul);
-        try func.addTag(.i32_add);
+                try func.emitWValue(array);
+
+                const extra_index = @intCast(u32, func.mir_extra.items.len);
+                try func.mir_extra.appendSlice(func.gpa, &operands);
+                try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
+
+                return func.finishAir(inst, try WValue.toLocal(.stack, func, elem_ty), &.{ bin_op.lhs, bin_op.rhs });
+            },
+            else => {
+                var stack_vec = try func.allocStack(array_ty);
+                try func.store(stack_vec, array, array_ty, 0);
+
+                // Is a non-unrolled vector (v128)
+                try func.lowerToStack(stack_vec);
+                try func.emitWValue(index);
+                try func.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
+                try func.addTag(.i32_mul);
+                try func.addTag(.i32_add);
+            },
+        }
     }
 
     const elem_result = val: {

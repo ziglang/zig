@@ -492,6 +492,23 @@ fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
             const simd_value = emit.mir.extra[extra_index + 1 ..][0..4];
             try writer.writeAll(std.mem.asBytes(simd_value));
         },
+        .i8x16_extract_lane_s,
+        .i8x16_extract_lane_u,
+        .i8x16_replace_lane,
+        .i16x8_extract_lane_s,
+        .i16x8_extract_lane_u,
+        .i16x8_replace_lane,
+        .i32x4_extract_lane,
+        .i32x4_replace_lane,
+        .i64x2_extract_lane,
+        .i64x2_replace_lane,
+        .f32x4_extract_lane,
+        .f32x4_replace_lane,
+        .f64x2_extract_lane,
+        .f64x2_replace_lane,
+        => {
+            try writer.writeByte(@intCast(u8, emit.mir.extra[extra_index + 1]));
+        },
         .i8x16_splat,
         .i16x8_splat,
         .i32x4_splat,
