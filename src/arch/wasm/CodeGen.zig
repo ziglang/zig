@@ -4700,10 +4700,71 @@ fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
 fn airSelect(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pl_op = func.air.instructions.items(.data)[inst].pl_op;
-    const operand = try func.resolveInst(pl_op.operand);
+    const pred = try func.resolveInst(pl_op.operand);
+    const extra = func.air.extraData(Air.Bin, pl_op.payload).data;
+    const a = try func.resolveInst(extra.lhs);
+    const b = try func.resolveInst(extra.rhs);
 
-    _ = operand;
-    return func.fail("TODO: Implement wasm airSelect", .{});
+    if (func.isByRef(a, func.target) or func.isByRef(b, func.target)) {
+        return func.fail("TODO: Implement unrolled select", .{});
+    } else {
+        try func.emitWValue(a);
+        try func.emitWValue(b);
+        try func.emitWValue(pred);
+
+        const vec_type = func.air.typeOf(a);
+        switch (vec_type.vectorLen()) {
+            1 => {
+                try func.addMemArg(.i32_load8_u, .{ .offset = pred.stack_offset.value, .alignment = 1 });
+                try func.emitWValue(.{ .imm32 = 1 });
+                try func.addTag(.i32_and);
+                try func.addTag(.select);
+                return func.finishAir(inst, WValue.toLocal(.stack, func, vec_type), .{ pl_op.operand, extra.lhs, extra.rhs });
+            },
+            2 => {
+                {
+                    const extra_index = @intCast(u32, func.mir_extra.items.len);
+                    try func.mir_extra.appendSlice(func.gpa, &[_]u32{
+                        std.wasm.simdOpcode(.v128_load8_splat),
+                        pred.stack_offset.value,
+                        1,
+                    });
+                    try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
+                }
+
+                try func.simd_immediates.append(func.gpa, .{ 0, 0, 0, 0, 0, 0, 0, 0b01, 0, 0, 0, 0, 0, 0, 0, 0b10 });
+                try func.addImm128(func.simd_immediates.items.len);
+
+                {
+                    const extra_index = @intCast(u32, func.mir_extra.items.len);
+                    try func.mir_extra.appendSlice(func.gpa, &[_]u32{
+                        std.wasm.simdOpcode(.v128_and),
+                    });
+                    try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
+                }
+
+                try func.addImm128(func.simd_immediates.items.len);
+
+                {
+                    const extra_index = @intCast(u32, func.mir_extra.items.len);
+                    try func.mir_extra.appendSlice(func.gpa, &[_]u32{
+                        std.wasm.simdOpcode(.i64x2_eq),
+                    });
+                    try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
+                }
+            },
+            4 => {},
+            8 => {},
+            16 => {},
+        }
+
+        const extra_index = @intCast(u32, func.mir_extra.items.len);
+        try func.mir_extra.appendSlice(func.gpa, &[_]u32{
+            std.wasm.simdOpcode(.v128_bitselect),
+        });
+        try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
+        return func.finishAir(inst, WValue.toLocal(.stack, func, vec_type), .{ pl_op.operand, extra.lhs, extra.rhs });
+    }
 }
 
 fn airShuffle(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
