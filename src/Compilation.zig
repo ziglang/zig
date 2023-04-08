@@ -2050,7 +2050,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         return;
     }
 
-    if (!build_options.only_c) {
+    if (!build_options.only_c and !build_options.omit_pkg_fetching_code) {
         if (comp.emit_docs) |doc_location| {
             if (comp.bin_file.options.module) |module| {
                 var autodoc = Autodoc.init(module, doc_location);
