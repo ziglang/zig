@@ -46,7 +46,7 @@ base: link.File,
 
 spv: SpvModule,
 spv_arena: ArenaAllocator,
-decl_ids: codegen.DeclMap,
+decl_link: codegen.DeclLinkMap,
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*SpirV {
     const self = try gpa.create(SpirV);
@@ -59,7 +59,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*SpirV {
         },
         .spv = undefined,
         .spv_arena = ArenaAllocator.init(gpa),
-        .decl_ids = codegen.DeclMap.init(self.base.allocator),
+        .decl_link = codegen.DeclLinkMap.init(self.base.allocator),
     };
     self.spv = SpvModule.init(gpa, self.spv_arena.allocator());
     errdefer self.deinit();
@@ -100,7 +100,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 pub fn deinit(self: *SpirV) void {
     self.spv.deinit();
     self.spv_arena.deinit();
-    self.decl_ids.deinit();
+    self.decl_link.deinit();
 }
 
 pub fn updateFunc(self: *SpirV, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
@@ -108,7 +108,7 @@ pub fn updateFunc(self: *SpirV, module: *Module, func: *Module.Fn, air: Air, liv
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
-    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_ids);
+    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link);
     defer decl_gen.deinit();
 
     if (try decl_gen.gen(func.owner_decl, air, liveness)) |msg| {
@@ -121,7 +121,7 @@ pub fn updateDecl(self: *SpirV, module: *Module, decl_index: Module.Decl.Index) 
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
-    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_ids);
+    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link);
     defer decl_gen.deinit();
 
     if (try decl_gen.gen(decl_index, undefined, undefined)) |msg| {

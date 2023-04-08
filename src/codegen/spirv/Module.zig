@@ -55,6 +55,27 @@ pub const Fn = struct {
     }
 };
 
+/// Globals must be kept in order: operations involving globals must be ordered
+/// so that the global declaration precedes any usage.
+pub const Global = struct {
+    /// Index type to refer to a global by.
+    pub const Index = enum(u32) { _ };
+
+    /// The result-id to be used for this global declaration. Note that this does not
+    /// necessarily refer to an OpVariable instruction - it may also be the final result
+    /// id of a number of OpSpecConstantOp instructions.
+    result_id: IdRef,
+    /// The offset into `self.globals.section` of the first instruction of this global
+    /// declaration.
+    begin_inst: u32,
+    /// The past-end offset into `self.flobals.section`.
+    end_inst: u32,
+    /// The first dependency in the `self.globals.dependencies` array list.
+    begin_dep: u32,
+    /// The past-end dependency in `self.globals.dependencies`.
+    end_dep: u32,
+};
+
 /// A general-purpose allocator which may be used to allocate resources for this module
 gpa: Allocator,
 
@@ -102,6 +123,20 @@ source_file_names: std.StringHashMapUnmanaged(IdRef) = .{},
 /// Note: Uses ArrayHashMap which is insertion ordered, so that we may refer to other types by index (Type.Ref).
 type_cache: TypeCache = .{},
 
+/// The fields in this structure help to maintain the required order for global variables.
+globals: struct {
+    /// The graph nodes of global variables present in the module.
+    nodes: std.ArrayListUnmanaged(Global) = .{},
+    /// This pseudo-section contains the initialization code for all the globals. Instructions from
+    /// here are reordered when flushing the module. Its contents should be part of the
+    /// `types_globals_constants` SPIR-V section.
+    section: Section = .{},
+    /// Holds a list of dependent global variables for each global variable.
+    dependencies: std.ArrayListUnmanaged(Global.Index) = .{},
+    /// The global that initialization code/dependencies are currently being generated for, if any.
+    current_global: ?Global.Index = null,
+} = .{},
+
 pub fn init(gpa: Allocator, arena: Allocator) Module {
     return .{
         .gpa = gpa,
@@ -124,6 +159,10 @@ pub fn deinit(self: *Module) void {
     self.source_file_names.deinit(self.gpa);
     self.type_cache.deinit(self.gpa);
 
+    self.globals.nodes.deinit(self.gpa);
+    self.globals.section.deinit(self.gpa);
+    self.globals.dependencies.deinit(self.gpa);
+
     self.* = undefined;
 }
 
@@ -141,17 +180,59 @@ pub fn idBound(self: Module) Word {
     return self.next_result_id;
 }
 
+fn orderGlobalsInto(
+    self: Module,
+    global_index: Global.Index,
+    section: *Section,
+    seen: *std.DynamicBitSetUnmanaged,
+) !void {
+    const node = self.globals.nodes.items[@enumToInt(global_index)];
+    const deps = self.globals.dependencies.items[node.begin_dep .. node.end_dep];
+    const insts = self.globals.section.instructions.items[node.begin_inst .. node.end_inst];
+
+    seen.set(@enumToInt(global_index));
+
+    for (deps) |dep| {
+        if (!seen.isSet(@enumToInt(dep))) {
+            try self.orderGlobalsInto(dep, section, seen);
+        }
+    }
+
+    try section.instructions.appendSlice(self.gpa, insts);
+}
+
+fn orderGlobals(self: Module) !Section {
+    const nodes = self.globals.nodes.items;
+
+    var seen = try std.DynamicBitSetUnmanaged.initEmpty(self.gpa, nodes.len);
+    defer seen.deinit(self.gpa);
+
+    var ordered_globals = Section{};
+
+    for (0..nodes.len) |global_index| {
+        if (!seen.isSet(global_index)) {
+            try self.orderGlobalsInto(@intToEnum(Global.Index, @intCast(u32, global_index)), &ordered_globals, &seen);
+        }
+    }
+
+    return ordered_globals;
+}
+
 /// Emit this module as a spir-v binary.
 pub fn flush(self: Module, file: std.fs.File) !void {
     // See SPIR-V Spec section 2.3, "Physical Layout of a SPIR-V Module and Instruction"
 
     const header = [_]Word{
         spec.magic_number,
-        (1 << 16) | (5 << 8),
+        (1 << 16) | (4 << 8), // TODO: From cpu features
         0, // TODO: Register Zig compiler magic number.
         self.idBound(),
         0, // Schema (currently reserved for future use)
     };
+
+    // TODO: Perform topological sort on the globals.
+    var globals = try self.orderGlobals();
+    defer globals.deinit(self.gpa);
 
     // Note: needs to be kept in order according to section 2.3!
     const buffers = &[_][]const Word{
@@ -164,6 +245,7 @@ pub fn flush(self: Module, file: std.fs.File) !void {
         self.sections.debug_names.toWords(),
         self.sections.annotations.toWords(),
         self.sections.types_globals_constants.toWords(),
+        globals.toWords(),
         self.sections.functions.toWords(),
     };
 
@@ -279,6 +361,8 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
         .i64,
         .int,
         => {
+            // TODO: Kernels do not support OpTypeInt that is signed. We can probably
+            // can get rid of the signedness all together, in Shaders also.
             const bits = ty.intFloatBits();
             const signedness: spec.LiteralInteger = switch (ty.intSignedness()) {
                 .unsigned => 0,
@@ -633,4 +717,45 @@ pub fn decorateMember(
         .member = member,
         .decoration = decoration,
     });
+}
+
+pub fn allocGlobal(self: *Module) !Global.Index {
+    try self.globals.nodes.append(self.gpa, .{
+        .result_id = self.allocId(),
+        .begin_inst = undefined,
+        .end_inst = undefined,
+        .begin_dep = undefined,
+            .end_dep = undefined,
+    });
+    return @intToEnum(Global.Index, @intCast(u32, self.globals.nodes.items.len - 1));
+}
+
+pub fn globalPtr(self: *Module, index: Global.Index) *Global {
+    return &self.globals.nodes.items[@enumToInt(index)];
+}
+
+/// Begin generating the global for `index`. The previous global is finalized
+/// at this point, and the global for `index` is made active. Any new calls to
+/// `addGlobalDependency` will affect this global. After a new call to this function,
+/// the prior active global cannot be modified again.
+pub fn beginGlobal(self: *Module, index: Global.Index) IdRef {
+    const global = self.globalPtr(index);
+    global.begin_inst = @intCast(u32, self.globals.section.instructions.items.len);
+    global.begin_dep = @intCast(u32, self.globals.dependencies.items.len);
+    self.globals.current_global = index;
+    return global.result_id;
+}
+
+/// Finalize the global. After this point, the current global cannot be modified anymore.
+pub fn endGlobal(self: *Module) void {
+    const global = self.globalPtr(self.globals.current_global.?);
+    global.end_inst = @intCast(u32, self.globals.section.instructions.items.len);
+    global.end_dep = @intCast(u32, self.globals.dependencies.items.len);
+    self.globals.current_global = null;
+}
+
+pub fn addGlobalDependency(self: *Module, dependency: Global.Index) !void {
+    assert(self.globals.current_global != null);
+    assert(self.globals.current_global.? != dependency);
+    try self.globals.dependencies.append(self.gpa, dependency);
 }
