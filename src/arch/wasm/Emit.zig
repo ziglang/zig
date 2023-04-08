@@ -486,7 +486,9 @@ fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
             const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index + 1).data;
             try encodeMemArg(mem_arg, writer);
         },
-        .v128_const => {
+        .v128_const,
+        .i8x16_shuffle,
+        => {
             const simd_value = emit.mir.extra[extra_index + 1 ..][0..4];
             try writer.writeAll(std.mem.asBytes(simd_value));
         },

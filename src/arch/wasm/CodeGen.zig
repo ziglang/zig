@@ -4518,11 +4518,27 @@ fn airArrayElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const elem_ty = array_ty.childType();
     const elem_size = elem_ty.abiSize(func.target);
 
-    try func.lowerToStack(array);
-    try func.emitWValue(index);
-    try func.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
-    try func.addTag(.i32_mul);
-    try func.addTag(.i32_add);
+    if (isByRef(array_ty, func.target)) {
+        try func.lowerToStack(array);
+        try func.emitWValue(index);
+        try func.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
+        try func.addTag(.i32_mul);
+        try func.addTag(.i32_add);
+    } else {
+        std.debug.assert(array_ty.zigTypeTag() == .Vector);
+
+        // TODO: Check if index is constant; if so, use a lane extract
+
+        var stack_vec = try func.allocStack(array_ty);
+        try func.store(stack_vec, array, array_ty, 0);
+
+        // Is a non-unrolled vector (v128)
+        try func.lowerToStack(stack_vec);
+        try func.emitWValue(index);
+        try func.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
+        try func.addTag(.i32_mul);
+        try func.addTag(.i32_add);
+    }
 
     const elem_result = val: {
         var result = try func.allocLocal(Type.usize);
@@ -4687,23 +4703,53 @@ fn airShuffle(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     }
 
     const module = func.bin_file.base.options.module.?;
-    const result = try func.allocStack(inst_ty);
+    // TODO: One of them could be by ref; handle in loop
+    if (isByRef(func.air.typeOf(extra.a), func.target) or isByRef(inst_ty, func.target)) {
+        const result = try func.allocStack(inst_ty);
 
-    for (0..mask_len) |index| {
-        var buf: Value.ElemValueBuffer = undefined;
-        const value = mask.elemValueBuffer(module, index, &buf).toSignedInt(func.target);
+        for (0..mask_len) |index| {
+            var buf: Value.ElemValueBuffer = undefined;
+            const value = mask.elemValueBuffer(module, index, &buf).toSignedInt(func.target);
 
-        try func.emitWValue(result);
+            try func.emitWValue(result);
 
-        const loaded = if (value >= 0)
-            try func.load(a, child_ty, @intCast(u32, @intCast(i64, elem_size) * value))
-        else
-            try func.load(b, child_ty, @intCast(u32, @intCast(i64, elem_size) * ~value));
+            const loaded = if (value >= 0)
+                try func.load(a, child_ty, @intCast(u32, @intCast(i64, elem_size) * value))
+            else
+                try func.load(b, child_ty, @intCast(u32, @intCast(i64, elem_size) * ~value));
 
-        try func.store(.stack, loaded, child_ty, result.stack_offset.value + @intCast(u32, elem_size) * @intCast(u32, index));
+            try func.store(.stack, loaded, child_ty, result.stack_offset.value + @intCast(u32, elem_size) * @intCast(u32, index));
+        }
+
+        return func.finishAir(inst, result, &.{ extra.a, extra.b });
+    } else {
+        var operands = [_]u32{
+            std.wasm.simdOpcode(.i8x16_shuffle),
+        } ++ [1]u32{undefined} ** 4;
+
+        var lanes = std.mem.asBytes(operands[1..]);
+        for (0..mask_len) |index| {
+            var buf: Value.ElemValueBuffer = undefined;
+            const mask_elem = mask.elemValueBuffer(module, index, &buf).toSignedInt(func.target);
+            const base_index = if (mask_elem >= 0)
+                @intCast(u8, @intCast(i64, elem_size) * mask_elem)
+            else
+                16 + @intCast(u8, @intCast(i64, elem_size) * ~mask_elem);
+
+            for (0..elem_size) |byte_offset| {
+                lanes[index * elem_size + byte_offset] = base_index + @intCast(u8, byte_offset);
+            }
+        }
+
+        try func.emitWValue(a);
+        try func.emitWValue(b);
+
+        const extra_index = @intCast(u32, func.mir_extra.items.len);
+        try func.mir_extra.appendSlice(func.gpa, &operands);
+        try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
+
+        return func.finishAir(inst, try WValue.toLocal(.stack, func, inst_ty), &.{ extra.a, extra.b });
     }
-
-    return func.finishAir(inst, result, &.{ extra.a, extra.b });
 }
 
 fn airReduce(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
