@@ -197,7 +197,7 @@ typedef char bool;
 #elif defined(__i386__) || defined(__x86_64__)
 #define zig_trap() __asm__ volatile("ud2");
 #elif defined(__arm__) || defined(__aarch64__)
-#define zig_breakpoint() __asm__ volatile("udf #0");
+#define zig_trap() __asm__ volatile("udf #0");
 #else
 #include <stdlib.h>
 #define zig_trap() abort()

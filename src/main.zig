@@ -874,6 +874,8 @@ fn buildOutputType(
     var rpath_list = std.ArrayList([]const u8).init(gpa);
     defer rpath_list.deinit();
 
+    var symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{};
+
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(gpa);
     defer c_source_files.deinit();
 
@@ -2155,6 +2157,9 @@ fn buildOutputType(
                             next_arg,
                         });
                     };
+                } else if (mem.eql(u8, arg, "-wrap")) {
+                    const next_arg = linker_args_it.nextOrFatal();
+                    try symbol_wrap_set.put(arena, next_arg, {});
                 } else if (mem.startsWith(u8, arg, "/subsystem:")) {
                     var split_it = mem.splitBackwards(u8, arg, ":");
                     subsystem = try parseSubSystem(split_it.first());
@@ -3039,6 +3044,7 @@ fn buildOutputType(
         .clang_argv = clang_argv.items,
         .lib_dirs = lib_dirs.items,
         .rpath_list = rpath_list.items,
+        .symbol_wrap_set = symbol_wrap_set,
         .c_source_files = c_source_files.items,
         .link_objects = link_objects.items,
         .framework_dirs = framework_dirs.items,

@@ -4518,11 +4518,48 @@ fn airArrayElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const elem_ty = array_ty.childType();
     const elem_size = elem_ty.abiSize(func.target);
 
-    try func.lowerToStack(array);
-    try func.emitWValue(index);
-    try func.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
-    try func.addTag(.i32_mul);
-    try func.addTag(.i32_add);
+    if (isByRef(array_ty, func.target)) {
+        try func.lowerToStack(array);
+        try func.emitWValue(index);
+        try func.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
+        try func.addTag(.i32_mul);
+        try func.addTag(.i32_add);
+    } else {
+        std.debug.assert(array_ty.zigTypeTag() == .Vector);
+
+        switch (index) {
+            inline .imm32, .imm64 => |lane| {
+                const opcode: wasm.SimdOpcode = switch (elem_ty.bitSize(func.target)) {
+                    8 => if (elem_ty.isSignedInt()) .i8x16_extract_lane_s else .i8x16_extract_lane_u,
+                    16 => if (elem_ty.isSignedInt()) .i16x8_extract_lane_s else .i16x8_extract_lane_u,
+                    32 => if (elem_ty.isInt()) .i32x4_extract_lane else .f32x4_extract_lane,
+                    64 => if (elem_ty.isInt()) .i64x2_extract_lane else .f64x2_extract_lane,
+                    else => unreachable,
+                };
+
+                var operands = [_]u32{ std.wasm.simdOpcode(opcode), @intCast(u8, lane) };
+
+                try func.emitWValue(array);
+
+                const extra_index = @intCast(u32, func.mir_extra.items.len);
+                try func.mir_extra.appendSlice(func.gpa, &operands);
+                try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
+
+                return func.finishAir(inst, try WValue.toLocal(.stack, func, elem_ty), &.{ bin_op.lhs, bin_op.rhs });
+            },
+            else => {
+                var stack_vec = try func.allocStack(array_ty);
+                try func.store(stack_vec, array, array_ty, 0);
+
+                // Is a non-unrolled vector (v128)
+                try func.lowerToStack(stack_vec);
+                try func.emitWValue(index);
+                try func.addImm32(@bitCast(i32, @intCast(u32, elem_size)));
+                try func.addTag(.i32_mul);
+                try func.addTag(.i32_add);
+            },
+        }
+    }
 
     const elem_result = val: {
         var result = try func.allocLocal(Type.usize);
@@ -4670,11 +4707,70 @@ fn airSelect(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airShuffle(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const ty_op = func.air.instructions.items(.data)[inst].ty_op;
-    const operand = try func.resolveInst(ty_op.operand);
+    const inst_ty = func.air.typeOfIndex(inst);
+    const ty_pl = func.air.instructions.items(.data)[inst].ty_pl;
+    const extra = func.air.extraData(Air.Shuffle, ty_pl.payload).data;
 
-    _ = operand;
-    return func.fail("TODO: Implement wasm airShuffle", .{});
+    const a = try func.resolveInst(extra.a);
+    const b = try func.resolveInst(extra.b);
+    const mask = func.air.values[extra.mask];
+    const mask_len = extra.mask_len;
+
+    const child_ty = inst_ty.childType();
+    const elem_size = child_ty.abiSize(func.target);
+
+    if (func.liveness.isUnused(inst)) {
+        return func.finishAir(inst, .none, &.{ extra.a, extra.b });
+    }
+
+    const module = func.bin_file.base.options.module.?;
+    // TODO: One of them could be by ref; handle in loop
+    if (isByRef(func.air.typeOf(extra.a), func.target) or isByRef(inst_ty, func.target)) {
+        const result = try func.allocStack(inst_ty);
+
+        for (0..mask_len) |index| {
+            var buf: Value.ElemValueBuffer = undefined;
+            const value = mask.elemValueBuffer(module, index, &buf).toSignedInt(func.target);
+
+            try func.emitWValue(result);
+
+            const loaded = if (value >= 0)
+                try func.load(a, child_ty, @intCast(u32, @intCast(i64, elem_size) * value))
+            else
+                try func.load(b, child_ty, @intCast(u32, @intCast(i64, elem_size) * ~value));
+
+            try func.store(.stack, loaded, child_ty, result.stack_offset.value + @intCast(u32, elem_size) * @intCast(u32, index));
+        }
+
+        return func.finishAir(inst, result, &.{ extra.a, extra.b });
+    } else {
+        var operands = [_]u32{
+            std.wasm.simdOpcode(.i8x16_shuffle),
+        } ++ [1]u32{undefined} ** 4;
+
+        var lanes = std.mem.asBytes(operands[1..]);
+        for (0..@intCast(usize, mask_len)) |index| {
+            var buf: Value.ElemValueBuffer = undefined;
+            const mask_elem = mask.elemValueBuffer(module, index, &buf).toSignedInt(func.target);
+            const base_index = if (mask_elem >= 0)
+                @intCast(u8, @intCast(i64, elem_size) * mask_elem)
+            else
+                16 + @intCast(u8, @intCast(i64, elem_size) * ~mask_elem);
+
+            for (0..@intCast(usize, elem_size)) |byte_offset| {
+                lanes[index * @intCast(usize, elem_size) + byte_offset] = base_index + @intCast(u8, byte_offset);
+            }
+        }
+
+        try func.emitWValue(a);
+        try func.emitWValue(b);
+
+        const extra_index = @intCast(u32, func.mir_extra.items.len);
+        try func.mir_extra.appendSlice(func.gpa, &operands);
+        try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
+
+        return func.finishAir(inst, try WValue.toLocal(.stack, func, inst_ty), &.{ extra.a, extra.b });
+    }
 }
 
 fn airReduce(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -5125,7 +5221,12 @@ fn airMemcpy(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airRetAddr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    func.finishAir(inst, .{ .imm32 = 0 }, &.{});
+    // TODO: Implement this properly once stack serialization is solved
+    func.finishAir(inst, switch (func.arch()) {
+        .wasm32 => .{ .imm32 = 0 },
+        .wasm64 => .{ .imm64 = 0 },
+        else => unreachable,
+    }, &.{});
 }
 
 fn airPopcount(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
