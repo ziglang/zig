@@ -763,6 +763,47 @@ pub const DeclGen = struct {
 
                     try self.addUndef(layout.padding);
                 },
+                .ErrorSet => switch (val.tag()) {
+                    .@"error" => {
+                        const err_name = val.castTag(.@"error").?.data.name;
+                        const kv = try dg.module.getErrorValue(err_name);
+                        try self.addConstInt(u16, @intCast(u16, kv.value));
+                    },
+                    .zero => {
+                        // Unactivated error set.
+                        try self.addConstInt(u16, 0);
+                    },
+                    else => unreachable,
+                },
+                .ErrorUnion => {
+                    const payload_ty = ty.errorUnionPayload();
+                    const is_pl = val.errorUnionIsPayload();
+                    const error_val = if (!is_pl) val else Value.initTag(.zero);
+
+                    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+                        return try self.lower(Type.anyerror, error_val);
+                    }
+
+                    const payload_align = payload_ty.abiAlignment(target);
+                    const error_align = Type.anyerror.abiAlignment(target);
+
+                    const payload_size = payload_ty.abiSize(target);
+                    const error_size = Type.anyerror.abiAlignment(target);
+                    const ty_size = ty.abiSize(target);
+                    const padding = ty_size - payload_size - error_size;
+
+                    const payload_val = if (val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef);
+
+                    if (error_align > payload_align) {
+                        try self.lower(Type.anyerror, error_val);
+                        try self.lower(payload_ty, payload_val);
+                    } else {
+                        try self.lower(payload_ty, payload_val);
+                        try self.lower(Type.anyerror, error_val);
+                    }
+
+                    try self.addUndef(padding);
+                },
                 else => |tag| return dg.todo("indirect constant of type {s}", .{@tagName(tag)}),
             }
         }
@@ -1209,6 +1250,35 @@ pub const DeclGen = struct {
                 });
             },
             .Union => return try self.resolveUnionType(ty, null),
+            .ErrorSet => return try self.intType(.unsigned, 16),
+            .ErrorUnion => {
+                const payload_ty = ty.errorUnionPayload();
+                const error_ty_ref = try self.resolveType(Type.anyerror, .indirect);
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+                    return error_ty_ref;
+                }
+
+                const payload_ty_ref = try self.resolveType(payload_ty, .indirect);
+
+                const payload_align = payload_ty.abiAlignment(target);
+                const error_align = Type.anyerror.abiAlignment(target);
+
+                var members = std.BoundedArray(SpvType.Payload.Struct.Member, 2){};
+                // Similar to unions, we're going to put the most aligned member first.
+                if (error_align > payload_align) {
+                    // Put the error first
+                    members.appendAssumeCapacity(.{ .ty = error_ty_ref, .name = "error"  });
+                    members.appendAssumeCapacity(.{ .ty = payload_ty_ref, .name = "payload"  });
+                    // TODO: ABI padding?
+                } else {
+                    // Put the payload first.
+                    members.appendAssumeCapacity(.{ .ty = payload_ty_ref, .name = "payload"  });
+                    members.appendAssumeCapacity(.{ .ty = error_ty_ref, .name = "error"  });
+                    // TODO: ABI padding?
+                }
+
+                return try self.spv.simpleStructType(members.slice());
+            },
 
             .Null,
             .Undefined,
