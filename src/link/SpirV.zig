@@ -181,6 +181,27 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
     try writeCapabilities(&self.spv, target);
     try writeMemoryModel(&self.spv, target);
 
+    // We need to export the list of error names somewhere so that we can pretty-print them in the
+    // executor. This is not really an important thing though, so we can just dump it in any old
+    // nonsemantic instruction. For now, just put it in OpSourceExtension with a special name.
+
+    var error_info = std.ArrayList(u8).init(self.spv.arena);
+    try error_info.appendSlice("zig_errors");
+    const module = self.base.options.module.?;
+    for (module.error_name_list.items) |name| {
+        // Errors can contain pretty much any character - to encode them in a string we must escape
+        // them somehow. Easiest here is to use some established scheme, one which also preseves the
+        // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
+        // We're using : as separator, which is a reserved character.
+
+        const escaped_name = try std.Uri.escapeString(self.base.allocator, name);
+        defer self.base.allocator.free(escaped_name);
+        try error_info.writer().print(":{s}", .{escaped_name});
+    }
+    try self.spv.sections.debug_strings.emit(self.spv.gpa, .OpSourceExtension, .{
+        .extension = error_info.items,
+    });
+
     try self.spv.flush(self.base.file.?);
 }
 
