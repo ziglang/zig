@@ -444,8 +444,12 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
             .OpExecutionMode, .OpExecutionModeId => &self.spv.sections.execution_modes,
             .OpVariable => switch (@intToEnum(spec.StorageClass, operands[2].value)) {
                 .Function => &self.func.prologue,
-                // TODO: Emit a decl dependency
-                else => &self.spv.sections.types_globals_constants,
+                else => {
+                    // This is currently disabled because global variables are required to be
+                    // emitted in the proper order, and this should be honored in inline assembly
+                    // as well.
+                    return self.todo("global variables", .{});
+                },
             },
             // Default case - to be worked out further.
             else => &self.func.body,
