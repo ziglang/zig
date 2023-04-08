@@ -3324,7 +3324,6 @@ fn tryResolveRefPath(
                 .declIndex => |decl_index| {
                     const decl = self.decls.items[decl_index];
                     resolved_parent = decl.value.expr;
-                    std.debug.print("idx = {}, val = {}\n", .{ decl_index, resolved_parent });
                     continue;
                 },
                 .declRef => |decl_status_ptr| {
