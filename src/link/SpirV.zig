@@ -135,10 +135,21 @@ pub fn updateDeclExports(
     decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
 ) !void {
-    _ = self;
-    _ = module;
-    _ = decl_index;
-    _ = exports;
+    const decl = module.declPtr(decl_index);
+    if (decl.val.tag() == .function and decl.ty.fnCallingConvention() == .Kernel) {
+        // TODO: Unify with resolveDecl in spirv.zig.
+        const entry = try self.decl_link.getOrPut(decl_index);
+        if (!entry.found_existing) {
+            entry.value_ptr.* = try self.spv.allocDecl(.func);
+        }
+        const spv_decl_index = entry.value_ptr.*;
+
+        for (exports) |exp| {
+            try self.spv.declareEntryPoint(spv_decl_index, exp.options.name);
+        }
+    }
+
+    // TODO: Export regular functions, variables, etc using Linkage attributes.
 }
 
 pub fn freeDecl(self: *SpirV, decl_index: Module.Decl.Index) void {

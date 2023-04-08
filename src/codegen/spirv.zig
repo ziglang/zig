@@ -1456,6 +1456,7 @@ pub const DeclGen = struct {
                 .name = fqn,
             });
 
+            // Temporarily generate a test kernel declaration if this is a test function.
             if (self.module.test_functions.contains(self.decl_index)) {
                 try self.generateTestEntryPoint(fqn, spv_decl_index);
             }
