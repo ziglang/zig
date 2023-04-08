@@ -4749,7 +4749,7 @@ fn airShuffle(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         } ++ [1]u32{undefined} ** 4;
 
         var lanes = std.mem.asBytes(operands[1..]);
-        for (0..mask_len) |index| {
+        for (0..@intCast(usize, mask_len)) |index| {
             var buf: Value.ElemValueBuffer = undefined;
             const mask_elem = mask.elemValueBuffer(module, index, &buf).toSignedInt(func.target);
             const base_index = if (mask_elem >= 0)
@@ -4757,8 +4757,8 @@ fn airShuffle(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             else
                 16 + @intCast(u8, @intCast(i64, elem_size) * ~mask_elem);
 
-            for (0..elem_size) |byte_offset| {
-                lanes[index * elem_size + byte_offset] = base_index + @intCast(u8, byte_offset);
+            for (0..@intCast(usize, elem_size)) |byte_offset| {
+                lanes[index * @intCast(usize, elem_size) + byte_offset] = base_index + @intCast(u8, byte_offset);
             }
         }
 
