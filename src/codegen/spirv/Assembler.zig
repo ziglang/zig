@@ -239,12 +239,17 @@ fn todo(self: *Assembler, comptime fmt: []const u8, args: anytype) Error {
 /// If this function returns `error.AssembleFail`, an explanatory
 /// error message has already been emitted into `self.errors`.
 fn processInstruction(self: *Assembler) !void {
-    const result = switch (self.inst.opcode.class()) {
-        .TypeDeclaration => try self.processTypeInstruction(),
-        else => if (try self.processGenericInstruction()) |result|
-            result
-        else
-            return,
+    const result = switch (self.inst.opcode) {
+        .OpEntryPoint => {
+            return self.fail(0, "cannot export entry points via OpEntryPoint, export the kernel using callconv(.Kernel)", .{});
+        },
+        else => switch (self.inst.opcode.class()) {
+            .TypeDeclaration => try self.processTypeInstruction(),
+            else => if (try self.processGenericInstruction()) |result|
+                result
+            else
+                return,
+        },
     };
 
     const result_ref = self.inst.result().?;
@@ -435,8 +440,7 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
         .Annotation => &self.spv.sections.annotations,
         .TypeDeclaration => unreachable, // Handled elsewhere.
         else => switch (self.inst.opcode) {
-            // TODO: This should emit a proper entry point.
-            .OpEntryPoint => unreachable, // &self.spv.sections.entry_points,
+            .OpEntryPoint => unreachable,
             .OpExecutionMode, .OpExecutionModeId => &self.spv.sections.execution_modes,
             .OpVariable => switch (@intToEnum(spec.StorageClass, operands[2].value)) {
                 .Function => &self.func.prologue,
