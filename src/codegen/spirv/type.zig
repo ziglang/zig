@@ -547,8 +547,8 @@ pub const Type = extern union {
             /// This is valid for pointers to elements of an array.
             /// If zero, no stride is present.
             array_stride: u32 = 0,
-            /// Type has the 'Alignment' decoration.
-            alignment: ?u32,
+            /// If nonzero, type has the 'Alignment' decoration.
+            alignment: u32 = 0,
             /// Type has the 'MaxByteOffset' decoration.
             max_byte_offset: ?u32 = null,
         };

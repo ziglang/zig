@@ -388,10 +388,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
             payload.* = .{
                 .storage_class = @intToEnum(spec.StorageClass, operands[1].value),
                 .child_type = try self.resolveTypeRef(operands[2].ref_id),
-                // TODO: Fetch these values from decorations.
-                .array_stride = 0,
-                .alignment = null,
-                .max_byte_offset = null,
+                // TODO: Fetch decorations
             };
             break :blk SpvType.initPayload(&payload.base);
         },

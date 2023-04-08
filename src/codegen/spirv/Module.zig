@@ -573,8 +573,8 @@ pub fn emitType(self: *Module, ty: Type) error{OutOfMemory}!IdResultType {
             if (info.array_stride != 0) {
                 try self.decorate(ref_id, .{ .ArrayStride = .{ .array_stride = info.array_stride } });
             }
-            if (info.alignment) |alignment| {
-                try self.decorate(ref_id, .{ .Alignment = .{ .alignment = alignment } });
+            if (info.alignment != 0) {
+                try self.decorate(ref_id, .{ .Alignment = .{ .alignment = info.alignment } });
             }
             if (info.max_byte_offset) |max_byte_offset| {
                 try self.decorate(ref_id, .{ .MaxByteOffset = .{ .max_byte_offset = max_byte_offset } });
@@ -753,7 +753,7 @@ pub fn ptrType(
     self: *Module,
     child: Type.Ref,
     storage_class: spec.StorageClass,
-    alignment: ?u32,
+    alignment: u32,
 ) !Type.Ref {
     const ptr_payload = try self.arena.create(Type.Payload.Pointer);
     ptr_payload.* = .{

@@ -825,6 +825,11 @@ pub const DeclGen = struct {
         //   - Underaligned pointers. These need to be packed into the word array by using a mixture of
         //     OpSpecConstantOp instructions such as OpConvertPtrToU, OpBitcast, OpShift, etc.
 
+        // TODO: Implement alignment here.
+        //   This is hoing to require some hacks because there is no real way to
+        //   set an OpVariable's alignment.
+        _ = alignment;
+
         assert(storage_class != .Generic and storage_class != .Function);
 
         log.debug("lowerIndirectConstant: ty = {}, val = {}", .{ ty.fmt(self.module), val.fmtDebug() });
@@ -832,7 +837,7 @@ pub const DeclGen = struct {
         const section = &self.spv.globals.section;
 
         const ty_ref = try self.resolveType(ty, .indirect);
-        const ptr_ty_ref = try self.spv.ptrType(ty_ref, storage_class, alignment);
+        const ptr_ty_ref = try self.spv.ptrType(ty_ref, storage_class, 0);
 
         // const target = self.getTarget();
 
@@ -874,7 +879,7 @@ pub const DeclGen = struct {
         try icl.flush();
 
         const constant_struct_ty_ref = try self.spv.simpleStructType(icl.members.items);
-        const ptr_constant_struct_ty_ref = try self.spv.ptrType(constant_struct_ty_ref, storage_class, alignment);
+        const ptr_constant_struct_ty_ref = try self.spv.ptrType(constant_struct_ty_ref, storage_class, 0);
 
         const constant_struct_id = self.spv.allocId();
         try section.emit(self.spv.gpa, .OpSpecConstantComposite, .{
@@ -909,7 +914,7 @@ pub const DeclGen = struct {
         });
 
         if (cast_to_generic) {
-            const generic_ptr_ty_ref = try self.spv.ptrType(ty_ref, .Generic, alignment);
+            const generic_ptr_ty_ref = try self.spv.ptrType(ty_ref, .Generic, 0);
             try section.emitSpecConstantOp(self.spv.gpa, .OpPtrCastToGeneric, .{
                 .id_result_type = self.typeId(generic_ptr_ty_ref),
                 .id_result = result_id,
@@ -1165,21 +1170,16 @@ pub const DeclGen = struct {
             .Pointer => {
                 const ptr_info = ty.ptrInfo().data;
 
-                const ptr_payload = try self.spv.arena.create(SpvType.Payload.Pointer);
-                ptr_payload.* = .{
-                    .storage_class = spvStorageClass(ptr_info.@"addrspace"),
-                    .child_type = try self.resolveType(ptr_info.pointee_type, .indirect),
-                    // Note: only available in Kernels!
-                    .alignment = ty.ptrAlignment(target) * 8,
-                };
-                const ptr_ty_id = try self.spv.resolveType(SpvType.initPayload(&ptr_payload.base));
+                const storage_class = spvStorageClass(ptr_info.@"addrspace");
+                const child_ty_ref = try self.resolveType(ptr_info.pointee_type, .indirect);
+                const ptr_ty_ref = try self.spv.ptrType(child_ty_ref, storage_class, 0);
 
                 if (ptr_info.size != .Slice) {
-                    return ptr_ty_id;
+                    return ptr_ty_ref;
                 }
 
                 return try self.spv.simpleStructType(&.{
-                    .{ .ty = ptr_ty_id, .name = "ptr" },
+                    .{ .ty = ptr_ty_ref, .name = "ptr" },
                     .{ .ty = try self.sizeType(), .name = "len" },
                 });
             },
@@ -1356,7 +1356,7 @@ pub const DeclGen = struct {
     /// the name of an error in the text executor.
     fn generateTestEntryPoint(self: *DeclGen, name: []const u8, spv_test_decl_index: SpvModule.Decl.Index) !void {
         const anyerror_ty_ref = try self.resolveType(Type.anyerror, .direct);
-        const ptr_anyerror_ty_ref = try self.spv.ptrType(anyerror_ty_ref, .CrossWorkgroup, null);
+        const ptr_anyerror_ty_ref = try self.spv.ptrType(anyerror_ty_ref, .CrossWorkgroup, 0);
         const void_ty_ref = try self.resolveType(Type.void, .direct);
 
         const kernel_proto_ty_ref = blk: {
@@ -1497,19 +1497,6 @@ pub const DeclGen = struct {
                 final_storage_class == .Generic,
                 decl.@"align",
             );
-
-            // if (storage_class == .Generic) {
-            //     const section = &self.spv.globals.section;
-            //     const ty_ref = try self.resolveType(decl.ty, .indirect);
-            //     const ptr_ty_ref = try self.spv.ptrType(ty_ref, storage_class, decl.@"align");
-            //     // TODO: Can we eliminate this cast?
-            //     // TODO: Const-wash pointer?
-            //     try section.emitSpecConstantOp(self.spv.gpa, .OpPtrCastToGeneric, .{
-            //         .id_result_type = self.typeId(ptr_ty_ref),
-            //         .id_result = global_result_id,
-            //         .pointer = casted_result_id,
-            //     });
-            // }
         }
     }
 
