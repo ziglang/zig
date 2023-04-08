@@ -944,7 +944,7 @@ pub const Target = struct {
                 };
             }
 
-            pub fn isSPIRV(arch: Arch) bool {
+            pub fn isSpirV(arch: Arch) bool {
                 return switch (arch) {
                     .spirv32, .spirv64 => true,
                     else => false,
@@ -1532,6 +1532,10 @@ pub const Target = struct {
 
     pub fn supportsNewStackCall(self: Target) bool {
         return !self.cpu.arch.isWasm();
+    }
+
+    pub fn isSpirV(self: Target) bool {
+        return self.cpu.arch.isSpirV();
     }
 
     pub const FloatAbi = enum {
