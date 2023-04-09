@@ -5000,16 +5000,10 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const loop = self.air.extraData(Air.Block, ty_pl.payload);
     const body = self.air.extra[loop.end..][0..loop.data.body_len];
-    const liveness_loop = self.liveness.getLoop(inst);
     const start_index = @intCast(u32, self.mir_instructions.len);
 
     try self.genBody(body);
     try self.jump(start_index);
-
-    try self.ensureProcessDeathCapacity(liveness_loop.deaths.len);
-    for (liveness_loop.deaths) |operand| {
-        self.processDeath(operand);
-    }
 
     return self.finishAirBookkeeping();
 }

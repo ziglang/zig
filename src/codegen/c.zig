@@ -4637,16 +4637,11 @@ fn airLoop(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const loop = f.air.extraData(Air.Block, ty_pl.payload);
     const body = f.air.extra[loop.end..][0..loop.data.body_len];
-    const liveness_loop = f.liveness.getLoop(inst);
     const writer = f.object.writer();
 
     try writer.writeAll("for (;;) ");
     try genBody(f, body);
     try writer.writeByte('\n');
-
-    for (liveness_loop.deaths) |operand| {
-        try die(f, inst, Air.indexToRef(operand));
-    }
 
     return .none;
 }
