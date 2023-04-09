@@ -482,6 +482,8 @@ fn fetchAndUnpack(
         var req = try http_client.request(uri, .{}, .{});
         defer req.deinit();
 
+        try req.do();
+
         if (mem.endsWith(u8, uri.path, ".tar.gz")) {
             // I observed the gzip stream to read 1 byte at a time, so I am using a
             // buffered reader on the front of it.
