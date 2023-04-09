@@ -8,16 +8,16 @@ const Type = @import("type.zig").Type;
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
 
-pub fn write(stream: anytype, module: *Module, air: Air, liveness: Liveness) void {
+pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) void {
     const instruction_bytes = air.instructions.len *
         // Here we don't use @sizeOf(Air.Inst.Data) because it would include
         // the debug safety tag but we want to measure release size.
         (@sizeOf(Air.Inst.Tag) + 8);
     const extra_bytes = air.extra.len * @sizeOf(u32);
     const values_bytes = air.values.len * @sizeOf(Value);
-    const tomb_bytes = liveness.tomb_bits.len * @sizeOf(usize);
-    const liveness_extra_bytes = liveness.extra.len * @sizeOf(u32);
-    const liveness_special_bytes = liveness.special.count() * 8;
+    const tomb_bytes = if (liveness) |l| l.tomb_bits.len * @sizeOf(usize) else 0;
+    const liveness_extra_bytes = if (liveness) |l| l.extra.len * @sizeOf(u32) else 0;
+    const liveness_special_bytes = if (liveness) |l| l.special.count() * 8 else 0;
     const total_bytes = @sizeOf(Air) + instruction_bytes + extra_bytes +
         values_bytes + @sizeOf(Liveness) + liveness_extra_bytes +
         liveness_special_bytes + tomb_bytes;
@@ -38,8 +38,8 @@ pub fn write(stream: anytype, module: *Module, air: Air, liveness: Liveness) voi
         air.extra.len, fmtIntSizeBin(extra_bytes),
         air.values.len, fmtIntSizeBin(values_bytes),
         fmtIntSizeBin(tomb_bytes),
-        liveness.extra.len, fmtIntSizeBin(liveness_extra_bytes),
-        liveness.special.count(), fmtIntSizeBin(liveness_special_bytes),
+        if (liveness) |l| l.extra.len else 0, fmtIntSizeBin(liveness_extra_bytes),
+        if (liveness) |l| l.special.count() else 0, fmtIntSizeBin(liveness_special_bytes),
     }) catch return;
     // zig fmt: on
 
@@ -61,7 +61,7 @@ pub fn writeInst(
     inst: Air.Inst.Index,
     module: *Module,
     air: Air,
-    liveness: Liveness,
+    liveness: ?Liveness,
 ) void {
     var writer: Writer = .{
         .module = module,
@@ -74,11 +74,11 @@ pub fn writeInst(
     writer.writeInst(stream, inst) catch return;
 }
 
-pub fn dump(module: *Module, air: Air, liveness: Liveness) void {
+pub fn dump(module: *Module, air: Air, liveness: ?Liveness) void {
     write(std.io.getStdErr().writer(), module, air, liveness);
 }
 
-pub fn dumpInst(inst: Air.Inst.Index, module: *Module, air: Air, liveness: Liveness) void {
+pub fn dumpInst(inst: Air.Inst.Index, module: *Module, air: Air, liveness: ?Liveness) void {
     writeInst(std.io.getStdErr().writer(), inst, module, air, liveness);
 }
 
@@ -86,7 +86,7 @@ const Writer = struct {
     module: *Module,
     gpa: Allocator,
     air: Air,
-    liveness: Liveness,
+    liveness: ?Liveness,
     indent: usize,
     skip_body: bool,
 
@@ -109,7 +109,7 @@ const Writer = struct {
         try s.writeByteNTimes(' ', w.indent);
         try s.print("%{d}{c}= {s}(", .{
             inst,
-            @as(u8, if (w.liveness.isUnused(inst)) '!' else ' '),
+            @as(u8, if (if (w.liveness) |liveness| liveness.isUnused(inst) else false) '!' else ' '),
             @tagName(tag),
         });
         switch (tag) {
@@ -773,7 +773,10 @@ const Writer = struct {
         const extra = w.air.extraData(Air.CondBr, pl_op.payload);
         const then_body = w.air.extra[extra.end..][0..extra.data.then_body_len];
         const else_body = w.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
-        const liveness_condbr = w.liveness.getCondBr(inst);
+        const liveness_condbr = if (w.liveness) |liveness|
+            liveness.getCondBr(inst)
+        else
+            Liveness.CondBrSlices{ .then_deaths = &.{}, .else_deaths = &.{} };
 
         try w.writeOperand(s, inst, 0, pl_op.operand);
         if (w.skip_body) return s.writeAll(", ...");
@@ -813,8 +816,15 @@ const Writer = struct {
     fn writeSwitchBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
         const switch_br = w.air.extraData(Air.SwitchBr, pl_op.payload);
-        const liveness = w.liveness.getSwitchBr(w.gpa, inst, switch_br.data.cases_len + 1) catch
-            @panic("out of memory");
+        const liveness = if (w.liveness) |liveness|
+            liveness.getSwitchBr(w.gpa, inst, switch_br.data.cases_len + 1) catch
+                @panic("out of memory")
+        else blk: {
+            const slice = w.gpa.alloc([]const Air.Inst.Index, switch_br.data.cases_len + 1) catch
+                @panic("out of memory");
+            std.mem.set([]const Air.Inst.Index, slice, &.{});
+            break :blk Liveness.SwitchBrTable{ .deaths = slice };
+        };
         defer w.gpa.free(liveness.deaths);
         var extra_index: usize = switch_br.end;
         var case_i: u32 = 0;
@@ -904,13 +914,13 @@ const Writer = struct {
         operand: Air.Inst.Ref,
     ) @TypeOf(s).Error!void {
         const small_tomb_bits = Liveness.bpi - 1;
-        const dies = if (op_index < small_tomb_bits)
-            w.liveness.operandDies(inst, @intCast(Liveness.OperandInt, op_index))
-        else blk: {
-            var extra_index = w.liveness.special.get(inst).?;
+        const dies = if (w.liveness) |liveness| blk: {
+            if (op_index < small_tomb_bits)
+                break :blk liveness.operandDies(inst, @intCast(Liveness.OperandInt, op_index));
+            var extra_index = liveness.special.get(inst).?;
             var tomb_op_index: usize = small_tomb_bits;
             while (true) {
-                const bits = w.liveness.extra[extra_index];
+                const bits = liveness.extra[extra_index];
                 if (op_index < tomb_op_index + 31) {
                     break :blk @truncate(u1, bits >> @intCast(u5, op_index - tomb_op_index)) != 0;
                 }
@@ -918,7 +928,7 @@ const Writer = struct {
                 extra_index += 1;
                 tomb_op_index += 31;
             }
-        };
+        } else false;
         return w.writeInstRef(s, operand, dies);
     }
 
