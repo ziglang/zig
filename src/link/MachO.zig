@@ -2070,8 +2070,6 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     self.freeUnnamedConsts(decl_index);
     Atom.freeRelocations(self, atom_index);
 
-    const atom = self.getAtom(atom_index);
-
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
@@ -2100,7 +2098,13 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
     const addr = try self.updateDeclCode(decl_index, code);
 
     if (decl_state) |*ds| {
-        try self.d_sym.?.dwarf.commitDeclState(module, decl_index, addr, atom.size, ds);
+        try self.d_sym.?.dwarf.commitDeclState(
+            module,
+            decl_index,
+            addr,
+            self.getAtom(atom_index).size,
+            ds,
+        );
     }
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
@@ -2196,8 +2200,8 @@ pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) 
     }
 
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
+    const sym_index = self.getAtom(atom_index).getSymbolIndex().?;
     Atom.freeRelocations(self, atom_index);
-    const atom = self.getAtom(atom_index);
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
@@ -2216,14 +2220,14 @@ pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) 
         }, &code_buffer, .{
             .dwarf = ds,
         }, .{
-            .parent_atom_index = atom.getSymbolIndex().?,
+            .parent_atom_index = sym_index,
         })
     else
         try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .none, .{
-            .parent_atom_index = atom.getSymbolIndex().?,
+            .parent_atom_index = sym_index,
         });
 
     var code = switch (res) {
@@ -2237,7 +2241,13 @@ pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) 
     const addr = try self.updateDeclCode(decl_index, code);
 
     if (decl_state) |*ds| {
-        try self.d_sym.?.dwarf.commitDeclState(module, decl_index, addr, atom.size, ds);
+        try self.d_sym.?.dwarf.commitDeclState(
+            module,
+            decl_index,
+            addr,
+            self.getAtom(atom_index).size,
+            ds,
+        );
     }
 
     // Since we updated the vaddr and the size, each corresponding export symbol also
