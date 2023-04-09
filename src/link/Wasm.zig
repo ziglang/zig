@@ -577,7 +577,7 @@ pub fn getOrCreateAtomForDecl(wasm: *Wasm, decl_index: Module.Decl.Index) !Atom.
 }
 
 /// Creates a new empty `Atom` and returns its `Atom.Index`
-fn createAtom(wasm: *Wasm) !Atom.Index {
+pub fn createAtom(wasm: *Wasm) !Atom.Index {
     const index = @intCast(Atom.Index, wasm.managed_atoms.items.len);
     const atom = try wasm.managed_atoms.addOne(wasm.base.allocator);
     atom.* = Atom.empty;
@@ -1208,7 +1208,7 @@ fn resolveLazySymbols(wasm: *Wasm) !void {
 
 // Tries to find a global symbol by its name. Returns null when not found,
 /// and its location when it is found.
-fn findGlobalSymbol(wasm: *Wasm, name: []const u8) ?SymbolLoc {
+pub fn findGlobalSymbol(wasm: *Wasm, name: []const u8) ?SymbolLoc {
     const offset = wasm.string_table.getOffset(name) orelse return null;
     return wasm.globals.get(offset);
 }
