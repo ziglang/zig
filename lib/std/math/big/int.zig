@@ -1735,6 +1735,80 @@ pub const Mutable = struct {
         y.shiftRight(y.toConst(), norm_shift);
     }
 
+    // TODO this function is quite inefficient and could be optimised
+    /// r = @depositBits(source, mask)
+    ///
+    /// Asserts that `source` and `mask` are positive
+    ///
+    /// `limbs_buffer` is used as a working area. It must have length of at least `mask.limbs.len`.
+    pub fn depositBits(r: *Mutable, source: Const, mask: Const, limbs_buffer: []Limb) void {
+        assert(source.positive);
+        assert(mask.positive);
+
+        r.positive = true;
+        std.mem.set(Limb, r.limbs, 0);
+
+        var mut_mask = Mutable{ .limbs = limbs_buffer[0..mask.limbs.len], .positive = undefined, .len = undefined };
+        mut_mask.copy(mask);
+
+        var mask_bit_index = mut_mask.toConst().ctz();
+        var i: usize = 0;
+        while (!mut_mask.eqZero()) : ({
+            mask_bit_index = mut_mask.toConst().ctz();
+            i += 1;
+        }) {
+            const mask_limb_index = mask_bit_index / limb_bits;
+            const mask_limb_bit = @intCast(u6, mask_bit_index % limb_bits);
+
+            const i_limb_index = i / limb_bits;
+            const i_limb_bit = @intCast(u6, i % limb_bits);
+
+            mut_mask.limbs[mask_limb_index] &= ~(@as(Limb, 1) << mask_limb_bit); // Unset the mask bit
+            const source_bit_set = source.limbs[i_limb_index] & (@as(Limb, 1) << i_limb_bit) != 0;
+
+            r.limbs[mask_limb_index] |= @as(Limb, @boolToInt(source_bit_set)) << mask_limb_bit;
+        }
+
+        r.normalize(r.limbs.len);
+    }
+
+    // TODO this function is quite inefficient and could be optimised
+    /// r = @extractBits(source, mask)
+    ///
+    /// Asserts that `source` and `mask` are positive
+    ///
+    /// `limbs_buffer` is used as a working area. It must have length of at least `mask.limbs.len`.
+    pub fn extractBits(r: *Mutable, source: Const, mask: Const, limbs_buffer: []Limb) void {
+        assert(source.positive);
+        assert(mask.positive);
+
+        r.positive = true;
+        std.mem.set(Limb, r.limbs, 0);
+
+        var mut_mask = Mutable{ .limbs = limbs_buffer[0..mask.limbs.len], .positive = undefined, .len = undefined };
+        mut_mask.copy(mask);
+
+        var mask_bit_index = mut_mask.toConst().ctz();
+        var i: usize = 0;
+        while (!mut_mask.eqZero()) : ({
+            mask_bit_index = mut_mask.toConst().ctz();
+            i += 1;
+        }) {
+            const mask_limb_index = mask_bit_index / limb_bits;
+            const mask_limb_bit = @intCast(u6, mask_bit_index % limb_bits);
+
+            const i_limb_index = i / limb_bits;
+            const i_limb_bit = @intCast(u6, i % limb_bits);
+
+            mut_mask.limbs[mask_limb_index] &= ~(@as(Limb, 1) << mask_limb_bit); // Unset the mask bit
+            const source_bit_set = source.limbs[mask_limb_index] & (@as(Limb, 1) << mask_limb_bit) != 0;
+
+            r.limbs[i_limb_index] |= @as(Limb, @boolToInt(source_bit_set)) << i_limb_bit;
+        }
+
+        r.normalize(r.limbs.len);
+    }
+
     /// If a is positive, this passes through to truncate.
     /// If a is negative, then r is set to positive with the bit pattern ~(a - 1).
     /// r may alias a.
