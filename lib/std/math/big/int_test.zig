@@ -2800,6 +2800,60 @@ fn popCountTest(val: *const Managed, bit_count: usize, expected: usize) !void {
     try testing.expectEqual(expected, val.toConst().popCount(bit_count));
 }
 
+test "big int extractBits" {
+    try extractBitsTest(0x12345678, 0x0, 0x0);
+    try extractBitsTest(0x12345678, 0xf0f0f0f0, 0x1357);
+    try extractBitsTest(0x12345678, 0xff00ff00, 0x1256);
+    try extractBitsTest(0x12345678, 0xffff, 0x5678);
+
+    try extractBitsTest(0x12345678_90123456_78901234_56789012, 0xff << 64, 0x56);
+    try extractBitsTest(0x12345678_90123456_78901234_56789012, (0xff << 64) | 0xff00f, 0x56892);
+}
+
+fn extractBitsTest(comptime source: comptime_int, comptime mask: comptime_int, comptime expected: comptime_int) !void {
+    var source_bigint = try Managed.initSet(testing.allocator, source);
+    defer source_bigint.deinit();
+    var mask_bigint = try Managed.initSet(testing.allocator, mask);
+    defer mask_bigint.deinit();
+    const limbs = try testing.allocator.alloc(Limb, mask_bigint.limbs.len);
+    defer testing.allocator.free(limbs);
+    var result = Mutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+
+    const limbs_buffer = try testing.allocator.alloc(Limb, mask_bigint.limbs.len);
+    defer testing.allocator.free(limbs_buffer);
+
+    result.extractBits(source_bigint.toConst(), mask_bigint.toConst(), limbs_buffer);
+
+    try testing.expectEqual(std.math.Order.eq, result.toConst().orderAgainstScalar(expected));
+}
+
+test "big int depositBits" {
+    try depositBitsTest(0x12345678, 0x0, 0x0);
+    try depositBitsTest(0x12345678, 0xf0f0f0f0, 0x50607080);
+    try depositBitsTest(0x12345678, 0xff00ff00, 0x56007800);
+    try depositBitsTest(0x12345678, 0xffff, 0x5678);
+
+    try depositBitsTest(0x1234, 0xff << 64, 0x34_00000000_00000000);
+    try depositBitsTest(0x12345678, (0xff << 64) | 0xff00f, 0x45_00000000_00067008);
+}
+
+fn depositBitsTest(comptime source: comptime_int, comptime mask: comptime_int, comptime expected: comptime_int) !void {
+    var source_bigint = try Managed.initSet(testing.allocator, source);
+    defer source_bigint.deinit();
+    var mask_bigint = try Managed.initSet(testing.allocator, mask);
+    defer mask_bigint.deinit();
+    const limbs = try testing.allocator.alloc(Limb, mask_bigint.limbs.len);
+    defer testing.allocator.free(limbs);
+    var result = Mutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+
+    const limbs_buffer = try testing.allocator.alloc(Limb, mask_bigint.limbs.len);
+    defer testing.allocator.free(limbs_buffer);
+
+    result.depositBits(source_bigint.toConst(), mask_bigint.toConst(), limbs_buffer);
+
+    try testing.expectEqual(std.math.Order.eq, result.toConst().orderAgainstScalar(expected));
+}
+
 test "big int conversion read/write twos complement" {
     var a = try Managed.initSet(testing.allocator, (1 << 493) - 1);
     defer a.deinit();
