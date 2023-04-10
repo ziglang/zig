@@ -163,7 +163,7 @@ pub fn canBuildLibC(target: std.Target) bool {
 pub fn cannotDynamicLink(target: std.Target) bool {
     return switch (target.os.tag) {
         .freestanding, .other => true,
-        else => false,
+        else => target.isSpirV(),
     };
 }
 
@@ -331,18 +331,18 @@ pub fn supportsStackProbing(target: std.Target) bool {
 }
 
 pub fn supportsStackProtector(target: std.Target) bool {
-    _ = target;
-    return true;
+    return !target.isSpirV();
 }
 
 pub fn libcProvidesStackProtector(target: std.Target) bool {
-    return !target.isMinGW() and target.os.tag != .wasi;
+    return !target.isMinGW() and target.os.tag != .wasi and !target.isSpirV();
 }
 
 pub fn supportsReturnAddress(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .wasm32, .wasm64 => target.os.tag == .emscripten,
         .bpfel, .bpfeb => false,
+        .spirv32, .spirv64 => false,
         else => true,
     };
 }

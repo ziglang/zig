@@ -722,10 +722,11 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
     // Once they are capable this condition could be removed. When removing this condition,
     // also test the use case of `build-obj -fcompiler-rt` with the native backends
     // and make sure the compiler-rt symbols are emitted.
-    const capable_of_building_compiler_rt = build_options.have_llvm and options.target.os.tag != .plan9;
-
-    const capable_of_building_zig_libc = build_options.have_llvm and options.target.os.tag != .plan9;
-    const capable_of_building_ssp = build_options.have_llvm and options.target.os.tag != .plan9;
+    const is_p9 = options.target.os.tag == .plan9;
+    const is_spv = options.target.cpu.arch.isSpirV();
+    const capable_of_building_compiler_rt = build_options.have_llvm and !is_p9 and !is_spv;
+    const capable_of_building_zig_libc = build_options.have_llvm and !is_p9 and !is_spv;
+    const capable_of_building_ssp = build_options.have_llvm and !is_p9 and !is_spv;
 
     const comp: *Compilation = comp: {
         // For allocations that have the same lifetime as Compilation. This arena is used only during this
@@ -1948,8 +1949,9 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                 .sub_path = std.fs.path.basename(sub_path),
             };
         }
-        comp.bin_file.destroy();
+        var old_bin_file = comp.bin_file;
         comp.bin_file = try link.File.openPath(comp.gpa, options);
+        old_bin_file.destroy();
     }
 
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.

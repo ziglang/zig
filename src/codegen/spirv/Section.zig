@@ -65,32 +65,23 @@ pub fn emit(
     section.writeOperands(opcode.Operands(), operands);
 }
 
-/// Decorate a result-id.
-pub fn decorate(
+pub fn emitSpecConstantOp(
     section: *Section,
     allocator: Allocator,
-    target: spec.IdRef,
-    decoration: spec.Decoration.Extended,
+    comptime opcode: spec.Opcode,
+    operands: opcode.Operands(),
 ) !void {
-    try section.emit(allocator, .OpDecorate, .{
-        .target = target,
-        .decoration = decoration,
-    });
-}
+    const word_count = operandsSize(opcode.Operands(), operands);
+    try section.emitRaw(allocator, .OpSpecConstantOp, 1 + word_count);
+    section.writeOperand(spec.IdRef, operands.id_result_type);
+    section.writeOperand(spec.IdRef, operands.id_result);
+    section.writeOperand(Opcode, opcode);
 
-/// Decorate a result-id which is a member of some struct.
-pub fn decorateMember(
-    section: *Section,
-    allocator: Allocator,
-    structure_type: spec.IdRef,
-    member: u32,
-    decoration: spec.Decoration.Extended,
-) !void {
-    try section.emit(allocator, .OpMemberDecorate, .{
-        .structure_type = structure_type,
-        .member = member,
-        .decoration = decoration,
-    });
+    const fields = @typeInfo(opcode.Operands()).Struct.fields;
+    // First 2 fields are always id_result_type and id_result.
+    inline for (fields[2..]) |field| {
+        section.writeOperand(field.type, @field(operands, field.name));
+    }
 }
 
 pub fn writeWord(section: *Section, word: Word) void {
@@ -122,7 +113,7 @@ fn writeOperands(section: *Section, comptime Operands: type, operands: Operands)
 
 pub fn writeOperand(section: *Section, comptime Operand: type, operand: Operand) void {
     switch (Operand) {
-        spec.IdResultType, spec.IdResult, spec.IdRef => section.writeWord(operand.id),
+        spec.IdResult => section.writeWord(operand.id),
 
         spec.LiteralInteger => section.writeWord(operand),
 
@@ -258,9 +249,7 @@ fn operandsSize(comptime Operands: type, operands: Operands) usize {
 
 fn operandSize(comptime Operand: type, operand: Operand) usize {
     return switch (Operand) {
-        spec.IdResultType,
         spec.IdResult,
-        spec.IdRef,
         spec.LiteralInteger,
         spec.LiteralExtInstInteger,
         => 1,
@@ -382,7 +371,9 @@ test "SPIR-V Section emit() - string" {
     }, section.instructions.items);
 }
 
-test "SPIR-V Section emit()- extended mask" {
+test "SPIR-V Section emit() - extended mask" {
+    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
+
     var section = Section{};
     defer section.deinit(std.testing.allocator);
 

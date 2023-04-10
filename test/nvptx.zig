@@ -10,7 +10,7 @@ pub fn addCases(ctx: *Cases) !void {
             \\    return a + b;
             \\}
             \\
-            \\pub export fn add_and_substract(a: i32, out: *i32) callconv(.PtxKernel) void {
+            \\pub export fn add_and_substract(a: i32, out: *i32) callconv(.Kernel) void {
             \\    const x = add(a, 7);
             \\    var y = add(2, 0);
             \\    y -= x;
@@ -29,7 +29,7 @@ pub fn addCases(ctx: *Cases) !void {
             \\    );
             \\}
             \\
-            \\pub export fn special_reg(a: []const i32, out: []i32) callconv(.PtxKernel) void {
+            \\pub export fn special_reg(a: []const i32, out: []i32) callconv(.Kernel) void {
             \\    const i = threadIdX();
             \\    out[i] = a[i] + 7;
             \\}
@@ -42,7 +42,7 @@ pub fn addCases(ctx: *Cases) !void {
         case.addCompile(
             \\var x: i32 addrspace(.global) = 0;
             \\
-            \\pub export fn increment(out: *i32) callconv(.PtxKernel) void {
+            \\pub export fn increment(out: *i32) callconv(.Kernel) void {
             \\    x += 1;
             \\    out.* = x;
             \\}
@@ -59,7 +59,7 @@ pub fn addCases(ctx: *Cases) !void {
             \\}
             \\
             \\ var _sdata: [1024]f32 addrspace(.shared) = undefined;
-            \\ pub export fn reduceSum(d_x: []const f32, out: *f32) callconv(.PtxKernel) void {
+            \\ pub export fn reduceSum(d_x: []const f32, out: *f32) callconv(.Kernel) void {
             \\     var sdata = @addrSpaceCast(.generic, &_sdata);
             \\     const tid: u32 = threadIdX();
             \\     var sum = d_x[tid];

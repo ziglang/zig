@@ -10350,11 +10350,8 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) llvm.Ca
         .Signal => .AVR_SIGNAL,
         .SysV => .X86_64_SysV,
         .Win64 => .Win64,
-        .PtxKernel => return switch (target.cpu.arch) {
+        .Kernel => return switch (target.cpu.arch) {
             .nvptx, .nvptx64 => .PTX_Kernel,
-            else => unreachable,
-        },
-        .AmdgpuKernel => return switch (target.cpu.arch) {
             .amdgcn => .AMDGPU_KERNEL,
             else => unreachable,
         },

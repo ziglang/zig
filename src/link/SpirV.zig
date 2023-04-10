@@ -44,34 +44,25 @@ const IdResult = spec.IdResult;
 
 base: link.File,
 
-/// This linker backend does not try to incrementally link output SPIR-V code.
-/// Instead, it tracks all declarations in this table, and iterates over it
-/// in the flush function.
-decl_table: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclGenContext) = .{},
-
-const DeclGenContext = struct {
-    air: Air,
-    air_arena: ArenaAllocator.State,
-    liveness: Liveness,
-
-    fn deinit(self: *DeclGenContext, gpa: Allocator) void {
-        self.air.deinit(gpa);
-        self.liveness.deinit(gpa);
-        self.air_arena.promote(gpa).deinit();
-        self.* = undefined;
-    }
-};
+spv: SpvModule,
+spv_arena: ArenaAllocator,
+decl_link: codegen.DeclLinkMap,
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*SpirV {
-    const spirv = try gpa.create(SpirV);
-    spirv.* = .{
+    const self = try gpa.create(SpirV);
+    self.* = .{
         .base = .{
             .tag = .spirv,
             .options = options,
             .file = null,
             .allocator = gpa,
         },
+        .spv = undefined,
+        .spv_arena = ArenaAllocator.init(gpa),
+        .decl_link = codegen.DeclLinkMap.init(self.base.allocator),
     };
+    self.spv = SpvModule.init(gpa, self.spv_arena.allocator());
+    errdefer self.deinit();
 
     // TODO: Figure out where to put all of these
     switch (options.target.cpu.arch) {
@@ -88,7 +79,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*SpirV {
         return error.TODOAbiNotSupported;
     }
 
-    return spirv;
+    return self;
 }
 
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*SpirV {
@@ -107,44 +98,35 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 }
 
 pub fn deinit(self: *SpirV) void {
-    self.decl_table.deinit(self.base.allocator);
+    self.spv.deinit();
+    self.spv_arena.deinit();
+    self.decl_link.deinit();
 }
 
 pub fn updateFunc(self: *SpirV, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
-    _ = module;
 
-    // Keep track of all decls so we can iterate over them on flush().
-    const result = try self.decl_table.getOrPut(self.base.allocator, func.owner_decl);
-    if (result.found_existing) {
-        result.value_ptr.deinit(self.base.allocator);
+    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link);
+    defer decl_gen.deinit();
+
+    if (try decl_gen.gen(func.owner_decl, air, liveness)) |msg| {
+        try module.failed_decls.put(module.gpa, func.owner_decl, msg);
     }
-
-    var arena = ArenaAllocator.init(self.base.allocator);
-    errdefer arena.deinit();
-
-    var new_air = try cloneAir(air, self.base.allocator, arena.allocator());
-    errdefer new_air.deinit(self.base.allocator);
-
-    var new_liveness = try cloneLiveness(liveness, self.base.allocator);
-    errdefer new_liveness.deinit(self.base.allocator);
-
-    result.value_ptr.* = .{
-        .air = new_air,
-        .air_arena = arena.state,
-        .liveness = new_liveness,
-    };
 }
 
 pub fn updateDecl(self: *SpirV, module: *Module, decl_index: Module.Decl.Index) !void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
-    _ = module;
-    // Keep track of all decls so we can iterate over them on flush().
-    _ = try self.decl_table.getOrPut(self.base.allocator, decl_index);
+
+    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &self.spv, &self.decl_link);
+    defer decl_gen.deinit();
+
+    if (try decl_gen.gen(decl_index, undefined, undefined)) |msg| {
+        try module.failed_decls.put(module.gpa, decl_index, msg);
+    }
 }
 
 pub fn updateDeclExports(
@@ -153,20 +135,26 @@ pub fn updateDeclExports(
     decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
 ) !void {
-    _ = self;
-    _ = module;
-    _ = decl_index;
-    _ = exports;
+    const decl = module.declPtr(decl_index);
+    if (decl.val.tag() == .function and decl.ty.fnCallingConvention() == .Kernel) {
+        // TODO: Unify with resolveDecl in spirv.zig.
+        const entry = try self.decl_link.getOrPut(decl_index);
+        if (!entry.found_existing) {
+            entry.value_ptr.* = try self.spv.allocDecl(.func);
+        }
+        const spv_decl_index = entry.value_ptr.*;
+
+        for (exports) |exp| {
+            try self.spv.declareEntryPoint(spv_decl_index, exp.options.name);
+        }
+    }
+
+    // TODO: Export regular functions, variables, etc using Linkage attributes.
 }
 
 pub fn freeDecl(self: *SpirV, decl_index: Module.Decl.Index) void {
-    if (self.decl_table.getIndex(decl_index)) |index| {
-        const module = self.base.options.module.?;
-        const decl = module.declPtr(decl_index);
-        if (decl.val.tag() == .function) {
-            self.decl_table.values()[index].deinit(self.base.allocator);
-        }
-    }
+    _ = self;
+    _ = decl_index;
 }
 
 pub fn flush(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
@@ -189,60 +177,38 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    const module = self.base.options.module.?;
     const target = comp.getTarget();
+    try writeCapabilities(&self.spv, target);
+    try writeMemoryModel(&self.spv, target);
 
-    var arena = std.heap.ArenaAllocator.init(self.base.allocator);
-    defer arena.deinit();
+    // We need to export the list of error names somewhere so that we can pretty-print them in the
+    // executor. This is not really an important thing though, so we can just dump it in any old
+    // nonsemantic instruction. For now, just put it in OpSourceExtension with a special name.
 
-    var spv = SpvModule.init(self.base.allocator, arena.allocator());
-    defer spv.deinit();
+    var error_info = std.ArrayList(u8).init(self.spv.arena);
+    try error_info.appendSlice("zig_errors");
+    const module = self.base.options.module.?;
+    for (module.error_name_list.items) |name| {
+        // Errors can contain pretty much any character - to encode them in a string we must escape
+        // them somehow. Easiest here is to use some established scheme, one which also preseves the
+        // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
+        // We're using : as separator, which is a reserved character.
 
-    // Allocate an ID for every declaration before generating code,
-    // so that we can access them before processing them.
-    // TODO: We're allocating an ID unconditionally now, are there
-    // declarations which don't generate a result?
-    var ids = std.AutoHashMap(Module.Decl.Index, IdResult).init(self.base.allocator);
-    defer ids.deinit();
-    try ids.ensureTotalCapacity(@intCast(u32, self.decl_table.count()));
-
-    for (self.decl_table.keys()) |decl_index| {
-        const decl = module.declPtr(decl_index);
-        if (decl.has_tv) {
-            ids.putAssumeCapacityNoClobber(decl_index, spv.allocId());
-        }
+        const escaped_name = try std.Uri.escapeString(self.base.allocator, name);
+        defer self.base.allocator.free(escaped_name);
+        try error_info.writer().print(":{s}", .{escaped_name});
     }
+    try self.spv.sections.debug_strings.emit(self.spv.gpa, .OpSourceExtension, .{
+        .extension = error_info.items,
+    });
 
-    // Now, actually generate the code for all declarations.
-    var decl_gen = codegen.DeclGen.init(self.base.allocator, module, &spv, &ids);
-    defer decl_gen.deinit();
-
-    var it = self.decl_table.iterator();
-    while (it.next()) |entry| {
-        const decl_index = entry.key_ptr.*;
-        const decl = module.declPtr(decl_index);
-        if (!decl.has_tv) continue;
-
-        const air = entry.value_ptr.air;
-        const liveness = entry.value_ptr.liveness;
-
-        // Note, if `decl` is not a function, air/liveness may be undefined.
-        if (try decl_gen.gen(decl_index, air, liveness)) |msg| {
-            try module.failed_decls.put(module.gpa, decl_index, msg);
-            return; // TODO: Attempt to generate more decls?
-        }
-    }
-
-    try writeCapabilities(&spv, target);
-    try writeMemoryModel(&spv, target);
-
-    try spv.flush(self.base.file.?);
+    try self.spv.flush(self.base.file.?);
 }
 
 fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     // TODO: Integrate with a hypothetical feature system
     const caps: []const spec.Capability = switch (target.os.tag) {
-        .opencl => &.{.Kernel},
+        .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .GenericPointer },
         .glsl450 => &.{.Shader},
         .vulkan => &.{.Shader},
         else => unreachable, // TODO
@@ -278,46 +244,4 @@ fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
         .addressing_model = addressing_model,
         .memory_model = memory_model,
     });
-}
-
-fn cloneLiveness(l: Liveness, gpa: Allocator) !Liveness {
-    const tomb_bits = try gpa.dupe(usize, l.tomb_bits);
-    errdefer gpa.free(tomb_bits);
-
-    const extra = try gpa.dupe(u32, l.extra);
-    errdefer gpa.free(extra);
-
-    return Liveness{
-        .tomb_bits = tomb_bits,
-        .extra = extra,
-        .special = try l.special.clone(gpa),
-    };
-}
-
-fn cloneAir(air: Air, gpa: Allocator, air_arena: Allocator) !Air {
-    const values = try gpa.alloc(Value, air.values.len);
-    errdefer gpa.free(values);
-
-    for (values, 0..) |*value, i| {
-        value.* = try air.values[i].copy(air_arena);
-    }
-
-    var instructions = try air.instructions.toMultiArrayList().clone(gpa);
-    errdefer instructions.deinit(gpa);
-
-    const air_tags = instructions.items(.tag);
-    const air_datas = instructions.items(.data);
-
-    for (air_tags, 0..) |tag, i| {
-        switch (tag) {
-            .alloc, .ret_ptr, .const_ty => air_datas[i].ty = try air_datas[i].ty.copy(air_arena),
-            else => {},
-        }
-    }
-
-    return Air{
-        .instructions = instructions.slice(),
-        .extra = try gpa.dupe(u32, air.extra),
-        .values = values,
-    };
 }

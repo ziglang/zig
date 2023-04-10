@@ -944,7 +944,7 @@ pub const Target = struct {
                 };
             }
 
-            pub fn isSPIRV(arch: Arch) bool {
+            pub fn isSpirV(arch: Arch) bool {
                 return switch (arch) {
                     .spirv32, .spirv64 => true,
                     else => false,
@@ -1276,7 +1276,7 @@ pub const Target = struct {
                     .x86, .x86_64 => "x86",
                     .nvptx, .nvptx64 => "nvptx",
                     .wasm32, .wasm64 => "wasm",
-                    .spirv32, .spirv64 => "spir-v",
+                    .spirv32, .spirv64 => "spirv",
                     else => @tagName(arch),
                 };
             }
@@ -1329,6 +1329,7 @@ pub const Target = struct {
                     .amdgcn => comptime allCpusFromDecls(amdgpu.cpu),
                     .riscv32, .riscv64 => comptime allCpusFromDecls(riscv.cpu),
                     .sparc, .sparc64, .sparcel => comptime allCpusFromDecls(sparc.cpu),
+                    .spirv32, .spirv64 => comptime allCpusFromDecls(spirv.cpu),
                     .s390x => comptime allCpusFromDecls(s390x.cpu),
                     .x86, .x86_64 => comptime allCpusFromDecls(x86.cpu),
                     .xtensa => comptime allCpusFromDecls(xtensa.cpu),
@@ -1392,6 +1393,7 @@ pub const Target = struct {
                     .amdgcn => &amdgpu.cpu.generic,
                     .riscv32 => &riscv.cpu.generic_rv32,
                     .riscv64 => &riscv.cpu.generic_rv64,
+                    .spirv32, .spirv64 => &spirv.cpu.generic,
                     .sparc, .sparcel => &sparc.cpu.generic,
                     .sparc64 => &sparc.cpu.v9, // 64-bit SPARC needs v9 as the baseline
                     .s390x => &s390x.cpu.generic,
@@ -1530,6 +1532,10 @@ pub const Target = struct {
 
     pub fn supportsNewStackCall(self: Target) bool {
         return !self.cpu.arch.isWasm();
+    }
+
+    pub fn isSpirV(self: Target) bool {
+        return self.cpu.arch.isSpirV();
     }
 
     pub const FloatAbi = enum {
