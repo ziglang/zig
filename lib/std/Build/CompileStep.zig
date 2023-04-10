@@ -103,7 +103,6 @@ link_objects: ArrayList(LinkObject),
 include_dirs: ArrayList(IncludeDir),
 c_macros: ArrayList([]const u8),
 installed_headers: ArrayList(*Step),
-output_dir: ?[]const u8,
 is_linking_libc: bool = false,
 is_linking_libcpp: bool = false,
 vcpkg_bin_path: ?[]const u8 = null,
@@ -386,7 +385,6 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         .disable_sanitize_c = false,
         .sanitize_thread = false,
         .rdynamic = false,
-        .output_dir = null,
         .override_dest_dir = null,
         .installed_path = null,
         .force_undefined_symbols = StringHashMap(void).init(owner.allocator),
@@ -450,17 +448,7 @@ fn computeOutFileNames(self: *CompileStep) void {
                 self.out_lib_filename = self.out_filename;
             }
         }
-        if (self.output_dir != null) {
-            self.output_lib_path_source.path = b.pathJoin(
-                &.{ self.output_dir.?, self.out_lib_filename },
-            );
-        }
     }
-}
-
-pub fn setOutputDir(self: *CompileStep, dir: []const u8) void {
-    const b = self.step.owner;
-    self.output_dir = b.dupePath(dir);
 }
 
 pub fn installHeader(cs: *CompileStep, src_path: []const u8, dest_rel_path: []const u8) void {
@@ -1931,54 +1919,31 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         },
         else => |e| return e,
     };
-    const build_output_dir = fs.path.dirname(output_bin_path).?;
-
-    if (self.output_dir) |output_dir| {
-        var src_dir = try fs.cwd().openIterableDir(build_output_dir, .{});
-        defer src_dir.close();
-
-        // Create the output directory if it doesn't exist.
-        try fs.cwd().makePath(output_dir);
-
-        var dest_dir = try fs.cwd().openDir(output_dir, .{});
-        defer dest_dir.close();
-
-        var it = src_dir.iterate();
-        while (try it.next()) |entry| {
-            // The compiler can put these files into the same directory, but we don't
-            // want to copy them over.
-            if (mem.eql(u8, entry.name, "llvm-ar.id") or
-                mem.eql(u8, entry.name, "libs.txt") or
-                mem.eql(u8, entry.name, "builtin.zig") or
-                mem.eql(u8, entry.name, "zld.id") or
-                mem.eql(u8, entry.name, "lld.id")) continue;
-
-            _ = try src_dir.dir.updateFile(entry.name, dest_dir, entry.name, .{});
-        }
-    } else {
-        self.output_dir = build_output_dir;
-    }
-
-    // This will ensure all output filenames will now have the output_dir available!
-    self.computeOutFileNames();
+    const output_dir = fs.path.dirname(output_bin_path).?;
 
     // Update generated files
-    if (self.output_dir != null) {
-        self.output_dirname_source.path = self.output_dir.?;
+    {
+        self.output_dirname_source.path = output_dir;
 
         self.output_path_source.path = b.pathJoin(
-            &.{ self.output_dir.?, self.out_filename },
+            &.{ output_dir, self.out_filename },
         );
+
+        if (self.kind == .lib) {
+            self.output_lib_path_source.path = b.pathJoin(
+                &.{ output_dir, self.out_lib_filename },
+            );
+        }
 
         if (self.emit_h) {
             self.output_h_path_source.path = b.pathJoin(
-                &.{ self.output_dir.?, self.out_h_filename },
+                &.{ output_dir, self.out_h_filename },
             );
         }
 
         if (self.target.isWindows() or self.target.isUefi()) {
             self.output_pdb_path_source.path = b.pathJoin(
-                &.{ self.output_dir.?, self.out_pdb_filename },
+                &.{ output_dir, self.out_pdb_filename },
             );
         }
     }
