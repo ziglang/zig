@@ -334,6 +334,10 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
         resetSegfaultHandler();
     }
 
+    if (std.options.customPanicFn) |customPanicFn| {
+        customPanicFn(trace, first_trace_addr, msg);
+    }
+
     // Note there is similar logic in handleSegfaultPosix and handleSegfaultWindowsExtra.
     nosuspend switch (panic_stage) {
         0 => {

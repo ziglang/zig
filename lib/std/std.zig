@@ -111,6 +111,11 @@ pub const options = struct {
     else
         debug.default_enable_segfault_handler;
 
+    pub const customPanicFn: ?*const fn (trace: ?*const builtin.StackTrace, first_trace_addr: ?usize, msg: []const u8) void = if (@hasDecl(options_override, "customPanicFn"))
+        &options_override.customPanicFn
+    else
+        null;
+
     /// Function used to implement std.fs.cwd for wasi.
     pub const wasiCwd: fn () fs.Dir = if (@hasDecl(options_override, "wasiCwd"))
         options_override.wasiCwd
