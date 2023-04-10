@@ -2717,18 +2717,28 @@ pub const DeclGen = struct {
         const result_id = self.spv.allocId();
         const callee_id = try self.resolve(pl_op.operand);
 
-        try self.func.body.emitRaw(self.spv.gpa, .OpFunctionCall, 3 + args.len);
-        self.func.body.writeOperand(spec.IdResultType, result_type_id);
-        self.func.body.writeOperand(spec.IdResult, result_id);
-        self.func.body.writeOperand(spec.IdRef, callee_id);
+        const params = try self.gpa.alloc(spec.IdRef, args.len);
+        defer self.gpa.free(params);
 
+        var n_params: usize = 0;
         for (args) |arg| {
+            // Note: resolve() might emit instructions, so we need to call it
+            // before starting to emit OpFunctionCall instructions. Hence the
+            // temporary params buffer.
             const arg_id = try self.resolve(arg);
             const arg_ty = self.air.typeOf(arg);
             if (!arg_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
-            self.func.body.writeOperand(spec.IdRef, arg_id);
+            params[n_params] = arg_id;
+            n_params += 1;
         }
+
+        try self.func.body.emit(self.spv.gpa, .OpFunctionCall, .{
+            .id_result_type = result_type_id,
+            .id_result = result_id,
+            .function = callee_id,
+            .id_ref_3 = params[0..n_params],
+        });
 
         if (return_type.isNoReturn()) {
             try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
