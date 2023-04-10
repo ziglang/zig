@@ -523,6 +523,11 @@ pub const Object = struct {
             context.setOptBisectLimit(std.math.lossyCast(c_int, options.opt_bisect_limit));
         }
 
+        if (options.remarks_output) |output| {
+            var setup_err = context.setupOptimizationRemarks(output, ".*");
+            assert(setup_err == 0);
+        }
+
         return Object{
             .gpa = gpa,
             .module = options.module.?,

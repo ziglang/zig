@@ -427,11 +427,16 @@ ZIG_EXTERN_C void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit
 }
 
 ZIG_EXTERN_C int ZigLLVMSetupOptimizationRemarks(LLVMContextRef context_ref, const char *RemarksFilename, const char *RemarksPasses) {
-    auto res = llvm::setupLLVMOptimizationRemarks(*unwrap(context_ref), RemarksFilename, RemarksPasses, "yaml", false, 0);
-    if (Error E = res.takeError())
+    auto RemarksFileOrErr = llvm::setupLLVMOptimizationRemarks(*unwrap(context_ref), RemarksFilename, RemarksPasses, "yaml", false, 0);
+    if (Error E = RemarksFileOrErr.takeError())
         return 1;
 
-    (*res)->keep();
+    std::unique_ptr<ToolOutputFile> RemarksFile = std::move(*RemarksFileOrErr);
+
+    if (RemarksFile) {
+        RemarksFile->keep();
+        RemarksFile.release();
+    }
     return 0;
 }
 
