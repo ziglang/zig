@@ -1205,12 +1205,14 @@ pub const Coff = struct {
         return .{ .buffer = self.data[offset..][0..size] };
     }
 
-    pub fn getStrtab(self: *const Coff) ?Strtab {
+    pub fn getStrtab(self: *const Coff) error{InvalidStrtabSize}!?Strtab {
         const coff_header = self.getCoffHeader();
         if (coff_header.pointer_to_symbol_table == 0) return null;
 
         const offset = coff_header.pointer_to_symbol_table + Symbol.sizeOf() * coff_header.number_of_symbols;
         const size = mem.readIntLittle(u32, self.data[offset..][0..4]);
+        if ((offset + size) > self.data.len) return error.InvalidStrtabSize;
+
         return Strtab{ .buffer = self.data[offset..][0..size] };
     }
 
@@ -1235,9 +1237,9 @@ pub const Coff = struct {
         return out_buff;
     }
 
-    pub fn getSectionName(self: *const Coff, sect_hdr: *align(1) const SectionHeader) []const u8 {
+    pub fn getSectionName(self: *const Coff, sect_hdr: *align(1) const SectionHeader) error{InvalidStrtabSize}![]const u8 {
         const name = sect_hdr.getName() orelse blk: {
-            const strtab = self.getStrtab().?;
+            const strtab = (try self.getStrtab()).?;
             const name_offset = sect_hdr.getNameOffset().?;
             break :blk strtab.get(name_offset);
         };
@@ -1246,7 +1248,10 @@ pub const Coff = struct {
 
     pub fn getSectionByName(self: *const Coff, comptime name: []const u8) ?*align(1) const SectionHeader {
         for (self.getSectionHeaders()) |*sect| {
-            if (mem.eql(u8, self.getSectionName(sect), name)) {
+            const section_name = self.getSectionName(sect) catch |e| switch (e) {
+                error.InvalidStrtabSize => continue, //ignore invalid(?) strtab entries - see also GitHub issue #15238
+            };
+            if (mem.eql(u8, section_name, name)) {
                 return sect;
             }
         }
