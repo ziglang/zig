@@ -787,16 +787,24 @@ pub fn generateSymbol(
             .aggregate => {
                 const elem_vals = typed_value.val.castTag(.aggregate).?.data;
                 const elem_ty = typed_value.ty.elemType();
-                const len = @intCast(usize, typed_value.ty.arrayLen());
-                for (elem_vals[0..len]) |elem_val| {
-                    switch (try generateSymbol(bin_file, src_loc, .{
-                        .ty = elem_ty,
-                        .val = elem_val,
-                    }, code, debug_output, reloc_info)) {
-                        .ok => {},
-                        .fail => |em| return Result{ .fail = em },
+
+                const byte_count = (@intCast(usize, typed_value.ty.bitSize(target)) + 7) / 8;
+                const code_len = code.items.len;
+                try code.resize(code_len + byte_count);
+                typed_value.val.writeToPackedMemory(typed_value.ty, mod, code.items[code_len .. code_len + byte_count], 0) catch {
+                    code.shrinkRetainingCapacity(code_len);
+                    const len = @intCast(usize, typed_value.ty.arrayLen());
+                    for (elem_vals[0..len]) |elem_val| {
+                        switch (try generateSymbol(bin_file, src_loc, .{
+                            .ty = elem_ty,
+                            .val = elem_val,
+                        }, code, debug_output, reloc_info)) {
+                            .ok => {},
+                            .fail => |em| return Result{ .fail = em },
+                        }
                     }
-                }
+                };
+
                 return Result.ok;
             },
             .repeated => {
