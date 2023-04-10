@@ -111,7 +111,6 @@ vcpkg_bin_path: ?[]const u8 = null,
 /// This may be set in order to override the default install directory
 override_dest_dir: ?InstallDir,
 installed_path: ?[]const u8,
-install_step: ?*InstallArtifactStep,
 
 /// Base address for an executable image.
 image_base: ?u64 = null,
@@ -390,7 +389,6 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         .output_dir = null,
         .override_dest_dir = null,
         .installed_path = null,
-        .install_step = null,
         .force_undefined_symbols = StringHashMap(void).init(owner.allocator),
 
         .output_path_source = GeneratedFile{ .step = &self.step },

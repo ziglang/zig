@@ -17,8 +17,6 @@ h_dir: ?InstallDir,
 dest_sub_path: ?[]const u8,
 
 pub fn create(owner: *std.Build, artifact: *CompileStep) *InstallArtifactStep {
-    if (artifact.install_step) |s| return s;
-
     const self = owner.allocator.create(InstallArtifactStep) catch @panic("OOM");
     self.* = InstallArtifactStep{
         .step = Step.init(.{
@@ -44,7 +42,6 @@ pub fn create(owner: *std.Build, artifact: *CompileStep) *InstallArtifactStep {
         .dest_sub_path = null,
     };
     self.step.dependOn(&artifact.step);
-    artifact.install_step = self;
 
     owner.pushInstalledFile(self.dest_dir, artifact.out_filename);
     if (self.artifact.isDynamicLibrary()) {
