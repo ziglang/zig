@@ -2291,15 +2291,15 @@ pub const DeclGen = struct {
             return null;
 
         // Combine the result from the blocks using the Phi instruction.
-
         const result_id = self.spv.allocId();
 
         // TODO: OpPhi is limited in the types that it may produce, such as pointers. Figure out which other types
         // are not allowed to be created from a phi node, and throw an error for those.
         const result_type_id = try self.resolveTypeId(ty);
-        _ = result_type_id;
 
         try self.func.body.emitRaw(self.spv.gpa, .OpPhi, 2 + @intCast(u16, incoming_blocks.items.len * 2)); // result type + result + variable/parent...
+        self.func.body.writeOperand(spec.IdResultType, result_type_id);
+        self.func.body.writeOperand(spec.IdRef, result_id);
 
         for (incoming_blocks.items) |incoming| {
             self.func.body.writeOperand(spec.PairIdRefIdRef, .{ incoming.break_value_id, incoming.src_label_id });
