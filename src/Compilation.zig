@@ -3092,6 +3092,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
 
                 .file_failure,
                 .sema_failure,
+                .liveness_failure,
                 .codegen_failure,
                 .dependency_failure,
                 .sema_failure_retryable,
@@ -3142,7 +3143,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
 
                 // emit-h only requires semantic analysis of the Decl to be complete,
                 // it does not depend on machine code generation to succeed.
-                .codegen_failure, .codegen_failure_retryable, .complete => {
+                .liveness_failure, .codegen_failure, .codegen_failure_retryable, .complete => {
                     const named_frame = tracy.namedFrame("emit_h_decl");
                     defer named_frame.end();
 

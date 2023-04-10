@@ -14,6 +14,8 @@ const Allocator = std.mem.Allocator;
 const Air = @import("Air.zig");
 const Log2Int = std.math.Log2Int;
 
+pub const Verify = @import("Liveness/Verify.zig");
+
 /// This array is split into sets of 4 bits per AIR instruction.
 /// The MSB (0bX000) is whether the instruction is unreferenced.
 /// The LSB (0b000X) is the first operand, and so on, up to 3 operands. A set bit means the
