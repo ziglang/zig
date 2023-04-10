@@ -402,7 +402,7 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn genUndef(self: *DeclGen, ty_ref: SpvType.Ref) Error!IdRef {
+    fn constUndef(self: *DeclGen, ty_ref: SpvType.Ref) Error!IdRef {
         const result_id = self.spv.allocId();
         try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpUndef, .{ .id_result_type = self.typeId(ty_ref), .id_result = result_id });
         return result_id;
@@ -1597,7 +1597,7 @@ pub const DeclGen = struct {
             .block   => try self.airBlock(inst),
 
             .load    => try self.airLoad(inst),
-            .store      => return self.airStore(inst),
+            .store   => return self.airStore(inst),
 
             .br         => return self.airBr(inst),
             .breakpoint => return,
@@ -1611,6 +1611,8 @@ pub const DeclGen = struct {
             .@"try"     => try self.airTry(inst),
             .switch_br  => return self.airSwitchBr(inst),
             .unreach    => return self.airUnreach(),
+
+            .unwrap_errunion_err => try self.airErrUnionErr(inst),
 
             .assembly => try self.airAssembly(inst),
 
@@ -2533,6 +2535,30 @@ pub const DeclGen = struct {
         }
 
         return try self.extractField(payload_ty_ref, err_union_id, eu_layout.payloadFieldIndex());
+    }
+
+    fn airErrUnionErr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand_id = try self.resolve(ty_op.operand);
+        const err_union_ty = self.air.typeOf(ty_op.operand);
+        const err_ty_ref = try self.resolveType(Type.anyerror, .direct);
+
+        if (err_union_ty.errorUnionSet().errorSetIsEmpty()) {
+            // No error possible, so just return undefined.
+            return try self.constUndef(err_ty_ref);
+        }
+
+        const payload_ty = err_union_ty.errorUnionPayload();
+        const eu_layout = self.errorUnionLayout(payload_ty);
+
+        if (!eu_layout.payload_has_bits) {
+            // If no payload, error union is represented by error set.
+            return operand_id;
+        }
+
+        return try self.extractField(err_ty_ref, operand_id, eu_layout.errorFieldIndex());
     }
 
     fn airSwitchBr(self: *DeclGen, inst: Air.Inst.Index) !void {
