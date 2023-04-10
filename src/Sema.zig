@@ -2599,6 +2599,20 @@ fn coerceResultPtr(
         const trash_inst = trash_block.instructions.pop();
 
         switch (air_tags[trash_inst]) {
+            // Array coerced to Vector where element size is not equal but coercible.
+            .aggregate_init => {
+                const ty_pl = air_datas[trash_inst].ty_pl;
+                const ptr_operand_ty = try Type.ptr(sema.arena, sema.mod, .{
+                    .pointee_type = try sema.analyzeAsType(block, src, ty_pl.ty),
+                    .@"addrspace" = addr_space,
+                });
+
+                if (try sema.resolveDefinedValue(block, src, new_ptr)) |ptr_val| {
+                    return sema.addConstant(ptr_operand_ty, ptr_val);
+                } else {
+                    return sema.bitCast(block, ptr_operand_ty, new_ptr, src, null);
+                }
+            },
             .bitcast => {
                 const ty_op = air_datas[trash_inst].ty_op;
                 const operand_ty = sema.typeOf(ty_op.operand);
@@ -30068,6 +30082,31 @@ fn resolvePeerTypes(
                 continue;
             },
             .Vector => switch (chosen_ty_tag) {
+                .Vector => {
+                    const chosen_len = chosen_ty.vectorLen();
+                    const candidate_len = candidate_ty.vectorLen();
+                    if (chosen_len != candidate_len)
+                        continue;
+
+                    const chosen_child_ty = chosen_ty.childType();
+                    const candidate_child_ty = candidate_ty.childType();
+                    if (chosen_child_ty.zigTypeTag() == .Int and candidate_child_ty.zigTypeTag() == .Int) {
+                        const chosen_info = chosen_child_ty.intInfo(target);
+                        const candidate_info = candidate_child_ty.intInfo(target);
+                        if (chosen_info.bits < candidate_info.bits) {
+                            chosen = candidate;
+                            chosen_i = candidate_i + 1;
+                        }
+                        continue;
+                    }
+                    if (chosen_child_ty.zigTypeTag() == .Float and candidate_child_ty.zigTypeTag() == .Float) {
+                        if (chosen_ty.floatBits(target) < candidate_ty.floatBits(target)) {
+                            chosen = candidate;
+                            chosen_i = candidate_i + 1;
+                        }
+                        continue;
+                    }
+                },
                 .Array => {
                     chosen = candidate;
                     chosen_i = candidate_i + 1;
