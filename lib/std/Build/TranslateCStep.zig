@@ -100,7 +100,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try argv_list.append("translate-c");
     try argv_list.append("-lc");
 
-    try argv_list.append("--enable-cache");
     try argv_list.append("--listen=-");
 
     if (!self.target.isNative()) {

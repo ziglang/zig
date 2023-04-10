@@ -1864,7 +1864,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         });
     }
 
-    try zig_args.append("--enable-cache");
     try zig_args.append("--listen=-");
 
     // Windows has an argument length limit of 32,766 characters, macOS 262,144 and Linux
