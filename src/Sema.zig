@@ -7055,14 +7055,37 @@ fn analyzeCall(
             } },
         });
         sema.appendRefsAssumeCapacity(args);
+
+        if (call_tag == .call_always_tail) {
+            if (ensure_result_used) {
+                try sema.ensureResultUsed(block, sema.typeOf(func_inst), call_src);
+            }
+            return sema.handleTailCall(block, call_src, func_ty, func_inst);
+        } else if (block.wantSafety() and func_ty_info.return_type.isNoReturn()) {
+            // Function pointers and extern functions aren't guaranteed to
+            // actually be noreturn so we add a safety check for them.
+            check: {
+                var func_val = (try sema.resolveMaybeUndefVal(func)) orelse break :check;
+                switch (func_val.tag()) {
+                    .function, .decl_ref => {
+                        _ = try block.addNoOp(.unreach);
+                        return Air.Inst.Ref.unreachable_value;
+                    },
+                    else => break :check,
+                }
+            }
+
+            try sema.safetyPanic(block, .noreturn_returned);
+            return Air.Inst.Ref.unreachable_value;
+        } else if (func_ty_info.return_type.isNoReturn()) {
+            _ = try block.addNoOp(.unreach);
+            return Air.Inst.Ref.unreachable_value;
+        }
         break :res func_inst;
     };
 
     if (ensure_result_used) {
         try sema.ensureResultUsed(block, sema.typeOf(result), call_src);
-    }
-    if (call_tag == .call_always_tail) {
-        return sema.handleTailCall(block, call_src, func_ty, result);
     }
     return result;
 }
@@ -7555,6 +7578,10 @@ fn instantiateGenericCall(
     }
     if (call_tag == .call_always_tail) {
         return sema.handleTailCall(block, call_src, func_ty, result);
+    }
+    if (new_fn_info.return_type.isNoReturn()) {
+        _ = try block.addNoOp(.unreach);
+        return Air.Inst.Ref.unreachable_value;
     }
     return result;
 }
@@ -23441,6 +23468,7 @@ pub const PanicId = enum {
     for_len_mismatch,
     memcpy_len_mismatch,
     memcpy_alias,
+    noreturn_returned,
 };
 
 fn addSafetyCheck(
