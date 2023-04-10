@@ -393,11 +393,14 @@ pub fn resolveSourceFileName(self: *Module, decl: *ZigDecl) !IdRef {
 /// be emitted at this point.
 pub fn resolveType(self: *Module, ty: Type) !Type.Ref {
     const result = try self.type_cache.getOrPut(self.gpa, ty);
+    const index = @intToEnum(Type.Ref, result.index);
+
     if (!result.found_existing) {
-        result.value_ptr.* = try self.emitType(ty);
+        const ref = try self.emitType(ty);
+        self.type_cache.values()[result.index] = ref;
     }
 
-    return @intToEnum(Type.Ref, result.index);
+    return index;
 }
 
 pub fn resolveTypeId(self: *Module, ty: Type) !IdResultType {
