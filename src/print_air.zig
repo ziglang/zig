@@ -389,6 +389,10 @@ const Writer = struct {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const extra = w.air.extraData(Air.Block, ty_pl.payload);
         const body = w.air.extra[extra.end..][0..extra.data.body_len];
+        const liveness_block = if (w.liveness) |liveness|
+            liveness.getBlock(inst)
+        else
+            Liveness.BlockSlices{ .deaths = &.{} };
 
         try w.writeType(s, w.air.getRefType(ty_pl.ty));
         if (w.skip_body) return s.writeAll(", ...");
@@ -399,6 +403,10 @@ const Writer = struct {
         w.indent = old_indent;
         try s.writeByteNTimes(' ', w.indent);
         try s.writeAll("}");
+
+        for (liveness_block.deaths) |operand| {
+            try s.print(" %{d}!", .{operand});
+        }
     }
 
     fn writeLoop(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -737,22 +745,44 @@ const Writer = struct {
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
         const extra = w.air.extraData(Air.Try, pl_op.payload);
         const body = w.air.extra[extra.end..][0..extra.data.body_len];
+        const liveness_condbr = if (w.liveness) |liveness|
+            liveness.getCondBr(inst)
+        else
+            Liveness.CondBrSlices{ .then_deaths = &.{}, .else_deaths = &.{} };
 
         try w.writeOperand(s, inst, 0, pl_op.operand);
         if (w.skip_body) return s.writeAll(", ...");
         try s.writeAll(", {\n");
         const old_indent = w.indent;
         w.indent += 2;
+
+        if (liveness_condbr.else_deaths.len != 0) {
+            try s.writeByteNTimes(' ', w.indent);
+            for (liveness_condbr.else_deaths, 0..) |operand, i| {
+                if (i != 0) try s.writeAll(" ");
+                try s.print("%{d}!", .{operand});
+            }
+            try s.writeAll("\n");
+        }
         try w.writeBody(s, body);
+
         w.indent = old_indent;
         try s.writeByteNTimes(' ', w.indent);
         try s.writeAll("}");
+
+        for (liveness_condbr.then_deaths) |operand| {
+            try s.print(" %{d}!", .{operand});
+        }
     }
 
     fn writeTryPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const extra = w.air.extraData(Air.TryPtr, ty_pl.payload);
         const body = w.air.extra[extra.end..][0..extra.data.body_len];
+        const liveness_condbr = if (w.liveness) |liveness|
+            liveness.getCondBr(inst)
+        else
+            Liveness.CondBrSlices{ .then_deaths = &.{}, .else_deaths = &.{} };
 
         try w.writeOperand(s, inst, 0, extra.data.ptr);
 
@@ -762,10 +792,24 @@ const Writer = struct {
         try s.writeAll(", {\n");
         const old_indent = w.indent;
         w.indent += 2;
+
+        if (liveness_condbr.else_deaths.len != 0) {
+            try s.writeByteNTimes(' ', w.indent);
+            for (liveness_condbr.else_deaths, 0..) |operand, i| {
+                if (i != 0) try s.writeAll(" ");
+                try s.print("%{d}!", .{operand});
+            }
+            try s.writeAll("\n");
+        }
         try w.writeBody(s, body);
+
         w.indent = old_indent;
         try s.writeByteNTimes(' ', w.indent);
         try s.writeAll("}");
+
+        for (liveness_condbr.then_deaths) |operand| {
+            try s.print(" %{d}!", .{operand});
+        }
     }
 
     fn writeCondBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
