@@ -71,6 +71,7 @@ pub const Options = struct {
     emit: ?Emit,
     /// This is `null` not building a Windows DLL, or when `-fno-emit-implib` is used.
     implib_emit: ?Emit,
+    opt_remarks_emit: ?Emit,
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: std.builtin.LinkMode,
@@ -175,7 +176,6 @@ pub const Options = struct {
     print_icf_sections: bool,
     print_map: bool,
     opt_bisect_limit: i32,
-    remarks_output: ?[*:0]const u8,
 
     objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,

@@ -479,6 +479,8 @@ pub const InitOptions = struct {
     emit_docs: ?EmitLoc = null,
     /// `null` means to not emit an import lib.
     emit_implib: ?EmitLoc = null,
+    /// `null` means to not emit optimization remarks.
+    emit_opt_remarks: ?EmitLoc = null,
     link_mode: ?std.builtin.LinkMode = null,
     dll_export_fns: ?bool = false,
     /// Normally when using LLD to link, Zig uses a file named "lld.id" in the
@@ -561,7 +563,6 @@ pub const InitOptions = struct {
     linker_print_icf_sections: bool = false,
     linker_print_map: bool = false,
     linker_opt_bisect_limit: i32 = -1,
-    linker_remarks_output: ?[*:0]const u8 = "",
     each_lib_rpath: ?bool = null,
     build_id: ?bool = null,
     disable_c_depfile: bool = false,
@@ -1398,6 +1399,30 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             };
         };
 
+        const opt_remarks_emit: ?link.Emit = blk: {
+            const emit_opt_remarks = options.emit_opt_remarks orelse break :blk null;
+
+            if (emit_opt_remarks.directory) |directory| {
+                break :blk link.Emit{
+                    .directory = directory,
+                    .sub_path = emit_opt_remarks.basename,
+                };
+            }
+
+            // This is here for the same reason as in `bin_file_emit` above.
+            switch (cache_mode) {
+                .whole => break :blk null,
+                .incremental => {},
+            }
+
+            // Use the same directory as the bin. The CLI already emits an
+            // error if -fno-emit-bin is combined with -femit-opt-remarks.
+            break :blk link.Emit{
+                .directory = bin_file_emit.?.directory,
+                .sub_path = emit_opt_remarks.basename,
+            };
+        };
+
         // This is so that when doing `CacheMode.whole`, the mechanism in update()
         // can use it for communicating the result directory via `bin_file.emit`.
         // This is used to distinguish between -fno-emit-bin and -femit-bin
@@ -1418,6 +1443,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const bin_file = try link.File.openPath(gpa, .{
             .emit = bin_file_emit,
             .implib_emit = implib_emit,
+            .opt_remarks_emit = opt_remarks_emit,
             .root_name = root_name,
             .module = module,
             .target = options.target,
@@ -1461,7 +1487,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .print_icf_sections = options.linker_print_icf_sections,
             .print_map = options.linker_print_map,
             .opt_bisect_limit = options.linker_opt_bisect_limit,
-            .remarks_output = options.linker_remarks_output,
             .z_nodelete = options.linker_z_nodelete,
             .z_notext = options.linker_z_notext,
             .z_defs = options.linker_z_defs,

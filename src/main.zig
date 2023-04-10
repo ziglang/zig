@@ -382,6 +382,8 @@ const usage_build_generic =
     \\  -fno-emit-analysis        (default) Do not write analysis JSON file with type information
     \\  -femit-implib[=path]      (default) Produce an import .lib when building a Windows DLL
     \\  -fno-emit-implib          Do not produce an import .lib when building a Windows DLL
+    \\  -femit-opt-remarks[=path] Write optimization remarks in a YAML file.
+    \\  -fno-emit-opt-remarks     (default) Do not write optimization remarks in a YAML file.
     \\  --show-builtin            Output the source of @import("builtin") then exit
     \\  --cache-dir [path]        Override the local cache directory
     \\  --global-cache-dir [path] Override the global cache directory
@@ -450,7 +452,6 @@ const usage_build_generic =
     \\  -fno-strip                Keep debug symbols
     \\  -fformatted-panics        Enable formatted safety panics
     \\  -fno-formatted-panics     Disable formatted safety panics
-    \\  -foptimization-remarks [path]File to save optimization remarks
     \\  -ofmt=[mode]              Override target object format
     \\    elf                     Executable and Linking Format
     \\    c                       C source code
@@ -721,6 +722,7 @@ fn buildOutputType(
     var emit_analysis: Emit = .no;
     var emit_implib: Emit = .yes_default_path;
     var emit_implib_arg_provided = false;
+    var emit_opt_remarks: Emit = .no;
     var target_arch_os_abi: []const u8 = "native";
     var target_mcpu: ?[]const u8 = null;
     var target_dynamic_linker: ?[]const u8 = null;
@@ -768,7 +770,6 @@ fn buildOutputType(
     var linker_print_icf_sections: bool = false;
     var linker_print_map: bool = false;
     var linker_opt_bisect_limit: i32 = -1;
-    var linker_remarks_output: ?[*:0]const u8 = null;
     var linker_z_nocopyreloc = false;
     var linker_z_nodelete = false;
     var linker_z_notext = false;
@@ -1338,6 +1339,12 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-emit-implib")) {
                         emit_implib = .no;
                         emit_implib_arg_provided = true;
+                    }  else if (mem.eql(u8, arg, "-femit-opt-remarks")) {
+                        emit_opt_remarks = .yes_default_path;
+                    } else if (mem.startsWith(u8, arg, "-femit-opt-remarks=")) {
+                        emit_opt_remarks = .{ .yes = arg["-femit-opt-remarks=".len..] };
+                    } else if (mem.eql(u8, arg, "-fno-emit-opt-remarks")) {
+                        emit_opt_remarks = .no;
                     } else if (mem.eql(u8, arg, "-dynamic")) {
                         link_mode = .Dynamic;
                     } else if (mem.eql(u8, arg, "-static")) {
@@ -1371,12 +1378,6 @@ fn buildOutputType(
                         no_builtin = true;
                     } else if (mem.startsWith(u8, arg, "-fopt-bisect-limit=")) {
                         linker_opt_bisect_limit = std.math.lossyCast(i32, parseIntSuffix(arg, "-fopt-bisect-limit=".len));
-                    } else if (mem.eql(u8, arg, "-fpass-remarks-output")) {
-                        const remarks_output = args_iter.next();
-                        if (remarks_output) |output| {
-                            linker_remarks_output = try gpa.dupeZ(u8, output);
-                            std.log.info("root {?s}, remark {s}", .{ root_src_file, output });
-                        } else fatal("Expected 1 arguments after {s}", .{arg});
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
                     } else if (mem.eql(u8, arg, "--dynamicbase")) {
@@ -2971,6 +2972,24 @@ fn buildOutputType(
     };
     defer emit_implib_resolved.deinit();
 
+    const default_opt_remarks_basename = try std.fmt.allocPrintZ(arena, "{s}.opt.yaml", .{root_name});
+    var emit_opt_remarks_resolved = switch (emit_opt_remarks) {
+        .no => Emit.Resolved{ .data = null, .dir = null },
+        .yes => |p| emit_opt_remarks.resolve(default_opt_remarks_basename) catch |err| {
+            fatal("unable to open directory from argument '-femit-opt-remarks', '{s}': {s}", .{
+                p, @errorName(err),
+            });
+        },
+        .yes_default_path => Emit.Resolved{
+            .data = Compilation.EmitLoc{
+                .directory = emit_bin_loc.?.directory,
+                .basename = default_opt_remarks_basename,
+            },
+            .dir = null,
+        },
+    };
+    defer emit_opt_remarks_resolved.deinit();
+
     const main_pkg: ?*Package = if (root_src_file) |unresolved_src_path| blk: {
         const src_path = try introspect.resolvePath(arena, unresolved_src_path);
         if (main_pkg_path) |unresolved_main_pkg_path| {
@@ -3152,6 +3171,7 @@ fn buildOutputType(
         .emit_docs = emit_docs_resolved.data,
         .emit_analysis = emit_analysis_resolved.data,
         .emit_implib = emit_implib_resolved.data,
+        .emit_opt_remarks = emit_opt_remarks_resolved.data,
         .link_mode = link_mode,
         .dll_export_fns = dll_export_fns,
         .optimize_mode = optimize_mode,
@@ -3205,7 +3225,6 @@ fn buildOutputType(
         .linker_print_icf_sections = linker_print_icf_sections,
         .linker_print_map = linker_print_map,
         .linker_opt_bisect_limit = linker_opt_bisect_limit,
-        .linker_remarks_output = linker_remarks_output,
         .linker_global_base = linker_global_base,
         .linker_export_symbol_names = linker_export_symbol_names.items,
         .linker_z_nocopyreloc = linker_z_nocopyreloc,

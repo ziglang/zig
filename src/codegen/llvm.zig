@@ -523,8 +523,11 @@ pub const Object = struct {
             context.setOptBisectLimit(std.math.lossyCast(c_int, options.opt_bisect_limit));
         }
 
-        if (options.remarks_output) |output| {
-            var setup_err = context.setupOptimizationRemarks(output, ".*");
+        if (options.opt_remarks_emit) |emit| {
+            var sub_path = try gpa.dupeZ(u8, emit.sub_path);
+            var opt_remarks_emit_path = try emit.basenamePath(gpa, sub_path);
+            defer gpa.free(opt_remarks_emit_path);
+            var setup_err = context.setupOptimizationRemarks(opt_remarks_emit_path, ".*");
             assert(setup_err == 0);
         }
 
