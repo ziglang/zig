@@ -5294,14 +5294,20 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
 
     try sema.analyzeBody(&loop_block, body);
 
-    try child_block.instructions.append(gpa, loop_inst);
+    if (sema.typeOf(Air.indexToRef(loop_block.instructions.items[loop_block.instructions.items.len - 1])).isNoReturn()) {
+        // If the loop ended with a noreturn terminator, then there is no way for it to loop,
+        // so we can just use the block instead.
+        try child_block.instructions.appendSlice(gpa, loop_block.instructions.items);
+    } else {
+        try child_block.instructions.append(gpa, loop_inst);
 
-    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
-        loop_block.instructions.items.len);
-    sema.air_instructions.items(.data)[loop_inst].ty_pl.payload = sema.addExtraAssumeCapacity(
-        Air.Block{ .body_len = @intCast(u32, loop_block.instructions.items.len) },
-    );
-    sema.air_extra.appendSliceAssumeCapacity(loop_block.instructions.items);
+        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
+            loop_block.instructions.items.len);
+        sema.air_instructions.items(.data)[loop_inst].ty_pl.payload = sema.addExtraAssumeCapacity(
+            Air.Block{ .body_len = @intCast(u32, loop_block.instructions.items.len) },
+        );
+        sema.air_extra.appendSliceAssumeCapacity(loop_block.instructions.items);
+    }
     return sema.analyzeBlockBody(parent_block, src, &child_block, merges);
 }
 

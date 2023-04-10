@@ -221,11 +221,16 @@ pub const Inst = struct {
         /// Reinterpret the memory representation of a value as a different type.
         /// Uses the `ty_op` field.
         bitcast,
-        /// Uses the `ty_pl` field with payload `Block`.
+        /// Uses the `ty_pl` field with payload `Block`.  A block runs its body which always ends
+        /// with a `noreturn` instruction, so the only way to proceed to the code after the `block`
+        /// is to encounter a `br` that targets this `block`.  If the `block` type is `noreturn`,
+        /// then there do not exist any `br` instructions targetting this `block`.
         block,
         /// A labeled block of code that loops forever. At the end of the body it is implied
         /// to repeat; no explicit "repeat" instruction terminates loop bodies.
-        /// Result type is always noreturn; no instructions in a block follow this one.
+        /// Result type is always `noreturn`; no instructions in a block follow this one.
+        /// The body never ends with a `noreturn` instruction, so the "repeat" operation
+        /// is always statically reachable.
         /// Uses the `ty_pl` field. Payload is `Block`.
         loop,
         /// Return from a block with a result.
