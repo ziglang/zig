@@ -1613,6 +1613,7 @@ pub const DeclGen = struct {
             .unreach    => return self.airUnreach(),
 
             .unwrap_errunion_err => try self.airErrUnionErr(inst),
+            .wrap_errunion_err => try self.airWrapErrUnionErr(inst),
 
             .assembly => try self.airAssembly(inst),
 
@@ -2559,6 +2560,42 @@ pub const DeclGen = struct {
         }
 
         return try self.extractField(err_ty_ref, operand_id, eu_layout.errorFieldIndex());
+    }
+
+    fn airWrapErrUnionErr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const err_union_ty = self.air.typeOfIndex(inst);
+        const payload_ty = err_union_ty.errorUnionPayload();
+        const operand_id = try self.resolve(ty_op.operand);
+        const eu_layout = self.errorUnionLayout(payload_ty);
+
+        if (!eu_layout.payload_has_bits) {
+            return operand_id;
+        }
+
+        const payload_ty_ref = try self.resolveType(payload_ty, .indirect);
+        var members = std.BoundedArray(IdRef, 2){};
+        const payload_id = try self.constUndef(payload_ty_ref);
+        if (eu_layout.error_first) {
+            members.appendAssumeCapacity(operand_id);
+            members.appendAssumeCapacity(payload_id);
+            // TODO: ABI padding?
+        } else {
+            members.appendAssumeCapacity(payload_id);
+            members.appendAssumeCapacity(operand_id);
+            // TODO: ABI padding?
+        }
+
+        const err_union_ty_ref = try self.resolveType(err_union_ty, .direct);
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
+            .id_result_type = self.typeId(err_union_ty_ref),
+            .id_result = result_id,
+            .constituents = members.slice(),
+        });
+        return result_id;
     }
 
     fn airSwitchBr(self: *DeclGen, inst: Air.Inst.Index) !void {
