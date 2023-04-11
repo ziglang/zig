@@ -490,7 +490,7 @@ const usage_build_generic =
     \\  -fno-each-lib-rpath            Prevent adding rpath for each used dynamic library
     \\  -fallow-shlib-undefined        Allows undefined symbols in shared libraries
     \\  -fno-allow-shlib-undefined     Disallows undefined symbols in shared libraries
-    \\  -fbuild-id                     Helps coordinate stripped binaries with debug symbols
+    \\  -fbuild-id[=style]             Helps coordinate stripped binaries with debug symbols
     \\  -fno-build-id                  (default) Saves a bit of time linking
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
@@ -814,7 +814,7 @@ fn buildOutputType(
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
-    var build_id: ?bool = null;
+    var build_id: ?[]const u8 = null;
     var sysroot: ?[]const u8 = null;
     var libc_paths_file: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIBC");
     var machine_code_model: std.builtin.CodeModel = .default;
@@ -1198,9 +1198,11 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
                         each_lib_rpath = false;
                     } else if (mem.eql(u8, arg, "-fbuild-id")) {
-                        build_id = true;
+                        build_id = "fast";
+                    } else if (mem.startsWith(u8, arg, "-fbuild-id=")) {
+                        build_id = arg["-fbuild-id=".len..];
                     } else if (mem.eql(u8, arg, "-fno-build-id")) {
-                        build_id = false;
+                        build_id = null;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
                         try test_exec_args.append(null);
                     } else if (mem.eql(u8, arg, "--test-evented-io")) {
@@ -1676,8 +1678,7 @@ fn buildOutputType(
                                     const key = linker_arg[0..equals_pos];
                                     const value = linker_arg[equals_pos + 1 ..];
                                     if (mem.eql(u8, key, "build-id")) {
-                                        build_id = true;
-                                        warn("ignoring build-id style argument: '{s}'", .{value});
+                                        build_id = value;
                                         continue;
                                     } else if (mem.eql(u8, key, "--sort-common")) {
                                         // this ignores --sort=common=<anything>; ignoring plain --sort-common

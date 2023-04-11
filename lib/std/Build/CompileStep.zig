@@ -121,7 +121,7 @@ each_lib_rpath: ?bool = null,
 /// As an example, the bloaty project refuses to work unless its inputs have
 /// build ids, in order to prevent accidental mismatches.
 /// The default is to not include this section because it slows down linking.
-build_id: ?bool = null,
+build_id: ?[]const u8 = null,
 
 /// Create a .eh_frame_hdr section and a PT_GNU_EH_FRAME segment in the ELF
 /// file.
@@ -1798,7 +1798,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try addFlag(&zig_args, "valgrind", self.valgrind_support);
     try addFlag(&zig_args, "each-lib-rpath", self.each_lib_rpath);
-    try addFlag(&zig_args, "build-id", self.build_id);
+
+    if (self.build_id) |build_id| {
+        try zig_args.append(b.fmt("-fbuild-id={s}", .{build_id}));
+    }
 
     if (self.zig_lib_dir) |dir| {
         try zig_args.append("--zig-lib-dir");

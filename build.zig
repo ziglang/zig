@@ -179,7 +179,7 @@ pub fn build(b: *std.Build) !void {
     exe.strip = strip;
     exe.pie = pie;
     exe.sanitize_thread = sanitize_thread;
-    exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
+    exe.build_id = b.option([]const u8, "build-id", "Include a build id note") orelse null;
     exe.entitlements = entitlements;
     b.installArtifact(exe);
 

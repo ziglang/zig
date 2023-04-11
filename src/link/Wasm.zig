@@ -3072,7 +3072,6 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         try man.addOptionalFile(compiler_rt_path);
         man.hash.addOptionalBytes(options.entry);
         man.hash.addOptional(options.stack_size_override);
-        man.hash.add(wasm.base.options.build_id);
         man.hash.add(options.import_memory);
         man.hash.add(options.import_table);
         man.hash.add(options.export_table);
@@ -3700,8 +3699,12 @@ fn writeToFile(
     if (!wasm.base.options.strip) {
         // The build id must be computed on the main sections only,
         // so we have to do it now, before the debug sections.
-        if (wasm.base.options.build_id) {
-            try emitBuildIdSection(&binary_bytes);
+        if (wasm.base.options.build_id) |build_id| {
+            if (mem.eql(u8, build_id, "fast")) {
+                try emitBuildIdSection(&binary_bytes);
+            } else {
+                @panic("Unsupported build_id style");
+            }
         }
 
         // if (wasm.dwarf) |*dwarf| {
@@ -4099,7 +4102,6 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         try man.addOptionalFile(compiler_rt_path);
         man.hash.addOptionalBytes(wasm.base.options.entry);
         man.hash.addOptional(wasm.base.options.stack_size_override);
-        man.hash.add(wasm.base.options.build_id);
         man.hash.add(wasm.base.options.import_memory);
         man.hash.add(wasm.base.options.import_table);
         man.hash.add(wasm.base.options.export_table);
