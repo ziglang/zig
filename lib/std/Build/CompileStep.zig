@@ -463,11 +463,6 @@ pub fn setOutputDir(self: *CompileStep, dir: []const u8) void {
     self.output_dir = b.dupePath(dir);
 }
 
-pub fn install(self: *CompileStep) void {
-    const b = self.step.owner;
-    b.installArtifact(self);
-}
-
 pub fn installHeader(cs: *CompileStep, src_path: []const u8, dest_rel_path: []const u8) void {
     const b = cs.step.owner;
     const install_file = b.addInstallHeaderFile(src_path, dest_rel_path);
@@ -555,12 +550,13 @@ pub fn addObjCopy(cs: *CompileStep, options: ObjCopyStep.Options) *ObjCopyStep {
     return b.addObjCopy(cs.getOutputSource(), copy);
 }
 
-/// Deprecated: use `std.Build.addRunArtifact`
-/// This function will run in the context of the package that created the executable,
+/// This function would run in the context of the package that created the executable,
 /// which is undesirable when running an executable provided by a dependency package.
-pub fn run(cs: *CompileStep) *RunStep {
-    return cs.step.owner.addRunArtifact(cs);
-}
+pub const run = @compileError("deprecated; use std.Build.addRunArtifact");
+
+/// This function would install in the context of the package that created the artifact,
+/// which is undesirable when installing an artifact provided by a dependency package.
+pub const install = @compileError("deprecated; use std.Build.installArtifact");
 
 pub fn checkObject(self: *CompileStep) *CheckObjectStep {
     return CheckObjectStep.create(self.step.owner, self.getOutputSource(), self.target_info.target.ofmt);

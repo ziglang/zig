@@ -181,7 +181,7 @@ pub fn build(b: *std.Build) !void {
     exe.sanitize_thread = sanitize_thread;
     exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
     exe.entitlements = entitlements;
-    exe.install();
+    b.installArtifact(exe);
 
     const compile_step = b.step("compile", "Build the self-hosted compiler");
     compile_step.dependOn(&exe.step);

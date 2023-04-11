@@ -29,7 +29,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.linkLibrary(lib);
     exe.linkLibC();
 
-    const run = exe.run();
+    const run = b.addRunArtifact(exe);
     run.skip_foreign_checks = true;
     run.expectExitCode(0);
     test_step.dependOn(&run.step);

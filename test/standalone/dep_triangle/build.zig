@@ -21,7 +21,6 @@ pub fn build(b: *std.Build) void {
     });
     exe.addModule("shared", shared);
 
-    const run = exe.run();
-
+    const run = b.addRunArtifact(exe);
     test_step.dependOn(&run.step);
 }

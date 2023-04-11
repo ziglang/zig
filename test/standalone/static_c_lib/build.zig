@@ -21,5 +21,5 @@ pub fn build(b: *std.Build) void {
     test_exe.linkLibrary(foo);
     test_exe.addIncludePath(".");
 
-    test_step.dependOn(&test_exe.run().step);
+    test_step.dependOn(&b.addRunArtifact(test_exe).step);
 }

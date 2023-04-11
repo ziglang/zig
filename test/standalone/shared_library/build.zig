@@ -23,7 +23,6 @@ pub fn build(b: *std.Build) void {
     exe.linkLibrary(lib);
     exe.linkSystemLibrary("c");
 
-    const run_cmd = exe.run();
-
+    const run_cmd = b.addRunArtifact(exe);
     test_step.dependOn(&run_cmd.step);
 }

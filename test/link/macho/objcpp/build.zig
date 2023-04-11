@@ -27,7 +27,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     // populate paths to the sysroot here.
     exe.linkFramework("Foundation");
 
-    const run_cmd = exe.run();
+    const run_cmd = b.addRunArtifact(exe);
     run_cmd.expectStdOutEqual("Hello from C++ and Zig");
 
     test_step.dependOn(&run_cmd.step);
