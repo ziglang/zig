@@ -3327,6 +3327,7 @@ fn tryResolveRefPath(
                     continue;
                 },
                 .declRef => |decl_status_ptr| {
+                    // NOTE: must be kep in sync with `findNameInUnsDecls`
                     switch (decl_status_ptr.*) {
                         // The use of unreachable here is conservative.
                         // It might be that it truly should be up to us to
@@ -3481,9 +3482,33 @@ fn tryResolveRefPath(
                 //       be performed more efficiently on the corresponding
                 //       scope
                 .Enum => |t_enum| { // foo.bar.baz
-                    if (self.findDeclInContainer(resolved_parent, child_string)) |match| {
-                        path[i + 1] = match;
-                        continue :outer;
+                    // Look into locally-defined pub decls
+                    for (t_enum.pubDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
+                            continue :outer;
+                        }
+                    }
+
+                    // Look into locally-defined priv decls
+                    for (t_enum.privDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
+                            continue :outer;
+                        }
+                    }
+
+                    switch (try self.findNameInUnsDecls(file, path[i..path.len], resolved_parent, child_string)) {
+                        .Pending => return,
+                        .NotFound => {},
+                        .Found => |match| {
+                            path[i + 1] = match;
+                            continue :outer;
+                        },
                     }
 
                     for (self.ast_nodes.items[t_enum.src].fields.?, 0..) |ast_node, idx| {
@@ -3514,9 +3539,33 @@ fn tryResolveRefPath(
                     continue :outer;
                 },
                 .Union => |t_union| {
-                    if (self.findDeclInContainer(resolved_parent, child_string)) |match| {
-                        path[i + 1] = match;
-                        continue :outer;
+                    // Look into locally-defined pub decls
+                    for (t_union.pubDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
+                            continue :outer;
+                        }
+                    }
+
+                    // Look into locally-defined priv decls
+                    for (t_union.privDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
+                            continue :outer;
+                        }
+                    }
+
+                    switch (try self.findNameInUnsDecls(file, path[i..path.len], resolved_parent, child_string)) {
+                        .Pending => return,
+                        .NotFound => {},
+                        .Found => |match| {
+                            path[i + 1] = match;
+                            continue :outer;
+                        },
                     }
 
                     for (self.ast_nodes.items[t_union.src].fields.?, 0..) |ast_node, idx| {
@@ -3547,9 +3596,33 @@ fn tryResolveRefPath(
                 },
 
                 .Struct => |t_struct| {
-                    if (self.findDeclInContainer(resolved_parent, child_string)) |match| {
-                        path[i + 1] = match;
-                        continue :outer;
+                    // Look into locally-defined pub decls
+                    for (t_struct.pubDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
+                            continue :outer;
+                        }
+                    }
+
+                    // Look into locally-defined priv decls
+                    for (t_struct.privDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
+                            continue :outer;
+                        }
+                    }
+
+                    switch (try self.findNameInUnsDecls(file, path[i..path.len], resolved_parent, child_string)) {
+                        .Pending => return,
+                        .NotFound => {},
+                        .Found => |match| {
+                            path[i + 1] = match;
+                            continue :outer;
+                        },
                     }
 
                     for (self.ast_nodes.items[t_struct.src].fields.?, 0..) |ast_node, idx| {
@@ -3581,10 +3654,36 @@ fn tryResolveRefPath(
                     path[i + 1] = (try self.cteTodo(child_string)).expr;
                     continue :outer;
                 },
-                .Opaque => {
-                    if (self.findDeclInContainer(resolved_parent, child_string)) |match| {
-                        path[i + 1] = match;
-                        continue :outer;
+                .Opaque => |t_opaque| {
+                    // Look into locally-defined pub decls
+                    for (t_opaque.pubDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
+                            continue :outer;
+                        }
+                    }
+
+                    // Look into locally-defined priv decls
+                    for (t_opaque.privDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
+                            continue :outer;
+                        }
+                    }
+
+                    // We delay looking into Uns decls since they could be
+                    // not fully analyzed yet.
+                    switch (try self.findNameInUnsDecls(file, path[i..path.len], resolved_parent, child_string)) {
+                        .Pending => return,
+                        .NotFound => {},
+                        .Found => |match| {
+                            path[i + 1] = match;
+                            continue :outer;
+                        },
                     }
 
                     // if we got here, our search failed
@@ -3634,50 +3733,101 @@ fn tryResolveRefPath(
     }
 }
 
-fn findDeclInContainer(self: *Autodoc, container_expr: DocData.Expr, name: []const u8) ?DocData.Expr {
-    // TODO: handle other types of indirection, like @import
-    const type_index = switch (container_expr) {
-        .type => |t| t,
-        // .declRef => |decl_status| blk: {
-        //     const decl_index = decl_status.Analyzed;
-        //     const decl = self.decls.items[decl_index];
-        //     break :blk decl.value.expr.type;
-        // },
-        else => {
-            log.debug("Handle `{s}` in findDeclInContainer (first switch)", .{@tagName(container_expr)});
-            return .{ .comptimeExpr = 0 };
-        },
-    };
+const UnsSearchResult = union(enum) {
+    Found: DocData.Expr,
+    Pending,
+    NotFound,
+};
 
-    const t = self.types.items[type_index];
-    switch (t) {
-        else => {
-            log.debug("Handle `{s}` in findDeclInContainer (second switch)", .{@tagName(container_expr)});
-            return .{ .comptimeExpr = 0 };
-        },
-        inline .Struct, .Union, .Opaque, .Enum => |c| {
-            for (c.pubDecls) |idx| {
+fn findNameInUnsDecls(
+    self: *Autodoc,
+    file: *File,
+    tail: []DocData.Expr,
+    uns_expr: DocData.Expr,
+    name: []const u8,
+) !UnsSearchResult {
+    var to_analyze = std.SegmentedList(DocData.Expr, 1){};
+    // TODO: make this an appendAssumeCapacity
+    try to_analyze.append(self.arena, uns_expr);
+
+    while (to_analyze.pop()) |cte| {
+        var container_expression = cte;
+        for (0..10_000) |_| {
+            // TODO: handle other types of indirection, like @import
+            const type_index = switch (container_expression) {
+                .type => |t| t,
+                .declRef => |decl_status_ptr| {
+                    switch (decl_status_ptr.*) {
+                        // The use of unreachable here is conservative.
+                        // It might be that it truly should be up to us to
+                        // request the analys of this decl, but it's not clear
+                        // at the moment of writing.
+                        .NotRequested => unreachable,
+                        .Analyzed => |decl_index| {
+                            const decl = self.decls.items[decl_index];
+                            container_expression = decl.value.expr;
+                            continue;
+                        },
+                        .Pending => {
+                            // This decl path is pending completion
+                            {
+                                const res = try self.pending_ref_paths.getOrPut(
+                                    self.arena,
+                                    &tail[tail.len - 1],
+                                );
+                                if (!res.found_existing) res.value_ptr.* = .{};
+                            }
+
+                            const res = try self.ref_paths_pending_on_decls.getOrPut(
+                                self.arena,
+                                decl_status_ptr,
+                            );
+                            if (!res.found_existing) res.value_ptr.* = .{};
+                            try res.value_ptr.*.append(self.arena, .{
+                                .file = file,
+                                .ref_path = tail,
+                            });
+
+                            // TODO: save some state that keeps track of our
+                            //       progress because, as things stand, we
+                            //       always re-start the search from scratch
+                            return .Pending;
+                        },
+                    }
+                },
+                else => {
+                    log.debug(
+                        "Handle `{s}` in findNameInUnsDecls (first switch)",
+                        .{@tagName(cte)},
+                    );
+                    return .{ .Found = .{ .comptimeExpr = 0 } };
+                },
+            };
+
+            const t = self.types.items[type_index];
+            const decls = switch (t) {
+                else => {
+                    log.debug(
+                        "Handle `{s}` in findNameInUnsDecls (second switch)",
+                        .{@tagName(cte)},
+                    );
+                    return .{ .Found = .{ .comptimeExpr = 0 } };
+                },
+                inline .Struct, .Union, .Opaque, .Enum => |c| c.pubDecls,
+            };
+
+            for (decls) |idx| {
                 const d = self.decls.items[idx];
                 if (d.is_uns) {
-                    // return self.findDeclInContainer(d.value.expr, name) orelse continue;
-                    continue;
+                    try to_analyze.append(self.arena, d.value.expr);
                 } else if (std.mem.eql(u8, d.name, name)) {
-                    return .{ .declIndex = idx };
+                    return .{ .Found = .{ .declIndex = idx } };
                 }
             }
-            for (c.privDecls) |idx| {
-                const d = self.decls.items[idx];
-                if (d.is_uns) {
-                    // return self.findDeclInContainer(d.value.expr, name) orelse continue;
-                    continue;
-                } else if (std.mem.eql(u8, d.name, name)) {
-                    return .{ .declIndex = idx };
-                }
-            }
-
-            return null;
-        },
+        }
     }
+
+    return .NotFound;
 }
 
 fn analyzeFancyFunction(
