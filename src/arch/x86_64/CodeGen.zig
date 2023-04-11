@@ -3867,19 +3867,33 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             };
             defer if (value_lock) |lock| self.register_manager.unlockReg(lock);
 
-            const addr_reg = try self.register_manager.allocReg(null, gp);
+            const addr_reg = (try self.register_manager.allocReg(null, gp)).to64();
             const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
             defer self.register_manager.unlockReg(addr_reg_lock);
 
-            try self.loadMemPtrIntoRegister(addr_reg, ptr_ty, ptr);
-            // Load the pointer, which is stored in memory
-            try self.asmRegisterMemory(
-                .mov,
-                addr_reg.to64(),
-                Memory.sib(.qword, .{ .base = addr_reg.to64() }),
-            );
+            switch (ptr) {
+                .memory => |addr| {
+                    try self.genSetReg(ptr_ty, addr_reg, .{ .immediate = addr });
+                    // Load the pointer, which is stored in memory
+                    try self.asmRegisterMemory(.mov, addr_reg, Memory.sib(.qword, .{ .base = addr_reg }));
+                },
+                .linker_load => |load_struct| {
+                    const atom_index = if (self.bin_file.cast(link.File.MachO)) |macho_file| blk: {
+                        const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                        break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| blk: {
+                        const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                        break :blk coff_file.getAtom(atom).getSymbolIndex().?;
+                    } else unreachable;
+                    switch (load_struct.type) {
+                        .import => unreachable,
+                        .got, .direct => try self.asmMovLinker(addr_reg, atom_index, load_struct),
+                    }
+                },
+                else => unreachable,
+            }
 
-            const new_ptr = MCValue{ .register = addr_reg.to64() };
+            const new_ptr = MCValue{ .register = addr_reg };
             try self.store(new_ptr, value, ptr_ty, value_ty);
         },
     }
