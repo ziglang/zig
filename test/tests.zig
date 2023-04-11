@@ -596,7 +596,8 @@ pub fn addStandaloneTests(
                 });
                 if (case.link_libc) exe.linkLibC();
 
-                step.dependOn(&exe.run().step);
+                const run = b.addRunArtifact(exe);
+                step.dependOn(&run.step);
             }
         }
     }
@@ -1004,7 +1005,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             },
         };
 
-        const run = these_tests.run();
+        const run = b.addRunArtifact(these_tests);
         run.skip_foreign_checks = true;
         run.setName(b.fmt("run test {s}-{s}-{s}-{s}-{s}-{s}", .{
             options.name,
@@ -1061,7 +1062,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 triple_prefix, @tagName(optimize_mode),
             }));
 
-            const run = test_step.run();
+            const run = b.addRunArtifact(test_step);
             run.skip_foreign_checks = true;
             step.dependOn(&run.step);
         }

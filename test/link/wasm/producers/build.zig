@@ -23,7 +23,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     lib.use_llvm = false;
     lib.use_lld = false;
     lib.strip = false;
-    lib.install();
+    b.installArtifact(lib);
 
     const version_fmt = "version " ++ builtin.zig_version_string;
 

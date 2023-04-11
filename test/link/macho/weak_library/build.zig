@@ -23,7 +23,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     });
     dylib.addCSourceFile("a.c", &.{});
     dylib.linkLibC();
-    dylib.install();
+    b.installArtifact(dylib);
 
     const exe = b.addExecutable(.{
         .name = "test",

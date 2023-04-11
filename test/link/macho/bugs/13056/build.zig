@@ -31,7 +31,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     });
     exe.addObjectFile(std.fs.path.join(b.allocator, &.{ sdk.path, "/usr/lib/libc++.tbd" }) catch unreachable);
 
-    const run_cmd = exe.run();
+    const run_cmd = b.addRunArtifact(exe);
     run_cmd.expectStdErrEqual("x: 5\n");
 
     test_step.dependOn(&run_cmd.step);

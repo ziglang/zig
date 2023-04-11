@@ -111,7 +111,6 @@ vcpkg_bin_path: ?[]const u8 = null,
 /// This may be set in order to override the default install directory
 override_dest_dir: ?InstallDir,
 installed_path: ?[]const u8,
-install_step: ?*InstallArtifactStep,
 
 /// Base address for an executable image.
 image_base: ?u64 = null,
@@ -390,7 +389,6 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         .output_dir = null,
         .override_dest_dir = null,
         .installed_path = null,
-        .install_step = null,
         .force_undefined_symbols = StringHashMap(void).init(owner.allocator),
 
         .output_path_source = GeneratedFile{ .step = &self.step },
@@ -465,11 +463,6 @@ pub fn setOutputDir(self: *CompileStep, dir: []const u8) void {
     self.output_dir = b.dupePath(dir);
 }
 
-pub fn install(self: *CompileStep) void {
-    const b = self.step.owner;
-    b.installArtifact(self);
-}
-
 pub fn installHeader(cs: *CompileStep, src_path: []const u8, dest_rel_path: []const u8) void {
     const b = cs.step.owner;
     const install_file = b.addInstallHeaderFile(src_path, dest_rel_path);
@@ -533,7 +526,7 @@ pub fn installLibraryHeaders(cs: *CompileStep, l: *CompileStep) void {
                 const T = id.Type();
                 const ptr = b.allocator.create(T) catch @panic("OOM");
                 ptr.* = step.cast(T).?.*;
-                ptr.dest_builder = b;
+                ptr.step.owner = b;
                 break :blk &ptr.step;
             },
             else => unreachable,
@@ -557,12 +550,13 @@ pub fn addObjCopy(cs: *CompileStep, options: ObjCopyStep.Options) *ObjCopyStep {
     return b.addObjCopy(cs.getOutputSource(), copy);
 }
 
-/// Deprecated: use `std.Build.addRunArtifact`
-/// This function will run in the context of the package that created the executable,
+/// This function would run in the context of the package that created the executable,
 /// which is undesirable when running an executable provided by a dependency package.
-pub fn run(cs: *CompileStep) *RunStep {
-    return cs.step.owner.addRunArtifact(cs);
-}
+pub const run = @compileError("deprecated; use std.Build.addRunArtifact");
+
+/// This function would install in the context of the package that created the artifact,
+/// which is undesirable when installing an artifact provided by a dependency package.
+pub const install = @compileError("deprecated; use std.Build.installArtifact");
 
 pub fn checkObject(self: *CompileStep) *CheckObjectStep {
     return CheckObjectStep.create(self.step.owner, self.getOutputSource(), self.target_info.target.ofmt);

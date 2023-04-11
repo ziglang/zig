@@ -15,7 +15,6 @@ pub fn build(b: *std.Build) void {
         .source_file = .{ .path = "foo.zig" },
     });
 
-    const run = exe.run();
-
+    const run = b.addRunArtifact(exe);
     test_step.dependOn(&run.step);
 }

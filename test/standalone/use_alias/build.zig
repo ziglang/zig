@@ -12,5 +12,5 @@ pub fn build(b: *std.Build) void {
     });
     main.addIncludePath(".");
 
-    test_step.dependOn(&main.run().step);
+    test_step.dependOn(&b.addRunArtifact(main).step);
 }
