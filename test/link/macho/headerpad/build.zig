@@ -36,7 +36,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
         test_step.dependOn(&check.step);
 
-        const run = exe.run();
+        const run = b.addRunArtifact(exe);
         test_step.dependOn(&run.step);
     }
 
@@ -52,7 +52,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
         test_step.dependOn(&check.step);
 
-        const run = exe.run();
+        const run = b.addRunArtifact(exe);
         test_step.dependOn(&run.step);
     }
 
@@ -69,7 +69,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
         test_step.dependOn(&check.step);
 
-        const run = exe.run();
+        const run = b.addRunArtifact(exe);
         test_step.dependOn(&run.step);
     }
 
@@ -95,7 +95,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
         test_step.dependOn(&check.step);
 
-        const run = exe.run();
+        const run = b.addRunArtifact(exe);
         test_step.dependOn(&run.step);
     }
 }

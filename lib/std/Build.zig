@@ -539,6 +539,8 @@ pub const TestOptions = struct {
     optimize: std.builtin.Mode = .Debug,
     version: ?std.builtin.Version = null,
     max_rss: usize = 0,
+    filter: ?[]const u8 = null,
+    test_runner: ?[]const u8 = null,
 };
 
 pub fn addTest(b: *Build, options: TestOptions) *CompileStep {
@@ -549,6 +551,8 @@ pub fn addTest(b: *Build, options: TestOptions) *CompileStep {
         .target = options.target,
         .optimize = options.optimize,
         .max_rss = options.max_rss,
+        .filter = options.filter,
+        .test_runner = options.test_runner,
     });
 }
 

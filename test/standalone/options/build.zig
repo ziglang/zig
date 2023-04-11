@@ -17,5 +17,5 @@ pub fn build(b: *std.Build) void {
     options.addOption([]const u8, "string", b.option([]const u8, "string", "s").?);
 
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&main.run().step);
+    test_step.dependOn(&b.addRunArtifact(main).step);
 }

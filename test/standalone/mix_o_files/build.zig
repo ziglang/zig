@@ -25,7 +25,6 @@ pub fn build(b: *std.Build) void {
 
     b.default_step.dependOn(&exe.step);
 
-    const run_cmd = exe.run();
-
+    const run_cmd = b.addRunArtifact(exe);
     test_step.dependOn(&run_cmd.step);
 }

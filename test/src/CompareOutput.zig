@@ -101,7 +101,7 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
             });
             exe.addAssemblyFileSource(write_src.getFileSource(case.sources.items[0].filename).?);
 
-            const run = exe.run();
+            const run = b.addRunArtifact(exe);
             run.setName(annotated_case_name);
             run.addArgs(case.cli_args);
             run.expectStdOutEqual(case.expected_output);
@@ -128,7 +128,7 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
                     exe.linkSystemLibrary("c");
                 }
 
-                const run = exe.run();
+                const run = b.addRunArtifact(exe);
                 run.setName(annotated_case_name);
                 run.addArgs(case.cli_args);
                 run.expectStdOutEqual(case.expected_output);
@@ -155,7 +155,7 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
                 exe.linkSystemLibrary("c");
             }
 
-            const run = exe.run();
+            const run = b.addRunArtifact(exe);
             run.setName(annotated_case_name);
             run.addArgs(case.cli_args);
             run.expectExitCode(126);

@@ -11,5 +11,5 @@ pub fn build(b: *std.Build) void {
     main.emit_asm = .{ .emit_to = b.pathFromRoot("main.s") };
     main.emit_bin = .{ .emit_to = b.pathFromRoot("main") };
 
-    test_step.dependOn(&main.run().step);
+    test_step.dependOn(&b.addRunArtifact(main).step);
 }

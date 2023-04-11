@@ -181,7 +181,7 @@ pub fn build(b: *std.Build) !void {
     exe.sanitize_thread = sanitize_thread;
     exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
     exe.entitlements = entitlements;
-    exe.install();
+    b.installArtifact(exe);
 
     const compile_step = b.step("compile", "Build the self-hosted compiler");
     compile_step.dependOn(&exe.step);
@@ -367,6 +367,7 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     test_cases_options.addOption(bool, "force_gpa", force_gpa);
     test_cases_options.addOption(bool, "only_c", only_c);
+    test_cases_options.addOption(bool, "omit_pkg_fetching_code", true);
     test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
     test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
     test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);

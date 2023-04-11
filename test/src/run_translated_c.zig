@@ -94,7 +94,7 @@ pub const RunTranslatedCContext = struct {
         const exe = translate_c.addExecutable(.{});
         exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
         exe.linkLibC();
-        const run = exe.run();
+        const run = b.addRunArtifact(exe);
         run.step.name = b.fmt("{s} run", .{annotated_case_name});
         if (!case.allow_warnings) {
             run.expectStdErrEqual("");

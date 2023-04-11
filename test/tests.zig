@@ -596,7 +596,8 @@ pub fn addStandaloneTests(
                 });
                 if (case.link_libc) exe.linkLibC();
 
-                step.dependOn(&exe.run().step);
+                const run = b.addRunArtifact(exe);
+                step.dependOn(&run.step);
             }
         }
     }
@@ -976,11 +977,11 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .optimize = test_target.optimize_mode,
             .target = test_target.target,
             .max_rss = max_rss,
+            .filter = options.test_filter,
         });
         const single_threaded_txt = if (test_target.single_threaded) "single" else "multi";
         const backend_txt = if (test_target.backend) |backend| @tagName(backend) else "default";
         these_tests.single_threaded = test_target.single_threaded;
-        these_tests.setFilter(options.test_filter);
         if (test_target.link_libc) {
             these_tests.linkSystemLibrary("c");
         }
@@ -1004,7 +1005,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             },
         };
 
-        const run = these_tests.run();
+        const run = b.addRunArtifact(these_tests);
         run.skip_foreign_checks = true;
         run.setName(b.fmt("run test {s}-{s}-{s}-{s}-{s}-{s}", .{
             options.name,
@@ -1036,10 +1037,15 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 continue;
             }
 
+            const triple_prefix = c_abi_target.zigTriple(b.allocator) catch @panic("OOM");
+
             const test_step = b.addTest(.{
                 .root_source_file = .{ .path = "test/c_abi/main.zig" },
                 .optimize = optimize_mode,
                 .target = c_abi_target,
+                .name = b.fmt("test-c-abi-{s}-{s}", .{
+                    triple_prefix, @tagName(optimize_mode),
+                }),
             });
             if (c_abi_target.abi != null and c_abi_target.abi.?.isMusl()) {
                 // TODO NativeTargetInfo insists on dynamically linking musl
@@ -1056,12 +1062,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 test_step.want_lto = false;
             }
 
-            const triple_prefix = c_abi_target.zigTriple(b.allocator) catch @panic("OOM");
-            test_step.setName(b.fmt("test-c-abi-{s}-{s} ", .{
-                triple_prefix, @tagName(optimize_mode),
-            }));
-
-            const run = test_step.run();
+            const run = b.addRunArtifact(test_step);
             run.skip_foreign_checks = true;
             step.dependOn(&run.step);
         }

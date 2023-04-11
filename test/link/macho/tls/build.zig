@@ -32,7 +32,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     test_exe.linkLibrary(lib);
     test_exe.linkLibC();
 
-    const run = test_exe.run();
+    const run = b.addRunArtifact(test_exe);
     run.skip_foreign_checks = true;
 
     test_step.dependOn(&run.step);

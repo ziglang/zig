@@ -8,7 +8,6 @@ const fs = std.fs;
 pub const base_id = .install_artifact;
 
 step: Step,
-dest_builder: *std.Build,
 artifact: *CompileStep,
 dest_dir: InstallDir,
 pdb_dir: ?InstallDir,
@@ -18,8 +17,6 @@ h_dir: ?InstallDir,
 dest_sub_path: ?[]const u8,
 
 pub fn create(owner: *std.Build, artifact: *CompileStep) *InstallArtifactStep {
-    if (artifact.install_step) |s| return s;
-
     const self = owner.allocator.create(InstallArtifactStep) catch @panic("OOM");
     self.* = InstallArtifactStep{
         .step = Step.init(.{
@@ -28,7 +25,6 @@ pub fn create(owner: *std.Build, artifact: *CompileStep) *InstallArtifactStep {
             .owner = owner,
             .makeFn = make,
         }),
-        .dest_builder = owner,
         .artifact = artifact,
         .dest_dir = artifact.override_dest_dir orelse switch (artifact.kind) {
             .obj => @panic("Cannot install a .obj build artifact."),
@@ -46,7 +42,6 @@ pub fn create(owner: *std.Build, artifact: *CompileStep) *InstallArtifactStep {
         .dest_sub_path = null,
     };
     self.step.dependOn(&artifact.step);
-    artifact.install_step = self;
 
     owner.pushInstalledFile(self.dest_dir, artifact.out_filename);
     if (self.artifact.isDynamicLibrary()) {
@@ -71,9 +66,9 @@ pub fn create(owner: *std.Build, artifact: *CompileStep) *InstallArtifactStep {
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
-    const src_builder = step.owner;
     const self = @fieldParentPtr(InstallArtifactStep, "step", step);
-    const dest_builder = self.dest_builder;
+    const src_builder = self.artifact.step.owner;
+    const dest_builder = step.owner;
 
     const dest_sub_path = if (self.dest_sub_path) |sub_path| sub_path else self.artifact.out_filename;
     const full_dest_path = dest_builder.getInstallPath(self.dest_dir, dest_sub_path);
