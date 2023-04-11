@@ -1844,6 +1844,40 @@ pub const Mutable = struct {
         r.normalize(r.len);
     }
 
+    /// Converts a twos-complement value to a magnitude, and sets the sign of `r` to match.
+    /// `a.positive` is ignored
+    /// r may alias a
+    ///
+    /// Asserts `r` has enough storage to store the result.
+    /// The upper bound is `calcTwosCompLimbCount(bit_count)`
+    pub fn convertFromTwosComplement(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
+        const req_limbs = calcTwosCompLimbCount(bit_count);
+        if (req_limbs == 0 or a.eqZero()) {
+            r.set(0);
+            return;
+        }
+
+        const bit = @truncate(Log2Limb, bit_count - 1);
+        const signmask = @as(Limb, 1) << bit;
+        const mask = (signmask << 1) -% 1;
+
+        if (signedness == .unsigned or req_limbs > a.limbs.len or a.limbs[req_limbs - 1] & signmask == 0) {
+            r.truncate(a, signedness, bit_count);
+            return;
+        }
+
+        r.copy(a);
+        assert(r.limbs.len >= req_limbs);
+        r.len = req_limbs;
+
+        r.addScalar(r.toConst(), -1);
+        llnot(r.limbs[0..r.len]);
+        r.limbs[r.len - 1] &= mask;
+
+        r.positive = false;
+        r.normalize(r.len);
+    }
+
     /// Truncate an integer to a number of bits, following 2s-complement semantics.
     /// r may alias a.
     ///
