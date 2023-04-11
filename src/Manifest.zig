@@ -488,7 +488,6 @@ const Ast = std.zig.Ast;
 const testing = std.testing;
 
 test "basic" {
-    std.testing.log_level = .debug;
     const gpa = testing.allocator;
 
     const example =
@@ -611,7 +610,6 @@ test "error - missing version field" {
 }
 
 test "license fields" {
-    std.testing.log_level = .debug;
     const gpa = testing.allocator;
 
     const example =
