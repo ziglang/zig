@@ -957,11 +957,11 @@ pub const DeclGen = struct {
 
         switch (ty.zigTypeTag()) {
             .Int => {
-                const int_bits = if (ty.isSignedInt())
-                    @bitCast(u64, val.toSignedInt(target))
-                else
-                    val.toUnsignedInt(target);
-                try self.genConstInt(result_ty_ref, result_id, int_bits);
+                if (ty.isSignedInt()) {
+                    try self.genConstInt(result_ty_ref, result_id, val.toSignedInt(target));
+                } else {
+                    try self.genConstInt(result_ty_ref, result_id, val.toUnsignedInt(target));
+                }
             },
             .Bool => {
                 const operands = .{ .id_result_type = result_ty_id, .id_result = result_id };
@@ -1716,6 +1716,8 @@ pub const DeclGen = struct {
 
             .is_null     => try self.airIsNull(inst, .is_null),
             .is_non_null => try self.airIsNull(inst, .is_non_null),
+
+            .optional_payload => try self.airUnwrapOptional(inst),
 
             .assembly => try self.airAssembly(inst),
 
@@ -2692,6 +2694,23 @@ pub const DeclGen = struct {
             },
             .is_non_null => is_non_null_id,
         };
+    }
+
+    fn airUnwrapOptional(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand_id = try self.resolve(ty_op.operand);
+        const optional_ty = self.air.typeOf(ty_op.operand);
+        const payload_ty = self.air.typeOfIndex(inst);
+
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return null;
+
+        if (optional_ty.optionalReprIsPayload()) {
+            return operand_id;
+        }
+
+        return try self.extractField(payload_ty, operand_id, 0);
     }
 
     fn airSwitchBr(self: *DeclGen, inst: Air.Inst.Index) !void {
