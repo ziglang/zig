@@ -866,9 +866,9 @@ fn spawnChildAndCollect(
     child.request_resource_usage_statistics = true;
 
     child.stdin_behavior = switch (self.stdio) {
-        .infer_from_args => if (has_side_effects) .Inherit else .Close,
+        .infer_from_args => if (has_side_effects) .Inherit else .Ignore,
         .inherit => .Inherit,
-        .check => .Close,
+        .check => .Ignore,
         .zig_test => .Pipe,
     };
     child.stdout_behavior = switch (self.stdio) {
