@@ -6400,29 +6400,22 @@ fn callIntrinsic(
 fn airTagName(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const un_op = func.air.instructions.items(.data)[inst].un_op;
     if (func.liveness.isUnused(inst)) return func.finishAir(inst, .none, &.{un_op});
-    // const operand = try func.resolveInst(un_op);
+    const operand = try func.resolveInst(un_op);
     const enum_ty = func.air.typeOf(un_op);
 
-    _ = try func.getTagNameFunction(enum_ty);
+    const func_sym_index = try func.getTagNameFunction(enum_ty);
 
-    func.finishAir(inst, .none, &.{un_op});
+    const result_ptr = try func.allocStack(func.air.typeOfIndex(inst));
+    try func.lowerToStack(result_ptr);
+    try func.emitWValue(operand);
+    try func.addLabel(.call, func_sym_index);
+
+    return func.finishAir(inst, result_ptr, &.{un_op});
 }
 
 fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     const enum_decl_index = enum_ty.getOwnerDecl();
     const module = func.bin_file.base.options.module.?;
-
-    // check if we already generated code for this.
-    if (func.bin_file.decls.get(enum_decl_index)) |decl_atom_index| {
-        std.debug.print("Found atom index for Enum decl! {d}\n", .{decl_atom_index});
-        const atom = func.bin_file.getAtom(decl_atom_index);
-        return atom.getSymbolIndex().?;
-    }
-
-    // Create an atom in which we will store all tag names.
-    const func_atom_index = try func.bin_file.getOrCreateAtomForDecl(enum_decl_index);
-    const func_atom = func.bin_file.getAtomPtr(func_atom_index);
-    std.debug.print("Generated a new atom! {d}\n", .{func_atom_index});
 
     var arena_allocator = std.heap.ArenaAllocator.init(func.gpa);
     defer arena_allocator.deinit();
@@ -6432,11 +6425,11 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     defer module.gpa.free(fqn);
     const func_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{fqn});
 
+    // check if we already generated code for this.
     if (func.bin_file.findGlobalSymbol(func_name)) |loc| {
         return loc.index;
     }
 
-    const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
     var int_tag_type_buffer: Type.Payload.Bits = undefined;
     const int_tag_ty = enum_ty.intTagType(&int_tag_type_buffer);
 
@@ -6444,118 +6437,120 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
         return func.fail("TODO: Implement @tagName for enums with tag size larger than 64 bits", .{});
     }
 
-    var func_type = try genFunctype(func.gpa, .Unspecified, &.{int_tag_ty}, slice_ty, func.target);
-    defer func_type.deinit(func.gpa);
-    try func.bin_file.storeDeclType(enum_decl_index, func_type);
+    var relocs = std.ArrayList(link.File.Wasm.Relocation).init(func.gpa);
+    defer relocs.deinit();
 
-    var body_list = std.ArrayList(u8).init(arena);
+    var body_list = std.ArrayList(u8).init(func.gpa);
+    defer body_list.deinit();
     var writer = body_list.writer();
 
-    // The locals of the function body (always 2)
-    try leb.writeULEB128(writer, @as(u32, 2));
-    try leb.writeULEB128(writer, @as(u32, 1));
-    try writer.writeByte(func.genValtype(slice_ty, func.target));
-    try leb.writeULEB128(writer, @as(u32, 1));
-    try writer.writeByte(func.genValtype(int_tag_ty, func.target));
+    // The locals of the function body (always 0)
+    try leb.writeULEB128(writer, @as(u32, 0));
 
     // outer block
     try writer.writeByte(std.wasm.opcode(.block));
+    try writer.writeByte(std.wasm.block_empty);
 
     // TODO: Make switch implementation generic so we can use a jump table for this when the tags are not sparse.
     // generate an if-else chain for each tag value as well as constant.
     for (enum_ty.enumFields().keys(), 0..) |tag_name, field_index| {
-        // for each tag name, create an atom to store its name into,
+        // for each tag name, create an unnamed const,
         // and then get a pointer to its value.
-        const tag_atom_index = try func.bin_file.createAtom();
-        const tag_atom = func.bin_file.getAtomPtr(tag_atom_index);
-        tag_atom.alignment = 1;
-        try func.bin_file.parseAtom(tag_atom_index, .read_only);
-        try tag_atom.code.appendSlice(func.gpa, tag_name);
+        var name_ty_payload: Type.Payload.Len = .{
+            .base = .{ .tag = .array_u8 },
+            .data = @intCast(u64, tag_name.len),
+        };
+        const name_ty = Type.initPayload(&name_ty_payload.base);
+        var name_val_payload: Value.Payload.Bytes = .{
+            .base = .{ .tag = .bytes },
+            .data = tag_name,
+        };
+        const name_val = Value.initPayload(&name_val_payload.base);
+        const tag_sym_index = try func.bin_file.lowerUnnamedConst(
+            .{ .ty = name_ty, .val = name_val },
+            enum_decl_index,
+        );
 
         // block for this if case
         try writer.writeByte(std.wasm.opcode(.block));
+        try writer.writeByte(std.wasm.block_empty);
 
         // get actual tag value (stored in 2nd parameter);
         try writer.writeByte(std.wasm.opcode(.local_get));
         try leb.writeULEB128(writer, @as(u32, 1));
 
-        const tag_value = int: {
-            var tag_val_payload: Value.Payload.U32 = .{
-                .base = .{ .tag = .enum_field_index },
-                .data = @intCast(u32, field_index),
-            };
-            break :int try func.lowerConstant(Value.initPayload(&tag_val_payload.base), enum_ty);
+        var tag_val_payload: Value.Payload.U32 = .{
+            .base = .{ .tag = .enum_field_index },
+            .data = @intCast(u32, field_index),
         };
+        const tag_value = try func.lowerConstant(Value.initPayload(&tag_val_payload.base), enum_ty);
 
         switch (tag_value) {
             .imm32 => |value| {
                 try writer.writeByte(std.wasm.opcode(.i32_const));
                 try leb.writeULEB128(writer, value);
-                try writer.writeByte(std.wasm.opcode(.i32_neq));
+                try writer.writeByte(std.wasm.opcode(.i32_ne));
             },
             .imm64 => |value| {
                 try writer.writeByte(std.wasm.opcode(.i64_const));
                 try leb.writeULEB128(writer, value);
-                try writer.writeByte(std.wasm.opcode(.i64_neq));
+                try writer.writeByte(std.wasm.opcode(.i64_ne));
             },
             else => unreachable,
         }
         // if they're not equal, break out of current branch
         try writer.writeByte(std.wasm.opcode(.br_if));
+        try leb.writeULEB128(writer, @as(u32, 0));
 
         // store the address of the tagname in the pointer field of the slice
+        // get the address twice so we can also store the length.
+        try writer.writeByte(std.wasm.opcode(.local_get));
+        try leb.writeULEB128(writer, @as(u32, 0));
         try writer.writeByte(std.wasm.opcode(.local_get));
         try leb.writeULEB128(writer, @as(u32, 0));
 
-        const is_wasm32 = func.arch() == .wasm32;
         // get address of tagname and emit a relocation to it
-        {
-            if (is_wasm32) {
-                try writer.writeByte(std.wasm.opcode(.i32_const));
-                var buf: [5]u8 = undefined;
-                leb.writeUnsignedFixed(5, &buf, mem.pointer);
-                try writer.writeAll(&buf);
-            } else {
-                try writer.writeByte(std.wasm.opcode(.i64_const));
-                var buf: [10]u8 = undefined;
-                leb.writeUnsignedFixed(10, &buf, mem.pointer);
-                try writer.writeAll(&buf);
-            }
-            try func_atom.relocs.append(func.gpa, .{
-                .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_LEB else .R_WASM_MEMORY_ADDR_LEB64,
+        if (func.arch() == .wasm32) {
+            const encoded_alignment = @ctz(@as(u32, 4));
+            try writer.writeByte(std.wasm.opcode(.i32_const));
+            try relocs.append(.{
+                .relocation_type = .R_WASM_MEMORY_ADDR_LEB,
                 .offset = @intCast(u32, body_list.items.len),
-                .index = tag_atom.getSymbolIndex().?,
+                .index = tag_sym_index,
             });
-        }
+            try writer.writeAll(&[_]u8{0} ** 5); // will be relocated
 
-        // call the actual store instructions
-        if (is_wasm32) {
             // store pointer
             try writer.writeByte(std.wasm.opcode(.i32_store));
-            try leb.writeULEB128(writer, @as(u32, 4));
+            try leb.writeULEB128(writer, encoded_alignment);
             try leb.writeULEB128(writer, @as(u32, 0));
 
             // store length
-            try writer.writeByte(std.wasm.opcode(.local_get));
-            try leb.writeULEB128(writer, @as(u32, 0));
             try writer.writeByte(std.wasm.opcode(.i32_const));
             try leb.writeULEB128(writer, @intCast(u32, tag_name.len));
             try writer.writeByte(std.wasm.opcode(.i32_store));
-            try leb.writeULEB128(writer, @as(u32, 4));
+            try leb.writeULEB128(writer, encoded_alignment);
             try leb.writeULEB128(writer, @as(u32, 4));
         } else {
+            const encoded_alignment = @ctz(@as(u32, 8));
+            try writer.writeByte(std.wasm.opcode(.i64_const));
+            try relocs.append(.{
+                .relocation_type = .R_WASM_MEMORY_ADDR_LEB64,
+                .offset = @intCast(u32, body_list.items.len),
+                .index = tag_sym_index,
+            });
+            try writer.writeAll(&[_]u8{0} ** 10); // will be relocated
+
             // store pointer
             try writer.writeByte(std.wasm.opcode(.i64_store));
-            try leb.writeULEB128(writer, @as(u32, 8));
+            try leb.writeULEB128(writer, encoded_alignment);
             try leb.writeULEB128(writer, @as(u32, 0));
 
             // store length
-            try writer.writeByte(std.wasm.opcode(.local_get));
-            try leb.writeULEB128(writer, @as(u32, 0));
             try writer.writeByte(std.wasm.opcode(.i64_const));
             try leb.writeULEB128(writer, @intCast(u64, tag_name.len));
             try writer.writeByte(std.wasm.opcode(.i64_store));
-            try leb.writeULEB128(writer, @as(u32, 8));
+            try leb.writeULEB128(writer, encoded_alignment);
             try leb.writeULEB128(writer, @as(u32, 8));
         }
 
@@ -6573,7 +6568,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     // finish function body
     try writer.writeByte(std.wasm.opcode(.end));
 
-    try func_atom.code.appendSlice(func.gpa, body_list.items);
-
-    return func_atom.sym_index;
+    const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
+    const func_type = try genFunctype(arena, .Unspecified, &.{int_tag_ty}, slice_ty, func.target);
+    return func.bin_file.createFunction(func_name, func_type, &body_list, &relocs);
 }
