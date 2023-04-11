@@ -47,6 +47,8 @@ pub const multihash_len = 1 + 1 + Hash.digest_length;
 name: []const u8,
 version: std.SemanticVersion,
 dependencies: std.StringArrayHashMapUnmanaged(Dependency),
+licenses: []const []const u8,
+dependency_licenses: []const []const u8,
 
 errors: []ErrorMessage,
 arena_state: std.heap.ArenaAllocator.State,
@@ -88,6 +90,8 @@ pub fn parse(gpa: Allocator, ast: std.zig.Ast) Error!Manifest {
         .dependencies = try p.dependencies.clone(p.arena),
         .errors = try p.arena.dupe(ErrorMessage, p.errors.items),
         .arena_state = arena_instance.state,
+        .licenses = p.licenses,
+        .dependency_licenses = p.dependency_licenses,
     };
 }
 
@@ -140,6 +144,8 @@ const Parse = struct {
     name: []const u8,
     version: std.SemanticVersion,
     dependencies: std.StringArrayHashMapUnmanaged(Dependency),
+    licenses: []const []const u8 = &.{},
+    dependency_licenses: []const []const u8 = &.{},
 
     const InnerError = error{ ParseFailure, OutOfMemory };
 
@@ -174,6 +180,10 @@ const Parse = struct {
                     break :v undefined;
                 };
                 have_version = true;
+            } else if (mem.eql(u8, field_name, "licenses")) {
+                p.licenses = try parseMultiStringArray(p, field_init);
+            } else if (mem.eql(u8, field_name, "dependency_licenses")) {
+                p.dependency_licenses = try parseMultiStringArray(p, field_init);
             } else {
                 // Ignore unknown fields so that we can add fields in future zig
                 // versions without breaking older zig versions.
@@ -255,6 +265,29 @@ const Parse = struct {
         }
 
         return dep;
+    }
+
+    fn parseMultiStringArray(p: *Parse, node: Ast.Node.Index) ![]const []const u8 {
+        const ast = p.ast;
+        const main_tokens = ast.nodes.items(.main_token);
+
+        var buf: [2]Ast.Node.Index = undefined;
+        const array_init = ast.fullArrayInit(&buf, node) orelse {
+            const tok = main_tokens[node];
+            return fail(p, tok, "expected expression to be an array", .{});
+        };
+
+        const elements = array_init.ast.elements;
+        if (elements.len == 0) {
+            const tok = main_tokens[node];
+            return fail(p, tok, "expected an array with at least one element", .{});
+        }
+
+        const array = try p.arena.alloc([]const u8, elements.len);
+        for (elements, 0..) |sub_node, index| {
+            array[index] = try parseString(p, sub_node);
+        }
+        return array;
     }
 
     fn parseString(p: *Parse, node: Ast.Node.Index) ![]const u8 {
@@ -455,6 +488,7 @@ const Ast = std.zig.Ast;
 const testing = std.testing;
 
 test "basic" {
+    std.testing.log_level = .debug;
     const gpa = testing.allocator;
 
     const example =
@@ -478,6 +512,8 @@ test "basic" {
     var manifest = try Manifest.parse(gpa, ast);
     defer manifest.deinit(gpa);
 
+    try testing.expect(manifest.errors.len == 0);
+
     try testing.expectEqualStrings("foo", manifest.name);
 
     try testing.expectEqual(@as(std.SemanticVersion, .{
@@ -496,4 +532,161 @@ test "basic" {
         "1220f1b680b6065fcfc94fe777f22e73bcb7e2767e5f4d99d4255fe76ded69c7a35f",
         manifest.dependencies.values()[0].hash orelse return error.TestFailed,
     );
+
+    try testing.expect(manifest.licenses.len == 0);
+    try testing.expect(manifest.dependency_licenses.len == 0);
+}
+
+test "basic - no dependencies" {
+    const gpa = testing.allocator;
+
+    const example =
+        \\.{
+        \\    .name = "bar",
+        \\    .version = "1.2.3",
+        \\}
+    ;
+
+    var ast = try std.zig.Ast.parse(gpa, example, .zon);
+    defer ast.deinit(gpa);
+
+    try testing.expect(ast.errors.len == 0);
+
+    var manifest = try Manifest.parse(gpa, ast);
+    defer manifest.deinit(gpa);
+
+    try testing.expect(manifest.errors.len == 0);
+
+    try testing.expectEqualStrings("bar", manifest.name);
+
+    try testing.expectEqual(@as(std.SemanticVersion, .{
+        .major = 1,
+        .minor = 2,
+        .patch = 3,
+    }), manifest.version);
+
+    try testing.expect(manifest.dependencies.count() == 0);
+    try testing.expect(manifest.licenses.len == 0);
+    try testing.expect(manifest.dependency_licenses.len == 0);
+}
+
+test "error - missing name field" {
+    const gpa = testing.allocator;
+
+    const example =
+        \\.{
+        \\    .version = "3.2.1",
+        \\}
+    ;
+
+    var ast = try std.zig.Ast.parse(gpa, example, .zon);
+    defer ast.deinit(gpa);
+
+    try testing.expect(ast.errors.len == 0);
+
+    var manifest = try Manifest.parse(gpa, ast);
+    defer manifest.deinit(gpa);
+
+    try testing.expect(manifest.errors.len == 1);
+}
+
+test "error - missing version field" {
+    const gpa = testing.allocator;
+
+    const example =
+        \\.{
+        \\    .name = "missing version"
+        \\}
+    ;
+
+    var ast = try std.zig.Ast.parse(gpa, example, .zon);
+    defer ast.deinit(gpa);
+
+    try testing.expect(ast.errors.len == 0);
+
+    var manifest = try Manifest.parse(gpa, ast);
+    defer manifest.deinit(gpa);
+
+    try testing.expect(manifest.errors.len == 1);
+}
+
+test "license fields" {
+    std.testing.log_level = .debug;
+    const gpa = testing.allocator;
+
+    const example =
+        \\.{
+        \\    .name = "foo",
+        \\    .version = "3.2.1",
+        \\    .licenses = .{ "abc", "def" },
+        \\    .dependency_licenses = .{ "bar" },
+        \\}
+    ;
+
+    var ast = try std.zig.Ast.parse(gpa, example, .zon);
+    defer ast.deinit(gpa);
+
+    try testing.expect(ast.errors.len == 0);
+
+    var manifest = try Manifest.parse(gpa, ast);
+    defer manifest.deinit(gpa);
+
+    try testing.expect(manifest.errors.len == 0);
+
+    try testing.expect(manifest.licenses.len == 2);
+    try testing.expectEqualStrings("abc", manifest.licenses[0]);
+    try testing.expectEqualStrings("def", manifest.licenses[1]);
+
+    try testing.expect(manifest.dependency_licenses.len == 1);
+    try testing.expectEqualStrings("bar", manifest.dependency_licenses[0]);
+}
+
+test "error - empty licenses array" {
+    const gpa = testing.allocator;
+
+    const example =
+        \\.{
+        \\    .name = "foo",
+        \\    .version = "3.2.1",
+        \\    .licenses = .{ },
+        \\}
+    ;
+
+    var ast = try std.zig.Ast.parse(gpa, example, .zon);
+    defer ast.deinit(gpa);
+
+    try testing.expect(ast.errors.len == 0);
+
+    var manifest = try Manifest.parse(gpa, ast);
+    defer manifest.deinit(gpa);
+
+    try testing.expect(manifest.errors.len == 1);
+
+    try testing.expect(manifest.licenses.len == 0);
+    try testing.expect(manifest.dependency_licenses.len == 0);
+}
+
+test "error - empty dependency_licenses array" {
+    const gpa = testing.allocator;
+
+    const example =
+        \\.{
+        \\    .name = "foo",
+        \\    .version = "3.2.1",
+        \\    .dependency_licenses = .{ },
+        \\}
+    ;
+
+    var ast = try std.zig.Ast.parse(gpa, example, .zon);
+    defer ast.deinit(gpa);
+
+    try testing.expect(ast.errors.len == 0);
+
+    var manifest = try Manifest.parse(gpa, ast);
+    defer manifest.deinit(gpa);
+
+    try testing.expect(manifest.errors.len == 1);
+
+    try testing.expect(manifest.licenses.len == 0);
+    try testing.expect(manifest.dependency_licenses.len == 0);
 }
