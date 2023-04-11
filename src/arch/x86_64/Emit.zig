@@ -65,7 +65,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                 });
             } else return emit.fail("TODO implement {} for {}", .{ inst.tag, emit.bin_file.tag }),
 
-            .lea_linker => if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+            .mov_linker, .lea_linker => if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
                 const metadata =
                     emit.lower.mir.extraData(Mir.LeaRegisterReloc, inst.data.payload).data;
                 const reloc_type = switch (inst.ops) {

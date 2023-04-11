@@ -731,6 +731,40 @@ fn asmMemoryRegisterImmediate(
     });
 }
 
+fn asmMovLinker(self: *Self, reg: Register, atom_index: u32, linker_load: codegen.LinkerLoad) !void {
+    const ops: Mir.Inst.Ops = switch (linker_load.type) {
+        .got => .got_reloc,
+        .direct => .direct_reloc,
+        .import => .import_reloc,
+    };
+    _ = try self.addInst(.{
+        .tag = .mov_linker,
+        .ops = ops,
+        .data = .{ .payload = try self.addExtra(Mir.LeaRegisterReloc{
+            .reg = @enumToInt(reg),
+            .atom_index = atom_index,
+            .sym_index = linker_load.sym_index,
+        }) },
+    });
+}
+
+fn asmLeaLinker(self: *Self, reg: Register, atom_index: u32, linker_load: codegen.LinkerLoad) !void {
+    const ops: Mir.Inst.Ops = switch (linker_load.type) {
+        .got => .got_reloc,
+        .direct => .direct_reloc,
+        .import => .import_reloc,
+    };
+    _ = try self.addInst(.{
+        .tag = .lea_linker,
+        .ops = ops,
+        .data = .{ .payload = try self.addExtra(Mir.LeaRegisterReloc{
+            .reg = @enumToInt(reg),
+            .atom_index = atom_index,
+            .sym_index = linker_load.sym_index,
+        }) },
+    });
+}
+
 fn gen(self: *Self) InnerError!void {
     const cc = self.fn_type.fnCallingConvention();
     if (cc != .Naked) {
@@ -7454,10 +7488,10 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
 
             try self.asmRegisterRegister(.mov, registerAlias(reg, abi_size), registerAlias(src_reg, abi_size));
         },
-        .memory, .linker_load => switch (ty.zigTypeTag()) {
+        .memory => |addr| switch (ty.zigTypeTag()) {
             .Float => {
-                const base_reg = try self.register_manager.allocReg(null, gp);
-                try self.loadMemPtrIntoRegister(base_reg, Type.usize, mcv);
+                const base_reg = (try self.register_manager.allocReg(null, gp)).to64();
+                try self.genSetReg(Type.usize, base_reg, .{ .immediate = addr });
 
                 if (intrinsicsAllowed(self.target.*, ty)) {
                     return self.asmRegisterMemory(
@@ -7469,29 +7503,20 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                             }),
                         },
                         reg.to128(),
-                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = base_reg.to64() }),
+                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = base_reg }),
                     );
                 }
 
                 return self.fail("TODO genSetReg from memory for float with no intrinsics", .{});
             },
-            else => switch (mcv) {
-                else => unreachable,
-                .linker_load => {
-                    try self.loadMemPtrIntoRegister(reg, Type.usize, mcv);
-                    try self.asmRegisterMemory(
-                        .mov,
-                        registerAlias(reg, abi_size),
-                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
-                    );
-                },
-                .memory => |x| if (x <= math.maxInt(i32)) {
+            else => {
+                if (addr <= math.maxInt(i32)) {
                     try self.asmRegisterMemory(
                         .mov,
                         registerAlias(reg, abi_size),
                         Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
                             .base = .ds,
-                            .disp = @intCast(i32, x),
+                            .disp = @intCast(i32, addr),
                         }),
                     );
                 } else {
@@ -7501,19 +7526,52 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         _ = try self.addInst(.{
                             .tag = .mov_moffs,
                             .ops = .rax_moffs,
-                            .data = .{ .payload = try self.addExtra(Mir.MemoryMoffs.encode(.ds, x)) },
+                            .data = .{ .payload = try self.addExtra(Mir.MemoryMoffs.encode(.ds, addr)) },
                         });
                     } else {
                         // Rather than duplicate the logic used for the move, we just use a self-call with a new MCValue.
-                        try self.genSetReg(ty, reg, MCValue{ .immediate = x });
+                        try self.genSetReg(Type.usize, reg, MCValue{ .immediate = addr });
                         try self.asmRegisterMemory(
                             .mov,
                             registerAlias(reg, abi_size),
                             Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
                         );
                     }
-                },
+                }
             },
+        },
+        .linker_load => |load_struct| {
+            const atom_index = if (self.bin_file.cast(link.File.MachO)) |macho_file| blk: {
+                const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| blk: {
+                const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                break :blk coff_file.getAtom(atom).getSymbolIndex().?;
+            } else unreachable;
+
+            switch (ty.zigTypeTag()) {
+                .Float => {
+                    const base_reg = (try self.register_manager.allocReg(null, gp)).to64();
+                    try self.asmLeaLinker(base_reg, atom_index, load_struct);
+
+                    if (intrinsicsAllowed(self.target.*, ty)) {
+                        return self.asmRegisterMemory(
+                            switch (ty.tag()) {
+                                .f32 => .movss,
+                                .f64 => .movsd,
+                                else => return self.fail("TODO genSetReg from memory for {}", .{
+                                    ty.fmt(self.bin_file.options.module.?),
+                                }),
+                            },
+                            reg.to128(),
+                            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = base_reg.to64() }),
+                        );
+                    }
+
+                    return self.fail("TODO genSetReg from memory for float with no intrinsics", .{});
+                },
+                else => try self.asmMovLinker(registerAlias(reg, abi_size), atom_index, load_struct),
+            }
         },
         .stack_offset => |off| {
             switch (ty.zigTypeTag()) {

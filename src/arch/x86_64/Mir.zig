@@ -233,6 +233,8 @@ pub const Inst = struct {
 
         /// Load effective address of a symbol not yet allocated in VM.
         lea_linker,
+        /// Move address of a symbol not yet allocated in VM.
+        mov_linker,
 
         /// End of prologue
         dbg_prologue_end,
