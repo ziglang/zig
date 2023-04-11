@@ -36,6 +36,7 @@ pub fn build(b: *std.Build) !void {
         std.log.warn("-Dskip-install-lib-files is deprecated in favor of -Dno-lib", .{});
     }
     const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse deprecated_skip_install_lib_files;
+    const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
 
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
@@ -53,7 +54,7 @@ pub fn build(b: *std.Build) !void {
     docgen_cmd.addFileSourceArg(.{ .path = "doc/langref.html.in" });
     const langref_file = docgen_cmd.addOutputFileArg("langref.html");
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
-    if (!skip_install_lib_files) {
+    if (!skip_install_langref) {
         b.getInstallStep().dependOn(&install_langref.step);
     }
 
