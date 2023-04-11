@@ -4903,7 +4903,26 @@ fn genBinOp(
                         const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
                         defer self.register_manager.unlockReg(addr_reg_lock);
 
-                        try self.loadMemPtrIntoRegister(addr_reg, Type.usize, mat_src_mcv);
+                        switch (mat_src_mcv) {
+                            .memory => |addr| try self.genSetReg(Type.usize, addr_reg, .{ .immediate = addr }),
+                            .linker_load => |load_struct| {
+                                const atom_index = if (self.bin_file.cast(link.File.MachO)) |macho_file| blk: {
+                                    const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                    break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                                } else if (self.bin_file.cast(link.File.Coff)) |coff_file| blk: {
+                                    const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                    break :blk coff_file.getAtom(atom).getSymbolIndex().?;
+                                } else unreachable;
+
+                                switch (load_struct.type) {
+                                    .import => unreachable,
+                                    .got => try self.asmMovLinker(addr_reg, atom_index, load_struct),
+                                    .direct => try self.asmLeaLinker(addr_reg, atom_index, load_struct),
+                                }
+                            },
+                            else => unreachable,
+                        }
+
                         try self.asmCmovccRegisterMemory(
                             registerAlias(tmp_reg, cmov_abi_size),
                             Memory.sib(Memory.PtrSize.fromSize(cmov_abi_size), .{ .base = addr_reg }),
@@ -5026,11 +5045,30 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
             } = switch (dst_mcv) {
                 else => unreachable,
                 .memory, .linker_load => dst: {
-                    const dst_addr_reg = try self.register_manager.allocReg(null, gp);
+                    const dst_addr_reg = (try self.register_manager.allocReg(null, gp)).to64();
                     const dst_addr_lock = self.register_manager.lockRegAssumeUnused(dst_addr_reg);
                     errdefer self.register_manager.unlockReg(dst_addr_lock);
 
-                    try self.loadMemPtrIntoRegister(dst_addr_reg, Type.usize, dst_mcv);
+                    switch (dst_mcv) {
+                        .memory => |addr| try self.genSetReg(Type.usize, dst_addr_reg, .{ .immediate = addr }),
+                        .linker_load => |load_struct| {
+                            const atom_index = if (self.bin_file.cast(link.File.MachO)) |macho_file| blk: {
+                                const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| blk: {
+                                const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                break :blk coff_file.getAtom(atom).getSymbolIndex().?;
+                            } else unreachable;
+
+                            switch (load_struct.type) {
+                                .import => unreachable,
+                                .got => try self.asmMovLinker(dst_addr_reg, atom_index, load_struct),
+                                .direct => try self.asmLeaLinker(dst_addr_reg, atom_index, load_struct),
+                            }
+                        },
+                        else => unreachable,
+                    }
+
                     break :dst .{
                         .addr_reg = dst_addr_reg,
                         .addr_lock = dst_addr_lock,
@@ -5052,11 +5090,30 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                     const src_limb_lock = self.register_manager.lockRegAssumeUnused(src_limb_reg);
                     errdefer self.register_manager.unlockReg(src_limb_lock);
 
-                    const src_addr_reg = try self.register_manager.allocReg(null, gp);
+                    const src_addr_reg = (try self.register_manager.allocReg(null, gp)).to64();
                     const src_addr_lock = self.register_manager.lockRegAssumeUnused(src_addr_reg);
                     errdefer self.register_manager.unlockReg(src_addr_lock);
 
-                    try self.loadMemPtrIntoRegister(src_addr_reg, Type.usize, src_mcv);
+                    switch (src_mcv) {
+                        .memory => |addr| try self.genSetReg(Type.usize, src_addr_reg, .{ .immediate = addr }),
+                        .linker_load => |load_struct| {
+                            const atom_index = if (self.bin_file.cast(link.File.MachO)) |macho_file| blk: {
+                                const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| blk: {
+                                const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                                break :blk coff_file.getAtom(atom).getSymbolIndex().?;
+                            } else unreachable;
+
+                            switch (load_struct.type) {
+                                .import => unreachable,
+                                .got => try self.asmMovLinker(src_addr_reg, atom_index, load_struct),
+                                .direct => try self.asmLeaLinker(src_addr_reg, atom_index, load_struct),
+                            }
+                        },
+                        else => unreachable,
+                    }
+
                     break :src .{
                         .addr_reg = src_addr_reg,
                         .addr_lock = src_addr_lock,
