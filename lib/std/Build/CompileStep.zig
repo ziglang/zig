@@ -97,13 +97,10 @@ out_lib_filename: []const u8,
 out_pdb_filename: []const u8,
 modules: std.StringArrayHashMap(*Module),
 
-object_src: []const u8,
-
 link_objects: ArrayList(LinkObject),
 include_dirs: ArrayList(IncludeDir),
 c_macros: ArrayList([]const u8),
 installed_headers: ArrayList(*Step),
-output_dir: ?[]const u8,
 is_linking_libc: bool = false,
 is_linking_libcpp: bool = false,
 vcpkg_bin_path: ?[]const u8 = null,
@@ -288,6 +285,8 @@ pub const Options = struct {
     linkage: ?Linkage = null,
     version: ?std.builtin.Version = null,
     max_rss: usize = 0,
+    filter: ?[]const u8 = null,
+    test_runner: ?[]const u8 = null,
 };
 
 pub const Kind = enum {
@@ -340,6 +339,23 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         options.target.zigTriple(owner.allocator) catch @panic("OOM"),
     });
 
+    const target_info = NativeTargetInfo.detect(options.target) catch @panic("unhandled error");
+
+    const out_filename = std.zig.binNameAlloc(owner.allocator, .{
+        .root_name = name,
+        .target = target_info.target,
+        .output_mode = switch (options.kind) {
+            .lib => .Lib,
+            .obj => .Obj,
+            .exe, .@"test" => .Exe,
+        },
+        .link_mode = if (options.linkage) |some| @as(std.builtin.LinkMode, switch (some) {
+            .dynamic => .Dynamic,
+            .static => .Static,
+        }) else null,
+        .version = options.version,
+    }) catch @panic("OOM");
+
     const self = owner.allocator.create(CompileStep) catch @panic("OOM");
     self.* = CompileStep{
         .strip = null,
@@ -361,7 +377,7 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
             .max_rss = options.max_rss,
         }),
         .version = options.version,
-        .out_filename = undefined,
+        .out_filename = out_filename,
         .out_h_filename = owner.fmt("{s}.h", .{name}),
         .out_lib_filename = undefined,
         .out_pdb_filename = owner.fmt("{s}.pdb", .{name}),
@@ -375,18 +391,16 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         .rpaths = ArrayList(FileSource).init(owner.allocator),
         .framework_dirs = ArrayList(FileSource).init(owner.allocator),
         .installed_headers = ArrayList(*Step).init(owner.allocator),
-        .object_src = undefined,
         .c_std = std.Build.CStd.C99,
         .zig_lib_dir = null,
         .main_pkg_path = null,
         .exec_cmd_args = null,
-        .filter = null,
-        .test_runner = null,
+        .filter = options.filter,
+        .test_runner = options.test_runner,
         .disable_stack_probing = false,
         .disable_sanitize_c = false,
         .sanitize_thread = false,
         .rdynamic = false,
-        .output_dir = null,
         .override_dest_dir = null,
         .installed_path = null,
         .force_undefined_symbols = StringHashMap(void).init(owner.allocator),
@@ -397,70 +411,41 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         .output_pdb_path_source = GeneratedFile{ .step = &self.step },
         .output_dirname_source = GeneratedFile{ .step = &self.step },
 
-        .target_info = NativeTargetInfo.detect(self.target) catch @panic("unhandled error"),
+        .target_info = target_info,
     };
-    self.computeOutFileNames();
-    if (root_src) |rs| rs.addStepDependencies(&self.step);
-    return self;
-}
-
-fn computeOutFileNames(self: *CompileStep) void {
-    const b = self.step.owner;
-    const target = self.target_info.target;
-
-    self.out_filename = std.zig.binNameAlloc(b.allocator, .{
-        .root_name = self.name,
-        .target = target,
-        .output_mode = switch (self.kind) {
-            .lib => .Lib,
-            .obj => .Obj,
-            .exe, .@"test" => .Exe,
-        },
-        .link_mode = if (self.linkage) |some| @as(std.builtin.LinkMode, switch (some) {
-            .dynamic => .Dynamic,
-            .static => .Static,
-        }) else null,
-        .version = self.version,
-    }) catch @panic("OOM");
 
     if (self.kind == .lib) {
         if (self.linkage != null and self.linkage.? == .static) {
             self.out_lib_filename = self.out_filename;
         } else if (self.version) |version| {
-            if (target.isDarwin()) {
-                self.major_only_filename = b.fmt("lib{s}.{d}.dylib", .{
+            if (target_info.target.isDarwin()) {
+                self.major_only_filename = owner.fmt("lib{s}.{d}.dylib", .{
                     self.name,
                     version.major,
                 });
-                self.name_only_filename = b.fmt("lib{s}.dylib", .{self.name});
+                self.name_only_filename = owner.fmt("lib{s}.dylib", .{self.name});
                 self.out_lib_filename = self.out_filename;
-            } else if (target.os.tag == .windows) {
-                self.out_lib_filename = b.fmt("{s}.lib", .{self.name});
+            } else if (target_info.target.os.tag == .windows) {
+                self.out_lib_filename = owner.fmt("{s}.lib", .{self.name});
             } else {
-                self.major_only_filename = b.fmt("lib{s}.so.{d}", .{ self.name, version.major });
-                self.name_only_filename = b.fmt("lib{s}.so", .{self.name});
+                self.major_only_filename = owner.fmt("lib{s}.so.{d}", .{ self.name, version.major });
+                self.name_only_filename = owner.fmt("lib{s}.so", .{self.name});
                 self.out_lib_filename = self.out_filename;
             }
         } else {
-            if (target.isDarwin()) {
+            if (target_info.target.isDarwin()) {
                 self.out_lib_filename = self.out_filename;
-            } else if (target.os.tag == .windows) {
-                self.out_lib_filename = b.fmt("{s}.lib", .{self.name});
+            } else if (target_info.target.os.tag == .windows) {
+                self.out_lib_filename = owner.fmt("{s}.lib", .{self.name});
             } else {
                 self.out_lib_filename = self.out_filename;
             }
         }
-        if (self.output_dir != null) {
-            self.output_lib_path_source.path = b.pathJoin(
-                &.{ self.output_dir.?, self.out_lib_filename },
-            );
-        }
     }
-}
 
-pub fn setOutputDir(self: *CompileStep, dir: []const u8) void {
-    const b = self.step.owner;
-    self.output_dir = b.dupePath(dir);
+    if (root_src) |rs| rs.addStepDependencies(&self.step);
+
+    return self;
 }
 
 pub fn installHeader(cs: *CompileStep, src_path: []const u8, dest_rel_path: []const u8) void {
@@ -851,24 +836,6 @@ fn linkSystemLibraryInner(self: *CompileStep, name: []const u8, opts: struct {
             .use_pkg_config = .yes,
         },
     }) catch @panic("OOM");
-}
-
-pub fn setName(self: *CompileStep, text: []const u8) void {
-    const b = self.step.owner;
-    assert(self.kind == .@"test");
-    self.name = b.dupe(text);
-}
-
-pub fn setFilter(self: *CompileStep, text: ?[]const u8) void {
-    const b = self.step.owner;
-    assert(self.kind == .@"test");
-    self.filter = if (text) |t| b.dupe(t) else null;
-}
-
-pub fn setTestRunner(self: *CompileStep, path: ?[]const u8) void {
-    const b = self.step.owner;
-    assert(self.kind == .@"test");
-    self.test_runner = if (path) |p| b.dupePath(p) else null;
 }
 
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
@@ -1864,7 +1831,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         });
     }
 
-    try zig_args.append("--enable-cache");
     try zig_args.append("--listen=-");
 
     // Windows has an argument length limit of 32,766 characters, macOS 262,144 and Linux
@@ -1932,54 +1898,31 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         },
         else => |e| return e,
     };
-    const build_output_dir = fs.path.dirname(output_bin_path).?;
-
-    if (self.output_dir) |output_dir| {
-        var src_dir = try fs.cwd().openIterableDir(build_output_dir, .{});
-        defer src_dir.close();
-
-        // Create the output directory if it doesn't exist.
-        try fs.cwd().makePath(output_dir);
-
-        var dest_dir = try fs.cwd().openDir(output_dir, .{});
-        defer dest_dir.close();
-
-        var it = src_dir.iterate();
-        while (try it.next()) |entry| {
-            // The compiler can put these files into the same directory, but we don't
-            // want to copy them over.
-            if (mem.eql(u8, entry.name, "llvm-ar.id") or
-                mem.eql(u8, entry.name, "libs.txt") or
-                mem.eql(u8, entry.name, "builtin.zig") or
-                mem.eql(u8, entry.name, "zld.id") or
-                mem.eql(u8, entry.name, "lld.id")) continue;
-
-            _ = try src_dir.dir.updateFile(entry.name, dest_dir, entry.name, .{});
-        }
-    } else {
-        self.output_dir = build_output_dir;
-    }
-
-    // This will ensure all output filenames will now have the output_dir available!
-    self.computeOutFileNames();
+    const output_dir = fs.path.dirname(output_bin_path).?;
 
     // Update generated files
-    if (self.output_dir != null) {
-        self.output_dirname_source.path = self.output_dir.?;
+    {
+        self.output_dirname_source.path = output_dir;
 
         self.output_path_source.path = b.pathJoin(
-            &.{ self.output_dir.?, self.out_filename },
+            &.{ output_dir, self.out_filename },
         );
+
+        if (self.kind == .lib) {
+            self.output_lib_path_source.path = b.pathJoin(
+                &.{ output_dir, self.out_lib_filename },
+            );
+        }
 
         if (self.emit_h) {
             self.output_h_path_source.path = b.pathJoin(
-                &.{ self.output_dir.?, self.out_h_filename },
+                &.{ output_dir, self.out_h_filename },
             );
         }
 
         if (self.target.isWindows() or self.target.isUefi()) {
             self.output_pdb_path_source.path = b.pathJoin(
-                &.{ self.output_dir.?, self.out_pdb_filename },
+                &.{ output_dir, self.out_pdb_filename },
             );
         }
     }

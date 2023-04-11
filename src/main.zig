@@ -386,7 +386,6 @@ const usage_build_generic =
     \\  --cache-dir [path]        Override the local cache directory
     \\  --global-cache-dir [path] Override the global cache directory
     \\  --zig-lib-dir [path]      Override path to Zig installation lib directory
-    \\  --enable-cache            Output to cache directory; print path to stdout
     \\
     \\Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
@@ -756,7 +755,6 @@ fn buildOutputType(
     var link_libcpp = false;
     var link_libunwind = false;
     var want_native_include_dirs = false;
-    var enable_cache: ?bool = null;
     var want_pic: ?bool = null;
     var want_pie: ?bool = null;
     var want_lto: ?bool = null;
@@ -1203,8 +1201,6 @@ fn buildOutputType(
                         build_id = true;
                     } else if (mem.eql(u8, arg, "-fno-build-id")) {
                         build_id = false;
-                    } else if (mem.eql(u8, arg, "--enable-cache")) {
-                        enable_cache = true;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
                         try test_exec_args.append(null);
                     } else if (mem.eql(u8, arg, "--test-evented-io")) {
@@ -2641,7 +2637,7 @@ fn buildOutputType(
     var cleanup_emit_bin_dir: ?fs.Dir = null;
     defer if (cleanup_emit_bin_dir) |*dir| dir.close();
 
-    const have_enable_cache = enable_cache orelse false;
+    const output_to_cache = listen != .none;
     const optional_version = if (have_version) version else null;
 
     const resolved_soname: ?[]const u8 = switch (soname) {
@@ -2668,7 +2664,7 @@ fn buildOutputType(
                 switch (arg_mode) {
                     .run, .zig_test => break :blk null,
                     else => {
-                        if (have_enable_cache) {
+                        if (output_to_cache) {
                             break :blk null;
                         } else {
                             break :blk .{ .path = null, .handle = fs.cwd() };
@@ -2686,12 +2682,6 @@ fn buildOutputType(
         },
         .yes => |full_path| b: {
             const basename = fs.path.basename(full_path);
-            if (have_enable_cache) {
-                break :b Compilation.EmitLoc{
-                    .basename = basename,
-                    .directory = null,
-                };
-            }
             if (fs.path.dirname(full_path)) |dirname| {
                 const handle = fs.cwd().openDir(dirname, .{}) catch |err| {
                     fatal("unable to open output directory '{s}': {s}", .{ dirname, @errorName(err) });
@@ -3145,7 +3135,7 @@ fn buildOutputType(
         .test_filter = test_filter,
         .test_name_prefix = test_name_prefix,
         .test_runner_path = test_runner_path,
-        .disable_lld_caching = !have_enable_cache,
+        .disable_lld_caching = !output_to_cache,
         .subsystem = subsystem,
         .wasi_exec_model = wasi_exec_model,
         .debug_compile_errors = debug_compile_errors,
@@ -3240,19 +3230,7 @@ fn buildOutputType(
         return cmdTranslateC(comp, arena, null);
     }
 
-    const hook: AfterUpdateHook = blk: {
-        if (!have_enable_cache)
-            break :blk .none;
-
-        switch (emit_bin) {
-            .no => break :blk .none,
-            .yes_default_path => break :blk .print_emit_bin_dir_path,
-            .yes => |full_path| break :blk .{ .update = full_path },
-            .yes_a_out => break :blk .{ .update = a_out_basename },
-        }
-    };
-
-    updateModule(gpa, comp, hook) catch |err| switch (err) {
+    updateModule(comp) catch |err| switch (err) {
         error.SemanticAnalyzeFail => if (listen == .none) process.exit(1),
         else => |e| return e,
     };
@@ -3800,13 +3778,7 @@ fn runOrTestHotSwap(
     }
 }
 
-const AfterUpdateHook = union(enum) {
-    none,
-    print_emit_bin_dir_path,
-    update: []const u8,
-};
-
-fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void {
+fn updateModule(comp: *Compilation) !void {
     {
         // If the terminal is dumb, we dont want to show the user all the output.
         var progress: std.Progress = .{ .dont_print_on_dumb = true };
@@ -3832,43 +3804,6 @@ fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void
     if (errors.errorMessageCount() > 0) {
         errors.renderToStdErr(renderOptions(comp.color));
         return error.SemanticAnalyzeFail;
-    } else switch (hook) {
-        .none => {},
-        .print_emit_bin_dir_path => {
-            const emit = comp.bin_file.options.emit.?;
-            const full_path = try emit.directory.join(gpa, &.{emit.sub_path});
-            defer gpa.free(full_path);
-            const dir_path = fs.path.dirname(full_path).?;
-            try io.getStdOut().writer().print("{s}\n", .{dir_path});
-        },
-        .update => |full_path| {
-            const bin_sub_path = comp.bin_file.options.emit.?.sub_path;
-            const cwd = fs.cwd();
-            const cache_dir = comp.bin_file.options.emit.?.directory.handle;
-            _ = try cache_dir.updateFile(bin_sub_path, cwd, full_path, .{});
-
-            // If a .pdb file is part of the expected output, we must also copy
-            // it into place here.
-            const is_coff = comp.bin_file.options.target.ofmt == .coff;
-            const have_pdb = is_coff and !comp.bin_file.options.strip;
-            if (have_pdb) {
-                // Replace `.out` or `.exe` with `.pdb` on both the source and destination
-                const src_bin_ext = fs.path.extension(bin_sub_path);
-                const dst_bin_ext = fs.path.extension(full_path);
-
-                const src_pdb_path = try std.fmt.allocPrint(gpa, "{s}.pdb", .{
-                    bin_sub_path[0 .. bin_sub_path.len - src_bin_ext.len],
-                });
-                defer gpa.free(src_pdb_path);
-
-                const dst_pdb_path = try std.fmt.allocPrint(gpa, "{s}.pdb", .{
-                    full_path[0 .. full_path.len - dst_bin_ext.len],
-                });
-                defer gpa.free(dst_pdb_path);
-
-                _ = try cache_dir.updateFile(src_pdb_path, cwd, dst_pdb_path, .{});
-            }
-        },
     }
 }
 
@@ -4499,7 +4434,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         };
         defer comp.destroy();
 
-        updateModule(gpa, comp, .none) catch |err| switch (err) {
+        updateModule(comp) catch |err| switch (err) {
             error.SemanticAnalyzeFail => process.exit(2),
             else => |e| return e,
         };
