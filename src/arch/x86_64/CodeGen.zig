@@ -7564,10 +7564,24 @@ fn genInlineMemset(
     try self.spillRegisters(&.{ .rdi, .al, .rcx });
 
     switch (dst_ptr) {
-        .memory, .linker_load => {
-            try self.loadMemPtrIntoRegister(.rdi, Type.usize, dst_ptr);
+        .memory => |addr| {
+            try self.genSetReg(Type.usize, .rdi, .{ .immediate = addr });
             // Load the pointer, which is stored in memory
             try self.asmRegisterMemory(.mov, .rdi, Memory.sib(.qword, .{ .base = .rdi }));
+        },
+        .linker_load => |load_struct| {
+            const atom_index = if (self.bin_file.cast(link.File.MachO)) |macho_file| blk: {
+                const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| blk: {
+                const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                break :blk coff_file.getAtom(atom).getSymbolIndex().?;
+            } else unreachable;
+
+            switch (load_struct.type) {
+                .import => unreachable,
+                .got, .direct => try self.asmMovLinker(.rdi, atom_index, load_struct),
+            }
         },
         .stack_offset, .ptr_stack_offset => |off| {
             try self.asmRegisterMemory(switch (dst_ptr) {
