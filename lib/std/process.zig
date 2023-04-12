@@ -1163,10 +1163,17 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
             return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
         },
         .windows => {
-            var kilobytes: std.os.windows.ULONGLONG = undefined;
-            if (std.os.windows.kernel32.GetPhysicallyInstalledSystemMemory(&kilobytes) != std.os.windows.TRUE)
+            var sbi: std.os.windows.SYSTEM_BASIC_INFORMATION = undefined;
+            const rc = std.os.windows.ntdll.NtQuerySystemInformation(
+                .SystemBasicInformation,
+                &sbi,
+                @sizeOf(std.os.windows.SYSTEM_BASIC_INFORMATION),
+                null,
+            );
+            if (rc != .SUCCESS) {
                 return error.UnknownTotalSystemMemory;
-            return kilobytes * 1024;
+            }
+            return @as(usize, sbi.NumberOfPhysicalPages) * sbi.PageSize;
         },
         else => return error.UnknownTotalSystemMemory,
     }

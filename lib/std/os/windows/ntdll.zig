@@ -31,6 +31,7 @@ const UNWIND_HISTORY_TABLE = windows.UNWIND_HISTORY_TABLE;
 const RUNTIME_FUNCTION = windows.RUNTIME_FUNCTION;
 const KNONVOLATILE_CONTEXT_POINTERS = windows.KNONVOLATILE_CONTEXT_POINTERS;
 const EXCEPTION_ROUTINE = windows.EXCEPTION_ROUTINE;
+const SYSTEM_INFORMATION_CLASS = windows.SYSTEM_INFORMATION_CLASS;
 const THREADINFOCLASS = windows.THREADINFOCLASS;
 const PROCESSINFOCLASS = windows.PROCESSINFOCLASS;
 const LPVOID = windows.LPVOID;
@@ -51,6 +52,14 @@ pub extern "ntdll" fn NtQueryInformationThread(
     ThreadInformationLength: ULONG,
     ReturnLength: ?*ULONG,
 ) callconv(WINAPI) NTSTATUS;
+
+pub extern "ntdll" fn NtQuerySystemInformation(
+    SystemInformationClass: SYSTEM_INFORMATION_CLASS,
+    SystemInformation: PVOID,
+    SystemInformationLength: ULONG,
+    ReturnLength: ?*ULONG,
+) callconv(WINAPI) NTSTATUS;
+
 pub extern "ntdll" fn NtSetInformationThread(
     ThreadHandle: HANDLE,
     ThreadInformationClass: THREADINFOCLASS,
