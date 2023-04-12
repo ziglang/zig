@@ -512,7 +512,7 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     return initEventLoopAndCallMain();
 }
 
-fn main(c_argc: c_int, c_argv: [*c][*c]u8, c_envp: [*c][*c]u8) callconv(.C) c_int {
+fn main(c_argc: c_int, c_argv: [*][*:0]u8, c_envp: [*:null]?[*:0]u8) callconv(.C) c_int {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
@@ -527,7 +527,7 @@ fn main(c_argc: c_int, c_argv: [*c][*c]u8, c_envp: [*c][*c]u8) callconv(.C) c_in
     return @call(.always_inline, callMainWithArgs, .{ @intCast(usize, c_argc), @ptrCast([*][*:0]u8, c_argv), envp });
 }
 
-fn mainWithoutEnv(c_argc: c_int, c_argv: [*c][*c]u8) callconv(.C) c_int {
+fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]u8) callconv(.C) c_int {
     std.os.argv = @ptrCast([*][*:0]u8, c_argv)[0..@intCast(usize, c_argc)];
     return @call(.always_inline, callMain, .{});
 }

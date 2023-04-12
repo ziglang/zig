@@ -705,7 +705,7 @@ pub const Sigaction = extern struct {
     mask: sigset_t,
 };
 
-pub const sig_t = [*c]fn (c_int) callconv(.C) void;
+pub const sig_t = *const fn (c_int) callconv(.C) void;
 
 pub const SOCK = struct {
     pub const STREAM = 1;
@@ -890,7 +890,7 @@ pub const cmsghdr = extern struct {
 pub const msghdr = extern struct {
     msg_name: ?*anyopaque,
     msg_namelen: socklen_t,
-    msg_iov: [*c]iovec,
+    msg_iov: [*]iovec,
     msg_iovlen: c_int,
     msg_control: ?*anyopaque,
     msg_controllen: socklen_t,
@@ -905,9 +905,9 @@ pub const cmsgcred = extern struct {
     cmcred_groups: [16]gid_t,
 };
 pub const sf_hdtr = extern struct {
-    headers: [*c]iovec,
+    headers: [*]iovec,
     hdr_cnt: c_int,
-    trailers: [*c]iovec,
+    trailers: [*]iovec,
     trl_cnt: c_int,
 };
 
