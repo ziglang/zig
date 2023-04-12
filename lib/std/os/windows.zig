@@ -4476,6 +4476,34 @@ pub const MODULEENTRY32 = extern struct {
     szExePath: [MAX_PATH]CHAR,
 };
 
+pub const SYSTEM_INFORMATION_CLASS = enum(c_int) {
+    SystemBasicInformation = 0,
+    SystemPerformanceInformation = 2,
+    SystemTimeOfDayInformation = 3,
+    SystemProcessInformation = 5,
+    SystemProcessorPerformanceInformation = 8,
+    SystemInterruptInformation = 23,
+    SystemExceptionInformation = 33,
+    SystemRegistryQuotaInformation = 37,
+    SystemLookasideInformation = 45,
+    SystemCodeIntegrityInformation = 103,
+    SystemPolicyInformation = 134,
+};
+
+pub const SYSTEM_BASIC_INFORMATION = extern struct {
+    Reserved: ULONG,
+    TimerResolution: ULONG,
+    PageSize: ULONG,
+    NumberOfPhysicalPages: ULONG,
+    LowestPhysicalPageNumber: ULONG,
+    HighestPhysicalPageNumber: ULONG,
+    AllocationGranularity: ULONG,
+    MinimumUserModeAddress: ULONG_PTR,
+    MaximumUserModeAddress: ULONG_PTR,
+    ActiveProcessorsAffinityMask: KAFFINITY,
+    NumberOfProcessors: UCHAR,
+};
+
 pub const THREADINFOCLASS = enum(c_int) {
     ThreadBasicInformation,
     ThreadTimes,
