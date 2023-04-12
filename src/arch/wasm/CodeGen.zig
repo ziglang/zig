@@ -6457,13 +6457,28 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
         // for each tag name, create an unnamed const,
         // and then get a pointer to its value.
         var name_ty_payload: Type.Payload.Len = .{
-            .base = .{ .tag = .array_u8 },
+            .base = .{ .tag = .array_u8_sentinel_0 },
             .data = @intCast(u64, tag_name.len),
         };
         const name_ty = Type.initPayload(&name_ty_payload.base);
-        var name_val_payload: Value.Payload.Bytes = .{
-            .base = .{ .tag = .bytes },
-            .data = tag_name,
+        const string_bytes = &module.string_literal_bytes;
+        try string_bytes.ensureUnusedCapacity(module.gpa, tag_name.len);
+        const gop = try module.string_literal_table.getOrPutContextAdapted(module.gpa, tag_name, Module.StringLiteralAdapter{
+            .bytes = string_bytes,
+        }, Module.StringLiteralContext{
+            .bytes = string_bytes,
+        });
+        if (!gop.found_existing) {
+            gop.key_ptr.* = .{
+                .index = @intCast(u32, string_bytes.items.len),
+                .len = @intCast(u32, tag_name.len),
+            };
+            string_bytes.appendSliceAssumeCapacity(tag_name);
+            gop.value_ptr.* = .none;
+        }
+        var name_val_payload: Value.Payload.StrLit = .{
+            .base = .{ .tag = .str_lit },
+            .data = gop.key_ptr.*,
         };
         const name_val = Value.initPayload(&name_val_payload.base);
         const tag_sym_index = try func.bin_file.lowerUnnamedConst(
