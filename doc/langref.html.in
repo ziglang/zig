@@ -8558,6 +8558,34 @@ test "main" {
       {#see_also|@cVaArg|@cVaCopy|@cVaEnd#}
       {#header_close#}
 
+      {#header_open|@depositBits#}
+      <pre>{#syntax#}@depositBits(source: T, mask: T) T{#endsyntax#}</pre>
+      <p>
+      {#syntax#}@TypeOf(source){#endsyntax#} must be an integer type.
+      </p>
+      <p>
+      Uses a mask to transfer contiguous lower bits in the {#syntax#}source{#endsyntax#} operand to the destination, transferring them to the corresponding bits in the destination that are set in the mask. All other bits in the destination are zeroed.
+      </p>
+      <p>
+      Currently, only x86 processors with BMI2 enabled support this in hardware. On processors without support for the instruction, it will be emulated. AMD processors before Zen 3 implement the corresponding instruction (PDEP) in microcode. It may be faster to use an alternative method in both of these cases.
+      </p>
+      <p>
+      Example:
+      </p>
+
+      <!-- TODO make this a test when implemented-->
+      {#syntax_block|zig|@depositBits test#}
+const std = @import("std");
+
+test "deposit bits" {
+    comptime {
+        try std.testing.expectEqual(@depositBits(0x00001234, 0xf0f0f0f0), 0x10203040);
+    }
+}
+      {#end_syntax_block#}
+      {#see_also|@extractBits#}
+      {#header_close#}
+
       {#header_open|@divExact#}
       <pre>{#syntax#}@divExact(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
@@ -8724,6 +8752,34 @@ export fn @"A function name that is a complete sentence."() void {}
       T must be a pointer type.
       </p>
       {#see_also|@export#}
+      {#header_close#}
+
+      {#header_open|@extractBits#}
+      <pre>{#syntax#}@extractBits(source: T, mask: T) T{#endsyntax#}</pre>
+      <p>
+      {#syntax#}T{#endsyntax#} must be an integer type.
+      </p>
+      <p>
+      Uses a mask to transfer bits in the {#syntax#}source{#endsyntax#} operand to the destination, writing them as contiguous lower bits in the destination. The upper bits of the destination are zeroed.
+      </p>
+      <p>
+      Currently, only x86 processors with BMI2 enabled support this in hardware. On processors without support for the instruction, it will be emulated. AMD processors before Zen 3 implement the corresponding instruction (PEXT) in microcode. It may be faster to use an alternative method in both of these cases.
+      </p>
+      <p>
+      Example:
+      </p>
+
+      <!-- TODO Make this a test when implemented -->
+      {#syntax_block|zig|@extractBits test#}
+const std = @import("std");
+
+test "extract bits" {
+    comptime {
+        try std.testing.expectEqual(@extractBits(0x12345678, 0xf0f0f0f0), 0x00001357);
+    }
+}
+      {#end_syntax_block#}
+      {#see_also|@depositBits#}
       {#header_close#}
 
       {#header_open|@fence#}
