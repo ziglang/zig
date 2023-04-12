@@ -586,8 +586,8 @@ const DocData = struct {
             src: usize, // index into astNodes
             privDecls: []usize = &.{}, // index into decls
             pubDecls: []usize = &.{}, // index into decls
-            field_types: ?[]Expr = null, // (use src->fields to find names)
-            field_defaults: ?[]?Expr = null,
+            field_types: []Expr = &.{}, // (use src->fields to find names)
+            field_defaults: []?Expr = &.{}, // default values is specified
             is_tuple: bool,
             line_number: usize,
             outer_decl: usize,
@@ -615,6 +615,7 @@ const DocData = struct {
             pubDecls: []usize = &.{}, // index into decls
             // (use src->fields to find field names)
             tag: ?Expr = null, // tag type if specified
+            values: []?Expr = &.{}, // tag values if specified
             nonexhaustive: bool,
         },
         Union: struct {
@@ -2706,6 +2707,7 @@ fn walkInstruction(
                     extra_index += body_len;
 
                     var field_name_indexes: std.ArrayListUnmanaged(usize) = .{};
+                    var field_values: std.ArrayListUnmanaged(?DocData.Expr) = .{};
                     {
                         var bit_bag_idx = extra_index;
                         var cur_bit_bag: u32 = undefined;
@@ -2727,12 +2729,13 @@ fn walkInstruction(
                             const doc_comment_index = file.zir.extra[extra_index];
                             extra_index += 1;
 
-                            const value_ref: ?Ref = if (has_value) blk: {
+                            const value_expr: ?DocData.Expr = if (has_value) blk: {
                                 const value_ref = file.zir.extra[extra_index];
                                 extra_index += 1;
-                                break :blk @intToEnum(Ref, value_ref);
+                                const value = try self.walkRef(file, &scope, src_info, @intToEnum(Ref, value_ref), false);
+                                break :blk value.expr;
                             } else null;
-                            _ = value_ref;
+                            try field_values.append(self.arena, value_expr);
 
                             const field_name = file.zir.nullTerminatedString(field_name_index);
 
@@ -2757,6 +2760,7 @@ fn walkInstruction(
                             .privDecls = priv_decl_indexes.items,
                             .pubDecls = decl_indexes.items,
                             .tag = tag_type,
+                            .values = field_values.items,
                             .nonexhaustive = small.nonexhaustive,
                         },
                     };
