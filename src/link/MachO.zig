@@ -613,6 +613,9 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     if (self.dyld_stub_binder_index == null) {
         self.dyld_stub_binder_index = try self.addUndefined("dyld_stub_binder", .add_got);
     }
+    if (!self.base.options.single_threaded) {
+        _ = try self.addUndefined("_tlv_bootstrap", .none);
+    }
 
     try self.createMhExecuteHeaderSymbol();
 

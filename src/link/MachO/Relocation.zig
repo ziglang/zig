@@ -48,6 +48,7 @@ pub fn isResolvable(self: Relocation, macho_file: *MachO) bool {
 pub fn getTargetAtomIndex(self: Relocation, macho_file: *MachO) ?Atom.Index {
     switch (self.type) {
         .got, .got_page, .got_pageoff => return macho_file.getGotAtomIndexForSymbol(self.target),
+        .tlv, .tlv_page, .tlv_pageoff => return macho_file.getTlvpAtomIndexForSymbol(self.target),
         else => {},
     }
     if (macho_file.getStubsAtomIndexForSymbol(self.target)) |stubs_atom| return stubs_atom;
