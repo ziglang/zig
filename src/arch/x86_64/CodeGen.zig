@@ -3677,41 +3677,6 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue) InnerError!void {
-    switch (ptr) {
-        .linker_load => |load_struct| {
-            const abi_size = @intCast(u32, ptr_ty.abiSize(self.target.*));
-            const atom_index = if (self.bin_file.cast(link.File.MachO)) |macho_file| blk: {
-                const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
-                break :blk macho_file.getAtom(atom).getSymbolIndex().?;
-            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| blk: {
-                const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
-                break :blk coff_file.getAtom(atom).getSymbolIndex().?;
-            } else unreachable;
-            const ops: Mir.Inst.Ops = switch (load_struct.type) {
-                .got => .got_reloc,
-                .direct => .direct_reloc,
-                .import => .import_reloc,
-            };
-            _ = try self.addInst(.{
-                .tag = .lea_linker,
-                .ops = ops,
-                .data = .{ .payload = try self.addExtra(Mir.LeaRegisterReloc{
-                    .reg = @enumToInt(registerAlias(reg, abi_size)),
-                    .atom_index = atom_index,
-                    .sym_index = load_struct.sym_index,
-                }) },
-            });
-        },
-        .memory => |addr| {
-            // TODO: in case the address fits in an imm32 we can use [ds:imm32]
-            // instead of wasting an instruction copying the address to a register
-            try self.genSetReg(ptr_ty, reg, .{ .immediate = addr });
-        },
-        else => unreachable,
-    }
-}
-
 fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) InnerError!void {
     const abi_size = @intCast(u32, value_ty.abiSize(self.target.*));
     switch (ptr) {
