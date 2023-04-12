@@ -24,6 +24,7 @@ pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
 pub extern "c" fn getpid() pid_t;
 
 pub extern "c" fn kinfo_getfile(pid: pid_t, cntp: *c_int) ?[*]kinfo_file;
+pub extern "c" fn kinfo_getvmmap(pid: pid_t, cntp: *c_int) ?[*]kinfo_vmentry;
 
 pub const sf_hdtr = extern struct {
     headers: [*]const iovec_const,
@@ -563,6 +564,40 @@ pub const KINFO_FILE_SIZE = 1392;
 comptime {
     std.debug.assert(@sizeOf(kinfo_file) == KINFO_FILE_SIZE);
     std.debug.assert(@alignOf(kinfo_file) == @sizeOf(u64));
+}
+
+pub const kinfo_vmentry = extern struct {
+    kve_structsize: c_int,
+    kve_type: c_int,
+    kve_start: u64,
+    kve_end: u64,
+    kve_offset: u64,
+    kve_vn_fileid: u64,
+    kve_vn_fsid_freebsd11: u32,
+    kve_flags: c_int,
+    kve_resident: c_int,
+    kve_private_resident: c_int,
+    kve_protection: c_int,
+    kve_ref_count: c_int,
+    kve_shadow_count: c_int,
+    kve_vn_type: c_int,
+    kve_vn_size: u64,
+    kve_vn_rdev_freebsd11: u32,
+    kve_vn_mode: u16,
+    kve_status: u16,
+    kve_type_spec: extern union {
+        _kve_vn_fsid: u64,
+        _kve_obj: u64,
+    },
+    kve_vn_rdev: u64,
+    _kve_ispare: [8]c_int,
+    kve_rpath: [PATH_MAX]u8,
+};
+
+pub const KINFO_VMENTRY_SIZE = 1160;
+
+comptime {
+    std.debug.assert(@sizeOf(kinfo_vmentry) == KINFO_VMENTRY_SIZE);
 }
 
 pub const CTL = struct {
