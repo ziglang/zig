@@ -1985,6 +1985,12 @@ pub const Inst = struct {
         /// with a specific value. For instance, this is used for the capture of an `errdefer`.
         /// This should never appear in a body.
         value_placeholder,
+        /// Implements the `@depositBits` builtin.
+        /// `operand` is payload index to `BinNode`.
+        deposit_bits,
+        /// Implements the `@extractBits` builtin.
+        /// `operand` is payload index to `BinNode`.
+        extract_bits,
 
         pub const InstData = struct {
             opcode: Extended,

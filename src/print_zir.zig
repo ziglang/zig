@@ -527,6 +527,8 @@ const Writer = struct {
             .prefetch,
             .addrspace_cast,
             .c_va_arg,
+            .deposit_bits,
+            .extract_bits,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
                 const src = LazySrcLoc.nodeOffset(inst_data.node);
