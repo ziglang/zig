@@ -7324,11 +7324,30 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
             const reg = try self.copyToTmpRegister(ty, mcv);
             return self.genSetStack(ty, stack_offset, MCValue{ .register = reg }, opts);
         } else {
-            const addr_reg = try self.register_manager.allocReg(null, gp);
+            const addr_reg = (try self.register_manager.allocReg(null, gp)).to64();
             const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
             defer self.register_manager.unlockReg(addr_lock);
 
-            try self.loadMemPtrIntoRegister(addr_reg, Type.usize, mcv);
+            switch (mcv) {
+                .memory => |addr| try self.genSetReg(Type.usize, addr_reg, .{ .immediate = addr }),
+                .linker_load => |load_struct| {
+                    const atom_index = if (self.bin_file.cast(link.File.MachO)) |macho_file| blk: {
+                        const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                        break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| blk: {
+                        const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                        break :blk coff_file.getAtom(atom).getSymbolIndex().?;
+                    } else unreachable;
+
+                    switch (load_struct.type) {
+                        .import => unreachable,
+                        .got => try self.asmMovLinker(addr_reg, atom_index, load_struct),
+                        .direct => try self.asmLeaLinker(addr_reg, atom_index, load_struct),
+                    }
+                },
+                else => unreachable,
+            }
+
             try self.genInlineMemcpy(
                 .{ .ptr_stack_offset = stack_offset },
                 .{ .register = addr_reg },
