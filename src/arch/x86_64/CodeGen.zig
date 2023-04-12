@@ -6144,7 +6144,25 @@ fn isNull(self: *Self, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
             const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
             defer self.register_manager.unlockReg(addr_reg_lock);
 
-            try self.loadMemPtrIntoRegister(addr_reg, Type.usize, opt_mcv);
+            switch (opt_mcv) {
+                .memory => |addr| try self.genSetReg(Type.usize, addr_reg, .{ .immediate = addr }),
+                .linker_load => |load_struct| {
+                    const atom_index = if (self.bin_file.cast(link.File.MachO)) |macho_file| blk: {
+                        const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                        break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| blk: {
+                        const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                        break :blk coff_file.getAtom(atom).getSymbolIndex().?;
+                    } else unreachable;
+
+                    switch (load_struct.type) {
+                        .import => unreachable,
+                        .got => try self.asmMovLinker(addr_reg, atom_index, load_struct),
+                        .direct => try self.asmLeaLinker(addr_reg, atom_index, load_struct),
+                    }
+                },
+                else => unreachable,
+            }
 
             const some_abi_size = @intCast(u32, some_info.ty.abiSize(self.target.*));
             try self.asmMemoryImmediate(.cmp, Memory.sib(
