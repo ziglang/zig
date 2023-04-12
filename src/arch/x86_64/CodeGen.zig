@@ -736,6 +736,7 @@ fn asmMovLinker(self: *Self, reg: Register, atom_index: u32, linker_load: codege
         .got => .got_reloc,
         .direct => .direct_reloc,
         .import => .import_reloc,
+        .tlv => .tlv_reloc,
     };
     _ = try self.addInst(.{
         .tag = .mov_linker,
@@ -753,6 +754,7 @@ fn asmLeaLinker(self: *Self, reg: Register, atom_index: u32, linker_load: codege
         .got => .got_reloc,
         .direct => .direct_reloc,
         .import => .import_reloc,
+        .tlv => .tlv_reloc,
     };
     _ = try self.addInst(.{
         .tag = .lea_linker,
@@ -763,6 +765,15 @@ fn asmLeaLinker(self: *Self, reg: Register, atom_index: u32, linker_load: codege
             .sym_index = linker_load.sym_index,
         }) },
     });
+}
+
+fn genTlvPtr(self: *Self, reg: Register, atom_index: u32, linker_load: codegen.LinkerLoad) !void {
+    assert(linker_load.type == .tlv);
+    if (self.bin_file.cast(link.File.MachO)) |_| {
+        try self.asmMovLinker(.rdi, atom_index, linker_load);
+        try self.asmMemory(.call, Memory.sib(.qword, .{ .base = .rdi }));
+        try self.genSetReg(Type.usize, reg, .{ .register = .rax });
+    } else return self.fail("TODO emit ptr-to-TLV sequence on {s}", .{@tagName(self.bin_file.tag)});
 }
 
 fn gen(self: *Self) InnerError!void {
@@ -2931,6 +2942,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
                 .import => unreachable,
                 .got => try self.asmMovLinker(addr_reg, atom_index, load_struct),
                 .direct => try self.asmLeaLinker(addr_reg, atom_index, load_struct),
+                .tlv => try self.genTlvPtr(addr_reg, atom_index, load_struct),
             }
         },
         else => return self.fail("TODO implement array_elem_val when array is {}", .{array}),
@@ -3805,6 +3817,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 .import => unreachable,
                                 .got => try self.asmMovLinker(addr_reg, atom_index, load_struct),
                                 .direct => try self.asmLeaLinker(addr_reg, atom_index, load_struct),
+                                .tlv => try self.genTlvPtr(addr_reg, atom_index, load_struct),
                             }
                         },
                         else => unreachable,
@@ -3866,6 +3879,11 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                     switch (load_struct.type) {
                         .import => unreachable,
                         .got, .direct => try self.asmMovLinker(addr_reg, atom_index, load_struct),
+                        .tlv => {
+                            try self.genTlvPtr(addr_reg, atom_index, load_struct);
+                            // Load the pointer, which is stored in memory
+                            try self.asmRegisterMemory(.mov, addr_reg, Memory.sib(.qword, .{ .base = addr_reg }));
+                        },
                     }
                 },
                 else => unreachable,
@@ -4221,6 +4239,7 @@ fn genUnOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValue
                         .import => unreachable,
                         .got => try self.asmMovLinker(addr_reg, atom_index, load_struct),
                         .direct => try self.asmLeaLinker(addr_reg, atom_index, load_struct),
+                        .tlv => try self.genTlvPtr(addr_reg, atom_index, load_struct),
                     }
                 },
                 else => unreachable,
@@ -4896,6 +4915,7 @@ fn genBinOp(
                                     .import => unreachable,
                                     .got => try self.asmMovLinker(addr_reg, atom_index, load_struct),
                                     .direct => try self.asmLeaLinker(addr_reg, atom_index, load_struct),
+                                    .tlv => try self.genTlvPtr(addr_reg, atom_index, load_struct),
                                 }
                             },
                             else => unreachable,
@@ -5042,6 +5062,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                                 .import => unreachable,
                                 .got => try self.asmMovLinker(dst_addr_reg, atom_index, load_struct),
                                 .direct => try self.asmLeaLinker(dst_addr_reg, atom_index, load_struct),
+                                .tlv => try self.genTlvPtr(dst_addr_reg, atom_index, load_struct),
                             }
                         },
                         else => unreachable,
@@ -5087,6 +5108,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                                 .import => unreachable,
                                 .got => try self.asmMovLinker(src_addr_reg, atom_index, load_struct),
                                 .direct => try self.asmLeaLinker(src_addr_reg, atom_index, load_struct),
+                                .tlv => try self.genTlvPtr(src_addr_reg, atom_index, load_struct),
                             }
                         },
                         else => unreachable,
@@ -6124,6 +6146,7 @@ fn isNull(self: *Self, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
                         .import => unreachable,
                         .got => try self.asmMovLinker(addr_reg, atom_index, load_struct),
                         .direct => try self.asmLeaLinker(addr_reg, atom_index, load_struct),
+                        .tlv => try self.genTlvPtr(addr_reg, atom_index, load_struct),
                     }
                 },
                 else => unreachable,
@@ -7081,6 +7104,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                         .import => unreachable,
                         .got => try self.asmMovLinker(addr_reg, atom_index, load_struct),
                         .direct => try self.asmLeaLinker(addr_reg, atom_index, load_struct),
+                        .tlv => try self.genTlvPtr(addr_reg, atom_index, load_struct),
                     }
                 },
                 else => unreachable,
@@ -7308,6 +7332,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                         .import => unreachable,
                         .got => try self.asmMovLinker(addr_reg, atom_index, load_struct),
                         .direct => try self.asmLeaLinker(addr_reg, atom_index, load_struct),
+                        .tlv => try self.genTlvPtr(addr_reg, atom_index, load_struct),
                     }
                 },
                 else => unreachable,
@@ -7439,6 +7464,11 @@ fn genInlineMemcpy(
             switch (load_struct.type) {
                 .import => unreachable,
                 .got, .direct => try self.asmMovLinker(.rdi, atom_index, load_struct),
+                .tlv => {
+                    try self.genTlvPtr(.rdi, atom_index, load_struct);
+                    // Load the pointer, which is stored in memory
+                    try self.asmRegisterMemory(.mov, .rdi, Memory.sib(.qword, .{ .base = .rdi }));
+                },
             }
         },
         .stack_offset, .ptr_stack_offset => |off| {
@@ -7481,6 +7511,11 @@ fn genInlineMemcpy(
             switch (load_struct.type) {
                 .import => unreachable,
                 .got, .direct => try self.asmMovLinker(.rsi, atom_index, load_struct),
+                .tlv => {
+                    try self.genTlvPtr(.rsi, atom_index, load_struct);
+                    // Load the pointer, which is stored in memory
+                    try self.asmRegisterMemory(.mov, .rsi, Memory.sib(.qword, .{ .base = .rsi }));
+                },
             }
         },
         .stack_offset, .ptr_stack_offset => |off| {
@@ -7546,6 +7581,11 @@ fn genInlineMemset(
             switch (load_struct.type) {
                 .import => unreachable,
                 .got, .direct => try self.asmMovLinker(.rdi, atom_index, load_struct),
+                .tlv => {
+                    try self.genTlvPtr(.rdi, atom_index, load_struct);
+                    // Load the pointer, which is stored in memory
+                    try self.asmRegisterMemory(.mov, .rdi, Memory.sib(.qword, .{ .base = .rdi }));
+                },
             }
         },
         .stack_offset, .ptr_stack_offset => |off| {
@@ -7735,7 +7775,10 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             switch (ty.zigTypeTag()) {
                 .Float => {
                     const base_reg = (try self.register_manager.allocReg(null, gp)).to64();
-                    try self.asmLeaLinker(base_reg, atom_index, load_struct);
+                    switch (load_struct.type) {
+                        .tlv => try self.genTlvPtr(base_reg, atom_index, load_struct),
+                        else => try self.asmLeaLinker(base_reg, atom_index, load_struct),
+                    }
 
                     if (intrinsicsAllowed(self.target.*, ty)) {
                         return self.asmRegisterMemory(
@@ -7753,7 +7796,17 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
 
                     return self.fail("TODO genSetReg from memory for float with no intrinsics", .{});
                 },
-                else => try self.asmMovLinker(registerAlias(reg, abi_size), atom_index, load_struct),
+                else => switch (load_struct.type) {
+                    .tlv => {
+                        try self.genTlvPtr(reg.to64(), atom_index, load_struct);
+                        try self.asmRegisterMemory(
+                            .mov,
+                            registerAlias(reg, abi_size),
+                            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = reg.to64() }),
+                        );
+                    },
+                    else => try self.asmMovLinker(registerAlias(reg, abi_size), atom_index, load_struct),
+                },
             }
         },
         .stack_offset => |off| {

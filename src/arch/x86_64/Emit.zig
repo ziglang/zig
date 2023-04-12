@@ -76,6 +76,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .type = switch (inst.ops) {
                         .got_reloc => .got,
                         .direct_reloc => .signed,
+                        .tlv_reloc => .tlv,
                         else => unreachable,
                     },
                     .target = .{ .sym_index = metadata.sym_index, .file = null },
