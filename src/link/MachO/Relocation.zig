@@ -15,7 +15,7 @@ pub const Type = enum {
     got,
     /// RIP-relative displacement
     signed,
-    /// RIP-relative displacemen to threadlocal variable descriptor
+    /// RIP-relative displacement to GOT pointer to TLV thunk
     tlv,
 
     // aarch64
@@ -27,10 +27,6 @@ pub const Type = enum {
     page,
     /// Offset to a pointer relative to the start of a page in a section
     pageoff,
-    /// PC-relative distance to target page in TLV section
-    tlv_page,
-    /// Offset to a pointer relative to the start of a page in TLV section
-    tlv_pageoff,
 
     // common
     /// PC/RIP-relative displacement B/BL/CALL
@@ -50,7 +46,12 @@ pub fn isResolvable(self: Relocation, macho_file: *MachO) bool {
 pub fn getTargetAtomIndex(self: Relocation, macho_file: *MachO) ?Atom.Index {
     return switch (self.type) {
         .got, .got_page, .got_pageoff => macho_file.got_table.getAtomIndex(macho_file, self.target),
-        .tlv, .tlv_page, .tlv_pageoff => macho_file.tlvp_table.getAtomIndex(macho_file, self.target),
+        .tlv => {
+            const thunk_atom_index = macho_file.tlv_table.getAtomIndex(macho_file, self.target) orelse
+                return null;
+            const thunk_atom = macho_file.getAtom(thunk_atom_index);
+            return macho_file.got_table.getAtomIndex(macho_file, thunk_atom.getSymbolWithLoc());
+        },
         .branch => if (macho_file.stubs_table.getAtomIndex(macho_file, self.target)) |index|
             index
         else
@@ -109,7 +110,7 @@ fn resolveAarch64(self: Relocation, source_addr: u64, target_addr: i64, code: []
             inst.unconditional_branch_immediate.imm26 = @truncate(u26, @bitCast(u28, displacement >> 2));
             mem.writeIntLittle(u32, buffer[0..4], inst.toU32());
         },
-        .page, .got_page, .tlv_page => {
+        .page, .got_page => {
             const source_page = @intCast(i32, source_addr >> 12);
             const target_page = @intCast(i32, target_addr >> 12);
             const pages = @bitCast(u21, @intCast(i21, target_page - source_page));
@@ -158,49 +159,6 @@ fn resolveAarch64(self: Relocation, source_addr: u64, target_addr: i64, code: []
                 mem.writeIntLittle(u32, buffer[0..4], inst.toU32());
             }
         },
-        .tlv_pageoff => {
-            const RegInfo = struct {
-                rd: u5,
-                rn: u5,
-                size: u2,
-            };
-            const reg_info: RegInfo = blk: {
-                if (isArithmeticOp(buffer[0..4])) {
-                    const inst = mem.bytesToValue(meta.TagPayload(
-                        aarch64.Instruction,
-                        aarch64.Instruction.add_subtract_immediate,
-                    ), buffer[0..4]);
-                    break :blk .{
-                        .rd = inst.rd,
-                        .rn = inst.rn,
-                        .size = inst.sf,
-                    };
-                } else {
-                    const inst = mem.bytesToValue(meta.TagPayload(
-                        aarch64.Instruction,
-                        aarch64.Instruction.load_store_register,
-                    ), buffer[0..4]);
-                    break :blk .{
-                        .rd = inst.rt,
-                        .rn = inst.rn,
-                        .size = inst.size,
-                    };
-                }
-            };
-            const narrowed = @truncate(u12, @intCast(u64, target_addr));
-            var inst = aarch64.Instruction{
-                .add_subtract_immediate = .{
-                    .rd = reg_info.rd,
-                    .rn = reg_info.rn,
-                    .imm12 = narrowed,
-                    .sh = 0,
-                    .s = 0,
-                    .op = 0,
-                    .sf = @truncate(u1, reg_info.size),
-                },
-            };
-            mem.writeIntLittle(u32, buffer[0..4], inst.toU32());
-        },
         .tlv_initializer, .unsigned => switch (self.length) {
             2 => mem.writeIntLittle(u32, buffer[0..4], @truncate(u32, @bitCast(u64, target_addr))),
             3 => mem.writeIntLittle(u64, buffer[0..8], @bitCast(u64, target_addr)),
@@ -227,7 +185,7 @@ fn resolveX8664(self: Relocation, source_addr: u64, target_addr: i64, code: []u8
                 else => unreachable,
             }
         },
-        .got_page, .got_pageoff, .page, .pageoff, .tlv_page, .tlv_pageoff => unreachable, // Invalid target architecture.
+        .got_page, .got_pageoff, .page, .pageoff => unreachable, // Invalid target architecture.
     }
 }
 
