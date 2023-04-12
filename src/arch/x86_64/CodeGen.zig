@@ -3656,9 +3656,30 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 else => return self.fail("TODO implement loading from register into {}", .{dst_mcv}),
             }
         },
-        .memory, .linker_load => {
+        .memory => {
             const reg = try self.copyToTmpRegister(ptr_ty, ptr);
             try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
+        },
+        .linker_load => |load_struct| {
+            const addr_reg = (try self.register_manager.allocReg(null, gp)).to64();
+            const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
+            defer self.register_manager.unlockReg(addr_reg_lock);
+
+            const atom_index = if (self.bin_file.cast(link.File.MachO)) |macho_file| blk: {
+                const atom = try macho_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| blk: {
+                const atom = try coff_file.getOrCreateAtomForDecl(self.mod_fn.owner_decl);
+                break :blk coff_file.getAtom(atom).getSymbolIndex().?;
+            } else unreachable;
+
+            switch (load_struct.type) {
+                .import => unreachable,
+                .got, .direct => try self.asmMovLinker(addr_reg, atom_index, load_struct),
+                .tlv => try self.genTlvPtr(addr_reg, atom_index, load_struct),
+            }
+
+            try self.load(dst_mcv, .{ .register = addr_reg }, ptr_ty);
         },
     }
 }
@@ -3879,11 +3900,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                     switch (load_struct.type) {
                         .import => unreachable,
                         .got, .direct => try self.asmMovLinker(addr_reg, atom_index, load_struct),
-                        .tlv => {
-                            try self.genTlvPtr(addr_reg, atom_index, load_struct);
-                            // Load the pointer, which is stored in memory
-                            try self.asmRegisterMemory(.mov, addr_reg, Memory.sib(.qword, .{ .base = addr_reg }));
-                        },
+                        .tlv => try self.genTlvPtr(addr_reg, atom_index, load_struct),
                     }
                 },
                 else => unreachable,
