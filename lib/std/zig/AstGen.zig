@@ -9691,6 +9691,9 @@ fn builtinCall(
             });
             return rvalue(gz, ri, result, node);
         },
+
+        .deposit_bits => return depositExtractBits(gz, scope, ri, node, params, .deposit_bits),
+        .extract_bits => return depositExtractBits(gz, scope, ri, node, params, .extract_bits),
     }
 }
 
@@ -9941,6 +9944,24 @@ fn cImport(
 }
 
 fn overflowArithmetic(
+    gz: *GenZir,
+    scope: *Scope,
+    ri: ResultInfo,
+    node: Ast.Node.Index,
+    params: []const Ast.Node.Index,
+    tag: Zir.Inst.Extended,
+) InnerError!Zir.Inst.Ref {
+    const lhs = try expr(gz, scope, .{ .rl = .none }, params[0]);
+    const rhs = try expr(gz, scope, .{ .rl = .none }, params[1]);
+    const result = try gz.addExtendedPayload(tag, Zir.Inst.BinNode{
+        .node = gz.nodeIndexToRelative(node),
+        .lhs = lhs,
+        .rhs = rhs,
+    });
+    return rvalue(gz, ri, result, node);
+}
+
+fn depositExtractBits(
     gz: *GenZir,
     scope: *Scope,
     ri: ResultInfo,

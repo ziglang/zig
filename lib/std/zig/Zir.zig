@@ -2060,6 +2060,12 @@ pub const Inst = struct {
         /// Guaranteed to not have the `ptr_cast` flag.
         /// Uses the `pl_node` union field with payload `FieldParentPtr`.
         field_parent_ptr,
+        /// Implements the `@depositBits` builtin.
+        /// `operand` is payload index to `BinNode`.
+        deposit_bits,
+        /// Implements the `@extractBits` builtin.
+        /// `operand` is payload index to `BinNode`.
+        extract_bits,
 
         pub const InstData = struct {
             opcode: Extended,

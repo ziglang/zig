@@ -5103,6 +5103,9 @@ pub const FuncGen = struct {
                 .work_item_id => try self.airWorkItemId(inst),
                 .work_group_size => try self.airWorkGroupSize(inst),
                 .work_group_id => try self.airWorkGroupId(inst),
+
+                .deposit_bits => try self.airDepositBits(inst),
+                .extract_bits => try self.airExtractBits(inst),
                 // zig fmt: on
             };
             if (val != .none) try self.func_inst_table.putNoClobber(self.gpa, inst.toRef(), val);
@@ -10293,6 +10296,162 @@ pub const FuncGen = struct {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const dimension = pl_op.payload;
         return self.amdgcnWorkIntrinsic(dimension, 0, "amdgcn.workgroup.id");
+    }
+
+    fn airDepositBits(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.air.typeOfIndex(inst);
+
+        const target = self.dg.module.getTarget();
+        const params = [2]*llvm.Value{ lhs, rhs };
+        switch (target.cpu.arch) {
+            .x86, .x86_64 => |tag| blk: {
+                // Doesn't have pdep
+                if (!std.Target.x86.featureSetHas(target.cpu.features, .bmi2)) break :blk;
+
+                const bits = inst_ty.intInfo(target).bits;
+                const supports_64 = tag == .x86_64;
+                // Integer size doesn't match the available instruction(s)
+                if (!(bits <= 32 or (bits <= 64 and supports_64))) break :blk;
+
+                return self.buildDepositBitsNative(inst_ty, params);
+            },
+            else => {},
+        }
+
+        return self.buildDepositBitsEmulated(inst_ty, params);
+    }
+
+    fn buildDepositBitsNative(
+        self: *FuncGen,
+        ty: Type,
+        params: [2]*llvm.Value,
+    ) !*llvm.Value {
+        const target = self.dg.module.getTarget();
+
+        assert(target.cpu.arch.isX86());
+        assert(std.Target.x86.featureSetHas(target.cpu.features, .bmi2));
+
+        const bits = ty.intInfo(target).bits;
+        const intrinsic_name = switch (bits) {
+            1...32 => "llvm.x86.bmi.pdep.32",
+            33...64 => "llvm.x86.bmi.pdep.64",
+            else => unreachable,
+        };
+        const needs_extend = bits != 32 and bits != 64;
+
+        var params_cast = params;
+
+        // Cast to either a 32 or 64-bit integer
+        if (needs_extend) {
+            const llvm_extend_ty = self.context.intType(if (bits <= 32) 32 else 64);
+            params_cast = .{
+                self.builder.buildZExt(params[0], llvm_extend_ty, ""),
+                self.builder.buildZExt(params[1], llvm_extend_ty, ""),
+            };
+        }
+
+        const llvm_fn = self.getIntrinsic(intrinsic_name, &.{});
+        const result = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &params_cast, 2, .Fast, .Auto, "");
+
+        // No cast needed!
+        if (!needs_extend) return result;
+
+        // Cast back to the original integer size
+        const llvm_trunc_ty = try self.dg.lowerType(ty);
+        return self.builder.buildTrunc(result, llvm_trunc_ty, "");
+    }
+
+    fn buildDepositBitsEmulated(
+        self: *FuncGen,
+        ty: Type,
+        params: [2]*llvm.Value,
+    ) !*llvm.Value {
+        _ = ty;
+        _ = params;
+        return self.dg.todo("implement deposit_bits emulation", .{});
+    }
+
+    fn airExtractBits(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.air.typeOfIndex(inst);
+
+        const target = self.dg.module.getTarget();
+        const params = [2]*llvm.Value{ lhs, rhs };
+        switch (target.cpu.arch) {
+            .x86, .x86_64 => |tag| blk: {
+                // Doesn't have pext
+                if (!std.Target.x86.featureSetHas(target.cpu.features, .bmi2)) break :blk;
+
+                const bits = inst_ty.intInfo(target).bits;
+                const supports_64 = tag == .x86_64;
+                // Integer size doesn't match the available instruction(s)
+                if (!(bits <= 32 or (bits <= 64 and supports_64))) break :blk;
+
+                return self.buildExtractBitsNative(inst_ty, params);
+            },
+            else => {},
+        }
+
+        return self.buildExtractBitsEmulated(inst_ty, params);
+    }
+
+    fn buildExtractBitsNative(
+        self: *FuncGen,
+        ty: Type,
+        params: [2]*llvm.Value,
+    ) !*llvm.Value {
+        const target = self.dg.module.getTarget();
+
+        assert(target.cpu.arch.isX86());
+        assert(std.Target.x86.featureSetHas(target.cpu.features, .bmi2));
+
+        const bits = ty.intInfo(target).bits;
+        const intrinsic_name = switch (bits) {
+            1...32 => "llvm.x86.bmi.pext.32",
+            33...64 => "llvm.x86.bmi.pext.64",
+            else => unreachable,
+        };
+        const needs_extend = bits != 32 and bits != 64;
+
+        var params_cast = params;
+
+        // Cast to either a 32 or 64-bit integer
+        if (needs_extend) {
+            const llvm_extend_ty = self.context.intType(if (bits <= 32) 32 else 64);
+            params_cast = .{
+                self.builder.buildZExt(params[0], llvm_extend_ty, ""),
+                self.builder.buildZExt(params[1], llvm_extend_ty, ""),
+            };
+        }
+
+        const llvm_fn = self.getIntrinsic(intrinsic_name, &.{});
+        const result = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &params_cast, 2, .Fast, .Auto, "");
+
+        // No cast needed!
+        if (!needs_extend) return result;
+
+        // Cast back to the original integer size
+        const llvm_trunc_ty = try self.dg.lowerType(ty);
+        return self.builder.buildTrunc(result, llvm_trunc_ty, "");
+    }
+
+    fn buildExtractBitsEmulated(
+        self: *FuncGen,
+        ty: Type,
+        params: [2]*llvm.Value,
+    ) !*llvm.Value {
+        _ = ty;
+        _ = params;
+        return self.dg.todo("implement extract_bits emulation", .{});
     }
 
     fn getErrorNameTable(self: *FuncGen) Allocator.Error!Builder.Variable.Index {

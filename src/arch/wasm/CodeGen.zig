@@ -2058,6 +2058,10 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .work_group_size,
         .work_group_id,
         => unreachable,
+
+        .deposit_bits,
+        .extract_bits,
+        => |tag| return func.fail("TODO implement {s}", .{@tagName(tag)}),
     };
 }
 

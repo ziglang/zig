@@ -35,6 +35,7 @@ pub const Tag = enum {
     c_va_copy,
     c_va_end,
     c_va_start,
+    deposit_bits,
     div_exact,
     div_floor,
     div_trunc,
@@ -46,6 +47,7 @@ pub const Tag = enum {
     error_cast,
     @"export",
     @"extern",
+    extract_bits,
     fence,
     field,
     field_parent_ptr,
@@ -406,6 +408,12 @@ pub const list = list: {
             },
         },
         .{
+            "@depositBits", .{
+                .tag = .deposit_bits,
+                .param_count = 2,
+            },
+        },
+        .{
             "@divExact",
             .{
                 .tag = .div_exact,
@@ -480,6 +488,13 @@ pub const list = list: {
             "@extern",
             .{
                 .tag = .@"extern",
+                .param_count = 2,
+            },
+        },
+        .{
+            "@extractBits",
+            .{
+                .tag = .extract_bits,
                 .param_count = 2,
             },
         },

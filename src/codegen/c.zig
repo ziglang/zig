@@ -3466,6 +3466,9 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .work_group_size,
             .work_group_id,
             => unreachable,
+
+            .deposit_bits => return f.fail("TODO: C backend: implement deposit_bits", .{}),
+            .extract_bits => return f.fail("TODO: C backend: implement extract_bits", .{}),
             // zig fmt: on
         };
         if (result_value == .new_local) {

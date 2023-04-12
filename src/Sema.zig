@@ -1260,6 +1260,8 @@ fn analyzeBodyInner(
                     .work_group_id      => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .in_comptime        => try sema.zirInComptime(        block),
                     .closure_get        => try sema.zirClosureGet(        block, extended),
+                    .deposit_bits          => try sema.zirDepositExtractBits(block, extended, .deposit_bits),
+                    .extract_bits          => try sema.zirDepositExtractBits(block, extended, .extract_bits),
                     // zig fmt: on
 
                     .fence => {
@@ -26390,6 +26392,84 @@ fn zirInComptime(
     return if (block.is_comptime) .bool_true else .bool_false;
 }
 
+fn zirDepositExtractBits(
+    sema: *Sema,
+    block: *Block,
+    extended: Zir.Inst.Extended.InstData,
+    air_tag: Air.Inst.Tag,
+) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+
+    const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
+
+    const uncasted_lhs = try sema.resolveInst(extra.lhs);
+    const uncasted_rhs = try sema.resolveInst(extra.rhs);
+
+    const lhs_ty = sema.typeOf(uncasted_lhs);
+    const rhs_ty = sema.typeOf(uncasted_rhs);
+
+    if (lhs_ty.zigTypeTag() != .Int) {
+        return sema.fail(block, lhs_src, "expected integer type, found '{}'", .{lhs_ty.fmt(sema.mod)});
+    }
+
+    if (rhs_ty.zigTypeTag() != .Int) {
+        return sema.fail(block, rhs_src, "expected integer type, found '{}'", .{rhs_ty.fmt(sema.mod)});
+    }
+
+    const instructions = &[_]Air.Inst.Ref{ uncasted_lhs, uncasted_rhs };
+    const dest_ty = try sema.resolvePeerTypes(block, src, instructions, .{
+        .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
+    });
+
+    assert(dest_ty.zigTypeTag() == .Int);
+
+    const lhs = try sema.coerce(block, dest_ty, uncasted_lhs, lhs_src);
+    const rhs = try sema.coerce(block, dest_ty, uncasted_rhs, rhs_src);
+
+    const maybe_lhs_val = try sema.resolveMaybeUndefVal(lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefVal(rhs);
+
+    // If either of the operands are zero, the result is zero
+    // If either of the operands are undefined, the result is undefined
+    if (maybe_lhs_val) |lhs_val| {
+        if (lhs_val.isUndef()) return sema.addConstUndef(dest_ty);
+        if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
+            return sema.addConstant(dest_ty, Value.zero);
+        }
+    }
+    if (maybe_rhs_val) |rhs_val| {
+        if (rhs_val.isUndef()) return sema.addConstUndef(dest_ty);
+        if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
+            return sema.addConstant(dest_ty, Value.zero);
+        }
+    }
+
+    if (maybe_lhs_val) |lhs_val| {
+        if (maybe_rhs_val) |rhs_val| {
+            const dest_val = switch (air_tag) {
+                .deposit_bits => try sema.intDepositBits(lhs_val, rhs_val, dest_ty),
+                .extract_bits => try sema.intExtractBits(lhs_val, rhs_val, dest_ty),
+                else => unreachable,
+            };
+
+            return sema.addConstant(dest_ty, dest_val);
+        }
+    }
+
+    const runtime_src = if (maybe_lhs_val == null) lhs_src else rhs_src;
+    try sema.requireRuntimeBlock(block, src, runtime_src);
+
+    return block.addInst(.{
+        .tag = air_tag,
+        .data = .{ .bin_op = .{
+            .lhs = lhs,
+            .rhs = rhs,
+        } },
+    });
+}
+
 fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src: ?LazySrcLoc) !void {
     if (block.is_comptime) {
         const msg = msg: {
@@ -38990,6 +39070,112 @@ fn intAddWithOverflowScalar(
         .overflow_bit = try mod.intValue(Type.u1, @intFromBool(overflowed)),
         .wrapped_result = result,
     };
+}
+
+fn intDepositBits(
+    sema: *Sema,
+    lhs: Value,
+    rhs: Value,
+    ty: Type,
+) !Value {
+    // TODO is this a performance issue? maybe we should try the operation without
+    // resorting to BigInt first. For non-bigints, @intDeposit could be used?
+    const target = sema.mod.getTarget();
+    const arena = sema.arena;
+    const info = ty.intInfo(target);
+
+    var lhs_space: Value.BigIntSpace = undefined;
+    var rhs_space: Value.BigIntSpace = undefined;
+    const lhs_bigint = lhs.toBigInt(&lhs_space, target);
+    const rhs_bigint = rhs.toBigInt(&rhs_space, target);
+
+    const result_limbs = try arena.alloc(
+        std.math.big.Limb,
+        std.math.big.int.calcTwosCompLimbCount(info.bits),
+    );
+
+    const source_limbs = try arena.alloc(
+        std.math.big.Limb,
+        std.math.big.int.calcTwosCompLimbCount(info.bits),
+    );
+    defer arena.free(source_limbs);
+
+    const mask_limbs = try arena.alloc(
+        std.math.big.Limb,
+        std.math.big.int.calcTwosCompLimbCount(info.bits),
+    );
+    defer arena.free(mask_limbs);
+
+    const limbs_buffer = try arena.alloc(
+        std.math.big.Limb,
+        rhs_bigint.limbs.len,
+    );
+    defer arena.free(limbs_buffer);
+
+    var source = std.math.big.int.Mutable{ .limbs = source_limbs, .positive = undefined, .len = undefined };
+    var mask = std.math.big.int.Mutable{ .limbs = mask_limbs, .positive = undefined, .len = undefined };
+    var result = std.math.big.int.Mutable{ .limbs = result_limbs, .positive = undefined, .len = undefined };
+
+    source.convertToTwosComplement(lhs_bigint, info.signedness, info.bits);
+    mask.convertToTwosComplement(rhs_bigint, info.signedness, info.bits);
+
+    result.depositBits(source.toConst(), mask.toConst(), limbs_buffer);
+
+    result.convertFromTwosComplement(result.toConst(), info.signedness, info.bits);
+    return Value.fromBigInt(arena, result.toConst());
+}
+
+fn intExtractBits(
+    sema: *Sema,
+    lhs: Value,
+    rhs: Value,
+    ty: Type,
+) !Value {
+    // TODO is this a performance issue? maybe we should try the operation without
+    // resorting to BigInt first. For non-bigints, @intExtract could be used?
+    const target = sema.mod.getTarget();
+    const arena = sema.arena;
+    const info = ty.intInfo(target);
+
+    var lhs_space: Value.BigIntSpace = undefined;
+    var rhs_space: Value.BigIntSpace = undefined;
+    const lhs_bigint = lhs.toBigInt(&lhs_space, target);
+    const rhs_bigint = rhs.toBigInt(&rhs_space, target);
+
+    const result_limbs = try arena.alloc(
+        std.math.big.Limb,
+        std.math.big.int.calcTwosCompLimbCount(info.bits),
+    );
+
+    const source_limbs = try arena.alloc(
+        std.math.big.Limb,
+        std.math.big.int.calcTwosCompLimbCount(info.bits),
+    );
+    defer arena.free(source_limbs);
+
+    const mask_limbs = try arena.alloc(
+        std.math.big.Limb,
+        std.math.big.int.calcTwosCompLimbCount(info.bits),
+    );
+    defer arena.free(mask_limbs);
+
+    const limbs_buffer = try arena.alloc(
+        std.math.big.Limb,
+        rhs_bigint.limbs.len,
+    );
+    defer arena.free(limbs_buffer);
+
+    var source = std.math.big.int.Mutable{ .limbs = source_limbs, .positive = undefined, .len = undefined };
+    var mask = std.math.big.int.Mutable{ .limbs = mask_limbs, .positive = undefined, .len = undefined };
+    var result = std.math.big.int.Mutable{ .limbs = result_limbs, .positive = undefined, .len = undefined };
+
+    source.convertToTwosComplement(lhs_bigint, info.signedness, info.bits);
+    mask.convertToTwosComplement(rhs_bigint, info.signedness, info.bits);
+
+    result.extractBits(source.toConst(), mask.toConst(), limbs_buffer);
+
+    result.convertFromTwosComplement(result.toConst(), info.signedness, info.bits);
+    return Value.fromBigInt(arena, result.toConst());
 }
 
 /// Asserts the values are comparable. Both operands have type `ty`.
