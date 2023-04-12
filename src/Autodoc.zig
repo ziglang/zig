@@ -37,7 +37,7 @@ pending_ref_paths: std.AutoHashMapUnmanaged(
     std.ArrayListUnmanaged(RefPathResumeInfo),
 ) = .{},
 ref_paths_pending_on_decls: std.AutoHashMapUnmanaged(
-    usize,
+    *Scope.DeclStatus,
     std.ArrayListUnmanaged(RefPathResumeInfo),
 ) = .{},
 ref_paths_pending_on_types: std.AutoHashMapUnmanaged(
@@ -344,28 +344,48 @@ fn createFromPath(base_dir: std.fs.Dir, path: []const u8) !std.fs.File {
 }
 
 /// Represents a chain of scopes, used to resolve decl references to the
-/// corresponding entry in `self.decls`.
+/// corresponding entry in `self.decls`. It also keeps track of whether
+/// a given decl has been analyzed or not.
 const Scope = struct {
     parent: ?*Scope,
-    map: std.AutoHashMapUnmanaged(u32, usize) = .{}, // index into `decls`
+    map: std.AutoHashMapUnmanaged(
+        u32, // index into the current file's string table (decl name)
+        DeclStatus,
+    ) = .{},
+
     enclosing_type: usize, // index into `types`
 
-    /// Assumes all decls in present scope and upper scopes have already
-    /// been either fully resolved or at least reserved.
-    pub fn resolveDeclName(self: Scope, string_table_idx: u32) usize {
+    pub const DeclStatus = union(enum) {
+        Analyzed: usize, // index into `decls`
+        Pending,
+        NotRequested: u32, // instr_index
+
+    };
+
+    /// Returns a pointer so that the caller has a chance to modify the value
+    /// in case they decide to start analyzing a previously not requested decl.
+    pub fn resolveDeclName(self: Scope, string_table_idx: u32, file: *File, inst_index: usize) *DeclStatus {
         var cur: ?*const Scope = &self;
         return while (cur) |s| : (cur = s.parent) {
-            break s.map.get(string_table_idx) orelse continue;
-        } else unreachable;
+            break s.map.getPtr(string_table_idx) orelse continue;
+        } else {
+            printWithContext(
+                file,
+                inst_index,
+                "Could not find `{s}`\n\n",
+                .{file.zir.nullTerminatedString(string_table_idx)},
+            );
+            unreachable;
+        };
     }
 
     pub fn insertDeclRef(
         self: *Scope,
         arena: std.mem.Allocator,
-        decl_name_index: u32, // decl name
-        decls_slot_index: usize,
+        decl_name_index: u32, // index into the current file's string table
+        decl_status: DeclStatus,
     ) !void {
-        try self.map.put(arena, decl_name_index, decls_slot_index);
+        try self.map.put(arena, decl_name_index, decl_status);
     }
 };
 
@@ -479,7 +499,7 @@ const DocData = struct {
         value: WalkResult,
         // The index in astNodes of the `test declname { }` node
         decltest: ?usize = null,
-        _analyzed: bool, // omitted in json data
+        is_uns: bool = false, // usingnamespace
 
         pub fn jsonStringify(
             self: Decl,
@@ -676,7 +696,8 @@ const DocData = struct {
         @"&": usize, // index in `exprs`
         type: usize, // index in `types`
         this: usize, // index in `types`
-        declRef: usize, // index in `decls`
+        declRef: *Scope.DeclStatus,
+        declIndex: usize, // index into `decls`, alternative repr for `declRef`
         builtinField: enum { len, ptr },
         fieldRef: FieldRef,
         refPath: []Expr,
@@ -775,7 +796,11 @@ const DocData = struct {
             var jsw = std.json.writeStream(w, 15);
             if (opts.whitespace) |ws| jsw.whitespace = ws;
             try jsw.beginObject();
-            try jsw.objectField(@tagName(active_tag));
+            if (active_tag == .declIndex) {
+                try jsw.objectField("declRef");
+            } else {
+                try jsw.objectField(@tagName(active_tag));
+            }
             switch (self) {
                 .int => {
                     if (self.int.negated) try w.writeAll("-");
@@ -784,10 +809,15 @@ const DocData = struct {
                 .builtinField => {
                     try jsw.emitString(@tagName(self.builtinField));
                 },
+                .declRef => {
+                    try jsw.emitNumber(self.declRef.Analyzed);
+                },
                 else => {
                     inline for (comptime std.meta.fields(Expr)) |case| {
                         // TODO: this is super ugly, fix once `inline else` is a thing
                         if (comptime std.mem.eql(u8, case.name, "builtinField"))
+                            continue;
+                        if (comptime std.mem.eql(u8, case.name, "declRef"))
                             continue;
                         if (@field(Expr, case.name) == active_tag) {
                             try std.json.stringify(@field(self, case.name), opts, w);
@@ -1133,7 +1163,7 @@ fn walkInstruction(
             self.exprs.items[slice_index] = .{ .slice = .{ .lhs = lhs_index, .start = start_index } };
 
             return DocData.WalkResult{
-                .typeRef = self.decls.items[lhs.expr.declRef].value.typeRef,
+                .typeRef = self.decls.items[lhs.expr.declRef.Analyzed].value.typeRef,
                 .expr = .{ .sliceIndex = slice_index },
             };
         },
@@ -1175,7 +1205,7 @@ fn walkInstruction(
             self.exprs.items[slice_index] = .{ .slice = .{ .lhs = lhs_index, .start = start_index, .end = end_index } };
 
             return DocData.WalkResult{
-                .typeRef = self.decls.items[lhs.expr.declRef].value.typeRef,
+                .typeRef = self.decls.items[lhs.expr.declRef.Analyzed].value.typeRef,
                 .expr = .{ .sliceIndex = slice_index },
             };
         },
@@ -1226,7 +1256,7 @@ fn walkInstruction(
             self.exprs.items[slice_index] = .{ .slice = .{ .lhs = lhs_index, .start = start_index, .end = end_index, .sentinel = sentinel_index } };
 
             return DocData.WalkResult{
-                .typeRef = self.decls.items[lhs.expr.declRef].value.typeRef,
+                .typeRef = self.decls.items[lhs.expr.declRef.Analyzed].value.typeRef,
                 .expr = .{ .sliceIndex = slice_index },
             };
         },
@@ -1993,12 +2023,9 @@ fn walkInstruction(
         },
         .decl_val, .decl_ref => {
             const str_tok = data[inst_index].str_tok;
-            const decls_slot_index = parent_scope.resolveDeclName(str_tok.start);
-            // While it would make sense to grab the original decl's typeRef info,
-            // that decl might not have been analyzed yet! The frontend will have
-            // to navigate through all declRefs to find the underlying type.
+            const decl_status = parent_scope.resolveDeclName(str_tok.start, file, inst_index);
             return DocData.WalkResult{
-                .expr = .{ .declRef = decls_slot_index },
+                .expr = .{ .declRef = decl_status },
             };
         },
         .field_val, .field_call_bind, .field_ptr, .field_type => {
@@ -2430,49 +2457,16 @@ fn walkInstruction(
                     else
                         parent_src;
 
-                    const decls_len = if (small.has_decls_len) blk: {
-                        const decls_len = file.zir.extra[extra_index];
-                        extra_index += 1;
-                        break :blk decls_len;
-                    } else 0;
-
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
 
-                    const decls_first_index = self.decls.items.len;
-                    // Decl name lookahead for reserving slots in `scope` (and `decls`).
-                    // Done to make sure that all decl refs can be resolved correctly,
-                    // even if we haven't fully analyzed the decl yet.
-                    {
-                        var it = file.zir.declIterator(@intCast(u32, inst_index));
-                        while (it.next()) |d| {
-                            const decl_name_index = file.zir.extra[d.sub_index + 5];
-                            switch (decl_name_index) {
-                                0, 1, 2 => continue,
-                                else => if (file.zir.string_bytes[decl_name_index] == 0) {
-                                    continue;
-                                },
-                            }
-
-                            const decl_slot_index = self.decls.items.len;
-                            try self.decls.append(self.arena, undefined);
-                            self.decls.items[decl_slot_index]._analyzed = false;
-
-                            // TODO: inspect usingnamespace decls and unpack their contents!
-
-                            try scope.insertDeclRef(self.arena, decl_name_index, decl_slot_index);
-                        }
-                    }
-
-                    extra_index = try self.walkDecls(
+                    extra_index = try self.analyzeAllDecls(
                         file,
                         &scope,
+                        inst_index,
                         src_info,
-                        decls_first_index,
-                        decls_len,
                         &decl_indexes,
                         &priv_decl_indexes,
-                        extra_index,
                     );
 
                     self.types.items[type_slot_index] = .{
@@ -2549,13 +2543,14 @@ fn walkInstruction(
                     else
                         parent_src;
 
-                    const tag_type: ?DocData.Expr = if (small.has_tag_type) blk: {
+                    // We delay analysis because union tags can refer to
+                    // decls defined inside the union itself.
+                    const tag_type_ref: Ref = if (small.has_tag_type) blk: {
                         const tag_type = file.zir.extra[extra_index];
                         extra_index += 1;
                         const tag_ref = @intToEnum(Ref, tag_type);
-                        const wr = try self.walkRef(file, parent_scope, parent_src, tag_ref, false);
-                        break :blk wr.expr;
-                    } else null;
+                        break :blk tag_ref;
+                    } else .none;
 
                     const body_len = if (small.has_body_len) blk: {
                         const body_len = file.zir.extra[extra_index];
@@ -2569,51 +2564,28 @@ fn walkInstruction(
                         break :blk fields_len;
                     } else 0;
 
-                    const decls_len = if (small.has_decls_len) blk: {
-                        const decls_len = file.zir.extra[extra_index];
-                        extra_index += 1;
-                        break :blk decls_len;
-                    } else 0;
-
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
 
-                    const decls_first_index = self.decls.items.len;
-                    // Decl name lookahead for reserving slots in `scope` (and `decls`).
-                    // Done to make sure that all decl refs can be resolved correctly,
-                    // even if we haven't fully analyzed the decl yet.
-                    {
-                        var it = file.zir.declIterator(@intCast(u32, inst_index));
-                        while (it.next()) |d| {
-                            const decl_name_index = file.zir.extra[d.sub_index + 5];
-                            switch (decl_name_index) {
-                                0, 1, 2 => continue,
-                                else => if (file.zir.string_bytes[decl_name_index] == 0) {
-                                    continue;
-                                },
-                            }
-
-                            const decl_slot_index = self.decls.items.len;
-                            try self.decls.append(self.arena, undefined);
-                            self.decls.items[decl_slot_index]._analyzed = false;
-
-                            // TODO: inspect usingnamespace decls and unpack their contents!
-
-                            try scope.insertDeclRef(self.arena, decl_name_index, decl_slot_index);
-                        }
-                    }
-
-                    extra_index = try self.walkDecls(
+                    extra_index = try self.analyzeAllDecls(
                         file,
                         &scope,
+                        inst_index,
                         src_info,
-                        decls_first_index,
-                        decls_len,
                         &decl_indexes,
                         &priv_decl_indexes,
-                        extra_index,
                     );
 
+                    // Analyze the tag once all decls have been analyzed
+                    const tag_type = try self.walkRef(
+                        file,
+                        &scope,
+                        parent_src,
+                        tag_type_ref,
+                        false,
+                    );
+
+                    // Fields
                     extra_index += body_len;
 
                     var field_type_refs = try std.ArrayListUnmanaged(DocData.Expr).initCapacity(
@@ -2643,7 +2615,7 @@ fn walkInstruction(
                             .privDecls = priv_decl_indexes.items,
                             .pubDecls = decl_indexes.items,
                             .fields = field_type_refs.items,
-                            .tag = tag_type,
+                            .tag = tag_type.expr,
                             .auto_enum = small.auto_enum_tag,
                         },
                     };
@@ -2711,49 +2683,16 @@ fn walkInstruction(
                         break :blk fields_len;
                     } else 0;
 
-                    const decls_len = if (small.has_decls_len) blk: {
-                        const decls_len = file.zir.extra[extra_index];
-                        extra_index += 1;
-                        break :blk decls_len;
-                    } else 0;
-
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
 
-                    const decls_first_index = self.decls.items.len;
-                    // Decl name lookahead for reserving slots in `scope` (and `decls`).
-                    // Done to make sure that all decl refs can be resolved correctly,
-                    // even if we haven't fully analyzed the decl yet.
-                    {
-                        var it = file.zir.declIterator(@intCast(u32, inst_index));
-                        while (it.next()) |d| {
-                            const decl_name_index = file.zir.extra[d.sub_index + 5];
-                            switch (decl_name_index) {
-                                0, 1, 2 => continue,
-                                else => if (file.zir.string_bytes[decl_name_index] == 0) {
-                                    continue;
-                                },
-                            }
-
-                            const decl_slot_index = self.decls.items.len;
-                            try self.decls.append(self.arena, undefined);
-                            self.decls.items[decl_slot_index]._analyzed = false;
-
-                            // TODO: inspect usingnamespace decls and unpack their contents!
-
-                            try scope.insertDeclRef(self.arena, decl_name_index, decl_slot_index);
-                        }
-                    }
-
-                    extra_index = try self.walkDecls(
+                    extra_index = try self.analyzeAllDecls(
                         file,
                         &scope,
+                        inst_index,
                         src_info,
-                        decls_first_index,
-                        decls_len,
                         &decl_indexes,
                         &priv_decl_indexes,
-                        extra_index,
                     );
 
                     // const body = file.zir.extra[extra_index..][0..body_len];
@@ -2862,12 +2801,6 @@ fn walkInstruction(
                         break :blk fields_len;
                     } else 0;
 
-                    const decls_len = if (small.has_decls_len) blk: {
-                        const decls_len = file.zir.extra[extra_index];
-                        extra_index += 1;
-                        break :blk decls_len;
-                    } else 0;
-
                     // TODO: Expose explicit backing integer types in some way.
                     if (small.has_backing_int) {
                         const backing_int_body_len = file.zir.extra[extra_index];
@@ -2882,40 +2815,13 @@ fn walkInstruction(
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
 
-                    const decls_first_index = self.decls.items.len;
-                    // Decl name lookahead for reserving slots in `scope` (and `decls`).
-                    // Done to make sure that all decl refs can be resolved correctly,
-                    // even if we haven't fully analyzed the decl yet.
-                    {
-                        var it = file.zir.declIterator(@intCast(u32, inst_index));
-                        while (it.next()) |d| {
-                            const decl_name_index = file.zir.extra[d.sub_index + 5];
-                            switch (decl_name_index) {
-                                0, 1, 2 => continue,
-                                else => if (file.zir.string_bytes[decl_name_index] == 0) {
-                                    continue;
-                                },
-                            }
-
-                            const decl_slot_index = self.decls.items.len;
-                            try self.decls.append(self.arena, undefined);
-                            self.decls.items[decl_slot_index]._analyzed = false;
-
-                            // TODO: inspect usingnamespace decls and unpack their contents!
-
-                            try scope.insertDeclRef(self.arena, decl_name_index, decl_slot_index);
-                        }
-                    }
-
-                    extra_index = try self.walkDecls(
+                    extra_index = try self.analyzeAllDecls(
                         file,
                         &scope,
+                        inst_index,
                         src_info,
-                        decls_first_index,
-                        decls_len,
                         &decl_indexes,
                         &priv_decl_indexes,
-                        extra_index,
                     );
 
                     var field_type_refs: std.ArrayListUnmanaged(DocData.Expr) = .{};
@@ -3096,189 +3002,286 @@ fn walkInstruction(
 /// Does not append to `self.decls` directly because `walkInstruction`
 /// is expected to look-ahead scan all decls and reserve `body_len`
 /// slots in `self.decls`, which are then filled out by this function.
-fn walkDecls(
+fn analyzeAllDecls(
+    self: *Autodoc,
+    file: *File,
+    scope: *Scope,
+    parent_inst_index: usize,
+    parent_src: SrcLocInfo,
+    decl_indexes: *std.ArrayListUnmanaged(usize),
+    priv_decl_indexes: *std.ArrayListUnmanaged(usize),
+) AutodocErrors!usize {
+    const first_decl_indexes_slot = decl_indexes.items.len;
+    const original_it = file.zir.declIterator(@intCast(u32, parent_inst_index));
+
+    // First loop to discover decl names
+    {
+        var it = original_it;
+        while (it.next()) |d| {
+            const decl_name_index = file.zir.extra[d.sub_index + 5];
+            switch (decl_name_index) {
+                0, 1, 2 => continue,
+                else => if (file.zir.string_bytes[decl_name_index] == 0) {
+                    continue;
+                },
+            }
+
+            try scope.insertDeclRef(self.arena, decl_name_index, .Pending);
+        }
+    }
+
+    // Second loop to analyze `usingnamespace` decls
+    {
+        var it = original_it;
+        var decl_indexes_slot = first_decl_indexes_slot;
+        while (it.next()) |d| : (decl_indexes_slot += 1) {
+            const decl_name_index = file.zir.extra[d.sub_index + 5];
+            switch (decl_name_index) {
+                0 => {
+                    const is_exported = @truncate(u1, d.flags >> 1);
+                    switch (is_exported) {
+                        0 => continue, // comptime decl
+                        1 => {
+                            try self.analyzeUsingnamespaceDecl(
+                                file,
+                                scope,
+                                parent_src,
+                                decl_indexes,
+                                priv_decl_indexes,
+                                d,
+                            );
+                        },
+                    }
+                },
+                else => continue,
+            }
+        }
+    }
+
+    // Third loop to analyze all remaining decls
+    var it = original_it;
+    while (it.next()) |d| {
+        const decl_name_index = file.zir.extra[d.sub_index + 5];
+        switch (decl_name_index) {
+            0, 1, 2 => continue, // skip over usingnamespace decls
+            else => if (file.zir.string_bytes[decl_name_index] == 0) {
+                continue;
+            },
+        }
+
+        try self.analyzeDecl(
+            file,
+            scope,
+            parent_src,
+            decl_indexes,
+            priv_decl_indexes,
+            d,
+        );
+    }
+
+    return it.extra_index;
+}
+
+// Asserts the given decl is public
+fn analyzeDecl(
     self: *Autodoc,
     file: *File,
     scope: *Scope,
     parent_src: SrcLocInfo,
-    decls_first_index: usize,
-    decls_len: usize,
     decl_indexes: *std.ArrayListUnmanaged(usize),
     priv_decl_indexes: *std.ArrayListUnmanaged(usize),
-    extra_start: usize,
-) AutodocErrors!usize {
+    d: Zir.DeclIterator.Item,
+) AutodocErrors!void {
     const data = file.zir.instructions.items(.data);
-    const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
-    var extra_index = extra_start + bit_bags_count;
-    var bit_bag_index: usize = extra_start;
-    var cur_bit_bag: u32 = undefined;
-    var decl_i: u32 = 0;
+    const is_pub = @truncate(u1, d.flags >> 0) != 0;
+    // const is_exported = @truncate(u1, d.flags >> 1) != 0;
+    const has_align = @truncate(u1, d.flags >> 2) != 0;
+    const has_section_or_addrspace = @truncate(u1, d.flags >> 3) != 0;
 
-    // NOTE: we're not outputting every ZIR decl as a Autodoc decl.
-    //       tests, comptime blocks and usingnamespace are skipped.
-    //       this is why we `need good_decls_i`.
-    var good_decls_i: usize = 0;
-    while (decl_i < decls_len) : (decl_i += 1) {
-        const decls_slot_index = decls_first_index + good_decls_i;
+    var extra_index = d.sub_index;
+    // const hash_u32s = file.zir.extra[extra_index..][0..4];
 
-        if (decl_i % 8 == 0) {
-            cur_bit_bag = file.zir.extra[bit_bag_index];
-            bit_bag_index += 1;
-        }
-        const is_pub = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        const is_exported = @truncate(u1, cur_bit_bag) != 0;
-        _ = is_exported;
-        cur_bit_bag >>= 1;
-        const has_align = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
-        const has_section_or_addrspace = @truncate(u1, cur_bit_bag) != 0;
-        cur_bit_bag >>= 1;
+    extra_index += 4;
+    // const line = file.zir.extra[extra_index];
 
-        // const sub_index = extra_index;
+    extra_index += 1;
+    const decl_name_index = file.zir.extra[extra_index];
 
-        // const hash_u32s = file.zir.extra[extra_index..][0..4];
-        extra_index += 4;
+    extra_index += 1;
+    const value_index = file.zir.extra[extra_index];
 
-        // const line = file.zir.extra[extra_index];
+    extra_index += 1;
+    const doc_comment_index = file.zir.extra[extra_index];
+
+    extra_index += 1;
+    const align_inst: Zir.Inst.Ref = if (!has_align) .none else inst: {
+        const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         extra_index += 1;
-        const decl_name_index = file.zir.extra[extra_index];
+        break :inst inst;
+    };
+    _ = align_inst;
+
+    const section_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
+        const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         extra_index += 1;
-        const value_index = file.zir.extra[extra_index];
+        break :inst inst;
+    };
+    _ = section_inst;
+
+    const addrspace_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
+        const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         extra_index += 1;
-        const doc_comment_index = file.zir.extra[extra_index];
-        extra_index += 1;
+        break :inst inst;
+    };
+    _ = addrspace_inst;
 
-        const align_inst: Zir.Inst.Ref = if (!has_align) .none else inst: {
-            const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
-            extra_index += 1;
-            break :inst inst;
-        };
-        _ = align_inst;
+    // This is known to work because decl values are always block_inlines
+    const value_pl_node = data[value_index].pl_node;
+    const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
 
-        const section_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
-            const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
-            extra_index += 1;
-            break :inst inst;
-        };
-        _ = section_inst;
+    const name: []const u8 = switch (decl_name_index) {
+        0, 1 => unreachable, // comptime or usingnamespace decl
+        2 => {
+            unreachable;
+            // decl test
+            // const decl_status = scope.resolveDeclName(doc_comment_index);
+            // const decl_being_tested = decl_status.Analyzed;
+            // const func_index = getBlockInlineBreak(file.zir, value_index).?;
 
-        const addrspace_inst: Zir.Inst.Ref = if (!has_section_or_addrspace) .none else inst: {
-            const inst = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
-            extra_index += 1;
-            break :inst inst;
-        };
-        _ = addrspace_inst;
+            // const pl_node = data[Zir.refToIndex(func_index).?].pl_node;
+            // const fn_src = try self.srcLocInfo(file, pl_node.src_node, decl_src);
+            // const tree = try file.getTree(self.module.gpa);
+            // const test_source_code = tree.getNodeSource(fn_src.src_node);
 
-        // This is known to work because decl values are always block_inlines
-        const value_pl_node = data[value_index].pl_node;
-        const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
-
-        const name: []const u8 = switch (decl_name_index) {
-            0, 1 => continue, // comptime or usingnamespace decl
-            2 => {
-                // decl test
-                const decl_being_tested = scope.resolveDeclName(doc_comment_index);
-                const func_index = getBlockInlineBreak(file.zir, value_index).?;
-
-                const pl_node = data[Zir.refToIndex(func_index).?].pl_node;
-                const fn_src = try self.srcLocInfo(file, pl_node.src_node, decl_src);
-                const tree = try file.getTree(self.module.gpa);
-                const test_source_code = tree.getNodeSource(fn_src.src_node);
-
-                const ast_node_index = self.ast_nodes.items.len;
-                try self.ast_nodes.append(self.arena, .{
-                    .file = 0,
-                    .line = 0,
-                    .col = 0,
-                    .code = test_source_code,
-                });
-                self.decls.items[decl_being_tested].decltest = ast_node_index;
-                continue;
-            },
-            else => blk: {
-                if (file.zir.string_bytes[decl_name_index] == 0) {
-                    // test decl
-                    continue;
-                }
-                break :blk file.zir.nullTerminatedString(decl_name_index);
-            },
-        };
-
-        // If we got here, it means that this decl is not a test, usingnamespace
-        // or a comptime block decl.
-        good_decls_i += 1;
-
-        const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
-            file.zir.nullTerminatedString(doc_comment_index)
-        else
-            null;
-
-        // astnode
-        const ast_node_index = idx: {
-            const idx = self.ast_nodes.items.len;
-            try self.ast_nodes.append(self.arena, .{
-                .file = self.files.getIndex(file).?,
-                .line = decl_src.line,
-                .col = 0,
-                .docs = doc_comment,
-                .fields = null, // walkInstruction will fill `fields` if necessary
-            });
-            break :idx idx;
-        };
-
-        const walk_result = try self.walkInstruction(file, scope, decl_src, value_index, true);
-
-        if (is_pub) {
-            try decl_indexes.append(self.arena, decls_slot_index);
-        } else {
-            try priv_decl_indexes.append(self.arena, decls_slot_index);
-        }
-
-        // // decl.typeRef == decl.val...typeRef
-        // const decl_type_ref: DocData.TypeRef = switch (walk_result) {
-        //     .int => |i| i.typeRef,
-        //     .void => .{ .type = @enumToInt(Ref.void_type) },
-        //     .@"undefined", .@"null" => |v| v,
-        //     .@"unreachable" => .{ .type = @enumToInt(Ref.noreturn_type) },
-        //     .@"struct" => |s| s.typeRef,
-        //     .bool => .{ .type = @enumToInt(Ref.bool_type) },
-        //     .type => .{ .type = @enumToInt(Ref.type_type) },
-        //     // this last case is special becauese it's not pointing
-        //     // at the type of the value, but rather at the value itself
-        //     // the js better be aware ot this!
-        //     .declRef => |d| .{ .declRef = d },
-        // };
-
-        const kind: []const u8 = if (try self.declIsVar(file, value_pl_node.src_node, parent_src)) "var" else "const";
-
-        self.decls.items[decls_slot_index] = .{
-            ._analyzed = true,
-            .name = name,
-            .src = ast_node_index,
-            //.typeRef = decl_type_ref,
-            .value = walk_result,
-            .kind = kind,
-        };
-
-        // Unblock any pending decl path that was waiting for this decl.
-        if (self.ref_paths_pending_on_decls.get(decls_slot_index)) |paths| {
-            for (paths.items) |resume_info| {
-                try self.tryResolveRefPath(
-                    resume_info.file,
-                    value_index,
-                    resume_info.ref_path,
-                );
+            // const ast_node_index = self.ast_nodes.items.len;
+            // try self.ast_nodes.append(self.arena, .{
+            //     .file = 0,
+            //     .line = 0,
+            //     .col = 0,
+            //     .code = test_source_code,
+            // });
+            // self.decls.items[decl_being_tested].decltest = ast_node_index;
+            // continue;
+        },
+        else => blk: {
+            if (file.zir.string_bytes[decl_name_index] == 0) {
+                // test decl
+                unreachable;
             }
+            break :blk file.zir.nullTerminatedString(decl_name_index);
+        },
+    };
 
-            _ = self.ref_paths_pending_on_decls.remove(decls_slot_index);
-            // TODO: we should deallocate the arraylist that holds all the
-            //       ref paths. not doing it now since it's arena-allocated
-            //       anyway, but maybe we should put it elsewhere.
-        }
+    const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
+        file.zir.nullTerminatedString(doc_comment_index)
+    else
+        null;
+
+    // astnode
+    const ast_node_index = idx: {
+        const idx = self.ast_nodes.items.len;
+        try self.ast_nodes.append(self.arena, .{
+            .file = self.files.getIndex(file).?,
+            .line = decl_src.line,
+            .col = 0,
+            .docs = doc_comment,
+            .fields = null, // walkInstruction will fill `fields` if necessary
+        });
+        break :idx idx;
+    };
+
+    const walk_result = try self.walkInstruction(file, scope, decl_src, value_index, true);
+
+    const kind: []const u8 = if (try self.declIsVar(file, value_pl_node.src_node, parent_src)) "var" else "const";
+
+    const decls_slot_index = self.decls.items.len;
+    try self.decls.append(self.arena, .{
+        .name = name,
+        .src = ast_node_index,
+        .value = walk_result,
+        .kind = kind,
+    });
+
+    if (is_pub) {
+        try decl_indexes.append(self.arena, decls_slot_index);
+    } else {
+        try priv_decl_indexes.append(self.arena, decls_slot_index);
     }
 
-    return extra_index;
+    const decl_status_ptr = scope.resolveDeclName(decl_name_index, file, 0);
+    std.debug.assert(decl_status_ptr.* == .Pending);
+    decl_status_ptr.* = .{ .Analyzed = decls_slot_index };
+
+    // Unblock any pending decl path that was waiting for this decl.
+    if (self.ref_paths_pending_on_decls.get(decl_status_ptr)) |paths| {
+        for (paths.items) |resume_info| {
+            try self.tryResolveRefPath(
+                resume_info.file,
+                value_index,
+                resume_info.ref_path,
+            );
+        }
+
+        _ = self.ref_paths_pending_on_decls.remove(decl_status_ptr);
+        // TODO: we should deallocate the arraylist that holds all the
+        //       ref paths. not doing it now since it's arena-allocated
+        //       anyway, but maybe we should put it elsewhere.
+    }
+}
+
+fn analyzeUsingnamespaceDecl(
+    self: *Autodoc,
+    file: *File,
+    scope: *Scope,
+    parent_src: SrcLocInfo,
+    decl_indexes: *std.ArrayListUnmanaged(usize),
+    priv_decl_indexes: *std.ArrayListUnmanaged(usize),
+    d: Zir.DeclIterator.Item,
+) AutodocErrors!void {
+    const data = file.zir.instructions.items(.data);
+
+    const is_pub = @truncate(u1, d.flags) != 0;
+    const value_index = file.zir.extra[d.sub_index + 6];
+    const doc_comment_index = file.zir.extra[d.sub_index + 7];
+
+    // This is known to work because decl values are always block_inlines
+    const value_pl_node = data[value_index].pl_node;
+    const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
+
+    const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
+        file.zir.nullTerminatedString(doc_comment_index)
+    else
+        null;
+
+    // astnode
+    const ast_node_index = idx: {
+        const idx = self.ast_nodes.items.len;
+        try self.ast_nodes.append(self.arena, .{
+            .file = self.files.getIndex(file).?,
+            .line = decl_src.line,
+            .col = 0,
+            .docs = doc_comment,
+            .fields = null, // walkInstruction will fill `fields` if necessary
+        });
+        break :idx idx;
+    };
+
+    const walk_result = try self.walkInstruction(file, scope, decl_src, value_index, true);
+
+    const decl_slot_index = self.decls.items.len;
+    try self.decls.append(self.arena, .{
+        .name = "",
+        .kind = "",
+        .src = ast_node_index,
+        .value = walk_result,
+        .is_uns = true,
+    });
+
+    if (is_pub) {
+        try decl_indexes.append(self.arena, decl_slot_index);
+    } else {
+        try priv_decl_indexes.append(self.arena, decl_slot_index);
+    }
 }
 
 /// An unresolved path has a non-string WalkResult at its beginnig, while every
@@ -3290,7 +3293,7 @@ fn walkDecls(
 /// Same happens when a decl holds a type definition that hasn't been fully
 /// analyzed yet (except that we append to `self.ref_paths_pending_on_types`.
 ///
-/// When walkDecls / walkInstruction finishes analyzing a decl / type, it will
+/// When analyzeAllDecls / walkInstruction finishes analyzing a decl / type, it will
 /// then check if there's any pending ref path blocked on it and, if any, it
 /// will progress their resolution by calling tryResolveRefPath again.
 ///
@@ -3318,37 +3321,51 @@ fn tryResolveRefPath(
             switch (resolved_parent) {
                 else => break,
                 .this => |t| resolved_parent = .{ .type = t },
-                .declRef => |decl_index| {
+                .declIndex => |decl_index| {
                     const decl = self.decls.items[decl_index];
-                    if (decl._analyzed) {
-                        resolved_parent = decl.value.expr;
-                        continue;
+                    resolved_parent = decl.value.expr;
+                    continue;
+                },
+                .declRef => |decl_status_ptr| {
+                    // NOTE: must be kep in sync with `findNameInUnsDecls`
+                    switch (decl_status_ptr.*) {
+                        // The use of unreachable here is conservative.
+                        // It might be that it truly should be up to us to
+                        // request the analys of this decl, but it's not clear
+                        // at the moment of writing.
+                        .NotRequested => unreachable,
+                        .Analyzed => |decl_index| {
+                            const decl = self.decls.items[decl_index];
+                            resolved_parent = decl.value.expr;
+                            continue;
+                        },
+                        .Pending => {
+                            // This decl path is pending completion
+                            {
+                                const res = try self.pending_ref_paths.getOrPut(
+                                    self.arena,
+                                    &path[path.len - 1],
+                                );
+                                if (!res.found_existing) res.value_ptr.* = .{};
+                            }
+
+                            const res = try self.ref_paths_pending_on_decls.getOrPut(
+                                self.arena,
+                                decl_status_ptr,
+                            );
+                            if (!res.found_existing) res.value_ptr.* = .{};
+                            try res.value_ptr.*.append(self.arena, .{
+                                .file = file,
+                                .ref_path = path[i..path.len],
+                            });
+
+                            // We return instead doing `break :outer` to prevent the
+                            // code after the :outer while loop to run, as it assumes
+                            // that the path will have been fully analyzed (or we
+                            // have given up because of a comptimeExpr).
+                            return;
+                        },
                     }
-
-                    // This decl path is pending completion
-                    {
-                        const res = try self.pending_ref_paths.getOrPut(
-                            self.arena,
-                            &path[path.len - 1],
-                        );
-                        if (!res.found_existing) res.value_ptr.* = .{};
-                    }
-
-                    const res = try self.ref_paths_pending_on_decls.getOrPut(
-                        self.arena,
-                        decl_index,
-                    );
-                    if (!res.found_existing) res.value_ptr.* = .{};
-                    try res.value_ptr.*.append(self.arena, .{
-                        .file = file,
-                        .ref_path = path[i..path.len],
-                    });
-
-                    // We return instead doing `break :outer` to prevent the
-                    // code after the :outer while loop to run, as it assumes
-                    // that the path will have been fully analyzed (or we
-                    // have given up because of a comptimeExpr).
-                    return;
                 },
                 .refPath => |rp| {
                     if (self.pending_ref_paths.getPtr(&rp[rp.len - 1])) |waiter_list| {
@@ -3388,7 +3405,7 @@ fn tryResolveRefPath(
             panicWithContext(
                 file,
                 inst_index,
-                "exhausted eval quota for `{}`in tryResolveDecl\n",
+                "exhausted eval quota for `{}`in tryResolveRefPath\n",
                 .{resolved_parent},
             );
         }
@@ -3461,24 +3478,37 @@ fn tryResolveRefPath(
                         );
                     }
                 },
-                .Enum => |t_enum| {
-                    for (t_enum.pubDecls) |d| {
-                        // TODO: this could be improved a lot
-                        //       by having our own string table!
-                        const decl = self.decls.items[d];
-                        if (std.mem.eql(u8, decl.name, child_string)) {
-                            path[i + 1] = .{ .declRef = d };
+                // TODO: the following searches could probably
+                //       be performed more efficiently on the corresponding
+                //       scope
+                .Enum => |t_enum| { // foo.bar.baz
+                    // Look into locally-defined pub decls
+                    for (t_enum.pubDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
                             continue :outer;
                         }
                     }
-                    for (t_enum.privDecls) |d| {
-                        // TODO: this could be improved a lot
-                        //       by having our own string table!
-                        const decl = self.decls.items[d];
-                        if (std.mem.eql(u8, decl.name, child_string)) {
-                            path[i + 1] = .{ .declRef = d };
+
+                    // Look into locally-defined priv decls
+                    for (t_enum.privDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
                             continue :outer;
                         }
+                    }
+
+                    switch (try self.findNameInUnsDecls(file, path[i..path.len], resolved_parent, child_string)) {
+                        .Pending => return,
+                        .NotFound => {},
+                        .Found => |match| {
+                            path[i + 1] = match;
+                            continue :outer;
+                        },
                     }
 
                     for (self.ast_nodes.items[t_enum.src].fields.?, 0..) |ast_node, idx| {
@@ -3509,23 +3539,33 @@ fn tryResolveRefPath(
                     continue :outer;
                 },
                 .Union => |t_union| {
-                    for (t_union.pubDecls) |d| {
-                        // TODO: this could be improved a lot
-                        //       by having our own string table!
-                        const decl = self.decls.items[d];
-                        if (std.mem.eql(u8, decl.name, child_string)) {
-                            path[i + 1] = .{ .declRef = d };
+                    // Look into locally-defined pub decls
+                    for (t_union.pubDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
                             continue :outer;
                         }
                     }
-                    for (t_union.privDecls) |d| {
-                        // TODO: this could be improved a lot
-                        //       by having our own string table!
-                        const decl = self.decls.items[d];
-                        if (std.mem.eql(u8, decl.name, child_string)) {
-                            path[i + 1] = .{ .declRef = d };
+
+                    // Look into locally-defined priv decls
+                    for (t_union.privDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
                             continue :outer;
                         }
+                    }
+
+                    switch (try self.findNameInUnsDecls(file, path[i..path.len], resolved_parent, child_string)) {
+                        .Pending => return,
+                        .NotFound => {},
+                        .Found => |match| {
+                            path[i + 1] = match;
+                            continue :outer;
+                        },
                     }
 
                     for (self.ast_nodes.items[t_union.src].fields.?, 0..) |ast_node, idx| {
@@ -3556,23 +3596,33 @@ fn tryResolveRefPath(
                 },
 
                 .Struct => |t_struct| {
-                    for (t_struct.pubDecls) |d| {
-                        // TODO: this could be improved a lot
-                        //       by having our own string table!
-                        const decl = self.decls.items[d];
-                        if (std.mem.eql(u8, decl.name, child_string)) {
-                            path[i + 1] = .{ .declRef = d };
+                    // Look into locally-defined pub decls
+                    for (t_struct.pubDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
                             continue :outer;
                         }
                     }
-                    for (t_struct.privDecls) |d| {
-                        // TODO: this could be improved a lot
-                        //       by having our own string table!
-                        const decl = self.decls.items[d];
-                        if (std.mem.eql(u8, decl.name, child_string)) {
-                            path[i + 1] = .{ .declRef = d };
+
+                    // Look into locally-defined priv decls
+                    for (t_struct.privDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
                             continue :outer;
                         }
+                    }
+
+                    switch (try self.findNameInUnsDecls(file, path[i..path.len], resolved_parent, child_string)) {
+                        .Pending => return,
+                        .NotFound => {},
+                        .Found => |match| {
+                            path[i + 1] = match;
+                            continue :outer;
+                        },
                     }
 
                     for (self.ast_nodes.items[t_struct.src].fields.?, 0..) |ast_node, idx| {
@@ -3605,23 +3655,35 @@ fn tryResolveRefPath(
                     continue :outer;
                 },
                 .Opaque => |t_opaque| {
-                    for (t_opaque.pubDecls) |d| {
-                        // TODO: this could be improved a lot
-                        //       by having our own string table!
-                        const decl = self.decls.items[d];
-                        if (std.mem.eql(u8, decl.name, child_string)) {
-                            path[i + 1] = .{ .declRef = d };
+                    // Look into locally-defined pub decls
+                    for (t_opaque.pubDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
                             continue :outer;
                         }
                     }
-                    for (t_opaque.privDecls) |d| {
-                        // TODO: this could be improved a lot
-                        //       by having our own string table!
-                        const decl = self.decls.items[d];
-                        if (std.mem.eql(u8, decl.name, child_string)) {
-                            path[i + 1] = .{ .declRef = d };
+
+                    // Look into locally-defined priv decls
+                    for (t_opaque.privDecls) |idx| {
+                        const d = self.decls.items[idx];
+                        if (d.is_uns) continue;
+                        if (std.mem.eql(u8, d.name, child_string)) {
+                            path[i + 1] = .{ .declIndex = idx };
                             continue :outer;
                         }
+                    }
+
+                    // We delay looking into Uns decls since they could be
+                    // not fully analyzed yet.
+                    switch (try self.findNameInUnsDecls(file, path[i..path.len], resolved_parent, child_string)) {
+                        .Pending => return,
+                        .NotFound => {},
+                        .Found => |match| {
+                            path[i + 1] = match;
+                            continue :outer;
+                        },
                     }
 
                     // if we got here, our search failed
@@ -3670,6 +3732,104 @@ fn tryResolveRefPath(
         //       that said, we might want to store it elsewhere and reclaim memory asap
     }
 }
+
+const UnsSearchResult = union(enum) {
+    Found: DocData.Expr,
+    Pending,
+    NotFound,
+};
+
+fn findNameInUnsDecls(
+    self: *Autodoc,
+    file: *File,
+    tail: []DocData.Expr,
+    uns_expr: DocData.Expr,
+    name: []const u8,
+) !UnsSearchResult {
+    var to_analyze = std.SegmentedList(DocData.Expr, 1){};
+    // TODO: make this an appendAssumeCapacity
+    try to_analyze.append(self.arena, uns_expr);
+
+    while (to_analyze.pop()) |cte| {
+        var container_expression = cte;
+        for (0..10_000) |_| {
+            // TODO: handle other types of indirection, like @import
+            const type_index = switch (container_expression) {
+                .type => |t| t,
+                .declRef => |decl_status_ptr| {
+                    switch (decl_status_ptr.*) {
+                        // The use of unreachable here is conservative.
+                        // It might be that it truly should be up to us to
+                        // request the analys of this decl, but it's not clear
+                        // at the moment of writing.
+                        .NotRequested => unreachable,
+                        .Analyzed => |decl_index| {
+                            const decl = self.decls.items[decl_index];
+                            container_expression = decl.value.expr;
+                            continue;
+                        },
+                        .Pending => {
+                            // This decl path is pending completion
+                            {
+                                const res = try self.pending_ref_paths.getOrPut(
+                                    self.arena,
+                                    &tail[tail.len - 1],
+                                );
+                                if (!res.found_existing) res.value_ptr.* = .{};
+                            }
+
+                            const res = try self.ref_paths_pending_on_decls.getOrPut(
+                                self.arena,
+                                decl_status_ptr,
+                            );
+                            if (!res.found_existing) res.value_ptr.* = .{};
+                            try res.value_ptr.*.append(self.arena, .{
+                                .file = file,
+                                .ref_path = tail,
+                            });
+
+                            // TODO: save some state that keeps track of our
+                            //       progress because, as things stand, we
+                            //       always re-start the search from scratch
+                            return .Pending;
+                        },
+                    }
+                },
+                else => {
+                    log.debug(
+                        "Handle `{s}` in findNameInUnsDecls (first switch)",
+                        .{@tagName(cte)},
+                    );
+                    return .{ .Found = .{ .comptimeExpr = 0 } };
+                },
+            };
+
+            const t = self.types.items[type_index];
+            const decls = switch (t) {
+                else => {
+                    log.debug(
+                        "Handle `{s}` in findNameInUnsDecls (second switch)",
+                        .{@tagName(cte)},
+                    );
+                    return .{ .Found = .{ .comptimeExpr = 0 } };
+                },
+                inline .Struct, .Union, .Opaque, .Enum => |c| c.pubDecls,
+            };
+
+            for (decls) |idx| {
+                const d = self.decls.items[idx];
+                if (d.is_uns) {
+                    try to_analyze.append(self.arena, d.value.expr);
+                } else if (std.mem.eql(u8, d.name, name)) {
+                    return .{ .Found = .{ .declIndex = idx } };
+                }
+            }
+        }
+    }
+
+    return .NotFound;
+}
+
 fn analyzeFancyFunction(
     self: *Autodoc,
     file: *File,

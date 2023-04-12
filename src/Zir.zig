@@ -3667,6 +3667,7 @@ pub const DeclIterator = struct {
     pub const Item = struct {
         name: [:0]const u8,
         sub_index: u32,
+        flags: u4,
     };
 
     pub fn next(it: *DeclIterator) ?Item {
@@ -3691,6 +3692,7 @@ pub const DeclIterator = struct {
         return Item{
             .sub_index = sub_index,
             .name = name,
+            .flags = flags,
         };
     }
 };
