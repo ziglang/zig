@@ -454,6 +454,10 @@ pub const ExecutableOptions = struct {
     optimize: std.builtin.Mode = .Debug,
     linkage: ?CompileStep.Linkage = null,
     max_rss: usize = 0,
+    link_libc: ?bool = null,
+    single_threaded: ?bool = null,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
 };
 
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *CompileStep {
@@ -466,6 +470,10 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *CompileStep {
         .kind = .exe,
         .linkage = options.linkage,
         .max_rss = options.max_rss,
+        .link_libc = options.link_libc,
+        .single_threaded = options.single_threaded,
+        .use_llvm = options.use_llvm,
+        .use_lld = options.use_lld,
     });
 }
 
@@ -475,6 +483,10 @@ pub const ObjectOptions = struct {
     target: CrossTarget,
     optimize: std.builtin.Mode,
     max_rss: usize = 0,
+    link_libc: ?bool = null,
+    single_threaded: ?bool = null,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
 };
 
 pub fn addObject(b: *Build, options: ObjectOptions) *CompileStep {
@@ -485,6 +497,10 @@ pub fn addObject(b: *Build, options: ObjectOptions) *CompileStep {
         .optimize = options.optimize,
         .kind = .obj,
         .max_rss = options.max_rss,
+        .link_libc = options.link_libc,
+        .single_threaded = options.single_threaded,
+        .use_llvm = options.use_llvm,
+        .use_lld = options.use_lld,
     });
 }
 
@@ -495,6 +511,10 @@ pub const SharedLibraryOptions = struct {
     target: CrossTarget,
     optimize: std.builtin.Mode,
     max_rss: usize = 0,
+    link_libc: ?bool = null,
+    single_threaded: ?bool = null,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
 };
 
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *CompileStep {
@@ -507,6 +527,10 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *CompileStep {
         .target = options.target,
         .optimize = options.optimize,
         .max_rss = options.max_rss,
+        .link_libc = options.link_libc,
+        .single_threaded = options.single_threaded,
+        .use_llvm = options.use_llvm,
+        .use_lld = options.use_lld,
     });
 }
 
@@ -517,6 +541,10 @@ pub const StaticLibraryOptions = struct {
     optimize: std.builtin.Mode,
     version: ?std.builtin.Version = null,
     max_rss: usize = 0,
+    link_libc: ?bool = null,
+    single_threaded: ?bool = null,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
 };
 
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *CompileStep {
@@ -529,6 +557,10 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *CompileStep {
         .target = options.target,
         .optimize = options.optimize,
         .max_rss = options.max_rss,
+        .link_libc = options.link_libc,
+        .single_threaded = options.single_threaded,
+        .use_llvm = options.use_llvm,
+        .use_lld = options.use_lld,
     });
 }
 
@@ -541,6 +573,10 @@ pub const TestOptions = struct {
     max_rss: usize = 0,
     filter: ?[]const u8 = null,
     test_runner: ?[]const u8 = null,
+    link_libc: ?bool = null,
+    single_threaded: ?bool = null,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
 };
 
 pub fn addTest(b: *Build, options: TestOptions) *CompileStep {
@@ -553,6 +589,10 @@ pub fn addTest(b: *Build, options: TestOptions) *CompileStep {
         .max_rss = options.max_rss,
         .filter = options.filter,
         .test_runner = options.test_runner,
+        .link_libc = options.link_libc,
+        .single_threaded = options.single_threaded,
+        .use_llvm = options.use_llvm,
+        .use_lld = options.use_lld,
     });
 }
 
