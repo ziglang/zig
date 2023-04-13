@@ -1905,6 +1905,7 @@ pub const Target = struct {
     }
 
     pub const CType = enum {
+        char,
         short,
         ushort,
         int,
@@ -1920,6 +1921,7 @@ pub const Target = struct {
 
     pub fn c_type_byte_size(t: Target, c_type: CType) u16 {
         return switch (c_type) {
+            .char,
             .short,
             .ushort,
             .int,
@@ -1948,21 +1950,25 @@ pub const Target = struct {
         switch (target.os.tag) {
             .freestanding, .other => switch (target.cpu.arch) {
                 .msp430 => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort, .int, .uint => return 16,
                     .float, .long, .ulong => return 32,
                     .longlong, .ulonglong, .double, .longdouble => return 64,
                 },
                 .avr => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort, .int, .uint => return 16,
                     .long, .ulong, .float, .double, .longdouble => return 32,
                     .longlong, .ulonglong => return 64,
                 },
                 .tce, .tcele => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .long, .ulong, .longlong, .ulonglong => return 32,
                     .float, .double, .longdouble => return 32,
                 },
                 .mips64, .mips64el => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => return if (target.abi != .gnuabin32) 64 else 32,
@@ -1970,6 +1976,7 @@ pub const Target = struct {
                     .longdouble => return 128,
                 },
                 .x86_64 => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => switch (target.abi) {
@@ -1980,6 +1987,7 @@ pub const Target = struct {
                     .longdouble => return 80,
                 },
                 else => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => return target.cpu.arch.ptrBitWidth(),
@@ -2036,21 +2044,25 @@ pub const Target = struct {
             .minix,
             => switch (target.cpu.arch) {
                 .msp430 => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort, .int, .uint => return 16,
                     .long, .ulong, .float => return 32,
                     .longlong, .ulonglong, .double, .longdouble => return 64,
                 },
                 .avr => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort, .int, .uint => return 16,
                     .long, .ulong, .float, .double, .longdouble => return 32,
                     .longlong, .ulonglong => return 64,
                 },
                 .tce, .tcele => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .long, .ulong, .longlong, .ulonglong => return 32,
                     .float, .double, .longdouble => return 32,
                 },
                 .mips64, .mips64el => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => return if (target.abi != .gnuabin32) 64 else 32,
@@ -2058,6 +2070,7 @@ pub const Target = struct {
                     .longdouble => if (target.os.tag == .freebsd) return 64 else return 128,
                 },
                 .x86_64 => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => switch (target.abi) {
@@ -2068,6 +2081,7 @@ pub const Target = struct {
                     .longdouble => return 80,
                 },
                 else => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => return target.cpu.arch.ptrBitWidth(),
@@ -2128,6 +2142,7 @@ pub const Target = struct {
 
             .windows, .uefi => switch (target.cpu.arch) {
                 .x86 => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => return 32,
@@ -2138,6 +2153,7 @@ pub const Target = struct {
                     },
                 },
                 .x86_64 => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => switch (target.abi) {
@@ -2151,6 +2167,7 @@ pub const Target = struct {
                     },
                 },
                 else => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => return 32,
@@ -2160,6 +2177,7 @@ pub const Target = struct {
             },
 
             .macos, .ios, .tvos, .watchos => switch (c_type) {
+                .char => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong => switch (target.cpu.arch) {
@@ -2182,6 +2200,7 @@ pub const Target = struct {
             },
 
             .nvcl, .cuda => switch (c_type) {
+                .char => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong => switch (target.cpu.arch) {
@@ -2194,6 +2213,7 @@ pub const Target = struct {
             },
 
             .amdhsa, .amdpal => switch (c_type) {
+                .char => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong, .longlong, .ulonglong, .double => return 64,
