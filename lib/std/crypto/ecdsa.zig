@@ -249,7 +249,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             }
 
             /// Verify that the signature is valid for the entire message.
-            pub fn verify(self: *Verifier) (IdentityElementError || SignatureVerificationError)!void {
+            pub fn verify(self: *Verifier) (IdentityElementError || NonCanonicalError || SignatureVerificationError)!void {
                 const ht = Curve.scalar.encoded_length;
                 const h_len = @max(Hash.digest_length, ht);
                 var h: [h_len]u8 = [_]u8{0} ** h_len;
