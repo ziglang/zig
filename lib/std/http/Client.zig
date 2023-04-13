@@ -29,34 +29,16 @@ connection_pool: ConnectionPool = .{},
 last_error: ?ExtraError = null,
 
 pub const ExtraError = union(enum) {
-    fn impliedErrorSet(comptime f: anytype) type {
-        const set = @typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?).ErrorUnion.error_set;
-        if (@typeName(set)[0] != '@') @compileError(@typeName(f) ++ " doesn't have an implied error set any more.");
-        return set;
-    }
-
-    // There's apparently a dependency loop with using Client.DeflateDecompressor.
-    const FakeTransferError = proto.HeadersParser.ReadError || error{ReadFailed};
-    const FakeTransferReader = std.io.Reader(void, FakeTransferError, fakeRead);
-    fn fakeRead(ctx: void, buf: []u8) FakeTransferError!usize {
-        _ = .{ buf, ctx };
-        return 0;
-    }
-
-    const FakeDeflateDecompressor = std.compress.zlib.ZlibStream(FakeTransferReader);
-    const FakeGzipDecompressor = std.compress.gzip.Decompress(FakeTransferReader);
-    const FakeZstdDecompressor = std.compress.zstd.DecompressStream(FakeTransferReader, .{});
-
     pub const TcpConnectError = std.net.TcpConnectToHostError;
     pub const TlsError = std.crypto.tls.Client.InitError(net.Stream);
     pub const WriteError = BufferedConnection.WriteError;
     pub const ReadError = BufferedConnection.ReadError || error{HttpChunkInvalid};
-    pub const CaBundleError = impliedErrorSet(std.crypto.Certificate.Bundle.rescan);
+    pub const CaBundleError = std.crypto.Certificate.Bundle.RescanError;
 
     pub const ZlibInitError = error{ BadHeader, InvalidCompression, InvalidWindowSize, Unsupported, EndOfStream, OutOfMemory } || Request.TransferReadError;
     pub const GzipInitError = error{ BadHeader, InvalidCompression, OutOfMemory, WrongChecksum, EndOfStream, StreamTooLong } || Request.TransferReadError;
-    // pub const DecompressError = Client.DeflateDecompressor.Error || Client.GzipDecompressor.Error || Client.ZstdDecompressor.Error;
-    pub const DecompressError = FakeDeflateDecompressor.Error || FakeGzipDecompressor.Error || FakeZstdDecompressor.Error;
+    // pub const DecompressError = Compression.DeflateDecompressor.Error || Compression.GzipDecompressor.Error || Compression.ZstdDecompressor.Error;
+    pub const DecompressError = anyerror; // FIXME: the above line causes a false positive dependency loop
 
     zlib_init: ZlibInitError, // error.CompressionInitializationFailed
     gzip_init: GzipInitError, // error.CompressionInitializationFailed
