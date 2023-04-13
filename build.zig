@@ -85,9 +85,7 @@ pub fn build(b: *std.Build) !void {
     const skip_cross_glibc = b.option(bool, "skip-cross-glibc", "Main test suite skips builds that require cross glibc") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
-    const skip_stage1 = b.option(bool, "skip-stage1", "Main test suite skips stage1 compile error tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
-    const skip_stage2_tests = b.option(bool, "skip-stage2-tests", "Main test suite skips self-hosted compiler tests") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
@@ -187,9 +185,7 @@ pub fn build(b: *std.Build) !void {
     const compile_step = b.step("compile", "Build the self-hosted compiler");
     compile_step.dependOn(&exe.step);
 
-    if (!skip_stage2_tests) {
-        test_step.dependOn(&exe.step);
-    }
+    test_step.dependOn(&exe.step);
 
     exe.single_threaded = single_threaded;
 
@@ -360,7 +356,6 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     test_cases_options.addOption(bool, "skip_non_native", skip_non_native);
     test_cases_options.addOption(bool, "skip_cross_glibc", skip_cross_glibc);
-    test_cases_options.addOption(bool, "skip_stage1", skip_stage1);
     test_cases_options.addOption(bool, "have_llvm", enable_llvm);
     test_cases_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
     test_cases_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
@@ -416,7 +411,7 @@ pub fn build(b: *std.Build) !void {
 
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
     try tests.addCases(b, test_cases_step, test_filter, check_case_exe);
-    if (!skip_stage2_tests) test_step.dependOn(test_cases_step);
+    test_step.dependOn(test_cases_step);
 
     test_step.dependOn(tests.addModuleTests(b, .{
         .test_filter = test_filter,
@@ -428,8 +423,6 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = skip_libc,
-        .skip_stage1 = skip_stage1,
-        .skip_stage2 = skip_stage2_tests,
         .max_rss = 1 * 1024 * 1024 * 1024,
     }));
 
@@ -443,8 +436,6 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = true,
-        .skip_stage1 = skip_stage1,
-        .skip_stage2 = true, // TODO get all these passing
     }));
 
     test_step.dependOn(tests.addModuleTests(b, .{
@@ -457,8 +448,6 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = true,
-        .skip_stage1 = skip_stage1,
-        .skip_stage2 = true, // TODO get all these passing
     }));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, optimization_modes));
@@ -466,11 +455,11 @@ pub fn build(b: *std.Build) !void {
         b,
         optimization_modes,
         enable_macos_sdk,
-        skip_stage2_tests,
+        false,
         enable_symlinks_windows,
     ));
     test_step.dependOn(tests.addCAbiTests(b, skip_non_native, skip_release));
-    test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, skip_stage2_tests, enable_symlinks_windows));
+    test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, false, enable_symlinks_windows));
     test_step.dependOn(tests.addStackTraceTests(b, test_filter, optimization_modes));
     test_step.dependOn(tests.addCliTests(b));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, optimization_modes));
@@ -489,8 +478,6 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = skip_libc,
-        .skip_stage1 = skip_stage1,
-        .skip_stage2 = true, // TODO get all these passing
         // I observed a value of 3398275072 on my M1, and multiplied by 1.1 to
         // get this amount:
         .max_rss = 3738102579,
