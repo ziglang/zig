@@ -1980,6 +1980,21 @@ pub const NAME_MAX = 255;
 pub const MFD = struct {
     pub const CLOEXEC = 0x0001;
     pub const ALLOW_SEALING = 0x0002;
+    pub const HUGETLB = 0x00000004;
+    pub const HUGE_MASK = 0xFC000000;
+    pub const HUGE_SHIFT = 26;
+    pub const HUGE_64KB = 16 << HUGE_SHIFT;
+    pub const HUGE_512KB = 19 << HUGE_SHIFT;
+    pub const HUGE_1MB = 20 << HUGE_SHIFT;
+    pub const HUGE_2MB = 21 << HUGE_SHIFT;
+    pub const HUGE_8MB = 23 << HUGE_SHIFT;
+    pub const HUGE_16MB = 24 << HUGE_SHIFT;
+    pub const HUGE_32MB = 25 << HUGE_SHIFT;
+    pub const HUGE_256MB = 28 << HUGE_SHIFT;
+    pub const HUGE_512MB = 29 << HUGE_SHIFT;
+    pub const HUGE_1GB = 30 << HUGE_SHIFT;
+    pub const HUGE_2GB = 31 << HUGE_SHIFT;
+    pub const HUGE_16GB = 34 << HUGE_SHIFT;
 };
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
@@ -2109,3 +2124,20 @@ pub const procctl_reaper_kill = extern struct {
 };
 
 pub extern "c" fn procctl(idtype: idtype_t, id: id_t, cmd: c_int, data: ?*anyopaque) c_int;
+
+pub const SHM = struct {
+    pub const ALLOW_SEALING = 0x00000001;
+    pub const GROW_ON_WRWITE = 0x00000002;
+    pub const LARGEPAGE = 0x00000004;
+    pub const LARGEPAGE_ALLOC_DEFAULT = 0;
+    pub const LARGEPAGE_ALLOC_NOWAIT = 1;
+    pub const LARGEPAGE_ALLOC_HARD = 2;
+};
+
+pub const shm_largeconf = extern struct {
+    psind: c_int,
+    alloc_policy: c_int,
+    pad: [10]c_int,
+};
+
+pub extern "c" fn shm_create_largepage(path: [*:0]const u8, flags: c_int, psind: c_int, alloc_policy: c_int, mode: mode_t) c_int;
