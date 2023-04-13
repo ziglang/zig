@@ -350,7 +350,7 @@ const Scope = struct {
     parent: ?*Scope,
     map: std.AutoHashMapUnmanaged(
         u32, // index into the current file's string table (decl name)
-        DeclStatus,
+        *DeclStatus,
     ) = .{},
 
     enclosing_type: usize, // index into `types`
@@ -359,15 +359,17 @@ const Scope = struct {
         Analyzed: usize, // index into `decls`
         Pending,
         NotRequested: u32, // instr_index
-
     };
 
     /// Returns a pointer so that the caller has a chance to modify the value
     /// in case they decide to start analyzing a previously not requested decl.
+    /// Another reason is that in some places we use the pointer to uniquely
+    /// refer to a decl, as we wait for it to be analyzed. This means that
+    /// those pointers must stay stable.
     pub fn resolveDeclName(self: Scope, string_table_idx: u32, file: *File, inst_index: usize) *DeclStatus {
         var cur: ?*const Scope = &self;
         return while (cur) |s| : (cur = s.parent) {
-            break s.map.getPtr(string_table_idx) orelse continue;
+            break s.map.get(string_table_idx) orelse continue;
         } else {
             printWithContext(
                 file,
@@ -385,7 +387,11 @@ const Scope = struct {
         decl_name_index: u32, // index into the current file's string table
         decl_status: DeclStatus,
     ) !void {
-        try self.map.put(arena, decl_name_index, decl_status);
+        const decl_status_ptr = try arena.create(DeclStatus);
+        errdefer arena.destroy(decl_status_ptr);
+
+        decl_status_ptr.* = decl_status;
+        try self.map.put(arena, decl_name_index, decl_status_ptr);
     }
 };
 
