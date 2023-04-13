@@ -493,7 +493,7 @@ pub fn generateSymbol(
                         bin_file.allocator,
                         src_loc,
                         "TODO implement generateSymbol for big int enums ('{}')",
-                        .{typed_value.ty.fmtDebug()},
+                        .{typed_value.ty.fmt(mod)},
                     ),
                 };
             }
@@ -932,6 +932,10 @@ pub const GenResult = union(enum) {
         /// such as ARM, the immediate will never exceed 32-bits.
         immediate: u64,
         linker_load: LinkerLoad,
+        /// Pointer to a threadlocal variable.
+        /// The address resolution will be deferred until the linker allocates everything in virtual memory.
+        /// Payload is a symbol index.
+        tlv_reloc: u32,
         /// Direct by-address reference to memory location.
         memory: u64,
     };
@@ -957,13 +961,13 @@ fn genDeclRef(
     tv: TypedValue,
     decl_index: Module.Decl.Index,
 ) CodeGenError!GenResult {
-    log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
+    const module = bin_file.options.module.?;
+    log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmt(module), tv.val.fmtValue(tv.ty, module) });
 
     const target = bin_file.options.target;
     const ptr_bits = target.cpu.arch.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
-    const module = bin_file.options.module.?;
     const decl = module.declPtr(decl_index);
 
     if (!decl.ty.isFnOrHasRuntimeBitsIgnoreComptime()) {
@@ -991,6 +995,8 @@ fn genDeclRef(
 
     module.markDeclAlive(decl);
 
+    const is_threadlocal = tv.val.isPtrToThreadLocal(module) and !bin_file.options.single_threaded;
+
     if (bin_file.cast(link.File.Elf)) |elf_file| {
         const atom_index = try elf_file.getOrCreateAtomForDecl(decl_index);
         const atom = elf_file.getAtom(atom_index);
@@ -998,6 +1004,9 @@ fn genDeclRef(
     } else if (bin_file.cast(link.File.MachO)) |macho_file| {
         const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
+        if (is_threadlocal) {
+            return GenResult.mcv(.{ .tlv_reloc = sym_index });
+        }
         return GenResult.mcv(.{ .linker_load = .{
             .type = .got,
             .sym_index = sym_index,
@@ -1025,7 +1034,8 @@ fn genUnnamedConst(
     tv: TypedValue,
     owner_decl_index: Module.Decl.Index,
 ) CodeGenError!GenResult {
-    log.debug("genUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
+    const mod = bin_file.options.module.?;
+    log.debug("genUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmt(mod), tv.val.fmtValue(tv.ty, mod) });
 
     const target = bin_file.options.target;
     const local_sym_index = bin_file.lowerUnnamedConst(tv, owner_decl_index) catch |err| {
@@ -1065,7 +1075,11 @@ pub fn genTypedValue(
         typed_value.val = rt.data;
     }
 
-    log.debug("genTypedValue: ty = {}, val = {}", .{ typed_value.ty.fmtDebug(), typed_value.val.fmtDebug() });
+    const mod = bin_file.options.module.?;
+    log.debug("genTypedValue: ty = {}, val = {}", .{
+        typed_value.ty.fmt(mod),
+        typed_value.val.fmtValue(typed_value.ty, mod),
+    });
 
     if (typed_value.val.isUndef())
         return GenResult.mcv(.undef);

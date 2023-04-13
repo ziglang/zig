@@ -233,6 +233,8 @@ pub const Inst = struct {
 
         /// Load effective address of a symbol not yet allocated in VM.
         lea_linker,
+        /// Move address of a symbol not yet allocated in VM.
+        mov_linker,
 
         /// End of prologue
         dbg_prologue_end,
@@ -402,6 +404,9 @@ pub const Inst = struct {
         /// Linker relocation - imports table indirection (binding).
         /// Uses `payload` payload with extra data of type `LeaRegisterReloc`.
         import_reloc,
+        /// Linker relocation - threadlocal variable via GOT indirection.
+        /// Uses `payload` payload with extra data of type `LeaRegisterReloc`.
+        tlv_reloc,
     };
 
     pub const Data = union {
