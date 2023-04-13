@@ -56,7 +56,7 @@ fn mainServer() !void {
             },
             .query_test_metadata => {
                 std.testing.allocator_instance = .{};
-                defer if (std.testing.allocator_instance.deinit() == std.heap.Check.leak) {
+                defer if (std.testing.allocator_instance.deinit() == .leak) {
                     @panic("internal test runner memory leak");
                 };
 
@@ -108,7 +108,7 @@ fn mainServer() !void {
                         }
                     },
                 };
-                leak = std.testing.allocator_instance.deinit() == std.heap.Check.leak;
+                leak = std.testing.allocator_instance.deinit() == .leak;
                 try server.serveTestResults(.{
                     .index = index,
                     .flags = .{
@@ -148,7 +148,7 @@ fn mainTerminal() void {
     for (test_fn_list, 0..) |test_fn, i| {
         std.testing.allocator_instance = .{};
         defer {
-            if (std.testing.allocator_instance.deinit() == std.heap.Check.leak) {
+            if (std.testing.allocator_instance.deinit() == .leak) {
                 leaks += 1;
             }
         }
