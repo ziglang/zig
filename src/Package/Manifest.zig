@@ -57,6 +57,7 @@ name: []const u8,
 version: std.SemanticVersion,
 dependencies: std.StringArrayHashMapUnmanaged(Dependency),
 paths: std.StringArrayHashMapUnmanaged(void),
+minimum_zig_version: ?std.SemanticVersion,
 
 errors: []ErrorMessage,
 arena_state: std.heap.ArenaAllocator.State,
@@ -87,6 +88,7 @@ pub fn parse(gpa: Allocator, ast: std.zig.Ast, options: ParseOptions) Error!Mani
         .dependencies = .{},
         .paths = .{},
         .allow_missing_paths_field = options.allow_missing_paths_field,
+        .minimum_zig_version = null,
         .buf = .{},
     };
     defer p.buf.deinit(gpa);
@@ -104,6 +106,7 @@ pub fn parse(gpa: Allocator, ast: std.zig.Ast, options: ParseOptions) Error!Mani
         .version = p.version,
         .dependencies = try p.dependencies.clone(p.arena),
         .paths = try p.paths.clone(p.arena),
+        .minimum_zig_version = p.minimum_zig_version,
         .errors = try p.arena.dupe(ErrorMessage, p.errors.items),
         .arena_state = arena_instance.state,
     };
@@ -160,6 +163,7 @@ const Parse = struct {
     dependencies: std.StringArrayHashMapUnmanaged(Dependency),
     paths: std.StringArrayHashMapUnmanaged(void),
     allow_missing_paths_field: bool,
+    minimum_zig_version: ?std.SemanticVersion,
 
     const InnerError = error{ ParseFailure, OutOfMemory };
 
@@ -198,6 +202,12 @@ const Parse = struct {
                     break :v undefined;
                 };
                 have_version = true;
+            } else if (mem.eql(u8, field_name, "minimum_zig_version")) {
+                const version_text = try parseString(p, field_init);
+                p.minimum_zig_version = std.SemanticVersion.parse(version_text) catch |err| v: {
+                    try appendError(p, main_tokens[field_init], "unable to parse semantic version: {s}", .{@errorName(err)});
+                    break :v null;
+                };
             } else {
                 // Ignore unknown fields so that we can add fields in future zig
                 // versions without breaking older zig versions.
@@ -545,6 +555,7 @@ test "basic" {
     var manifest = try Manifest.parse(gpa, ast);
     defer manifest.deinit(gpa);
 
+    try testing.expect(manifest.errors.len == 0);
     try testing.expectEqualStrings("foo", manifest.name);
 
     try testing.expectEqual(@as(std.SemanticVersion, .{
@@ -563,4 +574,62 @@ test "basic" {
         "1220f1b680b6065fcfc94fe777f22e73bcb7e2767e5f4d99d4255fe76ded69c7a35f",
         manifest.dependencies.values()[0].hash orelse return error.TestFailed,
     );
+
+    try testing.expect(manifest.minimum_zig_version == null);
+}
+
+test "minimum_zig_version" {
+    const gpa = testing.allocator;
+
+    const example =
+        \\.{
+        \\    .name = "foo",
+        \\    .version = "3.2.1",
+        \\    .minimum_zig_version = "0.11.1",
+        \\}
+    ;
+
+    var ast = try std.zig.Ast.parse(gpa, example, .zon);
+    defer ast.deinit(gpa);
+
+    try testing.expect(ast.errors.len == 0);
+
+    var manifest = try Manifest.parse(gpa, ast);
+    defer manifest.deinit(gpa);
+
+    try testing.expect(manifest.errors.len == 0);
+    try testing.expect(manifest.dependencies.count() == 0);
+
+    try testing.expect(manifest.minimum_zig_version != null);
+
+    try testing.expectEqual(@as(std.SemanticVersion, .{
+        .major = 0,
+        .minor = 11,
+        .patch = 1,
+    }), manifest.minimum_zig_version.?);
+}
+
+test "minimum_zig_version - invalid version" {
+    const gpa = testing.allocator;
+
+    const example =
+        \\.{
+        \\    .name = "foo",
+        \\    .version = "3.2.1",
+        \\    .minimum_zig_version = "X.11.1",
+        \\}
+    ;
+
+    var ast = try std.zig.Ast.parse(gpa, example, .zon);
+    defer ast.deinit(gpa);
+
+    try testing.expect(ast.errors.len == 0);
+
+    var manifest = try Manifest.parse(gpa, ast);
+    defer manifest.deinit(gpa);
+
+    try testing.expect(manifest.errors.len == 1);
+    try testing.expect(manifest.dependencies.count() == 0);
+
+    try testing.expect(manifest.minimum_zig_version == null);
 }
