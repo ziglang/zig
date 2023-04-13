@@ -966,7 +966,7 @@ fn genDeclRef(
     const module = bin_file.options.module.?;
     const decl = module.declPtr(decl_index);
 
-    if (decl.ty.zigTypeTag() != .Fn and !decl.ty.hasRuntimeBitsIgnoreComptime()) {
+    if (!decl.ty.isFnOrHasRuntimeBitsIgnoreComptime()) {
         const imm: u64 = switch (ptr_bytes) {
             1 => 0xaa,
             2 => 0xaaaa,
@@ -978,10 +978,14 @@ fn genDeclRef(
     }
 
     // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
-    if (tv.ty.zigTypeTag() == .Pointer) blk: {
-        if (tv.ty.castPtrToFn()) |_| break :blk;
-        if (!tv.ty.elemType2().hasRuntimeBits()) {
-            return GenResult.mcv(.none);
+    if (tv.ty.castPtrToFn()) |fn_ty| {
+        if (fn_ty.fnInfo().is_generic) {
+            return GenResult.mcv(.{ .immediate = fn_ty.abiAlignment(target) });
+        }
+    } else if (tv.ty.zigTypeTag() == .Pointer) {
+        const elem_ty = tv.ty.elemType2();
+        if (!elem_ty.hasRuntimeBits()) {
+            return GenResult.mcv(.{ .immediate = elem_ty.abiAlignment(target) });
         }
     }
 

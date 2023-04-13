@@ -1080,7 +1080,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .constant => unreachable, // excluded from function bodies
             .const_ty => unreachable, // excluded from function bodies
-            .unreach  => self.finishAirBookkeeping(),
+            .unreach  => if (self.wantSafety()) try self.airTrap() else self.finishAirBookkeeping(),
 
             .optional_payload           => try self.airOptionalPayload(inst),
             .optional_payload_ptr       => try self.airOptionalPayloadPtr(inst),
@@ -1734,10 +1734,10 @@ fn airAddSat(self: *Self, inst: Air.Inst.Index) !void {
         };
         try self.genBinOpMir(.add, ty, dst_mcv, rhs_mcv);
 
-        const abi_size = @intCast(u32, @max(ty.abiSize(self.target.*), 2));
+        const cmov_abi_size = @max(@intCast(u32, ty.abiSize(self.target.*)), 2);
         try self.asmCmovccRegisterRegister(
-            registerAlias(dst_reg, abi_size),
-            registerAlias(limit_reg, abi_size),
+            registerAlias(dst_reg, cmov_abi_size),
+            registerAlias(limit_reg, cmov_abi_size),
             cc,
         );
         break :result dst_mcv;
@@ -1785,10 +1785,10 @@ fn airSubSat(self: *Self, inst: Air.Inst.Index) !void {
         };
         try self.genBinOpMir(.sub, ty, dst_mcv, rhs_mcv);
 
-        const abi_size = @intCast(u32, @max(ty.abiSize(self.target.*), 2));
+        const cmov_abi_size = @max(@intCast(u32, ty.abiSize(self.target.*)), 2);
         try self.asmCmovccRegisterRegister(
-            registerAlias(dst_reg, abi_size),
-            registerAlias(limit_reg, abi_size),
+            registerAlias(dst_reg, cmov_abi_size),
+            registerAlias(limit_reg, cmov_abi_size),
             cc,
         );
         break :result dst_mcv;
@@ -1841,10 +1841,10 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
         };
 
         const dst_mcv = try self.genMulDivBinOp(.mul, inst, ty, ty, lhs_mcv, rhs_mcv);
-        const abi_size = @intCast(u32, @max(ty.abiSize(self.target.*), 2));
+        const cmov_abi_size = @max(@intCast(u32, ty.abiSize(self.target.*)), 2);
         try self.asmCmovccRegisterRegister(
-            registerAlias(dst_mcv.register, abi_size),
-            registerAlias(limit_reg, abi_size),
+            registerAlias(dst_mcv.register, cmov_abi_size),
+            registerAlias(limit_reg, cmov_abi_size),
             cc,
         );
         break :result dst_mcv;
@@ -3083,7 +3083,7 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
         };
         defer if (mat_src_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const dst_reg = try self.register_manager.allocReg(null, gp);
+        const dst_reg = try self.register_manager.allocReg(inst, gp);
         const dst_mcv = MCValue{ .register = dst_reg };
         const dst_lock = self.register_manager.lockReg(dst_reg);
         defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
@@ -3098,19 +3098,37 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
         }
 
         const src_bits = src_ty.bitSize(self.target.*);
-        const width_mcv =
-            try self.copyToRegisterWithInstTracking(inst, dst_ty, .{ .immediate = src_bits });
-        try self.genBinOpMir(.bsr, src_ty, dst_mcv, mat_src_mcv);
+        if (math.isPowerOfTwo(src_bits)) {
+            const imm_reg = try self.copyToTmpRegister(dst_ty, .{
+                .immediate = src_bits ^ (src_bits - 1),
+            });
+            try self.genBinOpMir(.bsf, src_ty, dst_mcv, mat_src_mcv);
 
-        const dst_abi_size = @intCast(u32, @max(dst_ty.abiSize(self.target.*), 2));
-        try self.asmCmovccRegisterRegister(
-            registerAlias(dst_reg, dst_abi_size),
-            registerAlias(width_mcv.register, dst_abi_size),
-            .z,
-        );
+            const cmov_abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
+            try self.asmCmovccRegisterRegister(
+                registerAlias(dst_reg, cmov_abi_size),
+                registerAlias(imm_reg, cmov_abi_size),
+                .z,
+            );
 
-        try self.genBinOpMir(.sub, dst_ty, width_mcv, dst_mcv);
-        break :result width_mcv;
+            try self.genBinOpMir(.xor, dst_ty, dst_mcv, .{ .immediate = src_bits - 1 });
+        } else {
+            const imm_reg = try self.copyToTmpRegister(dst_ty, .{
+                .immediate = @as(u64, math.maxInt(u64)) >> @intCast(u6, 64 - self.regBitSize(dst_ty)),
+            });
+            try self.genBinOpMir(.bsf, src_ty, dst_mcv, mat_src_mcv);
+
+            const cmov_abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
+            try self.asmCmovccRegisterRegister(
+                registerAlias(imm_reg, cmov_abi_size),
+                registerAlias(dst_reg, cmov_abi_size),
+                .nz,
+            );
+
+            try self.genSetReg(dst_ty, dst_reg, .{ .immediate = src_bits - 1 });
+            try self.genBinOpMir(.sub, dst_ty, dst_mcv, .{ .register = imm_reg });
+        }
+        break :result dst_mcv;
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -3162,10 +3180,10 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
         const width_reg = try self.copyToTmpRegister(dst_ty, .{ .immediate = src_bits });
         try self.genBinOpMir(.bsf, src_ty, dst_mcv, mat_src_mcv);
 
-        const abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
+        const cmov_abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
         try self.asmCmovccRegisterRegister(
-            registerAlias(dst_reg, abi_size),
-            registerAlias(width_reg, abi_size),
+            registerAlias(dst_reg, cmov_abi_size),
+            registerAlias(width_reg, cmov_abi_size),
             .z,
         );
         break :result dst_mcv;
@@ -3569,7 +3587,12 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         return self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg }, .{});
                     }
 
-                    try self.genInlineMemcpy(dst_mcv, ptr, .{ .immediate = abi_size }, .{});
+                    try self.genInlineMemcpy(
+                        .{ .ptr_stack_offset = off },
+                        ptr,
+                        .{ .immediate = abi_size },
+                        .{},
+                    );
                 },
                 else => return self.fail("TODO implement loading from register into {}", .{dst_mcv}),
             }
@@ -3745,22 +3768,47 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         -@intCast(i32, overflow_bit_offset),
                     );
                 },
-                .linker_load, .memory, .stack_offset => if (abi_size <= 8) {
+                .memory, .linker_load => if (abi_size <= 8) {
                     const tmp_reg = try self.copyToTmpRegister(value_ty, value);
+                    const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                    defer self.register_manager.unlockReg(tmp_lock);
+
+                    try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
+                } else {
+                    const addr_reg = try self.register_manager.allocReg(null, gp);
+                    const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
+                    defer self.register_manager.unlockReg(addr_lock);
+
+                    try self.loadMemPtrIntoRegister(addr_reg, Type.usize, value);
+                    try self.genInlineMemcpy(
+                        ptr,
+                        .{ .register = addr_reg },
+                        .{ .immediate = abi_size },
+                        .{},
+                    );
+                },
+                .stack_offset => |off| if (abi_size <= 8) {
+                    const tmp_reg = try self.copyToTmpRegister(value_ty, value);
+                    const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                    defer self.register_manager.unlockReg(tmp_lock);
+
                     try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                 } else try self.genInlineMemcpy(
-                    .{ .stack_offset = 0 },
-                    value,
+                    ptr,
+                    .{ .ptr_stack_offset = off },
                     .{ .immediate = abi_size },
-                    .{ .source_stack_base = .rbp, .dest_stack_base = reg.to64() },
+                    .{},
                 ),
                 .ptr_stack_offset => {
                     const tmp_reg = try self.copyToTmpRegister(value_ty, value);
+                    const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                    defer self.register_manager.unlockReg(tmp_lock);
+
                     try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                 },
             }
         },
-        .linker_load, .memory => {
+        .memory, .linker_load => {
             const value_lock: ?RegisterLock = switch (value) {
                 .register => |reg| self.register_manager.lockReg(reg),
                 else => null,
@@ -4736,7 +4784,7 @@ fn genBinOp(
                     },
                 };
 
-                const abi_size = @intCast(u32, lhs_ty.abiSize(self.target.*));
+                const cmov_abi_size = @max(@intCast(u32, lhs_ty.abiSize(self.target.*)), 2);
                 const tmp_reg = switch (dst_mcv) {
                     .register => |reg| reg,
                     else => try self.copyToTmpRegister(lhs_ty, dst_mcv),
@@ -4754,13 +4802,13 @@ fn genBinOp(
                     .ptr_stack_offset,
                     => unreachable,
                     .register => |src_reg| try self.asmCmovccRegisterRegister(
-                        registerAlias(tmp_reg, abi_size),
-                        registerAlias(src_reg, abi_size),
+                        registerAlias(tmp_reg, cmov_abi_size),
+                        registerAlias(src_reg, cmov_abi_size),
                         cc,
                     ),
                     .stack_offset => |off| try self.asmCmovccRegisterMemory(
-                        registerAlias(tmp_reg, abi_size),
-                        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
+                        registerAlias(tmp_reg, cmov_abi_size),
+                        Memory.sib(Memory.PtrSize.fromSize(cmov_abi_size), .{
                             .base = .rbp,
                             .disp = -off,
                         }),
@@ -4773,8 +4821,8 @@ fn genBinOp(
 
                         try self.loadMemPtrIntoRegister(addr_reg, Type.usize, mat_src_mcv);
                         try self.asmCmovccRegisterMemory(
-                            registerAlias(tmp_reg, abi_size),
-                            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = addr_reg }),
+                            registerAlias(tmp_reg, cmov_abi_size),
+                            Memory.sib(Memory.PtrSize.fromSize(cmov_abi_size), .{ .base = addr_reg }),
                             cc,
                         );
                     },
@@ -5530,14 +5578,7 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
             assert(ret_ty.isError());
         },
         .stack_offset => {
-            const reg = try self.copyToTmpRegister(Type.usize, self.ret_mcv);
-            const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
-            defer self.register_manager.unlockReg(reg_lock);
-
-            try self.genSetStack(ret_ty, 0, operand, .{
-                .source_stack_base = .rbp,
-                .dest_stack_base = reg,
-            });
+            try self.store(self.ret_mcv, operand, Type.usize, ret_ty);
         },
         else => {
             try self.setRegOrMem(ret_ty, self.ret_mcv, operand);
@@ -5556,6 +5597,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     const ptr = try self.resolveInst(un_op);
     const ptr_ty = self.air.typeOf(un_op);
     const elem_ty = ptr_ty.elemType();
+    const abi_size = elem_ty.abiSize(self.target.*);
     switch (self.ret_mcv) {
         .immediate => {
             assert(elem_ty.isError());
@@ -5565,10 +5607,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
             const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
             defer self.register_manager.unlockReg(reg_lock);
 
-            try self.genInlineMemcpy(.{ .stack_offset = 0 }, ptr, .{ .immediate = elem_ty.abiSize(self.target.*) }, .{
-                .source_stack_base = .rbp,
-                .dest_stack_base = reg,
-            });
+            try self.genInlineMemcpy(.{ .register = reg }, ptr, .{ .immediate = abi_size }, .{});
         },
         else => {
             try self.load(self.ret_mcv, ptr, ptr_ty);
@@ -6252,6 +6291,15 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
 
     const block_data = self.blocks.getPtr(inst).?;
     const target_branch = self.branch_stack.pop();
+
+    log.debug("airBlock: %{d}", .{inst});
+    log.debug("Upper branches:", .{});
+    for (self.branch_stack.items) |bs| {
+        log.debug("{}", .{bs.fmtDebug()});
+    }
+    log.debug("Block branch: {}", .{block_data.branch.fmtDebug()});
+    log.debug("Target branch: {}", .{target_branch.fmtDebug()});
+
     try self.canonicaliseBranches(true, &block_data.branch, &target_branch, false, false);
 
     for (block_data.relocs.items) |reloc| try self.performReloc(reloc);
@@ -6423,7 +6471,7 @@ fn canonicaliseBranches(
             // If integer overflow occurs, the question is: why wasn't the instruction marked dead?
             break :blk self.getResolvedInstValue(target_key).?.*;
         };
-        log.debug("consolidating target_entry {d} {}=>{}", .{ target_key, target_value, canon_mcv });
+        log.debug("consolidating target_entry %{d} {}=>{}", .{ target_key, target_value, canon_mcv });
         // TODO handle the case where the destination stack offset / register has something
         // going on there.
         assert(!hazard_map.contains(target_value));
@@ -6445,7 +6493,7 @@ fn canonicaliseBranches(
         const parent_mcv =
             if (canon_value != .dead) self.getResolvedInstValue(canon_key).?.* else undefined;
         if (canon_value != .dead) {
-            log.debug("consolidating canon_entry {d} {}=>{}", .{ canon_key, parent_mcv, canon_value });
+            log.debug("consolidating canon_entry %{d} {}=>{}", .{ canon_key, parent_mcv, canon_value });
             // TODO handle the case where the destination stack offset / register has something
             // going on there.
             assert(!hazard_map.contains(parent_mcv));
@@ -6838,7 +6886,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                 return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
             }
             try self.genInlineMemset(
-                .{ .stack_offset = stack_offset },
+                .{ .ptr_stack_offset = stack_offset },
                 .{ .immediate = 0xaa },
                 .{ .immediate = abi_size },
                 .{ .dest_stack_base = .rsp },
@@ -6877,10 +6925,17 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                 return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
             }
 
-            try self.genInlineMemcpy(.{ .stack_offset = stack_offset }, mcv, .{ .immediate = abi_size }, .{
-                .source_stack_base = .rbp,
-                .dest_stack_base = .rsp,
-            });
+            const addr_reg = try self.register_manager.allocReg(null, gp);
+            const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
+            defer self.register_manager.unlockReg(addr_lock);
+
+            try self.loadMemPtrIntoRegister(addr_reg, Type.usize, mcv);
+            try self.genInlineMemcpy(
+                .{ .ptr_stack_offset = stack_offset },
+                .{ .register = addr_reg },
+                .{ .immediate = abi_size },
+                .{ .dest_stack_base = .rsp },
+            );
         },
         .register => |reg| {
             switch (ty.zigTypeTag()) {
@@ -6920,16 +6975,18 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
             const reg = try self.copyToTmpRegister(ty, mcv);
             return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
         },
-        .stack_offset => {
+        .stack_offset => |mcv_off| {
             if (abi_size <= 8) {
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
             }
 
-            try self.genInlineMemcpy(.{ .stack_offset = stack_offset }, mcv, .{ .immediate = abi_size }, .{
-                .source_stack_base = .rbp,
-                .dest_stack_base = .rsp,
-            });
+            try self.genInlineMemcpy(
+                .{ .ptr_stack_offset = stack_offset },
+                .{ .ptr_stack_offset = mcv_off },
+                .{ .immediate = abi_size },
+                .{ .dest_stack_base = .rsp },
+            );
         },
     }
 }
@@ -6963,7 +7020,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                     opts,
                 ),
                 else => |x| return self.genInlineMemset(
-                    .{ .stack_offset = stack_offset },
+                    .{ .ptr_stack_offset = stack_offset },
                     .{ .immediate = 0xaa },
                     .{ .immediate = x },
                     opts,
@@ -7072,22 +7129,40 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                 },
             }
         },
-        .memory, .linker_load, .stack_offset, .ptr_stack_offset => {
-            switch (mcv) {
-                else => unreachable,
-                .memory, .linker_load, .ptr_stack_offset => {},
-                .stack_offset => |src_off| if (stack_offset == src_off) {
-                    // Copy stack variable to itself; nothing to do.
-                    return;
-                },
-            }
+        .memory, .linker_load => if (abi_size <= 8) {
+            const reg = try self.copyToTmpRegister(ty, mcv);
+            return self.genSetStack(ty, stack_offset, MCValue{ .register = reg }, opts);
+        } else {
+            const addr_reg = try self.register_manager.allocReg(null, gp);
+            const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
+            defer self.register_manager.unlockReg(addr_lock);
 
-            if (abi_size <= 8) {
-                const reg = try self.copyToTmpRegister(ty, mcv);
-                return self.genSetStack(ty, stack_offset, MCValue{ .register = reg }, opts);
-            }
+            try self.loadMemPtrIntoRegister(addr_reg, Type.usize, mcv);
+            try self.genInlineMemcpy(
+                .{ .ptr_stack_offset = stack_offset },
+                .{ .register = addr_reg },
+                .{ .immediate = abi_size },
+                .{},
+            );
+        },
+        .stack_offset => |off| if (abi_size <= 8) {
+            const tmp_reg = try self.copyToTmpRegister(ty, mcv);
+            const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+            defer self.register_manager.unlockReg(tmp_lock);
 
-            try self.genInlineMemcpy(.{ .stack_offset = stack_offset }, mcv, .{ .immediate = abi_size }, opts);
+            try self.genSetStack(ty, stack_offset, .{ .register = tmp_reg }, opts);
+        } else try self.genInlineMemcpy(
+            .{ .ptr_stack_offset = stack_offset },
+            .{ .ptr_stack_offset = off },
+            .{ .immediate = abi_size },
+            .{},
+        ),
+        .ptr_stack_offset => {
+            const tmp_reg = try self.copyToTmpRegister(ty, mcv);
+            const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+            defer self.register_manager.unlockReg(tmp_lock);
+
+            try self.genSetStack(ty, stack_offset, .{ .register = tmp_reg }, opts);
         },
     }
 }
@@ -7134,10 +7209,14 @@ fn genInlineMemcpyRegisterRegister(
             next_offset -= nearest_power_of_two;
         }
     } else {
-        try self.asmMemoryRegister(.mov, Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
-            .base = dst_reg,
-            .disp = -offset,
-        }), registerAlias(src_reg, abi_size));
+        try self.asmMemoryRegister(
+            switch (src_reg.class()) {
+                .general_purpose, .segment => .mov,
+                .floating_point => .movss,
+            },
+            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = dst_reg, .disp = -offset }),
+            registerAlias(src_reg, abi_size),
+        );
     }
 }
 
@@ -7170,9 +7249,15 @@ fn genInlineMemcpy(
     switch (dst_ptr) {
         .memory, .linker_load => {
             try self.loadMemPtrIntoRegister(.rdi, Type.usize, dst_ptr);
+            // Load the pointer, which is stored in memory
+            try self.asmRegisterMemory(.mov, .rdi, Memory.sib(.qword, .{ .base = .rdi }));
         },
-        .ptr_stack_offset, .stack_offset => |off| {
-            try self.asmRegisterMemory(.lea, .rdi, Memory.sib(.qword, .{
+        .stack_offset, .ptr_stack_offset => |off| {
+            try self.asmRegisterMemory(switch (dst_ptr) {
+                .stack_offset => .mov,
+                .ptr_stack_offset => .lea,
+                else => unreachable,
+            }, .rdi, Memory.sib(.qword, .{
                 .base = opts.dest_stack_base orelse .rbp,
                 .disp = -off,
             }));
@@ -7192,9 +7277,15 @@ fn genInlineMemcpy(
     switch (src_ptr) {
         .memory, .linker_load => {
             try self.loadMemPtrIntoRegister(.rsi, Type.usize, src_ptr);
+            // Load the pointer, which is stored in memory
+            try self.asmRegisterMemory(.mov, .rsi, Memory.sib(.qword, .{ .base = .rsi }));
         },
-        .ptr_stack_offset, .stack_offset => |off| {
-            try self.asmRegisterMemory(.lea, .rsi, Memory.sib(.qword, .{
+        .stack_offset, .ptr_stack_offset => |off| {
+            try self.asmRegisterMemory(switch (src_ptr) {
+                .stack_offset => .mov,
+                .ptr_stack_offset => .lea,
+                else => unreachable,
+            }, .rsi, Memory.sib(.qword, .{
                 .base = opts.source_stack_base orelse .rbp,
                 .disp = -off,
             }));
@@ -7237,9 +7328,15 @@ fn genInlineMemset(
     switch (dst_ptr) {
         .memory, .linker_load => {
             try self.loadMemPtrIntoRegister(.rdi, Type.usize, dst_ptr);
+            // Load the pointer, which is stored in memory
+            try self.asmRegisterMemory(.mov, .rdi, Memory.sib(.qword, .{ .base = .rdi }));
         },
-        .ptr_stack_offset, .stack_offset => |off| {
-            try self.asmRegisterMemory(.lea, .rdi, Memory.sib(.qword, .{
+        .stack_offset, .ptr_stack_offset => |off| {
+            try self.asmRegisterMemory(switch (dst_ptr) {
+                .stack_offset => .mov,
+                .ptr_stack_offset => .lea,
+                else => unreachable,
+            }, .rdi, Memory.sib(.qword, .{
                 .base = opts.dest_stack_base orelse .rbp,
                 .disp = -off,
             }));
@@ -7657,7 +7754,6 @@ fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
 
 fn atomicOp(
     self: *Self,
-    dst_reg: Register,
     ptr_mcv: MCValue,
     val_mcv: MCValue,
     ptr_ty: Type,
@@ -7665,11 +7761,7 @@ fn atomicOp(
     unused: bool,
     rmw_op: ?std.builtin.AtomicRmwOp,
     order: std.builtin.AtomicOrder,
-) InnerError!void {
-    const dst_mcv = MCValue{ .register = dst_reg };
-    const dst_lock = self.register_manager.lockReg(dst_reg);
-    defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
-
+) InnerError!MCValue {
     const ptr_lock = switch (ptr_mcv) {
         .register => |reg| self.register_manager.lockReg(reg),
         else => null,
@@ -7724,9 +7816,14 @@ fn atomicOp(
                 .SeqCst => .xchg,
             };
 
+            const dst_reg = try self.register_manager.allocReg(null, gp);
+            const dst_mcv = MCValue{ .register = dst_reg };
+            const dst_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
+            defer self.register_manager.unlockReg(dst_lock);
+
             try self.genSetReg(val_ty, dst_reg, val_mcv);
             if (rmw_op == std.builtin.AtomicRmwOp.Sub and tag == .xadd) {
-                try self.genUnOpMir(.neg, val_ty, .{ .register = dst_reg });
+                try self.genUnOpMir(.neg, val_ty, dst_mcv);
             }
             _ = try self.addInst(.{ .tag = tag, .ops = switch (tag) {
                 .mov, .xchg => .mr_sib,
@@ -7736,25 +7833,31 @@ fn atomicOp(
                 .r = registerAlias(dst_reg, val_abi_size),
                 .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
             } } });
+
+            return if (unused) .none else dst_mcv;
         },
-        .loop => _ = try self.asmJccReloc(if (val_abi_size <= 8) loop: {
-            try self.genSetReg(val_ty, dst_reg, val_mcv);
+        .loop => _ = if (val_abi_size <= 8) {
+            const tmp_reg = try self.register_manager.allocReg(null, gp);
+            const tmp_mcv = MCValue{ .register = tmp_reg };
+            const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+            defer self.register_manager.unlockReg(tmp_lock);
+
             try self.asmRegisterMemory(.mov, registerAlias(.rax, val_abi_size), ptr_mem);
             const loop = @intCast(u32, self.mir_instructions.len);
             if (rmw_op != std.builtin.AtomicRmwOp.Xchg) {
-                try self.genSetReg(val_ty, dst_reg, .{ .register = .rax });
+                try self.genSetReg(val_ty, tmp_reg, .{ .register = .rax });
             }
             if (rmw_op) |op| switch (op) {
-                .Xchg => try self.genSetReg(val_ty, dst_reg, val_mcv),
-                .Add => try self.genBinOpMir(.add, val_ty, dst_mcv, val_mcv),
-                .Sub => try self.genBinOpMir(.sub, val_ty, dst_mcv, val_mcv),
-                .And => try self.genBinOpMir(.@"and", val_ty, dst_mcv, val_mcv),
+                .Xchg => try self.genSetReg(val_ty, tmp_reg, val_mcv),
+                .Add => try self.genBinOpMir(.add, val_ty, tmp_mcv, val_mcv),
+                .Sub => try self.genBinOpMir(.sub, val_ty, tmp_mcv, val_mcv),
+                .And => try self.genBinOpMir(.@"and", val_ty, tmp_mcv, val_mcv),
                 .Nand => {
-                    try self.genBinOpMir(.@"and", val_ty, dst_mcv, val_mcv);
-                    try self.genUnOpMir(.not, val_ty, dst_mcv);
+                    try self.genBinOpMir(.@"and", val_ty, tmp_mcv, val_mcv);
+                    try self.genUnOpMir(.not, val_ty, tmp_mcv);
                 },
-                .Or => try self.genBinOpMir(.@"or", val_ty, dst_mcv, val_mcv),
-                .Xor => try self.genBinOpMir(.xor, val_ty, dst_mcv, val_mcv),
+                .Or => try self.genBinOpMir(.@"or", val_ty, tmp_mcv, val_mcv),
+                .Xor => try self.genBinOpMir(.xor, val_ty, tmp_mcv, val_mcv),
                 .Min, .Max => {
                     const cc: Condition = switch (if (val_ty.isAbiInt())
                         val_ty.intInfo(self.target.*).signedness
@@ -7772,17 +7875,18 @@ fn atomicOp(
                         },
                     };
 
-                    try self.genBinOpMir(.cmp, val_ty, dst_mcv, val_mcv);
+                    try self.genBinOpMir(.cmp, val_ty, tmp_mcv, val_mcv);
+                    const cmov_abi_size = @max(val_abi_size, 2);
                     switch (val_mcv) {
                         .register => |val_reg| try self.asmCmovccRegisterRegister(
-                            registerAlias(dst_reg, val_abi_size),
-                            registerAlias(val_reg, val_abi_size),
+                            registerAlias(tmp_reg, cmov_abi_size),
+                            registerAlias(val_reg, cmov_abi_size),
                             cc,
                         ),
                         .stack_offset => |val_off| try self.asmCmovccRegisterMemory(
-                            registerAlias(dst_reg, val_abi_size),
+                            registerAlias(tmp_reg, cmov_abi_size),
                             Memory.sib(
-                                Memory.PtrSize.fromSize(val_abi_size),
+                                Memory.PtrSize.fromSize(cmov_abi_size),
                                 .{ .base = .rbp, .disp = -val_off },
                             ),
                             cc,
@@ -7790,8 +7894,8 @@ fn atomicOp(
                         else => {
                             const val_reg = try self.copyToTmpRegister(val_ty, val_mcv);
                             try self.asmCmovccRegisterRegister(
-                                registerAlias(dst_reg, val_abi_size),
-                                registerAlias(val_reg, val_abi_size),
+                                registerAlias(tmp_reg, cmov_abi_size),
+                                registerAlias(val_reg, cmov_abi_size),
                                 cc,
                             );
                         },
@@ -7799,11 +7903,12 @@ fn atomicOp(
                 },
             };
             _ = try self.addInst(.{ .tag = .cmpxchg, .ops = .lock_mr_sib, .data = .{ .rx = .{
-                .r = registerAlias(dst_reg, val_abi_size),
+                .r = registerAlias(tmp_reg, val_abi_size),
                 .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
             } } });
-            break :loop loop;
-        } else loop: {
+            _ = try self.asmJccReloc(loop, .ne);
+            return if (unused) .none else .{ .register = .rax };
+        } else {
             try self.asmRegisterMemory(.mov, .rax, Memory.sib(.qword, .{
                 .base = ptr_mem.sib.base,
                 .scale_index = ptr_mem.sib.scale_index,
@@ -7869,8 +7974,22 @@ fn atomicOp(
             _ = try self.addInst(.{ .tag = .cmpxchgb, .ops = .lock_m_sib, .data = .{
                 .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
             } });
-            break :loop loop;
-        }, .ne),
+            _ = try self.asmJccReloc(loop, .ne);
+
+            if (unused) return .none;
+            const dst_mcv = try self.allocTempRegOrMem(val_ty, false);
+            try self.asmMemoryRegister(
+                .mov,
+                Memory.sib(.qword, .{ .base = .rbp, .disp = 0 - dst_mcv.stack_offset }),
+                .rax,
+            );
+            try self.asmMemoryRegister(
+                .mov,
+                Memory.sib(.qword, .{ .base = .rbp, .disp = 8 - dst_mcv.stack_offset }),
+                .rdx,
+            );
+            return dst_mcv;
+        },
         .libcall => return self.fail("TODO implement x86 atomic libcall", .{}),
     }
 }
@@ -7884,7 +8003,6 @@ fn airAtomicRmw(self: *Self, inst: Air.Inst.Index) !void {
     defer for (regs_lock) |lock| self.register_manager.unlockReg(lock);
 
     const unused = self.liveness.isUnused(inst);
-    const dst_reg = try self.register_manager.allocReg(if (unused) null else inst, gp);
 
     const ptr_ty = self.air.typeOf(pl_op.operand);
     const ptr_mcv = try self.resolveInst(pl_op.operand);
@@ -7892,8 +8010,8 @@ fn airAtomicRmw(self: *Self, inst: Air.Inst.Index) !void {
     const val_ty = self.air.typeOf(extra.operand);
     const val_mcv = try self.resolveInst(extra.operand);
 
-    try self.atomicOp(dst_reg, ptr_mcv, val_mcv, ptr_ty, val_ty, unused, extra.op(), extra.ordering());
-    const result: MCValue = if (unused) .dead else .{ .register = dst_reg };
+    const result =
+        try self.atomicOp(ptr_mcv, val_mcv, ptr_ty, val_ty, unused, extra.op(), extra.ordering());
     return self.finishAir(inst, result, .{ pl_op.operand, extra.operand, .none });
 }
 
@@ -7926,16 +8044,14 @@ fn airAtomicLoad(self: *Self, inst: Air.Inst.Index) !void {
 fn airAtomicStore(self: *Self, inst: Air.Inst.Index, order: std.builtin.AtomicOrder) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
-    const dst_reg = try self.register_manager.allocReg(null, gp);
-
     const ptr_ty = self.air.typeOf(bin_op.lhs);
     const ptr_mcv = try self.resolveInst(bin_op.lhs);
 
     const val_ty = self.air.typeOf(bin_op.rhs);
     const val_mcv = try self.resolveInst(bin_op.rhs);
 
-    try self.atomicOp(dst_reg, ptr_mcv, val_mcv, ptr_ty, val_ty, true, null, order);
-    return self.finishAir(inst, .none, .{ bin_op.lhs, bin_op.rhs, .none });
+    const result = try self.atomicOp(ptr_mcv, val_mcv, ptr_ty, val_ty, true, null, order);
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
@@ -7979,7 +8095,6 @@ fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
     };
     defer if (dst_ptr_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const src_ty = self.air.typeOf(extra.lhs);
     const src_ptr = try self.resolveInst(extra.lhs);
     const src_ptr_lock: ?RegisterLock = switch (src_ptr) {
         .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
@@ -7994,25 +8109,7 @@ fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
     };
     defer if (len_lock) |lock| self.register_manager.unlockReg(lock);
 
-    // TODO Is this the only condition for pointer dereference for memcpy?
-    const src: MCValue = blk: {
-        switch (src_ptr) {
-            .linker_load, .memory => {
-                const reg = try self.register_manager.allocReg(null, gp);
-                try self.loadMemPtrIntoRegister(reg, src_ty, src_ptr);
-                try self.asmRegisterMemory(.mov, reg, Memory.sib(.qword, .{ .base = reg }));
-                break :blk MCValue{ .register = reg };
-            },
-            else => break :blk src_ptr,
-        }
-    };
-    const src_lock: ?RegisterLock = switch (src) {
-        .register => |reg| self.register_manager.lockReg(reg),
-        else => null,
-    };
-    defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
-
-    try self.genInlineMemcpy(dst_ptr, src, len, .{});
+    try self.genInlineMemcpy(dst_ptr, src_ptr, len, .{});
 
     return self.finishAir(inst, .none, .{ pl_op.operand, extra.lhs, extra.rhs });
 }
@@ -8156,11 +8253,10 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
         switch (result_ty.zigTypeTag()) {
             .Struct => {
                 const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
-                const dst_mcv = MCValue{ .stack_offset = stack_offset };
                 if (result_ty.containerLayout() == .Packed) {
                     const struct_obj = result_ty.castTag(.@"struct").?.data;
                     try self.genInlineMemset(
-                        dst_mcv,
+                        .{ .ptr_stack_offset = stack_offset },
                         .{ .immediate = 0 },
                         .{ .immediate = abi_size },
                         .{},
@@ -8236,7 +8332,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                     const elem_mcv = try self.resolveInst(elem);
                     try self.genSetStack(elem_ty, stack_offset - elem_off, elem_mcv, .{});
                 }
-                break :res dst_mcv;
+                break :res .{ .stack_offset = stack_offset };
             },
             .Array => {
                 const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
