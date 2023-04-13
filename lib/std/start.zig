@@ -18,7 +18,6 @@ const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 // Until then, we have simplified logic here for self-hosted. TODO remove this once
 // self-hosted is capable enough to handle all of the real start.zig logic.
 pub const simplified_logic =
-    builtin.zig_backend == .stage2_wasm or
     (builtin.zig_backend == .stage2_x86_64 and (builtin.link_libc or builtin.os.tag == .plan9)) or
     builtin.zig_backend == .stage2_x86 or
     builtin.zig_backend == .stage2_aarch64 or
@@ -43,8 +42,6 @@ comptime {
                 if (!@hasDecl(root, "wWinMainCRTStartup") and !@hasDecl(root, "mainCRTStartup")) {
                     @export(wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
                 }
-            } else if (builtin.os.tag == .wasi and @hasDecl(root, "main")) {
-                @export(wasiMain2, .{ .name = "_start" });
             } else if (builtin.os.tag == .opencl) {
                 if (@hasDecl(root, "main"))
                     @export(spirvMain2, .{ .name = "main" });
@@ -114,22 +111,6 @@ fn callMain2() noreturn {
     @setAlignStack(16);
     root.main();
     exit2(0);
-}
-
-fn wasiMain2() callconv(.C) noreturn {
-    switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
-        .Void => {
-            root.main();
-            std.os.wasi.proc_exit(0);
-        },
-        .Int => |info| {
-            if (info.bits != 8 or info.signedness == .signed) {
-                @compileError(bad_main_ret);
-            }
-            std.os.wasi.proc_exit(root.main());
-        },
-        else => @compileError("Bad return type main"),
-    }
 }
 
 fn spirvMain2() callconv(.Kernel) void {
