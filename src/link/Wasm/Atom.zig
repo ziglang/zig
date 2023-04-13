@@ -43,7 +43,7 @@ pub const Index = u32;
 
 /// Represents a default empty wasm `Atom`
 pub const empty: Atom = .{
-    .alignment = 0,
+    .alignment = 1,
     .file = null,
     .next = null,
     .offset = 0,
