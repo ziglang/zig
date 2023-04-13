@@ -3083,7 +3083,7 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
         };
         defer if (mat_src_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const dst_reg = try self.register_manager.allocReg(null, gp);
+        const dst_reg = try self.register_manager.allocReg(inst, gp);
         const dst_mcv = MCValue{ .register = dst_reg };
         const dst_lock = self.register_manager.lockReg(dst_reg);
         defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
@@ -3098,19 +3098,37 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
         }
 
         const src_bits = src_ty.bitSize(self.target.*);
-        const width_mcv =
-            try self.copyToRegisterWithInstTracking(inst, dst_ty, .{ .immediate = src_bits });
-        try self.genBinOpMir(.bsr, src_ty, dst_mcv, mat_src_mcv);
+        if (math.isPowerOfTwo(src_bits)) {
+            const imm_reg = try self.copyToTmpRegister(dst_ty, .{
+                .immediate = src_bits ^ (src_bits - 1),
+            });
+            try self.genBinOpMir(.bsf, src_ty, dst_mcv, mat_src_mcv);
 
-        const cmov_abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
-        try self.asmCmovccRegisterRegister(
-            registerAlias(dst_reg, cmov_abi_size),
-            registerAlias(width_mcv.register, cmov_abi_size),
-            .z,
-        );
+            const cmov_abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
+            try self.asmCmovccRegisterRegister(
+                registerAlias(dst_reg, cmov_abi_size),
+                registerAlias(imm_reg, cmov_abi_size),
+                .z,
+            );
 
-        try self.genBinOpMir(.sub, dst_ty, width_mcv, dst_mcv);
-        break :result width_mcv;
+            try self.genBinOpMir(.xor, dst_ty, dst_mcv, .{ .immediate = src_bits - 1 });
+        } else {
+            const imm_reg = try self.copyToTmpRegister(dst_ty, .{
+                .immediate = @as(u64, math.maxInt(u64)) >> @intCast(u6, 64 - self.regBitSize(dst_ty)),
+            });
+            try self.genBinOpMir(.bsf, src_ty, dst_mcv, mat_src_mcv);
+
+            const cmov_abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
+            try self.asmCmovccRegisterRegister(
+                registerAlias(imm_reg, cmov_abi_size),
+                registerAlias(dst_reg, cmov_abi_size),
+                .nz,
+            );
+
+            try self.genSetReg(dst_ty, dst_reg, .{ .immediate = src_bits - 1 });
+            try self.genBinOpMir(.sub, dst_ty, dst_mcv, .{ .register = imm_reg });
+        }
+        break :result dst_mcv;
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
