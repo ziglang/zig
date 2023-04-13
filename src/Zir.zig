@@ -2062,6 +2062,7 @@ pub const Inst = struct {
         i128_type,
         usize_type,
         isize_type,
+        c_char_type,
         c_short_type,
         c_ushort_type,
         c_int_type,
@@ -2200,6 +2201,10 @@ pub const Inst = struct {
             .isize_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.isize_type),
+            },
+            .c_char_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.c_char_type),
             },
             .c_short_type = .{
                 .ty = Type.initTag(.type),
