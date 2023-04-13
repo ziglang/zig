@@ -586,7 +586,8 @@ const DocData = struct {
             src: usize, // index into astNodes
             privDecls: []usize = &.{}, // index into decls
             pubDecls: []usize = &.{}, // index into decls
-            fields: ?[]Expr = null, // (use src->fields to find names)
+            field_types: []Expr = &.{}, // (use src->fields to find names)
+            field_defaults: []?Expr = &.{}, // default values is specified
             is_tuple: bool,
             line_number: usize,
             outer_decl: usize,
@@ -614,6 +615,7 @@ const DocData = struct {
             pubDecls: []usize = &.{}, // index into decls
             // (use src->fields to find field names)
             tag: ?Expr = null, // tag type if specified
+            values: []?Expr = &.{}, // tag values if specified
             nonexhaustive: bool,
         },
         Union: struct {
@@ -2705,6 +2707,7 @@ fn walkInstruction(
                     extra_index += body_len;
 
                     var field_name_indexes: std.ArrayListUnmanaged(usize) = .{};
+                    var field_values: std.ArrayListUnmanaged(?DocData.Expr) = .{};
                     {
                         var bit_bag_idx = extra_index;
                         var cur_bit_bag: u32 = undefined;
@@ -2726,12 +2729,13 @@ fn walkInstruction(
                             const doc_comment_index = file.zir.extra[extra_index];
                             extra_index += 1;
 
-                            const value_ref: ?Ref = if (has_value) blk: {
+                            const value_expr: ?DocData.Expr = if (has_value) blk: {
                                 const value_ref = file.zir.extra[extra_index];
                                 extra_index += 1;
-                                break :blk @intToEnum(Ref, value_ref);
+                                const value = try self.walkRef(file, &scope, src_info, @intToEnum(Ref, value_ref), false);
+                                break :blk value.expr;
                             } else null;
-                            _ = value_ref;
+                            try field_values.append(self.arena, value_expr);
 
                             const field_name = file.zir.nullTerminatedString(field_name_index);
 
@@ -2756,6 +2760,7 @@ fn walkInstruction(
                             .privDecls = priv_decl_indexes.items,
                             .pubDecls = decl_indexes.items,
                             .tag = tag_type,
+                            .values = field_values.items,
                             .nonexhaustive = small.nonexhaustive,
                         },
                     };
@@ -2831,6 +2836,7 @@ fn walkInstruction(
                     );
 
                     var field_type_refs: std.ArrayListUnmanaged(DocData.Expr) = .{};
+                    var field_default_refs: std.ArrayListUnmanaged(?DocData.Expr) = .{};
                     var field_name_indexes: std.ArrayListUnmanaged(usize) = .{};
                     try self.collectStructFieldInfo(
                         file,
@@ -2838,6 +2844,7 @@ fn walkInstruction(
                         src_info,
                         fields_len,
                         &field_type_refs,
+                        &field_default_refs,
                         &field_name_indexes,
                         extra_index,
                         small.is_tuple,
@@ -2851,7 +2858,8 @@ fn walkInstruction(
                             .src = self_ast_node_index,
                             .privDecls = priv_decl_indexes.items,
                             .pubDecls = decl_indexes.items,
-                            .fields = field_type_refs.items,
+                            .field_types = field_type_refs.items,
+                            .field_defaults = field_default_refs.items,
                             .is_tuple = small.is_tuple,
                             .line_number = self.ast_nodes.items[self_ast_node_index].line,
                             .outer_decl = type_slot_index - 1,
@@ -4309,6 +4317,7 @@ fn collectStructFieldInfo(
     parent_src: SrcLocInfo,
     fields_len: usize,
     field_type_refs: *std.ArrayListUnmanaged(DocData.Expr),
+    field_default_refs: *std.ArrayListUnmanaged(?DocData.Expr),
     field_name_indexes: *std.ArrayListUnmanaged(usize),
     ei: usize,
     is_tuple: bool,
@@ -4406,9 +4415,23 @@ fn collectStructFieldInfo(
         };
 
         extra_index += field.align_body_len;
-        extra_index += field.init_body_len;
+
+        const default_expr: ?DocData.Expr = def: {
+            if (field.init_body_len == 0) {
+                break :def null;
+            }
+
+            const body = file.zir.extra[extra_index..][0..field.init_body_len];
+            extra_index += body.len;
+
+            const break_inst = body[body.len - 1];
+            const operand = data[break_inst].@"break".operand;
+            const walk_result = try self.walkRef(file, scope, parent_src, operand, false);
+            break :def walk_result.expr;
+        };
 
         try field_type_refs.append(self.arena, type_expr);
+        try field_default_refs.append(self.arena, default_expr);
 
         // ast node
         {
