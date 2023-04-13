@@ -912,13 +912,11 @@ fn lowerDeclRef(
 /// * got - the value is referenced indirectly via GOT entry index (the linker emits a got-type reloc)
 /// * direct - the value is referenced directly via symbol index index (the linker emits a displacement reloc)
 /// * import - the value is referenced indirectly via import entry index (the linker emits an import-type reloc)
-/// * tlv - the value is a threadlocal variable referenced indirectly via GOT (the linker emits a got-type reloc)
 pub const LinkerLoad = struct {
     type: enum {
         got,
         direct,
         import,
-        tlv,
     },
     sym_index: u32,
 };
@@ -934,6 +932,10 @@ pub const GenResult = union(enum) {
         /// such as ARM, the immediate will never exceed 32-bits.
         immediate: u64,
         linker_load: LinkerLoad,
+        /// Pointer to a threadlocal variable.
+        /// The address resolution will be deferred until the linker allocates everything in virtual memory.
+        /// Payload is a symbol index.
+        tlv_reloc: u32,
         /// Direct by-address reference to memory location.
         memory: u64,
     };
@@ -1002,8 +1004,11 @@ fn genDeclRef(
     } else if (bin_file.cast(link.File.MachO)) |macho_file| {
         const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
+        if (is_threadlocal) {
+            return GenResult.mcv(.{ .tlv_reloc = sym_index });
+        }
         return GenResult.mcv(.{ .linker_load = .{
-            .type = if (is_threadlocal) .tlv else .got,
+            .type = .got,
             .sym_index = sym_index,
         } });
     } else if (bin_file.cast(link.File.Coff)) |coff_file| {
