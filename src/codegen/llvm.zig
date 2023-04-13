@@ -10513,14 +10513,85 @@ pub const FuncGen = struct {
         return self.builder.buildTrunc(result, llvm_trunc_ty, "");
     }
 
+    // TODO Should this belong in compiler-rt?
+    //
+    // Implements @extractBits(source, mask) in software
+    // (i.e. without platform-specific instructions)
+    //
+    // var bb = 1;
+    // var result = 0;
+    // do {
+    //     const bit = mask & -mask;
+    //     mask &= ~bit;
+    //     const source_bit = source & bit;
+    //     if (source_bit != 0) result |= bb;
+    //     bb += bb;
+    // } while (mask)
+    //
+    // return result;
     fn buildExtractBitsEmulated(
         self: *FuncGen,
         ty: Type,
         params: [2]*llvm.Value,
     ) !*llvm.Value {
-        _ = ty;
-        _ = params;
-        return self.dg.todo("implement extract_bits emulation", .{});
+        const llvm_ty = try self.dg.lowerType(ty);
+
+        const zero = llvm_ty.constNull();
+        const one = llvm_ty.constInt(1, .False);
+        const minus_one = llvm_ty.constInt(@bitCast(c_ulonglong, @as(c_longlong, -1)), .True);
+        const source = params[0];
+        const start_mask = params[1];
+        const start_result = zero;
+        const start_bb = one;
+
+        const prev_block = self.builder.getInsertBlock();
+        const loop_block = self.context.appendBasicBlock(self.llvm_func, "Loop");
+        const after_block = self.context.appendBasicBlock(self.llvm_func, "After");
+
+        _ = self.builder.buildBr(loop_block);
+        self.builder.positionBuilderAtEnd(loop_block);
+        const mask_phi = self.builder.buildPhi(llvm_ty, "");
+        const result_phi = self.builder.buildPhi(llvm_ty, "");
+        const bb_phi = self.builder.buildPhi(llvm_ty, "");
+        const minus_mask = self.builder.buildSub(zero, mask_phi, "");
+        const bit = self.builder.buildAnd(mask_phi, minus_mask, "");
+        const not_bit = self.builder.buildXor(bit, minus_one, "");
+        const new_mask = self.builder.buildAnd(mask_phi, not_bit, "");
+        const source_bit = self.builder.buildAnd(source, bit, "");
+        const source_bit_set = self.builder.buildICmp(.NE, source_bit, zero, "");
+        const bb_or_zero = self.builder.buildSelect(source_bit_set, bb_phi, zero, ""); // avoid using control flow
+        const new_result = self.builder.buildOr(result_phi, bb_or_zero, "");
+        const new_bb = self.builder.buildAdd(bb_phi, bb_phi, "");
+        const while_cond = self.builder.buildICmp(.NE, new_mask, zero, "");
+        _ = self.builder.buildCondBr(while_cond, loop_block, after_block);
+
+        mask_phi.addIncoming(
+            &[2]*llvm.Value{ start_mask, new_mask },
+            &[2]*llvm.BasicBlock{ prev_block, loop_block },
+            2,
+        );
+
+        result_phi.addIncoming(
+            &[2]*llvm.Value{ start_result, new_result },
+            &[2]*llvm.BasicBlock{ prev_block, loop_block },
+            2,
+        );
+
+        bb_phi.addIncoming(
+            &[2]*llvm.Value{ start_bb, new_bb },
+            &[2]*llvm.BasicBlock{ prev_block, loop_block },
+            2,
+        );
+
+        self.builder.positionBuilderAtEnd(after_block);
+        const final_result = self.builder.buildPhi(llvm_ty, "");
+        final_result.addIncoming(
+            &[1]*llvm.Value{ new_result },
+            &[1]*llvm.BasicBlock{ loop_block },
+            1,
+        );
+
+        return final_result;
     }
 
     fn getErrorNameTable(self: *FuncGen) Allocator.Error!Builder.Variable.Index {
