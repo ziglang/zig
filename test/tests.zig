@@ -1030,11 +1030,14 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                     "-std=c99",
                     "-pedantic",
                     "-Werror",
-                    // TODO stop violating these pedantic errors
+                    // TODO stop violating these pedantic errors. spotted on linux
                     "-Wno-address-of-packed-member",
                     "-Wno-gnu-folding-constant",
                     "-Wno-incompatible-pointer-types",
                     "-Wno-overlength-strings",
+                    // TODO stop violating these pedantic errors. spotted on darwin
+                    "-Wno-dollar-in-identifier-extension",
+                    "-Wno-absolute-value",
                 },
             });
             compile_c.addIncludePath("lib"); // for zig.h

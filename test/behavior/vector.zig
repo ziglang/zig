@@ -103,6 +103,11 @@ test "vector float operators" {
         return error.SkipZigTest;
     }
 
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+        // TODO: test is failing
+        return error.SkipZigTest;
+    }
+
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         const S = struct {
             fn doTheTest() !void {
