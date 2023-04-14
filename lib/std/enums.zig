@@ -32,7 +32,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
 /// Looks up the supplied fields in the given enum type.
 /// Uses only the field names, field values are ignored.
 /// The result array is in the same order as the input.
-pub fn valuesFromFields(comptime E: type, comptime fields: []const EnumField) []const E {
+pub inline fn valuesFromFields(comptime E: type, comptime fields: []const EnumField) []const E {
     comptime {
         var result: [fields.len]E = undefined;
         for (fields, 0..) |f, i| {

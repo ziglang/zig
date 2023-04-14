@@ -2005,7 +2005,7 @@ pub fn bufPrintIntToSlice(buf: []u8, value: anytype, base: u8, case: Case, optio
     return buf[0..formatIntBuf(buf, value, base, case, options)];
 }
 
-pub fn comptimePrint(comptime fmt: []const u8, args: anytype) *const [count(fmt, args):0]u8 {
+pub inline fn comptimePrint(comptime fmt: []const u8, args: anytype) *const [count(fmt, args):0]u8 {
     comptime {
         var buf: [count(fmt, args):0]u8 = undefined;
         _ = bufPrint(&buf, fmt, args) catch unreachable;
@@ -2016,8 +2016,8 @@ pub fn comptimePrint(comptime fmt: []const u8, args: anytype) *const [count(fmt,
 
 test "comptimePrint" {
     @setEvalBranchQuota(2000);
-    try std.testing.expectEqual(*const [3:0]u8, @TypeOf(comptime comptimePrint("{}", .{100})));
-    try std.testing.expectEqualSlices(u8, "100", comptime comptimePrint("{}", .{100}));
+    try std.testing.expectEqual(*const [3:0]u8, @TypeOf(comptimePrint("{}", .{100})));
+    try std.testing.expectEqualSlices(u8, "100", comptimePrint("{}", .{100}));
 }
 
 test "parse u64 digit too big" {
