@@ -215,3 +215,19 @@ test "copy VaList" {
     try std.testing.expectEqual(@as(c_int, 3), S.add(1, @as(c_int, 1)));
     try std.testing.expectEqual(@as(c_int, 9), S.add(2, @as(c_int, 1), @as(c_int, 2)));
 }
+
+test "unused VaList arg" {
+    const S = struct {
+        fn thirdArg(dummy: c_int, ...) callconv(.C) c_int {
+            _ = dummy;
+
+            var ap = @cVaStart();
+            defer @cVaEnd(&ap);
+
+            _ = @cVaArg(&ap, c_int);
+            return @cVaArg(&ap, c_int);
+        }
+    };
+    const x = S.thirdArg(0, @as(c_int, 1), @as(c_int, 2));
+    try std.testing.expectEqual(@as(c_int, 2), x);
+}

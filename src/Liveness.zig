@@ -1333,40 +1333,47 @@ fn analyzeOperands(
         .main_analysis => {
             const usize_index = (inst * bpi) / @bitSizeOf(usize);
 
-            var tomb_bits: Bpi = 0;
-
+            // This logic must synchronize with `will_die_immediately` in `AnalyzeBigOperands.init`.
+            var immediate_death = false;
             if (data.branch_deaths.remove(inst)) {
                 log.debug("[{}] %{}: resolved branch death to birth (immediate death)", .{ pass, inst });
-                tomb_bits |= @as(Bpi, 1) << (bpi - 1);
+                immediate_death = true;
                 assert(!data.live_set.contains(inst));
             } else if (data.live_set.remove(inst)) {
                 log.debug("[{}] %{}: removed from live set", .{ pass, inst });
             } else {
                 log.debug("[{}] %{}: immediate death", .{ pass, inst });
-                tomb_bits |= @as(Bpi, 1) << (bpi - 1);
+                immediate_death = true;
             }
 
-            // Note that it's important we iterate over the operands backwards, so that if a dying
-            // operand is used multiple times we mark its last use as its death.
-            var i = operands.len;
-            while (i > 0) {
-                i -= 1;
-                const op_ref = operands[i];
-                const operand = Air.refToIndex(op_ref) orelse continue;
+            var tomb_bits: Bpi = @as(Bpi, @boolToInt(immediate_death)) << (bpi - 1);
 
-                // Don't compute any liveness for constants
-                switch (inst_tags[operand]) {
-                    .constant, .const_ty => continue,
-                    else => {},
-                }
+            // If our result is unused and the instruction doesn't need to be lowered, backends will
+            // skip the lowering of this instruction, so we don't want to record uses of operands.
+            // That way, we can mark as many instructions as possible unused.
+            if (!immediate_death or a.air.mustLower(inst)) {
+                // Note that it's important we iterate over the operands backwards, so that if a dying
+                // operand is used multiple times we mark its last use as its death.
+                var i = operands.len;
+                while (i > 0) {
+                    i -= 1;
+                    const op_ref = operands[i];
+                    const operand = Air.refToIndex(op_ref) orelse continue;
 
-                const mask = @as(Bpi, 1) << @intCast(OperandInt, i);
+                    // Don't compute any liveness for constants
+                    switch (inst_tags[operand]) {
+                        .constant, .const_ty => continue,
+                        else => {},
+                    }
 
-                if ((try data.live_set.fetchPut(gpa, operand, {})) == null) {
-                    log.debug("[{}] %{}: added %{} to live set (operand dies here)", .{ pass, inst, operand });
-                    tomb_bits |= mask;
-                    if (data.branch_deaths.remove(operand)) {
-                        log.debug("[{}] %{}: resolved branch death of %{} to this usage", .{ pass, inst, operand });
+                    const mask = @as(Bpi, 1) << @intCast(OperandInt, i);
+
+                    if ((try data.live_set.fetchPut(gpa, operand, {})) == null) {
+                        log.debug("[{}] %{}: added %{} to live set (operand dies here)", .{ pass, inst, operand });
+                        tomb_bits |= mask;
+                        if (data.branch_deaths.remove(operand)) {
+                            log.debug("[{}] %{}: resolved branch death of %{} to this usage", .{ pass, inst, operand });
+                        }
                     }
                 }
             }
@@ -1975,6 +1982,9 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
         small: [bpi - 1]Air.Inst.Ref = .{.none} ** (bpi - 1),
         extra_tombs: []u32,
 
+        // Only used in `LivenessPass.main_analysis`
+        will_die_immediately: bool,
+
         const Self = @This();
 
         fn init(
@@ -1994,12 +2004,18 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
 
             std.mem.set(u32, extra_tombs, 0);
 
+            const will_die_immediately: bool = switch (pass) {
+                .loop_analysis => false, // track everything, since we don't have full liveness information yet
+                .main_analysis => data.branch_deaths.contains(inst) and !data.live_set.contains(inst),
+            };
+
             return .{
                 .a = a,
                 .data = data,
                 .inst = inst,
                 .operands_remaining = @intCast(u32, total_operands),
                 .extra_tombs = extra_tombs,
+                .will_die_immediately = will_die_immediately,
             };
         }
 
@@ -2021,6 +2037,11 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
                 .constant, .const_ty => return,
                 else => {},
             }
+
+            // If our result is unused and the instruction doesn't need to be lowered, backends will
+            // skip the lowering of this instruction, so we don't want to record uses of operands.
+            // That way, we can mark as many instructions as possible unused.
+            if (big.will_die_immediately and !big.a.air.mustLower(big.inst)) return;
 
             const extra_byte = (big.operands_remaining - (bpi - 1)) / 31;
             const extra_bit = @intCast(u5, big.operands_remaining - (bpi - 1) - extra_byte * 31);
