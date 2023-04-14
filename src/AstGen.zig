@@ -8453,18 +8453,16 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .memcpy => {
-            _ = try gz.addPlNode(.memcpy, node, Zir.Inst.Memcpy{
-                .dest = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .manyptr_u8_type } }, params[0]),
-                .source = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .manyptr_const_u8_type } }, params[1]),
-                .byte_count = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, params[2]),
+            _ = try gz.addPlNode(.memcpy, node, Zir.Inst.Bin{
+                .lhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
+                .rhs = try expr(gz, scope, .{ .rl = .ref }, params[1]),
             });
             return rvalue(gz, ri, .void_value, node);
         },
         .memset => {
-            _ = try gz.addPlNode(.memset, node, Zir.Inst.Memset{
-                .dest = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .manyptr_u8_type } }, params[0]),
-                .byte = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .u8_type } }, params[1]),
-                .byte_count = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, params[2]),
+            _ = try gz.addPlNode(.memset, node, Zir.Inst.Bin{
+                .lhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
+                .rhs = try expr(gz, scope, .{ .rl = .none }, params[1]),
             });
             return rvalue(gz, ri, .void_value, node);
         },

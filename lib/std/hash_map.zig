@@ -1449,7 +1449,7 @@ pub fn HashMapUnmanaged(
         }
 
         fn initMetadatas(self: *Self) void {
-            @memset(@ptrCast([*]u8, self.metadata.?), 0, @sizeOf(Metadata) * self.capacity());
+            @memset(@ptrCast([*]u8, self.metadata.?)[0..@sizeOf(Metadata) * self.capacity()], 0);
         }
 
         // This counts the number of occupied slots (not counting tombstones), which is

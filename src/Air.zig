@@ -632,17 +632,20 @@ pub const Inst = struct {
         /// Uses the `pl_op` field with `pred` as operand, and payload `Bin`.
         select,
 
-        /// Given dest ptr, value, and len, set all elements at dest to value.
+        /// Given dest pointer and value, set all elements at dest to value.
+        /// Dest pointer is either a slice or a pointer to array.
+        /// The element type may be any type, and the slice may have any alignment.
         /// Result type is always void.
-        /// Uses the `pl_op` field. Operand is the dest ptr. Payload is `Bin`. `lhs` is the
-        /// value, `rhs` is the length.
-        /// The element type may be any type, not just u8.
+        /// Uses the `bin_op` field. LHS is the dest slice. RHS is the element value.
         memset,
-        /// Given dest ptr, src ptr, and len, copy len elements from src to dest.
+        /// Given dest pointer and source pointer, copy elements from source to dest.
+        /// Dest pointer is either a slice or a pointer to array.
+        /// The dest element type may be any type.
+        /// Source pointer must have same element type as dest element type.
+        /// Dest slice may have any alignment; source pointer may have any alignment.
+        /// The two memory regions must not overlap.
         /// Result type is always void.
-        /// Uses the `pl_op` field. Operand is the dest ptr. Payload is `Bin`. `lhs` is the
-        /// src ptr, `rhs` is the length.
-        /// The element type may be any type, not just u8.
+        /// Uses the `bin_op` field. LHS is the dest slice. RHS is the source pointer.
         memcpy,
 
         /// Uses the `ty_pl` field with payload `Cmpxchg`.

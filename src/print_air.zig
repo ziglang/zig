@@ -169,6 +169,8 @@ const Writer = struct {
             .cmp_gte_optimized,
             .cmp_gt_optimized,
             .cmp_neq_optimized,
+            .memcpy,
+            .memset,
             => try w.writeBinOp(s, inst),
 
             .is_null,
@@ -315,8 +317,6 @@ const Writer = struct {
             .atomic_store_release => try w.writeAtomicStore(s, inst, .Release),
             .atomic_store_seq_cst => try w.writeAtomicStore(s, inst, .SeqCst),
             .atomic_rmw => try w.writeAtomicRmw(s, inst),
-            .memcpy => try w.writeMemcpy(s, inst),
-            .memset => try w.writeMemset(s, inst),
             .field_parent_ptr => try w.writeFieldParentPtr(s, inst),
             .wasm_memory_size => try w.writeWasmMemorySize(s, inst),
             .wasm_memory_grow => try w.writeWasmMemoryGrow(s, inst),
@@ -591,34 +591,12 @@ const Writer = struct {
         try s.print(", {s}, {s}", .{ @tagName(extra.op()), @tagName(extra.ordering()) });
     }
 
-    fn writeMemset(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
-        const extra = w.air.extraData(Air.Bin, pl_op.payload).data;
-
-        try w.writeOperand(s, inst, 0, pl_op.operand);
-        try s.writeAll(", ");
-        try w.writeOperand(s, inst, 1, extra.lhs);
-        try s.writeAll(", ");
-        try w.writeOperand(s, inst, 2, extra.rhs);
-    }
-
     fn writeFieldParentPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const extra = w.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
 
         try w.writeOperand(s, inst, 0, extra.field_ptr);
         try s.print(", {d}", .{extra.field_index});
-    }
-
-    fn writeMemcpy(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
-        const extra = w.air.extraData(Air.Bin, pl_op.payload).data;
-
-        try w.writeOperand(s, inst, 0, pl_op.operand);
-        try s.writeAll(", ");
-        try w.writeOperand(s, inst, 1, extra.lhs);
-        try s.writeAll(", ");
-        try w.writeOperand(s, inst, 2, extra.rhs);
     }
 
     fn writeConstant(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

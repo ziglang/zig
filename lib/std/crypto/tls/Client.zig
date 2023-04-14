@@ -531,7 +531,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     const pub_key = subject.pubKey();
                                     if (pub_key.len > main_cert_pub_key_buf.len)
                                         return error.CertificatePublicKeyInvalid;
-                                    @memcpy(&main_cert_pub_key_buf, pub_key.ptr, pub_key.len);
+                                    @memcpy(main_cert_pub_key_buf[0..pub_key.len], pub_key);
                                     main_cert_pub_key_len = @intCast(@TypeOf(main_cert_pub_key_len), pub_key.len);
                                 } else {
                                     try prev_cert.verify(subject, now_sec);

@@ -9861,8 +9861,11 @@ fn zirSliceStart(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const extra = sema.code.extraData(Zir.Inst.SliceStart, inst_data.payload_index).data;
     const array_ptr = try sema.resolveInst(extra.lhs);
     const start = try sema.resolveInst(extra.start);
+    const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
+    const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
+    const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
 
-    return sema.analyzeSlice(block, src, array_ptr, start, .none, .none, .unneeded);
+    return sema.analyzeSlice(block, src, array_ptr, start, .none, .none, .unneeded, ptr_src, start_src, end_src);
 }
 
 fn zirSliceEnd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9875,8 +9878,11 @@ fn zirSliceEnd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const array_ptr = try sema.resolveInst(extra.lhs);
     const start = try sema.resolveInst(extra.start);
     const end = try sema.resolveInst(extra.end);
+    const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
+    const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
+    const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
 
-    return sema.analyzeSlice(block, src, array_ptr, start, end, .none, .unneeded);
+    return sema.analyzeSlice(block, src, array_ptr, start, end, .none, .unneeded, ptr_src, start_src, end_src);
 }
 
 fn zirSliceSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9891,8 +9897,11 @@ fn zirSliceSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     const start = try sema.resolveInst(extra.start);
     const end = try sema.resolveInst(extra.end);
     const sentinel = try sema.resolveInst(extra.sentinel);
+    const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
+    const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
+    const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
 
-    return sema.analyzeSlice(block, src, array_ptr, start, end, sentinel, sentinel_src);
+    return sema.analyzeSlice(block, src, array_ptr, start, end, sentinel, sentinel_src, ptr_src, start_src, end_src);
 }
 
 fn zirSwitchCapture(
@@ -20393,6 +20402,22 @@ fn checkPtrType(
     return sema.fail(block, ty_src, "expected pointer type, found '{}'", .{ty.fmt(sema.mod)});
 }
 
+fn checkSliceOrArrayType(
+    sema: *Sema,
+    block: *Block,
+    ty_src: LazySrcLoc,
+    ty: Type,
+) CompileError!void {
+    if (ty.zigTypeTag() == .Pointer) {
+        switch (ty.ptrSize()) {
+            .Slice => return,
+            .One => if (ty.childType().zigTypeTag() == .Array) return,
+            else => {},
+        }
+    }
+    return sema.fail(block, ty_src, "expected slice or array pointer; found '{}'", .{ty.fmt(sema.mod)});
+}
+
 fn checkVectorElemType(
     sema: *Sema,
     block: *Block,
@@ -21750,88 +21775,64 @@ fn analyzeMinMax(
 
 fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.Memcpy, inst_data.payload_index).data;
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const src = inst_data.src();
     const dest_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const src_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const len_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
-    const uncasted_dest_ptr = try sema.resolveInst(extra.dest);
+    const dest_ptr = try sema.resolveInst(extra.lhs);
+    const src_ptr_ptr = try sema.resolveInst(extra.rhs);
+    const dest_ptr_ty = sema.typeOf(dest_ptr);
+    try checkSliceOrArrayType(sema, block, dest_src, dest_ptr_ty);
 
-    // TODO AstGen's coerced_ty cannot handle volatile here
-    var dest_ptr_info = Type.initTag(.manyptr_u8).ptrInfo().data;
-    dest_ptr_info.@"volatile" = sema.typeOf(uncasted_dest_ptr).isVolatilePtr();
-    const dest_ptr_ty = try Type.ptr(sema.arena, sema.mod, dest_ptr_info);
-    const dest_ptr = try sema.coerce(block, dest_ptr_ty, uncasted_dest_ptr, dest_src);
-
-    const uncasted_src_ptr = try sema.resolveInst(extra.source);
-    var src_ptr_info = Type.initTag(.manyptr_const_u8).ptrInfo().data;
-    src_ptr_info.@"volatile" = sema.typeOf(uncasted_src_ptr).isVolatilePtr();
-    const src_ptr_ty = try Type.ptr(sema.arena, sema.mod, src_ptr_info);
-    const src_ptr = try sema.coerce(block, src_ptr_ty, uncasted_src_ptr, src_src);
-    const len = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.byte_count), len_src);
+    const dest_len = try sema.fieldVal(block, dest_src, dest_ptr, "len", dest_src);
+    const src_ptr = try sema.analyzeSlice(block, src_src, src_ptr_ptr, .zero_usize, dest_len, .none, .unneeded, src_src, src_src, src_src);
 
     const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |dest_ptr_val| rs: {
         if (!dest_ptr_val.isComptimeMutablePtr()) break :rs dest_src;
         if (try sema.resolveDefinedValue(block, src_src, src_ptr)) |src_ptr_val| {
             if (!src_ptr_val.isComptimeMutablePtr()) break :rs src_src;
-            if (try sema.resolveDefinedValue(block, len_src, len)) |len_val| {
-                _ = len_val;
-                return sema.fail(block, src, "TODO: Sema.zirMemcpy at comptime", .{});
-            } else break :rs len_src;
+            return sema.fail(block, src, "TODO: @memcpy at comptime", .{});
         } else break :rs src_src;
     } else dest_src;
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
     _ = try block.addInst(.{
         .tag = .memcpy,
-        .data = .{ .pl_op = .{
-            .operand = dest_ptr,
-            .payload = try sema.addExtra(Air.Bin{
-                .lhs = src_ptr,
-                .rhs = len,
-            }),
+        .data = .{ .bin_op = .{
+            .lhs = dest_ptr,
+            .rhs = src_ptr,
         } },
     });
 }
 
 fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.Memset, inst_data.payload_index).data;
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const src = inst_data.src();
     const dest_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const value_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const len_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
-    const uncasted_dest_ptr = try sema.resolveInst(extra.dest);
+    const dest_ptr = try sema.resolveInst(extra.lhs);
+    const uncoerced_elem = try sema.resolveInst(extra.rhs);
+    const dest_ptr_ty = sema.typeOf(dest_ptr);
+    try checkSliceOrArrayType(sema, block, dest_src, dest_ptr_ty);
 
-    // TODO AstGen's coerced_ty cannot handle volatile here
-    var ptr_info = Type.initTag(.manyptr_u8).ptrInfo().data;
-    ptr_info.@"volatile" = sema.typeOf(uncasted_dest_ptr).isVolatilePtr();
-    const dest_ptr_ty = try Type.ptr(sema.arena, sema.mod, ptr_info);
-    const dest_ptr = try sema.coerce(block, dest_ptr_ty, uncasted_dest_ptr, dest_src);
-
-    const value = try sema.coerce(block, Type.u8, try sema.resolveInst(extra.byte), value_src);
-    const len = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.byte_count), len_src);
+    const elem_ty = dest_ptr_ty.elemType2();
+    const elem = try sema.coerce(block, elem_ty, uncoerced_elem, value_src);
 
     const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |ptr_val| rs: {
         if (!ptr_val.isComptimeMutablePtr()) break :rs dest_src;
-        if (try sema.resolveDefinedValue(block, len_src, len)) |len_val| {
-            if (try sema.resolveMaybeUndefVal(value)) |val| {
-                _ = len_val;
-                _ = val;
-                return sema.fail(block, src, "TODO: Sema.zirMemset at comptime", .{});
-            } else break :rs value_src;
-        } else break :rs len_src;
+        if (try sema.resolveMaybeUndefVal(elem)) |elem_val| {
+            _ = elem_val;
+            return sema.fail(block, src, "TODO: @memset at comptime", .{});
+        } else break :rs value_src;
     } else dest_src;
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
     _ = try block.addInst(.{
         .tag = .memset,
-        .data = .{ .pl_op = .{
-            .operand = dest_ptr,
-            .payload = try sema.addExtra(Air.Bin{
-                .lhs = value,
-                .rhs = len,
-            }),
+        .data = .{ .bin_op = .{
+            .lhs = dest_ptr,
+            .rhs = elem,
         } },
     });
 }
@@ -28753,10 +28754,10 @@ fn analyzeSlice(
     uncasted_end_opt: Air.Inst.Ref,
     sentinel_opt: Air.Inst.Ref,
     sentinel_src: LazySrcLoc,
+    ptr_src: LazySrcLoc,
+    start_src: LazySrcLoc,
+    end_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
-    const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = src.node_offset.x };
-    const start_src: LazySrcLoc = .{ .node_offset_slice_start = src.node_offset.x };
-    const end_src: LazySrcLoc = .{ .node_offset_slice_end = src.node_offset.x };
     // Slice expressions can operate on a variable whose type is an array. This requires
     // the slice operand to be a pointer. In the case of a non-array, it will be a double pointer.
     const ptr_ptr_ty = sema.typeOf(ptr_ptr);

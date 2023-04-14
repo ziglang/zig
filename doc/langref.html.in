@@ -8681,40 +8681,28 @@ test "integer cast panic" {
       {#header_close#}
 
       {#header_open|@memcpy#}
-      <pre>{#syntax#}@memcpy(noalias dest: [*]u8, noalias source: [*]const u8, byte_count: usize) void{#endsyntax#}</pre>
-      <p>
-      This function copies bytes from one region of memory to another. {#syntax#}dest{#endsyntax#} and
-          {#syntax#}source{#endsyntax#} are both pointers and must not overlap.
-      </p>
-      <p>
-      This function is a low level intrinsic with no safety mechanisms. Most code
-      should not use this function, instead using something like this:
-      </p>
-      <pre>{#syntax#}for (dest, source[0..byte_count]) |*d, s| d.* = s;{#endsyntax#}</pre>
-      <p>
-      The optimizer is intelligent enough to turn the above snippet into a memcpy.
-      </p>
-      <p>There is also a standard library function for this:</p>
-      <pre>{#syntax#}const mem = @import("std").mem;
-mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
+      <pre>{#syntax#}@memcpy(noalias dest, noalias source) void{#endsyntax#}</pre>
+      <p>This function copies bytes from one region of memory to another.</p>
+      <p>{#syntax#}dest{#endsyntax#} must be a mutable slice, or a mutable pointer to an array.
+        It may have any alignment, and it may have any element type.</p>
+      <p>{#syntax#}source{#endsyntax#} must be an array, pointer, or a slice
+        with the same element type as {#syntax#}dest{#endsyntax#}. It may have
+        any alignment. Only {#syntax#}const{#endsyntax#} access is required. It
+        is sliced from 0 to the same length as
+        {#syntax#}dest{#endsyntax#}, triggering the same set of safety checks and
+        possible compile errors as
+        {#syntax#}source[0..dest.len]{#endsyntax#}.</p>
+      <p>It is illegal for {#syntax#}dest{#endsyntax#} and
+        {#syntax#}source[0..dest.len]{#endsyntax#} to overlap. If safety
+        checks are enabled, there will be a runtime check for such overlapping.</p>
       {#header_close#}
 
       {#header_open|@memset#}
-      <pre>{#syntax#}@memset(dest: [*]u8, c: u8, byte_count: usize) void{#endsyntax#}</pre>
-      <p>
-      This function sets a region of memory to {#syntax#}c{#endsyntax#}. {#syntax#}dest{#endsyntax#} is a pointer.
-      </p>
-      <p>
-      This function is a low level intrinsic with no safety mechanisms. Most
-      code should not use this function, instead using something like this:
-      </p>
-      <pre>{#syntax#}for (dest[0..byte_count]) |*b| b.* = c;{#endsyntax#}</pre>
-      <p>
-      The optimizer is intelligent enough to turn the above snippet into a memset.
-      </p>
-      <p>There is also a standard library function for this:</p>
-      <pre>{#syntax#}const mem = @import("std").mem;
-mem.set(u8, dest, c);{#endsyntax#}</pre>
+      <pre>{#syntax#}@memset(dest, elem) void{#endsyntax#}</pre>
+      <p>This function sets all the elements of a memory region to {#syntax#}elem{#endsyntax#}.</p>
+      <p>{#syntax#}dest{#endsyntax#} must be a mutable slice or a mutable pointer to an array.
+      It may have any alignment, and it may have any element type.</p>
+      <p>{#syntax#}elem{#endsyntax#} is coerced to the element type of {#syntax#}dest{#endsyntax#}.</p>
       {#header_close#}
 
       {#header_open|@min#}

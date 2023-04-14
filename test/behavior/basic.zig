@@ -367,8 +367,8 @@ fn testMemcpyMemset() !void {
     var foo: [20]u8 = undefined;
     var bar: [20]u8 = undefined;
 
-    @memset(&foo, 'A', foo.len);
-    @memcpy(&bar, &foo, bar.len);
+    @memset(&foo, 'A');
+    @memcpy(&bar, &foo);
 
     try expect(bar[0] == 'A');
     try expect(bar[11] == 'A');

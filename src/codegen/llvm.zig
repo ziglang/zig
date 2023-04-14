@@ -5776,6 +5776,36 @@ pub const FuncGen = struct {
         return result;
     }
 
+    fn sliceOrArrayPtr(fg: *FuncGen, ptr: *llvm.Value, ty: Type) *llvm.Value {
+        switch (ty.ptrSize()) {
+            .Slice => return fg.builder.buildExtractValue(ptr, 0, ""),
+            .One => return ptr,
+            .Many, .C => unreachable,
+        }
+    }
+
+    fn sliceOrArrayLenInBytes(fg: *FuncGen, ptr: *llvm.Value, ty: Type) *llvm.Value {
+        const target = fg.dg.module.getTarget();
+        const llvm_usize_ty = fg.context.intType(target.cpu.arch.ptrBitWidth());
+        switch (ty.ptrSize()) {
+            .Slice => {
+                const len = fg.builder.buildExtractValue(ptr, 1, "");
+                const elem_ty = ty.childType();
+                const abi_size = elem_ty.abiSize(target);
+                if (abi_size == 1) return len;
+                const abi_size_llvm_val = llvm_usize_ty.constInt(abi_size, .False);
+                return fg.builder.buildMul(len, abi_size_llvm_val, "");
+            },
+            .One => {
+                const array_ty = ty.childType();
+                const elem_ty = array_ty.childType();
+                const abi_size = elem_ty.abiSize(target);
+                return llvm_usize_ty.constInt(array_ty.arrayLen() * abi_size, .False);
+            },
+            .Many, .C => unreachable,
+        }
+    }
+
     fn airSliceField(self: *FuncGen, inst: Air.Inst.Index, index: c_uint) !?*llvm.Value {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
@@ -8374,18 +8404,24 @@ pub const FuncGen = struct {
     }
 
     fn airMemset(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
-        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
-        const dest_ptr = try self.resolveInst(pl_op.operand);
-        const ptr_ty = self.air.typeOf(pl_op.operand);
-        const value = try self.resolveInst(extra.lhs);
-        const val_is_undef = if (self.air.value(extra.lhs)) |val| val.isUndefDeep() else false;
-        const len = try self.resolveInst(extra.rhs);
-        const u8_llvm_ty = self.context.intType(8);
-        const fill_char = if (val_is_undef) u8_llvm_ty.constInt(0xaa, .False) else value;
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const dest_slice = try self.resolveInst(bin_op.lhs);
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const value = try self.resolveInst(bin_op.rhs);
+        const elem_ty = self.air.typeOf(bin_op.rhs);
         const target = self.dg.module.getTarget();
+        const val_is_undef = if (self.air.value(bin_op.rhs)) |val| val.isUndefDeep() else false;
+        const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
+        const dest_ptr = self.sliceOrArrayPtr(dest_slice, ptr_ty);
+        const u8_llvm_ty = self.context.intType(8);
+        const fill_byte = if (val_is_undef) u8_llvm_ty.constInt(0xaa, .False) else b: {
+            if (elem_ty.abiSize(target) != 1) {
+                return self.dg.todo("implement @memset for non-byte-sized element type", .{});
+            }
+            break :b self.builder.buildBitCast(value, u8_llvm_ty, "");
+        };
         const dest_ptr_align = ptr_ty.ptrAlignment(target);
-        _ = self.builder.buildMemSet(dest_ptr, fill_char, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+        _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr());
 
         if (val_is_undef and self.dg.module.comp.bin_file.options.valgrind) {
             self.valgrindMarkUndef(dest_ptr, len);
@@ -8394,13 +8430,14 @@ pub const FuncGen = struct {
     }
 
     fn airMemcpy(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
-        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
-        const dest_ptr = try self.resolveInst(pl_op.operand);
-        const dest_ptr_ty = self.air.typeOf(pl_op.operand);
-        const src_ptr = try self.resolveInst(extra.lhs);
-        const src_ptr_ty = self.air.typeOf(extra.lhs);
-        const len = try self.resolveInst(extra.rhs);
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const dest_slice = try self.resolveInst(bin_op.lhs);
+        const dest_ptr_ty = self.air.typeOf(bin_op.lhs);
+        const src_slice = try self.resolveInst(bin_op.rhs);
+        const src_ptr_ty = self.air.typeOf(bin_op.rhs);
+        const src_ptr = self.sliceOrArrayPtr(src_slice, src_ptr_ty);
+        const len = self.sliceOrArrayLenInBytes(dest_slice, dest_ptr_ty);
+        const dest_ptr = self.sliceOrArrayPtr(dest_slice, dest_ptr_ty);
         const is_volatile = src_ptr_ty.isVolatilePtr() or dest_ptr_ty.isVolatilePtr();
         const target = self.dg.module.getTarget();
         _ = self.builder.buildMemCpy(
