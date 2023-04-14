@@ -3124,7 +3124,7 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
             const imm_reg = try self.copyToTmpRegister(dst_ty, .{
                 .immediate = src_bits ^ (src_bits - 1),
             });
-            try self.genBinOpMir(.bsf, src_ty, dst_mcv, mat_src_mcv);
+            try self.genBinOpMir(.bsr, src_ty, dst_mcv, mat_src_mcv);
 
             const cmov_abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
             try self.asmCmovccRegisterRegister(
@@ -3138,7 +3138,7 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
             const imm_reg = try self.copyToTmpRegister(dst_ty, .{
                 .immediate = @as(u64, math.maxInt(u64)) >> @intCast(u6, 64 - self.regBitSize(dst_ty)),
             });
-            try self.genBinOpMir(.bsf, src_ty, dst_mcv, mat_src_mcv);
+            try self.genBinOpMir(.bsr, src_ty, dst_mcv, mat_src_mcv);
 
             const cmov_abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
             try self.asmCmovccRegisterRegister(
