@@ -4,7 +4,9 @@ const root = @import("root");
 pub const aead = struct {
     pub const aegis = struct {
         pub const Aegis128L = @import("crypto/aegis.zig").Aegis128L;
+        pub const Aegis128L_256 = @import("crypto/aegis.zig").Aegis128L_256;
         pub const Aegis256 = @import("crypto/aegis.zig").Aegis256;
+        pub const Aegis256_256 = @import("crypto/aegis.zig").Aegis256_256;
     };
 
     pub const aes_gcm = struct {
