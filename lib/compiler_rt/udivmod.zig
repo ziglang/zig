@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 const Log2Int = std.math.Log2Int;
+const HalveInt = @import("common.zig").HalveInt;
 
 const lo = switch (builtin.cpu.arch.endian()) {
     .Big => 1,
@@ -9,19 +10,10 @@ const lo = switch (builtin.cpu.arch.endian()) {
 };
 const hi = 1 - lo;
 
-fn HalfInt(comptime T: type) type {
-    std.debug.assert(@typeInfo(T) == .Int);
-    std.debug.assert(@bitSizeOf(T) % 2 == 0);
-    return std.meta.Int(.unsigned, @bitSizeOf(T) / 2);
-}
-
-// Performs division of a double-word specified in its single-word components. Most commonly used
-// for computing u128 bit divisions in terms of 64-bit integers.
-//
-// q = U / v
-// r = U % v
-// where  U = (u1 | u0)
+// Let _u1 and _u0 be the high and low limbs of U respectively.
+// Returns U / v_ and sets r = U % v_.
 fn divwide_generic(comptime T: type, _u1: T, _u0: T, v_: T, r: *T) T {
+    const HalfT = HalveInt(T, false).HalfT;
     @setRuntimeSafety(is_test);
     var v = v_;
 
@@ -43,11 +35,11 @@ fn divwide_generic(comptime T: type, _u1: T, _u0: T, v_: T, r: *T) T {
 
     // Break divisor up into two 32-bit digits
     const vn1 = v >> (@bitSizeOf(T) / 2);
-    const vn0 = v & std.math.maxInt(HalfInt(T));
+    const vn0 = v & std.math.maxInt(HalfT);
 
     // Break right half of dividend into two digits
     const un1 = un10 >> (@bitSizeOf(T) / 2);
-    const un0 = un10 & std.math.maxInt(HalfInt(T));
+    const un0 = un10 & std.math.maxInt(HalfT);
 
     // Compute the first quotient digit, q1
     var q1 = un64 / vn1;
@@ -79,7 +71,7 @@ fn divwide_generic(comptime T: type, _u1: T, _u0: T, v_: T, r: *T) T {
 
 fn divwide(comptime T: type, _u1: T, _u0: T, v: T, r: *T) T {
     @setRuntimeSafety(is_test);
-    if (T == u64 and builtin.target.cpu.arch == .x86_64) {
+    if (T == u64 and builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows) {
         var rem: T = undefined;
         const quo = asm (
             \\divq %[v]
@@ -96,10 +88,10 @@ fn divwide(comptime T: type, _u1: T, _u0: T, v: T, r: *T) T {
     }
 }
 
-// return q = a / b, *r = a % b
+// Returns a_ / b_ and sets maybe_rem = a_ % b.
 pub fn udivmod(comptime T: type, a_: T, b_: T, maybe_rem: ?*T) T {
     @setRuntimeSafety(is_test);
-    const HalfT = HalfInt(T);
+    const HalfT = HalveInt(T, false).HalfT;
     const SignedT = std.meta.Int(.signed, @bitSizeOf(T));
 
     if (b_ > a_) {
@@ -141,8 +133,8 @@ pub fn udivmod(comptime T: type, a_: T, b_: T, maybe_rem: ?*T) T {
     for (0..shift + 1) |_| {
         q[lo] <<= 1;
         // Branchless version of:
-        // if (a >= b) {
-        //     a -= b;
+        // if (af >= bf) {
+        //     af -= bf;
         //     q[lo] |= 1;
         // }
         const s = @bitCast(SignedT, bf -% af -% 1) >> (@bitSizeOf(T) - 1);
