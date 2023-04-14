@@ -479,7 +479,10 @@ fn fetchAndUnpack(
         };
         defer tmp_directory.closeAndFree(gpa);
 
-        var req = try http_client.request(uri, .{}, .{});
+        var h = std.http.Headers{ .allocator = gpa };
+        defer h.deinit();
+
+        var req = try http_client.request(uri, h, .{ .method = .GET });
         defer req.deinit();
 
         try req.do();

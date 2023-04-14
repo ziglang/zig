@@ -157,134 +157,120 @@ pub const BufferedConnection = struct {
 
 /// A HTTP request originating from a client.
 pub const Request = struct {
-    pub const Headers = struct {
-        method: http.Method,
-        target: []const u8,
-        version: http.Version,
-        content_length: ?u64 = null,
-        transfer_encoding: ?http.TransferEncoding = null,
-        transfer_compression: ?http.ContentEncoding = null,
-        connection: http.Connection = .close,
-        host: ?[]const u8 = null,
+    pub const ParseError = Allocator.Error || error{
+        ShortHttpStatusLine,
+        BadHttpVersion,
+        UnknownHttpMethod,
+        HttpHeadersInvalid,
+        HttpHeaderContinuationsUnsupported,
+        HttpTransferEncodingUnsupported,
+        HttpConnectionHeaderUnsupported,
+        InvalidCharacter,
+    };
 
-        pub const ParseError = error{
-            ShortHttpStatusLine,
-            BadHttpVersion,
-            UnknownHttpMethod,
-            HttpHeadersInvalid,
-            HttpHeaderContinuationsUnsupported,
-            HttpTransferEncodingUnsupported,
-            HttpConnectionHeaderUnsupported,
-            InvalidCharacter,
+    pub fn parse(req: *Request, bytes: []const u8) !void {
+        var it = mem.tokenize(u8, bytes[0 .. bytes.len - 4], "\r\n");
+
+        const first_line = it.next() orelse return error.HttpHeadersInvalid;
+        if (first_line.len < 10)
+            return error.ShortHttpStatusLine;
+
+        const method_end = mem.indexOfScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
+        const method_str = first_line[0..method_end];
+        const method = std.meta.stringToEnum(http.Method, method_str) orelse return error.UnknownHttpMethod;
+
+        const version_start = mem.lastIndexOfScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
+        if (version_start == method_end) return error.HttpHeadersInvalid;
+
+        const version_str = first_line[version_start + 1 ..];
+        if (version_str.len != 8) return error.HttpHeadersInvalid;
+        const version: http.Version = switch (int64(version_str[0..8])) {
+            int64("HTTP/1.0") => .@"HTTP/1.0",
+            int64("HTTP/1.1") => .@"HTTP/1.1",
+            else => return error.BadHttpVersion,
         };
 
-        pub fn parse(bytes: []const u8) !Headers {
-            var it = mem.tokenize(u8, bytes[0 .. bytes.len - 4], "\r\n");
+        const target = first_line[method_end + 1 .. version_start];
 
-            const first_line = it.next() orelse return error.HttpHeadersInvalid;
-            if (first_line.len < 10)
-                return error.ShortHttpStatusLine;
+        req.method = method;
+        req.target = target;
+        req.version = version;
 
-            const method_end = mem.indexOfScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
-            const method_str = first_line[0..method_end];
-            const method = std.meta.stringToEnum(http.Method, method_str) orelse return error.UnknownHttpMethod;
+        while (it.next()) |line| {
+            if (line.len == 0) return error.HttpHeadersInvalid;
+            switch (line[0]) {
+                ' ', '\t' => return error.HttpHeaderContinuationsUnsupported,
+                else => {},
+            }
 
-            const version_start = mem.lastIndexOfScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
-            if (version_start == method_end) return error.HttpHeadersInvalid;
+            var line_it = mem.tokenize(u8, line, ": ");
+            const header_name = line_it.next() orelse return error.HttpHeadersInvalid;
+            const header_value = line_it.rest();
 
-            const version_str = first_line[version_start + 1 ..];
-            if (version_str.len != 8) return error.HttpHeadersInvalid;
-            const version: http.Version = switch (int64(version_str[0..8])) {
-                int64("HTTP/1.0") => .@"HTTP/1.0",
-                int64("HTTP/1.1") => .@"HTTP/1.1",
-                else => return error.BadHttpVersion,
-            };
+            try req.headers.append(header_name, header_value);
 
-            const target = first_line[method_end + 1 .. version_start];
+            if (std.ascii.eqlIgnoreCase(header_name, "content-length")) {
+                if (req.content_length != null) return error.HttpHeadersInvalid;
+                req.content_length = try std.fmt.parseInt(u64, header_value, 10);
+            } else if (std.ascii.eqlIgnoreCase(header_name, "transfer-encoding")) {
+                // Transfer-Encoding: second, first
+                // Transfer-Encoding: deflate, chunked
+                var iter = mem.splitBackwards(u8, header_value, ",");
 
-            var headers: Headers = .{
-                .method = method,
-                .target = target,
-                .version = version,
-            };
+                if (iter.next()) |first| {
+                    const trimmed = mem.trim(u8, first, " ");
 
-            while (it.next()) |line| {
-                if (line.len == 0) return error.HttpHeadersInvalid;
-                switch (line[0]) {
-                    ' ', '\t' => return error.HttpHeaderContinuationsUnsupported,
-                    else => {},
-                }
-
-                var line_it = mem.tokenize(u8, line, ": ");
-                const header_name = line_it.next() orelse return error.HttpHeadersInvalid;
-                const header_value = line_it.rest();
-                if (std.ascii.eqlIgnoreCase(header_name, "content-length")) {
-                    if (headers.content_length != null) return error.HttpHeadersInvalid;
-                    headers.content_length = try std.fmt.parseInt(u64, header_value, 10);
-                } else if (std.ascii.eqlIgnoreCase(header_name, "transfer-encoding")) {
-                    // Transfer-Encoding: second, first
-                    // Transfer-Encoding: deflate, chunked
-                    var iter = mem.splitBackwards(u8, header_value, ",");
-
-                    if (iter.next()) |first| {
-                        const trimmed = mem.trim(u8, first, " ");
-
-                        if (std.meta.stringToEnum(http.TransferEncoding, trimmed)) |te| {
-                            if (headers.transfer_encoding != null) return error.HttpHeadersInvalid;
-                            headers.transfer_encoding = te;
-                        } else if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
-                            if (headers.transfer_compression != null) return error.HttpHeadersInvalid;
-                            headers.transfer_compression = ce;
-                        } else {
-                            return error.HttpTransferEncodingUnsupported;
-                        }
-                    }
-
-                    if (iter.next()) |second| {
-                        if (headers.transfer_compression != null) return error.HttpTransferEncodingUnsupported;
-
-                        const trimmed = mem.trim(u8, second, " ");
-
-                        if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
-                            headers.transfer_compression = ce;
-                        } else {
-                            return error.HttpTransferEncodingUnsupported;
-                        }
-                    }
-
-                    if (iter.next()) |_| return error.HttpTransferEncodingUnsupported;
-                } else if (std.ascii.eqlIgnoreCase(header_name, "content-encoding")) {
-                    if (headers.transfer_compression != null) return error.HttpHeadersInvalid;
-
-                    const trimmed = mem.trim(u8, header_value, " ");
-
-                    if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
-                        headers.transfer_compression = ce;
+                    if (std.meta.stringToEnum(http.TransferEncoding, trimmed)) |te| {
+                        if (req.transfer_encoding != null) return error.HttpHeadersInvalid;
+                        req.transfer_encoding = te;
+                    } else if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                        if (req.transfer_compression != null) return error.HttpHeadersInvalid;
+                        req.transfer_compression = ce;
                     } else {
                         return error.HttpTransferEncodingUnsupported;
                     }
-                } else if (std.ascii.eqlIgnoreCase(header_name, "connection")) {
-                    if (std.ascii.eqlIgnoreCase(header_value, "keep-alive")) {
-                        headers.connection = .keep_alive;
-                    } else if (std.ascii.eqlIgnoreCase(header_value, "close")) {
-                        headers.connection = .close;
+                }
+
+                if (iter.next()) |second| {
+                    if (req.transfer_compression != null) return error.HttpTransferEncodingUnsupported;
+
+                    const trimmed = mem.trim(u8, second, " ");
+
+                    if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                        req.transfer_compression = ce;
                     } else {
-                        return error.HttpConnectionHeaderUnsupported;
+                        return error.HttpTransferEncodingUnsupported;
                     }
-                } else if (std.ascii.eqlIgnoreCase(header_name, "host")) {
-                    headers.host = header_value;
+                }
+
+                if (iter.next()) |_| return error.HttpTransferEncodingUnsupported;
+            } else if (std.ascii.eqlIgnoreCase(header_name, "content-encoding")) {
+                if (req.transfer_compression != null) return error.HttpHeadersInvalid;
+
+                const trimmed = mem.trim(u8, header_value, " ");
+
+                if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                    req.transfer_compression = ce;
+                } else {
+                    return error.HttpTransferEncodingUnsupported;
                 }
             }
-
-            return headers;
         }
+    }
 
-        inline fn int64(array: *const [8]u8) u64 {
-            return @bitCast(u64, array.*);
-        }
-    };
+    inline fn int64(array: *const [8]u8) u64 {
+        return @bitCast(u64, array.*);
+    }
 
-    headers: Headers = undefined,
+    method: http.Method,
+    target: []const u8,
+    version: http.Version,
+
+    content_length: ?u64 = null,
+    transfer_encoding: ?http.TransferEncoding = null,
+    transfer_compression: ?http.ContentEncoding = null,
+
+    headers: http.Headers = undefined,
     parser: proto.HeadersParser,
     compression: Compression = .none,
 };
@@ -295,23 +281,17 @@ pub const Request = struct {
 /// Order of operations: accept -> wait -> do  [ -> write -> finish][ -> reset /]
 ///                                   \ -> read /
 pub const Response = struct {
-    pub const Headers = struct {
-        version: http.Version = .@"HTTP/1.1",
-        status: http.Status = .ok,
-        reason: ?[]const u8 = null,
+    version: http.Version = .@"HTTP/1.1",
+    status: http.Status = .ok,
+    reason: ?[]const u8 = null,
 
-        server: ?[]const u8 = "zig (std.http)",
-        connection: http.Connection = .keep_alive,
-        transfer_encoding: RequestTransfer = .none,
-
-        custom: []const http.CustomHeader = &[_]http.CustomHeader{},
-    };
+    transfer_encoding: ResponseTransfer = .none,
 
     server: *Server,
     address: net.Address,
     connection: BufferedConnection,
 
-    headers: Headers = .{},
+    headers: http.Headers,
     request: Request,
 
     /// Reset this response to its initial state. This must be called before handling a second request on the same connection.
@@ -346,41 +326,54 @@ pub const Response = struct {
         var buffered = std.io.bufferedWriter(res.connection.writer());
         const w = buffered.writer();
 
-        try w.writeAll(@tagName(res.headers.version));
+        try w.writeAll(@tagName(res.version));
         try w.writeByte(' ');
-        try w.print("{d}", .{@enumToInt(res.headers.status)});
+        try w.print("{d}", .{@enumToInt(res.status)});
         try w.writeByte(' ');
-        if (res.headers.reason) |reason| {
+        if (res.reason) |reason| {
             try w.writeAll(reason);
-        } else if (res.headers.status.phrase()) |phrase| {
+        } else if (res.status.phrase()) |phrase| {
             try w.writeAll(phrase);
         }
+        try w.writeAll("\r\n");
 
-        if (res.headers.server) |server| {
-            try w.writeAll("\r\nServer: ");
-            try w.writeAll(server);
+        if (!res.headers.contains("server")) {
+            try w.writeAll("Server: zig (std.http)\r\n");
         }
 
-        if (res.headers.connection == .close) {
-            try w.writeAll("\r\nConnection: close");
+        if (!res.headers.contains("connection")) {
+            try w.writeAll("Connection: keep-alive\r\n");
+        }
+
+        const has_transfer_encoding = res.headers.contains("transfer-encoding");
+        const has_content_length = res.headers.contains("content-length");
+
+        if (!has_transfer_encoding and !has_content_length) {
+            switch (res.transfer_encoding) {
+                .chunked => try w.writeAll("Transfer-Encoding: chunked\r\n"),
+                .content_length => |content_length| try w.print("Content-Length: {d}\r\n", .{content_length}),
+                .none => {},
+            }
         } else {
-            try w.writeAll("\r\nConnection: keep-alive");
+            if (has_content_length) {
+                const content_length = try std.fmt.parseInt(u64, res.headers.getFirstValue("content-length").?, 10);
+
+                res.transfer_encoding = .{ .content_length = content_length };
+            } else if (has_transfer_encoding) {
+                const transfer_encoding = res.headers.getFirstValue("content-length").?;
+                if (std.mem.eql(u8, transfer_encoding, "chunked")) {
+                    res.transfer_encoding = .chunked;
+                } else {
+                    return error.UnsupportedTransferEncoding;
+                }
+            } else {
+                res.transfer_encoding = .none;
+            }
         }
 
-        switch (res.headers.transfer_encoding) {
-            .chunked => try w.writeAll("\r\nTransfer-Encoding: chunked"),
-            .content_length => |content_length| try w.print("\r\nContent-Length: {d}", .{content_length}),
-            .none => {},
-        }
+        try w.print("{}", .{res.headers});
 
-        for (res.headers.custom) |header| {
-            try w.writeAll("\r\n");
-            try w.writeAll(header.name);
-            try w.writeAll(": ");
-            try w.writeAll(header.value);
-        }
-
-        try w.writeAll("\r\n\r\n");
+        try w.writeAll("\r\n");
 
         try buffered.flush();
     }
@@ -419,22 +412,28 @@ pub const Response = struct {
             if (res.request.parser.state.isContent()) break;
         }
 
-        res.request.headers = try Request.Headers.parse(res.request.parser.header_bytes.items);
+        res.request.headers = .{ .allocator = res.server.allocator, .owned = true };
+        try res.request.parse(res.request.parser.header_bytes.items);
 
-        if (res.headers.connection == .keep_alive and res.request.headers.connection == .keep_alive) {
+        const res_connection = res.headers.getFirstValue("connection");
+        const res_keepalive = res_connection != null and !std.ascii.eqlIgnoreCase("close", res_connection.?);
+
+        const req_connection = res.request.headers.getFirstValue("connection");
+        const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
+        if (res_keepalive and req_keepalive) {
             res.connection.conn.closing = false;
         } else {
             res.connection.conn.closing = true;
         }
 
-        if (res.request.headers.transfer_encoding) |te| {
+        if (res.request.transfer_encoding) |te| {
             switch (te) {
                 .chunked => {
                     res.request.parser.next_chunk_length = 0;
                     res.request.parser.state = .chunk_head_size;
                 },
             }
-        } else if (res.request.headers.content_length) |cl| {
+        } else if (res.request.content_length) |cl| {
             res.request.parser.next_chunk_length = cl;
 
             if (cl == 0) res.request.parser.done = true;
@@ -443,7 +442,7 @@ pub const Response = struct {
         }
 
         if (!res.request.parser.done) {
-            if (res.request.headers.transfer_compression) |tc| switch (tc) {
+            if (res.request.transfer_compression) |tc| switch (tc) {
                 .compress => return error.CompressionNotSupported,
                 .deflate => res.request.compression = .{
                     .deflate = try std.compress.zlib.zlibStream(res.server.allocator, res.transferReader()),
@@ -495,7 +494,7 @@ pub const Response = struct {
 
     /// Write `bytes` to the server. The `transfer_encoding` request header determines how data will be sent.
     pub fn write(res: *Response, bytes: []const u8) WriteError!usize {
-        switch (res.headers.transfer_encoding) {
+        switch (res.transfer_encoding) {
             .chunked => {
                 try res.connection.writer().print("{x}\r\n", .{bytes.len});
                 try res.connection.writeAll(bytes);
@@ -525,7 +524,7 @@ pub const Response = struct {
 };
 
 /// The mode of transport for responses.
-pub const RequestTransfer = union(enum) {
+pub const ResponseTransfer = union(enum) {
     content_length: u64,
     chunked: void,
     none: void,
@@ -588,7 +587,11 @@ pub fn accept(server: *Server, options: HeaderStrategy) AcceptError!*Response {
             .stream = in.stream,
             .protocol = .plain,
         } },
+        .headers = .{ .allocator = server.allocator },
         .request = .{
+            .version = undefined,
+            .method = undefined,
+            .target = undefined,
             .parser = switch (options) {
                 .dynamic => |max| proto.HeadersParser.initDynamic(max),
                 .static => |buf| proto.HeadersParser.initStatic(buf),
