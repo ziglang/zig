@@ -679,8 +679,7 @@ pub fn addRunArtifact(b: *Build, exe: *CompileStep) *RunStep {
     run_step.addArtifactArg(exe);
 
     if (exe.kind == .@"test") {
-        run_step.stdio = .zig_test;
-        run_step.addArgs(&.{"--listen=-"});
+        run_step.enableTestRunnerMode();
     }
 
     if (exe.vcpkg_bin_path) |path| {

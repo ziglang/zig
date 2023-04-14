@@ -988,18 +988,59 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         these_tests.overrideZigLibDir("lib");
         these_tests.addIncludePath("test");
 
-        const run = b.addRunArtifact(these_tests);
-        run.skip_foreign_checks = true;
-        run.setName(b.fmt("run test {s}-{s}-{s}{s}{s}{s}", .{
+        const qualified_name = b.fmt("{s}-{s}-{s}{s}{s}{s}", .{
             options.name,
             triple_txt,
             @tagName(test_target.optimize_mode),
             libc_suffix,
             single_threaded_suffix,
             backend_suffix,
-        }));
+        });
 
-        step.dependOn(&run.step);
+        if (test_target.target.ofmt == std.Target.ObjectFormat.c) {
+            var altered_target = test_target.target;
+            altered_target.ofmt = null;
+
+            const compile_c = b.addExecutable(.{
+                .name = qualified_name,
+                .link_libc = test_target.link_libc,
+                .target = altered_target,
+            });
+            compile_c.overrideZigLibDir("lib");
+            compile_c.addCSourceFileSource(.{
+                .source = these_tests.getOutputSource(),
+                .args = &.{
+                    // TODO output -std=c89 compatible C code
+                    "-std=c99",
+                    "-pedantic",
+                    "-Werror",
+                    // TODO stop violating these pedantic errors
+                    "-Wno-address-of-packed-member",
+                    "-Wno-gnu-folding-constant",
+                    "-Wno-incompatible-pointer-types",
+                    "-Wno-overlength-strings",
+                },
+            });
+            compile_c.addIncludePath("lib"); // for zig.h
+            if (test_target.link_libc == false and test_target.target.getOsTag() == .windows) {
+                compile_c.subsystem = .Console;
+                compile_c.linkSystemLibrary("kernel32");
+                compile_c.linkSystemLibrary("ntdll");
+            }
+
+            const run = b.addRunArtifact(compile_c);
+            run.skip_foreign_checks = true;
+            run.enableTestRunnerMode();
+            run.setName(b.fmt("run test {s}", .{qualified_name}));
+
+            step.dependOn(&run.step);
+        } else {
+            const run = b.addRunArtifact(these_tests);
+            run.skip_foreign_checks = true;
+            run.setName(b.fmt("run test {s}", .{qualified_name}));
+
+            step.dependOn(&run.step);
+        }
     }
     return step;
 }

@@ -140,6 +140,11 @@ pub fn setName(self: *RunStep, name: []const u8) void {
     self.rename_step_with_output_arg = false;
 }
 
+pub fn enableTestRunnerMode(rs: *RunStep) void {
+    rs.stdio = .zig_test;
+    rs.addArgs(&.{"--listen=-"});
+}
+
 pub fn addArtifactArg(self: *RunStep, artifact: *CompileStep) void {
     self.argv.append(Arg{ .artifact = artifact }) catch @panic("OOM");
     self.step.dependOn(&artifact.step);
