@@ -2002,37 +2002,20 @@ pub fn cStrToPrefixedFileW(s: [*:0]const u8) !PathSpace {
 pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
     // TODO https://github.com/ziglang/zig/issues/2765
     var path_space: PathSpace = undefined;
-    const prefix = "\\??\\";
-    const prefix_index: usize = if (mem.startsWith(u8, s, prefix)) prefix.len else 0;
-    for (s[prefix_index..]) |byte| {
-        switch (byte) {
-            '*', '?', '"', '<', '>', '|' => return error.BadPathName,
-            else => {},
-        }
-    }
-    const prefix_u16 = [_]u16{ '\\', '?', '?', '\\' };
-    const start_index = if (prefix_index > 0 or !std.fs.path.isAbsolute(s)) 0 else blk: {
-        mem.copy(u16, path_space.data[0..], prefix_u16[0..]);
-        break :blk prefix_u16.len;
-    };
-    path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
-    if (path_space.len > path_space.data.len) return error.NameTooLong;
-    path_space.len = start_index + (normalizePath(u16, path_space.data[start_index..path_space.len]) catch |err| switch (err) {
-        error.TooManyParentDirs => {
-            if (!std.fs.path.isAbsolute(s)) {
-                var temp_path: PathSpace = undefined;
-                temp_path.len = try std.unicode.utf8ToUtf16Le(&temp_path.data, s);
-                std.debug.assert(temp_path.len == path_space.len);
-                temp_path.data[path_space.len] = 0;
-                path_space.len = prefix_u16.len + try getFullPathNameW(&temp_path.data, path_space.data[prefix_u16.len..]);
-                mem.copy(u16, &path_space.data, &prefix_u16);
-                std.debug.assert(path_space.data[path_space.len] == 0);
-                return path_space;
-            }
-            return error.BadPathName;
-        },
-    });
+
+    path_space.len = try std.unicode.utf8ToUtf16Le(&path_space.data, s);
     path_space.data[path_space.len] = 0;
+
+    var out: UNICODE_STRING = undefined;
+    if (ntdll.RtlDosPathNameToNtPathName_U(path_space.span(), &out, null, null) == FALSE)
+        return error.BadPathName;
+    defer ntdll.RtlFreeUnicodeString(&out);
+
+    const out_path = out.Buffer[0 .. out.Length / 2];
+    mem.copy(u16, path_space.data[0..], out_path);
+    path_space.len = out.Length / 2;
+    path_space.data[path_space.len] = 0;
+
     return path_space;
 }
 
