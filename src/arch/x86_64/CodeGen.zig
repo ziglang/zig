@@ -280,12 +280,10 @@ const StackAllocation = struct {
 
 const BlockData = struct {
     relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .{},
-    deaths: std.ArrayListUnmanaged(u32) = .{}, // inst_tracking indices
     state: State,
 
     fn deinit(self: *BlockData, gpa: Allocator) void {
         self.relocs.deinit(gpa);
-        self.deaths.deinit(gpa);
         self.* = undefined;
     }
 };
@@ -1380,7 +1378,7 @@ fn saveState(self: *Self) !State {
     return state;
 }
 
-fn restoreState(self: *Self, state: State, deaths: []u32, comptime opts: struct {
+fn restoreState(self: *Self, state: State, deaths: []const Air.Inst.Index, comptime opts: struct {
     emit_instructions: bool,
     update_tracking: bool,
     resurrect: bool,
@@ -1391,16 +1389,14 @@ fn restoreState(self: *Self, state: State, deaths: []u32, comptime opts: struct 
         self.inst_tracking.shrinkRetainingCapacity(state.inst_tracking_len);
     }
 
-    if (opts.resurrect) {
-        var death_i: usize = 0;
-        for (self.inst_tracking.values()[0..state.inst_tracking_len], 0..) |*tracking, tracking_i| {
-            if (death_i < deaths.len and deaths[death_i] == tracking_i) {
-                // oops, it was actually a death instead
-                death_i += 1;
-                tracking.die(self);
-            } else tracking.resurrect(state.scope_generation);
-        }
-    } else assert(deaths.len == 0);
+    if (opts.resurrect) for (self.inst_tracking.values()[0..state.inst_tracking_len]) |*tracking|
+        tracking.resurrect(state.scope_generation);
+    const air_tags = self.air.instructions.items(.tag);
+    for (deaths) |death| switch (air_tags[death]) {
+        .constant => {},
+        .const_ty => unreachable,
+        else => self.inst_tracking.getPtr(death).?.die(self),
+    };
 
     for (0..state.registers.len) |index| {
         const current_maybe_inst = if (self.register_manager.free_registers.isSet(index))
@@ -6521,6 +6517,7 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
 
     self.scope_generation += 1;
     try self.blocks.putNoClobber(self.gpa, inst, .{ .state = self.initRetroactiveState() });
+    const liveness = self.liveness.getBlock(inst);
 
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.Block, ty_pl.payload);
@@ -6530,7 +6527,7 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     var block_data = self.blocks.fetchRemove(inst).?;
     defer block_data.value.deinit(self.gpa);
     if (block_data.value.relocs.items.len > 0) {
-        try self.restoreState(block_data.value.state, block_data.value.deaths.items, .{
+        try self.restoreState(block_data.value.state, liveness.deaths, .{
             .emit_instructions = false,
             .update_tracking = true,
             .resurrect = true,
@@ -6649,17 +6646,6 @@ fn airBr(self: *Self, inst: Air.Inst.Index) !void {
     const block_data = self.blocks.getPtr(br.block_inst).?;
 
     if (block_data.relocs.items.len == 0) {
-        // We need to compute a list of deaths for later.  This list needs to include
-        // instructions that was born before, and has died since, the target block.
-        for (
-            self.inst_tracking.values()[0..block_data.state.inst_tracking_len],
-            0..,
-        ) |*tracking, tracked_index| switch (tracking.short) {
-            .dead => |die_generation| if (die_generation >= block_data.state.scope_generation)
-                try block_data.deaths.append(self.gpa, @intCast(u32, tracked_index)),
-            else => {},
-        };
-
         block_tracking.* = InstTracking.init(result: {
             if (block_unused) break :result .none;
             if (self.reuseOperand(inst, br.operand, 0, src_mcv)) {
