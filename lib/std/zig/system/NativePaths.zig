@@ -10,6 +10,7 @@ const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 
 include_dirs: ArrayList([:0]u8),
 lib_dirs: ArrayList([:0]u8),
+extra_lib_dirs: ArrayList([:0]u8),
 framework_dirs: ArrayList([:0]u8),
 rpaths: ArrayList([:0]u8),
 warnings: ArrayList([:0]u8),
@@ -20,6 +21,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
     var self: NativePaths = .{
         .include_dirs = ArrayList([:0]u8).init(allocator),
         .lib_dirs = ArrayList([:0]u8).init(allocator),
+        .extra_lib_dirs = ArrayList([:0]u8).init(allocator),
         .framework_dirs = ArrayList([:0]u8).init(allocator),
         .rpaths = ArrayList([:0]u8).init(allocator),
         .warnings = ArrayList([:0]u8).init(allocator),
@@ -73,7 +75,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
                 try self.addRPath(rpath);
             } else if (word.len > 2 and word[0] == '-' and word[1] == 'L') {
                 const lib_path = word[2..];
-                try self.addLibDir(lib_path);
+                try self.addExtraLibDir(lib_path);
             } else {
                 try self.addWarningFmt("Unrecognized C flag from NIX_LDFLAGS: {s}", .{word});
                 break;
@@ -163,7 +165,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         if (std.os.getenv("LIBRARY_PATH")) |library_path| {
             var it = mem.tokenize(u8, library_path, ":");
             while (it.next()) |dir| {
-                try self.addLibDir(dir);
+                try self.addExtraLibDir(dir);
             }
         }
     }
@@ -174,6 +176,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
 pub fn deinit(self: *NativePaths) void {
     deinitArray(&self.include_dirs);
     deinitArray(&self.lib_dirs);
+    deinitArray(&self.extra_lib_dirs);
     deinitArray(&self.framework_dirs);
     deinitArray(&self.rpaths);
     deinitArray(&self.warnings);
@@ -205,6 +208,10 @@ pub fn addLibDirFmt(self: *NativePaths, comptime fmt: []const u8, args: anytype)
     const item = try std.fmt.allocPrintZ(self.lib_dirs.allocator, fmt, args);
     errdefer self.lib_dirs.allocator.free(item);
     try self.lib_dirs.append(item);
+}
+
+pub fn addExtraLibDir(self: *NativePaths, s: []const u8) !void {
+    return self.appendArray(&self.extra_lib_dirs, s);
 }
 
 pub fn addWarning(self: *NativePaths, s: []const u8) !void {
