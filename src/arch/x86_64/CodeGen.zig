@@ -2089,12 +2089,14 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                         else => {},
                     }
 
+                    // For now, this is the only supported multiply that doesn't fit in a register.
+                    assert(dst_info.bits == 128 and src_pl.data == 64);
                     const dst_abi_size = @intCast(i32, dst_ty.abiSize(self.target.*));
                     const dst_mcv = try self.allocRegOrMem(inst, false);
                     try self.genSetStack(
                         Type.u1,
                         dst_mcv.stack_offset - dst_abi_size,
-                        .{ .eflags = cc },
+                        .{ .immediate = 0 }, // 64x64 -> 128 never overflows
                         .{},
                     );
                     try self.genSetStack(dst_ty, dst_mcv.stack_offset, partial_mcv, .{});
