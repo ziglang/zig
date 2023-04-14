@@ -1428,8 +1428,7 @@ pub fn formatInt(
     var a: MinInt = abs_value;
     var index: usize = buf.len;
 
-    // TODO isComptime here because of https://github.com/ziglang/zig/issues/13335.
-    if (base == 10 and !isComptime()) {
+    if (base == 10) {
         while (a >= 100) : (a = @divTrunc(a, 100)) {
             index -= 2;
             buf[index..][0..2].* = digits2(@intCast(usize, a % 100));
@@ -1467,12 +1466,6 @@ pub fn formatInt(
     }
 
     return formatBuf(buf[index..], options, writer);
-}
-
-// TODO: Remove once https://github.com/ziglang/zig/issues/868 is resolved.
-fn isComptime() bool {
-    var a: u8 = 0;
-    return @typeInfo(@TypeOf(.{a})).Struct.fields[0].is_comptime;
 }
 
 pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, case: Case, options: FormatOptions) usize {

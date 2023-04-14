@@ -8587,6 +8587,17 @@ test "@hasDecl" {
       {#see_also|Compile Variables|@embedFile#}
       {#header_close#}
 
+      {#header_open|@inComptime#}
+      <pre>{#syntax#}@inComptime() bool{#endsyntax#}</pre>
+      <p>
+      Returns whether the builtin was run in a {#syntax#}comptime{#endsyntax#} context. The result is a compile-time constant.
+      </p>
+      <p>
+      This can be used to provide alternative, comptime-friendly implementations of functions. It should not be used, for instance, to exclude certain functions from being evaluated at comptime.
+      </p>
+      {#see_also|comptime#}
+      {#header_close#}
+
       {#header_open|@intCast#}
       <pre>{#syntax#}@intCast(comptime DestType: type, int: anytype) DestType{#endsyntax#}</pre>
       <p>

@@ -8174,6 +8174,7 @@ fn builtinCall(
         .frame              => return rvalue(gz, ri, try gz.addNodeExtended(.frame,              node), node),
         .frame_address      => return rvalue(gz, ri, try gz.addNodeExtended(.frame_address,      node), node),
         .breakpoint         => return rvalue(gz, ri, try gz.addNodeExtended(.breakpoint,         node), node),
+        .in_comptime        => return rvalue(gz, ri, try gz.addNodeExtended(.in_comptime,        node), node),
 
         .type_info   => return simpleUnOpType(gz, scope, ri, node, params[0], .type_info),
         .size_of     => return simpleUnOpType(gz, scope, ri, node, params[0], .size_of),
