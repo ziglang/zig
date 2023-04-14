@@ -1764,6 +1764,9 @@ pub const Mutable = struct {
             const i_limb_bit = @intCast(u6, i % limb_bits);
 
             mut_mask.limbs[mask_limb_index] &= ~(@as(Limb, 1) << mask_limb_bit); // Unset the mask bit
+
+            if (i_limb_index >= source.limbs.len) break; // Stop when we reach the end of `source` (we can treat the rest as zeroes)
+
             const source_bit_set = source.limbs[i_limb_index] & (@as(Limb, 1) << i_limb_bit) != 0;
 
             r.limbs[mask_limb_index] |= @as(Limb, @boolToInt(source_bit_set)) << mask_limb_bit;
@@ -1801,6 +1804,9 @@ pub const Mutable = struct {
             const i_limb_bit = @intCast(u6, i % limb_bits);
 
             mut_mask.limbs[mask_limb_index] &= ~(@as(Limb, 1) << mask_limb_bit); // Unset the mask bit
+
+            if (mask_limb_index >= source.limbs.len) break; // Stop when we reach the end of `source` (we can treat the rest as zeroes)
+
             const source_bit_set = source.limbs[mask_limb_index] & (@as(Limb, 1) << mask_limb_bit) != 0;
 
             r.limbs[i_limb_index] |= @as(Limb, @boolToInt(source_bit_set)) << i_limb_bit;
