@@ -265,7 +265,7 @@ pub const Connection = enum {
     close,
 };
 
-pub const CustomHeader = struct {
+pub const Header = struct {
     name: []const u8,
     value: []const u8,
 };
