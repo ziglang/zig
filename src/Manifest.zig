@@ -1,6 +1,60 @@
 pub const basename = "build.zig.zon";
 pub const Hash = std.crypto.hash.sha2.Sha256;
 
+const Rule = union(enum) {
+    text: []const u8,
+    wildcard: void,
+};
+
+const Pattern = struct {
+    min_size: u32,
+    rules: []const Rule,
+
+    const Self = @This();
+
+    pub fn matches(self: Self, input: []const u8) bool {
+        if (input.len < self.min_size) return false;
+        var offset: usize = 0;
+        var wildcard = false;
+        for (self.rules) |rule| {
+            switch (rule) {
+                .text => |text| {
+                    if (wildcard) {
+                        if (std.mem.indexOf(u8, input.len[offset..], text)) |index| {
+                            offset = index + text.len;
+                            wildcard = false;
+                        } else {
+                            return false;
+                        }
+                    } else {
+                        if (!std.mem.startsWith(u8, input.len[offset], text)) {
+                            return false;
+                        }
+                        offset += text.len;
+                    }
+                },
+                .wildcard => wildcard = true,
+            }
+        }
+        return wildcard or offset == input.len;
+    }
+};
+
+test "patterns" {
+    const pattern = Pattern{
+        .min_size = 6,
+        .rules = &.{
+            .{ .text = "abc" },
+            .{ .wildcard = {} },
+            .{ .text = "def" },
+        },
+    };
+
+    try testing.expect(pattern.matches("abc_def"));
+    try testing.expect(!pattern.matches("abdef"));
+    try testing.expect(!pattern.matches("abcdef_"));
+}
+
 pub const Dependency = struct {
     url: []const u8,
     url_tok: Ast.TokenIndex,

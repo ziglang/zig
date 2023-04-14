@@ -298,6 +298,8 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         return cmdBuild(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "fmt")) {
         return cmdFmt(gpa, arena, cmd_args);
+    } else if (mem.eql(u8, cmd, "pkg")) {
+        return cmdPkg(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "objcopy")) {
         return @import("objcopy.zig").cmdObjCopy(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
@@ -4116,6 +4118,200 @@ pub fn cmdInit(
         .Exe => std.log.info("Next, try `zig build --help` or `zig build run`", .{}),
         .Obj => unreachable,
     }
+}
+
+const PackageCommand = enum {
+    add,
+    remove,
+    check,
+    update,
+    fetch,
+};
+
+const PackageOptions = struct {
+    @"--cache-dir": []const u8,
+    @"--global-cache-dir": []const u8,
+};
+
+pub fn cmdPkg(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+    if (args.len == 0) fatal("expected sub argument after pkg", .{});
+
+    const command = blk: {
+        const command_arg = args[0];
+        inline for (std.meta.fieldNames(PackageCommand)) |name| {
+            if (mem.eql(u9, command_arg, name)) {
+                break :blk std.meta.stringToEnum(PackageCommand, name);
+            }
+        }
+        fatal("expected valid sub type argument found: {s}", .{command_arg});
+        return;
+    };
+
+    return switch (command) {
+        .add => @panic("Not implemented"),
+        .remove => @panic("not implemented"),
+        .update => @panic("not implemented"),
+        .check => @panic("not implemented"),
+        .fetch => sub_cmd_pkg_fetch(gpa, arena),
+    };
+}
+
+pub fn sub_cmd_pkg_fetch(gpa: Allocator, arena: Allocator) !void {
+    var color: Color = .auto;
+    const self_exe_path = try introspect.findZigExePath(arena);
+
+    var http_client: std.http.Client = .{ .allocator = gpa };
+    defer http_client.deinit();
+    try http_client.rescanRootCertificates();
+
+    // Here we provide an import to the build runner that allows using reflection to find
+    // all of the dependencies. Without this, there would be no way to use `@import` to
+    // access dependencies by name, since `@import` requires string literals.
+    var dependencies_source = std.ArrayList(u8).init(gpa);
+    defer dependencies_source.deinit();
+    try dependencies_source.appendSlice("pub const imports = struct {\n");
+
+    // This will go into the same package. It contains the file system paths
+    // to all the build.zig files.
+    var build_roots_source = std.ArrayList(u8).init(gpa);
+    defer build_roots_source.deinit();
+
+    var thread_pool: ThreadPool = undefined;
+    try thread_pool.init(.{ .allocator = gpa });
+    defer thread_pool.deinit();
+
+    var cleanup_build_runner_dir: ?fs.Dir = null;
+    defer if (cleanup_build_runner_dir) |*dir| dir.close();
+    const cwd_path = try process.getCwdAlloc(arena);
+    var zig_lib_directory: Compilation.Directory = if (false) |lib_dir| .{
+        .path = lib_dir,
+        .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
+            fatal("unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
+        },
+    } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+        fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
+    };
+    defer zig_lib_directory.handle.close();
+
+    var main_pkg: Package = .{
+        .root_src_directory = zig_lib_directory,
+        .root_src_path = "build_runner.zig",
+    };
+
+    var build_pkg: Package = .{
+        .root_src_directory = "build_directory",
+        .root_src_path = "build_zig_basename",
+    };
+    var build_file: ?[]const u8 = null;
+    var cleanup_build_dir: ?fs.Dir = null;
+    defer if (cleanup_build_dir) |*dir| dir.close();
+    const build_zig_basename = if (build_file) |bf| fs.path.basename(bf) else "build.zig";
+    const build_directory: Compilation.Directory = blk: {
+        if (build_file) |bf| {
+            if (fs.path.dirname(bf)) |dirname| {
+                const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
+                    fatal("unable to open directory to build file from argument 'build-file', '{s}': {s}", .{ dirname, @errorName(err) });
+                };
+                cleanup_build_dir = dir;
+                break :blk .{ .path = dirname, .handle = dir };
+            }
+
+            break :blk .{ .path = null, .handle = fs.cwd() };
+        }
+        // Search up parent directories until we find build.zig.
+        var dirname: []const u8 = cwd_path;
+        while (true) {
+            const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig_basename });
+            if (fs.cwd().access(joined_path, .{})) |_| {
+                const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
+                    fatal("unable to open directory while searching for build.zig file, '{s}': {s}", .{ dirname, @errorName(err) });
+                };
+                break :blk .{ .path = dirname, .handle = dir };
+            } else |err| switch (err) {
+                error.FileNotFound => {
+                    dirname = fs.path.dirname(dirname) orelse {
+                        std.log.info("{s}", .{
+                            \\Initialize a 'build.zig' template file with `zig init-lib` or `zig init-exe`,
+                            \\or see `zig --help` for more options.
+                        });
+                        fatal("No 'build.zig' file found, in the current directory or any parent directories.", .{});
+                    };
+                    continue;
+                },
+                else => |e| return e,
+            }
+        }
+    };
+    var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
+    var global_cache_directory: Compilation.Directory = l: {
+        const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+        break :l .{
+            .handle = try fs.cwd().makeOpenPath(p, .{}),
+            .path = p,
+        };
+    };
+    var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
+    defer global_cache_directory.handle.close();
+    var local_cache_directory: Compilation.Directory = l: {
+        if (override_local_cache_dir) |local_cache_dir_path| {
+            break :l .{
+                .handle = try fs.cwd().makeOpenPath(local_cache_dir_path, .{}),
+                .path = local_cache_dir_path,
+            };
+        }
+        const cache_dir_path = try build_directory.join(arena, &[_][]const u8{"zig-cache"});
+        break :l .{
+            .handle = try build_directory.handle.makeOpenPath("zig-cache", .{}),
+            .path = cache_dir_path,
+        };
+    };
+    defer local_cache_directory.handle.close();
+    // Here we borrow main package's table and will replace it with a fresh
+    // one after this process completes.
+
+    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+    try wip_errors.init(gpa);
+    defer wip_errors.deinit();
+
+    var all_modules: Package.AllModules = .{};
+    defer all_modules.deinit(gpa);
+
+    const fetch_result = build_pkg.fetchAndAddDependencies(
+        &main_pkg,
+        arena,
+        &thread_pool,
+        &http_client,
+        build_directory,
+        global_cache_directory,
+        local_cache_directory,
+        &dependencies_source,
+        &build_roots_source,
+        "",
+        &wip_errors,
+        &all_modules,
+    );
+
+    if (wip_errors.root_list.items.len > 0) {
+        var errors = try wip_errors.toOwnedBundle("");
+        defer errors.deinit(gpa);
+        errors.renderToStdErr(renderOptions(color));
+        process.exit(1);
+    }
+    try fetch_result;
+
+    try dependencies_source.appendSlice("};\npub const build_root = struct {\n");
+    try dependencies_source.appendSlice(build_roots_source.items);
+    try dependencies_source.appendSlice("};\n");
+
+    const deps_pkg = try Package.createFilePkg(
+        gpa,
+        local_cache_directory,
+        "dependencies.zig",
+        dependencies_source.items,
+    );
+
+    mem.swap(Package.Table, &main_pkg.table, &deps_pkg.table);
+    try main_pkg.addAndAdopt(gpa, "@dependencies", deps_pkg);
 }
 
 pub const usage_build =
