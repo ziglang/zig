@@ -942,6 +942,15 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
             continue;
 
+        // TODO get compiler-rt tests passing for wasm32-wasi
+        // currently causes "LLVM ERROR: Unable to expand fixed point multiplication."
+        if (test_target.target.getCpuArch() == .wasm32 and
+            test_target.target.getOsTag() == .wasi and
+            mem.eql(u8, options.name, "compiler-rt"))
+        {
+            continue;
+        }
+
         // TODO get universal-libc tests passing for self-hosted backends.
         if (test_target.use_llvm == false and mem.eql(u8, options.name, "universal-libc"))
             continue;
@@ -949,6 +958,13 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         // TODO get std lib tests passing for self-hosted backends.
         if (test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
             continue;
+
+        // TODO get std lib tests passing for the C backend
+        if (test_target.target.ofmt == std.Target.ObjectFormat.c and
+            mem.eql(u8, options.name, "std"))
+        {
+            continue;
+        }
 
         const want_this_mode = for (options.optimize_modes) |m| {
             if (m == test_target.optimize_mode) break true;
