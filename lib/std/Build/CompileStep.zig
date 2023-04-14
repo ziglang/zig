@@ -511,7 +511,7 @@ pub fn installLibraryHeaders(cs: *CompileStep, l: *CompileStep) void {
                 const T = id.Type();
                 const ptr = b.allocator.create(T) catch @panic("OOM");
                 ptr.* = step.cast(T).?.*;
-                ptr.step.owner = b;
+                ptr.dest_builder = b;
                 break :blk &ptr.step;
             },
             else => unreachable,
