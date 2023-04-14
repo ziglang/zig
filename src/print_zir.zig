@@ -365,6 +365,7 @@ const Writer = struct {
 
             .block,
             .block_comptime,
+            .block_comptime_defer_error,
             .block_inline,
             .suspend_block,
             .loop,

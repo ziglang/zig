@@ -362,7 +362,7 @@ const type_ri: ResultInfo = .{ .rl = .{ .ty = .type_type } };
 const coerced_type_ri: ResultInfo = .{ .rl = .{ .coerced_ty = .type_type } };
 
 fn typeExpr(gz: *GenZir, scope: *Scope, type_node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
-    return comptimeExpr(gz, scope, coerced_type_ri, type_node);
+    return comptimeExpr(gz, scope, coerced_type_ri, type_node, true);
 }
 
 fn reachableTypeExpr(
@@ -394,7 +394,7 @@ fn reachableExprComptime(
     force_comptime: bool,
 ) InnerError!Zir.Inst.Ref {
     const result_inst = if (force_comptime)
-        try comptimeExpr(gz, scope, ri, node)
+        try comptimeExpr(gz, scope, ri, node, true)
     else
         try expr(gz, scope, ri, node);
 
@@ -753,7 +753,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .array_mult => {
             const result = try gz.addPlNode(.array_mul, node, Zir.Inst.Bin{
                 .lhs = try expr(gz, scope, .{ .rl = .none }, node_datas[node].lhs),
-                .rhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[node].rhs),
+                .rhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[node].rhs, true),
             });
             return rvalue(gz, ri, result, node);
         },
@@ -1384,7 +1384,7 @@ fn arrayInitExpr(
                         .elem = elem_type,
                     };
                 } else {
-                    const sentinel = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = elem_type } }, array_type.ast.sentinel);
+                    const sentinel = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = elem_type } }, array_type.ast.sentinel, true);
                     const array_type_inst = try gz.addPlNode(
                         .array_type_sentinel,
                         array_init.ast.type_expr,
@@ -1610,7 +1610,7 @@ fn structInitExpr(
                         .rhs = elem_type,
                     });
                 } else blk: {
-                    const sentinel = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = elem_type } }, array_type.ast.sentinel);
+                    const sentinel = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = elem_type } }, array_type.ast.sentinel, true);
                     break :blk try gz.addPlNode(
                         .array_type_sentinel,
                         struct_init.ast.type_expr,
@@ -1833,6 +1833,10 @@ fn comptimeExpr(
     scope: *Scope,
     ri: ResultInfo,
     node: Ast.Node.Index,
+    /// If `false`, an immediate error will be triggered upon returning a runtime-known value from
+    /// this block. If `true`, this responsibility is deferred to the usage site. This must
+    /// synchronize with logic in `Sema`.
+    defer_runtime_error: bool,
 ) InnerError!Zir.Inst.Ref {
     if (gz.is_comptime) {
         // No need to change anything!
@@ -1887,13 +1891,27 @@ fn comptimeExpr(
                         // refer to runtime memory. A runtime-to-comptime boundary has to remove
                         // result location information, compute the result, and copy it to the true
                         // result location at runtime. We do this below as well.
-                        const block_ref = try labeledBlockExpr(gz, scope, .{ .rl = .none }, node, stmt_slice, true);
+                        const block_ref = try labeledBlockExpr(
+                            gz,
+                            scope,
+                            .{ .rl = .none },
+                            node,
+                            stmt_slice,
+                            if (defer_runtime_error) .comptime_defer_error else .@"comptime",
+                        );
                         return rvalue(gz, ri, block_ref, node);
                     },
                     .block, .block_semicolon => {
                         const stmts = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
                         // Replace result location and copy back later - see above.
-                        const block_ref = try labeledBlockExpr(gz, scope, .{ .rl = .none }, node, stmts, true);
+                        const block_ref = try labeledBlockExpr(
+                            gz,
+                            scope,
+                            .{ .rl = .none },
+                            node,
+                            stmts,
+                            if (defer_runtime_error) .comptime_defer_error else .@"comptime",
+                        );
                         return rvalue(gz, ri, block_ref, node);
                     },
                     else => unreachable,
@@ -1909,7 +1927,10 @@ fn comptimeExpr(
     block_scope.is_comptime = true;
     defer block_scope.unstack();
 
-    const block_inst = try gz.makeBlockInst(.block_comptime, node);
+    const block_inst = try gz.makeBlockInst(
+        if (defer_runtime_error) .block_comptime_defer_error else .block_comptime,
+        node,
+    );
     // Replace result location and copy back later - see above.
     const block_result = try expr(&block_scope, scope, .{ .rl = .none }, node);
     if (!gz.refIsNoReturn(block_result)) {
@@ -1937,7 +1958,7 @@ fn comptimeExprAst(
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
     const body_node = node_datas[node].lhs;
-    return comptimeExpr(gz, scope, ri, body_node);
+    return comptimeExpr(gz, scope, ri, body_node, false);
 }
 
 /// Restore the error return trace index. Performs the restore only if the result is a non-error or
@@ -2176,7 +2197,7 @@ fn blockExpr(
     if (token_tags[lbrace - 1] == .colon and
         token_tags[lbrace - 2] == .identifier)
     {
-        return labeledBlockExpr(gz, scope, ri, block_node, statements, false);
+        return labeledBlockExpr(gz, scope, ri, block_node, statements, .normal);
     }
 
     if (!gz.is_comptime) {
@@ -2246,7 +2267,11 @@ fn labeledBlockExpr(
     ri: ResultInfo,
     block_node: Ast.Node.Index,
     statements: []const Ast.Node.Index,
-    force_comptime: bool,
+    block_type: enum {
+        normal,
+        @"comptime",
+        comptime_defer_error,
+    },
 ) InnerError!Zir.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2264,7 +2289,11 @@ fn labeledBlockExpr(
 
     // Reserve the Block ZIR instruction index so that we can put it into the GenZir struct
     // so that break statements can reference it.
-    const block_tag: Zir.Inst.Tag = if (force_comptime) .block_comptime else .block;
+    const block_tag: Zir.Inst.Tag = switch (block_type) {
+        .normal => .block,
+        .@"comptime" => .block_comptime,
+        .comptime_defer_error => .block_comptime_defer_error,
+    };
     const block_inst = try gz.makeBlockInst(block_tag, block_node);
     try gz.instructions.append(astgen.gpa, block_inst);
     var block_scope = gz.makeSubBlock(parent_scope);
@@ -2273,7 +2302,10 @@ fn labeledBlockExpr(
         .block_inst = block_inst,
     };
     block_scope.setBreakResultInfo(ri);
-    if (force_comptime) block_scope.is_comptime = true;
+    switch (block_type) {
+        .normal => {},
+        .@"comptime", .comptime_defer_error => block_scope.is_comptime = true,
+    }
     defer block_scope.unstack();
     defer block_scope.labeled_breaks.deinit(astgen.gpa);
 
@@ -2494,6 +2526,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .bit_or,
             .block,
             .block_comptime,
+            .block_comptime_defer_error,
             .block_inline,
             .suspend_block,
             .loop,
@@ -3428,7 +3461,7 @@ fn ptrType(
         gz.astgen.source_line = source_line;
         gz.astgen.source_column = source_column;
 
-        sentinel_ref = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = elem_type } }, ptr_info.ast.sentinel);
+        sentinel_ref = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = elem_type } }, ptr_info.ast.sentinel, true);
         trailing_count += 1;
     }
     if (ptr_info.ast.addrspace_node != 0) {
@@ -4081,7 +4114,7 @@ fn globalVarDecl(
         break :inst try expr(&block_scope, &block_scope.base, .{ .rl = .{ .ty = .address_space_type } }, var_decl.ast.addrspace_node);
     };
     const section_inst: Zir.Inst.Ref = if (var_decl.ast.section_node == 0) .none else inst: {
-        break :inst try comptimeExpr(&block_scope, &block_scope.base, .{ .rl = .{ .ty = .const_slice_u8_type } }, var_decl.ast.section_node);
+        break :inst try comptimeExpr(&block_scope, &block_scope.base, .{ .rl = .{ .ty = .const_slice_u8_type } }, var_decl.ast.section_node, true);
     };
     const has_section_or_addrspace = section_inst != .none or addrspace_inst != .none;
     wip_members.nextDecl(is_pub, is_export, align_inst != .none, has_section_or_addrspace);
@@ -5069,7 +5102,7 @@ fn containerDecl(
             namespace.base.tag = .enum_namespace;
 
             const arg_inst: Zir.Inst.Ref = if (container_decl.ast.arg != 0)
-                try comptimeExpr(&block_scope, &namespace.base, .{ .rl = .{ .ty = .type_type } }, container_decl.ast.arg)
+                try comptimeExpr(&block_scope, &namespace.base, .{ .rl = .{ .ty = .type_type } }, container_decl.ast.arg, true)
             else
                 .none;
 
@@ -6951,7 +6984,7 @@ fn switchExpr(
                 if (node_tags[item_node] == .switch_range) continue;
                 items_len += 1;
 
-                const item_inst = try comptimeExpr(parent_gz, scope, item_ri, item_node);
+                const item_inst = try comptimeExpr(parent_gz, scope, item_ri, item_node, true);
                 try payloads.append(gpa, @enumToInt(item_inst));
             }
 
@@ -6961,8 +6994,8 @@ fn switchExpr(
                 if (node_tags[range] != .switch_range) continue;
                 ranges_len += 1;
 
-                const first = try comptimeExpr(parent_gz, scope, item_ri, node_datas[range].lhs);
-                const last = try comptimeExpr(parent_gz, scope, item_ri, node_datas[range].rhs);
+                const first = try comptimeExpr(parent_gz, scope, item_ri, node_datas[range].lhs, true);
+                const last = try comptimeExpr(parent_gz, scope, item_ri, node_datas[range].rhs, true);
                 try payloads.appendSlice(gpa, &[_]u32{
                     @enumToInt(first), @enumToInt(last),
                 });
@@ -6980,7 +7013,7 @@ fn switchExpr(
             scalar_case_index += 1;
             try payloads.resize(gpa, header_index + 2); // item, body_len
             const item_node = case.ast.values[0];
-            const item_inst = try comptimeExpr(parent_gz, scope, item_ri, item_node);
+            const item_inst = try comptimeExpr(parent_gz, scope, item_ri, item_node, true);
             payloads.items[header_index] = @enumToInt(item_inst);
             break :blk header_index + 1;
         };
@@ -7683,7 +7716,7 @@ fn asmExpr(
         },
         else => .{
             .tag = .asm_expr,
-            .tmpl = @enumToInt(try comptimeExpr(gz, scope, .{ .rl = .none }, full.ast.template)),
+            .tmpl = @enumToInt(try comptimeExpr(gz, scope, .{ .rl = .none }, full.ast.template, true)),
         },
     };
 
@@ -7833,7 +7866,7 @@ fn unionInit(
     params: []const Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const union_type = try typeExpr(gz, scope, params[0]);
-    const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1]);
+    const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1], true);
     const field_type = try gz.addPlNode(.field_type_ref, params[1], Zir.Inst.FieldTypeRef{
         .container_type = union_type,
         .field_name = field_name,
@@ -8013,12 +8046,12 @@ fn builtinCall(
             if (ri.rl == .ref) {
                 return gz.addPlNode(.field_ptr_named, node, Zir.Inst.FieldNamed{
                     .lhs = try expr(gz, scope, .{ .rl = .ref }, params[0]),
-                    .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1]),
+                    .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1], true),
                 });
             }
             const result = try gz.addPlNode(.field_val_named, node, Zir.Inst.FieldNamed{
                 .lhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
-                .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1]),
+                .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1], true),
             });
             return rvalue(gz, ri, result, node);
         },
@@ -8055,7 +8088,7 @@ fn builtinCall(
                                 local_val.used = ident_token;
                                 _ = try gz.addPlNode(.export_value, node, Zir.Inst.ExportValue{
                                     .operand = local_val.inst,
-                                    .options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .export_options_type } }, params[1]),
+                                    .options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .export_options_type } }, params[1], true),
                                 });
                                 return rvalue(gz, ri, .void_value, node);
                             }
@@ -8070,7 +8103,7 @@ fn builtinCall(
                                 const loaded = try gz.addUnNode(.load, local_ptr.ptr, node);
                                 _ = try gz.addPlNode(.export_value, node, Zir.Inst.ExportValue{
                                     .operand = loaded,
-                                    .options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .export_options_type } }, params[1]),
+                                    .options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .export_options_type } }, params[1], true),
                                 });
                                 return rvalue(gz, ri, .void_value, node);
                             }
@@ -8104,7 +8137,7 @@ fn builtinCall(
                 },
                 else => return astgen.failNode(params[0], "symbol to export must identify a declaration", .{}),
             }
-            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .export_options_type } }, params[1]);
+            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .export_options_type } }, params[1], true);
             _ = try gz.addPlNode(.@"export", node, Zir.Inst.Export{
                 .namespace = namespace,
                 .decl_name = decl_name,
@@ -8114,7 +8147,7 @@ fn builtinCall(
         },
         .@"extern" => {
             const type_inst = try typeExpr(gz, scope, params[0]);
-            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .extern_options_type } }, params[1]);
+            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .extern_options_type } }, params[1], true);
             const result = try gz.addExtendedPayload(.builtin_extern, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
                 .lhs = type_inst,
@@ -8268,7 +8301,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .align_cast => {
-            const dest_align = try comptimeExpr(gz, scope, align_ri, params[0]);
+            const dest_align = try comptimeExpr(gz, scope, align_ri, params[0], true);
             const rhs = try expr(gz, scope, .{ .rl = .none }, params[1]);
             const result = try gz.addPlNode(.align_cast, node, Zir.Inst.Bin{
                 .lhs = dest_align,
@@ -8288,7 +8321,7 @@ fn builtinCall(
         },
         .addrspace_cast => {
             const result = try gz.addExtendedPayload(.addrspace_cast, Zir.Inst.BinNode{
-                .lhs = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .address_space_type } }, params[0]),
+                .lhs = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .address_space_type } }, params[0], true),
                 .rhs = try expr(gz, scope, .{ .rl = .none }, params[1]),
                 .node = gz.nodeIndexToRelative(node),
             });
@@ -8341,7 +8374,7 @@ fn builtinCall(
         // zig fmt: on
 
         .wasm_memory_size => {
-            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]);
+            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0], true);
             const result = try gz.addExtendedPayload(.wasm_memory_size, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = operand,
@@ -8349,7 +8382,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .wasm_memory_grow => {
-            const index_arg = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]);
+            const index_arg = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0], true);
             const delta_arg = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[1]);
             const result = try gz.addExtendedPayload(.wasm_memory_grow, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
@@ -8360,8 +8393,8 @@ fn builtinCall(
         },
         .c_define => {
             if (!gz.c_import) return gz.astgen.failNode(node, "C define valid only inside C import block", .{});
-            const name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[0]);
-            const value = try comptimeExpr(gz, scope, .{ .rl = .none }, params[1]);
+            const name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[0], true);
+            const value = try comptimeExpr(gz, scope, .{ .rl = .none }, params[1], true);
             const result = try gz.addExtendedPayload(.c_define, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
                 .lhs = name,
@@ -8459,7 +8492,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .call => {
-            const modifier = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .modifier_type } }, params[0]);
+            const modifier = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .modifier_type } }, params[0], true);
             const callee = try calleeExpr(gz, scope, params[1]);
             const args = try expr(gz, scope, .{ .rl = .none }, params[2]);
             const result = try gz.addPlNode(.builtin_call, node, Zir.Inst.BuiltinCall{
@@ -8475,7 +8508,7 @@ fn builtinCall(
         },
         .field_parent_ptr => {
             const parent_type = try typeExpr(gz, scope, params[0]);
-            const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1]);
+            const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1], true);
             const result = try gz.addPlNode(.field_parent_ptr, node, Zir.Inst.FieldParentPtr{
                 .parent_type = parent_type,
                 .field_name = field_name,
@@ -8504,7 +8537,7 @@ fn builtinCall(
                 .elem_type = try typeExpr(gz, scope, params[0]),
                 .a = try expr(gz, scope, .{ .rl = .none }, params[1]),
                 .b = try expr(gz, scope, .{ .rl = .none }, params[2]),
-                .mask = try comptimeExpr(gz, scope, .{ .rl = .none }, params[3]),
+                .mask = try comptimeExpr(gz, scope, .{ .rl = .none }, params[3], true),
             });
             return rvalue(gz, ri, result, node);
         },
@@ -8530,14 +8563,14 @@ fn builtinCall(
         },
         .Vector => {
             const result = try gz.addPlNode(.vector_type, node, Zir.Inst.Bin{
-                .lhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]),
+                .lhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0], true),
                 .rhs = try typeExpr(gz, scope, params[1]),
             });
             return rvalue(gz, ri, result, node);
         },
         .prefetch => {
             const ptr = try expr(gz, scope, .{ .rl = .none }, params[0]);
-            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .prefetch_options_type } }, params[1]);
+            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .prefetch_options_type } }, params[1], true);
             _ = try gz.addExtendedPayload(.prefetch, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
                 .lhs = ptr,
@@ -8590,7 +8623,7 @@ fn builtinCall(
             if (astgen.fn_block == null) {
                 return astgen.failNode(node, "'@workItemId' outside function scope", .{});
             }
-            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]);
+            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0], true);
             const result = try gz.addExtendedPayload(.work_item_id, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = operand,
@@ -8601,7 +8634,7 @@ fn builtinCall(
             if (astgen.fn_block == null) {
                 return astgen.failNode(node, "'@workGroupSize' outside function scope", .{});
             }
-            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]);
+            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0], true);
             const result = try gz.addExtendedPayload(.work_group_size, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = operand,
@@ -8612,7 +8645,7 @@ fn builtinCall(
             if (astgen.fn_block == null) {
                 return astgen.failNode(node, "'@workGroupId' outside function scope", .{});
             }
-            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]);
+            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0], true);
             const result = try gz.addExtendedPayload(.work_group_id, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = operand,
@@ -8632,7 +8665,7 @@ fn hasDeclOrField(
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const container_type = try typeExpr(gz, scope, lhs_node);
-    const name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, rhs_node);
+    const name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, rhs_node, true);
     const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{
         .lhs = container_type,
         .rhs = name,
@@ -8685,7 +8718,7 @@ fn simpleUnOp(
         else => {},
     }
     const operand = if (tag == .compile_error)
-        try comptimeExpr(gz, scope, operand_ri, operand_node)
+        try comptimeExpr(gz, scope, operand_ri, operand_node, true)
     else
         try expr(gz, scope, operand_ri, operand_node);
     const result = try gz.addUnNode(tag, operand, node);
@@ -8778,7 +8811,7 @@ fn simpleCBuiltin(
 ) InnerError!Zir.Inst.Ref {
     const name: []const u8 = if (tag == .c_undef) "C undef" else "C include";
     if (!gz.c_import) return gz.astgen.failNode(node, "{s} valid only inside C import block", .{name});
-    const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, operand_node);
+    const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, operand_node, true);
     _ = try gz.addExtendedPayload(tag, Zir.Inst.UnNode{
         .node = gz.nodeIndexToRelative(node),
         .operand = operand,
@@ -8796,7 +8829,7 @@ fn offsetOf(
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const type_inst = try typeExpr(gz, scope, lhs_node);
-    const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, rhs_node);
+    const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, rhs_node, true);
     const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{
         .lhs = type_inst,
         .rhs = field_name,
@@ -9031,7 +9064,7 @@ fn calleeExpr(
             // It will emit any necessary compile errors and notes.
             if (std.mem.eql(u8, builtin_name, "@field") and params.len == 2) {
                 const lhs = try expr(gz, scope, .{ .rl = .ref }, params[0]);
-                const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1]);
+                const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1], true);
                 return gz.addExtendedPayload(.field_call_bind_named, Zir.Inst.FieldNamedNode{
                     .node = gz.nodeIndexToRelative(node),
                     .lhs = lhs,

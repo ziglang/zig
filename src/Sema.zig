@@ -1453,9 +1453,18 @@ fn analyzeBodyInner(
                     break break_data.inst;
                 }
             },
-            .block, .block_comptime => blk: {
+            .block, .block_comptime, .block_comptime_defer_error => blk: {
                 if (!block.is_comptime) {
-                    break :blk try sema.zirBlock(block, inst, tags[inst] == .block_comptime);
+                    break :blk try sema.zirBlock(
+                        block,
+                        inst,
+                        switch (tags[inst]) {
+                            .block => .normal,
+                            .block_comptime => .@"comptime",
+                            .block_comptime_defer_error => .comptime_defer_error,
+                            else => unreachable,
+                        },
+                    );
                 }
                 // Same as `block_inline`. TODO https://github.com/ziglang/zig/issues/8220
                 const inst_data = datas[inst].pl_node;
@@ -5372,7 +5381,16 @@ fn zirSuspendBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) Comp
     return sema.failWithUseOfAsync(parent_block, src);
 }
 
-fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index, force_comptime: bool) CompileError!Air.Inst.Ref {
+fn zirBlock(
+    sema: *Sema,
+    parent_block: *Block,
+    inst: Zir.Inst.Index,
+    block_type: enum {
+        normal,
+        @"comptime",
+        comptime_defer_error,
+    },
+) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -5381,6 +5399,11 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index, force_compt
     const extra = sema.code.extraData(Zir.Inst.Block, pl_node.payload_index);
     const body = sema.code.extra[extra.end..][0..extra.data.body_len];
     const gpa = sema.gpa;
+
+    const force_comptime = switch (block_type) {
+        .normal => false,
+        .@"comptime", .comptime_defer_error => true,
+    };
 
     // Reserve space for a Block instruction so that generated Break instructions can
     // point to it, even if it doesn't end up getting used because the code ends up being
@@ -5425,7 +5448,14 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index, force_compt
     defer child_block.instructions.deinit(gpa);
     defer label.merges.deinit(gpa);
 
-    return sema.resolveBlockBody(parent_block, src, &child_block, body, inst, &label.merges);
+    const result = try sema.resolveBlockBody(parent_block, src, &child_block, body, inst, &label.merges);
+    if (!parent_block.is_comptime and block_type == .@"comptime") {
+        // We're giving this value to runtime code - ensure the value is actually known at
+        // comptime, since comptime eval is allowed to secretly emit runtime instructions as
+        // long as they end up unused (e.g. for `runtime_array.len` accesses)
+        _ = try sema.resolveValue(parent_block, src, result, "result of comptime scope");
+    }
+    return result;
 }
 
 fn resolveBlockBody(

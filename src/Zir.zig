@@ -261,6 +261,11 @@ pub const Inst = struct {
         /// Like `block`, but forces full evaluation of its contents at compile-time.
         /// Uses the `pl_node` union field. Payload is `Block`.
         block_comptime,
+        /// Like `block_comptime`, but errors from the final block result not being comptime-known
+        /// are deferred to the result's use site. The consumer of the result is expected to emit an
+        /// error if it is not comptime-known.
+        /// Uses the `pl_node` union field. Payload is `Block`.
+        block_comptime_defer_error,
         /// A list of instructions which are analyzed in the parent context, without
         /// generating a runtime block. Must terminate with an "inline" variant of
         /// a noreturn instruction.
@@ -1040,6 +1045,7 @@ pub const Inst = struct {
                 .bit_or,
                 .block,
                 .block_comptime,
+                .block_comptime_defer_error,
                 .block_inline,
                 .suspend_block,
                 .loop,
@@ -1349,6 +1355,7 @@ pub const Inst = struct {
                 .bit_or,
                 .block,
                 .block_comptime,
+                .block_comptime_defer_error,
                 .block_inline,
                 .suspend_block,
                 .loop,
@@ -1585,6 +1592,7 @@ pub const Inst = struct {
                 .bit_or = .pl_node,
                 .block = .pl_node,
                 .block_comptime = .pl_node,
+                .block_comptime_defer_error = .pl_node,
                 .block_inline = .pl_node,
                 .suspend_block = .pl_node,
                 .bool_not = .un_node,
@@ -3892,7 +3900,7 @@ fn findDeclsInner(
 
         // Block instructions, recurse over the bodies.
 
-        .block, .block_comptime, .block_inline => {
+        .block, .block_comptime, .block_comptime_defer_error, .block_inline => {
             const inst_data = datas[inst].pl_node;
             const extra = zir.extraData(Inst.Block, inst_data.payload_index);
             const body = zir.extra[extra.end..][0..extra.data.body_len];
@@ -4121,6 +4129,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
     };
     assert(tags[info.param_block] == .block or
         tags[info.param_block] == .block_comptime or
+        tags[info.param_block] == .block_comptime_defer_error or
         tags[info.param_block] == .block_inline);
     const param_block = zir.extraData(Inst.Block, datas[info.param_block].pl_node.payload_index);
     const param_body = zir.extra[param_block.end..][0..param_block.data.body_len];
