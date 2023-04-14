@@ -932,10 +932,10 @@ pub const GenResult = union(enum) {
         /// such as ARM, the immediate will never exceed 32-bits.
         immediate: u64,
         linker_load: LinkerLoad,
-        /// Pointer to a threadlocal variable.
-        /// The address resolution will be deferred until the linker allocates everything in virtual memory.
+        /// Threadlocal variable with address deferred until the linker allocates
+        /// everything in virtual memory.
         /// Payload is a symbol index.
-        tlv_reloc: u32,
+        load_tlv: u32,
         /// Direct by-address reference to memory location.
         memory: u64,
     };
@@ -1005,7 +1005,7 @@ fn genDeclRef(
         const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
         if (is_threadlocal) {
-            return GenResult.mcv(.{ .tlv_reloc = sym_index });
+            return GenResult.mcv(.{ .load_tlv = sym_index });
         }
         return GenResult.mcv(.{ .linker_load = .{
             .type = .got,
