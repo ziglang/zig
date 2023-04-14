@@ -24029,7 +24029,6 @@ fn structFieldPtrByIndex(
         );
     }
 
-    try sema.requireRuntimeBlock(block, src, null);
     return block.addStructFieldPtr(struct_ptr, field_index, ptr_field_ty);
 }
 
@@ -24074,7 +24073,6 @@ fn structFieldVal(
                 return sema.addConstant(field.ty, field_values[field_index]);
             }
 
-            try sema.requireRuntimeBlock(block, src, null);
             return block.addStructFieldVal(struct_byval, field_index, field.ty);
         },
         else => unreachable,
@@ -24126,6 +24124,8 @@ fn tupleFieldValByIndex(
     field_index: u32,
     tuple_ty: Type,
 ) CompileError!Air.Inst.Ref {
+    _ = src;
+
     const field_ty = tuple_ty.structFieldType(field_index);
 
     if (tuple_ty.structFieldValueComptime(field_index)) |default_value| {
@@ -24145,7 +24145,6 @@ fn tupleFieldValByIndex(
         return sema.addConstant(field_ty, default_val);
     }
 
-    try sema.requireRuntimeBlock(block, src, null);
     return block.addStructFieldVal(tuple_byval, field_index, field_ty);
 }
 
@@ -24226,8 +24225,9 @@ fn unionFieldPtr(
         );
     }
 
-    try sema.requireRuntimeBlock(block, src, null);
-    if (!initializing and union_obj.layout == .Auto and block.wantSafety() and
+    // Note: the field access is valid at comptime (we may end up getting a nested comptime field /
+    // array length / similar), but we don't need the safety check
+    if (!block.is_comptime and !initializing and union_obj.layout == .Auto and block.wantSafety() and
         union_ty.unionTagTypeSafety() != null and union_obj.fields.count() > 1)
     {
         const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
@@ -24300,8 +24300,9 @@ fn unionFieldVal(
         }
     }
 
-    try sema.requireRuntimeBlock(block, src, null);
-    if (union_obj.layout == .Auto and block.wantSafety() and
+    // Note: the field access is valid at comptime (we may end up getting a nested comptime field /
+    // array length / similar), but we don't need the safety check
+    if (!block.is_comptime and union_obj.layout == .Auto and block.wantSafety() and
         union_ty.unionTagTypeSafety() != null and union_obj.fields.count() > 1)
     {
         const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
@@ -24537,7 +24538,6 @@ fn tupleFieldPtr(
         try sema.validateRuntimeElemAccess(block, field_index_src, field_ty, tuple_ty, tuple_ptr_src);
     }
 
-    try sema.requireRuntimeBlock(block, tuple_ptr_src, null);
     return block.addStructFieldPtr(tuple_ptr, field_index, ptr_field_ty);
 }
 
@@ -24575,7 +24575,6 @@ fn tupleField(
 
     try sema.validateRuntimeElemAccess(block, field_index_src, field_ty, tuple_ty, tuple_src);
 
-    try sema.requireRuntimeBlock(block, tuple_src, null);
     return block.addStructFieldVal(tuple, field_index, field_ty);
 }
 

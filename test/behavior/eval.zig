@@ -1409,12 +1409,30 @@ test "continue in inline for inside a comptime switch" {
 test "length of global array is determinable at comptime" {
     const S = struct {
         var bytes: [1024]u8 = undefined;
-
-        fn foo() !void {
-            try std.testing.expect(bytes.len == 1024);
-        }
     };
-    comptime try S.foo();
+    try std.testing.expect(comptime S.bytes.len == 1024);
+}
+
+test "length of array in global struct is determinable at comptime" {
+    const S = struct {
+        var g: struct { bytes: [1024]u8 } = undefined;
+    };
+    try std.testing.expect(comptime S.g.bytes.len == 1024);
+}
+
+test "length of array in global tuple is determinable at comptime" {
+    const S = struct {
+        var g: struct { [1024]u8 } = undefined;
+    };
+    try std.testing.expect(comptime S.g[0].len == 1024);
+    try std.testing.expect(comptime S.g.@"0".len == 1024);
+}
+
+test "length of array in global union is determinable at comptime" {
+    const S = struct {
+        var g: union { bytes: [1024]u8 } = undefined;
+    };
+    try std.testing.expect(comptime S.g.bytes.len == 1024);
 }
 
 test "continue nested inline for loop" {
