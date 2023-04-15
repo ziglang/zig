@@ -1020,6 +1020,45 @@ pub fn addAnonymousModule(cs: *CompileStep, name: []const u8, options: std.Build
     return addModule(cs, name, module);
 }
 
+/// Adds a single package as a standalone module.
+/// This method is meant for packages which do not need any build or sub-dependencies,
+/// and will ignore any build.zig and build.zig.zon files that may be present.
+pub fn addModuleFromDependencyPath(
+    cs: *CompileStep,
+    name: []const u8,
+    module_root_directory: []const u8,
+    module_source_file: []const u8,
+) void {
+    const b = cs.step.owner;
+    const build_runner = @import("root");
+    const deps = build_runner.dependencies;
+
+    inline for (@typeInfo(deps.imports).Struct.decls) |decl| {
+        if (mem.startsWith(u8, decl.name, b.dep_prefix) and
+            mem.endsWith(u8, decl.name, name) and
+            decl.name.len == b.dep_prefix.len + name.len)
+        {
+            const build_root = @field(deps.build_root, decl.name);
+            const source_path = fs.path.resolve(b.allocator, &.{
+                build_root,
+                module_root_directory,
+                module_source_file,
+            }) catch @panic("OOM");
+
+            const module = b.createModule(.{
+                .source_file = .{
+                    .path = source_path,
+                },
+            });
+
+            return cs.addModule(name, module);
+        }
+    }
+
+    std.debug.print("no package named '{s}' found. All packages used in build.zig must be declared in this file.\n", .{name});
+    std.process.exit(1);
+}
+
 pub fn addOptions(cs: *CompileStep, module_name: []const u8, options: *OptionsStep) void {
     addModule(cs, module_name, options.createModule());
 }
