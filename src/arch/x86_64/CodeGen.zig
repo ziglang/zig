@@ -3619,11 +3619,15 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 else => return self.fail("TODO implement loading from register into {}", .{dst_mcv}),
             }
         },
-        .load_direct, .load_tlv => |sym_index| try self.load(dst_mcv, switch (ptr) {
-            .load_direct => .{ .lea_direct = sym_index },
-            .load_tlv => .{ .lea_tlv = sym_index },
-            else => unreachable,
-        }, ptr_ty),
+        .load_direct => |sym_index| {
+            const addr_reg = try self.copyToTmpRegister(Type.usize, .{ .lea_direct = sym_index });
+            const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
+            defer self.register_manager.unlockReg(addr_reg_lock);
+            // Load the pointer, which is stored in memory
+            try self.asmRegisterMemory(.mov, addr_reg, Memory.sib(.qword, .{ .base = addr_reg }));
+            try self.load(dst_mcv, .{ .register = addr_reg }, ptr_ty);
+        },
+        .load_tlv => |sym_index| try self.load(dst_mcv, .{ .lea_tlv = sym_index }, ptr_ty),
         .memory, .load_got, .lea_direct, .lea_tlv => {
             const reg = try self.copyToTmpRegister(ptr_ty, ptr);
             try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
@@ -3817,14 +3821,14 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             defer self.register_manager.unlockReg(addr_reg_lock);
 
             switch (ptr) {
-                .memory => |addr| {
-                    try self.genSetReg(ptr_ty, addr_reg, .{ .immediate = addr });
-                    // Load the pointer, which is stored in memory
-                    try self.asmRegisterMemory(.mov, addr_reg, Memory.sib(.qword, .{ .base = addr_reg }));
-                },
+                .memory => |addr| try self.genSetReg(ptr_ty, addr_reg, .{ .immediate = addr }),
                 .load_direct => |sym_index| try self.genSetReg(ptr_ty, addr_reg, .{ .lea_direct = sym_index }),
                 .load_tlv => |sym_index| try self.genSetReg(ptr_ty, addr_reg, .{ .lea_tlv = sym_index }),
                 else => unreachable,
+            }
+            if (ptr != .load_tlv) {
+                // Load the pointer, which is stored in memory
+                try self.asmRegisterMemory(.mov, addr_reg, Memory.sib(.qword, .{ .base = addr_reg }));
             }
 
             const new_ptr = MCValue{ .register = addr_reg };
@@ -7223,6 +7227,8 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
         .memory,
         .load_direct,
         .load_tlv,
+        .lea_direct,
+        .lea_tlv,
         => if (abi_size <= 8) {
             const reg = try self.copyToTmpRegister(ty, mcv);
             return self.genSetStack(ty, stack_offset, MCValue{ .register = reg }, opts);
@@ -7235,7 +7241,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                 .memory => |addr| .{ .immediate = addr },
                 .load_direct => |sym_index| .{ .lea_direct = sym_index },
                 .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
-                else => unreachable,
+                else => mcv,
             });
             try self.genInlineMemcpy(
                 .{ .ptr_stack_offset = stack_offset },
@@ -7258,8 +7264,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
         ),
         .ptr_stack_offset,
         .load_got,
-        .lea_direct,
-        .lea_tlv,
         => {
             const tmp_reg = try self.copyToTmpRegister(ty, mcv);
             const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
@@ -7350,21 +7354,27 @@ fn genInlineMemcpy(
     try self.spillRegisters(&.{ .rdi, .rsi, .rcx });
 
     switch (dst_ptr) {
-        .memory => |addr| {
-            try self.genSetReg(Type.usize, .rdi, .{ .immediate = addr });
-            // Load the pointer, which is stored in memory
-            try self.asmRegisterMemory(.mov, .rdi, Memory.sib(.qword, .{ .base = .rdi }));
+        .lea_tlv,
+        .load_tlv,
+        => {
+            try self.genSetReg(Type.usize, .rdi, switch (dst_ptr) {
+                .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
+                else => dst_ptr,
+            });
         },
+        .memory,
         .load_got,
         .lea_direct,
         .load_direct,
-        .lea_tlv,
-        .load_tlv,
-        => try self.genSetReg(Type.usize, .rdi, switch (dst_ptr) {
-            .load_direct => |sym_index| .{ .lea_direct = sym_index },
-            .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
-            else => dst_ptr,
-        }),
+        => {
+            try self.genSetReg(Type.usize, .rdi, switch (dst_ptr) {
+                .memory => |addr| .{ .immediate = addr },
+                .load_direct => |sym_index| .{ .lea_direct = sym_index },
+                else => dst_ptr,
+            });
+            // Load the pointer, which is stored in memory
+            try self.asmRegisterMemory(.mov, .rdi, Memory.sib(.qword, .{ .base = .rdi }));
+        },
         .stack_offset, .ptr_stack_offset => |off| {
             try self.asmRegisterMemory(switch (dst_ptr) {
                 .stack_offset => .mov,
@@ -7388,21 +7398,27 @@ fn genInlineMemcpy(
     }
 
     switch (src_ptr) {
-        .memory => |addr| {
-            try self.genSetReg(Type.usize, .rsi, .{ .immediate = addr });
-            // Load the pointer, which is stored in memory
-            try self.asmRegisterMemory(.mov, .rsi, Memory.sib(.qword, .{ .base = .rsi }));
+        .lea_tlv,
+        .load_tlv,
+        => {
+            try self.genSetReg(Type.usize, .rsi, switch (src_ptr) {
+                .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
+                else => dst_ptr,
+            });
         },
+        .memory,
         .load_got,
         .lea_direct,
         .load_direct,
-        .lea_tlv,
-        .load_tlv,
-        => try self.genSetReg(Type.usize, .rsi, switch (src_ptr) {
-            .load_direct => |sym_index| .{ .lea_direct = sym_index },
-            .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
-            else => src_ptr,
-        }),
+        => {
+            try self.genSetReg(Type.usize, .rsi, switch (src_ptr) {
+                .memory => |addr| .{ .immediate = addr },
+                .load_direct => |sym_index| .{ .lea_direct = sym_index },
+                else => src_ptr,
+            });
+            // Load the pointer, which is stored in memory
+            try self.asmRegisterMemory(.mov, .rsi, Memory.sib(.qword, .{ .base = .rsi }));
+        },
         .stack_offset, .ptr_stack_offset => |off| {
             try self.asmRegisterMemory(switch (src_ptr) {
                 .stack_offset => .mov,
@@ -7449,21 +7465,27 @@ fn genInlineMemset(
     try self.spillRegisters(&.{ .rdi, .al, .rcx });
 
     switch (dst_ptr) {
-        .memory => |addr| {
-            try self.genSetReg(Type.usize, .rdi, .{ .immediate = addr });
+        .lea_tlv,
+        .load_tlv,
+        => {
+            try self.genSetReg(Type.usize, .rdi, switch (dst_ptr) {
+                .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
+                else => dst_ptr,
+            });
+        },
+        .load_got => try self.genSetReg(Type.usize, .rdi, dst_ptr),
+        .memory,
+        .lea_direct,
+        .load_direct,
+        => {
+            try self.genSetReg(Type.usize, .rdi, switch (dst_ptr) {
+                .memory => |addr| .{ .immediate = addr },
+                .load_direct => |sym_index| .{ .lea_direct = sym_index },
+                else => dst_ptr,
+            });
             // Load the pointer, which is stored in memory
             try self.asmRegisterMemory(.mov, .rdi, Memory.sib(.qword, .{ .base = .rdi }));
         },
-        .load_got,
-        .lea_direct,
-        .load_direct,
-        .lea_tlv,
-        .load_tlv,
-        => try self.genSetReg(Type.usize, .rdi, switch (dst_ptr) {
-            .load_direct => |sym_index| .{ .lea_direct = sym_index },
-            .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
-            else => dst_ptr,
-        }),
         .stack_offset, .ptr_stack_offset => |off| {
             try self.asmRegisterMemory(switch (dst_ptr) {
                 .stack_offset => .mov,
