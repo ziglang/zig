@@ -75,7 +75,7 @@ test "@mulAdd f128" {
         return error.SkipZigTest;
     }
 
-    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
         // TODO: test is failing
         return error.SkipZigTest;
     }

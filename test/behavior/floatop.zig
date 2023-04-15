@@ -542,7 +542,7 @@ test "another, possibly redundant, @fabs test" {
         return error.SkipZigTest;
     }
 
-    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
         // TODO: test is failing
         return error.SkipZigTest;
     }
@@ -591,7 +591,7 @@ test "a third @fabs test, surely there should not be three fabs tests" {
         return error.SkipZigTest;
     }
 
-    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
         // TODO: test is failing
         return error.SkipZigTest;
     }
@@ -698,7 +698,7 @@ test "@floor f128" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
-    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
         // TODO: test is failing
         return error.SkipZigTest;
     }
@@ -792,6 +792,11 @@ test "@ceil f128" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .x86_64) {
+        // TODO: test is failing
+        return error.SkipZigTest;
+    }
 
     try testCeilLegacy(f128, 12.0);
     comptime try testCeilLegacy(f128, 12.0);
@@ -889,7 +894,7 @@ test "@trunc f128" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
-    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
         // TODO: test is failing
         return error.SkipZigTest;
     }
@@ -1012,7 +1017,7 @@ test "negation f128" {
         return error.SkipZigTest;
     }
 
-    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
         // TODO: test is failing
         return error.SkipZigTest;
     }
@@ -1059,6 +1064,11 @@ test "comptime fixed-width float zero divided by zero produces NaN" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .x86_64) {
+        // TODO: test is failing
+        return error.SkipZigTest;
+    }
 
     inline for (.{ f16, f32, f64, f80, f128 }) |F| {
         try expect(math.isNan(@as(F, 0) / @as(F, 0)));

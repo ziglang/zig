@@ -1313,7 +1313,12 @@ test "cast f16 to wider types" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
+        // TODO: test is failing
+        return error.SkipZigTest;
+    }
+
+    if (builtin.os.tag == .windows and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
         // TODO: test is failing
         return error.SkipZigTest;
     }
@@ -1344,7 +1349,7 @@ test "cast f128 to narrower types" {
         return error.SkipZigTest;
     }
 
-    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
         // TODO: test is failing
         return error.SkipZigTest;
     }

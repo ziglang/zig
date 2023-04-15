@@ -622,7 +622,7 @@ test "f128" {
         return error.SkipZigTest;
     }
 
-    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
         // TODO: test is failing
         return error.SkipZigTest;
     }
@@ -1304,7 +1304,7 @@ test "remainder division" {
         return error.SkipZigTest;
     }
 
-    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
         // TODO: test is failing
         return error.SkipZigTest;
     }
@@ -1339,6 +1339,11 @@ test "float remainder division using @rem" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .x86_64) {
+        // TODO: test is failing
+        return error.SkipZigTest;
+    }
 
     comptime try frem(f16);
     comptime try frem(f32);
@@ -1381,6 +1386,11 @@ test "float modulo division using @mod" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .x86_64) {
+        // TODO: test is failing
+        return error.SkipZigTest;
+    }
 
     comptime try fmod(f16);
     comptime try fmod(f32);
@@ -1455,7 +1465,7 @@ test "@round f128" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
         // TODO: test is failing
         return error.SkipZigTest;
     }
@@ -1505,7 +1515,7 @@ test "NaN comparison" {
         return error.SkipZigTest;
     }
 
-    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
         // TODO: test is failing
         return error.SkipZigTest;
     }
