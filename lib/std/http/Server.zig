@@ -517,7 +517,7 @@ pub const Response = struct {
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     pub fn finish(res: *Response) !void {
         switch (res.headers.transfer_encoding) {
-            .chunked => try res.connection.writeAll("0\r\n"),
+            .chunked => try res.connection.writeAll("0\r\n\r\n"),
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
             .none => {},
         }
