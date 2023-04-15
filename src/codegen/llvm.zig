@@ -9589,8 +9589,8 @@ pub const FuncGen = struct {
         self.builder.positionBuilderAtEnd(after_block);
         const final_result = self.builder.buildPhi(llvm_ty, "");
         final_result.addIncoming(
-            &[1]*llvm.Value{ new_result },
-            &[1]*llvm.BasicBlock{ loop_block },
+            &[1]*llvm.Value{new_result},
+            &[1]*llvm.BasicBlock{loop_block},
             1,
         );
 
@@ -9738,8 +9738,8 @@ pub const FuncGen = struct {
         self.builder.positionBuilderAtEnd(after_block);
         const final_result = self.builder.buildPhi(llvm_ty, "");
         final_result.addIncoming(
-            &[1]*llvm.Value{ new_result },
-            &[1]*llvm.BasicBlock{ loop_block },
+            &[1]*llvm.Value{new_result},
+            &[1]*llvm.BasicBlock{loop_block},
             1,
         );
 
