@@ -929,7 +929,8 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (options.skip_non_native and !is_native)
             continue;
 
-        if (options.skip_cross_glibc and test_target.target.isGnuLibC() and test_target.link_libc == true)
+        if (options.skip_cross_glibc and !test_target.target.isNative() and
+            test_target.target.isGnuLibC() and test_target.link_libc == true)
             continue;
 
         if (options.skip_libc and test_target.link_libc == true)
