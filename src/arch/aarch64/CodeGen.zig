@@ -6168,9 +6168,10 @@ fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
-            .linker_load => |ll| .{ .linker_load = ll },
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
+            .load_got => |sym_index| .{ .linker_load = .{ .type = .got, .sym_index = sym_index } },
+            .load_direct => |sym_index| .{ .linker_load = .{ .type = .direct, .sym_index = sym_index } },
             .load_tlv => unreachable, // TODO
         },
         .fail => |msg| {
