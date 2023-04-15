@@ -1758,10 +1758,10 @@ pub const Mutable = struct {
             i += 1;
         }) {
             const mask_limb_index = mask_bit_index / limb_bits;
-            const mask_limb_bit = @intCast(u6, mask_bit_index % limb_bits);
+            const mask_limb_bit = @intCast(Log2Limb, mask_bit_index % limb_bits);
 
             const i_limb_index = i / limb_bits;
-            const i_limb_bit = @intCast(u6, i % limb_bits);
+            const i_limb_bit = @intCast(Log2Limb, i % limb_bits);
 
             mut_mask.limbs[mask_limb_index] &= ~(@as(Limb, 1) << mask_limb_bit); // Unset the mask bit
 
@@ -1798,10 +1798,10 @@ pub const Mutable = struct {
             i += 1;
         }) {
             const mask_limb_index = mask_bit_index / limb_bits;
-            const mask_limb_bit = @intCast(u6, mask_bit_index % limb_bits);
+            const mask_limb_bit = @intCast(Log2Limb, mask_bit_index % limb_bits);
 
             const i_limb_index = i / limb_bits;
-            const i_limb_bit = @intCast(u6, i % limb_bits);
+            const i_limb_bit = @intCast(Log2Limb, i % limb_bits);
 
             mut_mask.limbs[mask_limb_index] &= ~(@as(Limb, 1) << mask_limb_bit); // Unset the mask bit
 
