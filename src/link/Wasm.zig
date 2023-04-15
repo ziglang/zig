@@ -1209,6 +1209,10 @@ fn resolveLazySymbols(wasm: *Wasm) !void {
             try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
         }
     }
+    if (wasm.undefs.fetchSwapRemove("__zig_lt_errors_len")) |kv| {
+        const loc = try wasm.createSyntheticSymbol("__zig_lt_errors_len", .function);
+        try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+    }
 }
 
 // Tries to find a global symbol by its name. Returns null when not found,
@@ -2183,6 +2187,46 @@ fn setupInitFunctions(wasm: *Wasm) !void {
 
     // sort the initfunctions based on their priority
     std.sort.sort(InitFuncLoc, wasm.init_funcs.items, {}, InitFuncLoc.lessThan);
+}
+
+/// Generates the function which verifies if an integer value is less than the
+/// amount of error values. This will only be generated if the symbol exists.
+fn setupLtErrorsLenFunction(wasm: *Wasm) !void {
+    if (wasm.findGlobalSymbol("__zig_lt_errors_len") == null) return;
+    const errors_len = wasm.base.options.module.?.global_error_set.count();
+
+    var body_list = std.ArrayList(u8).init(wasm.base.allocator);
+    defer body_list.deinit();
+    const writer = body_list.writer();
+
+    {
+        // generates bytecode for the following function:
+        // fn (index: u16) bool {
+        //     return index < errors_len;
+        // }
+
+        // no locals
+        try leb.writeULEB128(writer, @as(u32, 0));
+
+        // get argument
+        try writer.writeByte(std.wasm.opcode(.local_get));
+        try leb.writeULEB128(writer, @as(u32, 0));
+
+        // get error length
+        try writer.writeByte(std.wasm.opcode(.i32_const));
+        try leb.writeULEB128(writer, @intCast(u32, errors_len));
+
+        try writer.writeByte(std.wasm.opcode(.i32_lt_u));
+
+        // stack values are implicit return values so keep the value
+        // on the stack and end the function.
+
+        // end function
+        try writer.writeByte(std.wasm.opcode(.end));
+    }
+
+    const func_type: std.wasm.Type = .{ .params = &.{std.wasm.Valtype.i32}, .returns = &.{std.wasm.Valtype.i32} };
+    try wasm.createSyntheticFunction("__zig_lt_errors_len", func_type, &body_list);
 }
 
 /// Creates a function body for the `__wasm_call_ctors` symbol.
@@ -3379,6 +3423,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     try wasm.setupInitMemoryFunction();
     try wasm.setupTLSRelocationsFunction();
     try wasm.initializeTLSFunction();
+    try wasm.setupLtErrorsLenFunction();
     try wasm.setupExports();
     try wasm.writeToFile(enabled_features, emit_features_count, arena);
 }

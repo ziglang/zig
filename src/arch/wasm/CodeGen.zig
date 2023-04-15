@@ -3338,9 +3338,13 @@ fn airCmpVector(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airCmpLtErrorsLen(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const un_op = func.air.instructions.items(.data)[inst].un_op;
     const operand = try func.resolveInst(un_op);
+    const sym_index = try func.bin_file.getGlobalSymbol("__zig_lt_errors_len", null);
 
-    _ = operand;
-    return func.fail("TODO implement airCmpLtErrorsLen for wasm", .{});
+    try func.emitWValue(operand);
+    try func.addLabel(.call, sym_index);
+    const result = try func.allocLocal(Type.bool);
+    try func.addLabel(.local_set, result.local.value);
+    return func.finishAir(inst, result, &.{un_op});
 }
 
 fn airBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
