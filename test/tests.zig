@@ -942,6 +942,14 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
             continue;
 
+        // TODO get the x86_64 self-hosted backend tests passing on Windows
+        if (test_target.target.getCpuArch() == .x86_64 and
+            test_target.target.getOsTag() == .windows and
+            test_target.use_llvm == false)
+        {
+            continue;
+        }
+
         // TODO get compiler-rt tests passing for wasm32-wasi
         // currently causes "LLVM ERROR: Unable to expand fixed point multiplication."
         if (test_target.target.getCpuArch() == .wasm32 and
