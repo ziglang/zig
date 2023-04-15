@@ -5225,17 +5225,17 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
 
     try sema.analyzeBody(&loop_block, body);
 
-    if (sema.typeOf(Air.indexToRef(loop_block.instructions.items[loop_block.instructions.items.len - 1])).isNoReturn()) {
+    const loop_block_len = loop_block.instructions.items.len;
+    if (loop_block_len > 0 and sema.typeOf(Air.indexToRef(loop_block.instructions.items[loop_block_len - 1])).isNoReturn()) {
         // If the loop ended with a noreturn terminator, then there is no way for it to loop,
         // so we can just use the block instead.
         try child_block.instructions.appendSlice(gpa, loop_block.instructions.items);
     } else {
         try child_block.instructions.append(gpa, loop_inst);
 
-        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
-            loop_block.instructions.items.len);
+        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len + loop_block_len);
         sema.air_instructions.items(.data)[loop_inst].ty_pl.payload = sema.addExtraAssumeCapacity(
-            Air.Block{ .body_len = @intCast(u32, loop_block.instructions.items.len) },
+            Air.Block{ .body_len = @intCast(u32, loop_block_len) },
         );
         sema.air_extra.appendSliceAssumeCapacity(loop_block.instructions.items);
     }
