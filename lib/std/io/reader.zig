@@ -553,10 +553,18 @@ test "Reader.readUntilDelimiter returns StreamTooLong, then bytes read until the
 }
 
 test "Reader.readUntilDelimiter returns EndOfStream" {
-    var buf: [5]u8 = undefined;
-    var fis = std.io.fixedBufferStream("");
-    const reader = fis.reader();
-    try std.testing.expectError(error.EndOfStream, reader.readUntilDelimiter(&buf, '\n'));
+    {
+        var buf: [5]u8 = undefined;
+        var fis = std.io.fixedBufferStream("");
+        const reader = fis.reader();
+        try std.testing.expectError(error.EndOfStream, reader.readUntilDelimiter(&buf, '\n'));
+    }
+    {
+        var buf: [5]u8 = undefined;
+        var fis = std.io.fixedBufferStream("1234");
+        const reader = fis.reader();
+        try std.testing.expectError(error.EndOfStream, reader.readUntilDelimiter(&buf, '\n'));
+    }
 }
 
 test "Reader.readUntilDelimiter returns bytes read until delimiter, then EndOfStream" {
@@ -564,13 +572,6 @@ test "Reader.readUntilDelimiter returns bytes read until delimiter, then EndOfSt
     var fis = std.io.fixedBufferStream("1234\n");
     const reader = fis.reader();
     try std.testing.expectEqualStrings("1234", try reader.readUntilDelimiter(&buf, '\n'));
-    try std.testing.expectError(error.EndOfStream, reader.readUntilDelimiter(&buf, '\n'));
-}
-
-test "Reader.readUntilDelimiter returns EndOfStream" {
-    var buf: [5]u8 = undefined;
-    var fis = std.io.fixedBufferStream("1234");
-    const reader = fis.reader();
     try std.testing.expectError(error.EndOfStream, reader.readUntilDelimiter(&buf, '\n'));
 }
 

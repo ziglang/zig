@@ -182,7 +182,7 @@ test "listen on a port, send bytes, receive bytes" {
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
 }
 
-test "listen on a port, send bytes, receive bytes" {
+test "listen on a port, send bytes, receive bytes, async-only" {
     if (!std.io.is_async) return error.SkipZigTest;
 
     if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) {

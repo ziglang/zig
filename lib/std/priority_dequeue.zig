@@ -633,7 +633,7 @@ test "std.PriorityDequeue: peekMax" {
     try expect(queue.peekMax().? == 9);
 }
 
-test "std.PriorityDequeue: sift up with odd indices" {
+test "std.PriorityDequeue: sift up with odd indices, removeMin" {
     var queue = PDQ.init(testing.allocator, {});
     defer queue.deinit();
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
@@ -647,7 +647,7 @@ test "std.PriorityDequeue: sift up with odd indices" {
     }
 }
 
-test "std.PriorityDequeue: sift up with odd indices" {
+test "std.PriorityDequeue: sift up with odd indices, removeMax" {
     var queue = PDQ.init(testing.allocator, {});
     defer queue.deinit();
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
