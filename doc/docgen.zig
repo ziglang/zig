@@ -1424,6 +1424,7 @@ fn genHtml(
                             const result = try ChildProcess.exec(.{
                                 .allocator = allocator,
                                 .argv = build_args.items,
+                                .cwd = tmp_dir_name,
                                 .env_map = &env_map,
                                 .max_output_bytes = max_doc_file_size,
                             });
