@@ -866,7 +866,7 @@ const llvm_targets = [_]LlvmTarget{
             .{
                 .llvm_name = null,
                 .zig_name = "baseline_rv32",
-                .features = &.{ "a", "c", "d", "f", "m" },
+                .features = &.{ "32bit", "a", "c", "d", "f", "m" },
             },
             .{
                 .llvm_name = null,
