@@ -63,7 +63,7 @@ emit_llvm_ir: EmitOption = .default,
 // so it is not an EmitOption for now.
 emit_h: bool = false,
 bundle_compiler_rt: ?bool = null,
-single_threaded: ?bool = null,
+single_threaded: ?bool,
 stack_protector: ?bool = null,
 disable_stack_probing: bool,
 disable_sanitize_c: bool,
@@ -101,8 +101,8 @@ link_objects: ArrayList(LinkObject),
 include_dirs: ArrayList(IncludeDir),
 c_macros: ArrayList([]const u8),
 installed_headers: ArrayList(*Step),
-is_linking_libc: bool = false,
-is_linking_libcpp: bool = false,
+is_linking_libc: bool,
+is_linking_libcpp: bool,
 vcpkg_bin_path: ?[]const u8 = null,
 
 /// This may be set in order to override the default install directory
@@ -207,8 +207,8 @@ force_undefined_symbols: std.StringHashMap(void),
 stack_size: ?u64 = null,
 
 want_lto: ?bool = null,
-use_llvm: ?bool = null,
-use_lld: ?bool = null,
+use_llvm: ?bool,
+use_lld: ?bool,
 
 /// This is an advanced setting that can change the intent of this CompileStep.
 /// If this slice has nonzero length, it means that this CompileStep exists to
@@ -287,6 +287,10 @@ pub const Options = struct {
     max_rss: usize = 0,
     filter: ?[]const u8 = null,
     test_runner: ?[]const u8 = null,
+    link_libc: ?bool = null,
+    single_threaded: ?bool = null,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
 };
 
 pub const Kind = enum {
@@ -412,6 +416,12 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         .output_dirname_source = GeneratedFile{ .step = &self.step },
 
         .target_info = target_info,
+
+        .is_linking_libc = options.link_libc orelse false,
+        .is_linking_libcpp = false,
+        .single_threaded = options.single_threaded,
+        .use_llvm = options.use_llvm,
+        .use_lld = options.use_lld,
     };
 
     if (self.kind == .lib) {
