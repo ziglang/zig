@@ -780,7 +780,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // compiler state, the second clause here can be removed so that incremental
         // cache mode is used for LLVM backend too. We need some fuzz testing before
         // that can be enabled.
-        const cache_mode = if (use_llvm and !options.disable_lld_caching)
+        const cache_mode = if ((use_llvm or options.main_pkg == null) and !options.disable_lld_caching)
             CacheMode.whole
         else
             options.cache_mode;
