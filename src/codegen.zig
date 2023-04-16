@@ -931,11 +931,17 @@ pub const GenResult = union(enum) {
         /// The bit-width of the immediate may be smaller than `u64`. For example, on 32-bit targets
         /// such as ARM, the immediate will never exceed 32-bits.
         immediate: u64,
-        linker_load: LinkerLoad,
-        /// Pointer to a threadlocal variable.
-        /// The address resolution will be deferred until the linker allocates everything in virtual memory.
+        /// Threadlocal variable with address deferred until the linker allocates
+        /// everything in virtual memory.
         /// Payload is a symbol index.
-        tlv_reloc: u32,
+        load_tlv: u32,
+        /// Decl with address deferred until the linker allocates everything in virtual memory.
+        /// Payload is a symbol index.
+        load_direct: u32,
+        /// Decl referenced via GOT with address deferred until the linker allocates
+        /// everything in virtual memory.
+        /// Payload is a symbol index.
+        load_got: u32,
         /// Direct by-address reference to memory location.
         memory: u64,
     };
@@ -1005,19 +1011,13 @@ fn genDeclRef(
         const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
         if (is_threadlocal) {
-            return GenResult.mcv(.{ .tlv_reloc = sym_index });
+            return GenResult.mcv(.{ .load_tlv = sym_index });
         }
-        return GenResult.mcv(.{ .linker_load = .{
-            .type = .got,
-            .sym_index = sym_index,
-        } });
+        return GenResult.mcv(.{ .load_got = sym_index });
     } else if (bin_file.cast(link.File.Coff)) |coff_file| {
         const atom_index = try coff_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
-        return GenResult.mcv(.{ .linker_load = .{
-            .type = .got,
-            .sym_index = sym_index,
-        } });
+        return GenResult.mcv(.{ .load_got = sym_index });
     } else if (bin_file.cast(link.File.Plan9)) |p9| {
         const decl_block_index = try p9.seeDecl(decl_index);
         const decl_block = p9.getDeclBlock(decl_block_index);
@@ -1044,15 +1044,9 @@ fn genUnnamedConst(
     if (bin_file.cast(link.File.Elf)) |elf_file| {
         return GenResult.mcv(.{ .memory = elf_file.getSymbol(local_sym_index).st_value });
     } else if (bin_file.cast(link.File.MachO)) |_| {
-        return GenResult.mcv(.{ .linker_load = .{
-            .type = .direct,
-            .sym_index = local_sym_index,
-        } });
+        return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Coff)) |_| {
-        return GenResult.mcv(.{ .linker_load = .{
-            .type = .direct,
-            .sym_index = local_sym_index,
-        } });
+        return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Plan9)) |p9| {
         const ptr_bits = target.cpu.arch.ptrBitWidth();
         const ptr_bytes: u64 = @divExact(ptr_bits, 8);
