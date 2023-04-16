@@ -150,6 +150,7 @@ test {
     _ = @import("behavior/comptime_memory.zig");
     _ = @import("behavior/const_slice_child.zig");
     _ = @import("behavior/decltest.zig");
+    _ = @import("behavior/duplicated_test_names.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/empty_tuple_fields.zig");
     _ = @import("behavior/empty_union.zig");
