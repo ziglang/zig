@@ -203,7 +203,7 @@ test "multiline string comments at multiple places" {
     try expect(mem.eql(u8, s1, s2));
 }
 
-test "string concatenation" {
+test "string concatenation simple" {
     try expect(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
 }
 
