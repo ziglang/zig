@@ -220,7 +220,6 @@ pub fn fetchDependencies(
     directory: Compilation.Directory,
     global_cache_directory: Compilation.Directory,
     local_cache_directory: Compilation.Directory,
-    build_roots_source: *std.ArrayList(u8),
     name_prefix: []const u8,
     error_bundle: *std.zig.ErrorBundle.Wip,
 ) !void {
@@ -273,10 +272,8 @@ pub fn fetchDependencies(
         const dep = deps_list[i];
 
         const sub_prefix = try std.fmt.allocPrint(arena, "{s}{s}.", .{ name_prefix, name });
-        const fqn = sub_prefix[0 .. sub_prefix.len - 1];
-        _ = fqn;
 
-        const sub_pkg = try fetchAndUnpack_wip(
+        const sub_pkg = try fetchAndUnpack(
             thread_pool,
             http_client,
             global_cache_directory,
@@ -291,7 +288,6 @@ pub fn fetchDependencies(
             sub_pkg.root_src_directory,
             global_cache_directory,
             local_cache_directory,
-            build_roots_source,
             sub_prefix,
             error_bundle,
         );
@@ -366,7 +362,7 @@ pub fn fetchAndAddDependencies(
         const sub_prefix = try std.fmt.allocPrint(arena, "{s}{s}.", .{ name_prefix, name });
         const fqn = sub_prefix[0 .. sub_prefix.len - 1];
 
-        const sub_pkg = try fetchAndUnpack(
+        const sub_pkg = try fetchUnpackImport(
             thread_pool,
             http_client,
             global_cache_directory,
@@ -545,7 +541,7 @@ fn importCachedPackage(
     return error.MissingDependencyHash;
 }
 
-fn fetchAndUnpack_wip(
+fn fetchAndUnpack(
     thread_pool: *ThreadPool,
     http_client: *std.http.Client,
     global_cache_directory: Compilation.Directory,
@@ -674,7 +670,7 @@ fn fetchAndUnpack_wip(
     );
 }
 
-fn fetchAndUnpack(
+fn fetchUnpackImport(
     thread_pool: *ThreadPool,
     http_client: *std.http.Client,
     global_cache_directory: Compilation.Directory,

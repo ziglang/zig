@@ -4127,66 +4127,46 @@ pub fn cmdInit(
     }
 }
 
-const PackageCommand = enum {
-    add,
-    remove,
-    check,
-    update,
-    fetch,
-};
-
 const PackageOptions = struct {
     @"--cache-dir": []const u8,
     @"--global-cache-dir": []const u8,
 };
 
+pub const usage_pkg =
+    \\Usage: zig pkg [command] [options]
+    \\
+    \\  Runs a package command
+    \\
+    \\Commands:
+    \\  fetch                Calculates the package hash of the current directory.          
+    \\
+    \\Options: 
+    \\  -h --help           Print this help and exit.
+    \\
+;
+
 pub fn cmdPkg(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
-    if (args.len == 0) fatal("expected sub argument after pkg", .{});
+    if (args.len == 0) fatal("Expected at least one argument.\n", .{});
 
-    const command = blk: {
-        const command_arg = args[0];
-        inline for (std.meta.fieldNames(PackageCommand)) |name| {
-            if (mem.eql(u8, command_arg, name)) {
-                break :blk std.meta.stringToEnum(PackageCommand, name);
-            }
+    for (args) |arg| {
+        if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
+            const stdout = io.getStdOut().writer();
+            try stdout.writeAll(usage_fmt);
+            return cleanExit();
         }
-        fatal("expected valid sub type argument found: {s}", .{command_arg});
-    };
+    }
 
-    return switch (command.?) {
-        .add => std.log.info("pkg add \n --- \n", .{}),
-        .remove => @panic("not implemented"),
-        .update => @panic("not implemented"),
-        .check => @panic("not implemented"),
-        .fetch => sub_cmd_pkg_fetch(gpa, arena),
-    };
+    const command_arg = args[0];
+    if (!mem.eql(u8, command_arg, "fetch")) fatal("Invalid command: {s}\n", .{command_arg});
+
+    return cmdPkgFetch(gpa, arena);
 }
 
-pub fn sub_cmd_pkg_fetch(gpa: Allocator, arena: Allocator) !void {
+pub fn cmdPkgFetch(gpa: Allocator, arena: Allocator) !void {
     var color: Color = .auto;
     const self_exe_path = try introspect.findZigExePath(arena);
 
     var override_lib_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIB_DIR");
-
-    var http_client: std.http.Client = .{ .allocator = gpa };
-    defer http_client.deinit();
-    //try http_client.rescanRootCertificates();
-
-    // Here we provide an import to the build runner that allows using reflection to find
-    // all of the dependencies. Without this, there would be no way to use `@import` to
-    // access dependencies by name, since `@import` requires string literals.
-    var dependencies_source = std.ArrayList(u8).init(gpa);
-    defer dependencies_source.deinit();
-    try dependencies_source.appendSlice("pub const imports = struct {\n");
-
-    // This will go into the same package. It contains the file system paths
-    // to all the build.zig files.
-    var build_roots_source = std.ArrayList(u8).init(gpa);
-    defer build_roots_source.deinit();
-
-    var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{ .allocator = gpa });
-    defer thread_pool.deinit();
 
     var cleanup_build_runner_dir: ?fs.Dir = null;
     defer if (cleanup_build_runner_dir) |*dir| dir.close();
@@ -4201,11 +4181,6 @@ pub fn sub_cmd_pkg_fetch(gpa: Allocator, arena: Allocator) !void {
     };
     defer zig_lib_directory.handle.close();
 
-    var main_pkg: Package = .{
-        .root_src_directory = zig_lib_directory,
-        .root_src_path = "build_runner.zig",
-    };
-    _ = main_pkg;
     var build_file: ?[]const u8 = null;
     var cleanup_build_dir: ?fs.Dir = null;
     defer if (cleanup_build_dir) |*dir| dir.close();
@@ -4247,12 +4222,6 @@ pub fn sub_cmd_pkg_fetch(gpa: Allocator, arena: Allocator) !void {
         }
     };
 
-    var build_pkg: Package = .{
-        .root_src_directory = build_directory,
-        .root_src_path = build_zig_basename,
-    };
-    _ = build_pkg;
-
     var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
     var global_cache_directory: Compilation.Directory = l: {
         const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
@@ -4261,8 +4230,9 @@ pub fn sub_cmd_pkg_fetch(gpa: Allocator, arena: Allocator) !void {
             .path = p,
         };
     };
-    var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
     defer global_cache_directory.handle.close();
+
+    var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
     var local_cache_directory: Compilation.Directory = l: {
         if (override_local_cache_dir) |local_cache_dir_path| {
             break :l .{
@@ -4277,6 +4247,7 @@ pub fn sub_cmd_pkg_fetch(gpa: Allocator, arena: Allocator) !void {
         };
     };
     defer local_cache_directory.handle.close();
+
     // Here we borrow main package's table and will replace it with a fresh
     // one after this process completes.
 
@@ -4287,6 +4258,13 @@ pub fn sub_cmd_pkg_fetch(gpa: Allocator, arena: Allocator) !void {
     var all_modules: Package.AllModules = .{};
     defer all_modules.deinit(gpa);
 
+    var thread_pool: ThreadPool = undefined;
+    try thread_pool.init(.{ .allocator = gpa });
+    defer thread_pool.deinit();
+
+    var http_client: std.http.Client = .{ .allocator = gpa };
+    defer http_client.deinit();
+
     const fetch_result = Package.fetchDependencies(
         arena,
         &thread_pool,
@@ -4294,7 +4272,6 @@ pub fn sub_cmd_pkg_fetch(gpa: Allocator, arena: Allocator) !void {
         build_directory,
         global_cache_directory,
         local_cache_directory,
-        &build_roots_source,
         "",
         &wip_errors,
     );
