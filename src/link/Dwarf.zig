@@ -150,7 +150,7 @@ pub const DeclState = struct {
                 .type = ty,
                 .offset = undefined,
             });
-            log.debug("%{d}: {}", .{ sym_index, ty.fmtDebug() });
+            log.debug("%{d}: {}", .{ sym_index, ty.fmt(self.mod) });
             try self.abbrev_resolver.putNoClobberContext(self.gpa, ty, sym_index, .{
                 .mod = self.mod,
             });
@@ -570,7 +570,7 @@ pub const DeclState = struct {
                 try dbg_info_buffer.append(0);
             },
             else => {
-                log.debug("TODO implement .debug_info for type '{}'", .{ty.fmtDebug()});
+                log.debug("TODO implement .debug_info for type '{}'", .{ty.fmt(self.mod)});
                 try dbg_info_buffer.append(@enumToInt(AbbrevKind.pad1));
             },
         }
@@ -1055,6 +1055,10 @@ pub fn commitDeclState(
                 },
             }
             {
+                log.debug("relocating subprogram high PC value: {x} => {x}", .{
+                    self.getRelocDbgInfoSubprogramHighPC(),
+                    sym_size,
+                });
                 const ptr = dbg_info_buffer.items[self.getRelocDbgInfoSubprogramHighPC()..][0..4];
                 mem.writeInt(u32, ptr, @intCast(u32, sym_size), target_endian);
             }
@@ -1263,7 +1267,12 @@ pub fn commitDeclState(
             } else {
                 const atom = self.getAtom(.di_atom, symbol.atom_index);
                 const value = atom.off + symbol.offset + reloc.addend;
-                log.debug("{x}: [() => {x}] (%{d}, '{}')", .{ reloc.offset, value, target, ty.fmtDebug() });
+                log.debug("{x}: [() => {x}] (%{d}, '{}')", .{
+                    reloc.offset,
+                    value,
+                    target,
+                    ty.fmt(module),
+                });
                 mem.writeInt(
                     u32,
                     dbg_info_buffer.items[reloc.offset..][0..@sizeOf(u32)],

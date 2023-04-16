@@ -14,7 +14,7 @@ const trace = @import("../../tracy.zig").trace;
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
 const MachO = @import("../MachO.zig");
-const Relocation = @import("Relocation.zig");
+pub const Relocation = @import("Relocation.zig");
 const SymbolWithLoc = MachO.SymbolWithLoc;
 
 /// Each decl always gets a local symbol with the fully qualified name.
@@ -113,25 +113,19 @@ pub fn freeListEligible(self: Atom, macho_file: *MachO) bool {
 }
 
 pub fn addRelocation(macho_file: *MachO, atom_index: Index, reloc: Relocation) !void {
-    return addRelocations(macho_file, atom_index, 1, .{reloc});
+    return addRelocations(macho_file, atom_index, &[_]Relocation{reloc});
 }
 
-pub fn addRelocations(
-    macho_file: *MachO,
-    atom_index: Index,
-    comptime count: comptime_int,
-    relocs: [count]Relocation,
-) !void {
+pub fn addRelocations(macho_file: *MachO, atom_index: Index, relocs: []Relocation) !void {
     const gpa = macho_file.base.allocator;
-    const target = macho_file.base.options.target;
     const gop = try macho_file.relocs.getOrPut(gpa, atom_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
-    try gop.value_ptr.ensureUnusedCapacity(gpa, count);
+    try gop.value_ptr.ensureUnusedCapacity(gpa, relocs.len);
     for (relocs) |reloc| {
         log.debug("  (adding reloc of type {s} to target %{d})", .{
-            reloc.fmtType(target),
+            @tagName(reloc.type),
             reloc.target.sym_index,
         });
         gop.value_ptr.appendAssumeCapacity(reloc);

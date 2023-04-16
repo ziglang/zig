@@ -540,7 +540,7 @@ pub const File = struct {
     /// May be called before or after updateDeclExports for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
-        log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty.fmtDebug() });
+        log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty.fmt(module) });
         assert(decl.has_tv);
         if (build_options.only_c) {
             assert(base.tag == .c);
@@ -564,7 +564,7 @@ pub const File = struct {
     pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) UpdateDeclError!void {
         const owner_decl = module.declPtr(func.owner_decl);
         log.debug("updateFunc {*} ({s}), type={}", .{
-            owner_decl, owner_decl.name, owner_decl.ty.fmtDebug(),
+            owner_decl, owner_decl.name, owner_decl.ty.fmt(module),
         });
         if (build_options.only_c) {
             assert(base.tag == .c);

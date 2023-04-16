@@ -28,7 +28,7 @@ decls: std.ArrayListUnmanaged(DocData.Decl) = .{},
 exprs: std.ArrayListUnmanaged(DocData.Expr) = .{},
 ast_nodes: std.ArrayListUnmanaged(DocData.AstNode) = .{},
 comptime_exprs: std.ArrayListUnmanaged(DocData.ComptimeExpr) = .{},
-guides: std.StringHashMapUnmanaged([]const u8) = .{},
+guide_sections: std.ArrayListUnmanaged(Section) = .{},
 
 // These fields hold temporary state of the analysis process
 // and are mainly used by the decl path resolving algorithm.
@@ -61,6 +61,16 @@ const SrcLocInfo = struct {
     bytes: u32 = 0,
     line: usize = 0,
     src_node: u32 = 0,
+};
+
+const Section = struct {
+    name: []const u8 = "", // empty string is the default section
+    guides: std.ArrayListUnmanaged(Guide) = .{},
+
+    const Guide = struct {
+        name: []const u8,
+        body: []const u8,
+    };
 };
 
 var arena_allocator: std.heap.ArenaAllocator = undefined;
@@ -253,7 +263,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         .exprs = self.exprs.items,
         .astNodes = self.ast_nodes.items,
         .comptimeExprs = self.comptime_exprs.items,
-        .guides = self.guides,
+        .guide_sections = self.guide_sections,
     };
 
     const base_dir = self.doc_location.directory orelse
@@ -419,7 +429,7 @@ const DocData = struct {
     exprs: []Expr,
     comptimeExprs: []ComptimeExpr,
 
-    guides: std.StringHashMapUnmanaged([]const u8),
+    guide_sections: std.ArrayListUnmanaged(Section),
 
     const Call = struct {
         func: Expr,
@@ -440,7 +450,7 @@ const DocData = struct {
             try jsw.objectField(f_name);
             switch (f) {
                 .files => try writeFileTableToJson(self.files, &jsw),
-                .guides => try writeGuidesToJson(self.guides, &jsw),
+                .guide_sections => try writeGuidesToJson(self.guide_sections, &jsw),
                 else => {
                     try std.json.stringify(@field(self, f_name), opts, w);
                     jsw.state_index -= 1;
@@ -4613,14 +4623,39 @@ fn writeFileTableToJson(map: std.AutoArrayHashMapUnmanaged(*File, usize), jsw: a
     try jsw.endArray();
 }
 
-fn writeGuidesToJson(map: std.StringHashMapUnmanaged([]const u8), jsw: anytype) !void {
-    try jsw.beginObject();
-    var it = map.iterator();
-    while (it.next()) |entry| {
-        try jsw.objectField(entry.key_ptr.*);
-        try jsw.emitString(entry.value_ptr.*);
+/// Writes the data like so:
+/// ```
+/// {
+///    "<section name>": [{name: "<guide name>", text: "<guide contents>"},],
+/// }
+/// ```
+fn writeGuidesToJson(sections: std.ArrayListUnmanaged(Section), jsw: anytype) !void {
+    try jsw.beginArray();
+
+    for (sections.items) |s| {
+        // section name
+        try jsw.arrayElem();
+        try jsw.beginObject();
+        try jsw.objectField("name");
+        try jsw.emitString(s.name);
+        try jsw.objectField("guides");
+
+        // section value
+        try jsw.beginArray();
+        for (s.guides.items) |g| {
+            try jsw.arrayElem();
+            try jsw.beginObject();
+            try jsw.objectField("name");
+            try jsw.emitString(g.name);
+            try jsw.objectField("body");
+            try jsw.emitString(g.body);
+            try jsw.endObject();
+        }
+        try jsw.endArray();
+        try jsw.endObject();
     }
-    try jsw.endObject();
+
+    try jsw.endArray();
 }
 
 fn writePackageTableToJson(
@@ -4688,19 +4723,31 @@ fn getTLDocComment(self: *Autodoc, file: *File) ![]const u8 {
 }
 
 fn findGuidePaths(self: *Autodoc, file: *File, str: []const u8) !void {
-    const prefix = "zig-autodoc-guide:";
+    const guide_prefix = "zig-autodoc-guide:";
+    const section_prefix = "zig-autodoc-section:";
+
+    try self.guide_sections.append(self.arena, .{}); // add a default section
+    var current_section = &self.guide_sections.items[self.guide_sections.items.len - 1];
+
     var it = std.mem.tokenize(u8, str, "\n");
     while (it.next()) |line| {
         const trimmed_line = std.mem.trim(u8, line, " ");
-        if (std.mem.startsWith(u8, trimmed_line, prefix)) {
-            const path = trimmed_line[prefix.len..];
+        if (std.mem.startsWith(u8, trimmed_line, guide_prefix)) {
+            const path = trimmed_line[guide_prefix.len..];
             const trimmed_path = std.mem.trim(u8, path, " ");
-            try self.addGuide(file, trimmed_path);
+            try self.addGuide(file, trimmed_path, current_section);
+        } else if (std.mem.startsWith(u8, trimmed_line, section_prefix)) {
+            const section_name = trimmed_line[section_prefix.len..];
+            const trimmed_section_name = std.mem.trim(u8, section_name, " ");
+            try self.guide_sections.append(self.arena, .{
+                .name = trimmed_section_name,
+            });
+            current_section = &self.guide_sections.items[self.guide_sections.items.len - 1];
         }
     }
 }
 
-fn addGuide(self: *Autodoc, file: *File, guide_path: []const u8) !void {
+fn addGuide(self: *Autodoc, file: *File, guide_path: []const u8, section: *Section) !void {
     if (guide_path.len == 0) return error.MissingAutodocGuideName;
 
     const cur_pkg_dir_path = file.pkg.root_src_directory.path orelse ".";
@@ -4716,5 +4763,8 @@ fn addGuide(self: *Autodoc, file: *File, guide_path: []const u8) !void {
         else => |e| return e,
     };
 
-    try self.guides.put(self.arena, resolved_path, guide);
+    try section.guides.append(self.arena, .{
+        .name = resolved_path,
+        .body = guide,
+    });
 }
