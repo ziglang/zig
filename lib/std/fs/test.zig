@@ -488,10 +488,7 @@ test "deleteDir" {
     dir.close();
 
     // deleting a non-empty directory
-    // TODO: Re-enable this check on Windows, see https://github.com/ziglang/zig/issues/5537
-    if (builtin.os.tag != .windows) {
-        try testing.expectError(error.DirNotEmpty, tmp_dir.dir.deleteDir("test_dir"));
-    }
+    try testing.expectError(error.DirNotEmpty, tmp_dir.dir.deleteDir("test_dir"));
 
     dir = try tmp_dir.dir.openDir("test_dir", .{});
     try dir.deleteFile("test_file");
