@@ -221,8 +221,12 @@
 # define _DEFAULT_SOURCE	1
 # undef  _ATFILE_SOURCE
 # define _ATFILE_SOURCE	1
+
+# if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 34) || __GLIBC__ > 2
 # undef  _DYNAMIC_STACK_SIZE_SOURCE
 # define _DYNAMIC_STACK_SIZE_SOURCE 1
+# endif
+
 #endif
 
 /* If nothing (other than _GNU_SOURCE and _DEFAULT_SOURCE) is defined,
@@ -480,7 +484,7 @@
 /* Major and minor version number of the GNU C library package.  Use
    these macros to test for features in specific releases.  */
 #define	__GLIBC__	2
-#define	__GLIBC_MINOR__	37
+/* Zig patch: we pass `-D__GLIBC_MINOR__=XX` depending on the target. */
 
 #define __GLIBC_PREREQ(maj, min) \
 	((__GLIBC__ << 16) + __GLIBC_MINOR__ >= ((maj) << 16) + (min))
