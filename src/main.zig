@@ -4127,11 +4127,6 @@ pub fn cmdInit(
     }
 }
 
-const PackageOptions = struct {
-    @"--cache-dir": []const u8,
-    @"--global-cache-dir": []const u8,
-};
-
 pub const usage_pkg =
     \\Usage: zig pkg [command] [options]
     \\
@@ -4164,22 +4159,10 @@ pub fn cmdPkg(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
 
 pub fn cmdPkgFetch(gpa: Allocator, arena: Allocator) !void {
     var color: Color = .auto;
-    const self_exe_path = try introspect.findZigExePath(arena);
-
-    var override_lib_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIB_DIR");
 
     var cleanup_build_runner_dir: ?fs.Dir = null;
     defer if (cleanup_build_runner_dir) |*dir| dir.close();
     const cwd_path = try process.getCwdAlloc(arena);
-    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
-        .path = lib_dir,
-        .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
-            fatal("unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
-        },
-    } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-        fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
-    };
-    defer zig_lib_directory.handle.close();
 
     var build_file: ?[]const u8 = null;
     var cleanup_build_dir: ?fs.Dir = null;
@@ -4194,7 +4177,6 @@ pub fn cmdPkgFetch(gpa: Allocator, arena: Allocator) !void {
                 cleanup_build_dir = dir;
                 break :blk .{ .path = dirname, .handle = dir };
             }
-
             break :blk .{ .path = null, .handle = fs.cwd() };
         }
         // Search up parent directories until we find build.zig.
@@ -4205,6 +4187,9 @@ pub fn cmdPkgFetch(gpa: Allocator, arena: Allocator) !void {
                 const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
                     fatal("unable to open directory while searching for build.zig file, '{s}': {s}", .{ dirname, @errorName(err) });
                 };
+                if (!mem.eql(u8, dirname, cwd_path)) {
+                    cleanup_build_dir = dir;
+                }
                 break :blk .{ .path = dirname, .handle = dir };
             } else |err| switch (err) {
                 error.FileNotFound => {
@@ -4422,6 +4407,9 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                     const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
                         fatal("unable to open directory while searching for build.zig file, '{s}': {s}", .{ dirname, @errorName(err) });
                     };
+                    if (!mem.eql(u8, dirname, cwd_path)) {
+                        cleanup_build_dir = dir;
+                    }
                     break :blk .{ .path = dirname, .handle = dir };
                 } else |err| switch (err) {
                     error.FileNotFound => {
