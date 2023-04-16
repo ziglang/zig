@@ -1161,6 +1161,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--debug-log")) {
                         if (!build_options.enable_logging) {
                             std.log.warn("Zig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
+                            _ = args_iter.nextOrFatal();
                         } else {
                             try log_scopes.append(gpa, args_iter.nextOrFatal());
                         }
