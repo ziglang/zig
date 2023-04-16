@@ -1946,6 +1946,8 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .ret_addr => func.airRetAddr(inst),
         .tag_name => func.airTagName(inst),
 
+        .error_set_has_value => func.airErrorSetHasValue(inst),
+
         .mul_sat,
         .mod,
         .assembly,
@@ -1967,7 +1969,6 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .set_err_return_trace,
         .save_err_return_trace_index,
         .is_named_enum_value,
-        .error_set_has_value,
         .addrspace_cast,
         .vector_store_elem,
         .c_va_arg,
@@ -6513,4 +6514,86 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
     const func_type = try genFunctype(arena, .Unspecified, &.{int_tag_ty}, slice_ty, func.target);
     return func.bin_file.createFunction(func_name, func_type, &body_list, &relocs);
+}
+
+fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const ty_op = func.air.instructions.items(.data)[inst].ty_op;
+    if (func.liveness.isUnused(inst)) return func.finishAir(inst, .none, &.{ty_op.operand});
+
+    const operand = try func.resolveInst(ty_op.operand);
+    const error_set_ty = func.air.getRefType(ty_op.ty);
+    const result = try func.allocLocal(Type.bool);
+
+    const names = error_set_ty.errorSetNames();
+    var values = try std.ArrayList(u32).initCapacity(func.gpa, names.len);
+    defer values.deinit();
+
+    const module = func.bin_file.base.options.module.?;
+    var lowest: ?u32 = null;
+    var highest: ?u32 = null;
+    for (names) |name| {
+        const err_int = module.global_error_set.get(name).?;
+        if (lowest) |*l| {
+            if (err_int < l.*) {
+                l.* = err_int;
+            }
+        } else {
+            lowest = err_int;
+        }
+        if (highest) |*h| {
+            if (err_int > h.*) {
+                highest = err_int;
+            }
+        } else {
+            highest = err_int;
+        }
+
+        values.appendAssumeCapacity(err_int);
+    }
+
+    // start block for 'true' branch
+    try func.startBlock(.block, wasm.block_empty);
+    // start block for 'false' branch
+    try func.startBlock(.block, wasm.block_empty);
+    // block for the jump table itself
+    try func.startBlock(.block, wasm.block_empty);
+
+    // lower operand to determine jump table target
+    try func.emitWValue(operand);
+    try func.addImm32(@intCast(i32, lowest.?));
+    try func.addTag(.i32_sub);
+
+    // Account for default branch so always add '1'
+    const depth = @intCast(u32, highest.? - lowest.? + 1);
+    const jump_table: Mir.JumpTable = .{ .length = depth };
+    const table_extra_index = try func.addExtra(jump_table);
+    try func.addInst(.{ .tag = .br_table, .data = .{ .payload = table_extra_index } });
+    try func.mir_extra.ensureUnusedCapacity(func.gpa, depth);
+
+    var value: u32 = lowest.?;
+    while (value <= highest.?) : (value += 1) {
+        const idx: u32 = blk: {
+            for (values.items) |val| {
+                if (val == value) break :blk 1;
+            }
+            break :blk 0;
+        };
+        func.mir_extra.appendAssumeCapacity(idx);
+    }
+    try func.endBlock();
+
+    // 'false' branch (i.e. error set does not have value
+    // ensure we set local to 0 in case the local was re-used.
+    try func.addImm32(0);
+    try func.addLabel(.local_set, result.local.value);
+    try func.addLabel(.br, 1);
+    try func.endBlock();
+
+    // 'true' branch
+    try func.addImm32(1);
+    try func.addLabel(.local_set, result.local.value);
+    try func.addLabel(.br, 0);
+    try func.endBlock();
+
+    return func.finishAir(inst, result, &.{ty_op.operand});
 }
