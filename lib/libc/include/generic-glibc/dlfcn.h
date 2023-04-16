@@ -1,5 +1,5 @@
 /* User functions for run-time dynamic loading.
-   Copyright (C) 1995-2021 Free Software Foundation, Inc.
+   Copyright (C) 1995-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -28,17 +28,7 @@
 
 
 #ifdef __USE_GNU
-/* If the first argument of `dlsym' or `dlvsym' is set to RTLD_NEXT
-   the run-time address of the symbol called NAME in the next shared
-   object is returned.  The "next" relation is defined by the order
-   the shared objects were loaded.  */
-# define RTLD_NEXT	((void *) -1l)
-
-/* If the first argument to `dlsym' or `dlvsym' is set to RTLD_DEFAULT
-   the run-time address of the symbol called NAME in the global scope
-   is returned.  */
-# define RTLD_DEFAULT	((void *) 0)
-
+#include <bits/dl_find_object.h>
 
 /* Type for namespace indices.  */
 typedef long int Lmid_t;
@@ -48,6 +38,16 @@ typedef long int Lmid_t;
 # define LM_ID_NEWLM	-1	/* For dlmopen: request new namespace.  */
 #endif
 
+/* If the first argument of `dlsym' or `dlvsym' is set to RTLD_NEXT
+   the run-time address of the symbol called NAME in the next shared
+   object is returned.  The "next" relation is defined by the order
+   the shared objects were loaded.  */
+#define RTLD_NEXT	((void *) -1l)
+
+/* If the first argument to `dlsym' or `dlvsym' is set to RTLD_DEFAULT
+   the run-time address of the symbol called NAME in the global scope
+   is returned.  */
+#define RTLD_DEFAULT	((void *) 0)
 
 __BEGIN_DECLS
 
@@ -162,7 +162,12 @@ enum
        segment, or if the calling thread has not allocated a block for it.  */
     RTLD_DI_TLS_DATA = 10,
 
-    RTLD_DI_MAX = 10
+    /* Treat ARG as const ElfW(Phdr) **, and store the address of the
+       program header array at that location.  The dlinfo call returns
+       the number of program headers in the array.  */
+    RTLD_DI_PHDR = 11,
+
+    RTLD_DI_MAX = 11
   };
 
 
@@ -194,6 +199,31 @@ typedef struct
   Dl_serpath dls_serpath[1];	/* Actually longer, dls_cnt elements.  */
 # endif
 } Dl_serinfo;
+
+struct dl_find_object
+{
+  __extension__ unsigned long long int dlfo_flags;
+  void *dlfo_map_start;		/* Beginning of mapping containing address.  */
+  void *dlfo_map_end;		/* End of mapping.  */
+  struct link_map *dlfo_link_map;
+  void *dlfo_eh_frame;		/* Exception handling data of the object.  */
+# if DLFO_STRUCT_HAS_EH_DBASE
+  void *dlfo_eh_dbase;		/* Base address for DW_EH_PE_datarel.  */
+#  if __WORDSIZE == 32
+  unsigned int __dlfo_eh_dbase_pad;
+#  endif
+# endif
+# if DLFO_STRUCT_HAS_EH_COUNT
+  int dlfo_eh_count;		/* Number of exception handling entries.  */
+  unsigned int __dlfo_eh_count_pad;
+# endif
+  __extension__ unsigned long long int __dflo_reserved[7];
+};
+
+/* If ADDRESS is found in an object, fill in *RESULT and return 0.
+   Otherwise, return -1.  */
+int _dl_find_object (void *__address, struct dl_find_object *__result) __THROW;
+
 #endif /* __USE_GNU */
 
 

@@ -1,4 +1,4 @@
-/* Copyright (C) 2011-2021 Free Software Foundation, Inc.
+/* Copyright (C) 2011-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -31,6 +31,21 @@
 #include <bits/types.h>
 #include <bits/types/mbstate_t.h>
 
+/* Declare the C2x char8_t typedef in C2x modes, but only if the C++
+  __cpp_char8_t feature test macro is not defined.  */
+#if __GLIBC_USE (ISOC2X) && !defined __cpp_char8_t
+#if __GNUC_PREREQ (10, 0) && defined __cplusplus
+/* Suppress the diagnostic regarding char8_t being a keyword in C++20.  */
+# pragma GCC diagnostic push
+# pragma GCC diagnostic ignored "-Wc++20-compat"
+#endif
+/* Define the 8-bit character type.  */
+typedef unsigned char char8_t;
+#if __GNUC_PREREQ (10, 0) && defined __cplusplus
+# pragma GCC diagnostic pop
+#endif
+#endif
+
 #ifndef __USE_ISOCXX11
 /* Define the 16-bit and 32-bit character types.  */
 typedef __uint_least16_t char16_t;
@@ -39,6 +54,20 @@ typedef __uint_least32_t char32_t;
 
 
 __BEGIN_DECLS
+
+/* Declare the C2x mbrtoc8() and c8rtomb() functions in C2x modes or if
+   the C++ __cpp_char8_t feature test macro is defined.  */
+#if __GLIBC_USE (ISOC2X) || defined __cpp_char8_t
+/* Write char8_t representation of multibyte character pointed
+   to by S to PC8.  */
+extern size_t mbrtoc8  (char8_t *__restrict __pc8,
+			const char *__restrict __s, size_t __n,
+			mbstate_t *__restrict __p) __THROW;
+
+/* Write multibyte representation of char8_t C8 to S.  */
+extern size_t c8rtomb  (char *__restrict __s, char8_t __c8,
+			mbstate_t *__restrict __ps) __THROW;
+#endif
 
 /* Write char16_t representation of multibyte character pointed
    to by S to PC16.  */

@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2021 Free Software Foundation, Inc.
+/* Copyright (C) 2005-2023 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -20,23 +20,31 @@
 # error "Never include <bits/link.h> directly; use <link.h> instead."
 #endif
 
+typedef union
+{
+  float s;
+  double d;
+  long double q;
+} La_aarch64_vector;
+
 /* Registers for entry into PLT on AArch64.  */
 typedef struct La_aarch64_regs
 {
-  uint64_t lr_xreg[8];
-  uint64_t lr_dreg[8];
-  uint64_t lr_sp;
-  uint64_t lr_lr;
+  uint64_t          lr_xreg[9];
+  La_aarch64_vector lr_vreg[8];
+  uint64_t          lr_sp;
+  uint64_t          lr_lr;
+  void              *lr_vpcs;
 } La_aarch64_regs;
 
 /* Return values for calls from PLT on AArch64.  */
 typedef struct La_aarch64_retval
 {
-  /* Up to two integer registers can be used for a return value.  */
-  uint64_t lrv_xreg[2];
-  /* Up to four D registers can be used for a return value.  */
-  uint64_t lrv_dreg[4];
-
+  /* Up to eight integer registers can be used for a return value.  */
+  uint64_t          lrv_xreg[8];
+  /* Up to eight V registers can be used for a return value.  */
+  La_aarch64_vector lrv_vreg[8];
+  void              *lrv_vpcs;
 } La_aarch64_retval;
 __BEGIN_DECLS
 

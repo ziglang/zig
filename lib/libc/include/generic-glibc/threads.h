@@ -1,5 +1,5 @@
 /* ISO C11 Standard: 7.26 - Thread support library  <threads.h>.
-   Copyright (C) 2018-2021 Free Software Foundation, Inc.
+   Copyright (C) 2018-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -27,7 +27,9 @@ __BEGIN_DECLS
 #include <bits/thread-shared-types.h>
 #include <bits/types/struct_timespec.h>
 
-#ifndef __cplusplus
+#if (!defined __STDC_VERSION__				\
+     || __STDC_VERSION__ <= 201710L			\
+     || !__GNUC_PREREQ (13, 0)) && !defined __cplusplus
 # define thread_local _Thread_local
 #endif
 

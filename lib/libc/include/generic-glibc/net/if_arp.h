@@ -1,7 +1,6 @@
 /* Definitions for Address Resolution Protocol.
-   Copyright (C) 1997-2021 Free Software Foundation, Inc.
+   Copyright (C) 1997-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
-   Contributed by Ulrich Drepper <drepper@cygnus.com>, 1997.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -95,6 +94,8 @@ struct arphdr
 #define ARPHRD_ROSE	270
 #define ARPHRD_X25	271		/* CCITT X.25.  */
 #define ARPHRD_HWX25	272		/* Boards with X.25 in firmware.  */
+#define ARPHRD_CAN	280		/* Controller Area Network.  */
+#define ARPHRD_MCTP	290
 #define ARPHRD_PPP	512
 #define ARPHRD_CISCO	513		/* Cisco HDLC.  */
 #define ARPHRD_HDLC	ARPHRD_CISCO

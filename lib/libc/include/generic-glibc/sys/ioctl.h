@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -42,8 +42,8 @@ __BEGIN_DECLS
 extern int ioctl (int __fd, unsigned long int __request, ...) __THROW;
 #else
 # ifdef __REDIRECT
-extern int __REDIRECT (ioctl, (int __fd, unsigned long int __request, ...),
-		       __ioctl_time64) __THROW;
+extern int __REDIRECT_NTH (ioctl, (int __fd, unsigned long int __request, ...),
+			   __ioctl_time64);
 # else
 extern int __ioctl_time64 (int __fd, unsigned long int __request, ...) __THROW;
 #  define ioctl __ioctl_time64

@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -62,6 +62,22 @@ extern void *memset (void *__s, int __c, size_t __n) __THROW __nonnull ((1));
 
 /* Compare N bytes of S1 and S2.  */
 extern int memcmp (const void *__s1, const void *__s2, size_t __n)
+     __THROW __attribute_pure__ __nonnull ((1, 2));
+
+/* Compare N bytes of S1 and S2.  Return zero if S1 and S2 are equal.
+   Return some non-zero value otherwise.
+
+   Essentially __memcmpeq has the exact same semantics as memcmp
+   except the return value is less constrained.  memcmp is always a
+   correct implementation of __memcmpeq.  As well !!memcmp, -memcmp,
+   or bcmp are correct implementations.
+
+   __memcmpeq is meant to be used by compilers when memcmp return is
+   only used for its boolean value.
+
+   __memcmpeq is declared only for use by compilers.  Programs should
+   continue to use memcmp.  */
+extern int __memcmpeq (const void *__s1, const void *__s2, size_t __n)
      __THROW __attribute_pure__ __nonnull ((1, 2));
 
 /* Search N bytes of S for C.  */
@@ -448,7 +464,7 @@ extern char *strerror_l (int __errnum, locale_t __l) __THROW;
 /* Set N bytes of S to 0.  The compiler will not delete a call to this
    function, even if S is dead after the call.  */
 extern void explicit_bzero (void *__s, size_t __n) __THROW __nonnull ((1))
-    __attr_access ((__write_only__, 1, 2));
+    __fortified_attr_access (__write_only__, 1, 2);
 
 /* Return the next DELIM-delimited token from *STRINGP,
    terminating it with a '\0', and update *STRINGP to point past it.  */
@@ -495,7 +511,7 @@ extern char *strfry (char *__string) __THROW __nonnull ((1));
 
 /* Frobnicate N bytes of S.  */
 extern void *memfrob (void *__s, size_t __n) __THROW __nonnull ((1))
-    __attr_access ((__write_only__, 1, 2));
+    __attr_access ((__read_write__, 1, 2));
 
 # ifndef basename
 /* Return the file name within directory of FILENAME.  We don't

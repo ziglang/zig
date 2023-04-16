@@ -1,5 +1,5 @@
 /* Declarations of socket constants, types, and functions.
-   Copyright (C) 1991-2021 Free Software Foundation, Inc.
+   Copyright (C) 1991-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -181,7 +181,7 @@ extern ssize_t __REDIRECT (sendmsg, (int __fd, const struct msghdr *__message,
 # else
 extern ssize_t __sendmsg64 (int __fd, const struct msghdr *__message,
 			    int __flags);
-#  defien sendmsg __sendmsg64
+#  define sendmsg __sendmsg64
 # endif
 #endif
 

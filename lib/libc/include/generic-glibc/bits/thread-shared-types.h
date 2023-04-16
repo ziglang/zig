@@ -1,5 +1,5 @@
 /* Common threading primitives definitions for both POSIX and C11.
-   Copyright (C) 2017-2021 Free Software Foundation, Inc.
+   Copyright (C) 2017-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -42,6 +42,8 @@
    __ONCE_ALIGNMENT - for pthread_once_t/once_flag definition.  */
 
 #include <bits/pthreadtypes-arch.h>
+
+#include <bits/atomic_wide_counter.h>
 
 
 /* Common definition of pthread_mutex_t. */
@@ -91,24 +93,8 @@ typedef struct __pthread_internal_slist
 
 struct __pthread_cond_s
 {
-  __extension__ union
-  {
-    __extension__ unsigned long long int __wseq;
-    struct
-    {
-      unsigned int __low;
-      unsigned int __high;
-    } __wseq32;
-  };
-  __extension__ union
-  {
-    __extension__ unsigned long long int __g1_start;
-    struct
-    {
-      unsigned int __low;
-      unsigned int __high;
-    } __g1_start32;
-  };
+  __atomic_wide_counter __wseq;
+  __atomic_wide_counter __g1_start;
   unsigned int __g_refs[2] __LOCK_ALIGNMENT;
   unsigned int __g_size[2];
   unsigned int __g1_orig_size;

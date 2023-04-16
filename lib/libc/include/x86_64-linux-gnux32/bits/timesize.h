@@ -1,5 +1,5 @@
 /* Bit size of the time_t type at glibc build time, x86-64 and x32 case.
-   Copyright (C) 2018-2021 Free Software Foundation, Inc.
+   Copyright (C) 2018-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -15,6 +15,8 @@
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
+
+#include <bits/wordsize.h>
 
 #if defined __x86_64__ && defined __ILP32__
 /* For x32, time is 64-bit even though word size is 32-bit.  */

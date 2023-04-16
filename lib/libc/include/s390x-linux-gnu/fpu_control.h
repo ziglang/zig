@@ -1,7 +1,5 @@
 /* FPU control word definitions.  Stub version.
-   Copyright (C) 2000-2021 Free Software Foundation, Inc.
-   Contributed by Denis Joseph Barrow (djbarrow@de.ibm.com) and
-   Martin Schwidefsky (schwidefsky@de.ibm.com).
+   Copyright (C) 2000-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or

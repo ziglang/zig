@@ -1,5 +1,5 @@
 /* Empty definitions required for __MATHCALL_VEC unfolding in mathcalls.h.
-   Copyright (C) 2014-2021 Free Software Foundation, Inc.
+   Copyright (C) 2014-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -98,4 +98,235 @@
 #define __DECL_SIMD_powf32x
 #define __DECL_SIMD_powf64x
 #define __DECL_SIMD_powf128x
+
+#define __DECL_SIMD_acos
+#define __DECL_SIMD_acosf
+#define __DECL_SIMD_acosl
+#define __DECL_SIMD_acosf16
+#define __DECL_SIMD_acosf32
+#define __DECL_SIMD_acosf64
+#define __DECL_SIMD_acosf128
+#define __DECL_SIMD_acosf32x
+#define __DECL_SIMD_acosf64x
+#define __DECL_SIMD_acosf128x
+
+#define __DECL_SIMD_atan
+#define __DECL_SIMD_atanf
+#define __DECL_SIMD_atanl
+#define __DECL_SIMD_atanf16
+#define __DECL_SIMD_atanf32
+#define __DECL_SIMD_atanf64
+#define __DECL_SIMD_atanf128
+#define __DECL_SIMD_atanf32x
+#define __DECL_SIMD_atanf64x
+#define __DECL_SIMD_atanf128x
+
+#define __DECL_SIMD_asin
+#define __DECL_SIMD_asinf
+#define __DECL_SIMD_asinl
+#define __DECL_SIMD_asinf16
+#define __DECL_SIMD_asinf32
+#define __DECL_SIMD_asinf64
+#define __DECL_SIMD_asinf128
+#define __DECL_SIMD_asinf32x
+#define __DECL_SIMD_asinf64x
+#define __DECL_SIMD_asinf128x
+
+#define __DECL_SIMD_hypot
+#define __DECL_SIMD_hypotf
+#define __DECL_SIMD_hypotl
+#define __DECL_SIMD_hypotf16
+#define __DECL_SIMD_hypotf32
+#define __DECL_SIMD_hypotf64
+#define __DECL_SIMD_hypotf128
+#define __DECL_SIMD_hypotf32x
+#define __DECL_SIMD_hypotf64x
+#define __DECL_SIMD_hypotf128x
+
+#define __DECL_SIMD_exp2
+#define __DECL_SIMD_exp2f
+#define __DECL_SIMD_exp2l
+#define __DECL_SIMD_exp2f16
+#define __DECL_SIMD_exp2f32
+#define __DECL_SIMD_exp2f64
+#define __DECL_SIMD_exp2f128
+#define __DECL_SIMD_exp2f32x
+#define __DECL_SIMD_exp2f64x
+#define __DECL_SIMD_exp2f128x
+
+#define __DECL_SIMD_exp10
+#define __DECL_SIMD_exp10f
+#define __DECL_SIMD_exp10l
+#define __DECL_SIMD_exp10f16
+#define __DECL_SIMD_exp10f32
+#define __DECL_SIMD_exp10f64
+#define __DECL_SIMD_exp10f128
+#define __DECL_SIMD_exp10f32x
+#define __DECL_SIMD_exp10f64x
+#define __DECL_SIMD_exp10f128x
+
+#define __DECL_SIMD_cosh
+#define __DECL_SIMD_coshf
+#define __DECL_SIMD_coshl
+#define __DECL_SIMD_coshf16
+#define __DECL_SIMD_coshf32
+#define __DECL_SIMD_coshf64
+#define __DECL_SIMD_coshf128
+#define __DECL_SIMD_coshf32x
+#define __DECL_SIMD_coshf64x
+#define __DECL_SIMD_coshf128x
+
+#define __DECL_SIMD_expm1
+#define __DECL_SIMD_expm1f
+#define __DECL_SIMD_expm1l
+#define __DECL_SIMD_expm1f16
+#define __DECL_SIMD_expm1f32
+#define __DECL_SIMD_expm1f64
+#define __DECL_SIMD_expm1f128
+#define __DECL_SIMD_expm1f32x
+#define __DECL_SIMD_expm1f64x
+#define __DECL_SIMD_expm1f128x
+
+#define __DECL_SIMD_sinh
+#define __DECL_SIMD_sinhf
+#define __DECL_SIMD_sinhl
+#define __DECL_SIMD_sinhf16
+#define __DECL_SIMD_sinhf32
+#define __DECL_SIMD_sinhf64
+#define __DECL_SIMD_sinhf128
+#define __DECL_SIMD_sinhf32x
+#define __DECL_SIMD_sinhf64x
+#define __DECL_SIMD_sinhf128x
+
+#define __DECL_SIMD_cbrt
+#define __DECL_SIMD_cbrtf
+#define __DECL_SIMD_cbrtl
+#define __DECL_SIMD_cbrtf16
+#define __DECL_SIMD_cbrtf32
+#define __DECL_SIMD_cbrtf64
+#define __DECL_SIMD_cbrtf128
+#define __DECL_SIMD_cbrtf32x
+#define __DECL_SIMD_cbrtf64x
+#define __DECL_SIMD_cbrtf128x
+
+#define __DECL_SIMD_atan2
+#define __DECL_SIMD_atan2f
+#define __DECL_SIMD_atan2l
+#define __DECL_SIMD_atan2f16
+#define __DECL_SIMD_atan2f32
+#define __DECL_SIMD_atan2f64
+#define __DECL_SIMD_atan2f128
+#define __DECL_SIMD_atan2f32x
+#define __DECL_SIMD_atan2f64x
+#define __DECL_SIMD_atan2f128x
+
+#define __DECL_SIMD_log10
+#define __DECL_SIMD_log10f
+#define __DECL_SIMD_log10l
+#define __DECL_SIMD_log10f16
+#define __DECL_SIMD_log10f32
+#define __DECL_SIMD_log10f64
+#define __DECL_SIMD_log10f128
+#define __DECL_SIMD_log10f32x
+#define __DECL_SIMD_log10f64x
+#define __DECL_SIMD_log10f128x
+
+#define __DECL_SIMD_log2
+#define __DECL_SIMD_log2f
+#define __DECL_SIMD_log2l
+#define __DECL_SIMD_log2f16
+#define __DECL_SIMD_log2f32
+#define __DECL_SIMD_log2f64
+#define __DECL_SIMD_log2f128
+#define __DECL_SIMD_log2f32x
+#define __DECL_SIMD_log2f64x
+#define __DECL_SIMD_log2f128x
+
+#define __DECL_SIMD_log1p
+#define __DECL_SIMD_log1pf
+#define __DECL_SIMD_log1pl
+#define __DECL_SIMD_log1pf16
+#define __DECL_SIMD_log1pf32
+#define __DECL_SIMD_log1pf64
+#define __DECL_SIMD_log1pf128
+#define __DECL_SIMD_log1pf32x
+#define __DECL_SIMD_log1pf64x
+#define __DECL_SIMD_log1pf128x
+
+#define __DECL_SIMD_atanh
+#define __DECL_SIMD_atanhf
+#define __DECL_SIMD_atanhl
+#define __DECL_SIMD_atanhf16
+#define __DECL_SIMD_atanhf32
+#define __DECL_SIMD_atanhf64
+#define __DECL_SIMD_atanhf128
+#define __DECL_SIMD_atanhf32x
+#define __DECL_SIMD_atanhf64x
+#define __DECL_SIMD_atanhf128x
+
+#define __DECL_SIMD_acosh
+#define __DECL_SIMD_acoshf
+#define __DECL_SIMD_acoshl
+#define __DECL_SIMD_acoshf16
+#define __DECL_SIMD_acoshf32
+#define __DECL_SIMD_acoshf64
+#define __DECL_SIMD_acoshf128
+#define __DECL_SIMD_acoshf32x
+#define __DECL_SIMD_acoshf64x
+#define __DECL_SIMD_acoshf128x
+
+#define __DECL_SIMD_erf
+#define __DECL_SIMD_erff
+#define __DECL_SIMD_erfl
+#define __DECL_SIMD_erff16
+#define __DECL_SIMD_erff32
+#define __DECL_SIMD_erff64
+#define __DECL_SIMD_erff128
+#define __DECL_SIMD_erff32x
+#define __DECL_SIMD_erff64x
+#define __DECL_SIMD_erff128x
+
+#define __DECL_SIMD_tanh
+#define __DECL_SIMD_tanhf
+#define __DECL_SIMD_tanhl
+#define __DECL_SIMD_tanhf16
+#define __DECL_SIMD_tanhf32
+#define __DECL_SIMD_tanhf64
+#define __DECL_SIMD_tanhf128
+#define __DECL_SIMD_tanhf32x
+#define __DECL_SIMD_tanhf64x
+#define __DECL_SIMD_tanhf128x
+
+#define __DECL_SIMD_asinh
+#define __DECL_SIMD_asinhf
+#define __DECL_SIMD_asinhl
+#define __DECL_SIMD_asinhf16
+#define __DECL_SIMD_asinhf32
+#define __DECL_SIMD_asinhf64
+#define __DECL_SIMD_asinhf128
+#define __DECL_SIMD_asinhf32x
+#define __DECL_SIMD_asinhf64x
+#define __DECL_SIMD_asinhf128x
+
+#define __DECL_SIMD_erfc
+#define __DECL_SIMD_erfcf
+#define __DECL_SIMD_erfcl
+#define __DECL_SIMD_erfcf16
+#define __DECL_SIMD_erfcf32
+#define __DECL_SIMD_erfcf64
+#define __DECL_SIMD_erfcf128
+#define __DECL_SIMD_erfcf32x
+#define __DECL_SIMD_erfcf64x
+#define __DECL_SIMD_erfcf128x
+
+#define __DECL_SIMD_tan
+#define __DECL_SIMD_tanf
+#define __DECL_SIMD_tanl
+#define __DECL_SIMD_tanf16
+#define __DECL_SIMD_tanf32
+#define __DECL_SIMD_tanf64
+#define __DECL_SIMD_tanf128
+#define __DECL_SIMD_tanf32x
+#define __DECL_SIMD_tanf64x
+#define __DECL_SIMD_tanf128x
 #endif

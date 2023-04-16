@@ -132,6 +132,7 @@ struct res_sym {
 					   as a TLD.  */
 #define RES_NORELOAD    0x02000000 /* No automatic configuration reload.  */
 #define RES_TRUSTAD     0x04000000 /* Request AD bit, keep it in responses.  */
+#define RES_NOAAAA      0x08000000 /* Suppress AAAA queries.  */
 
 #define RES_DEFAULT	(RES_RECURSE|RES_DEFNAMES|RES_DNSRCH)
 
@@ -168,28 +169,6 @@ __END_DECLS
 #define res_close		__res_close
 #define res_init		__res_init
 #define res_isourserver		__res_isourserver
-
-/* In glibc 2.33 and earlier res_search, res_nsearch, res_query, res_nquery,
- * res_querydomain, res_nquerydomain were #define'd to __res_search,
- * __res_nsearch, etc. glibc 2.34 onwards removes the macros and exposes the
- * symbols directly. New glibc exposes compat symbols with underscores for
- * backwards compatibility. Applications linked to glibc 2.34+ are expected
- * to use the non-underscored symbols.
- *
- * It will be enough to bring the macros back when compiling against the older
- * glibc versions.
- *
- * See glibc commit ea9878ec271c791880fcbbe519d70c42f8113750.
- */
-#if (__GLIBC__ == 2 && __GLIBC_MINOR__ < 34)
-#define res_search        __res_search
-#define res_nsearch       __res_nsearch
-#define res_query         __res_query
-#define res_nquery        __res_nquery
-#define res_querydomain   __res_querydomain
-#define res_nquerydomain  __res_nquerydomain
-#endif
-/* end glibc compat hacks */
 
 #ifdef _LIBC
 # define __RESOLV_DEPRECATED

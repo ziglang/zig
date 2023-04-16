@@ -1,5 +1,5 @@
 /* System-specific extensions of <unistd.h>, Linux version.
-   Copyright (C) 2019-2021 Free Software Foundation, Inc.
+   Copyright (C) 2019-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -46,14 +46,5 @@ extern __pid_t gettid (void) __THROW;
 #ifndef CLOSE_RANGE_CLOEXEC
 # define CLOSE_RANGE_CLOEXEC (1U << 2)
 #endif
-
-/* Close all file descriptors in the range FD up to MAX_FD.  The flag FLAGS
-   are define by the CLOSE_RANGE prefix.  This function behaves like close
-   on the range, but in a fail-safe where it will either fail and not close
-   any file descriptor or close all of them.  Gaps where the file descriptor
-   is invalid are ignored.   Returns 0 on successor or -1 for failure (and
-   sets errno accordingly).  */
-extern int close_range (unsigned int __fd, unsigned int __max_fd,
-			int __flags) __THROW;
 
 #endif /* __USE_GNU  */

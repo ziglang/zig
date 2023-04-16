@@ -1,5 +1,5 @@
 /* Checking macros for syslog functions.
-   Copyright (C) 2005-2021 Free Software Foundation, Inc.
+   Copyright (C) 2005-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -24,6 +24,20 @@
 extern void __syslog_chk (int __pri, int __flag, const char *__fmt, ...)
      __attribute__ ((__format__ (__printf__, 3, 4)));
 
+#ifdef __USE_MISC
+extern void __vsyslog_chk (int __pri, int __flag, const char *__fmt,
+			   __gnuc_va_list __ap)
+     __attribute__ ((__format__ (__printf__, 3, 0)));
+#endif
+
+#include <bits/floatn.h>
+#if defined __LDBL_COMPAT || __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
+# include <bits/syslog-ldbl.h>
+#endif
+
+/* The following functions must be used only after applying all asm
+   redirections, e.g. long double asm redirections.  */
+
 #ifdef __va_arg_pack
 __fortify_function void
 syslog (int __pri, const char *__fmt, ...)
@@ -37,10 +51,6 @@ syslog (int __pri, const char *__fmt, ...)
 
 
 #ifdef __USE_MISC
-extern void __vsyslog_chk (int __pri, int __flag, const char *__fmt,
-			   __gnuc_va_list __ap)
-     __attribute__ ((__format__ (__printf__, 3, 0)));
-
 __fortify_function void
 vsyslog (int __pri, const char *__fmt, __gnuc_va_list __ap)
 {

@@ -1,5 +1,5 @@
-/* Bit size of the time_t type at glibc build time, general case.
-   Copyright (C) 2018-2021 Free Software Foundation, Inc.
+/* Bit size of the time_t type at glibc build time, Linux/MIPS.
+   Copyright (C) 2021-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or

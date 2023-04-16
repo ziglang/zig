@@ -1,5 +1,5 @@
 /* Macros to control TS 18661-3 glibc features on powerpc.
-   Copyright (C) 2017-2021 Free Software Foundation, Inc.
+   Copyright (C) 2017-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -57,7 +57,7 @@
 /* Defined to concatenate the literal suffix to be used with _Float128
    types, if __HAVE_FLOAT128 is 1. */
 # if __HAVE_FLOAT128
-#  if !__GNUC_PREREQ (7, 0) || defined __cplusplus
+#  if !__GNUC_PREREQ (7, 0) || (defined __cplusplus && !__GNUC_PREREQ (13, 0))
 /* The literal suffix (f128) exist for powerpc only since GCC 7.0.  */
 #   if __LDBL_MANT_DIG__ == 113
 #    define __f128(x) x##l
@@ -71,10 +71,10 @@
 
 /* Defined to a complex binary128 type if __HAVE_FLOAT128 is 1.  */
 # if __HAVE_FLOAT128
-#  if __LDBL_MANT_DIG__ == 113 && defined __cplusplus
+#  if __LDBL_MANT_DIG__ == 113 && defined __cplusplus && !__GNUC_PREREQ (13, 0)
 typedef long double _Float128;
 #   define __CFLOAT128 _Complex long double
-#  elif !__GNUC_PREREQ (7, 0) || defined __cplusplus
+#  elif !__GNUC_PREREQ (7, 0) || (defined __cplusplus && !__GNUC_PREREQ (13, 0))
 /* The type _Float128 exist for powerpc only since GCC 7.0.  */
 typedef __float128 _Float128;
 /* Add a typedef for older GCC and C++ compilers which don't natively support

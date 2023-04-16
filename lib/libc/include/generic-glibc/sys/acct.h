@@ -1,4 +1,4 @@
-/* Copyright (C) 1996-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1996-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -86,7 +86,9 @@ enum
     AFORK = 0x01,		/* Has executed fork, but no exec.  */
     ASU = 0x02,			/* Used super-user privileges.  */
     ACORE = 0x08,		/* Dumped core.  */
-    AXSIG = 0x10		/* Killed by a signal.  */
+    AXSIG = 0x10,		/* Killed by a signal.  */
+    AGROUP = 0x20		/* Was the last task of the process
+				   (task group).  */
   };
 
 #if __BYTE_ORDER == __BIG_ENDIAN

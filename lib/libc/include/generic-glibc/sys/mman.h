@@ -1,5 +1,5 @@
 /* Definitions for BSD-style memory management.
-   Copyright (C) 1994-2021 Free Software Foundation, Inc.
+   Copyright (C) 1994-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -145,6 +145,9 @@ extern int shm_open (const char *__name, int __oflag, mode_t __mode);
 
 /* Remove shared memory segment.  */
 extern int shm_unlink (const char *__name);
+
+/* System-specific extensions.  */
+#include <bits/mman_ext.h>
 
 __END_DECLS
 

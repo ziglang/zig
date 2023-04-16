@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -130,7 +130,8 @@ extern struct group *getgrnam (const char *__name);
 # ifdef __USE_GNU
 extern int getgrent_r (struct group *__restrict __resultbuf,
 		       char *__restrict __buffer, size_t __buflen,
-		       struct group **__restrict __result);
+		       struct group **__restrict __result)
+	__attr_access ((__write_only__, 2, 3));
 # endif
 
 /* Search for an entry with a matching group ID.
@@ -139,7 +140,8 @@ extern int getgrent_r (struct group *__restrict __resultbuf,
    marked with __THROW.  */
 extern int getgrgid_r (__gid_t __gid, struct group *__restrict __resultbuf,
 		       char *__restrict __buffer, size_t __buflen,
-		       struct group **__restrict __result);
+		       struct group **__restrict __result)
+	__attr_access ((__write_only__, 3, 4));
 
 /* Search for an entry with a matching group name.
 
@@ -148,7 +150,8 @@ extern int getgrgid_r (__gid_t __gid, struct group *__restrict __resultbuf,
 extern int getgrnam_r (const char *__restrict __name,
 		       struct group *__restrict __resultbuf,
 		       char *__restrict __buffer, size_t __buflen,
-		       struct group **__restrict __result);
+		       struct group **__restrict __result)
+	__attr_access ((__write_only__, 3, 4));
 
 # ifdef	__USE_MISC
 /* Read a group entry from STREAM.  This function is not standardized
@@ -161,7 +164,8 @@ extern int getgrnam_r (const char *__restrict __name,
 extern int fgetgrent_r (FILE *__restrict __stream,
 			struct group *__restrict __resultbuf,
 			char *__restrict __buffer, size_t __buflen,
-			struct group **__restrict __result);
+			struct group **__restrict __result)
+	__attr_access ((__write_only__, 3, 4));
 # endif
 
 #endif	/* POSIX or reentrant */

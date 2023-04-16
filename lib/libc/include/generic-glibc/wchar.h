@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1995-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -864,12 +864,19 @@ extern size_t wcsftime_l (wchar_t *__restrict __s, size_t __maxsize,
 
 /* Define some macros helping to catch buffer overflows.  */
 #if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function
-# include <bits/wchar2.h>
+/* Declare all functions from bits/wchar2-decl.h first.  */
+# include <bits/wchar2-decl.h>
 #endif
 
-#include <bits/floatn.h>
+/* The following headers provide asm redirections.  These redirections must
+   appear before the first usage of these functions, e.g. in bits/wchar.h.  */
 #if defined __LDBL_COMPAT || __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
 # include <bits/wchar-ldbl.h>
+#endif
+
+#if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function
+/* Now include the function definitions and redirects too.  */
+# include <bits/wchar2.h>
 #endif
 
 __END_DECLS

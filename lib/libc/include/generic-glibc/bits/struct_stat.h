@@ -1,5 +1,5 @@
 /* Definition for struct stat.
-   Copyright (C) 2020-2021 Free Software Foundation, Inc.
+   Copyright (C) 2020-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -131,27 +131,30 @@ struct stat64
 
 struct stat
   {
+# ifdef __USE_TIME_BITS64
+#  include <bits/struct_stat_time64_helper.h>
+# else
     __dev_t st_dev;
     int	st_pad1[3];		/* Reserved for st_dev expansion  */
-# ifndef __USE_FILE_OFFSET64
+#  ifndef __USE_FILE_OFFSET64
     __ino_t st_ino;
-# else
+#  else
     __ino64_t st_ino;
-# endif
+#  endif
     __mode_t st_mode;
     __nlink_t st_nlink;
     __uid_t st_uid;
     __gid_t st_gid;
     __dev_t st_rdev;
-# if !defined __USE_FILE_OFFSET64
+#  if !defined __USE_FILE_OFFSET64
     unsigned int st_pad2[2];	/* Reserved for st_rdev expansion  */
     __off_t st_size;
     int st_pad3;
-# else
+#  else
     unsigned int st_pad2[3];	/* Reserved for st_rdev expansion  */
     __off64_t st_size;
-# endif
-# ifdef __USE_XOPEN2K8
+#  endif
+#  ifdef __USE_XOPEN2K8
     /* Nanosecond resolution timestamps are stored in a format
        equivalent to 'struct timespec'.  This is the type used
        whenever possible but the Unix namespace rules do not allow the
@@ -161,30 +164,34 @@ struct stat
     struct timespec st_atim;            /* Time of last access.  */
     struct timespec st_mtim;            /* Time of last modification.  */
     struct timespec st_ctim;            /* Time of last status change.  */
-#  define st_atime st_atim.tv_sec        /* Backward compatibility.  */
-#  define st_mtime st_mtim.tv_sec
-#  define st_ctime st_ctim.tv_sec
-# else
+#   define st_atime st_atim.tv_sec        /* Backward compatibility.  */
+#   define st_mtime st_mtim.tv_sec
+#   define st_ctime st_ctim.tv_sec
+#  else
     __time_t st_atime;			/* Time of last access.  */
     unsigned long int st_atimensec;	/* Nscecs of last access.  */
     __time_t st_mtime;			/* Time of last modification.  */
     unsigned long int st_mtimensec;	/* Nsecs of last modification.  */
     __time_t st_ctime;			/* Time of last status change.  */
     unsigned long int st_ctimensec;	/* Nsecs of last status change.  */
-# endif
+#  endif
     __blksize_t st_blksize;
     unsigned int st_pad4;
-# ifndef __USE_FILE_OFFSET64
+#  ifndef __USE_FILE_OFFSET64
     __blkcnt_t st_blocks;
-# else
+#  else
     __blkcnt64_t st_blocks;
-# endif
+#  endif
     int st_pad5[14];
+# endif
   };
 
 #ifdef __USE_LARGEFILE64
 struct stat64
   {
+# ifdef __USE_TIME_BITS64
+#  include <bits/struct_stat_time64_helper.h>
+# else
     __dev_t st_dev;
     unsigned int st_pad1[3];	/* Reserved for st_dev expansion  */
     __ino64_t st_ino;
@@ -217,6 +224,7 @@ struct stat64
     unsigned int st_pad3;
     __blkcnt64_t st_blocks;
     int st_pad4[14];
+# endif /* __USE_TIME_BITS64  */
 };
 #endif
 

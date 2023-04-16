@@ -1,5 +1,6 @@
 /* Prototypes and definition for malloc implementation.
-   Copyright (C) 1996-2021 Free Software Foundation, Inc.
+   Copyright (C) 1996-2023 Free Software Foundation, Inc.
+   Copyright The GNU Toolchain Authors.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -64,8 +65,8 @@ extern void free (void *__ptr) __THROW;
 
 /* Allocate SIZE bytes allocated to ALIGNMENT bytes.  */
 extern void *memalign (size_t __alignment, size_t __size)
-  __THROW __attribute_malloc__ __attribute_alloc_size__ ((2)) __wur
-  __attr_dealloc_free;
+  __THROW __attribute_malloc__ __attribute_alloc_align__ ((1))
+  __attribute_alloc_size__ ((2)) __wur __attr_dealloc_free;
 
 /* Allocate SIZE bytes on a page boundary.  */
 extern void *valloc (size_t __size) __THROW __attribute_malloc__
