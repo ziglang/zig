@@ -193,7 +193,13 @@ pub const Connection = struct {
         };
     }
 
-    pub const ReadError = error{ TlsFailure, TlsAlert, ConnectionTimedOut, ConnectionResetByPeer, UnexpectedReadFailure };
+    pub const ReadError = error{
+        TlsFailure,
+        TlsAlert,
+        ConnectionTimedOut,
+        ConnectionResetByPeer,
+        UnexpectedReadFailure,
+    };
 
     pub const Reader = std.io.Reader(*Connection, ReadError, read);
 
@@ -518,7 +524,10 @@ pub const Request = struct {
         req.* = undefined;
     }
 
-    pub fn start(req: *Request, uri: Uri) !void {
+    pub const StartError = BufferedConnection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
+
+    /// Send the request to the server.
+    pub fn start(req: *Request, uri: Uri) StartError!void {
         var buffered = std.io.bufferedWriter(req.connection.data.buffered.writer());
         const w = buffered.writer();
 
@@ -575,7 +584,7 @@ pub const Request = struct {
             }
         } else {
             if (has_content_length) {
-                const content_length = try std.fmt.parseInt(u64, req.headers.getFirstValue("content-length").?, 10);
+                const content_length = std.fmt.parseInt(u64, req.headers.getFirstValue("content-length").?, 10) catch return error.InvalidContentLength;
 
                 req.transfer_encoding = .{ .content_length = content_length };
             } else if (has_transfer_encoding) {
@@ -618,7 +627,7 @@ pub const Request = struct {
         return index;
     }
 
-    pub const DoError = RequestError || TransferReadError || proto.HeadersParser.CheckCompleteHeadError || Response.ParseError || Uri.ParseError || error{ TooManyHttpRedirects, HttpRedirectMissingLocation, CompressionInitializationFailed };
+    pub const DoError = RequestError || TransferReadError || proto.HeadersParser.CheckCompleteHeadError || Response.ParseError || Uri.ParseError || error{ TooManyHttpRedirects, HttpRedirectMissingLocation, CompressionInitializationFailed, CompressionNotSupported };
 
     /// Waits for a response from the server and parses any headers that are sent.
     /// This function will block until the final response is received.
@@ -739,25 +748,23 @@ pub const Request = struct {
 
     /// Reads data from the response body. Must be called after `do`.
     pub fn read(req: *Request, buffer: []u8) ReadError!usize {
-        while (true) {
-            const out_index = switch (req.response.compression) {
-                .deflate => |*deflate| deflate.read(buffer) catch return error.DecompressionFailure,
-                .gzip => |*gzip| gzip.read(buffer) catch return error.DecompressionFailure,
-                .zstd => |*zstd| zstd.read(buffer) catch return error.DecompressionFailure,
-                else => try req.transferRead(buffer),
-            };
+        const out_index = switch (req.response.compression) {
+            .deflate => |*deflate| deflate.read(buffer) catch return error.DecompressionFailure,
+            .gzip => |*gzip| gzip.read(buffer) catch return error.DecompressionFailure,
+            .zstd => |*zstd| zstd.read(buffer) catch return error.DecompressionFailure,
+            else => try req.transferRead(buffer),
+        };
 
-            if (out_index == 0) {
-                while (!req.response.parser.state.isContent()) { // read trailing headers
-                    try req.connection.data.buffered.fill();
+        if (out_index == 0) {
+            while (!req.response.parser.state.isContent()) { // read trailing headers
+                try req.connection.data.buffered.fill();
 
-                    const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.data.buffered.peek());
-                    req.connection.data.buffered.clear(@intCast(u16, nchecked));
-                }
+                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.data.buffered.peek());
+                req.connection.data.buffered.clear(@intCast(u16, nchecked));
             }
-
-            return out_index;
         }
+
+        return out_index;
     }
 
     /// Reads data from the response body. Must be called after `do`.
@@ -800,15 +807,19 @@ pub const Request = struct {
         }
     }
 
+    pub fn writeAll(req: *Request, bytes: []const u8) WriteError!void {
+        var index: usize = 0;
+        while (index < bytes.len) {
+            index += try write(req, bytes[index..]);
+        }
+    }
+
     pub const FinishError = WriteError || error{MessageNotCompleted};
 
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     pub fn finish(req: *Request) FinishError!void {
         switch (req.transfer_encoding) {
-            .chunked => req.connection.data.conn.writeAll("0\r\n\r\n") catch |err| {
-                req.client.last_error = .{ .write = err };
-                return error.WriteFailed;
-            },
+            .chunked => try req.connection.data.conn.writeAll("0\r\n\r\n"),
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
             .none => {},
         }
@@ -923,7 +934,7 @@ pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connectio
     }
 }
 
-pub const RequestError = ConnectUnproxiedError || ConnectErrorPartial || std.fmt.ParseIntError || BufferedConnection.WriteError || error{
+pub const RequestError = ConnectUnproxiedError || ConnectErrorPartial || Request.StartError || std.fmt.ParseIntError || BufferedConnection.WriteError || error{
     UnsupportedUrlScheme,
     UriMissingHost,
 
@@ -998,6 +1009,7 @@ pub fn request(client: *Client, uri: Uri, headers: http.Headers, options: Option
         .handle_redirects = options.handle_redirects,
         .response = .{
             .status = undefined,
+            .reason = undefined,
             .version = undefined,
             .headers = undefined,
             .parser = switch (options.header_strategy) {
@@ -1010,8 +1022,6 @@ pub fn request(client: *Client, uri: Uri, headers: http.Headers, options: Option
     errdefer req.deinit();
 
     req.arena = std.heap.ArenaAllocator.init(client.allocator);
-
-    try req.start(uri);
 
     return req;
 }

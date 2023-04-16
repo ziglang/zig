@@ -485,6 +485,8 @@ fn fetchAndUnpack(
         var req = try http_client.request(uri, h, .{ .method = .GET });
         defer req.deinit();
 
+        try req.start();
+
         try req.do();
 
         if (mem.endsWith(u8, uri.path, ".tar.gz")) {
