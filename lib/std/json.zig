@@ -1389,6 +1389,11 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
                 UnescapeValidStringError ||
                 ParseInternalErrorImpl(arrayInfo.child, inferred_types ++ [_]type{T});
         },
+        .Vector => |vecInfo| {
+            return error{ UnexpectedEndOfJson, UnexpectedToken, LengthMismatch } || TokenStream.Error ||
+                UnescapeValidStringError ||
+                ParseInternalErrorImpl(vecInfo.child, inferred_types ++ [_]type{T});
+        },
         .Pointer => |ptrInfo| {
             var errors = error{AllocatorRequired} || std.mem.Allocator.Error;
             switch (ptrInfo.size) {
@@ -1659,6 +1664,34 @@ fn parseInternal(
                 else => return error.UnexpectedToken,
             }
         },
+        .Vector => |vecInfo| {
+            switch (token) {
+                .ArrayBegin => {
+                    var r: T = undefined;
+                    var r_len: usize = @typeInfo(@TypeOf(r)).Vector.len;
+                    var i: usize = 0;
+                    var child_options = options;
+                    child_options.allow_trailing_data = true;
+                    errdefer {
+                        // Without the r.len check `r[i]` is not allowed
+                        if (r_len > 0) while (true) : (i -= 1) {
+                            parseFree(vecInfo.child, r[i], options);
+                            if (i == 0) break;
+                        };
+                    }
+                    while (i < r_len) : (i += 1) {
+                        r[i] = try parse(vecInfo.child, tokens, child_options);
+                    }
+                    const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
+                    switch (tok) {
+                        .ArrayEnd => {},
+                        else => return error.UnexpectedToken,
+                    }
+                    return r;
+                },
+                else => return error.UnexpectedToken,
+            }
+        },
         .Pointer => |ptrInfo| {
             const allocator = options.allocator orelse return error.AllocatorRequired;
             switch (ptrInfo.size) {
@@ -1802,6 +1835,13 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
         .Array => |arrayInfo| {
             for (value) |v| {
                 parseFree(arrayInfo.child, v, options);
+            }
+        },
+        .Vector => |vecInfo| {
+            var i: usize = 0;
+            var v_len: usize = @typeInfo(@TypeOf(value)).Vector.len;
+            while (i < v_len) : (i += 1) {
+                parseFree(vecInfo.child, value[i], options);
             }
         },
         .Pointer => |ptrInfo| {
