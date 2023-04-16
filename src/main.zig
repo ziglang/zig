@@ -16,6 +16,7 @@ const tracy = @import("tracy.zig");
 const Compilation = @import("Compilation.zig");
 const link = @import("link.zig");
 const Package = @import("Package.zig");
+const Manifest = @import("Manifest.zig");
 const build_options = @import("build_options");
 const introspect = @import("introspect.zig");
 const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
@@ -304,6 +305,8 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         return cmdFmt(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "objcopy")) {
         return @import("objcopy.zig").cmdObjCopy(gpa, arena, cmd_args);
+    } else if (mem.eql(u8, cmd, "pkg")) {
+        return cmdPkg(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
         return cmdLibC(gpa, cmd_args);
     } else if (mem.eql(u8, cmd, "init-exe")) {
@@ -4177,6 +4180,80 @@ pub fn cmdInit(
         .Exe => std.log.info("Next, try `zig build --help` or `zig build run`", .{}),
         .Obj => unreachable,
     }
+}
+
+pub const usage_pkg =
+    \\Usage: zig pkg [command] [options]
+    \\
+    \\  Runs a package command
+    \\
+    \\Commands:
+    \\  hash                Calculates the package hash of the current directory.          
+    \\
+    \\Options: 
+    \\  -h --help           Print this help and exit.
+    \\
+    \\Sub-options for [hash]:
+    \\  --allow-directory
+    \\  
+;
+
+pub fn cmdPkg(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+    _ = arena;
+    if (args.len == 0) fatal("Expected at least one argument.\n", .{});
+    const command_arg = args[0];
+
+    if (mem.eql(u8, command_arg, "-h") or mem.eql(u8, command_arg, "--help")) {
+        const stdout = io.getStdOut().writer();
+        try stdout.writeAll(usage_fmt);
+        return cleanExit();
+    }
+
+    if (!mem.eql(u8, args[0], "hash")) fatal("Invalid command: {s}\n", .{command_arg});
+
+    const cwd = std.fs.cwd();
+
+    dir_test: {
+        if (args.len > 1 and mem.eql(u8, args[1], "--allow-directory")) break :dir_test;
+        try if (cwd.access(Package.build_zig_basename, .{})) |_| break :dir_test else |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| e,
+        };
+        try if (cwd.access(Manifest.basename, .{})) |_| break :dir_test else |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| e,
+        };
+        break :dir_test fatal("Could not find either build.zig or build.zig.zon in this directory.\n Use --allow-directory to override this check.\n", .{});
+    }
+
+    const hash = blk: {
+        const cwd_absolute_path = try cwd.realpathAlloc(gpa, ".");
+        var cwd_copy = try fs.openIterableDirAbsolute(cwd_absolute_path, .{});
+
+        // computePackageHash will close the directory after completion
+        errdefer cwd_copy.dir.close();
+
+        var thread_pool: ThreadPool = undefined;
+        try thread_pool.init(.{ .allocator = gpa });
+        defer thread_pool.deinit();
+
+        // workaround for missing inclusion/exclusion support -> #14311.
+        const excluded_directories: []const []const u8 = &.{
+            "zig-out",
+            "zig-cache",
+            ".git",
+        };
+        break :blk try Package.computePackageHashExcludingDirectories(
+            &thread_pool,
+            .{ .dir = cwd_copy.dir },
+            excluded_directories,
+        );
+    };
+
+    const std_out = std.io.getStdOut();
+    const digest = Manifest.hexDigest(hash);
+    try std_out.writeAll(digest[0..]);
+    try std_out.writeAll("\n");
 }
 
 pub const usage_build =

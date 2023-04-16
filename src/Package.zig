@@ -625,7 +625,80 @@ const HashedFile = struct {
     }
 };
 
-fn computePackageHash(
+pub fn computePackageHashExcludingDirectories(
+    thread_pool: *ThreadPool,
+    pkg_dir: fs.IterableDir,
+    excluded_directories: []const []const u8,
+) ![Manifest.Hash.digest_length]u8 {
+    const gpa = thread_pool.allocator;
+
+    // We'll use an arena allocator for the path name strings since they all
+    // need to be in memory for sorting.
+    var arena_instance = std.heap.ArenaAllocator.init(gpa);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    // Collect all files, recursively, then sort.
+    var all_files = std.ArrayList(*HashedFile).init(gpa);
+    defer all_files.deinit();
+
+    var walker = try pkg_dir.walk(gpa);
+    defer walker.deinit();
+
+    {
+        // The final hash will be a hash of each file hashed independently. This
+        // allows hashing in parallel.
+        var wait_group: WaitGroup = .{};
+        defer wait_group.wait();
+
+        loop: while (try walker.next()) |entry| {
+            switch (entry.kind) {
+                .Directory => {
+                    for (excluded_directories) |dir_name| {
+                        if (mem.eql(u8, entry.basename, dir_name)) {
+                            var item = walker.stack.pop();
+                            if (walker.stack.items.len != 0) {
+                                item.iter.dir.close();
+                            }
+                            continue :loop;
+                        }
+                    }
+                    continue :loop;
+                },
+                .File => {},
+                else => return error.IllegalFileTypeInPackage,
+            }
+            const hashed_file = try arena.create(HashedFile);
+            const fs_path = try arena.dupe(u8, entry.path);
+            hashed_file.* = .{
+                .fs_path = fs_path,
+                .normalized_path = try normalizePath(arena, fs_path),
+                .hash = undefined, // to be populated by the worker
+                .failure = undefined, // to be populated by the worker
+            };
+            wait_group.start();
+            try thread_pool.spawn(workerHashFile, .{ pkg_dir.dir, hashed_file, &wait_group });
+
+            try all_files.append(hashed_file);
+        }
+    }
+
+    std.sort.sort(*HashedFile, all_files.items, {}, HashedFile.lessThan);
+
+    var hasher = Manifest.Hash.init(.{});
+    var any_failures = false;
+    for (all_files.items) |hashed_file| {
+        hashed_file.failure catch |err| {
+            any_failures = true;
+            std.log.err("unable to hash '{s}': {s}", .{ hashed_file.fs_path, @errorName(err) });
+        };
+        hasher.update(&hashed_file.hash);
+    }
+    if (any_failures) return error.PackageHashUnavailable;
+    return hasher.finalResult();
+}
+
+pub fn computePackageHash(
     thread_pool: *ThreadPool,
     pkg_dir: fs.IterableDir,
 ) ![Manifest.Hash.digest_length]u8 {
