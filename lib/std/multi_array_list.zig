@@ -11,7 +11,7 @@ const testing = std.testing;
 /// stores separate lists for each field of the struct or
 /// lists of tags and bare unions.
 /// This allows for memory savings if the struct or union has padding,
-/// and also improves cache usage if only some fields or or just tags
+/// and also improves cache usage if only some fields or just tags
 /// are needed for a computation.  The primary API for accessing fields is
 /// the `slice()` function, which computes the start pointers
 /// for the array of each field.  From the slice you can call
