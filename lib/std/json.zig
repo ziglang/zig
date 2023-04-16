@@ -1413,6 +1413,35 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
     unreachable;
 }
 
+fn parseInternalArray(
+    comptime T: type,
+    comptime Elt: type,
+    comptime arr_len: usize,
+    tokens: *TokenStream,
+    options: ParseOptions,
+) ParseInternalError(T)!T {
+    var r: T = undefined;
+    var i: usize = 0;
+    var child_options = options;
+    child_options.allow_trailing_data = true;
+    errdefer {
+        // Without the r.len check `r[i]` is not allowed
+        if (arr_len > 0) while (true) : (i -= 1) {
+            parseFree(Elt, r[i], options);
+            if (i == 0) break;
+        };
+    }
+    if (arr_len > 0) while (i < arr_len) : (i += 1) {
+        r[i] = try parse(Elt, tokens, child_options);
+    };
+    const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
+    switch (tok) {
+        .ArrayEnd => {},
+        else => return error.UnexpectedToken,
+    }
+    return r;
+}
+
 fn parseInternal(
     comptime T: type,
     token: Token,
@@ -1629,26 +1658,8 @@ fn parseInternal(
         .Array => |arrayInfo| {
             switch (token) {
                 .ArrayBegin => {
-                    var r: T = undefined;
-                    var i: usize = 0;
-                    var child_options = options;
-                    child_options.allow_trailing_data = true;
-                    errdefer {
-                        // Without the r.len check `r[i]` is not allowed
-                        if (r.len > 0) while (true) : (i -= 1) {
-                            parseFree(arrayInfo.child, r[i], options);
-                            if (i == 0) break;
-                        };
-                    }
-                    while (i < r.len) : (i += 1) {
-                        r[i] = try parse(arrayInfo.child, tokens, child_options);
-                    }
-                    const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
-                    switch (tok) {
-                        .ArrayEnd => {},
-                        else => return error.UnexpectedToken,
-                    }
-                    return r;
+                    const len = @typeInfo(T).Array.len;
+                    return parseInternalArray(T, arrayInfo.child, len, tokens, options);
                 },
                 .String => |stringToken| {
                     if (arrayInfo.child != u8) return error.UnexpectedToken;
@@ -1667,27 +1678,8 @@ fn parseInternal(
         .Vector => |vecInfo| {
             switch (token) {
                 .ArrayBegin => {
-                    var r: T = undefined;
-                    var r_len: usize = @typeInfo(@TypeOf(r)).Vector.len;
-                    var i: usize = 0;
-                    var child_options = options;
-                    child_options.allow_trailing_data = true;
-                    errdefer {
-                        // Without the r.len check `r[i]` is not allowed
-                        if (r_len > 0) while (true) : (i -= 1) {
-                            parseFree(vecInfo.child, r[i], options);
-                            if (i == 0) break;
-                        };
-                    }
-                    while (i < r_len) : (i += 1) {
-                        r[i] = try parse(vecInfo.child, tokens, child_options);
-                    }
-                    const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
-                    switch (tok) {
-                        .ArrayEnd => {},
-                        else => return error.UnexpectedToken,
-                    }
-                    return r;
+                    const len = @typeInfo(T).Vector.len;
+                    return parseInternalArray(T, vecInfo.child, len, tokens, options);
                 },
                 else => return error.UnexpectedToken,
             }
