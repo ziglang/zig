@@ -19,7 +19,8 @@
 #ifndef _LINUX_RISCV_SYSDEP_H
 #define _LINUX_RISCV_SYSDEP_H 1
 
-#include <sysdeps/unix/sysv/linux/generic/sysdep.h>
+#include <sysdeps/unix/sysv/linux/sysdep.h>
+#include <sysdeps/unix/sysdep.h>
 #include <tls.h>
 
 #undef SYS_ify
@@ -102,7 +103,7 @@
 # else
 #  define SYSCALL_ERROR_HANDLER(name)				\
 .Lsyscall_error ## name:					\
-        j       __syscall_error;
+        tail    __syscall_error;
 # endif
 
 /* Performs a system call, not setting errno.  */
@@ -356,9 +357,5 @@
 extern long int __syscall_error (long int neg_errno);
 
 #endif /* ! __ASSEMBLER__ */
-
-/* Pointer mangling is not supported.  */
-#define PTR_MANGLE(var) (void) (var)
-#define PTR_DEMANGLE(var) (void) (var)
 
 #endif /* linux/riscv/sysdep.h */

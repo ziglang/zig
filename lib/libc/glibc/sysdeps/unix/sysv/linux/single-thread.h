@@ -1,5 +1,5 @@
 /* Single thread optimization, Linux version.
-   Copyright (C) 2019-2021 Free Software Foundation, Inc.
+   Copyright (C) 2019-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -19,6 +19,10 @@
 #ifndef _SINGLE_THREAD_H
 #define _SINGLE_THREAD_H
 
+#ifndef __ASSEMBLER__
+# include <sys/single_threaded.h>
+#endif
+
 /* The default way to check if the process is single thread is by using the
    pthread_t 'multiple_threads' field.  However, for some architectures it is
    faster to either use an extra field on TCB or global variables (the TCB
@@ -27,16 +31,11 @@
    The ABI might define SINGLE_THREAD_BY_GLOBAL to enable the single thread
    check to use global variables instead of the pthread_t field.  */
 
-#ifndef __ASSEMBLER__
-extern int __libc_multiple_threads;
-libc_hidden_proto (__libc_multiple_threads)
-#endif
-
 #if !defined SINGLE_THREAD_BY_GLOBAL || IS_IN (rtld)
 # define SINGLE_THREAD_P \
   (THREAD_GETMEM (THREAD_SELF, header.multiple_threads) == 0)
 #else
-# define SINGLE_THREAD_P (__libc_multiple_threads == 0)
+# define SINGLE_THREAD_P (__libc_single_threaded_internal != 0)
 #endif
 
 #define RTLD_SINGLE_THREAD_P SINGLE_THREAD_P

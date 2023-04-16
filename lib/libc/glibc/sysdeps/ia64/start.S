@@ -1,6 +1,5 @@
-/* Copyright (C) 1999-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1999-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
-   Written by Jes Sorensen, <Jes.Sorensen@cern.ch>, April 1999.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public

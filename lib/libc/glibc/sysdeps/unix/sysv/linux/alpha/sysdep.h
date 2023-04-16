@@ -1,6 +1,5 @@
-/* Copyright (C) 1992-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1992-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
-   Contributed by Ulrich Drepper, <drepper@gnu.ai.mit.edu>, August 1995.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -32,8 +31,6 @@
    so we have to redefine the `SYS_ify' macro here.  */
 #undef SYS_ify
 #define SYS_ify(syscall_name)	__NR_##syscall_name
-
-#define SINGLE_THREAD_BY_GLOBAL 1
 
 #ifdef __ASSEMBLER__
 #include <asm/pal.h>
@@ -314,46 +311,6 @@ __LABEL(name)						\
 	   : : internal_syscall_clobbers);			\
 	_sc_19 != 0 ? -_sc_0 : _sc_0;				\
 })
-#endif /* ASSEMBLER */
-
-/* Pointer mangling support.  Note that tls access is slow enough that
-   we don't deoptimize things by placing the pointer check value there.  */
-
-#ifdef __ASSEMBLER__
-# if IS_IN (rtld)
-#  define PTR_MANGLE(dst, src, tmp)				\
-	ldah	tmp, __pointer_chk_guard_local($29) !gprelhigh;	\
-	ldq	tmp, __pointer_chk_guard_local(tmp) !gprellow;	\
-	xor	src, tmp, dst
-#  define PTR_MANGLE2(dst, src, tmp)				\
-	xor	src, tmp, dst
-# elif defined SHARED
-#  define PTR_MANGLE(dst, src, tmp)		\
-	ldq	tmp, __pointer_chk_guard;	\
-	xor	src, tmp, dst
-# else
-#  define PTR_MANGLE(dst, src, tmp)		\
-	ldq	tmp, __pointer_chk_guard_local;	\
-	xor	src, tmp, dst
-# endif
-# define PTR_MANGLE2(dst, src, tmp)		\
-	xor	src, tmp, dst
-# define PTR_DEMANGLE(dst, tmp)   PTR_MANGLE(dst, dst, tmp)
-# define PTR_DEMANGLE2(dst, tmp)  PTR_MANGLE2(dst, dst, tmp)
-#else
-# include <stdint.h>
-# if (IS_IN (rtld) \
-      || (!defined SHARED && (IS_IN (libc) \
-			      || IS_IN (libpthread))))
-extern uintptr_t __pointer_chk_guard_local attribute_relro attribute_hidden;
-#  define PTR_MANGLE(var) \
-	(var) = (__typeof (var)) ((uintptr_t) (var) ^ __pointer_chk_guard_local)
-# else
-extern uintptr_t __pointer_chk_guard attribute_relro;
-#  define PTR_MANGLE(var) \
-	(var) = (__typeof(var)) ((uintptr_t) (var) ^ __pointer_chk_guard)
-# endif
-# define PTR_DEMANGLE(var)  PTR_MANGLE(var)
 #endif /* ASSEMBLER */
 
 #endif /* _LINUX_ALPHA_SYSDEP_H  */

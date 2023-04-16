@@ -1,5 +1,5 @@
 /* Assembler macros for ARC.
-   Copyright (C) 2020-2021 Free Software Foundation, Inc.
+   Copyright (C) 2020-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -20,7 +20,9 @@
 #define _LINUX_ARC_SYSDEP_H 1
 
 #include <sysdeps/arc/sysdep.h>
-#include <sysdeps/unix/sysv/linux/generic/sysdep.h>
+#include <bits/wordsize.h>
+#include <sysdeps/unix/sysdep.h>
+#include <sysdeps/unix/sysv/linux/sysdep.h>
 
 /* "workarounds" for generic code needing to handle 64-bit time_t.  */
 
@@ -132,8 +134,6 @@ L (call_syscall_err):			ASM_LINE_SEP	\
 
 #else  /* !__ASSEMBLER__ */
 
-# define SINGLE_THREAD_BY_GLOBAL		1
-
 # if IS_IN (libc)
 extern long int __syscall_error (long int);
 hidden_proto (__syscall_error)
@@ -216,10 +216,6 @@ hidden_proto (__syscall_error)
   long int _tmp7 = (int) (arg7);				\
   LOAD_ARGS_6 (nm, arg1, arg2, arg3, arg4, arg5, arg6)	\
   register long int _arg7 __asm__ ("r6") = _tmp7;
-
-/* Pointer mangling not yet supported.  */
-# define PTR_MANGLE(var) (void) (var)
-# define PTR_DEMANGLE(var) (void) (var)
 
 # undef HAVE_INTERNAL_BRK_ADDR_SYMBOL
 # define HAVE_INTERNAL_BRK_ADDR_SYMBOL  1

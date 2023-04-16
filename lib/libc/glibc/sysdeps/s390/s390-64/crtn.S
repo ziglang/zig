@@ -1,6 +1,5 @@
 /* Special .init and .fini section support for 64 bit S/390.
-   Copyright (C) 2001-2021 Free Software Foundation, Inc.
-   Contributed by Martin Schwidefsky (schwidefsky@de.ibm.com).
+   Copyright (C) 2001-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or

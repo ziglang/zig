@@ -66,10 +66,12 @@ hidden_proto (__fstatat64_time64);
 extern int __chmod (const char *__file, __mode_t __mode);
 libc_hidden_proto (__chmod)
 extern int __fchmod (int __fd, __mode_t __mode);
+extern int __fchmodat (int __fd, const char *__file, mode_t __mode, int __flag);
 libc_hidden_proto (fchmodat)
 extern __mode_t __umask (__mode_t __mask);
 extern int __mkdir (const char *__path, __mode_t __mode);
 libc_hidden_proto (__mkdir)
+extern int __mkdirat (int __fd, const char *__path, mode_t __mode);
 
 extern int __mknodat (int fd, const char *path, mode_t mode, dev_t dev);
 libc_hidden_proto (__mknodat);

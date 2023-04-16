@@ -1,4 +1,4 @@
-/* Copyright (C) 2000-2021 Free Software Foundation, Inc.
+/* Copyright (C) 2000-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -299,9 +299,5 @@ typedef long int __syscall_arg_t;
 #endif
 
 #endif /* __ASSEMBLER__ */
-
-/* Pointer mangling is not yet supported for MIPS.  */
-#define PTR_MANGLE(var) (void) (var)
-#define PTR_DEMANGLE(var) (void) (var)
 
 #endif /* linux/mips/sysdep.h */

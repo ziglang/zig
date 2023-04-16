@@ -1,8 +1,6 @@
 /* Assembler macros for PA-RISC.
-   Copyright (C) 1999-2021 Free Software Foundation, Inc.
+   Copyright (C) 1999-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
-   Contributed by Ulrich Drepper, <drepper@cygnus.com>, August 1999.
-   Linux/PA-RISC changes by Philipp Rumpf, <prumpf@tux.org>, March 2000.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -471,11 +469,5 @@ L(pre_end):					ASM_LINE_SEP	\
 #define CLOB_ARGS_0 CLOB_ARGS_1, "%r26"
 
 #endif	/* __ASSEMBLER__ */
-
-/* Pointer mangling is not yet supported for HPPA.  */
-#define PTR_MANGLE(var) (void) (var)
-#define PTR_DEMANGLE(var) (void) (var)
-
-#define SINGLE_THREAD_BY_GLOBAL	1
 
 #endif /* _LINUX_HPPA_SYSDEP_H */

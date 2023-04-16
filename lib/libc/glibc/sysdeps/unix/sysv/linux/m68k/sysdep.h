@@ -1,7 +1,5 @@
-/* Copyright (C) 1996-2021 Free Software Foundation, Inc.
+/* Copyright (C) 1996-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
-   Written by Andreas Schwab, <schwab@issan.informatik.uni-dortmund.de>,
-   December 1995.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -297,12 +295,6 @@ SYSCALL_ERROR_LABEL:							      \
 
 #endif /* not __ASSEMBLER__ */
 
-/* Pointer mangling is not yet supported for M68K.  */
-#define PTR_MANGLE(var) (void) (var)
-#define PTR_DEMANGLE(var) (void) (var)
-
-#if defined NEED_DL_SYSINFO || defined NEED_DL_SYSINFO_DSO
 /* M68K needs system-supplied DSO to access TLS helpers
    even when statically linked.  */
-# define NEED_STATIC_SYSINFO_DSO 1
-#endif
+#define NEED_STATIC_SYSINFO_DSO 1

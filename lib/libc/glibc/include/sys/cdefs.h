@@ -1,5 +1,12 @@
 #ifndef _SYS_CDEFS_H
 
+/* This is outside of _ISOMAC to enforce that _Static_assert always
+   uses the two-argument form.  This can be removed once the minimum
+   GCC version used to compile glibc is GCC 9.1.  */
+#ifndef __cplusplus
+# define _Static_assert(expr, diagnostic) _Static_assert (expr, diagnostic)
+#endif
+
 #include <misc/sys/cdefs.h>
 
 #ifndef _ISOMAC

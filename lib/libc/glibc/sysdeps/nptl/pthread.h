@@ -1,4 +1,4 @@
-/* Copyright (C) 2002-2021 Free Software Foundation, Inc.
+/* Copyright (C) 2002-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -933,7 +933,7 @@ extern int pthread_mutexattr_getrobust (const pthread_mutexattr_t *__attr,
 # ifdef __USE_GNU
 #  ifdef __REDIRECT_NTH
 extern int __REDIRECT_NTH (pthread_mutexattr_getrobust_np,
-			   (pthread_mutex_t *, int *),
+			   (pthread_mutexattr_t *, int *),
 			   pthread_mutexattr_getrobust) __nonnull ((1))
   __attribute_deprecated_msg__ ("\
 pthread_mutexattr_getrobust_np is deprecated, use pthread_mutexattr_getrobust");
@@ -949,7 +949,7 @@ extern int pthread_mutexattr_setrobust (pthread_mutexattr_t *__attr,
 # ifdef __USE_GNU
 #  ifdef __REDIRECT_NTH
 extern int __REDIRECT_NTH (pthread_mutexattr_setrobust_np,
-			   (pthread_mutex_t *, int),
+			   (pthread_mutexattr_t *, int),
 			   pthread_mutexattr_setrobust) __nonnull ((1))
   __attribute_deprecated_msg__ ("\
 pthread_mutexattr_setrobust_np is deprecated, use pthread_mutexattr_setrobust");

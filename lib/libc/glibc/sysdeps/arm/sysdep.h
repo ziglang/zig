@@ -1,5 +1,5 @@
 /* Assembler macros for ARM.
-   Copyright (C) 1997-2021 Free Software Foundation, Inc.
+   Copyright (C) 1997-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -292,48 +292,4 @@
 # define PC_OFS  4
 #else
 # define PC_OFS  8
-#endif
-
-/* Pointer mangling support.  */
-#if (IS_IN (rtld) \
-     || (!defined SHARED && (IS_IN (libc) || IS_IN (libpthread))))
-# ifdef __ASSEMBLER__
-#  define PTR_MANGLE_LOAD(guard, tmp)					\
-  LDR_HIDDEN (guard, tmp, C_SYMBOL_NAME(__pointer_chk_guard_local), 0)
-#  define PTR_MANGLE(dst, src, guard, tmp)				\
-  PTR_MANGLE_LOAD(guard, tmp);						\
-  PTR_MANGLE2(dst, src, guard)
-/* Use PTR_MANGLE2 for efficiency if guard is already loaded.  */
-#  define PTR_MANGLE2(dst, src, guard)		\
-  eor dst, src, guard
-#  define PTR_DEMANGLE(dst, src, guard, tmp)	\
-  PTR_MANGLE (dst, src, guard, tmp)
-#  define PTR_DEMANGLE2(dst, src, guard)	\
-  PTR_MANGLE2 (dst, src, guard)
-# else
-extern uintptr_t __pointer_chk_guard_local attribute_relro attribute_hidden;
-#  define PTR_MANGLE(var) \
-  (var) = (__typeof (var)) ((uintptr_t) (var) ^ __pointer_chk_guard_local)
-#  define PTR_DEMANGLE(var)     PTR_MANGLE (var)
-# endif
-#else
-# ifdef __ASSEMBLER__
-#  define PTR_MANGLE_LOAD(guard, tmp)					\
-  LDR_GLOBAL (guard, tmp, C_SYMBOL_NAME(__pointer_chk_guard), 0);
-#  define PTR_MANGLE(dst, src, guard, tmp)				\
-  PTR_MANGLE_LOAD(guard, tmp);						\
-  PTR_MANGLE2(dst, src, guard)
-/* Use PTR_MANGLE2 for efficiency if guard is already loaded.  */
-#  define PTR_MANGLE2(dst, src, guard)		\
-  eor dst, src, guard
-#  define PTR_DEMANGLE(dst, src, guard, tmp)	\
-  PTR_MANGLE (dst, src, guard, tmp)
-#  define PTR_DEMANGLE2(dst, src, guard)	\
-  PTR_MANGLE2 (dst, src, guard)
-# else
-extern uintptr_t __pointer_chk_guard attribute_relro;
-#  define PTR_MANGLE(var) \
-  (var) = (__typeof (var)) ((uintptr_t) (var) ^ __pointer_chk_guard)
-#  define PTR_DEMANGLE(var)     PTR_MANGLE (var)
-# endif
 #endif

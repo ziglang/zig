@@ -1,5 +1,5 @@
 /* Assembly macros for C-SKY.
-   Copyright (C) 2018-2021 Free Software Foundation, Inc.
+   Copyright (C) 2018-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -20,9 +20,9 @@
 #define _LINUX_CSKY_SYSDEP_H 1
 
 /* There is some commonality.  */
-#include <sysdeps/unix/sysv/linux/generic/sysdep.h>
 #include <sysdeps/unix/sysv/linux/sysdep.h>
 #include <sysdeps/csky/sysdep.h>
+#include <sysdeps/unix/sysdep.h>
 
 /* Defines RTLD_PRIVATE_ERRNO and USE_DL_SYSINFO.  */
 #include <dl-sysdep.h>
@@ -465,51 +465,5 @@ __local_syscall_error:				\
 #define HAVE_INTERNAL_BRK_ADDR_SYMBOL 1
 
 #endif /* __ASSEMBLER__ */
-
-/* Pointer mangling support.  */
-#if (IS_IN (rtld) \
-     || (!defined SHARED && (IS_IN (libc) || IS_IN (libpthread))))
-# ifdef __ASSEMBLER__
-#  define PTR_MANGLE(dst, src, guard)			\
-	grs	t0, 1f;					\
-1:							\
-	lrw	guard, 1b@GOTPC;			\
-	addu	t0, guard;				\
-	lrw	guard, __pointer_chk_guard_local@GOT;	\
-	ldr.w	guard, (t0, guard << 0);		\
-	ldw	guard, (guard, 0);			\
-	xor	dst, src, guard;
-#  define PTR_DEMANGLE(dst, src, guard) PTR_MANGLE (dst, src, guard)
-#  define PTR_MANGLE2(dst, src, guard) \
-	xor	dst, src, guard
-#  define PTR_DEMANGLE2(dst, src, guard) PTR_MANGLE2 (dst, src, guard)
-# else
-extern uintptr_t __pointer_chk_guard_local;
-#  define PTR_MANGLE(var) \
-  (var) = (__typeof (var)) ((uintptr_t) (var) ^ __pointer_chk_guard_local)
-#  define PTR_DEMANGLE(var) PTR_MANGLE (var)
-# endif
-#else
-# ifdef __ASSEMBLER__
-#  define PTR_MANGLE(dst, src, guard)		\
-	grs	t0, 1f;				\
-1:						\
-	lrw	guard, 1b@GOTPC;		\
-	addu	t0, guard;			\
-	lrw	guard, __pointer_chk_guard@GOT;	\
-	ldr.w	guard, (t0, guard << 0);	\
-	ldw	guard, (guard, 0);		\
-	xor	dst, src, guard;
-#  define PTR_DEMANGLE(dst, src, guard) PTR_MANGLE (dst, src, guard)
-#  define PTR_MANGLE2(dst, src, guard) \
-	xor	dst, src, guard
-#  define PTR_DEMANGLE2(dst, src, guard) PTR_MANGLE2 (dst, src, guard)
-# else
-extern uintptr_t __pointer_chk_guard;
-#  define PTR_MANGLE(var) \
-  (var) = (__typeof (var)) ((uintptr_t) (var) ^ __pointer_chk_guard)
-#  define PTR_DEMANGLE(var) PTR_MANGLE (var)
-# endif
-#endif
 
 #endif /* linux/csky/sysdep.h */

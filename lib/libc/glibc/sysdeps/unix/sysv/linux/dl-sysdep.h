@@ -1,5 +1,5 @@
 /* System-specific settings for dynamic linker code.  Linux version.
-   Copyright (C) 2005-2021 Free Software Foundation, Inc.
+   Copyright (C) 2005-2023 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -24,10 +24,3 @@
    we aren't making direct use of it.  So enable this across the board.  */
 
 #define NEED_DL_SYSINFO_DSO	1
-
-
-#ifndef __ASSEMBLER__
-/* Get version of the OS.  */
-extern int _dl_discover_osversion (void) attribute_hidden;
-# define HAVE_DL_DISCOVER_OSVERSION	1
-#endif
