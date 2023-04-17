@@ -720,6 +720,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .wasm_memory_size => unreachable,
             .wasm_memory_grow => unreachable,
+
+            .work_item_id => unreachable,
+            .work_group_size => unreachable,
+            .work_group_id => unreachable,
             // zig fmt: on
         }
 
@@ -1746,9 +1750,17 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const loop = self.air.extraData(Air.Block, ty_pl.payload);
     const body = self.air.extra[loop.end .. loop.end + loop.data.body_len];
+    const liveness_loop = self.liveness.getLoop(inst);
     const start = @intCast(u32, self.mir_instructions.len);
+
     try self.genBody(body);
     try self.jump(start);
+
+    try self.ensureProcessDeathCapacity(liveness_loop.deaths.len);
+    for (liveness_loop.deaths) |operand| {
+        self.processDeath(operand);
+    }
+
     return self.finishAirBookkeeping();
 }
 
@@ -3919,7 +3931,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
-            .linker_load => unreachable, // TODO
+            .load_got, .load_direct, .load_tlv => unreachable, // TODO
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
         },

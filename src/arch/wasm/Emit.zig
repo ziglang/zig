@@ -239,8 +239,9 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .i64_clz => try emit.emitTag(tag),
             .i64_ctz => try emit.emitTag(tag),
 
-            .extended => try emit.emitExtended(inst),
-            .simd => try emit.emitSimd(inst),
+            .misc_prefix => try emit.emitExtended(inst),
+            .simd_prefix => try emit.emitSimd(inst),
+            .atomics_prefix => try emit.emitAtomic(inst),
         }
     }
 }
@@ -433,9 +434,9 @@ fn emitExtended(emit: *Emit, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const opcode = emit.mir.extra[extra_index];
     const writer = emit.code.writer();
-    try emit.code.append(0xFC);
+    try emit.code.append(std.wasm.opcode(.misc_prefix));
     try leb128.writeULEB128(writer, opcode);
-    switch (@intToEnum(std.wasm.PrefixedOpcode, opcode)) {
+    switch (@intToEnum(std.wasm.MiscOpcode, opcode)) {
         // bulk-memory opcodes
         .data_drop => {
             const segment = emit.mir.extra[extra_index + 1];
@@ -472,7 +473,7 @@ fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const opcode = emit.mir.extra[extra_index];
     const writer = emit.code.writer();
-    try emit.code.append(0xFD);
+    try emit.code.append(std.wasm.opcode(.simd_prefix));
     try leb128.writeULEB128(writer, opcode);
     switch (@intToEnum(std.wasm.SimdOpcode, opcode)) {
         .v128_store,
@@ -485,9 +486,28 @@ fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
             const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index + 1).data;
             try encodeMemArg(mem_arg, writer);
         },
-        .v128_const => {
+        .v128_const,
+        .i8x16_shuffle,
+        => {
             const simd_value = emit.mir.extra[extra_index + 1 ..][0..4];
             try writer.writeAll(std.mem.asBytes(simd_value));
+        },
+        .i8x16_extract_lane_s,
+        .i8x16_extract_lane_u,
+        .i8x16_replace_lane,
+        .i16x8_extract_lane_s,
+        .i16x8_extract_lane_u,
+        .i16x8_replace_lane,
+        .i32x4_extract_lane,
+        .i32x4_replace_lane,
+        .i64x2_extract_lane,
+        .i64x2_replace_lane,
+        .f32x4_extract_lane,
+        .f32x4_replace_lane,
+        .f64x2_extract_lane,
+        .f64x2_replace_lane,
+        => {
+            try writer.writeByte(@intCast(u8, emit.mir.extra[extra_index + 1]));
         },
         .i8x16_splat,
         .i16x8_splat,
@@ -496,8 +516,13 @@ fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
         .f32x4_splat,
         .f64x2_splat,
         => {}, // opcode already written
-        else => |tag| return emit.fail("TODO: Implement simd instruction: {s}\n", .{@tagName(tag)}),
+        else => |tag| return emit.fail("TODO: Implement simd instruction: {s}", .{@tagName(tag)}),
     }
+}
+
+fn emitAtomic(emit: *Emit, inst: Mir.Inst.Index) !void {
+    _ = inst;
+    return emit.fail("TODO: Implement atomics instructions", .{});
 }
 
 fn emitMemFill(emit: *Emit) !void {

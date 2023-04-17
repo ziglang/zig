@@ -15,3 +15,7 @@ pub export fn entry() void {
 // target=native
 //
 // :6:5: error: found compile log statement
+//
+// Compile Log Output:
+// @as(tmp.Bar, .{ .X = 123 })
+// @as(tmp.Bar, [runtime value])

@@ -93,7 +93,7 @@ extern void _Unwind_SjLj_Unregister(_Unwind_FunctionContext_t fc);
 #endif
 
 //
-// The following are semi-suppoted extensions to the C++ ABI
+// The following are semi-supported extensions to the C++ ABI
 //
 
 //

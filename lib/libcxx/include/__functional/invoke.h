@@ -248,7 +248,7 @@ struct __member_pointer_traits_imp<_Rp _Class::*, false, true>
 
 template <class _MP>
 struct __member_pointer_traits
-    : public __member_pointer_traits_imp<typename remove_cv<_MP>::type,
+    : public __member_pointer_traits_imp<__remove_cv_t<_MP>,
                     is_member_function_pointer<_MP>::value,
                     is_member_object_pointer<_MP>::value>
 {
@@ -398,7 +398,7 @@ template <class _Ret, class _Fp, class ..._Args>
 struct __invokable_r
 {
   template <class _XFp, class ..._XArgs>
-  static decltype(std::__invoke(declval<_XFp>(), declval<_XArgs>()...)) __try_call(int);
+  static decltype(std::__invoke(std::declval<_XFp>(), std::declval<_XArgs>()...)) __try_call(int);
   template <class _XFp, class ..._XArgs>
   static __nat __try_call(...);
 
@@ -406,10 +406,10 @@ struct __invokable_r
   // or incomplete array types as required by the standard.
   using _Result = decltype(__try_call<_Fp, _Args...>(0));
 
-  using type = typename conditional<
+  using type = __conditional_t<
       _IsNotSame<_Result, __nat>::value,
-      typename conditional< is_void<_Ret>::value, true_type, __is_core_convertible<_Result, _Ret> >::type,
-      false_type >::type;
+      __conditional_t<is_void<_Ret>::value, true_type, __is_core_convertible<_Result, _Ret> >,
+      false_type>;
   static const bool value = type::value;
 };
 template <class _Fp, class ..._Args>
@@ -428,15 +428,23 @@ struct __nothrow_invokable_r_imp<true, false, _Ret, _Fp, _Args...>
     template <class _Tp>
     static void __test_noexcept(_Tp) _NOEXCEPT;
 
+#ifdef _LIBCPP_CXX03_LANG
+    static const bool value = false;
+#else
     static const bool value = noexcept(_ThisT::__test_noexcept<_Ret>(
-        _VSTD::__invoke(declval<_Fp>(), declval<_Args>()...)));
+        _VSTD::__invoke(std::declval<_Fp>(), std::declval<_Args>()...)));
+#endif
 };
 
 template <class _Ret, class _Fp, class ..._Args>
 struct __nothrow_invokable_r_imp<true, true, _Ret, _Fp, _Args...>
 {
+#ifdef _LIBCPP_CXX03_LANG
+    static const bool value = false;
+#else
     static const bool value = noexcept(
-        _VSTD::__invoke(declval<_Fp>(), declval<_Args>()...));
+        _VSTD::__invoke(std::declval<_Fp>(), std::declval<_Args>()...));
+#endif
 };
 
 template <class _Ret, class _Fp, class ..._Args>
@@ -524,7 +532,7 @@ template <class _Fn, class... _Args>
 using invoke_result_t = typename invoke_result<_Fn, _Args...>::type;
 
 template <class _Fn, class ..._Args>
-_LIBCPP_CONSTEXPR_AFTER_CXX17 invoke_result_t<_Fn, _Args...>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 invoke_result_t<_Fn, _Args...>
 invoke(_Fn&& __f, _Args&&... __args)
     noexcept(is_nothrow_invocable_v<_Fn, _Args...>)
 {

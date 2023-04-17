@@ -3,6 +3,8 @@ export fn entry() void {
     var good = {};
     _ = if(true) {} else if(true) {}
     var bad = {};
+    _ = good;
+    _ = bad;
 }
 
 // error

@@ -27,7 +27,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 struct __not_fn_op {
     template <class... _Args>
     _LIBCPP_HIDE_FROM_ABI
-    _LIBCPP_CONSTEXPR_AFTER_CXX17 auto operator()(_Args&&... __args) const
+    _LIBCPP_CONSTEXPR_SINCE_CXX20 auto operator()(_Args&&... __args) const
         noexcept(noexcept(!_VSTD::invoke(_VSTD::forward<_Args>(__args)...)))
         -> decltype(      !_VSTD::invoke(_VSTD::forward<_Args>(__args)...))
         { return          !_VSTD::invoke(_VSTD::forward<_Args>(__args)...); }
@@ -43,7 +43,7 @@ template <class _Fn, class = enable_if_t<
     is_move_constructible_v<decay_t<_Fn>>
 >>
 _LIBCPP_HIDE_FROM_ABI
-_LIBCPP_CONSTEXPR_AFTER_CXX17 auto not_fn(_Fn&& __f) {
+_LIBCPP_CONSTEXPR_SINCE_CXX20 auto not_fn(_Fn&& __f) {
     return __not_fn_t<decay_t<_Fn>>(_VSTD::forward<_Fn>(__f));
 }
 

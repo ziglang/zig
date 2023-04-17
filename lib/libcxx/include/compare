@@ -160,4 +160,8 @@ namespace std {
 #  pragma GCC system_header
 #endif
 
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <type_traits>
+#endif
+
 #endif // _LIBCPP_COMPARE

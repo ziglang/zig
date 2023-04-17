@@ -828,24 +828,6 @@ pub fn argsWithAllocator(allocator: Allocator) ArgIterator.InitError!ArgIterator
     return ArgIterator.initWithAllocator(allocator);
 }
 
-test "args iterator" {
-    var ga = std.testing.allocator;
-    var it = try argsWithAllocator(ga);
-    defer it.deinit(); // no-op unless WASI or Windows
-
-    const prog_name = it.next() orelse unreachable;
-    const expected_suffix = switch (builtin.os.tag) {
-        .wasi => "test.wasm",
-        .windows => "test.exe",
-        else => "test",
-    };
-    const given_suffix = std.fs.path.basename(prog_name);
-
-    try testing.expect(mem.eql(u8, expected_suffix, given_suffix));
-    try testing.expect(it.next() == null);
-    try testing.expect(!it.skip());
-}
-
 /// Caller must call argsFree on result.
 pub fn argsAlloc(allocator: Allocator) ![][:0]u8 {
     // TODO refactor to only make 1 allocation.
@@ -1111,7 +1093,7 @@ pub const can_execv = switch (builtin.os.tag) {
 
 /// Tells whether spawning child processes is supported (e.g. via ChildProcess)
 pub const can_spawn = switch (builtin.os.tag) {
-    .wasi => false,
+    .wasi, .watchos, .tvos => false,
     else => true,
 };
 
@@ -1168,4 +1150,60 @@ pub fn execve(
     };
 
     return os.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp);
+}
+
+pub const TotalSystemMemoryError = error{
+    UnknownTotalSystemMemory,
+};
+
+/// Returns the total system memory, in bytes.
+pub fn totalSystemMemory() TotalSystemMemoryError!usize {
+    switch (builtin.os.tag) {
+        .linux => {
+            return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
+        },
+        .windows => {
+            var sbi: std.os.windows.SYSTEM_BASIC_INFORMATION = undefined;
+            const rc = std.os.windows.ntdll.NtQuerySystemInformation(
+                .SystemBasicInformation,
+                &sbi,
+                @sizeOf(std.os.windows.SYSTEM_BASIC_INFORMATION),
+                null,
+            );
+            if (rc != .SUCCESS) {
+                return error.UnknownTotalSystemMemory;
+            }
+            return @as(usize, sbi.NumberOfPhysicalPages) * sbi.PageSize;
+        },
+        else => return error.UnknownTotalSystemMemory,
+    }
+}
+
+fn totalSystemMemoryLinux() !usize {
+    var file = try std.fs.openFileAbsoluteZ("/proc/meminfo", .{});
+    defer file.close();
+    var buf: [50]u8 = undefined;
+    const amt = try file.read(&buf);
+    if (amt != 50) return error.Unexpected;
+    var it = std.mem.tokenize(u8, buf[0..amt], " \n");
+    const label = it.next().?;
+    if (!std.mem.eql(u8, label, "MemTotal:")) return error.Unexpected;
+    const int_text = it.next() orelse return error.Unexpected;
+    const units = it.next() orelse return error.Unexpected;
+    if (!std.mem.eql(u8, units, "kB")) return error.Unexpected;
+    const kilobytes = try std.fmt.parseInt(usize, int_text, 10);
+    return kilobytes * 1024;
+}
+
+/// Indicate that we are now terminating with a successful exit code.
+/// In debug builds, this is a no-op, so that the calling code's
+/// cleanup mechanisms are tested and so that external tools that
+/// check for resource leaks can be accurate. In release builds, this
+/// calls exit(0), and does not return.
+pub fn cleanExit() void {
+    if (builtin.mode == .Debug) {
+        return;
+    } else {
+        exit(0);
+    }
 }

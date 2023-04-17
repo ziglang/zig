@@ -25,54 +25,54 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#ifndef _LIBCPP_CXX03_LANG
+#if _LIBCPP_STD_VER > 14
 
 namespace __itoa {
 
-_LIBCPP_HIDE_FROM_ABI inline char* __append1(char* __first, uint32_t __value) noexcept {
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __append1(char* __first, uint32_t __value) noexcept {
   *__first = '0' + static_cast<char>(__value);
   return __first + 1;
 }
 
-_LIBCPP_HIDE_FROM_ABI inline char* __append2(char* __first, uint32_t __value) noexcept {
-  return std::copy_n(&__table<>::__digits_base_10[__value * 2], 2, __first);
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __append2(char* __first, uint32_t __value) noexcept {
+  return std::copy_n(&__digits_base_10[__value * 2], 2, __first);
 }
 
-_LIBCPP_HIDE_FROM_ABI inline char* __append3(char* __first, uint32_t __value) noexcept {
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __append3(char* __first, uint32_t __value) noexcept {
   return __itoa::__append2(__itoa::__append1(__first, __value / 100), __value % 100);
 }
 
-_LIBCPP_HIDE_FROM_ABI inline char* __append4(char* __first, uint32_t __value) noexcept {
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __append4(char* __first, uint32_t __value) noexcept {
   return __itoa::__append2(__itoa::__append2(__first, __value / 100), __value % 100);
 }
 
-_LIBCPP_HIDE_FROM_ABI inline char* __append5(char* __first, uint32_t __value) noexcept {
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __append5(char* __first, uint32_t __value) noexcept {
   return __itoa::__append4(__itoa::__append1(__first, __value / 10000), __value % 10000);
 }
 
-_LIBCPP_HIDE_FROM_ABI inline char* __append6(char* __first, uint32_t __value) noexcept {
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __append6(char* __first, uint32_t __value) noexcept {
   return __itoa::__append4(__itoa::__append2(__first, __value / 10000), __value % 10000);
 }
 
-_LIBCPP_HIDE_FROM_ABI inline char* __append7(char* __first, uint32_t __value) noexcept {
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __append7(char* __first, uint32_t __value) noexcept {
   return __itoa::__append6(__itoa::__append1(__first, __value / 1000000), __value % 1000000);
 }
 
-_LIBCPP_HIDE_FROM_ABI inline char* __append8(char* __first, uint32_t __value) noexcept {
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __append8(char* __first, uint32_t __value) noexcept {
   return __itoa::__append6(__itoa::__append2(__first, __value / 1000000), __value % 1000000);
 }
 
-_LIBCPP_HIDE_FROM_ABI inline char* __append9(char* __first, uint32_t __value) noexcept {
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __append9(char* __first, uint32_t __value) noexcept {
   return __itoa::__append8(__itoa::__append1(__first, __value / 100000000), __value % 100000000);
 }
 
 template <class _Tp>
-_LIBCPP_HIDE_FROM_ABI char* __append10(char* __first, _Tp __value) noexcept {
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI char* __append10(char* __first, _Tp __value) noexcept {
   return __itoa::__append8(__itoa::__append2(__first, static_cast<uint32_t>(__value / 100000000)),
                            static_cast<uint32_t>(__value % 100000000));
 }
 
-_LIBCPP_HIDE_FROM_ABI inline char* __base_10_u32(char* __first, uint32_t __value) noexcept {
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __base_10_u32(char* __first, uint32_t __value) noexcept {
   if (__value < 1000000) {
     if (__value < 10000) {
       if (__value < 100) {
@@ -107,7 +107,7 @@ _LIBCPP_HIDE_FROM_ABI inline char* __base_10_u32(char* __first, uint32_t __value
   return __itoa::__append10(__first, __value);
 }
 
-_LIBCPP_HIDE_FROM_ABI inline char* __base_10_u64(char* __buffer, uint64_t __value) noexcept {
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __base_10_u64(char* __buffer, uint64_t __value) noexcept {
   if (__value <= UINT32_MAX)
     return __itoa::__base_10_u32(__buffer, static_cast<uint32_t>(__value));
 
@@ -129,12 +129,12 @@ _LIBCPP_HIDE_FROM_ABI inline char* __base_10_u64(char* __buffer, uint64_t __valu
 /// \note The lookup table contains a partial set of exponents limiting the
 /// range that can be used. However the range is sufficient for
 /// \ref __base_10_u128.
-_LIBCPP_HIDE_FROM_ABI inline __uint128_t __pow_10(int __exp) noexcept {
-  _LIBCPP_ASSERT(__exp >= __table<>::__pow10_128_offset, "Index out of bounds");
-  return __table<>::__pow10_128[__exp - __table<>::__pow10_128_offset];
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline __uint128_t __pow_10(int __exp) noexcept {
+  _LIBCPP_ASSERT(__exp >= __pow10_128_offset, "Index out of bounds");
+  return __pow10_128[__exp - __pow10_128_offset];
 }
 
-_LIBCPP_HIDE_FROM_ABI inline char* __base_10_u128(char* __buffer, __uint128_t __value) noexcept {
+_LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char* __base_10_u128(char* __buffer, __uint128_t __value) noexcept {
   _LIBCPP_ASSERT(
       __value > numeric_limits<uint64_t>::max(), "The optimizations for this algorithm fail when this isn't true.");
 
@@ -176,7 +176,7 @@ _LIBCPP_HIDE_FROM_ABI inline char* __base_10_u128(char* __buffer, __uint128_t __
 #  endif
 } // namespace __itoa
 
-#endif // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_STD_VER > 14
 
 _LIBCPP_END_NAMESPACE_STD
 

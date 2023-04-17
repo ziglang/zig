@@ -83,20 +83,19 @@ namespace std {
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
 #include <__config>
+#include <__memory/allocator.h>
+#include <__memory/allocator_destructor.h>
+#include <__memory/allocator_traits.h>
+#include <__memory/unique_ptr.h>
 #include <__utility/forward.h>
 #include <__utility/in_place.h>
 #include <__utility/move.h>
 #include <__utility/unreachable.h>
 #include <cstdlib>
 #include <initializer_list>
-#include <memory>
 #include <type_traits>
 #include <typeinfo>
 #include <version>
-
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <chrono>
-#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -106,7 +105,7 @@ namespace std {
 class _LIBCPP_EXCEPTION_ABI _LIBCPP_AVAILABILITY_BAD_ANY_CAST bad_any_cast : public bad_cast
 {
 public:
-    virtual const char* what() const _NOEXCEPT;
+    const char* what() const _NOEXCEPT override;
 };
 } // namespace std
 
@@ -139,7 +138,9 @@ add_pointer_t<_ValueType> any_cast(any *) _NOEXCEPT;
 
 namespace __any_imp
 {
+  _LIBCPP_SUPPRESS_DEPRECATED_PUSH
   using _Buffer = aligned_storage_t<3*sizeof(void*), alignment_of<void*>::value>;
+  _LIBCPP_SUPPRESS_DEPRECATED_POP
 
   template <class _Tp>
   using _IsSmallObject = integral_constant<bool
@@ -174,7 +175,7 @@ namespace __any_imp
   inline _LIBCPP_INLINE_VISIBILITY
   bool __compare_typeid(type_info const* __id, const void* __fallback_id)
   {
-#if !defined(_LIBCPP_NO_RTTI)
+#if !defined(_LIBCPP_HAS_NO_RTTI)
       if (__id && *__id == typeid(_Tp))
           return true;
 #endif
@@ -194,18 +195,18 @@ class _LIBCPP_TEMPLATE_VIS any
 public:
   // construct/destruct
   _LIBCPP_INLINE_VISIBILITY
-  constexpr any() _NOEXCEPT : __h(nullptr) {}
+  constexpr any() _NOEXCEPT : __h_(nullptr) {}
 
   _LIBCPP_INLINE_VISIBILITY
-  any(any const & __other) : __h(nullptr)
+  any(any const & __other) : __h_(nullptr)
   {
-    if (__other.__h) __other.__call(_Action::_Copy, this);
+    if (__other.__h_) __other.__call(_Action::_Copy, this);
   }
 
   _LIBCPP_INLINE_VISIBILITY
-  any(any && __other) _NOEXCEPT : __h(nullptr)
+  any(any && __other) _NOEXCEPT : __h_(nullptr)
   {
-    if (__other.__h) __other.__call(_Action::_Move, this);
+    if (__other.__h_) __other.__call(_Action::_Move, this);
   }
 
   template <
@@ -284,19 +285,19 @@ public:
 
   // 6.3.3 any modifiers
   _LIBCPP_INLINE_VISIBILITY
-  void reset() _NOEXCEPT { if (__h) this->__call(_Action::_Destroy); }
+  void reset() _NOEXCEPT { if (__h_) this->__call(_Action::_Destroy); }
 
   _LIBCPP_INLINE_VISIBILITY
   void swap(any & __rhs) _NOEXCEPT;
 
   // 6.3.4 any observers
   _LIBCPP_INLINE_VISIBILITY
-  bool has_value() const _NOEXCEPT { return __h != nullptr; }
+  bool has_value() const _NOEXCEPT { return __h_ != nullptr; }
 
-#if !defined(_LIBCPP_NO_RTTI)
+#if !defined(_LIBCPP_HAS_NO_RTTI)
   _LIBCPP_INLINE_VISIBILITY
   const type_info & type() const _NOEXCEPT {
-    if (__h) {
+    if (__h_) {
         return *static_cast<type_info const *>(this->__call(_Action::_TypeInfo));
     } else {
         return typeid(void);
@@ -320,7 +321,7 @@ private:
                   type_info const * __info = nullptr,
                    const void* __fallback_info = nullptr) const
     {
-        return __h(__a, this, __other, __info, __fallback_info);
+        return __h_(__a, this, __other, __info, __fallback_info);
     }
 
     _LIBCPP_INLINE_VISIBILITY
@@ -328,7 +329,7 @@ private:
                   type_info const * __info = nullptr,
                   const void* __fallback_info = nullptr)
     {
-        return __h(__a, this, __other, __info, __fallback_info);
+        return __h_(__a, this, __other, __info, __fallback_info);
     }
 
     template <class>
@@ -344,8 +345,8 @@ private:
     friend add_pointer_t<_ValueType>
     any_cast(any *) _NOEXCEPT;
 
-    _HandleFuncPtr __h = nullptr;
-    _Storage __s;
+    _HandleFuncPtr __h_ = nullptr;
+    _Storage __s_;
 };
 
 namespace __any_imp
@@ -382,9 +383,9 @@ namespace __any_imp
         typedef allocator<_Tp> _Alloc;
         typedef allocator_traits<_Alloc> _ATraits;
         _Alloc __a;
-        _Tp * __ret = static_cast<_Tp*>(static_cast<void*>(&__dest.__s.__buf));
+        _Tp * __ret = static_cast<_Tp*>(static_cast<void*>(&__dest.__s_.__buf));
         _ATraits::construct(__a, __ret, _VSTD::forward<_Args>(__args)...);
-        __dest.__h = &_SmallHandler::__handle;
+        __dest.__h_ = &_SmallHandler::__handle;
         return *__ret;
     }
 
@@ -394,21 +395,21 @@ namespace __any_imp
         typedef allocator<_Tp> _Alloc;
         typedef allocator_traits<_Alloc> _ATraits;
         _Alloc __a;
-        _Tp * __p = static_cast<_Tp *>(static_cast<void*>(&__this.__s.__buf));
+        _Tp * __p = static_cast<_Tp *>(static_cast<void*>(&__this.__s_.__buf));
         _ATraits::destroy(__a, __p);
-        __this.__h = nullptr;
+        __this.__h_ = nullptr;
     }
 
     _LIBCPP_INLINE_VISIBILITY
     static void __copy(any const & __this, any & __dest) {
         _SmallHandler::__create(__dest, *static_cast<_Tp const *>(
-            static_cast<void const *>(&__this.__s.__buf)));
+            static_cast<void const *>(&__this.__s_.__buf)));
     }
 
     _LIBCPP_INLINE_VISIBILITY
     static void __move(any & __this, any & __dest) {
         _SmallHandler::__create(__dest, _VSTD::move(
-            *static_cast<_Tp*>(static_cast<void*>(&__this.__s.__buf))));
+            *static_cast<_Tp*>(static_cast<void*>(&__this.__s_.__buf))));
         __destroy(__this);
     }
 
@@ -418,14 +419,14 @@ namespace __any_imp
                        const void* __fallback_id)
     {
         if (__any_imp::__compare_typeid<_Tp>(__info, __fallback_id))
-            return static_cast<void*>(&__this.__s.__buf);
+            return static_cast<void*>(&__this.__s_.__buf);
         return nullptr;
     }
 
     _LIBCPP_INLINE_VISIBILITY
     static void* __type_info()
     {
-#if !defined(_LIBCPP_NO_RTTI)
+#if !defined(_LIBCPP_HAS_NO_RTTI)
         return const_cast<void*>(static_cast<void const *>(&typeid(_Tp)));
 #else
         return nullptr;
@@ -470,8 +471,8 @@ namespace __any_imp
         unique_ptr<_Tp, _Dp> __hold(_ATraits::allocate(__a, 1), _Dp(__a, 1));
         _Tp * __ret = __hold.get();
         _ATraits::construct(__a, __ret, _VSTD::forward<_Args>(__args)...);
-        __dest.__s.__ptr = __hold.release();
-        __dest.__h = &_LargeHandler::__handle;
+        __dest.__s_.__ptr = __hold.release();
+        __dest.__h_ = &_LargeHandler::__handle;
         return *__ret;
     }
 
@@ -482,22 +483,22 @@ namespace __any_imp
         typedef allocator<_Tp> _Alloc;
         typedef allocator_traits<_Alloc> _ATraits;
         _Alloc __a;
-        _Tp * __p = static_cast<_Tp *>(__this.__s.__ptr);
+        _Tp * __p = static_cast<_Tp *>(__this.__s_.__ptr);
         _ATraits::destroy(__a, __p);
         _ATraits::deallocate(__a, __p, 1);
-        __this.__h = nullptr;
+        __this.__h_ = nullptr;
     }
 
     _LIBCPP_INLINE_VISIBILITY
     static void __copy(any const & __this, any & __dest) {
-        _LargeHandler::__create(__dest, *static_cast<_Tp const *>(__this.__s.__ptr));
+        _LargeHandler::__create(__dest, *static_cast<_Tp const *>(__this.__s_.__ptr));
     }
 
     _LIBCPP_INLINE_VISIBILITY
     static void __move(any & __this, any & __dest) {
-      __dest.__s.__ptr = __this.__s.__ptr;
-      __dest.__h = &_LargeHandler::__handle;
-      __this.__h = nullptr;
+      __dest.__s_.__ptr = __this.__s_.__ptr;
+      __dest.__h_ = &_LargeHandler::__handle;
+      __this.__h_ = nullptr;
     }
 
     _LIBCPP_INLINE_VISIBILITY
@@ -505,7 +506,7 @@ namespace __any_imp
                        void const* __fallback_info)
     {
         if (__any_imp::__compare_typeid<_Tp>(__info, __fallback_info))
-            return static_cast<void*>(__this.__s.__ptr);
+            return static_cast<void*>(__this.__s_.__ptr);
         return nullptr;
 
     }
@@ -513,7 +514,7 @@ namespace __any_imp
     _LIBCPP_INLINE_VISIBILITY
     static void* __type_info()
     {
-#if !defined(_LIBCPP_NO_RTTI)
+#if !defined(_LIBCPP_HAS_NO_RTTI)
         return const_cast<void*>(static_cast<void const *>(&typeid(_Tp)));
 #else
         return nullptr;
@@ -525,7 +526,7 @@ namespace __any_imp
 
 
 template <class _ValueType, class _Tp, class>
-any::any(_ValueType && __v) : __h(nullptr)
+any::any(_ValueType && __v) : __h_(nullptr)
 {
   __any_imp::_Handler<_Tp>::__create(*this, _VSTD::forward<_ValueType>(__v));
 }
@@ -567,16 +568,16 @@ void any::swap(any & __rhs) _NOEXCEPT
 {
     if (this == &__rhs)
       return;
-    if (__h && __rhs.__h) {
+    if (__h_ && __rhs.__h_) {
         any __tmp;
         __rhs.__call(_Action::_Move, &__tmp);
         this->__call(_Action::_Move, &__rhs);
         __tmp.__call(_Action::_Move, this);
     }
-    else if (__h) {
+    else if (__h_) {
         this->__call(_Action::_Move, &__rhs);
     }
-    else if (__rhs.__h) {
+    else if (__rhs.__h_) {
         __rhs.__call(_Action::_Move, this);
     }
 }
@@ -606,7 +607,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_AVAILABILITY_THROW_BAD_ANY_CAST
 _ValueType any_cast(any const & __v)
 {
-    using _RawValueType = __uncvref_t<_ValueType>;
+    using _RawValueType = __remove_cvref_t<_ValueType>;
     static_assert(is_constructible<_ValueType, _RawValueType const &>::value,
                   "ValueType is required to be a const lvalue reference "
                   "or a CopyConstructible type");
@@ -621,7 +622,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_AVAILABILITY_THROW_BAD_ANY_CAST
 _ValueType any_cast(any & __v)
 {
-    using _RawValueType = __uncvref_t<_ValueType>;
+    using _RawValueType = __remove_cvref_t<_ValueType>;
     static_assert(is_constructible<_ValueType, _RawValueType &>::value,
                   "ValueType is required to be an lvalue reference "
                   "or a CopyConstructible type");
@@ -636,7 +637,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_AVAILABILITY_THROW_BAD_ANY_CAST
 _ValueType any_cast(any && __v)
 {
-    using _RawValueType = __uncvref_t<_ValueType>;
+    using _RawValueType = __remove_cvref_t<_ValueType>;
     static_assert(is_constructible<_ValueType, _RawValueType>::value,
                   "ValueType is required to be an rvalue reference "
                   "or a CopyConstructible type");
@@ -676,10 +677,10 @@ any_cast(any * __any) _NOEXCEPT
     using __any_imp::_Action;
     static_assert(!is_reference<_ValueType>::value,
                   "_ValueType may not be a reference.");
-    typedef typename add_pointer<_ValueType>::type _ReturnType;
-    if (__any && __any->__h) {
+    typedef add_pointer_t<_ValueType> _ReturnType;
+    if (__any && __any->__h_) {
       void *__p = __any->__call(_Action::_Get, nullptr,
-#if !defined(_LIBCPP_NO_RTTI)
+#if !defined(_LIBCPP_HAS_NO_RTTI)
                           &typeid(_ValueType),
 #else
                           nullptr,
@@ -694,5 +695,18 @@ any_cast(any * __any) _NOEXCEPT
 #endif // _LIBCPP_STD_VER > 14
 
 _LIBCPP_END_NAMESPACE_STD
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 17
+#  include <chrono>
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <atomic>
+#  include <concepts>
+#  include <iosfwd>
+#  include <iterator>
+#  include <memory>
+#  include <variant>
+#endif
 
 #endif // _LIBCPP_ANY

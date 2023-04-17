@@ -24,7 +24,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -49,7 +49,7 @@ struct __fn {
   template <forward_iterator _Iter, sentinel_for<_Iter> _Sent,
             class _Proj = identity,
             indirect_strict_weak_order<projected<_Iter, _Proj>> _Comp = ranges::less>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   _Iter operator()(_Iter __first, _Sent __last, _Comp __comp = {}, _Proj __proj = {}) const {
     return ranges::__is_sorted_until_impl(std::move(__first), std::move(__last), __comp, __proj);
   }
@@ -57,7 +57,7 @@ struct __fn {
   template <forward_range _Range,
             class _Proj = identity,
             indirect_strict_weak_order<projected<iterator_t<_Range>, _Proj>> _Comp = ranges::less>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   borrowed_iterator_t<_Range> operator()(_Range&& __range, _Comp __comp = {}, _Proj __proj = {}) const {
     return ranges::__is_sorted_until_impl(ranges::begin(__range), ranges::end(__range), __comp, __proj);
   }
@@ -71,6 +71,6 @@ inline namespace __cpo {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 #endif // _LIBCPP__ALGORITHM_RANGES_IS_SORTED_UNTIL_H

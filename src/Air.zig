@@ -221,11 +221,16 @@ pub const Inst = struct {
         /// Reinterpret the memory representation of a value as a different type.
         /// Uses the `ty_op` field.
         bitcast,
-        /// Uses the `ty_pl` field with payload `Block`.
+        /// Uses the `ty_pl` field with payload `Block`.  A block runs its body which always ends
+        /// with a `noreturn` instruction, so the only way to proceed to the code after the `block`
+        /// is to encounter a `br` that targets this `block`.  If the `block` type is `noreturn`,
+        /// then there do not exist any `br` instructions targetting this `block`.
         block,
         /// A labeled block of code that loops forever. At the end of the body it is implied
         /// to repeat; no explicit "repeat" instruction terminates loop bodies.
-        /// Result type is always noreturn; no instructions in a block follow this one.
+        /// Result type is always `noreturn`; no instructions in a block follow this one.
+        /// The body never ends with a `noreturn` instruction, so the "repeat" operation
+        /// is always statically reachable.
         /// Uses the `ty_pl` field. Payload is `Block`.
         loop,
         /// Return from a block with a result.
@@ -761,6 +766,22 @@ pub const Inst = struct {
         /// Uses the `ty` field.
         c_va_start,
 
+        /// Implements @workItemId builtin.
+        /// Result type is always `u32`
+        /// Uses the `pl_op` field, payload is the dimension to get the work item id for.
+        /// Operand is unused and set to Ref.none
+        work_item_id,
+        /// Implements @workGroupSize builtin.
+        /// Result type is always `u32`
+        /// Uses the `pl_op` field, payload is the dimension to get the work group size for.
+        /// Operand is unused and set to Ref.none
+        work_group_size,
+        /// Implements @workGroupId builtin.
+        /// Result type is always `u32`
+        /// Uses the `pl_op` field, payload is the dimension to get the work group id for.
+        /// Operand is unused and set to Ref.none
+        work_group_id,
+
         pub fn fromCmpOp(op: std.math.CompareOperator, optimized: bool) Tag {
             switch (op) {
                 .lt => return if (optimized) .cmp_lt_optimized else .cmp_lt,
@@ -1267,6 +1288,11 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
             const err_union_ty = air.typeOf(datas[inst].pl_op.operand);
             return err_union_ty.errorUnionPayload();
         },
+
+        .work_item_id,
+        .work_group_size,
+        .work_group_id,
+        => return Type.u32,
     }
 }
 

@@ -27,7 +27,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -47,7 +47,7 @@ template <
     class _Comp,
     class _Proj1,
     class _Proj2>
-_LIBCPP_HIDE_FROM_ABI constexpr merge_result<__uncvref_t<_InIter1>, __uncvref_t<_InIter2>, __uncvref_t<_OutIter>>
+_LIBCPP_HIDE_FROM_ABI constexpr merge_result<__remove_cvref_t<_InIter1>, __remove_cvref_t<_InIter2>, __remove_cvref_t<_OutIter>>
 __merge_impl(
     _InIter1&& __first1,
     _Sent1&& __last1,
@@ -107,7 +107,7 @@ struct __fn {
         _OutIter,
         _Comp,
         _Proj1,
-        _Proj2> 
+        _Proj2>
   _LIBCPP_HIDE_FROM_ABI constexpr merge_result<borrowed_iterator_t<_Range1>, borrowed_iterator_t<_Range2>, _OutIter>
         operator()(
             _Range1&& __range1,
@@ -137,6 +137,6 @@ inline namespace __cpo {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 #endif // _LIBCPP___ALGORITHM_RANGES_MERGE_H

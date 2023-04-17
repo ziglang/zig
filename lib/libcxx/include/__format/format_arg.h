@@ -45,16 +45,22 @@ namespace __format {
 /// It could be packed in 4-bits but that means a new type directly becomes an
 /// ABI break. The packed type is 64-bit so this reduces the maximum number of
 /// packed elements from 16 to 12.
+///
+/// @note Some members of this enum are an extension. These extensions need
+/// special behaviour in visit_format_arg. There they need to be wrapped in a
+/// handle to satisfy the user observable behaviour. The internal function
+/// __visit_format_arg doesn't do this wrapping. So in the format functions
+/// this function is used to avoid unneeded overhead.
 enum class _LIBCPP_ENUM_VIS __arg_t : uint8_t {
   __none,
   __boolean,
   __char_type,
   __int,
   __long_long,
-  __i128,
+  __i128, // extension
   __unsigned,
   __unsigned_long_long,
-  __u128,
+  __u128, // extension
   __float,
   __double,
   __long_double,
@@ -85,9 +91,11 @@ constexpr __arg_t __get_packed_type(uint64_t __types, size_t __id) {
 
 } // namespace __format
 
+// This function is not user obervable, so it can directly use the non-standard
+// types of the "variant". See __arg_t for more details.
 template <class _Visitor, class _Context>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT decltype(auto) visit_format_arg(_Visitor&& __vis,
-                                                                                  basic_format_arg<_Context> __arg) {
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT decltype(auto)
+__visit_format_arg(_Visitor&& __vis, basic_format_arg<_Context> __arg) {
   switch (__arg.__type_) {
   case __format::__arg_t::__none:
     return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__monostate_);
@@ -153,7 +161,7 @@ public:
             using _Dp = remove_cvref_t<_Tp>;
             using _Formatter = typename _Context::template formatter_type<_Dp>;
             constexpr bool __const_formattable =
-                requires { _Formatter().format(declval<const _Dp&>(), declval<_Context&>()); };
+                requires { _Formatter().format(std::declval<const _Dp&>(), std::declval<_Context&>()); };
             using _Qp = conditional_t<__const_formattable, const _Dp, _Dp>;
 
             static_assert(__const_formattable || !is_const_v<remove_reference_t<_Tp>>, "Mandated by [format.arg]/18");
@@ -264,6 +272,28 @@ public:
 private:
   typename __basic_format_arg_value<_Context>::__handle& __handle_;
 };
+
+// This function is user facing, so it must wrap the non-standard types of
+// the "variant" in a handle to stay conforming. See __arg_t for more details.
+template <class _Visitor, class _Context>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_FORMAT decltype(auto)
+visit_format_arg(_Visitor&& __vis, basic_format_arg<_Context> __arg) {
+  switch (__arg.__type_) {
+#  ifndef _LIBCPP_HAS_NO_INT128
+  case __format::__arg_t::__i128: {
+    typename __basic_format_arg_value<_Context>::__handle __h{__arg.__value_.__i128_};
+    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), typename basic_format_arg<_Context>::handle{__h});
+  }
+
+  case __format::__arg_t::__u128: {
+    typename __basic_format_arg_value<_Context>::__handle __h{__arg.__value_.__u128_};
+    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), typename basic_format_arg<_Context>::handle{__h});
+  }
+#  endif
+  default:
+    return _VSTD::__visit_format_arg(_VSTD::forward<_Visitor>(__vis), __arg);
+  }
+}
 
 #endif //_LIBCPP_STD_VER > 17
 

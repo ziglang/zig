@@ -2,17 +2,12 @@ const std = @import("std");
 const builtin = @import("builtin");
 const CrossTarget = std.zig.CrossTarget;
 
-// TODO integrate this with the std.Build executor API
-fn isRunnableTarget(t: CrossTarget) bool {
-    if (t.isNative()) return true;
-
-    return (t.getOsTag() == builtin.os.tag and
-        t.getCpuArch() == builtin.cpu.arch);
-}
-
 pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{});
-    const target = b.standardTargetOptions(.{});
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    const optimize: std.builtin.OptimizeMode = .Debug;
+    const target: std.zig.CrossTarget = .{};
 
     const exe = b.addExecutable(.{
         .name = "main",
@@ -20,22 +15,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .target = target,
     });
-    exe.install();
 
     const c_sources = [_][]const u8{
         "test.c",
     };
-
     exe.addCSourceFiles(&c_sources, &.{});
     exe.linkLibC();
 
-    b.default_step.dependOn(&exe.step);
-
-    const test_step = b.step("test", "Test the program");
-    if (isRunnableTarget(target)) {
-        const run_cmd = exe.run();
-        test_step.dependOn(&run_cmd.step);
-    } else {
-        test_step.dependOn(&exe.step);
-    }
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.expectExitCode(0);
+    run_cmd.skip_foreign_checks = true;
+    test_step.dependOn(&run_cmd.step);
 }

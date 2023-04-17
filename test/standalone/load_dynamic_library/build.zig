@@ -1,8 +1,14 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
+
+    const optimize: std.builtin.OptimizeMode = .Debug;
+    const target: std.zig.CrossTarget = .{};
+
+    if (builtin.os.tag == .wasi) return;
 
     const lib = b.addSharedLibrary(.{
         .name = "add",
@@ -19,9 +25,10 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
-    const run = main.run();
+    const run = b.addRunArtifact(main);
     run.addArtifactArg(lib);
+    run.skip_foreign_checks = true;
+    run.expectExitCode(0);
 
-    const test_step = b.step("test", "Test the program");
     test_step.dependOn(&run.step);
 }

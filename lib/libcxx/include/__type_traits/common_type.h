@@ -26,7 +26,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER > 17
 // Let COND_RES(X, Y) be:
 template <class _Tp, class _Up>
-using __cond_type = decltype(false ? declval<_Tp>() : declval<_Up>());
+using __cond_type = decltype(false ? std::declval<_Tp>() : std::declval<_Up>());
 
 template <class _Tp, class _Up, class = void>
 struct __common_type3 {};
@@ -47,13 +47,10 @@ struct __common_type2_imp {};
 
 // sub-bullet 3 - "if decay_t<decltype(false ? declval<D1>() : declval<D2>())> ..."
 template <class _Tp, class _Up>
-struct __common_type2_imp<_Tp, _Up,
-                          typename __void_t<decltype(
-                                            true ? declval<_Tp>() : declval<_Up>()
-                                            )>::type>
+struct __common_type2_imp<_Tp, _Up, __void_t<decltype(true ? std::declval<_Tp>() : std::declval<_Up>())> >
 {
   typedef _LIBCPP_NODEBUG typename decay<decltype(
-                         true ? declval<_Tp>() : declval<_Up>()
+                         true ? std::declval<_Tp>() : std::declval<_Up>()
                          )>::type type;
 };
 
@@ -82,8 +79,7 @@ struct common_type {
 
 template <class _Tp, class _Up>
 struct __common_type_impl<
-    __common_types<_Tp, _Up>,
-    typename __void_t<typename common_type<_Tp, _Up>::type>::type>
+    __common_types<_Tp, _Up>, __void_t<typename common_type<_Tp, _Up>::type> >
 {
   typedef typename common_type<_Tp, _Up>::type type;
 };
@@ -91,7 +87,7 @@ struct __common_type_impl<
 template <class _Tp, class _Up, class _Vp _LIBCPP_OPTIONAL_PACK(class... _Rest)>
 struct __common_type_impl<
     __common_types<_Tp, _Up, _Vp _LIBCPP_OPTIONAL_PACK(_Rest...)>,
-    typename __void_t<typename common_type<_Tp, _Up>::type>::type>
+    __void_t<typename common_type<_Tp, _Up>::type> >
     : __common_type_impl<__common_types<typename common_type<_Tp, _Up>::type,
                                         _Vp _LIBCPP_OPTIONAL_PACK(_Rest...)> > {
 };

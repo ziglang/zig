@@ -16,7 +16,8 @@
 #include <__concepts/same_as.h>
 #include <__concepts/totally_ordered.h>
 #include <__config>
-#include <type_traits>
+#include <__type_traits/common_reference.h>
+#include <__type_traits/make_const_lvalue_ref.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

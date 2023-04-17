@@ -18,7 +18,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _ForwardIterator, class _Generator>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
 void
 generate(_ForwardIterator __first, _ForwardIterator __last, _Generator __gen)
 {

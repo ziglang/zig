@@ -4,7 +4,9 @@ const root = @import("root");
 pub const aead = struct {
     pub const aegis = struct {
         pub const Aegis128L = @import("crypto/aegis.zig").Aegis128L;
+        pub const Aegis128L_256 = @import("crypto/aegis.zig").Aegis128L_256;
         pub const Aegis256 = @import("crypto/aegis.zig").Aegis256;
+        pub const Aegis256_256 = @import("crypto/aegis.zig").Aegis256_256;
     };
 
     pub const aes_gcm = struct {
@@ -16,8 +18,6 @@ pub const aead = struct {
         pub const Aes128Ocb = @import("crypto/aes_ocb.zig").Aes128Ocb;
         pub const Aes256Ocb = @import("crypto/aes_ocb.zig").Aes256Ocb;
     };
-
-    pub const Gimli = @import("crypto/gimli.zig").Aead;
 
     pub const chacha_poly = struct {
         pub const ChaCha20Poly1305 = @import("crypto/chacha20.zig").ChaCha20Poly1305;
@@ -52,8 +52,6 @@ pub const core = struct {
     pub const keccak = @import("crypto/keccak_p.zig");
 
     pub const Ascon = @import("crypto/ascon.zig").State;
-    pub const Gimli = @import("crypto/gimli.zig").State;
-    pub const Xoodoo = @import("crypto/xoodoo.zig").State;
 
     /// Modes are generic compositions to construct encryption/decryption functions from block ciphers and permutations.
     ///
@@ -66,6 +64,11 @@ pub const core = struct {
 /// Diffie-Hellman key exchange functions.
 pub const dh = struct {
     pub const X25519 = @import("crypto/25519/x25519.zig").X25519;
+};
+
+/// Key Encapsulation Mechanisms.
+pub const kem = struct {
+    pub const kyber_d00 = @import("crypto/kyber_d00.zig");
 };
 
 /// Elliptic-curve arithmetic.
@@ -82,7 +85,6 @@ pub const ecc = struct {
 pub const hash = struct {
     pub const blake2 = @import("crypto/blake2.zig");
     pub const Blake3 = @import("crypto/blake3.zig").Blake3;
-    pub const Gimli = @import("crypto/gimli.zig").Hash;
     pub const Md5 = @import("crypto/md5.zig").Md5;
     pub const Sha1 = @import("crypto/sha1.zig").Sha1;
     pub const sha2 = @import("crypto/sha2.zig");
@@ -216,8 +218,6 @@ test {
     _ = aead.aes_ocb.Aes128Ocb;
     _ = aead.aes_ocb.Aes256Ocb;
 
-    _ = aead.Gimli;
-
     _ = aead.chacha_poly.ChaCha20Poly1305;
     _ = aead.chacha_poly.ChaCha12Poly1305;
     _ = aead.chacha_poly.ChaCha8Poly1305;
@@ -234,11 +234,11 @@ test {
 
     _ = core.aes;
     _ = core.Ascon;
-    _ = core.Gimli;
-    _ = core.Xoodoo;
     _ = core.modes;
 
     _ = dh.X25519;
+
+    _ = kem.kyber_d00;
 
     _ = ecc.Curve25519;
     _ = ecc.Edwards25519;
@@ -249,7 +249,6 @@ test {
 
     _ = hash.blake2;
     _ = hash.Blake3;
-    _ = hash.Gimli;
     _ = hash.Md5;
     _ = hash.Sha1;
     _ = hash.sha2;
@@ -327,7 +326,6 @@ test "issue #4532: no index out of bounds" {
         hash.blake2.Blake2b256,
         hash.blake2.Blake2b384,
         hash.blake2.Blake2b512,
-        hash.Gimli,
     };
 
     inline for (types) |Hasher| {

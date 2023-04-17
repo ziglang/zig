@@ -56,11 +56,11 @@ struct __lfts_uses_alloc_ctor_imp<true, _Tp, _Alloc, _Args...>
         = is_constructible<_Tp, allocator_arg_t, _Alloc, _Args...>::value;
 
     static const bool __ic_second =
-        conditional<
+        __conditional_t<
             __ic_first,
             false_type,
             is_constructible<_Tp, _Args..., _Alloc>
-        >::type::value;
+        >::value;
 
     static_assert(__ic_first || __ic_second,
                   "Request for uses allocator construction is ill-formed");

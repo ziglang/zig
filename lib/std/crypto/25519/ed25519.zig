@@ -622,7 +622,7 @@ test "ed25519 test vectors" {
         },
     };
     for (entries) |entry| {
-        var msg: [entry.msg_hex.len / 2]u8 = undefined;
+        var msg: [64 / 2]u8 = undefined;
         _ = try fmt.hexToBytes(&msg, entry.msg_hex);
         var public_key_bytes: [32]u8 = undefined;
         _ = try fmt.hexToBytes(&public_key_bytes, entry.public_key_hex);

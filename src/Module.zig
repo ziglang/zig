@@ -555,7 +555,7 @@ pub const Decl = struct {
         _,
 
         pub fn init(oi: ?Index) OptionalIndex {
-            return oi orelse .none;
+            return @intToEnum(OptionalIndex, @enumToInt(oi orelse return .none));
         }
 
         pub fn unwrap(oi: OptionalIndex) ?Index {
@@ -2459,7 +2459,7 @@ pub const SrcLoc = struct {
                 return nodeToSpan(tree, node_datas[asm_output].lhs);
             },
 
-            .node_offset_for_cond, .node_offset_if_cond => |node_off| {
+            .node_offset_if_cond => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_tags = tree.nodes.items(.tag);
@@ -2471,9 +2471,16 @@ pub const SrcLoc = struct {
                     .while_simple,
                     .while_cont,
                     .@"while",
+                    => tree.fullWhile(node).?.ast.cond_expr,
+
                     .for_simple,
                     .@"for",
-                    => tree.fullWhile(node).?.ast.cond_expr,
+                    => {
+                        const inputs = tree.fullFor(node).?.ast.inputs;
+                        const start = tree.firstToken(inputs[0]);
+                        const end = tree.lastToken(inputs[inputs.len - 1]);
+                        return tokensToSpan(tree, start, end, start);
+                    },
 
                     .@"orelse" => node,
                     .@"catch" => node,
@@ -2967,12 +2974,6 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to the initializer of a var decl.
     /// The Decl is determined contextually.
     node_offset_var_decl_init: i32,
-    /// The source location points to a for loop condition expression,
-    /// found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a for loop AST node. Next, navigate
-    /// to the condition expression.
-    /// The Decl is determined contextually.
-    node_offset_for_cond: i32,
     /// The source location points to the first parameter of a builtin
     /// function call, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a builtin call AST node. Next, navigate
@@ -3233,7 +3234,6 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_var_decl_section,
             .node_offset_var_decl_addrspace,
             .node_offset_var_decl_init,
-            .node_offset_for_cond,
             .node_offset_builtin_call_arg0,
             .node_offset_builtin_call_arg1,
             .node_offset_builtin_call_arg2,
@@ -3756,67 +3756,9 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     file.source_loaded = true;
 
     file.tree = try Ast.parse(gpa, source, .zig);
-    defer if (!file.tree_loaded) file.tree.deinit(gpa);
-
-    if (file.tree.errors.len != 0) {
-        const parse_err = file.tree.errors[0];
-
-        var msg = std.ArrayList(u8).init(gpa);
-        defer msg.deinit();
-
-        const token_starts = file.tree.tokens.items(.start);
-        const token_tags = file.tree.tokens.items(.tag);
-
-        const extra_offset = file.tree.errorOffset(parse_err);
-        try file.tree.renderError(parse_err, msg.writer());
-        const err_msg = try gpa.create(ErrorMsg);
-        err_msg.* = .{
-            .src_loc = .{
-                .file_scope = file,
-                .parent_decl_node = 0,
-                .lazy = if (extra_offset == 0) .{
-                    .token_abs = parse_err.token,
-                } else .{
-                    .byte_abs = token_starts[parse_err.token] + extra_offset,
-                },
-            },
-            .msg = try msg.toOwnedSlice(),
-        };
-        if (token_tags[parse_err.token + @boolToInt(parse_err.token_is_prev)] == .invalid) {
-            const bad_off = @intCast(u32, file.tree.tokenSlice(parse_err.token + @boolToInt(parse_err.token_is_prev)).len);
-            const byte_abs = token_starts[parse_err.token + @boolToInt(parse_err.token_is_prev)] + bad_off;
-            try mod.errNoteNonLazy(.{
-                .file_scope = file,
-                .parent_decl_node = 0,
-                .lazy = .{ .byte_abs = byte_abs },
-            }, err_msg, "invalid byte: '{'}'", .{std.zig.fmtEscapes(source[byte_abs..][0..1])});
-        }
-
-        for (file.tree.errors[1..]) |note| {
-            if (!note.is_note) break;
-
-            try file.tree.renderError(note, msg.writer());
-            err_msg.notes = try mod.gpa.realloc(err_msg.notes, err_msg.notes.len + 1);
-            err_msg.notes[err_msg.notes.len - 1] = .{
-                .src_loc = .{
-                    .file_scope = file,
-                    .parent_decl_node = 0,
-                    .lazy = .{ .token_abs = note.token },
-                },
-                .msg = try msg.toOwnedSlice(),
-            };
-        }
-
-        {
-            comp.mutex.lock();
-            defer comp.mutex.unlock();
-            try mod.failed_files.putNoClobber(gpa, file, err_msg);
-        }
-        file.status = .parse_failure;
-        return error.AnalysisFail;
-    }
     file.tree_loaded = true;
 
+    // Any potential AST errors are converted to ZIR errors here.
     file.zir = try AstGen.generate(gpa, file.tree);
     file.zir_loaded = true;
     file.status = .success_zir;
@@ -3925,6 +3867,9 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
     const gpa = mod.gpa;
     const new_zir = file.zir;
 
+    // The root decl will be null if the previous ZIR had AST errors.
+    const root_decl = file.root_decl.unwrap() orelse return;
+
     // Maps from old ZIR to new ZIR, struct_decl, enum_decl, etc. Any instruction which
     // creates a namespace, gets mapped from old to new here.
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
@@ -3942,7 +3887,6 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
     var decl_stack: ArrayListUnmanaged(Decl.Index) = .{};
     defer decl_stack.deinit(gpa);
 
-    const root_decl = file.root_decl.unwrap().?;
     try decl_stack.append(gpa, root_decl);
 
     file.deleted_decls.clearRetainingCapacity();
@@ -4319,7 +4263,7 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
                 comp.emit_llvm_bc == null);
 
             const dump_air = builtin.mode == .Debug and comp.verbose_air;
-            const dump_llvm_ir = builtin.mode == .Debug and comp.verbose_llvm_ir;
+            const dump_llvm_ir = builtin.mode == .Debug and (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
 
             if (no_bin_file and !dump_air and !dump_llvm_ir) return;
 
@@ -6005,7 +5949,7 @@ pub const PeerTypeCandidateSrc = union(enum) {
     none: void,
     /// When we want to know the the src of candidate i, look up at
     /// index i in this slice
-    override: []LazySrcLoc,
+    override: []?LazySrcLoc,
     /// resolvePeerTypes originates from a @TypeOf(...) call
     typeof_builtin_call_node_offset: i32,
 
@@ -6451,7 +6395,7 @@ pub fn linkerUpdateDecl(mod: *Module, decl_index: Decl.Index) !void {
         comp.emit_llvm_ir == null and
         comp.emit_llvm_bc == null);
 
-    const dump_llvm_ir = builtin.mode == .Debug and comp.verbose_llvm_ir;
+    const dump_llvm_ir = builtin.mode == .Debug and (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
 
     if (no_bin_file and !dump_llvm_ir) return;
 

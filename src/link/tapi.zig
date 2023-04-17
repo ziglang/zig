@@ -36,7 +36,7 @@ pub const TbdV3 = struct {
 pub const TbdV4 = struct {
     tbd_version: u3,
     targets: []const []const u8,
-    uuids: []const struct {
+    uuids: ?[]const struct {
         target: []const u8,
         value: []const u8,
     },

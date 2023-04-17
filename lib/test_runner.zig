@@ -8,14 +8,126 @@ pub const std_options = struct {
 };
 
 var log_err_count: usize = 0;
+var cmdline_buffer: [4096]u8 = undefined;
+var fba = std.heap.FixedBufferAllocator.init(&cmdline_buffer);
 
 pub fn main() void {
-    if (builtin.zig_backend != .stage1 and
-        builtin.zig_backend != .stage2_llvm and
-        builtin.zig_backend != .stage2_c)
+    if (builtin.zig_backend == .stage2_wasm or
+        builtin.zig_backend == .stage2_x86_64 or
+        builtin.zig_backend == .stage2_aarch64)
     {
-        return main2() catch @panic("test failure");
+        return mainSimple() catch @panic("test failure");
     }
+
+    const args = std.process.argsAlloc(fba.allocator()) catch
+        @panic("unable to parse command line args");
+
+    var listen = false;
+
+    for (args[1..]) |arg| {
+        if (std.mem.eql(u8, arg, "--listen=-")) {
+            listen = true;
+        } else {
+            @panic("unrecognized command line argument");
+        }
+    }
+
+    if (listen) {
+        return mainServer() catch @panic("internal test runner failure");
+    } else {
+        return mainTerminal();
+    }
+}
+
+fn mainServer() !void {
+    var server = try std.zig.Server.init(.{
+        .gpa = fba.allocator(),
+        .in = std.io.getStdIn(),
+        .out = std.io.getStdOut(),
+        .zig_version = builtin.zig_version_string,
+    });
+    defer server.deinit();
+
+    while (true) {
+        const hdr = try server.receiveMessage();
+        switch (hdr.tag) {
+            .exit => {
+                return std.process.exit(0);
+            },
+            .query_test_metadata => {
+                std.testing.allocator_instance = .{};
+                defer if (std.testing.allocator_instance.deinit()) {
+                    @panic("internal test runner memory leak");
+                };
+
+                var string_bytes: std.ArrayListUnmanaged(u8) = .{};
+                defer string_bytes.deinit(std.testing.allocator);
+                try string_bytes.append(std.testing.allocator, 0); // Reserve 0 for null.
+
+                const test_fns = builtin.test_functions;
+                const names = try std.testing.allocator.alloc(u32, test_fns.len);
+                defer std.testing.allocator.free(names);
+                const async_frame_sizes = try std.testing.allocator.alloc(u32, test_fns.len);
+                defer std.testing.allocator.free(async_frame_sizes);
+                const expected_panic_msgs = try std.testing.allocator.alloc(u32, test_fns.len);
+                defer std.testing.allocator.free(expected_panic_msgs);
+
+                for (test_fns, names, async_frame_sizes, expected_panic_msgs) |test_fn, *name, *async_frame_size, *expected_panic_msg| {
+                    name.* = @intCast(u32, string_bytes.items.len);
+                    try string_bytes.ensureUnusedCapacity(std.testing.allocator, test_fn.name.len + 1);
+                    string_bytes.appendSliceAssumeCapacity(test_fn.name);
+                    string_bytes.appendAssumeCapacity(0);
+
+                    async_frame_size.* = @intCast(u32, test_fn.async_frame_size orelse 0);
+                    expected_panic_msg.* = 0;
+                }
+
+                try server.serveTestMetadata(.{
+                    .names = names,
+                    .async_frame_sizes = async_frame_sizes,
+                    .expected_panic_msgs = expected_panic_msgs,
+                    .string_bytes = string_bytes.items,
+                });
+            },
+
+            .run_test => {
+                std.testing.allocator_instance = .{};
+                const index = try server.receiveBody_u32();
+                const test_fn = builtin.test_functions[index];
+                if (test_fn.async_frame_size != null)
+                    @panic("TODO test runner implement async tests");
+                var fail = false;
+                var skip = false;
+                var leak = false;
+                test_fn.func() catch |err| switch (err) {
+                    error.SkipZigTest => skip = true,
+                    else => {
+                        fail = true;
+                        if (@errorReturnTrace()) |trace| {
+                            std.debug.dumpStackTrace(trace.*);
+                        }
+                    },
+                };
+                leak = std.testing.allocator_instance.deinit();
+                try server.serveTestResults(.{
+                    .index = index,
+                    .flags = .{
+                        .fail = fail,
+                        .skip = skip,
+                        .leak = leak,
+                    },
+                });
+            },
+
+            else => {
+                std.debug.print("unsupported message: {x}", .{@enumToInt(hdr.tag)});
+                std.process.exit(1);
+            },
+        }
+    }
+}
+
+fn mainTerminal() void {
     const test_fn_list = builtin.test_functions;
     var ok_count: usize = 0;
     var skip_count: usize = 0;
@@ -118,51 +230,17 @@ pub fn log(
     }
 }
 
-pub fn main2() anyerror!void {
-    var skipped: usize = 0;
-    var failed: usize = 0;
-    // Simpler main(), exercising fewer language features, so that stage2 can handle it.
+/// Simpler main(), exercising fewer language features, so that
+/// work-in-progress backends can handle it.
+pub fn mainSimple() anyerror!void {
+    //const stderr = std.io.getStdErr();
     for (builtin.test_functions) |test_fn| {
         test_fn.func() catch |err| {
             if (err != error.SkipZigTest) {
-                failed += 1;
-            } else {
-                skipped += 1;
+                //stderr.writeAll(test_fn.name) catch {};
+                //stderr.writeAll("\n") catch {};
+                return err;
             }
         };
     }
-    if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_x86_64 or
-        builtin.zig_backend == .stage2_aarch64 or
-        builtin.zig_backend == .stage2_llvm or
-        builtin.zig_backend == .stage2_c)
-    {
-        const passed = builtin.test_functions.len - skipped - failed;
-        const stderr = std.io.getStdErr();
-        writeInt(stderr, passed) catch {};
-        stderr.writeAll(" passed; ") catch {};
-        writeInt(stderr, skipped) catch {};
-        stderr.writeAll(" skipped; ") catch {};
-        writeInt(stderr, failed) catch {};
-        stderr.writeAll(" failed.\n") catch {};
-    }
-    if (failed != 0) {
-        return error.TestsFailed;
-    }
-}
-
-fn writeInt(stderr: std.fs.File, int: usize) anyerror!void {
-    const base = 10;
-    var buf: [100]u8 = undefined;
-    var a: usize = int;
-    var index: usize = buf.len;
-    while (true) {
-        const digit = a % base;
-        index -= 1;
-        buf[index] = std.fmt.digitToChar(@intCast(u8, digit), .lower);
-        a /= base;
-        if (a == 0) break;
-    }
-    const slice = buf[index..];
-    try stderr.writeAll(slice);
 }

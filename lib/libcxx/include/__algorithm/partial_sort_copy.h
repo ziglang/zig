@@ -33,7 +33,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class _AlgPolicy, class _Compare,
           class _InputIterator, class _Sentinel1, class _RandomAccessIterator, class _Sentinel2,
           class _Proj1, class _Proj2>
-_LIBCPP_CONSTEXPR_AFTER_CXX17 pair<_InputIterator, _RandomAccessIterator>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pair<_InputIterator, _RandomAccessIterator>
 __partial_sort_copy(_InputIterator __first, _Sentinel1 __last,
                     _RandomAccessIterator __result_first, _Sentinel2 __result_last,
                     _Compare&& __comp, _Proj1&& __proj1, _Proj2&& __proj2)
@@ -60,7 +60,7 @@ __partial_sort_copy(_InputIterator __first, _Sentinel1 __last,
 }
 
 template <class _InputIterator, class _RandomAccessIterator, class _Compare>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
 _RandomAccessIterator
 partial_sort_copy(_InputIterator __first, _InputIterator __last,
                   _RandomAccessIterator __result_first, _RandomAccessIterator __result_last, _Compare __comp)
@@ -68,14 +68,13 @@ partial_sort_copy(_InputIterator __first, _InputIterator __last,
   static_assert(__is_callable<_Compare, decltype(*__first), decltype(*__result_first)>::value,
                 "Comparator has to be callable");
 
-  using _Comp_ref = typename __comp_ref_type<_Compare>::type;
   auto __result = std::__partial_sort_copy<_ClassicAlgPolicy>(__first, __last, __result_first, __result_last,
-      static_cast<_Comp_ref>(__comp), __identity(), __identity());
+      static_cast<__comp_ref_type<_Compare> >(__comp), __identity(), __identity());
   return __result.second;
 }
 
 template <class _InputIterator, class _RandomAccessIterator>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
 _RandomAccessIterator
 partial_sort_copy(_InputIterator __first, _InputIterator __last,
                   _RandomAccessIterator __result_first, _RandomAccessIterator __result_last)

@@ -77,6 +77,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .x86 => "i386",
         .x86_64 => "x86_64",
         .xcore => "xcore",
+        .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
         .le32 => "le32",
@@ -87,6 +88,8 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .hsail64 => "hsail64",
         .spir => "spir",
         .spir64 => "spir64",
+        .spirv32 => "spirv32",
+        .spirv64 => "spirv64",
         .kalimba => "kalimba",
         .shave => "shave",
         .lanai => "lanai",
@@ -96,8 +99,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .renderscript64 => "renderscript64",
         .ve => "ve",
         .spu_2 => return error.@"LLVM backend does not support SPU Mark II",
-        .spirv32 => return error.@"LLVM backend does not support SPIR-V",
-        .spirv64 => return error.@"LLVM backend does not support SPIR-V",
     };
     try llvm_triple.appendSlice(llvm_arch);
     try llvm_triple.appendSlice("-unknown-");
@@ -168,6 +169,9 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .gnuabi64 => "gnuabi64",
         .gnueabi => "gnueabi",
         .gnueabihf => "gnueabihf",
+        .gnuf32 => "gnuf32",
+        .gnuf64 => "gnuf64",
+        .gnusf => "gnusf",
         .gnux32 => "gnux32",
         .gnuilp32 => "gnuilp32",
         .code16 => "code16",
@@ -289,6 +293,7 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .x86 => .x86,
         .x86_64 => .x86_64,
         .xcore => .xcore,
+        .xtensa => .xtensa,
         .nvptx => .nvptx,
         .nvptx64 => .nvptx64,
         .le32 => .le32,
@@ -751,8 +756,35 @@ pub const Object = struct {
             dib.finalize();
         }
 
-        if (comp.verbose_llvm_ir) {
-            self.llvm_module.dump();
+        if (comp.verbose_llvm_ir) |path| {
+            if (std.mem.eql(u8, path, "-")) {
+                self.llvm_module.dump();
+            } else {
+                const path_z = try comp.gpa.dupeZ(u8, path);
+                defer comp.gpa.free(path_z);
+
+                var error_message: [*:0]const u8 = undefined;
+
+                if (self.llvm_module.printModuleToFile(path_z, &error_message).toBool()) {
+                    defer llvm.disposeMessage(error_message);
+
+                    log.err("dump LLVM module failed ir={s}: {s}", .{
+                        path, error_message,
+                    });
+                }
+            }
+        }
+
+        if (comp.verbose_llvm_bc) |path| {
+            const path_z = try comp.gpa.dupeZ(u8, path);
+            defer comp.gpa.free(path_z);
+
+            const error_code = self.llvm_module.writeBitcodeToFile(path_z);
+            if (error_code != 0) {
+                log.err("dump LLVM module failed bc={s}: {d}", .{
+                    path, error_code,
+                });
+            }
         }
 
         var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
@@ -2692,6 +2724,9 @@ pub const DeclGen = struct {
         if (comp.bin_file.options.llvm_cpu_features) |s| {
             llvm_fn.addFunctionAttr("target-features", s);
         }
+        if (comp.getTarget().cpu.arch.isBpf()) {
+            llvm_fn.addFunctionAttr("no-builtins", "");
+        }
     }
 
     fn resolveGlobalDecl(dg: *DeclGen, decl_index: Module.Decl.Index) Error!*llvm.Value {
@@ -3370,7 +3405,7 @@ pub const DeclGen = struct {
                     };
                     return dg.context.constStruct(&fields, fields.len, .False);
                 },
-                .int_u64, .one, .int_big_positive => {
+                .int_u64, .one, .int_big_positive, .lazy_align, .lazy_size => {
                     const llvm_usize = try dg.lowerType(Type.usize);
                     const llvm_int = llvm_usize.constInt(tv.val.toUnsignedInt(target), .False);
                     return llvm_int.constIntToPtr(try dg.lowerType(tv.ty));
@@ -3788,6 +3823,8 @@ pub const DeclGen = struct {
 
                 const field_ty = union_obj.fields.values()[field_index].ty;
                 if (union_obj.layout == .Packed) {
+                    if (!field_ty.hasRuntimeBits())
+                        return llvm_union_ty.constNull();
                     const non_int_val = try lowerValue(dg, .{ .ty = field_ty, .val = tag_and_val.val });
                     const ty_bit_size = @intCast(u16, field_ty.bitSize(target));
                     const small_int_ty = dg.context.intType(ty_bit_size);
@@ -4713,6 +4750,10 @@ pub const FuncGen = struct {
                 .c_va_copy => try self.airCVaCopy(inst),
                 .c_va_end => try self.airCVaEnd(inst),
                 .c_va_start => try self.airCVaStart(inst),
+
+                .work_item_id => try self.airWorkItemId(inst),
+                .work_group_size => try self.airWorkGroupSize(inst),
+                .work_group_id => try self.airWorkGroupId(inst),
                 // zig fmt: on
             };
             if (opt_value) |val| {
@@ -5529,7 +5570,7 @@ pub const FuncGen = struct {
 
                 return fg.loadByRef(payload_ptr, payload_ty, payload_ty.abiAlignment(target), false);
             }
-            const load_inst = fg.builder.buildLoad(payload_ptr.getGEPResultElementType(), payload_ptr, "");
+            const load_inst = fg.builder.buildLoad(err_union_llvm_ty.structGetTypeAtIndex(offset), payload_ptr, "");
             load_inst.setAlignment(payload_ty.abiAlignment(target));
             return load_inst;
         }
@@ -6763,7 +6804,7 @@ pub const FuncGen = struct {
 
                 return self.loadByRef(payload_ptr, payload_ty, payload_ty.abiAlignment(target), false);
             }
-            const load_inst = self.builder.buildLoad(payload_ptr.getGEPResultElementType(), payload_ptr, "");
+            const load_inst = self.builder.buildLoad(err_union_llvm_ty.structGetTypeAtIndex(offset), payload_ptr, "");
             load_inst.setAlignment(payload_ty.abiAlignment(target));
             return load_inst;
         }
@@ -8180,7 +8221,6 @@ pub const FuncGen = struct {
         const dest_ptr = try self.resolveInst(bin_op.lhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         const operand_ty = ptr_ty.childType();
-        if (!operand_ty.isFnOrHasRuntimeBitsIgnoreComptime()) return null;
 
         // TODO Sema should emit a different instruction when the store should
         // possibly do the safety 0xaa bytes for undefined.
@@ -8551,7 +8591,7 @@ pub const FuncGen = struct {
             }
             const tag_index = @boolToInt(layout.tag_align < layout.payload_align);
             const tag_field_ptr = self.builder.buildStructGEP(llvm_un_ty, union_handle, tag_index, "");
-            return self.builder.buildLoad(tag_field_ptr.getGEPResultElementType(), tag_field_ptr, "");
+            return self.builder.buildLoad(llvm_un_ty.structGetTypeAtIndex(tag_index), tag_field_ptr, "");
         } else {
             if (layout.payload_size == 0) {
                 return union_handle;
@@ -9535,6 +9575,74 @@ pub const FuncGen = struct {
         return self.builder.buildAddrSpaceCast(operand, llvm_dest_ty, "");
     }
 
+    fn amdgcnWorkIntrinsic(self: *FuncGen, dimension: u32, default: u32, comptime basename: []const u8) !?*llvm.Value {
+        const llvm_u32 = self.context.intType(32);
+
+        const llvm_fn_name = switch (dimension) {
+            0 => basename ++ ".x",
+            1 => basename ++ ".y",
+            2 => basename ++ ".z",
+            else => return llvm_u32.constInt(default, .False),
+        };
+
+        const args: [0]*llvm.Value = .{};
+        const llvm_fn = self.getIntrinsic(llvm_fn_name, &.{});
+        return self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args.len, .Fast, .Auto, "");
+    }
+
+    fn airWorkItemId(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const target = self.dg.module.getTarget();
+        assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const dimension = pl_op.payload;
+        return self.amdgcnWorkIntrinsic(dimension, 0, "llvm.amdgcn.workitem.id");
+    }
+
+    fn airWorkGroupSize(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const target = self.dg.module.getTarget();
+        assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const dimension = pl_op.payload;
+        const llvm_u32 = self.context.intType(32);
+        if (dimension >= 3) {
+            return llvm_u32.constInt(1, .False);
+        }
+
+        // Fetch the dispatch pointer, which points to this structure:
+        // https://github.com/RadeonOpenCompute/ROCR-Runtime/blob/adae6c61e10d371f7cbc3d0e94ae2c070cab18a4/src/inc/hsa.h#L2913
+        const llvm_fn = self.getIntrinsic("llvm.amdgcn.dispatch.ptr", &.{});
+        const args: [0]*llvm.Value = .{};
+        const dispatch_ptr = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args.len, .Fast, .Auto, "");
+        dispatch_ptr.setAlignment(4);
+
+        // Load the work_group_* member from the struct as u16.
+        // Just treat the dispatch pointer as an array of u16 to keep things simple.
+        const offset = 2 + dimension;
+        const index = [_]*llvm.Value{llvm_u32.constInt(offset, .False)};
+        const llvm_u16 = self.context.intType(16);
+        const workgroup_size_ptr = self.builder.buildInBoundsGEP(llvm_u16, dispatch_ptr, &index, index.len, "");
+        const workgroup_size = self.builder.buildLoad(llvm_u16, workgroup_size_ptr, "");
+        workgroup_size.setAlignment(2);
+        return workgroup_size;
+    }
+
+    fn airWorkGroupId(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const target = self.dg.module.getTarget();
+        assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
+
+        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+        const dimension = pl_op.payload;
+        return self.amdgcnWorkIntrinsic(dimension, 0, "llvm.amdgcn.workgroup.id");
+    }
+
     fn getErrorNameTable(self: *FuncGen) !*llvm.Value {
         if (self.dg.object.error_name_table) |table| {
             return table;
@@ -10111,6 +10219,15 @@ fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeX86AsmPrinter();
             llvm.LLVMInitializeX86AsmParser();
         },
+        .xtensa => {
+            if (build_options.llvm_has_xtensa) {
+                llvm.LLVMInitializeXtensaTarget();
+                llvm.LLVMInitializeXtensaTargetInfo();
+                llvm.LLVMInitializeXtensaTargetMC();
+                llvm.LLVMInitializeXtensaAsmPrinter();
+                llvm.LLVMInitializeXtensaAsmParser();
+            }
+        },
         .xcore => {
             llvm.LLVMInitializeXCoreTarget();
             llvm.LLVMInitializeXCoreTargetInfo();
@@ -10233,11 +10350,8 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) llvm.Ca
         .Signal => .AVR_SIGNAL,
         .SysV => .X86_64_SysV,
         .Win64 => .Win64,
-        .PtxKernel => return switch (target.cpu.arch) {
+        .Kernel => return switch (target.cpu.arch) {
             .nvptx, .nvptx64 => .PTX_Kernel,
-            else => unreachable,
-        },
-        .AmdgpuKernel => return switch (target.cpu.arch) {
             .amdgcn => .AMDGPU_KERNEL,
             else => unreachable,
         },

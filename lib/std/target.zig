@@ -280,13 +280,13 @@ pub const Target = struct {
                         .aarch64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 0 },
+                                .max = .{ .major = 13, .minor = 3 },
                             },
                         },
                         .x86_64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 0 },
+                                .max = .{ .major = 13, .minor = 3 },
                             },
                         },
                         else => unreachable,
@@ -459,6 +459,7 @@ pub const Target = struct {
     pub const bpf = @import("target/bpf.zig");
     pub const csky = @import("target/csky.zig");
     pub const hexagon = @import("target/hexagon.zig");
+    pub const loongarch = @import("target/loongarch.zig");
     pub const m68k = @import("target/m68k.zig");
     pub const mips = @import("target/mips.zig");
     pub const msp430 = @import("target/msp430.zig");
@@ -471,6 +472,7 @@ pub const Target = struct {
     pub const ve = @import("target/ve.zig");
     pub const wasm = @import("target/wasm.zig");
     pub const x86 = @import("target/x86.zig");
+    pub const xtensa = @import("target/xtensa.zig");
 
     pub const Abi = enum {
         none,
@@ -479,6 +481,9 @@ pub const Target = struct {
         gnuabi64,
         gnueabi,
         gnueabihf,
+        gnuf32,
+        gnuf64,
+        gnusf,
         gnux32,
         gnuilp32,
         code16,
@@ -844,6 +849,7 @@ pub const Target = struct {
             x86,
             x86_64,
             xcore,
+            xtensa,
             nvptx,
             nvptx64,
             le32,
@@ -938,7 +944,7 @@ pub const Target = struct {
                 };
             }
 
-            pub fn isSPIRV(arch: Arch) bool {
+            pub fn isSpirV(arch: Arch) bool {
                 return switch (arch) {
                     .spirv32, .spirv64 => true,
                     else => false,
@@ -992,6 +998,7 @@ pub const Target = struct {
                     .thumbeb => .ARM,
                     .x86 => .@"386",
                     .xcore => .XCORE,
+                    .xtensa => .XTENSA,
                     .nvptx => .NONE,
                     .amdil => .NONE,
                     .hsail => .NONE,
@@ -1017,7 +1024,7 @@ pub const Target = struct {
                     .spir64 => .NONE,
                     .wasm64 => .NONE,
                     .renderscript64 => .NONE,
-                    .amdgcn => .NONE,
+                    .amdgcn => .AMDGPU,
                     .bpfel => .BPF,
                     .bpfeb => .BPF,
                     .csky => .CSKY,
@@ -1056,6 +1063,7 @@ pub const Target = struct {
                     .thumbeb => .Thumb,
                     .x86 => .I386,
                     .xcore => .Unknown,
+                    .xtensa => .Unknown,
                     .nvptx => .Unknown,
                     .amdil => .Unknown,
                     .hsail => .Unknown,
@@ -1067,7 +1075,7 @@ pub const Target = struct {
                     .renderscript32 => .Unknown,
                     .aarch64_32 => .ARM64,
                     .aarch64 => .ARM64,
-                    .aarch64_be => .Unknown,
+                    .aarch64_be => .ARM64,
                     .mips64 => .Unknown,
                     .mips64el => .Unknown,
                     .powerpc64 => .Unknown,
@@ -1107,6 +1115,7 @@ pub const Target = struct {
                     .amdil64,
                     .bpfel,
                     .csky,
+                    .xtensa,
                     .hexagon,
                     .hsail,
                     .hsail64,
@@ -1221,6 +1230,7 @@ pub const Target = struct {
                     .spirv32,
                     .loongarch32,
                     .dxil,
+                    .xtensa,
                     => return 32,
 
                     .aarch64,
@@ -1256,6 +1266,7 @@ pub const Target = struct {
                     .arm, .armeb, .thumb, .thumbeb => "arm",
                     .aarch64, .aarch64_be, .aarch64_32 => "aarch64",
                     .bpfel, .bpfeb => "bpf",
+                    .loongarch32, .loongarch64 => "loongarch",
                     .mips, .mipsel, .mips64, .mips64el => "mips",
                     .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
                     .amdgcn => "amdgpu",
@@ -1265,7 +1276,7 @@ pub const Target = struct {
                     .x86, .x86_64 => "x86",
                     .nvptx, .nvptx64 => "nvptx",
                     .wasm32, .wasm64 => "wasm",
-                    .spirv32, .spirv64 => "spir-v",
+                    .spirv32, .spirv64 => "spirv",
                     else => @tagName(arch),
                 };
             }
@@ -1275,9 +1286,13 @@ pub const Target = struct {
                 return switch (arch) {
                     .arm, .armeb, .thumb, .thumbeb => &arm.all_features,
                     .aarch64, .aarch64_be, .aarch64_32 => &aarch64.all_features,
+                    .arc => &arc.all_features,
                     .avr => &avr.all_features,
                     .bpfel, .bpfeb => &bpf.all_features,
+                    .csky => &csky.all_features,
                     .hexagon => &hexagon.all_features,
+                    .loongarch32, .loongarch64 => &loongarch.all_features,
+                    .m68k => &m68k.all_features,
                     .mips, .mipsel, .mips64, .mips64el => &mips.all_features,
                     .msp430 => &msp430.all_features,
                     .powerpc, .powerpcle, .powerpc64, .powerpc64le => &powerpc.all_features,
@@ -1287,6 +1302,7 @@ pub const Target = struct {
                     .spirv32, .spirv64 => &spirv.all_features,
                     .s390x => &s390x.all_features,
                     .x86, .x86_64 => &x86.all_features,
+                    .xtensa => &xtensa.all_features,
                     .nvptx, .nvptx64 => &nvptx.all_features,
                     .ve => &ve.all_features,
                     .wasm32, .wasm64 => &wasm.all_features,
@@ -1298,19 +1314,25 @@ pub const Target = struct {
             /// All processors Zig is aware of, sorted lexicographically by name.
             pub fn allCpuModels(arch: Arch) []const *const Cpu.Model {
                 return switch (arch) {
+                    .arc => comptime allCpusFromDecls(arc.cpu),
                     .arm, .armeb, .thumb, .thumbeb => comptime allCpusFromDecls(arm.cpu),
                     .aarch64, .aarch64_be, .aarch64_32 => comptime allCpusFromDecls(aarch64.cpu),
                     .avr => comptime allCpusFromDecls(avr.cpu),
                     .bpfel, .bpfeb => comptime allCpusFromDecls(bpf.cpu),
+                    .csky => comptime allCpusFromDecls(csky.cpu),
                     .hexagon => comptime allCpusFromDecls(hexagon.cpu),
+                    .loongarch32, .loongarch64 => comptime allCpusFromDecls(loongarch.cpu),
+                    .m68k => comptime allCpusFromDecls(m68k.cpu),
                     .mips, .mipsel, .mips64, .mips64el => comptime allCpusFromDecls(mips.cpu),
                     .msp430 => comptime allCpusFromDecls(msp430.cpu),
                     .powerpc, .powerpcle, .powerpc64, .powerpc64le => comptime allCpusFromDecls(powerpc.cpu),
                     .amdgcn => comptime allCpusFromDecls(amdgpu.cpu),
                     .riscv32, .riscv64 => comptime allCpusFromDecls(riscv.cpu),
                     .sparc, .sparc64, .sparcel => comptime allCpusFromDecls(sparc.cpu),
+                    .spirv32, .spirv64 => comptime allCpusFromDecls(spirv.cpu),
                     .s390x => comptime allCpusFromDecls(s390x.cpu),
                     .x86, .x86_64 => comptime allCpusFromDecls(x86.cpu),
+                    .xtensa => comptime allCpusFromDecls(xtensa.cpu),
                     .nvptx, .nvptx64 => comptime allCpusFromDecls(nvptx.cpu),
                     .ve => comptime allCpusFromDecls(ve.cpu),
                     .wasm32, .wasm64 => comptime allCpusFromDecls(wasm.cpu),
@@ -1358,6 +1380,8 @@ pub const Target = struct {
                     .avr => &avr.cpu.avr2,
                     .bpfel, .bpfeb => &bpf.cpu.generic,
                     .hexagon => &hexagon.cpu.generic,
+                    .loongarch32 => &loongarch.cpu.generic_la32,
+                    .loongarch64 => &loongarch.cpu.generic_la64,
                     .m68k => &m68k.cpu.generic,
                     .mips, .mipsel => &mips.cpu.mips32,
                     .mips64, .mips64el => &mips.cpu.mips64,
@@ -1369,6 +1393,7 @@ pub const Target = struct {
                     .amdgcn => &amdgpu.cpu.generic,
                     .riscv32 => &riscv.cpu.generic_rv32,
                     .riscv64 => &riscv.cpu.generic_rv64,
+                    .spirv32, .spirv64 => &spirv.cpu.generic,
                     .sparc, .sparcel => &sparc.cpu.generic,
                     .sparc64 => &sparc.cpu.v9, // 64-bit SPARC needs v9 as the baseline
                     .s390x => &s390x.cpu.generic,
@@ -1507,6 +1532,10 @@ pub const Target = struct {
 
     pub fn supportsNewStackCall(self: Target) bool {
         return !self.cpu.arch.isWasm();
+    }
+
+    pub fn isSpirV(self: Target) bool {
+        return self.cpu.arch.isSpirV();
     }
 
     pub const FloatAbi = enum {
@@ -1705,6 +1734,7 @@ pub const Target = struct {
                 .dxil,
                 .loongarch32,
                 .loongarch64,
+                .xtensa,
                 => return result,
             },
 
@@ -1869,11 +1899,13 @@ pub const Target = struct {
             .dxil,
             .loongarch32,
             .loongarch64,
+            .xtensa,
             => 16,
         };
     }
 
     pub const CType = enum {
+        char,
         short,
         ushort,
         int,
@@ -1889,6 +1921,7 @@ pub const Target = struct {
 
     pub fn c_type_byte_size(t: Target, c_type: CType) u16 {
         return switch (c_type) {
+            .char,
             .short,
             .ushort,
             .int,
@@ -1917,21 +1950,25 @@ pub const Target = struct {
         switch (target.os.tag) {
             .freestanding, .other => switch (target.cpu.arch) {
                 .msp430 => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort, .int, .uint => return 16,
                     .float, .long, .ulong => return 32,
                     .longlong, .ulonglong, .double, .longdouble => return 64,
                 },
                 .avr => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort, .int, .uint => return 16,
                     .long, .ulong, .float, .double, .longdouble => return 32,
                     .longlong, .ulonglong => return 64,
                 },
                 .tce, .tcele => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .long, .ulong, .longlong, .ulonglong => return 32,
                     .float, .double, .longdouble => return 32,
                 },
                 .mips64, .mips64el => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => return if (target.abi != .gnuabin32) 64 else 32,
@@ -1939,6 +1976,7 @@ pub const Target = struct {
                     .longdouble => return 128,
                 },
                 .x86_64 => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => switch (target.abi) {
@@ -1949,6 +1987,7 @@ pub const Target = struct {
                     .longdouble => return 80,
                 },
                 else => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => return target.cpu.arch.ptrBitWidth(),
@@ -2005,21 +2044,25 @@ pub const Target = struct {
             .minix,
             => switch (target.cpu.arch) {
                 .msp430 => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort, .int, .uint => return 16,
                     .long, .ulong, .float => return 32,
                     .longlong, .ulonglong, .double, .longdouble => return 64,
                 },
                 .avr => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort, .int, .uint => return 16,
                     .long, .ulong, .float, .double, .longdouble => return 32,
                     .longlong, .ulonglong => return 64,
                 },
                 .tce, .tcele => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .long, .ulong, .longlong, .ulonglong => return 32,
                     .float, .double, .longdouble => return 32,
                 },
                 .mips64, .mips64el => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => return if (target.abi != .gnuabin32) 64 else 32,
@@ -2027,6 +2070,7 @@ pub const Target = struct {
                     .longdouble => if (target.os.tag == .freebsd) return 64 else return 128,
                 },
                 .x86_64 => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => switch (target.abi) {
@@ -2037,6 +2081,7 @@ pub const Target = struct {
                     .longdouble => return 80,
                 },
                 else => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => return target.cpu.arch.ptrBitWidth(),
@@ -2097,6 +2142,7 @@ pub const Target = struct {
 
             .windows, .uefi => switch (target.cpu.arch) {
                 .x86 => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => return 32,
@@ -2107,6 +2153,7 @@ pub const Target = struct {
                     },
                 },
                 .x86_64 => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => switch (target.abi) {
@@ -2120,6 +2167,7 @@ pub const Target = struct {
                     },
                 },
                 else => switch (c_type) {
+                    .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
                     .long, .ulong => return 32,
@@ -2129,6 +2177,7 @@ pub const Target = struct {
             },
 
             .macos, .ios, .tvos, .watchos => switch (c_type) {
+                .char => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong => switch (target.cpu.arch) {
@@ -2151,6 +2200,7 @@ pub const Target = struct {
             },
 
             .nvcl, .cuda => switch (c_type) {
+                .char => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong => switch (target.cpu.arch) {
@@ -2163,6 +2213,7 @@ pub const Target = struct {
             },
 
             .amdhsa, .amdpal => switch (c_type) {
+                .char => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
                 .long, .ulong, .longlong, .ulonglong, .double => return 64,
@@ -2256,6 +2307,7 @@ pub const Target = struct {
                 .renderscript32,
                 .ve,
                 .spu_2,
+                .xtensa,
                 => 4,
 
                 .aarch64_32,
@@ -2374,6 +2426,7 @@ pub const Target = struct {
                 .renderscript32,
                 .ve,
                 .spu_2,
+                .xtensa,
                 => 4,
 
                 .arc,

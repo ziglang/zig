@@ -30,6 +30,7 @@ pub const Feature = enum {
     memmappedregs,
     movw,
     mul,
+    progmem,
     rmw,
     smallstack,
     special,
@@ -68,6 +69,7 @@ pub const all_features = blk: {
             .avr0,
             .lpm,
             .memmappedregs,
+            .progmem,
         }),
     };
     result[@enumToInt(Feature.avr2)] = .{
@@ -156,6 +158,7 @@ pub const all_features = blk: {
         .description = "The device is a part of the avr6 family",
         .dependencies = featureSet(&[_]Feature{
             .avr51,
+            .eijmpcall,
         }),
     };
     result[@enumToInt(Feature.avrtiny)] = .{
@@ -229,6 +232,11 @@ pub const all_features = blk: {
         .description = "The device supports the multiplication instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.progmem)] = .{
+        .llvm_name = "progmem",
+        .description = "The device has a separate flash namespace",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.rmw)] = .{
         .llvm_name = "rmw",
         .description = "The device supports the read-write-modify instructions: XCH, LAS, LAC, LAT",
@@ -299,6 +307,7 @@ pub const all_features = blk: {
             .lpmx,
             .movw,
             .mul,
+            .progmem,
             .spm,
             .spmx,
             .sram,
@@ -317,6 +326,7 @@ pub const all_features = blk: {
             .lpmx,
             .movw,
             .mul,
+            .progmem,
             .sram,
         }),
     };

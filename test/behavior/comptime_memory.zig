@@ -420,3 +420,11 @@ test "mutate entire slice at comptime" {
         buf[1..3].* = x;
     }
 }
+
+test "dereference undefined pointer to zero-bit type" {
+    const p0: *void = undefined;
+    try testing.expectEqual({}, p0.*);
+
+    const p1: *[0]u32 = undefined;
+    try testing.expect(p1.*.len == 0);
+}

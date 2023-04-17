@@ -13,7 +13,7 @@
 #include <__availability>
 #include <__concepts/same_as.h>
 #include <__config>
-#include <__format/format_fwd.h>
+#include <__format/concepts.h>
 #include <__format/format_parse_context.h>
 #include <__format/formatter.h>
 #include <__format/formatter_integral.h>
@@ -30,7 +30,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER > 17
 
-template <__formatter::__char_type _CharT>
+template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS _LIBCPP_AVAILABILITY_FORMAT __formatter_char {
 public:
   _LIBCPP_HIDE_FROM_ABI constexpr auto
@@ -43,6 +43,11 @@ public:
   _LIBCPP_HIDE_FROM_ABI auto format(_CharT __value, auto& __ctx) const -> decltype(__ctx.out()) {
     if (__parser_.__type_ == __format_spec::__type::__default || __parser_.__type_ == __format_spec::__type::__char)
       return __formatter::__format_char(__value, __ctx.out(), __parser_.__get_parsed_std_specifications(__ctx));
+
+#  if _LIBCPP_STD_VER > 20
+    if (__parser_.__type_ == __format_spec::__type::__debug)
+      return __formatter::__format_escaped_char(__value, __ctx.out(), __parser_.__get_parsed_std_specifications(__ctx));
+#  endif
 
     if constexpr (sizeof(_CharT) <= sizeof(int))
       // Promotes _CharT to an integral type. This reduces the number of
@@ -60,6 +65,10 @@ public:
   {
     return format(static_cast<wchar_t>(__value), __ctx);
   }
+
+#  if _LIBCPP_STD_VER > 20
+  _LIBCPP_HIDE_FROM_ABI constexpr void set_debug_format() { __parser_.__type_ = __format_spec::__type::__debug; }
+#  endif
 
   __format_spec::__parser<_CharT> __parser_;
 };

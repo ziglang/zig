@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP_SUPPORT_IBM_XLOCALE_H
-#define _LIBCPP_SUPPORT_IBM_XLOCALE_H
+#ifndef _LIBCPP___SUPPORT_IBM_XLOCALE_H
+#define _LIBCPP___SUPPORT_IBM_XLOCALE_H
 
 #if defined(__MVS__)
 #include <__support/ibm/locale_mgmt_zos.h>
@@ -126,4 +126,4 @@ vasprintf(char **strp, const char *fmt, va_list ap) {
 #ifdef __cplusplus
 }
 #endif
-#endif // _LIBCPP_SUPPORT_IBM_XLOCALE_H
+#endif // _LIBCPP___SUPPORT_IBM_XLOCALE_H

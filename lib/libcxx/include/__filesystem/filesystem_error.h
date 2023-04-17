@@ -14,6 +14,7 @@
 #include <__config>
 #include <__filesystem/path.h>
 #include <__memory/shared_ptr.h>
+#include <__utility/forward.h>
 #include <iosfwd>
 #include <new>
 #include <system_error>
@@ -60,7 +61,7 @@ public:
   filesystem_error(const filesystem_error&) = default;
   ~filesystem_error() override; // key function
 
-  _LIBCPP_INLINE_VISIBILITY
+  _LIBCPP_HIDE_FROM_ABI_VIRTUAL
   const char* what() const noexcept override {
     return __storage_->__what_.c_str();
   }

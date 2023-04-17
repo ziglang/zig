@@ -348,7 +348,7 @@ pub const WindowsDynLib = struct {
 
     pub fn lookup(self: *WindowsDynLib, comptime T: type, name: [:0]const u8) ?T {
         if (windows.kernel32.GetProcAddress(self.dll, name.ptr)) |addr| {
-            return @ptrCast(T, addr);
+            return @ptrCast(T, @alignCast(@alignOf(@typeInfo(T).Pointer.child), addr));
         } else {
             return null;
         }
@@ -382,7 +382,7 @@ pub const DlDynlib = struct {
         // dlsym (and other dl-functions) secretly take shadow parameter - return address on stack
         // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=66826
         if (@call(.never_tail, system.dlsym, .{ self.handle, name.ptr })) |symbol| {
-            return @ptrCast(T, symbol);
+            return @ptrCast(T, @alignCast(@alignOf(@typeInfo(T).Pointer.child), symbol));
         } else {
             return null;
         }

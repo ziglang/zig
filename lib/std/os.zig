@@ -29,7 +29,7 @@ const Allocator = std.mem.Allocator;
 const Preopen = std.fs.wasi.Preopen;
 const PreopenList = std.fs.wasi.PreopenList;
 
-pub const darwin = @import("os/darwin.zig");
+pub const darwin = std.c;
 pub const dragonfly = std.c;
 pub const freebsd = std.c;
 pub const haiku = std.c;
@@ -41,7 +41,6 @@ pub const plan9 = @import("os/plan9.zig");
 pub const uefi = @import("os/uefi.zig");
 pub const wasi = @import("os/wasi.zig");
 pub const windows = @import("os/windows.zig");
-pub const ptrace = @import("os/ptrace.zig");
 
 comptime {
     assert(@import("std") == std); // std lib tests require --zig-lib-dir
@@ -766,6 +765,9 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 /// This operation is non-atomic on the following systems:
 /// * Windows
 /// On these systems, the read races with concurrent writes to the same file descriptor.
+///
+/// This function assumes that all vectors, including zero-length vectors, have
+/// a pointer within the address space of the application.
 pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
     if (builtin.os.tag == .windows) {
         // TODO improve this to use ReadFileScatter
@@ -1167,6 +1169,9 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
 /// used to perform the I/O. `error.WouldBlock` is not possible on Windows.
 ///
 /// If `iov.len` is larger than `IOV_MAX`, a partial write will occur.
+///
+/// This function assumes that all vectors, including zero-length vectors, have
+/// a pointer within the address space of the application.
 pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
     if (builtin.os.tag == .windows) {
         // TODO improve this to use WriteFileScatter
@@ -1932,6 +1937,8 @@ pub fn getenv(key: []const u8) ?[]const u8 {
     if (builtin.os.tag == .windows) {
         @compileError("std.os.getenv is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
     }
+    // The simplified start logic doesn't populate environ.
+    if (std.start.simplified_logic) return null;
     // TODO see https://github.com/ziglang/zig/issues/4524
     for (environ) |ptr| {
         var line_i: usize = 0;
@@ -3234,22 +3241,48 @@ pub fn isatty(handle: fd_t) bool {
 pub fn isCygwinPty(handle: fd_t) bool {
     if (builtin.os.tag != .windows) return false;
 
-    const size = @sizeOf(windows.FILE_NAME_INFO);
-    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = [_]u8{0} ** (size + windows.MAX_PATH);
+    // If this is a MSYS2/cygwin pty, then it will be a named pipe with a name in one of these formats:
+    //   msys-[...]-ptyN-[...]
+    //   cygwin-[...]-ptyN-[...]
+    //
+    // Example: msys-1888ae32e00d56aa-pty0-to-master
 
-    if (windows.kernel32.GetFileInformationByHandleEx(
-        handle,
-        windows.FileNameInfo,
-        @ptrCast(*anyopaque, &name_info_bytes),
-        name_info_bytes.len,
-    ) == 0) {
-        return false;
+    // First, just check that the handle is a named pipe.
+    // This allows us to avoid the more costly NtQueryInformationFile call
+    // for handles that aren't named pipes.
+    {
+        var io_status: windows.IO_STATUS_BLOCK = undefined;
+        var device_info: windows.FILE_FS_DEVICE_INFORMATION = undefined;
+        const rc = windows.ntdll.NtQueryVolumeInformationFile(handle, &io_status, &device_info, @sizeOf(windows.FILE_FS_DEVICE_INFORMATION), .FileFsDeviceInformation);
+        switch (rc) {
+            .SUCCESS => {},
+            else => return false,
+        }
+        if (device_info.DeviceType != windows.FILE_DEVICE_NAMED_PIPE) return false;
+    }
+
+    const name_bytes_offset = @offsetOf(windows.FILE_NAME_INFO, "FileName");
+    // `NAME_MAX` UTF-16 code units (2 bytes each)
+    // Note: This buffer may not be long enough to handle *all* possible paths (PATH_MAX_WIDE would be necessary for that),
+    //       but because we only care about certain paths and we know they must be within a reasonable length,
+    //       we can use this smaller buffer and just return false on any error from NtQueryInformationFile.
+    const num_name_bytes = windows.MAX_PATH * 2;
+    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = [_]u8{0} ** (name_bytes_offset + num_name_bytes);
+
+    var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+    const rc = windows.ntdll.NtQueryInformationFile(handle, &io_status_block, &name_info_bytes, @intCast(u32, name_info_bytes.len), .FileNameInformation);
+    switch (rc) {
+        .SUCCESS => {},
+        .INVALID_PARAMETER => unreachable,
+        else => return false,
     }
 
     const name_info = @ptrCast(*const windows.FILE_NAME_INFO, &name_info_bytes[0]);
-    const name_bytes = name_info_bytes[size .. size + @as(usize, name_info.FileNameLength)];
+    const name_bytes = name_info_bytes[name_bytes_offset .. name_bytes_offset + @as(usize, name_info.FileNameLength)];
     const name_wide = mem.bytesAsSlice(u16, name_bytes);
-    return mem.indexOf(u16, name_wide, &[_]u16{ 'm', 's', 'y', 's', '-' }) != null or
+    // Note: The name we get from NtQueryInformationFile will be prefixed with a '\', e.g. \msys-1888ae32e00d56aa-pty0-to-master
+    return (mem.startsWith(u16, name_wide, &[_]u16{ '\\', 'm', 's', 'y', 's', '-' }) or
+        mem.startsWith(u16, name_wide, &[_]u16{ '\\', 'c', 'y', 'g', 'w', 'i', 'n', '-' })) and
         mem.indexOf(u16, name_wide, &[_]u16{ '-', 'p', 't', 'y' }) != null;
 }
 
@@ -3469,7 +3502,7 @@ pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!voi
         const rc = system.bind(sock, addr, len);
         switch (errno(rc)) {
             .SUCCESS => return,
-            .ACCES => return error.AccessDenied,
+            .ACCES, .PERM => return error.AccessDenied,
             .ADDRINUSE => return error.AddressInUse,
             .BADF => unreachable, // always a race condition if this error is returned
             .INVAL => unreachable, // invalid parameters
@@ -4000,8 +4033,28 @@ pub const WaitPidResult = struct {
 pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
     const Status = if (builtin.link_libc) c_int else u32;
     var status: Status = undefined;
+    const coerced_flags = if (builtin.link_libc) @intCast(c_int, flags) else flags;
     while (true) {
-        const rc = system.waitpid(pid, &status, if (builtin.link_libc) @intCast(c_int, flags) else flags);
+        const rc = system.waitpid(pid, &status, coerced_flags);
+        switch (errno(rc)) {
+            .SUCCESS => return .{
+                .pid = @intCast(pid_t, rc),
+                .status = @bitCast(u32, status),
+            },
+            .INTR => continue,
+            .CHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
+            .INVAL => unreachable, // Invalid flags.
+            else => unreachable,
+        }
+    }
+}
+
+pub fn wait4(pid: pid_t, flags: u32, ru: ?*rusage) WaitPidResult {
+    const Status = if (builtin.link_libc) c_int else u32;
+    var status: Status = undefined;
+    const coerced_flags = if (builtin.link_libc) @intCast(c_int, flags) else flags;
+    while (true) {
+        const rc = system.wait4(pid, &status, coerced_flags, ru);
         switch (errno(rc)) {
             .SUCCESS => return .{
                 .pid = @intCast(pid_t, rc),
@@ -5860,66 +5913,64 @@ pub fn sendto(
     dest_addr: ?*const sockaddr,
     addrlen: socklen_t,
 ) SendToError!usize {
+    if (builtin.os.tag == .windows) {
+        switch (windows.ws2_32.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen)) {
+            windows.ws2_32.SOCKET_ERROR => switch (windows.ws2_32.WSAGetLastError()) {
+                .WSAEACCES => return error.AccessDenied,
+                .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
+                .WSAECONNRESET => return error.ConnectionResetByPeer,
+                .WSAEMSGSIZE => return error.MessageTooBig,
+                .WSAENOBUFS => return error.SystemResources,
+                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                .WSAEDESTADDRREQ => unreachable, // A destination address is required.
+                .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
+                .WSAEHOSTUNREACH => return error.NetworkUnreachable,
+                // TODO: WSAEINPROGRESS, WSAEINTR
+                .WSAEINVAL => unreachable,
+                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAENETRESET => return error.ConnectionResetByPeer,
+                .WSAENETUNREACH => return error.NetworkUnreachable,
+                .WSAENOTCONN => return error.SocketNotConnected,
+                .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
+                .WSAEWOULDBLOCK => return error.WouldBlock,
+                .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
+                else => |err| return windows.unexpectedWSAError(err),
+            },
+            else => |rc| return @intCast(usize, rc),
+        }
+    }
     while (true) {
         const rc = system.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
-        if (builtin.os.tag == .windows) {
-            if (rc == windows.ws2_32.SOCKET_ERROR) {
-                switch (windows.ws2_32.WSAGetLastError()) {
-                    .WSAEACCES => return error.AccessDenied,
-                    .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
-                    .WSAECONNRESET => return error.ConnectionResetByPeer,
-                    .WSAEMSGSIZE => return error.MessageTooBig,
-                    .WSAENOBUFS => return error.SystemResources,
-                    .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                    .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-                    .WSAEDESTADDRREQ => unreachable, // A destination address is required.
-                    .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
-                    .WSAEHOSTUNREACH => return error.NetworkUnreachable,
-                    // TODO: WSAEINPROGRESS, WSAEINTR
-                    .WSAEINVAL => unreachable,
-                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
-                    .WSAENETRESET => return error.ConnectionResetByPeer,
-                    .WSAENETUNREACH => return error.NetworkUnreachable,
-                    .WSAENOTCONN => return error.SocketNotConnected,
-                    .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
-                    .WSAEWOULDBLOCK => return error.WouldBlock,
-                    .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
-                    else => |err| return windows.unexpectedWSAError(err),
-                }
-            } else {
-                return @intCast(usize, rc);
-            }
-        } else {
-            switch (errno(rc)) {
-                .SUCCESS => return @intCast(usize, rc),
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(usize, rc),
 
-                .ACCES => return error.AccessDenied,
-                .AGAIN => return error.WouldBlock,
-                .ALREADY => return error.FastOpenAlreadyInProgress,
-                .BADF => unreachable, // always a race condition
-                .CONNRESET => return error.ConnectionResetByPeer,
-                .DESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
-                .FAULT => unreachable, // An invalid user space address was specified for an argument.
-                .INTR => continue,
-                .INVAL => return error.UnreachableAddress,
-                .ISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
-                .MSGSIZE => return error.MessageTooBig,
-                .NOBUFS => return error.SystemResources,
-                .NOMEM => return error.SystemResources,
-                .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
-                .OPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
-                .PIPE => return error.BrokenPipe,
-                .AFNOSUPPORT => return error.AddressFamilyNotSupported,
-                .LOOP => return error.SymLinkLoop,
-                .NAMETOOLONG => return error.NameTooLong,
-                .NOENT => return error.FileNotFound,
-                .NOTDIR => return error.NotDir,
-                .HOSTUNREACH => return error.NetworkUnreachable,
-                .NETUNREACH => return error.NetworkUnreachable,
-                .NOTCONN => return error.SocketNotConnected,
-                .NETDOWN => return error.NetworkSubsystemFailed,
-                else => |err| return unexpectedErrno(err),
-            }
+            .ACCES => return error.AccessDenied,
+            .AGAIN => return error.WouldBlock,
+            .ALREADY => return error.FastOpenAlreadyInProgress,
+            .BADF => unreachable, // always a race condition
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .DESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
+            .FAULT => unreachable, // An invalid user space address was specified for an argument.
+            .INTR => continue,
+            .INVAL => return error.UnreachableAddress,
+            .ISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
+            .MSGSIZE => return error.MessageTooBig,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+            .OPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
+            .PIPE => return error.BrokenPipe,
+            .AFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .LOOP => return error.SymLinkLoop,
+            .NAMETOOLONG => return error.NameTooLong,
+            .NOENT => return error.FileNotFound,
+            .NOTDIR => return error.NotDir,
+            .HOSTUNREACH => return error.NetworkUnreachable,
+            .NETUNREACH => return error.NetworkUnreachable,
+            .NOTCONN => return error.SocketNotConnected,
+            .NETDOWN => return error.NetworkSubsystemFailed,
+            else => |err| return unexpectedErrno(err),
         }
     }
 }
@@ -6921,6 +6972,35 @@ pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void 
     }
 }
 
+pub const MincoreError = error{
+    /// A kernel resource was temporarily unavailable.
+    SystemResources,
+    /// vec points to an invalid address.
+    InvalidAddress,
+    /// addr is not page-aligned.
+    InvalidSyscall,
+    /// One of the following:
+    /// * length is greater than user space TASK_SIZE - addr
+    /// * addr + length contains unmapped memory
+    OutOfMemory,
+    /// The mincore syscall is not available on this version and configuration
+    /// of this UNIX-like kernel.
+    MincoreUnavailable,
+} || UnexpectedError;
+
+/// Determine whether pages are resident in memory.
+pub fn mincore(ptr: [*]align(mem.page_size) u8, length: usize, vec: [*]u8) MincoreError!void {
+    return switch (errno(system.mincore(ptr, length, vec))) {
+        .SUCCESS => {},
+        .AGAIN => error.SystemResources,
+        .FAULT => error.InvalidAddress,
+        .INVAL => error.InvalidSyscall,
+        .NOMEM => error.OutOfMemory,
+        .NOSYS => error.MincoreUnavailable,
+        else => |err| unexpectedErrno(err),
+    };
+}
+
 pub const MadviseError = error{
     /// advice is MADV.REMOVE, but the specified address range is not a shared writable mapping.
     AccessDenied,
@@ -7099,5 +7179,54 @@ pub fn timerfd_gettime(fd: i32) TimerFdGetError!linux.itimerspec {
         .FAULT => unreachable,
         .INVAL => unreachable,
         else => |err| return unexpectedErrno(err),
+    };
+}
+
+pub const PtraceError = error{
+    DeviceBusy,
+    InputOutput,
+    Overflow,
+    ProcessNotFound,
+    PermissionDenied,
+} || UnexpectedError;
+
+pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!void {
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+        @compileError("Unsupported OS");
+
+    return switch (builtin.os.tag) {
+        .linux => switch (errno(linux.ptrace(request, pid, addr, signal, 0))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .IO => return error.InputOutput,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            else => |err| return unexpectedErrno(err),
+        },
+
+        .macos, .ios, .tvos, .watchos => switch (errno(darwin.ptrace(
+            math.cast(i32, request) orelse return error.Overflow,
+            pid,
+            @intToPtr(?[*]u8, addr),
+            math.cast(i32, signal) orelse return error.Overflow,
+        ))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .INVAL => unreachable,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            else => |err| return unexpectedErrno(err),
+        },
+
+        else => switch (errno(system.ptrace(request, pid, addr, signal))) {
+            .SUCCESS => {},
+            .SRCH => error.ProcessNotFound,
+            .INVAL => unreachable,
+            .PERM => error.PermissionDenied,
+            .BUSY => error.DeviceBusy,
+            else => |err| return unexpectedErrno(err),
+        },
     };
 }

@@ -14,6 +14,7 @@
 #include <__type_traits/is_arithmetic.h>
 #include <__type_traits/is_enum.h>
 #include <__type_traits/is_member_pointer.h>
+#include <__type_traits/is_null_pointer.h>
 #include <__type_traits/is_pointer.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

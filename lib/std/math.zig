@@ -250,6 +250,7 @@ pub const ln = @import("math/ln.zig").ln;
 pub const log = @import("math/log.zig").log;
 pub const log2 = @import("math/log2.zig").log2;
 pub const log10 = @import("math/log10.zig").log10;
+pub const log10_int = @import("math/log10.zig").log10_int;
 pub const log1p = @import("math/log1p.zig").log1p;
 pub const asinh = @import("math/asinh.zig").asinh;
 pub const acosh = @import("math/acosh.zig").acosh;
@@ -876,7 +877,7 @@ fn testDivFloor() !void {
 /// zero.
 pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
-    if (comptime std.meta.trait.isNumber(T) and denominator == 0) return error.DivisionByZero;
+    if ((comptime std.meta.trait.isNumber(T)) and denominator == 0) return error.DivisionByZero;
     const info = @typeInfo(T);
     switch (info) {
         .ComptimeFloat, .Float => return @ceil(numerator / denominator),

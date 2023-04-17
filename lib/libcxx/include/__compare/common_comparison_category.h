@@ -11,7 +11,8 @@
 
 #include <__compare/ordering.h>
 #include <__config>
-#include <type_traits>
+#include <__type_traits/is_same.h>
+#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -64,7 +65,7 @@ _LIBCPP_HIDE_FROM_ABI
 constexpr auto __get_comp_type() {
   using _CCC = _ClassifyCompCategory;
   constexpr _CCC __type_kinds[] = {_StrongOrd, __type_to_enum<_Ts>()...};
-  constexpr _CCC _Cat = __compute_comp_type(__type_kinds);
+  constexpr _CCC _Cat = __comp_detail::__compute_comp_type(__type_kinds);
   if constexpr (_Cat == _None)
     return void();
   else if constexpr (_Cat == _PartialOrd)

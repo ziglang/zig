@@ -27,7 +27,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 namespace ranges {
 
@@ -55,7 +55,7 @@ struct __fn {
             input_iterator _I2, sentinel_for<_I2> _S2,
             class _Pred = ranges::equal_to, class _Proj1 = identity, class _Proj2 = identity>
     requires indirectly_comparable<_I1, _I2, _Pred, _Proj1, _Proj2>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   mismatch_result<_I1, _I2> operator()(_I1 __first1, _S1 __last1, _I2 __first2, _S2 __last2,
                                        _Pred __pred = {}, _Proj1 __proj1 = {}, _Proj2 __proj2 = {}) const {
     return __go(std::move(__first1), __last1, std::move(__first2), __last2, __pred, __proj1, __proj2);
@@ -64,7 +64,7 @@ struct __fn {
   template <input_range _R1, input_range _R2,
             class _Pred = ranges::equal_to, class _Proj1 = identity, class _Proj2 = identity>
     requires indirectly_comparable<iterator_t<_R1>, iterator_t<_R2>, _Pred, _Proj1, _Proj2>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   mismatch_result<borrowed_iterator_t<_R1>, borrowed_iterator_t<_R2>>
   operator()(_R1&& __r1, _R2&& __r2, _Pred __pred = {}, _Proj1 __proj1 = {}, _Proj2 __proj2 = {}) const {
     return __go(ranges::begin(__r1), ranges::end(__r1), ranges::begin(__r2), ranges::end(__r2),
@@ -78,7 +78,7 @@ inline namespace __cpo {
 } // namespace __cpo
 } // namespace ranges
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 _LIBCPP_END_NAMESPACE_STD
 

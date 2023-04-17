@@ -158,8 +158,8 @@ namespace std
     // Alignment properties and transformations:
     template <class T> struct alignment_of;
     template <size_t Len, size_t Align = most_stringent_alignment_requirement>
-        struct aligned_storage;
-    template <size_t Len, class... Types> struct aligned_union;
+        struct aligned_storage;                                 // deprecated in C++23
+    template <size_t Len, class... Types> struct aligned_union; // deprecated in C++23
     template <class T> struct remove_cvref; // C++20
 
     template <class T> struct decay;
@@ -419,6 +419,7 @@ namespace std
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__functional/invoke.h>
+#include <__fwd/hash.h> // This is https://llvm.org/PR56938
 #include <__type_traits/add_const.h>
 #include <__type_traits/add_cv.h>
 #include <__type_traits/add_lvalue_reference.h>
@@ -429,11 +430,13 @@ namespace std
 #include <__type_traits/aligned_union.h>
 #include <__type_traits/alignment_of.h>
 #include <__type_traits/apply_cv.h>
+#include <__type_traits/can_extract_key.h>
 #include <__type_traits/common_reference.h>
 #include <__type_traits/common_type.h>
 #include <__type_traits/conditional.h>
 #include <__type_traits/conjunction.h>
 #include <__type_traits/decay.h>
+#include <__type_traits/dependent_type.h>
 #include <__type_traits/disjunction.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/extent.h>
@@ -448,6 +451,7 @@ namespace std
 #include <__type_traits/is_base_of.h>
 #include <__type_traits/is_bounded_array.h>
 #include <__type_traits/is_callable.h>
+#include <__type_traits/is_char_like_type.h>
 #include <__type_traits/is_class.h>
 #include <__type_traits/is_compound.h>
 #include <__type_traits/is_const.h>
@@ -464,6 +468,7 @@ namespace std
 #include <__type_traits/is_floating_point.h>
 #include <__type_traits/is_function.h>
 #include <__type_traits/is_fundamental.h>
+#include <__type_traits/is_implicitly_default_constructible.h>
 #include <__type_traits/is_integral.h>
 #include <__type_traits/is_literal_type.h>
 #include <__type_traits/is_member_function_pointer.h>
@@ -492,7 +497,9 @@ namespace std
 #include <__type_traits/is_scalar.h>
 #include <__type_traits/is_scoped_enum.h>
 #include <__type_traits/is_signed.h>
+#include <__type_traits/is_specialization.h>
 #include <__type_traits/is_standard_layout.h>
+#include <__type_traits/is_swappable.h>
 #include <__type_traits/is_trivial.h>
 #include <__type_traits/is_trivially_assignable.h>
 #include <__type_traits/is_trivially_constructible.h>
@@ -508,17 +515,21 @@ namespace std
 #include <__type_traits/is_unsigned.h>
 #include <__type_traits/is_void.h>
 #include <__type_traits/is_volatile.h>
+#include <__type_traits/make_const_lvalue_ref.h>
 #include <__type_traits/make_signed.h>
 #include <__type_traits/make_unsigned.h>
+#include <__type_traits/maybe_const.h>
 #include <__type_traits/negation.h>
 #include <__type_traits/rank.h>
 #include <__type_traits/remove_all_extents.h>
 #include <__type_traits/remove_const.h>
+#include <__type_traits/remove_const_ref.h>
 #include <__type_traits/remove_cv.h>
 #include <__type_traits/remove_extent.h>
 #include <__type_traits/remove_pointer.h>
 #include <__type_traits/remove_reference.h>
 #include <__type_traits/remove_volatile.h>
+#include <__type_traits/result_of.h>
 #include <__type_traits/type_identity.h>
 #include <__type_traits/underlying_type.h>
 #include <__type_traits/void_t.h>
@@ -530,281 +541,5 @@ namespace std
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
-
-_LIBCPP_BEGIN_NAMESPACE_STD
-
-template <class _T1, class _T2> struct _LIBCPP_TEMPLATE_VIS pair;
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS hash;
-
-// Member detector base
-
-template <class _Tp, bool>
-struct _LIBCPP_TEMPLATE_VIS __dependent_type : public _Tp {};
-
-// is_integral
-
-template <class _Tp>
-struct __unconstref {
-    typedef _LIBCPP_NODEBUG typename remove_const<typename remove_reference<_Tp>::type>::type type;
-};
-
-#ifndef _LIBCPP_CXX03_LANG
-// First of all, we can't implement this check in C++03 mode because the {}
-// default initialization syntax isn't valid.
-// Second, we implement the trait in a funny manner with two defaulted template
-// arguments to workaround Clang's PR43454.
-template <class _Tp>
-void __test_implicit_default_constructible(_Tp);
-
-template <class _Tp, class = void, class = typename is_default_constructible<_Tp>::type>
-struct __is_implicitly_default_constructible
-    : false_type
-{ };
-
-template <class _Tp>
-struct __is_implicitly_default_constructible<_Tp, decltype(__test_implicit_default_constructible<_Tp const&>({})), true_type>
-    : true_type
-{ };
-
-template <class _Tp>
-struct __is_implicitly_default_constructible<_Tp, decltype(__test_implicit_default_constructible<_Tp const&>({})), false_type>
-    : false_type
-{ };
-#endif // !C++03
-
-// result_of
-
-#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_TYPE_TRAITS)
-template <class _Callable> class _LIBCPP_DEPRECATED_IN_CXX17 result_of;
-
-template <class _Fp, class ..._Args>
-class _LIBCPP_TEMPLATE_VIS result_of<_Fp(_Args...)>
-    : public __invoke_of<_Fp, _Args...>
-{
-};
-
-#if _LIBCPP_STD_VER > 11
-template <class _Tp> using result_of_t _LIBCPP_DEPRECATED_IN_CXX17 = typename result_of<_Tp>::type;
-#endif // _LIBCPP_STD_VER > 11
-#endif // _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_TYPE_TRAITS)
-
-// __swappable
-
-template <class _Tp> struct __is_swappable;
-template <class _Tp> struct __is_nothrow_swappable;
-
-
-#ifndef _LIBCPP_CXX03_LANG
-template <class _Tp>
-using __swap_result_t = typename enable_if<is_move_constructible<_Tp>::value && is_move_assignable<_Tp>::value>::type;
-#else
-template <class>
-using __swap_result_t = void;
-#endif
-
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR_AFTER_CXX17 __swap_result_t<_Tp>
-swap(_Tp& __x, _Tp& __y) _NOEXCEPT_(is_nothrow_move_constructible<_Tp>::value &&
-                                    is_nothrow_move_assignable<_Tp>::value);
-
-template<class _Tp, size_t _Np>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-typename enable_if<
-    __is_swappable<_Tp>::value
->::type
-swap(_Tp (&__a)[_Np], _Tp (&__b)[_Np]) _NOEXCEPT_(__is_nothrow_swappable<_Tp>::value);
-
-namespace __detail
-{
-// ALL generic swap overloads MUST already have a declaration available at this point.
-
-template <class _Tp, class _Up = _Tp,
-          bool _NotVoid = !is_void<_Tp>::value && !is_void<_Up>::value>
-struct __swappable_with
-{
-    template <class _LHS, class _RHS>
-    static decltype(swap(declval<_LHS>(), declval<_RHS>()))
-    __test_swap(int);
-    template <class, class>
-    static __nat __test_swap(long);
-
-    // Extra parens are needed for the C++03 definition of decltype.
-    typedef decltype((__test_swap<_Tp, _Up>(0))) __swap1;
-    typedef decltype((__test_swap<_Up, _Tp>(0))) __swap2;
-
-    static const bool value = _IsNotSame<__swap1, __nat>::value
-                           && _IsNotSame<__swap2, __nat>::value;
-};
-
-template <class _Tp, class _Up>
-struct __swappable_with<_Tp, _Up,  false> : false_type {};
-
-template <class _Tp, class _Up = _Tp, bool _Swappable = __swappable_with<_Tp, _Up>::value>
-struct __nothrow_swappable_with {
-  static const bool value =
-#ifndef _LIBCPP_HAS_NO_NOEXCEPT
-      noexcept(swap(declval<_Tp>(), declval<_Up>()))
-  &&  noexcept(swap(declval<_Up>(), declval<_Tp>()));
-#else
-      false;
-#endif
-};
-
-template <class _Tp, class _Up>
-struct __nothrow_swappable_with<_Tp, _Up, false> : false_type {};
-
-} // namespace __detail
-
-template <class _Tp>
-struct __is_swappable
-    : public integral_constant<bool, __detail::__swappable_with<_Tp&>::value>
-{
-};
-
-template <class _Tp>
-struct __is_nothrow_swappable
-    : public integral_constant<bool, __detail::__nothrow_swappable_with<_Tp&>::value>
-{
-};
-
-#if _LIBCPP_STD_VER > 14
-
-template <class _Tp, class _Up>
-struct _LIBCPP_TEMPLATE_VIS is_swappable_with
-    : public integral_constant<bool, __detail::__swappable_with<_Tp, _Up>::value>
-{
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_swappable
-    : public conditional<
-        __is_referenceable<_Tp>::value,
-        is_swappable_with<
-            typename add_lvalue_reference<_Tp>::type,
-            typename add_lvalue_reference<_Tp>::type>,
-        false_type
-    >::type
-{
-};
-
-template <class _Tp, class _Up>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_swappable_with
-    : public integral_constant<bool, __detail::__nothrow_swappable_with<_Tp, _Up>::value>
-{
-};
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_swappable
-    : public conditional<
-        __is_referenceable<_Tp>::value,
-        is_nothrow_swappable_with<
-            typename add_lvalue_reference<_Tp>::type,
-            typename add_lvalue_reference<_Tp>::type>,
-        false_type
-    >::type
-{
-};
-
-template <class _Tp, class _Up>
-inline constexpr bool is_swappable_with_v = is_swappable_with<_Tp, _Up>::value;
-
-template <class _Tp>
-inline constexpr bool is_swappable_v = is_swappable<_Tp>::value;
-
-template <class _Tp, class _Up>
-inline constexpr bool is_nothrow_swappable_with_v = is_nothrow_swappable_with<_Tp, _Up>::value;
-
-template <class _Tp>
-inline constexpr bool is_nothrow_swappable_v = is_nothrow_swappable<_Tp>::value;
-
-#endif // _LIBCPP_STD_VER > 14
-
-template <class _Tp, bool = is_enum<_Tp>::value>
-struct __sfinae_underlying_type
-{
-    typedef typename underlying_type<_Tp>::type type;
-    typedef decltype(((type)1) + 0) __promoted_type;
-};
-
-template <class _Tp>
-struct __sfinae_underlying_type<_Tp, false> {};
-
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-int __convert_to_integral(int __val) { return __val; }
-
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-unsigned __convert_to_integral(unsigned __val) { return __val; }
-
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-long __convert_to_integral(long __val) { return __val; }
-
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-unsigned long __convert_to_integral(unsigned long __val) { return __val; }
-
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-long long __convert_to_integral(long long __val) { return __val; }
-
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-unsigned long long __convert_to_integral(unsigned long long __val) {return __val; }
-
-template<typename _Fp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-typename enable_if<is_floating_point<_Fp>::value, long long>::type
- __convert_to_integral(_Fp __val) { return __val; }
-
-#ifndef _LIBCPP_HAS_NO_INT128
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-__int128_t __convert_to_integral(__int128_t __val) { return __val; }
-
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-__uint128_t __convert_to_integral(__uint128_t __val) { return __val; }
-#endif
-
-template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-typename __sfinae_underlying_type<_Tp>::__promoted_type
-__convert_to_integral(_Tp __val) { return __val; }
-
-// These traits are used in __tree and __hash_table
-struct __extract_key_fail_tag {};
-struct __extract_key_self_tag {};
-struct __extract_key_first_tag {};
-
-template <class _ValTy, class _Key,
-          class _RawValTy = typename __unconstref<_ValTy>::type>
-struct __can_extract_key
-    : conditional<_IsSame<_RawValTy, _Key>::value, __extract_key_self_tag,
-                  __extract_key_fail_tag>::type {};
-
-template <class _Pair, class _Key, class _First, class _Second>
-struct __can_extract_key<_Pair, _Key, pair<_First, _Second> >
-    : conditional<_IsSame<typename remove_const<_First>::type, _Key>::value,
-                  __extract_key_first_tag, __extract_key_fail_tag>::type {};
-
-// __can_extract_map_key uses true_type/false_type instead of the tags.
-// It returns true if _Key != _ContainerValueTy (the container is a map not a set)
-// and _ValTy == _Key.
-template <class _ValTy, class _Key, class _ContainerValueTy,
-          class _RawValTy = typename __unconstref<_ValTy>::type>
-struct __can_extract_map_key
-    : integral_constant<bool, _IsSame<_RawValTy, _Key>::value> {};
-
-// This specialization returns __extract_key_fail_tag for non-map containers
-// because _Key == _ContainerValueTy
-template <class _ValTy, class _Key, class _RawValTy>
-struct __can_extract_map_key<_ValTy, _Key, _Key, _RawValTy>
-    : false_type {};
-
-template <class _CharT>
-using _IsCharLikeType = _And<is_standard_layout<_CharT>, is_trivial<_CharT> >;
-
-template<class _Tp>
-using __make_const_lvalue_ref = const typename remove_reference<_Tp>::type&;
-
-template<bool _Const, class _Tp>
-using __maybe_const = typename conditional<_Const, const _Tp, _Tp>::type;
-
-_LIBCPP_END_NAMESPACE_STD
 
 #endif // _LIBCPP_TYPE_TRAITS

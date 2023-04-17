@@ -14,6 +14,7 @@
 #include <__chrono/month.h>
 #include <__chrono/year.h>
 #include <__config>
+#include <compare>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -27,19 +28,19 @@ namespace chrono
 {
 
 class year_month {
-    chrono::year  __y;
-    chrono::month __m;
+    chrono::year  __y_;
+    chrono::month __m_;
 public:
     _LIBCPP_HIDE_FROM_ABI year_month() = default;
     _LIBCPP_HIDE_FROM_ABI constexpr year_month(const chrono::year& __yval, const chrono::month& __mval) noexcept
-        : __y{__yval}, __m{__mval} {}
-    _LIBCPP_HIDE_FROM_ABI inline constexpr chrono::year  year()  const noexcept { return __y; }
-    _LIBCPP_HIDE_FROM_ABI inline constexpr chrono::month month() const noexcept { return __m; }
-    _LIBCPP_HIDE_FROM_ABI inline constexpr year_month& operator+=(const months& __dm) noexcept { this->__m += __dm; return *this; }
-    _LIBCPP_HIDE_FROM_ABI inline constexpr year_month& operator-=(const months& __dm) noexcept { this->__m -= __dm; return *this; }
-    _LIBCPP_HIDE_FROM_ABI inline constexpr year_month& operator+=(const years& __dy)  noexcept { this->__y += __dy; return *this; }
-    _LIBCPP_HIDE_FROM_ABI inline constexpr year_month& operator-=(const years& __dy)  noexcept { this->__y -= __dy; return *this; }
-    _LIBCPP_HIDE_FROM_ABI inline constexpr bool ok() const noexcept { return __y.ok() && __m.ok(); }
+        : __y_{__yval}, __m_{__mval} {}
+    _LIBCPP_HIDE_FROM_ABI inline constexpr chrono::year  year()  const noexcept { return __y_; }
+    _LIBCPP_HIDE_FROM_ABI inline constexpr chrono::month month() const noexcept { return __m_; }
+    _LIBCPP_HIDE_FROM_ABI inline constexpr year_month& operator+=(const months& __dm) noexcept { this->__m_ += __dm; return *this; }
+    _LIBCPP_HIDE_FROM_ABI inline constexpr year_month& operator-=(const months& __dm) noexcept { this->__m_ -= __dm; return *this; }
+    _LIBCPP_HIDE_FROM_ABI inline constexpr year_month& operator+=(const years& __dy)  noexcept { this->__y_ += __dy; return *this; }
+    _LIBCPP_HIDE_FROM_ABI inline constexpr year_month& operator-=(const years& __dy)  noexcept { this->__y_ -= __dy; return *this; }
+    _LIBCPP_HIDE_FROM_ABI inline constexpr bool ok() const noexcept { return __y_.ok() && __m_.ok(); }
 };
 
 _LIBCPP_HIDE_FROM_ABI inline constexpr
@@ -52,25 +53,11 @@ _LIBCPP_HIDE_FROM_ABI inline constexpr
 bool operator==(const year_month& __lhs, const year_month& __rhs) noexcept
 { return __lhs.year() == __rhs.year() && __lhs.month() == __rhs.month(); }
 
-_LIBCPP_HIDE_FROM_ABI inline constexpr
-bool operator!=(const year_month& __lhs, const year_month& __rhs) noexcept
-{ return !(__lhs == __rhs); }
-
-_LIBCPP_HIDE_FROM_ABI inline constexpr
-bool operator< (const year_month& __lhs, const year_month& __rhs) noexcept
-{ return __lhs.year() != __rhs.year() ? __lhs.year() < __rhs.year() : __lhs.month() < __rhs.month(); }
-
-_LIBCPP_HIDE_FROM_ABI inline constexpr
-bool operator> (const year_month& __lhs, const year_month& __rhs) noexcept
-{ return __rhs < __lhs; }
-
-_LIBCPP_HIDE_FROM_ABI inline constexpr
-bool operator<=(const year_month& __lhs, const year_month& __rhs) noexcept
-{ return !(__rhs < __lhs);}
-
-_LIBCPP_HIDE_FROM_ABI inline constexpr
-bool operator>=(const year_month& __lhs, const year_month& __rhs) noexcept
-{ return !(__lhs < __rhs); }
+_LIBCPP_HIDE_FROM_ABI constexpr strong_ordering operator<=>(const year_month& __lhs, const year_month& __rhs) noexcept {
+    if (auto __c = __lhs.year() <=> __rhs.year(); __c != 0)
+      return __c;
+    return __lhs.month() <=> __rhs.month();
+}
 
 _LIBCPP_HIDE_FROM_ABI constexpr
 year_month operator+(const year_month& __lhs, const months& __rhs) noexcept

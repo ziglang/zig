@@ -8,6 +8,10 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Dylib = @import("Dylib.zig");
 
+/// Default implicit entrypoint symbol name.
+pub const default_entry_point: []const u8 = "_main";
+
+/// Default path to dyld.
 pub const default_dyld_path: [*:0]const u8 = "/usr/lib/dyld";
 
 fn calcInstallNameLen(cmd_size: u64, name: []const u8, assume_max_path_len: bool) u64 {
@@ -294,7 +298,7 @@ pub fn writeBuildVersionLC(options: *const link.Options, lc_writer: anytype) !vo
         .ntools = 1,
     });
     try lc_writer.writeAll(mem.asBytes(&macho.build_tool_version{
-        .tool = .LD,
+        .tool = .ZIG,
         .version = 0x0,
     }));
 }

@@ -7,35 +7,32 @@ const math = std.math;
 const bits = @import("bits.zig");
 const encoder = @import("encoder.zig");
 const Instruction = encoder.Instruction;
+const Operand = Instruction.Operand;
+const Prefix = Instruction.Prefix;
 const Register = bits.Register;
 const Rex = encoder.Rex;
 const LegacyPrefixes = encoder.LegacyPrefixes;
 
-const table = @import("encodings.zig").table;
-
 mnemonic: Mnemonic,
-op_en: OpEn,
-op1: Op,
-op2: Op,
-op3: Op,
-op4: Op,
-opc_len: u2,
-opc: [3]u8,
-modrm_ext: u3,
-mode: Mode,
+data: Data,
 
-pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
-    op1: Instruction.Operand,
-    op2: Instruction.Operand,
-    op3: Instruction.Operand,
-    op4: Instruction.Operand,
-}) !?Encoding {
-    const input_op1 = Op.fromOperand(args.op1);
-    const input_op2 = Op.fromOperand(args.op2);
-    const input_op3 = Op.fromOperand(args.op3);
-    const input_op4 = Op.fromOperand(args.op4);
+const Data = struct {
+    op_en: OpEn,
+    ops: [4]Op,
+    opc_len: u3,
+    opc: [7]u8,
+    modrm_ext: u3,
+    mode: Mode,
+};
 
-    const ops = &[_]Instruction.Operand{ args.op1, args.op2, args.op3, args.op4 };
+pub fn findByMnemonic(
+    prefix: Instruction.Prefix,
+    mnemonic: Mnemonic,
+    ops: []const Instruction.Operand,
+) !?Encoding {
+    var input_ops = [1]Op{.none} ** 4;
+    for (input_ops[0..ops.len], ops) |*input_op, op| input_op.* = Op.fromOperand(op);
+
     const rex_required = for (ops) |op| switch (op) {
         .reg => |r| switch (r) {
             .spl, .bpl, .sil, .dil => break true,
@@ -65,96 +62,29 @@ pub fn findByMnemonic(mnemonic: Mnemonic, args: struct {
 
     if ((rex_required or rex_extended) and rex_invalid) return error.CannotEncode;
 
-    // TODO work out what is the maximum number of variants we can actually find in one swoop.
-    var candidates: [10]Encoding = undefined;
-    var count: usize = 0;
-    for (table) |entry| {
-        const enc = Encoding{
-            .mnemonic = entry[0],
-            .op_en = entry[1],
-            .op1 = entry[2],
-            .op2 = entry[3],
-            .op3 = entry[4],
-            .op4 = entry[5],
-            .opc_len = entry[6],
-            .opc = .{ entry[7], entry[8], entry[9] },
-            .modrm_ext = entry[10],
-            .mode = entry[11],
-        };
-        if (enc.mnemonic == mnemonic and
-            input_op1.isSubset(enc.op1, enc.mode) and
-            input_op2.isSubset(enc.op2, enc.mode) and
-            input_op3.isSubset(enc.op3, enc.mode) and
-            input_op4.isSubset(enc.op4, enc.mode))
-        {
-            if (rex_required) {
-                switch (enc.mode) {
-                    .rex, .long => {
-                        candidates[count] = enc;
-                        count += 1;
-                    },
-                    else => {},
-                }
-            } else {
-                if (enc.mode != .rex) {
-                    candidates[count] = enc;
-                    count += 1;
-                }
-            }
+    var shortest_enc: ?Encoding = null;
+    var shortest_len: ?usize = null;
+    next: for (mnemonic_to_encodings_map[@enumToInt(mnemonic)]) |data| {
+        switch (data.mode) {
+            .rex => if (!rex_required) continue,
+            .long => {},
+            else => if (rex_required) continue,
         }
+        for (input_ops, data.ops) |input_op, data_op|
+            if (!input_op.isSubset(data_op, data.mode)) continue :next;
+
+        const enc = Encoding{ .mnemonic = mnemonic, .data = data };
+        if (shortest_enc) |previous_shortest_enc| {
+            const len = estimateInstructionLength(prefix, enc, ops);
+            const previous_shortest_len = shortest_len orelse
+                estimateInstructionLength(prefix, previous_shortest_enc, ops);
+            if (len < previous_shortest_len) {
+                shortest_enc = enc;
+                shortest_len = len;
+            } else shortest_len = previous_shortest_len;
+        } else shortest_enc = enc;
     }
-
-    if (count == 0) return null;
-    if (count == 1) return candidates[0];
-
-    const EncodingLength = struct {
-        fn estimate(encoding: Encoding, params: struct {
-            op1: Instruction.Operand,
-            op2: Instruction.Operand,
-            op3: Instruction.Operand,
-            op4: Instruction.Operand,
-        }) usize {
-            var inst = Instruction{
-                .op1 = params.op1,
-                .op2 = params.op2,
-                .op3 = params.op3,
-                .op4 = params.op4,
-                .encoding = encoding,
-            };
-            var cwriter = std.io.countingWriter(std.io.null_writer);
-            inst.encode(cwriter.writer()) catch unreachable; // Not allowed to fail here unless OOM.
-            return @intCast(usize, cwriter.bytes_written);
-        }
-    };
-
-    var shortest_encoding: ?struct {
-        index: usize,
-        len: usize,
-    } = null;
-    var i: usize = 0;
-    while (i < count) : (i += 1) {
-        const candidate = candidates[i];
-        switch (candidate.mode) {
-            .long, .rex => if (rex_invalid) return error.CannotEncode,
-            else => {},
-        }
-
-        const len = EncodingLength.estimate(candidate, .{
-            .op1 = args.op1,
-            .op2 = args.op2,
-            .op3 = args.op3,
-            .op4 = args.op4,
-        });
-        const current = shortest_encoding orelse {
-            shortest_encoding = .{ .index = i, .len = len };
-            continue;
-        };
-        if (len < current.len) {
-            shortest_encoding = .{ .index = i, .len = len };
-        }
-    }
-
-    return candidates[shortest_encoding.?.index];
+    return shortest_enc;
 }
 
 /// Returns first matching encoding by opcode.
@@ -162,57 +92,45 @@ pub fn findByOpcode(opc: []const u8, prefixes: struct {
     legacy: LegacyPrefixes,
     rex: Rex,
 }, modrm_ext: ?u3) ?Encoding {
-    for (table) |entry| {
-        const enc = Encoding{
-            .mnemonic = entry[0],
-            .op_en = entry[1],
-            .op1 = entry[2],
-            .op2 = entry[3],
-            .op3 = entry[4],
-            .op4 = entry[5],
-            .opc_len = entry[6],
-            .opc = .{ entry[7], entry[8], entry[9] },
-            .modrm_ext = entry[10],
-            .mode = entry[11],
-        };
-        const match = match: {
-            if (modrm_ext) |ext| {
-                break :match ext == enc.modrm_ext and std.mem.eql(u8, enc.opcode(), opc);
+    for (mnemonic_to_encodings_map, 0..) |encs, mnemonic_int| for (encs) |data| {
+        const enc = Encoding{ .mnemonic = @intToEnum(Mnemonic, mnemonic_int), .data = data };
+        if (modrm_ext) |ext| if (ext != data.modrm_ext) continue;
+        if (!std.mem.eql(u8, opc, enc.opcode())) continue;
+        if (prefixes.rex.w) {
+            switch (data.mode) {
+                .short, .fpu, .sse, .sse2, .sse4_1, .none => continue,
+                .long, .rex => {},
             }
-            break :match std.mem.eql(u8, enc.opcode(), opc);
-        };
-        if (match) {
-            if (prefixes.rex.w) {
-                switch (enc.mode) {
-                    .fpu, .sse, .sse2, .none => {},
-                    .long, .rex => return enc,
-                }
-            } else if (prefixes.rex.present and !prefixes.rex.isSet()) {
-                if (enc.mode == .rex) return enc;
-            } else if (prefixes.legacy.prefix_66) {
-                switch (enc.operandBitSize()) {
-                    16 => return enc,
+        } else if (prefixes.rex.present and !prefixes.rex.isSet()) {
+            switch (data.mode) {
+                .rex => {},
+                else => continue,
+            }
+        } else if (prefixes.legacy.prefix_66) {
+            switch (enc.operandBitSize()) {
+                16 => {},
+                else => continue,
+            }
+        } else {
+            switch (data.mode) {
+                .none => switch (enc.operandBitSize()) {
+                    16 => continue,
                     else => {},
-                }
-            } else {
-                if (enc.mode == .none) {
-                    switch (enc.operandBitSize()) {
-                        16 => {},
-                        else => return enc,
-                    }
-                }
+                },
+                else => continue,
             }
         }
-    }
+        return enc;
+    };
     return null;
 }
 
 pub fn opcode(encoding: *const Encoding) []const u8 {
-    return encoding.opc[0..encoding.opc_len];
+    return encoding.data.opc[0..encoding.data.opc_len];
 }
 
 pub fn mandatoryPrefix(encoding: *const Encoding) ?u8 {
-    const prefix = encoding.opc[0];
+    const prefix = encoding.data.opc[0];
     return switch (prefix) {
         0x66, 0xf2, 0xf3 => prefix,
         else => null,
@@ -220,23 +138,27 @@ pub fn mandatoryPrefix(encoding: *const Encoding) ?u8 {
 }
 
 pub fn modRmExt(encoding: Encoding) u3 {
-    return switch (encoding.op_en) {
-        .m, .mi, .m1, .mc => encoding.modrm_ext,
+    return switch (encoding.data.op_en) {
+        .m, .mi, .m1, .mc => encoding.data.modrm_ext,
         else => unreachable,
     };
 }
 
 pub fn operandBitSize(encoding: Encoding) u64 {
-    if (encoding.mode == .long) return 64;
-    const bit_size: u64 = switch (encoding.op_en) {
-        .np => switch (encoding.op1) {
+    switch (encoding.data.mode) {
+        .short => return 16,
+        .long => return 64,
+        else => {},
+    }
+    const bit_size: u64 = switch (encoding.data.op_en) {
+        .np => switch (encoding.data.ops[0]) {
             .o16 => 16,
             .o32 => 32,
             .o64 => 64,
             else => 32,
         },
-        .td => encoding.op2.bitSize(),
-        else => encoding.op1.bitSize(),
+        .td => encoding.data.ops[1].bitSize(),
+        else => encoding.data.ops[0].bitSize(),
     };
     return bit_size;
 }
@@ -249,7 +171,7 @@ pub fn format(
 ) !void {
     _ = options;
     _ = fmt;
-    switch (encoding.mode) {
+    switch (encoding.data.mode) {
         .long => try writer.writeAll("REX.W + "),
         else => {},
     }
@@ -258,10 +180,10 @@ pub fn format(
         try writer.print("{x:0>2} ", .{byte});
     }
 
-    switch (encoding.op_en) {
+    switch (encoding.data.op_en) {
         .np, .fd, .td, .i, .zi, .d => {},
         .o, .oi => {
-            const tag = switch (encoding.op1) {
+            const tag = switch (encoding.data.ops[0]) {
                 .r8 => "rb",
                 .r16 => "rw",
                 .r32 => "rd",
@@ -271,15 +193,15 @@ pub fn format(
             try writer.print("+{s} ", .{tag});
         },
         .m, .mi, .m1, .mc => try writer.print("/{d} ", .{encoding.modRmExt()}),
-        .mr, .rm, .rmi => try writer.writeAll("/r "),
+        .mr, .rm, .rmi, .mri, .mrc => try writer.writeAll("/r "),
     }
 
-    switch (encoding.op_en) {
-        .i, .d, .zi, .oi, .mi, .rmi => {
-            const op = switch (encoding.op_en) {
-                .i, .d => encoding.op1,
-                .zi, .oi, .mi => encoding.op2,
-                .rmi => encoding.op3,
+    switch (encoding.data.op_en) {
+        .i, .d, .zi, .oi, .mi, .rmi, .mri => {
+            const op = switch (encoding.data.op_en) {
+                .i, .d => encoding.data.ops[0],
+                .zi, .oi, .mi => encoding.data.ops[1],
+                .rmi, .mri => encoding.data.ops[2],
                 else => unreachable,
             };
             const tag = switch (op) {
@@ -294,18 +216,17 @@ pub fn format(
             };
             try writer.print("{s} ", .{tag});
         },
-        .np, .fd, .td, .o, .m, .m1, .mc, .mr, .rm => {},
+        .np, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc => {},
     }
 
     try writer.print("{s} ", .{@tagName(encoding.mnemonic)});
 
-    const ops = &[_]Op{ encoding.op1, encoding.op2, encoding.op3, encoding.op4 };
-    for (ops) |op| switch (op) {
+    for (encoding.data.ops) |op| switch (op) {
         .none, .o16, .o32, .o64 => break,
         else => try writer.print("{s} ", .{@tagName(op)}),
     };
 
-    const op_en = switch (encoding.op_en) {
+    const op_en = switch (encoding.data.op_en) {
         .zi => .i,
         else => |op_en| op_en,
     };
@@ -316,39 +237,63 @@ pub const Mnemonic = enum {
     // zig fmt: off
     // General-purpose
     adc, add, @"and",
-    call, cbw, cwde, cdqe, cwd, cdq, cqo, cmp,
+    bsf, bsr, bswap, bt, btc, btr, bts,
+    call, cbw, cdq, cdqe,
     cmova, cmovae, cmovb, cmovbe, cmovc, cmove, cmovg, cmovge, cmovl, cmovle, cmovna,
     cmovnae, cmovnb, cmovnbe, cmovnc, cmovne, cmovng, cmovnge, cmovnl, cmovnle, cmovno,
     cmovnp, cmovns, cmovnz, cmovo, cmovp, cmovpe, cmovpo, cmovs, cmovz,
+    cmp,
+    cmps, cmpsb, cmpsd, cmpsq, cmpsw,
+    cmpxchg, cmpxchg8b, cmpxchg16b,
+    cqo, cwd, cwde,
     div,
     fisttp, fld,
     idiv, imul, int3,
     ja, jae, jb, jbe, jc, jrcxz, je, jg, jge, jl, jle, jna, jnae, jnb, jnbe,
     jnc, jne, jng, jnge, jnl, jnle, jno, jnp, jns, jnz, jo, jp, jpe, jpo, js, jz,
     jmp, 
-    lea,
-    mov, movsx, movsxd, movzx, mul,
-    nop,
+    lea, lfence,
+    lods, lodsb, lodsd, lodsq, lodsw,
+    lzcnt,
+    mfence, mov, movbe,
+    movs, movsb, movsd, movsq, movsw,
+    movsx, movsxd, movzx, mul,
+    neg, nop, not,
     @"or",
-    pop, push,
-    ret,
-    sal, sar, sbb, shl, shr, sub, syscall,
+    pop, popcnt, push,
+    rcl, rcr, ret, rol, ror,
+    sal, sar, sbb,
+    scas, scasb, scasd, scasq, scasw,
+    shl, shld, shr, shrd, sub, syscall,
     seta, setae, setb, setbe, setc, sete, setg, setge, setl, setle, setna, setnae,
     setnb, setnbe, setnc, setne, setng, setnge, setnl, setnle, setno, setnp, setns,
     setnz, seto, setp, setpe, setpo, sets, setz,
-    @"test",
+    sfence,
+    stos, stosb, stosd, stosq, stosw,
+    @"test", tzcnt,
     ud2,
-    xor,
+    xadd, xchg, xor,
     // SSE
     addss,
     cmpss,
+    divss,
+    maxss, minss,
     movss,
+    mulss,
+    subss,
     ucomiss,
     // SSE2
     addsd,
-    cmpsd,
-    movq, movsd,
+    //cmpsd,
+    divsd,
+    maxsd, minsd,
+    movq, //movsd,
+    mulsd,
+    subsd,
     ucomisd,
+    // SSE4.1
+    roundss,
+    roundsd,
     // zig fmt: on
 };
 
@@ -359,7 +304,8 @@ pub const OpEn = enum {
     i, zi,
     d, m,
     fd, td,
-    m1, mc, mi, mr, rm, rmi,
+    m1, mc, mi, mr, rm,
+    rmi, mri, mrc,
     // zig fmt: on
 };
 
@@ -374,7 +320,7 @@ pub const Op = enum {
     cl,
     r8, r16, r32, r64,
     rm8, rm16, rm32, rm64,
-    m8, m16, m32, m64, m80,
+    m8, m16, m32, m64, m80, m128,
     rel8, rel16, rel32,
     m,
     moffs,
@@ -423,6 +369,7 @@ pub const Op = enum {
                         32 => .m32,
                         64 => .m64,
                         80 => .m80,
+                        128 => .m128,
                         else => unreachable,
                     };
                 },
@@ -460,7 +407,7 @@ pub const Op = enum {
             .imm32, .imm32s, .eax, .r32, .m32, .rm32, .rel32, .xmm_m32 => 32,
             .imm64, .rax, .r64, .m64, .rm64, .xmm_m64 => 64,
             .m80 => 80,
-            .xmm => 128,
+            .m128, .xmm => 128,
         };
     }
 
@@ -507,7 +454,7 @@ pub const Op = enum {
         // zig fmt: off
         return switch (op) {
             .rm8, .rm16, .rm32, .rm64,
-            .m8, .m16, .m32, .m64, .m80,
+            .m8, .m16, .m32, .m64, .m80, .m128,
             .m,
             .xmm_m32, .xmm_m64,
             =>  true,
@@ -542,7 +489,7 @@ pub const Op = enum {
             else => {
                 if (op.isRegister() and target.isRegister()) {
                     switch (mode) {
-                        .sse, .sse2 => return op.isFloatingPointRegister() and target.isFloatingPointRegister(),
+                        .sse, .sse2, .sse4_1 => return op.isFloatingPointRegister() and target.isFloatingPointRegister(),
                         else => switch (target) {
                             .cl, .al, .ax, .eax, .rax => return op == target,
                             else => return op.bitSize() == target.bitSize(),
@@ -579,9 +526,61 @@ pub const Op = enum {
 
 pub const Mode = enum {
     none,
+    short,
     fpu,
     rex,
     long,
     sse,
     sse2,
+    sse4_1,
+};
+
+fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Operand) usize {
+    var inst = Instruction{
+        .prefix = prefix,
+        .encoding = encoding,
+        .ops = [1]Operand{.none} ** 4,
+    };
+    std.mem.copy(Operand, &inst.ops, ops);
+
+    var cwriter = std.io.countingWriter(std.io.null_writer);
+    inst.encode(cwriter.writer()) catch unreachable; // Not allowed to fail here unless OOM.
+    return @intCast(usize, cwriter.bytes_written);
+}
+
+const mnemonic_to_encodings_map = init: {
+    @setEvalBranchQuota(100_000);
+    const encodings = @import("encodings.zig");
+    var entries = encodings.table;
+    std.sort.sort(encodings.Entry, &entries, {}, struct {
+        fn lessThan(_: void, lhs: encodings.Entry, rhs: encodings.Entry) bool {
+            return @enumToInt(lhs[0]) < @enumToInt(rhs[0]);
+        }
+    }.lessThan);
+    var data_storage: [entries.len]Data = undefined;
+    var mnemonic_map: [@typeInfo(Mnemonic).Enum.fields.len][]const Data = undefined;
+    var mnemonic_int = 0;
+    var mnemonic_start = 0;
+    for (&data_storage, entries, 0..) |*data, entry, data_index| {
+        data.* = .{
+            .op_en = entry[1],
+            .ops = undefined,
+            .opc_len = entry[3].len,
+            .opc = undefined,
+            .modrm_ext = entry[4],
+            .mode = entry[5],
+        };
+        std.mem.copy(Op, &data.ops, entry[2]);
+        std.mem.copy(u8, &data.opc, entry[3]);
+
+        while (mnemonic_int < @enumToInt(entry[0])) : (mnemonic_int += 1) {
+            mnemonic_map[mnemonic_int] = data_storage[mnemonic_start..data_index];
+            mnemonic_start = data_index;
+        }
+    }
+    while (mnemonic_int < mnemonic_map.len) : (mnemonic_int += 1) {
+        mnemonic_map[mnemonic_int] = data_storage[mnemonic_start..];
+        mnemonic_start = data_storage.len;
+    }
+    break :init mnemonic_map;
 };

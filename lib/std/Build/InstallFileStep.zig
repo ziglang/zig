@@ -3,38 +3,55 @@ const Step = std.Build.Step;
 const FileSource = std.Build.FileSource;
 const InstallDir = std.Build.InstallDir;
 const InstallFileStep = @This();
+const assert = std.debug.assert;
 
 pub const base_id = .install_file;
 
 step: Step,
-builder: *std.Build,
 source: FileSource,
 dir: InstallDir,
 dest_rel_path: []const u8,
 /// This is used by the build system when a file being installed comes from one
 /// package but is being installed by another.
-override_source_builder: ?*std.Build = null,
+dest_builder: *std.Build,
 
-pub fn init(
-    builder: *std.Build,
+pub fn create(
+    owner: *std.Build,
     source: FileSource,
     dir: InstallDir,
     dest_rel_path: []const u8,
-) InstallFileStep {
-    builder.pushInstalledFile(dir, dest_rel_path);
-    return InstallFileStep{
-        .builder = builder,
-        .step = Step.init(.install_file, builder.fmt("install {s} to {s}", .{ source.getDisplayName(), dest_rel_path }), builder.allocator, make),
-        .source = source.dupe(builder),
-        .dir = dir.dupe(builder),
-        .dest_rel_path = builder.dupePath(dest_rel_path),
+) *InstallFileStep {
+    assert(dest_rel_path.len != 0);
+    owner.pushInstalledFile(dir, dest_rel_path);
+    const self = owner.allocator.create(InstallFileStep) catch @panic("OOM");
+    self.* = .{
+        .step = Step.init(.{
+            .id = base_id,
+            .name = owner.fmt("install {s} to {s}", .{ source.getDisplayName(), dest_rel_path }),
+            .owner = owner,
+            .makeFn = make,
+        }),
+        .source = source.dupe(owner),
+        .dir = dir.dupe(owner),
+        .dest_rel_path = owner.dupePath(dest_rel_path),
+        .dest_builder = owner,
     };
+    source.addStepDependencies(&self.step);
+    return self;
 }
 
-fn make(step: *Step) !void {
+fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    _ = prog_node;
+    const src_builder = step.owner;
     const self = @fieldParentPtr(InstallFileStep, "step", step);
-    const src_builder = self.override_source_builder orelse self.builder;
-    const full_src_path = self.source.getPath(src_builder);
-    const full_dest_path = self.builder.getInstallPath(self.dir, self.dest_rel_path);
-    try self.builder.updateFile(full_src_path, full_dest_path);
+    const dest_builder = self.dest_builder;
+    const full_src_path = self.source.getPath2(src_builder, step);
+    const full_dest_path = dest_builder.getInstallPath(self.dir, self.dest_rel_path);
+    const cwd = std.fs.cwd();
+    const prev = std.fs.Dir.updateFile(cwd, full_src_path, cwd, full_dest_path, .{}) catch |err| {
+        return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
+            full_src_path, full_dest_path, @errorName(err),
+        });
+    };
+    step.result_cached = prev == .fresh;
 }

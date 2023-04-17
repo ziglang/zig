@@ -662,8 +662,8 @@ pub const MacroQualifiedType = opaque {
 };
 
 pub const TypeOfType = opaque {
-    pub const getUnderlyingType = ZigClangTypeOfType_getUnderlyingType;
-    extern fn ZigClangTypeOfType_getUnderlyingType(*const TypeOfType) QualType;
+    pub const getUnmodifiedType = ZigClangTypeOfType_getUnmodifiedType;
+    extern fn ZigClangTypeOfType_getUnmodifiedType(*const TypeOfType) QualType;
 };
 
 pub const TypeOfExprType = opaque {
@@ -1199,6 +1199,7 @@ const StmtClass = enum(c_int) {
     OMPCriticalDirectiveClass,
     OMPDepobjDirectiveClass,
     OMPDispatchDirectiveClass,
+    OMPErrorDirectiveClass,
     OMPFlushDirectiveClass,
     OMPInteropDirectiveClass,
     OMPDistributeDirectiveClass,
@@ -1303,6 +1304,7 @@ const StmtClass = enum(c_int) {
     CXXNewExprClass,
     CXXNoexceptExprClass,
     CXXNullPtrLiteralExprClass,
+    CXXParenListInitExprClass,
     CXXPseudoDestructorExprClass,
     CXXRewrittenBinaryOperatorClass,
     CXXScalarValueInitExprClass,
@@ -1484,11 +1486,13 @@ pub const DeclKind = enum(c_int) {
     FileScopeAsm,
     Friend,
     FriendTemplate,
+    ImplicitConceptSpecialization,
     Import,
     LifetimeExtendedTemporary,
     LinkageSpec,
     Using,
     UsingEnum,
+    HLSLBuffer,
     Label,
     Namespace,
     NamespaceAlias,
@@ -1557,6 +1561,7 @@ pub const DeclKind = enum(c_int) {
     PragmaDetectMismatch,
     RequiresExprBody,
     StaticAssert,
+    TopLevelStmt,
     TranslationUnit,
 };
 

@@ -15,9 +15,12 @@
 #include <__iterator/access.h>
 #include <__memory/addressof.h>
 #include <__memory/voidify.h>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/is_array.h>
+#include <__utility/declval.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
-#include <type_traits>
+#include <new>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -29,7 +32,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER > 17
 
-template <class _Tp, class... _Args, class = decltype(::new(declval<void*>()) _Tp(declval<_Args>()...))>
+template <class _Tp, class... _Args, class = decltype(::new(std::declval<void*>()) _Tp(std::declval<_Args>()...))>
 _LIBCPP_HIDE_FROM_ABI constexpr _Tp* construct_at(_Tp* __location, _Args&&... __args) {
   _LIBCPP_ASSERT(__location != nullptr, "null pointer given to construct_at");
   return ::new (_VSTD::__voidify(*__location)) _Tp(_VSTD::forward<_Args>(__args)...);
@@ -37,7 +40,7 @@ _LIBCPP_HIDE_FROM_ABI constexpr _Tp* construct_at(_Tp* __location, _Args&&... __
 
 #endif
 
-template <class _Tp, class... _Args, class = decltype(::new(declval<void*>()) _Tp(declval<_Args>()...))>
+template <class _Tp, class... _Args, class = decltype(::new(std::declval<void*>()) _Tp(std::declval<_Args>()...))>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Tp* __construct_at(_Tp* __location, _Args&&... __args) {
 #if _LIBCPP_STD_VER > 17
   return std::construct_at(__location, std::forward<_Args>(__args)...);
@@ -53,11 +56,11 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Tp* __construct_at(_Tp* __location, _Ar
 // taking an array).
 
 template <class _ForwardIterator>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
 _ForwardIterator __destroy(_ForwardIterator, _ForwardIterator);
 
 template <class _Tp, typename enable_if<!is_array<_Tp>::value, int>::type = 0>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
 void __destroy_at(_Tp* __loc) {
     _LIBCPP_ASSERT(__loc != nullptr, "null pointer given to destroy_at");
     __loc->~_Tp();
@@ -65,7 +68,7 @@ void __destroy_at(_Tp* __loc) {
 
 #if _LIBCPP_STD_VER > 17
 template <class _Tp, typename enable_if<is_array<_Tp>::value, int>::type = 0>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
 void __destroy_at(_Tp* __loc) {
     _LIBCPP_ASSERT(__loc != nullptr, "null pointer given to destroy_at");
     _VSTD::__destroy(_VSTD::begin(*__loc), _VSTD::end(*__loc));
@@ -73,37 +76,47 @@ void __destroy_at(_Tp* __loc) {
 #endif
 
 template <class _ForwardIterator>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
 _ForwardIterator __destroy(_ForwardIterator __first, _ForwardIterator __last) {
     for (; __first != __last; ++__first)
         _VSTD::__destroy_at(_VSTD::addressof(*__first));
     return __first;
 }
 
+template <class _BidirectionalIterator>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
+_BidirectionalIterator __reverse_destroy(_BidirectionalIterator __first, _BidirectionalIterator __last) {
+    while (__last != __first) {
+        --__last;
+        std::__destroy_at(std::addressof(*__last));
+    }
+    return __last;
+}
+
 #if _LIBCPP_STD_VER > 14
 
 template <class _Tp, enable_if_t<!is_array_v<_Tp>, int> = 0>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
 void destroy_at(_Tp* __loc) {
     _VSTD::__destroy_at(__loc);
 }
 
 #if _LIBCPP_STD_VER > 17
 template <class _Tp, enable_if_t<is_array_v<_Tp>, int> = 0>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
 void destroy_at(_Tp* __loc) {
   _VSTD::__destroy_at(__loc);
 }
 #endif
 
 template <class _ForwardIterator>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
 void destroy(_ForwardIterator __first, _ForwardIterator __last) {
   (void)_VSTD::__destroy(_VSTD::move(__first), _VSTD::move(__last));
 }
 
 template <class _ForwardIterator, class _Size>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
 _ForwardIterator destroy_n(_ForwardIterator __first, _Size __n) {
     for (; __n > 0; (void)++__first, --__n)
         _VSTD::__destroy_at(_VSTD::addressof(*__first));

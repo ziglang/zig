@@ -3,6 +3,9 @@ const tokenizer = @import("zig/tokenizer.zig");
 const fmt = @import("zig/fmt.zig");
 const assert = std.debug.assert;
 
+pub const ErrorBundle = @import("zig/ErrorBundle.zig");
+pub const Server = @import("zig/Server.zig");
+pub const Client = @import("zig/Client.zig");
 pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
 pub const fmtId = fmt.fmtId;

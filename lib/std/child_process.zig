@@ -21,6 +21,7 @@ const assert = std.debug.assert;
 pub const ChildProcess = struct {
     pub const Id = switch (builtin.os.tag) {
         .windows => windows.HANDLE,
+        .wasi => void,
         else => os.pid_t,
     };
 
@@ -70,6 +71,59 @@ pub const ChildProcess = struct {
     /// Darwin-only. Start child process in suspended state as if SIGSTOP was sent.
     start_suspended: bool = false,
 
+    /// Set to true to obtain rusage information for the child process.
+    /// Depending on the target platform and implementation status, the
+    /// requested statistics may or may not be available. If they are
+    /// available, then the `resource_usage_statistics` field will be populated
+    /// after calling `wait`.
+    /// On Linux and Darwin, this obtains rusage statistics from wait4().
+    request_resource_usage_statistics: bool = false,
+
+    /// This is available after calling wait if
+    /// `request_resource_usage_statistics` was set to `true` before calling
+    /// `spawn`.
+    resource_usage_statistics: ResourceUsageStatistics = .{},
+
+    pub const ResourceUsageStatistics = struct {
+        rusage: @TypeOf(rusage_init) = rusage_init,
+
+        /// Returns the peak resident set size of the child process, in bytes,
+        /// if available.
+        pub inline fn getMaxRss(rus: ResourceUsageStatistics) ?usize {
+            switch (builtin.os.tag) {
+                .linux => {
+                    if (rus.rusage) |ru| {
+                        return @intCast(usize, ru.maxrss) * 1024;
+                    } else {
+                        return null;
+                    }
+                },
+                .windows => {
+                    if (rus.rusage) |ru| {
+                        return ru.PeakWorkingSetSize;
+                    } else {
+                        return null;
+                    }
+                },
+                .macos, .ios => {
+                    if (rus.rusage) |ru| {
+                        // Darwin oddly reports in bytes instead of kilobytes.
+                        return @intCast(usize, ru.maxrss);
+                    } else {
+                        return null;
+                    }
+                },
+                else => return null,
+            }
+        }
+
+        const rusage_init = switch (builtin.os.tag) {
+            .linux, .macos, .ios => @as(?std.os.rusage, null),
+            .windows => @as(?windows.VM_COUNTERS, null),
+            else => {},
+        };
+    };
+
     pub const Arg0Expand = os.Arg0Expand;
 
     pub const SpawnError = error{
@@ -90,6 +144,7 @@ pub const ChildProcess = struct {
         os.SetIdError ||
         os.ChangeCurDirError ||
         windows.CreateProcessError ||
+        windows.GetProcessMemoryInfoError ||
         windows.WaitForSingleObjectError;
 
     pub const Term = union(enum) {
@@ -325,6 +380,10 @@ pub const ChildProcess = struct {
             }
         });
 
+        if (self.request_resource_usage_statistics) {
+            self.resource_usage_statistics.rusage = try windows.GetProcessMemoryInfo(self.id);
+        }
+
         os.close(self.id);
         os.close(self.thread_handle);
         self.cleanupStreams();
@@ -332,7 +391,21 @@ pub const ChildProcess = struct {
     }
 
     fn waitUnwrapped(self: *ChildProcess) !void {
-        const res: os.WaitPidResult = os.waitpid(self.id, 0);
+        const res: os.WaitPidResult = res: {
+            if (self.request_resource_usage_statistics) {
+                switch (builtin.os.tag) {
+                    .linux, .macos, .ios => {
+                        var ru: std.os.rusage = undefined;
+                        const res = os.wait4(self.id, 0, &ru);
+                        self.resource_usage_statistics.rusage = ru;
+                        break :res res;
+                    },
+                    else => {},
+                }
+            }
+
+            break :res os.waitpid(self.id, 0);
+        };
         const status = res.status;
         self.cleanupStreams();
         self.handleWaitResult(status);

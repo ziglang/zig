@@ -42,7 +42,9 @@ Types:
 #  pragma GCC system_header
 #endif
 
-#include_next <stddef.h>
+#  if __has_include_next(<stddef.h>)
+#    include_next <stddef.h>
+#  endif
 
 #ifdef __cplusplus
     typedef decltype(nullptr) nullptr_t;

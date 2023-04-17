@@ -113,6 +113,7 @@ __attribute__((weak)) inline __device__ void free(void *__ptr) {
 
 #include <__clang_hip_libdevice_declares.h>
 #include <__clang_hip_math.h>
+#include <__clang_hip_stdlib.h>
 
 #if defined(__HIPCC_RTC__)
 #include <__clang_hip_cmath.h>

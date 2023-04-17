@@ -33,10 +33,14 @@ struct __numeric_type
    static double __test(unsigned long);
    static double __test(long long);
    static double __test(unsigned long long);
+#ifndef _LIBCPP_HAS_NO_INT128
+   static double __test(__int128_t);
+   static double __test(__uint128_t);
+#endif
    static double __test(double);
    static long double __test(long double);
 
-   typedef decltype(__test(declval<_Tp>())) type;
+   typedef decltype(__test(std::declval<_Tp>())) type;
    static const bool value = _IsNotSame<type, void>::value;
 };
 

@@ -48,10 +48,11 @@ namespace std
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
 #include <__config>
+#include <__memory/unique_ptr.h>
 #include <__thread/timed_backoff_policy.h>
+#include <__utility/move.h>
 #include <atomic>
 #include <limits>
-#include <memory>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -124,7 +125,7 @@ public:
 
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     __barrier_base(ptrdiff_t __expected, _CompletionF __completion = _CompletionF())
-            : __expected_(__expected), __base_(__construct_barrier_algorithm_base(this->__expected_),
+            : __expected_(__expected), __base_(std::__construct_barrier_algorithm_base(this->__expected_),
                                                &__destroy_barrier_algorithm_base),
               __expected_adjustment_(0), __completion_(std::move(__completion)), __phase_(0)
     {
@@ -149,7 +150,7 @@ public:
         auto const __test_fn = [this, __old_phase]() -> bool {
             return __phase_.load(memory_order_acquire) != __old_phase;
         };
-        __libcpp_thread_poll_with_backoff(__test_fn, __libcpp_timed_backoff_policy());
+        std::__libcpp_thread_poll_with_backoff(__test_fn, __libcpp_timed_backoff_policy());
     }
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void arrive_and_drop()
@@ -283,7 +284,7 @@ public:
 template<class _CompletionF = __empty_completion>
 class barrier {
 
-    __barrier_base<_CompletionF> __b;
+    __barrier_base<_CompletionF> __b_;
 public:
     using arrival_token = typename __barrier_base<_CompletionF>::arrival_token;
 
@@ -293,7 +294,7 @@ public:
 
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     barrier(ptrdiff_t __count, _CompletionF __completion = _CompletionF())
-        : __b(__count, _VSTD::move(__completion)) {
+        : __b_(__count, _VSTD::move(__completion)) {
     }
 
     barrier(barrier const&) = delete;
@@ -302,12 +303,12 @@ public:
     [[nodiscard]] _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     arrival_token arrive(ptrdiff_t __update = 1)
     {
-        return __b.arrive(__update);
+        return __b_.arrive(__update);
     }
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void wait(arrival_token&& __phase) const
     {
-        __b.wait(_VSTD::move(__phase));
+        __b_.wait(_VSTD::move(__phase));
     }
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void arrive_and_wait()
@@ -317,7 +318,7 @@ public:
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void arrive_and_drop()
     {
-        __b.arrive_and_drop();
+        __b_.arrive_and_drop();
     }
 };
 
@@ -326,5 +327,13 @@ _LIBCPP_END_NAMESPACE_STD
 #endif // _LIBCPP_STD_VER >= 14
 
 _LIBCPP_POP_MACROS
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <concepts>
+#  include <iterator>
+#  include <memory>
+#  include <stdexcept>
+#  include <variant>
+#endif
 
 #endif //_LIBCPP_BARRIER

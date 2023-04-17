@@ -12,7 +12,7 @@
 
 #define __bool_true_false_are_defined 1
 
-#if __STDC_VERSION__ > 201710L
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ > 201710L
 /* FIXME: We should be issuing a deprecation warning here, but cannot yet due
  * to system headers which include this header file unconditionally.
  */
@@ -23,7 +23,7 @@
 #elif defined(__GNUC__) && !defined(__STRICT_ANSI__)
 /* Define _Bool as a GNU extension. */
 #define _Bool bool
-#if __cplusplus < 201103L
+#if defined(__cplusplus) && __cplusplus < 201103L
 /* For C++98, define bool, false, true as a GNU extension. */
 #define bool bool
 #define false false

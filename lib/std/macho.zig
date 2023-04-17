@@ -143,6 +143,8 @@ pub const TOOL = enum(u32) {
     CLANG = 0x1,
     SWIFT = 0x2,
     LD = 0x3,
+    LLD = 0x4, // LLVM's stock LLD linker
+    ZIG = 0x5, // Unofficially Zig
     _,
 };
 
@@ -655,6 +657,10 @@ pub const segment_command_64 = extern struct {
 
     pub fn segName(seg: *const segment_command_64) []const u8 {
         return parseName(&seg.segname);
+    }
+
+    pub fn isWriteable(seg: segment_command_64) bool {
+        return seg.initprot & PROT.WRITE != 0;
     }
 };
 

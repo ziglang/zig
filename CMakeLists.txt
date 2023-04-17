@@ -81,6 +81,9 @@ message(STATUS "Configuring zig version ${RESOLVED_ZIG_VERSION}")
 set(ZIG_NO_LIB off CACHE BOOL
     "Disable copying lib/ files to install prefix during the build phase")
 
+set(ZIG_NO_LANGREF off CACHE BOOL
+    "Disable copying of langref to the install prefix during the build phase")
+
 set(ZIG_SKIP_INSTALL_LIB_FILES off CACHE BOOL "Deprecated. Use ZIG_NO_LIB")
 if(ZIG_SKIP_INSTALL_LIB_FILES)
   message(WARNING "ZIG_SKIP_INSTALL_LIB_FILES is deprecated. Use ZIG_NO_LIB instead.")
@@ -127,9 +130,9 @@ if(ZIG_AR_WORKAROUND)
   string(REPLACE "<CMAKE_AR>" "<CMAKE_AR> ar" CMAKE_CXX_ARCHIVE_CREATE ${CMAKE_CXX_ARCHIVE_CREATE})
 endif()
 
-find_package(llvm 15)
-find_package(clang 15)
-find_package(lld 15)
+find_package(llvm 16)
+find_package(clang 16)
+find_package(lld 16)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -296,7 +299,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/meta/trait.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/multi_array_list.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/os/darwin.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/linux.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/linux/errno/generic.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/linux/x86_64.zig"
@@ -506,7 +508,9 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/Thread.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/Thread/Futex.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/Thread/Mutex.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Thread/Pool.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/Thread/ResetEvent.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Thread/WaitGroup.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/time.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/treap.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/unicode.zig"
@@ -516,6 +520,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/zig/c_builtins.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/Parse.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/render.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/zig/Server.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/string_literal.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/system.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/system/NativePaths.zig"
@@ -530,9 +535,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/Package.zig"
     "${CMAKE_SOURCE_DIR}/src/RangeSet.zig"
     "${CMAKE_SOURCE_DIR}/src/Sema.zig"
-    "${CMAKE_SOURCE_DIR}/src/ThreadPool.zig"
     "${CMAKE_SOURCE_DIR}/src/TypedValue.zig"
-    "${CMAKE_SOURCE_DIR}/src/WaitGroup.zig"
     "${CMAKE_SOURCE_DIR}/src/Zir.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/aarch64/CodeGen.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/aarch64/Emit.zig"
@@ -583,6 +586,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/C.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Coff.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Coff/Atom.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Coff/ImportTable.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Coff/Object.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Coff/lld.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf.zig"
@@ -657,13 +661,13 @@ include_directories(
 )
 
 if(MSVC)
-  set(EXE_CXX_FLAGS "/std:c++14")
+  set(EXE_CXX_FLAGS "/std:c++17")
   set(EXE_LDFLAGS "/STACK:16777216")
   if(NOT "${CMAKE_BUILD_TYPE}" STREQUAL "Release" AND NOT "${CMAKE_BUILD_TYPE}" STREQUAL "MinSizeRel")
     set(EXE_LDFLAGS "${EXE_LDFLAGS} /debug:fastlink")
   endif()
 else()
-  set(EXE_CXX_FLAGS "-std=c++14 -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Werror=type-limits -Wno-missing-braces -Wno-comment")
+  set(EXE_CXX_FLAGS "-std=c++17 -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Werror=type-limits -Wno-missing-braces -Wno-comment")
   set(EXE_LDFLAGS " ")
   if(MINGW)
     set(EXE_CXX_FLAGS "${EXE_CXX_FLAGS} -Wno-format")
@@ -818,6 +822,11 @@ if(ZIG_NO_LIB)
 else()
   set(ZIG_NO_LIB_ARG "")
 endif()
+if(ZIG_NO_LANGREF)
+  set(ZIG_NO_LANGREF_ARG "-Dno-langref")
+else()
+  set(ZIG_NO_LANGREF_ARG "")
+endif()
 if(ZIG_SINGLE_THREADED)
   set(ZIG_SINGLE_THREADED_ARG "-fsingle-threaded")
 else()
@@ -842,6 +851,7 @@ set(ZIG_BUILD_ARGS
   ${ZIG_RELEASE_ARG}
   ${ZIG_STATIC_ARG}
   ${ZIG_NO_LIB_ARG}
+  ${ZIG_NO_LANGREF_ARG}
   ${ZIG_SINGLE_THREADED_ARG}
   ${ZIG_PIE_ARG}
   "-Dtarget=${ZIG_TARGET_TRIPLE}"

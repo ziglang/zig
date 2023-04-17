@@ -37,7 +37,7 @@ template <
     class _Pred,
     class _Proj1,
     class _Proj2>
-_LIBCPP_HIDE_FROM_ABI inline _LIBCPP_CONSTEXPR_AFTER_CXX11 pair<_Iter1, _Iter1> __find_end_impl(
+_LIBCPP_HIDE_FROM_ABI inline _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_Iter1, _Iter1> __find_end_impl(
     _Iter1 __first1,
     _Sent1 __last1,
     _Iter2 __first2,
@@ -91,7 +91,7 @@ template <
     class _Sent2,
     class _Proj1,
     class _Proj2>
-_LIBCPP_CONSTEXPR_AFTER_CXX17 _Iter1 __find_end(
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _Iter1 __find_end(
     _Iter1 __first1,
     _Sent1 __sent1,
     _Iter2 __first2,
@@ -144,7 +144,7 @@ template <
     class _Sent2,
     class _Proj1,
     class _Proj2>
-_LIBCPP_CONSTEXPR_AFTER_CXX11 _Iter1 __find_end(
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Iter1 __find_end(
     _Iter1 __first1,
     _Sent1 __sent1,
     _Iter2 __first2,
@@ -189,7 +189,7 @@ _LIBCPP_CONSTEXPR_AFTER_CXX11 _Iter1 __find_end(
 }
 
 template <class _ForwardIterator1, class _ForwardIterator2, class _BinaryPredicate>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
 _ForwardIterator1 __find_end_classic(_ForwardIterator1 __first1, _ForwardIterator1 __last1,
                                      _ForwardIterator2 __first2, _ForwardIterator2 __last2,
                                      _BinaryPredicate& __pred) {
@@ -208,7 +208,7 @@ _ForwardIterator1 __find_end_classic(_ForwardIterator1 __first1, _ForwardIterato
 }
 
 template <class _ForwardIterator1, class _ForwardIterator2, class _BinaryPredicate>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
 _ForwardIterator1 find_end(_ForwardIterator1 __first1, _ForwardIterator1 __last1,
                            _ForwardIterator2 __first2, _ForwardIterator2 __last2,
                            _BinaryPredicate __pred) {
@@ -216,12 +216,10 @@ _ForwardIterator1 find_end(_ForwardIterator1 __first1, _ForwardIterator1 __last1
 }
 
 template <class _ForwardIterator1, class _ForwardIterator2>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
 _ForwardIterator1 find_end(_ForwardIterator1 __first1, _ForwardIterator1 __last1,
                            _ForwardIterator2 __first2, _ForwardIterator2 __last2) {
-  using __v1 = typename iterator_traits<_ForwardIterator1>::value_type;
-  using __v2 = typename iterator_traits<_ForwardIterator2>::value_type;
-  return std::find_end(__first1, __last1, __first2, __last2, __equal_to<__v1, __v2>());
+  return std::find_end(__first1, __last1, __first2, __last2, __equal_to());
 }
 
 _LIBCPP_END_NAMESPACE_STD

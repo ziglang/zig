@@ -99,7 +99,7 @@ test "parse and render UNIX addresses" {
     const fmt_addr = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
     try std.testing.expectEqualSlices(u8, "/tmp/testpath", fmt_addr);
 
-    const too_long = [_]u8{'a'} ** (addr.un.path.len + 1);
+    const too_long = [_]u8{'a'} ** 200;
     try testing.expectError(error.NameTooLong, net.Address.initUnix(too_long[0..]));
 }
 

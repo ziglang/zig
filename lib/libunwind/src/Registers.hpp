@@ -40,6 +40,7 @@ enum {
   REGISTERS_RISCV,
   REGISTERS_VE,
   REGISTERS_S390X,
+  REGISTERS_LOONGARCH,
 };
 
 #if defined(_LIBUNWIND_TARGET_I386)
@@ -4003,7 +4004,7 @@ typedef float fp_t;
 #    error "Unsupported __riscv_flen"
 #   endif
 #  else
-// This is just for supressing undeclared error of fp_t.
+// This is just for suppressing undeclared error of fp_t.
 typedef double fp_t;
 #  endif
 # else
@@ -4084,6 +4085,8 @@ inline bool Registers_riscv::validRegister(int regNum) const {
     return true;
   if (regNum < 0)
     return false;
+  if (regNum == UNW_RISCV_VLENB)
+    return true;
   if (regNum > UNW_RISCV_F31)
     return false;
   return true;
@@ -4098,6 +4101,11 @@ inline reg_t Registers_riscv::getRegister(int regNum) const {
     return 0;
   if ((regNum > 0) && (regNum < 32))
     return _registers[regNum];
+  if (regNum == UNW_RISCV_VLENB) {
+    reg_t vlenb;
+    __asm__("csrr %0, 0xC22" : "=r"(vlenb));
+    return vlenb;
+  }
   _LIBUNWIND_ABORT("unsupported riscv register");
 }
 
@@ -4249,6 +4257,8 @@ inline const char *Registers_riscv::getRegisterName(int regNum) {
     return "ft10";
   case UNW_RISCV_F31:
     return "ft11";
+  case UNW_RISCV_VLENB:
+    return "vlenb";
   default:
     return "unknown register";
   }
@@ -5031,6 +5041,271 @@ inline const char *Registers_s390x::getRegisterName(int regNum) {
 }
 #endif // _LIBUNWIND_TARGET_S390X
 
+#if defined(_LIBUNWIND_TARGET_LOONGARCH)
+/// Registers_loongarch holds the register state of a thread in a 64-bit
+/// LoongArch process.
+class _LIBUNWIND_HIDDEN Registers_loongarch {
+public:
+  Registers_loongarch();
+  Registers_loongarch(const void *registers);
+
+  bool validRegister(int num) const;
+  uint64_t getRegister(int num) const;
+  void setRegister(int num, uint64_t value);
+  bool validFloatRegister(int num) const;
+  double getFloatRegister(int num) const;
+  void setFloatRegister(int num, double value);
+  bool validVectorRegister(int num) const;
+  v128 getVectorRegister(int num) const;
+  void setVectorRegister(int num, v128 value);
+  static const char *getRegisterName(int num);
+  void jumpto();
+  static constexpr int lastDwarfRegNum() {
+    return _LIBUNWIND_HIGHEST_DWARF_REGISTER_LOONGARCH;
+  }
+  static int getArch() { return REGISTERS_LOONGARCH; }
+
+  uint64_t getSP() const { return _registers.__r[3]; }
+  void setSP(uint64_t value) { _registers.__r[3] = value; }
+  uint64_t getIP() const { return _registers.__pc; }
+  void setIP(uint64_t value) { _registers.__pc = value; }
+
+private:
+  struct loongarch_thread_state_t {
+    uint64_t __r[32];
+    uint64_t __pc;
+  };
+
+  loongarch_thread_state_t _registers;
+#if __loongarch_frlen == 64
+  double _floats[32];
+#endif
+};
+
+inline Registers_loongarch::Registers_loongarch(const void *registers) {
+  static_assert((check_fit<Registers_loongarch, unw_context_t>::does_fit),
+                "loongarch registers do not fit into unw_context_t");
+  memcpy(&_registers, registers, sizeof(_registers));
+  static_assert(sizeof(_registers) == 0x108,
+                "expected float registers to be at offset 264");
+#if __loongarch_frlen == 64
+  memcpy(_floats, static_cast<const uint8_t *>(registers) + sizeof(_registers),
+         sizeof(_floats));
+#endif
+}
+
+inline Registers_loongarch::Registers_loongarch() {
+  memset(&_registers, 0, sizeof(_registers));
+#if __loongarch_frlen == 64
+  memset(&_floats, 0, sizeof(_floats));
+#endif
+}
+
+inline bool Registers_loongarch::validRegister(int regNum) const {
+  if (regNum == UNW_REG_IP || regNum == UNW_REG_SP)
+    return true;
+  if (regNum < 0 || regNum > UNW_LOONGARCH_F31)
+    return false;
+  return true;
+}
+
+inline uint64_t Registers_loongarch::getRegister(int regNum) const {
+  if (regNum >= UNW_LOONGARCH_R0 && regNum <= UNW_LOONGARCH_R31)
+    return _registers.__r[regNum - UNW_LOONGARCH_R0];
+
+  if (regNum == UNW_REG_IP)
+    return _registers.__pc;
+  if (regNum == UNW_REG_SP)
+    return _registers.__r[3];
+  _LIBUNWIND_ABORT("unsupported loongarch register");
+}
+
+inline void Registers_loongarch::setRegister(int regNum, uint64_t value) {
+  if (regNum >= UNW_LOONGARCH_R0 && regNum <= UNW_LOONGARCH_R31)
+    _registers.__r[regNum - UNW_LOONGARCH_R0] = value;
+  else if (regNum == UNW_REG_IP)
+    _registers.__pc = value;
+  else if (regNum == UNW_REG_SP)
+    _registers.__r[3] = value;
+  else
+    _LIBUNWIND_ABORT("unsupported loongarch register");
+}
+
+inline const char *Registers_loongarch::getRegisterName(int regNum) {
+  switch (regNum) {
+  case UNW_REG_IP:
+    return "$pc";
+  case UNW_REG_SP:
+    return "$sp";
+  case UNW_LOONGARCH_R0:
+    return "$r0";
+  case UNW_LOONGARCH_R1:
+    return "$r1";
+  case UNW_LOONGARCH_R2:
+    return "$r2";
+  case UNW_LOONGARCH_R3:
+    return "$r3";
+  case UNW_LOONGARCH_R4:
+    return "$r4";
+  case UNW_LOONGARCH_R5:
+    return "$r5";
+  case UNW_LOONGARCH_R6:
+    return "$r6";
+  case UNW_LOONGARCH_R7:
+    return "$r7";
+  case UNW_LOONGARCH_R8:
+    return "$r8";
+  case UNW_LOONGARCH_R9:
+    return "$r9";
+  case UNW_LOONGARCH_R10:
+    return "$r10";
+  case UNW_LOONGARCH_R11:
+    return "$r11";
+  case UNW_LOONGARCH_R12:
+    return "$r12";
+  case UNW_LOONGARCH_R13:
+    return "$r13";
+  case UNW_LOONGARCH_R14:
+    return "$r14";
+  case UNW_LOONGARCH_R15:
+    return "$r15";
+  case UNW_LOONGARCH_R16:
+    return "$r16";
+  case UNW_LOONGARCH_R17:
+    return "$r17";
+  case UNW_LOONGARCH_R18:
+    return "$r18";
+  case UNW_LOONGARCH_R19:
+    return "$r19";
+  case UNW_LOONGARCH_R20:
+    return "$r20";
+  case UNW_LOONGARCH_R21:
+    return "$r21";
+  case UNW_LOONGARCH_R22:
+    return "$r22";
+  case UNW_LOONGARCH_R23:
+    return "$r23";
+  case UNW_LOONGARCH_R24:
+    return "$r24";
+  case UNW_LOONGARCH_R25:
+    return "$r25";
+  case UNW_LOONGARCH_R26:
+    return "$r26";
+  case UNW_LOONGARCH_R27:
+    return "$r27";
+  case UNW_LOONGARCH_R28:
+    return "$r28";
+  case UNW_LOONGARCH_R29:
+    return "$r29";
+  case UNW_LOONGARCH_R30:
+    return "$r30";
+  case UNW_LOONGARCH_R31:
+    return "$r31";
+  case UNW_LOONGARCH_F0:
+    return "$f0";
+  case UNW_LOONGARCH_F1:
+    return "$f1";
+  case UNW_LOONGARCH_F2:
+    return "$f2";
+  case UNW_LOONGARCH_F3:
+    return "$f3";
+  case UNW_LOONGARCH_F4:
+    return "$f4";
+  case UNW_LOONGARCH_F5:
+    return "$f5";
+  case UNW_LOONGARCH_F6:
+    return "$f6";
+  case UNW_LOONGARCH_F7:
+    return "$f7";
+  case UNW_LOONGARCH_F8:
+    return "$f8";
+  case UNW_LOONGARCH_F9:
+    return "$f9";
+  case UNW_LOONGARCH_F10:
+    return "$f10";
+  case UNW_LOONGARCH_F11:
+    return "$f11";
+  case UNW_LOONGARCH_F12:
+    return "$f12";
+  case UNW_LOONGARCH_F13:
+    return "$f13";
+  case UNW_LOONGARCH_F14:
+    return "$f14";
+  case UNW_LOONGARCH_F15:
+    return "$f15";
+  case UNW_LOONGARCH_F16:
+    return "$f16";
+  case UNW_LOONGARCH_F17:
+    return "$f17";
+  case UNW_LOONGARCH_F18:
+    return "$f18";
+  case UNW_LOONGARCH_F19:
+    return "$f19";
+  case UNW_LOONGARCH_F20:
+    return "$f20";
+  case UNW_LOONGARCH_F21:
+    return "$f21";
+  case UNW_LOONGARCH_F22:
+    return "$f22";
+  case UNW_LOONGARCH_F23:
+    return "$f23";
+  case UNW_LOONGARCH_F24:
+    return "$f24";
+  case UNW_LOONGARCH_F25:
+    return "$f25";
+  case UNW_LOONGARCH_F26:
+    return "$f26";
+  case UNW_LOONGARCH_F27:
+    return "$f27";
+  case UNW_LOONGARCH_F28:
+    return "$f28";
+  case UNW_LOONGARCH_F29:
+    return "$f29";
+  case UNW_LOONGARCH_F30:
+    return "$f30";
+  case UNW_LOONGARCH_F31:
+    return "$f31";
+  default:
+    return "unknown register";
+  }
+}
+
+inline bool Registers_loongarch::validFloatRegister(int regNum) const {
+  if (regNum < UNW_LOONGARCH_F0 || regNum > UNW_LOONGARCH_F31)
+    return false;
+  return true;
+}
+
+inline double Registers_loongarch::getFloatRegister(int regNum) const {
+#if __loongarch_frlen == 64
+  assert(validFloatRegister(regNum));
+  return _floats[regNum - UNW_LOONGARCH_F0];
+#else
+  _LIBUNWIND_ABORT("libunwind not built with float support");
+#endif
+}
+
+inline void Registers_loongarch::setFloatRegister(int regNum, double value) {
+#if __loongarch_frlen == 64
+  assert(validFloatRegister(regNum));
+  _floats[regNum - UNW_LOONGARCH_F0] = value;
+#else
+  _LIBUNWIND_ABORT("libunwind not built with float support");
+#endif
+}
+
+inline bool Registers_loongarch::validVectorRegister(int) const {
+  return false;
+}
+
+inline v128 Registers_loongarch::getVectorRegister(int) const {
+  _LIBUNWIND_ABORT("loongarch vector support not implemented");
+}
+
+inline void Registers_loongarch::setVectorRegister(int, v128) {
+  _LIBUNWIND_ABORT("loongarch vector support not implemented");
+}
+#endif //_LIBUNWIND_TARGET_LOONGARCH
 
 } // namespace libunwind
 

@@ -509,7 +509,6 @@ test "type info for async frames" {
 }
 
 test "Declarations are returned in declaration order" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -532,7 +531,6 @@ test "Struct.is_tuple for anon list literal" {
 }
 
 test "Struct.is_tuple for anon struct literal" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const info = @typeInfo(@TypeOf(.{ .a = 0 }));
@@ -570,7 +568,6 @@ test "value from struct @typeInfo default_value can be loaded at comptime" {
 test "@typeInfo decls and usingnamespace" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const A = struct {
         const x = 5;

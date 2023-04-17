@@ -25,6 +25,7 @@ tomb_bits: []usize,
 /// array. The meaning of the data depends on the AIR tag.
 ///  * `cond_br` - points to a `CondBr` in `extra` at this index.
 ///  * `switch_br` - points to a `SwitchBr` in `extra` at this index.
+///  * `loop` - points to a `Loop` in `extra` at this index.
 ///  * `asm`, `call`, `aggregate_init` - the value is a set of bits which are the extra tomb
 ///    bits of operands.
 ///    The main tomb bits are still used and the extra ones are starting with the lsb of the
@@ -49,6 +50,11 @@ pub const CondBr = struct {
 ///   end at the start of the else case.
 pub const SwitchBr = struct {
     else_death_count: u32,
+};
+
+/// Trailing is the set of instructions whose lifetimes end at the end of the loop body.
+pub const Loop = struct {
+    death_count: u32,
 };
 
 pub fn analyze(gpa: Allocator, air: Air) Allocator.Error!Liveness {
@@ -76,6 +82,11 @@ pub fn analyze(gpa: Allocator, air: Air) Allocator.Error!Liveness {
     const main_body = air.getMainBody();
     try a.table.ensureTotalCapacity(gpa, @intCast(u32, main_body.len));
     try analyzeWithContext(&a, null, main_body);
+    {
+        var to_remove: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{};
+        defer to_remove.deinit(gpa);
+        try removeDeaths(&a, &to_remove, main_body);
+    }
     return Liveness{
         .tomb_bits = a.tomb_bits,
         .special = a.special,
@@ -240,6 +251,9 @@ pub fn categorizeOperand(
         .err_return_trace,
         .save_err_return_trace_index,
         .c_va_start,
+        .work_item_id,
+        .work_group_size,
+        .work_group_id,
         => return .none,
 
         .fence => return .write,
@@ -647,6 +661,18 @@ pub fn getSwitchBr(l: Liveness, gpa: Allocator, inst: Air.Inst.Index, cases_len:
     };
 }
 
+pub const LoopSlice = struct {
+    deaths: []const Air.Inst.Index,
+};
+
+pub fn getLoop(l: Liveness, inst: Air.Inst.Index) LoopSlice {
+    const index: usize = l.special.get(inst) orelse return .{
+        .deaths = &.{},
+    };
+    const death_count = l.extra[index];
+    return .{ .deaths = l.extra[index + 1 ..][0..death_count] };
+}
+
 pub fn deinit(l: *Liveness, gpa: Allocator) void {
     gpa.free(l.tomb_bits);
     gpa.free(l.extra);
@@ -864,6 +890,9 @@ fn analyzeInst(
         .err_return_trace,
         .save_err_return_trace_index,
         .c_va_start,
+        .work_item_id,
+        .work_group_size,
+        .work_group_id,
         => return trackOperands(a, new_set, inst, main_tomb, .{ .none, .none, .none }),
 
         .not,
@@ -1132,7 +1161,39 @@ fn analyzeInst(
         .loop => {
             const extra = a.air.extraData(Air.Block, inst_datas[inst].ty_pl.payload);
             const body = a.air.extra[extra.end..][0..extra.data.body_len];
-            try analyzeWithContext(a, new_set, body);
+
+            var body_table: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{};
+            defer body_table.deinit(gpa);
+
+            // Instructions outside the loop body cannot die within the loop, since further loop
+            // iterations may occur. Track deaths from the loop body - we'll remove all of these
+            // retroactively, and add them to our extra data.
+
+            try analyzeWithContext(a, &body_table, body);
+
+            if (new_set) |ns| {
+                try ns.ensureUnusedCapacity(gpa, body_table.count());
+                var it = body_table.keyIterator();
+                while (it.next()) |key| {
+                    _ = ns.putAssumeCapacity(key.*, {});
+                }
+            }
+
+            try a.extra.ensureUnusedCapacity(gpa, std.meta.fields(Loop).len + body_table.count());
+            const extra_index = a.addExtraAssumeCapacity(Loop{
+                .death_count = body_table.count(),
+            });
+            {
+                var it = body_table.keyIterator();
+                while (it.next()) |key| {
+                    a.extra.appendAssumeCapacity(key.*);
+                }
+            }
+            try a.special.put(gpa, inst, extra_index);
+
+            // We'll remove invalid deaths in a separate pass after main liveness analysis. See
+            // removeDeaths for more details.
+
             return; // Loop has no operands and it is always unreferenced.
         },
         .@"try" => {
@@ -1404,5 +1465,568 @@ const ExtraTombs = struct {
 
     fn deinit(et: *ExtraTombs) void {
         et.big_tomb_bits_extra.deinit(et.analysis.gpa);
+    }
+};
+
+/// Remove any deaths invalidated by the deaths from an enclosing `loop`. Reshuffling deaths stored
+/// in `extra` causes it to become non-dense, but that's fine - we won't remove too much data.
+/// Making it dense would be a lot more work - it'd require recomputing every index in `special`.
+fn removeDeaths(
+    a: *Analysis,
+    to_remove: *std.AutoHashMapUnmanaged(Air.Inst.Index, void),
+    body: []const Air.Inst.Index,
+) error{OutOfMemory}!void {
+    for (body) |inst| {
+        try removeInstDeaths(a, to_remove, inst);
+    }
+}
+
+fn removeInstDeaths(
+    a: *Analysis,
+    to_remove: *std.AutoHashMapUnmanaged(Air.Inst.Index, void),
+    inst: Air.Inst.Index,
+) !void {
+    const inst_tags = a.air.instructions.items(.tag);
+    const inst_datas = a.air.instructions.items(.data);
+
+    switch (inst_tags[inst]) {
+        .add,
+        .add_optimized,
+        .addwrap,
+        .addwrap_optimized,
+        .add_sat,
+        .sub,
+        .sub_optimized,
+        .subwrap,
+        .subwrap_optimized,
+        .sub_sat,
+        .mul,
+        .mul_optimized,
+        .mulwrap,
+        .mulwrap_optimized,
+        .mul_sat,
+        .div_float,
+        .div_float_optimized,
+        .div_trunc,
+        .div_trunc_optimized,
+        .div_floor,
+        .div_floor_optimized,
+        .div_exact,
+        .div_exact_optimized,
+        .rem,
+        .rem_optimized,
+        .mod,
+        .mod_optimized,
+        .bit_and,
+        .bit_or,
+        .xor,
+        .cmp_lt,
+        .cmp_lt_optimized,
+        .cmp_lte,
+        .cmp_lte_optimized,
+        .cmp_eq,
+        .cmp_eq_optimized,
+        .cmp_gte,
+        .cmp_gte_optimized,
+        .cmp_gt,
+        .cmp_gt_optimized,
+        .cmp_neq,
+        .cmp_neq_optimized,
+        .bool_and,
+        .bool_or,
+        .store,
+        .array_elem_val,
+        .slice_elem_val,
+        .ptr_elem_val,
+        .shl,
+        .shl_exact,
+        .shl_sat,
+        .shr,
+        .shr_exact,
+        .atomic_store_unordered,
+        .atomic_store_monotonic,
+        .atomic_store_release,
+        .atomic_store_seq_cst,
+        .set_union_tag,
+        .min,
+        .max,
+        => {
+            const o = inst_datas[inst].bin_op;
+            removeOperandDeaths(a, to_remove, inst, .{ o.lhs, o.rhs, .none });
+        },
+
+        .vector_store_elem => {
+            const o = inst_datas[inst].vector_store_elem;
+            const extra = a.air.extraData(Air.Bin, o.payload).data;
+            removeOperandDeaths(a, to_remove, inst, .{ o.vector_ptr, extra.lhs, extra.rhs });
+        },
+
+        .arg,
+        .alloc,
+        .ret_ptr,
+        .constant,
+        .const_ty,
+        .trap,
+        .breakpoint,
+        .dbg_stmt,
+        .dbg_inline_begin,
+        .dbg_inline_end,
+        .dbg_block_begin,
+        .dbg_block_end,
+        .unreach,
+        .fence,
+        .ret_addr,
+        .frame_addr,
+        .wasm_memory_size,
+        .err_return_trace,
+        .save_err_return_trace_index,
+        .c_va_start,
+        .work_item_id,
+        .work_group_size,
+        .work_group_id,
+        => {},
+
+        .not,
+        .bitcast,
+        .load,
+        .fpext,
+        .fptrunc,
+        .intcast,
+        .trunc,
+        .optional_payload,
+        .optional_payload_ptr,
+        .optional_payload_ptr_set,
+        .errunion_payload_ptr_set,
+        .wrap_optional,
+        .unwrap_errunion_payload,
+        .unwrap_errunion_err,
+        .unwrap_errunion_payload_ptr,
+        .unwrap_errunion_err_ptr,
+        .wrap_errunion_payload,
+        .wrap_errunion_err,
+        .slice_ptr,
+        .slice_len,
+        .ptr_slice_len_ptr,
+        .ptr_slice_ptr_ptr,
+        .struct_field_ptr_index_0,
+        .struct_field_ptr_index_1,
+        .struct_field_ptr_index_2,
+        .struct_field_ptr_index_3,
+        .array_to_slice,
+        .float_to_int,
+        .float_to_int_optimized,
+        .int_to_float,
+        .get_union_tag,
+        .clz,
+        .ctz,
+        .popcount,
+        .byte_swap,
+        .bit_reverse,
+        .splat,
+        .error_set_has_value,
+        .addrspace_cast,
+        .c_va_arg,
+        .c_va_copy,
+        => {
+            const o = inst_datas[inst].ty_op;
+            removeOperandDeaths(a, to_remove, inst, .{ o.operand, .none, .none });
+        },
+
+        .is_null,
+        .is_non_null,
+        .is_null_ptr,
+        .is_non_null_ptr,
+        .is_err,
+        .is_non_err,
+        .is_err_ptr,
+        .is_non_err_ptr,
+        .ptrtoint,
+        .bool_to_int,
+        .ret,
+        .ret_load,
+        .is_named_enum_value,
+        .tag_name,
+        .error_name,
+        .sqrt,
+        .sin,
+        .cos,
+        .tan,
+        .exp,
+        .exp2,
+        .log,
+        .log2,
+        .log10,
+        .fabs,
+        .floor,
+        .ceil,
+        .round,
+        .trunc_float,
+        .neg,
+        .neg_optimized,
+        .cmp_lt_errors_len,
+        .set_err_return_trace,
+        .c_va_end,
+        => {
+            const operand = inst_datas[inst].un_op;
+            removeOperandDeaths(a, to_remove, inst, .{ operand, .none, .none });
+        },
+
+        .add_with_overflow,
+        .sub_with_overflow,
+        .mul_with_overflow,
+        .shl_with_overflow,
+        .ptr_add,
+        .ptr_sub,
+        .ptr_elem_ptr,
+        .slice_elem_ptr,
+        .slice,
+        => {
+            const ty_pl = inst_datas[inst].ty_pl;
+            const extra = a.air.extraData(Air.Bin, ty_pl.payload).data;
+            removeOperandDeaths(a, to_remove, inst, .{ extra.lhs, extra.rhs, .none });
+        },
+
+        .dbg_var_ptr,
+        .dbg_var_val,
+        => {
+            const operand = inst_datas[inst].pl_op.operand;
+            removeOperandDeaths(a, to_remove, inst, .{ operand, .none, .none });
+        },
+
+        .prefetch => {
+            const prefetch = inst_datas[inst].prefetch;
+            removeOperandDeaths(a, to_remove, inst, .{ prefetch.ptr, .none, .none });
+        },
+
+        .call, .call_always_tail, .call_never_tail, .call_never_inline => {
+            const inst_data = inst_datas[inst].pl_op;
+            const callee = inst_data.operand;
+            const extra = a.air.extraData(Air.Call, inst_data.payload);
+            const args = @ptrCast([]const Air.Inst.Ref, a.air.extra[extra.end..][0..extra.data.args_len]);
+
+            var death_remover = BigTombDeathRemover.init(a, to_remove, inst);
+            death_remover.feed(callee);
+            for (args) |operand| {
+                death_remover.feed(operand);
+            }
+            death_remover.finish();
+        },
+        .select => {
+            const pl_op = inst_datas[inst].pl_op;
+            const extra = a.air.extraData(Air.Bin, pl_op.payload).data;
+            removeOperandDeaths(a, to_remove, inst, .{ pl_op.operand, extra.lhs, extra.rhs });
+        },
+        .shuffle => {
+            const extra = a.air.extraData(Air.Shuffle, inst_datas[inst].ty_pl.payload).data;
+            removeOperandDeaths(a, to_remove, inst, .{ extra.a, extra.b, .none });
+        },
+        .reduce, .reduce_optimized => {
+            const reduce = inst_datas[inst].reduce;
+            removeOperandDeaths(a, to_remove, inst, .{ reduce.operand, .none, .none });
+        },
+        .cmp_vector, .cmp_vector_optimized => {
+            const extra = a.air.extraData(Air.VectorCmp, inst_datas[inst].ty_pl.payload).data;
+            removeOperandDeaths(a, to_remove, inst, .{ extra.lhs, extra.rhs, .none });
+        },
+        .aggregate_init => {
+            const ty_pl = inst_datas[inst].ty_pl;
+            const aggregate_ty = a.air.getRefType(ty_pl.ty);
+            const len = @intCast(usize, aggregate_ty.arrayLen());
+            const elements = @ptrCast([]const Air.Inst.Ref, a.air.extra[ty_pl.payload..][0..len]);
+
+            var death_remover = BigTombDeathRemover.init(a, to_remove, inst);
+            for (elements) |elem| {
+                death_remover.feed(elem);
+            }
+            death_remover.finish();
+        },
+        .union_init => {
+            const extra = a.air.extraData(Air.UnionInit, inst_datas[inst].ty_pl.payload).data;
+            removeOperandDeaths(a, to_remove, inst, .{ extra.init, .none, .none });
+        },
+        .struct_field_ptr, .struct_field_val => {
+            const extra = a.air.extraData(Air.StructField, inst_datas[inst].ty_pl.payload).data;
+            removeOperandDeaths(a, to_remove, inst, .{ extra.struct_operand, .none, .none });
+        },
+        .field_parent_ptr => {
+            const extra = a.air.extraData(Air.FieldParentPtr, inst_datas[inst].ty_pl.payload).data;
+            removeOperandDeaths(a, to_remove, inst, .{ extra.field_ptr, .none, .none });
+        },
+        .cmpxchg_strong, .cmpxchg_weak => {
+            const extra = a.air.extraData(Air.Cmpxchg, inst_datas[inst].ty_pl.payload).data;
+            removeOperandDeaths(a, to_remove, inst, .{ extra.ptr, extra.expected_value, extra.new_value });
+        },
+        .mul_add => {
+            const pl_op = inst_datas[inst].pl_op;
+            const extra = a.air.extraData(Air.Bin, pl_op.payload).data;
+            removeOperandDeaths(a, to_remove, inst, .{ extra.lhs, extra.rhs, pl_op.operand });
+        },
+        .atomic_load => {
+            const ptr = inst_datas[inst].atomic_load.ptr;
+            removeOperandDeaths(a, to_remove, inst, .{ ptr, .none, .none });
+        },
+        .atomic_rmw => {
+            const pl_op = inst_datas[inst].pl_op;
+            const extra = a.air.extraData(Air.AtomicRmw, pl_op.payload).data;
+            removeOperandDeaths(a, to_remove, inst, .{ pl_op.operand, extra.operand, .none });
+        },
+        .memset,
+        .memcpy,
+        => {
+            const pl_op = inst_datas[inst].pl_op;
+            const extra = a.air.extraData(Air.Bin, pl_op.payload).data;
+            removeOperandDeaths(a, to_remove, inst, .{ pl_op.operand, extra.lhs, extra.rhs });
+        },
+
+        .br => {
+            const br = inst_datas[inst].br;
+            removeOperandDeaths(a, to_remove, inst, .{ br.operand, .none, .none });
+        },
+        .assembly => {
+            const extra = a.air.extraData(Air.Asm, inst_datas[inst].ty_pl.payload);
+            var extra_i: usize = extra.end;
+            const outputs = @ptrCast([]const Air.Inst.Ref, a.air.extra[extra_i..][0..extra.data.outputs_len]);
+            extra_i += outputs.len;
+            const inputs = @ptrCast([]const Air.Inst.Ref, a.air.extra[extra_i..][0..extra.data.inputs_len]);
+            extra_i += inputs.len;
+
+            var death_remover = BigTombDeathRemover.init(a, to_remove, inst);
+            for (outputs) |output| {
+                if (output != .none) {
+                    death_remover.feed(output);
+                }
+            }
+            for (inputs) |input| {
+                death_remover.feed(input);
+            }
+            death_remover.finish();
+        },
+        .block => {
+            const extra = a.air.extraData(Air.Block, inst_datas[inst].ty_pl.payload);
+            const body = a.air.extra[extra.end..][0..extra.data.body_len];
+            try removeDeaths(a, to_remove, body);
+        },
+        .loop => {
+            const extra = a.air.extraData(Air.Block, inst_datas[inst].ty_pl.payload);
+            const body = a.air.extra[extra.end..][0..extra.data.body_len];
+
+            const liveness_extra_idx = a.special.get(inst) orelse {
+                try removeDeaths(a, to_remove, body);
+                return;
+            };
+
+            const death_count = a.extra.items[liveness_extra_idx];
+            var deaths = a.extra.items[liveness_extra_idx + 1 ..][0..death_count];
+
+            // Remove any deaths in `to_remove` from this loop's deaths
+            deaths.len = removeExtraDeaths(to_remove, deaths);
+            a.extra.items[liveness_extra_idx] = @intCast(u32, deaths.len);
+
+            // Temporarily add any deaths of ours to `to_remove`
+            try to_remove.ensureUnusedCapacity(a.gpa, @intCast(u32, deaths.len));
+            for (deaths) |d| {
+                to_remove.putAssumeCapacity(d, {});
+            }
+            try removeDeaths(a, to_remove, body);
+            for (deaths) |d| {
+                _ = to_remove.remove(d);
+            }
+        },
+        .@"try" => {
+            const pl_op = inst_datas[inst].pl_op;
+            const extra = a.air.extraData(Air.Try, pl_op.payload);
+            const body = a.air.extra[extra.end..][0..extra.data.body_len];
+            try removeDeaths(a, to_remove, body);
+            removeOperandDeaths(a, to_remove, inst, .{ pl_op.operand, .none, .none });
+        },
+        .try_ptr => {
+            const extra = a.air.extraData(Air.TryPtr, inst_datas[inst].ty_pl.payload);
+            const body = a.air.extra[extra.end..][0..extra.data.body_len];
+            try removeDeaths(a, to_remove, body);
+            removeOperandDeaths(a, to_remove, inst, .{ extra.data.ptr, .none, .none });
+        },
+        .cond_br => {
+            const inst_data = inst_datas[inst].pl_op;
+            const condition = inst_data.operand;
+            const extra = a.air.extraData(Air.CondBr, inst_data.payload);
+            const then_body = a.air.extra[extra.end..][0..extra.data.then_body_len];
+            const else_body = a.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
+
+            if (a.special.get(inst)) |liveness_extra_idx| {
+                const then_death_count = a.extra.items[liveness_extra_idx + 0];
+                const else_death_count = a.extra.items[liveness_extra_idx + 1];
+                var then_deaths = a.extra.items[liveness_extra_idx + 2 ..][0..then_death_count];
+                var else_deaths = a.extra.items[liveness_extra_idx + 2 + then_death_count ..][0..else_death_count];
+
+                const new_then_death_count = removeExtraDeaths(to_remove, then_deaths);
+                const new_else_death_count = removeExtraDeaths(to_remove, else_deaths);
+
+                a.extra.items[liveness_extra_idx + 0] = new_then_death_count;
+                a.extra.items[liveness_extra_idx + 1] = new_else_death_count;
+
+                if (new_then_death_count < then_death_count) {
+                    // `else` deaths need to be moved earlier in `extra`
+                    const src = a.extra.items[liveness_extra_idx + 2 + then_death_count ..];
+                    const dest = a.extra.items[liveness_extra_idx + 2 + new_then_death_count ..];
+                    std.mem.copy(u32, dest, src[0..new_else_death_count]);
+                }
+            }
+
+            try removeDeaths(a, to_remove, then_body);
+            try removeDeaths(a, to_remove, else_body);
+
+            removeOperandDeaths(a, to_remove, inst, .{ condition, .none, .none });
+        },
+        .switch_br => {
+            const pl_op = inst_datas[inst].pl_op;
+            const condition = pl_op.operand;
+            const switch_br = a.air.extraData(Air.SwitchBr, pl_op.payload);
+
+            var air_extra_index: usize = switch_br.end;
+            for (0..switch_br.data.cases_len) |_| {
+                const case = a.air.extraData(Air.SwitchBr.Case, air_extra_index);
+                const case_body = a.air.extra[case.end + case.data.items_len ..][0..case.data.body_len];
+                air_extra_index = case.end + case.data.items_len + case_body.len;
+                try removeDeaths(a, to_remove, case_body);
+            }
+            { // else
+                const else_body = a.air.extra[air_extra_index..][0..switch_br.data.else_body_len];
+                try removeDeaths(a, to_remove, else_body);
+            }
+
+            if (a.special.get(inst)) |liveness_extra_idx| {
+                const else_death_count = a.extra.items[liveness_extra_idx];
+                var read_idx = liveness_extra_idx + 1;
+                var write_idx = read_idx; // write_idx <= read_idx always
+                for (0..switch_br.data.cases_len) |_| {
+                    const case_death_count = a.extra.items[read_idx];
+                    const case_deaths = a.extra.items[read_idx + 1 ..][0..case_death_count];
+                    const new_death_count = removeExtraDeaths(to_remove, case_deaths);
+                    a.extra.items[write_idx] = new_death_count;
+                    if (write_idx < read_idx) {
+                        std.mem.copy(u32, a.extra.items[write_idx + 1 ..], a.extra.items[read_idx + 1 ..][0..new_death_count]);
+                    }
+                    read_idx += 1 + case_death_count;
+                    write_idx += 1 + new_death_count;
+                }
+                const else_deaths = a.extra.items[read_idx..][0..else_death_count];
+                const new_else_death_count = removeExtraDeaths(to_remove, else_deaths);
+                a.extra.items[liveness_extra_idx] = new_else_death_count;
+                if (write_idx < read_idx) {
+                    std.mem.copy(u32, a.extra.items[write_idx..], a.extra.items[read_idx..][0..new_else_death_count]);
+                }
+            }
+
+            removeOperandDeaths(a, to_remove, inst, .{ condition, .none, .none });
+        },
+        .wasm_memory_grow => {
+            const pl_op = inst_datas[inst].pl_op;
+            removeOperandDeaths(a, to_remove, inst, .{ pl_op.operand, .none, .none });
+        },
+    }
+}
+
+fn removeOperandDeaths(
+    a: *Analysis,
+    to_remove: *const std.AutoHashMapUnmanaged(Air.Inst.Index, void),
+    inst: Air.Inst.Index,
+    operands: [bpi - 1]Air.Inst.Ref,
+) void {
+    const usize_index = (inst * bpi) / @bitSizeOf(usize);
+
+    const cur_tomb = @truncate(Bpi, a.tomb_bits[usize_index] >>
+        @intCast(Log2Int(usize), (inst % (@bitSizeOf(usize) / bpi)) * bpi));
+
+    var toggle_bits: Bpi = 0;
+
+    for (operands, 0..) |op_ref, i| {
+        const mask = @as(Bpi, 1) << @intCast(OperandInt, i);
+        const op_int = @enumToInt(op_ref);
+        if (op_int < Air.Inst.Ref.typed_value_map.len) continue;
+        const operand: Air.Inst.Index = op_int - @intCast(u32, Air.Inst.Ref.typed_value_map.len);
+        if ((cur_tomb & mask) != 0 and to_remove.contains(operand)) {
+            log.debug("remove death of %{} in %{}", .{ operand, inst });
+            toggle_bits ^= mask;
+        }
+    }
+
+    a.tomb_bits[usize_index] ^= @as(usize, toggle_bits) <<
+        @intCast(Log2Int(usize), (inst % (@bitSizeOf(usize) / bpi)) * bpi);
+}
+
+fn removeExtraDeaths(
+    to_remove: *const std.AutoHashMapUnmanaged(Air.Inst.Index, void),
+    deaths: []Air.Inst.Index,
+) u32 {
+    var new_len = @intCast(u32, deaths.len);
+    var i: usize = 0;
+    while (i < new_len) {
+        if (to_remove.contains(deaths[i])) {
+            log.debug("remove extra death of %{}", .{deaths[i]});
+            deaths[i] = deaths[new_len - 1];
+            new_len -= 1;
+        } else {
+            i += 1;
+        }
+    }
+    return new_len;
+}
+
+const BigTombDeathRemover = struct {
+    a: *Analysis,
+    to_remove: *const std.AutoHashMapUnmanaged(Air.Inst.Index, void),
+    inst: Air.Inst.Index,
+
+    operands: [bpi - 1]Air.Inst.Ref = .{.none} ** (bpi - 1),
+    next_oper: OperandInt = 0,
+
+    bit_index: u32 = 0,
+    // Initialized once we finish the small tomb operands: see `feed`
+    extra_start: u32 = undefined,
+    extra_offset: u32 = 0,
+
+    fn init(a: *Analysis, to_remove: *const std.AutoHashMapUnmanaged(Air.Inst.Index, void), inst: Air.Inst.Index) BigTombDeathRemover {
+        return .{
+            .a = a,
+            .to_remove = to_remove,
+            .inst = inst,
+        };
+    }
+
+    fn feed(dr: *BigTombDeathRemover, operand: Air.Inst.Ref) void {
+        if (dr.next_oper < bpi - 1) {
+            dr.operands[dr.next_oper] = operand;
+            dr.next_oper += 1;
+            if (dr.next_oper == bpi - 1) {
+                removeOperandDeaths(dr.a, dr.to_remove, dr.inst, dr.operands);
+                if (dr.a.special.get(dr.inst)) |idx| dr.extra_start = idx;
+            }
+            return;
+        }
+
+        defer dr.bit_index += 1;
+
+        const op_int = @enumToInt(operand);
+        if (op_int < Air.Inst.Ref.typed_value_map.len) return;
+
+        const op_inst: Air.Inst.Index = op_int - @intCast(u32, Air.Inst.Ref.typed_value_map.len);
+
+        while (dr.bit_index - dr.extra_offset * 31 >= 31) {
+            dr.extra_offset += 1;
+        }
+        const dies = @truncate(u1, dr.a.extra.items[dr.extra_start + dr.extra_offset] >>
+            @intCast(u5, dr.bit_index - dr.extra_offset * 31)) != 0;
+
+        if (dies and dr.to_remove.contains(op_inst)) {
+            log.debug("remove big death of %{}", .{op_inst});
+            dr.a.extra.items[dr.extra_start + dr.extra_offset] ^=
+                (@as(u32, 1) << @intCast(u5, dr.bit_index - dr.extra_offset * 31));
+        }
+    }
+
+    fn finish(dr: *BigTombDeathRemover) void {
+        if (dr.next_oper < bpi) {
+            removeOperandDeaths(dr.a, dr.to_remove, dr.inst, dr.operands);
+        }
     }
 };

@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+
 #ifndef _LIBCPP_EXPERIMENTAL_SIMD
 #define _LIBCPP_EXPERIMENTAL_SIMD
 
@@ -656,11 +657,6 @@ public:
 #include <experimental/__config>
 #include <tuple>
 
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <algorithm>
-#  include <functional>
-#endif
-
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
@@ -720,12 +716,12 @@ public:
 
 #ifndef _LIBCPP_HAS_NO_VECTOR_EXTENSION
 
-constexpr size_t __floor_pow_of_2(size_t __val) {
+_LIBCPP_HIDE_FROM_ABI constexpr size_t __floor_pow_of_2(size_t __val) {
   return ((__val - 1) & __val) == 0 ? __val
                                     : __floor_pow_of_2((__val - 1) & __val);
 }
 
-constexpr size_t __ceil_pow_of_2(size_t __val) {
+_LIBCPP_HIDE_FROM_ABI constexpr size_t __ceil_pow_of_2(size_t __val) {
   return __val == 1 ? 1 : __floor_pow_of_2(__val - 1) << 1;
 }
 
@@ -913,25 +909,27 @@ public:
 };
 
 template <class _To, class _From>
-constexpr decltype(_To{std::declval<_From>()}, true)
+_LIBCPP_HIDE_FROM_ABI constexpr decltype(_To{std::declval<_From>()}, true)
 __is_non_narrowing_convertible_impl(_From) {
   return true;
 }
 
 template <class _To>
-constexpr bool __is_non_narrowing_convertible_impl(...) {
+_LIBCPP_HIDE_FROM_ABI constexpr bool __is_non_narrowing_convertible_impl(...) {
   return false;
 }
 
 template <class _From, class _To>
+_LIBCPP_HIDE_FROM_ABI
 constexpr typename std::enable_if<std::is_arithmetic<_To>::value &&
                                       std::is_arithmetic<_From>::value,
                                   bool>::type
 __is_non_narrowing_arithmetic_convertible() {
-  return __is_non_narrowing_convertible_impl<_To>(_From{});
+  return experimental::__is_non_narrowing_convertible_impl<_To>(_From{});
 }
 
 template <class _From, class _To>
+_LIBCPP_HIDE_FROM_ABI
 constexpr typename std::enable_if<!(std::is_arithmetic<_To>::value &&
                                     std::is_arithmetic<_From>::value),
                                   bool>::type
@@ -940,13 +938,13 @@ __is_non_narrowing_arithmetic_convertible() {
 }
 
 template <class _Tp>
-constexpr _Tp __variadic_sum() {
+_LIBCPP_HIDE_FROM_ABI constexpr _Tp __variadic_sum() {
   return _Tp{};
 }
 
 template <class _Tp, class _Up, class... _Args>
-constexpr _Tp __variadic_sum(_Up __first, _Args... __rest) {
-  return static_cast<_Tp>(__first) + __variadic_sum<_Tp>(__rest...);
+_LIBCPP_HIDE_FROM_ABI constexpr _Tp __variadic_sum(_Up __first, _Args... __rest) {
+  return static_cast<_Tp>(__first) + experimental::__variadic_sum<_Tp>(__rest...);
 }
 
 template <class _Tp>
@@ -955,7 +953,7 @@ struct __nodeduce {
 };
 
 template <class _Tp>
-constexpr bool __vectorizable() {
+_LIBCPP_HIDE_FROM_ABI constexpr bool __vectorizable() {
   return std::is_arithmetic<_Tp>::value && !std::is_const<_Tp>::value &&
          !std::is_volatile<_Tp>::value && !std::is_same<_Tp, bool>::value;
 }
@@ -1060,7 +1058,7 @@ struct simd_size<_Tp, __simd_abi<__kind, _Np>>
     : std::integral_constant<size_t, _Np> {
   static_assert(
       std::is_arithmetic<_Tp>::value &&
-          !std::is_same<typename std::remove_const<_Tp>::type, bool>::value,
+          !std::is_same<__remove_const_t<_Tp>, bool>::value,
       "Element type should be vectorizable");
 };
 
@@ -1123,13 +1121,13 @@ struct __simd_cast_traits<simd<_Tp, _NewAbi>> {
 };
 
 template <class _Tp, class _Up, class _Abi>
-auto simd_cast(const simd<_Up, _Abi>& __v)
+_LIBCPP_HIDE_FROM_ABI auto simd_cast(const simd<_Up, _Abi>& __v)
     -> decltype(__simd_cast_traits<_Tp>::__apply(__v)) {
   return __simd_cast_traits<_Tp>::__apply(__v);
 }
 
 template <class _Tp, class _Up, class _Abi>
-auto static_simd_cast(const simd<_Up, _Abi>& __v)
+_LIBCPP_HIDE_FROM_ABI auto static_simd_cast(const simd<_Up, _Abi>& __v)
     -> decltype(__static_simd_cast_traits<_Tp>::__apply(__v)) {
   return __static_simd_cast_traits<_Tp>::__apply(__v);
 }
@@ -1172,12 +1170,12 @@ array<_SimdType, simd_size<typename _SimdType::value_type, _Abi>::value /
 split(const simd_mask<typename _SimdType::value_type, _Abi>&);
 
 template <class _Tp, class... _Abis>
-simd<_Tp, abi_for_size_t<_Tp, __variadic_sum(simd_size<_Tp, _Abis>::value...)>>
+simd<_Tp, abi_for_size_t<_Tp, experimental::__variadic_sum(simd_size<_Tp, _Abis>::value...)>>
 concat(const simd<_Tp, _Abis>&...);
 
 template <class _Tp, class... _Abis>
 simd_mask<_Tp,
-          abi_for_size_t<_Tp, __variadic_sum(simd_size<_Tp, _Abis>::value...)>>
+          abi_for_size_t<_Tp, experimental::__variadic_sum(simd_size<_Tp, _Abis>::value...)>>
 concat(const simd_mask<_Tp, _Abis>&...);
 
 // reductions [simd.mask.reductions]
@@ -1302,7 +1300,7 @@ class const_where_expression {
 public:
   const_where_expression(const const_where_expression&) = delete;
   const_where_expression& operator=(const const_where_expression&) = delete;
-  typename remove_const<_Tp>::type operator-() const&&;
+  __remove_const_t<_Tp> operator-() const&&;
   template <class _Up, class _Flags>
   void copy_to(_Up*, _Flags) const&&;
 };
@@ -1369,8 +1367,8 @@ private:
             __is_non_narrowing_arithmetic_convertible<_Up, _Tp>()) ||
            (!std::is_arithmetic<_Up>::value &&
             std::is_convertible<_Up, _Tp>::value) ||
-           std::is_same<typename std::remove_const<_Up>::type, int>::value ||
-           (std::is_same<typename std::remove_const<_Up>::type,
+           std::is_same<__remove_const_t<_Up>, int>::value ||
+           (std::is_same<__remove_const_t<_Up>,
                          unsigned int>::value &&
             std::is_unsigned<_Tp>::value);
   }
@@ -1381,7 +1379,7 @@ private:
           std::integral_constant<size_t, __indicies>())...),
       bool())
   __can_generate(std::index_sequence<__indicies...>) {
-    return !__variadic_sum<bool>(
+    return !experimental::__variadic_sum<bool>(
         !__can_broadcast<decltype(std::declval<_Generator>()(
             std::integral_constant<size_t, __indicies>()))>()...);
   }
@@ -1578,5 +1576,10 @@ public:
 _LIBCPP_END_NAMESPACE_EXPERIMENTAL_SIMD
 
 _LIBCPP_POP_MACROS
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <algorithm>
+#  include <functional>
+#endif
 
 #endif /* _LIBCPP_EXPERIMENTAL_SIMD */

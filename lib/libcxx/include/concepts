@@ -155,6 +155,10 @@ namespace std {
 #include <__config>
 #include <version>
 
+#if _LIBCPP_STD_VER <= 20 && !defined(_LIPCPP_REMOVE_TRANSITIVE_INCLUDES)
+#  include <type_traits>
+#endif
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif

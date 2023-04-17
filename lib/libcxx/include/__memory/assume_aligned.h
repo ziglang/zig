@@ -12,9 +12,9 @@
 
 #include <__assert>
 #include <__config>
+#include <__type_traits/is_constant_evaluated.h>
 #include <cstddef>
 #include <cstdint>
-#include <type_traits> // for is_constant_evaluated()
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

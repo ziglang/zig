@@ -12,8 +12,9 @@
 #include <__concepts/common_reference_with.h>
 #include <__concepts/same_as.h>
 #include <__config>
+#include <__type_traits/is_reference.h>
+#include <__type_traits/make_const_lvalue_ref.h>
 #include <__utility/forward.h>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

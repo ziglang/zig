@@ -16,7 +16,6 @@ pub export fn entry2() void {
 // backend=stage2
 // target=native
 //
-// :4:15: error: unable to resolve comptime value
-// :4:15: note: condition in comptime branch must be comptime-known
-// :11:11: error: unable to resolve comptime value
-// :11:11: note: condition in comptime branch must be comptime-known
+// :4:15: error: unable to evaluate comptime expression
+// :4:13: note: operation is runtime due to this operand
+// :11:11: error: unable to evaluate comptime expression

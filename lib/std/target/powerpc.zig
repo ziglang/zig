@@ -19,6 +19,7 @@ pub const Feature = enum {
     e500,
     efpu2,
     extdiv,
+    fast_MFLR,
     fcpsgn,
     float128,
     fpcvt,
@@ -174,6 +175,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.extdiv)] = .{
         .llvm_name = "extdiv",
         .description = "Enable extended divide instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.fast_MFLR)] = .{
+        .llvm_name = "fast-MFLR",
+        .description = "MFLR is a fast instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fcpsgn)] = .{
@@ -787,6 +793,7 @@ pub const cpu = struct {
             .crypto,
             .direct_move,
             .extdiv,
+            .fast_MFLR,
             .fcpsgn,
             .fpcvt,
             .fprnd,
@@ -941,6 +948,7 @@ pub const cpu = struct {
             .crypto,
             .direct_move,
             .extdiv,
+            .fast_MFLR,
             .fcpsgn,
             .fpcvt,
             .fprnd,

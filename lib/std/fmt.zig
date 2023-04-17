@@ -703,10 +703,7 @@ pub fn formatType(
             }
             try writer.writeAll(" }");
         },
-        .Fn => {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
-            return format(writer, "{s}@{x}", .{ @typeName(T), @ptrToInt(value) });
-        },
+        .Fn => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
         .Type => {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             return formatBuf(@typeName(value), options, writer);

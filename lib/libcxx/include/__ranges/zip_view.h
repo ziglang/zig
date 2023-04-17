@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+
 #ifndef _LIBCPP___RANGES_ZIP_VIEW_H
 #define _LIBCPP___RANGES_ZIP_VIEW_H
 
@@ -44,7 +45,7 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 20 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 20
 
 namespace ranges {
 
@@ -402,15 +403,15 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI
   friend constexpr auto iter_move(const __iterator& __i) noexcept(
-      (noexcept(ranges::iter_move(declval<const iterator_t<__maybe_const<_Const, _Views>>&>())) && ...) &&
+      (noexcept(ranges::iter_move(std::declval<const iterator_t<__maybe_const<_Const, _Views>>&>())) && ...) &&
       (is_nothrow_move_constructible_v<range_rvalue_reference_t<__maybe_const<_Const, _Views>>> && ...)) {
     return ranges::__tuple_transform(ranges::iter_move, __i.__current_);
   }
 
   _LIBCPP_HIDE_FROM_ABI
   friend constexpr void iter_swap(const __iterator& __l, const __iterator& __r) noexcept(
-      (noexcept(ranges::iter_swap(declval<const iterator_t<__maybe_const<_Const, _Views>>&>(),
-                                  declval<const iterator_t<__maybe_const<_Const, _Views>>&>())) &&
+      (noexcept(ranges::iter_swap(std::declval<const iterator_t<__maybe_const<_Const, _Views>>&>(),
+                                  std::declval<const iterator_t<__maybe_const<_Const, _Views>>&>())) &&
        ...))
     requires(indirectly_swappable<iterator_t<__maybe_const<_Const, _Views>>> && ...) {
     ranges::__tuple_zip_for_each(ranges::iter_swap, __l.__current_, __r.__current_);
@@ -502,7 +503,7 @@ inline namespace __cpo {
 } // namespace views
 } // namespace ranges
 
-#endif // _LIBCPP_STD_VER > 20 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 20
 
 _LIBCPP_END_NAMESPACE_STD
 

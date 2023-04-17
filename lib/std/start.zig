@@ -14,22 +14,25 @@ var argc_argv_ptr: [*]usize = undefined;
 
 const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 
+// The self-hosted compiler is not fully capable of handling all of this start.zig file.
+// Until then, we have simplified logic here for self-hosted. TODO remove this once
+// self-hosted is capable enough to handle all of the real start.zig logic.
+pub const simplified_logic =
+    (builtin.zig_backend == .stage2_x86_64 and (builtin.link_libc or builtin.os.tag == .plan9)) or
+    builtin.zig_backend == .stage2_x86 or
+    builtin.zig_backend == .stage2_aarch64 or
+    builtin.zig_backend == .stage2_arm or
+    builtin.zig_backend == .stage2_riscv64 or
+    builtin.zig_backend == .stage2_sparc64 or
+    builtin.cpu.arch == .spirv32 or
+    builtin.cpu.arch == .spirv64;
+
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
     // decls there get run.
     _ = root;
 
-    // The self-hosted compiler is not fully capable of handling all of this start.zig file.
-    // Until then, we have simplified logic here for self-hosted. TODO remove this once
-    // self-hosted is capable enough to handle all of the real start.zig logic.
-    if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_x86_64 or
-        builtin.zig_backend == .stage2_x86 or
-        builtin.zig_backend == .stage2_aarch64 or
-        builtin.zig_backend == .stage2_arm or
-        builtin.zig_backend == .stage2_riscv64 or
-        builtin.zig_backend == .stage2_sparc64)
-    {
+    if (simplified_logic) {
         if (builtin.output_mode == .Exe) {
             if ((builtin.link_libc or builtin.object_format == .c) and @hasDecl(root, "main")) {
                 if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
@@ -39,8 +42,9 @@ comptime {
                 if (!@hasDecl(root, "wWinMainCRTStartup") and !@hasDecl(root, "mainCRTStartup")) {
                     @export(wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
                 }
-            } else if (builtin.os.tag == .wasi and @hasDecl(root, "main")) {
-                @export(wasiMain2, .{ .name = "_start" });
+            } else if (builtin.os.tag == .opencl) {
+                if (@hasDecl(root, "main"))
+                    @export(spirvMain2, .{ .name = "main" });
             } else {
                 if (!@hasDecl(root, "_start")) {
                     @export(_start2, .{ .name = "_start" });
@@ -109,20 +113,8 @@ fn callMain2() noreturn {
     exit2(0);
 }
 
-fn wasiMain2() callconv(.C) noreturn {
-    switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
-        .Void => {
-            root.main();
-            std.os.wasi.proc_exit(0);
-        },
-        .Int => |info| {
-            if (info.bits != 8 or info.signedness == .signed) {
-                @compileError(bad_main_ret);
-            }
-            std.os.wasi.proc_exit(root.main());
-        },
-        else => @compileError("Bad return type main"),
-    }
+fn spirvMain2() callconv(.Kernel) void {
+    root.main();
 }
 
 fn wWinMainCRTStartup2() callconv(.C) noreturn {
@@ -501,7 +493,7 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     return initEventLoopAndCallMain();
 }
 
-fn main(c_argc: c_int, c_argv: [*c][*c]u8, c_envp: [*c][*c]u8) callconv(.C) c_int {
+fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.C) c_int {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
@@ -516,7 +508,7 @@ fn main(c_argc: c_int, c_argv: [*c][*c]u8, c_envp: [*c][*c]u8) callconv(.C) c_in
     return @call(.always_inline, callMainWithArgs, .{ @intCast(usize, c_argc), @ptrCast([*][*:0]u8, c_argv), envp });
 }
 
-fn mainWithoutEnv(c_argc: c_int, c_argv: [*c][*c]u8) callconv(.C) c_int {
+fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
     std.os.argv = @ptrCast([*][*:0]u8, c_argv)[0..@intCast(usize, c_argc)];
     return @call(.always_inline, callMain, .{});
 }

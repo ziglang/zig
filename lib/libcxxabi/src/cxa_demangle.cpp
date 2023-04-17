@@ -386,15 +386,12 @@ __cxa_demangle(const char *MangledName, char *Buf, size_t *N, int *Status) {
 
   int InternalStatus = demangle_success;
   Demangler Parser(MangledName, MangledName + std::strlen(MangledName));
-  OutputBuffer O;
-
   Node *AST = Parser.parse();
 
   if (AST == nullptr)
     InternalStatus = demangle_invalid_mangled_name;
-  else if (!initializeOutputBuffer(Buf, N, O, 1024))
-    InternalStatus = demangle_memory_alloc_failure;
   else {
+    OutputBuffer O(Buf, N);
     assert(Parser.ForwardTemplateRefs.empty());
     AST->print(O);
     O += '\0';

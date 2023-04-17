@@ -23,4 +23,6 @@ export fn f2() void {
 // target=native
 //
 // :7:5: error: incompatible types: 'usize' and 'void'
+// :8:22: note: type 'usize' here
 // :14:12: error: incompatible types: 'usize' and 'void'
+// :16:33: note: type 'usize' here

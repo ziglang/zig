@@ -254,9 +254,6 @@ pub const Value = opaque {
     pub const addFunctionAttr = ZigLLVMAddFunctionAttr;
     extern fn ZigLLVMAddFunctionAttr(Fn: *Value, attr_name: [*:0]const u8, attr_value: [*:0]const u8) void;
 
-    pub const getGEPResultElementType = ZigLLVMGetGEPResultElementType;
-    extern fn ZigLLVMGetGEPResultElementType(GEP: *Value) *Type;
-
     pub const addByValAttr = ZigLLVMAddByValAttr;
     extern fn ZigLLVMAddByValAttr(Fn: *Value, ArgNo: c_uint, type: *Type) void;
 };
@@ -422,6 +419,9 @@ pub const Module = opaque {
 
     pub const printModuleToFile = LLVMPrintModuleToFile;
     extern fn LLVMPrintModuleToFile(M: *Module, Filename: [*:0]const u8, ErrorMessage: *[*:0]const u8) Bool;
+
+    pub const writeBitcodeToFile = LLVMWriteBitcodeToFile;
+    extern fn LLVMWriteBitcodeToFile(M: *Module, Path: [*:0]const u8) c_int;
 };
 
 pub const lookupIntrinsicID = LLVMLookupIntrinsicID;
@@ -1133,6 +1133,7 @@ pub extern fn LLVMInitializeSystemZTargetInfo() void;
 pub extern fn LLVMInitializeWebAssemblyTargetInfo() void;
 pub extern fn LLVMInitializeX86TargetInfo() void;
 pub extern fn LLVMInitializeXCoreTargetInfo() void;
+pub extern fn LLVMInitializeXtensaTargetInfo() void;
 pub extern fn LLVMInitializeM68kTargetInfo() void;
 pub extern fn LLVMInitializeCSKYTargetInfo() void;
 pub extern fn LLVMInitializeVETargetInfo() void;
@@ -1155,6 +1156,7 @@ pub extern fn LLVMInitializeSystemZTarget() void;
 pub extern fn LLVMInitializeWebAssemblyTarget() void;
 pub extern fn LLVMInitializeX86Target() void;
 pub extern fn LLVMInitializeXCoreTarget() void;
+pub extern fn LLVMInitializeXtensaTarget() void;
 pub extern fn LLVMInitializeM68kTarget() void;
 pub extern fn LLVMInitializeVETarget() void;
 pub extern fn LLVMInitializeCSKYTarget() void;
@@ -1177,6 +1179,7 @@ pub extern fn LLVMInitializeSystemZTargetMC() void;
 pub extern fn LLVMInitializeWebAssemblyTargetMC() void;
 pub extern fn LLVMInitializeX86TargetMC() void;
 pub extern fn LLVMInitializeXCoreTargetMC() void;
+pub extern fn LLVMInitializeXtensaTargetMC() void;
 pub extern fn LLVMInitializeM68kTargetMC() void;
 pub extern fn LLVMInitializeCSKYTargetMC() void;
 pub extern fn LLVMInitializeVETargetMC() void;
@@ -1199,6 +1202,7 @@ pub extern fn LLVMInitializeSystemZAsmPrinter() void;
 pub extern fn LLVMInitializeWebAssemblyAsmPrinter() void;
 pub extern fn LLVMInitializeX86AsmPrinter() void;
 pub extern fn LLVMInitializeXCoreAsmPrinter() void;
+pub extern fn LLVMInitializeXtensaAsmPrinter() void;
 pub extern fn LLVMInitializeM68kAsmPrinter() void;
 pub extern fn LLVMInitializeVEAsmPrinter() void;
 pub extern fn LLVMInitializeARCAsmPrinter() void;
@@ -1218,6 +1222,7 @@ pub extern fn LLVMInitializeSparcAsmParser() void;
 pub extern fn LLVMInitializeSystemZAsmParser() void;
 pub extern fn LLVMInitializeWebAssemblyAsmParser() void;
 pub extern fn LLVMInitializeX86AsmParser() void;
+pub extern fn LLVMInitializeXtensaAsmParser() void;
 pub extern fn LLVMInitializeM68kAsmParser() void;
 pub extern fn LLVMInitializeCSKYAsmParser() void;
 pub extern fn LLVMInitializeVEAsmParser() void;
@@ -1333,6 +1338,7 @@ pub const ArchType = enum(c_int) {
     x86,
     x86_64,
     xcore,
+    xtensa,
     nvptx,
     nvptx64,
     le32,

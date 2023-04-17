@@ -97,8 +97,15 @@ using ::std::nullptr_t;
 #undef __need_NULL
 #endif /* defined(__need_NULL) */
 
+/* FIXME: This is using the placeholder dates Clang produces for these macros
+   in C2x mode; switch to the correct values once they've been published. */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202000L
+typedef typeof(nullptr) nullptr_t;
+#endif /* defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202000L */
+
 #if defined(__need_STDDEF_H_misc)
-#if __STDC_VERSION__ >= 201112L || __cplusplus >= 201103L
+#if (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L) ||              \
+    (defined(__cplusplus) && __cplusplus >= 201103L)
 #include "__stddef_max_align_t.h"
 #endif
 #define offsetof(t, d) __builtin_offsetof(t, d)

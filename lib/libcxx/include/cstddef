@@ -38,8 +38,17 @@ Types:
 #include <__type_traits/enable_if.h>
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/is_integral.h>
-#include <stddef.h>
 #include <version>
+
+#include <stddef.h>
+
+#ifndef _LIBCPP_STDDEF_H
+#   error <cstddef> tried including <stddef.h> but didn't find libc++'s <stddef.h> header. \
+          This usually means that your header search paths are not configured properly. \
+          The header search paths should contain the C++ Standard Library headers before \
+          any C Standard Library, and you are probably using compiler flags that make that \
+          not be the case.
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -62,7 +71,7 @@ namespace std  // purposefully not versioned
 {
 enum class byte : unsigned char {};
 
-constexpr byte  operator| (byte  __lhs, byte __rhs) noexcept
+_LIBCPP_HIDE_FROM_ABI constexpr byte  operator| (byte  __lhs, byte __rhs) noexcept
 {
     return static_cast<byte>(
       static_cast<unsigned char>(
@@ -70,10 +79,10 @@ constexpr byte  operator| (byte  __lhs, byte __rhs) noexcept
     ));
 }
 
-constexpr byte& operator|=(byte& __lhs, byte __rhs) noexcept
+_LIBCPP_HIDE_FROM_ABI constexpr byte& operator|=(byte& __lhs, byte __rhs) noexcept
 { return __lhs = __lhs | __rhs; }
 
-constexpr byte  operator& (byte  __lhs, byte __rhs) noexcept
+_LIBCPP_HIDE_FROM_ABI constexpr byte  operator& (byte  __lhs, byte __rhs) noexcept
 {
     return static_cast<byte>(
       static_cast<unsigned char>(
@@ -81,10 +90,10 @@ constexpr byte  operator& (byte  __lhs, byte __rhs) noexcept
     ));
 }
 
-constexpr byte& operator&=(byte& __lhs, byte __rhs) noexcept
+_LIBCPP_HIDE_FROM_ABI constexpr byte& operator&=(byte& __lhs, byte __rhs) noexcept
 { return __lhs = __lhs & __rhs; }
 
-constexpr byte  operator^ (byte  __lhs, byte __rhs) noexcept
+_LIBCPP_HIDE_FROM_ABI constexpr byte  operator^ (byte  __lhs, byte __rhs) noexcept
 {
     return static_cast<byte>(
       static_cast<unsigned char>(
@@ -92,10 +101,10 @@ constexpr byte  operator^ (byte  __lhs, byte __rhs) noexcept
     ));
 }
 
-constexpr byte& operator^=(byte& __lhs, byte __rhs) noexcept
+_LIBCPP_HIDE_FROM_ABI constexpr byte& operator^=(byte& __lhs, byte __rhs) noexcept
 { return __lhs = __lhs ^ __rhs; }
 
-constexpr byte  operator~ (byte __b) noexcept
+_LIBCPP_HIDE_FROM_ABI constexpr byte  operator~ (byte __b) noexcept
 {
     return static_cast<byte>(
       static_cast<unsigned char>(
@@ -107,27 +116,27 @@ template <class _Tp>
 using _EnableByteOverload = __enable_if_t<is_integral<_Tp>::value, byte>;
 
 template <class _Integer>
-  constexpr _EnableByteOverload<_Integer> &
+_LIBCPP_HIDE_FROM_ABI constexpr _EnableByteOverload<_Integer> &
   operator<<=(byte& __lhs, _Integer __shift) noexcept
   { return __lhs = __lhs << __shift; }
 
 template <class _Integer>
-  constexpr _EnableByteOverload<_Integer>
+_LIBCPP_HIDE_FROM_ABI constexpr _EnableByteOverload<_Integer>
   operator<< (byte  __lhs, _Integer __shift) noexcept
   { return static_cast<byte>(static_cast<unsigned char>(static_cast<unsigned int>(__lhs) << __shift)); }
 
 template <class _Integer>
-  constexpr _EnableByteOverload<_Integer> &
+_LIBCPP_HIDE_FROM_ABI constexpr _EnableByteOverload<_Integer> &
   operator>>=(byte& __lhs, _Integer __shift) noexcept
   { return __lhs = __lhs >> __shift; }
 
 template <class _Integer>
-  constexpr _EnableByteOverload<_Integer>
+_LIBCPP_HIDE_FROM_ABI constexpr _EnableByteOverload<_Integer>
   operator>> (byte  __lhs, _Integer __shift) noexcept
   { return static_cast<byte>(static_cast<unsigned char>(static_cast<unsigned int>(__lhs) >> __shift)); }
 
 template <class _Integer, class = _EnableByteOverload<_Integer> >
-  _LIBCPP_NODISCARD_EXT constexpr _Integer
+_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr _Integer
   to_integer(byte __b) noexcept { return static_cast<_Integer>(__b); }
 
 } // namespace std
