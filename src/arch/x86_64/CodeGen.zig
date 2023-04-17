@@ -439,9 +439,7 @@ fn dumpWipMir(self: *Self, inst: Mir.Inst) !void {
         },
         else => |e| return e,
     }) |lower_inst| {
-        try stderr.writeAll("  | ");
-        try lower_inst.fmtPrint(stderr);
-        try stderr.writeByte('\n');
+        try stderr.print("  | {}\n", .{lower_inst});
     }
 }
 
