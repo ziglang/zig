@@ -1209,9 +1209,10 @@ fn resolveLazySymbols(wasm: *Wasm) !void {
             try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
         }
     }
-    if (wasm.undefs.fetchSwapRemove("__zig_lt_errors_len")) |kv| {
-        const loc = try wasm.createSyntheticSymbol("__zig_lt_errors_len", .function);
+    if (wasm.undefs.fetchSwapRemove("__zig_errors_len")) |kv| {
+        const loc = try wasm.createSyntheticSymbol("__zig_errors_len", .data);
         try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+        _ = wasm.resolved_symbols.swapRemove(kv.value);
     }
 }
 
@@ -2189,44 +2190,41 @@ fn setupInitFunctions(wasm: *Wasm) !void {
     std.sort.sort(InitFuncLoc, wasm.init_funcs.items, {}, InitFuncLoc.lessThan);
 }
 
-/// Generates the function which verifies if an integer value is less than the
-/// amount of error values. This will only be generated if the symbol exists.
-fn setupLtErrorsLenFunction(wasm: *Wasm) !void {
-    if (wasm.findGlobalSymbol("__zig_lt_errors_len") == null) return;
+/// Generates an atom containing the global error set' size.
+/// This will only be generated if the symbol exists.
+fn setupErrorsLen(wasm: *Wasm) !void {
+    const loc = wasm.findGlobalSymbol("__zig_errors_len") orelse return;
+
     const errors_len = wasm.base.options.module.?.global_error_set.count();
+    // overwrite existing atom if it already exists (maybe the error set has increased)
+    // if not, allcoate a new atom.
+    const atom_index = if (wasm.symbol_atom.get(loc)) |index| blk: {
+        const atom = wasm.getAtomPtr(index);
+        if (atom.next) |next_atom_index| {
+            const next_atom = wasm.getAtomPtr(next_atom_index);
+            next_atom.prev = atom.prev;
+            atom.next = null;
+        }
+        if (atom.prev) |prev_index| {
+            const prev_atom = wasm.getAtomPtr(prev_index);
+            prev_atom.next = atom.next;
+            atom.prev = null;
+        }
+        atom.deinit(wasm);
+        break :blk index;
+    } else new_atom: {
+        const atom_index = @intCast(Atom.Index, wasm.managed_atoms.items.len);
+        try wasm.symbol_atom.put(wasm.base.allocator, loc, atom_index);
+        try wasm.managed_atoms.append(wasm.base.allocator, undefined);
+        break :new_atom atom_index;
+    };
+    const atom = wasm.getAtomPtr(atom_index);
+    atom.* = Atom.empty;
+    atom.sym_index = loc.index;
+    atom.size = 2;
+    try atom.code.writer(wasm.base.allocator).writeIntLittle(u16, @intCast(u16, errors_len));
 
-    var body_list = std.ArrayList(u8).init(wasm.base.allocator);
-    defer body_list.deinit();
-    const writer = body_list.writer();
-
-    {
-        // generates bytecode for the following function:
-        // fn (index: u16) bool {
-        //     return index < errors_len;
-        // }
-
-        // no locals
-        try leb.writeULEB128(writer, @as(u32, 0));
-
-        // get argument
-        try writer.writeByte(std.wasm.opcode(.local_get));
-        try leb.writeULEB128(writer, @as(u32, 0));
-
-        // get error length
-        try writer.writeByte(std.wasm.opcode(.i32_const));
-        try leb.writeULEB128(writer, @intCast(u32, errors_len));
-
-        try writer.writeByte(std.wasm.opcode(.i32_lt_u));
-
-        // stack values are implicit return values so keep the value
-        // on the stack and end the function.
-
-        // end function
-        try writer.writeByte(std.wasm.opcode(.end));
-    }
-
-    const func_type: std.wasm.Type = .{ .params = &.{std.wasm.Valtype.i32}, .returns = &.{std.wasm.Valtype.i32} };
-    try wasm.createSyntheticFunction("__zig_lt_errors_len", func_type, &body_list);
+    try wasm.parseAtom(atom_index, .{ .data = .read_only });
 }
 
 /// Creates a function body for the `__wasm_call_ctors` symbol.
@@ -3361,6 +3359,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     // So we can rebuild the binary file on each incremental update
     defer wasm.resetState();
     try wasm.setupInitFunctions();
+    try wasm.setupErrorsLen();
     try wasm.setupStart();
     try wasm.setupImports();
     if (wasm.base.options.module) |mod| {
@@ -3423,7 +3422,6 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     try wasm.setupInitMemoryFunction();
     try wasm.setupTLSRelocationsFunction();
     try wasm.initializeTLSFunction();
-    try wasm.setupLtErrorsLenFunction();
     try wasm.setupExports();
     try wasm.writeToFile(enabled_features, emit_features_count, arena);
 }

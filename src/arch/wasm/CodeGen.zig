@@ -3339,13 +3339,14 @@ fn airCmpVector(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airCmpLtErrorsLen(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const un_op = func.air.instructions.items(.data)[inst].un_op;
     const operand = try func.resolveInst(un_op);
-    const sym_index = try func.bin_file.getGlobalSymbol("__zig_lt_errors_len", null);
+    const sym_index = try func.bin_file.getGlobalSymbol("__zig_errors_len", null);
+    const errors_len = WValue{ .memory = sym_index };
 
     try func.emitWValue(operand);
-    try func.addLabel(.call, sym_index);
-    const result = try func.allocLocal(Type.bool);
-    try func.addLabel(.local_set, result.local.value);
-    return func.finishAir(inst, result, &.{un_op});
+    const errors_len_val = try func.load(errors_len, Type.err_int, 0);
+    const result = try func.cmp(.stack, errors_len_val, Type.err_int, .lt);
+
+    return func.finishAir(inst, try result.toLocal(func, Type.bool), &.{un_op});
 }
 
 fn airBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -6518,7 +6519,6 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
 fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
-    if (func.liveness.isUnused(inst)) return func.finishAir(inst, .none, &.{ty_op.operand});
 
     const operand = try func.resolveInst(ty_op.operand);
     const error_set_ty = func.air.getRefType(ty_op.ty);
