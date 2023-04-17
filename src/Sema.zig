@@ -39005,12 +39005,6 @@ fn intDepositBits(
     );
     defer arena.free(mask_limbs);
 
-    const limbs_buffer = try arena.alloc(
-        std.math.big.Limb,
-        rhs_bigint.limbs.len,
-    );
-    defer arena.free(limbs_buffer);
-
     var source = std.math.big.int.Mutable{ .limbs = source_limbs, .positive = undefined, .len = undefined };
     var mask = std.math.big.int.Mutable{ .limbs = mask_limbs, .positive = undefined, .len = undefined };
     var result = std.math.big.int.Mutable{ .limbs = result_limbs, .positive = undefined, .len = undefined };
@@ -39018,7 +39012,7 @@ fn intDepositBits(
     source.convertToTwosComplement(lhs_bigint, info.signedness, info.bits);
     mask.convertToTwosComplement(rhs_bigint, info.signedness, info.bits);
 
-    result.depositBits(source.toConst(), mask.toConst(), limbs_buffer);
+    result.depositBits(source.toConst(), mask.toConst());
 
     result.convertFromTwosComplement(result.toConst(), info.signedness, info.bits);
     return Value.fromBigInt(arena, result.toConst());
@@ -39058,12 +39052,6 @@ fn intExtractBits(
     );
     defer arena.free(mask_limbs);
 
-    const limbs_buffer = try arena.alloc(
-        std.math.big.Limb,
-        rhs_bigint.limbs.len,
-    );
-    defer arena.free(limbs_buffer);
-
     var source = std.math.big.int.Mutable{ .limbs = source_limbs, .positive = undefined, .len = undefined };
     var mask = std.math.big.int.Mutable{ .limbs = mask_limbs, .positive = undefined, .len = undefined };
     var result = std.math.big.int.Mutable{ .limbs = result_limbs, .positive = undefined, .len = undefined };
@@ -39071,7 +39059,7 @@ fn intExtractBits(
     source.convertToTwosComplement(lhs_bigint, info.signedness, info.bits);
     mask.convertToTwosComplement(rhs_bigint, info.signedness, info.bits);
 
-    result.extractBits(source.toConst(), mask.toConst(), limbs_buffer);
+    result.extractBits(source.toConst(), mask.toConst());
 
     result.convertFromTwosComplement(result.toConst(), info.signedness, info.bits);
     return Value.fromBigInt(arena, result.toConst());

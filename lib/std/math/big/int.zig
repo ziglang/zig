@@ -1739,31 +1739,37 @@ pub const Mutable = struct {
     /// r = @depositBits(source, mask)
     ///
     /// Asserts that `source` and `mask` are positive
-    ///
-    /// `limbs_buffer` is used as a working area. It must have length of at least `mask.limbs.len`.
-    pub fn depositBits(r: *Mutable, source: Const, mask: Const, limbs_buffer: []Limb) void {
+    pub fn depositBits(r: *Mutable, source: Const, mask: Const) void {
         assert(source.positive);
         assert(mask.positive);
 
         r.positive = true;
         std.mem.set(Limb, r.limbs, 0);
 
-        var mut_mask = Mutable{ .limbs = limbs_buffer[0..mask.limbs.len], .positive = undefined, .len = undefined };
-        mut_mask.copy(mask);
-
-        var mask_bit_index = mut_mask.toConst().ctz();
+        var mask_limb: Limb = mask.limbs[0];
+        var mask_limb_index: Limb = 0;
         var i: usize = 0;
-        while (!mut_mask.eqZero()) : ({
-            mask_bit_index = mut_mask.toConst().ctz();
-            i += 1;
-        }) {
-            const mask_limb_index = mask_bit_index / limb_bits;
-            const mask_limb_bit = @intCast(Log2Limb, mask_bit_index % limb_bits);
+        outer: while (true) : (i += 1) {
+            // Find next bit in mask
+            const mask_limb_bit: Log2Limb = limb_bit: while (true) {
+                const mask_limb_tz = @ctz(mask_limb);
+                if (mask_limb_tz != @sizeOf(Limb) * 8) {
+                    const cast_limb_bit = @intCast(Log2Limb, mask_limb_tz);
+                    mask_limb ^= @as(Limb, 1) << cast_limb_bit;
+                    break :limb_bit cast_limb_bit;
+                }
+
+                mask_limb_index += 1;
+                // No more limbs, we've finished iterating the mask
+                if (mask_limb_index >= mask.limbs.len) {
+                    break :outer;
+                }
+
+                mask_limb = mask.limbs[mask_limb_index];
+            };
 
             const i_limb_index = i / limb_bits;
-            const i_limb_bit = @intCast(Log2Limb, i % limb_bits);
-
-            mut_mask.limbs[mask_limb_index] &= ~(@as(Limb, 1) << mask_limb_bit); // Unset the mask bit
+            const i_limb_bit = @truncate(Log2Limb, i);
 
             if (i_limb_index >= source.limbs.len) break; // Stop when we reach the end of `source` (we can treat the rest as zeroes)
 
@@ -1779,31 +1785,37 @@ pub const Mutable = struct {
     /// r = @extractBits(source, mask)
     ///
     /// Asserts that `source` and `mask` are positive
-    ///
-    /// `limbs_buffer` is used as a working area. It must have length of at least `mask.limbs.len`.
-    pub fn extractBits(r: *Mutable, source: Const, mask: Const, limbs_buffer: []Limb) void {
+    pub fn extractBits(r: *Mutable, source: Const, mask: Const) void {
         assert(source.positive);
         assert(mask.positive);
 
         r.positive = true;
         std.mem.set(Limb, r.limbs, 0);
 
-        var mut_mask = Mutable{ .limbs = limbs_buffer[0..mask.limbs.len], .positive = undefined, .len = undefined };
-        mut_mask.copy(mask);
-
-        var mask_bit_index = mut_mask.toConst().ctz();
+        var mask_limb: Limb = mask.limbs[0];
+        var mask_limb_index: Limb = 0;
         var i: usize = 0;
-        while (!mut_mask.eqZero()) : ({
-            mask_bit_index = mut_mask.toConst().ctz();
-            i += 1;
-        }) {
-            const mask_limb_index = mask_bit_index / limb_bits;
-            const mask_limb_bit = @intCast(Log2Limb, mask_bit_index % limb_bits);
+        outer: while (true) : (i += 1) {
+            // Find next bit in mask
+            const mask_limb_bit: Log2Limb = limb_bit: while (true) {
+                const mask_limb_tz = @ctz(mask_limb);
+                if (mask_limb_tz != @sizeOf(Limb) * 8) {
+                    const cast_limb_bit = @intCast(Log2Limb, mask_limb_tz);
+                    mask_limb ^= @as(Limb, 1) << cast_limb_bit;
+                    break :limb_bit cast_limb_bit;
+                }
+
+                mask_limb_index += 1;
+                // No more limbs, we've finished iterating the mask
+                if (mask_limb_index >= mask.limbs.len) {
+                    break :outer;
+                }
+
+                mask_limb = mask.limbs[mask_limb_index];
+            };
 
             const i_limb_index = i / limb_bits;
-            const i_limb_bit = @intCast(Log2Limb, i % limb_bits);
-
-            mut_mask.limbs[mask_limb_index] &= ~(@as(Limb, 1) << mask_limb_bit); // Unset the mask bit
+            const i_limb_bit = @truncate(Log2Limb, i);
 
             if (mask_limb_index >= source.limbs.len) break; // Stop when we reach the end of `source` (we can treat the rest as zeroes)
 
