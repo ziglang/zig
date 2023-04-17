@@ -2781,10 +2781,7 @@ fn extractBitsTest(comptime source: comptime_int, comptime mask: comptime_int, c
     defer testing.allocator.free(limbs);
     var result = Mutable{ .limbs = limbs, .positive = undefined, .len = undefined };
 
-    const limbs_buffer = try testing.allocator.alloc(Limb, mask_bigint.limbs.len);
-    defer testing.allocator.free(limbs_buffer);
-
-    result.extractBits(source_bigint.toConst(), mask_bigint.toConst(), limbs_buffer);
+    result.extractBits(source_bigint.toConst(), mask_bigint.toConst());
 
     try testing.expectEqual(std.math.Order.eq, result.toConst().orderAgainstScalar(expected));
 }
@@ -2808,10 +2805,7 @@ fn depositBitsTest(comptime source: comptime_int, comptime mask: comptime_int, c
     defer testing.allocator.free(limbs);
     var result = Mutable{ .limbs = limbs, .positive = undefined, .len = undefined };
 
-    const limbs_buffer = try testing.allocator.alloc(Limb, mask_bigint.limbs.len);
-    defer testing.allocator.free(limbs_buffer);
-
-    result.depositBits(source_bigint.toConst(), mask_bigint.toConst(), limbs_buffer);
+    result.depositBits(source_bigint.toConst(), mask_bigint.toConst());
 
     try testing.expectEqual(std.math.Order.eq, result.toConst().orderAgainstScalar(expected));
 }
