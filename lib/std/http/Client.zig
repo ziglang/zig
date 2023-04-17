@@ -856,7 +856,7 @@ pub const Request = struct {
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     pub fn finish(req: *Request) !void {
         switch (req.headers.transfer_encoding) {
-            .chunked => req.connection.data.conn.writeAll("0\r\n") catch |err| {
+            .chunked => req.connection.data.conn.writeAll("0\r\n\r\n") catch |err| {
                 req.client.last_error = .{ .write = err };
                 return error.WriteFailed;
             },
