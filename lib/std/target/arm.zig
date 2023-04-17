@@ -1861,7 +1861,7 @@ pub const cpu = struct {
         .name = "arm926ej_s",
         .llvm_name = "arm926ej-s",
         .features = featureSet(&[_]Feature{
-            .v5te,
+            .v5tej,
         }),
     };
     pub const arm940t = CpuModel{
