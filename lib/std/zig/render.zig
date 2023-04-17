@@ -2512,7 +2512,7 @@ const Space = enum {
     /// In either case, a newline will be inserted afterwards.
     semicolon,
     /// Skip rendering whitespace and comments. If this is used, the caller
-    /// *must* handle handle whitespace and comments manually.
+    /// *must* handle whitespace and comments manually.
     skip,
 };
 
@@ -2702,7 +2702,7 @@ fn renderIdentifierContents(writer: anytype, bytes: []const u8) !void {
                 }
             },
             0x00...('\\' - 1), ('\\' + 1)...0x7f => {
-                const buf = [1]u8{@intCast(u8, byte)};
+                const buf = [1]u8{byte};
                 try std.fmt.format(writer, "{}", .{std.zig.fmtEscapes(&buf)});
                 pos += 1;
             },
@@ -2782,7 +2782,7 @@ fn renderComments(ais: *Ais, tree: Ast, start: usize, end: usize) Error!bool {
         const comment_content = mem.trimLeft(u8, trimmed_comment["//".len..], &std.ascii.whitespace);
         if (ais.disabled_offset != null and mem.eql(u8, comment_content, "zig fmt: on")) {
             // Write the source for which formatting was disabled directly
-            // to the underlying writer, fixing up invaild whitespace.
+            // to the underlying writer, fixing up invalid whitespace.
             const disabled_source = tree.source[ais.disabled_offset.?..comment_start];
             try writeFixingWhitespace(ais.underlying_writer, disabled_source);
             // Write with the canonical single space.
@@ -2799,7 +2799,10 @@ fn renderComments(ais: *Ais, tree: Ast, start: usize, end: usize) Error!bool {
     }
 
     if (index != start and mem.containsAtLeast(u8, tree.source[index - 1 .. end], 2, "\n")) {
-        try ais.insertNewline();
+        // Don't leave any whitespace at the end of the file
+        if (end != tree.source.len) {
+            try ais.insertNewline();
+        }
     }
 
     return index != start;
