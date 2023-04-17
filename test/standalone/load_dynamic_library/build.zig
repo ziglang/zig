@@ -8,12 +8,7 @@ pub fn build(b: *std.Build) void {
     const optimize: std.builtin.OptimizeMode = .Debug;
     const target: std.zig.CrossTarget = .{};
 
-    const ok = (builtin.os.tag != .wasi and
-        // https://github.com/ziglang/zig/issues/13550
-        (builtin.os.tag != .macos or builtin.cpu.arch != .aarch64) and
-        // https://github.com/ziglang/zig/issues/13686
-        (builtin.os.tag != .windows or builtin.cpu.arch != .aarch64));
-    if (!ok) return;
+    if (builtin.os.tag == .wasi) return;
 
     const lib = b.addSharedLibrary(.{
         .name = "add",
