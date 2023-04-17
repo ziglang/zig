@@ -228,7 +228,7 @@ pub fn generateZirData(self: *Autodoc) !void {
 
     var root_scope = Scope{
         .parent = null,
-        .enclosing_type = main_type_index,
+        .enclosing_type = null,
     };
 
     const tldoc_comment = try self.getTLDocComment(file);
@@ -363,7 +363,7 @@ const Scope = struct {
         *DeclStatus,
     ) = .{},
 
-    enclosing_type: usize, // index into `types`
+    enclosing_type: ?usize, // index into `types`, null = file top-level struct
 
     pub const DeclStatus = union(enum) {
         Analyzed: usize, // index into `decls`
@@ -516,6 +516,7 @@ const DocData = struct {
         // The index in astNodes of the `test declname { }` node
         decltest: ?usize = null,
         is_uns: bool = false, // usingnamespace
+        parent_container: ?usize, // index into `types`
 
         pub fn jsonStringify(
             self: Decl,
@@ -600,7 +601,7 @@ const DocData = struct {
             field_defaults: []?Expr = &.{}, // default values is specified
             is_tuple: bool,
             line_number: usize,
-            outer_decl: usize,
+            parent_container: ?usize, // index into `types`
         },
         ComptimeExpr: struct { name: []const u8 },
         ComptimeFloat: struct { name: []const u8 },
@@ -627,6 +628,7 @@ const DocData = struct {
             tag: ?Expr = null, // tag type if specified
             values: []?Expr = &.{}, // tag values if specified
             nonexhaustive: bool,
+            parent_container: ?usize, // index into `types`
         },
         Union: struct {
             name: []const u8,
@@ -636,6 +638,7 @@ const DocData = struct {
             fields: []Expr = &.{}, // (use src->fields to find names)
             tag: ?Expr, // tag type if specified
             auto_enum: bool, // tag is an auto enum
+            parent_container: ?usize, // index into `types`
         },
         Fn: struct {
             name: []const u8,
@@ -659,6 +662,7 @@ const DocData = struct {
             src: usize, // index into astNodes
             privDecls: []usize = &.{}, // index into decls
             pubDecls: []usize = &.{}, // index into decls
+            parent_container: ?usize, // index into `types`
         },
         Frame: struct { name: []const u8 },
         AnyFrame: struct { name: []const u8 },
@@ -961,7 +965,7 @@ fn walkInstruction(
 
                 var root_scope = Scope{
                     .parent = null,
-                    .enclosing_type = main_type_index,
+                    .enclosing_type = null,
                 };
                 const maybe_tldoc_comment = try self.getTLDocComment(file);
                 try self.ast_nodes.append(self.arena, .{
@@ -991,7 +995,7 @@ fn walkInstruction(
 
             var new_scope = Scope{
                 .parent = null,
-                .enclosing_type = self.types.items.len,
+                .enclosing_type = null,
             };
 
             return self.walkInstruction(
@@ -2493,6 +2497,7 @@ fn walkInstruction(
                             .src = self_ast_node_index,
                             .privDecls = priv_decl_indexes.items,
                             .pubDecls = decl_indexes.items,
+                            .parent_container = parent_scope.enclosing_type,
                         },
                     };
                     if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
@@ -2635,6 +2640,7 @@ fn walkInstruction(
                             .fields = field_type_refs.items,
                             .tag = tag_type.expr,
                             .auto_enum = small.auto_enum_tag,
+                            .parent_container = parent_scope.enclosing_type,
                         },
                     };
 
@@ -2772,6 +2778,7 @@ fn walkInstruction(
                             .tag = tag_type,
                             .values = field_values.items,
                             .nonexhaustive = small.nonexhaustive,
+                            .parent_container = parent_scope.enclosing_type,
                         },
                     };
                     if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
@@ -2872,7 +2879,7 @@ fn walkInstruction(
                             .field_defaults = field_default_refs.items,
                             .is_tuple = small.is_tuple,
                             .line_number = self.ast_nodes.items[self_ast_node_index].line,
-                            .outer_decl = type_slot_index - 1,
+                            .parent_container = parent_scope.enclosing_type,
                         },
                     };
                     if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
@@ -2897,7 +2904,12 @@ fn walkInstruction(
                 .this => {
                     return DocData.WalkResult{
                         .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                        .expr = .{ .this = parent_scope.enclosing_type },
+                        .expr = .{
+                            .this = parent_scope.enclosing_type.?,
+                            // We know enclosing_type is always present
+                            // because it's only null for the top-level
+                            // struct instruction of a file.
+                        },
                     };
                 },
                 .error_to_int,
@@ -3224,6 +3236,7 @@ fn analyzeDecl(
         .src = ast_node_index,
         .value = walk_result,
         .kind = kind,
+        .parent_container = scope.enclosing_type,
     });
 
     if (is_pub) {
@@ -3299,6 +3312,7 @@ fn analyzeUsingnamespaceDecl(
         .src = ast_node_index,
         .value = walk_result,
         .is_uns = true,
+        .parent_container = scope.enclosing_type,
     });
 
     if (is_pub) {
