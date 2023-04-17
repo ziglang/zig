@@ -4228,9 +4228,10 @@ pub fn cmdPkg(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
 
     const hash = blk: {
         const cwd_absolute_path = try cwd.realpathAlloc(gpa, ".");
-        var cwd_copy = try fs.openIterableDirAbsolute(cwd_absolute_path, .{});
+        defer gpa.free(cwd_absolute_path);
 
         // computePackageHash will close the directory after completion
+        var cwd_copy = try fs.openIterableDirAbsolute(cwd_absolute_path, .{});
         errdefer cwd_copy.dir.close();
 
         var thread_pool: ThreadPool = undefined;
