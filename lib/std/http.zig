@@ -4,7 +4,7 @@ pub const protocol = @import("http/protocol.zig");
 const headers = @import("http/Headers.zig");
 
 pub const Headers = headers.Headers;
-pub const Header = headers.HeaderEntry;
+pub const Field = headers.Field;
 
 pub const Version = enum {
     @"HTTP/1.0",

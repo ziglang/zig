@@ -6,7 +6,7 @@ const testing = std.testing;
 const ascii = std.ascii;
 const assert = std.debug.assert;
 
-pub const HeaderList = std.ArrayListUnmanaged(HeaderEntry);
+pub const HeaderList = std.ArrayListUnmanaged(Field);
 pub const HeaderIndexList = std.ArrayListUnmanaged(usize);
 pub const HeaderIndex = std.HashMapUnmanaged([]const u8, HeaderIndexList, CaseInsensitiveStringContext, std.hash_map.default_max_load_percentage);
 
@@ -32,11 +32,11 @@ pub const CaseInsensitiveStringContext = struct {
     }
 };
 
-pub const HeaderEntry = struct {
+pub const Field = struct {
     name: []const u8,
     value: []const u8,
 
-    pub fn modify(entry: *HeaderEntry, allocator: Allocator, new_value: []const u8) !void {
+    pub fn modify(entry: *Field, allocator: Allocator, new_value: []const u8) !void {
         if (entry.value.len <= new_value.len) {
             std.mem.copy(u8, @constCast(entry.value), new_value);
         } else {
@@ -46,7 +46,7 @@ pub const HeaderEntry = struct {
         }
     }
 
-    fn lessThan(ctx: void, a: HeaderEntry, b: HeaderEntry) bool {
+    fn lessThan(ctx: void, a: Field, b: Field) bool {
         _ = ctx;
         if (a.name.ptr == b.name.ptr) return false;
 
@@ -92,7 +92,7 @@ pub const Headers = struct {
         const value_duped = if (headers.owned) try headers.allocator.dupe(u8, value) else value;
         errdefer if (headers.owned) headers.allocator.free(value_duped);
 
-        var entry = HeaderEntry{ .name = undefined, .value = value_duped };
+        var entry = Field{ .name = undefined, .value = value_duped };
 
         if (headers.index.getEntry(name)) |kv| {
             entry.name = kv.key_ptr.*;
@@ -157,7 +157,7 @@ pub const Headers = struct {
     }
 
     /// Returns the entry of the first occurrence of a header with the given name.
-    pub fn getFirstEntry(headers: Headers, name: []const u8) ?HeaderEntry {
+    pub fn getFirstEntry(headers: Headers, name: []const u8) ?Field {
         const first_index = headers.firstIndexOf(name) orelse return null;
 
         return headers.list.items[first_index];
@@ -165,10 +165,10 @@ pub const Headers = struct {
 
     /// Returns a slice containing each header with the given name.
     /// The caller owns the returned slice, but NOT the values in the slice.
-    pub fn getEntries(headers: Headers, allocator: Allocator, name: []const u8) !?[]const HeaderEntry {
+    pub fn getEntries(headers: Headers, allocator: Allocator, name: []const u8) !?[]const Field {
         const indices = headers.getIndices(name) orelse return null;
 
-        const buf = try allocator.alloc(HeaderEntry, indices.len);
+        const buf = try allocator.alloc(Field, indices.len);
         for (indices, 0..) |idx, n| {
             buf[n] = headers.list.items[idx];
         }
@@ -211,7 +211,7 @@ pub const Headers = struct {
 
     /// Sorts the headers in lexicographical order.
     pub fn sort(headers: *Headers) void {
-        std.sort.sort(HeaderEntry, headers.list.items, {}, HeaderEntry.lessThan);
+        std.sort.sort(Field, headers.list.items, {}, Field.lessThan);
         headers.rebuildIndex();
     }
 
@@ -314,31 +314,31 @@ test "Headers consistency" {
 
     const hello_entries = (try h.getEntries(testing.allocator, "hello")).?;
     defer testing.allocator.free(hello_entries);
-    try testing.expectEqualDeep(@as([]const HeaderEntry, &[_]HeaderEntry{
+    try testing.expectEqualDeep(@as([]const Field, &[_]Field{
         .{ .name = "hello", .value = "world" },
     }), hello_entries);
 
     const foo_entries = (try h.getEntries(testing.allocator, "foo")).?;
     defer testing.allocator.free(foo_entries);
-    try testing.expectEqualDeep(@as([]const HeaderEntry, &[_]HeaderEntry{
+    try testing.expectEqualDeep(@as([]const Field, &[_]Field{
         .{ .name = "foo", .value = "bar" },
         .{ .name = "foo", .value = "baz" },
     }), foo_entries);
 
     const bar_entries = (try h.getEntries(testing.allocator, "bar")).?;
     defer testing.allocator.free(bar_entries);
-    try testing.expectEqualDeep(@as([]const HeaderEntry, &[_]HeaderEntry{
+    try testing.expectEqualDeep(@as([]const Field, &[_]Field{
         .{ .name = "bar", .value = "world" },
     }), bar_entries);
 
     const baz_entries = (try h.getEntries(testing.allocator, "baz")).?;
     defer testing.allocator.free(baz_entries);
-    try testing.expectEqualDeep(@as([]const HeaderEntry, &[_]HeaderEntry{
+    try testing.expectEqualDeep(@as([]const Field, &[_]Field{
         .{ .name = "baz", .value = "hello" },
     }), baz_entries);
 
     const pog_entries = (try h.getEntries(testing.allocator, "pog"));
-    try testing.expectEqual(@as(?[]const HeaderEntry, null), pog_entries);
+    try testing.expectEqual(@as(?[]const Field, null), pog_entries);
 
     try testing.expectEqualStrings("world", h.getFirstValue("hello").?);
     try testing.expectEqualStrings("bar", h.getFirstValue("foo").?);
