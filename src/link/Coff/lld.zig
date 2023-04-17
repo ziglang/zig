@@ -95,6 +95,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         man.hash.add(self.base.options.tsaware);
         man.hash.add(self.base.options.nxcompat);
         man.hash.add(self.base.options.dynamicbase);
+        man.hash.addOptional(self.base.options.allow_shlib_undefined);
         // strip does not need to go into the linker hash because it is part of the hash namespace
         man.hash.addOptional(self.base.options.major_subsystem_version);
         man.hash.addOptional(self.base.options.minor_subsystem_version);
@@ -225,6 +226,11 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         }
         if (!self.base.options.dynamicbase) {
             try argv.append("-dynamicbase:NO");
+        }
+        if (self.base.options.allow_shlib_undefined) |allow_shlib_undefined| {
+            if (allow_shlib_undefined) {
+                try argv.append("-FORCE:UNRESOLVED");
+            }
         }
 
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
