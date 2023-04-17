@@ -227,7 +227,7 @@ pub fn set(comptime T: type, dest: []T, value: T) void {
 /// interfacing with a C API where this practice is more common and relied upon. If you are performing code review and see this
 /// function used, examine closely - it may be a code smell.
 /// Zero initializes the type.
-/// This can be used to zero initialize a any type for which it makes sense. Structs will be initialized recursively.
+/// This can be used to zero initialize any type for which it makes sense. Structs will be initialized recursively.
 pub fn zeroes(comptime T: type) T {
     switch (@typeInfo(T)) {
         .ComptimeInt, .Int, .ComptimeFloat, .Float => {
@@ -255,7 +255,7 @@ pub fn zeroes(comptime T: type) T {
                 var structure: T = undefined;
                 inline for (struct_info.fields) |field| {
                     if (!field.is_comptime) {
-                        @field(structure, field.name) = zeroes(@TypeOf(@field(structure, field.name)));
+                        @field(structure, field.name) = zeroes(field.type);
                     }
                 }
                 return structure;
@@ -459,7 +459,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                                     @field(value, field.name) = std.mem.zeroInit(field.type, .{});
                                 },
                                 else => {
-                                    @field(value, field.name) = std.mem.zeroes(@TypeOf(@field(value, field.name)));
+                                    @field(value, field.name) = std.mem.zeroes(field.type);
                                 },
                             }
                         }
