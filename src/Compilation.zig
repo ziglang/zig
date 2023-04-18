@@ -4474,7 +4474,11 @@ pub fn addCCArgs(
 
     if (!comp.bin_file.options.strip) {
         switch (target.ofmt) {
-            .coff => try argv.append("-gcodeview"),
+            .coff => {
+                // -g is required here because -gcodeview doesn't trigger debug info
+                // generation, it only changes the type of information generated.
+                try argv.appendSlice(&.{ "-g", "-gcodeview" });
+            },
             .elf, .macho => try argv.append("-gdwarf-4"),
             else => try argv.append("-g"),
         }
