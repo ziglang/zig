@@ -196,3 +196,7 @@ test stripComponents {
 
 const std = @import("std.zig");
 const assert = std.debug.assert;
+
+test {
+    _ = @import("tar/test.zig");
+}
