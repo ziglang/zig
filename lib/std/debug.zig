@@ -183,6 +183,11 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
             return;
         };
         const tty_config = detectTTYConfig(io.getStdErr());
+        if (native_os == .windows) {
+            writeCurrentStackTraceWindows(stderr, debug_info, tty_config, ip) catch return;
+            return;
+        }
+
         printSourceAtAddress(debug_info, stderr, ip, tty_config) catch return;
         var it = StackIterator.init(null, bp);
         while (it.next()) |return_address| {
@@ -595,7 +600,16 @@ pub noinline fn walkStackWindows(addresses: []usize) usize {
         if (windows.ntdll.RtlLookupFunctionEntry(current_regs.ip, &image_base, &history_table)) |runtime_function| {
             var handler_data: ?*anyopaque = null;
             var establisher_frame: u64 = undefined;
-            _ = windows.ntdll.RtlVirtualUnwind(windows.UNW_FLAG_NHANDLER, image_base, current_regs.ip, runtime_function, &context, &handler_data, &establisher_frame, null);
+            _ = windows.ntdll.RtlVirtualUnwind(
+                windows.UNW_FLAG_NHANDLER,
+                image_base,
+                current_regs.ip,
+                runtime_function,
+                &context,
+                &handler_data,
+                &establisher_frame,
+                null,
+            );
         } else {
             // leaf function
             context.setIp(@intToPtr(*u64, current_regs.sp).*);
@@ -769,23 +783,29 @@ test "machoSearchSymbols" {
     try testing.expectEqual(&symbols[2], machoSearchSymbols(&symbols, 5000).?);
 }
 
+fn printUnknownSource(debug_info: *DebugInfo, out_stream: anytype, address: usize, tty_config: TTY.Config) !void {
+    const module_name = debug_info.getModuleNameForAddress(address);
+    return printLineInfo(
+        out_stream,
+        null,
+        address,
+        "???",
+        module_name orelse "???",
+        tty_config,
+        printLineFromFileAnyOs,
+    );
+}
+
 pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: anytype, address: usize, tty_config: TTY.Config) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => {
-            return printLineInfo(
-                out_stream,
-                null,
-                address,
-                "???",
-                "???",
-                tty_config,
-                printLineFromFileAnyOs,
-            );
-        },
+        error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, out_stream, address, tty_config),
         else => return err,
     };
 
-    const symbol_info = try module.getSymbolAtAddress(debug_info.allocator, address);
+    const symbol_info = module.getSymbolAtAddress(debug_info.allocator, address) catch |err| switch (err) {
+        error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, out_stream, address, tty_config),
+        else => return err,
+    };
     defer symbol_info.deinit(debug_info.allocator);
 
     return printLineInfo(
@@ -1275,15 +1295,16 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
     }
 }
 
-pub const ModuleInfo = struct {
+pub const WindowsModuleInfo = struct {
     base_address: usize,
     size: u32,
+    name: []const u8,
 };
 
 pub const DebugInfo = struct {
     allocator: mem.Allocator,
     address_map: std.AutoHashMap(usize, *ModuleDebugInfo),
-    modules: if (native_os == .windows) std.ArrayListUnmanaged(ModuleInfo) else void,
+    modules: if (native_os == .windows) std.ArrayListUnmanaged(WindowsModuleInfo) else void,
 
     pub fn init(allocator: mem.Allocator) !DebugInfo {
         var debug_info = DebugInfo{
@@ -1299,7 +1320,6 @@ pub const DebugInfo = struct {
                     else => |err| return windows.unexpectedError(err),
                 }
             }
-
             defer windows.CloseHandle(handle);
 
             var module_entry: windows.MODULEENTRY32 = undefined;
@@ -1313,6 +1333,7 @@ pub const DebugInfo = struct {
                 const module_info = try debug_info.modules.addOne(allocator);
                 module_info.base_address = @ptrToInt(module_entry.modBaseAddr);
                 module_info.size = module_entry.modBaseSize;
+                module_info.name = allocator.dupe(u8, mem.sliceTo(&module_entry.szModule, 0)) catch &.{};
                 module_valid = windows.kernel32.Module32Next(handle, &module_entry) == 1;
             }
         }
@@ -1328,7 +1349,12 @@ pub const DebugInfo = struct {
             self.allocator.destroy(mdi);
         }
         self.address_map.deinit();
-        if (native_os == .windows) self.modules.deinit(self.allocator);
+        if (native_os == .windows) {
+            for (self.modules.items) |module| {
+                self.allocator.free(module.name);
+            }
+            self.modules.deinit(self.allocator);
+        }
     }
 
     pub fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
@@ -1348,6 +1374,22 @@ pub const DebugInfo = struct {
             return self.lookupModuleWasm(address);
         } else {
             return self.lookupModuleDl(address);
+        }
+    }
+
+    pub fn getModuleNameForAddress(self: *DebugInfo, address: usize) ?[]const u8 {
+        if (builtin.zig_backend == .stage2_c) {
+            return null;
+        } else if (comptime builtin.target.isDarwin()) {
+            return null;
+        } else if (native_os == .windows) {
+            return self.lookupModuleNameWin32(address);
+        } else if (native_os == .haiku) {
+            return null;
+        } else if (comptime builtin.target.isWasm()) {
+            return null;
+        } else {
+            return null;
         }
     }
 
@@ -1426,6 +1468,15 @@ pub const DebugInfo = struct {
         }
 
         return error.MissingDebugInfo;
+    }
+
+    fn lookupModuleNameWin32(self: *DebugInfo, address: usize) ?[]const u8 {
+        for (self.modules.items) |module| {
+            if (address >= module.base_address and address < module.base_address + module.size) {
+                return module.name;
+            }
+        }
+        return null;
     }
 
     fn lookupModuleDl(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
