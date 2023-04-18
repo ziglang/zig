@@ -874,19 +874,18 @@ ZigLLVMDILocalVariable *ZigLLVMCreateAutoVariable(ZigLLVMDIBuilder *dbuilder,
     return reinterpret_cast<ZigLLVMDILocalVariable*>(result);
 }
 
-ZigLLVMDIGlobalVariable *ZigLLVMCreateGlobalVariable(ZigLLVMDIBuilder *dbuilder,
+ZigLLVMDIGlobalVariableExpression *ZigLLVMCreateGlobalVariableExpression(ZigLLVMDIBuilder *dbuilder,
     ZigLLVMDIScope *scope, const char *name, const char *linkage_name, ZigLLVMDIFile *file,
     unsigned line_no, ZigLLVMDIType *di_type, bool is_local_to_unit)
 {
-    DIGlobalVariableExpression *result = reinterpret_cast<DIBuilder*>(dbuilder)->createGlobalVariableExpression(
+    return reinterpret_cast<ZigLLVMDIGlobalVariableExpression*>(reinterpret_cast<DIBuilder*>(dbuilder)->createGlobalVariableExpression(
         reinterpret_cast<DIScope*>(scope),
         name,
         linkage_name,
         reinterpret_cast<DIFile*>(file),
         line_no,
         reinterpret_cast<DIType*>(di_type),
-        is_local_to_unit);
-    return reinterpret_cast<ZigLLVMDIGlobalVariable*>(result->getVariable());
+        is_local_to_unit));
 }
 
 ZigLLVMDILocalVariable *ZigLLVMCreateParameterVariable(ZigLLVMDIBuilder *dbuilder,
@@ -1450,6 +1449,18 @@ LLVMValueRef ZigLLVMBuildFPMulReduce(LLVMBuilderRef B, LLVMValueRef Acc, LLVMVal
 
 void ZigLLVMTakeName(LLVMValueRef new_owner, LLVMValueRef victim) {
     unwrap(new_owner)->takeName(unwrap(victim));
+}
+
+ZigLLVMDIGlobalVariable* ZigLLVMGlobalGetVariable(ZigLLVMDIGlobalVariableExpression *global_variable_expression) {
+	return reinterpret_cast<ZigLLVMDIGlobalVariable*>(reinterpret_cast<DIGlobalVariableExpression*>(global_variable_expression)->getVariable());
+}
+
+ZigLLVMDIGlobalExpression* ZigLLVMGlobalGetExpression(ZigLLVMDIGlobalVariableExpression *global_variable_expression) {
+	return reinterpret_cast<ZigLLVMDIGlobalExpression*>(reinterpret_cast<DIGlobalVariableExpression*>(global_variable_expression)->getExpression());
+}
+
+void ZigLLVMAttachMetaData(LLVMValueRef Val, ZigLLVMDIGlobalVariableExpression *global_variable_expression) {
+	unwrap<GlobalVariable>(Val)->addDebugInfo(reinterpret_cast<DIGlobalVariableExpression*>(global_variable_expression));
 }
 
 static_assert((Triple::ArchType)ZigLLVM_UnknownArch == Triple::UnknownArch, "");
