@@ -933,7 +933,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         .FILE_IS_A_DIRECTORY => return error.IsDir,
         .NOT_A_DIRECTORY => return error.NotDir,
         .SHARING_VIOLATION => return error.FileBusy,
-        .CANNOT_DELETE => return error.AccessDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
         else => return unexpectedStatus(rc),
     }
     var file_dispo = FILE_DISPOSITION_INFORMATION{
@@ -950,6 +950,10 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     switch (rc) {
         .SUCCESS => return,
         .DIRECTORY_NOT_EMPTY => return error.DirNotEmpty,
+        .INVALID_PARAMETER => unreachable,
+        .CANNOT_DELETE => return error.AccessDenied,
+        .MEDIA_WRITE_PROTECTED => return error.AccessDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
         else => return unexpectedStatus(rc),
     }
 }
