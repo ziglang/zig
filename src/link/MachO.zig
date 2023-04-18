@@ -3266,6 +3266,7 @@ fn collectRebaseData(self: *MachO, rebase: *Rebase) !void {
     }
 
     // Gather GOT pointers
+    try rebase.entries.ensureUnusedCapacity(gpa, self.got_table.entries.items.len);
     const segment_index = self.sections.items(.segment_index)[self.got_section_index.?];
     for (self.got_table.entries.items, 0..) |entry, i| {
         if (!self.got_table.lookup.contains(entry)) continue;
@@ -3324,6 +3325,7 @@ fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
     }
 
     // Gather GOT pointers
+    try bind.entries.ensureUnusedCapacity(gpa, self.got_table.entries.items.len);
     const segment_index = self.sections.items(.segment_index)[self.got_section_index.?];
     for (self.got_table.entries.items, 0..) |entry, i| {
         if (!self.got_table.lookup.contains(entry)) continue;
@@ -3347,6 +3349,50 @@ fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
             .segment_id = segment_index,
             .addend = 0,
         });
+    }
+
+    try bind.finalize(gpa, self);
+}
+
+fn collectLazyBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
+    const gpa = self.base.allocator;
+    const slice = self.sections.slice();
+
+    for (raw_bindings.keys(), 0..) |atom_index, i| {
+        const atom = self.getAtom(atom_index);
+        log.debug("  ATOM(%{?d}, '{s}')", .{ atom.getSymbolIndex(), atom.getName(self) });
+
+        const sym = atom.getSymbol(self);
+        const segment_index = slice.items(.segment_index)[sym.n_sect - 1];
+        const seg = self.getSegment(sym.n_sect - 1);
+
+        const base_offset = sym.n_value - seg.vmaddr;
+
+        const bindings = raw_bindings.values()[i];
+        try bind.entries.ensureUnusedCapacity(gpa, bindings.items.len);
+
+        for (bindings.items) |binding| {
+            const bind_sym = self.getSymbol(binding.target);
+            const bind_sym_name = self.getSymbolName(binding.target);
+            const dylib_ordinal = @divTrunc(
+                @bitCast(i16, bind_sym.n_desc),
+                macho.N_SYMBOL_RESOLVER,
+            );
+            log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
+                binding.offset + base_offset,
+                bind_sym_name,
+                dylib_ordinal,
+            });
+            if (bind_sym.weakRef()) {
+                log.debug("    | marking as weak ref ", .{});
+            }
+            bind.entries.appendAssumeCapacity(.{
+                .target = binding.target,
+                .offset = binding.offset + base_offset,
+                .segment_id = segment_index,
+                .addend = 0,
+            });
+        }
     }
 
     try bind.finalize(gpa, self);
@@ -3395,7 +3441,7 @@ fn writeDyldInfoData(self: *MachO) !void {
 
     var lazy_bind = LazyBind{};
     defer lazy_bind.deinit(gpa);
-    try self.collectBindData(&lazy_bind, self.lazy_bindings);
+    try self.collectLazyBindData(&lazy_bind, self.lazy_bindings);
 
     var trie: Trie = .{};
     defer trie.deinit(gpa);
