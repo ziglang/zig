@@ -1925,7 +1925,6 @@ pub const StreamServer = struct {
                 &mem.toBytes(@as(c_int, 1)),
             );
         }
-        // TODO: Investigate if Windows needs an analogue.
         if (@hasDecl(os.SO, "REUSEPORT") and self.reuse_port) {
             try os.setsockopt(
                 sockfd,
