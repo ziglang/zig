@@ -434,24 +434,29 @@ pub const Manifest = struct {
                 }
             }
         } else {
-            if (self.cache.manifest_dir.createFile(&manifest_file_path, .{
-                .read = true,
-                .truncate = false,
-                .lock = .Exclusive,
-                .lock_nonblocking = self.want_shared_lock,
-            })) |manifest_file| {
-                self.manifest_file = manifest_file;
-                self.have_exclusive_lock = true;
-            } else |err| switch (err) {
-                // There are no dir components, so you would think that this was
-                // unreachable, however we have observed on macOS two processes racing
-                // to do openat() with O_CREAT manifest in ENOENT.
-                error.WouldBlock, error.FileNotFound => {
-                    self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
-                        .lock = .Shared,
-                    });
-                },
-                else => |e| return e,
+            while (true) {
+                if (self.cache.manifest_dir.createFile(&manifest_file_path, .{
+                    .read = true,
+                    .truncate = false,
+                    .lock = .Exclusive,
+                    .lock_nonblocking = self.want_shared_lock,
+                })) |manifest_file| {
+                    self.manifest_file = manifest_file;
+                    self.have_exclusive_lock = true;
+                    break;
+                } else |err| switch (err) {
+                    error.WouldBlock => {
+                        self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
+                            .lock = .Shared,
+                        });
+                        break;
+                    },
+                    // There are no dir components, so you would think that this was
+                    // unreachable, however we have observed on macOS two processes racing
+                    // to do openat() with O_CREAT manifest in ENOENT.
+                    error.FileNotFound => continue,
+                    else => |e| return e,
+                }
             }
         }
 
