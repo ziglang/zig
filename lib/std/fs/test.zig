@@ -1415,3 +1415,22 @@ test "File.PermissionsUnix" {
     try testing.expect(permissions_unix.unixHas(.user, .execute));
     try testing.expect(!permissions_unix.unixHas(.other, .execute));
 }
+
+test "delete a read-only file on windows" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+    const file = try tmp.dir.createFile("test_file", .{ .read = true });
+    // Create a file and make it read-only
+    const metadata = try file.metadata();
+    var permissions = metadata.permissions();
+    permissions.setReadOnly(true);
+    try file.setPermissions(permissions);
+    try testing.expectError(error.AccessDenied, tmp.dir.deleteFile("test_file"));
+    // Now make the file not read-only
+    permissions.setReadOnly(false);
+    try file.setPermissions(permissions);
+    file.close();
+    try tmp.dir.deleteFile("test_file");
+}
