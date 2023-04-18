@@ -83,6 +83,7 @@
 
       .flex-right {
         display: flex;
+        flex-direction: column;
         overflow: auto;
         -webkit-overflow-scrolling: touch;
         flex-grow: 1;
@@ -200,7 +201,7 @@
       }
 
       #guides {
-        padding: 1rem 0.7rem 2.4rem 1.4rem;
+        padding: 0rem 0.7rem 2.4rem 1.4rem;
         box-sizing: border-box;
         font-size: 1rem;
         background-color: var(--bg-color);
@@ -209,7 +210,7 @@
 
       /* docs section */
       .docs {
-        padding: 1rem 0.7rem 2.4rem 1.4rem;
+        padding: 0rem 0.7rem 2.4rem 1.4rem;
         font-size: 1rem;
         background-color: var(--bg-color);
         overflow-wrap: break-word;
@@ -721,14 +722,18 @@
         </nav>
       </div>
       <div class="flex-right">
+        <div class="wrap">
+          <section class="docs" style="padding-top: 1.5rem; padding-bottom:0;">
+          <div style="position: relative">
+            <span id="searchPlaceholder"><kbd>s</kbd> to search, <kbd>?</kbd> for more options</span>
+            <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" disabled>
+          </div>
+          </section>
+        </div>
         <div id="guides" class="wrap hidden">
         </div> 
         <div id="docs" class="wrap hidden">
           <section class="docs">
-            <div style="position: relative">
-              <span id="searchPlaceholder"><kbd>s</kbd> to search, <kbd>?</kbd> for more options</span>
-              <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" disabled>
-            </div>
             <p id="status">Loading...</p>
             <div id="sectNav" class="hidden"><ul id="listNav"></ul></div>
             <div id="fnProto" class="hidden">
