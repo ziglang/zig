@@ -30,6 +30,7 @@ const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Module = @import("../Module.zig");
 const Package = @import("../Package.zig");
 const StringTable = @import("strtab.zig").StringTable;
+const TableSection = @import("table_section.zig").TableSection;
 const Type = @import("../type.zig").Type;
 const TypedValue = @import("../TypedValue.zig");
 const Value = @import("../value.zig").Value;
@@ -61,88 +62,6 @@ const Section = struct {
     /// allocate a fresh text block, which will have ideal capacity, and then grow it
     /// by 1 byte. It will then have -1 overcapacity.
     free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
-};
-
-const SectionTable = struct {
-    entries: std.ArrayListUnmanaged(SymIndex) = .{},
-    free_list: std.ArrayListUnmanaged(Index) = .{},
-    lookup: std.AutoHashMapUnmanaged(SymIndex, Index) = .{},
-
-    const SymIndex = u32;
-    const Index = u32;
-
-    pub fn deinit(st: *ST, allocator: Allocator) void {
-        st.entries.deinit(allocator);
-        st.free_list.deinit(allocator);
-        st.lookup.deinit(allocator);
-    }
-
-    pub fn allocateEntry(st: *ST, allocator: Allocator, target: SymIndex) !Index {
-        try st.entries.ensureUnusedCapacity(allocator, 1);
-        const index = blk: {
-            if (st.free_list.popOrNull()) |index| {
-                log.debug("  (reusing entry index {d})", .{index});
-                break :blk index;
-            } else {
-                log.debug("  (allocating entry at index {d})", .{st.entries.items.len});
-                const index = @intCast(u32, st.entries.items.len);
-                _ = st.entries.addOneAssumeCapacity();
-                break :blk index;
-            }
-        };
-        st.entries.items[index] = target;
-        try st.lookup.putNoClobber(allocator, target, index);
-        return index;
-    }
-
-    pub fn freeEntry(st: *ST, allocator: Allocator, target: SymIndex) void {
-        const index = st.lookup.get(target) orelse return;
-        st.free_list.append(allocator, index) catch {};
-        st.entries.items[index] = 0;
-        _ = st.lookup.remove(target);
-    }
-
-    const FormatContext = struct {
-        ctx: *Elf,
-        st: *const ST,
-    };
-
-    fn fmt(
-        ctx: FormatContext,
-        comptime unused_format_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        _ = options;
-        comptime assert(unused_format_string.len == 0);
-
-        const base_addr = ctx.ctx.program_headers.items[ctx.ctx.phdr_got_index.?].p_vaddr;
-        const target = ctx.ctx.base.options.target;
-        const ptr_bits = target.cpu.arch.ptrBitWidth();
-        const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-
-        try writer.writeAll("SectionTable:\n");
-        for (ctx.st.entries.items, 0..) |entry, i| {
-            try writer.print("  {d}@{x} => local(%{d})\n", .{ i, base_addr + i * ptr_bytes, entry });
-        }
-    }
-
-    fn format(st: ST, comptime unused_format_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = st;
-        _ = unused_format_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format SectionTable directly; use st.fmtDebug()");
-    }
-
-    pub fn fmtDebug(st: ST, ctx: *Elf) std.fmt.Formatter(fmt) {
-        return .{ .data = .{
-            .ctx = ctx,
-            .st = st,
-        } };
-    }
-
-    const ST = @This();
 };
 
 const LazySymbolMetadata = struct {
@@ -231,7 +150,7 @@ global_symbols: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
 local_symbol_free_list: std.ArrayListUnmanaged(u32) = .{},
 global_symbol_free_list: std.ArrayListUnmanaged(u32) = .{},
 
-got_table: SectionTable = .{},
+got_table: TableSection(u32) = .{},
 
 phdr_table_dirty: bool = false,
 shdr_table_dirty: bool = false,
@@ -3047,7 +2966,7 @@ fn writeSectHeader(self: *Elf, index: usize) !void {
     }
 }
 
-fn writeOffsetTableEntry(self: *Elf, index: usize) !void {
+fn writeOffsetTableEntry(self: *Elf, index: @TypeOf(self.got_table).Index) !void {
     const entry_size: u16 = self.archPtrWidthBytes();
     if (self.got_table_count_dirty) {
         const needed_size = self.got_table.entries.items.len * entry_size;
