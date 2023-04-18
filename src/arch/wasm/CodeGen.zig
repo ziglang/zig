@@ -1956,8 +1956,6 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .is_err_ptr,
         .is_non_err_ptr,
 
-        .cmpxchg_weak,
-        .cmpxchg_strong,
         .fence,
         .atomic_load,
         .atomic_store_unordered,
@@ -1976,6 +1974,9 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .c_va_end,
         .c_va_start,
         => |tag| return func.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
+
+        .cmpxchg_weak => func.airCmpxchg(inst),
+        .cmpxchg_strong => func.airCmpxchg(inst),
 
         .add_optimized,
         .addwrap_optimized,
@@ -6596,4 +6597,40 @@ fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try func.endBlock();
 
     return func.finishAir(inst, result, &.{ty_op.operand});
+}
+
+fn airCmpxchg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const ty_pl = func.air.instructions.items(.data)[inst].ty_pl;
+    const extra = func.air.extraData(Air.Cmpxchg, ty_pl.payload).data;
+
+    const ptr_ty = func.air.typeOf(extra.ptr);
+    const ty = ptr_ty.childType();
+    const result_ty = func.air.typeOfIndex(inst);
+
+    const ptr_operand = try func.resolveInst(extra.ptr);
+    const expected_val = try func.resolveInst(extra.expected_value);
+    const new_val = try func.resolveInst(extra.new_value);
+
+    const ptr_val = try WValue.toLocal(try func.load(ptr_operand, ty, 0), func, ty);
+
+    try func.lowerToStack(ptr_operand);
+    try func.emitWValue(new_val);
+    try func.emitWValue(ptr_val);
+    const cmp_tmp = try func.cmp(ptr_val, expected_val, ty, .eq);
+    const cmp_result = try cmp_tmp.toLocal(func, Type.bool);
+    try func.emitWValue(cmp_result);
+    try func.addTag(.select);
+    try func.store(.stack, .stack, ty, 0);
+    try func.addImm32(-1);
+    try func.emitWValue(cmp_result);
+    try func.addTag(.i32_xor);
+    try func.addImm32(1);
+    try func.addTag(.i32_and);
+    const and_result = try WValue.toLocal(.stack, func, Type.bool);
+
+    const result_ptr = try func.allocStack(result_ty);
+    try func.store(result_ptr, and_result, Type.bool, @intCast(u32, ty.abiSize(func.target)));
+    try func.store(result_ptr, ptr_val, ty, 0);
+
+    return func.finishAir(inst, result_ptr, &.{ extra.ptr, extra.new_value, extra.expected_value });
 }
