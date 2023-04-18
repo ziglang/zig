@@ -26410,12 +26410,12 @@ fn zirDepositExtractBits(
     const lhs_ty = sema.typeOf(uncasted_lhs);
     const rhs_ty = sema.typeOf(uncasted_rhs);
 
-    if (lhs_ty.zigTypeTag() != .Int) {
-        return sema.fail(block, lhs_src, "expected integer type, found '{}'", .{lhs_ty.fmt(sema.mod)});
+    if (!lhs_ty.isUnsignedInt()) {
+        return sema.fail(block, lhs_src, "expected unsigned integer type, found '{}'", .{lhs_ty.fmt(sema.mod)});
     }
 
-    if (rhs_ty.zigTypeTag() != .Int) {
-        return sema.fail(block, rhs_src, "expected integer type, found '{}'", .{rhs_ty.fmt(sema.mod)});
+    if (!rhs_ty.isUnsignedInt()) {
+        return sema.fail(block, rhs_src, "expected unsigned integer type, found '{}'", .{rhs_ty.fmt(sema.mod)});
     }
 
     const instructions = &[_]Air.Inst.Ref{ uncasted_lhs, uncasted_rhs };
@@ -26434,16 +26434,12 @@ fn zirDepositExtractBits(
     // If either of the operands are zero, the result is zero
     // If either of the operands are undefined, the result is undefined
     if (maybe_lhs_val) |lhs_val| {
+        if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) return sema.addConstant(dest_ty, Value.zero);
         if (lhs_val.isUndef()) return sema.addConstUndef(dest_ty);
-        if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
-            return sema.addConstant(dest_ty, Value.zero);
-        }
     }
     if (maybe_rhs_val) |rhs_val| {
+        if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) return sema.addConstant(dest_ty, Value.zero);
         if (rhs_val.isUndef()) return sema.addConstUndef(dest_ty);
-        if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
-            return sema.addConstant(dest_ty, Value.zero);
-        }
     }
 
     if (maybe_lhs_val) |lhs_val| {
@@ -39084,38 +39080,21 @@ fn intDepositBits(
     const arena = sema.arena;
     const info = ty.intInfo(target);
 
+    assert(ty.intInfo(target).signedness == .unsigned);
+
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space, target);
-    const rhs_bigint = rhs.toBigInt(&rhs_space, target);
+    const source = lhs.toBigInt(&lhs_space, target);
+    const mask = rhs.toBigInt(&rhs_space, target);
 
     const result_limbs = try arena.alloc(
         std.math.big.Limb,
         std.math.big.int.calcTwosCompLimbCount(info.bits),
     );
 
-    const source_limbs = try arena.alloc(
-        std.math.big.Limb,
-        std.math.big.int.calcTwosCompLimbCount(info.bits),
-    );
-    defer arena.free(source_limbs);
-
-    const mask_limbs = try arena.alloc(
-        std.math.big.Limb,
-        std.math.big.int.calcTwosCompLimbCount(info.bits),
-    );
-    defer arena.free(mask_limbs);
-
-    var source = std.math.big.int.Mutable{ .limbs = source_limbs, .positive = undefined, .len = undefined };
-    var mask = std.math.big.int.Mutable{ .limbs = mask_limbs, .positive = undefined, .len = undefined };
     var result = std.math.big.int.Mutable{ .limbs = result_limbs, .positive = undefined, .len = undefined };
 
-    source.convertToTwosComplement(lhs_bigint, info.signedness, info.bits);
-    mask.convertToTwosComplement(rhs_bigint, info.signedness, info.bits);
-
-    result.depositBits(source.toConst(), mask.toConst());
-
-    result.convertFromTwosComplement(result.toConst(), info.signedness, info.bits);
+    result.depositBits(source, mask);
     return Value.fromBigInt(arena, result.toConst());
 }
 
@@ -39131,38 +39110,21 @@ fn intExtractBits(
     const arena = sema.arena;
     const info = ty.intInfo(target);
 
+    assert(ty.intInfo(target).signedness == .unsigned);
+
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space, target);
-    const rhs_bigint = rhs.toBigInt(&rhs_space, target);
+    const source = lhs.toBigInt(&lhs_space, target);
+    const mask = rhs.toBigInt(&rhs_space, target);
 
     const result_limbs = try arena.alloc(
         std.math.big.Limb,
         std.math.big.int.calcTwosCompLimbCount(info.bits),
     );
 
-    const source_limbs = try arena.alloc(
-        std.math.big.Limb,
-        std.math.big.int.calcTwosCompLimbCount(info.bits),
-    );
-    defer arena.free(source_limbs);
-
-    const mask_limbs = try arena.alloc(
-        std.math.big.Limb,
-        std.math.big.int.calcTwosCompLimbCount(info.bits),
-    );
-    defer arena.free(mask_limbs);
-
-    var source = std.math.big.int.Mutable{ .limbs = source_limbs, .positive = undefined, .len = undefined };
-    var mask = std.math.big.int.Mutable{ .limbs = mask_limbs, .positive = undefined, .len = undefined };
     var result = std.math.big.int.Mutable{ .limbs = result_limbs, .positive = undefined, .len = undefined };
 
-    source.convertToTwosComplement(lhs_bigint, info.signedness, info.bits);
-    mask.convertToTwosComplement(rhs_bigint, info.signedness, info.bits);
-
-    result.extractBits(source.toConst(), mask.toConst());
-
-    result.convertFromTwosComplement(result.toConst(), info.signedness, info.bits);
+    result.extractBits(source, mask);
     return Value.fromBigInt(arena, result.toConst());
 }
 

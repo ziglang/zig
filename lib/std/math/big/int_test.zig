@@ -2848,33 +2848,6 @@ fn depositBitsTest(comptime source: comptime_int, comptime mask: comptime_int, c
     try testing.expectEqual(std.math.Order.eq, result.toConst().orderAgainstScalar(expected));
 }
 
-test "big int conversion to/from twos complement" {
-    var a = try Managed.initSet(testing.allocator, maxInt(u64));
-    defer a.deinit();
-    var b = try Managed.initSet(testing.allocator, maxInt(u32));
-    defer b.deinit();
-    var c = try Managed.initSet(testing.allocator, maxInt(u493));
-    defer c.deinit();
-
-    var m_a = a.toMutable();
-    m_a.convertToTwosComplement(m_a.toConst(), .unsigned, 64);
-    try testing.expectEqual(m_a.toConst().orderAgainstScalar(maxInt(u64)), .eq);
-    m_a.convertFromTwosComplement(m_a.toConst(), .signed, 64);
-    try testing.expectEqual(m_a.toConst().orderAgainstScalar(-1), .eq);
-
-    var m_b = b.toMutable();
-    m_b.convertToTwosComplement(m_b.toConst(), .unsigned, 32);
-    try testing.expectEqual(m_b.toConst().orderAgainstScalar(maxInt(u32)), .eq);
-    m_b.convertFromTwosComplement(m_b.toConst(), .signed, 32);
-    try testing.expectEqual(m_b.toConst().orderAgainstScalar(-1), .eq);
-
-    var m_c = c.toMutable();
-    m_c.convertToTwosComplement(m_c.toConst(), .unsigned, 493);
-    try testing.expectEqual(m_c.toConst().orderAgainstScalar(maxInt(u493)), .eq);
-    m_c.convertFromTwosComplement(m_c.toConst(), .signed, 493);
-    try testing.expectEqual(m_c.toConst().orderAgainstScalar(-1), .eq);
-}
-
 test "big int conversion read/write twos complement" {
     var a = try Managed.initSet(testing.allocator, (1 << 493) - 1);
     defer a.deinit();
