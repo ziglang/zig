@@ -222,6 +222,8 @@ fn rawCFree(
 
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
+///
+/// Using `page_allocator` with `GeneralPurposeAllocator` outside of WebAssembly is not recommended, as it causes detrimental performance issues in long-running programs.
 pub const page_allocator = if (builtin.target.isWasm())
     Allocator{
         .ptr = undefined,
