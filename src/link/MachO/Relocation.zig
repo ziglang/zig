@@ -39,25 +39,35 @@ pub const Type = enum {
 
 /// Returns true if and only if the reloc is dirty AND the target address is available.
 pub fn isResolvable(self: Relocation, macho_file: *MachO) bool {
-    _ = self.getTargetAtomIndex(macho_file) orelse return false;
+    const addr = self.getTargetBaseAddress(macho_file) orelse return false;
+    if (addr == 0) return false;
     return self.dirty;
 }
 
-pub fn getTargetAtomIndex(self: Relocation, macho_file: *MachO) ?Atom.Index {
-    return switch (self.type) {
-        .got, .got_page, .got_pageoff => macho_file.got_table.getAtomIndex(macho_file, self.target),
-        .tlv => {
-            const thunk_atom_index = macho_file.tlv_table.getAtomIndex(macho_file, self.target) orelse
-                return null;
-            const thunk_atom = macho_file.getAtom(thunk_atom_index);
-            return macho_file.got_table.getAtomIndex(macho_file, thunk_atom.getSymbolWithLoc());
+pub fn getTargetBaseAddress(self: Relocation, macho_file: *MachO) ?u64 {
+    switch (self.type) {
+        .got, .got_page, .got_pageoff => {
+            const got_index = macho_file.got_table.lookup.get(self.target) orelse return null;
+            const header = macho_file.sections.items(.header)[macho_file.got_section_index.?];
+            return header.addr + got_index * @sizeOf(u64);
         },
-        .branch => if (macho_file.stubs_table.getAtomIndex(macho_file, self.target)) |index|
-            index
-        else
-            macho_file.getAtomIndexForSymbol(self.target),
-        else => macho_file.getAtomIndexForSymbol(self.target),
-    };
+        .tlv => {
+            const thunk_atom_index = macho_file.tlv_table.getAtomIndex(macho_file, self.target) orelse return null;
+            const thunk_atom = macho_file.getAtom(thunk_atom_index);
+            const got_index = macho_file.got_table.lookup.get(thunk_atom.getSymbolWithLoc()) orelse return null;
+            const header = macho_file.sections.items(.header)[macho_file.got_section_index.?];
+            return header.addr + got_index * @sizeOf(u64);
+        },
+        .branch => {
+            const atom_index = blk: {
+                if (macho_file.stubs_table.getAtomIndex(macho_file, self.target)) |index| break :blk index;
+                break :blk macho_file.getAtomIndexForSymbol(self.target) orelse return null;
+            };
+            const atom = macho_file.getAtom(atom_index);
+            return atom.getSymbol(macho_file).n_value;
+        },
+        else => return macho_file.getSymbol(self.target).n_value,
+    }
 }
 
 pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, code: []u8) void {
@@ -66,17 +76,14 @@ pub fn resolve(self: Relocation, macho_file: *MachO, atom_index: Atom.Index, cod
     const source_sym = atom.getSymbol(macho_file);
     const source_addr = source_sym.n_value + self.offset;
 
-    const target_atom_index = self.getTargetAtomIndex(macho_file).?; // Oops, you didn't check if the relocation can be resolved with isResolvable().
-    const target_atom = macho_file.getAtom(target_atom_index);
-
+    const target_base_addr = self.getTargetBaseAddress(macho_file).?; // Oops, you didn't check if the relocation can be resolved with isResolvable().
     const target_addr: i64 = switch (self.type) {
         .tlv_initializer => blk: {
             assert(self.addend == 0); // Addend here makes no sense.
             const header = macho_file.sections.items(.header)[macho_file.thread_data_section_index.?];
-            const target_sym = target_atom.getSymbol(macho_file);
-            break :blk @intCast(i64, target_sym.n_value - header.addr);
+            break :blk @intCast(i64, target_base_addr - header.addr);
         },
-        else => @intCast(i64, target_atom.getSymbol(macho_file).n_value) + self.addend,
+        else => @intCast(i64, target_base_addr) + self.addend,
     };
 
     log.debug("  ({x}: [() => 0x{x} ({s})) ({s})", .{
