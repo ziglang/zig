@@ -50,12 +50,16 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs_list: anytype) type {
     };
 
     return struct {
+        /// Array of `struct { key: []const u8, value: V }` where `value` is `void{}` if `V` is `void`.
+        /// Sorted by `key` length.
         pub const kvs = precomputed.sorted_kvs;
 
+        /// Checks if the map has a value for the key.
         pub fn has(str: []const u8) bool {
             return get(str) != null;
         }
 
+        /// Returns the value for the key if any, else null.
         pub fn get(str: []const u8) ?V {
             if (str.len < precomputed.min_len or str.len > precomputed.max_len)
                 return null;
