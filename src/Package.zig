@@ -482,7 +482,7 @@ fn fetchAndUnpack(
         var h = std.http.Headers{ .allocator = gpa };
         defer h.deinit();
 
-        var req = try http_client.request(uri, h, .{ .method = .GET });
+        var req = try http_client.request(.GET, uri, h, .{});
         defer req.deinit();
 
         try req.start();

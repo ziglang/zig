@@ -518,11 +518,21 @@ pub const Response = struct {
         };
 
         if (out_index == 0) {
+            const has_trail = !res.request.parser.state.isContent();
+
             while (!res.request.parser.state.isContent()) { // read trailing headers
                 try res.connection.fill();
 
                 const nchecked = try res.request.parser.checkCompleteHead(res.server.allocator, res.connection.peek());
                 res.connection.clear(@intCast(u16, nchecked));
+            }
+
+            if (has_trail) {
+                res.request.headers = http.Headers{ .allocator = res.server.allocator, .owned = false };
+
+                // The response headers before the trailers are already guaranteed to be valid, so they will always be parsed again and cannot return an error.
+                // This will *only* fail for a malformed trailer.
+                res.request.parse(res.request.parser.header_bytes.items) catch return error.InvalidTrailers;
             }
         }
 
