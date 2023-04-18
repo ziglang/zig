@@ -5624,7 +5624,9 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                 const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
-                const got_addr = elf_file.getAtom(atom_index).getOffsetTableAddress(elf_file);
+                const atom = elf_file.getAtom(atom_index);
+                _ = try atom.getOrCreateOffsetTableEntry(elf_file);
+                const got_addr = atom.getOffsetTableAddress(elf_file);
                 try self.asmMemory(.call, Memory.sib(.qword, .{
                     .base = .ds,
                     .disp = @intCast(i32, got_addr),
@@ -5853,7 +5855,9 @@ fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
             .{ .kind = .const_data, .ty = Type.anyerror },
             4, // dword alignment
         );
-        const got_addr = elf_file.getAtom(atom_index).getOffsetTableAddress(elf_file);
+        const atom = elf_file.getAtom(atom_index);
+        _ = try atom.getOrCreateOffsetTableEntry(elf_file);
+        const got_addr = atom.getOffsetTableAddress(elf_file);
         try self.asmRegisterMemory(.mov, addr_reg.to64(), Memory.sib(.qword, .{
             .base = .ds,
             .disp = @intCast(i32, got_addr),
@@ -8230,7 +8234,9 @@ fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
             .{ .kind = .const_data, .ty = Type.anyerror },
             4, // dword alignment
         );
-        const got_addr = elf_file.getAtom(atom_index).getOffsetTableAddress(elf_file);
+        const atom = elf_file.getAtom(atom_index);
+        _ = try atom.getOrCreateOffsetTableEntry(elf_file);
+        const got_addr = atom.getOffsetTableAddress(elf_file);
         try self.asmRegisterMemory(.mov, addr_reg.to64(), Memory.sib(.qword, .{
             .base = .ds,
             .disp = @intCast(i32, got_addr),
