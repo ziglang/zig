@@ -4460,6 +4460,15 @@ pub fn addCCArgs(
                         try argv.append("-mno-save-restore");
                     }
                 },
+                .mips, .mipsel, .mips64, .mips64el => {
+                    if (target.cpu.model.llvm_name) |llvm_name| {
+                        try argv.append(try std.fmt.allocPrint(arena, "-march={s}", .{llvm_name}));
+                    }
+
+                    if (std.Target.mips.featureSetHas(target.cpu.features, .soft_float)) {
+                        try argv.append("-msoft-float");
+                    }
+                },
                 else => {
                     // TODO
                 },
