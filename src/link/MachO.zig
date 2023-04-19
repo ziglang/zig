@@ -1335,17 +1335,20 @@ fn markRelocsDirtyByAddress(self: *MachO, addr: u64) void {
     for (self.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
             const target_addr = reloc.getTargetBaseAddress(self) orelse continue;
-            if (target_addr == 0) continue;
             if (target_addr < addr) continue;
             reloc.dirty = true;
         }
     }
 
-    // Dirty synthetic table sections if necessary
-    {
-        const target_addr = self.getSegment(self.got_section_index.?).vmaddr;
-        if (target_addr >= addr) self.got_table_contents_dirty = true;
+    // TODO: dirty only really affected GOT cells
+    for (self.got_table.entries.items) |entry| {
+        const target_addr = self.getSymbol(entry).n_value;
+        if (target_addr >= addr) {
+            self.got_table_contents_dirty = true;
+            break;
+        }
     }
+
     {
         const stubs_addr = self.getSegment(self.stubs_section_index.?).vmaddr;
         const stub_helper_addr = self.getSegment(self.stub_helper_section_index.?).vmaddr;
