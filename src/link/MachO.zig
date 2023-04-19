@@ -163,6 +163,7 @@ error_flags: File.ErrorFlags = File.ErrorFlags{},
 
 segment_table_dirty: bool = false,
 got_table_count_dirty: bool = false,
+got_table_contents_dirty: bool = false,
 
 /// A helper var to indicate if we are at the start of the incremental updates, or
 /// already somewhere further along the update-and-run chain.
@@ -758,6 +759,13 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         try self.writeAtom(atom_index, code.items);
     }
 
+    if (self.got_table_contents_dirty) {
+        for (self.got_table.entries.items, 0..) |entry, i| {
+            if (!self.got_table.lookup.contains(entry)) continue;
+            try self.writeOffsetTableEntry(i);
+        }
+    }
+
     if (build_options.enable_logging) {
         self.logSymtab();
         self.logSections();
@@ -1242,12 +1250,8 @@ pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
     }
 
     if (is_hot_update_compatible) {
-        if (self.base.child_pid) |pid| blk: {
-            const task = self.hot_state.mach_task orelse {
-                log.warn("cannot hot swap: no Mach task acquired for child process with pid {d}", .{pid});
-                break :blk;
-            };
-            self.updateAtomInMemory(task, section.segment_index, sym.n_value, code) catch |err| {
+        if (self.hot_state.mach_task) |task| {
+            self.writeToMemory(task, section.segment_index, sym.n_value, code) catch |err| {
                 log.warn("cannot hot swap: writing to memory failed: {s}", .{@errorName(err)});
             };
         }
@@ -1262,7 +1266,7 @@ pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
     }
 }
 
-fn updateAtomInMemory(self: *MachO, task: std.os.darwin.MachTask, segment_index: u8, addr: u64, code: []const u8) !void {
+fn writeToMemory(self: *MachO, task: std.os.darwin.MachTask, segment_index: u8, addr: u64, code: []const u8) !void {
     const segment = self.segments.items[segment_index];
     const cpu_arch = self.base.options.target.cpu.arch;
     const nwritten = if (!segment.isWriteable())
@@ -1272,7 +1276,7 @@ fn updateAtomInMemory(self: *MachO, task: std.os.darwin.MachTask, segment_index:
     if (nwritten != code.len) return error.InputOutput;
 }
 
-fn writeOffsetTableEntry(self: *MachO, index: @TypeOf(self.got_table).Index) !void {
+fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     const sect_id = self.got_section_index.?;
 
     if (self.got_table_count_dirty) {
@@ -1282,18 +1286,27 @@ fn writeOffsetTableEntry(self: *MachO, index: @TypeOf(self.got_table).Index) !vo
     }
 
     const header = &self.sections.items(.header)[sect_id];
+    const segment_index = self.sections.items(.segment_index)[sect_id];
+    const segment = self.getSegment(sect_id);
     const entry = self.got_table.entries.items[index];
     const entry_value = self.getSymbol(entry).n_value;
     const entry_offset = index * @sizeOf(u64);
     const file_offset = header.offset + entry_offset;
-    const vmaddr = header.addr + entry_offset;
-    _ = vmaddr;
+    const vmaddr = segment.vmaddr + entry_offset;
+    log.warn("writing GOT entry {d}: @{x} => {x}", .{ index, vmaddr, entry_value });
 
     var buf: [8]u8 = undefined;
     mem.writeIntLittle(u64, &buf, entry_value);
     try self.base.file.?.pwriteAll(&buf, file_offset);
 
     // TODO write in memory
+    if (is_hot_update_compatible) {
+        if (self.hot_state.mach_task) |task| {
+            self.writeToMemory(task, segment_index, vmaddr, &buf) catch |err| {
+                log.warn("cannot hot swap: writing to memory failed: {s}", .{@errorName(err)});
+            };
+        }
+    }
 }
 
 fn writePtrWidthAtom(self: *MachO, atom_index: Atom.Index) !void {
@@ -1321,6 +1334,15 @@ fn markRelocsDirtyByAddress(self: *MachO, addr: u64) void {
             if (target_addr < addr) continue;
             reloc.dirty = true;
         }
+    }
+
+    // Dirty synthetic table sections if necessary
+    for (&[_]u8{self.got_section_index.?}, &[_]*bool{&self.got_table_contents_dirty}) |sect_id, dirty| {
+        if (dirty.*) continue;
+        const segment_index = self.sections.items(.segment_index)[sect_id];
+        const segment = self.segments.items[segment_index];
+        if (segment.vmaddr < addr) continue;
+        dirty.* = true;
     }
 }
 
@@ -2097,6 +2119,7 @@ fn addGotEntry(self: *MachO, target: SymbolWithLoc) !void {
     const got_index = try self.got_table.allocateEntry(self.base.allocator, target);
     try self.writeOffsetTableEntry(got_index);
     self.markRelocsDirtyByTarget(target);
+    self.got_table_count_dirty = true;
 }
 
 fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
@@ -3010,7 +3033,7 @@ fn growSection(self: *MachO, sect_id: u8, needed_size: u64) !void {
             const last_atom = self.getAtom(last_atom_index);
             const sym = last_atom.getSymbol(self);
             break :blk (sym.n_value + last_atom.size) - segment.vmaddr;
-        } else 0;
+        } else header.size;
 
         log.debug("moving {s},{s} from 0x{x} to 0x{x}", .{
             header.segName(),

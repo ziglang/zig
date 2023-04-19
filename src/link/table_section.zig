@@ -47,7 +47,7 @@ pub fn TableSection(comptime Entry: type) type {
         ) !void {
             _ = options;
             comptime assert(unused_format_string.len == 0);
-            try writer.writeAll("SectionTable:\n");
+            try writer.writeAll("TableSection:\n");
             for (self.entries.items, 0..) |entry, i| {
                 try writer.print("  {d} => {}\n", .{ i, entry });
             }
