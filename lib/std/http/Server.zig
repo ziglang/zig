@@ -501,7 +501,7 @@ pub const Response = struct {
         }
     }
 
-    pub const ReadError = TransferReadError || proto.HeadersParser.CheckCompleteHeadError || error{DecompressionFailure};
+    pub const ReadError = TransferReadError || proto.HeadersParser.CheckCompleteHeadError || error{ DecompressionFailure, InvalidTrailers };
 
     pub const Reader = std.io.Reader(*Response, ReadError, read);
 
