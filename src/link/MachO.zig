@@ -152,7 +152,6 @@ globals_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 dyld_stub_binder_index: ?u32 = null,
 dyld_private_atom_index: ?Atom.Index = null,
-stub_helper_preamble_atom_index: ?Atom.Index = null,
 
 strtab: StringTable(.strtab) = .{},
 
@@ -167,6 +166,7 @@ got_table_count_dirty: bool = false,
 got_table_contents_dirty: bool = false,
 stub_table_count_dirty: bool = false,
 stub_table_contents_dirty: bool = false,
+stub_helper_preamble_allocated: bool = false,
 
 /// A helper var to indicate if we are at the start of the incremental updates, or
 /// already somewhere further along the update-and-run chain.
@@ -723,14 +723,14 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         return error.UndefinedSymbolReference;
     }
 
-    try self.createDyldPrivateAtom();
-    try self.createStubHelperPreambleAtom();
-
     for (actions.items) |action| switch (action.kind) {
         .none => {},
         .add_got => try self.addGotEntry(action.target),
         .add_stub => try self.addStubEntry(action.target),
     };
+
+    try self.createDyldPrivateAtom();
+    try self.writeStubHelperPreamble();
 
     try self.allocateSpecialSymbols();
 
@@ -1321,6 +1321,35 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     }
 }
 
+fn writeStubHelperPreamble(self: *MachO) !void {
+    if (self.stub_helper_preamble_allocated) return;
+
+    const gpa = self.base.allocator;
+    const cpu_arch = self.base.options.target.cpu.arch;
+    const size = stubs.calcStubHelperPreambleSize(cpu_arch);
+
+    var buf = try std.ArrayList(u8).initCapacity(gpa, size);
+    defer buf.deinit();
+
+    const dyld_private_addr = self.getAtom(self.dyld_private_atom_index.?).getSymbol(self).n_value;
+    const dyld_stub_binder_got_addr = blk: {
+        const index = self.got_table.lookup.get(self.getGlobalByIndex(self.dyld_stub_binder_index.?)).?;
+        const header = self.sections.items(.header)[self.got_section_index.?];
+        break :blk header.addr + @sizeOf(u64) * index;
+    };
+    const header = self.sections.items(.header)[self.stub_helper_section_index.?];
+
+    try stubs.writeStubHelperPreambleCode(.{
+        .cpu_arch = cpu_arch,
+        .source_addr = header.addr,
+        .dyld_private_addr = dyld_private_addr,
+        .dyld_stub_binder_got_addr = dyld_stub_binder_got_addr,
+    }, buf.writer());
+    try self.base.file.?.pwriteAll(buf.items, header.offset);
+
+    self.stub_helper_preamble_allocated = true;
+}
+
 fn writeStubTableEntry(self: *MachO, index: usize) !void {
     const stubs_sect_id = self.stubs_section_index.?;
     const stub_helper_sect_id = self.stub_helper_section_index.?;
@@ -1399,11 +1428,6 @@ fn writeStubTableEntry(self: *MachO, index: usize) !void {
             @panic("TODO: update a stub entry in memory");
         }
     }
-}
-
-fn writePtrWidthAtom(self: *MachO, atom_index: Atom.Index) !void {
-    var buffer: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64);
-    try self.writeAtom(atom_index, &buffer);
 }
 
 fn markRelocsDirtyByTarget(self: *MachO, target: SymbolWithLoc) void {
@@ -1492,131 +1516,8 @@ fn createDyldPrivateAtom(self: *MachO) !void {
 
     sym.n_value = try self.allocateAtom(atom_index, atom.size, @alignOf(u64));
     log.debug("allocated dyld_private atom at 0x{x}", .{sym.n_value});
-    try self.writePtrWidthAtom(atom_index);
-}
-
-fn createStubHelperPreambleAtom(self: *MachO) !void {
-    if (self.stub_helper_preamble_atom_index != null) return;
-
-    const gpa = self.base.allocator;
-    const arch = self.base.options.target.cpu.arch;
-    const size: u5 = switch (arch) {
-        .x86_64 => 15,
-        .aarch64 => 6 * @sizeOf(u32),
-        else => unreachable,
-    };
-    const atom_index = try self.createAtom();
-    const atom = self.getAtomPtr(atom_index);
-    atom.size = size;
-
-    const required_alignment: u32 = switch (arch) {
-        .x86_64 => 1,
-        .aarch64 => @alignOf(u32),
-        else => unreachable,
-    };
-
-    const sym = atom.getSymbolPtr(self);
-    sym.n_type = macho.N_SECT;
-    sym.n_sect = self.stub_helper_section_index.? + 1;
-
-    const dyld_private = self.getAtom(self.dyld_private_atom_index.?).getSymbolWithLoc();
-    const dyld_stub_binder = self.globals.items[self.dyld_stub_binder_index.?];
-
-    const code = try gpa.alloc(u8, size);
-    defer gpa.free(code);
-    mem.set(u8, code, 0);
-
-    switch (arch) {
-        .x86_64 => {
-            // lea %r11, [rip + disp]
-            code[0] = 0x4c;
-            code[1] = 0x8d;
-            code[2] = 0x1d;
-            // push %r11
-            code[7] = 0x41;
-            code[8] = 0x53;
-            // jmp [rip + disp]
-            code[9] = 0xff;
-            code[10] = 0x25;
-
-            try Atom.addRelocations(self, atom_index, &[_]Relocation{ .{
-                .type = .signed,
-                .target = dyld_private,
-                .offset = 3,
-                .addend = 0,
-                .pcrel = true,
-                .length = 2,
-            }, .{
-                .type = .got,
-                .target = dyld_stub_binder,
-                .offset = 11,
-                .addend = 0,
-                .pcrel = true,
-                .length = 2,
-            } });
-        },
-
-        .aarch64 => {
-            // adrp x17, 0
-            mem.writeIntLittle(u32, code[0..][0..4], aarch64.Instruction.adrp(.x17, 0).toU32());
-            // add x17, x17, 0
-            mem.writeIntLittle(u32, code[4..][0..4], aarch64.Instruction.add(.x17, .x17, 0, false).toU32());
-            // stp x16, x17, [sp, #-16]!
-            mem.writeIntLittle(u32, code[8..][0..4], aarch64.Instruction.stp(
-                .x16,
-                .x17,
-                aarch64.Register.sp,
-                aarch64.Instruction.LoadStorePairOffset.pre_index(-16),
-            ).toU32());
-            // adrp x16, 0
-            mem.writeIntLittle(u32, code[12..][0..4], aarch64.Instruction.adrp(.x16, 0).toU32());
-            // ldr x16, [x16, 0]
-            mem.writeIntLittle(u32, code[16..][0..4], aarch64.Instruction.ldr(
-                .x16,
-                .x16,
-                aarch64.Instruction.LoadStoreOffset.imm(0),
-            ).toU32());
-            // br x16
-            mem.writeIntLittle(u32, code[20..][0..4], aarch64.Instruction.br(.x16).toU32());
-
-            try Atom.addRelocations(self, atom_index, &[_]Relocation{ .{
-                .type = .page,
-                .target = dyld_private,
-                .offset = 0,
-                .addend = 0,
-                .pcrel = true,
-                .length = 2,
-            }, .{
-                .type = .pageoff,
-                .target = dyld_private,
-                .offset = 4,
-                .addend = 0,
-                .pcrel = false,
-                .length = 2,
-            }, .{
-                .type = .got_page,
-                .target = dyld_stub_binder,
-                .offset = 12,
-                .addend = 0,
-                .pcrel = true,
-                .length = 2,
-            }, .{
-                .type = .got_pageoff,
-                .target = dyld_stub_binder,
-                .offset = 16,
-                .addend = 0,
-                .pcrel = false,
-                .length = 2,
-            } });
-        },
-
-        else => unreachable,
-    }
-    self.stub_helper_preamble_atom_index = atom_index;
-
-    sym.n_value = try self.allocateAtom(atom_index, size, required_alignment);
-    log.debug("allocated stub preamble atom at 0x{x}", .{sym.n_value});
-    try self.writeAtom(atom_index, code);
+    var buffer: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64);
+    try self.writeAtom(atom_index, &buffer);
 }
 
 fn createThreadLocalDescriptorAtom(self: *MachO, target: SymbolWithLoc) !Atom.Index {
@@ -3415,7 +3316,7 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, lazy_bind: LazyBind) !void 
     if (lazy_bind.size() == 0) return;
 
     const stub_helper_section_index = self.stub_helper_section_index.?;
-    assert(self.stub_helper_preamble_atom_index != null);
+    assert(self.stub_helper_preamble_allocated);
 
     const header = self.sections.items(.header)[stub_helper_section_index];
 
