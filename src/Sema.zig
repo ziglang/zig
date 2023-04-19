@@ -6635,6 +6635,8 @@ fn analyzeCall(
         sema.code = fn_owner_decl.getFileScope().zir;
         defer sema.code = parent_zir;
 
+        try mod.declareDeclDependencyType(sema.owner_decl_index, module_fn.owner_decl, .function_body);
+
         const parent_inst_map = sema.inst_map;
         sema.inst_map = .{};
         defer {
@@ -7331,7 +7333,7 @@ fn instantiateGenericCall(
         // The generic function Decl is guaranteed to be the first dependency
         // of each of its instantiations.
         assert(new_decl.dependencies.keys().len == 0);
-        try mod.declareDeclDependency(new_decl_index, module_fn.owner_decl);
+        try mod.declareDeclDependencyType(new_decl_index, module_fn.owner_decl, .function_body);
 
         var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
         const new_decl_arena_allocator = new_decl_arena.allocator();
