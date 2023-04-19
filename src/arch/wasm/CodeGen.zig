@@ -940,6 +940,14 @@ fn addMemArg(func: *CodeGen, tag: Mir.Inst.Tag, mem_arg: Mir.MemArg) error{OutOf
     try func.addInst(.{ .tag = tag, .data = .{ .payload = extra_index } });
 }
 
+/// Inserts an instruction from the 'atomics' feature which accesses wasm's linear memory dependent on the
+/// given `tag`.
+fn addAtomicMemArg(func: *CodeGen, tag: wasm.AtomicsOpcode, mem_arg: Mir.MemArg) error{OutOfMemory}!void {
+    const extra_index = try func.addExtra(@as(struct { val: u32 }, .{ .val = wasm.atomicsOpcode(tag) }));
+    _ = try func.addExtra(mem_arg);
+    try func.addInst(.{ .tag = .atomics_prefix, .data = .{ .payload = extra_index } });
+}
+
 /// Appends entries to `mir_extra` based on the type of `extra`.
 /// Returns the index into `mir_extra`
 fn addExtra(func: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
@@ -6518,6 +6526,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     return func.bin_file.createFunction(func_name, func_type, &body_list, &relocs);
 }
 
+<<<<<<< HEAD
 fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
 
@@ -6599,6 +6608,10 @@ fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return func.finishAir(inst, result, &.{ty_op.operand});
 }
 
+inline fn useAtomicFeature(func: *const CodeGen) bool {
+    return std.Target.wasm.featureSetHas(func.target.cpu.features, .atomics);
+}
+
 fn airCmpxchg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_pl = func.air.instructions.items(.data)[inst].ty_pl;
     const extra = func.air.extraData(Air.Cmpxchg, ty_pl.payload).data;
@@ -6611,18 +6624,35 @@ fn airCmpxchg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const expected_val = try func.resolveInst(extra.expected_value);
     const new_val = try func.resolveInst(extra.new_value);
 
-    const ptr_val = try WValue.toLocal(try func.load(ptr_operand, ty, 0), func, ty);
+    const ptr_val = if (func.useAtomicFeature()) val: {
+        const val_local = try func.allocLocal(ty);
+        try func.emitWValue(ptr_operand);
+        try func.emitWValue(expected_val);
+        try func.emitWValue(new_val);
+        try func.addAtomicMemArg(.i32_atomic_rmw_cmpxchg, .{
+            .offset = ptr_operand.offset(),
+            .alignment = ty.abiAlignment(func.target),
+        });
+        try func.addLabel(.local_tee, val_local.local.value);
+        _ = try func.cmp(.stack, expected_val, ty, .eq);
+        break :val val_local;
+    } else val: {
+        const ptr_val = try WValue.toLocal(try func.load(ptr_operand, ty, 0), func, ty);
 
-    try func.lowerToStack(ptr_operand);
-    try func.emitWValue(new_val);
-    try func.emitWValue(ptr_val);
-    const cmp_tmp = try func.cmp(ptr_val, expected_val, ty, .eq);
-    const cmp_result = try cmp_tmp.toLocal(func, Type.bool);
-    try func.emitWValue(cmp_result);
-    try func.addTag(.select);
-    try func.store(.stack, .stack, ty, 0);
+        try func.lowerToStack(ptr_operand);
+        try func.emitWValue(new_val);
+        try func.emitWValue(ptr_val);
+        const cmp_tmp = try func.cmp(ptr_val, expected_val, ty, .eq);
+        const cmp_result = try cmp_tmp.toLocal(func, Type.bool);
+        try func.emitWValue(cmp_result);
+        try func.addTag(.select);
+        try func.store(.stack, .stack, ty, 0);
+        try func.emitWValue(cmp_result);
+
+        break :val ptr_val;
+    };
+
     try func.addImm32(-1);
-    try func.emitWValue(cmp_result);
     try func.addTag(.i32_xor);
     try func.addImm32(1);
     try func.addTag(.i32_and);

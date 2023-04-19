@@ -521,8 +521,20 @@ fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
 }
 
 fn emitAtomic(emit: *Emit, inst: Mir.Inst.Index) !void {
-    _ = inst;
-    return emit.fail("TODO: Implement atomics instructions", .{});
+    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
+    const opcode = emit.mir.extra[extra_index];
+    const writer = emit.code.writer();
+    try emit.code.append(std.wasm.opcode(.atomics_prefix));
+    try leb128.writeULEB128(writer, opcode);
+    switch (@intToEnum(std.wasm.AtomicsOpcode, opcode)) {
+        .i32_atomic_rmw_cmpxchg,
+        .i64_atomic_rmw_cmpxchg,
+        => {
+            const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index + 1).data;
+            try encodeMemArg(mem_arg, writer);
+        },
+        else => |tag| return emit.fail("TODO: Implement atomic instruction: {s}", .{@tagName(tag)}),
+    }
 }
 
 fn emitMemFill(emit: *Emit) !void {
