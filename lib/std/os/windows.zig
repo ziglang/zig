@@ -934,6 +934,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         .NOT_A_DIRECTORY => return error.NotDir,
         .SHARING_VIOLATION => return error.FileBusy,
         .ACCESS_DENIED => return error.AccessDenied,
+        .DELETE_PENDING => return,
         else => return unexpectedStatus(rc),
     }
     var file_dispo = FILE_DISPOSITION_INFORMATION{
