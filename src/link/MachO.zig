@@ -759,11 +759,13 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         try self.writeAtom(atom_index, code.items);
     }
 
+    // Update GOT if it got moved in memory.
     if (self.got_table_contents_dirty) {
         for (self.got_table.entries.items, 0..) |entry, i| {
             if (!self.got_table.lookup.contains(entry)) continue;
             try self.writeOffsetTableEntry(i);
         }
+        self.got_table_contents_dirty = false;
     }
 
     if (build_options.enable_logging) {
@@ -1249,6 +1251,8 @@ pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
         }
     }
 
+    Atom.resolveRelocations(self, atom_index, relocs.items, code);
+
     if (is_hot_update_compatible) {
         if (self.hot_state.mach_task) |task| {
             self.writeToMemory(task, section.segment_index, sym.n_value, code) catch |err| {
@@ -1257,7 +1261,6 @@ pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
         }
     }
 
-    Atom.resolveRelocations(self, atom_index, relocs.items, code);
     try self.base.file.?.pwriteAll(code, file_offset);
 
     // Now we can mark the relocs as resolved.
@@ -1287,19 +1290,18 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
 
     const header = &self.sections.items(.header)[sect_id];
     const segment_index = self.sections.items(.segment_index)[sect_id];
-    const segment = self.getSegment(sect_id);
     const entry = self.got_table.entries.items[index];
     const entry_value = self.getSymbol(entry).n_value;
     const entry_offset = index * @sizeOf(u64);
     const file_offset = header.offset + entry_offset;
-    const vmaddr = segment.vmaddr + entry_offset;
-    log.warn("writing GOT entry {d}: @{x} => {x}", .{ index, vmaddr, entry_value });
+    const vmaddr = header.addr + entry_offset;
 
-    var buf: [8]u8 = undefined;
+    log.debug("writing GOT entry {d}: @{x} => {x}", .{ index, vmaddr, entry_value });
+
+    var buf: [@sizeOf(u64)]u8 = undefined;
     mem.writeIntLittle(u64, &buf, entry_value);
     try self.base.file.?.pwriteAll(&buf, file_offset);
 
-    // TODO write in memory
     if (is_hot_update_compatible) {
         if (self.hot_state.mach_task) |task| {
             self.writeToMemory(task, segment_index, vmaddr, &buf) catch |err| {
@@ -2118,7 +2120,6 @@ fn addGotEntry(self: *MachO, target: SymbolWithLoc) !void {
     if (self.got_table.lookup.contains(target)) return;
     const got_index = try self.got_table.allocateEntry(self.base.allocator, target);
     try self.writeOffsetTableEntry(got_index);
-    self.markRelocsDirtyByTarget(target);
     self.got_table_count_dirty = true;
 }
 
@@ -2542,7 +2543,6 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
                     const tlv_atom = self.getAtom(tlv_atom_index);
                     break :blk tlv_atom.getSymbolWithLoc();
                 } else .{ .sym_index = sym_index };
-                self.markRelocsDirtyByTarget(target);
                 log.debug("  (updating GOT entry)", .{});
                 const got_atom_index = self.got_table.lookup.get(target).?;
                 try self.writeOffsetTableEntry(got_atom_index);
