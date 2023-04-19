@@ -222,8 +222,11 @@ const InstTracking = struct {
             .undef,
             .immediate,
             .memory,
-            .linker_load,
-            .tlv_reloc,
+            .load_direct,
+            .lea_direct,
+            .load_got,
+            .load_tlv,
+            .lea_tlv,
             .ptr_stack_offset,
             => return, // these can be rematerialized without using a stack slot
         }
