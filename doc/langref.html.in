@@ -8561,7 +8561,7 @@ test "main" {
       {#header_open|@depositBits#}
       <pre>{#syntax#}@depositBits(source: T, mask: T) T{#endsyntax#}</pre>
       <p>
-      {#syntax#}@TypeOf(source){#endsyntax#} must be an integer type.
+      {#syntax#}T{#endsyntax#} must be an unsigned integer type, or a `comptime_int` (for which both parameters must be positive). `T` is determined by peer-type resolution.
       </p>
       <p>
       Uses a mask to transfer contiguous lower bits in the {#syntax#}source{#endsyntax#} operand to the destination, transferring them to the corresponding bits in the destination that are set in the mask. All other bits in the destination are zeroed.
@@ -8573,8 +8573,7 @@ test "main" {
       Example:
       </p>
 
-      <!-- TODO make this a test when implemented-->
-      {#syntax_block|zig|@depositBits test#}
+      {#code_begin|test|test_depositbits_builtin#}
 const std = @import("std");
 
 test "deposit bits" {
@@ -8582,7 +8581,7 @@ test "deposit bits" {
         try std.testing.expectEqual(@depositBits(0x00001234, 0xf0f0f0f0), 0x10203040);
     }
 }
-      {#end_syntax_block#}
+      {#code_end#}
       {#see_also|@extractBits#}
       {#header_close#}
 
@@ -8757,7 +8756,7 @@ export fn @"A function name that is a complete sentence."() void {}
       {#header_open|@extractBits#}
       <pre>{#syntax#}@extractBits(source: T, mask: T) T{#endsyntax#}</pre>
       <p>
-      {#syntax#}T{#endsyntax#} must be an integer type.
+      {#syntax#}T{#endsyntax#} must be an unsigned integer type, or a `comptime_int` (for which both parameters must be positive). `T` is determined by peer-type resolution.
       </p>
       <p>
       Uses a mask to transfer bits in the {#syntax#}source{#endsyntax#} operand to the destination, writing them as contiguous lower bits in the destination. The upper bits of the destination are zeroed.
@@ -8769,8 +8768,7 @@ export fn @"A function name that is a complete sentence."() void {}
       Example:
       </p>
 
-      <!-- TODO Make this a test when implemented -->
-      {#syntax_block|zig|@extractBits test#}
+      {#code_begin|test|test_depositbits_builtin#}
 const std = @import("std");
 
 test "extract bits" {
@@ -8778,7 +8776,7 @@ test "extract bits" {
         try std.testing.expectEqual(@extractBits(0x12345678, 0xf0f0f0f0), 0x00001357);
     }
 }
-      {#end_syntax_block#}
+      {#code_end#}
       {#see_also|@depositBits#}
       {#header_close#}
 
