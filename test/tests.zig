@@ -962,13 +962,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
             continue;
 
-        // TODO get std lib tests passing for the C backend
-        if (test_target.target.ofmt == std.Target.ObjectFormat.c and
-            mem.eql(u8, options.name, "std"))
-        {
-            continue;
-        }
-
         const want_this_mode = for (options.optimize_modes) |m| {
             if (m == test_target.optimize_mode) break true;
         } else false;

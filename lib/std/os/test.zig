@@ -502,8 +502,7 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
 }
 
 test "dl_iterate_phdr" {
-    if (native_os == .windows or native_os == .wasi or native_os == .macos)
-        return error.SkipZigTest;
+    if (builtin.object_format != .elf) return error.SkipZigTest;
 
     var counter: usize = 0;
     try os.dl_iterate_phdr(&counter, IterFnError, iter_fn);

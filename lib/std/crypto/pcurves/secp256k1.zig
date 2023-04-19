@@ -552,5 +552,7 @@ pub const AffineCoordinates = struct {
 };
 
 test "secp256k1" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+
     _ = @import("tests/secp256k1.zig");
 }

@@ -1635,6 +1635,8 @@ fn testStaticBitSet(comptime Set: type) !void {
 }
 
 test "IntegerBitSet" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+
     try testStaticBitSet(IntegerBitSet(0));
     try testStaticBitSet(IntegerBitSet(1));
     try testStaticBitSet(IntegerBitSet(2));

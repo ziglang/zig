@@ -1972,6 +1972,243 @@ static inline int32_t zig_cmp_big(const void *lhs, const void *rhs, bool is_sign
     return 0;
 }
 
+static inline void zig_and_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    uint8_t *res_bytes = res;
+    const uint8_t *lhs_bytes = lhs;
+    const uint8_t *rhs_bytes = rhs;
+    uint16_t byte_offset = 0;
+    uint16_t remaining_bytes = zig_int_bytes(bits);
+    (void)is_signed;
+
+    while (remaining_bytes >= 128 / CHAR_BIT) {
+        zig_u128 res_limb;
+        zig_u128 lhs_limb;
+        zig_u128 rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_and_u128(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 128 / CHAR_BIT;
+        byte_offset += 128 / CHAR_BIT;
+    }
+
+    while (remaining_bytes >= 64 / CHAR_BIT) {
+        uint64_t res_limb;
+        uint64_t lhs_limb;
+        uint64_t rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_and_u64(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 64 / CHAR_BIT;
+        byte_offset += 64 / CHAR_BIT;
+    }
+
+    while (remaining_bytes >= 32 / CHAR_BIT) {
+        uint32_t res_limb;
+        uint32_t lhs_limb;
+        uint32_t rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_and_u32(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 32 / CHAR_BIT;
+        byte_offset += 32 / CHAR_BIT;
+    }
+
+    while (remaining_bytes >= 16 / CHAR_BIT) {
+        uint16_t res_limb;
+        uint16_t lhs_limb;
+        uint16_t rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_and_u16(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 16 / CHAR_BIT;
+        byte_offset += 16 / CHAR_BIT;
+    }
+
+    while (remaining_bytes >= 8 / CHAR_BIT) {
+        uint8_t res_limb;
+        uint8_t lhs_limb;
+        uint8_t rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_and_u8(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 8 / CHAR_BIT;
+        byte_offset += 8 / CHAR_BIT;
+    }
+}
+
+static inline void zig_or_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    uint8_t *res_bytes = res;
+    const uint8_t *lhs_bytes = lhs;
+    const uint8_t *rhs_bytes = rhs;
+    uint16_t byte_offset = 0;
+    uint16_t remaining_bytes = zig_int_bytes(bits);
+    (void)is_signed;
+
+    while (remaining_bytes >= 128 / CHAR_BIT) {
+        zig_u128 res_limb;
+        zig_u128 lhs_limb;
+        zig_u128 rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_or_u128(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 128 / CHAR_BIT;
+        byte_offset += 128 / CHAR_BIT;
+    }
+
+    while (remaining_bytes >= 64 / CHAR_BIT) {
+        uint64_t res_limb;
+        uint64_t lhs_limb;
+        uint64_t rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_or_u64(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 64 / CHAR_BIT;
+        byte_offset += 64 / CHAR_BIT;
+    }
+
+    while (remaining_bytes >= 32 / CHAR_BIT) {
+        uint32_t res_limb;
+        uint32_t lhs_limb;
+        uint32_t rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_or_u32(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 32 / CHAR_BIT;
+        byte_offset += 32 / CHAR_BIT;
+    }
+
+    while (remaining_bytes >= 16 / CHAR_BIT) {
+        uint16_t res_limb;
+        uint16_t lhs_limb;
+        uint16_t rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_or_u16(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 16 / CHAR_BIT;
+        byte_offset += 16 / CHAR_BIT;
+    }
+
+    while (remaining_bytes >= 8 / CHAR_BIT) {
+        uint8_t res_limb;
+        uint8_t lhs_limb;
+        uint8_t rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_or_u8(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 8 / CHAR_BIT;
+        byte_offset += 8 / CHAR_BIT;
+    }
+}
+
+static inline void zig_xor_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    uint8_t *res_bytes = res;
+    const uint8_t *lhs_bytes = lhs;
+    const uint8_t *rhs_bytes = rhs;
+    uint16_t byte_offset = 0;
+    uint16_t remaining_bytes = zig_int_bytes(bits);
+    (void)is_signed;
+
+    while (remaining_bytes >= 128 / CHAR_BIT) {
+        zig_u128 res_limb;
+        zig_u128 lhs_limb;
+        zig_u128 rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_xor_u128(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 128 / CHAR_BIT;
+        byte_offset += 128 / CHAR_BIT;
+    }
+
+    while (remaining_bytes >= 64 / CHAR_BIT) {
+        uint64_t res_limb;
+        uint64_t lhs_limb;
+        uint64_t rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_xor_u64(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 64 / CHAR_BIT;
+        byte_offset += 64 / CHAR_BIT;
+    }
+
+    while (remaining_bytes >= 32 / CHAR_BIT) {
+        uint32_t res_limb;
+        uint32_t lhs_limb;
+        uint32_t rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_xor_u32(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 32 / CHAR_BIT;
+        byte_offset += 32 / CHAR_BIT;
+    }
+
+    while (remaining_bytes >= 16 / CHAR_BIT) {
+        uint16_t res_limb;
+        uint16_t lhs_limb;
+        uint16_t rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_xor_u16(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 16 / CHAR_BIT;
+        byte_offset += 16 / CHAR_BIT;
+    }
+
+    while (remaining_bytes >= 8 / CHAR_BIT) {
+        uint8_t res_limb;
+        uint8_t lhs_limb;
+        uint8_t rhs_limb;
+
+        memcpy(&lhs_limb, &lhs_bytes[byte_offset], sizeof(lhs_limb));
+        memcpy(&rhs_limb, &rhs_bytes[byte_offset], sizeof(rhs_limb));
+        res_limb = zig_xor_u8(lhs_limb, rhs_limb);
+        memcpy(&res_bytes[byte_offset], &res_limb, sizeof(res_limb));
+
+        remaining_bytes -= 8 / CHAR_BIT;
+        byte_offset += 8 / CHAR_BIT;
+    }
+}
+
 static inline bool zig_addo_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
     uint8_t *res_bytes = res;
     const uint8_t *lhs_bytes = lhs;
