@@ -677,3 +677,13 @@ test "array of array agregate init" {
     var b = [1][10]u32{a} ** 2;
     try std.testing.expect(b[1][1] == 11);
 }
+
+test "pointer to array has ptr field" {
+    const arr: *const [5]u32 = &.{ 10, 20, 30, 40, 50 };
+    try std.testing.expect(arr.ptr == @as([*]const u32, arr));
+    try std.testing.expect(arr.ptr[0] == 10);
+    try std.testing.expect(arr.ptr[1] == 20);
+    try std.testing.expect(arr.ptr[2] == 30);
+    try std.testing.expect(arr.ptr[3] == 40);
+    try std.testing.expect(arr.ptr[4] == 50);
+}
