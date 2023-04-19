@@ -26398,6 +26398,7 @@ fn zirDepositExtractBits(
     extended: Zir.Inst.Extended.InstData,
     air_tag: Air.Inst.Tag,
 ) CompileError!Air.Inst.Ref {
+    const target = sema.mod.getTarget();
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
     const src = LazySrcLoc.nodeOffset(extra.node);
 
@@ -26410,12 +26411,12 @@ fn zirDepositExtractBits(
     const lhs_ty = sema.typeOf(uncasted_lhs);
     const rhs_ty = sema.typeOf(uncasted_rhs);
 
-    if (!lhs_ty.isUnsignedInt()) {
-        return sema.fail(block, lhs_src, "expected unsigned integer type, found '{}'", .{lhs_ty.fmt(sema.mod)});
+    if (!lhs_ty.isUnsignedInt() and lhs_ty.zigTypeTag() != .ComptimeInt) {
+        return sema.fail(block, lhs_src, "expected unsigned integer or 'comptime_int', found '{}'", .{lhs_ty.fmt(sema.mod)});
     }
 
-    if (!rhs_ty.isUnsignedInt()) {
-        return sema.fail(block, rhs_src, "expected unsigned integer type, found '{}'", .{rhs_ty.fmt(sema.mod)});
+    if (!rhs_ty.isUnsignedInt() and rhs_ty.zigTypeTag() != .ComptimeInt) {
+        return sema.fail(block, rhs_src, "expected unsigned integer or 'comptime_int', found '{}'", .{rhs_ty.fmt(sema.mod)});
     }
 
     const instructions = &[_]Air.Inst.Ref{ uncasted_lhs, uncasted_rhs };
@@ -26423,7 +26424,30 @@ fn zirDepositExtractBits(
         .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
     });
 
-    assert(dest_ty.zigTypeTag() == .Int);
+    // This branch is only true if *both* parameters are comptime_ints.
+    if (dest_ty.zigTypeTag() == .ComptimeInt) {
+        const builtin_name = switch (air_tag) {
+            .deposit_bits => "@depositBits",
+            .extract_bits => "@extractBits",
+            else => unreachable,
+        };
+
+        const lhs_val = (try sema.resolveMaybeUndefVal(uncasted_lhs)).?;
+        if (lhs_val.compareHetero(.lt, Value.zero, target)) {
+            const err = try sema.errMsg(block, lhs_src, "use of negative value '{}'", .{lhs_val.fmtValue(lhs_ty, sema.mod)});
+            try sema.errNote(block, src, err, "{s} requires parameters of type 'comptime_int' be positive", .{builtin_name});
+            return sema.failWithOwnedErrorMsg(err);
+        }
+
+        const rhs_val = (try sema.resolveMaybeUndefVal(uncasted_rhs)).?;
+        if (rhs_val.compareHetero(.lt, Value.zero, target)) {
+            const err = try sema.errMsg(block, rhs_src, "use of negative value '{}'", .{rhs_val.fmtValue(rhs_ty, sema.mod)});
+            try sema.errNote(block, src, err, "{s} requires parameters of type 'comptime_int' be positive", .{builtin_name});
+            return sema.failWithOwnedErrorMsg(err);
+        }
+    }
+
+    assert(dest_ty.isUnsignedInt() or dest_ty.zigTypeTag() == .ComptimeInt);
 
     const lhs = try sema.coerce(block, dest_ty, uncasted_lhs, lhs_src);
     const rhs = try sema.coerce(block, dest_ty, uncasted_rhs, rhs_src);
@@ -26445,8 +26469,8 @@ fn zirDepositExtractBits(
     if (maybe_lhs_val) |lhs_val| {
         if (maybe_rhs_val) |rhs_val| {
             const dest_val = switch (air_tag) {
-                .deposit_bits => try sema.intDepositBits(lhs_val, rhs_val, dest_ty),
-                .extract_bits => try sema.intExtractBits(lhs_val, rhs_val, dest_ty),
+                .deposit_bits => try sema.intDepositBits(lhs_val, rhs_val),
+                .extract_bits => try sema.intExtractBits(lhs_val, rhs_val),
                 else => unreachable,
             };
 
@@ -39068,19 +39092,16 @@ fn intAddWithOverflowScalar(
     };
 }
 
+/// Asserts that the values are positive
 fn intDepositBits(
     sema: *Sema,
     lhs: Value,
     rhs: Value,
-    ty: Type,
 ) !Value {
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first. For non-bigints, @intDeposit could be used?
     const target = sema.mod.getTarget();
     const arena = sema.arena;
-    const info = ty.intInfo(target);
-
-    assert(ty.intInfo(target).signedness == .unsigned);
 
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
@@ -39089,7 +39110,7 @@ fn intDepositBits(
 
     const result_limbs = try arena.alloc(
         std.math.big.Limb,
-        std.math.big.int.calcTwosCompLimbCount(info.bits),
+        mask.limbs.len,
     );
 
     var result = std.math.big.int.Mutable{ .limbs = result_limbs, .positive = undefined, .len = undefined };
@@ -39098,19 +39119,16 @@ fn intDepositBits(
     return Value.fromBigInt(arena, result.toConst());
 }
 
+/// Asserts that the values are positive
 fn intExtractBits(
     sema: *Sema,
     lhs: Value,
     rhs: Value,
-    ty: Type,
 ) !Value {
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first. For non-bigints, @intExtract could be used?
     const target = sema.mod.getTarget();
     const arena = sema.arena;
-    const info = ty.intInfo(target);
-
-    assert(ty.intInfo(target).signedness == .unsigned);
 
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
@@ -39119,7 +39137,7 @@ fn intExtractBits(
 
     const result_limbs = try arena.alloc(
         std.math.big.Limb,
-        std.math.big.int.calcTwosCompLimbCount(info.bits),
+        mask.limbs.len,
     );
 
     var result = std.math.big.int.Mutable{ .limbs = result_limbs, .positive = undefined, .len = undefined };
