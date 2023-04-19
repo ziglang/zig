@@ -730,7 +730,23 @@
           </div>
           </section>
         </div>
+        <div id="sectSearchResults" class="docs hidden">
+          <h2>Search Results</h2>
+          <ul id="listSearchResults"></ul>
+          <p id="sectSearchAllResultsLink" class="hidden"><a href="">show all results</a></p>
+        </div>
+        <div id="sectSearchNoResults" class="docs hidden">
+          <h2>No Results Found</h2>
+          <p>Here are some things you can try:</p>
+          <ul>
+            <li>Check out the <a id="langRefLink">Language Reference</a> for the language itself.</li>
+            <li>Check out the <a href="https://ziglang.org/learn/">Learn page</a> for other helpful resources for learning Zig.</li>
+            <li>Use your search engine.</li>
+          </ul>
+          <p>Press <kbd>?</kbd> to see keyboard shortcuts and <kbd>Esc</kbd> to return.</p>
+        </div>
         <div id="guides" class="wrap hidden">
+          <div id="activeGuide" class="hidden"></div>
         </div> 
         <div id="docs" class="wrap hidden">
           <section class="docs">
@@ -762,21 +778,6 @@
                 <p><span class="tok-type">anyerror</span> means the error set is known only at runtime.</p>
               </div>
               <div id="tableFnErrors"><dl id="listFnErrors"></dl></div>
-            </div>
-            <div id="sectSearchResults" class="hidden">
-              <h2>Search Results</h2>
-              <ul id="listSearchResults"></ul>
-              <p id="sectSearchAllResultsLink" class="hidden"><a href="">show all results</a></p>
-            </div>
-            <div id="sectSearchNoResults" class="hidden">
-              <h2>No Results Found</h2>
-              <p>Here are some things you can try:</p>
-              <ul>
-                <li>Check out the <a id="langRefLink">Language Reference</a> for the language itself.</li>
-                <li>Check out the <a href="https://ziglang.org/learn/">Learn page</a> for other helpful resources for learning Zig.</li>
-                <li>Use your search engine.</li>
-              </ul>
-              <p>Press <kbd>?</kbd> to see keyboard shortcuts and <kbd>Esc</kbd> to return.</p>
             </div>
             <div id="sectFields" class="hidden">
               <h2>Fields</h2>
@@ -853,6 +854,7 @@
       </div>
     </div>
     <script src="data.js"></script>
+    <script src="commonmark.js"></script>
     <script src="main.js"></script>
   </body>
 </html>
