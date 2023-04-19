@@ -26424,36 +26424,59 @@ fn zirDepositExtractBits(
         .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
     });
 
-    // This branch is only true if *both* parameters are comptime_ints.
-    if (dest_ty.zigTypeTag() == .ComptimeInt) {
-        const builtin_name = switch (air_tag) {
-            .deposit_bits => "@depositBits",
-            .extract_bits => "@extractBits",
-            else => unreachable,
-        };
+    const builtin_name = switch (air_tag) {
+        .deposit_bits => "@depositBits",
+        .extract_bits => "@extractBits",
+        else => unreachable,
+    };
 
-        const lhs_val = (try sema.resolveMaybeUndefVal(uncasted_lhs)).?;
-        if (lhs_val.compareHetero(.lt, Value.zero, target)) {
-            const err = try sema.errMsg(block, lhs_src, "use of negative value '{}'", .{lhs_val.fmtValue(lhs_ty, sema.mod)});
-            try sema.errNote(block, src, err, "{s} requires parameters of type 'comptime_int' be positive", .{builtin_name});
-            return sema.failWithOwnedErrorMsg(err);
-        }
+    // Coercion errors are intercepted to add a note if the caller is attempting to pass a negative comptime_int
+    const lhs = sema.coerce(block, dest_ty, uncasted_lhs, lhs_src) catch |err| switch (err) {
+        error.AnalysisFail => {
+            const msg = sema.err orelse return err;
+            const val = (try sema.resolveMaybeUndefVal(uncasted_lhs)).?;
+            if (val.compareHetero(.lt, Value.zero, target)) {
+                try sema.errNote(block, src, msg, "parameters to {s} must be positive", .{builtin_name});
+            }
+            return err;
+        },
+        else => return err,
+    };
 
-        const rhs_val = (try sema.resolveMaybeUndefVal(uncasted_rhs)).?;
-        if (rhs_val.compareHetero(.lt, Value.zero, target)) {
-            const err = try sema.errMsg(block, rhs_src, "use of negative value '{}'", .{rhs_val.fmtValue(rhs_ty, sema.mod)});
-            try sema.errNote(block, src, err, "{s} requires parameters of type 'comptime_int' be positive", .{builtin_name});
-            return sema.failWithOwnedErrorMsg(err);
-        }
-    }
-
-    assert(dest_ty.isUnsignedInt() or dest_ty.zigTypeTag() == .ComptimeInt);
-
-    const lhs = try sema.coerce(block, dest_ty, uncasted_lhs, lhs_src);
-    const rhs = try sema.coerce(block, dest_ty, uncasted_rhs, rhs_src);
+    const rhs = sema.coerce(block, dest_ty, uncasted_rhs, rhs_src) catch |err| switch (err) {
+        error.AnalysisFail => {
+            const msg = sema.err orelse return err;
+            const val = (try sema.resolveMaybeUndefVal(uncasted_rhs)).?;
+            if (val.compareHetero(.lt, Value.zero, target)) {
+                try sema.errNote(block, src, msg, "parameters to {s} must be positive", .{builtin_name});
+            }
+            return err;
+        },
+        else => return err,
+    };
 
     const maybe_lhs_val = try sema.resolveMaybeUndefVal(lhs);
     const maybe_rhs_val = try sema.resolveMaybeUndefVal(rhs);
+
+    // We check for negative values here only if the type is a comptime_int, as negative values
+    // would have otherwise been filtered out by coercion and the unsigned type restriction
+    if (dest_ty.zigTypeTag() == .ComptimeInt) {
+        if (maybe_lhs_val) |lhs_val| {
+            if (!lhs_val.isUndef() and lhs_val.compareHetero(.lt, Value.zero, target)) {
+                const err = try sema.errMsg(block, lhs_src, "use of negative value '{}'", .{lhs_val.fmtValue(lhs_ty, sema.mod)});
+                try sema.errNote(block, src, err, "parameters to {s} must be positive", .{builtin_name});
+                return sema.failWithOwnedErrorMsg(err);
+            }
+        }
+
+        if (maybe_rhs_val) |rhs_val| {
+            if (!rhs_val.isUndef() and rhs_val.compareHetero(.lt, Value.zero, target)) {
+                const err = try sema.errMsg(block, rhs_src, "use of negative value '{}'", .{rhs_val.fmtValue(rhs_ty, sema.mod)});
+                try sema.errNote(block, src, err, "parameters to {s} must be positive", .{builtin_name});
+                return sema.failWithOwnedErrorMsg(err);
+            }
+        }
+    }
 
     // If either of the operands are zero, the result is zero
     // If either of the operands are undefined, the result is undefined
