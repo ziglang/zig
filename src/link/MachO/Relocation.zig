@@ -15,7 +15,7 @@ pub const Type = enum {
     got,
     /// RIP-relative displacement
     signed,
-    /// RIP-relative displacement to GOT pointer to TLV thunk
+    /// RIP-relative displacement to a TLV thunk
     tlv,
 
     // aarch64
@@ -52,11 +52,9 @@ pub fn getTargetBaseAddress(self: Relocation, macho_file: *MachO) ?u64 {
             return header.addr + got_index * @sizeOf(u64);
         },
         .tlv => {
-            const thunk_atom_index = macho_file.tlv_table.getAtomIndex(macho_file, self.target) orelse return null;
-            const thunk_atom = macho_file.getAtom(thunk_atom_index);
-            const got_index = macho_file.got_table.lookup.get(thunk_atom.getSymbolWithLoc()) orelse return null;
-            const header = macho_file.sections.items(.header)[macho_file.got_section_index.?];
-            return header.addr + got_index * @sizeOf(u64);
+            const atom_index = macho_file.tlv_table.get(self.target) orelse return null;
+            const atom = macho_file.getAtom(atom_index);
+            return atom.getSymbol(macho_file).n_value;
         },
         .branch => {
             if (macho_file.stub_table.lookup.get(self.target)) |index| {

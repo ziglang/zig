@@ -7578,7 +7578,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             const atom_index = try self.getSymbolIndexForDecl(self.mod_fn.owner_decl);
             if (self.bin_file.cast(link.File.MachO)) |_| {
                 _ = try self.addInst(.{
-                    .tag = .mov_linker,
+                    .tag = .lea_linker,
                     .ops = .tlv_reloc,
                     .data = .{ .payload = try self.addExtra(Mir.LeaRegisterReloc{
                         .reg = @enumToInt(Register.rdi),

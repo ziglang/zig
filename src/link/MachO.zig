@@ -157,7 +157,6 @@ strtab: StringTable(.strtab) = .{},
 
 got_table: TableSection(SymbolWithLoc) = .{},
 stub_table: TableSection(SymbolWithLoc) = .{},
-tlv_table: SectionTable = .{},
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
 
@@ -222,6 +221,10 @@ lazy_syms: LazySymbolTable = .{},
 /// Table of tracked Decls.
 decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
 
+/// Table of threadlocal variables descriptors.
+/// They are emitted in the `__thread_vars` section.
+tlv_table: TlvSymbolTable = .{},
+
 /// Hot-code swapping state.
 hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
 
@@ -237,6 +240,8 @@ const LazySymbolMetadata = struct {
     data_const_atom: ?Atom.Index = null,
     alignment: u32,
 };
+
+const TlvSymbolTable = std.AutoArrayHashMapUnmanaged(SymbolWithLoc, Atom.Index);
 
 const DeclMetadata = struct {
     atom: Atom.Index,
@@ -264,122 +269,6 @@ const DeclMetadata = struct {
         }
         return null;
     }
-};
-
-const SectionTable = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .{},
-    free_list: std.ArrayListUnmanaged(u32) = .{},
-    lookup: std.AutoHashMapUnmanaged(SymbolWithLoc, u32) = .{},
-
-    pub fn deinit(st: *ST, allocator: Allocator) void {
-        st.entries.deinit(allocator);
-        st.free_list.deinit(allocator);
-        st.lookup.deinit(allocator);
-    }
-
-    pub fn allocateEntry(st: *ST, allocator: Allocator, target: SymbolWithLoc) !u32 {
-        try st.entries.ensureUnusedCapacity(allocator, 1);
-        const index = blk: {
-            if (st.free_list.popOrNull()) |index| {
-                log.debug("  (reusing entry index {d})", .{index});
-                break :blk index;
-            } else {
-                log.debug("  (allocating entry at index {d})", .{st.entries.items.len});
-                const index = @intCast(u32, st.entries.items.len);
-                _ = st.entries.addOneAssumeCapacity();
-                break :blk index;
-            }
-        };
-        st.entries.items[index] = .{ .target = target, .sym_index = 0 };
-        try st.lookup.putNoClobber(allocator, target, index);
-        return index;
-    }
-
-    pub fn freeEntry(st: *ST, allocator: Allocator, target: SymbolWithLoc) void {
-        const index = st.lookup.get(target) orelse return;
-        st.free_list.append(allocator, index) catch {};
-        st.entries.items[index] = .{
-            .target = .{ .sym_index = 0 },
-            .sym_index = 0,
-        };
-        _ = st.lookup.remove(target);
-    }
-
-    pub fn getAtomIndex(st: *const ST, macho_file: *MachO, target: SymbolWithLoc) ?Atom.Index {
-        const index = st.lookup.get(target) orelse return null;
-        return st.entries.items[index].getAtomIndex(macho_file);
-    }
-
-    const FormatContext = struct {
-        macho_file: *MachO,
-        st: *const ST,
-    };
-
-    fn fmt(
-        ctx: FormatContext,
-        comptime unused_format_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        _ = options;
-        comptime assert(unused_format_string.len == 0);
-        try writer.writeAll("SectionTable:\n");
-        for (ctx.st.entries.items, 0..) |entry, i| {
-            const atom_sym = entry.getSymbol(ctx.macho_file);
-            const target_sym = ctx.macho_file.getSymbol(entry.target);
-            try writer.print("  {d}@{x} => ", .{ i, atom_sym.n_value });
-            if (target_sym.undf()) {
-                try writer.print("import('{s}')", .{
-                    ctx.macho_file.getSymbolName(entry.target),
-                });
-            } else {
-                try writer.print("local(%{d}) in object({?d})", .{
-                    entry.target.sym_index,
-                    entry.target.file,
-                });
-            }
-            try writer.writeByte('\n');
-        }
-    }
-
-    fn format(st: *const ST, comptime unused_format_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = st;
-        _ = unused_format_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format SectionTable directly; use st.fmtDebug()");
-    }
-
-    pub fn fmtDebug(st: *const ST, macho_file: *MachO) std.fmt.Formatter(fmt) {
-        return .{ .data = .{
-            .macho_file = macho_file,
-            .st = st,
-        } };
-    }
-
-    const ST = @This();
-
-    const Entry = struct {
-        target: SymbolWithLoc,
-        // Index into the synthetic symbol table (i.e., file == null).
-        sym_index: u32,
-
-        pub fn getSymbol(entry: Entry, macho_file: *MachO) macho.nlist_64 {
-            return macho_file.getSymbol(.{ .sym_index = entry.sym_index });
-        }
-
-        pub fn getSymbolPtr(entry: Entry, macho_file: *MachO) *macho.nlist_64 {
-            return macho_file.getSymbolPtr(.{ .sym_index = entry.sym_index });
-        }
-
-        pub fn getAtomIndex(entry: Entry, macho_file: *MachO) ?Atom.Index {
-            return macho_file.getAtomIndexForSymbol(.{ .sym_index = entry.sym_index });
-        }
-
-        pub fn getName(entry: Entry, macho_file: *MachO) []const u8 {
-            return macho_file.getSymbolName(.{ .sym_index = entry.sym_index });
-        }
-    };
 };
 
 const BindingTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Atom.Binding));
@@ -1520,17 +1409,12 @@ fn createDyldPrivateAtom(self: *MachO) !void {
     try self.writeAtom(atom_index, &buffer);
 }
 
-fn createThreadLocalDescriptorAtom(self: *MachO, target: SymbolWithLoc) !Atom.Index {
+fn createThreadLocalDescriptorAtom(self: *MachO, sym_name: []const u8, target: SymbolWithLoc) !Atom.Index {
     const gpa = self.base.allocator;
     const size = 3 * @sizeOf(u64);
     const required_alignment: u32 = 1;
     const atom_index = try self.createAtom();
     self.getAtomPtr(atom_index).size = size;
-
-    const target_sym_name = self.getSymbolName(target);
-    const name_delimiter = mem.indexOf(u8, target_sym_name, "$").?;
-    const sym_name = try gpa.dupe(u8, target_sym_name[0..name_delimiter]);
-    defer gpa.free(sym_name);
 
     const sym = self.getAtom(atom_index).getSymbolPtr(self);
     sym.n_type = macho.N_SECT;
@@ -1706,7 +1590,6 @@ pub fn deinit(self: *MachO) void {
 
     self.got_table.deinit(gpa);
     self.stub_table.deinit(gpa);
-    self.tlv_table.deinit(gpa);
     self.strtab.deinit(gpa);
 
     self.locals.deinit(gpa);
@@ -1739,14 +1622,12 @@ pub fn deinit(self: *MachO) void {
 
     self.atoms.deinit(gpa);
 
-    if (self.base.options.module) |_| {
-        for (self.decls.values()) |*m| {
-            m.exports.deinit(gpa);
-        }
-        self.decls.deinit(gpa);
-    } else {
-        assert(self.decls.count() == 0);
+    for (self.decls.values()) |*m| {
+        m.exports.deinit(gpa);
     }
+    self.decls.deinit(gpa);
+    self.lazy_syms.deinit(gpa);
+    self.tlv_table.deinit(gpa);
 
     for (self.unnamed_const_atoms.values()) |*atoms| {
         atoms.deinit(gpa);
@@ -1926,15 +1807,6 @@ fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
     self.stub_table_count_dirty = true;
 }
 
-fn addTlvEntry(self: *MachO, target: SymbolWithLoc) !void {
-    if (self.tlv_table.lookup.contains(target)) return;
-    const tlv_index = try self.tlv_table.allocateEntry(self.base.allocator, target);
-    const tlv_atom_index = try self.createThreadLocalDescriptorAtom(target);
-    const tlv_atom = self.getAtom(tlv_atom_index);
-    self.tlv_table.entries.items[tlv_index].sym_index = tlv_atom.getSymbolIndex().?;
-    self.markRelocsDirtyByTarget(target);
-}
-
 pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -2080,6 +1952,12 @@ pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) 
             return; // TODO Should we do more when front-end analyzed extern decl?
         }
     }
+
+    const is_threadlocal = if (decl.val.castTag(.variable)) |payload|
+        payload.data.is_threadlocal and !self.base.options.single_threaded
+    else
+        false;
+    if (is_threadlocal) return self.updateThreadlocalVariable(module, decl_index);
 
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
     const sym_index = self.getAtom(atom_index).getSymbolIndex().?;
@@ -2229,6 +2107,101 @@ pub fn getOrCreateAtomForLazySymbol(self: *MachO, sym: File.LazySymbol, alignmen
     return atom.*.?;
 }
 
+fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.Decl.Index) !void {
+    // Lowering a TLV on macOS involves two stages:
+    // 1. first we lower the initializer into appopriate section (__thread_data or __thread_bss)
+    // 2. next, we create a corresponding threadlocal variable descriptor in __thread_vars
+
+    // 1. Lower the initializer value.
+    const init_atom_index = try self.getOrCreateAtomForDecl(decl_index);
+    const init_atom = self.getAtomPtr(init_atom_index);
+    const init_sym_index = init_atom.getSymbolIndex().?;
+    Atom.freeRelocations(self, init_atom_index);
+
+    const gpa = self.base.allocator;
+
+    var code_buffer = std.ArrayList(u8).init(gpa);
+    defer code_buffer.deinit();
+
+    var decl_state: ?Dwarf.DeclState = if (self.d_sym) |*d_sym|
+        try d_sym.dwarf.initDeclState(module, decl_index)
+    else
+        null;
+    defer if (decl_state) |*ds| ds.deinit();
+
+    const decl = module.declPtr(decl_index);
+    const decl_metadata = self.decls.get(decl_index).?;
+    const decl_val = decl.val.castTag(.variable).?.data.init;
+    const res = if (decl_state) |*ds|
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+            .ty = decl.ty,
+            .val = decl_val,
+        }, &code_buffer, .{
+            .dwarf = ds,
+        }, .{
+            .parent_atom_index = init_sym_index,
+        })
+    else
+        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+            .ty = decl.ty,
+            .val = decl_val,
+        }, &code_buffer, .none, .{
+            .parent_atom_index = init_sym_index,
+        });
+
+    var code = switch (res) {
+        .ok => code_buffer.items,
+        .fail => |em| {
+            decl.analysis = .codegen_failure;
+            try module.failed_decls.put(module.gpa, decl_index, em);
+            return;
+        },
+    };
+
+    const required_alignment = decl.getAlignment(self.base.options.target);
+
+    const decl_name = try decl.getFullyQualifiedName(module);
+    defer gpa.free(decl_name);
+
+    const init_sym_name = try std.fmt.allocPrint(gpa, "{s}$tlv$init", .{decl_name});
+    defer gpa.free(init_sym_name);
+
+    const sect_id = decl_metadata.section;
+    const init_sym = init_atom.getSymbolPtr(self);
+    init_sym.n_strx = try self.strtab.insert(gpa, init_sym_name);
+    init_sym.n_type = macho.N_SECT;
+    init_sym.n_sect = sect_id + 1;
+    init_sym.n_desc = 0;
+    init_atom.size = code.len;
+
+    init_sym.n_value = try self.allocateAtom(init_atom_index, code.len, required_alignment);
+    errdefer self.freeAtom(init_atom_index);
+
+    log.debug("allocated atom for {s} at 0x{x}", .{ init_sym_name, init_sym.n_value });
+    log.debug("  (required alignment 0x{x})", .{required_alignment});
+
+    try self.writeAtom(init_atom_index, code);
+
+    if (decl_state) |*ds| {
+        try self.d_sym.?.dwarf.commitDeclState(
+            module,
+            decl_index,
+            init_sym.n_value,
+            self.getAtom(init_atom_index).size,
+            ds,
+        );
+    }
+
+    try self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
+
+    // 2. Create a TLV descriptor.
+    const init_atom_sym_loc = init_atom.getSymbolWithLoc();
+    const gop = try self.tlv_table.getOrPut(gpa, init_atom_sym_loc);
+    assert(!gop.found_existing);
+    gop.value_ptr.* = try self.createThreadLocalDescriptorAtom(decl_name, init_atom_sym_loc);
+    self.markRelocsDirtyByTarget(init_atom_sym_loc);
+}
+
 pub fn getOrCreateAtomForDecl(self: *MachO, decl_index: Module.Decl.Index) !Atom.Index {
     const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
     if (!gop.found_existing) {
@@ -2296,21 +2269,11 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
     const sect_id = decl_metadata.section;
     const header = &self.sections.items(.header)[sect_id];
     const segment = self.getSegment(sect_id);
-    const is_threadlocal = if (!self.base.options.single_threaded)
-        header.flags == macho.S_THREAD_LOCAL_REGULAR or header.flags == macho.S_THREAD_LOCAL_ZEROFILL
-    else
-        false;
     const code_len = code.len;
-
-    const sym_name = if (is_threadlocal)
-        try std.fmt.allocPrint(gpa, "{s}$tlv$init", .{decl_name})
-    else
-        decl_name;
-    defer if (is_threadlocal) gpa.free(sym_name);
 
     if (atom.size != 0) {
         const sym = atom.getSymbolPtr(self);
-        sym.n_strx = try self.strtab.insert(gpa, sym_name);
+        sym.n_strx = try self.strtab.insert(gpa, decl_name);
         sym.n_type = macho.N_SECT;
         sym.n_sect = sect_id + 1;
         sym.n_desc = 0;
@@ -2320,21 +2283,13 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
 
         if (need_realloc) {
             const vaddr = try self.growAtom(atom_index, code_len, required_alignment);
-            log.debug("growing {s} and moving from 0x{x} to 0x{x}", .{ sym_name, sym.n_value, vaddr });
+            log.debug("growing {s} and moving from 0x{x} to 0x{x}", .{ decl_name, sym.n_value, vaddr });
             log.debug("  (required alignment 0x{x})", .{required_alignment});
 
             if (vaddr != sym.n_value) {
                 sym.n_value = vaddr;
-                // TODO: I think we should update the offset to the initializer here too.
-                const target: SymbolWithLoc = if (is_threadlocal) blk: {
-                    const tlv_atom_index = self.tlv_table.getAtomIndex(self, .{
-                        .sym_index = sym_index,
-                    }).?;
-                    const tlv_atom = self.getAtom(tlv_atom_index);
-                    break :blk tlv_atom.getSymbolWithLoc();
-                } else .{ .sym_index = sym_index };
                 log.debug("  (updating GOT entry)", .{});
-                const got_atom_index = self.got_table.lookup.get(target).?;
+                const got_atom_index = self.got_table.lookup.get(.{ .sym_index = sym_index }).?;
                 try self.writeOffsetTableEntry(got_atom_index);
             }
         } else if (code_len < atom.size) {
@@ -2346,7 +2301,7 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
         self.getAtomPtr(atom_index).size = code_len;
     } else {
         const sym = atom.getSymbolPtr(self);
-        sym.n_strx = try self.strtab.insert(gpa, sym_name);
+        sym.n_strx = try self.strtab.insert(gpa, decl_name);
         sym.n_type = macho.N_SECT;
         sym.n_sect = sect_id + 1;
         sym.n_desc = 0;
@@ -2354,21 +2309,13 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
         const vaddr = try self.allocateAtom(atom_index, code_len, required_alignment);
         errdefer self.freeAtom(atom_index);
 
-        log.debug("allocated atom for {s} at 0x{x}", .{ sym_name, vaddr });
+        log.debug("allocated atom for {s} at 0x{x}", .{ decl_name, vaddr });
         log.debug("  (required alignment 0x{x})", .{required_alignment});
 
         self.getAtomPtr(atom_index).size = code_len;
         sym.n_value = vaddr;
 
-        if (is_threadlocal) {
-            try self.addTlvEntry(.{ .sym_index = sym_index });
-        }
-        const target: SymbolWithLoc = if (is_threadlocal) blk: {
-            const tlv_atom_index = self.tlv_table.getAtomIndex(self, .{ .sym_index = sym_index }).?;
-            const tlv_atom = self.getAtom(tlv_atom_index);
-            break :blk tlv_atom.getSymbolWithLoc();
-        } else .{ .sym_index = sym_index };
-        try self.addGotEntry(target);
+        try self.addGotEntry(.{ .sym_index = sym_index });
     }
 
     try self.writeAtom(atom_index, code);
@@ -4169,8 +4116,8 @@ pub fn logSymtab(self: *MachO) void {
     log.debug("stubs entries:", .{});
     log.debug("{}", .{self.stub_table});
 
-    log.debug("threadlocal entries:", .{});
-    log.debug("{}", .{self.tlv_table.fmtDebug(self)});
+    // log.debug("threadlocal entries:", .{});
+    // log.debug("{}", .{self.tlv_table});
 }
 
 pub fn logAtoms(self: *MachO) void {
