@@ -19,6 +19,7 @@ const fat = @import("MachO/fat.zig");
 const link = @import("../link.zig");
 const llvm_backend = @import("../codegen/llvm.zig");
 const load_commands = @import("MachO/load_commands.zig");
+const stubs = @import("MachO/stubs.zig");
 const target_util = @import("../target.zig");
 const trace = @import("../tracy.zig").trace;
 const zld = @import("MachO/zld.zig");
@@ -156,7 +157,7 @@ stub_helper_preamble_atom_index: ?Atom.Index = null,
 strtab: StringTable(.strtab) = .{},
 
 got_table: TableSection(SymbolWithLoc) = .{},
-stubs_table: SectionTable = .{},
+stub_table: TableSection(SymbolWithLoc) = .{},
 tlv_table: SectionTable = .{},
 
 error_flags: File.ErrorFlags = File.ErrorFlags{},
@@ -164,6 +165,8 @@ error_flags: File.ErrorFlags = File.ErrorFlags{},
 segment_table_dirty: bool = false,
 got_table_count_dirty: bool = false,
 got_table_contents_dirty: bool = false,
+stub_table_count_dirty: bool = false,
+stub_table_contents_dirty: bool = false,
 
 /// A helper var to indicate if we are at the start of the incremental updates, or
 /// already somewhere further along the update-and-run chain.
@@ -212,11 +215,6 @@ rebases: RebaseTable = .{},
 /// Note that once we refactor `Atom`'s lifetime and ownership rules,
 /// this will be a table indexed by index into the list of Atoms.
 bindings: BindingTable = .{},
-
-/// A table of lazy bindings indexed by the owning them `Atom`.
-/// Note that once we refactor `Atom`'s lifetime and ownership rules,
-/// this will be a table indexed by index into the list of Atoms.
-lazy_bindings: BindingTable = .{},
 
 /// Table of tracked LazySymbols.
 lazy_syms: LazySymbolTable = .{},
@@ -763,9 +761,21 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     if (self.got_table_contents_dirty) {
         for (self.got_table.entries.items, 0..) |entry, i| {
             if (!self.got_table.lookup.contains(entry)) continue;
+            // TODO: write all in one go rather than incrementally.
             try self.writeOffsetTableEntry(i);
         }
         self.got_table_contents_dirty = false;
+    }
+
+    // Update stubs if we moved any section in memory.
+    // TODO: we probably don't need to update all sections if only one got moved.
+    if (self.stub_table_contents_dirty) {
+        for (self.stub_table.entries.items, 0..) |entry, i| {
+            if (!self.stub_table.lookup.contains(entry)) continue;
+            // TODO: write all in one go rather than incrementally.
+            try self.writeStubTableEntry(i);
+        }
+        self.stub_table_contents_dirty = false;
     }
 
     if (build_options.enable_logging) {
@@ -1311,6 +1321,86 @@ fn writeOffsetTableEntry(self: *MachO, index: usize) !void {
     }
 }
 
+fn writeStubTableEntry(self: *MachO, index: usize) !void {
+    const stubs_sect_id = self.stubs_section_index.?;
+    const stub_helper_sect_id = self.stub_helper_section_index.?;
+    const laptr_sect_id = self.la_symbol_ptr_section_index.?;
+
+    const cpu_arch = self.base.options.target.cpu.arch;
+    const stub_entry_size = stubs.calcStubEntrySize(cpu_arch);
+    const stub_helper_entry_size = stubs.calcStubHelperEntrySize(cpu_arch);
+    const stub_helper_preamble_size = stubs.calcStubHelperPreambleSize(cpu_arch);
+
+    if (self.stub_table_count_dirty) {
+        // We grow all 3 sections one by one.
+        {
+            const needed_size = stub_entry_size * self.stub_table.entries.items.len;
+            try self.growSection(stubs_sect_id, needed_size);
+        }
+        {
+            const needed_size = stub_helper_preamble_size + stub_helper_entry_size * self.stub_table.entries.items.len;
+            try self.growSection(stub_helper_sect_id, needed_size);
+        }
+        {
+            const needed_size = @sizeOf(u64) * self.stub_table.entries.items.len;
+            try self.growSection(laptr_sect_id, needed_size);
+        }
+        self.stub_table_count_dirty = false;
+    }
+
+    const gpa = self.base.allocator;
+
+    const stubs_header = self.sections.items(.header)[stubs_sect_id];
+    const stub_helper_header = self.sections.items(.header)[stub_helper_sect_id];
+    const laptr_header = self.sections.items(.header)[laptr_sect_id];
+
+    const entry = self.stub_table.entries.items[index];
+    const stub_addr: u64 = stubs_header.addr + stub_entry_size * index;
+    const stub_helper_addr: u64 = stub_helper_header.addr + stub_helper_preamble_size + stub_helper_entry_size * index;
+    const laptr_addr: u64 = laptr_header.addr + @sizeOf(u64) * index;
+
+    log.debug("writing stub entry {d}: @{x} => '{s}'", .{ index, stub_addr, self.getSymbolName(entry) });
+
+    {
+        var buf = try std.ArrayList(u8).initCapacity(gpa, stub_entry_size);
+        defer buf.deinit();
+        try stubs.writeStubCode(.{
+            .cpu_arch = cpu_arch,
+            .source_addr = stub_addr,
+            .target_addr = laptr_addr,
+        }, buf.writer());
+        const off = stubs_header.offset + stub_entry_size * index;
+        try self.base.file.?.pwriteAll(buf.items, off);
+    }
+
+    {
+        var buf = try std.ArrayList(u8).initCapacity(gpa, stub_helper_entry_size);
+        defer buf.deinit();
+        try stubs.writeStubHelperCode(.{
+            .cpu_arch = cpu_arch,
+            .source_addr = stub_helper_addr,
+            .target_addr = stub_helper_header.addr,
+        }, buf.writer());
+        const off = stub_helper_header.offset + stub_helper_preamble_size + stub_helper_entry_size * index;
+        try self.base.file.?.pwriteAll(buf.items, off);
+    }
+
+    {
+        var buf: [@sizeOf(u64)]u8 = undefined;
+        mem.writeIntLittle(u64, &buf, stub_helper_addr);
+        const off = laptr_header.offset + @sizeOf(u64) * index;
+        try self.base.file.?.pwriteAll(&buf, off);
+    }
+
+    // TODO: generating new stub entry will require pulling the address of the symbol from the
+    // target dylib when updating directly in memory.
+    if (is_hot_update_compatible) {
+        if (self.hot_state.mach_task) |_| {
+            @panic("TODO: update a stub entry in memory");
+        }
+    }
+}
+
 fn writePtrWidthAtom(self: *MachO, atom_index: Atom.Index) !void {
     var buffer: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64);
     try self.writeAtom(atom_index, &buffer);
@@ -1339,12 +1429,16 @@ fn markRelocsDirtyByAddress(self: *MachO, addr: u64) void {
     }
 
     // Dirty synthetic table sections if necessary
-    for (&[_]u8{self.got_section_index.?}, &[_]*bool{&self.got_table_contents_dirty}) |sect_id, dirty| {
-        if (dirty.*) continue;
-        const segment_index = self.sections.items(.segment_index)[sect_id];
-        const segment = self.segments.items[segment_index];
-        if (segment.vmaddr < addr) continue;
-        dirty.* = true;
+    {
+        const target_addr = self.getSegment(self.got_section_index.?).vmaddr;
+        if (target_addr >= addr) self.got_table_contents_dirty = true;
+    }
+    {
+        const stubs_addr = self.getSegment(self.stubs_section_index.?).vmaddr;
+        const stub_helper_addr = self.getSegment(self.stub_helper_section_index.?).vmaddr;
+        const laptr_addr = self.getSegment(self.la_symbol_ptr_section_index.?).vmaddr;
+        if (stubs_addr >= addr or stub_helper_addr >= addr or laptr_addr >= addr)
+            self.stub_table_contents_dirty = true;
     }
 }
 
@@ -1523,200 +1617,6 @@ fn createStubHelperPreambleAtom(self: *MachO) !void {
     sym.n_value = try self.allocateAtom(atom_index, size, required_alignment);
     log.debug("allocated stub preamble atom at 0x{x}", .{sym.n_value});
     try self.writeAtom(atom_index, code);
-}
-
-fn createStubHelperAtom(self: *MachO) !Atom.Index {
-    const gpa = self.base.allocator;
-    const arch = self.base.options.target.cpu.arch;
-    const size: u4 = switch (arch) {
-        .x86_64 => 10,
-        .aarch64 => 3 * @sizeOf(u32),
-        else => unreachable,
-    };
-    const atom_index = try self.createAtom();
-    const atom = self.getAtomPtr(atom_index);
-    atom.size = size;
-
-    const required_alignment: u32 = switch (arch) {
-        .x86_64 => 1,
-        .aarch64 => @alignOf(u32),
-        else => unreachable,
-    };
-
-    const sym = atom.getSymbolPtr(self);
-    sym.n_type = macho.N_SECT;
-    sym.n_sect = self.stub_helper_section_index.? + 1;
-
-    const code = try gpa.alloc(u8, size);
-    defer gpa.free(code);
-    mem.set(u8, code, 0);
-
-    const stub_helper_preamble_atom_sym_index = if (self.stub_helper_preamble_atom_index) |stub_index|
-        self.getAtom(stub_index).getSymbolIndex().?
-    else
-        unreachable;
-
-    switch (arch) {
-        .x86_64 => {
-            // pushq
-            code[0] = 0x68;
-            // Next 4 bytes 1..4 are just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
-            // jmpq
-            code[5] = 0xe9;
-
-            try Atom.addRelocation(self, atom_index, .{
-                .type = .branch,
-                .target = .{ .sym_index = stub_helper_preamble_atom_sym_index },
-                .offset = 6,
-                .addend = 0,
-                .pcrel = true,
-                .length = 2,
-            });
-        },
-        .aarch64 => {
-            const literal = blk: {
-                const div_res = try math.divExact(u64, size - @sizeOf(u32), 4);
-                break :blk math.cast(u18, div_res) orelse return error.Overflow;
-            };
-            // ldr w16, literal
-            mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.ldrLiteral(
-                .w16,
-                literal,
-            ).toU32());
-            // b disp
-            mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.b(0).toU32());
-            // Next 4 bytes 8..12 are just a placeholder populated in `populateLazyBindOffsetsInStubHelper`.
-
-            try Atom.addRelocation(self, atom_index, .{
-                .type = .branch,
-                .target = .{ .sym_index = stub_helper_preamble_atom_sym_index },
-                .offset = 4,
-                .addend = 0,
-                .pcrel = true,
-                .length = 2,
-            });
-        },
-        else => unreachable,
-    }
-
-    sym.n_value = try self.allocateAtom(atom_index, size, required_alignment);
-    log.debug("allocated stub helper atom at 0x{x}", .{sym.n_value});
-    try self.writeAtom(atom_index, code);
-
-    return atom_index;
-}
-
-fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, target: SymbolWithLoc) !Atom.Index {
-    const atom_index = try self.createAtom();
-    const atom = self.getAtomPtr(atom_index);
-    atom.size = @sizeOf(u64);
-
-    const sym = atom.getSymbolPtr(self);
-    sym.n_type = macho.N_SECT;
-    sym.n_sect = self.la_symbol_ptr_section_index.? + 1;
-
-    try Atom.addRelocation(self, atom_index, .{
-        .type = .unsigned,
-        .target = .{ .sym_index = stub_sym_index },
-        .offset = 0,
-        .addend = 0,
-        .pcrel = false,
-        .length = 3,
-    });
-    try Atom.addRebase(self, atom_index, 0);
-    try Atom.addLazyBinding(self, atom_index, .{
-        .target = self.getGlobal(self.getSymbolName(target)).?,
-        .offset = 0,
-    });
-
-    sym.n_value = try self.allocateAtom(atom_index, atom.size, @alignOf(u64));
-    log.debug("allocated lazy pointer atom at 0x{x} ({s})", .{ sym.n_value, self.getSymbolName(target) });
-    try self.writePtrWidthAtom(atom_index);
-
-    return atom_index;
-}
-
-fn createStubAtom(self: *MachO, laptr_sym_index: u32) !Atom.Index {
-    const gpa = self.base.allocator;
-    const arch = self.base.options.target.cpu.arch;
-    const size: u4 = switch (arch) {
-        .x86_64 => 6,
-        .aarch64 => 3 * @sizeOf(u32),
-        else => unreachable, // unhandled architecture type
-    };
-    const atom_index = try self.createAtom();
-    const atom = self.getAtomPtr(atom_index);
-    atom.size = size;
-
-    const required_alignment: u32 = switch (arch) {
-        .x86_64 => 1,
-        .aarch64 => @alignOf(u32),
-        else => unreachable, // unhandled architecture type
-
-    };
-
-    const sym = atom.getSymbolPtr(self);
-    sym.n_type = macho.N_SECT;
-    sym.n_sect = self.stubs_section_index.? + 1;
-
-    const code = try gpa.alloc(u8, size);
-    defer gpa.free(code);
-    mem.set(u8, code, 0);
-
-    switch (arch) {
-        .x86_64 => {
-            // jmp
-            code[0] = 0xff;
-            code[1] = 0x25;
-
-            try Atom.addRelocation(self, atom_index, .{
-                .type = .branch,
-                .target = .{ .sym_index = laptr_sym_index },
-                .offset = 2,
-                .addend = 0,
-                .pcrel = true,
-                .length = 2,
-            });
-        },
-        .aarch64 => {
-            // adrp x16, pages
-            mem.writeIntLittle(u32, code[0..4], aarch64.Instruction.adrp(.x16, 0).toU32());
-            // ldr x16, x16, offset
-            mem.writeIntLittle(u32, code[4..8], aarch64.Instruction.ldr(
-                .x16,
-                .x16,
-                aarch64.Instruction.LoadStoreOffset.imm(0),
-            ).toU32());
-            // br x16
-            mem.writeIntLittle(u32, code[8..12], aarch64.Instruction.br(.x16).toU32());
-
-            try Atom.addRelocations(self, atom_index, &[_]Relocation{
-                .{
-                    .type = .page,
-                    .target = .{ .sym_index = laptr_sym_index },
-                    .offset = 0,
-                    .addend = 0,
-                    .pcrel = true,
-                    .length = 2,
-                },
-                .{
-                    .type = .pageoff,
-                    .target = .{ .sym_index = laptr_sym_index },
-                    .offset = 4,
-                    .addend = 0,
-                    .pcrel = false,
-                    .length = 2,
-                },
-            });
-        },
-        else => unreachable,
-    }
-
-    sym.n_value = try self.allocateAtom(atom_index, size, required_alignment);
-    log.debug("allocated stub atom at 0x{x}", .{sym.n_value});
-    try self.writeAtom(atom_index, code);
-
-    return atom_index;
 }
 
 fn createThreadLocalDescriptorAtom(self: *MachO, target: SymbolWithLoc) !Atom.Index {
@@ -1904,7 +1804,7 @@ pub fn deinit(self: *MachO) void {
     }
 
     self.got_table.deinit(gpa);
-    self.stubs_table.deinit(gpa);
+    self.stub_table.deinit(gpa);
     self.tlv_table.deinit(gpa);
     self.strtab.deinit(gpa);
 
@@ -1968,11 +1868,6 @@ pub fn deinit(self: *MachO) void {
         bindings.deinit(gpa);
     }
     self.bindings.deinit(gpa);
-
-    for (self.lazy_bindings.values()) |*bindings| {
-        bindings.deinit(gpa);
-    }
-    self.lazy_bindings.deinit(gpa);
 }
 
 fn freeAtom(self: *MachO, atom_index: Atom.Index) void {
@@ -2124,16 +2019,10 @@ fn addGotEntry(self: *MachO, target: SymbolWithLoc) !void {
 }
 
 fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
-    if (self.stubs_table.lookup.contains(target)) return;
-    const stub_index = try self.stubs_table.allocateEntry(self.base.allocator, target);
-    const stub_helper_atom_index = try self.createStubHelperAtom();
-    const stub_helper_atom = self.getAtom(stub_helper_atom_index);
-    const laptr_atom_index = try self.createLazyPointerAtom(stub_helper_atom.getSymbolIndex().?, target);
-    const laptr_atom = self.getAtom(laptr_atom_index);
-    const stub_atom_index = try self.createStubAtom(laptr_atom.getSymbolIndex().?);
-    const stub_atom = self.getAtom(stub_atom_index);
-    self.stubs_table.entries.items[stub_index].sym_index = stub_atom.getSymbolIndex().?;
-    self.markRelocsDirtyByTarget(target);
+    if (self.stub_table.lookup.contains(target)) return;
+    const stub_index = try self.stub_table.allocateEntry(self.base.allocator, target);
+    try self.writeStubTableEntry(stub_index);
+    self.stub_table_count_dirty = true;
 }
 
 fn addTlvEntry(self: *MachO, target: SymbolWithLoc) !void {
@@ -2840,11 +2729,7 @@ fn populateMissingMetadata(self: *MachO) !void {
     }
 
     if (self.stubs_section_index == null) {
-        const stub_size: u32 = switch (cpu_arch) {
-            .x86_64 => 6,
-            .aarch64 => 3 * @sizeOf(u32),
-            else => unreachable, // unhandled architecture type
-        };
+        const stub_size = stubs.calcStubEntrySize(cpu_arch);
         self.stubs_section_index = try self.allocateSection("__TEXT2", "__stubs", .{
             .size = stub_size,
             .alignment = switch (cpu_arch) {
@@ -3377,45 +3262,35 @@ fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
     try bind.finalize(gpa, self);
 }
 
-fn collectLazyBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
+fn collectLazyBindData(self: *MachO, bind: anytype) !void {
     const gpa = self.base.allocator;
-    const slice = self.sections.slice();
 
-    for (raw_bindings.keys(), 0..) |atom_index, i| {
-        const atom = self.getAtom(atom_index);
-        log.debug("  ATOM(%{?d}, '{s}')", .{ atom.getSymbolIndex(), atom.getName(self) });
-
-        const sym = atom.getSymbol(self);
-        const segment_index = slice.items(.segment_index)[sym.n_sect - 1];
-        const seg = self.getSegment(sym.n_sect - 1);
-
-        const base_offset = sym.n_value - seg.vmaddr;
-
-        const bindings = raw_bindings.values()[i];
-        try bind.entries.ensureUnusedCapacity(gpa, bindings.items.len);
-
-        for (bindings.items) |binding| {
-            const bind_sym = self.getSymbol(binding.target);
-            const bind_sym_name = self.getSymbolName(binding.target);
-            const dylib_ordinal = @divTrunc(
-                @bitCast(i16, bind_sym.n_desc),
-                macho.N_SYMBOL_RESOLVER,
-            );
-            log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
-                binding.offset + base_offset,
-                bind_sym_name,
-                dylib_ordinal,
-            });
-            if (bind_sym.weakRef()) {
-                log.debug("    | marking as weak ref ", .{});
-            }
-            bind.entries.appendAssumeCapacity(.{
-                .target = binding.target,
-                .offset = binding.offset + base_offset,
-                .segment_id = segment_index,
-                .addend = 0,
-            });
+    try bind.entries.ensureUnusedCapacity(gpa, self.stub_table.entries.items.len);
+    const segment_index = self.sections.items(.segment_index)[self.la_symbol_ptr_section_index.?];
+    for (self.stub_table.entries.items, 0..) |entry, i| {
+        if (!self.stub_table.lookup.contains(entry)) continue;
+        const bind_sym = self.getSymbol(entry);
+        assert(bind_sym.undf());
+        const bind_sym_name = self.getSymbolName(entry);
+        const offset = i * @sizeOf(u64);
+        const dylib_ordinal = @divTrunc(
+            @bitCast(i16, bind_sym.n_desc),
+            macho.N_SYMBOL_RESOLVER,
+        );
+        log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
+            offset,
+            bind_sym_name,
+            dylib_ordinal,
+        });
+        if (bind_sym.weakRef()) {
+            log.debug("    | marking as weak ref ", .{});
         }
+        bind.entries.appendAssumeCapacity(.{
+            .target = entry,
+            .offset = offset,
+            .segment_id = segment_index,
+            .addend = 0,
+        });
     }
 
     try bind.finalize(gpa, self);
@@ -3464,7 +3339,7 @@ fn writeDyldInfoData(self: *MachO) !void {
 
     var lazy_bind = LazyBind{};
     defer lazy_bind.deinit(gpa);
-    try self.collectLazyBindData(&lazy_bind, self.lazy_bindings);
+    try self.collectLazyBindData(&lazy_bind);
 
     var trie: Trie = .{};
     defer trie.deinit(gpa);
@@ -3542,32 +3417,24 @@ fn populateLazyBindOffsetsInStubHelper(self: *MachO, lazy_bind: LazyBind) !void 
     const stub_helper_section_index = self.stub_helper_section_index.?;
     assert(self.stub_helper_preamble_atom_index != null);
 
-    const section = self.sections.get(stub_helper_section_index);
+    const header = self.sections.items(.header)[stub_helper_section_index];
 
-    const stub_offset: u4 = switch (self.base.options.target.cpu.arch) {
-        .x86_64 => 1,
-        .aarch64 => 2 * @sizeOf(u32),
-        else => unreachable,
-    };
-    const header = section.header;
-    var atom_index = section.last_atom_index.?;
+    const cpu_arch = self.base.options.target.cpu.arch;
+    const preamble_size = stubs.calcStubHelperPreambleSize(cpu_arch);
+    const stub_size = stubs.calcStubHelperEntrySize(cpu_arch);
+    const stub_offset = stubs.calcStubOffsetInStubHelper(cpu_arch);
+    const base_offset = header.offset + preamble_size;
 
-    var index: usize = lazy_bind.offsets.items.len;
-    while (index > 0) : (index -= 1) {
-        const atom = self.getAtom(atom_index);
-        const sym = atom.getSymbol(self);
-        const file_offset = header.offset + sym.n_value - header.addr + stub_offset;
-        const bind_offset = lazy_bind.offsets.items[index - 1];
+    for (lazy_bind.offsets.items, 0..) |bind_offset, index| {
+        const file_offset = base_offset + index * stub_size + stub_offset;
 
         log.debug("writing lazy bind offset 0x{x} ({s}) in stub helper at 0x{x}", .{
             bind_offset,
-            self.getSymbolName(lazy_bind.entries.items[index - 1].target),
+            self.getSymbolName(lazy_bind.entries.items[index].target),
             file_offset,
         });
 
         try self.base.file.?.pwriteAll(mem.asBytes(&bind_offset), file_offset);
-
-        atom_index = atom.prev_index.?;
     }
 }
 
@@ -3683,7 +3550,7 @@ const SymtabCtx = struct {
 
 fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
     const gpa = self.base.allocator;
-    const nstubs = @intCast(u32, self.stubs_table.lookup.count());
+    const nstubs = @intCast(u32, self.stub_table.lookup.count());
     const ngot_entries = @intCast(u32, self.got_table.lookup.count());
     const nindirectsyms = nstubs * 2 + ngot_entries;
     const iextdefsym = ctx.nlocalsym;
@@ -3704,13 +3571,13 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
     const writer = buf.writer();
 
     if (self.stubs_section_index) |sect_id| {
-        const stubs = &self.sections.items(.header)[sect_id];
-        stubs.reserved1 = 0;
-        for (self.stubs_table.entries.items) |entry| {
-            if (entry.sym_index == 0) continue;
-            const target_sym = self.getSymbol(entry.target);
+        const stubs_header = &self.sections.items(.header)[sect_id];
+        stubs_header.reserved1 = 0;
+        for (self.stub_table.entries.items) |entry| {
+            if (!self.stub_table.lookup.contains(entry)) continue;
+            const target_sym = self.getSymbol(entry);
             assert(target_sym.undf());
-            try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry.target).?);
+            try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry).?);
         }
     }
 
@@ -3731,11 +3598,11 @@ fn writeDysymtab(self: *MachO, ctx: SymtabCtx) !void {
     if (self.la_symbol_ptr_section_index) |sect_id| {
         const la_symbol_ptr = &self.sections.items(.header)[sect_id];
         la_symbol_ptr.reserved1 = nstubs + ngot_entries;
-        for (self.stubs_table.entries.items) |entry| {
-            if (entry.sym_index == 0) continue;
-            const target_sym = self.getSymbol(entry.target);
+        for (self.stub_table.entries.items) |entry| {
+            if (!self.stub_table.lookup.contains(entry)) continue;
+            const target_sym = self.getSymbol(entry);
             assert(target_sym.undf());
-            try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry.target).?);
+            try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry).?);
         }
     }
 
@@ -4422,7 +4289,7 @@ pub fn logSymtab(self: *MachO) void {
     log.debug("{}", .{self.got_table});
 
     log.debug("stubs entries:", .{});
-    log.debug("{}", .{self.stubs_table.fmtDebug(self)});
+    log.debug("{}", .{self.stub_table});
 
     log.debug("threadlocal entries:", .{});
     log.debug("{}", .{self.tlv_table.fmtDebug(self)});

@@ -16,6 +16,7 @@ const link = @import("../../link.zig");
 const load_commands = @import("load_commands.zig");
 const thunks = @import("thunks.zig");
 const trace = @import("../../tracy.zig").trace;
+const stub_helpers = @import("stubs.zig");
 
 const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
@@ -666,59 +667,17 @@ pub const Zld = struct {
             const entry = self.got_entries.items[index];
             break :blk entry.getAtomSymbol(self).n_value;
         };
-        switch (cpu_arch) {
-            .x86_64 => {
-                try writer.writeAll(&.{ 0x4c, 0x8d, 0x1d });
-                {
-                    const disp = try Atom.calcPcRelativeDisplacementX86(source_addr + 3, dyld_private_addr, 0);
-                    try writer.writeIntLittle(i32, disp);
-                }
-                try writer.writeAll(&.{ 0x41, 0x53, 0xff, 0x25 });
-                {
-                    const disp = try Atom.calcPcRelativeDisplacementX86(source_addr + 11, dyld_stub_binder_got_addr, 0);
-                    try writer.writeIntLittle(i32, disp);
-                }
-            },
-            .aarch64 => {
-                {
-                    const pages = Atom.calcNumberOfPages(source_addr, dyld_private_addr);
-                    try writer.writeIntLittle(u32, aarch64.Instruction.adrp(.x17, pages).toU32());
-                }
-                {
-                    const off = try Atom.calcPageOffset(dyld_private_addr, .arithmetic);
-                    try writer.writeIntLittle(u32, aarch64.Instruction.add(.x17, .x17, off, false).toU32());
-                }
-                try writer.writeIntLittle(u32, aarch64.Instruction.stp(
-                    .x16,
-                    .x17,
-                    aarch64.Register.sp,
-                    aarch64.Instruction.LoadStorePairOffset.pre_index(-16),
-                ).toU32());
-                {
-                    const pages = Atom.calcNumberOfPages(source_addr + 12, dyld_stub_binder_got_addr);
-                    try writer.writeIntLittle(u32, aarch64.Instruction.adrp(.x16, pages).toU32());
-                }
-                {
-                    const off = try Atom.calcPageOffset(dyld_stub_binder_got_addr, .load_store_64);
-                    try writer.writeIntLittle(u32, aarch64.Instruction.ldr(
-                        .x16,
-                        .x16,
-                        aarch64.Instruction.LoadStoreOffset.imm(off),
-                    ).toU32());
-                }
-                try writer.writeIntLittle(u32, aarch64.Instruction.br(.x16).toU32());
-            },
-            else => unreachable,
-        }
+        try stub_helpers.writeStubHelperPreambleCode(.{
+            .cpu_arch = cpu_arch,
+            .source_addr = source_addr,
+            .dyld_private_addr = dyld_private_addr,
+            .dyld_stub_binder_got_addr = dyld_stub_binder_got_addr,
+        }, writer);
     }
 
     pub fn createStubHelperAtom(self: *Zld) !AtomIndex {
         const cpu_arch = self.options.target.cpu.arch;
-        const stub_size: u4 = switch (cpu_arch) {
-            .x86_64 => 10,
-            .aarch64 => 3 * @sizeOf(u32),
-            else => unreachable,
-        };
+        const stub_size = stub_helpers.calcStubHelperEntrySize(cpu_arch);
         const alignment: u2 = switch (cpu_arch) {
             .x86_64 => 0,
             .aarch64 => 2,
@@ -749,32 +708,11 @@ pub const Zld = struct {
             const sym = self.getSymbol(.{ .sym_index = self.stub_helper_preamble_sym_index.? });
             break :blk sym.n_value;
         };
-        switch (cpu_arch) {
-            .x86_64 => {
-                try writer.writeAll(&.{ 0x68, 0x0, 0x0, 0x0, 0x0, 0xe9 });
-                {
-                    const disp = try Atom.calcPcRelativeDisplacementX86(source_addr + 6, target_addr, 0);
-                    try writer.writeIntLittle(i32, disp);
-                }
-            },
-            .aarch64 => {
-                const stub_size: u4 = 3 * @sizeOf(u32);
-                const literal = blk: {
-                    const div_res = try math.divExact(u64, stub_size - @sizeOf(u32), 4);
-                    break :blk math.cast(u18, div_res) orelse return error.Overflow;
-                };
-                try writer.writeIntLittle(u32, aarch64.Instruction.ldrLiteral(
-                    .w16,
-                    literal,
-                ).toU32());
-                {
-                    const disp = try Atom.calcPcRelativeDisplacementArm64(source_addr + 4, target_addr);
-                    try writer.writeIntLittle(u32, aarch64.Instruction.b(disp).toU32());
-                }
-                try writer.writeAll(&.{ 0x0, 0x0, 0x0, 0x0 });
-            },
-            else => unreachable,
-        }
+        try stub_helpers.writeStubHelperCode(.{
+            .cpu_arch = cpu_arch,
+            .source_addr = source_addr,
+            .target_addr = target_addr,
+        }, writer);
     }
 
     pub fn createLazyPointerAtom(self: *Zld) !AtomIndex {
@@ -819,11 +757,7 @@ pub const Zld = struct {
             .aarch64 => 2,
             else => unreachable, // unhandled architecture type
         };
-        const stub_size: u4 = switch (cpu_arch) {
-            .x86_64 => 6,
-            .aarch64 => 3 * @sizeOf(u32),
-            else => unreachable, // unhandled architecture type
-        };
+        const stub_size = stub_helpers.calcStubEntrySize(cpu_arch);
         const sym_index = try self.allocateSymbol();
         const atom_index = try self.createEmptyAtom(sym_index, stub_size, alignment);
         const sym = self.getSymbolPtr(.{ .sym_index = sym_index });
@@ -863,31 +797,11 @@ pub const Zld = struct {
             const sym = self.getSymbol(atom.getSymbolWithLoc());
             break :blk sym.n_value;
         };
-        switch (cpu_arch) {
-            .x86_64 => {
-                try writer.writeAll(&.{ 0xff, 0x25 });
-                {
-                    const disp = try Atom.calcPcRelativeDisplacementX86(source_addr + 2, target_addr, 0);
-                    try writer.writeIntLittle(i32, disp);
-                }
-            },
-            .aarch64 => {
-                {
-                    const pages = Atom.calcNumberOfPages(source_addr, target_addr);
-                    try writer.writeIntLittle(u32, aarch64.Instruction.adrp(.x16, pages).toU32());
-                }
-                {
-                    const off = try Atom.calcPageOffset(target_addr, .load_store_64);
-                    try writer.writeIntLittle(u32, aarch64.Instruction.ldr(
-                        .x16,
-                        .x16,
-                        aarch64.Instruction.LoadStoreOffset.imm(off),
-                    ).toU32());
-                }
-                try writer.writeIntLittle(u32, aarch64.Instruction.br(.x16).toU32());
-            },
-            else => unreachable,
-        }
+        try stub_helpers.writeStubCode(.{
+            .cpu_arch = cpu_arch,
+            .source_addr = source_addr,
+            .target_addr = target_addr,
+        }, writer);
     }
 
     fn createTentativeDefAtoms(self: *Zld) !void {
@@ -2267,11 +2181,7 @@ pub const Zld = struct {
         assert(self.stub_helper_preamble_sym_index != null);
 
         const section = self.sections.get(stub_helper_section_index);
-        const stub_offset: u4 = switch (self.options.target.cpu.arch) {
-            .x86_64 => 1,
-            .aarch64 => 2 * @sizeOf(u32),
-            else => unreachable,
-        };
+        const stub_offset = stub_helpers.calcStubOffsetInStubHelper(self.options.target.cpu.arch);
         const header = section.header;
         var atom_index = section.first_atom_index;
         atom_index = self.getAtom(atom_index).next_index.?; // skip preamble
