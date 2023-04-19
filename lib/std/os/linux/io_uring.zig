@@ -1862,7 +1862,13 @@ test "write_fixed/read_fixed" {
         .{ .iov_base = &raw_buffers[0], .iov_len = raw_buffers[0].len },
         .{ .iov_base = &raw_buffers[1], .iov_len = raw_buffers[1].len },
     };
-    try ring.register_buffers(&buffers);
+    ring.register_buffers(&buffers) catch |err| switch (err) {
+        error.SystemResources => {
+            // See https://github.com/ziglang/zig/issues/15362
+            return error.SkipZigTest;
+        },
+        else => |e| return e,
+    };
 
     const sqe_write = try ring.write_fixed(0x45454545, fd, &buffers[0], 3, 0);
     try testing.expectEqual(linux.IORING_OP.WRITE_FIXED, sqe_write.opcode);
