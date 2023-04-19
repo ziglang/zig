@@ -3092,6 +3092,37 @@ fn collectRebaseData(self: *MachO, rebase: *Rebase) !void {
     try rebase.finalize(gpa);
 }
 
+fn collectBindDataFromTableSection(self: *MachO, sect_id: u8, bind: anytype, table: anytype) !void {
+    const segment_index = self.sections.items(.segment_index)[sect_id];
+
+    try bind.entries.ensureUnusedCapacity(self.base.allocator, table.entries.items.len);
+
+    for (table.entries.items, 0..) |entry, i| {
+        if (!table.lookup.contains(entry)) continue;
+
+        const bind_sym = self.getSymbol(entry);
+        if (!bind_sym.undf()) continue;
+
+        const offset = i * @sizeOf(u64);
+
+        log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
+            offset,
+            self.getSymbolName(entry),
+            @divTrunc(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER),
+        });
+        if (bind_sym.weakRef()) {
+            log.debug("    | marking as weak ref ", .{});
+        }
+
+        bind.entries.appendAssumeCapacity(.{
+            .target = entry,
+            .offset = offset,
+            .segment_id = segment_index,
+            .addend = 0,
+        });
+    }
+}
+
 fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
     const gpa = self.base.allocator;
     const slice = self.sections.slice();
@@ -3134,67 +3165,13 @@ fn collectBindData(self: *MachO, bind: anytype, raw_bindings: anytype) !void {
     }
 
     // Gather GOT pointers
-    try bind.entries.ensureUnusedCapacity(gpa, self.got_table.entries.items.len);
-    const segment_index = self.sections.items(.segment_index)[self.got_section_index.?];
-    for (self.got_table.entries.items, 0..) |entry, i| {
-        if (!self.got_table.lookup.contains(entry)) continue;
-        const sym = self.getSymbol(entry);
-        if (!sym.undf()) continue;
-        const offset = i * @sizeOf(u64);
-        const bind_sym = self.getSymbol(entry);
-        const bind_sym_name = self.getSymbolName(entry);
-        const dylib_ordinal = @divTrunc(
-            @bitCast(i16, bind_sym.n_desc),
-            macho.N_SYMBOL_RESOLVER,
-        );
-        log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
-            offset,
-            bind_sym_name,
-            dylib_ordinal,
-        });
-        bind.entries.appendAssumeCapacity(.{
-            .target = entry,
-            .offset = offset,
-            .segment_id = segment_index,
-            .addend = 0,
-        });
-    }
-
+    try self.collectBindDataFromTableSection(self.got_section_index.?, bind, self.got_table);
     try bind.finalize(gpa, self);
 }
 
 fn collectLazyBindData(self: *MachO, bind: anytype) !void {
-    const gpa = self.base.allocator;
-
-    try bind.entries.ensureUnusedCapacity(gpa, self.stub_table.entries.items.len);
-    const segment_index = self.sections.items(.segment_index)[self.la_symbol_ptr_section_index.?];
-    for (self.stub_table.entries.items, 0..) |entry, i| {
-        if (!self.stub_table.lookup.contains(entry)) continue;
-        const bind_sym = self.getSymbol(entry);
-        assert(bind_sym.undf());
-        const bind_sym_name = self.getSymbolName(entry);
-        const offset = i * @sizeOf(u64);
-        const dylib_ordinal = @divTrunc(
-            @bitCast(i16, bind_sym.n_desc),
-            macho.N_SYMBOL_RESOLVER,
-        );
-        log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
-            offset,
-            bind_sym_name,
-            dylib_ordinal,
-        });
-        if (bind_sym.weakRef()) {
-            log.debug("    | marking as weak ref ", .{});
-        }
-        bind.entries.appendAssumeCapacity(.{
-            .target = entry,
-            .offset = offset,
-            .segment_id = segment_index,
-            .addend = 0,
-        });
-    }
-
-    try bind.finalize(gpa, self);
+    try self.collectBindDataFromTableSection(self.la_symbol_ptr_section_index.?, bind, self.stub_table);
+    try bind.finalize(self.base.allocator, self);
 }
 
 fn collectExportData(self: *MachO, trie: *Trie) !void {
