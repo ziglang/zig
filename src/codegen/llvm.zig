@@ -374,6 +374,9 @@ pub const Object = struct {
     /// second extern Decl could not be emitted with the correct name due to a
     /// name collision.
     extern_collisions: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, void),
+    /// Optimization remarks file handler. When outputting optimization remarks,
+    /// LLVM expect us to properly close this resource.
+    opt_remarks: ?*llvm.ToolOutputFile,
 
     pub const TypeMap = std.HashMapUnmanaged(
         Type,
@@ -523,12 +526,17 @@ pub const Object = struct {
             context.setOptBisectLimit(std.math.lossyCast(c_int, options.opt_bisect_limit));
         }
 
+        var opt_remarks: ?*llvm.ToolOutputFile = null;
         if (options.opt_remarks_emit) |emit| {
             var sub_path = try gpa.dupeZ(u8, emit.sub_path);
             var opt_remarks_emit_path = try emit.basenamePath(gpa, sub_path);
             defer gpa.free(opt_remarks_emit_path);
-            var setup_err = context.setupOptimizationRemarks(opt_remarks_emit_path, ".*");
-            assert(setup_err == 0);
+
+            opt_remarks = context.openOptimizationRemarks(opt_remarks_emit_path);
+            if (opt_remarks == null) {
+                log.err("LLVM failed to open opt remarks file: {s}", .{opt_remarks_emit_path});
+                return error.FailedToEmit;
+            }
         }
 
         return Object{
@@ -549,6 +557,7 @@ pub const Object = struct {
             .di_type_map = .{},
             .error_name_table = null,
             .extern_collisions = .{},
+            .opt_remarks = opt_remarks,
         };
     }
 
@@ -567,6 +576,7 @@ pub const Object = struct {
         self.type_map.deinit(gpa);
         self.type_map_arena.deinit();
         self.extern_collisions.deinit(gpa);
+        if (self.opt_remarks) |remarks_file| remarks_file.close();
         self.* = undefined;
     }
 

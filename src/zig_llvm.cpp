@@ -426,18 +426,22 @@ ZIG_EXTERN_C void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit
     // unwrap(context_ref)->setOptPassGate(_opt_bisector);
 }
 
-ZIG_EXTERN_C int ZigLLVMSetupOptimizationRemarks(LLVMContextRef context_ref, const char *RemarksFilename, const char *RemarksPasses) {
-    auto RemarksFileOrErr = llvm::setupLLVMOptimizationRemarks(*unwrap(context_ref), RemarksFilename, RemarksPasses, "yaml", false, 0);
-    if (Error E = RemarksFileOrErr.takeError())
-        return 1;
+ZIG_EXTERN_C ZigLLVMToolOutputFile* ZigLLVMOpenOptimizationRemarks(LLVMContextRef context_ref, const char *RemarksFilename) {
+    auto remarks_err = llvm::setupLLVMOptimizationRemarks(*unwrap(context_ref), RemarksFilename, ".*", "yaml", false, 0);
+    if (Error E = remarks_err.takeError())
+        return nullptr;
 
-    std::unique_ptr<ToolOutputFile> RemarksFile = std::move(*RemarksFileOrErr);
-
-    if (RemarksFile) {
-        RemarksFile->keep();
-        RemarksFile.release();
+    std::unique_ptr<ToolOutputFile> remarks_file = std::move(*remarks_err);
+    if (remarks_file) {
+        remarks_file->keep();
+        return reinterpret_cast<ZigLLVMToolOutputFile *>(remarks_file.release());
     }
-    return 0;
+    return nullptr;
+}
+
+ZIG_EXTERN_C void ZigLLVMCloseToolOutputFile(ZigLLVMToolOutputFile *remarks_file) {
+    ToolOutputFile* file = reinterpret_cast<ToolOutputFile*>(remarks_file);
+    delete file;
 }
 
 LLVMValueRef ZigLLVMAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name, LLVMTypeRef FunctionTy, unsigned AddressSpace) {

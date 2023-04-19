@@ -89,8 +89,13 @@ pub const Context = opaque {
     pub const setOptBisectLimit = ZigLLVMSetOptBisectLimit;
     extern fn ZigLLVMSetOptBisectLimit(C: *Context, limit: c_int) void;
 
-    pub const setupOptimizationRemarks = ZigLLVMSetupOptimizationRemarks;
-    extern fn ZigLLVMSetupOptimizationRemarks(C: *Context, RemarksFilename: ?[*:0]const u8, RemarksPasses: ?[*:0]const u8) i32;
+    pub const openOptimizationRemarks = ZigLLVMOpenOptimizationRemarks;
+    extern fn ZigLLVMOpenOptimizationRemarks(C: *Context, RemarksFilename: [*:0]const u8) *ToolOutputFile;
+};
+
+pub const ToolOutputFile = opaque {
+    pub const close = ZigLLVMCloseToolOutputFile;
+    extern fn ZigLLVMCloseToolOutputFile(file: *ToolOutputFile) void;
 };
 
 pub const Value = opaque {

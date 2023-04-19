@@ -1339,7 +1339,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-emit-implib")) {
                         emit_implib = .no;
                         emit_implib_arg_provided = true;
-                    }  else if (mem.eql(u8, arg, "-femit-opt-remarks")) {
+                    } else if (mem.eql(u8, arg, "-femit-opt-remarks")) {
                         emit_opt_remarks = .yes_default_path;
                     } else if (mem.startsWith(u8, arg, "-femit-opt-remarks=")) {
                         emit_opt_remarks = .{ .yes = arg["-femit-opt-remarks=".len..] };

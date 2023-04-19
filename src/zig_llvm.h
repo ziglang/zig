@@ -40,6 +40,8 @@ struct ZigLLVMDIEnumerator;
 struct ZigLLVMInsertionPoint;
 struct ZigLLVMDINode;
 struct ZigLLVMMDString;
+struct ZigLLVMToolOutputFile;
+
 
 ZIG_EXTERN_C void ZigLLVMInitializeLoopStrengthReducePass(LLVMPassRegistryRef R);
 ZIG_EXTERN_C void ZigLLVMInitializeLowerIntrinsicsPass(LLVMPassRegistryRef R);
@@ -69,7 +71,8 @@ ZIG_EXTERN_C LLVMTypeRef ZigLLVMTokenTypeInContext(LLVMContextRef context_ref);
 
 ZIG_EXTERN_C void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit);
 
-ZIG_EXTERN_C int ZigLLVMSetupOptimizationRemarks(LLVMContextRef context_ref, const char *RemarksFilename, const char *RemarksPasses);
+ZIG_EXTERN_C ZigLLVMToolOutputFile* ZigLLVMOpenOptimizationRemarks(LLVMContextRef context_ref, const char *RemarksFilename);
+ZIG_EXTERN_C void ZigLLVMCloseToolOutputFile(ZigLLVMToolOutputFile *remarks_file);
 
 ZIG_EXTERN_C LLVMValueRef ZigLLVMAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name,
         LLVMTypeRef FunctionTy, unsigned AddressSpace);
