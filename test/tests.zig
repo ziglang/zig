@@ -1041,6 +1041,11 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                 compile_c.subsystem = .Console;
                 compile_c.linkSystemLibrary("kernel32");
                 compile_c.linkSystemLibrary("ntdll");
+                if (mem.eql(u8, options.name, "std")) {
+                    compile_c.linkSystemLibrary("crypt32");
+                    compile_c.linkSystemLibrary("ws2_32");
+                    compile_c.linkSystemLibrary("ole32");
+                }
             }
 
             const run = b.addRunArtifact(compile_c);
