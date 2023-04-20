@@ -2555,7 +2555,7 @@ pub const DeclGen = struct {
                 );
 
                 try dg.object.di_map.put(dg.gpa, dg.decl, di_global.getVariable().toNode());
-                global.attachMetaData(di_global);
+                if (!is_internal_linkage) global.attachMetaData(di_global);
             }
         }
     }
