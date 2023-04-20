@@ -338,6 +338,9 @@ pub const Response = struct {
 
     /// Reset this response to its initial state. This must be called before handling a second request on the same connection.
     pub fn reset(res: *Response) void {
+        res.request.headers.deinit();
+        res.headers.deinit();
+
         switch (res.request.compression) {
             .none => {},
             .deflate => |*deflate| deflate.deinit(),
@@ -357,7 +360,7 @@ pub const Response = struct {
                 res.request.parser.header_bytes.deinit(res.server.allocator);
             }
 
-            res.* = undefined;
+            res.server.allocator.destroy(res);
         } else {
             res.request.parser.reset();
         }
