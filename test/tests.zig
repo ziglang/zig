@@ -1039,11 +1039,17 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                 },
             });
             compile_c.addIncludePath("lib"); // for zig.h
-            if (test_target.link_libc == false and test_target.target.getOsTag() == .windows) {
-                compile_c.subsystem = .Console;
-                compile_c.linkSystemLibrary("kernel32");
-                compile_c.linkSystemLibrary("ntdll");
+            if (test_target.target.getOsTag() == .windows) {
+                if (test_target.link_libc == false) {
+                    compile_c.subsystem = .Console;
+                    compile_c.linkSystemLibrary("kernel32");
+                    compile_c.linkSystemLibrary("ntdll");
+                }
                 if (mem.eql(u8, options.name, "std")) {
+                    if (test_target.link_libc == false) {
+                        compile_c.linkSystemLibrary("shell32");
+                        compile_c.linkSystemLibrary("advapi32");
+                    }
                     compile_c.linkSystemLibrary("crypt32");
                     compile_c.linkSystemLibrary("ws2_32");
                     compile_c.linkSystemLibrary("ole32");
