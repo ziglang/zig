@@ -1801,6 +1801,7 @@ fn addGotEntry(self: *MachO, target: SymbolWithLoc) !void {
     const got_index = try self.got_table.allocateEntry(self.base.allocator, target);
     try self.writeOffsetTableEntry(got_index);
     self.got_table_count_dirty = true;
+    self.markRelocsDirtyByTarget(target);
 }
 
 fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
@@ -1808,6 +1809,7 @@ fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
     const stub_index = try self.stub_table.allocateEntry(self.base.allocator, target);
     try self.writeStubTableEntry(stub_index);
     self.stub_table_count_dirty = true;
+    self.markRelocsDirtyByTarget(target);
 }
 
 pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
@@ -2294,6 +2296,7 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
                 log.debug("  (updating GOT entry)", .{});
                 const got_atom_index = self.got_table.lookup.get(.{ .sym_index = sym_index }).?;
                 try self.writeOffsetTableEntry(got_atom_index);
+                self.markRelocsDirtyByTarget(.{ .sym_index = sym_index });
             }
         } else if (code_len < atom.size) {
             self.shrinkAtom(atom_index, code_len);
