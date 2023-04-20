@@ -204,7 +204,7 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
 /// This is not whether the target supports Position Independent Code, but whether the -fPIC
 /// C compiler argument is valid to Clang.
 pub fn supports_fpic(target: std.Target) bool {
-    return target.os.tag != .windows;
+    return target.os.tag != .windows and target.os.tag != .uefi;
 }
 
 pub fn isSingleThreaded(target: std.Target) bool {
