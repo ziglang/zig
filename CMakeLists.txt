@@ -81,6 +81,9 @@ message(STATUS "Configuring zig version ${RESOLVED_ZIG_VERSION}")
 set(ZIG_NO_LIB off CACHE BOOL
     "Disable copying lib/ files to install prefix during the build phase")
 
+set(ZIG_NO_LANGREF off CACHE BOOL
+    "Disable copying of langref to the install prefix during the build phase")
+
 set(ZIG_SKIP_INSTALL_LIB_FILES off CACHE BOOL "Deprecated. Use ZIG_NO_LIB")
 if(ZIG_SKIP_INSTALL_LIB_FILES)
   message(WARNING "ZIG_SKIP_INSTALL_LIB_FILES is deprecated. Use ZIG_NO_LIB instead.")
@@ -810,14 +813,19 @@ endif()
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   set(ZIG_RELEASE_ARG "")
 elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
-  set(ZIG_RELEASE_ARG -Drelease)
+  set(ZIG_RELEASE_ARG -Doptimize=ReleaseFast)
 else()
-  set(ZIG_RELEASE_ARG -Drelease -Dstrip)
+  set(ZIG_RELEASE_ARG -Doptimize=ReleaseFast -Dstrip)
 endif()
 if(ZIG_NO_LIB)
   set(ZIG_NO_LIB_ARG "-Dno-lib")
 else()
   set(ZIG_NO_LIB_ARG "")
+endif()
+if(ZIG_NO_LANGREF)
+  set(ZIG_NO_LANGREF_ARG "-Dno-langref")
+else()
+  set(ZIG_NO_LANGREF_ARG "")
 endif()
 if(ZIG_SINGLE_THREADED)
   set(ZIG_SINGLE_THREADED_ARG "-fsingle-threaded")
@@ -843,6 +851,7 @@ set(ZIG_BUILD_ARGS
   ${ZIG_RELEASE_ARG}
   ${ZIG_STATIC_ARG}
   ${ZIG_NO_LIB_ARG}
+  ${ZIG_NO_LANGREF_ARG}
   ${ZIG_SINGLE_THREADED_ARG}
   ${ZIG_PIE_ARG}
   "-Dtarget=${ZIG_TARGET_TRIPLE}"

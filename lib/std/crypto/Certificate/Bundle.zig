@@ -50,11 +50,13 @@ pub fn deinit(cb: *Bundle, gpa: Allocator) void {
     cb.* = undefined;
 }
 
+pub const RescanError = RescanLinuxError || RescanMacError || RescanWindowsError;
+
 /// Clears the set of certificates and then scans the host operating system
 /// file system standard locations for certificates.
 /// For operating systems that do not have standard CA installations to be
 /// found, this function clears the set of certificates.
-pub fn rescan(cb: *Bundle, gpa: Allocator) !void {
+pub fn rescan(cb: *Bundle, gpa: Allocator) RescanError!void {
     switch (builtin.os.tag) {
         .linux => return rescanLinux(cb, gpa),
         .macos => return rescanMac(cb, gpa),
@@ -64,8 +66,11 @@ pub fn rescan(cb: *Bundle, gpa: Allocator) !void {
 }
 
 pub const rescanMac = @import("Bundle/macos.zig").rescanMac;
+pub const RescanMacError = @import("Bundle/macos.zig").RescanMacError;
 
-pub fn rescanLinux(cb: *Bundle, gpa: Allocator) !void {
+pub const RescanLinuxError = AddCertsFromFilePathError || AddCertsFromDirPathError;
+
+pub fn rescanLinux(cb: *Bundle, gpa: Allocator) RescanLinuxError!void {
     // Possible certificate files; stop after finding one.
     const cert_file_paths = [_][]const u8{
         "/etc/ssl/certs/ca-certificates.crt", // Debian/Ubuntu/Gentoo etc.
@@ -107,7 +112,9 @@ pub fn rescanLinux(cb: *Bundle, gpa: Allocator) !void {
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
-pub fn rescanWindows(cb: *Bundle, gpa: Allocator) !void {
+pub const RescanWindowsError = Allocator.Error || ParseCertError || std.os.UnexpectedError || error{FileNotFound};
+
+pub fn rescanWindows(cb: *Bundle, gpa: Allocator) RescanWindowsError!void {
     cb.bytes.clearRetainingCapacity();
     cb.map.clearRetainingCapacity();
 
@@ -132,12 +139,14 @@ pub fn rescanWindows(cb: *Bundle, gpa: Allocator) !void {
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
+pub const AddCertsFromDirPathError = fs.File.OpenError || AddCertsFromDirError;
+
 pub fn addCertsFromDirPath(
     cb: *Bundle,
     gpa: Allocator,
     dir: fs.Dir,
     sub_dir_path: []const u8,
-) !void {
+) AddCertsFromDirPathError!void {
     var iterable_dir = try dir.openIterableDir(sub_dir_path, .{});
     defer iterable_dir.close();
     return addCertsFromDir(cb, gpa, iterable_dir);
@@ -147,14 +156,16 @@ pub fn addCertsFromDirPathAbsolute(
     cb: *Bundle,
     gpa: Allocator,
     abs_dir_path: []const u8,
-) !void {
+) AddCertsFromDirPathError!void {
     assert(fs.path.isAbsolute(abs_dir_path));
     var iterable_dir = try fs.openIterableDirAbsolute(abs_dir_path, .{});
     defer iterable_dir.close();
     return addCertsFromDir(cb, gpa, iterable_dir);
 }
 
-pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.IterableDir) !void {
+pub const AddCertsFromDirError = AddCertsFromFilePathError;
+
+pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.IterableDir) AddCertsFromDirError!void {
     var it = iterable_dir.iterate();
     while (try it.next()) |entry| {
         switch (entry.kind) {
@@ -166,11 +177,13 @@ pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.IterableDir
     }
 }
 
+pub const AddCertsFromFilePathError = fs.File.OpenError || AddCertsFromFileError;
+
 pub fn addCertsFromFilePathAbsolute(
     cb: *Bundle,
     gpa: Allocator,
     abs_file_path: []const u8,
-) !void {
+) AddCertsFromFilePathError!void {
     assert(fs.path.isAbsolute(abs_file_path));
     var file = try fs.openFileAbsolute(abs_file_path, .{});
     defer file.close();
@@ -182,13 +195,15 @@ pub fn addCertsFromFilePath(
     gpa: Allocator,
     dir: fs.Dir,
     sub_file_path: []const u8,
-) !void {
+) AddCertsFromFilePathError!void {
     var file = try dir.openFile(sub_file_path, .{});
     defer file.close();
     return addCertsFromFile(cb, gpa, file);
 }
 
-pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) !void {
+pub const AddCertsFromFileError = Allocator.Error || fs.File.GetSeekPosError || fs.File.ReadError || ParseCertError || std.base64.Error || error{ CertificateAuthorityBundleTooBig, MissingEndCertificateMarker };
+
+pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFromFileError!void {
     const size = try file.getEndPos();
 
     // We borrow `bytes` as a temporary buffer for the base64-encoded data.
@@ -222,7 +237,9 @@ pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) !void {
     }
 }
 
-pub fn parseCert(cb: *Bundle, gpa: Allocator, decoded_start: u32, now_sec: i64) !void {
+pub const ParseCertError = Allocator.Error || Certificate.ParseError;
+
+pub fn parseCert(cb: *Bundle, gpa: Allocator, decoded_start: u32, now_sec: i64) ParseCertError!void {
     // Even though we could only partially parse the certificate to find
     // the subject name, we pre-parse all of them to make sure and only
     // include in the bundle ones that we know will parse. This way we can

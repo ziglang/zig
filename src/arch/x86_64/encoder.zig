@@ -54,7 +54,34 @@ pub const Instruction = struct {
             };
         }
 
-        pub fn fmtPrint(op: Operand, enc_op: Encoding.Op, writer: anytype) @TypeOf(writer).Error!void {
+        fn format(
+            op: Operand,
+            comptime unused_format_string: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = op;
+            _ = unused_format_string;
+            _ = options;
+            _ = writer;
+            @compileError("do not format Operand directly; use fmtPrint() instead");
+        }
+
+        const FormatContext = struct {
+            op: Operand,
+            enc_op: Encoding.Op,
+        };
+
+        fn fmt(
+            ctx: FormatContext,
+            comptime unused_format_string: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            _ = unused_format_string;
+            _ = options;
+            const op = ctx.op;
+            const enc_op = ctx.enc_op;
             switch (op) {
                 .none => {},
                 .reg => |reg| try writer.writeAll(@tagName(reg)),
@@ -105,6 +132,13 @@ pub const Instruction = struct {
                 .imm => |imm| try writer.print("0x{x}", .{imm.asUnsigned(enc_op.bitSize())}),
             }
         }
+
+        pub fn fmtPrint(op: Operand, enc_op: Encoding.Op) std.fmt.Formatter(fmt) {
+            return .{ .data = .{
+                .op = op,
+                .enc_op = enc_op,
+            } };
+        }
     };
 
     pub fn new(prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) !Instruction {
@@ -130,14 +164,21 @@ pub const Instruction = struct {
         return inst;
     }
 
-    pub fn fmtPrint(inst: Instruction, writer: anytype) @TypeOf(writer).Error!void {
+    pub fn format(
+        inst: Instruction,
+        comptime unused_format_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        _ = unused_format_string;
+        _ = options;
         if (inst.prefix != .none) try writer.print("{s} ", .{@tagName(inst.prefix)});
         try writer.print("{s}", .{@tagName(inst.encoding.mnemonic)});
         for (inst.ops, inst.encoding.data.ops, 0..) |op, enc, i| {
             if (op == .none) break;
             if (i > 0) try writer.writeByte(',');
             try writer.writeByte(' ');
-            try op.fmtPrint(enc, writer);
+            try writer.print("{}", .{op.fmtPrint(enc)});
         }
     }
 

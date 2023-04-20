@@ -181,9 +181,7 @@ fn testTryToTrickEvalWithRuntimeIf(b: bool) usize {
         const result = if (b) false else true;
         _ = result;
     }
-    comptime {
-        return i;
-    }
+    return comptime i;
 }
 
 test "@setEvalBranchQuota" {

@@ -5,12 +5,21 @@ const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
 
+pub const CPU_SETSIZE = 256;
+pub const cpuset_t = extern struct {
+    __bits: [(CPU_SETSIZE + (@bitSizeOf(c_long) - 1)) / @bitSizeOf(c_long)]c_long,
+};
+pub const cpulevel_t = c_int;
+pub const cpuwhich_t = c_int;
+pub const id_t = i64;
+
 extern "c" fn __error() *c_int;
 pub const _errno = __error;
 
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
+pub extern "c" fn getentropy(buf_ptr: [*]u8, buf_len: usize) c_int;
 
 pub extern "c" fn pthread_getthreadid_np() c_int;
 pub extern "c" fn pthread_set_name_np(thread: std.c.pthread_t, name: [*:0]const u8) void;
@@ -24,6 +33,10 @@ pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
 pub extern "c" fn getpid() pid_t;
 
 pub extern "c" fn kinfo_getfile(pid: pid_t, cntp: *c_int) ?[*]kinfo_file;
+pub extern "c" fn kinfo_getvmmap(pid: pid_t, cntp: *c_int) ?[*]kinfo_vmentry;
+
+pub extern "c" fn cpuset_getaffinity(level: cpulevel_t, which: cpuwhich_t, id: id_t, setsize: usize, mask: *cpuset_t) c_int;
+pub extern "c" fn cpuset_setaffinity(level: cpulevel_t, which: cpuwhich_t, id: id_t, setsize: usize, mask: *const cpuset_t) c_int;
 
 pub const sf_hdtr = extern struct {
     headers: [*]const iovec_const,
@@ -201,8 +214,6 @@ pub const clock_t = isize;
 
 pub const socklen_t = u32;
 pub const suseconds_t = c_long;
-
-pub const id_t = i64;
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
 pub const Kevent = extern struct {
@@ -563,6 +574,40 @@ pub const KINFO_FILE_SIZE = 1392;
 comptime {
     std.debug.assert(@sizeOf(kinfo_file) == KINFO_FILE_SIZE);
     std.debug.assert(@alignOf(kinfo_file) == @sizeOf(u64));
+}
+
+pub const kinfo_vmentry = extern struct {
+    kve_structsize: c_int,
+    kve_type: c_int,
+    kve_start: u64,
+    kve_end: u64,
+    kve_offset: u64,
+    kve_vn_fileid: u64,
+    kve_vn_fsid_freebsd11: u32,
+    kve_flags: c_int,
+    kve_resident: c_int,
+    kve_private_resident: c_int,
+    kve_protection: c_int,
+    kve_ref_count: c_int,
+    kve_shadow_count: c_int,
+    kve_vn_type: c_int,
+    kve_vn_size: u64,
+    kve_vn_rdev_freebsd11: u32,
+    kve_vn_mode: u16,
+    kve_status: u16,
+    kve_type_spec: extern union {
+        _kve_vn_fsid: u64,
+        _kve_obj: u64,
+    },
+    kve_vn_rdev: u64,
+    _kve_ispare: [8]c_int,
+    kve_rpath: [PATH_MAX]u8,
+};
+
+pub const KINFO_VMENTRY_SIZE = 1160;
+
+comptime {
+    std.debug.assert(@sizeOf(kinfo_vmentry) == KINFO_VMENTRY_SIZE);
 }
 
 pub const CTL = struct {
@@ -1945,6 +1990,21 @@ pub const NAME_MAX = 255;
 pub const MFD = struct {
     pub const CLOEXEC = 0x0001;
     pub const ALLOW_SEALING = 0x0002;
+    pub const HUGETLB = 0x00000004;
+    pub const HUGE_MASK = 0xFC000000;
+    pub const HUGE_SHIFT = 26;
+    pub const HUGE_64KB = 16 << HUGE_SHIFT;
+    pub const HUGE_512KB = 19 << HUGE_SHIFT;
+    pub const HUGE_1MB = 20 << HUGE_SHIFT;
+    pub const HUGE_2MB = 21 << HUGE_SHIFT;
+    pub const HUGE_8MB = 23 << HUGE_SHIFT;
+    pub const HUGE_16MB = 24 << HUGE_SHIFT;
+    pub const HUGE_32MB = 25 << HUGE_SHIFT;
+    pub const HUGE_256MB = 28 << HUGE_SHIFT;
+    pub const HUGE_512MB = 29 << HUGE_SHIFT;
+    pub const HUGE_1GB = 30 << HUGE_SHIFT;
+    pub const HUGE_2GB = 31 << HUGE_SHIFT;
+    pub const HUGE_16GB = 34 << HUGE_SHIFT;
 };
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
@@ -2074,3 +2134,20 @@ pub const procctl_reaper_kill = extern struct {
 };
 
 pub extern "c" fn procctl(idtype: idtype_t, id: id_t, cmd: c_int, data: ?*anyopaque) c_int;
+
+pub const SHM = struct {
+    pub const ALLOW_SEALING = 0x00000001;
+    pub const GROW_ON_WRWITE = 0x00000002;
+    pub const LARGEPAGE = 0x00000004;
+    pub const LARGEPAGE_ALLOC_DEFAULT = 0;
+    pub const LARGEPAGE_ALLOC_NOWAIT = 1;
+    pub const LARGEPAGE_ALLOC_HARD = 2;
+};
+
+pub const shm_largeconf = extern struct {
+    psind: c_int,
+    alloc_policy: c_int,
+    pad: [10]c_int,
+};
+
+pub extern "c" fn shm_create_largepage(path: [*:0]const u8, flags: c_int, psind: c_int, alloc_policy: c_int, mode: mode_t) c_int;

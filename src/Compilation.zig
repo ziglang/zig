@@ -780,7 +780,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // compiler state, the second clause here can be removed so that incremental
         // cache mode is used for LLVM backend too. We need some fuzz testing before
         // that can be enabled.
-        const cache_mode = if (use_llvm and !options.disable_lld_caching)
+        const cache_mode = if ((use_llvm or options.main_pkg == null) and !options.disable_lld_caching)
             CacheMode.whole
         else
             options.cache_mode;
@@ -4460,6 +4460,15 @@ pub fn addCCArgs(
                         try argv.append("-mno-save-restore");
                     }
                 },
+                .mips, .mipsel, .mips64, .mips64el => {
+                    if (target.cpu.model.llvm_name) |llvm_name| {
+                        try argv.append(try std.fmt.allocPrint(arena, "-march={s}", .{llvm_name}));
+                    }
+
+                    if (std.Target.mips.featureSetHas(target.cpu.features, .soft_float)) {
+                        try argv.append("-msoft-float");
+                    }
+                },
                 else => {
                     // TODO
                 },
@@ -4474,7 +4483,11 @@ pub fn addCCArgs(
 
     if (!comp.bin_file.options.strip) {
         switch (target.ofmt) {
-            .coff => try argv.append("-gcodeview"),
+            .coff => {
+                // -g is required here because -gcodeview doesn't trigger debug info
+                // generation, it only changes the type of information generated.
+                try argv.appendSlice(&.{ "-g", "-gcodeview" });
+            },
             .elf, .macho => try argv.append("-gdwarf-4"),
             else => try argv.append("-g"),
         }

@@ -1944,6 +1944,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .memcpy => func.airMemcpy(inst),
 
         .ret_addr => func.airRetAddr(inst),
+        .tag_name => func.airTagName(inst),
 
         .mul_sat,
         .mod,
@@ -1962,7 +1963,6 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .atomic_store_release,
         .atomic_store_seq_cst,
         .atomic_rmw,
-        .tag_name,
         .err_return_trace,
         .set_err_return_trace,
         .save_err_return_trace_index,
@@ -6395,4 +6395,195 @@ fn callIntrinsic(
     } else {
         return WValue{ .stack = {} };
     }
+}
+
+fn airTagName(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const un_op = func.air.instructions.items(.data)[inst].un_op;
+    if (func.liveness.isUnused(inst)) return func.finishAir(inst, .none, &.{un_op});
+    const operand = try func.resolveInst(un_op);
+    const enum_ty = func.air.typeOf(un_op);
+
+    const func_sym_index = try func.getTagNameFunction(enum_ty);
+
+    const result_ptr = try func.allocStack(func.air.typeOfIndex(inst));
+    try func.lowerToStack(result_ptr);
+    try func.emitWValue(operand);
+    try func.addLabel(.call, func_sym_index);
+
+    return func.finishAir(inst, result_ptr, &.{un_op});
+}
+
+fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
+    const enum_decl_index = enum_ty.getOwnerDecl();
+    const module = func.bin_file.base.options.module.?;
+
+    var arena_allocator = std.heap.ArenaAllocator.init(func.gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    const fqn = try module.declPtr(enum_decl_index).getFullyQualifiedName(module);
+    defer module.gpa.free(fqn);
+    const func_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{fqn});
+
+    // check if we already generated code for this.
+    if (func.bin_file.findGlobalSymbol(func_name)) |loc| {
+        return loc.index;
+    }
+
+    var int_tag_type_buffer: Type.Payload.Bits = undefined;
+    const int_tag_ty = enum_ty.intTagType(&int_tag_type_buffer);
+
+    if (int_tag_ty.bitSize(func.target) > 64) {
+        return func.fail("TODO: Implement @tagName for enums with tag size larger than 64 bits", .{});
+    }
+
+    var relocs = std.ArrayList(link.File.Wasm.Relocation).init(func.gpa);
+    defer relocs.deinit();
+
+    var body_list = std.ArrayList(u8).init(func.gpa);
+    defer body_list.deinit();
+    var writer = body_list.writer();
+
+    // The locals of the function body (always 0)
+    try leb.writeULEB128(writer, @as(u32, 0));
+
+    // outer block
+    try writer.writeByte(std.wasm.opcode(.block));
+    try writer.writeByte(std.wasm.block_empty);
+
+    // TODO: Make switch implementation generic so we can use a jump table for this when the tags are not sparse.
+    // generate an if-else chain for each tag value as well as constant.
+    for (enum_ty.enumFields().keys(), 0..) |tag_name, field_index| {
+        // for each tag name, create an unnamed const,
+        // and then get a pointer to its value.
+        var name_ty_payload: Type.Payload.Len = .{
+            .base = .{ .tag = .array_u8_sentinel_0 },
+            .data = @intCast(u64, tag_name.len),
+        };
+        const name_ty = Type.initPayload(&name_ty_payload.base);
+        const string_bytes = &module.string_literal_bytes;
+        try string_bytes.ensureUnusedCapacity(module.gpa, tag_name.len);
+        const gop = try module.string_literal_table.getOrPutContextAdapted(module.gpa, tag_name, Module.StringLiteralAdapter{
+            .bytes = string_bytes,
+        }, Module.StringLiteralContext{
+            .bytes = string_bytes,
+        });
+        if (!gop.found_existing) {
+            gop.key_ptr.* = .{
+                .index = @intCast(u32, string_bytes.items.len),
+                .len = @intCast(u32, tag_name.len),
+            };
+            string_bytes.appendSliceAssumeCapacity(tag_name);
+            gop.value_ptr.* = .none;
+        }
+        var name_val_payload: Value.Payload.StrLit = .{
+            .base = .{ .tag = .str_lit },
+            .data = gop.key_ptr.*,
+        };
+        const name_val = Value.initPayload(&name_val_payload.base);
+        const tag_sym_index = try func.bin_file.lowerUnnamedConst(
+            .{ .ty = name_ty, .val = name_val },
+            enum_decl_index,
+        );
+
+        // block for this if case
+        try writer.writeByte(std.wasm.opcode(.block));
+        try writer.writeByte(std.wasm.block_empty);
+
+        // get actual tag value (stored in 2nd parameter);
+        try writer.writeByte(std.wasm.opcode(.local_get));
+        try leb.writeULEB128(writer, @as(u32, 1));
+
+        var tag_val_payload: Value.Payload.U32 = .{
+            .base = .{ .tag = .enum_field_index },
+            .data = @intCast(u32, field_index),
+        };
+        const tag_value = try func.lowerConstant(Value.initPayload(&tag_val_payload.base), enum_ty);
+
+        switch (tag_value) {
+            .imm32 => |value| {
+                try writer.writeByte(std.wasm.opcode(.i32_const));
+                try leb.writeULEB128(writer, value);
+                try writer.writeByte(std.wasm.opcode(.i32_ne));
+            },
+            .imm64 => |value| {
+                try writer.writeByte(std.wasm.opcode(.i64_const));
+                try leb.writeULEB128(writer, value);
+                try writer.writeByte(std.wasm.opcode(.i64_ne));
+            },
+            else => unreachable,
+        }
+        // if they're not equal, break out of current branch
+        try writer.writeByte(std.wasm.opcode(.br_if));
+        try leb.writeULEB128(writer, @as(u32, 0));
+
+        // store the address of the tagname in the pointer field of the slice
+        // get the address twice so we can also store the length.
+        try writer.writeByte(std.wasm.opcode(.local_get));
+        try leb.writeULEB128(writer, @as(u32, 0));
+        try writer.writeByte(std.wasm.opcode(.local_get));
+        try leb.writeULEB128(writer, @as(u32, 0));
+
+        // get address of tagname and emit a relocation to it
+        if (func.arch() == .wasm32) {
+            const encoded_alignment = @ctz(@as(u32, 4));
+            try writer.writeByte(std.wasm.opcode(.i32_const));
+            try relocs.append(.{
+                .relocation_type = .R_WASM_MEMORY_ADDR_LEB,
+                .offset = @intCast(u32, body_list.items.len),
+                .index = tag_sym_index,
+            });
+            try writer.writeAll(&[_]u8{0} ** 5); // will be relocated
+
+            // store pointer
+            try writer.writeByte(std.wasm.opcode(.i32_store));
+            try leb.writeULEB128(writer, encoded_alignment);
+            try leb.writeULEB128(writer, @as(u32, 0));
+
+            // store length
+            try writer.writeByte(std.wasm.opcode(.i32_const));
+            try leb.writeULEB128(writer, @intCast(u32, tag_name.len));
+            try writer.writeByte(std.wasm.opcode(.i32_store));
+            try leb.writeULEB128(writer, encoded_alignment);
+            try leb.writeULEB128(writer, @as(u32, 4));
+        } else {
+            const encoded_alignment = @ctz(@as(u32, 8));
+            try writer.writeByte(std.wasm.opcode(.i64_const));
+            try relocs.append(.{
+                .relocation_type = .R_WASM_MEMORY_ADDR_LEB64,
+                .offset = @intCast(u32, body_list.items.len),
+                .index = tag_sym_index,
+            });
+            try writer.writeAll(&[_]u8{0} ** 10); // will be relocated
+
+            // store pointer
+            try writer.writeByte(std.wasm.opcode(.i64_store));
+            try leb.writeULEB128(writer, encoded_alignment);
+            try leb.writeULEB128(writer, @as(u32, 0));
+
+            // store length
+            try writer.writeByte(std.wasm.opcode(.i64_const));
+            try leb.writeULEB128(writer, @intCast(u64, tag_name.len));
+            try writer.writeByte(std.wasm.opcode(.i64_store));
+            try leb.writeULEB128(writer, encoded_alignment);
+            try leb.writeULEB128(writer, @as(u32, 8));
+        }
+
+        // break outside blocks
+        try writer.writeByte(std.wasm.opcode(.br));
+        try leb.writeULEB128(writer, @as(u32, 1));
+
+        // end the block for this case
+        try writer.writeByte(std.wasm.opcode(.end));
+    }
+
+    try writer.writeByte(std.wasm.opcode(.@"unreachable")); // tag value does not have a name
+    // finish outer block
+    try writer.writeByte(std.wasm.opcode(.end));
+    // finish function body
+    try writer.writeByte(std.wasm.opcode(.end));
+
+    const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
+    const func_type = try genFunctype(arena, .Unspecified, &.{int_tag_ty}, slice_ty, func.target);
+    return func.bin_file.createFunction(func_name, func_type, &body_list, &relocs);
 }

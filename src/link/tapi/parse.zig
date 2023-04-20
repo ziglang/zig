@@ -40,10 +40,26 @@ pub const Node = struct {
 
     pub fn deinit(self: *Node, allocator: Allocator) void {
         switch (self.tag) {
-            .doc => @fieldParentPtr(Node.Doc, "base", self).deinit(allocator),
-            .map => @fieldParentPtr(Node.Map, "base", self).deinit(allocator),
-            .list => @fieldParentPtr(Node.List, "base", self).deinit(allocator),
-            .value => @fieldParentPtr(Node.Value, "base", self).deinit(allocator),
+            .doc => {
+                const parent = @fieldParentPtr(Node.Doc, "base", self);
+                parent.deinit(allocator);
+                allocator.destroy(parent);
+            },
+            .map => {
+                const parent = @fieldParentPtr(Node.Map, "base", self);
+                parent.deinit(allocator);
+                allocator.destroy(parent);
+            },
+            .list => {
+                const parent = @fieldParentPtr(Node.List, "base", self);
+                parent.deinit(allocator);
+                allocator.destroy(parent);
+            },
+            .value => {
+                const parent = @fieldParentPtr(Node.Value, "base", self);
+                parent.deinit(allocator);
+                allocator.destroy(parent);
+            },
         }
     }
 
@@ -76,7 +92,6 @@ pub const Node = struct {
         pub fn deinit(self: *Doc, allocator: Allocator) void {
             if (self.value) |node| {
                 node.deinit(allocator);
-                allocator.destroy(node);
             }
         }
 
@@ -122,7 +137,6 @@ pub const Node = struct {
             for (self.values.items) |entry| {
                 if (entry.value) |value| {
                     value.deinit(allocator);
-                    allocator.destroy(value);
                 }
             }
             self.values.deinit(allocator);
@@ -163,7 +177,6 @@ pub const Node = struct {
         pub fn deinit(self: *List, allocator: Allocator) void {
             for (self.values.items) |node| {
                 node.deinit(allocator);
-                allocator.destroy(node);
             }
             self.values.deinit(allocator);
         }
@@ -239,7 +252,6 @@ pub const Tree = struct {
         self.line_cols.deinit();
         for (self.docs.items) |doc| {
             doc.deinit(self.allocator);
-            self.allocator.destroy(doc);
         }
         self.docs.deinit(self.allocator);
     }
@@ -386,7 +398,6 @@ const Parser = struct {
         }
         errdefer if (node.value) |val| {
             val.deinit(self.allocator);
-            self.allocator.destroy(val);
         };
 
         // Parse footer
@@ -426,7 +437,6 @@ const Parser = struct {
             for (node.values.items) |entry| {
                 if (entry.value) |val| {
                     val.deinit(self.allocator);
-                    self.allocator.destroy(val);
                 }
             }
             node.values.deinit(self.allocator);
@@ -467,7 +477,6 @@ const Parser = struct {
             const val = try self.value();
             errdefer if (val) |v| {
                 v.deinit(self.allocator);
-                self.allocator.destroy(v);
             };
 
             if (val) |v| {
@@ -503,7 +512,6 @@ const Parser = struct {
         errdefer {
             for (node.values.items) |val| {
                 val.deinit(self.allocator);
-                self.allocator.destroy(val);
             }
             node.values.deinit(self.allocator);
         }
@@ -535,7 +543,6 @@ const Parser = struct {
         errdefer {
             for (node.values.items) |val| {
                 val.deinit(self.allocator);
-                self.allocator.destroy(val);
             }
             node.values.deinit(self.allocator);
         }

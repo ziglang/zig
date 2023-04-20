@@ -493,7 +493,7 @@ pub fn generateSymbol(
                         bin_file.allocator,
                         src_loc,
                         "TODO implement generateSymbol for big int enums ('{}')",
-                        .{typed_value.ty.fmtDebug()},
+                        .{typed_value.ty.fmt(mod)},
                     ),
                 };
             }
@@ -931,7 +931,17 @@ pub const GenResult = union(enum) {
         /// The bit-width of the immediate may be smaller than `u64`. For example, on 32-bit targets
         /// such as ARM, the immediate will never exceed 32-bits.
         immediate: u64,
-        linker_load: LinkerLoad,
+        /// Threadlocal variable with address deferred until the linker allocates
+        /// everything in virtual memory.
+        /// Payload is a symbol index.
+        load_tlv: u32,
+        /// Decl with address deferred until the linker allocates everything in virtual memory.
+        /// Payload is a symbol index.
+        load_direct: u32,
+        /// Decl referenced via GOT with address deferred until the linker allocates
+        /// everything in virtual memory.
+        /// Payload is a symbol index.
+        load_got: u32,
         /// Direct by-address reference to memory location.
         memory: u64,
     };
@@ -957,16 +967,16 @@ fn genDeclRef(
     tv: TypedValue,
     decl_index: Module.Decl.Index,
 ) CodeGenError!GenResult {
-    log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
+    const module = bin_file.options.module.?;
+    log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmt(module), tv.val.fmtValue(tv.ty, module) });
 
     const target = bin_file.options.target;
     const ptr_bits = target.cpu.arch.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
-    const module = bin_file.options.module.?;
     const decl = module.declPtr(decl_index);
 
-    if (decl.ty.zigTypeTag() != .Fn and !decl.ty.hasRuntimeBitsIgnoreComptime()) {
+    if (!decl.ty.isFnOrHasRuntimeBitsIgnoreComptime()) {
         const imm: u64 = switch (ptr_bytes) {
             1 => 0xaa,
             2 => 0xaaaa,
@@ -978,14 +988,20 @@ fn genDeclRef(
     }
 
     // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
-    if (tv.ty.zigTypeTag() == .Pointer) blk: {
-        if (tv.ty.castPtrToFn()) |_| break :blk;
-        if (!tv.ty.elemType2().hasRuntimeBits()) {
-            return GenResult.mcv(.none);
+    if (tv.ty.castPtrToFn()) |fn_ty| {
+        if (fn_ty.fnInfo().is_generic) {
+            return GenResult.mcv(.{ .immediate = fn_ty.abiAlignment(target) });
+        }
+    } else if (tv.ty.zigTypeTag() == .Pointer) {
+        const elem_ty = tv.ty.elemType2();
+        if (!elem_ty.hasRuntimeBits()) {
+            return GenResult.mcv(.{ .immediate = elem_ty.abiAlignment(target) });
         }
     }
 
     module.markDeclAlive(decl);
+
+    const is_threadlocal = tv.val.isPtrToThreadLocal(module) and !bin_file.options.single_threaded;
 
     if (bin_file.cast(link.File.Elf)) |elf_file| {
         const atom_index = try elf_file.getOrCreateAtomForDecl(decl_index);
@@ -994,17 +1010,14 @@ fn genDeclRef(
     } else if (bin_file.cast(link.File.MachO)) |macho_file| {
         const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
-        return GenResult.mcv(.{ .linker_load = .{
-            .type = .got,
-            .sym_index = sym_index,
-        } });
+        if (is_threadlocal) {
+            return GenResult.mcv(.{ .load_tlv = sym_index });
+        }
+        return GenResult.mcv(.{ .load_got = sym_index });
     } else if (bin_file.cast(link.File.Coff)) |coff_file| {
         const atom_index = try coff_file.getOrCreateAtomForDecl(decl_index);
         const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
-        return GenResult.mcv(.{ .linker_load = .{
-            .type = .got,
-            .sym_index = sym_index,
-        } });
+        return GenResult.mcv(.{ .load_got = sym_index });
     } else if (bin_file.cast(link.File.Plan9)) |p9| {
         const decl_block_index = try p9.seeDecl(decl_index);
         const decl_block = p9.getDeclBlock(decl_block_index);
@@ -1021,7 +1034,8 @@ fn genUnnamedConst(
     tv: TypedValue,
     owner_decl_index: Module.Decl.Index,
 ) CodeGenError!GenResult {
-    log.debug("genUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmtDebug(), tv.val.fmtDebug() });
+    const mod = bin_file.options.module.?;
+    log.debug("genUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmt(mod), tv.val.fmtValue(tv.ty, mod) });
 
     const target = bin_file.options.target;
     const local_sym_index = bin_file.lowerUnnamedConst(tv, owner_decl_index) catch |err| {
@@ -1030,15 +1044,9 @@ fn genUnnamedConst(
     if (bin_file.cast(link.File.Elf)) |elf_file| {
         return GenResult.mcv(.{ .memory = elf_file.getSymbol(local_sym_index).st_value });
     } else if (bin_file.cast(link.File.MachO)) |_| {
-        return GenResult.mcv(.{ .linker_load = .{
-            .type = .direct,
-            .sym_index = local_sym_index,
-        } });
+        return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Coff)) |_| {
-        return GenResult.mcv(.{ .linker_load = .{
-            .type = .direct,
-            .sym_index = local_sym_index,
-        } });
+        return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Plan9)) |p9| {
         const ptr_bits = target.cpu.arch.ptrBitWidth();
         const ptr_bytes: u64 = @divExact(ptr_bits, 8);
@@ -1061,7 +1069,11 @@ pub fn genTypedValue(
         typed_value.val = rt.data;
     }
 
-    log.debug("genTypedValue: ty = {}, val = {}", .{ typed_value.ty.fmtDebug(), typed_value.val.fmtDebug() });
+    const mod = bin_file.options.module.?;
+    log.debug("genTypedValue: ty = {}, val = {}", .{
+        typed_value.ty.fmt(mod),
+        typed_value.val.fmtValue(typed_value.ty, mod),
+    });
 
     if (typed_value.val.isUndef())
         return GenResult.mcv(.undef);

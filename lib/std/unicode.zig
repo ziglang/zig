@@ -774,13 +774,13 @@ test "utf8ToUtf16LeWithNull" {
 
 /// Converts a UTF-8 string literal into a UTF-16LE string literal.
 pub fn utf8ToUtf16LeStringLiteral(comptime utf8: []const u8) *const [calcUtf16LeLen(utf8) catch unreachable:0]u16 {
-    comptime {
+    return comptime blk: {
         const len: usize = calcUtf16LeLen(utf8) catch |err| @compileError(err);
         var utf16le: [len:0]u16 = [_:0]u16{0} ** len;
         const utf16le_len = utf8ToUtf16Le(&utf16le, utf8[0..]) catch |err| @compileError(err);
         assert(len == utf16le_len);
-        return &utf16le;
-    }
+        break :blk &utf16le;
+    };
 }
 
 const CalcUtf16LeLenError = Utf8DecodeError || error{Utf8InvalidStartByte};

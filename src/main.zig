@@ -1161,6 +1161,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--debug-log")) {
                         if (!build_options.enable_logging) {
                             std.log.warn("Zig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
+                            _ = args_iter.nextOrFatal();
                         } else {
                             try log_scopes.append(gpa, args_iter.nextOrFatal());
                         }
@@ -1425,7 +1426,7 @@ fn buildOutputType(
                         linker_initial_memory = parseIntSuffix(arg, "--initial-memory=".len);
                     } else if (mem.startsWith(u8, arg, "--max-memory=")) {
                         linker_max_memory = parseIntSuffix(arg, "--max-memory=".len);
-                    } else if (mem.startsWith(u8, arg, "--shared-memory")) {
+                    } else if (mem.eql(u8, arg, "--shared-memory")) {
                         linker_shared_memory = true;
                     } else if (mem.startsWith(u8, arg, "--global-base=")) {
                         linker_global_base = parseIntSuffix(arg, "--global-base=".len);
@@ -1959,16 +1960,23 @@ fn buildOutputType(
                     linker_import_table = true;
                 } else if (mem.eql(u8, arg, "--export-table")) {
                     linker_export_table = true;
-                } else if (mem.startsWith(u8, arg, "--initial-memory=")) {
-                    linker_initial_memory = parseIntSuffix(arg, "--initial-memory=".len);
-                } else if (mem.startsWith(u8, arg, "--max-memory=")) {
-                    linker_max_memory = parseIntSuffix(arg, "--max-memory=".len);
-                } else if (mem.startsWith(u8, arg, "--shared-memory")) {
+                } else if (mem.eql(u8, arg, "--initial-memory")) {
+                    const next_arg = linker_args_it.nextOrFatal();
+                    linker_initial_memory = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
+                        fatal("unable to parse initial memory size '{s}': {s}", .{ next_arg, @errorName(err) });
+                    };
+                } else if (mem.eql(u8, arg, "--max-memory")) {
+                    const next_arg = linker_args_it.nextOrFatal();
+                    linker_max_memory = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
+                        fatal("unable to parse max memory size '{s}': {s}", .{ next_arg, @errorName(err) });
+                    };
+                } else if (mem.eql(u8, arg, "--shared-memory")) {
                     linker_shared_memory = true;
-                } else if (mem.startsWith(u8, arg, "--global-base=")) {
-                    linker_global_base = parseIntSuffix(arg, "--global-base=".len);
-                } else if (mem.startsWith(u8, arg, "--export=")) {
-                    try linker_export_symbol_names.append(arg["--export=".len..]);
+                } else if (mem.eql(u8, arg, "--global-base")) {
+                    const next_arg = linker_args_it.nextOrFatal();
+                    linker_global_base = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
+                        fatal("unable to parse global base '{s}': {s}", .{ next_arg, @errorName(err) });
+                    };
                 } else if (mem.eql(u8, arg, "--export")) {
                     try linker_export_symbol_names.append(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--compress-debug-sections")) {

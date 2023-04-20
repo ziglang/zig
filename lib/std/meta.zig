@@ -549,14 +549,14 @@ test "std.meta.FieldType" {
 }
 
 pub fn fieldNames(comptime T: type) *const [fields(T).len][]const u8 {
-    comptime {
+    return comptime blk: {
         const fieldInfos = fields(T);
         var names: [fieldInfos.len][]const u8 = undefined;
         for (fieldInfos, 0..) |field, i| {
             names[i] = field.name;
         }
-        return &names;
-    }
+        break :blk &names;
+    };
 }
 
 test "std.meta.fieldNames" {
@@ -590,14 +590,14 @@ test "std.meta.fieldNames" {
 /// Given an enum or error set type, returns a pointer to an array containing all tags for that
 /// enum or error set.
 pub fn tags(comptime T: type) *const [fields(T).len]T {
-    comptime {
+    return comptime blk: {
         const fieldInfos = fields(T);
         var res: [fieldInfos.len]T = undefined;
         for (fieldInfos, 0..) |field, i| {
             res[i] = @field(T, field.name);
         }
-        return &res;
-    }
+        break :blk &res;
+    };
 }
 
 test "std.meta.tags" {

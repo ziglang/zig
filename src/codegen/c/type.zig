@@ -1358,6 +1358,7 @@ pub const CType = extern union {
             else if (ty.isAbiInt()) switch (ty.tag()) {
                 .usize => self.init(.uintptr_t),
                 .isize => self.init(.intptr_t),
+                .c_char => self.init(.char),
                 .c_short => self.init(.short),
                 .c_ushort => self.init(.@"unsigned short"),
                 .c_int => self.init(.int),

@@ -748,6 +748,7 @@ pub const cpu = struct {
         .name = "baseline_rv32",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
+            .@"32bit",
             .a,
             .c,
             .d,

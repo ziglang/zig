@@ -32,7 +32,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
 /// Looks up the supplied fields in the given enum type.
 /// Uses only the field names, field values are ignored.
 /// The result array is in the same order as the input.
-pub fn valuesFromFields(comptime E: type, comptime fields: []const EnumField) []const E {
+pub inline fn valuesFromFields(comptime E: type, comptime fields: []const EnumField) []const E {
     comptime {
         var result: [fields.len]E = undefined;
         for (fields, 0..) |f, i| {
@@ -177,9 +177,9 @@ test "std.enums.directEnumArrayDefault slice" {
 /// Cast an enum literal, value, or string to the enum value of type E
 /// with the same name.
 pub fn nameCast(comptime E: type, comptime value: anytype) E {
-    comptime {
+    return comptime blk: {
         const V = @TypeOf(value);
-        if (V == E) return value;
+        if (V == E) break :blk value;
         var name: ?[]const u8 = switch (@typeInfo(V)) {
             .EnumLiteral, .Enum => @tagName(value),
             .Pointer => if (std.meta.trait.isZigString(V)) value else null,
@@ -187,12 +187,12 @@ pub fn nameCast(comptime E: type, comptime value: anytype) E {
         };
         if (name) |n| {
             if (@hasField(E, n)) {
-                return @field(E, n);
+                break :blk @field(E, n);
             }
             @compileError("Enum " ++ @typeName(E) ++ " has no field named " ++ n);
         }
         @compileError("Cannot cast from " ++ @typeName(@TypeOf(value)) ++ " to " ++ @typeName(E));
-    }
+    };
 }
 
 test "std.enums.nameCast" {
