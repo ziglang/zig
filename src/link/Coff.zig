@@ -37,13 +37,14 @@ strtab_offset: ?u32 = null,
 
 temp_strtab: StringTable(.temp_strtab) = .{},
 
-got_entries: std.ArrayListUnmanaged(Entry) = .{},
-got_entries_free_list: std.ArrayListUnmanaged(u32) = .{},
-got_entries_table: std.AutoHashMapUnmanaged(SymbolWithLoc, u32) = .{},
+got_table: TableSection(SymbolWithLoc) = .{},
 
 /// A table of ImportTables partitioned by the library name.
 /// Key is an offset into the interning string table `temp_strtab`.
 import_tables: std.AutoArrayHashMapUnmanaged(u32, ImportTable) = .{},
+
+got_table_count_dirty: bool = true,
+got_table_contents_dirty: bool = true,
 imports_count_dirty: bool = true,
 
 /// Virtual address of the entry point procedure relative to image base.
@@ -188,7 +189,8 @@ pub const PtrWidth = enum {
     p32,
     p64,
 
-    fn abiSize(pw: PtrWidth) u4 {
+    /// Size in bytes.
+    pub fn size(pw: PtrWidth) u4 {
         return switch (pw) {
             .p32 => 4,
             .p64 => 8,
@@ -310,9 +312,7 @@ pub fn deinit(self: *Coff) void {
     self.globals_free_list.deinit(gpa);
     self.strtab.deinit(gpa);
     self.temp_strtab.deinit(gpa);
-    self.got_entries.deinit(gpa);
-    self.got_entries_free_list.deinit(gpa);
-    self.got_entries_table.deinit(gpa);
+    self.got_table.deinit(gpa);
 
     for (self.import_tables.values()) |*itab| {
         itab.deinit(gpa);
@@ -371,7 +371,7 @@ fn populateMissingMetadata(self: *Coff) !void {
     }
 
     if (self.got_section_index == null) {
-        const file_size = @intCast(u32, self.base.options.symbol_count_hint) * self.ptr_width.abiSize();
+        const file_size = @intCast(u32, self.base.options.symbol_count_hint) * self.ptr_width.size();
         self.got_section_index = try self.allocateSection(".got", file_size, .{
             .CNT_INITIALIZED_DATA = 1,
             .MEM_READ = 1,
@@ -396,7 +396,7 @@ fn populateMissingMetadata(self: *Coff) !void {
     }
 
     if (self.idata_section_index == null) {
-        const file_size = @intCast(u32, self.base.options.symbol_count_hint) * self.ptr_width.abiSize();
+        const file_size = @intCast(u32, self.base.options.symbol_count_hint) * self.ptr_width.size();
         self.idata_section_index = try self.allocateSection(".idata", file_size, .{
             .CNT_INITIALIZED_DATA = 1,
             .MEM_READ = 1,
@@ -698,26 +698,11 @@ fn allocateGlobal(self: *Coff) !u32 {
     return index;
 }
 
-pub fn allocateGotEntry(self: *Coff, target: SymbolWithLoc) !u32 {
-    const gpa = self.base.allocator;
-    try self.got_entries.ensureUnusedCapacity(gpa, 1);
-
-    const index: u32 = blk: {
-        if (self.got_entries_free_list.popOrNull()) |index| {
-            log.debug("  (reusing GOT entry index {d})", .{index});
-            break :blk index;
-        } else {
-            log.debug("  (allocating GOT entry at index {d})", .{self.got_entries.items.len});
-            const index = @intCast(u32, self.got_entries.items.len);
-            _ = self.got_entries.addOneAssumeCapacity();
-            break :blk index;
-        }
-    };
-
-    self.got_entries.items[index] = .{ .target = target, .sym_index = 0 };
-    try self.got_entries_table.putNoClobber(gpa, target, index);
-
-    return index;
+fn addGotEntry(self: *Coff, target: SymbolWithLoc) !void {
+    if (self.got_table.lookup.contains(target)) return;
+    const got_index = try self.got_table.allocateEntry(self.base.allocator, target);
+    try self.writeOffsetTableEntry(got_index);
+    self.got_table_count_dirty = true;
 }
 
 pub fn createAtom(self: *Coff) !Atom.Index {
@@ -734,37 +719,6 @@ pub fn createAtom(self: *Coff) !Atom.Index {
         .next_index = null,
     };
     log.debug("creating ATOM(%{d}) at index {d}", .{ sym_index, atom_index });
-    return atom_index;
-}
-
-fn createGotAtom(self: *Coff, target: SymbolWithLoc) !Atom.Index {
-    const atom_index = try self.createAtom();
-    const atom = self.getAtomPtr(atom_index);
-    atom.size = @sizeOf(u64);
-
-    const sym = atom.getSymbolPtr(self);
-    sym.section_number = @intToEnum(coff.SectionNumber, self.got_section_index.? + 1);
-    sym.value = try self.allocateAtom(atom_index, atom.size, @sizeOf(u64));
-
-    log.debug("allocated GOT atom at 0x{x}", .{sym.value});
-
-    try Atom.addRelocation(self, atom_index, .{
-        .type = .direct,
-        .target = target,
-        .offset = 0,
-        .addend = 0,
-        .pcrel = false,
-        .length = 3,
-    });
-
-    const target_sym = self.getSymbol(target);
-    switch (target_sym.section_number) {
-        .UNDEFINED => @panic("TODO generate a binding for undefined GOT target"),
-        .ABSOLUTE => {},
-        .DEBUG => unreachable, // not possible
-        else => try Atom.addBaseRelocation(self, atom_index, 0),
-    }
-
     return atom_index;
 }
 
@@ -873,16 +827,72 @@ fn writeMem(handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []
     if (amt != code.len) return error.InputOutput;
 }
 
-fn writePtrWidthAtom(self: *Coff, atom_index: Atom.Index) !void {
+fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
+    const sect_id = self.got_section_index.?;
+
+    if (self.got_table_count_dirty) {
+        const needed_size = @intCast(u32, self.got_table.entries.items.len * self.ptr_width.size());
+        try self.growSection(sect_id, needed_size);
+        self.got_table_count_dirty = false;
+    }
+
+    const header = &self.sections.items(.header)[sect_id];
+    const entry = self.got_table.entries.items[index];
+    const entry_value = self.getSymbol(entry).value;
+    const entry_offset = index * self.ptr_width.size();
+    const file_offset = header.pointer_to_raw_data + entry_offset;
+    const vmaddr = header.virtual_address + entry_offset;
+
+    log.debug("writing GOT entry {d}: @{x} => {x}", .{ index, vmaddr, entry_value });
+
     switch (self.ptr_width) {
         .p32 => {
-            var buffer: [@sizeOf(u32)]u8 = [_]u8{0} ** @sizeOf(u32);
-            try self.writeAtom(atom_index, &buffer);
+            var buf: [4]u8 = undefined;
+            mem.writeIntLittle(u32, &buf, @intCast(u32, entry_value));
+            try self.base.file.?.pwriteAll(&buf, file_offset);
         },
         .p64 => {
-            var buffer: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64);
-            try self.writeAtom(atom_index, &buffer);
+            var buf: [8]u8 = undefined;
+            mem.writeIntLittle(u64, &buf, entry_value);
+            try self.base.file.?.pwriteAll(&buf, file_offset);
         },
+    }
+
+    if (is_hot_update_compatible) {
+        if (self.base.child_pid) |handle| {
+            const gpa = self.base.allocator;
+            const slide = @ptrToInt(self.hot_state.loaded_base_address.?);
+            const actual_vmaddr = vmaddr + slide;
+            const pvaddr = @intToPtr(*anyopaque, actual_vmaddr);
+            log.debug("writing GOT entry to memory at address {x}", .{actual_vmaddr});
+            if (build_options.enable_logging) {
+                switch (self.ptr_width) {
+                    .p32 => {
+                        var buf: [4]u8 = undefined;
+                        try debugMem(gpa, handle, pvaddr, &buf);
+                    },
+                    .p64 => {
+                        var buf: [8]u8 = undefined;
+                        try debugMem(gpa, handle, pvaddr, &buf);
+                    },
+                }
+            }
+
+            switch (self.ptr_width) {
+                .p32 => {
+                    var buf: [4]u8 = undefined;
+                    writeMem(handle, pvaddr, &buf) catch |err| {
+                        log.warn("writing to protected memory failed with error: {s}", .{@errorName(err)});
+                    };
+                },
+                .p64 => {
+                    var buf: [8]u8 = undefined;
+                    writeMem(handle, pvaddr, &buf) catch |err| {
+                        log.warn("writing to protected memory failed with error: {s}", .{@errorName(err)});
+                    };
+                },
+            }
+        }
     }
 }
 
@@ -902,6 +912,15 @@ fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
             const target_vaddr = reloc.getTargetAddress(self) orelse continue;
             if (target_vaddr < addr) continue;
             reloc.dirty = true;
+        }
+    }
+
+    // TODO: dirty only really affected GOT cells
+    for (self.got_table.entries.items) |entry| {
+        const target_addr = self.getSymbol(entry).value;
+        if (target_addr >= addr) {
+            self.got_table_contents_dirty = true;
+            break;
         }
     }
 }
@@ -994,17 +1013,7 @@ fn freeAtom(self: *Coff, atom_index: Atom.Index) void {
     self.locals_free_list.append(gpa, sym_index) catch {};
 
     // Try freeing GOT atom if this decl had one
-    const got_target = SymbolWithLoc{ .sym_index = sym_index, .file = null };
-    if (self.got_entries_table.get(got_target)) |got_index| {
-        self.got_entries_free_list.append(gpa, @intCast(u32, got_index)) catch {};
-        self.got_entries.items[got_index] = .{
-            .target = .{ .sym_index = 0, .file = null },
-            .sym_index = 0,
-        };
-        _ = self.got_entries_table.remove(got_target);
-
-        log.debug("  adding GOT index {d} to free list (target local@{d})", .{ got_index, sym_index });
-    }
+    self.got_table.freeEntry(gpa, .{ .sym_index = sym_index });
 
     self.locals.items[sym_index].section_number = .UNDEFINED;
     _ = self.atom_by_index_table.remove(sym_index);
@@ -1243,14 +1252,7 @@ fn updateLazySymbolAtom(
     atom.size = code_len;
     symbol.value = vaddr;
 
-    const got_target = SymbolWithLoc{ .sym_index = local_sym_index, .file = null };
-    const got_index = try self.allocateGotEntry(got_target);
-    const got_atom_index = try self.createGotAtom(got_target);
-    const got_atom = self.getAtom(got_atom_index);
-    self.got_entries.items[got_index].sym_index = got_atom.getSymbolIndex().?;
-    try self.writePtrWidthAtom(got_atom_index);
-
-    self.markRelocsDirtyByTarget(atom.getSymbolWithLoc());
+    try self.addGotEntry(.{ .sym_index = local_sym_index });
     try self.writeAtom(atom_index, code);
 }
 
@@ -1321,6 +1323,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, comple
     const decl_metadata = self.decls.get(decl_index).?;
     const atom_index = decl_metadata.atom;
     const atom = self.getAtom(atom_index);
+    const sym_index = atom.getSymbolIndex().?;
     const sect_index = decl_metadata.section;
     const code_len = @intCast(u32, code.len);
 
@@ -1340,10 +1343,8 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, comple
             if (vaddr != sym.value) {
                 sym.value = vaddr;
                 log.debug("  (updating GOT entry)", .{});
-                const got_target = SymbolWithLoc{ .sym_index = atom.getSymbolIndex().?, .file = null };
-                const got_atom_index = self.getGotAtomIndexForSymbol(got_target).?;
-                self.markRelocsDirtyByTarget(got_target);
-                try self.writePtrWidthAtom(got_atom_index);
+                const got_entry_index = self.got_table.lookup.get(.{ .sym_index = sym_index }).?;
+                try self.writeOffsetTableEntry(got_entry_index);
             }
         } else if (code_len < atom.size) {
             self.shrinkAtom(atom_index, code_len);
@@ -1361,15 +1362,9 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, comple
         self.getAtomPtr(atom_index).size = code_len;
         sym.value = vaddr;
 
-        const got_target = SymbolWithLoc{ .sym_index = atom.getSymbolIndex().?, .file = null };
-        const got_index = try self.allocateGotEntry(got_target);
-        const got_atom_index = try self.createGotAtom(got_target);
-        const got_atom = self.getAtom(got_atom_index);
-        self.got_entries.items[got_index].sym_index = got_atom.getSymbolIndex().?;
-        try self.writePtrWidthAtom(got_atom_index);
+        try self.addGotEntry(.{ .sym_index = sym_index });
     }
 
-    self.markRelocsDirtyByTarget(atom.getSymbolWithLoc());
     try self.writeAtom(atom_index, code);
 }
 
@@ -1651,6 +1646,16 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         try self.writeAtom(atom_index, code.items);
     }
 
+    // Update GOT if it got moved in memory.
+    if (self.got_table_contents_dirty) {
+        for (self.got_table.entries.items, 0..) |entry, i| {
+            if (!self.got_table.lookup.contains(entry)) continue;
+            // TODO: write all in one go rather than incrementally.
+            try self.writeOffsetTableEntry(i);
+        }
+        self.got_table_contents_dirty = false;
+    }
+
     try self.writeBaseRelocations();
 
     if (self.getEntryPoint()) |entry_sym_loc| {
@@ -1752,11 +1757,32 @@ fn writeBaseRelocations(self: *Coff) !void {
     while (it.next()) |entry| {
         const atom_index = entry.key_ptr.*;
         const atom = self.getAtom(atom_index);
+        const sym = atom.getSymbol(self);
         const offsets = entry.value_ptr.*;
 
         for (offsets.items) |offset| {
-            const sym = atom.getSymbol(self);
             const rva = sym.value + offset;
+            const page = mem.alignBackwardGeneric(u32, rva, self.page_size);
+            const gop = try pages.getOrPut(page);
+            if (!gop.found_existing) {
+                gop.value_ptr.* = std.ArrayList(coff.BaseRelocation).init(gpa);
+            }
+            try gop.value_ptr.append(.{
+                .offset = @intCast(u12, rva - page),
+                .type = .DIR64,
+            });
+        }
+    }
+
+    {
+        const header = &self.sections.items(.header)[self.got_section_index.?];
+        for (self.got_table.entries.items, 0..) |entry, index| {
+            if (!self.got_table.lookup.contains(entry)) continue;
+
+            const sym = self.getSymbol(entry);
+            if (sym.section_number == .UNDEFINED) continue;
+
+            const rva = @intCast(u32, header.virtual_address + index * self.ptr_width.size());
             const page = mem.alignBackwardGeneric(u32, rva, self.page_size);
             const gop = try pages.getOrPut(page);
             if (!gop.found_existing) {
@@ -2315,14 +2341,6 @@ pub fn getAtomIndexForSymbol(self: *const Coff, sym_loc: SymbolWithLoc) ?Atom.In
     return self.atom_by_index_table.get(sym_loc.sym_index);
 }
 
-/// Returns GOT atom that references `sym_loc` if one exists.
-/// Returns null otherwise.
-pub fn getGotAtomIndexForSymbol(self: *const Coff, sym_loc: SymbolWithLoc) ?Atom.Index {
-    const got_index = self.got_entries_table.get(sym_loc) orelse return null;
-    const got_entry = self.got_entries.items[got_index];
-    return self.getAtomIndexForSymbol(.{ .sym_index = got_entry.sym_index, .file = null });
-}
-
 fn setSectionName(self: *Coff, header: *coff.SectionHeader, name: []const u8) !void {
     if (name.len <= 8) {
         mem.copy(u8, &header.name, name);
@@ -2410,25 +2428,7 @@ fn logSymtab(self: *Coff) void {
     }
 
     log.debug("GOT entries:", .{});
-    for (self.got_entries.items, 0..) |entry, i| {
-        const got_sym = self.getSymbol(.{ .sym_index = entry.sym_index, .file = null });
-        const target_sym = self.getSymbol(entry.target);
-        if (target_sym.section_number == .UNDEFINED) {
-            log.debug("  {d}@{x} => import('{s}')", .{
-                i,
-                got_sym.value,
-                self.getSymbolName(entry.target),
-            });
-        } else {
-            log.debug("  {d}@{x} => local(%{d}) in object({?d}) {s}", .{
-                i,
-                got_sym.value,
-                entry.target.sym_index,
-                entry.target.file,
-                logSymAttributes(target_sym, &buf),
-            });
-        }
-    }
+    log.debug("{}", .{self.got_table});
 }
 
 fn logSections(self: *Coff) void {
@@ -2484,6 +2484,7 @@ const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Module = @import("../Module.zig");
 const Object = @import("Coff/Object.zig");
 const Relocation = @import("Coff/Relocation.zig");
+const TableSection = @import("table_section.zig").TableSection;
 const StringTable = @import("strtab.zig").StringTable;
 const Type = @import("../type.zig").Type;
 const TypedValue = @import("../TypedValue.zig");
