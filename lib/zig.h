@@ -348,8 +348,8 @@ typedef int zig_memory_order;
 #define memory_order_acq_rel 4
 #define memory_order_seq_cst 5
 #define zig_atomic(Type) Type
-#define zig_cmpxchg_strong(     obj, expected, desired, succ, fail, Type, ReprType) res = zig_msvc_cmpxchg_##Type(obj, &(expected), desired)
-#define   zig_cmpxchg_weak(     obj, expected, desired, succ, fail, Type, ReprType) zig_cmpxchg_strong(res, obj, expected, desired, succ, fail, Type)
+#define zig_cmpxchg_strong(     obj, expected, desired, succ, fail, Type, ReprType) zig_msvc_cmpxchg_##Type(obj, &(expected), desired)
+#define   zig_cmpxchg_weak(     obj, expected, desired, succ, fail, Type, ReprType) zig_cmpxchg_strong(obj, expected, desired, succ, fail, Type, ReprType)
 #define zig_atomicrmw_xchg(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_xchg_##Type(obj, arg)
 #define  zig_atomicrmw_add(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_add_ ##Type(obj, arg)
 #define  zig_atomicrmw_sub(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_sub_ ##Type(obj, arg)
