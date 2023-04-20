@@ -1163,9 +1163,13 @@ void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type,
     free(native_triple);
 }
 
-void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module) {
+void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module, bool produce_dwarf64) {
     unwrap(module)->addModuleFlag(Module::Warning, "Debug Info Version", DEBUG_METADATA_VERSION);
     unwrap(module)->addModuleFlag(Module::Warning, "Dwarf Version", 4);
+
+    if (produce_dwarf64) {
+        unwrap(module)->addModuleFlag(Module::Warning, "DWARF64", 1);
+    }
 }
 
 void ZigLLVMAddModuleCodeViewFlag(LLVMModuleRef module) {

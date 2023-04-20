@@ -433,7 +433,7 @@ pub const Object = struct {
         if (!options.strip) {
             switch (options.target.ofmt) {
                 .coff => llvm_module.addModuleCodeViewFlag(),
-                else => llvm_module.addModuleDebugInfoFlag(),
+                else => llvm_module.addModuleDebugInfoFlag(options.dwarf_format == std.dwarf.Format.@"64"),
             }
             const di_builder = llvm_module.createDIBuilder(true);
             opt_di_builder = di_builder;
