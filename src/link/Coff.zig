@@ -492,8 +492,8 @@ fn growSection(self: *Coff, sect_id: u32, needed_size: u32) !void {
 
     const sect_vm_capacity = self.allocatedVirtualSize(header.virtual_address);
     if (needed_size > sect_vm_capacity) {
-        try self.growSectionVirtualMemory(sect_id, needed_size);
         self.markRelocsDirtyByAddress(header.virtual_address + needed_size);
+        try self.growSectionVirtualMemory(sect_id, needed_size);
     }
 
     header.virtual_size = @max(header.virtual_size, needed_size);

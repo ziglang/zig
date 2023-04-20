@@ -73,7 +73,8 @@ pub fn getTargetAddress(self: Relocation, coff_file: *const Coff) ?u32 {
 
 /// Returns true if and only if the reloc is dirty AND the target address is available.
 pub fn isResolvable(self: Relocation, coff_file: *Coff) bool {
-    _ = self.getTargetAddress(coff_file) orelse return false;
+    const addr = self.getTargetAddress(coff_file) orelse return false;
+    if (addr == 0) return false;
     return self.dirty;
 }
 
