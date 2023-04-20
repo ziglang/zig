@@ -255,42 +255,90 @@ typedef char bool;
 
 #if __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)
 #include <stdatomic.h>
-#define zig_atomic(type) _Atomic(type)
-#define zig_cmpxchg_strong(obj, expected, desired, succ, fail, type) atomic_compare_exchange_strong_explicit(obj, &(expected), desired, succ, fail)
-#define   zig_cmpxchg_weak(obj, expected, desired, succ, fail, type) atomic_compare_exchange_weak_explicit  (obj, &(expected), desired, succ, fail)
-#define zig_atomicrmw_xchg(obj, arg, order, type) atomic_exchange_explicit  (obj, arg, order)
-#define  zig_atomicrmw_add(obj, arg, order, type) atomic_fetch_add_explicit (obj, arg, order)
-#define  zig_atomicrmw_sub(obj, arg, order, type) atomic_fetch_sub_explicit (obj, arg, order)
-#define   zig_atomicrmw_or(obj, arg, order, type) atomic_fetch_or_explicit  (obj, arg, order)
-#define  zig_atomicrmw_xor(obj, arg, order, type) atomic_fetch_xor_explicit (obj, arg, order)
-#define  zig_atomicrmw_and(obj, arg, order, type) atomic_fetch_and_explicit (obj, arg, order)
-#define zig_atomicrmw_nand(obj, arg, order, type) __atomic_fetch_nand       (obj, arg, order)
-#define  zig_atomicrmw_min(obj, arg, order, type) __atomic_fetch_min        (obj, arg, order)
-#define  zig_atomicrmw_max(obj, arg, order, type) __atomic_fetch_max        (obj, arg, order)
-#define   zig_atomic_store(obj, arg, order, type) atomic_store_explicit     (obj, arg, order)
-#define    zig_atomic_load(obj,      order, type) atomic_load_explicit      (obj,      order)
+typedef enum memory_order zig_memory_order;
+#define zig_atomic(Type) _Atomic(Type)
+#define zig_cmpxchg_strong(     obj, expected, desired, succ, fail, Type, ReprType) atomic_compare_exchange_strong_explicit(obj, &(expected), desired, succ, fail)
+#define   zig_cmpxchg_weak(     obj, expected, desired, succ, fail, Type, ReprType) atomic_compare_exchange_weak_explicit  (obj, &(expected), desired, succ, fail)
+#define zig_atomicrmw_xchg(res, obj, arg, order, Type, ReprType) res = atomic_exchange_explicit  (obj, arg, order)
+#define  zig_atomicrmw_add(res, obj, arg, order, Type, ReprType) res = atomic_fetch_add_explicit (obj, arg, order)
+#define  zig_atomicrmw_sub(res, obj, arg, order, Type, ReprType) res = atomic_fetch_sub_explicit (obj, arg, order)
+#define   zig_atomicrmw_or(res, obj, arg, order, Type, ReprType) res = atomic_fetch_or_explicit  (obj, arg, order)
+#define  zig_atomicrmw_xor(res, obj, arg, order, Type, ReprType) res = atomic_fetch_xor_explicit (obj, arg, order)
+#define  zig_atomicrmw_and(res, obj, arg, order, Type, ReprType) res = atomic_fetch_and_explicit (obj, arg, order)
+#define zig_atomicrmw_nand(res, obj, arg, order, Type, ReprType) res = __atomic_fetch_nand(obj, arg, order)
+#define  zig_atomicrmw_min(res, obj, arg, order, Type, ReprType) res = __atomic_fetch_min (obj, arg, order)
+#define  zig_atomicrmw_max(res, obj, arg, order, Type, ReprType) res = __atomic_fetch_max (obj, arg, order)
+#define   zig_atomic_store(     obj, arg, order, Type, ReprType)       atomic_store_explicit     (obj, arg, order)
+#define    zig_atomic_load(res, obj,      order, Type, ReprType) res = atomic_load_explicit      (obj,      order)
+#define zig_atomicrmw_xchg_float zig_atomicrmw_xchg
+#define zig_atomicrmw_add_float zig_atomicrmw_add
+#define zig_atomicrmw_sub_float zig_atomicrmw_sub
+#define  zig_atomicrmw_min_float(res, obj, arg, order, Type, ReprType) do { \
+    zig_##Type zig_atomicrmw_desired; \
+    zig_atomic_load(res, obj, order, Type, ReprType); \
+    do { \
+        zig_atomicrmw_desired = zig_libc_name_##Type(fmin)(res, arg); \
+    } while (!zig_cmpxchg_weak(obj, res, zig_atomicrmw_desired, order, memory_order_relaxed, Type, ReprType)); \
+} while (0)
+#define  zig_atomicrmw_max_float(res, obj, arg, order, Type, ReprType) do { \
+    zig_##Type zig_atomicrmw_desired; \
+    zig_atomic_load(res, obj, order, Type, ReprType); \
+    do { \
+        zig_atomicrmw_desired = zig_libc_name_##Type(fmax)(res, arg); \
+    } while (!zig_cmpxchg_weak(obj, res, zig_atomicrmw_desired, order, memory_order_relaxed, Type, ReprType)); \
+} while (0)
 #define zig_fence(order) atomic_thread_fence(order)
 #elif defined(__GNUC__)
+typedef int zig_memory_order;
 #define memory_order_relaxed __ATOMIC_RELAXED
 #define memory_order_consume __ATOMIC_CONSUME
 #define memory_order_acquire __ATOMIC_ACQUIRE
 #define memory_order_release __ATOMIC_RELEASE
 #define memory_order_acq_rel __ATOMIC_ACQ_REL
 #define memory_order_seq_cst __ATOMIC_SEQ_CST
-#define zig_atomic(type) type
-#define zig_cmpxchg_strong(obj, expected, desired, succ, fail, type) __atomic_compare_exchange_n(obj, &(expected), desired, false, succ, fail)
-#define   zig_cmpxchg_weak(obj, expected, desired, succ, fail, type) __atomic_compare_exchange_n(obj, &(expected), desired, true , succ, fail)
-#define zig_atomicrmw_xchg(obj, arg, order, type) __atomic_exchange_n(obj, arg, order)
-#define  zig_atomicrmw_add(obj, arg, order, type) __atomic_fetch_add (obj, arg, order)
-#define  zig_atomicrmw_sub(obj, arg, order, type) __atomic_fetch_sub (obj, arg, order)
-#define   zig_atomicrmw_or(obj, arg, order, type) __atomic_fetch_or  (obj, arg, order)
-#define  zig_atomicrmw_xor(obj, arg, order, type) __atomic_fetch_xor (obj, arg, order)
-#define  zig_atomicrmw_and(obj, arg, order, type) __atomic_fetch_and (obj, arg, order)
-#define zig_atomicrmw_nand(obj, arg, order, type) __atomic_fetch_nand(obj, arg, order)
-#define  zig_atomicrmw_min(obj, arg, order, type) __atomic_fetch_min (obj, arg, order)
-#define  zig_atomicrmw_max(obj, arg, order, type) __atomic_fetch_max (obj, arg, order)
-#define   zig_atomic_store(obj, arg, order, type) __atomic_store_n   (obj, arg, order)
-#define    zig_atomic_load(obj,      order, type) __atomic_load_n    (obj,      order)
+#define zig_atomic(Type) Type
+#define zig_cmpxchg_strong(     obj, expected, desired, succ, fail, Type, ReprType) __atomic_compare_exchange(obj, &(expected), &(desired), false, succ, fail)
+#define   zig_cmpxchg_weak(     obj, expected, desired, succ, fail, Type, ReprType) __atomic_compare_exchange(obj, &(expected), &(desired),  true, succ, fail)
+#define zig_atomicrmw_xchg(res, obj, arg, order, Type, ReprType)       __atomic_exchange(obj, &(arg), &(res), order)
+#define  zig_atomicrmw_add(res, obj, arg, order, Type, ReprType) res = __atomic_fetch_add (obj, arg, order)
+#define  zig_atomicrmw_sub(res, obj, arg, order, Type, ReprType) res = __atomic_fetch_sub (obj, arg, order)
+#define   zig_atomicrmw_or(res, obj, arg, order, Type, ReprType) res = __atomic_fetch_or  (obj, arg, order)
+#define  zig_atomicrmw_xor(res, obj, arg, order, Type, ReprType) res = __atomic_fetch_xor (obj, arg, order)
+#define  zig_atomicrmw_and(res, obj, arg, order, Type, ReprType) res = __atomic_fetch_and (obj, arg, order)
+#define zig_atomicrmw_nand(res, obj, arg, order, Type, ReprType) res = __atomic_fetch_nand(obj, arg, order)
+#define  zig_atomicrmw_min(res, obj, arg, order, Type, ReprType) res = __atomic_fetch_min (obj, arg, order)
+#define  zig_atomicrmw_max(res, obj, arg, order, Type, ReprType) res = __atomic_fetch_max (obj, arg, order)
+#define   zig_atomic_store(     obj, arg, order, Type, ReprType)       __atomic_store     (obj, &(arg), order)
+#define    zig_atomic_load(res, obj,      order, Type, ReprType)       __atomic_load      (obj, &(res), order)
+#define zig_atomicrmw_xchg_float zig_atomicrmw_xchg
+#define  zig_atomicrmw_add_float(res, obj, arg, order, Type, ReprType) do { \
+    zig_##Type zig_atomicrmw_desired; \
+    zig_atomic_load(res, obj, order, Type, ReprType); \
+    do { \
+        zig_atomicrmw_desired = (res) + (arg); \
+    } while (!zig_cmpxchg_weak(obj, res, zig_atomicrmw_desired, order, memory_order_relaxed, Type, ReprType)); \
+} while (0)
+#define  zig_atomicrmw_sub_float(res, obj, arg, order, Type, ReprType) do { \
+    zig_##Type zig_atomicrmw_desired; \
+    zig_atomic_load(res, obj, order, Type, ReprType); \
+    do { \
+        zig_atomicrmw_desired = (res) - (arg); \
+    } while (!zig_cmpxchg_weak(obj, res, zig_atomicrmw_desired, order, memory_order_relaxed, Type, ReprType)); \
+} while (0)
+#define  zig_atomicrmw_min_float(res, obj, arg, order, Type, ReprType) do { \
+    zig_##Type zig_atomicrmw_desired; \
+    zig_atomic_load(res, obj, order, Type, ReprType); \
+    do { \
+        zig_atomicrmw_desired = zig_libc_name_##Type(fmin)(res, arg); \
+    } while (!zig_cmpxchg_weak(obj, res, zig_atomicrmw_desired, order, memory_order_relaxed, Type, ReprType)); \
+} while (0)
+#define  zig_atomicrmw_max_float(res, obj, arg, order, Type, ReprType) do { \
+    zig_##Type zig_atomicrmw_desired; \
+    zig_atomic_load(res, obj, order, Type, ReprType); \
+    do { \
+        zig_atomicrmw_desired = zig_libc_name_##Type(fmax)(res, arg); \
+    } while (!zig_cmpxchg_weak(obj, res, zig_atomicrmw_desired, order, memory_order_relaxed, Type, ReprType)); \
+} while (0)
 #define zig_fence(order) __atomic_thread_fence(order)
 #elif _MSC_VER && (_M_IX86 || _M_X64)
 #define memory_order_relaxed 0
@@ -299,20 +347,25 @@ typedef char bool;
 #define memory_order_release 3
 #define memory_order_acq_rel 4
 #define memory_order_seq_cst 5
-#define zig_atomic(type) type
-#define zig_cmpxchg_strong(obj, expected, desired, succ, fail, type) zig_expand_concat(zig_msvc_cmpxchg_, type)(obj, &(expected), desired)
-#define   zig_cmpxchg_weak(obj, expected, desired, succ, fail, type) zig_cmpxchg_strong(obj, expected, desired, succ, fail, type)
-#define zig_atomicrmw_xchg(obj, arg, order, type) zig_expand_concat(zig_msvc_atomicrmw_xchg_, type)(obj, arg)
-#define  zig_atomicrmw_add(obj, arg, order, type) zig_expand_concat(zig_msvc_atomicrmw_add_, type)(obj, arg)
-#define  zig_atomicrmw_sub(obj, arg, order, type) zig_expand_concat(zig_msvc_atomicrmw_sub_, type)(obj, arg)
-#define   zig_atomicrmw_or(obj, arg, order, type) zig_expand_concat(zig_msvc_atomicrmw_or_, type)(obj, arg)
-#define  zig_atomicrmw_xor(obj, arg, order, type) zig_expand_concat(zig_msvc_atomicrmw_xor_, type)(obj, arg)
-#define  zig_atomicrmw_and(obj, arg, order, type) zig_expand_concat(zig_msvc_atomicrmw_and_, type)(obj, arg)
-#define zig_atomicrmw_nand(obj, arg, order, type) zig_expand_concat(zig_msvc_atomicrmw_nand_, type)(obj, arg)
-#define  zig_atomicrmw_min(obj, arg, order, type) zig_expand_concat(zig_msvc_atomicrmw_min_, type)(obj, arg)
-#define  zig_atomicrmw_max(obj, arg, order, type) zig_expand_concat(zig_msvc_atomicrmw_max_, type)(obj, arg)
-#define   zig_atomic_store(obj, arg, order, type) zig_expand_concat(zig_msvc_atomic_store_, type)(obj, arg)
-#define    zig_atomic_load(obj,      order, type) zig_expand_concat(zig_msvc_atomic_load_, type)(obj)
+#define zig_atomic(Type) Type
+#define zig_cmpxchg_strong(     obj, expected, desired, succ, fail, Type, ReprType) res = zig_msvc_cmpxchg_##Type(obj, &(expected), desired)
+#define   zig_cmpxchg_weak(     obj, expected, desired, succ, fail, Type, ReprType) zig_cmpxchg_strong(res, obj, expected, desired, succ, fail, Type)
+#define zig_atomicrmw_xchg(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_xchg_##Type(obj, arg)
+#define  zig_atomicrmw_add(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_add_ ##Type(obj, arg)
+#define  zig_atomicrmw_sub(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_sub_ ##Type(obj, arg)
+#define   zig_atomicrmw_or(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_or_  ##Type(obj, arg)
+#define  zig_atomicrmw_xor(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_xor_ ##Type(obj, arg)
+#define  zig_atomicrmw_and(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_and_ ##Type(obj, arg)
+#define zig_atomicrmw_nand(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_nand_##Type(obj, arg)
+#define  zig_atomicrmw_min(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_min_ ##Type(obj, arg)
+#define  zig_atomicrmw_max(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_max_ ##Type(obj, arg)
+#define   zig_atomic_store(     obj, arg, order, Type, ReprType)       zig_msvc_atomic_store_  ##Type(obj, arg)
+#define    zig_atomic_load(res, obj,      order, Type, ReprType) res = zig_msvc_atomic_load_   ##Type(obj)
+#define zig_atomicrmw_xchg_float zig_atomicrmw_xchg
+#define zig_atomicrmw_add_float zig_atomicrmw_add
+#define zig_atomicrmw_sub_float zig_atomicrmw_sub
+#define zig_atomicrmw_min_float zig_atomicrmw_min
+#define zig_atomicrmw_max_float zig_atomicrmw_max
 #if _M_X64
 #define zig_fence(order) __faststorefence()
 #else
@@ -327,21 +380,25 @@ typedef char bool;
 #define memory_order_release 3
 #define memory_order_acq_rel 4
 #define memory_order_seq_cst 5
-#define zig_atomic(type) type
-#define zig_cmpxchg_strong(obj, expected, desired, succ, fail, type) zig_unimplemented()
-#define   zig_cmpxchg_weak(obj, expected, desired, succ, fail, type) zig_unimplemented()
-#define zig_atomicrmw_xchg(obj, arg, order, type) zig_unimplemented()
-#define  zig_atomicrmw_add(obj, arg, order, type) zig_unimplemented()
-#define  zig_atomicrmw_sub(obj, arg, order, type) zig_unimplemented()
-#define   zig_atomicrmw_or(obj, arg, order, type) zig_unimplemented()
-#define  zig_atomicrmw_xor(obj, arg, order, type) zig_unimplemented()
-#define  zig_atomicrmw_and(obj, arg, order, type) zig_unimplemented()
-#define zig_atomicrmw_nand(obj, arg, order, type) zig_unimplemented()
-#define  zig_atomicrmw_min(obj, arg, order, type) zig_unimplemented()
-#define  zig_atomicrmw_max(obj, arg, order, type) zig_unimplemented()
-#define   zig_atomic_store(obj, arg, order, type) zig_unimplemented()
-#define    zig_atomic_load(obj,      order, type) zig_unimplemented()
-#define zig_fence(order) zig_unimplemented()
+#define zig_atomic(Type) Type
+#define zig_cmpxchg_strong(     obj, expected, desired, succ, fail, Type, ReprType) zig_atomics_unavailable
+#define   zig_cmpxchg_weak(     obj, expected, desired, succ, fail, Type, ReprType) zig_atomics_unavailable
+#define zig_atomicrmw_xchg(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
+#define  zig_atomicrmw_add(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
+#define  zig_atomicrmw_sub(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
+#define   zig_atomicrmw_or(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
+#define  zig_atomicrmw_xor(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
+#define  zig_atomicrmw_and(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
+#define zig_atomicrmw_nand(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
+#define  zig_atomicrmw_min(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
+#define  zig_atomicrmw_max(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
+#define   zig_atomic_store(     obj, arg, order, Type, ReprType) zig_atomics_unavailable
+#define    zig_atomic_load(res, obj,      order, Type, ReprType) zig_atomics_unavailable
+#define zig_atomicrmw_add_float(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
+#define zig_atomicrmw_sub_float(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
+#define zig_atomicrmw_min_float(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
+#define zig_atomicrmw_max_float(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
+#define zig_fence(order) zig_fence_unavailable
 #endif
 
 #if __STDC_VERSION__ >= 201112L
@@ -3461,6 +3518,8 @@ zig_float_builtins(64)
 zig_float_builtins(80)
 zig_float_builtins(128)
 
+/* ============================ Atomics Support ============================= */
+
 #if _MSC_VER && (_M_IX86 || _M_X64)
 
 // TODO: zig_msvc_atomic_load should load 32 bit without interlocked on x86, and load 64 bit without interlocked on x64
@@ -3594,6 +3653,28 @@ zig_msvc_atomics(i64,  int64_t, __int64, 64)
         memcpy(&expected, &repr, sizeof(expected)); \
         do { \
             desired = expected - value; \
+        } while (!zig_msvc_cmpxchg_##Type(obj, &expected, desired)); \
+        return expected; \
+    } \
+    static inline zig_##Type zig_msvc_atomicrmw_min_##Type(zig_##Type volatile* obj, zig_##Type value) { \
+        ReprType repr; \
+        zig_##Type expected; \
+        zig_##Type desired; \
+        repr = *(ReprType volatile*)obj; \
+        memcpy(&expected, &repr, sizeof(expected)); \
+        do { \
+            desired = zig_libc_name_##Type(fmin)(expected, value); \
+        } while (!zig_msvc_cmpxchg_##Type(obj, &expected, desired)); \
+        return expected; \
+    } \
+    static inline zig_##Type zig_msvc_atomicrmw_max_##Type(zig_##Type volatile* obj, zig_##Type value) { \
+        ReprType repr; \
+        zig_##Type expected; \
+        zig_##Type desired; \
+        repr = *(ReprType volatile*)obj; \
+        memcpy(&expected, &repr, sizeof(expected)); \
+        do { \
+            desired = zig_libc_name_##Type(fmax)(expected, value); \
         } while (!zig_msvc_cmpxchg_##Type(obj, &expected, desired)); \
         return expected; \
     }

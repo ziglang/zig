@@ -209,15 +209,7 @@ test "atomicrmw with floats" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
-    if (builtin.zig_backend == .stage2_c) {
-        // TODO: test.c:34929:7: error: address argument to atomic operation must be a pointer to integer or pointer ('zig_f32 *' (aka 'float *') invalid
-        // when compiling with -std=c99 -pedantic
-        return error.SkipZigTest;
-    }
-
-    if ((builtin.zig_backend == .stage2_llvm or builtin.zig_backend == .stage2_c) and
-        builtin.cpu.arch == .aarch64)
-    {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/10627
         return error.SkipZigTest;
     }
@@ -234,6 +226,10 @@ fn testAtomicRmwFloat() !void {
     try expect(x == 6);
     _ = @atomicRmw(f32, &x, .Sub, 2, .SeqCst);
     try expect(x == 4);
+    _ = @atomicRmw(f32, &x, .Max, 13, .SeqCst);
+    try expect(x == 13);
+    _ = @atomicRmw(f32, &x, .Min, 42, .SeqCst);
+    try expect(x == 13);
 }
 
 test "atomicrmw with ints" {
@@ -241,10 +237,6 @@ test "atomicrmw with ints" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-
-    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
-        return error.SkipZigTest;
-    }
 
     try testAtomicRmwInts();
     comptime try testAtomicRmwInts();
@@ -389,10 +381,6 @@ test "atomics with different types" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-
-    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch == .aarch64) {
-        return error.SkipZigTest;
-    }
 
     try testAtomicsWithType(bool, true, false);
 

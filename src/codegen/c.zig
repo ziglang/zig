@@ -45,9 +45,6 @@ pub const CValue = union(enum) {
     identifier: []const u8,
     /// Render the slice as an payload.identifier (using fmtIdent)
     payload_identifier: []const u8,
-    /// Render these bytes literally.
-    /// TODO make this a [*:0]const u8 to save memory
-    bytes: []const u8,
 };
 
 const BlockData = struct {
@@ -1770,7 +1767,6 @@ pub const DeclGen = struct {
                 fmtIdent("payload"),
                 fmtIdent(ident),
             }),
-            .bytes => |bytes| return w.writeAll(bytes),
         }
     }
 
@@ -1799,11 +1795,6 @@ pub const DeclGen = struct {
                 fmtIdent("payload"),
                 fmtIdent(ident),
             }),
-            .bytes => |bytes| {
-                try w.writeAll("(*");
-                try w.writeAll(bytes);
-                return w.writeByte(')');
-            },
         }
     }
 
@@ -1816,7 +1807,7 @@ pub const DeclGen = struct {
     fn writeCValueDerefMember(dg: *DeclGen, writer: anytype, c_value: CValue, member: CValue) !void {
         switch (c_value) {
             .none, .constant, .field, .undef => unreachable,
-            .new_local, .local, .arg, .arg_array, .decl, .identifier, .payload_identifier, .bytes => {
+            .new_local, .local, .arg, .arg_array, .decl, .identifier, .payload_identifier => {
                 try dg.writeCValue(writer, c_value);
                 try writer.writeAll("->");
             },
@@ -5959,15 +5950,29 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
     try reap(f, inst, &.{ extra.ptr, extra.expected_value, extra.new_value });
     const writer = f.object.writer();
     const ptr_ty = f.air.typeOf(extra.ptr);
+    const ty = ptr_ty.childType();
+
+    const target = f.object.dg.module.getTarget();
+    var repr_pl = Type.Payload.Bits{
+        .base = .{ .tag = .int_unsigned },
+        .data = @intCast(u16, ty.abiSize(target) * 8),
+    };
+    const repr_ty = if (ty.isRuntimeFloat()) Type.initPayload(&repr_pl.base) else ty;
+
+    const new_value_mat = try Materialize.start(f, inst, writer, ty, new_value);
     const local = try f.allocLocal(inst, inst_ty);
     if (inst_ty.isPtrLikeOptional()) {
-        try f.writeCValue(writer, local, .Other);
-        try writer.writeAll(" = ");
-        try f.writeCValue(writer, expected_value, .Initializer);
-        try writer.writeAll(";\n");
+        {
+            const a = try Assignment.start(f, writer, ty);
+            try f.writeCValue(writer, local, .Other);
+            try a.assign(f, writer);
+            try f.writeCValue(writer, expected_value, .Other);
+            try a.end(f, writer);
+        }
+
         try writer.writeAll("if (");
         try writer.print("zig_cmpxchg_{s}((zig_atomic(", .{flavor});
-        try f.renderType(writer, ptr_ty.childType());
+        try f.renderType(writer, ty);
         try writer.writeByte(')');
         if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
         try writer.writeAll(" *)");
@@ -5975,45 +5980,62 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
         try writer.writeAll(", ");
         try f.writeCValue(writer, local, .FunctionArgument);
         try writer.writeAll(", ");
-        try f.writeCValue(writer, new_value, .FunctionArgument);
+        try new_value_mat.mat(f, writer);
         try writer.writeAll(", ");
         try writeMemoryOrder(writer, extra.successOrder());
         try writer.writeAll(", ");
         try writeMemoryOrder(writer, extra.failureOrder());
         try writer.writeAll(", ");
-        try f.object.dg.renderTypeForBuiltinFnName(writer, ptr_ty.childType());
+        try f.object.dg.renderTypeForBuiltinFnName(writer, ty);
+        try writer.writeAll(", ");
+        try f.object.dg.renderType(writer, repr_ty);
         try writer.writeByte(')');
         try writer.writeAll(") {\n");
         f.object.indent_writer.pushIndent();
-        try f.writeCValue(writer, local, .Other);
-        try writer.writeAll(" = NULL;\n");
+        {
+            const a = try Assignment.start(f, writer, ty);
+            try f.writeCValue(writer, local, .Other);
+            try a.assign(f, writer);
+            try writer.writeAll("NULL");
+            try a.end(f, writer);
+        }
         f.object.indent_writer.popIndent();
         try writer.writeAll("}\n");
     } else {
-        try f.writeCValue(writer, local, .Other);
-        try writer.writeAll(".payload = ");
-        try f.writeCValue(writer, expected_value, .Other);
-        try writer.writeAll(";\n");
-        try f.writeCValue(writer, local, .Other);
-        try writer.print(".is_null = zig_cmpxchg_{s}((zig_atomic(", .{flavor});
-        try f.renderType(writer, ptr_ty.childType());
-        try writer.writeByte(')');
-        if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
-        try writer.writeAll(" *)");
-        try f.writeCValue(writer, ptr, .Other);
-        try writer.writeAll(", ");
-        try f.writeCValueMember(writer, local, .{ .identifier = "payload" });
-        try writer.writeAll(", ");
-        try f.writeCValue(writer, new_value, .FunctionArgument);
-        try writer.writeAll(", ");
-        try writeMemoryOrder(writer, extra.successOrder());
-        try writer.writeAll(", ");
-        try writeMemoryOrder(writer, extra.failureOrder());
-        try writer.writeAll(", ");
-        try f.object.dg.renderTypeForBuiltinFnName(writer, ptr_ty.childType());
-        try writer.writeByte(')');
-        try writer.writeAll(";\n");
+        {
+            const a = try Assignment.start(f, writer, ty);
+            try f.writeCValueMember(writer, local, .{ .identifier = "payload" });
+            try a.assign(f, writer);
+            try f.writeCValue(writer, expected_value, .Other);
+            try a.end(f, writer);
+        }
+        {
+            const a = try Assignment.start(f, writer, Type.bool);
+            try f.writeCValueMember(writer, local, .{ .identifier = "is_null" });
+            try a.assign(f, writer);
+            try writer.print("zig_cmpxchg_{s}((zig_atomic(", .{flavor});
+            try f.renderType(writer, ty);
+            try writer.writeByte(')');
+            if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
+            try writer.writeAll(" *)");
+            try f.writeCValue(writer, ptr, .Other);
+            try writer.writeAll(", ");
+            try f.writeCValueMember(writer, local, .{ .identifier = "payload" });
+            try writer.writeAll(", ");
+            try new_value_mat.mat(f, writer);
+            try writer.writeAll(", ");
+            try writeMemoryOrder(writer, extra.successOrder());
+            try writer.writeAll(", ");
+            try writeMemoryOrder(writer, extra.failureOrder());
+            try writer.writeAll(", ");
+            try f.object.dg.renderTypeForBuiltinFnName(writer, ty);
+            try writer.writeAll(", ");
+            try f.object.dg.renderType(writer, repr_ty);
+            try writer.writeByte(')');
+            try a.end(f, writer);
+        }
     }
+    try new_value_mat.end(f, inst);
 
     if (f.liveness.isUnused(inst)) {
         try freeLocal(f, inst, local.new_local, 0);
@@ -6028,35 +6050,42 @@ fn airAtomicRmw(f: *Function, inst: Air.Inst.Index) !CValue {
     const extra = f.air.extraData(Air.AtomicRmw, pl_op.payload).data;
     const inst_ty = f.air.typeOfIndex(inst);
     const ptr_ty = f.air.typeOf(pl_op.operand);
+    const ty = ptr_ty.childType();
     const ptr = try f.resolveInst(pl_op.operand);
     const operand = try f.resolveInst(extra.operand);
     try reap(f, inst, &.{ pl_op.operand, extra.operand });
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
 
+    const target = f.object.dg.module.getTarget();
+    var repr_pl = Type.Payload.Bits{
+        .base = .{ .tag = .int_unsigned },
+        .data = @intCast(u16, ty.abiSize(target) * 8),
+    };
+    const is_float = ty.isRuntimeFloat();
+    const repr_ty = if (is_float) Type.initPayload(&repr_pl.base) else ty;
+
+    const operand_mat = try Materialize.start(f, inst, writer, ty, operand);
+    try writer.print("zig_atomicrmw_{s}", .{toAtomicRmwSuffix(extra.op())});
+    if (is_float) try writer.writeAll("_float");
+    try writer.writeByte('(');
     try f.writeCValue(writer, local, .Other);
-    try writer.print(" = zig_atomicrmw_{s}((", .{toAtomicRmwSuffix(extra.op())});
-    switch (extra.op()) {
-        else => {
-            try writer.writeAll("zig_atomic(");
-            try f.renderType(writer, ptr_ty.elemType());
-            try writer.writeByte(')');
-        },
-        .Nand, .Min, .Max => {
-            // These are missing from stdatomic.h, so no atomic types for now.
-            try f.renderType(writer, ptr_ty.elemType());
-        },
-    }
+    try writer.writeAll(", (zig_atomic(");
+    try f.renderType(writer, ty);
+    try writer.writeByte(')');
     if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
     try writer.writeAll(" *)");
     try f.writeCValue(writer, ptr, .Other);
     try writer.writeAll(", ");
-    try f.writeCValue(writer, operand, .FunctionArgument);
+    try operand_mat.mat(f, writer);
     try writer.writeAll(", ");
     try writeMemoryOrder(writer, extra.ordering());
     try writer.writeAll(", ");
-    try f.object.dg.renderTypeForBuiltinFnName(writer, ptr_ty.childType());
+    try f.object.dg.renderTypeForBuiltinFnName(writer, ty);
+    try writer.writeAll(", ");
+    try f.object.dg.renderType(writer, repr_ty);
     try writer.writeAll(");\n");
+    try operand_mat.end(f, inst);
 
     if (f.liveness.isUnused(inst)) {
         try freeLocal(f, inst, local.new_local, 0);
@@ -6071,14 +6100,23 @@ fn airAtomicLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     const ptr = try f.resolveInst(atomic_load.ptr);
     try reap(f, inst, &.{atomic_load.ptr});
     const ptr_ty = f.air.typeOf(atomic_load.ptr);
+    const ty = ptr_ty.childType();
+
+    const target = f.object.dg.module.getTarget();
+    var repr_pl = Type.Payload.Bits{
+        .base = .{ .tag = .int_unsigned },
+        .data = @intCast(u16, ty.abiSize(target) * 8),
+    };
+    const repr_ty = if (ty.isRuntimeFloat()) Type.initPayload(&repr_pl.base) else ty;
 
     const inst_ty = f.air.typeOfIndex(inst);
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
-    try f.writeCValue(writer, local, .Other);
 
-    try writer.writeAll(" = zig_atomic_load((zig_atomic(");
-    try f.renderType(writer, ptr_ty.elemType());
+    try writer.writeAll("zig_atomic_load(");
+    try f.writeCValue(writer, local, .Other);
+    try writer.writeAll(", (zig_atomic(");
+    try f.renderType(writer, ty);
     try writer.writeByte(')');
     if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
     try writer.writeAll(" *)");
@@ -6086,7 +6124,9 @@ fn airAtomicLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(", ");
     try writeMemoryOrder(writer, atomic_load.order);
     try writer.writeAll(", ");
-    try f.object.dg.renderTypeForBuiltinFnName(writer, ptr_ty.childType());
+    try f.object.dg.renderTypeForBuiltinFnName(writer, ty);
+    try writer.writeAll(", ");
+    try f.object.dg.renderType(writer, repr_ty);
     try writer.writeAll(");\n");
 
     return local;
@@ -6095,22 +6135,34 @@ fn airAtomicLoad(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airAtomicStore(f: *Function, inst: Air.Inst.Index, order: [*:0]const u8) !CValue {
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
     const ptr_ty = f.air.typeOf(bin_op.lhs);
+    const ty = ptr_ty.childType();
     const ptr = try f.resolveInst(bin_op.lhs);
     const element = try f.resolveInst(bin_op.rhs);
     try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
     const writer = f.object.writer();
 
+    const target = f.object.dg.module.getTarget();
+    var repr_pl = Type.Payload.Bits{
+        .base = .{ .tag = .int_unsigned },
+        .data = @intCast(u16, ty.abiSize(target) * 8),
+    };
+    const repr_ty = if (ty.isRuntimeFloat()) Type.initPayload(&repr_pl.base) else ty;
+
+    const element_mat = try Materialize.start(f, inst, writer, ty, element);
     try writer.writeAll("zig_atomic_store((zig_atomic(");
-    try f.renderType(writer, ptr_ty.elemType());
+    try f.renderType(writer, ty);
     try writer.writeByte(')');
     if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
     try writer.writeAll(" *)");
     try f.writeCValue(writer, ptr, .Other);
     try writer.writeAll(", ");
-    try f.writeCValue(writer, element, .FunctionArgument);
+    try element_mat.mat(f, writer);
     try writer.print(", {s}, ", .{order});
-    try f.object.dg.renderTypeForBuiltinFnName(writer, ptr_ty.childType());
+    try f.object.dg.renderTypeForBuiltinFnName(writer, ty);
+    try writer.writeAll(", ");
+    try f.object.dg.renderType(writer, repr_ty);
     try writer.writeAll(");\n");
+    try element_mat.end(f, inst);
 
     return .none;
 }
@@ -7369,6 +7421,45 @@ fn formatIntLiteral(
     }
     try data.cty.renderLiteralSuffix(writer);
 }
+
+const Materialize = struct {
+    local: CValue,
+
+    pub fn start(
+        f: *Function,
+        inst: Air.Inst.Index,
+        writer: anytype,
+        ty: Type,
+        value: CValue,
+    ) !Materialize {
+        switch (value) {
+            .local_ref, .constant, .decl_ref, .undef => {
+                const local = try f.allocLocal(inst, ty);
+
+                const a = try Assignment.start(f, writer, ty);
+                try f.writeCValue(writer, local, .Other);
+                try a.assign(f, writer);
+                try f.writeCValue(writer, value, .Other);
+                try a.end(f, writer);
+
+                return .{ .local = local };
+            },
+            .new_local => |local| return .{ .local = .{ .local = local } },
+            else => return .{ .local = value },
+        }
+    }
+
+    pub fn mat(self: Materialize, f: *Function, writer: anytype) !void {
+        try f.writeCValue(writer, self.local, .Other);
+    }
+
+    pub fn end(self: Materialize, f: *Function, inst: Air.Inst.Index) !void {
+        switch (self.local) {
+            .new_local => |local| try freeLocal(f, inst, local, 0),
+            else => {},
+        }
+    }
+};
 
 const Assignment = struct {
     cty: CType.Index,
