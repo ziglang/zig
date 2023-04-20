@@ -697,6 +697,7 @@ fn addGotEntry(self: *Coff, target: SymbolWithLoc) !void {
     const got_index = try self.got_table.allocateEntry(self.base.allocator, target);
     try self.writeOffsetTableEntry(got_index);
     self.got_table_count_dirty = true;
+    self.markRelocsDirtyByTarget(target);
 }
 
 pub fn createAtom(self: *Coff) !Atom.Index {
@@ -1341,6 +1342,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, comple
                 log.debug("  (updating GOT entry)", .{});
                 const got_entry_index = self.got_table.lookup.get(.{ .sym_index = sym_index }).?;
                 try self.writeOffsetTableEntry(got_entry_index);
+                self.markRelocsDirtyByTarget(.{ .sym_index = sym_index });
             }
         } else if (code_len < atom.size) {
             self.shrinkAtom(atom_index, code_len);
