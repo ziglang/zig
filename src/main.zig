@@ -1357,9 +1357,9 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-strip")) {
                         strip = false;
                     } else if (mem.eql(u8, arg, "-gdwarf32")) {
-                        dwarf_format = .dwarf32;
+                        dwarf_format = .@"32";
                     } else if (mem.eql(u8, arg, "-gdwarf64")) {
-                        dwarf_format = .dwarf64;
+                        dwarf_format = .@"64";
                     } else if (mem.eql(u8, arg, "-fformatted-panics")) {
                         formatted_panics = true;
                     } else if (mem.eql(u8, arg, "-fno-formatted-panics")) {
@@ -1766,6 +1766,14 @@ fn buildOutputType(
                         } else {
                             try clang_argv.appendSlice(it.other_args);
                         }
+                    },
+                    .gdwarf32 => {
+                        strip = false;
+                        dwarf_format = .@"32";
+                    },
+                    .gdwarf64 => {
+                        strip = false;
+                        dwarf_format = .@"64";
                     },
                     .sanitize => {
                         if (mem.eql(u8, it.only_arg, "undefined")) {
@@ -5108,6 +5116,8 @@ pub const ClangArgIterator = struct {
         asm_only,
         optimize,
         debug,
+        gdwarf32,
+        gdwarf64,
         sanitize,
         linker_script,
         dry_run,

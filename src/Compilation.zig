@@ -1112,6 +1112,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(link_libunwind);
         cache.hash.add(options.output_mode);
         cache.hash.add(options.machine_code_model);
+        cache.hash.addOptional(options.dwarf_format);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_bin);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_implib);
         cache.hash.addBytes(options.root_name);
@@ -4490,7 +4491,13 @@ pub fn addCCArgs(
                 // generation, it only changes the type of information generated.
                 try argv.appendSlice(&.{ "-g", "-gcodeview" });
             },
-            .elf, .macho => try argv.append("-gdwarf-4"),
+            .elf, .macho => {
+                try argv.append("-gdwarf-4");
+                if (comp.bin_file.options.dwarf_format) |f| switch (f) {
+                    .@"32" => try argv.append("-gdwarf32"),
+                    .@"64" => try argv.append("-gdwarf64"),
+                };
+            },
             else => try argv.append("-g"),
         }
     }

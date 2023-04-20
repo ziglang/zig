@@ -147,10 +147,7 @@ pub const CC = enum(u8) {
     GNU_borland_fastcall_i386 = 0x41,
 };
 
-pub const Format = enum {
-    dwarf32,
-    dwarf64,
-};
+pub const Format = enum { @"32", @"64" };
 
 const PcRange = struct {
     start: u64,

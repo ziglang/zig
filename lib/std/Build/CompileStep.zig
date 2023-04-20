@@ -1450,13 +1450,12 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try addFlag(&zig_args, "strip", self.strip);
     try addFlag(&zig_args, "unwind-tables", self.unwind_tables);
-    if (!self.producesPdbFile()) {
-        if (self.dwarf_format) |dwarf_format| {
-            try zig_args.append(switch (dwarf_format) {
-                .dwarf32 => "-gdwarf32",
-                .dwarf64 => "-gdwarf64",
-            });
-        }
+
+    if (self.dwarf_format) |dwarf_format| {
+        try zig_args.append(switch (dwarf_format) {
+            .@"32" => "-gdwarf32",
+            .@"64" => "-gdwarf64",
+        });
     }
 
     switch (self.compress_debug_sections) {
