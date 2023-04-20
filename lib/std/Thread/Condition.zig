@@ -18,10 +18,11 @@
 //! }
 //!
 //! fn producer() void {
-//!     m.lock();
-//!     defer m.unlock();
-//!
-//!     predicate = true;
+//!     {
+//!         m.lock();
+//!         defer m.unlock();
+//!         predicate = true;
+//!     }
 //!     c.signal();
 //! }
 //!
@@ -37,7 +38,7 @@
 //! thread-1: condition.wait(&mutex)
 //!
 //! thread-2: // mutex.lock() (without this, the following signal may not see the waiting thread-1)
-//! thread-2: // mutex.unlock() (this is optional for correctness once locked above, as signal can be called without holding the mutex)
+//! thread-2: // mutex.unlock() (this is optional for correctness once locked above, as signal can be called while holding the mutex)
 //! thread-2: condition.signal()
 //! ```
 

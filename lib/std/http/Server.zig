@@ -23,21 +23,33 @@ pub const Connection = struct {
 
     pub const Protocol = enum { plain };
 
-    pub fn read(conn: *Connection, buffer: []u8) !usize {
-        switch (conn.protocol) {
-            .plain => return conn.stream.read(buffer),
+    pub fn read(conn: *Connection, buffer: []u8) ReadError!usize {
+        return switch (conn.protocol) {
+            .plain => conn.stream.read(buffer),
             // .tls => return conn.tls_client.read(conn.stream, buffer),
-        }
+        } catch |err| switch (err) {
+            error.ConnectionTimedOut => return error.ConnectionTimedOut,
+            error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
+            else => return error.UnexpectedReadFailure,
+        };
     }
 
-    pub fn readAtLeast(conn: *Connection, buffer: []u8, len: usize) !usize {
-        switch (conn.protocol) {
-            .plain => return conn.stream.readAtLeast(buffer, len),
+    pub fn readAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
+        return switch (conn.protocol) {
+            .plain => conn.stream.readAtLeast(buffer, len),
             // .tls => return conn.tls_client.readAtLeast(conn.stream, buffer, len),
-        }
+        } catch |err| switch (err) {
+            error.ConnectionTimedOut => return error.ConnectionTimedOut,
+            error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
+            else => return error.UnexpectedReadFailure,
+        };
     }
 
-    pub const ReadError = net.Stream.ReadError;
+    pub const ReadError = error{
+        ConnectionTimedOut,
+        ConnectionResetByPeer,
+        UnexpectedReadFailure,
+    };
 
     pub const Reader = std.io.Reader(*Connection, ReadError, read);
 
@@ -45,21 +57,31 @@ pub const Connection = struct {
         return Reader{ .context = conn };
     }
 
-    pub fn writeAll(conn: *Connection, buffer: []const u8) !void {
-        switch (conn.protocol) {
-            .plain => return conn.stream.writeAll(buffer),
+    pub fn writeAll(conn: *Connection, buffer: []const u8) WriteError!void {
+        return switch (conn.protocol) {
+            .plain => conn.stream.writeAll(buffer),
             // .tls => return conn.tls_client.writeAll(conn.stream, buffer),
-        }
+        } catch |err| switch (err) {
+            error.BrokenPipe, error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
+            else => return error.UnexpectedWriteFailure,
+        };
     }
 
-    pub fn write(conn: *Connection, buffer: []const u8) !usize {
-        switch (conn.protocol) {
-            .plain => return conn.stream.write(buffer),
+    pub fn write(conn: *Connection, buffer: []const u8) WriteError!usize {
+        return switch (conn.protocol) {
+            .plain => conn.stream.write(buffer),
             // .tls => return conn.tls_client.write(conn.stream, buffer),
-        }
+        } catch |err| switch (err) {
+            error.BrokenPipe, error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
+            else => return error.UnexpectedWriteFailure,
+        };
     }
 
-    pub const WriteError = net.Stream.WriteError || error{};
+    pub const WriteError = error{
+        ConnectionResetByPeer,
+        UnexpectedWriteFailure,
+    };
+
     pub const Writer = std.io.Writer(*Connection, WriteError, write);
 
     pub fn writer(conn: *Connection) Writer {
@@ -155,136 +177,142 @@ pub const BufferedConnection = struct {
     }
 };
 
+/// The mode of transport for responses.
+pub const ResponseTransfer = union(enum) {
+    content_length: u64,
+    chunked: void,
+    none: void,
+};
+
+/// The decompressor for request messages.
+pub const Compression = union(enum) {
+    pub const DeflateDecompressor = std.compress.zlib.ZlibStream(Response.TransferReader);
+    pub const GzipDecompressor = std.compress.gzip.Decompress(Response.TransferReader);
+    pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Response.TransferReader, .{});
+
+    deflate: DeflateDecompressor,
+    gzip: GzipDecompressor,
+    zstd: ZstdDecompressor,
+    none: void,
+};
+
 /// A HTTP request originating from a client.
 pub const Request = struct {
-    pub const Headers = struct {
-        method: http.Method,
-        target: []const u8,
-        version: http.Version,
-        content_length: ?u64 = null,
-        transfer_encoding: ?http.TransferEncoding = null,
-        transfer_compression: ?http.ContentEncoding = null,
-        connection: http.Connection = .close,
-        host: ?[]const u8 = null,
+    pub const ParseError = Allocator.Error || error{
+        ShortHttpStatusLine,
+        BadHttpVersion,
+        UnknownHttpMethod,
+        HttpHeadersInvalid,
+        HttpHeaderContinuationsUnsupported,
+        HttpTransferEncodingUnsupported,
+        HttpConnectionHeaderUnsupported,
+        InvalidContentLength,
+        CompressionNotSupported,
+    };
 
-        pub const ParseError = error{
-            ShortHttpStatusLine,
-            BadHttpVersion,
-            UnknownHttpMethod,
-            HttpHeadersInvalid,
-            HttpHeaderContinuationsUnsupported,
-            HttpTransferEncodingUnsupported,
-            HttpConnectionHeaderUnsupported,
-            InvalidCharacter,
+    pub fn parse(req: *Request, bytes: []const u8) ParseError!void {
+        var it = mem.tokenize(u8, bytes[0 .. bytes.len - 4], "\r\n");
+
+        const first_line = it.next() orelse return error.HttpHeadersInvalid;
+        if (first_line.len < 10)
+            return error.ShortHttpStatusLine;
+
+        const method_end = mem.indexOfScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
+        const method_str = first_line[0..method_end];
+        const method = std.meta.stringToEnum(http.Method, method_str) orelse return error.UnknownHttpMethod;
+
+        const version_start = mem.lastIndexOfScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
+        if (version_start == method_end) return error.HttpHeadersInvalid;
+
+        const version_str = first_line[version_start + 1 ..];
+        if (version_str.len != 8) return error.HttpHeadersInvalid;
+        const version: http.Version = switch (int64(version_str[0..8])) {
+            int64("HTTP/1.0") => .@"HTTP/1.0",
+            int64("HTTP/1.1") => .@"HTTP/1.1",
+            else => return error.BadHttpVersion,
         };
 
-        pub fn parse(bytes: []const u8) !Headers {
-            var it = mem.tokenize(u8, bytes[0 .. bytes.len - 4], "\r\n");
+        const target = first_line[method_end + 1 .. version_start];
 
-            const first_line = it.next() orelse return error.HttpHeadersInvalid;
-            if (first_line.len < 10)
-                return error.ShortHttpStatusLine;
+        req.method = method;
+        req.target = target;
+        req.version = version;
 
-            const method_end = mem.indexOfScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
-            const method_str = first_line[0..method_end];
-            const method = std.meta.stringToEnum(http.Method, method_str) orelse return error.UnknownHttpMethod;
+        while (it.next()) |line| {
+            if (line.len == 0) return error.HttpHeadersInvalid;
+            switch (line[0]) {
+                ' ', '\t' => return error.HttpHeaderContinuationsUnsupported,
+                else => {},
+            }
 
-            const version_start = mem.lastIndexOfScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
-            if (version_start == method_end) return error.HttpHeadersInvalid;
+            var line_it = mem.tokenize(u8, line, ": ");
+            const header_name = line_it.next() orelse return error.HttpHeadersInvalid;
+            const header_value = line_it.rest();
 
-            const version_str = first_line[version_start + 1 ..];
-            if (version_str.len != 8) return error.HttpHeadersInvalid;
-            const version: http.Version = switch (int64(version_str[0..8])) {
-                int64("HTTP/1.0") => .@"HTTP/1.0",
-                int64("HTTP/1.1") => .@"HTTP/1.1",
-                else => return error.BadHttpVersion,
-            };
+            try req.headers.append(header_name, header_value);
 
-            const target = first_line[method_end + 1 .. version_start];
+            if (std.ascii.eqlIgnoreCase(header_name, "content-length")) {
+                if (req.content_length != null) return error.HttpHeadersInvalid;
+                req.content_length = std.fmt.parseInt(u64, header_value, 10) catch return error.InvalidContentLength;
+            } else if (std.ascii.eqlIgnoreCase(header_name, "transfer-encoding")) {
+                // Transfer-Encoding: second, first
+                // Transfer-Encoding: deflate, chunked
+                var iter = mem.splitBackwards(u8, header_value, ",");
 
-            var headers: Headers = .{
-                .method = method,
-                .target = target,
-                .version = version,
-            };
+                if (iter.next()) |first| {
+                    const trimmed = mem.trim(u8, first, " ");
 
-            while (it.next()) |line| {
-                if (line.len == 0) return error.HttpHeadersInvalid;
-                switch (line[0]) {
-                    ' ', '\t' => return error.HttpHeaderContinuationsUnsupported,
-                    else => {},
-                }
-
-                var line_it = mem.tokenize(u8, line, ": ");
-                const header_name = line_it.next() orelse return error.HttpHeadersInvalid;
-                const header_value = line_it.rest();
-                if (std.ascii.eqlIgnoreCase(header_name, "content-length")) {
-                    if (headers.content_length != null) return error.HttpHeadersInvalid;
-                    headers.content_length = try std.fmt.parseInt(u64, header_value, 10);
-                } else if (std.ascii.eqlIgnoreCase(header_name, "transfer-encoding")) {
-                    // Transfer-Encoding: second, first
-                    // Transfer-Encoding: deflate, chunked
-                    var iter = mem.splitBackwards(u8, header_value, ",");
-
-                    if (iter.next()) |first| {
-                        const trimmed = mem.trim(u8, first, " ");
-
-                        if (std.meta.stringToEnum(http.TransferEncoding, trimmed)) |te| {
-                            if (headers.transfer_encoding != null) return error.HttpHeadersInvalid;
-                            headers.transfer_encoding = te;
-                        } else if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
-                            if (headers.transfer_compression != null) return error.HttpHeadersInvalid;
-                            headers.transfer_compression = ce;
-                        } else {
-                            return error.HttpTransferEncodingUnsupported;
-                        }
-                    }
-
-                    if (iter.next()) |second| {
-                        if (headers.transfer_compression != null) return error.HttpTransferEncodingUnsupported;
-
-                        const trimmed = mem.trim(u8, second, " ");
-
-                        if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
-                            headers.transfer_compression = ce;
-                        } else {
-                            return error.HttpTransferEncodingUnsupported;
-                        }
-                    }
-
-                    if (iter.next()) |_| return error.HttpTransferEncodingUnsupported;
-                } else if (std.ascii.eqlIgnoreCase(header_name, "content-encoding")) {
-                    if (headers.transfer_compression != null) return error.HttpHeadersInvalid;
-
-                    const trimmed = mem.trim(u8, header_value, " ");
-
-                    if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
-                        headers.transfer_compression = ce;
+                    if (std.meta.stringToEnum(http.TransferEncoding, trimmed)) |te| {
+                        if (req.transfer_encoding != null) return error.HttpHeadersInvalid;
+                        req.transfer_encoding = te;
+                    } else if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                        if (req.transfer_compression != null) return error.HttpHeadersInvalid;
+                        req.transfer_compression = ce;
                     } else {
                         return error.HttpTransferEncodingUnsupported;
                     }
-                } else if (std.ascii.eqlIgnoreCase(header_name, "connection")) {
-                    if (std.ascii.eqlIgnoreCase(header_value, "keep-alive")) {
-                        headers.connection = .keep_alive;
-                    } else if (std.ascii.eqlIgnoreCase(header_value, "close")) {
-                        headers.connection = .close;
+                }
+
+                if (iter.next()) |second| {
+                    if (req.transfer_compression != null) return error.HttpTransferEncodingUnsupported;
+
+                    const trimmed = mem.trim(u8, second, " ");
+
+                    if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                        req.transfer_compression = ce;
                     } else {
-                        return error.HttpConnectionHeaderUnsupported;
+                        return error.HttpTransferEncodingUnsupported;
                     }
-                } else if (std.ascii.eqlIgnoreCase(header_name, "host")) {
-                    headers.host = header_value;
+                }
+
+                if (iter.next()) |_| return error.HttpTransferEncodingUnsupported;
+            } else if (std.ascii.eqlIgnoreCase(header_name, "content-encoding")) {
+                if (req.transfer_compression != null) return error.HttpHeadersInvalid;
+
+                const trimmed = mem.trim(u8, header_value, " ");
+
+                if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                    req.transfer_compression = ce;
+                } else {
+                    return error.HttpTransferEncodingUnsupported;
                 }
             }
-
-            return headers;
         }
+    }
 
-        inline fn int64(array: *const [8]u8) u64 {
-            return @bitCast(u64, array.*);
-        }
-    };
+    inline fn int64(array: *const [8]u8) u64 {
+        return @bitCast(u64, array.*);
+    }
 
-    headers: Headers = undefined,
+    method: http.Method,
+    target: []const u8,
+    version: http.Version,
+
+    content_length: ?u64 = null,
+    transfer_encoding: ?http.TransferEncoding = null,
+    transfer_compression: ?http.ContentEncoding = null,
+
+    headers: http.Headers = undefined,
     parser: proto.HeadersParser,
     compression: Compression = .none,
 };
@@ -295,23 +323,17 @@ pub const Request = struct {
 /// Order of operations: accept -> wait -> do  [ -> write -> finish][ -> reset /]
 ///                                   \ -> read /
 pub const Response = struct {
-    pub const Headers = struct {
-        version: http.Version = .@"HTTP/1.1",
-        status: http.Status = .ok,
-        reason: ?[]const u8 = null,
+    version: http.Version = .@"HTTP/1.1",
+    status: http.Status = .ok,
+    reason: ?[]const u8 = null,
 
-        server: ?[]const u8 = "zig (std.http)",
-        connection: http.Connection = .keep_alive,
-        transfer_encoding: RequestTransfer = .none,
-
-        custom: []const http.CustomHeader = &[_]http.CustomHeader{},
-    };
+    transfer_encoding: ResponseTransfer = .none,
 
     server: *Server,
     address: net.Address,
     connection: BufferedConnection,
 
-    headers: Headers = .{},
+    headers: http.Headers,
     request: Request,
 
     /// Reset this response to its initial state. This must be called before handling a second request on the same connection.
@@ -341,46 +363,61 @@ pub const Response = struct {
         }
     }
 
+    pub const DoError = BufferedConnection.WriteError || error{ UnsupportedTransferEncoding, InvalidContentLength };
+
     /// Send the response headers.
     pub fn do(res: *Response) !void {
         var buffered = std.io.bufferedWriter(res.connection.writer());
         const w = buffered.writer();
 
-        try w.writeAll(@tagName(res.headers.version));
+        try w.writeAll(@tagName(res.version));
         try w.writeByte(' ');
-        try w.print("{d}", .{@enumToInt(res.headers.status)});
+        try w.print("{d}", .{@enumToInt(res.status)});
         try w.writeByte(' ');
-        if (res.headers.reason) |reason| {
+        if (res.reason) |reason| {
             try w.writeAll(reason);
-        } else if (res.headers.status.phrase()) |phrase| {
+        } else if (res.status.phrase()) |phrase| {
             try w.writeAll(phrase);
         }
+        try w.writeAll("\r\n");
 
-        if (res.headers.server) |server| {
-            try w.writeAll("\r\nServer: ");
-            try w.writeAll(server);
+        if (!res.headers.contains("server")) {
+            try w.writeAll("Server: zig (std.http)\r\n");
         }
 
-        if (res.headers.connection == .close) {
-            try w.writeAll("\r\nConnection: close");
+        if (!res.headers.contains("connection")) {
+            try w.writeAll("Connection: keep-alive\r\n");
+        }
+
+        const has_transfer_encoding = res.headers.contains("transfer-encoding");
+        const has_content_length = res.headers.contains("content-length");
+
+        if (!has_transfer_encoding and !has_content_length) {
+            switch (res.transfer_encoding) {
+                .chunked => try w.writeAll("Transfer-Encoding: chunked\r\n"),
+                .content_length => |content_length| try w.print("Content-Length: {d}\r\n", .{content_length}),
+                .none => {},
+            }
         } else {
-            try w.writeAll("\r\nConnection: keep-alive");
+            if (has_content_length) {
+                const content_length = std.fmt.parseInt(u64, res.headers.getFirstValue("content-length").?, 10) catch return error.InvalidContentLength;
+
+                res.transfer_encoding = .{ .content_length = content_length };
+            } else if (has_transfer_encoding) {
+                const transfer_encoding = res.headers.getFirstValue("content-length").?;
+                if (std.mem.eql(u8, transfer_encoding, "chunked")) {
+                    res.transfer_encoding = .chunked;
+                } else {
+                    return error.UnsupportedTransferEncoding;
+                }
+            } else {
+                res.transfer_encoding = .none;
+            }
         }
 
-        switch (res.headers.transfer_encoding) {
-            .chunked => try w.writeAll("\r\nTransfer-Encoding: chunked"),
-            .content_length => |content_length| try w.print("\r\nContent-Length: {d}", .{content_length}),
-            .none => {},
-        }
+        try w.print("{}", .{res.headers});
 
-        for (res.headers.custom) |header| {
-            try w.writeAll("\r\n");
-            try w.writeAll(header.name);
-            try w.writeAll(": ");
-            try w.writeAll(header.value);
-        }
-
-        try w.writeAll("\r\n\r\n");
+        try w.writeAll("\r\n");
 
         try buffered.flush();
     }
@@ -393,23 +430,23 @@ pub const Response = struct {
         return .{ .context = res };
     }
 
-    pub fn transferRead(res: *Response, buf: []u8) TransferReadError!usize {
-        if (res.request.parser.isComplete()) return 0;
+    fn transferRead(res: *Response, buf: []u8) TransferReadError!usize {
+        if (res.request.parser.done) return 0;
 
         var index: usize = 0;
         while (index == 0) {
             const amt = try res.request.parser.read(&res.connection, buf[index..], false);
-            if (amt == 0 and res.request.parser.isComplete()) break;
+            if (amt == 0 and res.request.parser.done) break;
             index += amt;
         }
 
         return index;
     }
 
-    pub const WaitForCompleteHeadError = BufferedConnection.ReadError || proto.HeadersParser.WaitForCompleteHeadError || Request.Headers.ParseError || error{ BadHeader, InvalidCompression, StreamTooLong, InvalidWindowSize } || error{CompressionNotSupported};
+    pub const WaitError = BufferedConnection.ReadError || proto.HeadersParser.CheckCompleteHeadError || Request.ParseError || error{ CompressionInitializationFailed, CompressionNotSupported };
 
     /// Wait for the client to send a complete request head.
-    pub fn wait(res: *Response) !void {
+    pub fn wait(res: *Response) WaitError!void {
         while (true) {
             try res.connection.fill();
 
@@ -419,22 +456,28 @@ pub const Response = struct {
             if (res.request.parser.state.isContent()) break;
         }
 
-        res.request.headers = try Request.Headers.parse(res.request.parser.header_bytes.items);
+        res.request.headers = .{ .allocator = res.server.allocator, .owned = true };
+        try res.request.parse(res.request.parser.header_bytes.items);
 
-        if (res.headers.connection == .keep_alive and res.request.headers.connection == .keep_alive) {
+        const res_connection = res.headers.getFirstValue("connection");
+        const res_keepalive = res_connection != null and !std.ascii.eqlIgnoreCase("close", res_connection.?);
+
+        const req_connection = res.request.headers.getFirstValue("connection");
+        const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
+        if (res_keepalive and req_keepalive) {
             res.connection.conn.closing = false;
         } else {
             res.connection.conn.closing = true;
         }
 
-        if (res.request.headers.transfer_encoding) |te| {
+        if (res.request.transfer_encoding) |te| {
             switch (te) {
                 .chunked => {
                     res.request.parser.next_chunk_length = 0;
                     res.request.parser.state = .chunk_head_size;
                 },
             }
-        } else if (res.request.headers.content_length) |cl| {
+        } else if (res.request.content_length) |cl| {
             res.request.parser.next_chunk_length = cl;
 
             if (cl == 0) res.request.parser.done = true;
@@ -443,13 +486,13 @@ pub const Response = struct {
         }
 
         if (!res.request.parser.done) {
-            if (res.request.headers.transfer_compression) |tc| switch (tc) {
+            if (res.request.transfer_compression) |tc| switch (tc) {
                 .compress => return error.CompressionNotSupported,
                 .deflate => res.request.compression = .{
-                    .deflate = try std.compress.zlib.zlibStream(res.server.allocator, res.transferReader()),
+                    .deflate = std.compress.zlib.zlibStream(res.server.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
                 },
                 .gzip => res.request.compression = .{
-                    .gzip = try std.compress.gzip.decompress(res.server.allocator, res.transferReader()),
+                    .gzip = std.compress.gzip.decompress(res.server.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
                 },
                 .zstd => res.request.compression = .{
                     .zstd = std.compress.zstd.decompressStream(res.server.allocator, res.transferReader()),
@@ -458,7 +501,7 @@ pub const Response = struct {
         }
     }
 
-    pub const ReadError = Compression.DeflateDecompressor.Error || Compression.GzipDecompressor.Error || Compression.ZstdDecompressor.Error || WaitForCompleteHeadError;
+    pub const ReadError = TransferReadError || proto.HeadersParser.CheckCompleteHeadError || error{DecompressionFailure};
 
     pub const Reader = std.io.Reader(*Response, ReadError, read);
 
@@ -467,12 +510,33 @@ pub const Response = struct {
     }
 
     pub fn read(res: *Response, buffer: []u8) ReadError!usize {
-        return switch (res.request.compression) {
-            .deflate => |*deflate| try deflate.read(buffer),
-            .gzip => |*gzip| try gzip.read(buffer),
-            .zstd => |*zstd| try zstd.read(buffer),
+        const out_index = switch (res.request.compression) {
+            .deflate => |*deflate| deflate.read(buffer) catch return error.DecompressionFailure,
+            .gzip => |*gzip| gzip.read(buffer) catch return error.DecompressionFailure,
+            .zstd => |*zstd| zstd.read(buffer) catch return error.DecompressionFailure,
             else => try res.transferRead(buffer),
         };
+
+        if (out_index == 0) {
+            const has_trail = !res.request.parser.state.isContent();
+
+            while (!res.request.parser.state.isContent()) { // read trailing headers
+                try res.connection.fill();
+
+                const nchecked = try res.request.parser.checkCompleteHead(res.server.allocator, res.connection.peek());
+                res.connection.clear(@intCast(u16, nchecked));
+            }
+
+            if (has_trail) {
+                res.request.headers = http.Headers{ .allocator = res.server.allocator, .owned = false };
+
+                // The response headers before the trailers are already guaranteed to be valid, so they will always be parsed again and cannot return an error.
+                // This will *only* fail for a malformed trailer.
+                res.request.parse(res.request.parser.header_bytes.items) catch return error.InvalidTrailers;
+            }
+        }
+
+        return out_index;
     }
 
     pub fn readAll(res: *Response, buffer: []u8) !usize {
@@ -495,7 +559,7 @@ pub const Response = struct {
 
     /// Write `bytes` to the server. The `transfer_encoding` request header determines how data will be sent.
     pub fn write(res: *Response, bytes: []const u8) WriteError!usize {
-        switch (res.headers.transfer_encoding) {
+        switch (res.transfer_encoding) {
             .chunked => {
                 try res.connection.writer().print("{x}\r\n", .{bytes.len});
                 try res.connection.writeAll(bytes);
@@ -514,33 +578,23 @@ pub const Response = struct {
         }
     }
 
+    pub fn writeAll(req: *Request, bytes: []const u8) WriteError!void {
+        var index: usize = 0;
+        while (index < bytes.len) {
+            index += try write(req, bytes[index..]);
+        }
+    }
+
+    pub const FinishError = WriteError || error{MessageNotCompleted};
+
     /// Finish the body of a request. This notifies the server that you have no more data to send.
-    pub fn finish(res: *Response) !void {
-        switch (res.headers.transfer_encoding) {
-            .chunked => try res.connection.writeAll("0\r\n"),
+    pub fn finish(res: *Response) FinishError!void {
+        switch (res.transfer_encoding) {
+            .chunked => try res.connection.writeAll("0\r\n\r\n"),
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
             .none => {},
         }
     }
-};
-
-/// The mode of transport for responses.
-pub const RequestTransfer = union(enum) {
-    content_length: u64,
-    chunked: void,
-    none: void,
-};
-
-/// The decompressor for request messages.
-pub const Compression = union(enum) {
-    pub const DeflateDecompressor = std.compress.zlib.ZlibStream(Response.TransferReader);
-    pub const GzipDecompressor = std.compress.gzip.Decompress(Response.TransferReader);
-    pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Response.TransferReader, .{});
-
-    deflate: DeflateDecompressor,
-    gzip: GzipDecompressor,
-    zstd: ZstdDecompressor,
-    none: void,
 };
 
 pub fn init(allocator: Allocator, options: net.StreamServer.Options) Server {
@@ -588,7 +642,11 @@ pub fn accept(server: *Server, options: HeaderStrategy) AcceptError!*Response {
             .stream = in.stream,
             .protocol = .plain,
         } },
+        .headers = .{ .allocator = server.allocator },
         .request = .{
+            .version = undefined,
+            .method = undefined,
+            .target = undefined,
             .parser = switch (options) {
                 .dynamic => |max| proto.HeadersParser.initDynamic(max),
                 .static => |buf| proto.HeadersParser.initStatic(buf),

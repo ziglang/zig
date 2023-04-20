@@ -59,6 +59,7 @@ stage3-release/bin/zig fmt --check .. \
 stage3-release/bin/zig build -Dtarget=arm-linux-musleabihf
 
 stage3-release/bin/zig build test docs \
+  --maxrss 21000000000 \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \
@@ -77,7 +78,7 @@ stage3-release/bin/zig build \
   --prefix stage4-release \
   -Denable-llvm \
   -Dno-lib \
-  -Drelease \
+  -Doptimize=ReleaseFast \
   -Dstrip \
   -Dtarget=$TARGET \
   -Duse-zig-libcxx \

@@ -51,6 +51,7 @@ stage3/bin/zig build test docs \
   --zig-lib-dir "$(pwd)/../lib" \
   -Denable-macos-sdk \
   -Dstatic-llvm \
+  -Dskip-non-native \
   --search-prefix "$PREFIX"
 
 # Produce the experimental std lib documentation.

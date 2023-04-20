@@ -3492,8 +3492,7 @@ fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
     if (comptime !trait.is(.Pointer)(B) or
         (meta.Child(B) != [size]u8 and meta.Child(B) != [size:0]u8))
     {
-        comptime var buf: [100]u8 = undefined;
-        @compileError(std.fmt.bufPrint(&buf, "expected *[{}]u8, passed " ++ @typeName(B), .{size}) catch unreachable);
+        @compileError(std.fmt.comptimePrint("expected *[{}]u8, passed " ++ @typeName(B), .{size}));
     }
 
     return CopyPtrAttrs(B, .One, T);

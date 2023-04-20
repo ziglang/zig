@@ -58,6 +58,7 @@ stage3-debug/bin/zig fmt --check .. \
 stage3-debug/bin/zig build -Dtarget=arm-linux-musleabihf
 
 stage3-debug/bin/zig build test docs \
+  --maxrss 21000000000 \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \
