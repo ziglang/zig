@@ -2549,7 +2549,7 @@ pub const DeclGen = struct {
 
                 const line_number = decl.src_line + 1;
                 const is_internal_linkage = !dg.module.decl_exports.contains(decl_index);
-                const di_global = dib.createGlobalVariable(
+                const di_global = dib.createGlobalVariableExpression(
                     di_file.toScope(),
                     decl.name,
                     global.getValueName(),
@@ -2559,7 +2559,8 @@ pub const DeclGen = struct {
                     is_internal_linkage,
                 );
 
-                try dg.object.di_map.put(dg.gpa, dg.decl, di_global.toNode());
+                try dg.object.di_map.put(dg.gpa, dg.decl, di_global.getVariable().toNode());
+                if (!is_internal_linkage) global.attachMetaData(di_global);
             }
         }
     }
