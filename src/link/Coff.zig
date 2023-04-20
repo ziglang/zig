@@ -107,12 +107,6 @@ const HotUpdateState = struct {
     loaded_base_address: ?std.os.windows.HMODULE = null,
 };
 
-const Entry = struct {
-    target: SymbolWithLoc,
-    // Index into the synthetic symbol table (i.e., file == null).
-    sym_index: u32,
-};
-
 const RelocTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(Relocation));
 const BaseRelocationTable = std.AutoArrayHashMapUnmanaged(Atom.Index, std.ArrayListUnmanaged(u32));
 const UnnamedConstTable = std.AutoArrayHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Atom.Index));
@@ -843,17 +837,17 @@ fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
     const file_offset = header.pointer_to_raw_data + entry_offset;
     const vmaddr = header.virtual_address + entry_offset;
 
-    log.debug("writing GOT entry {d}: @{x} => {x}", .{ index, vmaddr, entry_value });
+    log.debug("writing GOT entry {d}: @{x} => {x}", .{ index, vmaddr, entry_value + self.getImageBase() });
 
     switch (self.ptr_width) {
         .p32 => {
             var buf: [4]u8 = undefined;
-            mem.writeIntLittle(u32, &buf, @intCast(u32, entry_value));
+            mem.writeIntLittle(u32, &buf, @intCast(u32, entry_value + self.getImageBase()));
             try self.base.file.?.pwriteAll(&buf, file_offset);
         },
         .p64 => {
             var buf: [8]u8 = undefined;
-            mem.writeIntLittle(u64, &buf, entry_value);
+            mem.writeIntLittle(u64, &buf, entry_value + self.getImageBase());
             try self.base.file.?.pwriteAll(&buf, file_offset);
         },
     }
@@ -881,12 +875,14 @@ fn writeOffsetTableEntry(self: *Coff, index: usize) !void {
             switch (self.ptr_width) {
                 .p32 => {
                     var buf: [4]u8 = undefined;
+                    mem.writeIntLittle(u32, &buf, @intCast(u32, entry_value + slide));
                     writeMem(handle, pvaddr, &buf) catch |err| {
                         log.warn("writing to protected memory failed with error: {s}", .{@errorName(err)});
                     };
                 },
                 .p64 => {
                     var buf: [8]u8 = undefined;
+                    mem.writeIntLittle(u64, &buf, entry_value + slide);
                     writeMem(handle, pvaddr, &buf) catch |err| {
                         log.warn("writing to protected memory failed with error: {s}", .{@errorName(err)});
                     };
@@ -1744,69 +1740,82 @@ pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl_index: Module.Dec
 fn writeBaseRelocations(self: *Coff) !void {
     const gpa = self.base.allocator;
 
-    var pages = std.AutoHashMap(u32, std.ArrayList(coff.BaseRelocation)).init(gpa);
+    var page_table = std.AutoHashMap(u32, std.ArrayList(coff.BaseRelocation)).init(gpa);
     defer {
-        var it = pages.valueIterator();
+        var it = page_table.valueIterator();
         while (it.next()) |inner| {
             inner.deinit();
         }
-        pages.deinit();
-    }
-
-    var it = self.base_relocs.iterator();
-    while (it.next()) |entry| {
-        const atom_index = entry.key_ptr.*;
-        const atom = self.getAtom(atom_index);
-        const sym = atom.getSymbol(self);
-        const offsets = entry.value_ptr.*;
-
-        for (offsets.items) |offset| {
-            const rva = sym.value + offset;
-            const page = mem.alignBackwardGeneric(u32, rva, self.page_size);
-            const gop = try pages.getOrPut(page);
-            if (!gop.found_existing) {
-                gop.value_ptr.* = std.ArrayList(coff.BaseRelocation).init(gpa);
-            }
-            try gop.value_ptr.append(.{
-                .offset = @intCast(u12, rva - page),
-                .type = .DIR64,
-            });
-        }
+        page_table.deinit();
     }
 
     {
-        const header = &self.sections.items(.header)[self.got_section_index.?];
-        for (self.got_table.entries.items, 0..) |entry, index| {
-            if (!self.got_table.lookup.contains(entry)) continue;
+        var it = self.base_relocs.iterator();
+        while (it.next()) |entry| {
+            const atom_index = entry.key_ptr.*;
+            const atom = self.getAtom(atom_index);
+            const sym = atom.getSymbol(self);
+            const offsets = entry.value_ptr.*;
 
-            const sym = self.getSymbol(entry);
-            if (sym.section_number == .UNDEFINED) continue;
-
-            const rva = @intCast(u32, header.virtual_address + index * self.ptr_width.size());
-            const page = mem.alignBackwardGeneric(u32, rva, self.page_size);
-            const gop = try pages.getOrPut(page);
-            if (!gop.found_existing) {
-                gop.value_ptr.* = std.ArrayList(coff.BaseRelocation).init(gpa);
+            for (offsets.items) |offset| {
+                const rva = sym.value + offset;
+                const page = mem.alignBackwardGeneric(u32, rva, self.page_size);
+                const gop = try page_table.getOrPut(page);
+                if (!gop.found_existing) {
+                    gop.value_ptr.* = std.ArrayList(coff.BaseRelocation).init(gpa);
+                }
+                try gop.value_ptr.append(.{
+                    .offset = @intCast(u12, rva - page),
+                    .type = .DIR64,
+                });
             }
-            try gop.value_ptr.append(.{
-                .offset = @intCast(u12, rva - page),
-                .type = .DIR64,
-            });
+        }
+
+        {
+            const header = &self.sections.items(.header)[self.got_section_index.?];
+            for (self.got_table.entries.items, 0..) |entry, index| {
+                if (!self.got_table.lookup.contains(entry)) continue;
+
+                const sym = self.getSymbol(entry);
+                if (sym.section_number == .UNDEFINED) continue;
+
+                const rva = @intCast(u32, header.virtual_address + index * self.ptr_width.size());
+                const page = mem.alignBackwardGeneric(u32, rva, self.page_size);
+                const gop = try page_table.getOrPut(page);
+                if (!gop.found_existing) {
+                    gop.value_ptr.* = std.ArrayList(coff.BaseRelocation).init(gpa);
+                }
+                try gop.value_ptr.append(.{
+                    .offset = @intCast(u12, rva - page),
+                    .type = .DIR64,
+                });
+            }
         }
     }
+
+    // Sort pages by address.
+    var pages = try std.ArrayList(u32).initCapacity(gpa, page_table.count());
+    defer pages.deinit();
+    {
+        var it = page_table.keyIterator();
+        while (it.next()) |page| {
+            pages.appendAssumeCapacity(page.*);
+        }
+    }
+    std.sort.sort(u32, pages.items, {}, std.sort.asc(u32));
 
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
 
-    var pages_it = pages.iterator();
-    while (pages_it.next()) |entry| {
+    for (pages.items) |page| {
+        const entries = page_table.getPtr(page).?;
         // Pad to required 4byte alignment
         if (!mem.isAlignedGeneric(
             usize,
-            entry.value_ptr.items.len * @sizeOf(coff.BaseRelocation),
+            entries.items.len * @sizeOf(coff.BaseRelocation),
             @sizeOf(u32),
         )) {
-            try entry.value_ptr.append(.{
+            try entries.append(.{
                 .offset = 0,
                 .type = .ABSOLUTE,
             });
@@ -1814,14 +1823,14 @@ fn writeBaseRelocations(self: *Coff) !void {
 
         const block_size = @intCast(
             u32,
-            entry.value_ptr.items.len * @sizeOf(coff.BaseRelocation) + @sizeOf(coff.BaseRelocationDirectoryEntry),
+            entries.items.len * @sizeOf(coff.BaseRelocation) + @sizeOf(coff.BaseRelocationDirectoryEntry),
         );
         try buffer.ensureUnusedCapacity(block_size);
         buffer.appendSliceAssumeCapacity(mem.asBytes(&coff.BaseRelocationDirectoryEntry{
-            .page_rva = entry.key_ptr.*,
+            .page_rva = page,
             .block_size = block_size,
         }));
-        buffer.appendSliceAssumeCapacity(mem.sliceAsBytes(entry.value_ptr.items));
+        buffer.appendSliceAssumeCapacity(mem.sliceAsBytes(entries.items));
     }
 
     const header = &self.sections.items(.header)[self.reloc_section_index.?];
