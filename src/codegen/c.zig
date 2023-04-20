@@ -6070,9 +6070,18 @@ fn airAtomicRmw(f: *Function, inst: Air.Inst.Index) !CValue {
     if (is_float) try writer.writeAll("_float");
     try writer.writeByte('(');
     try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(", (zig_atomic(");
-    try f.renderType(writer, ty);
-    try writer.writeByte(')');
+    try writer.writeAll(", (");
+    switch (extra.op()) {
+        else => {
+            try writer.writeAll("zig_atomic(");
+            try f.renderType(writer, ty);
+            try writer.writeByte(')');
+        },
+        .Nand, .Min, .Max => {
+            // These are missing from stdatomic.h, so no atomic types for now.
+            try f.renderType(writer, ty);
+        },
+    }
     if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
     try writer.writeAll(" *)");
     try f.writeCValue(writer, ptr, .Other);

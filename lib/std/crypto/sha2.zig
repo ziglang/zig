@@ -205,7 +205,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
 
             if (!isComptime()) {
                 switch (builtin.cpu.arch) {
-                    .aarch64 => if (comptime std.Target.aarch64.featureSetHas(builtin.cpu.features, .sha2)) {
+                    .aarch64 => if (builtin.zig_backend != .stage2_c and comptime std.Target.aarch64.featureSetHas(builtin.cpu.features, .sha2)) {
                         var x: v4u32 = d.s[0..4].*;
                         var y: v4u32 = d.s[4..8].*;
                         const s_v = @ptrCast(*[16]v4u32, &s);
