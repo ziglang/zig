@@ -30,6 +30,7 @@ test "client requests server" {
     const server_thread = try std.Thread.spawn(.{}, (struct {
         fn apply(s: *std.http.Server) !void {
             const res = try s.accept(.{ .dynamic = max_header_size });
+            defer res.deinit();
             defer res.reset();
             try res.wait();
 

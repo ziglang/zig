@@ -336,6 +336,10 @@ pub const Response = struct {
     headers: http.Headers,
     request: Request,
 
+    pub fn deinit(res: *Response) void {
+        res.server.allocator.destroy(res);
+    }
+
     /// Reset this response to its initial state. This must be called before handling a second request on the same connection.
     pub fn reset(res: *Response) void {
         res.request.headers.deinit();
@@ -359,8 +363,6 @@ pub const Response = struct {
             if (res.request.parser.header_bytes_owned) {
                 res.request.parser.header_bytes.deinit(res.server.allocator);
             }
-
-            res.server.allocator.destroy(res);
         } else {
             res.request.parser.reset();
         }
