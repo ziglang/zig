@@ -559,15 +559,6 @@ typedef ptrdiff_t intptr_t;
 
 #endif
 
-#define zig_make_small_i8(val)    INT8_C(val)
-#define zig_make_small_u8(val)   UINT8_C(val)
-#define zig_make_small_i16(val)  INT16_C(val)
-#define zig_make_small_u16(val) UINT16_C(val)
-#define zig_make_small_i32(val)  INT32_C(val)
-#define zig_make_small_u32(val) UINT32_C(val)
-#define zig_make_small_i64(val)  INT64_C(val)
-#define zig_make_small_u64(val) UINT64_C(val)
-
 #define zig_minInt_i8    INT8_MIN
 #define zig_maxInt_i8    INT8_MAX
 #define zig_minInt_u8   UINT8_C(0)
@@ -1359,9 +1350,6 @@ typedef struct { zig_align(16) int64_t hi; uint64_t lo; } zig_i128;
     }
 
 #endif /* zig_has_int128 */
-
-#define zig_make_small_u128(val) zig_make_u128(0, val)
-#define zig_make_small_i128(val) zig_make_i128((val) < 0 ? -INT64_C(1) : INT64_C(0), val)
 
 #define zig_minInt_u128 zig_make_u128(zig_minInt_u64, zig_minInt_u64)
 #define zig_maxInt_u128 zig_make_u128(zig_maxInt_u64, zig_maxInt_u64)
@@ -3148,10 +3136,6 @@ typedef float zig_f16;
 typedef double zig_f16;
 #define zig_make_f16(fp, repr) fp
 #elif LDBL_MANT_DIG == 11
-#define zig_bitSizeOf_c_longdouble 16
-#ifndef ZIG_TARGET_ABI_MSVC
-typedef zig_repr_f16 zig_repr_c_longdouble;
-#endif
 typedef long double zig_f16;
 #define zig_make_f16(fp, repr) fp##l
 #elif FLT16_MANT_DIG == 11 && (zig_has_builtin(inff16) || defined(zig_gnuc))
@@ -3163,7 +3147,6 @@ typedef __fp16 zig_f16;
 #else
 #undef zig_has_f16
 #define zig_has_f16 0
-#define zig_bitSizeOf_repr_f16 16
 typedef zig_repr_f16 zig_f16;
 #define zig_make_f16(fp, repr) repr
 #undef zig_make_special_f16
@@ -3176,7 +3159,6 @@ typedef zig_repr_f16 zig_compiler_rt_f16;
 #else
 typedef zig_f16 zig_compiler_rt_f16;
 #endif
-#define zig_compiler_rt_abbrev_zig_compiler_rt_f16 zig_compiler_rt_abbrev_zig_f16
 
 #define zig_has_f32 1
 #define zig_bitSizeOf_f32 32
@@ -3194,10 +3176,6 @@ typedef float zig_f32;
 typedef double zig_f32;
 #define zig_make_f32(fp, repr) fp
 #elif LDBL_MANT_DIG == 24
-#define zig_bitSizeOf_c_longdouble 32
-#ifndef ZIG_TARGET_ABI_MSVC
-typedef zig_repr_f32 zig_repr_c_longdouble;
-#endif
 typedef long double zig_f32;
 #define zig_make_f32(fp, repr) fp##l
 #elif FLT32_MANT_DIG == 24
@@ -3206,7 +3184,6 @@ typedef _Float32 zig_f32;
 #else
 #undef zig_has_f32
 #define zig_has_f32 0
-#define zig_bitSizeOf_repr_f32 32
 typedef zig_repr_f32 zig_f32;
 #define zig_make_f32(fp, repr) repr
 #undef zig_make_special_f32
@@ -3220,16 +3197,10 @@ typedef zig_repr_f32 zig_f32;
 typedef uint64_t zig_repr_f64;
 #define zig_libc_name_f64(name) name
 #if _MSC_VER
-#ifdef ZIG_TARGET_ABI_MSVC
-#define zig_bitSizeOf_c_longdouble 64
-#ifndef ZIG_TARGET_ABI_MSVC
-typedef zig_repr_f64 zig_repr_c_longdouble;
-#endif
-#endif
 #define zig_init_special_f64(sign, name, arg, repr) sign zig_make_f64(zig_msvc_flt_##name, )
-#else /* _MSC_VER */
+#else
 #define zig_init_special_f64(sign, name, arg, repr) zig_make_special_f64(sign, name, arg, repr)
-#endif /* _MSC_VER */
+#endif
 #if FLT_MANT_DIG == 53
 typedef float zig_f64;
 #define zig_make_f64(fp, repr) fp##f
@@ -3237,10 +3208,6 @@ typedef float zig_f64;
 typedef double zig_f64;
 #define zig_make_f64(fp, repr) fp
 #elif LDBL_MANT_DIG == 53
-#define zig_bitSizeOf_c_longdouble 64
-#ifndef ZIG_TARGET_ABI_MSVC
-typedef zig_repr_f64 zig_repr_c_longdouble;
-#endif
 typedef long double zig_f64;
 #define zig_make_f64(fp, repr) fp##l
 #elif FLT64_MANT_DIG == 53
@@ -3252,7 +3219,6 @@ typedef _Float32x zig_f64;
 #else
 #undef zig_has_f64
 #define zig_has_f64 0
-#define zig_bitSizeOf_repr_f64 64
 typedef zig_repr_f64 zig_f64;
 #define zig_make_f64(fp, repr) repr
 #undef zig_make_special_f64
@@ -3273,10 +3239,6 @@ typedef float zig_f80;
 typedef double zig_f80;
 #define zig_make_f80(fp, repr) fp
 #elif LDBL_MANT_DIG == 64
-#define zig_bitSizeOf_c_longdouble 80
-#ifndef ZIG_TARGET_ABI_MSVC
-typedef zig_repr_f80 zig_repr_c_longdouble;
-#endif
 typedef long double zig_f80;
 #define zig_make_f80(fp, repr) fp##l
 #elif FLT80_MANT_DIG == 64
@@ -3291,7 +3253,6 @@ typedef __float80 zig_f80;
 #else
 #undef zig_has_f80
 #define zig_has_f80 0
-#define zig_bitSizeOf_repr_f80 128
 typedef zig_repr_f80 zig_f80;
 #define zig_make_f80(fp, repr) repr
 #undef zig_make_special_f80
@@ -3312,10 +3273,6 @@ typedef float zig_f128;
 typedef double zig_f128;
 #define zig_make_f128(fp, repr) fp
 #elif LDBL_MANT_DIG == 113
-#define zig_bitSizeOf_c_longdouble 128
-#ifndef ZIG_TARGET_ABI_MSVC
-typedef zig_repr_f128 zig_repr_c_longdouble;
-#endif
 typedef long double zig_f128;
 #define zig_make_f128(fp, repr) fp##l
 #elif FLT128_MANT_DIG == 113
@@ -3332,35 +3289,47 @@ typedef __float128 zig_f128;
 #else
 #undef zig_has_f128
 #define zig_has_f128 0
-#define zig_bitSizeOf_repr_f128 128
+#undef zig_make_special_f128
+#undef zig_init_special_f128
+#if __APPLE__ || defined(__aarch64__)
+typedef __attribute__((__vector_size__(16))) uint64_t zig_f128;
+#define zig_make_f128_zig_make_u128(hi, lo) (zig_f128){ lo, hi }
+#define zig_make_f128_zig_init_u128 zig_make_f128_zig_make_u128
+#define zig_make_f128(fp, repr) zig_make_f128_##repr
+#define zig_make_special_f128(sign, name, arg, repr) zig_make_f128_##repr
+#define zig_init_special_f128(sign, name, arg, repr) zig_make_f128_##repr
+#else
 typedef zig_repr_f128 zig_f128;
 #define zig_make_f128(fp, repr) repr
-#undef zig_make_special_f128
 #define zig_make_special_f128(sign, name, arg, repr) repr
-#undef zig_init_special_f128
 #define zig_init_special_f128(sign, name, arg, repr) repr
 #endif
-
-#ifdef zig_bitSizeOf_c_longdouble
-
-#define zig_has_c_longdouble 1
-#ifdef ZIG_TARGET_ABI_MSVC
-#undef zig_bitSizeOf_c_longdouble
-#define zig_bitSizeOf_c_longdouble 64
-typedef zig_f64 zig_c_longdouble;
-typedef zig_repr_f64 zig_repr_c_longdouble;
-#else
-typedef long double zig_c_longdouble;
 #endif
 
-#else /* zig_bitSizeOf_c_longdouble */
-
-#define zig_has_c_longdouble 0
-#define zig_bitSizeOf_repr_c_longdouble 128
-typedef zig_f128 zig_c_longdouble;
+#if _MSC_VER && !defined(ZIG_TARGET_ABI_MSVC)
+// Use gnu abi with the msvc compiler
+#define zig_bitSizeOf_c_longdouble 128
 typedef zig_repr_f128 zig_repr_c_longdouble;
-
-#endif /* zig_bitSizeOf_c_longdouble */
+typedef zig_f128 zig_c_longdouble;
+#else
+#if LDBL_MANT_DIG == 11
+#define zig_bitSizeOf_c_longdouble 16
+typedef zig_repr_f16 zig_repr_c_longdouble;
+#elif LDBL_MANT_DIG == 24
+#define zig_bitSizeOf_c_longdouble 32
+typedef zig_repr_f32 zig_repr_c_longdouble;
+#elif LDBL_MANT_DIG == 53
+#define zig_bitSizeOf_c_longdouble 64
+typedef zig_repr_f64 zig_repr_c_longdouble;
+#elif LDBL_MANT_DIG == 64
+#define zig_bitSizeOf_c_longdouble 80
+typedef zig_repr_f80 zig_repr_c_longdouble;
+#elif LDBL_MANT_DIG == 113
+#define zig_bitSizeOf_c_longdouble 128
+typedef zig_repr_f128 zig_repr_c_longdouble;
+#endif
+typedef long double zig_c_longdouble;
+#endif
 
 #if !zig_has_float_builtins
 #define zig_float_from_repr(Type) \
@@ -3413,20 +3382,17 @@ zig_convert_builtin(zig_f128, extend, zig_f32,  2)
 zig_convert_builtin(zig_f128, extend, zig_f64,  2)
 zig_convert_builtin(zig_f128, extend, zig_f80,  2)
 
-#define zig_float_negate_builtin_0(w) \
+#define zig_float_negate_builtin_0(w, r, c, sb) zig_xor_u##r(arg, zig_make_f##w(-0x0.0p0, c sb))
+#define zig_float_negate_builtin_1(w, r, c, sb) -arg
+#define zig_float_negate_builtin(w, r, c, sb) \
     static inline zig_f##w zig_neg_f##w(zig_f##w arg) { \
-        return zig_expand_concat(zig_xor_u, zig_bitSizeOf_repr_f##w)( \
-            arg, \
-            zig_expand_concat(zig_shl_u, zig_bitSizeOf_repr_f##w)( \
-                zig_expand_concat(zig_make_small_u, zig_bitSizeOf_repr_f##w)(1), \
-                UINT8_C(w - 1) \
-            ) \
-        ); \
+        return zig_expand_concat(zig_float_negate_builtin_, zig_has_f##w)(w, r, c, sb); \
     }
-#define zig_float_negate_builtin_1(w) \
-    static inline zig_f##w zig_neg_f##w(zig_f##w arg) { \
-        return -arg; \
-    }
+zig_float_negate_builtin(16,   16,              ,  UINT16_C(1) << 15              )
+zig_float_negate_builtin(32,   32,              ,  UINT32_C(1) << 31              )
+zig_float_negate_builtin(64,   64,              ,  UINT64_C(1) << 63              )
+zig_float_negate_builtin(80,  128, zig_make_u128, (UINT64_C(1) << 15, UINT64_C(0)))
+zig_float_negate_builtin(128, 128, zig_make_u128, (UINT64_C(1) << 63, UINT64_C(0)))
 
 #define zig_float_less_builtin_0(Type, operation) \
     zig_extern int32_t zig_expand_concat(zig_expand_concat(__##operation, \
