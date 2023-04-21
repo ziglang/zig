@@ -43,18 +43,6 @@ test "float widening" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64 and
-        builtin.zig_backend == .stage2_c)
-    {
-        // https://github.com/ziglang/zig/issues/13876
-        return error.SkipZigTest;
-    }
-
-    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
-        // TODO: test is failing
-        return error.SkipZigTest;
-    }
-
     var a: f16 = 12.34;
     var b: f32 = a;
     var c: f64 = b;
@@ -74,18 +62,6 @@ test "float widening f16 to f128" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64 and
-        builtin.zig_backend == .stage2_c)
-    {
-        // https://github.com/ziglang/zig/issues/13876
-        return error.SkipZigTest;
-    }
-
-    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
-        // TODO: test is failing
-        return error.SkipZigTest;
-    }
 
     var x: f16 = 12.34;
     var y: f128 = x;
