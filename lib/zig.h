@@ -3306,8 +3306,13 @@ typedef zig_repr_f128 zig_f128;
 #endif
 #endif
 
-#if _MSC_VER && !defined(ZIG_TARGET_ABI_MSVC)
-// Use gnu abi with the msvc compiler
+#if !_MSC_VER && defined(ZIG_TARGET_ABI_MSVC)
+// Emulate msvc abi on a gnu compiler
+#define zig_bitSizeOf_c_longdouble 64
+typedef zig_repr_f64 zig_repr_c_longdouble;
+typedef zig_f64 zig_c_longdouble;
+#elif _MSC_VER && !defined(ZIG_TARGET_ABI_MSVC)
+// Emulate gnu abi on an msvc compiler
 #define zig_bitSizeOf_c_longdouble 128
 typedef zig_repr_f128 zig_repr_c_longdouble;
 typedef zig_f128 zig_c_longdouble;
