@@ -5755,11 +5755,10 @@ fn airFloatCast(f: *Function, inst: Air.Inst.Index) !CValue {
         try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
         try writer.writeByte('(');
     }
-    try writer.writeAll("__");
+    try writer.writeAll("zig_");
     try writer.writeAll(operation);
     try writer.writeAll(compilerRtAbbrev(operand_ty, target));
     try writer.writeAll(compilerRtAbbrev(inst_ty, target));
-    if (inst_ty.isRuntimeFloat() and operand_ty.isRuntimeFloat()) try writer.writeByte('2');
     try writer.writeByte('(');
     try f.writeCValue(writer, operand, .FunctionArgument);
     try writer.writeByte(')');

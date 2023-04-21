@@ -3358,29 +3358,40 @@ zig_float_from_repr(f128)
 #define zig_cast_f128 (zig_f128)
 #endif
 
-#define zig_convert_builtin(ResType, operation, ArgType, version) \
-    zig_extern ResType zig_expand_concat(zig_expand_concat(zig_expand_concat(__##operation, \
-        zig_compiler_rt_abbrev_##ArgType), zig_compiler_rt_abbrev_##ResType), version)(ArgType);
-zig_convert_builtin(zig_compiler_rt_f16,  trunc,  zig_f32,  2)
-zig_convert_builtin(zig_compiler_rt_f16,  trunc,  zig_f64,  2)
-zig_convert_builtin(zig_f16,  trunc,  zig_f80,  2)
-zig_convert_builtin(zig_f16,  trunc,  zig_f128, 2)
-zig_convert_builtin(zig_f32,  extend, zig_compiler_rt_f16,  2)
-zig_convert_builtin(zig_f32,  trunc,  zig_f64,  2)
-zig_convert_builtin(zig_f32,  trunc,  zig_f80,  2)
-zig_convert_builtin(zig_f32,  trunc,  zig_f128, 2)
-zig_convert_builtin(zig_f64,  extend, zig_compiler_rt_f16,  2)
-zig_convert_builtin(zig_f64,  extend, zig_f32,  2)
-zig_convert_builtin(zig_f64,  trunc,  zig_f80,  2)
-zig_convert_builtin(zig_f64,  trunc,  zig_f128, 2)
-zig_convert_builtin(zig_f80,  extend, zig_f16,  2)
-zig_convert_builtin(zig_f80,  extend, zig_f32,  2)
-zig_convert_builtin(zig_f80,  extend, zig_f64,  2)
-zig_convert_builtin(zig_f80,  trunc,  zig_f128, 2)
-zig_convert_builtin(zig_f128, extend, zig_f16,  2)
-zig_convert_builtin(zig_f128, extend, zig_f32,  2)
-zig_convert_builtin(zig_f128, extend, zig_f64,  2)
-zig_convert_builtin(zig_f128, extend, zig_f80,  2)
+#define zig_convert_builtin(ExternResType, ResType, operation, ExternArgType, ArgType, version) \
+    zig_extern ExternResType zig_expand_concat(zig_expand_concat(zig_expand_concat(__##operation, \
+        zig_compiler_rt_abbrev_##ArgType), zig_compiler_rt_abbrev_##ResType), version)(ExternArgType); \
+    static inline ResType zig_expand_concat(zig_expand_concat(zig_##operation, \
+        zig_compiler_rt_abbrev_##ArgType), zig_compiler_rt_abbrev_##ResType)(ArgType arg) { \
+        ResType res; \
+        ExternResType extern_res; \
+        ExternArgType extern_arg; \
+        memcpy(&extern_arg, &arg, sizeof(extern_arg)); \
+        extern_res = zig_expand_concat(zig_expand_concat(zig_expand_concat(__##operation, \
+            zig_compiler_rt_abbrev_##ArgType), zig_compiler_rt_abbrev_##ResType), version)(extern_arg); \
+        memcpy(&res, &extern_res, sizeof(res)); \
+        return extern_res; \
+    }
+zig_convert_builtin(zig_compiler_rt_f16, zig_f16,   trunc, zig_f32,             zig_f32,  2)
+zig_convert_builtin(zig_compiler_rt_f16, zig_f16,   trunc, zig_f64,             zig_f64,  2)
+zig_convert_builtin(zig_f16,             zig_f16,   trunc, zig_f80,             zig_f80,  2)
+zig_convert_builtin(zig_f16,             zig_f16,   trunc, zig_f128,            zig_f128, 2)
+zig_convert_builtin(zig_f32,             zig_f32,  extend, zig_compiler_rt_f16, zig_f16,  2)
+zig_convert_builtin(zig_f32,             zig_f32,   trunc, zig_f64,             zig_f64,  2)
+zig_convert_builtin(zig_f32,             zig_f32,   trunc, zig_f80,             zig_f80,  2)
+zig_convert_builtin(zig_f32,             zig_f32,   trunc, zig_f128,            zig_f128, 2)
+zig_convert_builtin(zig_f64,             zig_f64,  extend, zig_compiler_rt_f16, zig_f16,  2)
+zig_convert_builtin(zig_f64,             zig_f64,  extend, zig_f32,             zig_f32,  2)
+zig_convert_builtin(zig_f64,             zig_f64,   trunc, zig_f80,             zig_f80,  2)
+zig_convert_builtin(zig_f64,             zig_f64,   trunc, zig_f128,            zig_f128, 2)
+zig_convert_builtin(zig_f80,             zig_f80,  extend, zig_f16,             zig_f16,  2)
+zig_convert_builtin(zig_f80,             zig_f80,  extend, zig_f32,             zig_f32,  2)
+zig_convert_builtin(zig_f80,             zig_f80,  extend, zig_f64,             zig_f64,  2)
+zig_convert_builtin(zig_f80,             zig_f80,   trunc, zig_f128,            zig_f128, 2)
+zig_convert_builtin(zig_f128,            zig_f128, extend, zig_f16,             zig_f16,  2)
+zig_convert_builtin(zig_f128,            zig_f128, extend, zig_f32,             zig_f32,  2)
+zig_convert_builtin(zig_f128,            zig_f128, extend, zig_f64,             zig_f64,  2)
+zig_convert_builtin(zig_f128,            zig_f128, extend, zig_f80,             zig_f80,  2)
 
 #define zig_float_negate_builtin_0(w, r, c, sb) zig_xor_u##r(arg, zig_make_f##w(-0x0.0p0, c sb))
 #define zig_float_negate_builtin_1(w, r, c, sb) -arg
@@ -3424,19 +3435,18 @@ zig_float_negate_builtin(128, 128, zig_make_u128, (UINT64_C(1) << 63, UINT64_C(0
     }
 
 #define zig_float_builtins(w) \
-    zig_convert_builtin( int32_t, fix,     zig_f##w, ) \
-    zig_convert_builtin(uint32_t, fixuns,  zig_f##w, ) \
-    zig_convert_builtin( int64_t, fix,     zig_f##w, ) \
-    zig_convert_builtin(uint64_t, fixuns,  zig_f##w, ) \
-    zig_convert_builtin(zig_i128, fix,     zig_f##w, ) \
-    zig_convert_builtin(zig_u128, fixuns,  zig_f##w, ) \
-    zig_convert_builtin(zig_f##w, float,    int32_t, ) \
-    zig_convert_builtin(zig_f##w, floatun, uint32_t, ) \
-    zig_convert_builtin(zig_f##w, float,    int64_t, ) \
-    zig_convert_builtin(zig_f##w, floatun, uint64_t, ) \
-    zig_convert_builtin(zig_f##w, float,   zig_i128, ) \
-    zig_convert_builtin(zig_f##w, floatun, zig_u128, ) \
-    zig_expand_concat(zig_float_negate_builtin_,  zig_has_f##w)(w) \
+    zig_convert_builtin( int32_t,  int32_t, fix,     zig_f##w, zig_f##w, ) \
+    zig_convert_builtin(uint32_t, uint32_t, fixuns,  zig_f##w, zig_f##w, ) \
+    zig_convert_builtin( int64_t,  int64_t, fix,     zig_f##w, zig_f##w, ) \
+    zig_convert_builtin(uint64_t, uint64_t, fixuns,  zig_f##w, zig_f##w, ) \
+    zig_convert_builtin(zig_i128, zig_i128, fix,     zig_f##w, zig_f##w, ) \
+    zig_convert_builtin(zig_u128, zig_u128, fixuns,  zig_f##w, zig_f##w, ) \
+    zig_convert_builtin(zig_f##w, zig_f##w, float,    int32_t,  int32_t, ) \
+    zig_convert_builtin(zig_f##w, zig_f##w, floatun, uint32_t, uint32_t, ) \
+    zig_convert_builtin(zig_f##w, zig_f##w, float,    int64_t,  int64_t, ) \
+    zig_convert_builtin(zig_f##w, zig_f##w, floatun, uint64_t, uint64_t, ) \
+    zig_convert_builtin(zig_f##w, zig_f##w, float,   zig_i128, zig_i128, ) \
+    zig_convert_builtin(zig_f##w, zig_f##w, floatun, zig_u128, zig_u128, ) \
     zig_expand_concat(zig_float_less_builtin_,    zig_has_f##w)(f##w, cmp) \
     zig_expand_concat(zig_float_less_builtin_,    zig_has_f##w)(f##w, ne) \
     zig_expand_concat(zig_float_less_builtin_,    zig_has_f##w)(f##w, eq) \
