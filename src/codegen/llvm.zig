@@ -10366,7 +10366,7 @@ pub const FuncGen = struct {
         return self.builder.buildTrunc(result, llvm_trunc_ty, "");
     }
 
-    // TODO Should this belong in compiler-rt?
+    // TODO Move this to compiler-rt (see #14609)
     //
     // Implements @depositBits(source, mask) in software
     // (i.e. without platform-specific instructions)
@@ -10513,7 +10513,7 @@ pub const FuncGen = struct {
         return self.builder.buildTrunc(result, llvm_trunc_ty, "");
     }
 
-    // TODO Should this belong in compiler-rt?
+    // TODO Move this to compiler-rt (see #14609)
     //
     // Implements @extractBits(source, mask) in software
     // (i.e. without platform-specific instructions)
