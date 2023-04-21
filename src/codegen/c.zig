@@ -3523,13 +3523,13 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
             try writer.writeAll("zig_shr_");
             try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
             if (c_bits == 128) {
-                try writer.print("(zig_bitcast_i{d}(", .{c_bits});
+                try writer.print("(zig_bitCast_i{d}(", .{c_bits});
             } else {
                 try writer.print("((int{d}_t)", .{c_bits});
             }
             try writer.print("zig_shl_u{d}(", .{c_bits});
             if (c_bits == 128) {
-                try writer.print("zig_bitcast_u{d}(", .{c_bits});
+                try writer.print("zig_bitCast_u{d}(", .{c_bits});
             } else {
                 try writer.print("(uint{d}_t)", .{c_bits});
             }
@@ -4484,7 +4484,7 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
         }
         try writer.writeAll(" = ");
         if (need_bitcasts) {
-            try writer.writeAll("zig_bitcast_");
+            try writer.writeAll("zig_bitCast_");
             try f.object.dg.renderCTypeForBuiltinFnName(writer, wrap_cty.?.toUnsigned());
             try writer.writeByte('(');
         }
@@ -4496,7 +4496,7 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
             try f.object.dg.renderTypeForBuiltinFnName(writer, info_ty);
         try writer.writeByte('(');
         if (need_bitcasts) {
-            try writer.writeAll("zig_bitcast_");
+            try writer.writeAll("zig_bitCast_");
             try f.object.dg.renderCTypeForBuiltinFnName(writer, wrap_cty.?);
             try writer.writeByte('(');
         }
