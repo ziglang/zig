@@ -6062,19 +6062,19 @@ fn airAtomicRmw(f: *Function, inst: Air.Inst.Index) !CValue {
         .data = @intCast(u16, ty.abiSize(target) * 8),
     };
     const is_float = ty.isRuntimeFloat();
+    const is_128 = repr_pl.data == 128;
     const repr_ty = if (is_float) Type.initPayload(&repr_pl.base) else ty;
 
     const operand_mat = try Materialize.start(f, inst, writer, ty, operand);
     try writer.print("zig_atomicrmw_{s}", .{toAtomicRmwSuffix(extra.op())});
-    if (is_float) try writer.writeAll("_float");
+    if (is_float) try writer.writeAll("_float") else if (is_128) try writer.writeAll("_int128");
     try writer.writeByte('(');
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(", (");
     const use_atomic = switch (extra.op()) {
         else => true,
-        // These are missing from stdatomic.h, so no atomic types for now.
-        .Nand => false,
-        .Min, .Max => is_float,
+        // These are missing from stdatomic.h, so no atomic types unless a fallback is used.
+        .Nand, .Min, .Max => is_float or is_128,
     };
     if (use_atomic) try writer.writeAll("zig_atomic(");
     try f.renderType(writer, ty);
