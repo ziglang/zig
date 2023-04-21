@@ -93,6 +93,10 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
     nosuspend stderr.print(fmt, args) catch return;
 }
 
+pub fn println(comptime fmt: []const u8, args: anytype) void {
+    print(fmt ++ std.cstr.line_sep, args);
+}
+
 pub fn getStderrMutex() *std.Thread.Mutex {
     return &stderr_mutex;
 }
