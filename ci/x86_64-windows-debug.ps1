@@ -15,10 +15,11 @@ if (-not(Test-Path -Path "$ZIG_LLVM_CLANG_LLD_NAME.zip" -PathType Leaf)) {
     Write-Output "Downloading $ZIG_LLVM_CLANG_LLD_URL"
     Invoke-WebRequest -Uri "$ZIG_LLVM_CLANG_LLD_URL" -OutFile "$ZIG_LLVM_CLANG_LLD_NAME.zip"
 
-    Write-Output "Extracting..."
-    Add-Type -AssemblyName System.IO.Compression.FileSystem ;
-    [System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD/$ZIG_LLVM_CLANG_LLD_NAME.zip", "$PWD")
 }
+
+Write-Output "Extracting..."
+Add-Type -AssemblyName System.IO.Compression.FileSystem ;
+[System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD/$ZIG_LLVM_CLANG_LLD_NAME.zip", "$PWD")
 
 function CheckLastExitCode {
     if (!$?) {
