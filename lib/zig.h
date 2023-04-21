@@ -2121,7 +2121,7 @@ static inline bool zig_addo_big(void *res, const void *lhs, const void *rhs, boo
 #endif
 
     while (remaining_bytes >= 128 / CHAR_BIT) {
-        uint16_t limb_bits = 128 - (remaining_bytes == 128 / CHAR_BIT ? top_bits : 0);
+        uint8_t limb_bits = (uint8_t) (128 - (remaining_bytes == 128 / CHAR_BIT ? top_bits : 0));
 
 #if zig_big_endian
         byte_offset -= 128 / CHAR_BIT;
@@ -2161,7 +2161,7 @@ static inline bool zig_addo_big(void *res, const void *lhs, const void *rhs, boo
     }
 
     while (remaining_bytes >= 64 / CHAR_BIT) {
-        uint16_t limb_bits = 64 - (remaining_bytes == 64 / CHAR_BIT ? top_bits : 0);
+        uint8_t limb_bits = (uint8_t) (64 - (remaining_bytes == 64 / CHAR_BIT ? top_bits : 0));
 
 #if zig_big_endian
         byte_offset -= 64 / CHAR_BIT;
@@ -2201,7 +2201,7 @@ static inline bool zig_addo_big(void *res, const void *lhs, const void *rhs, boo
     }
 
     while (remaining_bytes >= 32 / CHAR_BIT) {
-        uint16_t limb_bits = 32 - (remaining_bytes == 32 / CHAR_BIT ? top_bits : 0);
+        uint8_t limb_bits = (uint8_t) (32 - (remaining_bytes == 32 / CHAR_BIT ? top_bits : 0));
 
 #if zig_big_endian
         byte_offset -= 32 / CHAR_BIT;
@@ -2241,7 +2241,7 @@ static inline bool zig_addo_big(void *res, const void *lhs, const void *rhs, boo
     }
 
     while (remaining_bytes >= 16 / CHAR_BIT) {
-        uint16_t limb_bits = 16 - (remaining_bytes == 16 / CHAR_BIT ? top_bits : 0);
+        uint8_t limb_bits = (uint8_t) (16 - (remaining_bytes == 16 / CHAR_BIT ? top_bits : 0));
 
 #if zig_big_endian
         byte_offset -= 16 / CHAR_BIT;
@@ -2281,7 +2281,7 @@ static inline bool zig_addo_big(void *res, const void *lhs, const void *rhs, boo
     }
 
     while (remaining_bytes >= 8 / CHAR_BIT) {
-        uint16_t limb_bits = 8 - (remaining_bytes == 8 / CHAR_BIT ? top_bits : 0);
+        uint8_t limb_bits = (uint8_t) (8 - (remaining_bytes == 8 / CHAR_BIT ? top_bits : 0));
 
 #if zig_big_endian
         byte_offset -= 8 / CHAR_BIT;
@@ -2337,7 +2337,7 @@ static inline bool zig_subo_big(void *res, const void *lhs, const void *rhs, boo
 #endif
 
     while (remaining_bytes >= 128 / CHAR_BIT) {
-        uint16_t limb_bits = 128 - (remaining_bytes == 128 / CHAR_BIT ? top_bits : 0);
+        uint8_t limb_bits = (uint8_t) (128 - (remaining_bytes == 128 / CHAR_BIT ? top_bits : 0));
 
 #if zig_big_endian
         byte_offset -= 128 / CHAR_BIT;
@@ -2377,7 +2377,7 @@ static inline bool zig_subo_big(void *res, const void *lhs, const void *rhs, boo
     }
 
     while (remaining_bytes >= 64 / CHAR_BIT) {
-        uint16_t limb_bits = 64 - (remaining_bytes == 64 / CHAR_BIT ? top_bits : 0);
+        uint8_t limb_bits = (uint8_t) (64 - (remaining_bytes == 64 / CHAR_BIT ? top_bits : 0));
 
 #if zig_big_endian
         byte_offset -= 64 / CHAR_BIT;
@@ -2417,7 +2417,7 @@ static inline bool zig_subo_big(void *res, const void *lhs, const void *rhs, boo
     }
 
     while (remaining_bytes >= 32 / CHAR_BIT) {
-        uint16_t limb_bits = 32 - (remaining_bytes == 32 / CHAR_BIT ? top_bits : 0);
+        uint8_t limb_bits = (uint8_t) (32 - (remaining_bytes == 32 / CHAR_BIT ? top_bits : 0));
 
 #if zig_big_endian
         byte_offset -= 32 / CHAR_BIT;
@@ -2457,7 +2457,7 @@ static inline bool zig_subo_big(void *res, const void *lhs, const void *rhs, boo
     }
 
     while (remaining_bytes >= 16 / CHAR_BIT) {
-        uint16_t limb_bits = 16 - (remaining_bytes == 16 / CHAR_BIT ? top_bits : 0);
+        uint8_t limb_bits = (uint8_t) (16 - (remaining_bytes == 16 / CHAR_BIT ? top_bits : 0));
 
 #if zig_big_endian
         byte_offset -= 16 / CHAR_BIT;
@@ -2497,7 +2497,7 @@ static inline bool zig_subo_big(void *res, const void *lhs, const void *rhs, boo
     }
 
     while (remaining_bytes >= 8 / CHAR_BIT) {
-        uint16_t limb_bits = 8 - (remaining_bytes == 8 / CHAR_BIT ? top_bits : 0);
+        uint8_t limb_bits = (uint8_t) (8 - (remaining_bytes == 8 / CHAR_BIT ? top_bits : 0));
 
 #if zig_big_endian
         byte_offset -= 8 / CHAR_BIT;
