@@ -796,6 +796,11 @@ test "sigaction" {
     if (native_os == .linux and builtin.target.cpu.arch == .x86)
         return error.SkipZigTest;
 
+    // https://github.com/ziglang/zig/issues/15381
+    if (native_os == .macos and builtin.target.cpu.arch == .x86_64) {
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         var handler_called_count: u32 = 0;
 
