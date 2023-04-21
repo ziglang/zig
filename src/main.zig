@@ -4205,7 +4205,7 @@ pub fn cmdPkg(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
 
     if (mem.eql(u8, command_arg, "-h") or mem.eql(u8, command_arg, "--help")) {
         const stdout = io.getStdOut().writer();
-        try stdout.writeAll(usage_fmt);
+        try stdout.writeAll(usage_pkg);
         return cleanExit();
     }
 
