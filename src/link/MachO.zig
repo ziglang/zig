@@ -3000,6 +3000,28 @@ fn writeLinkeditSegmentData(self: *MachO) !void {
     seg.vmsize = mem.alignForwardGeneric(u64, seg.filesize, self.page_size);
 }
 
+fn collectRebaseDataFromTableSection(self: *MachO, sect_id: u8, rebase: *Rebase, table: anytype) !void {
+    const header = self.sections.items(.header)[sect_id];
+    const segment_index = self.sections.items(.segment_index)[sect_id];
+    const segment = self.segments.items[segment_index];
+    const base_offset = header.addr - segment.vmaddr;
+    const is_got = if (self.got_section_index) |index| index == sect_id else false;
+
+    try rebase.entries.ensureUnusedCapacity(self.base.allocator, table.entries.items.len);
+
+    for (table.entries.items, 0..) |entry, i| {
+        if (!table.lookup.contains(entry)) continue;
+        const sym = self.getSymbol(entry);
+        if (is_got and sym.undf()) continue;
+        const offset = i * @sizeOf(u64);
+        log.debug("    | rebase at {x}", .{base_offset + offset});
+        rebase.entries.appendAssumeCapacity(.{
+            .offset = base_offset + offset,
+            .segment_id = segment_index,
+        });
+    }
+}
+
 fn collectRebaseData(self: *MachO, rebase: *Rebase) !void {
     const gpa = self.base.allocator;
     const slice = self.sections.slice();
@@ -3027,49 +3049,36 @@ fn collectRebaseData(self: *MachO, rebase: *Rebase) !void {
         }
     }
 
-    // Gather GOT pointers
-    try rebase.entries.ensureUnusedCapacity(gpa, self.got_table.entries.items.len);
-    const segment_index = self.sections.items(.segment_index)[self.got_section_index.?];
-    for (self.got_table.entries.items, 0..) |entry, i| {
-        if (!self.got_table.lookup.contains(entry)) continue;
-        const sym = self.getSymbol(entry);
-        if (sym.undf()) continue;
-        const offset = i * @sizeOf(u64);
-        log.debug("    | rebase at {x}", .{offset});
-        rebase.entries.appendAssumeCapacity(.{
-            .offset = offset,
-            .segment_id = segment_index,
-        });
-    }
+    try self.collectRebaseDataFromTableSection(self.got_section_index.?, rebase, self.got_table);
+    try self.collectRebaseDataFromTableSection(self.la_symbol_ptr_section_index.?, rebase, self.stub_table);
 
     try rebase.finalize(gpa);
 }
 
 fn collectBindDataFromTableSection(self: *MachO, sect_id: u8, bind: anytype, table: anytype) !void {
+    const header = self.sections.items(.header)[sect_id];
     const segment_index = self.sections.items(.segment_index)[sect_id];
+    const segment = self.segments.items[segment_index];
+    const base_offset = header.addr - segment.vmaddr;
 
     try bind.entries.ensureUnusedCapacity(self.base.allocator, table.entries.items.len);
 
     for (table.entries.items, 0..) |entry, i| {
         if (!table.lookup.contains(entry)) continue;
-
         const bind_sym = self.getSymbol(entry);
         if (!bind_sym.undf()) continue;
-
         const offset = i * @sizeOf(u64);
-
         log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
-            offset,
+            base_offset + offset,
             self.getSymbolName(entry),
             @divTrunc(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER),
         });
         if (bind_sym.weakRef()) {
             log.debug("    | marking as weak ref ", .{});
         }
-
         bind.entries.appendAssumeCapacity(.{
             .target = entry,
-            .offset = offset,
+            .offset = base_offset + offset,
             .segment_id = segment_index,
             .addend = 0,
         });
