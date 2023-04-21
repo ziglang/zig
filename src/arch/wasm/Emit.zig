@@ -529,6 +529,13 @@ fn emitAtomic(emit: *Emit, inst: Mir.Inst.Index) !void {
     switch (@intToEnum(std.wasm.AtomicsOpcode, opcode)) {
         .i32_atomic_rmw_cmpxchg,
         .i64_atomic_rmw_cmpxchg,
+        .i32_atomic_load,
+        .i64_atomic_load,
+        .i32_atomic_load8_u,
+        .i32_atomic_load16_u,
+        .i64_atomic_load8_u,
+        .i64_atomic_load16_u,
+        .i64_atomic_load32_u,
         => {
             const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index + 1).data;
             try encodeMemArg(mem_arg, writer);

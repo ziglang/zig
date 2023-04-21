@@ -1965,7 +1965,6 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .is_non_err_ptr,
 
         .fence,
-        .atomic_load,
         .atomic_store_unordered,
         .atomic_store_monotonic,
         .atomic_store_release,
@@ -1983,6 +1982,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .c_va_start,
         => |tag| return func.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
 
+        .atomic_load => func.airAtomicLoad(inst),
         .cmpxchg_weak => func.airCmpxchg(inst),
         .cmpxchg_strong => func.airCmpxchg(inst),
 
@@ -6663,4 +6663,30 @@ fn airCmpxchg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try func.store(result_ptr, ptr_val, ty, 0);
 
     return func.finishAir(inst, result_ptr, &.{ extra.ptr, extra.new_value, extra.expected_value });
+}
+
+fn airAtomicLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const atomic_load = func.air.instructions.items(.data)[inst].atomic_load;
+    const ptr = try func.resolveInst(atomic_load.ptr);
+    const ty = func.air.typeOfIndex(inst);
+
+    if (func.useAtomicFeature()) {
+        const tag: wasm.AtomicsOpcode = switch (ty.abiSize(func.target)) {
+            1 => .i32_atomic_load8_u,
+            2 => .i32_atomic_load16_u,
+            4 => .i32_atomic_load,
+            8 => .i64_atomic_load,
+            else => |size| return func.fail("TODO: @atomicLoad for integers with abi size {d}", .{size}),
+        };
+        try func.emitWValue(ptr);
+        try func.addAtomicMemArg(tag, .{
+            .offset = ptr.offset(),
+            .alignment = ty.abiAlignment(func.target),
+        });
+    } else {
+        _ = try func.load(ptr, ty, 0);
+    }
+
+    const result = try WValue.toLocal(.stack, func, ty);
+    return func.finishAir(inst, result, &.{atomic_load.ptr});
 }
