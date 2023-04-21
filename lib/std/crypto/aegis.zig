@@ -417,6 +417,20 @@ pub const Aegis128LMac = AegisMac(Aegis128L_256);
 /// - It has a large security margin against internal collisions.
 pub const Aegis256Mac = AegisMac(Aegis256_256);
 
+/// Aegis128L MAC with a 128-bit output.
+/// A MAC with a 128-bit output is not safe unless the number of messages
+/// authenticated with the same key remains small.
+/// After 2^48 messages, the probability of a collision is already ~ 2^-33.
+/// If unsure, use the  Aegis128LMac type, that has a 256 bit output.
+pub const Aegis128LMac_128 = AegisMac(Aegis128L);
+
+/// Aegis256 MAC with a 128-bit output.
+/// A MAC with a 128-bit output is not safe unless the number of messages
+/// authenticated with the same key remains small.
+/// After 2^48 messages, the probability of a collision is already ~ 2^-33.
+/// If unsure, use the  Aegis256Mac type, that has a 256 bit output.
+pub const Aegis256Mac_128 = AegisMac(Aegis256);
+
 fn AegisMac(comptime T: type) type {
     return struct {
         const Self = @This();
