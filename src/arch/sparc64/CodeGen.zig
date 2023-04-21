@@ -489,6 +489,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     const air_tags = self.air.instructions.items(.tag);
 
     for (body) |inst| {
+        // TODO: remove now-redundant isUnused calls from AIR handler functions
+        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst)) {
+            continue;
+        }
+
         const old_air_bookkeeping = self.air_bookkeeping;
         try self.ensureProcessDeathCapacity(Liveness.bpi);
 
@@ -1750,16 +1755,10 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const loop = self.air.extraData(Air.Block, ty_pl.payload);
     const body = self.air.extra[loop.end .. loop.end + loop.data.body_len];
-    const liveness_loop = self.liveness.getLoop(inst);
     const start = @intCast(u32, self.mir_instructions.len);
 
     try self.genBody(body);
     try self.jump(start);
-
-    try self.ensureProcessDeathCapacity(liveness_loop.deaths.len);
-    for (liveness_loop.deaths) |operand| {
-        self.processDeath(operand);
-    }
 
     return self.finishAirBookkeeping();
 }

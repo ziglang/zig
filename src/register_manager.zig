@@ -95,6 +95,10 @@ pub fn RegisterManager(
             return indexOfReg(tracked_registers, reg);
         }
 
+        pub fn regAtTrackedIndex(index: RegisterBitSet.ShiftInt) Register {
+            return tracked_registers[index];
+        }
+
         /// Returns true when this register is not tracked
         pub fn isRegFree(self: Self, reg: Register) bool {
             const index = indexOfRegIntoTracked(reg) orelse return true;

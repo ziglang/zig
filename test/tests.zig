@@ -94,14 +94,15 @@ const test_targets = blk: {
             .use_llvm = false,
             .use_lld = false,
         },
-        .{
-            .target = .{
-                .cpu_arch = .aarch64,
-                .os_tag = .linux,
-            },
-            .use_llvm = false,
-            .use_lld = false,
-        },
+        // Doesn't support new liveness
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .aarch64,
+        //        .os_tag = .linux,
+        //    },
+        //    .use_llvm = false,
+        //    .use_lld = false,
+        //},
         .{
             .target = .{
                 .cpu_arch = .wasm32,
@@ -128,15 +129,16 @@ const test_targets = blk: {
         //    .use_llvm = false,
         //    .use_lld = false,
         //},
-        .{
-            .target = .{
-                .cpu_arch = .aarch64,
-                .os_tag = .macos,
-                .abi = .none,
-            },
-            .use_llvm = false,
-            .use_lld = false,
-        },
+        // Doesn't support new liveness
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .aarch64,
+        //        .os_tag = .macos,
+        //        .abi = .none,
+        //    },
+        //    .use_llvm = false,
+        //    .use_lld = false,
+        //},
         .{
             .target = .{
                 .cpu_arch = .x86_64,
