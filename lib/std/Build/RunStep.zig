@@ -304,7 +304,7 @@ pub fn captureStdErr(self: *RunStep) std.Build.FileSource {
     return .{ .generated = &output.generated_file };
 }
 
-pub fn captureStdOut(self: *RunStep) *std.Build.GeneratedFile {
+pub fn captureStdOut(self: *RunStep) std.Build.FileSource {
     assert(self.stdio != .inherit);
 
     if (self.captured_stdout) |output| return .{ .generated = &output.generated_file };
