@@ -244,13 +244,13 @@ pub fn makeDirAbsolute(absolute_path: []const u8) !void {
     return os.mkdir(absolute_path, default_new_dir_mode);
 }
 
-/// Same as `makeDirAbsolute` except the parameter is a null-terminated UTF8-encoded string.
+/// Same as `makeDirAbsolute` except the parameter is a null-terminated UTF-8-encoded string.
 pub fn makeDirAbsoluteZ(absolute_path_z: [*:0]const u8) !void {
     assert(path.isAbsoluteZ(absolute_path_z));
     return os.mkdirZ(absolute_path_z, default_new_dir_mode);
 }
 
-/// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16 encoded string.
+/// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16-encoded string.
 pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
     return os.mkdirW(absolute_path_w, default_new_dir_mode);
@@ -1419,14 +1419,23 @@ pub const Dir = struct {
         return file;
     }
 
+    /// Creates a single directory with a relative or absolute path.
+    /// To create multiple directories to make an entire path, see `makePath`.
+    /// To operate on only absolute paths, see `makeDirAbsolute`.
     pub fn makeDir(self: Dir, sub_path: []const u8) !void {
         try os.mkdirat(self.fd, sub_path, default_new_dir_mode);
     }
 
+    /// Creates a single directory with a relative or absolute null-terminated UTF-8-encoded path.
+    /// To create multiple directories to make an entire path, see `makePath`.
+    /// To operate on only absolute paths, see `makeDirAbsoluteZ`.
     pub fn makeDirZ(self: Dir, sub_path: [*:0]const u8) !void {
         try os.mkdiratZ(self.fd, sub_path, default_new_dir_mode);
     }
 
+    /// Creates a single directory with a relative or absolute null-terminated WTF-16-encoded path.
+    /// To create multiple directories to make an entire path, see `makePath`.
+    /// To operate on only absolute paths, see `makeDirAbsoluteW`.
     pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) !void {
         try os.mkdiratW(self.fd, sub_path, default_new_dir_mode);
     }
@@ -2463,7 +2472,7 @@ pub const Dir = struct {
     pub const AccessError = os.AccessError;
 
     /// Test accessing `path`.
-    /// `path` is UTF8-encoded.
+    /// `path` is UTF-8-encoded.
     /// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this function.
     /// For example, instead of testing if a file exists and then opening it, just
     /// open it and handle the error for file not found.
@@ -2736,14 +2745,14 @@ pub fn openFileAbsoluteZ(absolute_path_c: [*:0]const u8, flags: File.OpenFlags) 
     return cwd().openFileZ(absolute_path_c, flags);
 }
 
-/// Same as `openFileAbsolute` but the path parameter is WTF-16 encoded.
+/// Same as `openFileAbsolute` but the path parameter is WTF-16-encoded.
 pub fn openFileAbsoluteW(absolute_path_w: []const u16, flags: File.OpenFlags) File.OpenError!File {
     assert(path.isAbsoluteWindowsWTF16(absolute_path_w));
     return cwd().openFileW(absolute_path_w, flags);
 }
 
 /// Test accessing `path`.
-/// `path` is UTF8-encoded.
+/// `path` is UTF-8-encoded.
 /// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this function.
 /// For example, instead of testing if a file exists and then opening it, just
 /// open it and handle the error for file not found.

@@ -13,7 +13,6 @@ const zig_version = std.builtin.Version{ .major = 0, .minor = 11, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
-    const release = b.option(bool, "release", "Build in release mode") orelse false;
     const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse false;
     const target = t: {
         var default_target: std.zig.CrossTarget = .{};
@@ -22,10 +21,8 @@ pub fn build(b: *std.Build) !void {
         }
         break :t b.standardTargetOptions(.{ .default_target = default_target });
     };
-    const optimize: std.builtin.OptimizeMode = if (release) switch (target.getCpuArch()) {
-        .wasm32 => .ReleaseSmall,
-        else => .ReleaseFast,
-    } else .Debug;
+
+    const optimize = b.standardOptimizeOption(.{});
 
     const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;

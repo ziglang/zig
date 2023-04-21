@@ -6635,6 +6635,8 @@ fn analyzeCall(
         sema.code = fn_owner_decl.getFileScope().zir;
         defer sema.code = parent_zir;
 
+        try mod.declareDeclDependencyType(sema.owner_decl_index, module_fn.owner_decl, .function_body);
+
         const parent_inst_map = sema.inst_map;
         sema.inst_map = .{};
         defer {
@@ -7331,7 +7333,7 @@ fn instantiateGenericCall(
         // The generic function Decl is guaranteed to be the first dependency
         // of each of its instantiations.
         assert(new_decl.dependencies.keys().len == 0);
-        try mod.declareDeclDependency(new_decl_index, module_fn.owner_decl);
+        try mod.declareDeclDependencyType(new_decl_index, module_fn.owner_decl, .function_body);
 
         var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
         const new_decl_arena_allocator = new_decl_arena.allocator();
@@ -23279,6 +23281,22 @@ fn fieldVal(
                     Type.usize,
                     try Value.Tag.int_u64.create(arena, inner_ty.arrayLen()),
                 );
+            } else if (mem.eql(u8, field_name, "ptr") and is_pointer_to) {
+                const ptr_info = object_ty.ptrInfo().data;
+                const result_ty = try Type.ptr(sema.arena, sema.mod, .{
+                    .pointee_type = ptr_info.pointee_type.childType(),
+                    .sentinel = ptr_info.sentinel,
+                    .@"align" = ptr_info.@"align",
+                    .@"addrspace" = ptr_info.@"addrspace",
+                    .bit_offset = ptr_info.bit_offset,
+                    .host_size = ptr_info.host_size,
+                    .vector_index = ptr_info.vector_index,
+                    .@"allowzero" = ptr_info.@"allowzero",
+                    .mutable = ptr_info.mutable,
+                    .@"volatile" = ptr_info.@"volatile",
+                    .size = .Many,
+                });
+                return sema.coerce(block, result_ty, object, src);
             } else {
                 return sema.fail(
                     block,
@@ -23309,20 +23327,6 @@ fn fieldVal(
                         field_name_src,
                         "no member named '{s}' in '{}'",
                         .{ field_name, object_ty.fmt(sema.mod) },
-                    );
-                }
-            } else if (ptr_info.pointee_type.zigTypeTag() == .Array) {
-                if (mem.eql(u8, field_name, "len")) {
-                    return sema.addConstant(
-                        Type.usize,
-                        try Value.Tag.int_u64.create(arena, ptr_info.pointee_type.arrayLen()),
-                    );
-                } else {
-                    return sema.fail(
-                        block,
-                        field_name_src,
-                        "no member named '{s}' in '{}'",
-                        .{ field_name, ptr_info.pointee_type.fmt(sema.mod) },
                     );
                 }
             }
