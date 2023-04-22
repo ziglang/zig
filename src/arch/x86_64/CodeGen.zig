@@ -7678,6 +7678,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
 fn airPtrToInt(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result = result: {
+        // TODO: handle case where the operand is a slice not a raw pointer
         const src_mcv = try self.resolveInst(un_op);
         if (self.reuseOperand(inst, un_op, 0, src_mcv)) break :result src_mcv;
 
@@ -8149,63 +8150,78 @@ fn airAtomicStore(self: *Self, inst: Air.Inst.Index, order: std.builtin.AtomicOr
 }
 
 fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
-    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-    const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
-    const dst_ptr = try self.resolveInst(pl_op.operand);
+    const dst_ptr = try self.resolveInst(bin_op.lhs);
+    const dst_ptr_ty = self.air.typeOf(bin_op.lhs);
     const dst_ptr_lock: ?RegisterLock = switch (dst_ptr) {
         .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
         else => null,
     };
     defer if (dst_ptr_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const src_val = try self.resolveInst(extra.lhs);
+    const src_val = try self.resolveInst(bin_op.rhs);
+    const elem_ty = self.air.typeOf(bin_op.rhs);
     const src_val_lock: ?RegisterLock = switch (src_val) {
         .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
         else => null,
     };
     defer if (src_val_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const len = try self.resolveInst(extra.rhs);
+    if (elem_ty.abiSize(self.target.*) != 1) {
+        return self.fail("TODO implement airMemset when element ABI size > 1", .{});
+    }
+
+    const len = switch (dst_ptr_ty.ptrSize()) {
+        .Slice => @as(MCValue, .{ .stack_offset = dst_ptr.stack_offset - 8 }),
+        .One => @as(MCValue, .{ .immediate = dst_ptr_ty.childType().arrayLen() }),
+        .C, .Many => unreachable,
+    };
     const len_lock: ?RegisterLock = switch (len) {
         .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
         else => null,
     };
     defer if (len_lock) |lock| self.register_manager.unlockReg(lock);
 
+    // TODO: dst_ptr could be a slice rather than raw pointer
     try self.genInlineMemset(dst_ptr, src_val, len, .{});
 
-    return self.finishAir(inst, .unreach, .{ pl_op.operand, extra.lhs, extra.rhs });
+    return self.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
-    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-    const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
-    const dst_ptr = try self.resolveInst(pl_op.operand);
+    const dst_ptr = try self.resolveInst(bin_op.lhs);
+    const dst_ptr_ty = self.air.typeOf(bin_op.lhs);
     const dst_ptr_lock: ?RegisterLock = switch (dst_ptr) {
         .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
         else => null,
     };
     defer if (dst_ptr_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const src_ptr = try self.resolveInst(extra.lhs);
+    const src_ptr = try self.resolveInst(bin_op.rhs);
     const src_ptr_lock: ?RegisterLock = switch (src_ptr) {
         .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
         else => null,
     };
     defer if (src_ptr_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const len = try self.resolveInst(extra.rhs);
+    const len = switch (dst_ptr_ty.ptrSize()) {
+        .Slice => @as(MCValue, .{ .stack_offset = dst_ptr.stack_offset - 8 }),
+        .One => @as(MCValue, .{ .immediate = dst_ptr_ty.childType().arrayLen() }),
+        .C, .Many => unreachable,
+    };
     const len_lock: ?RegisterLock = switch (len) {
         .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
         else => null,
     };
     defer if (len_lock) |lock| self.register_manager.unlockReg(lock);
 
+    // TODO: dst_ptr and src_ptr could be slices rather than raw pointers
     try self.genInlineMemcpy(dst_ptr, src_ptr, len, .{});
 
-    return self.finishAir(inst, .unreach, .{ pl_op.operand, extra.lhs, extra.rhs });
+    return self.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
