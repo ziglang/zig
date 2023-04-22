@@ -420,6 +420,26 @@ pub const DeclGen = struct {
         return result_id;
     }
 
+    fn constBool(self: *DeclGen, value: bool, repr: Repr) !IdRef {
+        switch (repr) {
+            .indirect => {
+                const int_ty_ref = try self.intType(.unsigned, 1);
+                return self.constInt(int_ty_ref, @boolToInt(value));
+            },
+            .direct => {
+                const bool_ty_ref = try self.resolveType(Type.bool, .direct);
+                const result_id = self.spv.allocId();
+                const operands = .{ .id_result_type = self.typeId(bool_ty_ref), .id_result = result_id };
+                if (value) {
+                    try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpConstantTrue, operands);
+                } else {
+                    try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpConstantFalse, operands);
+                }
+                return result_id;
+            },
+        }
+    }
+
     const IndirectConstantLowering = struct {
         const undef = 0xAA;
 
@@ -1718,6 +1738,7 @@ pub const DeclGen = struct {
             .is_non_null => try self.airIsNull(inst, .is_non_null),
 
             .optional_payload => try self.airUnwrapOptional(inst),
+            .wrap_optional    => try self.airWrapOptional(inst),
 
             .assembly => try self.airAssembly(inst),
 
@@ -2711,6 +2732,33 @@ pub const DeclGen = struct {
         }
 
         return try self.extractField(payload_ty, operand_id, 0);
+    }
+
+    fn airWrapOptional(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const payload_ty = self.air.typeOf(ty_op.operand);
+
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+            return try self.constBool(true, .direct);
+        }
+
+        const operand_id = try self.resolve(ty_op.operand);
+        const optional_ty = self.air.typeOfIndex(inst);
+        if (optional_ty.optionalReprIsPayload()) {
+            return operand_id;
+        }
+
+        const optional_ty_ref = try self.resolveType(optional_ty, .direct);
+        const result_id = self.spv.allocId();
+        const members = [_]IdRef{ operand_id, try self.constBool(true, .indirect) };
+        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
+            .id_result_type = self.typeId(optional_ty_ref),
+            .id_result = result_id,
+            .constituents = &members,
+        });
+        return result_id;
     }
 
     fn airSwitchBr(self: *DeclGen, inst: Air.Inst.Index) !void {
