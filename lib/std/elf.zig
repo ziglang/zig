@@ -656,6 +656,13 @@ pub const Elf32_Sym = extern struct {
     st_info: u8,
     st_other: u8,
     st_shndx: Elf32_Section,
+
+    pub inline fn st_type(self: @This()) u4 {
+        return @truncate(u4, self.st_info);
+    }
+    pub inline fn st_bind(self: @This()) u4 {
+        return @truncate(u4, self.st_info >> 4);
+    }
 };
 pub const Elf64_Sym = extern struct {
     st_name: Elf64_Word,
@@ -664,6 +671,13 @@ pub const Elf64_Sym = extern struct {
     st_shndx: Elf64_Section,
     st_value: Elf64_Addr,
     st_size: Elf64_Xword,
+
+    pub inline fn st_type(self: @This()) u4 {
+        return @truncate(u4, self.st_info);
+    }
+    pub inline fn st_bind(self: @This()) u4 {
+        return @truncate(u4, self.st_info >> 4);
+    }
 };
 pub const Elf32_Syminfo = extern struct {
     si_boundto: Elf32_Half,
@@ -681,7 +695,7 @@ pub const Elf32_Rel = extern struct {
         return @truncate(u24, self.r_info >> 8);
     }
     pub inline fn r_type(self: @This()) u8 {
-        return @truncate(u8, self.r_info & 0xff);
+        return @truncate(u8, self.r_info);
     }
 };
 pub const Elf64_Rel = extern struct {
@@ -692,7 +706,7 @@ pub const Elf64_Rel = extern struct {
         return @truncate(u32, self.r_info >> 32);
     }
     pub inline fn r_type(self: @This()) u32 {
-        return @truncate(u32, self.r_info & 0xffffffff);
+        return @truncate(u32, self.r_info);
     }
 };
 pub const Elf32_Rela = extern struct {
@@ -704,7 +718,7 @@ pub const Elf32_Rela = extern struct {
         return @truncate(u24, self.r_info >> 8);
     }
     pub inline fn r_type(self: @This()) u8 {
-        return @truncate(u8, self.r_info & 0xff);
+        return @truncate(u8, self.r_info);
     }
 };
 pub const Elf64_Rela = extern struct {
@@ -716,7 +730,7 @@ pub const Elf64_Rela = extern struct {
         return @truncate(u32, self.r_info >> 32);
     }
     pub inline fn r_type(self: @This()) u32 {
-        return @truncate(u32, self.r_info & 0xffffffff);
+        return @truncate(u32, self.r_info);
     }
 };
 pub const Elf32_Dyn = extern struct {
