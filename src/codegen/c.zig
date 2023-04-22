@@ -5946,10 +5946,12 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
     const ptr = try f.resolveInst(extra.ptr);
     const expected_value = try f.resolveInst(extra.expected_value);
     const new_value = try f.resolveInst(extra.new_value);
-    try reap(f, inst, &.{ extra.ptr, extra.expected_value, extra.new_value });
-    const writer = f.object.writer();
     const ptr_ty = f.air.typeOf(extra.ptr);
     const ty = ptr_ty.childType();
+
+    const writer = f.object.writer();
+    const new_value_mat = try Materialize.start(f, inst, writer, ty, new_value);
+    try reap(f, inst, &.{ extra.ptr, extra.expected_value, extra.new_value });
 
     const target = f.object.dg.module.getTarget();
     var repr_pl = Type.Payload.Bits{
@@ -5958,7 +5960,6 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
     };
     const repr_ty = if (ty.isRuntimeFloat()) Type.initPayload(&repr_pl.base) else ty;
 
-    const new_value_mat = try Materialize.start(f, inst, writer, ty, new_value);
     const local = try f.allocLocal(inst, inst_ty);
     if (inst_ty.isPtrLikeOptional()) {
         {
@@ -6052,9 +6053,10 @@ fn airAtomicRmw(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty = ptr_ty.childType();
     const ptr = try f.resolveInst(pl_op.operand);
     const operand = try f.resolveInst(extra.operand);
-    try reap(f, inst, &.{ pl_op.operand, extra.operand });
+
     const writer = f.object.writer();
-    const local = try f.allocLocal(inst, inst_ty);
+    const operand_mat = try Materialize.start(f, inst, writer, ty, operand);
+    try reap(f, inst, &.{ pl_op.operand, extra.operand });
 
     const target = f.object.dg.module.getTarget();
     var repr_pl = Type.Payload.Bits{
@@ -6065,7 +6067,7 @@ fn airAtomicRmw(f: *Function, inst: Air.Inst.Index) !CValue {
     const is_128 = repr_pl.data == 128;
     const repr_ty = if (is_float) Type.initPayload(&repr_pl.base) else ty;
 
-    const operand_mat = try Materialize.start(f, inst, writer, ty, operand);
+    const local = try f.allocLocal(inst, inst_ty);
     try writer.print("zig_atomicrmw_{s}", .{toAtomicRmwSuffix(extra.op())});
     if (is_float) try writer.writeAll("_float") else if (is_128) try writer.writeAll("_int128");
     try writer.writeByte('(');
@@ -6144,8 +6146,10 @@ fn airAtomicStore(f: *Function, inst: Air.Inst.Index, order: [*:0]const u8) !CVa
     const ty = ptr_ty.childType();
     const ptr = try f.resolveInst(bin_op.lhs);
     const element = try f.resolveInst(bin_op.rhs);
-    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
+
     const writer = f.object.writer();
+    const element_mat = try Materialize.start(f, inst, writer, ty, element);
+    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
 
     const target = f.object.dg.module.getTarget();
     var repr_pl = Type.Payload.Bits{
@@ -6154,7 +6158,6 @@ fn airAtomicStore(f: *Function, inst: Air.Inst.Index, order: [*:0]const u8) !CVa
     };
     const repr_ty = if (ty.isRuntimeFloat()) Type.initPayload(&repr_pl.base) else ty;
 
-    const element_mat = try Materialize.start(f, inst, writer, ty, element);
     try writer.writeAll("zig_atomic_store((zig_atomic(");
     try f.renderType(writer, ty);
     try writer.writeByte(')');
