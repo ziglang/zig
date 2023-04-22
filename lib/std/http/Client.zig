@@ -645,7 +645,6 @@ pub const Request = struct {
                 if (req.response.parser.state.isContent()) break;
             }
 
-            req.response.headers = http.Headers{ .allocator = req.client.allocator, .owned = false };
             try req.response.parse(req.response.parser.header_bytes.items);
 
             if (req.response.status == .switching_protocols) {
@@ -765,7 +764,7 @@ pub const Request = struct {
             }
 
             if (has_trail) {
-                req.response.headers = http.Headers{ .allocator = req.client.allocator, .owned = false };
+                req.response.headers.clearRetainingCapacity();
 
                 // The response headers before the trailers are already guaranteed to be valid, so they will always be parsed again and cannot return an error.
                 // This will *only* fail for a malformed trailer.
@@ -1019,7 +1018,7 @@ pub fn request(client: *Client, method: http.Method, uri: Uri, headers: http.Hea
             .status = undefined,
             .reason = undefined,
             .version = undefined,
-            .headers = undefined,
+            .headers = http.Headers{ .allocator = client.allocator, .owned = false },
             .parser = switch (options.header_strategy) {
                 .dynamic => |max| proto.HeadersParser.initDynamic(max),
                 .static => |buf| proto.HeadersParser.initStatic(buf),
