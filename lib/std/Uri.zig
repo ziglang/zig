@@ -27,6 +27,18 @@ pub fn escapeQuery(allocator: std.mem.Allocator, input: []const u8) error{OutOfM
     return escapeStringWithFn(allocator, input, isQueryChar);
 }
 
+pub fn writeEscapedString(writer: anytype, input: []const u8) !void {
+    return writeEscapedStringWithFn(writer, input, isUnreserved);
+}
+
+pub fn writeEscapedPath(writer: anytype, input: []const u8) !void {
+    return writeEscapedStringWithFn(writer, input, isPathChar);
+}
+
+pub fn writeEscapedQuery(writer: anytype, input: []const u8) !void {
+    return writeEscapedStringWithFn(writer, input, isQueryChar);
+}
+
 pub fn escapeStringWithFn(allocator: std.mem.Allocator, input: []const u8, comptime keepUnescaped: fn (c: u8) bool) std.mem.Allocator.Error![]const u8 {
     var outsize: usize = 0;
     for (input) |c| {
@@ -50,6 +62,16 @@ pub fn escapeStringWithFn(allocator: std.mem.Allocator, input: []const u8, compt
         }
     }
     return output;
+}
+
+pub fn writeEscapedStringWithFn(writer: anytype, input: []const u8, comptime keepUnescaped: fn (c: u8) bool) @TypeOf(writer).Error!void {
+    for (input) |c| {
+        if (keepUnescaped(c)) {
+            try writer.writeByte(c);
+        } else {
+            try writer.print("%{X:0>2}", .{c});
+        }
+    }
 }
 
 /// Parses a URI string and unescapes all %XX where XX is a valid hex number. Otherwise, verbatim copies
@@ -182,6 +204,60 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
     }
 
     return uri;
+}
+
+pub fn format(
+    uri: Uri,
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    _ = options;
+
+    const needs_absolute = comptime std.mem.indexOf(u8, fmt, "+") != null;
+    const needs_path = comptime std.mem.indexOf(u8, fmt, "/") != null or fmt.len == 0;
+
+    if (needs_absolute) {
+        try writer.writeAll(uri.scheme);
+        try writer.writeAll(":");
+        if (uri.host) |host| {
+            try writer.writeAll("//");
+
+            if (uri.user) |user| {
+                try writer.writeAll(user);
+                if (uri.password) |password| {
+                    try writer.writeAll(":");
+                    try writer.writeAll(password);
+                }
+                try writer.writeAll("@");
+            }
+
+            try writer.writeAll(host);
+
+            if (uri.port) |port| {
+                try writer.writeAll(":");
+                try std.fmt.formatInt(port, 10, .lower, .{}, writer);
+            }
+        }
+    }
+
+    if (needs_path) {
+        if (uri.path.len == 0) {
+            try writer.writeAll("/");
+        } else {
+            try Uri.writeEscapedPath(writer, uri.path);
+        }
+
+        if (uri.query) |q| {
+            try writer.writeAll("?");
+            try Uri.writeEscapedQuery(writer, q);
+        }
+
+        if (uri.fragment) |f| {
+            try writer.writeAll("#");
+            try Uri.writeEscapedQuery(writer, f);
+        }
+    }
 }
 
 /// Parses the URI or returns an error.

@@ -620,6 +620,7 @@ pub const InitOptions = struct {
     test_name_prefix: ?[]const u8 = null,
     test_runner_path: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
+    dwarf_format: ?std.dwarf.Format = null,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     /// (Zig compiler development) Enable dumping linker's state as JSON.
@@ -1111,6 +1112,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(link_libunwind);
         cache.hash.add(options.output_mode);
         cache.hash.add(options.machine_code_model);
+        cache.hash.addOptional(options.dwarf_format);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_bin);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_implib);
         cache.hash.addBytes(options.root_name);
@@ -1517,6 +1519,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
             .subsystem = options.subsystem,
             .is_test = options.is_test,
+            .dwarf_format = options.dwarf_format,
             .wasi_exec_model = wasi_exec_model,
             .hash_style = options.hash_style,
             .enable_link_snapshots = options.enable_link_snapshots,
@@ -3092,6 +3095,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
 
                 .file_failure,
                 .sema_failure,
+                .liveness_failure,
                 .codegen_failure,
                 .dependency_failure,
                 .sema_failure_retryable,
@@ -3142,7 +3146,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
 
                 // emit-h only requires semantic analysis of the Decl to be complete,
                 // it does not depend on machine code generation to succeed.
-                .codegen_failure, .codegen_failure_retryable, .complete => {
+                .liveness_failure, .codegen_failure, .codegen_failure_retryable, .complete => {
                     const named_frame = tracy.namedFrame("emit_h_decl");
                     defer named_frame.end();
 
@@ -4460,6 +4464,15 @@ pub fn addCCArgs(
                         try argv.append("-mno-save-restore");
                     }
                 },
+                .mips, .mipsel, .mips64, .mips64el => {
+                    if (target.cpu.model.llvm_name) |llvm_name| {
+                        try argv.append(try std.fmt.allocPrint(arena, "-march={s}", .{llvm_name}));
+                    }
+
+                    if (std.Target.mips.featureSetHas(target.cpu.features, .soft_float)) {
+                        try argv.append("-msoft-float");
+                    }
+                },
                 else => {
                     // TODO
                 },
@@ -4474,8 +4487,18 @@ pub fn addCCArgs(
 
     if (!comp.bin_file.options.strip) {
         switch (target.ofmt) {
-            .coff => try argv.append("-gcodeview"),
-            .elf, .macho => try argv.append("-gdwarf-4"),
+            .coff => {
+                // -g is required here because -gcodeview doesn't trigger debug info
+                // generation, it only changes the type of information generated.
+                try argv.appendSlice(&.{ "-g", "-gcodeview" });
+            },
+            .elf, .macho => {
+                try argv.append("-gdwarf-4");
+                if (comp.bin_file.options.dwarf_format) |f| switch (f) {
+                    .@"32" => try argv.append("-gdwarf32"),
+                    .@"64" => try argv.append("-gdwarf64"),
+                };
+            },
             else => try argv.append("-g"),
         }
     }

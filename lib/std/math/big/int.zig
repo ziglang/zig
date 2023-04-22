@@ -489,6 +489,7 @@ pub const Mutable = struct {
             if (msl < req_limbs) {
                 r.limbs[msl] = 1;
                 r.len = req_limbs;
+                mem.set(Limb, r.limbs[msl + 1 .. req_limbs], 0);
             } else {
                 carry_truncated = true;
             }
@@ -935,9 +936,6 @@ pub const Mutable = struct {
     /// The upper bound for r limb count is `b.limbs.len`.
     /// The upper bound for q limb count is given by `a.limbs`.
     ///
-    /// If `allocator` is provided, it will be used for temporary storage to improve
-    /// multiplication performance. `error.OutOfMemory` is handled with a fallback algorithm.
-    ///
     /// `limbs_buffer` is used for temporary storage. The amount required is given by `calcDivLimbsBufferLen`.
     pub fn divFloor(
         q: *Mutable,
@@ -1064,9 +1062,6 @@ pub const Mutable = struct {
     /// Asserts there is enough memory to store q and r.
     /// The upper bound for r limb count is `b.limbs.len`.
     /// The upper bound for q limb count is given by `a.limbs.len`.
-    ///
-    /// If `allocator` is provided, it will be used for temporary storage to improve
-    /// multiplication performance. `error.OutOfMemory` is handled with a fallback algorithm.
     ///
     /// `limbs_buffer` is used for temporary storage. The amount required is given by `calcDivLimbsBufferLen`.
     pub fn divTrunc(

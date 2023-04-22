@@ -41,7 +41,9 @@ pub const auth = struct {
     pub const siphash = @import("crypto/siphash.zig");
     pub const aegis = struct {
         pub const Aegis128LMac = @import("crypto/aegis.zig").Aegis128LMac;
+        pub const Aegis128LMac_128 = @import("crypto/aegis.zig").Aegis128LMac_128;
         pub const Aegis256Mac = @import("crypto/aegis.zig").Aegis256Mac;
+        pub const Aegis256Mac_128 = @import("crypto/aegis.zig").Aegis256Mac_128;
     };
     pub const cmac = @import("crypto/cmac.zig");
 };

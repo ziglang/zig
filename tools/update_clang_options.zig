@@ -241,23 +241,31 @@ const known_options = [_]KnownOpt{
         .ident = "debug",
     },
     .{
-        .name = "g-dwarf",
+        .name = "gdwarf32",
+        .ident = "gdwarf32",
+    },
+    .{
+        .name = "gdwarf64",
+        .ident = "gdwarf64",
+    },
+    .{
+        .name = "gdwarf",
         .ident = "debug",
     },
     .{
-        .name = "g-dwarf-2",
+        .name = "gdwarf-2",
         .ident = "debug",
     },
     .{
-        .name = "g-dwarf-3",
+        .name = "gdwarf-3",
         .ident = "debug",
     },
     .{
-        .name = "g-dwarf-4",
+        .name = "gdwarf-4",
         .ident = "debug",
     },
     .{
-        .name = "g-dwarf-5",
+        .name = "gdwarf-5",
         .ident = "debug",
     },
     .{

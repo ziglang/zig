@@ -20,5 +20,5 @@ fn assert(ok: bool) void {
 }
 
 // run
-// target=x86_64-linux,x86_64-macos,arm-linux,wasm32-wasi
+// target=x86_64-linux,x86_64-macos,wasm32-wasi
 //

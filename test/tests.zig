@@ -94,14 +94,15 @@ const test_targets = blk: {
             .use_llvm = false,
             .use_lld = false,
         },
-        .{
-            .target = .{
-                .cpu_arch = .aarch64,
-                .os_tag = .linux,
-            },
-            .use_llvm = false,
-            .use_lld = false,
-        },
+        // Doesn't support new liveness
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .aarch64,
+        //        .os_tag = .linux,
+        //    },
+        //    .use_llvm = false,
+        //    .use_lld = false,
+        //},
         .{
             .target = .{
                 .cpu_arch = .wasm32,
@@ -128,15 +129,16 @@ const test_targets = blk: {
         //    .use_llvm = false,
         //    .use_lld = false,
         //},
-        .{
-            .target = .{
-                .cpu_arch = .aarch64,
-                .os_tag = .macos,
-                .abi = .none,
-            },
-            .use_llvm = false,
-            .use_lld = false,
-        },
+        // Doesn't support new liveness
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .aarch64,
+        //        .os_tag = .macos,
+        //        .abi = .none,
+        //    },
+        //    .use_llvm = false,
+        //    .use_lld = false,
+        //},
         .{
             .target = .{
                 .cpu_arch = .x86_64,
@@ -942,14 +944,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         // TODO get compiler-rt tests passing for self-hosted backends.
         if (test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
             continue;
-
-        // TODO get the x86_64 self-hosted backend tests passing on Windows
-        if (test_target.target.getCpuArch() == .x86_64 and
-            test_target.target.getOsTag() == .windows and
-            test_target.use_llvm == false)
-        {
-            continue;
-        }
 
         // TODO get compiler-rt tests passing for wasm32-wasi
         // currently causes "LLVM ERROR: Unable to expand fixed point multiplication."

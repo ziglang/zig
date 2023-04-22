@@ -18,6 +18,19 @@ test "zig fmt: transform old for loop syntax to new" {
     );
 }
 
+test "zig fmt: remove extra whitespace at start and end of file with comment between" {
+    try testTransform(
+        \\
+        \\
+        \\// hello
+        \\
+        \\
+    ,
+        \\// hello
+        \\
+    );
+}
+
 test "zig fmt: tuple struct" {
     try testCanonical(
         \\const T = struct {
@@ -511,17 +524,6 @@ test "zig fmt: remove empty lines at start/end of block" {
         \\    if (foo) {
         \\        foo();
         \\    }
-        \\}
-        \\
-    );
-}
-
-test "zig fmt: allow empty line before commment at start of block" {
-    try testCanonical(
-        \\test {
-        \\
-        \\    // foo
-        \\    const x = 42;
         \\}
         \\
     );
