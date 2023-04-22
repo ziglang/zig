@@ -1581,27 +1581,27 @@ pub const Module = struct {
     pub fn addIncludePath(m: *Module, path: []const u8) void {
         m.include_dirs.append(
             m.builder.allocator,
-            CompileStep.IncludeDir{ .raw_path = m.builder.pathFromRoot(path) },
+            CompileStep.IncludeDir{ .raw_path = m.builder.dupe(path) },
         ) catch @panic("OOM");
     }
 
     pub fn addSystemIncludePath(m: *Module, path: []const u8) void {
         m.include_dirs.append(
             m.builder.allocator,
-            CompileStep.IncludeDir{ .raw_path_system = m.builder.pathFromRoot(path) },
+            CompileStep.IncludeDir{ .raw_path_system = m.builder.dupe(path) },
         ) catch @panic("OOM");
     }
 
     pub fn addRPath(m: *Module, path: []const u8) void {
-        m.rpaths.append(m.builder.allocator, m.builder.pathFromRoot(path)) catch @panic("OOM");
+        m.rpaths.append(m.builder.allocator, m.builder.dupe(path)) catch @panic("OOM");
     }
 
     pub fn addFrameworkPath(m: *Module, dir_path: []const u8) void {
-        m.framework_dirs.append(m.builder.allocator, m.builder.pathFromRoot(dir_path)) catch @panic("OOM");
+        m.framework_dirs.append(m.builder.allocator, m.builder.dupe(dir_path)) catch @panic("OOM");
     }
 
     pub fn addLibraryPath(m: *Module, library_path: []const u8) void {
-        m.lib_paths.append(m.builder.allocator, m.builder.pathFromRoot(library_path)) catch @panic("OOM");
+        m.lib_paths.append(m.builder.allocator, m.builder.dupe(library_path)) catch @panic("OOM");
     }
 
     pub fn addConfigHeader(m: *Module, config_header: *Build.ConfigHeaderStep) void {
@@ -1711,7 +1711,7 @@ pub const Module = struct {
     pub fn installHeader(m: *Module, src_path: []const u8, dest_rel_path: []const u8) void {
         m.installed_headers.append(m.builder.allocator, .{
             .header = .{
-                .source_path = m.builder.pathFromRoot(src_path),
+                .source_path = m.builder.dupe(src_path),
                 .dest_rel_path = dest_rel_path,
             },
         }) catch @panic("OOM");
@@ -1736,7 +1736,7 @@ pub const Module = struct {
         dest_rel_path: []const u8,
     ) void {
         return m.installHeadersDirectoryOptions(.{
-            .source_dir = m.builder.pathFromRoot(src_dir_path),
+            .source_dir = m.builder.dupe(src_dir_path),
             .install_dir = .header,
             .install_subdir = dest_rel_path,
         });
