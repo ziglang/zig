@@ -819,15 +819,11 @@ pub const TestFn = struct {
     name: []const u8,
     func: *const fn () anyerror!void,
     async_frame_size: ?usize,
-};
-
-/// This function type is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub const PanicFn = fn ([]const u8, ?*StackTrace, ?usize) noreturn;
+}
 
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const panic: PanicFn = if (@hasDecl(root, "panic"))
+pub const panic: @TypeOf(default_panic) = if (@hasDecl(root, "panic"))
     root.panic
 else if (@hasDecl(root, "os") and @hasDecl(root.os, "panic"))
     root.os.panic
@@ -927,27 +923,62 @@ pub fn checkNonScalarSentinel(expected: anytype, actual: @TypeOf(expected)) void
     }
 }
 
-pub fn panicSentinelMismatch(expected: anytype, actual: @TypeOf(expected)) noreturn {
+pub const panicSentinelMismatch: @TypeOf(panicSentinelMismatchDefault) = if (@hasDecl(root, "panicSentinelMismatch"))
+    root.panicSentinelMismatch
+else if (@hasDecl(root, "os") and @hasDecl(root.os, "panicSentinelMismatch"))
+    root.os.panicSentinelMismatch
+else
+    panicSentinelMismatchDefault;
+
+pub fn panicSentinelMismatchDefault(expected: anytype, actual: @TypeOf(expected)) noreturn {
     @setCold(true);
     std.debug.panicExtra(null, @returnAddress(), "sentinel mismatch: expected {any}, found {any}", .{ expected, actual });
 }
 
-pub fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
+pub const panicUnwrapError: @TypeOf(panicUnwrapErrorDefault) = if (@hasDecl(root, "panicUnwrapError"))
+    root.panicUnwrapError
+else if (@hasDecl(root, "os") and @hasDecl(root.os, "panicUnwrapError"))
+    root.os.panicUnwrapError
+else
+    panicUnwrapErrorDefault;
+
+pub fn panicUnwrapErrorDefault(st: ?*StackTrace, err: anyerror) noreturn {
     @setCold(true);
     std.debug.panicExtra(st, @returnAddress(), "attempt to unwrap error: {s}", .{@errorName(err)});
 }
 
-pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
+pub const panicOutOfBounds: @TypeOf(panicOutOfBoundsDefault) = if (@hasDecl(root, "panicOutOfBounds"))
+    root.panicOutOfBounds
+else if (@hasDecl(root, "os") and @hasDecl(root.os, "panicOutOfBounds"))
+    root.os.panicOutOfBounds
+else
+    panicOutOfBoundsDefault;
+
+pub fn panicOutOfBoundsDefault(index: usize, len: usize) noreturn {
     @setCold(true);
     std.debug.panicExtra(null, @returnAddress(), "index out of bounds: index {d}, len {d}", .{ index, len });
 }
 
-pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
+pub const panicStartGreaterThanEnd: @TypeOf(panicStartGreaterThanEndDefault) = if (@hasDecl(root, "panicStartGreaterThanEnd"))
+    root.panicStartGreaterThanEnd
+else if (@hasDecl(root, "os") and @hasDecl(root.os, "panicStartGreaterThanEnd"))
+    root.os.panicStartGreaterThanEnd
+else
+    panicStartGreaterThanEndDefault;
+
+pub fn panicStartGreaterThanEndDefault(start: usize, end: usize) noreturn {
     @setCold(true);
     std.debug.panicExtra(null, @returnAddress(), "start index {d} is larger than end index {d}", .{ start, end });
 }
 
-pub fn panicInactiveUnionField(active: anytype, wanted: @TypeOf(active)) noreturn {
+pub const panicInactiveUnionField: @TypeOf(panicInactiveUnionFieldDefault) = if (@hasDecl(root, "panicInactiveUnionField"))
+    root.panicInactiveUnionField
+else if (@hasDecl(root, "os") and @hasDecl(root.os, "panicInactiveUnionField"))
+    root.os.panicInactiveUnionField
+else
+    panicInactiveUnionFieldDefault;
+
+pub fn panicInactiveUnionFieldDefault(active: anytype, wanted: @TypeOf(active)) noreturn {
     @setCold(true);
     std.debug.panicExtra(null, @returnAddress(), "access of union field '{s}' while field '{s}' is active", .{ @tagName(wanted), @tagName(active) });
 }
