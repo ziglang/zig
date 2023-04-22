@@ -459,11 +459,6 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
     return self;
 }
 
-pub fn setOutputDir(self: *CompileStep, dir: []const u8) void {
-    const b = self.step.owner;
-    self.output_dir = b.pathFromRoot(b.dupePath(dir));
-}
-
 pub fn installHeader(cs: *CompileStep, src_path: []const u8, dest_rel_path: []const u8) void {
     const b = cs.step.owner;
     const install_file = b.addInstallHeaderFile(src_path, dest_rel_path);

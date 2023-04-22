@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) void {
 
     exe.addModule("test_module", module);
 
-    const run = exe.run();
+    const run = b.addRunArtifact(exe);
 
     b.default_step = &run.step;
 }

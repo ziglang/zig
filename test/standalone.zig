@@ -227,10 +227,6 @@ pub const build_cases = [_]BuildCase{
         .import = @import("standalone/module_link_library/build.zig"),
     },
     .{
-        .build_root = "test/standalone/module_add_library_path",
-        .import = @import("standalone/module_add_library_path/build.zig"),
-    },
-    .{
         .build_root = "test/standalone/module_install_header",
         .import = @import("standalone/module_install_header/build.zig"),
     },

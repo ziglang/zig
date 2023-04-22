@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
 
     exe.addModule("test_module", module);
 
-    const run = exe.run();
+    const run = b.addRunArtifact(exe);
 
     const test_step = b.step("test", "Test it");
     test_step.dependOn(&run.step);
