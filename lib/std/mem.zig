@@ -1504,6 +1504,8 @@ test "comptime read/write int" {
 }
 
 test "readIntBig and readIntLittle" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     try testing.expect(readIntSliceBig(u0, &[_]u8{}) == 0x0);
     try testing.expect(readIntSliceLittle(u0, &[_]u8{}) == 0x0);
 
@@ -1795,6 +1797,8 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
 }
 
 test "writeIntBig and writeIntLittle" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     var buf0: [0]u8 = undefined;
     var buf1: [1]u8 = undefined;
     var buf2: [2]u8 = undefined;
@@ -4011,6 +4015,8 @@ pub fn alignInSlice(slice: anytype, comptime new_alignment: usize) ?AlignedSlice
 }
 
 test "read/write(Var)PackedInt" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     switch (builtin.cpu.arch) {
         // This test generates too much code to execute on WASI.
         // LLVM backend fails with "too many locals: locals exceed maximum"

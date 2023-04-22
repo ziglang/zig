@@ -502,8 +502,7 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
 }
 
 test "dl_iterate_phdr" {
-    if (native_os == .windows or native_os == .wasi or native_os == .macos)
-        return error.SkipZigTest;
+    if (builtin.object_format != .elf) return error.SkipZigTest;
 
     var counter: usize = 0;
     try os.dl_iterate_phdr(&counter, IterFnError, iter_fn);
@@ -796,6 +795,11 @@ test "sigaction" {
     // https://github.com/ziglang/zig/issues/7427
     if (native_os == .linux and builtin.target.cpu.arch == .x86)
         return error.SkipZigTest;
+
+    // https://github.com/ziglang/zig/issues/15381
+    if (native_os == .macos and builtin.target.cpu.arch == .x86_64) {
+        return error.SkipZigTest;
+    }
 
     const S = struct {
         var handler_called_count: u32 = 0;

@@ -189,7 +189,7 @@ test "complex.magnitude" {
     try testing.expect(math.approxEqAbs(f32, c, 5.83095, epsilon));
 }
 
-test "complex.cmath" {
+test {
     _ = @import("complex/abs.zig");
     _ = @import("complex/acosh.zig");
     _ = @import("complex/acos.zig");

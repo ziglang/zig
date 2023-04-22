@@ -36,7 +36,7 @@ const xxhash = @import("hash/xxhash.zig");
 pub const XxHash64 = xxhash.XxHash64;
 pub const XxHash32 = xxhash.XxHash32;
 
-test "hash" {
+test {
     _ = adler;
     _ = auto_hash;
     _ = crc;
