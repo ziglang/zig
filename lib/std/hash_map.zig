@@ -350,7 +350,7 @@ pub fn verifyContext(
 /// General purpose hash table.
 /// No order is guaranteed and any modification invalidates live iterators.
 /// It provides fast operations (lookup, insertion, deletion) with quite high
-/// load factors (up to 80% by default) for a low memory usage.
+/// load factors (up to 80% by default) for low memory usage.
 /// For a hash map that can be initialized directly that does not store an Allocator
 /// field, see `HashMapUnmanaged`.
 /// If iterating over the table entries is a strong usecase and needs to be fast,

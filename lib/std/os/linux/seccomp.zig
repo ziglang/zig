@@ -29,8 +29,8 @@
 //!    which is dependant on the ABI. Since BPF programs execute in a 32-bit
 //!    machine, validation of 64-bit arguments necessitates two load-and-compare
 //!    instructions for the upper and lower words.
-//! 3. A further wrinkle to the above is endianess. Unlike network packets,
-//!    syscall data shares the endianess of the target machine. A filter
+//! 3. A further wrinkle to the above is endianness. Unlike network packets,
+//!    syscall data shares the endianness of the target machine. A filter
 //!    compiled on a little-endian machine will not work on a big-endian one,
 //!    and vice-versa. For example: Checking the upper 32-bits of `data.arg1`
 //!    requires a load at `@offsetOf(data, "arg1") + 4` on big-endian systems
