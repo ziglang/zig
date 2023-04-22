@@ -1969,7 +1969,6 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .atomic_store_monotonic,
         .atomic_store_release,
         .atomic_store_seq_cst,
-        .atomic_rmw,
         .err_return_trace,
         .set_err_return_trace,
         .save_err_return_trace_index,
@@ -1983,6 +1982,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         => |tag| return func.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
 
         .atomic_load => func.airAtomicLoad(inst),
+        .atomic_rmw => func.airAtomicRmw(inst),
         .cmpxchg_weak => func.airCmpxchg(inst),
         .cmpxchg_strong => func.airCmpxchg(inst),
 
@@ -6526,7 +6526,6 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     return func.bin_file.createFunction(func_name, func_type, &body_list, &relocs);
 }
 
-<<<<<<< HEAD
 fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
 
@@ -6676,7 +6675,7 @@ fn airAtomicLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             2 => .i32_atomic_load16_u,
             4 => .i32_atomic_load,
             8 => .i64_atomic_load,
-            else => |size| return func.fail("TODO: @atomicLoad for integers with abi size {d}", .{size}),
+            else => |size| return func.fail("TODO: @atomicLoad for types with abi size {d}", .{size}),
         };
         try func.emitWValue(ptr);
         try func.addAtomicMemArg(tag, .{
@@ -6689,4 +6688,178 @@ fn airAtomicLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const result = try WValue.toLocal(.stack, func, ty);
     return func.finishAir(inst, result, &.{atomic_load.ptr});
+}
+
+fn airAtomicRmw(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const pl_op = func.air.instructions.items(.data)[inst].pl_op;
+    const extra = func.air.extraData(Air.AtomicRmw, pl_op.payload).data;
+
+    const ptr = try func.resolveInst(pl_op.operand);
+    const operand = try func.resolveInst(extra.operand);
+    const ty = func.air.typeOfIndex(inst);
+    const op: std.builtin.AtomicRmwOp = extra.op();
+
+    if (func.useAtomicFeature()) {
+        switch (op) {
+            .Max,
+            .Min,
+            .Nand,
+            => {
+                const tmp = try func.load(ptr, ty, 0);
+                const value = try tmp.toLocal(func, ty);
+
+                // create a loop to cmpxchg the new value
+                try func.startBlock(.loop, wasm.block_empty);
+
+                try func.emitWValue(ptr);
+                try func.emitWValue(value);
+                if (op == .Nand) {
+                    const wasm_bits = toWasmBits(@intCast(u16, ty.bitSize(func.target))).?;
+
+                    const and_res = try func.binOp(value, operand, ty, .@"and");
+                    if (wasm_bits == 32)
+                        try func.addImm32(-1)
+                    else if (wasm_bits == 64)
+                        try func.addImm64(@bitCast(u64, @as(i64, -1)))
+                    else
+                        return func.fail("TODO: `@atomicRmw` with operator `Nand` for types larger than 64 bits", .{});
+                    _ = try func.binOp(and_res, .stack, ty, .xor);
+                } else {
+                    try func.emitWValue(value);
+                    try func.emitWValue(operand);
+                    _ = try func.cmp(value, operand, ty, if (op == .Max) .gt else .lt);
+                    try func.addTag(.select);
+                }
+                try func.addAtomicMemArg(
+                    switch (ty.abiSize(func.target)) {
+                        1 => .i32_atomic_rmw8_cmpxchg_u,
+                        2 => .i32_atomic_rmw16_cmpxchg_u,
+                        4 => .i32_atomic_rmw_cmpxchg,
+                        8 => .i64_atomic_rmw_cmpxchg,
+                        else => return func.fail("TODO: implement `@atomicRmw` with operation `{s}` for types larger than 64 bits", .{@tagName(op)}),
+                    },
+                    .{
+                        .offset = ptr.offset(),
+                        .alignment = ty.abiAlignment(func.target),
+                    },
+                );
+                const select_res = try func.allocLocal(ty);
+                try func.addLabel(.local_tee, select_res.local.value);
+                _ = try func.cmp(.stack, value, ty, .neq); // leave on stack so we can use it for br_if
+
+                try func.emitWValue(select_res);
+                try func.addLabel(.local_set, value.local.value);
+
+                try func.addLabel(.br_if, 0);
+                try func.endBlock();
+                return func.finishAir(inst, value, &.{ pl_op.operand, extra.operand });
+            },
+
+            // the other operations have their own instructions for Wasm.
+            else => {
+                try func.emitWValue(ptr);
+                try func.emitWValue(operand);
+                const tag: wasm.AtomicsOpcode = switch (ty.abiSize(func.target)) {
+                    1 => switch (op) {
+                        .Xchg => .i32_atomic_rmw8_xchg_u,
+                        .Add => .i32_atomic_rmw8_add_u,
+                        .Sub => .i32_atomic_rmw8_sub_u,
+                        .And => .i32_atomic_rmw8_and_u,
+                        .Or => .i32_atomic_rmw8_or_u,
+                        .Xor => .i32_atomic_rmw8_xor_u,
+                        else => unreachable,
+                    },
+                    2 => switch (op) {
+                        .Xchg => .i32_atomic_rmw16_xchg_u,
+                        .Add => .i32_atomic_rmw16_add_u,
+                        .Sub => .i32_atomic_rmw16_sub_u,
+                        .And => .i32_atomic_rmw16_and_u,
+                        .Or => .i32_atomic_rmw16_or_u,
+                        .Xor => .i32_atomic_rmw16_xor_u,
+                        else => unreachable,
+                    },
+                    4 => switch (op) {
+                        .Xchg => .i32_atomic_rmw_xchg,
+                        .Add => .i32_atomic_rmw_add,
+                        .Sub => .i32_atomic_rmw_sub,
+                        .And => .i32_atomic_rmw_and,
+                        .Or => .i32_atomic_rmw_or,
+                        .Xor => .i32_atomic_rmw_xor,
+                        else => unreachable,
+                    },
+                    8 => switch (op) {
+                        .Xchg => .i64_atomic_rmw_xchg,
+                        .Add => .i64_atomic_rmw_add,
+                        .Sub => .i64_atomic_rmw_sub,
+                        .And => .i64_atomic_rmw_and,
+                        .Or => .i64_atomic_rmw_or,
+                        .Xor => .i64_atomic_rmw_xor,
+                        else => unreachable,
+                    },
+                    else => |size| return func.fail("TODO: Implement `@atomicRmw` for types with abi size {d}", .{size}),
+                };
+                try func.addAtomicMemArg(tag, .{
+                    .offset = ptr.offset(),
+                    .alignment = ty.abiAlignment(func.target),
+                });
+                const result = try WValue.toLocal(.stack, func, ty);
+                return func.finishAir(inst, result, &.{ pl_op.operand, extra.operand });
+            },
+        }
+    } else {
+        const loaded = try func.load(ptr, ty, 0);
+        const result = try loaded.toLocal(func, ty);
+
+        switch (op) {
+            .Xchg => {
+                try func.store(ptr, operand, ty, 0);
+            },
+            .Add,
+            .Sub,
+            .And,
+            .Or,
+            .Xor,
+            => {
+                try func.emitWValue(ptr);
+                _ = try func.binOp(result, operand, ty, switch (op) {
+                    .Add => .add,
+                    .Sub => .sub,
+                    .And => .@"and",
+                    .Or => .@"or",
+                    .Xor => .xor,
+                    else => unreachable,
+                });
+                if (ty.isInt() and (op == .Add or op == .Sub)) {
+                    _ = try func.wrapOperand(.stack, ty);
+                }
+                try func.store(.stack, .stack, ty, ptr.offset());
+            },
+            .Max,
+            .Min,
+            => {
+                try func.emitWValue(ptr);
+                try func.emitWValue(result);
+                try func.emitWValue(operand);
+                _ = try func.cmp(result, operand, ty, if (op == .Max) .gt else .lt);
+                try func.addTag(.select);
+                try func.store(.stack, .stack, ty, ptr.offset());
+            },
+            .Nand => {
+                const wasm_bits = toWasmBits(@intCast(u16, ty.bitSize(func.target))).?;
+
+                try func.emitWValue(ptr);
+                const and_res = try func.binOp(result, operand, ty, .@"and");
+                if (wasm_bits == 32)
+                    try func.addImm32(-1)
+                else if (wasm_bits == 64)
+                    try func.addImm64(@bitCast(u64, @as(i64, -1)))
+                else
+                    return func.fail("TODO: `@atomicRmw` with operator `Nand` for types larger than 64 bits", .{});
+                _ = try func.binOp(and_res, .stack, ty, .xor);
+                try func.store(.stack, .stack, ty, ptr.offset());
+            },
+        }
+
+        return func.finishAir(inst, result, &.{ pl_op.operand, extra.operand });
+    }
 }
