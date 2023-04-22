@@ -1254,6 +1254,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
                     const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
                     const atom = elf_file.getAtom(atom_index);
+                    _ = try atom.getOrCreateOffsetTableEntry(elf_file);
                     break :blk @intCast(u32, atom.getOffsetTableAddress(elf_file));
                 } else unreachable;
 
