@@ -17,7 +17,8 @@ pub fn build(b: *Builder) void {
         .target = target,
         .optimize = optimize,
     });
-    const run_cmd = parent.run();
+    const run_cmd = b.addRunArtifact(parent);
+    run_cmd.expectExitCode(0);
     run_cmd.addArtifactArg(child);
 
     const test_step = b.step("test", "Test it");
