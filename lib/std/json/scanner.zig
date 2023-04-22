@@ -5,8 +5,9 @@
 //! Specifically d/8 bytes are allocated for this purpose,
 //! with some extra buffer according to the implementation of ArrayList.
 //!
-//! This API supports arbitrarily long string and number values in the input
-//! and can emit partially parsed values in order to support this.
+//! The low-level JsonScanner API supports arbitrarily long string and number values
+//! in the input and can emit partially parsed values in order to support this.
+//! A more convenient higher-level AllocatingJsonReader API is provided as well.
 //!
 //! Notes on standards compliance:
 //! * RFC 8259 requires JSON documents be valid UTF-8,
@@ -14,13 +15,13 @@
 //!   I have no idea what that's supposed to mean in the context of a standard specification.
 //!   This implementation does not do UTF-8 validation for simplicity (performance?) reasons,
 //!   but this can be changed in a future version.
-//! * When RFC 8259 refers to a "character", I assume they really mean a "code point".
-//!   (Unicode does not define what a "character" is.)
 //! * RFC 8259 contradicts itself regarding whether lowercase is allowed in \u hex digits,
 //!   but it seems like every implementation agrees it should be allowed.
 //!   (RFC 5234 defines HEXDIG to only allow uppercase,
 //!    but RFC 8259 says in pros that lowercase is also allowed.)
 //!   This implementation also allows it.
+//! * When RFC 8259 refers to a "character", I assume they really mean a "code point".
+//!   (Unicode does not define what a "character" is.)
 //! * RFC 8259 doesn't explicitly disallow unpaired surrogate halves in \u escape sequences,
 //!   but vaguely implies that \u escapes are for encoding Unicode code points,
 //!   which would mean that unpaired surrogate halves are forbidden.
@@ -31,6 +32,150 @@ const std = @import("std"); // TODO: change to ../std.zig
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
+/// AllocatingJsonReader is the higher-level, more convenient API in this package.
+/// (See JsonScanner for the low-level API.)
+/// The input to this class is a std.io.Reader,
+/// and the tokens emitted from this class are complete values with escape sequences resolved.
+/// Every number and string token allocates memory, so it is recommended to use an ArenaAllocator
+/// to avoid needing to diligently free every individual slice.
+/// Because the underlying JsonScanner also requires an allocator, albeit a long-lived allocator,
+/// this class accepts two allocators to enable mid-document arena resets without disrupting the JsonScanner's context.
+///
+/// reader is a std.io.Reader that is invoked for the sequence of input buffers.
+/// long_term_allocator is recommended to be a general-purpose allocator and is passed to JsonScanner.init().
+/// value_allocator is recommended to be an ArenaAllocator or FixedBufferAllocator
+/// that you can reset at any time between calls to next() when you are done with the values emitted by this class.
+///
+/// For security, this class limits the length of a single string or number value to 4MiB.
+/// This limit can be raised by setting value_size_limit at any time.
+pub fn allocatingJsonReader(long_term_allocator: Allocator, value_allocator: Allocator, reader: anytype) AllocatingJsonReader(default_buffer_size, @TypeOf(reader)) {
+    return AllocatingJsonReader(default_buffer_size, @TypeOf(reader)){
+        .scanner = JsonScanner.init(long_term_allocator),
+        .reader = reader,
+        .value_allocator = value_allocator,
+    };
+}
+pub const default_buffer_size = 0x1000;
+pub const default_value_size_limit = 4 * 1024 * 1024;
+pub fn AllocatingJsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
+    return struct {
+        scanner: JsonScanner,
+        reader: ReaderType,
+        value_allocator: Allocator,
+        value_size_limit: usize = default_value_size_limit,
+
+        buffer: [buffer_size]u8 = undefined,
+
+        /// Note that this does *not* free allocations made with value_allocator.
+        pub fn deinit(self: *@This()) void {
+            self.scanner.deinit();
+            self.* = undefined;
+        }
+
+        /// The tokens emitted follow this grammar:
+        ///  <document> = <value> .end_of_document
+        ///  <value> =
+        ///    | <object>
+        ///    | <array>
+        ///    | .number
+        ///    | .string
+        ///    | .true
+        ///    | .false
+        ///    | .null
+        ///  <object> = .object_begin ( <string> <value> )* .object_end
+        ///  <array> = .array_begin ( <value> )* .array_end
+        ///
+        /// For tokens with []const u8 payloads, those are allocations made with value_allocator that you own.
+        pub const Token = union(enum) {
+            object_begin,
+            object_end,
+            array_begin,
+            array_end,
+            number: []const u8,
+            string: []const u8,
+            true,
+            false,
+            null,
+            end_of_document,
+        };
+
+        /// Reads data from reader as needed.
+        /// Scans the next token from the document and returns it
+        /// allocating memory as necessary to hold any number or string value.
+        /// Uses value_allocator for these allocations.
+        /// reader errors are unrecoverable.
+        pub fn next(self: *@This()) !Token {
+            var value_list = std.ArrayList(u8).init(self.value_allocator);
+            errdefer {
+                value_list.deinit();
+            }
+            while (true) {
+                const low_level_token = self.scanner.next() catch |err| switch (err) {
+                    error.BufferUnderrun => {
+                        const input = self.buffer[0..try self.reader.read(self.buffer[0..])];
+                        if (input.len > 0) {
+                            self.scanner.feedInput(input);
+                        } else {
+                            self.scanner.endInput();
+                        }
+                        continue;
+                    },
+                    else => return err,
+                };
+
+                switch (low_level_token) {
+                    .object_begin => return .object_begin,
+                    .object_end => return .object_end,
+                    .array_begin => return .array_begin,
+                    .array_end => return .array_end,
+                    .true => return .true,
+                    .false => return .false,
+                    .null => return .null,
+                    .end_of_document => return .end_of_document,
+
+                    .number => |len| {
+                        try self.scanner.readValueIntoArrayList(&value_list, len, self.value_size_limit);
+                        return Token{ .number = try value_list.toOwnedSlice() };
+                    },
+                    .string => |len| {
+                        try self.scanner.readValueIntoArrayList(&value_list, len, self.value_size_limit);
+                        return Token{ .string = try value_list.toOwnedSlice() };
+                    },
+
+                    .partial_number, .partial_string => |len| {
+                        try self.scanner.readValueIntoArrayList(&value_list, len, self.value_size_limit);
+                    },
+                    .partial_string_escaped_1 => |buf| {
+                        try self.appendSlice(&value_list, buf[0..]);
+                    },
+                    .partial_string_escaped_2 => |buf| {
+                        try self.appendSlice(&value_list, buf[0..]);
+                    },
+                    .partial_string_escaped_3 => |buf| {
+                        try self.appendSlice(&value_list, buf[0..]);
+                    },
+                    .partial_string_escaped_4 => |buf| {
+                        try self.appendSlice(&value_list, buf[0..]);
+                    },
+                }
+            }
+        }
+
+        fn appendSlice(self: *@This(), value_list: *std.ArrayList(u8), buf: []const u8) !void {
+            if (value_list.items.len + buf.len > self.value_size_limit) return error.ValueTooLong;
+            try value_list.appendSlice(buf);
+        }
+    };
+}
+
+/// JsonScanner is the lowest level API in this package.
+/// This scanner can emit partial tokens and only allocates memory as needed to track [] and {} nesting.
+/// The input to this class is a sequence of input buffers that you must supply one at a time.
+/// Call feedInput() with the first buffer, then call next() repeatedly until error.BufferUnderrun is returned.
+/// Then call feedInput() again and so forth.
+/// Call endInput() when the last input buffer has been given to feedInput(), either immediately after calling feedInput(),
+/// or when error.BufferUnderrun requests more data and there is no more.
+/// Be sure to call next() after calling endInput() until .end_of_document has been returned.
 pub const JsonScanner = struct {
     state: State = .value,
     string_is_object_key: bool = false,
@@ -53,6 +198,8 @@ pub const JsonScanner = struct {
         self.* = undefined;
     }
 
+    /// Call this whenever you get error.BufferUnderrun from next().
+    /// When there is no more input to provide, call endInput().
     /// input.len must be <= 0xffffffff
     pub fn feedInput(self: *@This(), input: []const u8) void {
         assert(self.cursor == self.input.len); // Not done with the last input slice.
@@ -61,19 +208,33 @@ pub const JsonScanner = struct {
         self.cursor = 0;
         self.value_start = 0;
     }
+    /// Call this when you will no longer call feedInput() anymore.
+    /// This can be called either immediately after the last feedInput(),
+    /// or at any time afterward, such as when getting error.BufferUnderrun from next().
+    /// Don't forget to call next() after endInput() until you get .end_of_document.
     pub fn endInput(self: *@This()) void {
         self.end_of_input = true;
     }
 
-    /// Call this immediately after getting a NextResult with a u32 payload.
-    /// The length of the given buffer should be exactly the u32 from the NextResult.
+    /// Call this immediately after getting a Token from next() with a u32 payload.
+    /// The length of the given buffer must be exactly the u32 length from the Token.
     pub fn readValue(self: *const @This(), out_buffer: []u8) void {
         const end = self.cursor - self.value_end_offset_back;
         const start = end - out_buffer.len;
         std.mem.copy(u8, out_buffer, self.input[start..end]);
     }
 
-    /// The events emitted follow this grammar:
+    /// Convenience wrapper around readValue() for appending the value into an ArrayList(u8).
+    /// size_limit is the limit on the total size of the array list and is checked before resizing.
+    pub fn readValueIntoArrayList(self: *const @This(), out_array_list: *std.ArrayList(u8), value_len: u32, size_limit: usize) (error{ValueTooLong} || Allocator.Error)!void {
+        const offset = out_array_list.items.len;
+        const new_size = offset + value_len;
+        if (new_size > size_limit) return error.ValueTooLong;
+        try out_array_list.resize(new_size);
+        self.readValue(out_array_list.items[offset..]);
+    }
+
+    /// The tokens emitted follow this grammar:
     ///  <document> = <value> .end_of_document
     ///  <value> =
     ///    | <object>
@@ -94,20 +255,20 @@ pub const JsonScanner = struct {
     ///    | .partial_string_escaped_3
     ///    | .partial_string_escaped_4
     ///
-    /// The .partial_* events indicate that a value spans multiple input buffers or that a string contains escape sequences.
+    /// The .partial_* tokens indicate that a value spans multiple input buffers or that a string contains escape sequences.
     /// To get a complete value in memory, you need to concatenate the values yourself.
-    /// (You'll want to do your own limiting on the memory used for this purpose.)
+    /// (See also AllocatingJsonReader.)
     ///
-    /// For tags with a u32 payload, the payload represents the length of the value in bytes.
+    /// For tokens with a u32 payload, the payload represents the length of the value in bytes.
     /// Call readValue(buffer[0..len]) to receive a copy of the value bytes.
     /// For number values, this is the representation of the number exactly as it appears in the JSON input.
     /// For strings, this is the content of the string after resolving escape sequences.
-    /// For tags with [n]u8 payloads, the payload represents the bytes after resolving escape sequences.
+    /// For tokens with [n]u8 payloads, the payload represents string content after resolving escape sequences.
     ///
     /// Note that .number and .string payloads may be 0 to indicate that the previously partial value
     /// is completed with no additional bytes. (This can happen when the break between input buffers
-    /// happens to land on the exact end of a value. E.g. "[1234", ", 5678]".)
-    const NextResult = union(enum) {
+    /// happens to land on the exact end of a value. E.g. "[1234", "]".)
+    pub const Token = union(enum) {
         object_begin,
         object_end,
         array_begin,
@@ -130,7 +291,7 @@ pub const JsonScanner = struct {
         end_of_document,
     };
 
-    pub fn next(self: *@This()) !NextResult {
+    pub fn next(self: *@This()) !Token {
         state_loop: while (true) {
             switch (self.state) {
                 .value => {
@@ -163,16 +324,19 @@ pub const JsonScanner = struct {
                         // Number
                         '1'...'9' => {
                             self.value_start = self.cursor;
+                            self.cursor += 1;
                             self.state = .number_int;
                             continue :state_loop;
                         },
                         '0' => {
                             self.value_start = self.cursor;
+                            self.cursor += 1;
                             self.state = .number_leading_zero;
                             continue :state_loop;
                         },
                         '-' => {
                             self.value_start = self.cursor;
+                            self.cursor += 1;
                             self.state = .number_minus;
                             continue :state_loop;
                         },
@@ -212,7 +376,7 @@ pub const JsonScanner = struct {
                         }
                         return error.BufferUnderrun;
                     }
-                    if (self.stack.bit_len == 0) return error.ExpectedEndOfDocument;
+                    if (self.stack.bit_len == 0) return error.SyntaxError;
 
                     const c = self.input[self.cursor];
                     if (self.string_is_object_key) {
@@ -271,6 +435,7 @@ pub const JsonScanner = struct {
                         '}' => {
                             self.cursor += 1;
                             _ = self.stack.pop();
+                            self.state = .post_value;
                             return .object_end;
                         },
                         else => return error.SyntaxError,
@@ -300,6 +465,7 @@ pub const JsonScanner = struct {
                         ']' => {
                             self.cursor += 1;
                             _ = self.stack.pop();
+                            self.state = .post_value;
                             return .array_end;
                         },
                         else => {
@@ -347,7 +513,7 @@ pub const JsonScanner = struct {
                         },
                         else => {
                             self.state = .post_value;
-                            return NextResult{ .number = self.takeValueLen() };
+                            return Token{ .number = self.takeValueLen() };
                         },
                     }
                 },
@@ -368,7 +534,7 @@ pub const JsonScanner = struct {
                             },
                             else => {
                                 self.state = .post_value;
-                                return NextResult{ .number = self.takeValueLen() };
+                                return Token{ .number = self.takeValueLen() };
                             },
                         }
                     }
@@ -399,7 +565,7 @@ pub const JsonScanner = struct {
                             },
                             else => {
                                 self.state = .post_value;
-                                return NextResult{ .number = self.takeValueLen() };
+                                return Token{ .number = self.takeValueLen() };
                             },
                         }
                     }
@@ -441,7 +607,7 @@ pub const JsonScanner = struct {
                             '0'...'9' => continue,
                             else => {
                                 self.state = .post_value;
-                                return NextResult{ .number = self.takeValueLen() };
+                                return Token{ .number = self.takeValueLen() };
                             },
                         }
                     }
@@ -454,7 +620,7 @@ pub const JsonScanner = struct {
                         switch (c) {
                             0...0x1f => return error.SyntaxError,
                             '"' => {
-                                const result = NextResult{ .string = self.takeValueLen() };
+                                const result = Token{ .string = self.takeValueLen() };
                                 self.cursor += 1;
                                 self.value_end_offset_back = 1;
                                 self.state = .post_value;
@@ -465,7 +631,7 @@ pub const JsonScanner = struct {
                                 self.cursor += 1;
                                 self.value_end_offset_back = 1;
                                 self.state = .string_backslash;
-                                if (partial_len > 0) return NextResult{ .partial_string = partial_len };
+                                if (partial_len > 0) return Token{ .partial_string = partial_len };
                                 continue :state_loop;
                             },
                             // Here is where we might put UTF-8 validation if we wanted to.
@@ -473,7 +639,7 @@ pub const JsonScanner = struct {
                         }
                     }
                     if (self.end_of_input) return error.UnexpectedEndOfDocument;
-                    return NextResult{ .partial_string = self.takeValueLen() };
+                    return Token{ .partial_string = self.takeValueLen() };
                 },
                 .string_backslash => {
                     try self.expectMoreContent();
@@ -491,31 +657,31 @@ pub const JsonScanner = struct {
                             self.cursor += 1;
                             self.value_start = self.cursor;
                             self.state = .string;
-                            return NextResult{ .partial_string_escaped_1 = [_]u8{0x08} };
+                            return Token{ .partial_string_escaped_1 = [_]u8{0x08} };
                         },
                         'f' => {
                             self.cursor += 1;
                             self.value_start = self.cursor;
                             self.state = .string;
-                            return NextResult{ .partial_string_escaped_1 = [_]u8{0x0c} };
+                            return Token{ .partial_string_escaped_1 = [_]u8{0x0c} };
                         },
                         'n' => {
                             self.cursor += 1;
                             self.value_start = self.cursor;
                             self.state = .string;
-                            return NextResult{ .partial_string_escaped_1 = [_]u8{'\n'} };
+                            return Token{ .partial_string_escaped_1 = [_]u8{'\n'} };
                         },
                         'r' => {
                             self.cursor += 1;
                             self.value_start = self.cursor;
                             self.state = .string;
-                            return NextResult{ .partial_string_escaped_1 = [_]u8{'\r'} };
+                            return Token{ .partial_string_escaped_1 = [_]u8{'\r'} };
                         },
                         't' => {
                             self.cursor += 1;
                             self.value_start = self.cursor;
                             self.state = .string;
-                            return NextResult{ .partial_string_escaped_1 = [_]u8{'\t'} };
+                            return Token{ .partial_string_escaped_1 = [_]u8{'\t'} };
                         },
                         'u' => {
                             self.cursor += 1;
@@ -890,26 +1056,26 @@ pub const JsonScanner = struct {
         return value_len;
     }
 
-    fn endOfBufferInNumber(self: *@This(), allow_end: bool) !NextResult {
+    fn endOfBufferInNumber(self: *@This(), allow_end: bool) !Token {
         const value_len = self.takeValueLen();
         if (self.end_of_input) {
             if (!allow_end) return error.UnexpectedEndOfDocument;
             self.state = .post_value;
-            return NextResult{ .number = value_len };
+            return Token{ .number = value_len };
         }
         if (value_len == 0) return error.BufferUnderrun;
-        return NextResult{ .partial_number = value_len };
+        return Token{ .partial_number = value_len };
     }
 
-    fn partialStringCodepoint(self: *@This()) NextResult {
+    fn partialStringCodepoint(self: *@This()) Token {
         const code_point = self.unicode_code_point;
         self.unicode_code_point = undefined;
         var buf: [4]u8 = undefined;
         switch (std.unicode.utf8Encode(code_point, &buf) catch unreachable) {
-            1 => return NextResult{ .partial_string_escaped_1 = buf[0..1].* },
-            2 => return NextResult{ .partial_string_escaped_2 = buf[0..2].* },
-            3 => return NextResult{ .partial_string_escaped_3 = buf[0..3].* },
-            4 => return NextResult{ .partial_string_escaped_4 = buf[0..4].* },
+            1 => return Token{ .partial_string_escaped_1 = buf[0..1].* },
+            2 => return Token{ .partial_string_escaped_2 = buf[0..2].* },
+            3 => return Token{ .partial_string_escaped_3 = buf[0..3].* },
+            4 => return Token{ .partial_string_escaped_4 = buf[0..4].* },
             else => unreachable,
         }
     }
@@ -960,12 +1126,6 @@ const BitStack = struct {
     }
 };
 
-test "asdf" {
-    var scanner = JsonScanner.init(std.testing.allocator);
-    defer scanner.deinit();
-
-    scanner.feedInput("0");
-    //scanner.endInput();
-    _ = try scanner.next();
-    _ = try scanner.next();
+test {
+    _ = @import("./scanner_test.zig");
 }
