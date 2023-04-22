@@ -1038,3 +1038,22 @@ pub const termios = extern struct {
 };
 
 pub const MSG_NOSIGNAL = 0x0800;
+
+pub const SIGEV = struct {
+    pub const NONE = 0;
+    pub const SIGNAL = 1;
+    pub const THREAD = 2;
+};
+
+pub const sigval = extern union {
+    int: c_int,
+    ptr: ?*anyopaque,
+};
+
+pub const sigevent = extern struct {
+    sigev_notify: c_int,
+    sigev_signo: c_int,
+    sigev_value: sigval,
+    sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
+    sigev_notify_attributes: ?*pthread_attr_t,
+};
