@@ -2273,3 +2273,21 @@ pub const sigevent = extern struct {
         __spare__: [8]c_long,
     },
 };
+
+pub const MIN = struct {
+    pub const INCORE = 0x1;
+    pub const REFERENCED = 0x2;
+    pub const MODIFIED = 0x4;
+    pub const REFERENCED_OTHER = 0x8;
+    pub const MODIFIED_OTHER = 0x10;
+    pub const SUPER = 0x60;
+    pub fn PSIND(i: u32) u32 {
+        return (i << 5) & SUPER;
+    }
+};
+
+pub extern "c" fn mincore(
+    addr: *align(std.mem.page_size) const anyopaque,
+    length: usize,
+    vec: [*]u8,
+) c_int;
