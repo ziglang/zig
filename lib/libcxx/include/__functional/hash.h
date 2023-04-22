@@ -10,8 +10,15 @@
 #define _LIBCPP___FUNCTIONAL_HASH_H
 
 #include <__config>
+#include <__functional/invoke.h>
 #include <__functional/unary_function.h>
-#include <__tuple>
+#include <__fwd/hash.h>
+#include <__tuple_dir/sfinae_helpers.h>
+#include <__type_traits/is_copy_constructible.h>
+#include <__type_traits/is_default_constructible.h>
+#include <__type_traits/is_enum.h>
+#include <__type_traits/is_move_constructible.h>
+#include <__type_traits/underlying_type.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
 #include <__utility/pair.h>
@@ -20,7 +27,6 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -62,7 +68,7 @@ __murmur2_or_cityhash<_Size, 32>::operator()(const void* __key, _Size __len)
     const unsigned char* __data = static_cast<const unsigned char*>(__key);
     for (; __len >= 4; __data += 4, __len -= 4)
     {
-        _Size __k = __loadword<_Size>(__data);
+        _Size __k = std::__loadword<_Size>(__data);
         __k *= __m;
         __k ^= __k >> __r;
         __k *= __m;
@@ -127,14 +133,18 @@ struct __murmur2_or_cityhash<_Size, 64>
      _LIBCPP_DISABLE_UBSAN_UNSIGNED_INTEGER_CHECK
   {
     if (__len > 8) {
-      const _Size __a = __loadword<_Size>(__s);
-      const _Size __b = __loadword<_Size>(__s + __len - 8);
+      const _Size __a = std::__loadword<_Size>(__s);
+      const _Size __b = std::__loadword<_Size>(__s + __len - 8);
       return __hash_len_16(__a, __rotate_by_at_least_1(__b + __len, __len)) ^ __b;
     }
     if (__len >= 4) {
-      const uint32_t __a = __loadword<uint32_t>(__s);
-      const uint32_t __b = __loadword<uint32_t>(__s + __len - 4);
+      const uint32_t __a = std::__loadword<uint32_t>(__s);
+      const uint32_t __b = std::__loadword<uint32_t>(__s + __len - 4);
+#ifdef _LIBCPP_ABI_FIX_CITYHASH_IMPLEMENTATION
+      return __hash_len_16(__len + (static_cast<_Size>(__a) << 3), __b);
+#else
       return __hash_len_16(__len + (__a << 3), __b);
+#endif
     }
     if (__len > 0) {
       const unsigned char __a = static_cast<unsigned char>(__s[0]);
@@ -151,10 +161,10 @@ struct __murmur2_or_cityhash<_Size, 64>
   static _Size __hash_len_17_to_32(const char *__s, _Size __len)
      _LIBCPP_DISABLE_UBSAN_UNSIGNED_INTEGER_CHECK
   {
-    const _Size __a = __loadword<_Size>(__s) * __k1;
-    const _Size __b = __loadword<_Size>(__s + 8);
-    const _Size __c = __loadword<_Size>(__s + __len - 8) * __k2;
-    const _Size __d = __loadword<_Size>(__s + __len - 16) * __k0;
+    const _Size __a = std::__loadword<_Size>(__s) * __k1;
+    const _Size __b = std::__loadword<_Size>(__s + 8);
+    const _Size __c = std::__loadword<_Size>(__s + __len - 8) * __k2;
+    const _Size __d = std::__loadword<_Size>(__s + __len - 16) * __k0;
     return __hash_len_16(__rotate(__a - __b, 43) + __rotate(__c, 30) + __d,
                          __a + __rotate(__b ^ __k3, 20) - __c + __len);
   }
@@ -179,10 +189,10 @@ struct __murmur2_or_cityhash<_Size, 64>
       const char* __s, _Size __a, _Size __b)
     _LIBCPP_DISABLE_UBSAN_UNSIGNED_INTEGER_CHECK
   {
-    return __weak_hash_len_32_with_seeds(__loadword<_Size>(__s),
-                                         __loadword<_Size>(__s + 8),
-                                         __loadword<_Size>(__s + 16),
-                                         __loadword<_Size>(__s + 24),
+    return __weak_hash_len_32_with_seeds(std::__loadword<_Size>(__s),
+                                         std::__loadword<_Size>(__s + 8),
+                                         std::__loadword<_Size>(__s + 16),
+                                         std::__loadword<_Size>(__s + 24),
                                          __a,
                                          __b);
   }
@@ -191,23 +201,23 @@ struct __murmur2_or_cityhash<_Size, 64>
   static _Size __hash_len_33_to_64(const char *__s, size_t __len)
     _LIBCPP_DISABLE_UBSAN_UNSIGNED_INTEGER_CHECK
   {
-    _Size __z = __loadword<_Size>(__s + 24);
-    _Size __a = __loadword<_Size>(__s) +
-                (__len + __loadword<_Size>(__s + __len - 16)) * __k0;
+    _Size __z = std::__loadword<_Size>(__s + 24);
+    _Size __a = std::__loadword<_Size>(__s) +
+                (__len + std::__loadword<_Size>(__s + __len - 16)) * __k0;
     _Size __b = __rotate(__a + __z, 52);
     _Size __c = __rotate(__a, 37);
-    __a += __loadword<_Size>(__s + 8);
+    __a += std::__loadword<_Size>(__s + 8);
     __c += __rotate(__a, 7);
-    __a += __loadword<_Size>(__s + 16);
+    __a += std::__loadword<_Size>(__s + 16);
     _Size __vf = __a + __z;
     _Size __vs = __b + __rotate(__a, 31) + __c;
-    __a = __loadword<_Size>(__s + 16) + __loadword<_Size>(__s + __len - 32);
-    __z += __loadword<_Size>(__s + __len - 8);
+    __a = std::__loadword<_Size>(__s + 16) + std::__loadword<_Size>(__s + __len - 32);
+    __z += std::__loadword<_Size>(__s + __len - 8);
     __b = __rotate(__a + __z, 52);
     __c = __rotate(__a, 37);
-    __a += __loadword<_Size>(__s + __len - 24);
+    __a += std::__loadword<_Size>(__s + __len - 24);
     __c += __rotate(__a, 7);
-    __a += __loadword<_Size>(__s + __len - 16);
+    __a += std::__loadword<_Size>(__s + __len - 16);
     _Size __wf = __a + __z;
     _Size __ws = __b + __rotate(__a, 31) + __c;
     _Size __r = __shift_mix((__vf + __ws) * __k2 + (__wf + __vs) * __k0);
@@ -233,26 +243,26 @@ __murmur2_or_cityhash<_Size, 64>::operator()(const void* __key, _Size __len)
 
   // For strings over 64 bytes we hash the end first, and then as we
   // loop we keep 56 bytes of state: v, w, x, y, and z.
-  _Size __x = __loadword<_Size>(__s + __len - 40);
-  _Size __y = __loadword<_Size>(__s + __len - 16) +
-              __loadword<_Size>(__s + __len - 56);
-  _Size __z = __hash_len_16(__loadword<_Size>(__s + __len - 48) + __len,
-                          __loadword<_Size>(__s + __len - 24));
+  _Size __x = std::__loadword<_Size>(__s + __len - 40);
+  _Size __y = std::__loadword<_Size>(__s + __len - 16) +
+              std::__loadword<_Size>(__s + __len - 56);
+  _Size __z = __hash_len_16(std::__loadword<_Size>(__s + __len - 48) + __len,
+                          std::__loadword<_Size>(__s + __len - 24));
   pair<_Size, _Size> __v = __weak_hash_len_32_with_seeds(__s + __len - 64, __len, __z);
   pair<_Size, _Size> __w = __weak_hash_len_32_with_seeds(__s + __len - 32, __y + __k1, __x);
-  __x = __x * __k1 + __loadword<_Size>(__s);
+  __x = __x * __k1 + std::__loadword<_Size>(__s);
 
   // Decrease len to the nearest multiple of 64, and operate on 64-byte chunks.
   __len = (__len - 1) & ~static_cast<_Size>(63);
   do {
-    __x = __rotate(__x + __y + __v.first + __loadword<_Size>(__s + 8), 37) * __k1;
-    __y = __rotate(__y + __v.second + __loadword<_Size>(__s + 48), 42) * __k1;
+    __x = __rotate(__x + __y + __v.first + std::__loadword<_Size>(__s + 8), 37) * __k1;
+    __y = __rotate(__y + __v.second + std::__loadword<_Size>(__s + 48), 42) * __k1;
     __x ^= __w.second;
-    __y += __v.first + __loadword<_Size>(__s + 40);
+    __y += __v.first + std::__loadword<_Size>(__s + 40);
     __z = __rotate(__z + __w.first, 33) * __k1;
     __v = __weak_hash_len_32_with_seeds(__s, __v.second * __k1, __x + __w.first);
     __w = __weak_hash_len_32_with_seeds(__s + 32, __z + __w.second,
-                                        __y + __loadword<_Size>(__s + 16));
+                                        __y + std::__loadword<_Size>(__s + 16));
     _VSTD::swap(__z, __x);
     __s += 64;
     __len -= 64;

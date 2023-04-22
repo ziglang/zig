@@ -479,8 +479,15 @@ fn fetchAndUnpack(
         };
         defer tmp_directory.closeAndFree(gpa);
 
-        var req = try http_client.request(uri, .{}, .{});
+        var h = std.http.Headers{ .allocator = gpa };
+        defer h.deinit();
+
+        var req = try http_client.request(.GET, uri, h, .{});
         defer req.deinit();
+
+        try req.start();
+
+        try req.do();
 
         if (mem.endsWith(u8, uri.path, ".tar.gz")) {
             // I observed the gzip stream to read 1 byte at a time, so I am using a

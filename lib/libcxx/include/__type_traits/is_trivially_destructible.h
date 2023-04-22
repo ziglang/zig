@@ -11,6 +11,7 @@
 
 #include <__config>
 #include <__type_traits/integral_constant.h>
+#include <__type_traits/is_destructible.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -30,15 +31,7 @@ template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_trivially_destructible
 
 #else
 
-template <class _Tp> struct __libcpp_trivial_destructor
-    : public integral_constant<bool, is_scalar<_Tp>::value ||
-                                     is_reference<_Tp>::value> {};
-
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_trivially_destructible
-    : public __libcpp_trivial_destructor<typename remove_all_extents<_Tp>::type> {};
-
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_trivially_destructible<_Tp[]>
-    : public false_type {};
+#error is_trivially_destructible is not implemented
 
 #endif // __has_builtin(__is_trivially_destructible)
 

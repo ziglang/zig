@@ -4,8 +4,6 @@
 #ifndef _BSD_ARM__TYPES_H_
 #define _BSD_ARM__TYPES_H_
 
-#if defined (__arm__) || defined (__arm64__)
-
 /*
  * This header file contains integer types.  It's intended to also contain
  * flotaing point and other arithmetic types, as needed, later.
@@ -96,7 +94,5 @@ typedef unsigned long           __darwin_clock_t;       /* clock() */
 typedef __uint32_t              __darwin_socklen_t;     /* socklen_t (duh) */
 typedef long                    __darwin_ssize_t;       /* byte count or error */
 typedef long                    __darwin_time_t;        /* time() */
-
-#endif /* defined (__arm__) || defined (__arm64__) */
 
 #endif  /* _BSD_ARM__TYPES_H_ */

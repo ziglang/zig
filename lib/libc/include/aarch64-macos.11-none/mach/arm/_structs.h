@@ -31,8 +31,6 @@
 #ifndef _MACH_ARM__STRUCTS_H_
 #define _MACH_ARM__STRUCTS_H_
 
-#if defined (__arm__) || defined (__arm64__)
-
 #include <sys/cdefs.h> /* __DARWIN_UNIX03 */
 #include <machine/types.h> /* __uint32_t */
 
@@ -509,6 +507,25 @@ _STRUCT_ARM_NEON_STATE
 
 #endif /* __DARWIN_UNIX03 */
 
+#if __DARWIN_UNIX03
+#define _STRUCT_ARM_AMX_STATE_V1 struct __darwin_arm_amx_state_v1
+_STRUCT_ARM_AMX_STATE_V1
+{
+	__uint8_t  __x[8][64];        /* 8 64-byte registers */
+	__uint8_t  __y[8][64];        /* 8 64-byte registers */
+	__uint8_t  __z[64][64];       /* 64 64-byte registers in an M-by-N matrix */
+	__uint64_t __amx_state_t_el1; /* AMX_STATE_T_EL1 value */
+} __attribute__((aligned(64)));
+#else /* !__DARWIN_UNIX03 */
+#define _STRUCT_ARM_AMX_STATE_V1 struct arm_amx_state_v1
+_STRUCT_ARM_AMX_STATE_V1
+{
+	__uint8_t  x[8][64];        /* 8 64-byte registers */
+	__uint8_t  y[8][64];        /* 8 64-byte registers */
+	__uint8_t  z[64][64];       /* 64 64-byte registers in an M-by-N matrix */
+	__uint64_t amx_state_t_el1; /* AMX_STATE_T_EL1 value. */
+} __attribute__((aligned(64)));
+#endif /* __DARWIN_UNIX03 */
 
 #define _STRUCT_ARM_PAGEIN_STATE struct __arm_pagein_state
 _STRUCT_ARM_PAGEIN_STATE
@@ -624,7 +641,5 @@ _STRUCT_ARM_CPMU_STATE64
 	__uint64_t ctrs[16];
 };
 #endif /* !__DARWIN_UNIX03 */
-
-#endif /* defined (__arm__) || defined (__arm64__) */
 
 #endif /* _MACH_ARM__STRUCTS_H_ */

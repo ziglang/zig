@@ -9,7 +9,7 @@ set -e
 ZIGDIR="$(pwd)"
 TARGET="$ARCH-macos-none"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.534+b0b1cc356-1"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.2441+eb19f73af"
 PREFIX="$HOME/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
@@ -58,7 +58,7 @@ stage3-release/bin/zig build \
   --prefix stage4-release \
   -Denable-llvm \
   -Dno-lib \
-  -Drelease \
+  -Doptimize=ReleaseFast \
   -Dstrip \
   -Dtarget=$TARGET \
   -Duse-zig-libcxx \

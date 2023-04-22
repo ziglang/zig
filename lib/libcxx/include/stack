@@ -107,11 +107,9 @@ template <class T, class Container>
 #include <type_traits>
 #include <version>
 
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <functional>
-#endif
-
 // standard-mandated includes
+
+// [stack.syn]
 #include <compare>
 #include <initializer_list>
 
@@ -257,6 +255,8 @@ public:
         swap(c, __s.c);
     }
 
+    _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI const _Container& __get_container() const { return c; }
+
     template <class T1, class _C1>
     friend
     bool
@@ -362,5 +362,10 @@ struct _LIBCPP_TEMPLATE_VIS uses_allocator<stack<_Tp, _Container>, _Alloc>
 };
 
 _LIBCPP_END_NAMESPACE_STD
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <concepts>
+#  include <functional>
+#endif
 
 #endif // _LIBCPP_STACK

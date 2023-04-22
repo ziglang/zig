@@ -53,11 +53,12 @@ public:
 };
 
 bool operator==(thread::id x, thread::id y) noexcept;
-bool operator!=(thread::id x, thread::id y) noexcept;
-bool operator< (thread::id x, thread::id y) noexcept;
-bool operator<=(thread::id x, thread::id y) noexcept;
-bool operator> (thread::id x, thread::id y) noexcept;
-bool operator>=(thread::id x, thread::id y) noexcept;
+bool operator!=(thread::id x, thread::id y) noexcept;             // removed in C++20
+bool operator< (thread::id x, thread::id y) noexcept;             // removed in C++20
+bool operator<=(thread::id x, thread::id y) noexcept;             // removed in C++20
+bool operator> (thread::id x, thread::id y) noexcept;             // removed in C++20
+bool operator>=(thread::id x, thread::id y) noexcept;             // removed in C++20
+strong_ordering operator<=>(thread::id x, thread::id y) noexcept; // C++20
 
 template<class charT, class traits>
 basic_ostream<charT, traits>&
@@ -85,6 +86,7 @@ void sleep_for(const chrono::duration<Rep, Period>& rel_time);
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__functional/hash.h>
+#include <__memory/unique_ptr.h>
 #include <__mutex_base>
 #include <__thread/poll_with_backoff.h>
 #include <__thread/timed_backoff_policy.h>
@@ -92,18 +94,14 @@ void sleep_for(const chrono::duration<Rep, Period>& rel_time);
 #include <__utility/forward.h>
 #include <cstddef>
 #include <iosfwd>
-#include <memory>
 #include <system_error>
 #include <tuple>
 #include <type_traits>
 #include <version>
 
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <chrono>
-#  include <functional>
-#endif
-
 // standard-mandated includes
+
+// [thread.syn]
 #include <compare>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -201,7 +199,7 @@ __thread_specific_ptr<_Tp>::set_pointer(pointer __p)
 {
     _LIBCPP_ASSERT(get() == nullptr,
                    "Attempting to overwrite thread local data");
-    __libcpp_tls_set(__key_, __p);
+    std::__libcpp_tls_set(__key_, __p);
 }
 
 template<>
@@ -235,7 +233,7 @@ public:
     thread() _NOEXCEPT : __t_(_LIBCPP_NULL_THREAD) {}
 #ifndef _LIBCPP_CXX03_LANG
     template <class _Fp, class ..._Args,
-              class = __enable_if_t<!is_same<__uncvref_t<_Fp>, thread>::value> >
+              class = __enable_if_t<!is_same<__remove_cvref_t<_Fp>, thread>::value> >
         _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS
         explicit thread(_Fp&& __f, _Args&&... __args);
 #else  // _LIBCPP_CXX03_LANG
@@ -328,7 +326,7 @@ struct __thread_invoke_pair {
 };
 
 template <class _Fp>
-void* __thread_proxy_cxx03(void* __vp)
+_LIBCPP_HIDE_FROM_ABI void* __thread_proxy_cxx03(void* __vp)
 {
     unique_ptr<_Fp> __p(static_cast<_Fp*>(__vp));
     __thread_local_data().set_pointer(__p->__tsp_.release());
@@ -361,7 +359,7 @@ namespace this_thread
 _LIBCPP_FUNC_VIS void sleep_for(const chrono::nanoseconds& __ns);
 
 template <class _Rep, class _Period>
-void
+_LIBCPP_HIDE_FROM_ABI void
 sleep_for(const chrono::duration<_Rep, _Period>& __d)
 {
     if (__d > chrono::duration<_Rep, _Period>::zero())
@@ -385,7 +383,7 @@ sleep_for(const chrono::duration<_Rep, _Period>& __d)
 }
 
 template <class _Clock, class _Duration>
-void
+_LIBCPP_HIDE_FROM_ABI void
 sleep_until(const chrono::time_point<_Clock, _Duration>& __t)
 {
     mutex __mut;
@@ -411,5 +409,13 @@ void yield() _NOEXCEPT {__libcpp_thread_yield();}
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 17
+#  include <chrono>
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <functional>
+#endif
 
 #endif // _LIBCPP_THREAD

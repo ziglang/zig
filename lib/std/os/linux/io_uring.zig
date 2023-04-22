@@ -897,13 +897,13 @@ pub const IO_Uring = struct {
         self: *IO_Uring,
         user_data: u64,
         buffers: [*]u8,
-        buffers_count: usize,
         buffer_size: usize,
+        buffers_count: usize,
         group_id: usize,
         buffer_id: usize,
     ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
-        io_uring_prep_provide_buffers(sqe, buffers, buffers_count, buffer_size, group_id, buffer_id);
+        io_uring_prep_provide_buffers(sqe, buffers, buffer_size, buffers_count, group_id, buffer_id);
         sqe.user_data = user_data;
         return sqe;
     }
@@ -1576,8 +1576,8 @@ pub fn io_uring_prep_linkat(
 pub fn io_uring_prep_provide_buffers(
     sqe: *linux.io_uring_sqe,
     buffers: [*]u8,
-    num: usize,
     buffer_len: usize,
+    num: usize,
     group_id: usize,
     buffer_id: usize,
 ) void {
@@ -1862,7 +1862,13 @@ test "write_fixed/read_fixed" {
         .{ .iov_base = &raw_buffers[0], .iov_len = raw_buffers[0].len },
         .{ .iov_base = &raw_buffers[1], .iov_len = raw_buffers[1].len },
     };
-    try ring.register_buffers(&buffers);
+    ring.register_buffers(&buffers) catch |err| switch (err) {
+        error.SystemResources => {
+            // See https://github.com/ziglang/zig/issues/15362
+            return error.SkipZigTest;
+        },
+        else => |e| return e,
+    };
 
     const sqe_write = try ring.write_fixed(0x45454545, fd, &buffers[0], 3, 0);
     try testing.expectEqual(linux.IORING_OP.WRITE_FIXED, sqe_write.opcode);
@@ -2892,7 +2898,7 @@ test "provide_buffers: read" {
     // Provide 4 buffers
 
     {
-        const sqe = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffers.len, buffer_len, group_id, buffer_id);
+        const sqe = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffer_len, buffers.len, group_id, buffer_id);
         try testing.expectEqual(linux.IORING_OP.PROVIDE_BUFFERS, sqe.opcode);
         try testing.expectEqual(@as(i32, buffers.len), sqe.fd);
         try testing.expectEqual(@as(u32, buffers[0].len), sqe.len);
@@ -2965,7 +2971,7 @@ test "provide_buffers: read" {
     const reprovided_buffer_id = 2;
 
     {
-        _ = try ring.provide_buffers(0xabababab, @ptrCast([*]u8, &buffers[reprovided_buffer_id]), 1, buffer_len, group_id, reprovided_buffer_id);
+        _ = try ring.provide_buffers(0xabababab, @ptrCast([*]u8, &buffers[reprovided_buffer_id]), buffer_len, 1, group_id, reprovided_buffer_id);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         const cqe = try ring.copy_cqe();
@@ -3024,7 +3030,7 @@ test "remove_buffers" {
     // Provide 4 buffers
 
     {
-        _ = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffers.len, buffer_len, group_id, buffer_id);
+        _ = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffer_len, buffers.len, group_id, buffer_id);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         const cqe = try ring.copy_cqe();
@@ -3113,7 +3119,7 @@ test "provide_buffers: accept/connect/send/recv" {
     // Provide 4 buffers
 
     {
-        const sqe = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffers.len, buffer_len, group_id, buffer_id);
+        const sqe = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffer_len, buffers.len, group_id, buffer_id);
         try testing.expectEqual(linux.IORING_OP.PROVIDE_BUFFERS, sqe.opcode);
         try testing.expectEqual(@as(i32, buffers.len), sqe.fd);
         try testing.expectEqual(@as(u32, buffer_len), sqe.len);
@@ -3207,7 +3213,7 @@ test "provide_buffers: accept/connect/send/recv" {
     const reprovided_buffer_id = 2;
 
     {
-        _ = try ring.provide_buffers(0xabababab, @ptrCast([*]u8, &buffers[reprovided_buffer_id]), 1, buffer_len, group_id, reprovided_buffer_id);
+        _ = try ring.provide_buffers(0xabababab, @ptrCast([*]u8, &buffers[reprovided_buffer_id]), buffer_len, 1, group_id, reprovided_buffer_id);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         const cqe = try ring.copy_cqe();

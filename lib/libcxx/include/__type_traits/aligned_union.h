@@ -37,7 +37,7 @@ struct __static_max<_I0, _I1, _In...>
 };
 
 template <size_t _Len, class _Type0, class ..._Types>
-struct aligned_union
+struct _LIBCPP_DEPRECATED_IN_CXX23 aligned_union
 {
     static const size_t alignment_value = __static_max<_LIBCPP_PREFERRED_ALIGNOF(_Type0),
                                                        _LIBCPP_PREFERRED_ALIGNOF(_Types)...>::value;
@@ -47,7 +47,8 @@ struct aligned_union
 };
 
 #if _LIBCPP_STD_VER > 11
-template <size_t _Len, class ..._Types> using aligned_union_t = typename aligned_union<_Len, _Types...>::type;
+template <size_t _Len, class... _Types>
+using aligned_union_t _LIBCPP_DEPRECATED_IN_CXX23 = typename aligned_union<_Len, _Types...>::type;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

@@ -12,7 +12,6 @@ var keys: Keys = undefined;
 test "zero keys with @memset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     @memset(@ptrCast([*]u8, &keys), 0, @sizeOf(@TypeOf(keys)));

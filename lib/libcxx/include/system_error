@@ -32,8 +32,9 @@ public:
     virtual string message(int ev) const = 0;
 
     bool operator==(const error_category& rhs) const noexcept;
-    bool operator!=(const error_category& rhs) const noexcept;
-    bool operator<(const error_category& rhs) const noexcept;
+    bool operator!=(const error_category& rhs) const noexcept;              // removed in C++20
+    bool operator<(const error_category& rhs) const noexcept;               // removed in C++20
+    strong_ordering operator<=>(const error_category& rhs) const noexcept;  // C++20
 };
 
 const error_category& generic_category() noexcept;
@@ -75,7 +76,6 @@ public:
 };
 
 // non-member functions:
-bool operator<(const error_code& lhs, const error_code& rhs) noexcept;
 template <class charT, class traits>
     basic_ostream<charT,traits>&
     operator<<(basic_ostream<charT,traits>& os, const error_code& ec);
@@ -102,8 +102,6 @@ public:
     explicit operator bool() const noexcept;
 };
 
-bool operator<(const error_condition& lhs, const error_condition& rhs) noexcept;
-
 class system_error
     : public runtime_error
 {
@@ -128,12 +126,16 @@ error_condition make_error_condition(errc e) noexcept;
 // Comparison operators:
 bool operator==(const error_code& lhs, const error_code& rhs) noexcept;
 bool operator==(const error_code& lhs, const error_condition& rhs) noexcept;
-bool operator==(const error_condition& lhs, const error_code& rhs) noexcept;
+bool operator==(const error_condition& lhs, const error_code& rhs) noexcept;                  // removed in C++20
 bool operator==(const error_condition& lhs, const error_condition& rhs) noexcept;
-bool operator!=(const error_code& lhs, const error_code& rhs) noexcept;
-bool operator!=(const error_code& lhs, const error_condition& rhs) noexcept;
-bool operator!=(const error_condition& lhs, const error_code& rhs) noexcept;
-bool operator!=(const error_condition& lhs, const error_condition& rhs) noexcept;
+bool operator!=(const error_code& lhs, const error_code& rhs) noexcept;                       // removed in C++20
+bool operator!=(const error_code& lhs, const error_condition& rhs) noexcept;                  // removed in C++20
+bool operator!=(const error_condition& lhs, const error_code& rhs) noexcept;                  // removed in C++20
+bool operator!=(const error_condition& lhs, const error_condition& rhs) noexcept;             // removed in C++20
+bool operator<(const error_condition& lhs, const error_condition& rhs) noexcept;              // removed in C++20
+bool operator<(const error_code& lhs, const error_code& rhs) noexcept;                        // removed in C++20
+strong_ordering operator<=>(const error_code& lhs, const error_code& rhs) noexcept;           // C++20
+strong_ordering operator<=>(const error_condition& lhs, const error_condition& rhs) noexcept; // C++20
 
 template <> struct hash<std::error_code>;
 template <> struct hash<std::error_condition>;
@@ -147,12 +149,15 @@ template <> struct hash<std::error_condition>;
 #include <__errc>
 #include <__functional/hash.h>
 #include <__functional/unary_function.h>
+#include <__memory/addressof.h>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <version>
 
 // standard-mandated includes
+
+// [system.error.syn]
 #include <compare>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -209,7 +214,7 @@ public:
     error_category() noexcept;
 #else
     _LIBCPP_INLINE_VISIBILITY
-    _LIBCPP_CONSTEXPR_AFTER_CXX11 error_category() _NOEXCEPT = default;
+    _LIBCPP_CONSTEXPR_SINCE_CXX14 error_category() _NOEXCEPT = default;
 #endif
     error_category(const error_category&) = delete;
     error_category& operator=(const error_category&) = delete;
@@ -223,11 +228,20 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     bool operator==(const error_category& __rhs) const _NOEXCEPT {return this == &__rhs;}
 
+#if _LIBCPP_STD_VER > 17
+
+    _LIBCPP_HIDE_FROM_ABI
+    strong_ordering operator<=>(const error_category& __rhs) const noexcept {return compare_three_way()(this, std::addressof(__rhs));}
+
+#else // _LIBCPP_STD_VER > 17
+
     _LIBCPP_INLINE_VISIBILITY
     bool operator!=(const error_category& __rhs) const _NOEXCEPT {return !(*this == __rhs);}
 
     _LIBCPP_INLINE_VISIBILITY
     bool operator< (const error_category& __rhs) const _NOEXCEPT {return this < &__rhs;}
+
+#endif // _LIBCPP_STD_VER > 17
 
     friend class _LIBCPP_HIDDEN __do_message;
 };
@@ -236,11 +250,18 @@ class _LIBCPP_HIDDEN __do_message
     : public error_category
 {
 public:
-    virtual string message(int __ev) const;
+    string message(int __ev) const override;
 };
 
 _LIBCPP_FUNC_VIS const error_category& generic_category() _NOEXCEPT;
 _LIBCPP_FUNC_VIS const error_category& system_category() _NOEXCEPT;
+
+namespace __adl_only {
+    // Those cause ADL to trigger but they are not viable candidates,
+    // so they are never actually selected.
+    void make_error_condition() = delete;
+    void make_error_code() = delete;
+} // namespace __adl_only
 
 class _LIBCPP_TYPE_VIS error_condition
 {
@@ -259,7 +280,10 @@ public:
         error_condition(_Ep __e,
               typename enable_if<is_error_condition_enum<_Ep>::value>::type* = nullptr
                                                                      ) _NOEXCEPT
-            {*this = make_error_condition(__e);}
+            {
+                using __adl_only::make_error_condition;
+                *this = make_error_condition(__e);
+            }
 
     _LIBCPP_INLINE_VISIBILITY
     void assign(int __val, const error_category& __cat) _NOEXCEPT
@@ -276,7 +300,11 @@ public:
             error_condition&
         >::type
         operator=(_Ep __e) _NOEXCEPT
-            {*this = make_error_condition(__e); return *this;}
+            {
+                using __adl_only::make_error_condition;
+                *this = make_error_condition(__e);
+                return *this;
+            }
 
     _LIBCPP_INLINE_VISIBILITY
     void clear() _NOEXCEPT
@@ -303,14 +331,6 @@ make_error_condition(errc __e) _NOEXCEPT
     return error_condition(static_cast<int>(__e), generic_category());
 }
 
-inline _LIBCPP_INLINE_VISIBILITY
-bool
-operator<(const error_condition& __x, const error_condition& __y) _NOEXCEPT
-{
-    return __x.category() < __y.category()
-        || (__x.category() == __y.category() && __x.value() < __y.value());
-}
-
 // error_code
 
 class _LIBCPP_TYPE_VIS error_code
@@ -330,7 +350,10 @@ public:
         error_code(_Ep __e,
                    typename enable_if<is_error_code_enum<_Ep>::value>::type* = nullptr
                                                                      ) _NOEXCEPT
-            {*this = make_error_code(__e);}
+            {
+                using __adl_only::make_error_code;
+                *this = make_error_code(__e);
+            }
 
     _LIBCPP_INLINE_VISIBILITY
     void assign(int __val, const error_category& __cat) _NOEXCEPT
@@ -347,7 +370,11 @@ public:
             error_code&
         >::type
         operator=(_Ep __e) _NOEXCEPT
-            {*this = make_error_code(__e); return *this;}
+            {
+                using __adl_only::make_error_code;
+                *this = make_error_code(__e);
+                return *this;
+            }
 
     _LIBCPP_INLINE_VISIBILITY
     void clear() _NOEXCEPT
@@ -381,14 +408,6 @@ make_error_code(errc __e) _NOEXCEPT
 
 inline _LIBCPP_INLINE_VISIBILITY
 bool
-operator<(const error_code& __x, const error_code& __y) _NOEXCEPT
-{
-    return __x.category() < __y.category()
-        || (__x.category() == __y.category() && __x.value() < __y.value());
-}
-
-inline _LIBCPP_INLINE_VISIBILITY
-bool
 operator==(const error_code& __x, const error_code& __y) _NOEXCEPT
 {
     return __x.category() == __y.category() && __x.value() == __y.value();
@@ -402,12 +421,14 @@ operator==(const error_code& __x, const error_condition& __y) _NOEXCEPT
         || __y.category().equivalent(__x, __y.value());
 }
 
+#if _LIBCPP_STD_VER <= 17
 inline _LIBCPP_INLINE_VISIBILITY
 bool
 operator==(const error_condition& __x, const error_code& __y) _NOEXCEPT
 {
     return __y == __x;
 }
+#endif
 
 inline _LIBCPP_INLINE_VISIBILITY
 bool
@@ -415,6 +436,8 @@ operator==(const error_condition& __x, const error_condition& __y) _NOEXCEPT
 {
     return __x.category() == __y.category() && __x.value() == __y.value();
 }
+
+#if _LIBCPP_STD_VER <= 17
 
 inline _LIBCPP_INLINE_VISIBILITY
 bool
@@ -435,6 +458,42 @@ inline _LIBCPP_INLINE_VISIBILITY
 bool
 operator!=(const error_condition& __x, const error_condition& __y) _NOEXCEPT
 {return !(__x == __y);}
+
+inline _LIBCPP_INLINE_VISIBILITY
+bool
+operator<(const error_condition& __x, const error_condition& __y) _NOEXCEPT
+{
+    return __x.category() < __y.category()
+        || (__x.category() == __y.category() && __x.value() < __y.value());
+}
+
+inline _LIBCPP_INLINE_VISIBILITY
+bool
+operator<(const error_code& __x, const error_code& __y) _NOEXCEPT
+{
+    return __x.category() < __y.category()
+        || (__x.category() == __y.category() && __x.value() < __y.value());
+}
+
+#else // _LIBCPP_STD_VER <= 17
+
+inline _LIBCPP_HIDE_FROM_ABI strong_ordering
+operator<=>(const error_code& __x, const error_code& __y) noexcept
+{
+    if (auto __c = __x.category() <=> __y.category(); __c != 0)
+        return __c;
+    return __x.value() <=> __y.value();
+}
+
+inline _LIBCPP_HIDE_FROM_ABI strong_ordering
+operator<=>(const error_condition& __x, const error_condition& __y) noexcept
+{
+    if (auto __c = __x.category() <=> __y.category(); __c != 0)
+       return __c;
+    return __x.value() <=> __y.value();
+}
+
+#endif // _LIBCPP_STD_VER <= 17
 
 template <>
 struct _LIBCPP_TEMPLATE_VIS hash<error_code>
@@ -472,7 +531,7 @@ public:
     system_error(int __ev, const error_category& __ecat, const char* __what_arg);
     system_error(int __ev, const error_category& __ecat);
     system_error(const system_error&) _NOEXCEPT = default;
-    ~system_error() _NOEXCEPT;
+    ~system_error() _NOEXCEPT override;
 
     _LIBCPP_INLINE_VISIBILITY
     const error_code& code() const _NOEXCEPT {return __ec_;}

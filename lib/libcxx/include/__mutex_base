@@ -103,6 +103,7 @@ private:
     lock_guard(lock_guard const&) = delete;
     lock_guard& operator=(lock_guard const&) = delete;
 };
+_LIBCPP_CTAD_SUPPORTED_FOR_TYPE(lock_guard);
 
 template <class _Mutex>
 class _LIBCPP_TEMPLATE_VIS unique_lock
@@ -195,6 +196,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     mutex_type* mutex() const _NOEXCEPT {return __m_;}
 };
+_LIBCPP_CTAD_SUPPORTED_FOR_TYPE(unique_lock);
 
 template <class _Mutex>
 void

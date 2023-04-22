@@ -238,7 +238,6 @@ test "C pointer" {
 test "C pointer slice access" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var buf: [10]u32 = [1]u32{42} ** 10;
@@ -688,7 +687,6 @@ test "slice field ptr var" {
 test "global slice field access" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -724,16 +722,23 @@ test "slice with dereferenced value" {
 test "empty slice ptr is non null" {
     if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest; // TODO
 
-    const empty_slice: []u8 = &[_]u8{};
-    const p: [*]u8 = empty_slice.ptr + 0;
-    const t = @ptrCast([*]i8, p);
-    try expect(@ptrToInt(t) == @ptrToInt(empty_slice.ptr));
+    {
+        const empty_slice: []u8 = &[_]u8{};
+        const p: [*]u8 = empty_slice.ptr + 0;
+        const t = @ptrCast([*]i8, p);
+        try expect(@ptrToInt(t) == @ptrToInt(empty_slice.ptr));
+    }
+    {
+        const empty_slice: []u8 = &.{};
+        const p: [*]u8 = empty_slice.ptr + 0;
+        const t = @ptrCast([*]i8, p);
+        try expect(@ptrToInt(t) == @ptrToInt(empty_slice.ptr));
+    }
 }
 
 test "slice decays to many pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var buf: [8]u8 = "abcdefg\x00".*;
     const p: [*:0]const u8 = buf[0..7 :0];
@@ -744,7 +749,6 @@ test "write through pointer to optional slice arg" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const S = struct {
         fn bar(foo: *?[]const u8) !void {

@@ -106,13 +106,13 @@ __shared_mutex_base::unlock_shared()
 
 // Shared Timed Mutex
 // These routines are here for ABI stability
-shared_timed_mutex::shared_timed_mutex() : __base() {}
-void shared_timed_mutex::lock()     { return __base.lock(); }
-bool shared_timed_mutex::try_lock() { return __base.try_lock(); }
-void shared_timed_mutex::unlock()   { return __base.unlock(); }
-void shared_timed_mutex::lock_shared() { return __base.lock_shared(); }
-bool shared_timed_mutex::try_lock_shared() { return __base.try_lock_shared(); }
-void shared_timed_mutex::unlock_shared() { return __base.unlock_shared(); }
+shared_timed_mutex::shared_timed_mutex() : __base_() {}
+void shared_timed_mutex::lock()     { return __base_.lock(); }
+bool shared_timed_mutex::try_lock() { return __base_.try_lock(); }
+void shared_timed_mutex::unlock()   { return __base_.unlock(); }
+void shared_timed_mutex::lock_shared() { return __base_.lock_shared(); }
+bool shared_timed_mutex::try_lock_shared() { return __base_.try_lock_shared(); }
+void shared_timed_mutex::unlock_shared() { return __base_.unlock_shared(); }
 
 _LIBCPP_END_NAMESPACE_STD
 

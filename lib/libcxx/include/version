@@ -55,13 +55,16 @@ __cpp_lib_chrono_udls                                   201304L <chrono>
 __cpp_lib_clamp                                         201603L <algorithm>
 __cpp_lib_complex_udls                                  201309L <complex>
 __cpp_lib_concepts                                      202002L <concepts>
-__cpp_lib_constexpr_algorithms                          201806L <algorithm>
+__cpp_lib_constexpr_algorithms                          201806L <algorithm> <utility>
+__cpp_lib_constexpr_bitset                              202207L <bitset>
+__cpp_lib_constexpr_charconv                            202207L <charconv>
 __cpp_lib_constexpr_cmath                               202202L <cmath> <cstdlib>
 __cpp_lib_constexpr_complex                             201711L <complex>
 __cpp_lib_constexpr_dynamic_alloc                       201907L <memory>
 __cpp_lib_constexpr_functional                          201907L <functional>
 __cpp_lib_constexpr_iterator                            201811L <iterator>
-__cpp_lib_constexpr_memory                              201811L <memory>
+__cpp_lib_constexpr_memory                              202202L <memory>
+                                                        201811L // C++20
 __cpp_lib_constexpr_numeric                             201911L <numeric>
 __cpp_lib_constexpr_string                              201907L <string>
 __cpp_lib_constexpr_string_view                         201811L <string_view>
@@ -79,8 +82,10 @@ __cpp_lib_erase_if                                      202002L <deque> <forward
 __cpp_lib_exchange_function                             201304L <utility>
 __cpp_lib_execution                                     201902L <execution>
                                                         201603L // C++17
+__cpp_lib_expected                                      202202L <expected>
 __cpp_lib_filesystem                                    201703L <filesystem>
 __cpp_lib_format                                        202106L <format>
+__cpp_lib_forward_like                                  202207L <utility>
 __cpp_lib_gcd_lcm                                       201606L <numeric>
 __cpp_lib_generic_associative_lookup                    201304L <map> <set>
 __cpp_lib_generic_unordered_lookup                      201811L <unordered_map> <unordered_set>
@@ -132,8 +137,9 @@ __cpp_lib_out_ptr                                       202106L <memory>
 __cpp_lib_parallel_algorithm                            201603L <algorithm> <numeric>
 __cpp_lib_polymorphic_allocator                         201902L <memory_resource>
 __cpp_lib_quoted_string_io                              201304L <iomanip>
-__cpp_lib_ranges                                        201811L <algorithm> <functional> <iterator>
+__cpp_lib_ranges                                        202106L <algorithm> <functional> <iterator>
                                                                 <memory> <ranges>
+__cpp_lib_ranges_as_rvalue                              202207L <ranges>
 __cpp_lib_ranges_chunk                                  202202L <ranges>
 __cpp_lib_ranges_chunk_by                               202202L <ranges>
 __cpp_lib_ranges_iota                                   202202L <numeric>
@@ -262,7 +268,7 @@ __cpp_lib_void_t                                        201411L <type_traits>
 # define __cpp_lib_make_from_tuple                      201606L
 # define __cpp_lib_map_try_emplace                      201411L
 // # define __cpp_lib_math_special_functions               201603L
-// # define __cpp_lib_memory_resource                      201603L
+# define __cpp_lib_memory_resource                      201603L
 # define __cpp_lib_node_extract                         201606L
 # define __cpp_lib_nonmember_container_access           201411L
 # define __cpp_lib_not_fn                               201603L
@@ -312,7 +318,7 @@ __cpp_lib_void_t                                        201411L <type_traits>
 # endif
 # define __cpp_lib_concepts                             202002L
 # define __cpp_lib_constexpr_algorithms                 201806L
-// # define __cpp_lib_constexpr_complex                    201711L
+# define __cpp_lib_constexpr_complex                    201711L
 # define __cpp_lib_constexpr_dynamic_alloc              201907L
 # define __cpp_lib_constexpr_functional                 201907L
 # define __cpp_lib_constexpr_iterator                   201811L
@@ -322,7 +328,7 @@ __cpp_lib_void_t                                        201411L <type_traits>
 # define __cpp_lib_constexpr_string_view                201811L
 # define __cpp_lib_constexpr_tuple                      201811L
 # define __cpp_lib_constexpr_utility                    201811L
-// # define __cpp_lib_constexpr_vector                     201907L
+# define __cpp_lib_constexpr_vector                     201907L
 # define __cpp_lib_coroutine                            201902L
 # if _LIBCPP_STD_VER > 17 && defined(__cpp_impl_destroying_delete) && __cpp_impl_destroying_delete >= 201806L
 #   define __cpp_lib_destroying_delete                  201806L
@@ -350,10 +356,8 @@ __cpp_lib_void_t                                        201411L <type_traits>
 # endif
 # define __cpp_lib_list_remove_return_type              201806L
 # define __cpp_lib_math_constants                       201907L
-// # define __cpp_lib_polymorphic_allocator                201902L
-# if !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
-#   define __cpp_lib_ranges                             201811L
-# endif
+# define __cpp_lib_polymorphic_allocator                201902L
+# define __cpp_lib_ranges                               202106L
 # define __cpp_lib_remove_cvref                         201711L
 # if !defined(_LIBCPP_HAS_NO_THREADS) && !defined(_LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_semaphore)
 #   define __cpp_lib_semaphore                          201907L
@@ -362,7 +366,9 @@ __cpp_lib_void_t                                        201411L <type_traits>
 # define __cpp_lib_shared_ptr_arrays                    201707L
 # define __cpp_lib_shift                                201806L
 // # define __cpp_lib_smart_ptr_for_overwrite              202002L
-// # define __cpp_lib_source_location                      201907L
+# if __has_builtin(__builtin_source_location) && !(defined(_LIBCPP_APPLE_CLANG_VER) && _LIBCPP_APPLE_CLANG_VER <= 1403)
+#   define __cpp_lib_source_location                    201907L
+# endif
 # define __cpp_lib_span                                 202002L
 # define __cpp_lib_ssize                                201902L
 # define __cpp_lib_starts_ends_with                     201711L
@@ -382,14 +388,21 @@ __cpp_lib_void_t                                        201411L <type_traits>
 // # define __cpp_lib_associative_heterogeneous_erasure    202110L
 // # define __cpp_lib_bind_back                            202202L
 # define __cpp_lib_byteswap                             202110L
+# define __cpp_lib_constexpr_bitset                     202207L
+# define __cpp_lib_constexpr_charconv                   202207L
 // # define __cpp_lib_constexpr_cmath                      202202L
+# undef  __cpp_lib_constexpr_memory
+# define __cpp_lib_constexpr_memory                     202202L
 // # define __cpp_lib_constexpr_typeinfo                   202106L
+# define __cpp_lib_expected                             202202L
+# define __cpp_lib_forward_like                         202207L
 // # define __cpp_lib_invoke_r                             202106L
 # define __cpp_lib_is_scoped_enum                       202011L
 // # define __cpp_lib_move_only_function                   202110L
 # undef  __cpp_lib_optional
 # define __cpp_lib_optional                             202110L
 // # define __cpp_lib_out_ptr                              202106L
+# define __cpp_lib_ranges_as_rvalue                     202207L
 // # define __cpp_lib_ranges_chunk                         202202L
 // # define __cpp_lib_ranges_chunk_by                      202202L
 // # define __cpp_lib_ranges_iota                          202202L

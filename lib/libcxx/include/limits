@@ -104,11 +104,9 @@ template<> class numeric_limits<cv long double>;
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <type_traits>
-
-#if defined(_LIBCPP_COMPILER_MSVC)
-#include "__support/win32/limits_msvc_win32.h"
-#endif // _LIBCPP_MSVCRT
+#include <__type_traits/is_arithmetic.h>
+#include <__type_traits/is_signed.h>
+#include <__type_traits/remove_cv.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -432,7 +430,7 @@ protected:
     _LIBCPP_INLINE_VISIBILITY static _LIBCPP_CONSTEXPR type signaling_NaN() _NOEXCEPT {return __builtin_nansl("");}
     _LIBCPP_INLINE_VISIBILITY static _LIBCPP_CONSTEXPR type denorm_min() _NOEXCEPT {return __LDBL_DENORM_MIN__;}
 
-#if (defined(__ppc__) || defined(__ppc64__))
+#if defined(__powerpc__) && defined(__LONG_DOUBLE_IBM128__)
     static _LIBCPP_CONSTEXPR const bool is_iec559 = false;
 #else
     static _LIBCPP_CONSTEXPR const bool is_iec559 = true;
@@ -451,9 +449,9 @@ protected:
 
 template <class _Tp>
 class _LIBCPP_TEMPLATE_VIS numeric_limits
-    : private __libcpp_numeric_limits<typename remove_cv<_Tp>::type>
+    : private __libcpp_numeric_limits<__remove_cv_t<_Tp> >
 {
-    typedef __libcpp_numeric_limits<typename remove_cv<_Tp>::type> __base;
+    typedef __libcpp_numeric_limits<__remove_cv_t<_Tp> > __base;
     typedef typename __base::type type;
 public:
     static _LIBCPP_CONSTEXPR const bool is_specialized = __base::is_specialized;
@@ -824,5 +822,9 @@ template <class _Tp>
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <type_traits>
+#endif
 
 #endif // _LIBCPP_LIMITS

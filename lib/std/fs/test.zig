@@ -488,10 +488,7 @@ test "deleteDir" {
     dir.close();
 
     // deleting a non-empty directory
-    // TODO: Re-enable this check on Windows, see https://github.com/ziglang/zig/issues/5537
-    if (builtin.os.tag != .windows) {
-        try testing.expectError(error.DirNotEmpty, tmp_dir.dir.deleteDir("test_dir"));
-    }
+    try testing.expectError(error.DirNotEmpty, tmp_dir.dir.deleteDir("test_dir"));
 
     dir = try tmp_dir.dir.openDir("test_dir", .{});
     try dir.deleteFile("test_file");
@@ -1417,4 +1414,23 @@ test "File.PermissionsUnix" {
     const permissions_unix = File.PermissionsUnix.unixNew(0o754);
     try testing.expect(permissions_unix.unixHas(.user, .execute));
     try testing.expect(!permissions_unix.unixHas(.other, .execute));
+}
+
+test "delete a read-only file on windows" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+    const file = try tmp.dir.createFile("test_file", .{ .read = true });
+    // Create a file and make it read-only
+    const metadata = try file.metadata();
+    var permissions = metadata.permissions();
+    permissions.setReadOnly(true);
+    try file.setPermissions(permissions);
+    try testing.expectError(error.AccessDenied, tmp.dir.deleteFile("test_file"));
+    // Now make the file not read-only
+    permissions.setReadOnly(false);
+    try file.setPermissions(permissions);
+    file.close();
+    try tmp.dir.deleteFile("test_file");
 }

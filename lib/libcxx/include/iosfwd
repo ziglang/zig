@@ -96,6 +96,7 @@ using u32streampos = fpos<char_traits<char32_t>::state_type>;
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+#include <__fwd/string.h>
 #include <__mbstate_t.h>
 #include <version>
 
@@ -106,19 +107,6 @@ using u32streampos = fpos<char_traits<char32_t>::state_type>;
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 class _LIBCPP_TYPE_VIS ios_base;
-
-template<class _CharT>  struct _LIBCPP_TEMPLATE_VIS char_traits;
-template<> struct char_traits<char>;
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
-template<> struct char_traits<char8_t>;
-#endif
-template<> struct char_traits<char16_t>;
-template<> struct char_traits<char32_t>;
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-template<> struct char_traits<wchar_t>;
-#endif
-
-template<class _Tp>     class _LIBCPP_TEMPLATE_VIS allocator;
 
 template <class _CharT, class _Traits = char_traits<_CharT> >
     class _LIBCPP_TEMPLATE_VIS basic_ios;
@@ -241,18 +229,6 @@ typedef long int streamoff;         // for char_traits in <string>
 #else
 typedef long long streamoff;        // for char_traits in <string>
 #endif
-
-template <class _CharT,             // for <stdexcept>
-          class _Traits = char_traits<_CharT>,
-          class _Allocator = allocator<_CharT> >
-    class _LIBCPP_TEMPLATE_VIS basic_string;
-typedef basic_string<char, char_traits<char>, allocator<char> > string;
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-typedef basic_string<wchar_t, char_traits<wchar_t>, allocator<wchar_t> > wstring;
-#endif
-
-template <class _CharT, class _Traits, class _Allocator>
-    class _LIBCPP_PREFERRED_NAME(string) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wstring)) basic_string;
 
 // Include other forward declarations here
 template <class _Tp, class _Alloc = allocator<_Tp> >

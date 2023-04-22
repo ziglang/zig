@@ -78,6 +78,10 @@ pub const build_cases = [_]BuildCase{
         .import = @import("standalone/test_runner_path/build.zig"),
     },
     .{
+        .build_root = "test/standalone/test_runner_module_imports",
+        .import = @import("standalone/test_runner_module_imports/build.zig"),
+    },
+    .{
         .build_root = "test/standalone/issue_13970",
         .import = @import("standalone/issue_13970/build.zig"),
     },
@@ -176,10 +180,6 @@ pub const build_cases = [_]BuildCase{
         .import = @import("standalone/empty_env/build.zig"),
     },
     .{
-        .build_root = "test/standalone/issue_9812",
-        .import = @import("standalone/issue_9812/build.zig"),
-    },
-    .{
         .build_root = "test/standalone/issue_11595",
         .import = @import("standalone/issue_11595/build.zig"),
     },
@@ -241,6 +241,10 @@ pub const build_cases = [_]BuildCase{
     .{
         .build_root = "test/standalone/module_add_options",
         .import = @import("standalone/module_add_options/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/strip_empty_loop",
+        .import = @import("standalone/strip_empty_loop/build.zig"),
     },
 };
 

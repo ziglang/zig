@@ -80,13 +80,21 @@ template <class E> void rethrow_if_nested(const E& e);
 #include <__availability>
 #include <__config>
 #include <__memory/addressof.h>
+#include <__type_traits/decay.h>
+#include <__type_traits/is_base_of.h>
+#include <__type_traits/is_class.h>
+#include <__type_traits/is_convertible.h>
+#include <__type_traits/is_copy_constructible.h>
+#include <__type_traits/is_final.h>
+#include <__type_traits/is_polymorphic.h>
 #include <cstddef>
 #include <cstdlib>
-#include <type_traits>
 #include <version>
 
+// <vcruntime_exception.h> defines its own std::exception and std::bad_exception types,
+// which we use in order to be ABI-compatible with other STLs on Windows.
 #if defined(_LIBCPP_ABI_VCRUNTIME)
-#include <vcruntime_exception.h>
+#  include <vcruntime_exception.h>
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -96,24 +104,66 @@ template <class E> void rethrow_if_nested(const E& e);
 namespace std  // purposefully not using versioning namespace
 {
 
-#if !defined(_LIBCPP_ABI_VCRUNTIME)
-class _LIBCPP_EXCEPTION_ABI exception
-{
-public:
-    _LIBCPP_INLINE_VISIBILITY exception() _NOEXCEPT {}
-    _LIBCPP_INLINE_VISIBILITY exception(const exception&) _NOEXCEPT = default;
+#if defined(_LIBCPP_ABI_VCRUNTIME) && (!defined(_HAS_EXCEPTIONS) || _HAS_EXCEPTIONS != 0)
+// The std::exception class was already included above, but we're explicit about this condition here for clarity.
 
-    virtual ~exception() _NOEXCEPT;
-    virtual const char* what() const _NOEXCEPT;
+#elif defined(_LIBCPP_ABI_VCRUNTIME) && _HAS_EXCEPTIONS == 0
+// However, <vcruntime_exception.h> does not define std::exception and std::bad_exception
+// when _HAS_EXCEPTIONS == 0.
+//
+// Since libc++ still wants to provide the std::exception hierarchy even when _HAS_EXCEPTIONS == 0
+// (after all those are simply types like any other), we define an ABI-compatible version
+// of the VCRuntime std::exception and std::bad_exception types in that mode.
+
+struct __std_exception_data {
+  char const* _What;
+  bool _DoFree;
 };
 
-class _LIBCPP_EXCEPTION_ABI bad_exception
-    : public exception
-{
+class exception { // base of all library exceptions
 public:
-    _LIBCPP_INLINE_VISIBILITY bad_exception() _NOEXCEPT {}
-    virtual ~bad_exception() _NOEXCEPT;
-    virtual const char* what() const _NOEXCEPT;
+  exception() _NOEXCEPT : __data_() {}
+
+  explicit exception(char const* __message) _NOEXCEPT : __data_() {
+    __data_._What = __message;
+    __data_._DoFree = true;
+  }
+
+  exception(exception const&) _NOEXCEPT {}
+
+  exception& operator=(exception const&) _NOEXCEPT { return *this; }
+
+  virtual ~exception() _NOEXCEPT {}
+
+  virtual char const* what() const _NOEXCEPT { return __data_._What ? __data_._What : "Unknown exception"; }
+
+private:
+  __std_exception_data __data_;
+};
+
+class bad_exception : public exception {
+public:
+  bad_exception() _NOEXCEPT : exception("bad exception") {}
+};
+
+#else // !defined(_LIBCPP_ABI_VCRUNTIME)
+// On all other platforms, we define our own std::exception and std::bad_exception types
+// regardless of whether exceptions are turned on as a language feature.
+
+class _LIBCPP_EXCEPTION_ABI exception {
+public:
+  _LIBCPP_INLINE_VISIBILITY exception() _NOEXCEPT {}
+  _LIBCPP_INLINE_VISIBILITY exception(const exception&) _NOEXCEPT = default;
+
+  virtual ~exception() _NOEXCEPT;
+  virtual const char* what() const _NOEXCEPT;
+};
+
+class _LIBCPP_EXCEPTION_ABI bad_exception : public exception {
+public:
+  _LIBCPP_INLINE_VISIBILITY bad_exception() _NOEXCEPT {}
+  ~bad_exception() _NOEXCEPT override;
+  const char* what() const _NOEXCEPT override;
 };
 #endif // !_LIBCPP_ABI_VCRUNTIME
 
@@ -282,7 +332,7 @@ struct __throw_with_nested<_Tp, _Up, false> {
 #endif
 
 template <class _Tp>
-_LIBCPP_NORETURN
+_LIBCPP_NORETURN _LIBCPP_HIDE_FROM_ABI
 void
 throw_with_nested(_Tp&& __t)
 {
@@ -326,5 +376,9 @@ rethrow_if_nested(const _Ep&,
 }
 
 } // namespace std
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <type_traits>
+#endif
 
 #endif // _LIBCPP_EXCEPTION

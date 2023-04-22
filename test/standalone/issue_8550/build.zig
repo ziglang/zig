@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) !void {
     });
     kernel.addObjectFile("./boot.S");
     kernel.setLinkerScriptPath(.{ .path = "./linker.ld" });
-    kernel.install();
+    b.installArtifact(kernel);
 
     test_step.dependOn(&kernel.step);
 }

@@ -14,7 +14,7 @@ const trace = @import("../../tracy.zig").trace;
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
 const MachO = @import("../MachO.zig");
-const Relocation = @import("Relocation.zig");
+pub const Relocation = @import("Relocation.zig");
 const SymbolWithLoc = MachO.SymbolWithLoc;
 
 /// Each decl always gets a local symbol with the fully qualified name.
@@ -32,10 +32,6 @@ file: ?u32,
 /// Unlike in Elf, we need to store the size of this symbol as part of
 /// the atom since macho.nlist_64 lacks this information.
 size: u64,
-
-/// Alignment of this atom as a power of 2.
-/// For instance, alignment of 0 should be read as 2^0 = 1 byte aligned.
-alignment: u32,
 
 /// Points to the previous and next neighbours
 /// TODO use the same trick as with symbols: reserve index 0 as null atom
@@ -117,25 +113,19 @@ pub fn freeListEligible(self: Atom, macho_file: *MachO) bool {
 }
 
 pub fn addRelocation(macho_file: *MachO, atom_index: Index, reloc: Relocation) !void {
-    return addRelocations(macho_file, atom_index, 1, .{reloc});
+    return addRelocations(macho_file, atom_index, &[_]Relocation{reloc});
 }
 
-pub fn addRelocations(
-    macho_file: *MachO,
-    atom_index: Index,
-    comptime count: comptime_int,
-    relocs: [count]Relocation,
-) !void {
+pub fn addRelocations(macho_file: *MachO, atom_index: Index, relocs: []Relocation) !void {
     const gpa = macho_file.base.allocator;
-    const target = macho_file.base.options.target;
     const gop = try macho_file.relocs.getOrPut(gpa, atom_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
-    try gop.value_ptr.ensureUnusedCapacity(gpa, count);
+    try gop.value_ptr.ensureUnusedCapacity(gpa, relocs.len);
     for (relocs) |reloc| {
         log.debug("  (adding reloc of type {s} to target %{d})", .{
-            reloc.fmtType(target),
+            @tagName(reloc.type),
             reloc.target.sym_index,
         });
         gop.value_ptr.appendAssumeCapacity(reloc);
@@ -183,12 +173,15 @@ pub fn addLazyBinding(macho_file: *MachO, atom_index: Index, binding: Binding) !
     try gop.value_ptr.append(gpa, binding);
 }
 
-pub fn resolveRelocations(macho_file: *MachO, atom_index: Index, relocs: []Relocation, code: []u8) !void {
+pub fn resolveRelocations(
+    macho_file: *MachO,
+    atom_index: Index,
+    relocs: []*const Relocation,
+    code: []u8,
+) void {
     log.debug("relocating '{s}'", .{macho_file.getAtom(atom_index).getName(macho_file)});
-    for (relocs) |*reloc| {
-        if (!reloc.dirty) continue;
-        try reloc.resolve(macho_file, atom_index, code);
-        reloc.dirty = false;
+    for (relocs) |reloc| {
+        reloc.resolve(macho_file, atom_index, code);
     }
 }
 

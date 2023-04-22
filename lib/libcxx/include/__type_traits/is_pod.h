@@ -18,24 +18,12 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if __has_builtin(__is_pod)
-
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_pod
     : public integral_constant<bool, __is_pod(_Tp)> {};
 
-#else
-
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_pod
-    : public integral_constant<bool, is_trivially_default_constructible<_Tp>::value   &&
-                                     is_trivially_copy_constructible<_Tp>::value      &&
-                                     is_trivially_copy_assignable<_Tp>::value    &&
-                                     is_trivially_destructible<_Tp>::value> {};
-
-#endif // __has_builtin(__is_pod)
-
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>
-inline constexpr bool is_pod_v = is_pod<_Tp>::value;
+inline constexpr bool is_pod_v = __is_pod(_Tp);
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

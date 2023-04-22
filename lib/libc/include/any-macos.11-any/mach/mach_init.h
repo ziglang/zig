@@ -64,7 +64,9 @@
 
 #include <sys/cdefs.h>
 
+#ifndef KERNEL
 #include <Availability.h>
+#endif
 
 /*
  *	Kernel-related ports; how a task/thread controls itself

@@ -10,7 +10,7 @@ pub fn build(b: *std.Build) void {
         .optimize = .Debug,
     });
 
-    const run = exe.run();
+    const run = b.addRunArtifact(exe);
     run.expectStdOutEqual("0, 1, 0\n");
 
     test_step.dependOn(&run.step);

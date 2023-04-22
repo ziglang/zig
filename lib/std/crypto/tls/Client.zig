@@ -923,20 +923,22 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
     if (partial_cleartext.len > 0) {
         const amt = @intCast(u15, vp.put(partial_cleartext));
         c.partial_cleartext_idx += amt;
-        if (amt < partial_cleartext.len) {
-            // We still have cleartext left so we cannot issue another read() call yet.
-            assert(vp.total == amt);
-            return amt;
+
+        if (c.partial_ciphertext_end == c.partial_ciphertext_idx) {
+            // The buffer is now empty.
+            c.partial_cleartext_idx = 0;
+            c.partial_ciphertext_idx = 0;
+            c.partial_ciphertext_end = 0;
         }
+
         if (c.received_close_notify) {
             c.partial_ciphertext_end = 0;
             assert(vp.total == amt);
             return amt;
-        }
-        if (c.partial_ciphertext_end == c.partial_ciphertext_idx) {
-            c.partial_cleartext_idx = 0;
-            c.partial_ciphertext_idx = 0;
-            c.partial_ciphertext_end = 0;
+        } else if (amt <= partial_cleartext.len) {
+            // We don't need more data, so don't call read.
+            assert(vp.total == amt);
+            return amt;
         }
     }
 

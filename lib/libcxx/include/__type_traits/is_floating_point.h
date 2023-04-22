@@ -25,7 +25,7 @@ template <>          struct __libcpp_is_floating_point<double>      : public tru
 template <>          struct __libcpp_is_floating_point<long double> : public true_type {};
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_floating_point
-    : public __libcpp_is_floating_point<typename remove_cv<_Tp>::type> {};
+    : public __libcpp_is_floating_point<__remove_cv_t<_Tp> > {};
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>

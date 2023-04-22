@@ -389,7 +389,7 @@ pub fn addGotEntry(zld: *Zld, target: SymbolWithLoc) !void {
     try zld.got_table.putNoClobber(gpa, target, got_index);
 }
 
-fn addStub(zld: *Zld, target: SymbolWithLoc) !void {
+pub fn addStub(zld: *Zld, target: SymbolWithLoc) !void {
     const target_sym = zld.getSymbol(target);
     if (!target_sym.undf()) return;
     if (zld.stubs_table.contains(target)) return;

@@ -42,8 +42,6 @@
 #ifndef _ARM__ENDIAN_H_
 #define _ARM__ENDIAN_H_
 
-#if defined (__arm__) || defined (__arm64__)
-
 #include <sys/cdefs.h>
 /*
  * Define _NOQUAD if the compiler does NOT support 64-bit integers.
@@ -77,5 +75,4 @@
 #include <sys/_endian.h>
 
 #endif /* defined(KERNEL) || (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)) */
-#endif /* defined (__arm__) || defined (__arm64__) */
 #endif /* !_ARM__ENDIAN_H_ */

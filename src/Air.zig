@@ -221,11 +221,16 @@ pub const Inst = struct {
         /// Reinterpret the memory representation of a value as a different type.
         /// Uses the `ty_op` field.
         bitcast,
-        /// Uses the `ty_pl` field with payload `Block`.
+        /// Uses the `ty_pl` field with payload `Block`.  A block runs its body which always ends
+        /// with a `noreturn` instruction, so the only way to proceed to the code after the `block`
+        /// is to encounter a `br` that targets this `block`.  If the `block` type is `noreturn`,
+        /// then there do not exist any `br` instructions targetting this `block`.
         block,
         /// A labeled block of code that loops forever. At the end of the body it is implied
         /// to repeat; no explicit "repeat" instruction terminates loop bodies.
-        /// Result type is always noreturn; no instructions in a block follow this one.
+        /// Result type is always `noreturn`; no instructions in a block follow this one.
+        /// The body never ends with a `noreturn` instruction, so the "repeat" operation
+        /// is always statically reachable.
         /// Uses the `ty_pl` field. Payload is `Block`.
         loop,
         /// Return from a block with a result.
@@ -761,6 +766,22 @@ pub const Inst = struct {
         /// Uses the `ty` field.
         c_va_start,
 
+        /// Implements @workItemId builtin.
+        /// Result type is always `u32`
+        /// Uses the `pl_op` field, payload is the dimension to get the work item id for.
+        /// Operand is unused and set to Ref.none
+        work_item_id,
+        /// Implements @workGroupSize builtin.
+        /// Result type is always `u32`
+        /// Uses the `pl_op` field, payload is the dimension to get the work group size for.
+        /// Operand is unused and set to Ref.none
+        work_group_size,
+        /// Implements @workGroupId builtin.
+        /// Result type is always `u32`
+        /// Uses the `pl_op` field, payload is the dimension to get the work group id for.
+        /// Operand is unused and set to Ref.none
+        work_group_id,
+
         pub fn fromCmpOp(op: std.math.CompareOperator, optimized: bool) Tag {
             switch (op) {
                 .lt => return if (optimized) .cmp_lt_optimized else .cmp_lt,
@@ -1267,6 +1288,11 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
             const err_union_ty = air.typeOf(datas[inst].pl_op.operand);
             return err_union_ty.errorUnionPayload();
         },
+
+        .work_item_id,
+        .work_group_size,
+        .work_group_id,
+        => return Type.u32,
     }
 }
 
@@ -1348,4 +1374,218 @@ pub fn nullTerminatedString(air: Air, index: usize) [:0]const u8 {
         end += 1;
     }
     return bytes[0..end :0];
+}
+
+/// Returns whether the given instruction must always be lowered, for instance because it can cause
+/// side effects. If an instruction does not need to be lowered, and Liveness determines its result
+/// is unused, backends should avoid lowering it.
+pub fn mustLower(air: Air, inst: Air.Inst.Index) bool {
+    const data = air.instructions.items(.data)[inst];
+    return switch (air.instructions.items(.tag)[inst]) {
+        .arg,
+        .block,
+        .loop,
+        .br,
+        .trap,
+        .breakpoint,
+        .call,
+        .call_always_tail,
+        .call_never_tail,
+        .call_never_inline,
+        .cond_br,
+        .switch_br,
+        .@"try",
+        .try_ptr,
+        .dbg_stmt,
+        .dbg_block_begin,
+        .dbg_block_end,
+        .dbg_inline_begin,
+        .dbg_inline_end,
+        .dbg_var_ptr,
+        .dbg_var_val,
+        .ret,
+        .ret_load,
+        .store,
+        .unreach,
+        .optional_payload_ptr_set,
+        .errunion_payload_ptr_set,
+        .set_union_tag,
+        .memset,
+        .memcpy,
+        .cmpxchg_weak,
+        .cmpxchg_strong,
+        .fence,
+        .atomic_store_unordered,
+        .atomic_store_monotonic,
+        .atomic_store_release,
+        .atomic_store_seq_cst,
+        .atomic_rmw,
+        .prefetch,
+        .wasm_memory_grow,
+        .set_err_return_trace,
+        .vector_store_elem,
+        .c_va_arg,
+        .c_va_copy,
+        .c_va_end,
+        .c_va_start,
+        => true,
+
+        .add,
+        .add_optimized,
+        .addwrap,
+        .addwrap_optimized,
+        .add_sat,
+        .sub,
+        .sub_optimized,
+        .subwrap,
+        .subwrap_optimized,
+        .sub_sat,
+        .mul,
+        .mul_optimized,
+        .mulwrap,
+        .mulwrap_optimized,
+        .mul_sat,
+        .div_float,
+        .div_float_optimized,
+        .div_trunc,
+        .div_trunc_optimized,
+        .div_floor,
+        .div_floor_optimized,
+        .div_exact,
+        .div_exact_optimized,
+        .rem,
+        .rem_optimized,
+        .mod,
+        .mod_optimized,
+        .ptr_add,
+        .ptr_sub,
+        .max,
+        .min,
+        .add_with_overflow,
+        .sub_with_overflow,
+        .mul_with_overflow,
+        .shl_with_overflow,
+        .alloc,
+        .ret_ptr,
+        .bit_and,
+        .bit_or,
+        .shr,
+        .shr_exact,
+        .shl,
+        .shl_exact,
+        .shl_sat,
+        .xor,
+        .not,
+        .bitcast,
+        .ret_addr,
+        .frame_addr,
+        .clz,
+        .ctz,
+        .popcount,
+        .byte_swap,
+        .bit_reverse,
+        .sqrt,
+        .sin,
+        .cos,
+        .tan,
+        .exp,
+        .exp2,
+        .log,
+        .log2,
+        .log10,
+        .fabs,
+        .floor,
+        .ceil,
+        .round,
+        .trunc_float,
+        .neg,
+        .neg_optimized,
+        .cmp_lt,
+        .cmp_lt_optimized,
+        .cmp_lte,
+        .cmp_lte_optimized,
+        .cmp_eq,
+        .cmp_eq_optimized,
+        .cmp_gte,
+        .cmp_gte_optimized,
+        .cmp_gt,
+        .cmp_gt_optimized,
+        .cmp_neq,
+        .cmp_neq_optimized,
+        .cmp_vector,
+        .cmp_vector_optimized,
+        .constant,
+        .const_ty,
+        .is_null,
+        .is_non_null,
+        .is_null_ptr,
+        .is_non_null_ptr,
+        .is_err,
+        .is_non_err,
+        .is_err_ptr,
+        .is_non_err_ptr,
+        .bool_and,
+        .bool_or,
+        .ptrtoint,
+        .bool_to_int,
+        .fptrunc,
+        .fpext,
+        .intcast,
+        .trunc,
+        .optional_payload,
+        .optional_payload_ptr,
+        .wrap_optional,
+        .unwrap_errunion_payload,
+        .unwrap_errunion_err,
+        .unwrap_errunion_payload_ptr,
+        .unwrap_errunion_err_ptr,
+        .wrap_errunion_payload,
+        .wrap_errunion_err,
+        .struct_field_ptr,
+        .struct_field_ptr_index_0,
+        .struct_field_ptr_index_1,
+        .struct_field_ptr_index_2,
+        .struct_field_ptr_index_3,
+        .struct_field_val,
+        .get_union_tag,
+        .slice,
+        .slice_len,
+        .slice_ptr,
+        .ptr_slice_len_ptr,
+        .ptr_slice_ptr_ptr,
+        .array_elem_val,
+        .slice_elem_ptr,
+        .ptr_elem_ptr,
+        .array_to_slice,
+        .float_to_int,
+        .float_to_int_optimized,
+        .int_to_float,
+        .reduce,
+        .reduce_optimized,
+        .splat,
+        .shuffle,
+        .select,
+        .is_named_enum_value,
+        .tag_name,
+        .error_name,
+        .error_set_has_value,
+        .aggregate_init,
+        .union_init,
+        .mul_add,
+        .field_parent_ptr,
+        .wasm_memory_size,
+        .cmp_lt_errors_len,
+        .err_return_trace,
+        .addrspace_cast,
+        .save_err_return_trace_index,
+        .work_item_id,
+        .work_group_size,
+        .work_group_id,
+        => false,
+
+        .assembly => @truncate(u1, air.extraData(Air.Asm, data.ty_pl.payload).data.flags >> 31) != 0,
+        .load => air.typeOf(data.ty_op.operand).isVolatilePtr(),
+        .slice_elem_val, .ptr_elem_val => air.typeOf(data.bin_op.lhs).isVolatilePtr(),
+        .atomic_load => air.typeOf(data.atomic_load.ptr).isVolatilePtr(),
+    };
 }

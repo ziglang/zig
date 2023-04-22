@@ -7,6 +7,6 @@ comptime {
     @export(__extendhfxf2, .{ .name = "__extendhfxf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-fn __extendhfxf2(a: common.F16T) callconv(.C) f80 {
+fn __extendhfxf2(a: common.F16T(f80)) callconv(.C) f80 {
     return extend_f80(f16, @bitCast(u16, a));
 }

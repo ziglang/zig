@@ -494,6 +494,7 @@ pub const InitOptions = struct {
     clang_argv: []const []const u8 = &[0][]const u8{},
     lib_dirs: []const []const u8 = &[0][]const u8{},
     rpath_list: []const []const u8 = &[0][]const u8{},
+    symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{},
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
     link_objects: []LinkObject = &[0]LinkObject{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
@@ -575,7 +576,7 @@ pub const InitOptions = struct {
     linker_z_max_page_size: ?u64 = null,
     linker_tsaware: bool = false,
     linker_nxcompat: bool = false,
-    linker_dynamicbase: bool = false,
+    linker_dynamicbase: bool = true,
     linker_optimization: ?u8 = null,
     linker_compress_debug_sections: ?link.CompressDebugSections = null,
     linker_module_definition_file: ?[]const u8 = null,
@@ -602,6 +603,7 @@ pub const InitOptions = struct {
     parent_compilation_link_libc: bool = false,
     hash_style: link.HashStyle = .both,
     entry: ?[]const u8 = null,
+    force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .{},
     stack_size_override: ?u64 = null,
     image_base_override: ?u64 = null,
     self_exe_path: ?[]const u8 = null,
@@ -618,6 +620,7 @@ pub const InitOptions = struct {
     test_name_prefix: ?[]const u8 = null,
     test_runner_path: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
+    dwarf_format: ?std.dwarf.Format = null,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     /// (Zig compiler development) Enable dumping linker's state as JSON.
@@ -720,10 +723,11 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
     // Once they are capable this condition could be removed. When removing this condition,
     // also test the use case of `build-obj -fcompiler-rt` with the native backends
     // and make sure the compiler-rt symbols are emitted.
-    const capable_of_building_compiler_rt = build_options.have_llvm and options.target.os.tag != .plan9;
-
-    const capable_of_building_zig_libc = build_options.have_llvm and options.target.os.tag != .plan9;
-    const capable_of_building_ssp = build_options.have_llvm and options.target.os.tag != .plan9;
+    const is_p9 = options.target.os.tag == .plan9;
+    const is_spv = options.target.cpu.arch.isSpirV();
+    const capable_of_building_compiler_rt = build_options.have_llvm and !is_p9 and !is_spv;
+    const capable_of_building_zig_libc = build_options.have_llvm and !is_p9 and !is_spv;
+    const capable_of_building_ssp = build_options.have_llvm and !is_p9 and !is_spv;
 
     const comp: *Compilation = comp: {
         // For allocations that have the same lifetime as Compilation. This arena is used only during this
@@ -777,7 +781,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // compiler state, the second clause here can be removed so that incremental
         // cache mode is used for LLVM backend too. We need some fuzz testing before
         // that can be enabled.
-        const cache_mode = if (use_llvm and !options.disable_lld_caching)
+        const cache_mode = if ((use_llvm or options.main_pkg == null) and !options.disable_lld_caching)
             CacheMode.whole
         else
             options.cache_mode;
@@ -824,7 +828,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 options.output_mode == .Lib or
                 options.linker_script != null or options.version_script != null or
                 options.emit_implib != null or
-                build_id)
+                build_id or
+                options.symbol_wrap_set.count() > 0)
             {
                 break :blk true;
             }
@@ -1107,6 +1112,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(link_libunwind);
         cache.hash.add(options.output_mode);
         cache.hash.add(options.machine_code_model);
+        cache.hash.addOptional(options.dwarf_format);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_bin);
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_implib);
         cache.hash.addBytes(options.root_name);
@@ -1437,6 +1443,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .wasi_emulated_libs = options.wasi_emulated_libs,
             .lib_dirs = options.lib_dirs,
             .rpath_list = options.rpath_list,
+            .symbol_wrap_set = options.symbol_wrap_set,
             .strip = strip,
             .is_native_os = options.is_native_os,
             .is_native_abi = options.is_native_abi,
@@ -1512,6 +1519,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
             .subsystem = options.subsystem,
             .is_test = options.is_test,
+            .dwarf_format = options.dwarf_format,
             .wasi_exec_model = wasi_exec_model,
             .hash_style = options.hash_style,
             .enable_link_snapshots = options.enable_link_snapshots,
@@ -1523,7 +1531,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .headerpad_size = options.headerpad_size,
             .headerpad_max_install_names = options.headerpad_max_install_names,
             .dead_strip_dylibs = options.dead_strip_dylibs,
-            .force_undefined_symbols = .{},
+            .force_undefined_symbols = options.force_undefined_symbols,
             .pdb_source_path = options.pdb_source_path,
             .pdb_out_path = options.pdb_out_path,
         });
@@ -1944,8 +1952,9 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                 .sub_path = std.fs.path.basename(sub_path),
             };
         }
-        comp.bin_file.destroy();
+        var old_bin_file = comp.bin_file;
         comp.bin_file = try link.File.openPath(comp.gpa, options);
+        old_bin_file.destroy();
     }
 
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
@@ -2046,7 +2055,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         return;
     }
 
-    if (!build_options.only_c) {
+    if (!build_options.only_c and !build_options.omit_pkg_fetching_code) {
         if (comp.emit_docs) |doc_location| {
             if (comp.bin_file.options.module) |module| {
                 var autodoc = Autodoc.init(module, doc_location);
@@ -2186,7 +2195,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 7;
+pub const link_hash_implementation_version = 8;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
@@ -2196,7 +2205,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    comptime assert(link_hash_implementation_version == 7);
+    comptime assert(link_hash_implementation_version == 8);
 
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
@@ -2258,6 +2267,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.rdynamic);
     man.hash.addListOfBytes(comp.bin_file.options.lib_dirs);
     man.hash.addListOfBytes(comp.bin_file.options.rpath_list);
+    man.hash.addListOfBytes(comp.bin_file.options.symbol_wrap_set.keys());
     man.hash.add(comp.bin_file.options.each_lib_rpath);
     man.hash.add(comp.bin_file.options.build_id);
     man.hash.add(comp.bin_file.options.skip_linker_dependencies);
@@ -3085,6 +3095,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
 
                 .file_failure,
                 .sema_failure,
+                .liveness_failure,
                 .codegen_failure,
                 .dependency_failure,
                 .sema_failure_retryable,
@@ -3135,7 +3146,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
 
                 // emit-h only requires semantic analysis of the Decl to be complete,
                 // it does not depend on machine code generation to succeed.
-                .codegen_failure, .codegen_failure_retryable, .complete => {
+                .liveness_failure, .codegen_failure, .codegen_failure_retryable, .complete => {
                     const named_frame = tracy.namedFrame("emit_h_decl");
                     defer named_frame.end();
 
@@ -4151,6 +4162,13 @@ pub fn addCCArgs(
 ) !void {
     const target = comp.getTarget();
 
+    // As of Clang 16.x, it will by default read extra flags from /etc/clang.
+    // I'm sure the person who implemented this means well, but they have a lot
+    // to learn about abstractions and where the appropriate boundaries between
+    // them are. The road to hell is paved with good intentions. Fortunately it
+    // can be disabled.
+    try argv.append("--no-default-config");
+
     if (ext == .cpp) {
         try argv.append("-nostdinc++");
     }
@@ -4446,6 +4464,15 @@ pub fn addCCArgs(
                         try argv.append("-mno-save-restore");
                     }
                 },
+                .mips, .mipsel, .mips64, .mips64el => {
+                    if (target.cpu.model.llvm_name) |llvm_name| {
+                        try argv.append(try std.fmt.allocPrint(arena, "-march={s}", .{llvm_name}));
+                    }
+
+                    if (std.Target.mips.featureSetHas(target.cpu.features, .soft_float)) {
+                        try argv.append("-msoft-float");
+                    }
+                },
                 else => {
                     // TODO
                 },
@@ -4460,8 +4487,18 @@ pub fn addCCArgs(
 
     if (!comp.bin_file.options.strip) {
         switch (target.ofmt) {
-            .coff => try argv.append("-gcodeview"),
-            .elf, .macho => try argv.append("-gdwarf-4"),
+            .coff => {
+                // -g is required here because -gcodeview doesn't trigger debug info
+                // generation, it only changes the type of information generated.
+                try argv.appendSlice(&.{ "-g", "-gcodeview" });
+            },
+            .elf, .macho => {
+                try argv.append("-gdwarf-4");
+                if (comp.bin_file.options.dwarf_format) |f| switch (f) {
+                    .@"32" => try argv.append("-gdwarf32"),
+                    .@"64" => try argv.append("-gdwarf64"),
+                };
+            },
             else => try argv.append("-g"),
         }
     }

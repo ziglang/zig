@@ -20,6 +20,10 @@ pub const cases = [_]Case{
         .build_root = "test/link/interdependent_static_c_libs",
         .import = @import("link/interdependent_static_c_libs/build.zig"),
     },
+    .{
+        .build_root = "test/link/glibc_compat",
+        .import = @import("link/glibc_compat/build.zig"),
+    },
 
     // WASM Cases
     .{
@@ -103,6 +107,14 @@ pub const cases = [_]Case{
     .{
         .build_root = "test/link/macho/entry",
         .import = @import("link/macho/entry/build.zig"),
+    },
+    .{
+        .build_root = "test/link/macho/entry_in_archive",
+        .import = @import("link/macho/entry_in_archive/build.zig"),
+    },
+    .{
+        .build_root = "test/link/macho/entry_in_dylib",
+        .import = @import("link/macho/entry_in_dylib/build.zig"),
     },
     .{
         .build_root = "test/link/macho/headerpad",

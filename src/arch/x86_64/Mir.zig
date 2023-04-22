@@ -138,8 +138,12 @@ pub const Inst = struct {
         sfence,
         /// Logical shift left
         shl,
+        /// Double precision shift left
+        shld,
         /// Logical shift right
         shr,
+        /// Double precision shift right
+        shrd,
         /// Subtract
         sub,
         /// Syscall
@@ -229,6 +233,8 @@ pub const Inst = struct {
 
         /// Load effective address of a symbol not yet allocated in VM.
         lea_linker,
+        /// Move address of a symbol not yet allocated in VM.
+        mov_linker,
 
         /// End of prologue
         dbg_prologue_end,
@@ -284,10 +290,10 @@ pub const Inst = struct {
         ri64,
         /// Immediate (sign-extended) operand.
         /// Uses `imm` payload.
-        imm_s,
+        i_s,
         /// Immediate (unsigned) operand.
         /// Uses `imm` payload.
-        imm_u,
+        i_u,
         /// Relative displacement operand.
         /// Uses `imm` payload.
         rel,
@@ -316,23 +322,35 @@ pub const Inst = struct {
         /// Uses `x_cc` with extra data of type `MemoryRip`.
         m_rip_cc,
         /// Memory (SIB), immediate (unsigned) operands.
-        /// Uses `xi` payload with extra data of type `MemorySib`.
-        mi_u_sib,
+        /// Uses `ix` payload with extra data of type `MemorySib`.
+        mi_sib_u,
         /// Memory (RIP), immediate (unsigned) operands.
-        /// Uses `xi` payload with extra data of type `MemoryRip`.
-        mi_u_rip,
+        /// Uses `ix` payload with extra data of type `MemoryRip`.
+        mi_rip_u,
         /// Memory (SIB), immediate (sign-extend) operands.
-        /// Uses `xi` payload with extra data of type `MemorySib`.
-        mi_s_sib,
+        /// Uses `ix` payload with extra data of type `MemorySib`.
+        mi_sib_s,
         /// Memory (RIP), immediate (sign-extend) operands.
-        /// Uses `xi` payload with extra data of type `MemoryRip`.
-        mi_s_rip,
+        /// Uses `ix` payload with extra data of type `MemoryRip`.
+        mi_rip_s,
         /// Memory (SIB), register operands.
         /// Uses `rx` payload with extra data of type `MemorySib`.
         mr_sib,
         /// Memory (RIP), register operands.
         /// Uses `rx` payload with extra data of type `MemoryRip`.
         mr_rip,
+        /// Memory (SIB), register, register operands.
+        /// Uses `rrx` payload with extra data of type `MemorySib`.
+        mrr_sib,
+        /// Memory (RIP), register, register operands.
+        /// Uses `rrx` payload with extra data of type `MemoryRip`.
+        mrr_rip,
+        /// Memory (SIB), register, immediate (byte) operands.
+        /// Uses `rix` payload with extra data of type `MemorySib`.
+        mri_sib,
+        /// Memory (RIP), register, immediate (byte) operands.
+        /// Uses `rix` payload with extra data of type `MemoryRip`.
+        mri_rip,
         /// Rax, Memory moffs.
         /// Uses `payload` with extra data of type `MemoryMoffs`.
         rax_moffs,
@@ -347,16 +365,16 @@ pub const Inst = struct {
         lock_m_rip,
         /// Memory (SIB), immediate (unsigned) operands with lock prefix.
         /// Uses `xi` payload with extra data of type `MemorySib`.
-        lock_mi_u_sib,
+        lock_mi_sib_u,
         /// Memory (RIP), immediate (unsigned) operands with lock prefix.
         /// Uses `xi` payload with extra data of type `MemoryRip`.
-        lock_mi_u_rip,
+        lock_mi_rip_u,
         /// Memory (SIB), immediate (sign-extend) operands with lock prefix.
         /// Uses `xi` payload with extra data of type `MemorySib`.
-        lock_mi_s_sib,
+        lock_mi_sib_s,
         /// Memory (RIP), immediate (sign-extend) operands with lock prefix.
         /// Uses `xi` payload with extra data of type `MemoryRip`.
-        lock_mi_s_rip,
+        lock_mi_rip_s,
         /// Memory (SIB), register operands with lock prefix.
         /// Uses `rx` payload with extra data of type `MemorySib`.
         lock_mr_sib,
@@ -386,6 +404,9 @@ pub const Inst = struct {
         /// Linker relocation - imports table indirection (binding).
         /// Uses `payload` payload with extra data of type `LeaRegisterReloc`.
         import_reloc,
+        /// Linker relocation - threadlocal variable via GOT indirection.
+        /// Uses `payload` payload with extra data of type `LeaRegisterReloc`.
+        tlv_reloc,
     };
 
     pub const Data = union {
@@ -400,7 +421,7 @@ pub const Inst = struct {
             cc: bits.Condition,
         },
         /// A 32-bit immediate value.
-        imm: u32,
+        i: u32,
         r: Register,
         rr: struct {
             r1: Register,
@@ -414,16 +435,16 @@ pub const Inst = struct {
         rri: struct {
             r1: Register,
             r2: Register,
-            imm: u32,
+            i: u32,
         },
         /// Condition code (CC), followed by custom payload found in extra.
         x_cc: struct {
-            payload: u32,
             cc: bits.Condition,
+            payload: u32,
         },
         /// Register with condition code (CC).
         r_cc: struct {
-            r1: Register,
+            r: Register,
             cc: bits.Condition,
         },
         /// Register, register with condition code (CC).
@@ -434,24 +455,36 @@ pub const Inst = struct {
         },
         /// Register, immediate.
         ri: struct {
-            r1: Register,
-            imm: u32,
+            r: Register,
+            i: u32,
         },
         /// Register, followed by custom payload found in extra.
         rx: struct {
-            r1: Register,
+            r: Register,
             payload: u32,
         },
         /// Register with condition code (CC), followed by custom payload found in extra.
         rx_cc: struct {
-            r1: Register,
+            r: Register,
             cc: bits.Condition,
             payload: u32,
         },
-        /// Custom payload followed by an immediate.
-        xi: struct {
+        /// Immediate, followed by Custom payload found in extra.
+        ix: struct {
+            i: u32,
             payload: u32,
-            imm: u32,
+        },
+        /// Register, register, followed by Custom payload found in extra.
+        rrx: struct {
+            r1: Register,
+            r2: Register,
+            payload: u32,
+        },
+        /// Register, byte immediate, followed by Custom payload found in extra.
+        rix: struct {
+            r: Register,
+            i: u8,
+            payload: u32,
         },
         /// String instruction prefix and width.
         string: struct {
@@ -627,16 +660,19 @@ pub const MemoryMoffs = struct {
     msb: u32,
     lsb: u32,
 
-    pub fn encodeOffset(moffs: *MemoryMoffs, v: u64) void {
-        moffs.msb = @truncate(u32, v >> 32);
-        moffs.lsb = @truncate(u32, v);
+    pub fn encode(seg: Register, offset: u64) MemoryMoffs {
+        return .{
+            .seg = @enumToInt(seg),
+            .msb = @truncate(u32, offset >> 32),
+            .lsb = @truncate(u32, offset >> 0),
+        };
     }
 
-    pub fn decodeOffset(moffs: *const MemoryMoffs) u64 {
-        var res: u64 = 0;
-        res |= (@intCast(u64, moffs.msb) << 32);
-        res |= @intCast(u64, moffs.lsb);
-        return res;
+    pub fn decode(moffs: MemoryMoffs) Memory {
+        return .{ .moffs = .{
+            .seg = @intToEnum(Register, moffs.seg),
+            .offset = @as(u64, moffs.msb) << 32 | @as(u64, moffs.lsb) << 0,
+        } };
     }
 };
 

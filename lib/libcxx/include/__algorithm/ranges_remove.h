@@ -25,7 +25,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -35,7 +35,7 @@ struct __fn {
 
   template <permutable _Iter, sentinel_for<_Iter> _Sent, class _Type, class _Proj = identity>
     requires indirect_binary_predicate<ranges::equal_to, projected<_Iter, _Proj>, const _Type*>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   subrange<_Iter> operator()(_Iter __first, _Sent __last, const _Type& __value, _Proj __proj = {}) const {
     auto __pred = [&](auto&& __other) { return __value == __other; };
     return ranges::__remove_if_impl(std::move(__first), std::move(__last), __pred, __proj);
@@ -44,7 +44,7 @@ struct __fn {
   template <forward_range _Range, class _Type, class _Proj = identity>
     requires permutable<iterator_t<_Range>>
           && indirect_binary_predicate<ranges::equal_to, projected<iterator_t<_Range>, _Proj>, const _Type*>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   borrowed_subrange_t<_Range> operator()(_Range&& __range, const _Type& __value, _Proj __proj = {}) const {
     auto __pred = [&](auto&& __other) { return __value == __other; };
     return ranges::__remove_if_impl(ranges::begin(__range), ranges::end(__range), __pred, __proj);
@@ -59,6 +59,6 @@ inline namespace __cpo {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 #endif // _LIBCPP___ALGORITHM_RANGES_REMOVE_H

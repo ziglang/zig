@@ -2,8 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
-const testing = std.testing;
-const log = std.log.scoped(.tapi);
+const log = std.log.scoped(.yaml);
 
 const Allocator = mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
@@ -17,22 +16,15 @@ const ParseError = parse.ParseError;
 
 pub const YamlError = error{
     UnexpectedNodeType,
+    DuplicateMapKey,
     OutOfMemory,
+    CannotEncodeValue,
 } || ParseError || std.fmt.ParseIntError;
 
-pub const ValueType = enum {
-    empty,
-    int,
-    float,
-    string,
-    list,
-    map,
-};
-
 pub const List = []Value;
-pub const Map = std.StringArrayHashMap(Value);
+pub const Map = std.StringHashMap(Value);
 
-pub const Value = union(ValueType) {
+pub const Value = union(enum) {
     empty,
     int: i64,
     float: f64,
@@ -70,9 +62,7 @@ pub const Value = union(ValueType) {
         should_inline_first_key: bool = false,
     };
 
-    pub const StringifyError = std.os.WriteError;
-
-    pub fn stringify(self: Value, writer: anytype, args: StringifyArgs) StringifyError!void {
+    pub fn stringify(self: Value, writer: anytype, args: StringifyArgs) anyerror!void {
         switch (self) {
             .empty => return,
             .int => |int| return writer.print("{}", .{int}),
@@ -83,7 +73,7 @@ pub const Value = union(ValueType) {
                 if (len == 0) return;
 
                 const first = list[0];
-                if (first.is_compound()) {
+                if (first.isCompound()) {
                     for (list, 0..) |elem, i| {
                         try writer.writeByteNTimes(' ', args.indentation);
                         try writer.writeAll("- ");
@@ -108,20 +98,23 @@ pub const Value = union(ValueType) {
                 try writer.writeAll(" ]");
             },
             .map => |map| {
-                const keys = map.keys();
-                const len = keys.len;
+                const len = map.count();
                 if (len == 0) return;
 
-                for (keys, 0..) |key, i| {
+                var i: usize = 0;
+                var it = map.iterator();
+                while (it.next()) |entry| {
+                    const key = entry.key_ptr.*;
+                    const value = entry.value_ptr.*;
+
                     if (!args.should_inline_first_key or i != 0) {
                         try writer.writeByteNTimes(' ', args.indentation);
                     }
                     try writer.print("{s}: ", .{key});
 
-                    const value = map.get(key) orelse unreachable;
                     const should_inline = blk: {
-                        if (!value.is_compound()) break :blk true;
-                        if (value == .list and value.list.len > 0 and !value.list[0].is_compound()) break :blk true;
+                        if (!value.isCompound()) break :blk true;
+                        if (value == .list and value.list.len > 0 and !value.list[0].isCompound()) break :blk true;
                         break :blk false;
                     };
 
@@ -137,35 +130,44 @@ pub const Value = union(ValueType) {
                     if (i < len - 1) {
                         try writer.writeByte('\n');
                     }
+
+                    i += 1;
                 }
             },
         }
     }
 
-    fn is_compound(self: Value) bool {
+    fn isCompound(self: Value) bool {
         return switch (self) {
             .list, .map => true,
             else => false,
         };
     }
 
-    fn fromNode(arena: Allocator, tree: *const Tree, node: *const Node, type_hint: ?ValueType) YamlError!Value {
+    fn fromNode(arena: Allocator, tree: *const Tree, node: *const Node) YamlError!Value {
         if (node.cast(Node.Doc)) |doc| {
             const inner = doc.value orelse {
                 // empty doc
                 return Value{ .empty = {} };
             };
-            return Value.fromNode(arena, tree, inner, null);
+            return Value.fromNode(arena, tree, inner);
         } else if (node.cast(Node.Map)) |map| {
-            var out_map = std.StringArrayHashMap(Value).init(arena);
-            try out_map.ensureUnusedCapacity(map.values.items.len);
+            // TODO use ContextAdapted HashMap and do not duplicate keys, intern
+            // in a contiguous string buffer.
+            var out_map = std.StringHashMap(Value).init(arena);
+            try out_map.ensureUnusedCapacity(math.cast(u32, map.values.items.len) orelse return error.Overflow);
 
             for (map.values.items) |entry| {
-                const key_tok = tree.tokens[entry.key];
-                const key = try arena.dupe(u8, tree.source[key_tok.start..key_tok.end]);
-                const value = try Value.fromNode(arena, tree, entry.value, null);
-
-                out_map.putAssumeCapacityNoClobber(key, value);
+                const key = try arena.dupe(u8, tree.getRaw(entry.key, entry.key));
+                const gop = out_map.getOrPutAssumeCapacity(key);
+                if (gop.found_existing) {
+                    return error.DuplicateMapKey;
+                }
+                const value = if (entry.value) |value|
+                    try Value.fromNode(arena, tree, value)
+                else
+                    .empty;
+                gop.value_ptr.* = value;
             }
 
             return Value{ .map = out_map };
@@ -173,54 +175,122 @@ pub const Value = union(ValueType) {
             var out_list = std.ArrayList(Value).init(arena);
             try out_list.ensureUnusedCapacity(list.values.items.len);
 
-            if (list.values.items.len > 0) {
-                const hint = if (list.values.items[0].cast(Node.Value)) |value| hint: {
-                    const start = tree.tokens[value.start.?];
-                    const end = tree.tokens[value.end.?];
-                    const raw = tree.source[start.start..end.end];
-                    _ = std.fmt.parseInt(i64, raw, 10) catch {
-                        _ = std.fmt.parseFloat(f64, raw) catch {
-                            break :hint ValueType.string;
-                        };
-                        break :hint ValueType.float;
-                    };
-                    break :hint ValueType.int;
-                } else null;
-
-                for (list.values.items) |elem| {
-                    const value = try Value.fromNode(arena, tree, elem, hint);
-                    out_list.appendAssumeCapacity(value);
-                }
+            for (list.values.items) |elem| {
+                const value = try Value.fromNode(arena, tree, elem);
+                out_list.appendAssumeCapacity(value);
             }
 
             return Value{ .list = try out_list.toOwnedSlice() };
         } else if (node.cast(Node.Value)) |value| {
-            const start = tree.tokens[value.start.?];
-            const end = tree.tokens[value.end.?];
-            const raw = tree.source[start.start..end.end];
-
-            if (type_hint) |hint| {
-                return switch (hint) {
-                    .int => Value{ .int = try std.fmt.parseInt(i64, raw, 10) },
-                    .float => Value{ .float = try std.fmt.parseFloat(f64, raw) },
-                    .string => Value{ .string = try arena.dupe(u8, raw) },
-                    else => unreachable,
-                };
-            }
+            const raw = tree.getRaw(node.start, node.end);
 
             try_int: {
                 // TODO infer base for int
                 const int = std.fmt.parseInt(i64, raw, 10) catch break :try_int;
                 return Value{ .int = int };
             }
+
             try_float: {
                 const float = std.fmt.parseFloat(f64, raw) catch break :try_float;
                 return Value{ .float = float };
             }
-            return Value{ .string = try arena.dupe(u8, raw) };
+
+            return Value{ .string = try arena.dupe(u8, value.string_value.items) };
         } else {
             log.err("Unexpected node type: {}", .{node.tag});
             return error.UnexpectedNodeType;
+        }
+    }
+
+    fn encode(arena: Allocator, input: anytype) YamlError!?Value {
+        switch (@typeInfo(@TypeOf(input))) {
+            .ComptimeInt,
+            .Int,
+            => return Value{ .int = math.cast(i64, input) orelse return error.Overflow },
+
+            .Float => return Value{ .float = math.lossyCast(f64, input) },
+
+            .Struct => |info| if (info.is_tuple) {
+                var list = std.ArrayList(Value).init(arena);
+                errdefer list.deinit();
+                try list.ensureTotalCapacityPrecise(info.fields.len);
+
+                inline for (info.fields) |field| {
+                    if (try encode(arena, @field(input, field.name))) |value| {
+                        list.appendAssumeCapacity(value);
+                    }
+                }
+
+                return Value{ .list = try list.toOwnedSlice() };
+            } else {
+                var map = Map.init(arena);
+                errdefer map.deinit();
+                try map.ensureTotalCapacity(info.fields.len);
+
+                inline for (info.fields) |field| {
+                    if (try encode(arena, @field(input, field.name))) |value| {
+                        const key = try arena.dupe(u8, field.name);
+                        map.putAssumeCapacityNoClobber(key, value);
+                    }
+                }
+
+                return Value{ .map = map };
+            },
+
+            .Union => |info| if (info.tag_type) |tag_type| {
+                inline for (info.fields) |field| {
+                    if (@field(tag_type, field.name) == input) {
+                        return try encode(arena, @field(input, field.name));
+                    }
+                } else unreachable;
+            } else return error.UntaggedUnion,
+
+            .Array => return encode(arena, &input),
+
+            .Pointer => |info| switch (info.size) {
+                .One => switch (@typeInfo(info.child)) {
+                    .Array => |child_info| {
+                        const Slice = []const child_info.child;
+                        return encode(arena, @as(Slice, input));
+                    },
+                    else => {
+                        @compileError("Unhandled type: {s}" ++ @typeName(info.child));
+                    },
+                },
+                .Slice => {
+                    if (info.child == u8) {
+                        return Value{ .string = try arena.dupe(u8, input) };
+                    }
+
+                    var list = std.ArrayList(Value).init(arena);
+                    errdefer list.deinit();
+                    try list.ensureTotalCapacityPrecise(input.len);
+
+                    for (input) |elem| {
+                        if (try encode(arena, elem)) |value| {
+                            list.appendAssumeCapacity(value);
+                        } else {
+                            log.err("Could not encode value in a list: {any}", .{elem});
+                            return error.CannotEncodeValue;
+                        }
+                    }
+
+                    return Value{ .list = try list.toOwnedSlice() };
+                },
+                else => {
+                    @compileError("Unhandled type: {s}" ++ @typeName(@TypeOf(input)));
+                },
+            },
+
+            // TODO we should probably have an option to encode `null` and also
+            // allow for some default value too.
+            .Optional => return if (input) |val| encode(arena, val) else null,
+
+            .Null => return null,
+
+            else => {
+                @compileError("Unhandled type: {s}" ++ @typeName(@TypeOf(input)));
+            },
         }
     }
 };
@@ -234,30 +304,18 @@ pub const Yaml = struct {
         self.arena.deinit();
     }
 
-    pub fn stringify(self: Yaml, writer: anytype) !void {
-        for (self.docs.items) |doc| {
-            // if (doc.directive) |directive| {
-            //     try writer.print("--- !{s}\n", .{directive});
-            // }
-            try doc.stringify(writer, .{});
-            // if (doc.directive != null) {
-            //     try writer.writeAll("...\n");
-            // }
-        }
-    }
-
     pub fn load(allocator: Allocator, source: []const u8) !Yaml {
         var arena = ArenaAllocator.init(allocator);
-        const arena_allocator = arena.allocator();
+        errdefer arena.deinit();
 
-        var tree = Tree.init(arena_allocator);
+        var tree = Tree.init(arena.allocator());
         try tree.parse(source);
 
-        var docs = std.ArrayList(Value).init(arena_allocator);
-        try docs.ensureUnusedCapacity(tree.docs.items.len);
+        var docs = std.ArrayList(Value).init(arena.allocator());
+        try docs.ensureTotalCapacityPrecise(tree.docs.items.len);
 
         for (tree.docs.items) |node| {
-            const value = try Value.fromNode(arena_allocator, &tree, node, null);
+            const value = try Value.fromNode(arena.allocator(), &tree, node);
             docs.appendAssumeCapacity(value);
         }
 
@@ -316,17 +374,19 @@ pub const Yaml = struct {
 
     fn parseValue(self: *Yaml, comptime T: type, value: Value) Error!T {
         return switch (@typeInfo(T)) {
-            .Int => math.cast(T, try value.asInt()) orelse error.Overflow,
-            .Float => math.lossyCast(T, try value.asFloat()),
+            .Int => math.cast(T, try value.asInt()) orelse return error.Overflow,
+            .Float => if (value.asFloat()) |float| {
+                return math.lossyCast(T, float);
+            } else |_| {
+                return math.lossyCast(T, try value.asInt());
+            },
             .Struct => self.parseStruct(T, try value.asMap()),
             .Union => self.parseUnion(T, value),
             .Array => self.parseArray(T, try value.asList()),
-            .Pointer => {
-                if (value.asList()) |list| {
-                    return self.parsePointer(T, .{ .list = list });
-                } else |_| {
-                    return self.parsePointer(T, .{ .string = try value.asString() });
-                }
+            .Pointer => if (value.asList()) |list| {
+                return self.parsePointer(T, .{ .list = list });
+            } else |_| {
+                return self.parsePointer(T, .{ .string = try value.asString() });
             },
             .Void => error.TypeMismatch,
             .Optional => unreachable,
@@ -372,7 +432,7 @@ pub const Yaml = struct {
             }
 
             const unwrapped = value orelse {
-                log.debug("missing struct field: {s}: {s}", .{ field.name, @typeName(field.type) });
+                log.err("missing struct field: {s}: {s}", .{ field.name, @typeName(field.type) });
                 return error.StructFieldMissing;
             };
             @field(parsed, field.name) = try self.parseValue(field.type, unwrapped);
@@ -387,8 +447,7 @@ pub const Yaml = struct {
 
         switch (ptr_info.size) {
             .Slice => {
-                const child_info = @typeInfo(ptr_info.child);
-                if (child_info == .Int and child_info.Int.bits == 8) {
+                if (ptr_info.child == u8) {
                     return value.asString();
                 }
 
@@ -413,315 +472,36 @@ pub const Yaml = struct {
 
         return parsed;
     }
+
+    pub fn stringify(self: Yaml, writer: anytype) !void {
+        for (self.docs.items, 0..) |doc, i| {
+            try writer.writeAll("---");
+            if (self.tree.?.getDirective(i)) |directive| {
+                try writer.print(" !{s}", .{directive});
+            }
+            try writer.writeByte('\n');
+            try doc.stringify(writer, .{});
+            try writer.writeByte('\n');
+        }
+        try writer.writeAll("...\n");
+    }
 };
 
+pub fn stringify(allocator: Allocator, input: anytype, writer: anytype) !void {
+    var arena = ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var maybe_value = try Value.encode(arena.allocator(), input);
+
+    if (maybe_value) |value| {
+        // TODO should we output as an explicit doc?
+        // How can allow the user to specify?
+        try value.stringify(writer, .{});
+    }
+}
+
 test {
-    testing.refAllDecls(@This());
-}
-
-test "simple list" {
-    const source =
-        \\- a
-        \\- b
-        \\- c
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    try testing.expectEqual(yaml.docs.items.len, 1);
-
-    const list = yaml.docs.items[0].list;
-    try testing.expectEqual(list.len, 3);
-
-    try testing.expect(mem.eql(u8, list[0].string, "a"));
-    try testing.expect(mem.eql(u8, list[1].string, "b"));
-    try testing.expect(mem.eql(u8, list[2].string, "c"));
-}
-
-test "simple list typed as array of strings" {
-    const source =
-        \\- a
-        \\- b
-        \\- c
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    try testing.expectEqual(yaml.docs.items.len, 1);
-
-    const arr = try yaml.parse([3][]const u8);
-    try testing.expectEqual(arr.len, 3);
-    try testing.expect(mem.eql(u8, arr[0], "a"));
-    try testing.expect(mem.eql(u8, arr[1], "b"));
-    try testing.expect(mem.eql(u8, arr[2], "c"));
-}
-
-test "simple list typed as array of ints" {
-    const source =
-        \\- 0
-        \\- 1
-        \\- 2
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    try testing.expectEqual(yaml.docs.items.len, 1);
-
-    const arr = try yaml.parse([3]u8);
-    try testing.expectEqual(arr.len, 3);
-    try testing.expectEqual(arr[0], 0);
-    try testing.expectEqual(arr[1], 1);
-    try testing.expectEqual(arr[2], 2);
-}
-
-test "list of mixed sign integer" {
-    const source =
-        \\- 0
-        \\- -1
-        \\- 2
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    try testing.expectEqual(yaml.docs.items.len, 1);
-
-    const arr = try yaml.parse([3]i8);
-    try testing.expectEqual(arr.len, 3);
-    try testing.expectEqual(arr[0], 0);
-    try testing.expectEqual(arr[1], -1);
-    try testing.expectEqual(arr[2], 2);
-}
-
-test "simple map untyped" {
-    const source =
-        \\a: 0
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    try testing.expectEqual(yaml.docs.items.len, 1);
-
-    const map = yaml.docs.items[0].map;
-    try testing.expect(map.contains("a"));
-    try testing.expectEqual(map.get("a").?.int, 0);
-}
-
-test "simple map untyped with a list of maps" {
-    const source =
-        \\a: 0
-        \\b: 
-        \\  - foo: 1
-        \\    bar: 2
-        \\  - foo: 3
-        \\    bar: 4
-        \\c: 1
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    try testing.expectEqual(yaml.docs.items.len, 1);
-
-    const map = yaml.docs.items[0].map;
-    try testing.expect(map.contains("a"));
-    try testing.expect(map.contains("b"));
-    try testing.expect(map.contains("c"));
-    try testing.expectEqual(map.get("a").?.int, 0);
-    try testing.expectEqual(map.get("c").?.int, 1);
-    try testing.expectEqual(map.get("b").?.list[0].map.get("foo").?.int, 1);
-    try testing.expectEqual(map.get("b").?.list[0].map.get("bar").?.int, 2);
-    try testing.expectEqual(map.get("b").?.list[1].map.get("foo").?.int, 3);
-    try testing.expectEqual(map.get("b").?.list[1].map.get("bar").?.int, 4);
-}
-
-test "simple map untyped with a list of maps. no indent" {
-    const source =
-        \\b: 
-        \\- foo: 1
-        \\c: 1
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    try testing.expectEqual(yaml.docs.items.len, 1);
-
-    const map = yaml.docs.items[0].map;
-    try testing.expect(map.contains("b"));
-    try testing.expect(map.contains("c"));
-    try testing.expectEqual(map.get("c").?.int, 1);
-    try testing.expectEqual(map.get("b").?.list[0].map.get("foo").?.int, 1);
-}
-
-test "simple map untyped with a list of maps. no indent 2" {
-    const source =
-        \\a: 0
-        \\b:
-        \\- foo: 1
-        \\  bar: 2
-        \\- foo: 3
-        \\  bar: 4
-        \\c: 1
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    try testing.expectEqual(yaml.docs.items.len, 1);
-
-    const map = yaml.docs.items[0].map;
-    try testing.expect(map.contains("a"));
-    try testing.expect(map.contains("b"));
-    try testing.expect(map.contains("c"));
-    try testing.expectEqual(map.get("a").?.int, 0);
-    try testing.expectEqual(map.get("c").?.int, 1);
-    try testing.expectEqual(map.get("b").?.list[0].map.get("foo").?.int, 1);
-    try testing.expectEqual(map.get("b").?.list[0].map.get("bar").?.int, 2);
-    try testing.expectEqual(map.get("b").?.list[1].map.get("foo").?.int, 3);
-    try testing.expectEqual(map.get("b").?.list[1].map.get("bar").?.int, 4);
-}
-
-test "simple map typed" {
-    const source =
-        \\a: 0
-        \\b: hello there
-        \\c: 'wait, what?'
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    const simple = try yaml.parse(struct { a: usize, b: []const u8, c: []const u8 });
-    try testing.expectEqual(simple.a, 0);
-    try testing.expect(mem.eql(u8, simple.b, "hello there"));
-    try testing.expect(mem.eql(u8, simple.c, "wait, what?"));
-}
-
-test "typed nested structs" {
-    const source =
-        \\a:
-        \\  b: hello there
-        \\  c: 'wait, what?'
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    const simple = try yaml.parse(struct {
-        a: struct {
-            b: []const u8,
-            c: []const u8,
-        },
-    });
-    try testing.expect(mem.eql(u8, simple.a.b, "hello there"));
-    try testing.expect(mem.eql(u8, simple.a.c, "wait, what?"));
-}
-
-test "multidoc typed as a slice of structs" {
-    const source =
-        \\---
-        \\a: 0
-        \\---
-        \\a: 1
-        \\...
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    {
-        const result = try yaml.parse([2]struct { a: usize });
-        try testing.expectEqual(result.len, 2);
-        try testing.expectEqual(result[0].a, 0);
-        try testing.expectEqual(result[1].a, 1);
-    }
-
-    {
-        const result = try yaml.parse([]struct { a: usize });
-        try testing.expectEqual(result.len, 2);
-        try testing.expectEqual(result[0].a, 0);
-        try testing.expectEqual(result[1].a, 1);
-    }
-}
-
-test "multidoc typed as a struct is an error" {
-    const source =
-        \\---
-        \\a: 0
-        \\---
-        \\b: 1
-        \\...
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    try testing.expectError(Yaml.Error.TypeMismatch, yaml.parse(struct { a: usize }));
-    try testing.expectError(Yaml.Error.TypeMismatch, yaml.parse(struct { b: usize }));
-    try testing.expectError(Yaml.Error.TypeMismatch, yaml.parse(struct { a: usize, b: usize }));
-}
-
-test "multidoc typed as a slice of structs with optionals" {
-    const source =
-        \\---
-        \\a: 0
-        \\c: 1.0
-        \\---
-        \\a: 1
-        \\b: different field
-        \\...
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    const result = try yaml.parse([]struct { a: usize, b: ?[]const u8, c: ?f16 });
-    try testing.expectEqual(result.len, 2);
-
-    try testing.expectEqual(result[0].a, 0);
-    try testing.expect(result[0].b == null);
-    try testing.expect(result[0].c != null);
-    try testing.expectEqual(result[0].c.?, 1.0);
-
-    try testing.expectEqual(result[1].a, 1);
-    try testing.expect(result[1].b != null);
-    try testing.expect(mem.eql(u8, result[1].b.?, "different field"));
-    try testing.expect(result[1].c == null);
-}
-
-test "empty yaml can be represented as void" {
-    const source = "";
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-    const result = try yaml.parse(void);
-    try testing.expect(@TypeOf(result) == void);
-}
-
-test "nonempty yaml cannot be represented as void" {
-    const source =
-        \\a: b
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    try testing.expectError(Yaml.Error.TypeMismatch, yaml.parse(void));
-}
-
-test "typed array size mismatch" {
-    const source =
-        \\- 0
-        \\- 0
-    ;
-
-    var yaml = try Yaml.load(testing.allocator, source);
-    defer yaml.deinit();
-
-    try testing.expectError(Yaml.Error.ArraySizeMismatch, yaml.parse([1]usize));
-    try testing.expectError(Yaml.Error.ArraySizeMismatch, yaml.parse([5]usize));
+    std.testing.refAllDecls(Tokenizer);
+    std.testing.refAllDecls(parse);
+    _ = @import("yaml/test.zig");
 }

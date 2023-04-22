@@ -226,26 +226,20 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
 
     for (self.relocs.items) |*reloc| {
         const sym = switch (reloc.type) {
-            .direct_load => macho_file.getSymbol(.{ .sym_index = reloc.target, .file = null }),
+            .direct_load => macho_file.getSymbol(.{ .sym_index = reloc.target }),
             .got_load => blk: {
-                const got_index = macho_file.got_entries_table.get(.{
-                    .sym_index = reloc.target,
-                    .file = null,
-                }).?;
-                const got_entry = macho_file.got_entries.items[got_index];
+                const got_index = macho_file.got_table.lookup.get(.{ .sym_index = reloc.target }).?;
+                const got_entry = macho_file.got_table.entries.items[got_index];
                 break :blk got_entry.getSymbol(macho_file);
             },
         };
         if (sym.n_value == reloc.prev_vaddr) continue;
 
         const sym_name = switch (reloc.type) {
-            .direct_load => macho_file.getSymbolName(.{ .sym_index = reloc.target, .file = null }),
+            .direct_load => macho_file.getSymbolName(.{ .sym_index = reloc.target }),
             .got_load => blk: {
-                const got_index = macho_file.got_entries_table.get(.{
-                    .sym_index = reloc.target,
-                    .file = null,
-                }).?;
-                const got_entry = macho_file.got_entries.items[got_index];
+                const got_index = macho_file.got_table.lookup.get(.{ .sym_index = reloc.target }).?;
+                const got_entry = macho_file.got_table.entries.items[got_index];
                 break :blk got_entry.getName(macho_file);
             },
         };

@@ -31,9 +31,8 @@
 
 #include <sys/cdefs.h>
 
-/* This file introduces macros for constraining pointer
- * types to specific contracts:
- *
+/*
+ * Constraining pointer types based on contracts.
  *
  * 1. List of supported constrained pointers.
  *
@@ -184,12 +183,19 @@
  *      `basetag`:  the prefix of the constrained type.
  *
  *      This macro acts differently in the user-space and the kernel-space
- *      code. When used in the former, it will only declare types which are
- *      ABI-safe. See `ABI Compatibility Considerations' below for more details.
+ *      code.
+ *      When used in the user-space code, the macro will declare
+ *      types which are ABI-safe. See `ABI Compatibility Considerations'
+ *      below for more details on ABI-safety. In the user-space code,
+ *      the macro is guarded by the `__CCT_ENABLE_USER_SPACE' compilation
+ *      flag.
+ *      When used in the kernel-space code, the macro will declare
+ *      the common constrained types.
  *
  *      Examples:
  *
- *      (1) When used from the user space,
+ *      (1) When used from the user space, and `__CCT_ENABLE_USER_SPACE'
+ *          is defined, the expression
  *          `__CCT_DECLARE_CONSTRAINED_PTR_TYPES(struct socket, socket);'
  *           will declare types:
  *
@@ -224,16 +230,32 @@
  *
  *      `basetype`: the pointee type.
  *      `basetag`:  the prefix of the constrained type.
- *      `...`:      list of `REF', `CREF', `BPTR' or `PTR', which represent
- *                  the desired constraints.
+ *      `...`:      list of constraints:
+ *                  - `__CCT_REF' for the "reference" contract;
+ *                  - `__CCT_CREF' for the "const reference" contract;
+ *                  - `__CCT_PTR' for the "checked pointer" contract; or
+ *                  - `__CCT_BPTR' for the "bidirectional pointer" contract.
  *
  *      Examples:
  *
- *      (1) `__CCT_DECLARE_CONSTRAINED_PTR_TYPE(struct socket, socket, REF)'
- *          will declare the type `socket_ref_t`:
+ *      (1) `__CCT_DECLARE_CONSTRAINED_PTR_TYPE(struct socket, socket, __CCT_REF)'
+ *          will declare the type
+ *              `reference' pointer to `struct socket'
+ *          and call this type by `socket_ref_t'
  *
- *      (2) `__CCT_DECLARE_CONSTRAINED_PTR_TYPE(struct socket, socket, REF, PTR, REF)'
- *           will declare the type `socket_ref_ptr_ref_t`:
+ *      (2) `__CCT_DECLARE_CONSTRAINED_PTR_TYPE(struct socket, socket, __CCT_REF, __CCT_PTR)'
+ *          will declare the type
+ *              `checked' pointer to `socket_ref_t'
+ *          which in turn is equivalent to the type
+ *              `checked' pointer to `reference' pointer to `struct socket'
+ *
+ *      (3) `__CCT_DECLARE_CONSTRAINED_PTR_TYPE(struct socket, socket, __CCT_REF, __CCT_PTR, __CCT_REF)'
+ *          will declare the type
+ *              `reference' pointer to `socket_ref_ptr_t'
+ *          which is equivalent to the type
+ *              `reference' pointer to `checked' pointer to `socket_ref_t'
+ *          which in turn is equivalent to the type
+ *              `reference' pointer to `checked' pointer to `reference' pointer to `struct socket'
  *
  *
  * 3. Using constrained pointer types.
@@ -513,27 +535,28 @@
  * Support for other compilers will be added after the introduction of support
  * for pointer tagging on those compilers.
  */
+#if defined(KERNEL) || defined(__CCT_ENABLE_USER_SPACE)
 #if defined(__clang__)
-#define __CCT_CONTRACT_ATTR_REF         __single
-#define __CCT_CONTRACT_ATTR_CREF        const __single
+#define __CCT_CONTRACT_ATTR___CCT_REF         __single
+#define __CCT_CONTRACT_ATTR___CCT_CREF        const __single
 #if  __has_ptrcheck
-#define __CCT_CONTRACT_ATTR_BPTR        __bidi_indexable
-#define __CCT_CONTRACT_ATTR_PTR         __indexable
+#define __CCT_CONTRACT_ATTR___CCT_BPTR        __bidi_indexable
+#define __CCT_CONTRACT_ATTR___CCT_PTR         __indexable
 #else /* __clang__ + __has_ptrcheck */
-#define __CCT_CONTRACT_ATTR_BPTR
-#define __CCT_CONTRACT_ATTR_PTR
+#define __CCT_CONTRACT_ATTR___CCT_BPTR
+#define __CCT_CONTRACT_ATTR___CCT_PTR
 #endif /* __clang__ + !__has_ptrcheck */
 #else /* !__clang__ */
-#define __CCT_CONTRACT_ATTR_REF
-#define __CCT_CONTRACT_ATTR_CREF        const
-#define __CCT_CONTRACT_ATTR_BPTR
-#define __CCT_CONTRACT_ATTR_PTR
+#define __CCT_CONTRACT_ATTR___CCT_REF
+#define __CCT_CONTRACT_ATTR___CCT_CREF        const
+#define __CCT_CONTRACT_ATTR___CCT_BPTR
+#define __CCT_CONTRACT_ATTR___CCT_PTR
 #endif /* __clang__ */
 
-#define __CCT_CONTRACT_TAG_REF          _ref
-#define __CCT_CONTRACT_TAG_CREF         _cref
-#define __CCT_CONTRACT_TAG_BPTR         _bptr
-#define __CCT_CONTRACT_TAG_PTR          _ptr
+#define __CCT_CONTRACT_TAG___CCT_REF          _ref
+#define __CCT_CONTRACT_TAG___CCT_CREF         _cref
+#define __CCT_CONTRACT_TAG___CCT_BPTR         _bptr
+#define __CCT_CONTRACT_TAG___CCT_PTR          _ptr
 
 /* Helper macros */
 #define __CCT_DEFER(F, ...) F(__VA_ARGS__)
@@ -572,20 +595,43 @@ typedef basetype * __CCT_CONTRACT_TO_ATTR(kind1)                                
 	         * __CCT_CONTRACT_TO_ATTR(kind2)                                                        \
 	         * __CCT_CONTRACT_TO_ATTR(kind3)                                                        \
 	__CCT_DEFER(__CONCAT, basetag,  __CCT_CONTRACT_LIST_TO_TAGGED_SUFFIX_3(kind1, kind2, kind3))
+#endif /* defined(KERNEL) || defined(__CCT_ENABLE_USER_SPACE) */
 
 /*
  * Lower level type constructor.
  */
+#if defined(KERNEL) || defined(__CCT_ENABLE_USER_SPACE)
 #define __CCT_DECLARE_CONSTRAINED_PTR_TYPE(basetype, basetag, ...)                                  \
 	__CCT_DISPATCH(__CCT_DECLARE_CONSTRAINED_PTR_TYPE, basetype, basetag, __VA_ARGS__)
+#else /* !defined(KERNEL) && !defined(__CCT_ENABLE_USER_SPACE) */
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wextra-semi"
+#endif /* defined(__clang__) */
+#define __CCT_DECLARE_CONSTRAINED_PTR_TYPE(basetype, basetag, ...)
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif /* defined(__clang__) */
+#endif /* !defined(KERNEL) && !defined(__CCT_ENABLE_USER_SPACE) */
 
 /*
  * Higher level type constructors.
- * The constrained types that can potentially break the ABI are not exposed
- * into the user-space.
  */
+#if defined(__CCT_ENABLE_USER_SPACE)
+/* Limiting the higher-level constructor to the ABI-preserving constructs. */
 #define __CCT_DECLARE_CONSTRAINED_PTR_TYPES(basetype, basetag)                                      \
-__CCT_DECLARE_CONSTRAINED_PTR_TYPE(basetype, basetag, REF);                                         \
-__CCT_DECLARE_CONSTRAINED_PTR_TYPE(basetype, basetag, REF, REF)
+	__CCT_DECLARE_CONSTRAINED_PTR_TYPE(basetype, basetag, __CCT_REF);                               \
+	__CCT_DECLARE_CONSTRAINED_PTR_TYPE(basetype, basetag, __CCT_REF, __CCT_REF)
+#else /* !defined(__CCT_ENABLE_USER_SPACE) */
+/* Disabling the higher-level constructor */
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wextra-semi"
+#endif /* defined(__clang__) */
+#define __CCT_DECLARE_CONSTRAINED_PTR_TYPES(basetype, basetag)
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif /* defined(__clang__) */
+#endif /* !defined(__CCT_ENABLE_USER_SPACE) */
 
 #endif /* __CONSTRAINED_CTYPES__ */

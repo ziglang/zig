@@ -141,15 +141,15 @@ struct __is_pathable_string<
 
 template <class _Source, class _DS = typename decay<_Source>::type,
           class _UnqualPtrType =
-              typename remove_const<typename remove_pointer<_DS>::type>::type,
+              __remove_const_t<__remove_pointer_t<_DS> >,
           bool _IsCharPtr = is_pointer<_DS>::value&&
               __can_convert_char<_UnqualPtrType>::value>
 struct __is_pathable_char_array : false_type {};
 
 template <class _Source, class _ECharT, class _UPtr>
 struct __is_pathable_char_array<_Source, _ECharT*, _UPtr, true>
-    : __can_convert_char<typename remove_const<_ECharT>::type> {
-  using _Base = __can_convert_char<typename remove_const<_ECharT>::type>;
+    : __can_convert_char<__remove_const_t<_ECharT> > {
+  using _Base = __can_convert_char<__remove_const_t<_ECharT> >;
 
   _LIBCPP_HIDE_FROM_ABI
   static _ECharT const* __range_begin(const _ECharT* __b) { return __b; }
@@ -619,7 +619,7 @@ public:
   _EnableIfPathable<_Source> append(const _Source& __src) {
     using _Traits = __is_pathable<_Source>;
     using _CVT = _PathCVT<_SourceChar<_Source> >;
-    bool __source_is_absolute = __is_separator(_Traits::__first_or_null(__src));
+    bool __source_is_absolute = _VSTD_FS::__is_separator(_Traits::__first_or_null(__src));
     if (__source_is_absolute)
       __pn_.clear();
     else if (has_filename())
@@ -634,7 +634,7 @@ public:
     typedef typename iterator_traits<_InputIt>::value_type _ItVal;
     static_assert(__can_convert_char<_ItVal>::value, "Must convertible");
     using _CVT = _PathCVT<_ItVal>;
-    if (__first != __last && __is_separator(*__first))
+    if (__first != __last && _VSTD_FS::__is_separator(*__first))
       __pn_.clear();
     else if (has_filename())
       __pn_ += preferred_separator;
@@ -731,6 +731,37 @@ public:
   }
 
   path& replace_extension(const path& __replacement = path());
+
+  friend _LIBCPP_HIDE_FROM_ABI bool operator==(const path& __lhs, const path& __rhs) noexcept {
+    return __lhs.__compare(__rhs.__pn_) == 0;
+  }
+#  if _LIBCPP_STD_VER <= 17
+  friend _LIBCPP_HIDE_FROM_ABI bool operator!=(const path& __lhs, const path& __rhs) noexcept {
+    return __lhs.__compare(__rhs.__pn_) != 0;
+  }
+  friend _LIBCPP_HIDE_FROM_ABI bool operator<(const path& __lhs, const path& __rhs) noexcept {
+    return __lhs.__compare(__rhs.__pn_) < 0;
+  }
+  friend _LIBCPP_HIDE_FROM_ABI bool operator<=(const path& __lhs, const path& __rhs) noexcept {
+    return __lhs.__compare(__rhs.__pn_) <= 0;
+  }
+  friend _LIBCPP_HIDE_FROM_ABI bool operator>(const path& __lhs, const path& __rhs) noexcept {
+    return __lhs.__compare(__rhs.__pn_) > 0;
+  }
+  friend _LIBCPP_HIDE_FROM_ABI bool operator>=(const path& __lhs, const path& __rhs) noexcept {
+    return __lhs.__compare(__rhs.__pn_) >= 0;
+  }
+#  else // _LIBCPP_STD_VER <= 17
+  friend _LIBCPP_HIDE_FROM_ABI strong_ordering operator<=>(const path& __lhs, const path& __rhs) noexcept {
+    return __lhs.__compare(__rhs.__pn_) <=> 0;
+  }
+#  endif // _LIBCPP_STD_VER <= 17
+
+  friend _LIBCPP_HIDE_FROM_ABI path operator/(const path& __lhs, const path& __rhs) {
+    path __result(__lhs);
+    __result /= __rhs;
+    return __result;
+  }
 
   _LIBCPP_HIDE_FROM_ABI
   void swap(path& __rhs) noexcept { __pn_.swap(__rhs.__pn_); }
@@ -835,7 +866,7 @@ public:
     using _Str = basic_string<_ECharT, _Traits, _Allocator>;
     _Str __s(__a);
     __s.reserve(__pn_.size());
-    _CVT()(back_inserter(__s), __pn_.data(), __pn_.data() + __pn_.size());
+    _CVT()(std::back_inserter(__s), __pn_.data(), __pn_.data() + __pn_.size());
     return __s;
   }
 
@@ -1035,30 +1066,6 @@ public:
   }
 #endif // !_LIBCPP_HAS_NO_LOCALIZATION
 
-  friend _LIBCPP_HIDE_FROM_ABI bool operator==(const path& __lhs, const path& __rhs) noexcept {
-    return __lhs.__compare(__rhs.__pn_) == 0;
-  }
-  friend _LIBCPP_HIDE_FROM_ABI bool operator!=(const path& __lhs, const path& __rhs) noexcept {
-    return __lhs.__compare(__rhs.__pn_) != 0;
-  }
-  friend _LIBCPP_HIDE_FROM_ABI bool operator<(const path& __lhs, const path& __rhs) noexcept {
-    return __lhs.__compare(__rhs.__pn_) < 0;
-  }
-  friend _LIBCPP_HIDE_FROM_ABI bool operator<=(const path& __lhs, const path& __rhs) noexcept {
-    return __lhs.__compare(__rhs.__pn_) <= 0;
-  }
-  friend _LIBCPP_HIDE_FROM_ABI bool operator>(const path& __lhs, const path& __rhs) noexcept {
-    return __lhs.__compare(__rhs.__pn_) > 0;
-  }
-  friend _LIBCPP_HIDE_FROM_ABI bool operator>=(const path& __lhs, const path& __rhs) noexcept {
-    return __lhs.__compare(__rhs.__pn_) >= 0;
-  }
-
-  friend _LIBCPP_HIDE_FROM_ABI path operator/(const path& __lhs, const path& __rhs) {
-    path __result(__lhs);
-    __result /= __rhs;
-    return __result;
-  }
 private:
   inline _LIBCPP_HIDE_FROM_ABI path&
   __assign_view(__string_view const& __s) noexcept {

@@ -23,7 +23,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     lib.use_lld = false;
     lib.strip = false;
     lib.stack_size = std.wasm.page_size * 2; // set an explicit stack size
-    lib.install();
+    b.installArtifact(lib);
 
     const check_lib = lib.checkObject();
 

@@ -47,7 +47,14 @@ int timespec_get( struct timespec *ts, int base); // C++17
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <time.h>
+
+// <time.h> is not provided by libc++
+#if __has_include(<time.h>)
+#  include <time.h>
+#  ifdef _LIBCPP_TIME_H
+#    error "If libc++ starts defining <time.h>, the __has_include check should move to libc++'s <time.h>"
+#  endif
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

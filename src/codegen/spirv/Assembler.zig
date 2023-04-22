@@ -135,7 +135,7 @@ const AsmValue = union(enum) {
         return switch (self) {
             .just_declared, .unresolved_forward_reference => unreachable,
             .value => |result| result,
-            .ty => |ref| spv.typeResultId(ref).toRef(),
+            .ty => |ref| spv.typeId(ref),
         };
     }
 };
@@ -239,12 +239,17 @@ fn todo(self: *Assembler, comptime fmt: []const u8, args: anytype) Error {
 /// If this function returns `error.AssembleFail`, an explanatory
 /// error message has already been emitted into `self.errors`.
 fn processInstruction(self: *Assembler) !void {
-    const result = switch (self.inst.opcode.class()) {
-        .TypeDeclaration => try self.processTypeInstruction(),
-        else => if (try self.processGenericInstruction()) |result|
-            result
-        else
-            return,
+    const result = switch (self.inst.opcode) {
+        .OpEntryPoint => {
+            return self.fail(0, "cannot export entry points via OpEntryPoint, export the kernel using callconv(.Kernel)", .{});
+        },
+        else => switch (self.inst.opcode.class()) {
+            .TypeDeclaration => try self.processTypeInstruction(),
+            else => if (try self.processGenericInstruction()) |result|
+                result
+            else
+                return,
+        },
     };
 
     const result_ref = self.inst.result().?;
@@ -266,27 +271,28 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
         .OpTypeVoid => SpvType.initTag(.void),
         .OpTypeBool => SpvType.initTag(.bool),
         .OpTypeInt => blk: {
-            const payload = try self.spv.arena.create(SpvType.Payload.Int);
             const signedness: std.builtin.Signedness = switch (operands[2].literal32) {
                 0 => .unsigned,
                 1 => .signed,
                 else => {
                     // TODO: Improve source location.
-                    return self.fail(0, "'{}' is not a valid signedness (expected 0 or 1)", .{operands[2].literal32});
+                    return self.fail(0, "{} is not a valid signedness (expected 0 or 1)", .{operands[2].literal32});
                 },
             };
-            payload.* = .{
-                .width = operands[1].literal32,
-                .signedness = signedness,
+            const width = std.math.cast(u16, operands[1].literal32) orelse {
+                return self.fail(0, "int type of {} bits is too large", .{operands[1].literal32});
             };
-            break :blk SpvType.initPayload(&payload.base);
+            break :blk try SpvType.int(self.spv.arena, signedness, width);
         },
         .OpTypeFloat => blk: {
-            const payload = try self.spv.arena.create(SpvType.Payload.Float);
-            payload.* = .{
-                .width = operands[1].literal32,
-            };
-            break :blk SpvType.initPayload(&payload.base);
+            const bits = operands[1].literal32;
+            switch (bits) {
+                16, 32, 64 => {},
+                else => {
+                    return self.fail(0, "{} is not a valid bit count for floats (expected 16, 32 or 64)", .{bits});
+                },
+            }
+            break :blk SpvType.float(@intCast(u16, bits));
         },
         .OpTypeVector => blk: {
             const payload = try self.spv.arena.create(SpvType.Payload.Vector);
@@ -382,10 +388,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
             payload.* = .{
                 .storage_class = @intToEnum(spec.StorageClass, operands[1].value),
                 .child_type = try self.resolveTypeRef(operands[2].ref_id),
-                // TODO: Fetch these values from decorations.
-                .array_stride = 0,
-                .alignment = null,
-                .max_byte_offset = null,
+                // TODO: Fetch decorations
             };
             break :blk SpvType.initPayload(&payload.base);
         },
@@ -434,11 +437,16 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
         .Annotation => &self.spv.sections.annotations,
         .TypeDeclaration => unreachable, // Handled elsewhere.
         else => switch (self.inst.opcode) {
-            .OpEntryPoint => &self.spv.sections.entry_points,
+            .OpEntryPoint => unreachable,
             .OpExecutionMode, .OpExecutionModeId => &self.spv.sections.execution_modes,
             .OpVariable => switch (@intToEnum(spec.StorageClass, operands[2].value)) {
                 .Function => &self.func.prologue,
-                else => &self.spv.sections.types_globals_constants,
+                else => {
+                    // This is currently disabled because global variables are required to be
+                    // emitted in the proper order, and this should be honored in inline assembly
+                    // as well.
+                    return self.todo("global variables", .{});
+                },
             },
             // Default case - to be worked out further.
             else => &self.func.body,
@@ -485,7 +493,7 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
     section.instructions.items[first_word] |= @as(u32, @intCast(u16, actual_word_count)) << 16 | @enumToInt(self.inst.opcode);
 
     if (maybe_result_id) |result| {
-        return AsmValue{ .value = result.toRef() };
+        return AsmValue{ .value = result };
     }
     return null;
 }
@@ -753,22 +761,19 @@ fn parseContextDependentNumber(self: *Assembler) !void {
 
     const tok = self.currentToken();
     const result_type_ref = try self.resolveTypeRef(self.inst.operands.items[0].ref_id);
-    const result_type = self.spv.type_cache.keys()[result_type_ref];
-    switch (result_type.tag()) {
-        .int => {
-            const int = result_type.castTag(.int).?;
-            try self.parseContextDependentInt(int.signedness, int.width);
-        },
-        .float => {
-            const width = result_type.castTag(.float).?.width;
-            switch (width) {
-                16 => try self.parseContextDependentFloat(16),
-                32 => try self.parseContextDependentFloat(32),
-                64 => try self.parseContextDependentFloat(64),
-                else => return self.fail(tok.start, "cannot parse {}-bit float literal", .{width}),
-            }
-        },
-        else => return self.fail(tok.start, "cannot parse literal constant {s}", .{@tagName(result_type.tag())}),
+    const result_type = self.spv.type_cache.keys()[@enumToInt(result_type_ref)];
+    if (result_type.isInt()) {
+        try self.parseContextDependentInt(result_type.intSignedness(), result_type.intFloatBits());
+    } else if (result_type.isFloat()) {
+        const width = result_type.intFloatBits();
+        switch (width) {
+            16 => try self.parseContextDependentFloat(16),
+            32 => try self.parseContextDependentFloat(32),
+            64 => try self.parseContextDependentFloat(64),
+            else => return self.fail(tok.start, "cannot parse {}-bit float literal", .{width}),
+        }
+    } else {
+        return self.fail(tok.start, "cannot parse literal constant {s}", .{@tagName(result_type.tag())});
     }
 }
 

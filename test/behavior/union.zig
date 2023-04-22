@@ -1408,7 +1408,6 @@ test "union field ptr - zero sized field" {
 }
 
 test "packed union in packed struct" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -1494,7 +1493,6 @@ test "union reassignment can use previous value" {
 }
 
 test "packed union with zero-bit field" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -1514,7 +1512,6 @@ test "packed union with zero-bit field" {
 }
 
 test "reinterpreting enum value inside packed union" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -1531,4 +1528,31 @@ test "reinterpreting enum value inside packed union" {
     };
     try U.doTest();
     comptime try U.doTest();
+}
+
+test "access the tag of a global tagged union" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const U = union(enum) {
+        a,
+        b: u8,
+        var u: @This() = .a;
+    };
+    try expect(U.u == .a);
+}
+
+test "coerce enum literal to union in result loc" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const U = union(enum) {
+        a,
+        b: u8,
+
+        fn doTest(c: bool) !void {
+            var u = if (c) .a else @This(){ .b = 0 };
+            try expect(u == .a);
+        }
+    };
+    try U.doTest(true);
+    comptime try U.doTest(true);
 }

@@ -80,6 +80,10 @@ const llvm_targets = [_]LlvmTarget{
                 .flatten = true,
             },
             .{
+                .llvm_name = "neoversev2",
+                .flatten = true,
+            },
+            .{
                 .llvm_name = "neoverse512tvb",
                 .flatten = true,
             },
@@ -138,6 +142,14 @@ const llvm_targets = [_]LlvmTarget{
                 .flatten = true,
             },
             .{
+                .llvm_name = "a715",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "ampere1a",
+                .flatten = true,
+            },
+            .{
                 .llvm_name = "apple-a7",
                 .flatten = true,
             },
@@ -162,6 +174,14 @@ const llvm_targets = [_]LlvmTarget{
                 .flatten = true,
             },
             .{
+                .llvm_name = "apple-a15",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "apple-a16",
+                .flatten = true,
+            },
+            .{
                 .llvm_name = "apple-a7-sysreg",
                 .flatten = true,
             },
@@ -179,6 +199,10 @@ const llvm_targets = [_]LlvmTarget{
             },
             .{
                 .llvm_name = "cortex-x2",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "cortex-x3",
                 .flatten = true,
             },
             .{
@@ -595,6 +619,10 @@ const llvm_targets = [_]LlvmTarget{
                 .zig_name = "v8_8a",
             },
             .{
+                .llvm_name = "armv8.9-a",
+                .zig_name = "v8_9a",
+            },
+            .{
                 .llvm_name = "armv8-a",
                 .zig_name = "v8a",
             },
@@ -621,6 +649,10 @@ const llvm_targets = [_]LlvmTarget{
             .{
                 .llvm_name = "armv9.3-a",
                 .zig_name = "v9_3a",
+            },
+            .{
+                .llvm_name = "armv9.4-a",
+                .zig_name = "v9_4a",
             },
             .{
                 .llvm_name = "armv9-a",
@@ -711,6 +743,10 @@ const llvm_targets = [_]LlvmTarget{
                 .zig_name = "has_v8_8a",
             },
             .{
+                .llvm_name = "v8.9a",
+                .zig_name = "has_v8_9a",
+            },
+            .{
                 .llvm_name = "v9a",
                 .zig_name = "has_v9a",
             },
@@ -725,6 +761,33 @@ const llvm_targets = [_]LlvmTarget{
             .{
                 .llvm_name = "v9.3a",
                 .zig_name = "has_v9_3a",
+            },
+            .{
+                .llvm_name = "v9.4a",
+                .zig_name = "has_v9_4a",
+            },
+        },
+        // LLVM removed support for v2 and v3 but zig wants to support targeting old hardware
+        .extra_features = &.{
+            .{
+                .zig_name = "v2",
+                .desc = "ARMv2 architecture",
+                .deps = &.{"strict_align"},
+            },
+            .{
+                .zig_name = "v2a",
+                .desc = "ARMv2a architecture",
+                .deps = &.{"strict_align"},
+            },
+            .{
+                .zig_name = "v3",
+                .desc = "ARMv3 architecture",
+                .deps = &.{"strict_align"},
+            },
+            .{
+                .zig_name = "v3m",
+                .desc = "ARMv3m architecture",
+                .deps = &.{"strict_align"},
             },
         },
     },
@@ -752,6 +815,11 @@ const llvm_targets = [_]LlvmTarget{
         .zig_name = "lanai",
         .llvm_name = "Lanai",
         .td_name = "Lanai.td",
+    },
+    .{
+        .zig_name = "loongarch",
+        .llvm_name = "LoongArch",
+        .td_name = "LoongArch.td",
     },
     .{
         .zig_name = "m68k",
@@ -798,7 +866,7 @@ const llvm_targets = [_]LlvmTarget{
             .{
                 .llvm_name = null,
                 .zig_name = "baseline_rv32",
-                .features = &.{ "a", "c", "d", "f", "m" },
+                .features = &.{ "32bit", "a", "c", "d", "f", "m" },
             },
             .{
                 .llvm_name = null,
@@ -812,6 +880,12 @@ const llvm_targets = [_]LlvmTarget{
         .llvm_name = "Sparc",
         .td_name = "Sparc.td",
     },
+    // TODO: merge tools/update_spirv_features.zig into this script
+    //.{
+    //    .zig_name = "spirv",
+    //    .llvm_name = "SPIRV",
+    //    .td_name = "SPIRV.td",
+    //},
     .{
         .zig_name = "s390x",
         .llvm_name = "SystemZ",
@@ -846,6 +920,11 @@ const llvm_targets = [_]LlvmTarget{
         .zig_name = "xcore",
         .llvm_name = "XCore",
         .td_name = "XCore.td",
+    },
+    .{
+        .zig_name = "xtensa",
+        .llvm_name = "Xtensa",
+        .td_name = "Xtensa.td",
     },
 };
 

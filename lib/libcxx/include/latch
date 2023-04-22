@@ -64,7 +64,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 class latch
 {
-    __atomic_base<ptrdiff_t> __a;
+    __atomic_base<ptrdiff_t> __a_;
 
 public:
     static constexpr ptrdiff_t max() noexcept {
@@ -72,7 +72,7 @@ public:
     }
 
     inline _LIBCPP_INLINE_VISIBILITY
-    constexpr explicit latch(ptrdiff_t __expected) : __a(__expected) { }
+    constexpr explicit latch(ptrdiff_t __expected) : __a_(__expected) { }
 
     ~latch() = default;
     latch(const latch&) = delete;
@@ -81,19 +81,19 @@ public:
     inline _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void count_down(ptrdiff_t __update = 1)
     {
-        auto const __old = __a.fetch_sub(__update, memory_order_release);
+        auto const __old = __a_.fetch_sub(__update, memory_order_release);
         if(__old == __update)
-            __a.notify_all();
+            __a_.notify_all();
     }
     inline _LIBCPP_INLINE_VISIBILITY
     bool try_wait() const noexcept
     {
-        return 0 == __a.load(memory_order_acquire);
+        return 0 == __a_.load(memory_order_acquire);
     }
     inline _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void wait() const
     {
-        __cxx_atomic_wait(&__a.__a_, [&]() -> bool {
+        __cxx_atomic_wait(&__a_.__a_, [&]() -> bool {
             return try_wait();
         });
     }

@@ -54,8 +54,7 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI constexpr size_t next_arg_id() {
     if (__indexing_ == __manual)
-      __throw_format_error("Using automatic argument numbering in manual "
-                           "argument numbering mode");
+      std::__throw_format_error("Using automatic argument numbering in manual argument numbering mode");
 
     if (__indexing_ == __unknown)
       __indexing_ = __automatic;
@@ -63,8 +62,7 @@ public:
   }
   _LIBCPP_HIDE_FROM_ABI constexpr void check_arg_id(size_t __id) {
     if (__indexing_ == __automatic)
-      __throw_format_error("Using manual argument numbering in automatic "
-                           "argument numbering mode");
+      std::__throw_format_error("Using manual argument numbering in automatic argument numbering mode");
 
     if (__indexing_ == __unknown)
       __indexing_ = __manual;
@@ -77,7 +75,7 @@ public:
     // Note: the Throws clause [format.parse.ctx]/10 doesn't specify the
     // behavior when id >= num_args_.
     if (is_constant_evaluated() && __id >= __num_args_)
-      __throw_format_error("Argument index outside the valid range");
+      std::__throw_format_error("Argument index outside the valid range");
   }
 
 private:
@@ -88,6 +86,7 @@ private:
   size_t __next_arg_id_;
   size_t __num_args_;
 };
+_LIBCPP_CTAD_SUPPORTED_FOR_TYPE(basic_format_parse_context);
 
 using format_parse_context = basic_format_parse_context<char>;
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS

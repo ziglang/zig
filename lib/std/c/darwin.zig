@@ -435,6 +435,10 @@ pub const VM_REGION_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region
 pub const VM_REGION_EXTENDED_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_extended_info) / @sizeOf(natural_t);
 pub const VM_REGION_TOP_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_top_info) / @sizeOf(natural_t);
 
+pub fn VM_MAKE_TAG(tag: u8) u32 {
+    return @as(u32, tag) << 24;
+}
+
 pub const vm_region_basic_info_64 = extern struct {
     protection: vm_prot_t,
     max_protection: vm_prot_t,
@@ -849,6 +853,21 @@ pub const EAI = enum(c_int) {
 
 pub const EAI_MAX = 15;
 
+pub const qos_class_t = enum(c_uint) {
+    /// highest priority QOS class for critical tasks
+    QOS_CLASS_USER_INTERACTIVE = 0x21,
+    /// slightly more moderate priority QOS class
+    QOS_CLASS_USER_INITIATED = 0x19,
+    /// default QOS class when none is set
+    QOS_CLASS_DEFAULT = 0x15,
+    /// more energy efficient QOS class than default
+    QOS_CLASS_UTILITY = 0x11,
+    /// QOS class more appropriate for background tasks
+    QOS_CLASS_BACKGROUND = 0x09,
+    /// QOS class as a return value
+    QOS_CLASS_UNSPECIFIED = 0x00,
+};
+
 pub const pthread_mutex_t = extern struct {
     __sig: c_long = 0x32AAABA7,
     __opaque: [__PTHREAD_MUTEX_SIZE__]u8 = [_]u8{0} ** __PTHREAD_MUTEX_SIZE__,
@@ -873,6 +892,10 @@ pub const pthread_attr_t = extern struct {
 pub extern "c" fn pthread_threadid_np(thread: ?std.c.pthread_t, thread_id: *u64) c_int;
 pub extern "c" fn pthread_setname_np(name: [*:0]const u8) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
+pub extern "c" fn pthread_attr_set_qos_class_np(attr: *pthread_attr_t, qos_class: qos_class_t, relative_priority: c_int) c_int;
+pub extern "c" fn pthread_attr_get_qos_class_np(attr: *pthread_attr_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
+pub extern "c" fn pthread_set_qos_class_self_np(qos_class: qos_class_t, relative_priority: c_int) c_int;
+pub extern "c" fn pthread_get_qos_class_np(pthread: std.c.pthread_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
 
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
@@ -3791,3 +3814,35 @@ pub fn machTaskForPid(pid: std.os.pid_t) MachError!MachTask {
 pub fn machTaskForSelf() MachTask {
     return .{ .port = mach_task_self() };
 }
+
+pub const os_signpost_id_t = u64;
+
+pub const OS_SIGNPOST_ID_NULL: os_signpost_id_t = 0;
+pub const OS_SIGNPOST_ID_INVALID: os_signpost_id_t = !0;
+pub const OS_SIGNPOST_ID_EXCLUSIVE: os_signpost_id_t = 0xeeeeb0b5b2b2eeee;
+
+pub const os_log_t = opaque {};
+pub const os_log_type_t = enum(u8) {
+    /// default messages always captures
+    OS_LOG_TYPE_DEFAULT = 0x00,
+    /// messages with additional infos
+    OS_LOG_TYPE_INFO = 0x01,
+    /// debug messages
+    OS_LOG_TYPE_DEBUG = 0x02,
+    /// error messages
+    OS_LOG_TYPE_ERROR = 0x10,
+    /// unexpected conditions messages
+    OS_LOG_TYPE_FAULT = 0x11,
+};
+
+pub const OS_LOG_CATEGORY_POINTS_OF_INTEREST: *const u8 = "PointsOfInterest";
+pub const OS_LOG_CATEGORY_DYNAMIC_TRACING: *const u8 = "DynamicTracing";
+pub const OS_LOG_CATEGORY_DYNAMIC_STACK_TRACING: *const u8 = "DynamicStackTracing";
+
+pub extern "c" fn os_log_create(subsystem: [*]const u8, category: [*]const u8) os_log_t;
+pub extern "c" fn os_log_type_enabled(log: os_log_t, tpe: os_log_type_t) bool;
+pub extern "c" fn os_signpost_id_generate(log: os_log_t) os_signpost_id_t;
+pub extern "c" fn os_signpost_interval_begin(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
+pub extern "c" fn os_signpost_interval_end(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
+pub extern "c" fn os_signpost_id_make_with_pointer(log: os_log_t, ptr: ?*anyopaque) os_signpost_id_t;
+pub extern "c" fn os_signpost_enabled(log: os_log_t) bool;

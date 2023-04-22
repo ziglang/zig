@@ -35,6 +35,10 @@ const known_options = [_]KnownOpt{
         .ident = "c",
     },
     .{
+        .name = "r",
+        .ident = "r",
+    },
+    .{
         .name = "l",
         .ident = "l",
     },
@@ -237,23 +241,31 @@ const known_options = [_]KnownOpt{
         .ident = "debug",
     },
     .{
-        .name = "g-dwarf",
+        .name = "gdwarf32",
+        .ident = "gdwarf32",
+    },
+    .{
+        .name = "gdwarf64",
+        .ident = "gdwarf64",
+    },
+    .{
+        .name = "gdwarf",
         .ident = "debug",
     },
     .{
-        .name = "g-dwarf-2",
+        .name = "gdwarf-2",
         .ident = "debug",
     },
     .{
-        .name = "g-dwarf-3",
+        .name = "gdwarf-3",
         .ident = "debug",
     },
     .{
-        .name = "g-dwarf-4",
+        .name = "gdwarf-4",
         .ident = "debug",
     },
     .{
-        .name = "g-dwarf-5",
+        .name = "gdwarf-5",
         .ident = "debug",
     },
     .{
@@ -467,6 +479,10 @@ const known_options = [_]KnownOpt{
     .{
         .name = "e",
         .ident = "entry",
+    },
+    .{
+        .name = "u",
+        .ident = "force_undefined_symbol",
     },
     .{
         .name = "weak-l",
@@ -784,6 +800,8 @@ fn objSyntax(obj: *json.ObjectMap) ?Syntax {
         } else if (std.mem.eql(u8, superclass, "CLIgnoredJoined")) {
             return .joined;
         } else if (std.mem.eql(u8, superclass, "CLCompileJoined")) {
+            return .joined;
+        } else if (std.mem.eql(u8, superclass, "CLDXCJoined")) {
             return .joined;
         } else if (std.mem.eql(u8, superclass, "JoinedOrSeparate")) {
             return .joined_or_separate;

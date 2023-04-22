@@ -1,7 +1,7 @@
 const Tokenizer = @This();
 
 const std = @import("std");
-const log = std.log.scoped(.tapi);
+const log = std.log.scoped(.yaml);
 const testing = std.testing;
 
 buffer: []const u8,
@@ -13,29 +13,31 @@ pub const Token = struct {
     end: usize,
 
     pub const Id = enum {
-        Eof,
+        // zig fmt: off
+        eof,
 
-        NewLine,
-        DocStart, // ---
-        DocEnd, // ...
-        SeqItemInd, // -
-        MapValueInd, // :
-        FlowMapStart, // {
-        FlowMapEnd, // }
-        FlowSeqStart, // [
-        FlowSeqEnd, // ]
+        new_line,
+        doc_start,      // ---
+        doc_end,        // ...
+        seq_item_ind,   // -
+        map_value_ind,  // :
+        flow_map_start, // {
+        flow_map_end,   // }
+        flow_seq_start, // [
+        flow_seq_end,   // ]
 
-        Comma,
-        Space,
-        Tab,
-        Comment, // #
-        Alias, // *
-        Anchor, // &
-        Tag, // !
-        SingleQuote, // '
-        DoubleQuote, // "
+        comma,
+        space,
+        tab,
+        comment,        // #
+        alias,          // *
+        anchor,         // &
+        tag,            // !
 
-        Literal,
+        single_quoted,   // '...'
+        double_quoted,   // "..."
+        literal,
+        // zig fmt: on
     };
 };
 
@@ -45,8 +47,8 @@ pub const TokenIterator = struct {
     buffer: []const Token,
     pos: TokenIndex = 0,
 
-    pub fn next(self: *TokenIterator) Token {
-        const token = self.buffer[self.pos];
+    pub fn next(self: *TokenIterator) ?Token {
+        const token = self.peek() orelse return null;
         self.pos += 1;
         return token;
     }
@@ -74,180 +76,212 @@ pub const TokenIterator = struct {
     }
 };
 
+fn stringMatchesPattern(comptime pattern: []const u8, slice: []const u8) bool {
+    comptime var count: usize = 0;
+    inline while (count < pattern.len) : (count += 1) {
+        if (count >= slice.len) return false;
+        const c = slice[count];
+        if (pattern[count] != c) return false;
+    }
+    return true;
+}
+
+fn matchesPattern(self: Tokenizer, comptime pattern: []const u8) bool {
+    return stringMatchesPattern(pattern, self.buffer[self.index..]);
+}
+
 pub fn next(self: *Tokenizer) Token {
     var result = Token{
-        .id = .Eof,
+        .id = .eof,
         .start = self.index,
         .end = undefined,
     };
 
-    var state: union(enum) {
-        Start,
-        NewLine,
-        Space,
-        Tab,
-        Hyphen: usize,
-        Dot: usize,
-        Literal,
-    } = .Start;
+    var state: enum {
+        start,
+        new_line,
+        space,
+        tab,
+        comment,
+        single_quoted,
+        double_quoted,
+        literal,
+    } = .start;
 
     while (self.index < self.buffer.len) : (self.index += 1) {
         const c = self.buffer[self.index];
         switch (state) {
-            .Start => switch (c) {
+            .start => switch (c) {
                 ' ' => {
-                    state = .Space;
+                    state = .space;
                 },
                 '\t' => {
-                    state = .Tab;
+                    state = .tab;
                 },
                 '\n' => {
-                    result.id = .NewLine;
+                    result.id = .new_line;
                     self.index += 1;
                     break;
                 },
                 '\r' => {
-                    state = .NewLine;
+                    state = .new_line;
                 },
-                '-' => {
-                    state = .{ .Hyphen = 1 };
+
+                '-' => if (self.matchesPattern("---")) {
+                    result.id = .doc_start;
+                    self.index += "---".len;
+                    break;
+                } else if (self.matchesPattern("- ")) {
+                    result.id = .seq_item_ind;
+                    self.index += "- ".len;
+                    break;
+                } else {
+                    state = .literal;
                 },
-                '.' => {
-                    state = .{ .Dot = 1 };
+
+                '.' => if (self.matchesPattern("...")) {
+                    result.id = .doc_end;
+                    self.index += "...".len;
+                    break;
+                } else {
+                    state = .literal;
                 },
+
                 ',' => {
-                    result.id = .Comma;
+                    result.id = .comma;
                     self.index += 1;
                     break;
                 },
                 '#' => {
-                    result.id = .Comment;
-                    self.index += 1;
-                    break;
+                    state = .comment;
                 },
                 '*' => {
-                    result.id = .Alias;
+                    result.id = .alias;
                     self.index += 1;
                     break;
                 },
                 '&' => {
-                    result.id = .Anchor;
+                    result.id = .anchor;
                     self.index += 1;
                     break;
                 },
                 '!' => {
-                    result.id = .Tag;
-                    self.index += 1;
-                    break;
-                },
-                '\'' => {
-                    result.id = .SingleQuote;
-                    self.index += 1;
-                    break;
-                },
-                '"' => {
-                    result.id = .DoubleQuote;
+                    result.id = .tag;
                     self.index += 1;
                     break;
                 },
                 '[' => {
-                    result.id = .FlowSeqStart;
+                    result.id = .flow_seq_start;
                     self.index += 1;
                     break;
                 },
                 ']' => {
-                    result.id = .FlowSeqEnd;
+                    result.id = .flow_seq_end;
                     self.index += 1;
                     break;
                 },
                 ':' => {
-                    result.id = .MapValueInd;
+                    result.id = .map_value_ind;
                     self.index += 1;
                     break;
                 },
                 '{' => {
-                    result.id = .FlowMapStart;
+                    result.id = .flow_map_start;
                     self.index += 1;
                     break;
                 },
                 '}' => {
-                    result.id = .FlowMapEnd;
+                    result.id = .flow_map_end;
                     self.index += 1;
                     break;
                 },
+                '\'' => {
+                    state = .single_quoted;
+                },
+                '"' => {
+                    state = .double_quoted;
+                },
                 else => {
-                    state = .Literal;
+                    state = .literal;
                 },
             },
-            .Space => switch (c) {
+
+            .comment => switch (c) {
+                '\r', '\n' => {
+                    result.id = .comment;
+                    break;
+                },
+                else => {},
+            },
+
+            .space => switch (c) {
                 ' ' => {},
                 else => {
-                    result.id = .Space;
+                    result.id = .space;
                     break;
                 },
             },
-            .Tab => switch (c) {
+
+            .tab => switch (c) {
                 '\t' => {},
                 else => {
-                    result.id = .Tab;
+                    result.id = .tab;
                     break;
                 },
             },
-            .NewLine => switch (c) {
+
+            .new_line => switch (c) {
                 '\n' => {
-                    result.id = .NewLine;
+                    result.id = .new_line;
                     self.index += 1;
                     break;
                 },
                 else => {}, // TODO this should be an error condition
             },
-            .Hyphen => |*count| switch (c) {
-                ' ' => {
-                    result.id = .SeqItemInd;
+
+            .single_quoted => switch (c) {
+                '\'' => if (!self.matchesPattern("''")) {
+                    result.id = .single_quoted;
                     self.index += 1;
                     break;
+                } else {
+                    self.index += "''".len - 1;
                 },
-                '-' => {
-                    count.* += 1;
+                else => {},
+            },
 
-                    if (count.* == 3) {
-                        result.id = .DocStart;
+            .double_quoted => switch (c) {
+                '"' => {
+                    if (stringMatchesPattern("\\", self.buffer[self.index - 1 ..])) {
+                        self.index += 1;
+                    } else {
+                        result.id = .double_quoted;
                         self.index += 1;
                         break;
                     }
                 },
-                else => {
-                    state = .Literal;
-                },
+                else => {},
             },
-            .Dot => |*count| switch (c) {
-                '.' => {
-                    count.* += 1;
 
-                    if (count.* == 3) {
-                        result.id = .DocEnd;
-                        self.index += 1;
-                        break;
-                    }
-                },
-                else => {
-                    state = .Literal;
-                },
-            },
-            .Literal => switch (c) {
+            .literal => switch (c) {
                 '\r', '\n', ' ', '\'', '"', ',', ':', ']', '}' => {
-                    result.id = .Literal;
+                    result.id = .literal;
                     break;
                 },
                 else => {
-                    result.id = .Literal;
+                    result.id = .literal;
                 },
             },
         }
     }
 
-    if (state == .Literal and result.id == .Eof) {
-        result.id = .Literal;
+    if (self.index >= self.buffer.len) {
+        switch (state) {
+            .literal => {
+                result.id = .literal;
+            },
+            else => {},
+        }
     }
 
     result.end = self.index;
@@ -263,22 +297,24 @@ fn testExpected(source: []const u8, expected: []const Token.Id) !void {
         .buffer = source,
     };
 
-    var token_len: usize = 0;
-    for (expected) |exp| {
-        token_len += 1;
+    var given = std.ArrayList(Token.Id).init(testing.allocator);
+    defer given.deinit();
+
+    while (true) {
         const token = tokenizer.next();
-        try testing.expectEqual(exp, token.id);
+        try given.append(token.id);
+        if (token.id == .eof) break;
     }
 
-    while (tokenizer.next().id != .Eof) {
-        token_len += 1; // consume all tokens
-    }
+    try testing.expectEqualSlices(Token.Id, expected, given.items);
+}
 
-    try testing.expectEqual(expected.len, token_len);
+test {
+    std.testing.refAllDecls(@This());
 }
 
 test "empty doc" {
-    try testExpected("", &[_]Token.Id{.Eof});
+    try testExpected("", &[_]Token.Id{.eof});
 }
 
 test "empty doc with explicit markers" {
@@ -286,7 +322,22 @@ test "empty doc with explicit markers" {
         \\---
         \\...
     , &[_]Token.Id{
-        .DocStart, .NewLine, .DocEnd, .Eof,
+        .doc_start, .new_line, .doc_end, .eof,
+    });
+}
+
+test "empty doc with explicit markers and a directive" {
+    try testExpected(
+        \\--- !tbd-v1
+        \\...
+    , &[_]Token.Id{
+        .doc_start,
+        .space,
+        .tag,
+        .literal,
+        .new_line,
+        .doc_end,
+        .eof,
     });
 }
 
@@ -296,15 +347,15 @@ test "sequence of values" {
         \\- 1
         \\- 2
     , &[_]Token.Id{
-        .SeqItemInd,
-        .Literal,
-        .NewLine,
-        .SeqItemInd,
-        .Literal,
-        .NewLine,
-        .SeqItemInd,
-        .Literal,
-        .Eof,
+        .seq_item_ind,
+        .literal,
+        .new_line,
+        .seq_item_ind,
+        .literal,
+        .new_line,
+        .seq_item_ind,
+        .literal,
+        .eof,
     });
 }
 
@@ -313,24 +364,24 @@ test "sequence of sequences" {
         \\- [ val1, val2]
         \\- [val3, val4 ]
     , &[_]Token.Id{
-        .SeqItemInd,
-        .FlowSeqStart,
-        .Space,
-        .Literal,
-        .Comma,
-        .Space,
-        .Literal,
-        .FlowSeqEnd,
-        .NewLine,
-        .SeqItemInd,
-        .FlowSeqStart,
-        .Literal,
-        .Comma,
-        .Space,
-        .Literal,
-        .Space,
-        .FlowSeqEnd,
-        .Eof,
+        .seq_item_ind,
+        .flow_seq_start,
+        .space,
+        .literal,
+        .comma,
+        .space,
+        .literal,
+        .flow_seq_end,
+        .new_line,
+        .seq_item_ind,
+        .flow_seq_start,
+        .literal,
+        .comma,
+        .space,
+        .literal,
+        .space,
+        .flow_seq_end,
+        .eof,
     });
 }
 
@@ -339,16 +390,16 @@ test "mappings" {
         \\key1: value1
         \\key2: value2
     , &[_]Token.Id{
-        .Literal,
-        .MapValueInd,
-        .Space,
-        .Literal,
-        .NewLine,
-        .Literal,
-        .MapValueInd,
-        .Space,
-        .Literal,
-        .Eof,
+        .literal,
+        .map_value_ind,
+        .space,
+        .literal,
+        .new_line,
+        .literal,
+        .map_value_ind,
+        .space,
+        .literal,
+        .eof,
     });
 }
 
@@ -357,21 +408,21 @@ test "inline mapped sequence of values" {
         \\key :  [ val1, 
         \\          val2 ]
     , &[_]Token.Id{
-        .Literal,
-        .Space,
-        .MapValueInd,
-        .Space,
-        .FlowSeqStart,
-        .Space,
-        .Literal,
-        .Comma,
-        .Space,
-        .NewLine,
-        .Space,
-        .Literal,
-        .Space,
-        .FlowSeqEnd,
-        .Eof,
+        .literal,
+        .space,
+        .map_value_ind,
+        .space,
+        .flow_seq_start,
+        .space,
+        .literal,
+        .comma,
+        .space,
+        .new_line,
+        .space,
+        .literal,
+        .space,
+        .flow_seq_end,
+        .eof,
     });
 }
 
@@ -388,52 +439,50 @@ test "part of tbd" {
         \\install-name:    '/usr/lib/libSystem.B.dylib'
         \\...
     , &[_]Token.Id{
-        .DocStart,
-        .Space,
-        .Tag,
-        .Literal,
-        .NewLine,
-        .Literal,
-        .MapValueInd,
-        .Space,
-        .Literal,
-        .NewLine,
-        .Literal,
-        .MapValueInd,
-        .Space,
-        .FlowSeqStart,
-        .Space,
-        .Literal,
-        .Space,
-        .FlowSeqEnd,
-        .NewLine,
-        .NewLine,
-        .Literal,
-        .MapValueInd,
-        .NewLine,
-        .Space,
-        .SeqItemInd,
-        .Literal,
-        .MapValueInd,
-        .Space,
-        .Literal,
-        .NewLine,
-        .Space,
-        .Literal,
-        .MapValueInd,
-        .Space,
-        .Literal,
-        .NewLine,
-        .NewLine,
-        .Literal,
-        .MapValueInd,
-        .Space,
-        .SingleQuote,
-        .Literal,
-        .SingleQuote,
-        .NewLine,
-        .DocEnd,
-        .Eof,
+        .doc_start,
+        .space,
+        .tag,
+        .literal,
+        .new_line,
+        .literal,
+        .map_value_ind,
+        .space,
+        .literal,
+        .new_line,
+        .literal,
+        .map_value_ind,
+        .space,
+        .flow_seq_start,
+        .space,
+        .literal,
+        .space,
+        .flow_seq_end,
+        .new_line,
+        .new_line,
+        .literal,
+        .map_value_ind,
+        .new_line,
+        .space,
+        .seq_item_ind,
+        .literal,
+        .map_value_ind,
+        .space,
+        .literal,
+        .new_line,
+        .space,
+        .literal,
+        .map_value_ind,
+        .space,
+        .literal,
+        .new_line,
+        .new_line,
+        .literal,
+        .map_value_ind,
+        .space,
+        .single_quoted,
+        .new_line,
+        .doc_end,
+        .eof,
     });
 }
 
@@ -443,18 +492,84 @@ test "Unindented list" {
         \\- foo: 1
         \\c: 1
     , &[_]Token.Id{
-        .Literal,
-        .MapValueInd,
-        .NewLine,
-        .SeqItemInd,
-        .Literal,
-        .MapValueInd,
-        .Space,
-        .Literal,
-        .NewLine,
-        .Literal,
-        .MapValueInd,
-        .Space,
-        .Literal,
+        .literal,
+        .map_value_ind,
+        .new_line,
+        .seq_item_ind,
+        .literal,
+        .map_value_ind,
+        .space,
+        .literal,
+        .new_line,
+        .literal,
+        .map_value_ind,
+        .space,
+        .literal,
+        .eof,
+    });
+}
+
+test "escape sequences" {
+    try testExpected(
+        \\a: 'here''s an apostrophe'
+        \\b: "a newline\nand a\ttab"
+        \\c: "\"here\" and there"
+    , &[_]Token.Id{
+        .literal,
+        .map_value_ind,
+        .space,
+        .single_quoted,
+        .new_line,
+        .literal,
+        .map_value_ind,
+        .space,
+        .double_quoted,
+        .new_line,
+        .literal,
+        .map_value_ind,
+        .space,
+        .double_quoted,
+        .eof,
+    });
+}
+
+test "comments" {
+    try testExpected(
+        \\key: # some comment about the key
+        \\# first value
+        \\- val1
+        \\# second value
+        \\- val2
+    , &[_]Token.Id{
+        .literal,
+        .map_value_ind,
+        .space,
+        .comment,
+        .new_line,
+        .comment,
+        .new_line,
+        .seq_item_ind,
+        .literal,
+        .new_line,
+        .comment,
+        .new_line,
+        .seq_item_ind,
+        .literal,
+        .eof,
+    });
+}
+
+test "quoted literals" {
+    try testExpected(
+        \\'#000000'
+        \\'[000000'
+        \\"&someString"
+    , &[_]Token.Id{
+        .single_quoted,
+        .new_line,
+        .single_quoted,
+        .new_line,
+        .double_quoted,
+        .eof,
     });
 }

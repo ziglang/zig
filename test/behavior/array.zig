@@ -70,7 +70,6 @@ test "array concat with undefined" {
 test "array concat with tuple" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const array: [2]u8 = .{ 1, 2 };
     {
@@ -640,7 +639,6 @@ test "tuple to array handles sentinel" {
 }
 
 test "array init of container level array variable" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -678,4 +676,14 @@ test "array of array agregate init" {
     var a = [1]u32{11} ** 10;
     var b = [1][10]u32{a} ** 2;
     try std.testing.expect(b[1][1] == 11);
+}
+
+test "pointer to array has ptr field" {
+    const arr: *const [5]u32 = &.{ 10, 20, 30, 40, 50 };
+    try std.testing.expect(arr.ptr == @as([*]const u32, arr));
+    try std.testing.expect(arr.ptr[0] == 10);
+    try std.testing.expect(arr.ptr[1] == 20);
+    try std.testing.expect(arr.ptr[2] == 30);
+    try std.testing.expect(arr.ptr[3] == 40);
+    try std.testing.expect(arr.ptr[4] == 50);
 }

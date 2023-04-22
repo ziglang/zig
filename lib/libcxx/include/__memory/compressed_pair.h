@@ -11,10 +11,21 @@
 #define _LIBCPP___MEMORY_COMPRESSED_PAIR_H
 
 #include <__config>
+#include <__fwd/get.h>
+#include <__fwd/tuple.h>
+#include <__tuple_dir/tuple_indices.h>
+#include <__type_traits/decay.h>
+#include <__type_traits/dependent_type.h>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/is_default_constructible.h>
+#include <__type_traits/is_empty.h>
+#include <__type_traits/is_final.h>
+#include <__type_traits/is_same.h>
+#include <__type_traits/is_swappable.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
-#include <tuple> // needed in c++03 for some constructors
-#include <type_traits>
+#include <__utility/piecewise_construct.h>
+#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -41,12 +52,12 @@ struct __compressed_pair_elem {
 
 #ifndef _LIBCPP_CXX03_LANG
   template <class... _Args, size_t... _Indices>
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX14
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17
   explicit __compressed_pair_elem(piecewise_construct_t, tuple<_Args...> __args, __tuple_indices<_Indices...>)
       : __value_(std::forward<_Args>(std::get<_Indices>(__args))...) {}
 #endif
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 reference __get() _NOEXCEPT { return __value_; }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 reference __get() _NOEXCEPT { return __value_; }
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const_reference __get() const _NOEXCEPT { return __value_; }
 
 private:
@@ -70,12 +81,12 @@ struct __compressed_pair_elem<_Tp, _Idx, true> : private _Tp {
 
 #ifndef _LIBCPP_CXX03_LANG
   template <class... _Args, size_t... _Indices>
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX14
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17
   __compressed_pair_elem(piecewise_construct_t, tuple<_Args...> __args, __tuple_indices<_Indices...>)
       : __value_type(std::forward<_Args>(std::get<_Indices>(__args))...) {}
 #endif
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 reference __get() _NOEXCEPT { return *this; }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 reference __get() _NOEXCEPT { return *this; }
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const_reference __get() const _NOEXCEPT { return *this; }
 };
 
@@ -109,14 +120,14 @@ public:
 
 #ifndef _LIBCPP_CXX03_LANG
   template <class... _Args1, class... _Args2>
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX14
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17
   explicit __compressed_pair(piecewise_construct_t __pc, tuple<_Args1...> __first_args,
                              tuple<_Args2...> __second_args)
       : _Base1(__pc, std::move(__first_args), typename __make_tuple_indices<sizeof...(_Args1)>::type()),
         _Base2(__pc, std::move(__second_args), typename __make_tuple_indices<sizeof...(_Args2)>::type()) {}
 #endif
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
   typename _Base1::reference first() _NOEXCEPT {
     return static_cast<_Base1&>(*this).__get();
   }
@@ -126,7 +137,7 @@ public:
     return static_cast<_Base1 const&>(*this).__get();
   }
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
   typename _Base2::reference second() _NOEXCEPT {
     return static_cast<_Base2&>(*this).__get();
   }
@@ -145,7 +156,7 @@ public:
     return static_cast<_Base2*>(__pair);
   }
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
   void swap(__compressed_pair& __x)
       _NOEXCEPT_(__is_nothrow_swappable<_T1>::value && __is_nothrow_swappable<_T2>::value) {
     using std::swap;
@@ -155,7 +166,7 @@ public:
 };
 
 template <class _T1, class _T2>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
 void swap(__compressed_pair<_T1, _T2>& __x, __compressed_pair<_T1, _T2>& __y)
     _NOEXCEPT_(__is_nothrow_swappable<_T1>::value && __is_nothrow_swappable<_T2>::value) {
   __x.swap(__y);

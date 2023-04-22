@@ -12,7 +12,7 @@ pub const ArenaAllocator = struct {
     /// Inner state of ArenaAllocator. Can be stored rather than the entire ArenaAllocator
     /// as a memory-saving optimization.
     pub const State = struct {
-        buffer_list: std.SinglyLinkedList([]u8) = @as(std.SinglyLinkedList([]u8), .{}),
+        buffer_list: std.SinglyLinkedList(usize) = .{},
         end_index: usize = 0,
 
         pub fn promote(self: State, child_allocator: Allocator) ArenaAllocator {
@@ -34,7 +34,7 @@ pub const ArenaAllocator = struct {
         };
     }
 
-    const BufNode = std.SinglyLinkedList([]u8).Node;
+    const BufNode = std.SinglyLinkedList(usize).Node;
 
     pub fn init(child_allocator: Allocator) ArenaAllocator {
         return (State{}).promote(child_allocator);
@@ -47,7 +47,9 @@ pub const ArenaAllocator = struct {
         while (it) |node| {
             // this has to occur before the free because the free frees node
             const next_it = node.next;
-            self.child_allocator.free(node.data);
+            const align_bits = std.math.log2_int(usize, @alignOf(BufNode));
+            const alloc_buf = @ptrCast([*]u8, node)[0..node.data];
+            self.child_allocator.rawFree(alloc_buf, align_bits, @returnAddress());
             it = next_it;
         }
     }
@@ -73,7 +75,7 @@ pub const ArenaAllocator = struct {
         while (it) |node| : (it = node.next) {
             // Compute the actually allocated size excluding the
             // linked list node.
-            size += node.data.len - @sizeOf(BufNode);
+            size += node.data - @sizeOf(BufNode);
         }
         return size;
     }
@@ -121,6 +123,7 @@ pub const ArenaAllocator = struct {
             .retain_with_limit => |limit| std.math.min(limit, current_capacity),
             .free_all => unreachable,
         };
+        const align_bits = std.math.log2_int(usize, @alignOf(BufNode));
         // Free all nodes except for the last one
         var it = self.state.buffer_list.first;
         const maybe_first_node = while (it) |node| {
@@ -128,7 +131,8 @@ pub const ArenaAllocator = struct {
             const next_it = node.next;
             if (next_it == null)
                 break node;
-            self.child_allocator.free(node.data);
+            const alloc_buf = @ptrCast([*]u8, node)[0..node.data];
+            self.child_allocator.rawFree(alloc_buf, align_bits, @returnAddress());
             it = next_it;
         } else null;
         std.debug.assert(maybe_first_node == null or maybe_first_node.?.next == null);
@@ -136,23 +140,21 @@ pub const ArenaAllocator = struct {
         self.state.end_index = 0;
         if (maybe_first_node) |first_node| {
             // perfect, no need to invoke the child_allocator
-            if (first_node.data.len == total_size)
+            if (first_node.data == total_size)
                 return true;
-            const align_bits = std.math.log2_int(usize, @alignOf(BufNode));
-            if (self.child_allocator.rawResize(first_node.data, align_bits, total_size, @returnAddress())) {
+            const first_alloc_buf = @ptrCast([*]u8, first_node)[0..first_node.data];
+            if (self.child_allocator.rawResize(first_alloc_buf, align_bits, total_size, @returnAddress())) {
                 // successful resize
-                first_node.data.len = total_size;
+                first_node.data = total_size;
             } else {
                 // manual realloc
                 const new_ptr = self.child_allocator.rawAlloc(total_size, align_bits, @returnAddress()) orelse {
                     // we failed to preheat the arena properly, signal this to the user.
                     return false;
                 };
-                self.child_allocator.rawFree(first_node.data, align_bits, @returnAddress());
+                self.child_allocator.rawFree(first_alloc_buf, align_bits, @returnAddress());
                 const node = @ptrCast(*BufNode, @alignCast(@alignOf(BufNode), new_ptr));
-                node.* = BufNode{
-                    .data = new_ptr[0..total_size],
-                };
+                node.* = .{ .data = total_size };
                 self.state.buffer_list.first = node;
             }
         }
@@ -167,10 +169,7 @@ pub const ArenaAllocator = struct {
         const ptr = self.child_allocator.rawAlloc(len, log2_align, @returnAddress()) orelse
             return null;
         const buf_node = @ptrCast(*BufNode, @alignCast(@alignOf(BufNode), ptr));
-        buf_node.* = BufNode{
-            .data = ptr[0..len],
-            .next = null,
-        };
+        buf_node.* = .{ .data = len };
         self.state.buffer_list.prepend(buf_node);
         self.state.end_index = 0;
         return buf_node;
@@ -186,7 +185,8 @@ pub const ArenaAllocator = struct {
         else
             (self.createNode(0, n + ptr_align) orelse return null);
         while (true) {
-            const cur_buf = cur_node.data[@sizeOf(BufNode)..];
+            const cur_alloc_buf = @ptrCast([*]u8, cur_node)[0..cur_node.data];
+            const cur_buf = cur_alloc_buf[@sizeOf(BufNode)..];
             const addr = @ptrToInt(cur_buf.ptr) + self.state.end_index;
             const adjusted_addr = mem.alignForward(addr, ptr_align);
             const adjusted_index = self.state.end_index + (adjusted_addr - addr);
@@ -199,8 +199,9 @@ pub const ArenaAllocator = struct {
             }
 
             const bigger_buf_size = @sizeOf(BufNode) + new_end_index;
-            if (self.child_allocator.resize(cur_node.data, bigger_buf_size)) {
-                cur_node.data.len = bigger_buf_size;
+            const log2_align = comptime std.math.log2_int(usize, @alignOf(BufNode));
+            if (self.child_allocator.rawResize(cur_alloc_buf, log2_align, bigger_buf_size, @returnAddress())) {
+                cur_node.data = bigger_buf_size;
             } else {
                 // Allocate a new node if that's not possible
                 cur_node = self.createNode(cur_buf.len, n + ptr_align) orelse return null;
@@ -214,7 +215,7 @@ pub const ArenaAllocator = struct {
         _ = ret_addr;
 
         const cur_node = self.state.buffer_list.first orelse return false;
-        const cur_buf = cur_node.data[@sizeOf(BufNode)..];
+        const cur_buf = @ptrCast([*]u8, cur_node)[@sizeOf(BufNode)..cur_node.data];
         if (@ptrToInt(cur_buf.ptr) + self.state.end_index != @ptrToInt(buf.ptr) + buf.len) {
             // It's not the most recent allocation, so it cannot be expanded,
             // but it's fine if they want to make it smaller.
@@ -239,7 +240,7 @@ pub const ArenaAllocator = struct {
         const self = @ptrCast(*ArenaAllocator, @alignCast(@alignOf(ArenaAllocator), ctx));
 
         const cur_node = self.state.buffer_list.first orelse return;
-        const cur_buf = cur_node.data[@sizeOf(BufNode)..];
+        const cur_buf = @ptrCast([*]u8, cur_node)[@sizeOf(BufNode)..cur_node.data];
 
         if (@ptrToInt(cur_buf.ptr) + self.state.end_index == @ptrToInt(buf.ptr) + buf.len) {
             self.state.end_index -= buf.len;

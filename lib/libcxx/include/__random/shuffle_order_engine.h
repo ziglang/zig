@@ -60,8 +60,8 @@ public:
 
 private:
     _Engine __e_;
-    result_type _V_[__k];
-    result_type _Y_;
+    result_type __v_[__k];
+    result_type __y_;
 
 public:
     // engine characteristics
@@ -157,8 +157,8 @@ private:
     void __init()
     {
         for (size_t __i = 0; __i < __k; ++__i)
-            _V_[__i] = __e_();
-        _Y_ = __e_();
+            __v_[__i] = __e_();
+        __y_ = __e_();
     }
 
     _LIBCPP_INLINE_VISIBILITY
@@ -190,11 +190,11 @@ private:
         >::type
         __eval(__uratio<_Np, _Dp>)
         {
-            const size_t __j = static_cast<size_t>(__uratio<_Np, _Dp>::num * (_Y_ - _Min)
+            const size_t __j = static_cast<size_t>(__uratio<_Np, _Dp>::num * (__y_ - _Min)
                                                    / __uratio<_Np, _Dp>::den);
-            _Y_ = _V_[__j];
-            _V_[__j] = __e_();
-            return _Y_;
+            __y_ = __v_[__j];
+            __v_[__j] = __e_();
+            return __y_;
         }
 
     template <uint64_t __n, uint64_t __d>
@@ -204,10 +204,10 @@ private:
             const double _Fp = __d == 0 ?
                 __n / (2. * 0x8000000000000000ull) :
                 __n / (double)__d;
-            const size_t __j = static_cast<size_t>(_Fp * (_Y_ - _Min));
-            _Y_ = _V_[__j];
-            _V_[__j] = __e_();
-            return _Y_;
+            const size_t __j = static_cast<size_t>(_Fp * (__y_ - _Min));
+            __y_ = __v_[__j];
+            __v_[__j] = __e_();
+            return __y_;
         }
 };
 
@@ -215,12 +215,12 @@ template<class _Engine, size_t __k>
     _LIBCPP_CONSTEXPR const size_t shuffle_order_engine<_Engine, __k>::table_size;
 
 template<class _Eng, size_t _Kp>
-bool
+_LIBCPP_HIDE_FROM_ABI bool
 operator==(
     const shuffle_order_engine<_Eng, _Kp>& __x,
     const shuffle_order_engine<_Eng, _Kp>& __y)
 {
-    return __x._Y_ == __y._Y_ && _VSTD::equal(__x._V_, __x._V_ + _Kp, __y._V_) &&
+    return __x.__y_ == __y.__y_ && _VSTD::equal(__x.__v_, __x.__v_ + _Kp, __y.__v_) &&
            __x.__e_ == __y.__e_;
 }
 
@@ -236,7 +236,7 @@ operator!=(
 
 template <class _CharT, class _Traits,
           class _Eng, size_t _Kp>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os,
            const shuffle_order_engine<_Eng, _Kp>& __x)
 {
@@ -245,15 +245,15 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
     __os.flags(_Ostream::dec | _Ostream::left);
     _CharT __sp = __os.widen(' ');
     __os.fill(__sp);
-    __os << __x.__e_ << __sp << __x._V_[0];
+    __os << __x.__e_ << __sp << __x.__v_[0];
     for (size_t __i = 1; __i < _Kp; ++__i)
-        __os << __sp << __x._V_[__i];
-    return __os << __sp << __x._Y_;
+        __os << __sp << __x.__v_[__i];
+    return __os << __sp << __x.__y_;
 }
 
 template <class _CharT, class _Traits,
           class _Eng, size_t _Kp>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is,
            shuffle_order_engine<_Eng, _Kp>& __x)
 {
@@ -270,8 +270,8 @@ operator>>(basic_istream<_CharT, _Traits>& __is,
     {
         __x.__e_ = __e;
         for (size_t __i = 0; __i < _Kp; ++__i)
-            __x._V_[__i] = _Vp[__i];
-        __x._Y_ = _Vp[_Kp];
+            __x.__v_[__i] = _Vp[__i];
+        __x.__y_ = _Vp[_Kp];
     }
     return __is;
 }

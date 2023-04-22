@@ -27,7 +27,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const check = lib.checkObject();
     check.checkStart("Section custom");
-    check.checkNext("name __truncsfhf2"); // Ensure it was imported and resolved
+    check.checkNext("name __trunch"); // Ensure it was imported and resolved
 
     test_step.dependOn(&check.step);
 }

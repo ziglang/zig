@@ -31,61 +31,11 @@ const UNWIND_HISTORY_TABLE = windows.UNWIND_HISTORY_TABLE;
 const RUNTIME_FUNCTION = windows.RUNTIME_FUNCTION;
 const KNONVOLATILE_CONTEXT_POINTERS = windows.KNONVOLATILE_CONTEXT_POINTERS;
 const EXCEPTION_ROUTINE = windows.EXCEPTION_ROUTINE;
-
-pub const PROCESSINFOCLASS = enum(c_int) {
-    ProcessBasicInformation,
-    ProcessQuotaLimits,
-    ProcessIoCounters,
-    ProcessVmCounters,
-    ProcessTimes,
-    ProcessBasePriority,
-    ProcessRaisePriority,
-    ProcessDebugPort,
-    ProcessExceptionPort,
-    ProcessAccessToken,
-    ProcessLdtInformation,
-    ProcessLdtSize,
-    ProcessDefaultHardErrorMode,
-    ProcessIoPortHandlers,
-    ProcessPooledUsageAndLimits,
-    ProcessWorkingSetWatch,
-    ProcessUserModeIOPL,
-    ProcessEnableAlignmentFaultFixup,
-    ProcessPriorityClass,
-    ProcessWx86Information,
-    ProcessHandleCount,
-    ProcessAffinityMask,
-    ProcessPriorityBoost,
-    ProcessDeviceMap,
-    ProcessSessionInformation,
-    ProcessForegroundInformation,
-    ProcessWow64Information,
-    ProcessImageFileName,
-    ProcessLUIDDeviceMapsEnabled,
-    ProcessBreakOnTermination,
-    ProcessDebugObjectHandle,
-    ProcessDebugFlags,
-    ProcessHandleTracing,
-    ProcessIoPriority,
-    ProcessExecuteFlags,
-    ProcessTlsInformation,
-    ProcessCookie,
-    ProcessImageInformation,
-    ProcessCycleTime,
-    ProcessPagePriority,
-    ProcessInstrumentationCallback,
-    ProcessThreadStackAllocation,
-    ProcessWorkingSetWatchEx,
-    ProcessImageFileNameWin32,
-    ProcessImageFileMapping,
-    ProcessAffinityUpdateMode,
-    ProcessMemoryAllocationMode,
-    ProcessGroupInformation,
-    ProcessTokenVirtualizationEnabled,
-    ProcessConsoleHostProcess,
-    ProcessWindowInformation,
-    MaxProcessInfoClass,
-};
+const SYSTEM_INFORMATION_CLASS = windows.SYSTEM_INFORMATION_CLASS;
+const THREADINFOCLASS = windows.THREADINFOCLASS;
+const PROCESSINFOCLASS = windows.PROCESSINFOCLASS;
+const LPVOID = windows.LPVOID;
+const LPCVOID = windows.LPCVOID;
 
 pub extern "ntdll" fn NtQueryInformationProcess(
     ProcessHandle: HANDLE,
@@ -95,57 +45,6 @@ pub extern "ntdll" fn NtQueryInformationProcess(
     ReturnLength: ?*ULONG,
 ) callconv(WINAPI) NTSTATUS;
 
-pub const THREADINFOCLASS = enum(c_int) {
-    ThreadBasicInformation,
-    ThreadTimes,
-    ThreadPriority,
-    ThreadBasePriority,
-    ThreadAffinityMask,
-    ThreadImpersonationToken,
-    ThreadDescriptorTableEntry,
-    ThreadEnableAlignmentFaultFixup,
-    ThreadEventPair_Reusable,
-    ThreadQuerySetWin32StartAddress,
-    ThreadZeroTlsCell,
-    ThreadPerformanceCount,
-    ThreadAmILastThread,
-    ThreadIdealProcessor,
-    ThreadPriorityBoost,
-    ThreadSetTlsArrayAddress,
-    ThreadIsIoPending,
-    // Windows 2000+ from here
-    ThreadHideFromDebugger,
-    // Windows XP+ from here
-    ThreadBreakOnTermination,
-    ThreadSwitchLegacyState,
-    ThreadIsTerminated,
-    // Windows Vista+ from here
-    ThreadLastSystemCall,
-    ThreadIoPriority,
-    ThreadCycleTime,
-    ThreadPagePriority,
-    ThreadActualBasePriority,
-    ThreadTebInformation,
-    ThreadCSwitchMon,
-    // Windows 7+ from here
-    ThreadCSwitchPmu,
-    ThreadWow64Context,
-    ThreadGroupInformation,
-    ThreadUmsInformation,
-    ThreadCounterProfiling,
-    ThreadIdealProcessorEx,
-    // Windows 8+ from here
-    ThreadCpuAccountingInformation,
-    // Windows 8.1+ from here
-    ThreadSuspendCount,
-    // Windows 10+ from here
-    ThreadHeterogeneousCpuPolicy,
-    ThreadContainerId,
-    ThreadNameInformation,
-    ThreadSelectedCpuSets,
-    ThreadSystemThreadInformation,
-    ThreadActualGroupAffinity,
-};
 pub extern "ntdll" fn NtQueryInformationThread(
     ThreadHandle: HANDLE,
     ThreadInformationClass: THREADINFOCLASS,
@@ -153,6 +52,14 @@ pub extern "ntdll" fn NtQueryInformationThread(
     ThreadInformationLength: ULONG,
     ReturnLength: ?*ULONG,
 ) callconv(WINAPI) NTSTATUS;
+
+pub extern "ntdll" fn NtQuerySystemInformation(
+    SystemInformationClass: SYSTEM_INFORMATION_CLASS,
+    SystemInformation: PVOID,
+    SystemInformationLength: ULONG,
+    ReturnLength: ?*ULONG,
+) callconv(WINAPI) NTSTATUS;
+
 pub extern "ntdll" fn NtSetInformationThread(
     ThreadHandle: HANDLE,
     ThreadInformationClass: THREADINFOCLASS,
@@ -364,10 +271,26 @@ pub extern "ntdll" fn RtlQueryRegistryValues(
     Environment: ?*anyopaque,
 ) callconv(WINAPI) NTSTATUS;
 
+pub extern "ntdll" fn NtReadVirtualMemory(
+    ProcessHandle: HANDLE,
+    BaseAddress: ?PVOID,
+    Buffer: LPVOID,
+    NumberOfBytesToRead: SIZE_T,
+    NumberOfBytesRead: ?*SIZE_T,
+) callconv(WINAPI) NTSTATUS;
+
+pub extern "ntdll" fn NtWriteVirtualMemory(
+    ProcessHandle: HANDLE,
+    BaseAddress: ?PVOID,
+    Buffer: LPCVOID,
+    NumberOfBytesToWrite: SIZE_T,
+    NumberOfBytesWritten: ?*SIZE_T,
+) callconv(WINAPI) NTSTATUS;
+
 pub extern "ntdll" fn NtProtectVirtualMemory(
     ProcessHandle: HANDLE,
-    BaseAddress: *PVOID,
-    NumberOfBytesToProtect: *ULONG,
+    BaseAddress: *?PVOID,
+    NumberOfBytesToProtect: *SIZE_T,
     NewAccessProtection: ULONG,
     OldAccessProtection: *ULONG,
 ) callconv(WINAPI) NTSTATUS;

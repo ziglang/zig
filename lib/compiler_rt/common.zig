@@ -6,7 +6,8 @@ pub const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal el
 /// Determines the symbol's visibility to other objects.
 /// For WebAssembly this allows the symbol to be resolved to other modules, but will not
 /// export it to the host runtime.
-pub const visibility: std.builtin.SymbolVisibility = if (builtin.target.isWasm()) .hidden else .default;
+pub const visibility: std.builtin.SymbolVisibility =
+    if (builtin.target.isWasm() and linkage != .Internal) .hidden else .default;
 pub const want_aeabi = switch (builtin.abi) {
     .eabi,
     .eabihf,
@@ -81,12 +82,20 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?
 /// need for extending them to wider fp types.
 /// TODO remove this; do this type selection in the language rather than
 /// here in compiler-rt.
-pub const F16T = switch (builtin.cpu.arch) {
-    .aarch64, .aarch64_be, .aarch64_32 => f16,
-    .riscv64 => if (builtin.zig_backend == .stage1) u16 else f16,
-    .x86, .x86_64 => f16,
-    else => u16,
-};
+pub fn F16T(comptime other_type: type) type {
+    return switch (builtin.cpu.arch) {
+        .aarch64, .aarch64_be, .aarch64_32 => f16,
+        .riscv64 => if (builtin.zig_backend == .stage1) u16 else f16,
+        .x86, .x86_64 => if (builtin.target.isDarwin()) switch (other_type) {
+            // Starting with LLVM 16, Darwin uses different abi for f16
+            // depending on the type of the other return/argument..???
+            f32, f64 => u16,
+            f80, f128 => f16,
+            else => unreachable,
+        } else f16,
+        else => u16,
+    };
+}
 
 pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
     switch (Z) {

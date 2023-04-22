@@ -32,7 +32,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
 /// Looks up the supplied fields in the given enum type.
 /// Uses only the field names, field values are ignored.
 /// The result array is in the same order as the input.
-pub fn valuesFromFields(comptime E: type, comptime fields: []const EnumField) []const E {
+pub inline fn valuesFromFields(comptime E: type, comptime fields: []const EnumField) []const E {
     comptime {
         var result: [fields.len]E = undefined;
         for (fields, 0..) |f, i| {
@@ -177,9 +177,9 @@ test "std.enums.directEnumArrayDefault slice" {
 /// Cast an enum literal, value, or string to the enum value of type E
 /// with the same name.
 pub fn nameCast(comptime E: type, comptime value: anytype) E {
-    comptime {
+    return comptime blk: {
         const V = @TypeOf(value);
-        if (V == E) return value;
+        if (V == E) break :blk value;
         var name: ?[]const u8 = switch (@typeInfo(V)) {
             .EnumLiteral, .Enum => @tagName(value),
             .Pointer => if (std.meta.trait.isZigString(V)) value else null,
@@ -187,12 +187,12 @@ pub fn nameCast(comptime E: type, comptime value: anytype) E {
         };
         if (name) |n| {
             if (@hasField(E, n)) {
-                return @field(E, n);
+                break :blk @field(E, n);
             }
             @compileError("Enum " ++ @typeName(E) ++ " has no field named " ++ n);
         }
         @compileError("Cannot cast from " ++ @typeName(@TypeOf(value)) ++ " to " ++ @typeName(E));
-    }
+    };
 }
 
 test "std.enums.nameCast" {
@@ -775,6 +775,18 @@ pub fn IndexedSet(comptime I: type, comptime Ext: fn (type) type) type {
             return .{ .bits = BitSet.initFull() };
         }
 
+        /// Returns a set containing multiple keys.
+        pub fn initMany(keys: []const Key) Self {
+            var set = initEmpty();
+            for (keys) |key| set.insert(key);
+            return set;
+        }
+
+        /// Returns a set containing a single key.
+        pub fn initOne(key: Key) Self {
+            return initMany(&[_]Key{key});
+        }
+
         /// Returns the number of keys in the set.
         pub fn count(self: Self) usize {
             return self.bits.count();
@@ -900,20 +912,8 @@ test "pure EnumSet fns" {
 
     const empty = EnumSet(Suit).initEmpty();
     const full = EnumSet(Suit).initFull();
-
-    const black = black: {
-        var set = EnumSet(Suit).initEmpty();
-        set.insert(.spades);
-        set.insert(.clubs);
-        break :black set;
-    };
-
-    const red = red: {
-        var set = EnumSet(Suit).initEmpty();
-        set.insert(.hearts);
-        set.insert(.diamonds);
-        break :red set;
-    };
+    const black = EnumSet(Suit).initMany(&[_]Suit{ .spades, .clubs });
+    const red = EnumSet(Suit).initMany(&[_]Suit{ .hearts, .diamonds });
 
     try testing.expect(empty.eql(empty));
     try testing.expect(full.eql(full));

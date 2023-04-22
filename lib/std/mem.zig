@@ -2989,52 +2989,107 @@ test "reverse" {
 }
 
 fn ReverseIterator(comptime T: type) type {
-    const info: struct { Child: type, Pointer: type } = blk: {
+    const Pointer = blk: {
         switch (@typeInfo(T)) {
-            .Pointer => |info| switch (info.size) {
-                .Slice => break :blk .{
-                    .Child = info.child,
-                    .Pointer = @Type(.{ .Pointer = .{
-                        .size = .Many,
-                        .is_const = info.is_const,
-                        .is_volatile = info.is_volatile,
-                        .alignment = info.alignment,
-                        .address_space = info.address_space,
-                        .child = info.child,
-                        .is_allowzero = info.is_allowzero,
-                        .sentinel = info.sentinel,
-                    } }),
+            .Pointer => |ptr_info| switch (ptr_info.size) {
+                .One => switch (@typeInfo(ptr_info.child)) {
+                    .Array => |array_info| {
+                        var new_ptr_info = ptr_info;
+                        new_ptr_info.size = .Many;
+                        new_ptr_info.child = array_info.child;
+                        new_ptr_info.sentinel = array_info.sentinel;
+                        break :blk @Type(.{ .Pointer = new_ptr_info });
+                    },
+                    else => {},
+                },
+                .Slice => {
+                    var new_ptr_info = ptr_info;
+                    new_ptr_info.size = .Many;
+                    break :blk @Type(.{ .Pointer = new_ptr_info });
                 },
                 else => {},
             },
             else => {},
         }
-        @compileError("reverse iterator expects slice, found " ++ @typeName(T));
+        @compileError("expected slice or pointer to array, found '" ++ @typeName(T) ++ "'");
     };
+    const Element = std.meta.Elem(Pointer);
+    const ElementPointer = @TypeOf(&@as(Pointer, undefined)[0]);
     return struct {
-        ptr: info.Pointer,
+        ptr: Pointer,
         index: usize,
-        pub fn next(self: *@This()) ?info.Child {
+        pub fn next(self: *@This()) ?Element {
             if (self.index == 0) return null;
             self.index -= 1;
             return self.ptr[self.index];
         }
+        pub fn nextPtr(self: *@This()) ?ElementPointer {
+            if (self.index == 0) return null;
+            self.index -= 1;
+            return &self.ptr[self.index];
+        }
     };
 }
 
-/// Iterate over a slice in reverse.
+/// Iterates over a slice in reverse.
 pub fn reverseIterator(slice: anytype) ReverseIterator(@TypeOf(slice)) {
-    return .{ .ptr = slice.ptr, .index = slice.len };
+    const T = @TypeOf(slice);
+    if (comptime trait.isPtrTo(.Array)(T)) {
+        return .{ .ptr = slice, .index = slice.len };
+    } else {
+        comptime assert(trait.isSlice(T));
+        return .{ .ptr = slice.ptr, .index = slice.len };
+    }
 }
 
 test "reverseIterator" {
-    const slice: []const i32 = &[_]i32{ 5, 3, 1, 2 };
-    var it = reverseIterator(slice);
-    try testing.expectEqual(@as(?i32, 2), it.next());
-    try testing.expectEqual(@as(?i32, 1), it.next());
-    try testing.expectEqual(@as(?i32, 3), it.next());
-    try testing.expectEqual(@as(?i32, 5), it.next());
-    try testing.expectEqual(@as(?i32, null), it.next());
+    {
+        var it = reverseIterator("abc");
+        try testing.expectEqual(@as(?u8, 'c'), it.next());
+        try testing.expectEqual(@as(?u8, 'b'), it.next());
+        try testing.expectEqual(@as(?u8, 'a'), it.next());
+        try testing.expectEqual(@as(?u8, null), it.next());
+    }
+    {
+        var array = [2]i32{ 3, 7 };
+        const slice: []const i32 = &array;
+        var it = reverseIterator(slice);
+        try testing.expectEqual(@as(?i32, 7), it.next());
+        try testing.expectEqual(@as(?i32, 3), it.next());
+        try testing.expectEqual(@as(?i32, null), it.next());
+
+        it = reverseIterator(slice);
+        try testing.expect(trait.isConstPtr(@TypeOf(it.nextPtr().?)));
+        try testing.expectEqual(@as(?i32, 7), it.nextPtr().?.*);
+        try testing.expectEqual(@as(?i32, 3), it.nextPtr().?.*);
+        try testing.expectEqual(@as(?*const i32, null), it.nextPtr());
+
+        var mut_slice: []i32 = &array;
+        var mut_it = reverseIterator(mut_slice);
+        mut_it.nextPtr().?.* += 1;
+        mut_it.nextPtr().?.* += 2;
+        try testing.expectEqual([2]i32{ 5, 8 }, array);
+    }
+    {
+        var array = [2]i32{ 3, 7 };
+        const ptr_to_array: *const [2]i32 = &array;
+        var it = reverseIterator(ptr_to_array);
+        try testing.expectEqual(@as(?i32, 7), it.next());
+        try testing.expectEqual(@as(?i32, 3), it.next());
+        try testing.expectEqual(@as(?i32, null), it.next());
+
+        it = reverseIterator(ptr_to_array);
+        try testing.expect(trait.isConstPtr(@TypeOf(it.nextPtr().?)));
+        try testing.expectEqual(@as(?i32, 7), it.nextPtr().?.*);
+        try testing.expectEqual(@as(?i32, 3), it.nextPtr().?.*);
+        try testing.expectEqual(@as(?*const i32, null), it.nextPtr());
+
+        var mut_ptr_to_array: *[2]i32 = &array;
+        var mut_it = reverseIterator(mut_ptr_to_array);
+        mut_it.nextPtr().?.* += 1;
+        mut_it.nextPtr().?.* += 2;
+        try testing.expectEqual([2]i32{ 5, 8 }, array);
+    }
 }
 
 /// In-place rotation of the values in an array ([0 1 2 3] becomes [1 2 3 0] if we rotate by 1)
@@ -3437,8 +3492,7 @@ fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
     if (comptime !trait.is(.Pointer)(B) or
         (meta.Child(B) != [size]u8 and meta.Child(B) != [size:0]u8))
     {
-        comptime var buf: [100]u8 = undefined;
-        @compileError(std.fmt.bufPrint(&buf, "expected *[{}]u8, passed " ++ @typeName(B), .{size}) catch unreachable);
+        @compileError(std.fmt.comptimePrint("expected *[{}]u8, passed " ++ @typeName(B), .{size}));
     }
 
     return CopyPtrAttrs(B, .One, T);

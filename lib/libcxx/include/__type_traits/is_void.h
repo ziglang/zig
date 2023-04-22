@@ -11,6 +11,8 @@
 
 #include <__config>
 #include <__type_traits/integral_constant.h>
+#include <__type_traits/is_same.h>
+#include <__type_traits/remove_cv.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -31,7 +33,7 @@ inline constexpr bool is_void_v = __is_void(_Tp);
 #else
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_void
-    : public is_same<typename remove_cv<_Tp>::type, void> {};
+    : public is_same<__remove_cv_t<_Tp>, void> {};
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>

@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP_SUPPORT_IBM_NANOSLEEP_H
-#define _LIBCPP_SUPPORT_IBM_NANOSLEEP_H
+#ifndef _LIBCPP___SUPPORT_IBM_NANOSLEEP_H
+#define _LIBCPP___SUPPORT_IBM_NANOSLEEP_H
 
 #include <unistd.h>
 
@@ -52,4 +52,4 @@ inline int nanosleep(const struct timespec* __req, struct timespec* __rem) {
   return 0;
 }
 
-#endif // _LIBCPP_SUPPORT_IBM_NANOSLEEP_H
+#endif // _LIBCPP___SUPPORT_IBM_NANOSLEEP_H

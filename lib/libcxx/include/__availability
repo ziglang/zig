@@ -156,20 +156,9 @@
 #   define _LIBCPP_AVAILABILITY_FORMAT
 // #   define _LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_format
 
-    // This controls whether the default verbose termination function is
-    // provided by the library.
-    //
-    // Note that when users provide their own custom function, it doesn't
-    // matter whether the dylib provides a default function, and the
-    // availability markup can actually give a false positive diagnostic
-    // (it will think that no function is provided, when in reality the
-    // user has provided their own).
-    //
-    // Users can pass -D_LIBCPP_AVAILABILITY_CUSTOM_VERBOSE_ABORT_PROVIDED
-    // to the compiler to tell the library not to define its own verbose abort.
-    // Note that defining this macro but failing to define a custom function
-    // will lead to a load-time error on back-deployment targets, so it should
-    // be avoided.
+    // This controls whether the library claims to provide a default verbose
+    // termination function, and consequently whether the headers will try
+    // to use it when the mechanism isn't overriden at compile-time.
 // #   define _LIBCPP_HAS_NO_VERBOSE_ABORT_IN_LIBRARY
 
 #elif defined(__APPLE__)

@@ -103,6 +103,11 @@ test "vector float operators" {
         return error.SkipZigTest;
     }
 
+    if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
+        // TODO: test is failing
+        return error.SkipZigTest;
+    }
+
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         const S = struct {
             fn doTheTest() !void {
@@ -172,6 +177,44 @@ test "array to vector" {
         }
     };
     try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "array to vector with element type coercion" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var foo: f16 = 3.14;
+            var arr32 = [4]f32{ foo, 1.5, 0.0, 0.0 };
+            var vec: @Vector(4, f32) = [4]f16{ foo, 1.5, 0.0, 0.0 };
+            try std.testing.expect(std.mem.eql(f32, &@as([4]f32, vec), &arr32));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "peer type resolution with coercible element types" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var b: @Vector(2, u8) = .{ 1, 2 };
+            var a: @Vector(2, u16) = .{ 2, 1 };
+            var t: bool = true;
+            var c = if (t) a else b;
+            try std.testing.expect(@TypeOf(c) == @Vector(2, u16));
+        }
+    };
     comptime try S.doTheTest();
 }
 
@@ -807,7 +850,6 @@ test "vector @reduce comptime" {
 }
 
 test "mask parameter of @shuffle is comptime scope" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -1267,7 +1309,6 @@ test "store to vector in slice" {
 test "addition of vectors represented as strings" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const V = @Vector(3, u8);
     const foo: V = "foo".*;

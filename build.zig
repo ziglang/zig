@@ -13,7 +13,6 @@ const zig_version = std.builtin.Version{ .major = 0, .minor = 11, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
-    const release = b.option(bool, "release", "Build in release mode") orelse false;
     const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse false;
     const target = t: {
         var default_target: std.zig.CrossTarget = .{};
@@ -22,10 +21,8 @@ pub fn build(b: *std.Build) !void {
         }
         break :t b.standardTargetOptions(.{ .default_target = default_target });
     };
-    const optimize: std.builtin.OptimizeMode = if (release) switch (target.getCpuArch()) {
-        .wasm32 => .ReleaseSmall,
-        else => .ReleaseFast,
-    } else .Debug;
+
+    const optimize = b.standardOptimizeOption(.{});
 
     const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
@@ -36,6 +33,7 @@ pub fn build(b: *std.Build) !void {
         std.log.warn("-Dskip-install-lib-files is deprecated in favor of -Dno-lib", .{});
     }
     const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse deprecated_skip_install_lib_files;
+    const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
 
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
@@ -53,7 +51,7 @@ pub fn build(b: *std.Build) !void {
     docgen_cmd.addFileSourceArg(.{ .path = "doc/langref.html.in" });
     const langref_file = docgen_cmd.addOutputFileArg("langref.html");
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
-    if (!skip_install_lib_files) {
+    if (!skip_install_langref) {
         b.getInstallStep().dependOn(&install_langref.step);
     }
 
@@ -84,9 +82,7 @@ pub fn build(b: *std.Build) !void {
     const skip_cross_glibc = b.option(bool, "skip-cross-glibc", "Main test suite skips builds that require cross glibc") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
-    const skip_stage1 = b.option(bool, "skip-stage1", "Main test suite skips stage1 compile error tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
-    const skip_stage2_tests = b.option(bool, "skip-stage2-tests", "Main test suite skips self-hosted compiler tests") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
@@ -106,6 +102,11 @@ pub fn build(b: *std.Build) !void {
         bool,
         "llvm-has-arc",
         "Whether LLVM has the experimental target arc enabled",
+    ) orelse false;
+    const llvm_has_xtensa = b.option(
+        bool,
+        "llvm-has-xtensa",
+        "Whether LLVM has the experimental target xtensa enabled",
     ) orelse false;
     const enable_macos_sdk = b.option(bool, "enable-macos-sdk", "Run tests requiring presence of macOS SDK and frameworks") orelse false;
     const enable_symlinks_windows = b.option(bool, "enable-symlinks-windows", "Run tests requiring presence of symlinks on Windows") orelse false;
@@ -176,14 +177,12 @@ pub fn build(b: *std.Build) !void {
     exe.sanitize_thread = sanitize_thread;
     exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
     exe.entitlements = entitlements;
-    exe.install();
+    b.installArtifact(exe);
 
     const compile_step = b.step("compile", "Build the self-hosted compiler");
     compile_step.dependOn(&exe.step);
 
-    if (!skip_stage2_tests) {
-        test_step.dependOn(&exe.step);
-    }
+    test_step.dependOn(&exe.step);
 
     exe.single_threaded = single_threaded;
 
@@ -202,6 +201,7 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
     exe_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
     exe_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
+    exe_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(bool, "only_c", only_c);
     exe_options.addOption(bool, "omit_pkg_fetching_code", only_c);
@@ -353,13 +353,14 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     test_cases_options.addOption(bool, "skip_non_native", skip_non_native);
     test_cases_options.addOption(bool, "skip_cross_glibc", skip_cross_glibc);
-    test_cases_options.addOption(bool, "skip_stage1", skip_stage1);
     test_cases_options.addOption(bool, "have_llvm", enable_llvm);
     test_cases_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
     test_cases_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
     test_cases_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
+    test_cases_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     test_cases_options.addOption(bool, "force_gpa", force_gpa);
     test_cases_options.addOption(bool, "only_c", only_c);
+    test_cases_options.addOption(bool, "omit_pkg_fetching_code", true);
     test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
     test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
     test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
@@ -407,7 +408,7 @@ pub fn build(b: *std.Build) !void {
 
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
     try tests.addCases(b, test_cases_step, test_filter, check_case_exe);
-    if (!skip_stage2_tests) test_step.dependOn(test_cases_step);
+    test_step.dependOn(test_cases_step);
 
     test_step.dependOn(tests.addModuleTests(b, .{
         .test_filter = test_filter,
@@ -419,8 +420,6 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = skip_libc,
-        .skip_stage1 = skip_stage1,
-        .skip_stage2 = skip_stage2_tests,
         .max_rss = 1 * 1024 * 1024 * 1024,
     }));
 
@@ -434,8 +433,6 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = true,
-        .skip_stage1 = skip_stage1,
-        .skip_stage2 = true, // TODO get all these passing
     }));
 
     test_step.dependOn(tests.addModuleTests(b, .{
@@ -448,8 +445,6 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = true,
-        .skip_stage1 = skip_stage1,
-        .skip_stage2 = true, // TODO get all these passing
     }));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter, optimization_modes));
@@ -457,11 +452,11 @@ pub fn build(b: *std.Build) !void {
         b,
         optimization_modes,
         enable_macos_sdk,
-        skip_stage2_tests,
+        false,
         enable_symlinks_windows,
     ));
     test_step.dependOn(tests.addCAbiTests(b, skip_non_native, skip_release));
-    test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, skip_stage2_tests, enable_symlinks_windows));
+    test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, false, enable_symlinks_windows));
     test_step.dependOn(tests.addStackTraceTests(b, test_filter, optimization_modes));
     test_step.dependOn(tests.addCliTests(b));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, optimization_modes));
@@ -480,8 +475,6 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = skip_libc,
-        .skip_stage1 = skip_stage1,
-        .skip_stage2 = true, // TODO get all these passing
         // I observed a value of 3398275072 on my M1, and multiplied by 1.1 to
         // get this amount:
         .max_rss = 3738102579,
@@ -521,7 +514,12 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "value_tracing", false);
     exe_options.addOption(bool, "omit_pkg_fetching_code", true);
 
-    const run_opt = b.addSystemCommand(&.{ "wasm-opt", "-Oz", "--enable-bulk-memory" });
+    const run_opt = b.addSystemCommand(&.{
+        "wasm-opt",
+        "-Oz",
+        "--enable-bulk-memory",
+        "--enable-sign-ext",
+    });
     run_opt.addArtifactArg(exe);
     run_opt.addArg("-o");
     run_opt.addFileSourceArg(.{ .path = "stage1/zig1.wasm" });
@@ -550,7 +548,7 @@ fn addCompilerStep(
 }
 
 const exe_cflags = [_][]const u8{
-    "-std=c++14",
+    "-std=c++17",
     "-D__STDC_CONSTANT_MACROS",
     "-D__STDC_FORMAT_MACROS",
     "-D__STDC_LIMIT_MACROS",
@@ -942,7 +940,6 @@ const lld_libs = [_][]const u8{
 // from these libs.
 const llvm_libs = [_][]const u8{
     "LLVMWindowsManifest",
-    "LLVMWindowsDriver",
     "LLVMXRay",
     "LLVMLibDriver",
     "LLVMDlltoolDriver",
@@ -979,6 +976,7 @@ const llvm_libs = [_][]const u8{
     "LLVMSparcCodeGen",
     "LLVMSparcDesc",
     "LLVMSparcInfo",
+    "LLVMRISCVTargetMCA",
     "LLVMRISCVDisassembler",
     "LLVMRISCVAsmParser",
     "LLVMRISCVCodeGen",
@@ -1002,6 +1000,11 @@ const llvm_libs = [_][]const u8{
     "LLVMMipsCodeGen",
     "LLVMMipsDesc",
     "LLVMMipsInfo",
+    "LLVMLoongArchDisassembler",
+    "LLVMLoongArchAsmParser",
+    "LLVMLoongArchCodeGen",
+    "LLVMLoongArchDesc",
+    "LLVMLoongArchInfo",
     "LLVMLanaiDisassembler",
     "LLVMLanaiCodeGen",
     "LLVMLanaiAsmParser",
@@ -1042,6 +1045,7 @@ const llvm_libs = [_][]const u8{
     "LLVMAArch64Utils",
     "LLVMAArch64Info",
     "LLVMOrcJIT",
+    "LLVMWindowsDriver",
     "LLVMMCJIT",
     "LLVMJITLink",
     "LLVMInterpreter",
@@ -1050,6 +1054,7 @@ const llvm_libs = [_][]const u8{
     "LLVMOrcTargetProcess",
     "LLVMOrcShared",
     "LLVMDWP",
+    "LLVMDebugInfoLogicalView",
     "LLVMDebugInfoGSYM",
     "LLVMOption",
     "LLVMObjectYAML",
@@ -1060,22 +1065,23 @@ const llvm_libs = [_][]const u8{
     "LLVMPasses",
     "LLVMCFGuard",
     "LLVMCoroutines",
-    "LLVMObjCARCOpts",
     "LLVMipo",
     "LLVMVectorize",
     "LLVMLinker",
     "LLVMInstrumentation",
     "LLVMFrontendOpenMP",
     "LLVMFrontendOpenACC",
+    "LLVMFrontendHLSL",
     "LLVMExtensions",
+    "LLVMDWARFLinkerParallel",
     "LLVMDWARFLinker",
     "LLVMGlobalISel",
     "LLVMMIRParser",
     "LLVMAsmPrinter",
     "LLVMSelectionDAG",
     "LLVMCodeGen",
-    "LLVMIRReader",
-    "LLVMAsmParser",
+    "LLVMObjCARCOpts",
+    "LLVMIRPrinter",
     "LLVMInterfaceStub",
     "LLVMFileCheck",
     "LLVMFuzzMutate",
@@ -1094,6 +1100,8 @@ const llvm_libs = [_][]const u8{
     "LLVMObject",
     "LLVMTextAPI",
     "LLVMMCParser",
+    "LLVMIRReader",
+    "LLVMAsmParser",
     "LLVMMC",
     "LLVMDebugInfoCodeView",
     "LLVMBitReader",
@@ -1102,6 +1110,7 @@ const llvm_libs = [_][]const u8{
     "LLVMRemarks",
     "LLVMBitstreamReader",
     "LLVMBinaryFormat",
+    "LLVMTargetParser",
     "LLVMSupport",
     "LLVMDemangle",
 };

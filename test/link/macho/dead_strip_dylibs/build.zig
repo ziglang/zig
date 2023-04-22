@@ -27,7 +27,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
         test_step.dependOn(&check.step);
 
-        const run_cmd = exe.run();
+        const run_cmd = b.addRunArtifact(exe);
         test_step.dependOn(&run_cmd.step);
     }
 

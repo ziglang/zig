@@ -284,10 +284,11 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
 #define VM_FLAGS_RETURN_4K_DATA_ADDR    0x00800000 /* Return 4K aligned address of target data */
 #define VM_FLAGS_ALIAS_MASK             0xFF000000
 #define VM_GET_FLAGS_ALIAS(flags, alias)                        \
-	        (alias) = ((flags) & VM_FLAGS_ALIAS_MASK) >> 24
+	        (alias) = (((flags) >> 24) & 0xff)
 #define VM_SET_FLAGS_ALIAS(flags, alias)                        \
 	        (flags) = (((flags) & ~VM_FLAGS_ALIAS_MASK) |   \
 	        (((alias) & ~VM_FLAGS_ALIAS_MASK) << 24))
+
 
 /* These are the flags that we accept from user-space */
 #define VM_FLAGS_USER_ALLOCATE  (VM_FLAGS_FIXED |               \
@@ -301,9 +302,11 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
 	                         VM_FLAGS_SUPERPAGE_MASK |      \
 	                         VM_FLAGS_TPRO |                \
 	                         VM_FLAGS_ALIAS_MASK)
+
 #define VM_FLAGS_USER_MAP       (VM_FLAGS_USER_ALLOCATE |       \
 	                         VM_FLAGS_RETURN_4K_DATA_ADDR | \
 	                         VM_FLAGS_RETURN_DATA_ADDR)
+
 #define VM_FLAGS_USER_REMAP     (VM_FLAGS_FIXED |               \
 	                         VM_FLAGS_ANYWHERE |            \
 	                         VM_FLAGS_RANDOM_ADDR |         \

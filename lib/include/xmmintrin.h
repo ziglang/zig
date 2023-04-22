@@ -1906,7 +1906,7 @@ _mm_setr_ps(float __z, float __y, float __x, float __w)
 static __inline__ __m128 __DEFAULT_FN_ATTRS
 _mm_setzero_ps(void)
 {
-  return __extension__ (__m128){ 0, 0, 0, 0 };
+  return __extension__ (__m128){ 0.0f, 0.0f, 0.0f, 0.0f };
 }
 
 /// Stores the upper 64 bits of a 128-bit vector of [4 x float] to a
@@ -3004,7 +3004,6 @@ do { \
 #define _m_pavgb _mm_avg_pu8
 #define _m_pavgw _mm_avg_pu16
 #define _m_psadbw _mm_sad_pu8
-#define _m_ _mm_
 #define _m_ _mm_
 
 #undef __DEFAULT_FN_ATTRS

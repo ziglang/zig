@@ -177,7 +177,8 @@ static int PrintSupportedCPUs(std::string TargetStr) {
   // the target machine will handle the mcpu printing
   llvm::TargetOptions Options;
   std::unique_ptr<llvm::TargetMachine> TheTargetMachine(
-      TheTarget->createTargetMachine(TargetStr, "", "+cpuhelp", Options, None));
+      TheTarget->createTargetMachine(TargetStr, "", "+cpuhelp", Options,
+                                     std::nullopt));
   return 0;
 }
 

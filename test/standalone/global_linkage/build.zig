@@ -28,5 +28,5 @@ pub fn build(b: *std.Build) void {
     main.linkLibrary(obj1);
     main.linkLibrary(obj2);
 
-    test_step.dependOn(&main.run().step);
+    test_step.dependOn(&b.addRunArtifact(main).step);
 }

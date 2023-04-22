@@ -147,7 +147,9 @@ test "cpuinfo: PowerPC" {
 }
 
 const ArmCpuinfoImpl = struct {
-    cores: [4]CoreInfo = undefined,
+    const num_cores = 4;
+
+    cores: [num_cores]CoreInfo = undefined,
     core_no: usize = 0,
     have_fields: usize = 0,
 
@@ -162,7 +164,7 @@ const ArmCpuinfoImpl = struct {
     const cpu_models = @import("arm.zig").cpu_models;
 
     fn addOne(self: *ArmCpuinfoImpl) void {
-        if (self.have_fields == 4 and self.core_no < self.cores.len) {
+        if (self.have_fields == 4 and self.core_no < num_cores) {
             if (self.core_no > 0) {
                 // Deduplicate the core info.
                 for (self.cores[0..self.core_no]) |it| {
@@ -222,7 +224,7 @@ const ArmCpuinfoImpl = struct {
             else => false,
         };
 
-        var known_models: [self.cores.len]?*const Target.Cpu.Model = undefined;
+        var known_models: [num_cores]?*const Target.Cpu.Model = undefined;
         for (self.cores[0..self.core_no], 0..) |core, i| {
             known_models[i] = cpu_models.isKnown(.{
                 .architecture = core.architecture,

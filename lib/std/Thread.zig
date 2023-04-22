@@ -20,7 +20,6 @@ pub const Pool = @import("Thread/Pool.zig");
 pub const WaitGroup = @import("Thread/WaitGroup.zig");
 
 pub const use_pthreads = target.os.tag != .windows and target.os.tag != .wasi and builtin.link_libc;
-const is_gnu = target.abi.isGnu();
 
 const Thread = @This();
 const Impl = if (target.os.tag == .windows)
@@ -40,7 +39,7 @@ pub const max_name_len = switch (target.os.tag) {
     .macos, .ios, .watchos, .tvos => 63,
     .netbsd => 31,
     .freebsd => 15,
-    .openbsd => 31,
+    .openbsd => 23,
     .dragonfly => 1023,
     .solaris => 31,
     else => 0,
@@ -64,18 +63,20 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
 
     switch (target.os.tag) {
         .linux => if (use_pthreads) {
-            const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
-            switch (err) {
-                .SUCCESS => return,
-                .RANGE => unreachable,
-                else => |e| return os.unexpectedErrno(e),
-            }
-        } else if (use_pthreads and self.getHandle() == std.c.pthread_self()) {
-            // TODO: this is dead code. what did the author of this code intend to happen here?
-            const err = try os.prctl(.SET_NAME, .{@ptrToInt(name_with_terminator.ptr)});
-            switch (@intToEnum(os.E, err)) {
-                .SUCCESS => return,
-                else => |e| return os.unexpectedErrno(e),
+            if (self.getHandle() == std.c.pthread_self()) {
+                // Set the name of the calling thread (no thread id required).
+                const err = try os.prctl(.SET_NAME, .{@ptrToInt(name_with_terminator.ptr)});
+                switch (@intToEnum(os.E, err)) {
+                    .SUCCESS => return,
+                    else => |e| return os.unexpectedErrno(e),
+                }
+            } else {
+                const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
+                switch (err) {
+                    .SUCCESS => return,
+                    .RANGE => unreachable,
+                    else => |e| return os.unexpectedErrno(e),
+                }
             }
         } else {
             var buf: [32]u8 = undefined;
@@ -171,20 +172,23 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
     var buffer: [:0]u8 = buffer_ptr;
 
     switch (target.os.tag) {
-        .linux => if (use_pthreads and is_gnu) {
-            const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
-            switch (err) {
-                .SUCCESS => return std.mem.sliceTo(buffer, 0),
-                .RANGE => unreachable,
-                else => |e| return os.unexpectedErrno(e),
+        .linux => if (use_pthreads) {
+            if (self.getHandle() == std.c.pthread_self()) {
+                // Get the name of the calling thread (no thread id required).
+                const err = try os.prctl(.GET_NAME, .{@ptrToInt(buffer.ptr)});
+                switch (@intToEnum(os.E, err)) {
+                    .SUCCESS => return std.mem.sliceTo(buffer, 0),
+                    else => |e| return os.unexpectedErrno(e),
+                }
+            } else {
+                const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
+                switch (err) {
+                    .SUCCESS => return std.mem.sliceTo(buffer, 0),
+                    .RANGE => unreachable,
+                    else => |e| return os.unexpectedErrno(e),
+                }
             }
-        } else if (use_pthreads and self.getHandle() == std.c.pthread_self()) {
-            const err = try os.prctl(.GET_NAME, .{@ptrToInt(buffer.ptr)});
-            switch (@intToEnum(os.E, err)) {
-                .SUCCESS => return std.mem.sliceTo(buffer, 0),
-                else => |e| return os.unexpectedErrno(e),
-            }
-        } else if (!use_pthreads) {
+        } else {
             var buf: [32]u8 = undefined;
             const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
 
@@ -194,9 +198,6 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             const data_len = try file.reader().readAll(buffer_ptr[0 .. max_name_len + 1]);
 
             return if (data_len >= 1) buffer[0 .. data_len - 1] else null;
-        } else {
-            // musl doesn't provide pthread_getname_np and there's no way to retrieve the thread id of an arbitrary thread.
-            return error.Unsupported;
         },
         .windows => {
             const buf_capacity = @sizeOf(os.windows.UNICODE_STRING) + (@sizeOf(u16) * max_name_len);
@@ -327,10 +328,10 @@ pub const SpawnError = error{
     Unexpected,
 };
 
-/// Spawns a new thread which executes `function` using `args` and returns a handle the spawned thread.
+/// Spawns a new thread which executes `function` using `args` and returns a handle to the spawned thread.
 /// `config` can be used as hints to the platform for now to spawn and execute the `function`.
 /// The caller must eventually either call `join()` to wait for the thread to finish and free its resources
-/// or call `detach()` to excuse the caller from calling `join()` and have the thread clean up its resources on completion`.
+/// or call `detach()` to excuse the caller from calling `join()` and have the thread clean up its resources on completion.
 pub fn spawn(config: SpawnConfig, comptime function: anytype, args: anytype) SpawnError!Thread {
     if (builtin.single_threaded) {
         @compileError("Cannot spawn thread when building in single-threaded mode");
@@ -1133,16 +1134,7 @@ test "setName, getName" {
             error.Unsupported => return error.SkipZigTest,
             else => return err,
         },
-        else => |tag| if (tag == .linux and use_pthreads and comptime target.abi.isMusl()) {
-            try thread.setName("foobar");
-
-            var name_buffer: [max_name_len:0]u8 = undefined;
-            const res = thread.getName(&name_buffer);
-
-            try std.testing.expectError(error.Unsupported, res);
-        } else {
-            try testThreadName(&thread);
-        },
+        else => try testThreadName(&thread),
     }
 
     context.thread_done_event.set();

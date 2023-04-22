@@ -35,5 +35,5 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     test_exe.linkLibrary(lib_b);
     test_exe.addIncludePath(".");
 
-    test_step.dependOn(&test_exe.run().step);
+    test_step.dependOn(&b.addRunArtifact(test_exe).step);
 }

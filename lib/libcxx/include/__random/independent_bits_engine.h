@@ -51,12 +51,8 @@ private:
     static_assert(__w <= _Dt, "independent_bits_engine invalid parameters");
 
     typedef typename _Engine::result_type _Engine_result_type;
-    typedef typename conditional
-        <
-            sizeof(_Engine_result_type) <= sizeof(result_type),
-                result_type,
-                _Engine_result_type
-        >::type _Working_result_type;
+    typedef __conditional_t<sizeof(_Engine_result_type) <= sizeof(result_type), result_type, _Engine_result_type>
+        _Working_result_type;
 #ifdef _LIBCPP_CXX03_LANG
     static const _Working_result_type _Rp = _Engine::_Max - _Engine::_Min
                                           + _Working_result_type(1);
@@ -244,7 +240,7 @@ operator!=(
 
 template <class _CharT, class _Traits,
           class _Eng, size_t _Wp, class _UInt>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os,
            const independent_bits_engine<_Eng, _Wp, _UInt>& __x)
 {
@@ -253,7 +249,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
 
 template <class _CharT, class _Traits,
           class _Eng, size_t _Wp, class _UInt>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is,
            independent_bits_engine<_Eng, _Wp, _UInt>& __x)
 {

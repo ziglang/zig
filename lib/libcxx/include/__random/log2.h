@@ -58,15 +58,12 @@ struct __log2
 {
     static const size_t value = __log2_imp<
 #ifndef _LIBCPP_HAS_NO_INT128
-        typename conditional<
-                sizeof(_UIntType) <= sizeof(unsigned long long),
-                    unsigned long long,
-                    __uint128_t
-            >::type,
+        __conditional_t<sizeof(_UIntType) <= sizeof(unsigned long long), unsigned long long, __uint128_t>,
 #else
         unsigned long long,
 #endif // _LIBCPP_HAS_NO_INT128
-        _Xp, sizeof(_UIntType) * __CHAR_BIT__ - 1>::value;
+        _Xp,
+        sizeof(_UIntType) * __CHAR_BIT__ - 1>::value;
 };
 
 _LIBCPP_END_NAMESPACE_STD

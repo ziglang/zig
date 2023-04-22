@@ -1,4 +1,10 @@
 pub const Client = @import("http/Client.zig");
+pub const Server = @import("http/Server.zig");
+pub const protocol = @import("http/protocol.zig");
+const headers = @import("http/Headers.zig");
+
+pub const Headers = headers.Headers;
+pub const Field = headers.Field;
 
 pub const Version = enum {
     @"HTTP/1.0",
@@ -261,11 +267,6 @@ pub const ContentEncoding = enum {
 pub const Connection = enum {
     keep_alive,
     close,
-};
-
-pub const CustomHeader = struct {
-    name: []const u8,
-    value: []const u8,
 };
 
 const std = @import("std.zig");

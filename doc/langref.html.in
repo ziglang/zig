@@ -7048,8 +7048,10 @@ test "foo" {
           <li>All variables are {#syntax#}comptime{#endsyntax#} variables.</li>
           <li>All {#syntax#}if{#endsyntax#}, {#syntax#}while{#endsyntax#}, {#syntax#}for{#endsyntax#}, and {#syntax#}switch{#endsyntax#}
           expressions are evaluated at compile-time, or emit a compile error if this is not possible.</li>
-        <li>All function calls cause the compiler to interpret the function at compile-time, emitting a
-          compile error if the function tries to do something that has global run-time side effects.</li>
+          <li>All {#syntax#}return{#endsyntax#} and {#syntax#}try{#endsyntax#} expressions are invalid (unless the function itself is called at compile-time).</li>
+          <li>All code with runtime side effects or depending on runtime values emits a compile error.</li>
+          <li>All function calls cause the compiler to interpret the function at compile-time, emitting a
+          compile error if the function tries to do something that has global runtime side effects.</li>
       </ul>
       <p>
       This means that a programmer can create a function which is called both at compile-time and run-time, with
@@ -7071,9 +7073,7 @@ test "fibonacci" {
     try expect(fibonacci(7) == 13);
 
     // test fibonacci at compile-time
-    comptime {
-        try expect(fibonacci(7) == 13);
-    }
+    try comptime expect(fibonacci(7) == 13);
 }
       {#code_end#}
       <p>
@@ -7088,9 +7088,7 @@ fn fibonacci(index: u32) u32 {
 }
 
 test "fibonacci" {
-    comptime {
-        try expect(fibonacci(7) == 13);
-    }
+    try comptime expect(fibonacci(7) == 13);
 }
       {#code_end#}
       <p>
@@ -7111,9 +7109,7 @@ fn fibonacci(index: i32) i32 {
 }
 
 test "fibonacci" {
-    comptime {
-        try assert(fibonacci(7) == 13);
-    }
+    try comptime assert(fibonacci(7) == 13);
 }
       {#code_end#}
       <p>
@@ -7143,9 +7139,7 @@ fn fibonacci(index: i32) i32 {
 }
 
 test "fibonacci" {
-    comptime {
-        try assert(fibonacci(7) == 99999);
-    }
+    try comptime assert(fibonacci(7) == 99999);
 }
       {#code_end#}
 
@@ -9578,6 +9572,28 @@ fn foo(comptime T: type, ptr: *T) T {
       Remove {#syntax#}volatile{#endsyntax#} qualifier from a pointer.
       </p>
       {#header_close#}
+
+      {#header_open|@workGroupId#}
+      <pre>{#syntax#}@workGroupId(comptime dimension: u32) u32{#endsyntax#}</pre>
+      <p>
+      Returns the index of the work group in the current kernel invocation in dimension {#syntax#}dimension{#endsyntax#}.
+      </p>
+      {#header_close#}
+
+      {#header_open|@workGroupSize#}
+      <pre>{#syntax#}@workGroupSize(comptime dimension: u32) u32{#endsyntax#}</pre>
+      <p>
+      Returns the number of work items that a work group has in dimension {#syntax#}dimension{#endsyntax#}.
+      </p>
+      {#header_close#}
+
+      {#header_open|@workItemId#}
+      <pre>{#syntax#}@workItemId(comptime dimension: u32) u32{#endsyntax#}</pre>
+      <p>
+      Returns the index of the work item in the work group in dimension {#syntax#}dimension{#endsyntax#}. This function returns values between {#syntax#}0{#endsyntax#} (inclusive) and {#syntax#}@workGroupSize(dimension){#endsyntax#} (exclusive).
+      </p>
+      {#header_close#}
+
       {#header_close#}
 
       {#header_open|Build Mode#}
@@ -11127,6 +11143,7 @@ all your base are belong to us{#end_shell_samp#}
       {#code_begin|lib|math#}
       {#target_wasm#}
       {#link_mode_dynamic#}
+      {#additonal_option|-rdynamic#}
 extern fn print(i32) void;
 
 export fn add(a: i32, b: i32) void {

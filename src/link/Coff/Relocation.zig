@@ -45,84 +45,79 @@ pcrel: bool,
 length: u2,
 dirty: bool = true,
 
-/// Returns an Atom which is the target node of this relocation edge (if any).
-pub fn getTargetAtomIndex(self: Relocation, coff_file: *const Coff) ?Atom.Index {
+/// Returns address of the target if any.
+pub fn getTargetAddress(self: Relocation, coff_file: *const Coff) ?u32 {
     switch (self.type) {
-        .got,
-        .got_page,
-        .got_pageoff,
-        => return coff_file.getGotAtomIndexForSymbol(self.target),
+        .got, .got_page, .got_pageoff, .direct, .page, .pageoff => {
+            const maybe_target_atom_index = switch (self.type) {
+                .got, .got_page, .got_pageoff => coff_file.getGotAtomIndexForSymbol(self.target),
+                .direct, .page, .pageoff => coff_file.getAtomIndexForSymbol(self.target),
+                else => unreachable,
+            };
+            const target_atom_index = maybe_target_atom_index orelse return null;
+            const target_atom = coff_file.getAtom(target_atom_index);
+            return target_atom.getSymbol(coff_file).value;
+        },
 
-        .direct,
-        .page,
-        .pageoff,
-        => return coff_file.getAtomIndexForSymbol(self.target),
-
-        .import,
-        .import_page,
-        .import_pageoff,
-        => return coff_file.getImportAtomIndexForSymbol(self.target),
+        .import, .import_page, .import_pageoff => {
+            const sym = coff_file.getSymbol(self.target);
+            const index = coff_file.import_tables.getIndex(sym.value) orelse return null;
+            const itab = coff_file.import_tables.values()[index];
+            return itab.getImportAddress(self.target, .{
+                .coff_file = coff_file,
+                .index = index,
+                .name_off = sym.value,
+            });
+        },
     }
 }
 
-pub fn resolve(self: *Relocation, atom_index: Atom.Index, coff_file: *Coff) !void {
+/// Returns true if and only if the reloc is dirty AND the target address is available.
+pub fn isResolvable(self: Relocation, coff_file: *Coff) bool {
+    _ = self.getTargetAddress(coff_file) orelse return false;
+    return self.dirty;
+}
+
+pub fn resolve(self: Relocation, atom_index: Atom.Index, code: []u8, image_base: u64, coff_file: *Coff) void {
     const atom = coff_file.getAtom(atom_index);
     const source_sym = atom.getSymbol(coff_file);
-    const source_section = coff_file.sections.get(@enumToInt(source_sym.section_number) - 1).header;
     const source_vaddr = source_sym.value + self.offset;
 
-    const file_offset = source_section.pointer_to_raw_data + source_sym.value - source_section.virtual_address;
-
-    const target_atom_index = self.getTargetAtomIndex(coff_file) orelse return;
-    const target_atom = coff_file.getAtom(target_atom_index);
-    const target_vaddr = target_atom.getSymbol(coff_file).value;
+    const target_vaddr = self.getTargetAddress(coff_file).?; // Oops, you didn't check if the relocation can be resolved with isResolvable().
     const target_vaddr_with_addend = target_vaddr + self.addend;
 
-    log.debug("  ({x}: [() => 0x{x} ({s})) ({s}) (in file at 0x{x})", .{
+    log.debug("  ({x}: [() => 0x{x} ({s})) ({s}) ", .{
         source_vaddr,
         target_vaddr_with_addend,
         coff_file.getSymbolName(self.target),
         @tagName(self.type),
-        file_offset + self.offset,
     });
 
     const ctx: Context = .{
         .source_vaddr = source_vaddr,
         .target_vaddr = target_vaddr_with_addend,
-        .file_offset = file_offset,
-        .image_base = coff_file.getImageBase(),
+        .image_base = image_base,
+        .code = code,
+        .ptr_width = coff_file.ptr_width,
     };
 
     switch (coff_file.base.options.target.cpu.arch) {
-        .aarch64 => try self.resolveAarch64(ctx, coff_file),
-        .x86, .x86_64 => try self.resolveX86(ctx, coff_file),
+        .aarch64 => self.resolveAarch64(ctx),
+        .x86, .x86_64 => self.resolveX86(ctx),
         else => unreachable, // unhandled target architecture
     }
-
-    self.dirty = false;
 }
 
 const Context = struct {
     source_vaddr: u32,
     target_vaddr: u32,
-    file_offset: u32,
     image_base: u64,
+    code: []u8,
+    ptr_width: Coff.PtrWidth,
 };
 
-fn resolveAarch64(self: Relocation, ctx: Context, coff_file: *Coff) !void {
-    var buffer: [@sizeOf(u64)]u8 = undefined;
-    switch (self.length) {
-        2 => {
-            const amt = try coff_file.base.file.?.preadAll(buffer[0..4], ctx.file_offset + self.offset);
-            if (amt != 4) return error.InputOutput;
-        },
-        3 => {
-            const amt = try coff_file.base.file.?.preadAll(&buffer, ctx.file_offset + self.offset);
-            if (amt != 8) return error.InputOutput;
-        },
-        else => unreachable,
-    }
-
+fn resolveAarch64(self: Relocation, ctx: Context) void {
+    var buffer = ctx.code[self.offset..];
     switch (self.type) {
         .got_page, .import_page, .page => {
             const source_page = @intCast(i32, ctx.source_vaddr >> 12);
@@ -183,7 +178,7 @@ fn resolveAarch64(self: Relocation, ctx: Context, coff_file: *Coff) !void {
                     buffer[0..4],
                     @truncate(u32, ctx.target_vaddr + ctx.image_base),
                 ),
-                3 => mem.writeIntLittle(u64, &buffer, ctx.target_vaddr + ctx.image_base),
+                3 => mem.writeIntLittle(u64, buffer[0..8], ctx.target_vaddr + ctx.image_base),
                 else => unreachable,
             }
         },
@@ -191,15 +186,10 @@ fn resolveAarch64(self: Relocation, ctx: Context, coff_file: *Coff) !void {
         .got => unreachable,
         .import => unreachable,
     }
-
-    switch (self.length) {
-        2 => try coff_file.base.file.?.pwriteAll(buffer[0..4], ctx.file_offset + self.offset),
-        3 => try coff_file.base.file.?.pwriteAll(&buffer, ctx.file_offset + self.offset),
-        else => unreachable,
-    }
 }
 
-fn resolveX86(self: Relocation, ctx: Context, coff_file: *Coff) !void {
+fn resolveX86(self: Relocation, ctx: Context) void {
+    var buffer = ctx.code[self.offset..];
     switch (self.type) {
         .got_page => unreachable,
         .got_pageoff => unreachable,
@@ -211,26 +201,17 @@ fn resolveX86(self: Relocation, ctx: Context, coff_file: *Coff) !void {
         .got, .import => {
             assert(self.pcrel);
             const disp = @intCast(i32, ctx.target_vaddr) - @intCast(i32, ctx.source_vaddr) - 4;
-            try coff_file.base.file.?.pwriteAll(mem.asBytes(&disp), ctx.file_offset + self.offset);
+            mem.writeIntLittle(i32, buffer[0..4], disp);
         },
         .direct => {
             if (self.pcrel) {
                 const disp = @intCast(i32, ctx.target_vaddr) - @intCast(i32, ctx.source_vaddr) - 4;
-                try coff_file.base.file.?.pwriteAll(mem.asBytes(&disp), ctx.file_offset + self.offset);
-            } else switch (coff_file.ptr_width) {
-                .p32 => try coff_file.base.file.?.pwriteAll(
-                    mem.asBytes(&@intCast(u32, ctx.target_vaddr + ctx.image_base)),
-                    ctx.file_offset + self.offset,
-                ),
+                mem.writeIntLittle(i32, buffer[0..4], disp);
+            } else switch (ctx.ptr_width) {
+                .p32 => mem.writeIntLittle(u32, buffer[0..4], @intCast(u32, ctx.target_vaddr + ctx.image_base)),
                 .p64 => switch (self.length) {
-                    2 => try coff_file.base.file.?.pwriteAll(
-                        mem.asBytes(&@truncate(u32, ctx.target_vaddr + ctx.image_base)),
-                        ctx.file_offset + self.offset,
-                    ),
-                    3 => try coff_file.base.file.?.pwriteAll(
-                        mem.asBytes(&(ctx.target_vaddr + ctx.image_base)),
-                        ctx.file_offset + self.offset,
-                    ),
+                    2 => mem.writeIntLittle(u32, buffer[0..4], @truncate(u32, ctx.target_vaddr + ctx.image_base)),
+                    3 => mem.writeIntLittle(u64, buffer[0..8], ctx.target_vaddr + ctx.image_base),
                     else => unreachable,
                 },
             }

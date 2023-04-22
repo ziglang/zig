@@ -47,6 +47,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -546,6 +547,7 @@ pub const Type = extern union {
             // Detect that e.g. u64 != usize, even if the bits match on a particular target.
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -946,6 +948,7 @@ pub const Type = extern union {
 
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -1292,6 +1295,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -1584,6 +1588,7 @@ pub const Type = extern union {
                 .i128,
                 .usize,
                 .isize,
+                .c_char,
                 .c_short,
                 .c_ushort,
                 .c_int,
@@ -1974,6 +1979,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -2290,6 +2296,7 @@ pub const Type = extern union {
             .i64 => return Value.initTag(.i64_type),
             .usize => return Value.initTag(.usize_type),
             .isize => return Value.initTag(.isize_type),
+            .c_char => return Value.initTag(.c_char_type),
             .c_short => return Value.initTag(.c_short_type),
             .c_ushort => return Value.initTag(.c_ushort_type),
             .c_int => return Value.initTag(.c_int_type),
@@ -2376,6 +2383,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -2603,6 +2611,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -2938,6 +2947,7 @@ pub const Type = extern union {
             .anyframe_T,
             => return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
 
+            .c_char => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.char) },
             .c_short => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.short) },
             .c_ushort => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ushort) },
             .c_int => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.int) },
@@ -3435,6 +3445,7 @@ pub const Type = extern union {
                 else => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
             },
 
+            .c_char => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.char) },
             .c_short => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.short) },
             .c_ushort => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ushort) },
             .c_int => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.int) },
@@ -3742,6 +3753,7 @@ pub const Type = extern union {
             .manyptr_const_u8_sentinel_0,
             => return target.cpu.arch.ptrBitWidth(),
 
+            .c_char => return target.c_type_bit_size(.char),
             .c_short => return target.c_type_bit_size(.short),
             .c_ushort => return target.c_type_bit_size(.ushort),
             .c_int => return target.c_type_bit_size(.int),
@@ -4553,6 +4565,7 @@ pub const Type = extern union {
             .int_signed,
             .i8,
             .isize,
+            .c_char,
             .c_short,
             .c_int,
             .c_long,
@@ -4625,6 +4638,7 @@ pub const Type = extern union {
             .i128 => return .{ .signedness = .signed, .bits = 128 },
             .usize => return .{ .signedness = .unsigned, .bits = target.cpu.arch.ptrBitWidth() },
             .isize => return .{ .signedness = .signed, .bits = target.cpu.arch.ptrBitWidth() },
+            .c_char => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.char) },
             .c_short => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.short) },
             .c_ushort => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ushort) },
             .c_int => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.int) },
@@ -4664,6 +4678,7 @@ pub const Type = extern union {
         return switch (self.tag()) {
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -4796,9 +4811,12 @@ pub const Type = extern union {
     }
 
     /// Asserts the type is a function.
-    pub fn fnCallingConventionAllowsZigTypes(cc: std.builtin.CallingConvention) bool {
+    pub fn fnCallingConventionAllowsZigTypes(target: Target, cc: std.builtin.CallingConvention) bool {
         return switch (cc) {
-            .Unspecified, .Async, .Inline, .PtxKernel => true,
+            .Unspecified, .Async, .Inline => true,
+            // For now we want to authorize PTX kernel to use zig objects, even if we end up exposing the ABI.
+            // The goal is to experiment with more integrated CPU/GPU code.
+            .Kernel => target.cpu.arch == .nvptx or target.cpu.arch == .nvptx64,
             else => false,
         };
     }
@@ -4918,6 +4936,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -4961,6 +4980,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -5152,6 +5172,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -5990,6 +6011,7 @@ pub const Type = extern union {
         i128,
         usize,
         isize,
+        c_char,
         c_short,
         c_ushort,
         c_int,
@@ -6115,6 +6137,7 @@ pub const Type = extern union {
                 .i128,
                 .usize,
                 .isize,
+                .c_char,
                 .c_short,
                 .c_ushort,
                 .c_int,

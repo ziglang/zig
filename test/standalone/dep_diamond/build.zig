@@ -24,7 +24,6 @@ pub fn build(b: *std.Build) void {
         .dependencies = &.{.{ .name = "shared", .module = shared }},
     });
 
-    const run = exe.run();
-
+    const run = b.addRunArtifact(exe);
     test_step.dependOn(&run.step);
 }

@@ -100,6 +100,16 @@ pub const Condition = enum(u5) {
         };
     }
 
+    pub fn fromCompareOperator(
+        signedness: std.builtin.Signedness,
+        op: std.math.CompareOperator,
+    ) Condition {
+        return switch (signedness) {
+            .signed => fromCompareOperatorSigned(op),
+            .unsigned => fromCompareOperatorUnsigned(op),
+        };
+    }
+
     /// Returns the condition which is true iff the given condition is false
     pub fn negate(cond: Condition) Condition {
         return switch (cond) {
@@ -411,20 +421,17 @@ pub const Memory = union(enum) {
         dword,
         qword,
         tbyte,
+        dqword,
 
         pub fn fromSize(size: u32) PtrSize {
-            return if (size <= 1)
-                .byte
-            else if (size <= 2)
-                .word
-            else if (size <= 4)
-                .dword
-            else if (size <= 8)
-                .qword
-            else if (size == 10)
-                .tbyte
-            else
-                unreachable;
+            return switch (size) {
+                1...1 => .byte,
+                2...2 => .word,
+                3...4 => .dword,
+                5...8 => .qword,
+                9...16 => .dqword,
+                else => unreachable,
+            };
         }
 
         pub fn fromBitSize(bit_size: u64) PtrSize {
@@ -434,6 +441,7 @@ pub const Memory = union(enum) {
                 32 => .dword,
                 64 => .qword,
                 80 => .tbyte,
+                128 => .dqword,
                 else => unreachable,
             };
         }
@@ -445,6 +453,7 @@ pub const Memory = union(enum) {
                 .dword => 32,
                 .qword => 64,
                 .tbyte => 80,
+                .dqword => 128,
             };
         }
     };
@@ -516,7 +525,7 @@ pub const Memory = union(enum) {
         return switch (mem) {
             .rip => |r| r.ptr_size.bitSize(),
             .sib => |s| s.ptr_size.bitSize(),
-            .moffs => unreachable,
+            .moffs => 64,
         };
     }
 };

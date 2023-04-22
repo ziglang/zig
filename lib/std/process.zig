@@ -1093,7 +1093,7 @@ pub const can_execv = switch (builtin.os.tag) {
 
 /// Tells whether spawning child processes is supported (e.g. via ChildProcess)
 pub const can_spawn = switch (builtin.os.tag) {
-    .wasi => false,
+    .wasi, .watchos, .tvos => false,
     else => true,
 };
 
@@ -1163,9 +1163,17 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
             return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
         },
         .windows => {
-            var kilobytes: std.os.windows.ULONGLONG = undefined;
-            assert(std.os.windows.kernel32.GetPhysicallyInstalledSystemMemory(&kilobytes) == std.os.windows.TRUE);
-            return kilobytes * 1024;
+            var sbi: std.os.windows.SYSTEM_BASIC_INFORMATION = undefined;
+            const rc = std.os.windows.ntdll.NtQuerySystemInformation(
+                .SystemBasicInformation,
+                &sbi,
+                @sizeOf(std.os.windows.SYSTEM_BASIC_INFORMATION),
+                null,
+            );
+            if (rc != .SUCCESS) {
+                return error.UnknownTotalSystemMemory;
+            }
+            return @as(usize, sbi.NumberOfPhysicalPages) * sbi.PageSize;
         },
         else => return error.UnknownTotalSystemMemory,
     }

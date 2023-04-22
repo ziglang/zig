@@ -50,9 +50,27 @@ template <class P> struct hash<coroutine_handle<P>>;
 #include <__functional/operations.h>
 #include <cstddef>
 #include <experimental/__config>
-#include <memory> // for hash<T*>
 #include <new>
 #include <type_traits>
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <atomic>
+#  include <climits>
+#  include <cmath>
+#  include <compare>
+#  include <concepts>
+#  include <ctime>
+#  include <initializer_list>
+#  include <iosfwd>
+#  include <iterator>
+#  include <memory>
+#  include <ratio>
+#  include <stdexcept>
+#  include <tuple>
+#  include <typeinfo>
+#  include <utility>
+#  include <variant>
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -66,8 +84,7 @@ template <class _Tp, class = void>
 struct __coroutine_traits_sfinae {};
 
 template <class _Tp>
-struct __coroutine_traits_sfinae<
-    _Tp, typename __void_t<typename _Tp::promise_type>::type>
+struct __coroutine_traits_sfinae<_Tp, __void_t<typename _Tp::promise_type> >
 {
   using promise_type = typename _Tp::promise_type;
 };
@@ -241,7 +258,7 @@ public:
 
     _LIBCPP_INLINE_VISIBILITY
     static coroutine_handle from_promise(_Promise& __promise) _NOEXCEPT {
-        typedef typename remove_cv<_Promise>::type _RawPromise;
+        typedef __remove_cv_t<_Promise> _RawPromise;
         coroutine_handle __tmp;
         __tmp.__handle_ = __builtin_coro_promise(
             _VSTD::addressof(const_cast<_RawPromise&>(__promise)),
@@ -269,9 +286,9 @@ public:
   _LIBCPP_CONSTEXPR explicit operator bool() const _NOEXCEPT { return true; }
   _LIBCPP_CONSTEXPR bool done() const _NOEXCEPT { return false; }
 
-  _LIBCPP_CONSTEXPR_AFTER_CXX17 void operator()() const _NOEXCEPT {}
-  _LIBCPP_CONSTEXPR_AFTER_CXX17 void resume() const _NOEXCEPT {}
-  _LIBCPP_CONSTEXPR_AFTER_CXX17 void destroy() const _NOEXCEPT {}
+  _LIBCPP_CONSTEXPR_SINCE_CXX20 void operator()() const _NOEXCEPT {}
+  _LIBCPP_CONSTEXPR_SINCE_CXX20 void resume() const _NOEXCEPT {}
+  _LIBCPP_CONSTEXPR_SINCE_CXX20 void destroy() const _NOEXCEPT {}
 
 private:
   _LIBCPP_INLINE_VISIBILITY

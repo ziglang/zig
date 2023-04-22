@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
     });
     main.pie = true;
 
-    const run = main.run();
+    const run = b.addRunArtifact(main);
     run.skip_foreign_checks = true;
 
     test_step.dependOn(&run.step);

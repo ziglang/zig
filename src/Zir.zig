@@ -258,6 +258,9 @@ pub const Inst = struct {
         /// A labeled block of code, which can return a value.
         /// Uses the `pl_node` union field. Payload is `Block`.
         block,
+        /// Like `block`, but forces full evaluation of its contents at compile-time.
+        /// Uses the `pl_node` union field. Payload is `Block`.
+        block_comptime,
         /// A list of instructions which are analyzed in the parent context, without
         /// generating a runtime block. Must terminate with an "inline" variant of
         /// a noreturn instruction.
@@ -338,14 +341,8 @@ pub const Inst = struct {
         /// payload value, as if `err_union_payload_unsafe` was executed on the operand.
         /// Uses the `pl_node` union field. Payload is `Try`.
         @"try",
-        ///// Same as `try` except the operand is coerced to a comptime value, and
-        ///// only the taken branch is analyzed. The block must terminate with an "inline"
-        ///// variant of a noreturn instruction.
-        //try_inline,
         /// Same as `try` except the operand is a pointer and the result is a pointer.
         try_ptr,
-        ///// Same as `try_inline` except the operand is a pointer and the result is a pointer.
-        //try_ptr_inline,
         /// An error set type definition. Contains a list of field names.
         /// Uses the `pl_node` union field. Payload is `ErrorSetDecl`.
         error_set_decl,
@@ -723,9 +720,6 @@ pub const Inst = struct {
         /// because it must use one of them to find out the struct type.
         /// Uses the `pl_node` field. Payload is `Block`.
         validate_struct_init,
-        /// Same as `validate_struct_init` but additionally communicates that the
-        /// resulting struct initialization value is within a comptime scope.
-        validate_struct_init_comptime,
         /// Given a set of `elem_ptr_imm` instructions, assumes they are all part of an
         /// array initialization expression, and emits a compile error if the number of
         /// elements does not match the array type.
@@ -733,9 +727,6 @@ pub const Inst = struct {
         /// because it must use one of them to find out the array type.
         /// Uses the `pl_node` field. Payload is `Block`.
         validate_array_init,
-        /// Same as `validate_array_init` but additionally communicates that the
-        /// resulting array initialization value is within a comptime scope.
-        validate_array_init_comptime,
         /// Check that operand type supports the dereference operand (.*).
         /// Uses the `un_node` field.
         validate_deref,
@@ -806,8 +797,6 @@ pub const Inst = struct {
         error_name,
         /// Implement builtin `@panic`. Uses `un_node`.
         panic,
-        /// Same as `panic` but forces comptime.
-        panic_comptime,
         /// Implements `@trap`.
         /// Uses the `node` field.
         trap,
@@ -1050,6 +1039,7 @@ pub const Inst = struct {
                 .bitcast,
                 .bit_or,
                 .block,
+                .block_comptime,
                 .block_inline,
                 .suspend_block,
                 .loop,
@@ -1162,9 +1152,7 @@ pub const Inst = struct {
                 .validate_array_init_ty,
                 .validate_struct_init_ty,
                 .validate_struct_init,
-                .validate_struct_init_comptime,
                 .validate_array_init,
-                .validate_array_init_comptime,
                 .validate_deref,
                 .struct_init_empty,
                 .struct_init,
@@ -1254,8 +1242,6 @@ pub const Inst = struct {
                 .ret_type,
                 .@"try",
                 .try_ptr,
-                //.try_inline,
-                //.try_ptr_inline,
                 .@"defer",
                 .defer_err_code,
                 .save_err_ret_index,
@@ -1276,7 +1262,6 @@ pub const Inst = struct {
                 .repeat,
                 .repeat_inline,
                 .panic,
-                .panic_comptime,
                 .trap,
                 .check_comptime_control_flow,
                 => true,
@@ -1318,9 +1303,7 @@ pub const Inst = struct {
                 .validate_array_init_ty,
                 .validate_struct_init_ty,
                 .validate_struct_init,
-                .validate_struct_init_comptime,
                 .validate_array_init,
-                .validate_array_init_comptime,
                 .validate_deref,
                 .@"export",
                 .export_value,
@@ -1365,6 +1348,7 @@ pub const Inst = struct {
                 .bitcast,
                 .bit_or,
                 .block,
+                .block_comptime,
                 .block_inline,
                 .suspend_block,
                 .loop,
@@ -1552,13 +1536,10 @@ pub const Inst = struct {
                 .repeat,
                 .repeat_inline,
                 .panic,
-                .panic_comptime,
                 .trap,
                 .for_len,
                 .@"try",
                 .try_ptr,
-                //.try_inline,
-                //.try_ptr_inline,
                 => false,
 
                 .extended => switch (data.extended.opcode) {
@@ -1603,6 +1584,7 @@ pub const Inst = struct {
                 .bit_not = .un_node,
                 .bit_or = .pl_node,
                 .block = .pl_node,
+                .block_comptime = .pl_node,
                 .block_inline = .pl_node,
                 .suspend_block = .pl_node,
                 .bool_not = .un_node,
@@ -1624,8 +1606,6 @@ pub const Inst = struct {
                 .condbr_inline = .pl_node,
                 .@"try" = .pl_node,
                 .try_ptr = .pl_node,
-                //.try_inline = .pl_node,
-                //.try_ptr_inline = .pl_node,
                 .error_set_decl = .pl_node,
                 .error_set_decl_anon = .pl_node,
                 .error_set_decl_func = .pl_node,
@@ -1721,9 +1701,7 @@ pub const Inst = struct {
                 .validate_array_init_ty = .pl_node,
                 .validate_struct_init_ty = .un_node,
                 .validate_struct_init = .pl_node,
-                .validate_struct_init_comptime = .pl_node,
                 .validate_array_init = .pl_node,
-                .validate_array_init_comptime = .pl_node,
                 .validate_deref = .un_node,
                 .struct_init_empty = .un_node,
                 .field_type = .pl_node,
@@ -1750,7 +1728,6 @@ pub const Inst = struct {
                 .embed_file = .un_node,
                 .error_name = .un_node,
                 .panic = .un_node,
-                .panic_comptime = .un_node,
                 .trap = .node,
                 .set_runtime_safety = .un_node,
                 .sqrt = .un_node,
@@ -2032,6 +2009,15 @@ pub const Inst = struct {
         /// Implements the `@volatileCast` builtin.
         /// `operand` is payload index to `UnNode`.
         volatile_cast,
+        /// Implements the `@workItemId` builtin.
+        /// `operand` is payload index to `UnNode`.
+        work_item_id,
+        /// Implements the `@workGroupSize` builtin.
+        /// `operand` is payload index to `UnNode`.
+        work_group_size,
+        /// Implements the `@workGroupId` builtin.
+        /// `operand` is payload index to `UnNode`.
+        work_group_id,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2076,6 +2062,7 @@ pub const Inst = struct {
         i128_type,
         usize_type,
         isize_type,
+        c_char_type,
         c_short_type,
         c_ushort_type,
         c_int_type,
@@ -2214,6 +2201,10 @@ pub const Inst = struct {
             .isize_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.isize_type),
+            },
+            .c_char_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.c_char_type),
             },
             .c_short_type = .{
                 .ty = Type.initTag(.type),
@@ -2596,7 +2587,6 @@ pub const Inst = struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
             src_node: i32,
-            force_comptime: bool,
 
             pub fn src(self: @This()) LazySrcLoc {
                 return LazySrcLoc.nodeOffset(self.src_node);
@@ -2911,9 +2901,8 @@ pub const Inst = struct {
 
         pub const Flags = packed struct {
             is_nosuspend: bool,
-            is_comptime: bool,
             ensure_result_used: bool,
-            _: u29 = undefined,
+            _: u30 = undefined,
 
             comptime {
                 if (@sizeOf(Flags) != 4 or @bitSizeOf(Flags) != 32)
@@ -3658,6 +3647,7 @@ pub const DeclIterator = struct {
     pub const Item = struct {
         name: [:0]const u8,
         sub_index: u32,
+        flags: u4,
     };
 
     pub fn next(it: *DeclIterator) ?Item {
@@ -3682,6 +3672,7 @@ pub const DeclIterator = struct {
         return Item{
             .sub_index = sub_index,
             .name = name,
+            .flags = flags,
         };
     }
 };
@@ -3901,7 +3892,7 @@ fn findDeclsInner(
 
         // Block instructions, recurse over the bodies.
 
-        .block, .block_inline => {
+        .block, .block_comptime, .block_inline => {
             const inst_data = datas[inst].pl_node;
             const extra = zir.extraData(Inst.Block, inst_data.payload_index);
             const body = zir.extra[extra.end..][0..extra.data.body_len];
@@ -4128,7 +4119,9 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
         },
         else => unreachable,
     };
-    assert(tags[info.param_block] == .block or tags[info.param_block] == .block_inline);
+    assert(tags[info.param_block] == .block or
+        tags[info.param_block] == .block_comptime or
+        tags[info.param_block] == .block_inline);
     const param_block = zir.extraData(Inst.Block, datas[info.param_block].pl_node.payload_index);
     const param_body = zir.extra[param_block.end..][0..param_block.data.body_len];
     var total_params_len: u32 = 0;

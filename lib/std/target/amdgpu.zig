@@ -14,6 +14,7 @@ pub const Feature = enum {
     atomic_fadd_rtn_insts,
     atomic_pk_fadd_no_rtn_insts,
     auto_waitcnt_before_barrier,
+    back_off_barrier,
     ci_insts,
     cumode,
     dl_insts,
@@ -25,6 +26,7 @@ pub const Feature = enum {
     dot6_insts,
     dot7_insts,
     dot8_insts,
+    dot9_insts,
     dpp,
     dpp8,
     dpp_64bit,
@@ -34,6 +36,7 @@ pub const Feature = enum {
     fast_denormal_f32,
     fast_fmaf,
     flat_address_space,
+    flat_atomic_fadd_f32_inst,
     flat_for_global,
     flat_global_insts,
     flat_inst_offsets,
@@ -41,6 +44,7 @@ pub const Feature = enum {
     flat_scratch_insts,
     flat_segment_offset_bug,
     fma_mix_insts,
+    fmacf64_inst,
     fmaf,
     fp64,
     fp8_insts,
@@ -54,6 +58,7 @@ pub const Feature = enum {
     gfx10_b_encoding,
     gfx10_insts,
     gfx11,
+    gfx11_full_vgprs,
     gfx11_insts,
     gfx7_gfx8_gfx9_insts,
     gfx8_insts,
@@ -75,6 +80,7 @@ pub const Feature = enum {
     load_store_opt,
     localmemorysize32768,
     localmemorysize65536,
+    mad_intra_fwd_bug,
     mad_mac_f32_insts,
     mad_mix_insts,
     mai_insts,
@@ -130,6 +136,7 @@ pub const Feature = enum {
     unpacked_d16_vmem,
     unsafe_ds_offset_folding,
     user_sgpr_init16_bug,
+    valu_trans_use_hazard,
     vcmpx_exec_war_hazard,
     vcmpx_permlane_hazard,
     vgpr_index_mode,
@@ -162,7 +169,7 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.a16)] = .{
         .llvm_name = "a16",
-        .description = "Support gfx10-style A16 for 16-bit coordinates/gradients/lod/clamp/mip image operands",
+        .description = "Support A16 for 16-bit coordinates/gradients/lod/clamp/mip image operands",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.add_no_carry_insts)] = .{
@@ -204,6 +211,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.auto_waitcnt_before_barrier)] = .{
         .llvm_name = "auto-waitcnt-before-barrier",
         .description = "Hardware automatically inserts waitcnt before barrier",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.back_off_barrier)] = .{
+        .llvm_name = "back-off-barrier",
+        .description = "Hardware supports backing off s_barrier if an exception occurs",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.ci_insts)] = .{
@@ -258,7 +270,12 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.dot8_insts)] = .{
         .llvm_name = "dot8-insts",
-        .description = "Has v_dot2_f16_f16, v_dot2_bf16_bf16, v_dot2_f32_bf16, v_dot4_i32_iu8, v_dot8_i32_iu4 instructions",
+        .description = "Has v_dot4_i32_iu8, v_dot8_i32_iu4 instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.dot9_insts)] = .{
+        .llvm_name = "dot9-insts",
+        .description = "Has v_dot2_f16_f16, v_dot2_bf16_bf16, v_dot2_f32_bf16 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.dpp)] = .{
@@ -306,6 +323,11 @@ pub const all_features = blk: {
         .description = "Support flat address space",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.flat_atomic_fadd_f32_inst)] = .{
+        .llvm_name = "flat-atomic-fadd-f32-inst",
+        .description = "Has flat_atomic_add_f32 instruction",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.flat_for_global)] = .{
         .llvm_name = "flat-for-global",
         .description = "Force to generate flat instruction for global",
@@ -339,6 +361,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.fma_mix_insts)] = .{
         .llvm_name = "fma-mix-insts",
         .description = "Has v_fma_mix_f32, v_fma_mixlo_f16, v_fma_mixhi_f16 instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.fmacf64_inst)] = .{
+        .llvm_name = "fmacf64-inst",
+        .description = "Has v_fmac_f64 instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fmaf)] = .{
@@ -487,6 +514,11 @@ pub const all_features = blk: {
             .vscnt,
         }),
     };
+    result[@enumToInt(Feature.gfx11_full_vgprs)] = .{
+        .llvm_name = "gfx11-full-vgprs",
+        .description = "GFX11 with 50% more physical VGPRs and 50% larger allocation granule than GFX10",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.gfx11_insts)] = .{
         .llvm_name = "gfx11-insts",
         .description = "Additional instructions for GFX11+",
@@ -507,6 +539,7 @@ pub const all_features = blk: {
         .description = "GFX9 GPU generation",
         .dependencies = featureSet(&[_]Feature{
             .@"16_bit_insts",
+            .a16,
             .add_no_carry_insts,
             .aperture_regs,
             .ci_insts,
@@ -627,6 +660,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.localmemorysize65536)] = .{
         .llvm_name = "localmemorysize65536",
         .description = "The size of local memory in bytes",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.mad_intra_fwd_bug)] = .{
+        .llvm_name = "mad-intra-fwd-bug",
+        .description = "MAD_U64/I64 intra instruction forwarding bug",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.mad_mac_f32_insts)] = .{
@@ -933,6 +971,11 @@ pub const all_features = blk: {
         .description = "Bug requiring at least 16 user+system SGPRs to be enabled",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.valu_trans_use_hazard)] = .{
+        .llvm_name = "valu-trans-use-hazard",
+        .description = "Hazard when TRANS instructions are closely followed by a use of the result",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.vcmpx_exec_war_hazard)] = .{
         .llvm_name = "vcmpx-exec-war-hazard",
         .description = "V_CMPX WAR hazard on EXEC (V_CMPX issue ONLY)",
@@ -1089,6 +1132,7 @@ pub const cpu = struct {
         .name = "gfx1010",
         .llvm_name = "gfx1010",
         .features = featureSet(&[_]Feature{
+            .back_off_barrier,
             .dl_insts,
             .ds_src2_insts,
             .flat_segment_offset_bug,
@@ -1120,6 +1164,7 @@ pub const cpu = struct {
         .name = "gfx1011",
         .llvm_name = "gfx1011",
         .features = featureSet(&[_]Feature{
+            .back_off_barrier,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -1156,6 +1201,7 @@ pub const cpu = struct {
         .name = "gfx1012",
         .llvm_name = "gfx1012",
         .features = featureSet(&[_]Feature{
+            .back_off_barrier,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -1192,6 +1238,7 @@ pub const cpu = struct {
         .name = "gfx1013",
         .llvm_name = "gfx1013",
         .features = featureSet(&[_]Feature{
+            .back_off_barrier,
             .dl_insts,
             .ds_src2_insts,
             .flat_segment_offset_bug,
@@ -1224,6 +1271,7 @@ pub const cpu = struct {
         .name = "gfx1030",
         .llvm_name = "gfx1030",
         .features = featureSet(&[_]Feature{
+            .back_off_barrier,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -1245,6 +1293,7 @@ pub const cpu = struct {
         .name = "gfx1031",
         .llvm_name = "gfx1031",
         .features = featureSet(&[_]Feature{
+            .back_off_barrier,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -1266,6 +1315,7 @@ pub const cpu = struct {
         .name = "gfx1032",
         .llvm_name = "gfx1032",
         .features = featureSet(&[_]Feature{
+            .back_off_barrier,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -1287,6 +1337,7 @@ pub const cpu = struct {
         .name = "gfx1033",
         .llvm_name = "gfx1033",
         .features = featureSet(&[_]Feature{
+            .back_off_barrier,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -1308,6 +1359,7 @@ pub const cpu = struct {
         .name = "gfx1034",
         .llvm_name = "gfx1034",
         .features = featureSet(&[_]Feature{
+            .back_off_barrier,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -1329,6 +1381,7 @@ pub const cpu = struct {
         .name = "gfx1035",
         .llvm_name = "gfx1035",
         .features = featureSet(&[_]Feature{
+            .back_off_barrier,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -1350,6 +1403,7 @@ pub const cpu = struct {
         .name = "gfx1036",
         .llvm_name = "gfx1036",
         .features = featureSet(&[_]Feature{
+            .back_off_barrier,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -1378,14 +1432,19 @@ pub const cpu = struct {
             .dot5_insts,
             .dot7_insts,
             .dot8_insts,
+            .dot9_insts,
+            .flat_atomic_fadd_f32_inst,
             .gfx11,
+            .gfx11_full_vgprs,
             .image_insts,
             .ldsbankcount32,
+            .mad_intra_fwd_bug,
             .nsa_encoding,
             .nsa_max_size_5,
             .packed_tid,
             .shader_cycles_register,
             .user_sgpr_init16_bug,
+            .valu_trans_use_hazard,
             .vcmpx_permlane_hazard,
             .wavefrontsize32,
         }),
@@ -1401,13 +1460,18 @@ pub const cpu = struct {
             .dot5_insts,
             .dot7_insts,
             .dot8_insts,
+            .dot9_insts,
+            .flat_atomic_fadd_f32_inst,
             .gfx11,
+            .gfx11_full_vgprs,
             .image_insts,
             .ldsbankcount32,
+            .mad_intra_fwd_bug,
             .nsa_encoding,
             .nsa_max_size_5,
             .packed_tid,
             .shader_cycles_register,
+            .valu_trans_use_hazard,
             .vcmpx_permlane_hazard,
             .wavefrontsize32,
         }),
@@ -1423,14 +1487,18 @@ pub const cpu = struct {
             .dot5_insts,
             .dot7_insts,
             .dot8_insts,
+            .dot9_insts,
+            .flat_atomic_fadd_f32_inst,
             .gfx11,
             .image_insts,
             .ldsbankcount32,
+            .mad_intra_fwd_bug,
             .nsa_encoding,
             .nsa_max_size_5,
             .packed_tid,
             .shader_cycles_register,
             .user_sgpr_init16_bug,
+            .valu_trans_use_hazard,
             .vcmpx_permlane_hazard,
             .wavefrontsize32,
         }),
@@ -1446,14 +1514,17 @@ pub const cpu = struct {
             .dot5_insts,
             .dot7_insts,
             .dot8_insts,
+            .dot9_insts,
+            .flat_atomic_fadd_f32_inst,
             .gfx11,
             .image_insts,
             .ldsbankcount32,
+            .mad_intra_fwd_bug,
             .nsa_encoding,
             .nsa_max_size_5,
             .packed_tid,
             .shader_cycles_register,
-            .user_sgpr_init16_bug,
+            .valu_trans_use_hazard,
             .vcmpx_permlane_hazard,
             .wavefrontsize32,
         }),
@@ -1696,6 +1767,7 @@ pub const cpu = struct {
             .atomic_fadd_no_rtn_insts,
             .atomic_fadd_rtn_insts,
             .atomic_pk_fadd_no_rtn_insts,
+            .back_off_barrier,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -1706,6 +1778,7 @@ pub const cpu = struct {
             .dot7_insts,
             .dpp_64bit,
             .fma_mix_insts,
+            .fmacf64_inst,
             .full_rate_64_ops,
             .gfx9,
             .gfx90a_insts,
@@ -1741,6 +1814,7 @@ pub const cpu = struct {
             .atomic_fadd_no_rtn_insts,
             .atomic_fadd_rtn_insts,
             .atomic_pk_fadd_no_rtn_insts,
+            .back_off_barrier,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -1750,7 +1824,9 @@ pub const cpu = struct {
             .dot6_insts,
             .dot7_insts,
             .dpp_64bit,
+            .flat_atomic_fadd_f32_inst,
             .fma_mix_insts,
+            .fmacf64_inst,
             .fp8_insts,
             .full_rate_64_ops,
             .gfx9,

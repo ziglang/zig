@@ -371,7 +371,9 @@ test "Parsed.checkHostName" {
     try expectEqual(false, Parsed.checkHostName("lang.org", "zig*.org"));
 }
 
-pub fn parse(cert: Certificate) !Parsed {
+pub const ParseError = der.Element.ParseElementError || ParseVersionError || ParseTimeError || ParseEnumError || ParseBitStringError;
+
+pub fn parse(cert: Certificate) ParseError!Parsed {
     const cert_bytes = cert.buffer;
     const certificate = try der.Element.parse(cert_bytes, cert.index);
     const tbs_certificate = try der.Element.parse(cert_bytes, certificate.slice.start);
@@ -514,14 +516,18 @@ pub fn contents(cert: Certificate, elem: der.Element) []const u8 {
     return cert.buffer[elem.slice.start..elem.slice.end];
 }
 
+pub const ParseBitStringError = error{ CertificateFieldHasWrongDataType, CertificateHasInvalidBitString };
+
 pub fn parseBitString(cert: Certificate, elem: der.Element) !der.Element.Slice {
     if (elem.identifier.tag != .bitstring) return error.CertificateFieldHasWrongDataType;
     if (cert.buffer[elem.slice.start] != 0) return error.CertificateHasInvalidBitString;
     return .{ .start = elem.slice.start + 1, .end = elem.slice.end };
 }
 
+pub const ParseTimeError = error{ CertificateTimeInvalid, CertificateFieldHasWrongDataType };
+
 /// Returns number of seconds since epoch.
-pub fn parseTime(cert: Certificate, elem: der.Element) !u64 {
+pub fn parseTime(cert: Certificate, elem: der.Element) ParseTimeError!u64 {
     const bytes = cert.contents(elem);
     switch (elem.identifier.tag) {
         .utc_time => {
@@ -647,34 +653,38 @@ test parseYear4 {
     try expectError(error.CertificateTimeInvalid, parseYear4("crap"));
 }
 
-pub fn parseAlgorithm(bytes: []const u8, element: der.Element) !Algorithm {
+pub fn parseAlgorithm(bytes: []const u8, element: der.Element) ParseEnumError!Algorithm {
     return parseEnum(Algorithm, bytes, element);
 }
 
-pub fn parseAlgorithmCategory(bytes: []const u8, element: der.Element) !AlgorithmCategory {
+pub fn parseAlgorithmCategory(bytes: []const u8, element: der.Element) ParseEnumError!AlgorithmCategory {
     return parseEnum(AlgorithmCategory, bytes, element);
 }
 
-pub fn parseAttribute(bytes: []const u8, element: der.Element) !Attribute {
+pub fn parseAttribute(bytes: []const u8, element: der.Element) ParseEnumError!Attribute {
     return parseEnum(Attribute, bytes, element);
 }
 
-pub fn parseNamedCurve(bytes: []const u8, element: der.Element) !NamedCurve {
+pub fn parseNamedCurve(bytes: []const u8, element: der.Element) ParseEnumError!NamedCurve {
     return parseEnum(NamedCurve, bytes, element);
 }
 
-pub fn parseExtensionId(bytes: []const u8, element: der.Element) !ExtensionId {
+pub fn parseExtensionId(bytes: []const u8, element: der.Element) ParseEnumError!ExtensionId {
     return parseEnum(ExtensionId, bytes, element);
 }
 
-fn parseEnum(comptime E: type, bytes: []const u8, element: der.Element) !E {
+pub const ParseEnumError = error{ CertificateFieldHasWrongDataType, CertificateHasUnrecognizedObjectId };
+
+fn parseEnum(comptime E: type, bytes: []const u8, element: der.Element) ParseEnumError!E {
     if (element.identifier.tag != .object_identifier)
         return error.CertificateFieldHasWrongDataType;
     const oid_bytes = bytes[element.slice.start..element.slice.end];
     return E.map.get(oid_bytes) orelse return error.CertificateHasUnrecognizedObjectId;
 }
 
-pub fn parseVersion(bytes: []const u8, version_elem: der.Element) !Version {
+pub const ParseVersionError = error{ UnsupportedCertificateVersion, CertificateFieldHasInvalidLength };
+
+pub fn parseVersion(bytes: []const u8, version_elem: der.Element) ParseVersionError!Version {
     if (@bitCast(u8, version_elem.identifier) != 0xa0)
         return .v1;
 
@@ -861,9 +871,9 @@ pub const der = struct {
             pub const empty: Slice = .{ .start = 0, .end = 0 };
         };
 
-        pub const ParseError = error{CertificateFieldHasInvalidLength};
+        pub const ParseElementError = error{CertificateFieldHasInvalidLength};
 
-        pub fn parse(bytes: []const u8, index: u32) ParseError!Element {
+        pub fn parse(bytes: []const u8, index: u32) ParseElementError!Element {
             var i = index;
             const identifier = @bitCast(Identifier, bytes[i]);
             i += 1;

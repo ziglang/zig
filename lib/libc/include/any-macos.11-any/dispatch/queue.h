@@ -480,7 +480,7 @@ DISPATCH_EXPORT DISPATCH_NONNULL3 DISPATCH_NOTHROW
 void
 dispatch_apply(size_t iterations,
 		dispatch_queue_t DISPATCH_APPLY_QUEUE_ARG_NULLABILITY queue,
-		DISPATCH_NOESCAPE void (^block)(size_t iteration));
+		DISPATCH_NOESCAPE void (^block)(size_t));
 #endif
 
 /*!
@@ -515,7 +515,7 @@ DISPATCH_EXPORT DISPATCH_NONNULL4 DISPATCH_NOTHROW
 void
 dispatch_apply_f(size_t iterations,
 		dispatch_queue_t DISPATCH_APPLY_QUEUE_ARG_NULLABILITY queue,
-		void *_Nullable context, void (*work)(void *_Nullable context, size_t iteration));
+		void *_Nullable context, void (*work)(void *_Nullable, size_t));
 
 /*!
  * @function dispatch_get_current_queue

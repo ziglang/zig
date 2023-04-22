@@ -22,6 +22,9 @@ pub const Feature = enum {
     ptx73,
     ptx74,
     ptx75,
+    ptx76,
+    ptx77,
+    ptx78,
     sm_20,
     sm_21,
     sm_30,
@@ -39,6 +42,9 @@ pub const Feature = enum {
     sm_75,
     sm_80,
     sm_86,
+    sm_87,
+    sm_89,
+    sm_90,
 };
 
 pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
@@ -135,6 +141,21 @@ pub const all_features = blk: {
         .description = "Use PTX version 7.5",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.ptx76)] = .{
+        .llvm_name = "ptx76",
+        .description = "Use PTX version 7.6",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.ptx77)] = .{
+        .llvm_name = "ptx77",
+        .description = "Use PTX version 7.7",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.ptx78)] = .{
+        .llvm_name = "ptx78",
+        .description = "Use PTX version 7.8",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.sm_20)] = .{
         .llvm_name = "sm_20",
         .description = "Target SM 2.0",
@@ -220,6 +241,21 @@ pub const all_features = blk: {
         .description = "Target SM 8.6",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.sm_87)] = .{
+        .llvm_name = "sm_87",
+        .description = "Target SM 8.7",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.sm_89)] = .{
+        .llvm_name = "sm_89",
+        .description = "Target SM 8.9",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.sm_90)] = .{
+        .llvm_name = "sm_90",
+        .description = "Target SM 9.0",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
@@ -233,6 +269,7 @@ pub const cpu = struct {
         .name = "sm_20",
         .llvm_name = "sm_20",
         .features = featureSet(&[_]Feature{
+            .ptx32,
             .sm_20,
         }),
     };
@@ -240,6 +277,7 @@ pub const cpu = struct {
         .name = "sm_21",
         .llvm_name = "sm_21",
         .features = featureSet(&[_]Feature{
+            .ptx32,
             .sm_21,
         }),
     };
@@ -262,6 +300,7 @@ pub const cpu = struct {
         .name = "sm_35",
         .llvm_name = "sm_35",
         .features = featureSet(&[_]Feature{
+            .ptx32,
             .sm_35,
         }),
     };
@@ -359,6 +398,30 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .ptx71,
             .sm_86,
+        }),
+    };
+    pub const sm_87 = CpuModel{
+        .name = "sm_87",
+        .llvm_name = "sm_87",
+        .features = featureSet(&[_]Feature{
+            .ptx74,
+            .sm_87,
+        }),
+    };
+    pub const sm_89 = CpuModel{
+        .name = "sm_89",
+        .llvm_name = "sm_89",
+        .features = featureSet(&[_]Feature{
+            .ptx78,
+            .sm_89,
+        }),
+    };
+    pub const sm_90 = CpuModel{
+        .name = "sm_90",
+        .llvm_name = "sm_90",
+        .features = featureSet(&[_]Feature{
+            .ptx78,
+            .sm_90,
         }),
     };
 };

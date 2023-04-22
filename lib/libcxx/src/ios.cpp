@@ -145,11 +145,11 @@ int ios_base::__xindex_ = 0;
 template <typename _Tp>
 static size_t __ios_new_cap(size_t __req_size, size_t __current_cap)
 { // Precondition: __req_size > __current_cap
-	const size_t mx = std::numeric_limits<size_t>::max() / sizeof(_Tp);
-	if (__req_size < mx/2)
-		return _VSTD::max(2 * __current_cap, __req_size);
-	else
-		return mx;
+    const size_t mx = std::numeric_limits<size_t>::max() / sizeof(_Tp);
+    if (__req_size < mx/2)
+        return _VSTD::max(2 * __current_cap, __req_size);
+    else
+        return mx;
 }
 
 int

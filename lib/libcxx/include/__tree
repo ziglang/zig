@@ -14,14 +14,32 @@
 #include <__assert>
 #include <__config>
 #include <__debug>
+#include <__functional/invoke.h>
 #include <__iterator/distance.h>
 #include <__iterator/iterator_traits.h>
 #include <__iterator/next.h>
+#include <__memory/allocator_traits.h>
+#include <__memory/compressed_pair.h>
+#include <__memory/pointer_traits.h>
 #include <__memory/swap_allocator.h>
+#include <__memory/unique_ptr.h>
+#include <__type_traits/can_extract_key.h>
+#include <__type_traits/conditional.h>
+#include <__type_traits/is_const.h>
+#include <__type_traits/is_nothrow_copy_constructible.h>
+#include <__type_traits/is_nothrow_default_constructible.h>
+#include <__type_traits/is_nothrow_move_assignable.h>
+#include <__type_traits/is_nothrow_move_constructible.h>
+#include <__type_traits/is_pointer.h>
+#include <__type_traits/is_same.h>
+#include <__type_traits/is_swappable.h>
+#include <__type_traits/remove_const_ref.h>
+#include <__type_traits/remove_cvref.h>
 #include <__utility/forward.h>
+#include <__utility/move.h>
+#include <__utility/pair.h>
 #include <__utility/swap.h>
 #include <limits>
-#include <memory>
 #include <stdexcept>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -126,7 +144,7 @@ __tree_sub_invariant(_NodePtr __x)
 //    __root == nullptr is a proper tree.  Returns true is __root is a proper
 //    red black tree, else returns false.
 template <class _NodePtr>
-bool
+_LIBCPP_HIDE_FROM_ABI bool
 __tree_invariant(_NodePtr __root)
 {
     if (__root == nullptr)
@@ -169,7 +187,7 @@ __tree_max(_NodePtr __x) _NOEXCEPT
 
 // Returns:  pointer to the next in-order node after __x.
 template <class _NodePtr>
-_NodePtr
+_LIBCPP_HIDE_FROM_ABI _NodePtr
 __tree_next(_NodePtr __x) _NOEXCEPT
 {
     _LIBCPP_ASSERT(__x != nullptr, "node shouldn't be null");
@@ -211,7 +229,7 @@ __tree_prev_iter(_EndNodePtr __x) _NOEXCEPT
 
 // Returns:  pointer to a node which has no children
 template <class _NodePtr>
-_NodePtr
+_LIBCPP_HIDE_FROM_ABI _NodePtr
 __tree_leaf(_NodePtr __x) _NOEXCEPT
 {
     _LIBCPP_ASSERT(__x != nullptr, "node shouldn't be null");
@@ -235,7 +253,7 @@ __tree_leaf(_NodePtr __x) _NOEXCEPT
 // Effects:  Makes __x->__right_ the subtree root with __x as its left child
 //           while preserving in-order order.
 template <class _NodePtr>
-void
+_LIBCPP_HIDE_FROM_ABI void
 __tree_left_rotate(_NodePtr __x) _NOEXCEPT
 {
     _LIBCPP_ASSERT(__x != nullptr, "node shouldn't be null");
@@ -256,7 +274,7 @@ __tree_left_rotate(_NodePtr __x) _NOEXCEPT
 // Effects:  Makes __x->__left_ the subtree root with __x as its right child
 //           while preserving in-order order.
 template <class _NodePtr>
-void
+_LIBCPP_HIDE_FROM_ABI void
 __tree_right_rotate(_NodePtr __x) _NOEXCEPT
 {
     _LIBCPP_ASSERT(__x != nullptr, "node shouldn't be null");
@@ -282,7 +300,7 @@ __tree_right_rotate(_NodePtr __x) _NOEXCEPT
 // Postcondition: __tree_invariant(end_node->__left_) == true.  end_node->__left_
 //                may be different than the value passed in as __root.
 template <class _NodePtr>
-void
+_LIBCPP_HIDE_FROM_ABI void
 __tree_balance_after_insert(_NodePtr __root, _NodePtr __x) _NOEXCEPT
 {
     _LIBCPP_ASSERT(__root != nullptr, "Root of the tree shouldn't be null");
@@ -352,7 +370,7 @@ __tree_balance_after_insert(_NodePtr __root, _NodePtr __x) _NOEXCEPT
 //                nor any of its children refer to __z.  end_node->__left_
 //                may be different than the value passed in as __root.
 template <class _NodePtr>
-void
+_LIBCPP_HIDE_FROM_ABI void
 __tree_remove(_NodePtr __root, _NodePtr __z) _NOEXCEPT
 {
     _LIBCPP_ASSERT(__root != nullptr, "Root node should not be null");
@@ -554,7 +572,7 @@ template <class ..._Args>
 struct __is_tree_value_type : false_type {};
 
 template <class _One>
-struct __is_tree_value_type<_One> : __is_tree_value_type_imp<__uncvref_t<_One> > {};
+struct __is_tree_value_type<_One> : __is_tree_value_type_imp<__remove_cvref_t<_One> > {};
 
 template <class _Tp>
 struct __tree_key_value_types {
@@ -632,19 +650,17 @@ struct __tree_node_base_types {
   typedef _VoidPtr                                               __void_pointer;
 
   typedef __tree_node_base<__void_pointer>                      __node_base_type;
-  typedef typename __rebind_pointer<_VoidPtr, __node_base_type>::type
+  typedef __rebind_pointer_t<_VoidPtr, __node_base_type>
                                                              __node_base_pointer;
 
   typedef __tree_end_node<__node_base_pointer>                  __end_node_type;
-  typedef typename __rebind_pointer<_VoidPtr, __end_node_type>::type
+  typedef __rebind_pointer_t<_VoidPtr, __end_node_type>
                                                              __end_node_pointer;
 #if defined(_LIBCPP_ABI_TREE_REMOVE_NODE_POINTER_UB)
   typedef __end_node_pointer __parent_pointer;
 #else
-  typedef typename conditional<
-      is_pointer<__end_node_pointer>::value,
-        __end_node_pointer,
-        __node_base_pointer>::type __parent_pointer;
+  typedef __conditional_t< is_pointer<__end_node_pointer>::value, __end_node_pointer, __node_base_pointer>
+      __parent_pointer;
 #endif
 
 private:
@@ -659,9 +675,9 @@ struct __tree_map_pointer_types {};
 template <class _Tp, class _AllocPtr, class _KVTypes>
 struct __tree_map_pointer_types<_Tp, _AllocPtr, _KVTypes, true> {
   typedef typename _KVTypes::__map_value_type   _Mv;
-  typedef typename __rebind_pointer<_AllocPtr, _Mv>::type
+  typedef __rebind_pointer_t<_AllocPtr, _Mv>
                                                        __map_value_type_pointer;
-  typedef typename __rebind_pointer<_AllocPtr, const _Mv>::type
+  typedef __rebind_pointer_t<_AllocPtr, const _Mv>
                                                  __const_map_value_type_pointer;
 };
 
@@ -683,28 +699,26 @@ public:
   typedef _NodePtr                                              __node_pointer;
 
   typedef _Tp                                                 __node_value_type;
-  typedef typename __rebind_pointer<_VoidPtr, __node_value_type>::type
+  typedef __rebind_pointer_t<_VoidPtr, __node_value_type>
                                                       __node_value_type_pointer;
-  typedef typename __rebind_pointer<_VoidPtr, const __node_value_type>::type
+  typedef __rebind_pointer_t<_VoidPtr, const __node_value_type>
                                                 __const_node_value_type_pointer;
 #if defined(_LIBCPP_ABI_TREE_REMOVE_NODE_POINTER_UB)
   typedef typename __base::__end_node_pointer __iter_pointer;
 #else
-  typedef typename conditional<
-      is_pointer<__node_pointer>::value,
-        typename __base::__end_node_pointer,
-        __node_pointer>::type __iter_pointer;
+  typedef __conditional_t< is_pointer<__node_pointer>::value, typename __base::__end_node_pointer, __node_pointer>
+      __iter_pointer;
 #endif
 private:
     static_assert(!is_const<__node_type>::value,
                 "_NodePtr should never be a pointer to const");
-    static_assert((is_same<typename __rebind_pointer<_VoidPtr, __node_type>::type,
+    static_assert((is_same<__rebind_pointer_t<_VoidPtr, __node_type>,
                           _NodePtr>::value), "_VoidPtr does not rebind to _NodePtr.");
 };
 
 template <class _ValueTp, class _VoidPtr>
 struct __make_tree_node_types {
-  typedef typename __rebind_pointer<_VoidPtr, __tree_node<_ValueTp, _VoidPtr> >::type
+  typedef __rebind_pointer_t<_VoidPtr, __tree_node<_ValueTp, _VoidPtr> >
                                                                         _NodePtr;
   typedef __tree_node_types<_NodePtr> type;
 };
@@ -1019,7 +1033,7 @@ public:
     typedef typename _NodeTypes::__parent_pointer      __parent_pointer;
     typedef typename _NodeTypes::__iter_pointer        __iter_pointer;
 
-    typedef typename __rebind_alloc_helper<__alloc_traits, __node>::type __node_allocator;
+    typedef __rebind_alloc<__alloc_traits, __node> __node_allocator;
     typedef allocator_traits<__node_allocator>         __node_traits;
 
 private:
@@ -1028,8 +1042,7 @@ private:
     // the pointer using 'pointer_traits'.
     static_assert((is_same<__node_pointer, typename __node_traits::pointer>::value),
                   "Allocator does not rebind pointers in a sane manner.");
-    typedef typename __rebind_alloc_helper<__node_traits, __node_base>::type
-        __node_base_allocator;
+    typedef __rebind_alloc<__node_traits, __node_base> __node_base_allocator;
     typedef allocator_traits<__node_base_allocator> __node_base_traits;
     static_assert((is_same<__node_base_pointer, typename __node_base_traits::pointer>::value),
                  "Allocator does not rebind pointers in a sane manner.");
@@ -1271,14 +1284,14 @@ public:
     }
 
     template <class _Vp,
-              class = __enable_if_t<!is_same<typename __unconstref<_Vp>::type, __container_value_type>::value> >
+              class = __enable_if_t<!is_same<__remove_const_ref_t<_Vp>, __container_value_type>::value> >
     _LIBCPP_INLINE_VISIBILITY
     pair<iterator, bool> __insert_unique(_Vp&& __v) {
         return __emplace_unique(_VSTD::forward<_Vp>(__v));
     }
 
     template <class _Vp,
-              class = __enable_if_t<!is_same<typename __unconstref<_Vp>::type, __container_value_type>::value> >
+              class = __enable_if_t<!is_same<__remove_const_ref_t<_Vp>, __container_value_type>::value> >
     _LIBCPP_INLINE_VISIBILITY
     iterator __insert_unique(const_iterator __p, _Vp&& __v) {
         return __emplace_hint_unique(__p, _VSTD::forward<_Vp>(__v));

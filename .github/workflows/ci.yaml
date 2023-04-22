@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - llvm16
 concurrency:
   # Cancels pending runs when a PR gets updated.
   group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}

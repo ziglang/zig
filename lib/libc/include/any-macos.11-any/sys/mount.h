@@ -388,6 +388,7 @@ struct netfs_status {
 
 
 
+
 /*
  * Generic file handle
  */
@@ -400,7 +401,6 @@ struct fhandle {
 	unsigned char   fh_data[NFS_MAX_FH_SIZE];       /* file handle value */
 };
 typedef struct fhandle  fhandle_t;
-
 
 
 __BEGIN_DECLS

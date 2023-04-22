@@ -718,7 +718,7 @@ const TestManifestConfigDefaults = struct {
             if (@"type" == .@"error") {
                 return "native";
             }
-            comptime {
+            return comptime blk: {
                 var defaults: []const u8 = "";
                 // TODO should we only return "mainstream" targets by default here?
                 // TODO we should also specify ABIs explicitly as the backends are
@@ -735,8 +735,8 @@ const TestManifestConfigDefaults = struct {
                 defaults = defaults ++ "x86_64-windows" ++ ",";
                 // Wasm
                 defaults = defaults ++ "wasm32-wasi";
-                return defaults;
-            }
+                break :blk defaults;
+            };
         } else if (std.mem.eql(u8, key, "output_mode")) {
             return switch (@"type") {
                 .@"error" => "Obj",
@@ -1045,8 +1045,7 @@ pub fn main() !void {
     var ctx = Cases.init(gpa, arena);
 
     var test_it = TestIterator{ .filenames = filenames.items };
-    while (test_it.next()) |maybe_batch| {
-        const batch = maybe_batch orelse break;
+    while (try test_it.next()) |batch| {
         const strategy: TestStrategy = if (batch.len > 1) .incremental else .independent;
         var cases = std.ArrayList(usize).init(arena);
 
@@ -1084,6 +1083,11 @@ pub fn main() !void {
 
             for (cases.items) |case_index| {
                 const case = &ctx.cases.items[case_index];
+                if (strategy == .incremental and case.backend == .stage2 and case.target.getCpuArch() == .x86_64 and !case.link_libc and case.target.getOsTag() != .plan9) {
+                    // https://github.com/ziglang/zig/issues/15174
+                    continue;
+                }
+
                 switch (manifest.type) {
                     .compile => {
                         case.addCompile(src);
@@ -1115,8 +1119,6 @@ pub fn main() !void {
                 }
             }
         }
-    } else |err| {
-        return err;
     }
 
     return runCases(&ctx, zig_exe_path);

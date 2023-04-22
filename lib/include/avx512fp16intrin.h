@@ -10,6 +10,8 @@
 #error "Never use <avx512fp16intrin.h> directly; include <immintrin.h> instead."
 #endif
 
+#ifdef __SSE2__
+
 #ifndef __AVX512FP16INTRIN_H
 #define __AVX512FP16INTRIN_H
 
@@ -17,12 +19,6 @@
 typedef _Float16 __v32hf __attribute__((__vector_size__(64), __aligned__(64)));
 typedef _Float16 __m512h __attribute__((__vector_size__(64), __aligned__(64)));
 typedef _Float16 __m512h_u __attribute__((__vector_size__(64), __aligned__(1)));
-typedef _Float16 __v8hf __attribute__((__vector_size__(16), __aligned__(16)));
-typedef _Float16 __m128h __attribute__((__vector_size__(16), __aligned__(16)));
-typedef _Float16 __m128h_u __attribute__((__vector_size__(16), __aligned__(1)));
-typedef _Float16 __v16hf __attribute__((__vector_size__(32), __aligned__(32)));
-typedef _Float16 __m256h __attribute__((__vector_size__(32), __aligned__(32)));
-typedef _Float16 __m256h_u __attribute__((__vector_size__(32), __aligned__(1)));
 
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS512                                                  \
@@ -829,7 +825,7 @@ static __inline__ __m128h __DEFAULT_FN_ATTRS128 _mm_load_sh(void const *__dp) {
   struct __mm_load_sh_struct {
     _Float16 __u;
   } __attribute__((__packed__, __may_alias__));
-  _Float16 __u = ((struct __mm_load_sh_struct *)__dp)->__u;
+  _Float16 __u = ((const struct __mm_load_sh_struct *)__dp)->__u;
   return (__m128h){__u, 0, 0, 0, 0, 0, 0, 0};
 }
 
@@ -838,13 +834,13 @@ _mm_mask_load_sh(__m128h __W, __mmask8 __U, const void *__A) {
   __m128h src = (__v8hf)__builtin_shufflevector(
       (__v8hf)__W, (__v8hf)_mm_setzero_ph(), 0, 8, 8, 8, 8, 8, 8, 8);
 
-  return (__m128h)__builtin_ia32_loadsh128_mask((__v8hf *)__A, src, __U & 1);
+  return (__m128h)__builtin_ia32_loadsh128_mask((const __v8hf *)__A, src, __U & 1);
 }
 
 static __inline__ __m128h __DEFAULT_FN_ATTRS128
 _mm_maskz_load_sh(__mmask8 __U, const void *__A) {
   return (__m128h)__builtin_ia32_loadsh128_mask(
-      (__v8hf *)__A, (__v8hf)_mm_setzero_ph(), __U & 1);
+      (const __v8hf *)__A, (__v8hf)_mm_setzero_ph(), __U & 1);
 }
 
 static __inline__ __m512h __DEFAULT_FN_ATTRS512
@@ -3346,4 +3342,5 @@ _mm512_permutexvar_ph(__m512i __A, __m512h __B) {
 #undef __DEFAULT_FN_ATTRS256
 #undef __DEFAULT_FN_ATTRS512
 
+#endif
 #endif

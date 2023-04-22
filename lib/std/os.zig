@@ -1937,6 +1937,8 @@ pub fn getenv(key: []const u8) ?[]const u8 {
     if (builtin.os.tag == .windows) {
         @compileError("std.os.getenv is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
     }
+    // The simplified start logic doesn't populate environ.
+    if (std.start.simplified_logic) return null;
     // TODO see https://github.com/ziglang/zig/issues/4524
     for (environ) |ptr| {
         var line_i: usize = 0;
@@ -5911,66 +5913,64 @@ pub fn sendto(
     dest_addr: ?*const sockaddr,
     addrlen: socklen_t,
 ) SendToError!usize {
+    if (builtin.os.tag == .windows) {
+        switch (windows.ws2_32.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen)) {
+            windows.ws2_32.SOCKET_ERROR => switch (windows.ws2_32.WSAGetLastError()) {
+                .WSAEACCES => return error.AccessDenied,
+                .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
+                .WSAECONNRESET => return error.ConnectionResetByPeer,
+                .WSAEMSGSIZE => return error.MessageTooBig,
+                .WSAENOBUFS => return error.SystemResources,
+                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                .WSAEDESTADDRREQ => unreachable, // A destination address is required.
+                .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
+                .WSAEHOSTUNREACH => return error.NetworkUnreachable,
+                // TODO: WSAEINPROGRESS, WSAEINTR
+                .WSAEINVAL => unreachable,
+                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAENETRESET => return error.ConnectionResetByPeer,
+                .WSAENETUNREACH => return error.NetworkUnreachable,
+                .WSAENOTCONN => return error.SocketNotConnected,
+                .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
+                .WSAEWOULDBLOCK => return error.WouldBlock,
+                .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
+                else => |err| return windows.unexpectedWSAError(err),
+            },
+            else => |rc| return @intCast(usize, rc),
+        }
+    }
     while (true) {
         const rc = system.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
-        if (builtin.os.tag == .windows) {
-            if (rc == windows.ws2_32.SOCKET_ERROR) {
-                switch (windows.ws2_32.WSAGetLastError()) {
-                    .WSAEACCES => return error.AccessDenied,
-                    .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
-                    .WSAECONNRESET => return error.ConnectionResetByPeer,
-                    .WSAEMSGSIZE => return error.MessageTooBig,
-                    .WSAENOBUFS => return error.SystemResources,
-                    .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                    .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-                    .WSAEDESTADDRREQ => unreachable, // A destination address is required.
-                    .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
-                    .WSAEHOSTUNREACH => return error.NetworkUnreachable,
-                    // TODO: WSAEINPROGRESS, WSAEINTR
-                    .WSAEINVAL => unreachable,
-                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
-                    .WSAENETRESET => return error.ConnectionResetByPeer,
-                    .WSAENETUNREACH => return error.NetworkUnreachable,
-                    .WSAENOTCONN => return error.SocketNotConnected,
-                    .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
-                    .WSAEWOULDBLOCK => return error.WouldBlock,
-                    .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
-                    else => |err| return windows.unexpectedWSAError(err),
-                }
-            } else {
-                return @intCast(usize, rc);
-            }
-        } else {
-            switch (errno(rc)) {
-                .SUCCESS => return @intCast(usize, rc),
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(usize, rc),
 
-                .ACCES => return error.AccessDenied,
-                .AGAIN => return error.WouldBlock,
-                .ALREADY => return error.FastOpenAlreadyInProgress,
-                .BADF => unreachable, // always a race condition
-                .CONNRESET => return error.ConnectionResetByPeer,
-                .DESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
-                .FAULT => unreachable, // An invalid user space address was specified for an argument.
-                .INTR => continue,
-                .INVAL => return error.UnreachableAddress,
-                .ISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
-                .MSGSIZE => return error.MessageTooBig,
-                .NOBUFS => return error.SystemResources,
-                .NOMEM => return error.SystemResources,
-                .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
-                .OPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
-                .PIPE => return error.BrokenPipe,
-                .AFNOSUPPORT => return error.AddressFamilyNotSupported,
-                .LOOP => return error.SymLinkLoop,
-                .NAMETOOLONG => return error.NameTooLong,
-                .NOENT => return error.FileNotFound,
-                .NOTDIR => return error.NotDir,
-                .HOSTUNREACH => return error.NetworkUnreachable,
-                .NETUNREACH => return error.NetworkUnreachable,
-                .NOTCONN => return error.SocketNotConnected,
-                .NETDOWN => return error.NetworkSubsystemFailed,
-                else => |err| return unexpectedErrno(err),
-            }
+            .ACCES => return error.AccessDenied,
+            .AGAIN => return error.WouldBlock,
+            .ALREADY => return error.FastOpenAlreadyInProgress,
+            .BADF => unreachable, // always a race condition
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .DESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
+            .FAULT => unreachable, // An invalid user space address was specified for an argument.
+            .INTR => continue,
+            .INVAL => return error.UnreachableAddress,
+            .ISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
+            .MSGSIZE => return error.MessageTooBig,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
+            .OPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
+            .PIPE => return error.BrokenPipe,
+            .AFNOSUPPORT => return error.AddressFamilyNotSupported,
+            .LOOP => return error.SymLinkLoop,
+            .NAMETOOLONG => return error.NameTooLong,
+            .NOENT => return error.FileNotFound,
+            .NOTDIR => return error.NotDir,
+            .HOSTUNREACH => return error.NetworkUnreachable,
+            .NETUNREACH => return error.NetworkUnreachable,
+            .NOTCONN => return error.SocketNotConnected,
+            .NETDOWN => return error.NetworkSubsystemFailed,
+            else => |err| return unexpectedErrno(err),
         }
     }
 }
@@ -6970,6 +6970,35 @@ pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void 
         .PERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
+}
+
+pub const MincoreError = error{
+    /// A kernel resource was temporarily unavailable.
+    SystemResources,
+    /// vec points to an invalid address.
+    InvalidAddress,
+    /// addr is not page-aligned.
+    InvalidSyscall,
+    /// One of the following:
+    /// * length is greater than user space TASK_SIZE - addr
+    /// * addr + length contains unmapped memory
+    OutOfMemory,
+    /// The mincore syscall is not available on this version and configuration
+    /// of this UNIX-like kernel.
+    MincoreUnavailable,
+} || UnexpectedError;
+
+/// Determine whether pages are resident in memory.
+pub fn mincore(ptr: [*]align(mem.page_size) u8, length: usize, vec: [*]u8) MincoreError!void {
+    return switch (errno(system.mincore(ptr, length, vec))) {
+        .SUCCESS => {},
+        .AGAIN => error.SystemResources,
+        .FAULT => error.InvalidAddress,
+        .INVAL => error.InvalidSyscall,
+        .NOMEM => error.OutOfMemory,
+        .NOSYS => error.MincoreUnavailable,
+        else => |err| unexpectedErrno(err),
+    };
 }
 
 pub const MadviseError = error{

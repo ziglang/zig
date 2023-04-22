@@ -4843,7 +4843,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
         },
         .TypeOf => {
             const typeof_ty = @ptrCast(*const clang.TypeOfType, ty);
-            return transQualType(c, scope, typeof_ty.getUnderlyingType(), source_loc);
+            return transQualType(c, scope, typeof_ty.getUnmodifiedType(), source_loc);
         },
         .TypeOfExpr => {
             const typeofexpr_ty = @ptrCast(*const clang.TypeOfExprType, ty);
@@ -4939,6 +4939,22 @@ fn isAnyopaque(qt: clang.QualType) bool {
             const typedef_ty = @ptrCast(*const clang.TypedefType, ty);
             const typedef_decl = typedef_ty.getDecl();
             return isAnyopaque(typedef_decl.getUnderlyingType());
+        },
+        .Elaborated => {
+            const elaborated_ty = @ptrCast(*const clang.ElaboratedType, ty);
+            return isAnyopaque(elaborated_ty.getNamedType().getCanonicalType());
+        },
+        .Decayed => {
+            const decayed_ty = @ptrCast(*const clang.DecayedType, ty);
+            return isAnyopaque(decayed_ty.getDecayedType().getCanonicalType());
+        },
+        .Attributed => {
+            const attributed_ty = @ptrCast(*const clang.AttributedType, ty);
+            return isAnyopaque(attributed_ty.getEquivalentType().getCanonicalType());
+        },
+        .MacroQualified => {
+            const macroqualified_ty = @ptrCast(*const clang.MacroQualifiedType, ty);
+            return isAnyopaque(macroqualified_ty.getModifiedType().getCanonicalType());
         },
         else => return false,
     }
