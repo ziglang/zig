@@ -5777,10 +5777,10 @@ pub const FuncGen = struct {
     }
 
     fn sliceOrArrayPtr(fg: *FuncGen, ptr: *llvm.Value, ty: Type) *llvm.Value {
-        switch (ty.ptrSize()) {
-            .Slice => return fg.builder.buildExtractValue(ptr, 0, ""),
-            .One => return ptr,
-            .Many, .C => unreachable,
+        if (ty.isSlice()) {
+            return fg.builder.buildExtractValue(ptr, 0, "");
+        } else {
+            return ptr;
         }
     }
 
@@ -7917,8 +7917,10 @@ pub const FuncGen = struct {
     fn airPtrToInt(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const operand = try self.resolveInst(un_op);
+        const ptr_ty = self.air.typeOf(un_op);
+        const operand_ptr = self.sliceOrArrayPtr(operand, ptr_ty);
         const dest_llvm_ty = try self.dg.lowerType(self.air.typeOfIndex(inst));
-        return self.builder.buildPtrToInt(operand, dest_llvm_ty, "");
+        return self.builder.buildPtrToInt(operand_ptr, dest_llvm_ty, "");
     }
 
     fn airBitCast(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {

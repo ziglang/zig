@@ -462,6 +462,7 @@ pub const Inst = struct {
         /// Uses the `ty_op` field.
         load,
         /// Converts a pointer to its address. Result type is always `usize`.
+        /// Pointer type size may be any, including slice.
         /// Uses the `un_op` field.
         ptrtoint,
         /// Given a boolean, returns 0 or 1.

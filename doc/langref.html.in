@@ -8683,18 +8683,20 @@ test "integer cast panic" {
       {#header_open|@memcpy#}
       <pre>{#syntax#}@memcpy(noalias dest, noalias source) void{#endsyntax#}</pre>
       <p>This function copies bytes from one region of memory to another.</p>
-      <p>{#syntax#}dest{#endsyntax#} must be a mutable slice, or a mutable pointer to an array.
-        It may have any alignment, and it may have any element type.</p>
-      <p>{#syntax#}source{#endsyntax#} must be an array, pointer, or a slice
-        with the same element type as {#syntax#}dest{#endsyntax#}. It may have
-        any alignment. Only {#syntax#}const{#endsyntax#} access is required. It
-        is sliced from 0 to the same length as
-        {#syntax#}dest{#endsyntax#}, triggering the same set of safety checks and
-        possible compile errors as
-        {#syntax#}source[0..dest.len]{#endsyntax#}.</p>
-      <p>It is illegal for {#syntax#}dest{#endsyntax#} and
-        {#syntax#}source[0..dest.len]{#endsyntax#} to overlap. If safety
-        checks are enabled, there will be a runtime check for such overlapping.</p>
+      <p>{#syntax#}dest{#endsyntax#} must be a mutable slice, a mutable pointer to an array, or
+        a mutable many-item {#link|pointer|Pointer#}. It may have any
+        alignment, and it may have any element type.</p>
+      <p>Likewise, {#syntax#}source{#endsyntax#} must be a mutable slice, a
+        mutable pointer to an array, or a mutable many-item
+        {#link|pointer|Pointer#}. It may have any alignment, and it may have any
+        element type.</p>
+      <p>The {#syntax#}source{#endsyntax#} element type must support {#link|Type Coercion#}
+        into the {#syntax#}dest{#endsyntax#} element type. The element types may have
+        different ABI size, however, that may incur a performance penalty.</p>
+      <p>Similar to {#link|for#} loops, at least one of {#syntax#}source{#endsyntax#} and
+        {#syntax#}dest{#endsyntax#} must provide a length, and if two lengths are provided,
+        they must be equal.</p>
+      <p>Finally, the two memory regions must not overlap.</p>
       {#header_close#}
 
       {#header_open|@memset#}

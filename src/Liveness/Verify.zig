@@ -254,6 +254,8 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .set_union_tag,
             .min,
             .max,
+            .memset,
+            .memcpy,
             => {
                 const bin_op = data[inst].bin_op;
                 try self.verifyInst(inst, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -305,13 +307,6 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 const vector_store_elem = data[inst].vector_store_elem;
                 const extra = self.air.extraData(Air.Bin, vector_store_elem.payload).data;
                 try self.verifyInst(inst, .{ vector_store_elem.vector_ptr, extra.lhs, extra.rhs });
-            },
-            .memset,
-            .memcpy,
-            => {
-                const pl_op = data[inst].pl_op;
-                const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
-                try self.verifyInst(inst, .{ pl_op.operand, extra.lhs, extra.rhs });
             },
             .cmpxchg_strong,
             .cmpxchg_weak,

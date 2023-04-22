@@ -282,7 +282,8 @@ pub fn reallocAdvanced(
 
     const new_mem = self.rawAlloc(byte_count, log2a(Slice.alignment), return_address) orelse
         return error.OutOfMemory;
-    @memcpy(new_mem[0..@min(byte_count, old_byte_slice.len)], old_byte_slice);
+    const copy_len = @min(byte_count, old_byte_slice.len);
+    @memcpy(new_mem[0..copy_len], old_byte_slice[0..copy_len]);
     // TODO https://github.com/ziglang/zig/issues/4298
     @memset(old_byte_slice, undefined);
     self.rawFree(old_byte_slice, log2a(Slice.alignment), return_address);

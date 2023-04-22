@@ -8455,7 +8455,7 @@ fn builtinCall(
         .memcpy => {
             _ = try gz.addPlNode(.memcpy, node, Zir.Inst.Bin{
                 .lhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
-                .rhs = try expr(gz, scope, .{ .rl = .ref }, params[1]),
+                .rhs = try expr(gz, scope, .{ .rl = .none }, params[1]),
             });
             return rvalue(gz, ri, .void_value, node);
         },

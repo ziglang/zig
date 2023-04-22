@@ -3386,17 +3386,39 @@ fn zirIndexablePtrLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const object = try sema.resolveInst(inst_data.operand);
+
+    return indexablePtrLen(sema, block, src, object);
+}
+
+fn indexablePtrLen(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    object: Air.Inst.Ref,
+) CompileError!Air.Inst.Ref {
     const object_ty = sema.typeOf(object);
-
     const is_pointer_to = object_ty.isSinglePointer();
-
-    const array_ty = if (is_pointer_to)
-        object_ty.childType()
-    else
-        object_ty;
-
+    const array_ty = if (is_pointer_to) object_ty.childType() else object_ty;
     try checkIndexable(sema, block, src, array_ty);
+    return sema.fieldVal(block, src, object, "len", src);
+}
 
+fn indexablePtrLenOrNone(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    object: Air.Inst.Ref,
+) CompileError!Air.Inst.Ref {
+    const object_ty = sema.typeOf(object);
+    const array_ty = t: {
+        const ptr_size = object_ty.ptrSizeOrNull() orelse break :t object_ty;
+        break :t switch (ptr_size) {
+            .Many => return .none,
+            .One => object_ty.childType(),
+            else => object_ty,
+        };
+    };
+    try checkIndexable(sema, block, src, array_ty);
     return sema.fieldVal(block, src, object, "len", src);
 }
 
@@ -21773,6 +21795,29 @@ fn analyzeMinMax(
     return block.addBinOp(air_tag, simd_op.lhs, simd_op.rhs);
 }
 
+fn upgradeToArrayPtr(sema: *Sema, block: *Block, ptr: Air.Inst.Ref, len: u64) !Air.Inst.Ref {
+    const mod = sema.mod;
+    const info = sema.typeOf(ptr).ptrInfo().data;
+    if (info.size == .One) {
+        // Already an array pointer.
+        return ptr;
+    }
+    const new_ty = try Type.ptr(sema.arena, mod, .{
+        .pointee_type = try Type.array(sema.arena, len, info.sentinel, info.pointee_type, mod),
+        .sentinel = null,
+        .@"align" = info.@"align",
+        .@"addrspace" = info.@"addrspace",
+        .mutable = info.mutable,
+        .@"allowzero" = info.@"allowzero",
+        .@"volatile" = info.@"volatile",
+        .size = .One,
+    });
+    if (info.size == .Slice) {
+        return block.addTyOp(.slice_ptr, new_ty, ptr);
+    }
+    return block.addBitCast(new_ty, ptr);
+}
+
 fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
@@ -21780,27 +21825,125 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const dest_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const src_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const dest_ptr = try sema.resolveInst(extra.lhs);
-    const src_ptr_ptr = try sema.resolveInst(extra.rhs);
-    const dest_ptr_ty = sema.typeOf(dest_ptr);
-    try checkSliceOrArrayType(sema, block, dest_src, dest_ptr_ty);
+    const src_ptr = try sema.resolveInst(extra.rhs);
+    const dest_len = try indexablePtrLenOrNone(sema, block, dest_src, dest_ptr);
+    const src_len = try indexablePtrLenOrNone(sema, block, src_src, src_ptr);
 
-    const dest_len = try sema.fieldVal(block, dest_src, dest_ptr, "len", dest_src);
-    const src_ptr = try sema.analyzeSlice(block, src_src, src_ptr_ptr, .zero_usize, dest_len, .none, .unneeded, src_src, src_src, src_src);
+    if (dest_len == .none and src_len == .none) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "unknown @memcpy length", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, dest_src, msg, "destination type {} provides no length", .{
+                sema.typeOf(dest_ptr).fmt(sema.mod),
+            });
+            try sema.errNote(block, src_src, msg, "source type {} provides no length", .{
+                sema.typeOf(src_ptr).fmt(sema.mod),
+            });
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
+    var len_val: ?Value = null;
+
+    if (dest_len != .none and src_len != .none) check: {
+        // If we can check at compile-time, no need for runtime safety.
+        if (try sema.resolveDefinedValue(block, dest_src, dest_len)) |dest_len_val| {
+            len_val = dest_len_val;
+            if (try sema.resolveDefinedValue(block, src_src, src_len)) |src_len_val| {
+                if (!(try sema.valuesEqual(dest_len_val, src_len_val, Type.usize))) {
+                    const msg = msg: {
+                        const msg = try sema.errMsg(block, src, "non-matching @memcpy lengths", .{});
+                        errdefer msg.destroy(sema.gpa);
+                        try sema.errNote(block, dest_src, msg, "length {} here", .{
+                            dest_len_val.fmtValue(Type.usize, sema.mod),
+                        });
+                        try sema.errNote(block, src_src, msg, "length {} here", .{
+                            src_len_val.fmtValue(Type.usize, sema.mod),
+                        });
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(msg);
+                }
+                break :check;
+            }
+        } else if (try sema.resolveDefinedValue(block, src_src, src_len)) |src_len_val| {
+            len_val = src_len_val;
+        }
+
+        if (block.wantSafety()) {
+            const ok = try block.addBinOp(.cmp_eq, dest_len, src_len);
+            try sema.addSafetyCheck(block, ok, .memcpy_len_mismatch);
+        }
+    }
 
     const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |dest_ptr_val| rs: {
         if (!dest_ptr_val.isComptimeMutablePtr()) break :rs dest_src;
         if (try sema.resolveDefinedValue(block, src_src, src_ptr)) |src_ptr_val| {
-            if (!src_ptr_val.isComptimeMutablePtr()) break :rs src_src;
+            _ = src_ptr_val;
             return sema.fail(block, src, "TODO: @memcpy at comptime", .{});
         } else break :rs src_src;
     } else dest_src;
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
+
+    const dest_ty = sema.typeOf(dest_ptr);
+    const src_ty = sema.typeOf(src_ptr);
+
+    // If in-memory coercion is not allowed, explode this memcpy call into a
+    // for loop that copies element-wise.
+    // Likewise if this is an iterable rather than a pointer, do the same
+    // lowering. The AIR instruction requires pointers with element types of
+    // equal ABI size.
+
+    if (dest_ty.zigTypeTag() != .Pointer or src_ty.zigTypeTag() != .Pointer) {
+        return sema.fail(block, src, "TODO: lower @memcpy to a for loop because the source or destination iterable is a tuple", .{});
+    }
+
+    const dest_elem_ty = dest_ty.elemType2();
+    const src_elem_ty = src_ty.elemType2();
+    const target = sema.mod.getTarget();
+    if (.ok != try sema.coerceInMemoryAllowed(block, dest_elem_ty, src_elem_ty, true, target, dest_src, src_src)) {
+        return sema.fail(block, src, "TODO: lower @memcpy to a for loop because the element types have different ABI sizes", .{});
+    }
+
+    // If the length is comptime-known, then upgrade src and destination types
+    // into pointer-to-array. At this point we know they are both pointers
+    // already.
+    var new_dest_ptr = dest_ptr;
+    var new_src_ptr = src_ptr;
+    if (len_val) |val| {
+        const len = val.toUnsignedInt(target);
+        new_dest_ptr = try upgradeToArrayPtr(sema, block, dest_ptr, len);
+        new_src_ptr = try upgradeToArrayPtr(sema, block, src_ptr, len);
+    }
+
+    // Aliasing safety check.
+    if (block.wantSafety()) {
+        const dest_int = try block.addUnOp(.ptrtoint, new_dest_ptr);
+        const src_int = try block.addUnOp(.ptrtoint, new_src_ptr);
+        const len = if (len_val) |v|
+            try sema.addConstant(Type.usize, v)
+        else if (dest_len != .none)
+            dest_len
+        else
+            src_len;
+
+        // ok1: dest >= src + len
+        // ok2: src >= dest + len
+        const src_plus_len = try block.addBinOp(.add, src_int, len);
+        const dest_plus_len = try block.addBinOp(.add, dest_int, len);
+        const ok1 = try block.addBinOp(.cmp_gte, dest_int, src_plus_len);
+        const ok2 = try block.addBinOp(.cmp_gte, src_int, dest_plus_len);
+        const ok = try block.addBinOp(.bit_or, ok1, ok2);
+        try sema.addSafetyCheck(block, ok, .memcpy_alias);
+    }
+
     _ = try block.addInst(.{
         .tag = .memcpy,
         .data = .{ .bin_op = .{
-            .lhs = dest_ptr,
-            .rhs = src_ptr,
+            .lhs = new_dest_ptr,
+            .rhs = new_src_ptr,
         } },
     });
 }
@@ -22949,6 +23092,8 @@ pub const PanicId = enum {
     index_out_of_bounds,
     start_index_greater_than_end,
     for_len_mismatch,
+    memcpy_len_mismatch,
+    memcpy_alias,
 };
 
 fn addSafetyCheck(
