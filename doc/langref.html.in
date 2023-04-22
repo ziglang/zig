@@ -11968,6 +11968,17 @@ fn readU32Be() u32 {}
         </tr>
         <tr>
           <th scope="row">
+            <pre>{#syntax#}noinline{#endsyntax#}</pre>
+          </th>
+          <td>
+            {#syntax#}noinline{#endsyntax#} disallows function to be inlined in all call sites.
+            <ul>
+              <li>See also {#link|Functions#}</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">
             <pre>{#syntax#}nosuspend{#endsyntax#}</pre>
           </th>
           <td>
