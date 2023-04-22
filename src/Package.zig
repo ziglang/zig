@@ -216,7 +216,7 @@ pub const build_zig_basename = "build.zig";
 
 pub fn fetchAndAddDependencies(
     pkg: *Package,
-    root_pkg: *Package,
+    deps_pkg: *Package,
     arena: Allocator,
     thread_pool: *ThreadPool,
     http_client: *std.http.Client,
@@ -272,7 +272,6 @@ pub fn fetchAndAddDependencies(
         .error_bundle = error_bundle,
     };
 
-    var any_error = false;
     const deps_list = manifest.dependencies.values();
     for (manifest.dependencies.keys(), 0..) |name, i| {
         const dep = deps_list[i];
@@ -292,7 +291,7 @@ pub fn fetchAndAddDependencies(
         );
 
         try sub_pkg.fetchAndAddDependencies(
-            root_pkg,
+            deps_pkg,
             arena,
             thread_pool,
             http_client,
@@ -307,14 +306,18 @@ pub fn fetchAndAddDependencies(
         );
 
         try pkg.add(gpa, name, sub_pkg);
-        try root_pkg.add(gpa, fqn, sub_pkg);
+        if (deps_pkg.table.get(dep.hash.?)) |other_sub| {
+            // This should be the same package (and hence module) since it's the same hash
+            // TODO: dedup multiple versions of the same package
+            assert(other_sub == sub_pkg);
+        } else {
+            try deps_pkg.add(gpa, dep.hash.?, sub_pkg);
+        }
 
         try dependencies_source.writer().print("    pub const {s} = @import(\"{}\");\n", .{
-            std.zig.fmtId(fqn), std.zig.fmtEscapes(fqn),
+            std.zig.fmtId(fqn), std.zig.fmtEscapes(dep.hash.?),
         });
     }
-
-    if (any_error) return error.InvalidBuildManifestFile;
 }
 
 pub fn createFilePkg(
