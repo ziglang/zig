@@ -2,7 +2,6 @@
 //
 // https://tools.ietf.org/html/rfc8259
 
-const builtin = @import("builtin");
 const std = @import("std");
 const debug = std.debug;
 const assert = debug.assert;
