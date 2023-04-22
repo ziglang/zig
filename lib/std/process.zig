@@ -1162,6 +1162,15 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
         .linux => {
             return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
         },
+        .freebsd => {
+            var physmem: c_ulong = undefined;
+            var len: usize = @sizeOf(c_ulong);
+            os.sysctlbynameZ("hw.physmem", &physmem, &len, null, 0) catch |err| switch (err) {
+                error.NameTooLong, error.UnknownName => unreachable,
+                else => |e| return e,
+            };
+            return @intCast(usize, physmem);
+        },
         .windows => {
             var sbi: std.os.windows.SYSTEM_BASIC_INFORMATION = undefined;
             const rc = std.os.windows.ntdll.NtQuerySystemInformation(

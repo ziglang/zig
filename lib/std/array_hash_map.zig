@@ -54,7 +54,7 @@ pub fn hashString(s: []const u8) u32 {
 
 /// Insertion order is preserved.
 /// Deletions perform a "swap removal" on the entries list.
-/// Modifying the hash map while iterating is allowed, however one must understand
+/// Modifying the hash map while iterating is allowed, however, one must understand
 /// the (well defined) behavior when mixing insertions and deletions with iteration.
 /// For a hash map that can be initialized directly that does not store an Allocator
 /// field, see `ArrayHashMapUnmanaged`.
@@ -448,7 +448,7 @@ pub fn ArrayHashMap(
 /// General purpose hash table.
 /// Insertion order is preserved.
 /// Deletions perform a "swap removal" on the entries list.
-/// Modifying the hash map while iterating is allowed, however one must understand
+/// Modifying the hash map while iterating is allowed, however, one must understand
 /// the (well defined) behavior when mixing insertions and deletions with iteration.
 /// This type does not store an Allocator field - the Allocator must be passed in
 /// with each function call that requires it. See `ArrayHashMap` for a type that stores

@@ -230,7 +230,7 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
             .got_load => blk: {
                 const got_index = macho_file.got_table.lookup.get(.{ .sym_index = reloc.target }).?;
                 const got_entry = macho_file.got_table.entries.items[got_index];
-                break :blk got_entry.getSymbol(macho_file);
+                break :blk macho_file.getSymbol(got_entry);
             },
         };
         if (sym.n_value == reloc.prev_vaddr) continue;
@@ -240,7 +240,7 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
             .got_load => blk: {
                 const got_index = macho_file.got_table.lookup.get(.{ .sym_index = reloc.target }).?;
                 const got_entry = macho_file.got_table.entries.items[got_index];
-                break :blk got_entry.getName(macho_file);
+                break :blk macho_file.getSymbolName(got_entry);
             },
         };
         const sect = &self.sections.items[self.debug_info_section_index.?];

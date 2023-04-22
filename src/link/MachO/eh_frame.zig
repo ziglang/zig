@@ -9,6 +9,7 @@ const log = std.log.scoped(.eh_frame);
 const Allocator = mem.Allocator;
 const AtomIndex = @import("zld.zig").AtomIndex;
 const Atom = @import("ZldAtom.zig");
+const Relocation = @import("Relocation.zig");
 const SymbolWithLoc = @import("zld.zig").SymbolWithLoc;
 const UnwindInfo = @import("UnwindInfo.zig");
 const Zld = @import("zld.zig").Zld;
@@ -368,7 +369,7 @@ pub fn EhFrameRecord(comptime is_mutable: bool) type {
                                 const target_addr = try Atom.getRelocTargetAddress(zld, target, true, false);
                                 const addend = mem.readIntLittle(i32, rec.data[rel_offset..][0..4]);
                                 const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + addend);
-                                const disp = try Atom.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
+                                const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
                                 mem.writeIntLittle(i32, rec.data[rel_offset..][0..4], disp);
                             },
                             else => unreachable,
