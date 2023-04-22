@@ -25,6 +25,8 @@ const CheckObjectStep = std.Build.CheckObjectStep;
 const RunStep = std.Build.RunStep;
 const OptionsStep = std.Build.OptionsStep;
 const ConfigHeaderStep = std.Build.ConfigHeaderStep;
+const LinkObject = Module.LinkObject;
+const FrameworkLinkInfo = Module.FrameworkLinkInfo;
 const CompileStep = @This();
 
 pub const base_id: Step.Id = .compile;
@@ -34,7 +36,6 @@ name: []const u8,
 target: CrossTarget,
 target_info: NativeTargetInfo,
 optimize: std.builtin.Mode,
-linker_script: ?FileSource = null,
 version_script: ?[]const u8 = null,
 out_filename: []const u8,
 linkage: ?Linkage = null,
@@ -46,10 +47,6 @@ strip: ?bool,
 unwind_tables: ?bool,
 // keep in sync with src/link.zig:CompressDebugSections
 compress_debug_sections: enum { none, zlib } = .none,
-lib_paths: ArrayList(FileSource),
-rpaths: ArrayList(FileSource),
-framework_dirs: ArrayList(FileSource),
-frameworks: StringHashMap(FrameworkLinkInfo),
 verbose_link: bool,
 verbose_cc: bool,
 emit_analysis: EmitOption = .default,
@@ -80,7 +77,6 @@ initial_memory: ?u64 = null,
 max_memory: ?u64 = null,
 shared_memory: bool = false,
 global_base: ?u64 = null,
-c_std: std.Build.CStd,
 zig_lib_dir: ?[]const u8,
 main_pkg_path: ?[]const u8,
 exec_cmd_args: ?[]const ?[]const u8,
@@ -96,15 +92,10 @@ root_src: ?FileSource,
 out_h_filename: []const u8,
 out_lib_filename: []const u8,
 out_pdb_filename: []const u8,
-modules: std.StringArrayHashMap(*Module),
 
-link_objects: ArrayList(LinkObject),
-include_dirs: ArrayList(IncludeDir),
-c_macros: ArrayList([]const u8),
-installed_headers: ArrayList(*Step),
-is_linking_libc: bool,
-is_linking_libcpp: bool,
 vcpkg_bin_path: ?[]const u8 = null,
+
+main_module: *Module,
 
 /// This may be set in order to override the default install directory
 override_dest_dir: ?InstallDir,
@@ -199,11 +190,6 @@ subsystem: ?std.Target.SubSystem = null,
 
 entry_symbol_name: ?[]const u8 = null,
 
-/// List of symbols forced as undefined in the symbol table
-/// thus forcing their resolution by the linker.
-/// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
-force_undefined_symbols: std.StringHashMap(void),
-
 /// Overrides the default stack size
 stack_size: ?u64 = null,
 
@@ -223,63 +209,9 @@ output_h_path_source: GeneratedFile,
 output_pdb_path_source: GeneratedFile,
 output_dirname_source: GeneratedFile,
 
-pub const CSourceFiles = struct {
-    files: []const []const u8,
-    flags: []const []const u8,
-};
-
-pub const CSourceFile = struct {
-    source: FileSource,
-    args: []const []const u8,
-
-    pub fn dupe(self: CSourceFile, b: *std.Build) CSourceFile {
-        return .{
-            .source = self.source.dupe(b),
-            .args = b.dupeStrings(self.args),
-        };
-    }
-};
-
-pub const LinkObject = union(enum) {
-    static_path: FileSource,
-    other_step: *CompileStep,
-    system_lib: SystemLib,
-    assembly_file: FileSource,
-    c_source_file: *CSourceFile,
-    c_source_files: *CSourceFiles,
-};
-
-pub const SystemLib = struct {
-    name: []const u8,
-    needed: bool,
-    weak: bool,
-    use_pkg_config: enum {
-        /// Don't use pkg-config, just pass -lfoo where foo is name.
-        no,
-        /// Try to get information on how to link the library from pkg-config.
-        /// If that fails, fall back to passing -lfoo where foo is name.
-        yes,
-        /// Try to get information on how to link the library from pkg-config.
-        /// If that fails, error out.
-        force,
-    },
-};
-
-pub const FrameworkLinkInfo = struct {
-    needed: bool = false,
-    weak: bool = false,
-};
-
-pub const IncludeDir = union(enum) {
-    raw_path: []const u8,
-    raw_path_system: []const u8,
-    other_step: *CompileStep,
-    config_header_step: *ConfigHeaderStep,
-};
-
 pub const Options = struct {
     name: []const u8,
-    root_source_file: ?FileSource = null,
+    main_module: *Module,
     target: CrossTarget,
     optimize: std.builtin.Mode,
     kind: Kind,
@@ -294,14 +226,14 @@ pub const Options = struct {
     use_lld: ?bool = null,
 };
 
+pub const Linkage = enum { dynamic, static };
+
 pub const Kind = enum {
     exe,
     lib,
     obj,
     @"test",
 };
-
-pub const Linkage = enum { dynamic, static };
 
 pub const EmitOption = union(enum) {
     default: void,
@@ -321,7 +253,6 @@ pub const EmitOption = union(enum) {
 
 pub fn create(owner: *std.Build, options: Options) *CompileStep {
     const name = owner.dupe(options.name);
-    const root_src: ?FileSource = if (options.root_source_file) |rsrc| rsrc.dupe(owner) else null;
     if (mem.indexOf(u8, name, "/") != null or mem.indexOf(u8, name, "\\") != null) {
         panic("invalid name: '{s}'. It looks like a file path, but it is supposed to be the library or application name.", .{name});
     }
@@ -371,9 +302,8 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         .target = options.target,
         .linkage = options.linkage,
         .kind = options.kind,
-        .root_src = root_src,
+        .main_module = options.main_module,
         .name = name,
-        .frameworks = StringHashMap(FrameworkLinkInfo).init(owner.allocator),
         .step = Step.init(.{
             .id = base_id,
             .name = step_name,
@@ -388,15 +318,6 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         .out_pdb_filename = owner.fmt("{s}.pdb", .{name}),
         .major_only_filename = null,
         .name_only_filename = null,
-        .modules = std.StringArrayHashMap(*Module).init(owner.allocator),
-        .include_dirs = ArrayList(IncludeDir).init(owner.allocator),
-        .link_objects = ArrayList(LinkObject).init(owner.allocator),
-        .c_macros = ArrayList([]const u8).init(owner.allocator),
-        .lib_paths = ArrayList(FileSource).init(owner.allocator),
-        .rpaths = ArrayList(FileSource).init(owner.allocator),
-        .framework_dirs = ArrayList(FileSource).init(owner.allocator),
-        .installed_headers = ArrayList(*Step).init(owner.allocator),
-        .c_std = std.Build.CStd.C99,
         .zig_lib_dir = null,
         .main_pkg_path = null,
         .exec_cmd_args = null,
@@ -408,7 +329,6 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         .rdynamic = false,
         .override_dest_dir = null,
         .installed_path = null,
-        .force_undefined_symbols = StringHashMap(void).init(owner.allocator),
 
         .output_path_source = GeneratedFile{ .step = &self.step },
         .output_lib_path_source = GeneratedFile{ .step = &self.step },
@@ -418,8 +338,6 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
 
         .target_info = target_info,
 
-        .is_linking_libc = options.link_libc orelse false,
-        .is_linking_libcpp = false,
         .single_threaded = options.single_threaded,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
@@ -454,83 +372,9 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         }
     }
 
-    if (root_src) |rs| rs.addStepDependencies(&self.step);
+    if (options.main_module.source_file) |rs| rs.addStepDependencies(&self.step);
 
     return self;
-}
-
-pub fn installHeader(cs: *CompileStep, src_path: []const u8, dest_rel_path: []const u8) void {
-    const b = cs.step.owner;
-    const install_file = b.addInstallHeaderFile(src_path, dest_rel_path);
-    b.getInstallStep().dependOn(&install_file.step);
-    cs.installed_headers.append(&install_file.step) catch @panic("OOM");
-}
-
-pub const InstallConfigHeaderOptions = struct {
-    install_dir: InstallDir = .header,
-    dest_rel_path: ?[]const u8 = null,
-};
-
-pub fn installConfigHeader(
-    cs: *CompileStep,
-    config_header: *ConfigHeaderStep,
-    options: InstallConfigHeaderOptions,
-) void {
-    const dest_rel_path = options.dest_rel_path orelse config_header.include_path;
-    const b = cs.step.owner;
-    const install_file = b.addInstallFileWithDir(
-        .{ .generated = &config_header.output_file },
-        options.install_dir,
-        dest_rel_path,
-    );
-    install_file.step.dependOn(&config_header.step);
-    b.getInstallStep().dependOn(&install_file.step);
-    cs.installed_headers.append(&install_file.step) catch @panic("OOM");
-}
-
-pub fn installHeadersDirectory(
-    a: *CompileStep,
-    src_dir_path: []const u8,
-    dest_rel_path: []const u8,
-) void {
-    return installHeadersDirectoryOptions(a, .{
-        .source_dir = src_dir_path,
-        .install_dir = .header,
-        .install_subdir = dest_rel_path,
-    });
-}
-
-pub fn installHeadersDirectoryOptions(
-    cs: *CompileStep,
-    options: std.Build.InstallDirStep.Options,
-) void {
-    const b = cs.step.owner;
-    const install_dir = b.addInstallDirectory(options);
-    b.getInstallStep().dependOn(&install_dir.step);
-    cs.installed_headers.append(&install_dir.step) catch @panic("OOM");
-}
-
-pub fn installLibraryHeaders(cs: *CompileStep, l: *CompileStep) void {
-    assert(l.kind == .lib);
-    const b = cs.step.owner;
-    const install_step = b.getInstallStep();
-    // Copy each element from installed_headers, modifying the builder
-    // to be the new parent's builder.
-    for (l.installed_headers.items) |step| {
-        const step_copy = switch (step.id) {
-            inline .install_file, .install_dir => |id| blk: {
-                const T = id.Type();
-                const ptr = b.allocator.create(T) catch @panic("OOM");
-                ptr.* = step.cast(T).?.*;
-                ptr.dest_builder = b;
-                break :blk &ptr.step;
-            },
-            else => unreachable,
-        };
-        cs.installed_headers.append(step_copy) catch @panic("OOM");
-        install_step.dependOn(step_copy);
-    }
-    cs.installed_headers.appendSlice(l.installed_headers.items) catch @panic("OOM");
 }
 
 pub fn addObjCopy(cs: *CompileStep, options: ObjCopyStep.Options) *ObjCopyStep {
@@ -558,58 +402,6 @@ pub fn checkObject(self: *CompileStep) *CheckObjectStep {
     return CheckObjectStep.create(self.step.owner, self.getOutputSource(), self.target_info.target.ofmt);
 }
 
-pub fn setLinkerScriptPath(self: *CompileStep, source: FileSource) void {
-    const b = self.step.owner;
-    self.linker_script = source.dupe(b);
-    source.addStepDependencies(&self.step);
-}
-
-pub fn forceUndefinedSymbol(self: *CompileStep, symbol_name: []const u8) void {
-    const b = self.step.owner;
-    self.force_undefined_symbols.put(b.dupe(symbol_name), {}) catch @panic("OOM");
-}
-
-pub fn linkFramework(self: *CompileStep, framework_name: []const u8) void {
-    const b = self.step.owner;
-    self.frameworks.put(b.dupe(framework_name), .{}) catch @panic("OOM");
-}
-
-pub fn linkFrameworkNeeded(self: *CompileStep, framework_name: []const u8) void {
-    const b = self.step.owner;
-    self.frameworks.put(b.dupe(framework_name), .{
-        .needed = true,
-    }) catch @panic("OOM");
-}
-
-pub fn linkFrameworkWeak(self: *CompileStep, framework_name: []const u8) void {
-    const b = self.step.owner;
-    self.frameworks.put(b.dupe(framework_name), .{
-        .weak = true,
-    }) catch @panic("OOM");
-}
-
-/// Returns whether the library, executable, or object depends on a particular system library.
-pub fn dependsOnSystemLibrary(self: CompileStep, name: []const u8) bool {
-    if (isLibCLibrary(name)) {
-        return self.is_linking_libc;
-    }
-    if (isLibCppLibrary(name)) {
-        return self.is_linking_libcpp;
-    }
-    for (self.link_objects.items) |link_object| {
-        switch (link_object) {
-            .system_lib => |lib| if (mem.eql(u8, lib.name, name)) return true,
-            else => continue,
-        }
-    }
-    return false;
-}
-
-pub fn linkLibrary(self: *CompileStep, lib: *CompileStep) void {
-    assert(lib.kind == .lib);
-    self.linkLibraryOrObject(lib);
-}
-
 pub fn isDynamicLibrary(self: *CompileStep) bool {
     return self.kind == .lib and self.linkage == Linkage.dynamic;
 }
@@ -623,98 +415,6 @@ pub fn producesPdbFile(self: *CompileStep) bool {
     if (self.target.getObjectFormat() == .c) return false;
     if (self.strip == true) return false;
     return self.isDynamicLibrary() or self.kind == .exe or self.kind == .@"test";
-}
-
-pub fn linkLibC(self: *CompileStep) void {
-    self.is_linking_libc = true;
-}
-
-pub fn linkLibCpp(self: *CompileStep) void {
-    self.is_linking_libcpp = true;
-}
-
-/// If the value is omitted, it is set to 1.
-/// `name` and `value` need not live longer than the function call.
-pub fn defineCMacro(self: *CompileStep, name: []const u8, value: ?[]const u8) void {
-    const b = self.step.owner;
-    const macro = std.Build.constructCMacro(b.allocator, name, value);
-    self.c_macros.append(macro) catch @panic("OOM");
-}
-
-/// name_and_value looks like [name]=[value]. If the value is omitted, it is set to 1.
-pub fn defineCMacroRaw(self: *CompileStep, name_and_value: []const u8) void {
-    const b = self.step.owner;
-    self.c_macros.append(b.dupe(name_and_value)) catch @panic("OOM");
-}
-
-/// This one has no integration with anything, it just puts -lname on the command line.
-/// Prefer to use `linkSystemLibrary` instead.
-pub fn linkSystemLibraryName(self: *CompileStep, name: []const u8) void {
-    const b = self.step.owner;
-    self.link_objects.append(.{
-        .system_lib = .{
-            .name = b.dupe(name),
-            .needed = false,
-            .weak = false,
-            .use_pkg_config = .no,
-        },
-    }) catch @panic("OOM");
-}
-
-/// This one has no integration with anything, it just puts -needed-lname on the command line.
-/// Prefer to use `linkSystemLibraryNeeded` instead.
-pub fn linkSystemLibraryNeededName(self: *CompileStep, name: []const u8) void {
-    const b = self.step.owner;
-    self.link_objects.append(.{
-        .system_lib = .{
-            .name = b.dupe(name),
-            .needed = true,
-            .weak = false,
-            .use_pkg_config = .no,
-        },
-    }) catch @panic("OOM");
-}
-
-/// Darwin-only. This one has no integration with anything, it just puts -weak-lname on the
-/// command line. Prefer to use `linkSystemLibraryWeak` instead.
-pub fn linkSystemLibraryWeakName(self: *CompileStep, name: []const u8) void {
-    const b = self.step.owner;
-    self.link_objects.append(.{
-        .system_lib = .{
-            .name = b.dupe(name),
-            .needed = false,
-            .weak = true,
-            .use_pkg_config = .no,
-        },
-    }) catch @panic("OOM");
-}
-
-/// This links against a system library, exclusively using pkg-config to find the library.
-/// Prefer to use `linkSystemLibrary` instead.
-pub fn linkSystemLibraryPkgConfigOnly(self: *CompileStep, lib_name: []const u8) void {
-    const b = self.step.owner;
-    self.link_objects.append(.{
-        .system_lib = .{
-            .name = b.dupe(lib_name),
-            .needed = false,
-            .weak = false,
-            .use_pkg_config = .force,
-        },
-    }) catch @panic("OOM");
-}
-
-/// This links against a system library, exclusively using pkg-config to find the library.
-/// Prefer to use `linkSystemLibraryNeeded` instead.
-pub fn linkSystemLibraryNeededPkgConfigOnly(self: *CompileStep, lib_name: []const u8) void {
-    const b = self.step.owner;
-    self.link_objects.append(.{
-        .system_lib = .{
-            .name = b.dupe(lib_name),
-            .needed = true,
-            .weak = false,
-            .use_pkg_config = .force,
-        },
-    }) catch @panic("OOM");
 }
 
 /// Run pkg-config for the given library name and parse the output, returning the arguments
@@ -813,72 +513,6 @@ fn runPkgConfig(self: *CompileStep, lib_name: []const u8) ![]const []const u8 {
     return zig_args.toOwnedSlice();
 }
 
-pub fn linkSystemLibrary(self: *CompileStep, name: []const u8) void {
-    self.linkSystemLibraryInner(name, .{});
-}
-
-pub fn linkSystemLibraryNeeded(self: *CompileStep, name: []const u8) void {
-    self.linkSystemLibraryInner(name, .{ .needed = true });
-}
-
-pub fn linkSystemLibraryWeak(self: *CompileStep, name: []const u8) void {
-    self.linkSystemLibraryInner(name, .{ .weak = true });
-}
-
-fn linkSystemLibraryInner(self: *CompileStep, name: []const u8, opts: struct {
-    needed: bool = false,
-    weak: bool = false,
-}) void {
-    const b = self.step.owner;
-    if (isLibCLibrary(name)) {
-        self.linkLibC();
-        return;
-    }
-    if (isLibCppLibrary(name)) {
-        self.linkLibCpp();
-        return;
-    }
-
-    self.link_objects.append(.{
-        .system_lib = .{
-            .name = b.dupe(name),
-            .needed = opts.needed,
-            .weak = opts.weak,
-            .use_pkg_config = .yes,
-        },
-    }) catch @panic("OOM");
-}
-
-/// Handy when you have many C/C++ source files and want them all to have the same flags.
-pub fn addCSourceFiles(self: *CompileStep, files: []const []const u8, flags: []const []const u8) void {
-    const b = self.step.owner;
-    const c_source_files = b.allocator.create(CSourceFiles) catch @panic("OOM");
-
-    const files_copy = b.dupeStrings(files);
-    const flags_copy = b.dupeStrings(flags);
-
-    c_source_files.* = .{
-        .files = files_copy,
-        .flags = flags_copy,
-    };
-    self.link_objects.append(.{ .c_source_files = c_source_files }) catch @panic("OOM");
-}
-
-pub fn addCSourceFile(self: *CompileStep, file: []const u8, flags: []const []const u8) void {
-    self.addCSourceFileSource(.{
-        .args = flags,
-        .source = .{ .path = file },
-    });
-}
-
-pub fn addCSourceFileSource(self: *CompileStep, source: CSourceFile) void {
-    const b = self.step.owner;
-    const c_source_file = b.allocator.create(CSourceFile) catch @panic("OOM");
-    c_source_file.* = source.dupe(b);
-    self.link_objects.append(.{ .c_source_file = c_source_file }) catch @panic("OOM");
-    source.source.addStepDependencies(&self.step);
-}
-
 pub fn setVerboseLink(self: *CompileStep, value: bool) void {
     self.verbose_link = value;
 }
@@ -933,164 +567,9 @@ pub fn getOutputPdbSource(self: *CompileStep) FileSource {
     return .{ .generated = &self.output_pdb_path_source };
 }
 
-pub fn addAssemblyFile(self: *CompileStep, path: []const u8) void {
-    const b = self.step.owner;
-    self.link_objects.append(.{
-        .assembly_file = .{ .path = b.dupe(path) },
-    }) catch @panic("OOM");
-}
-
-pub fn addAssemblyFileSource(self: *CompileStep, source: FileSource) void {
-    const b = self.step.owner;
-    const source_duped = source.dupe(b);
-    self.link_objects.append(.{ .assembly_file = source_duped }) catch @panic("OOM");
-    source_duped.addStepDependencies(&self.step);
-}
-
-pub fn addObjectFile(self: *CompileStep, source_file: []const u8) void {
-    self.addObjectFileSource(.{ .path = source_file });
-}
-
-pub fn addObjectFileSource(self: *CompileStep, source: FileSource) void {
-    const b = self.step.owner;
-    self.link_objects.append(.{ .static_path = source.dupe(b) }) catch @panic("OOM");
-    source.addStepDependencies(&self.step);
-}
-
-pub fn addObject(self: *CompileStep, obj: *CompileStep) void {
-    assert(obj.kind == .obj);
-    self.linkLibraryOrObject(obj);
-}
-
-pub const addSystemIncludeDir = @compileError("deprecated; use addSystemIncludePath");
-pub const addIncludeDir = @compileError("deprecated; use addIncludePath");
-pub const addLibPath = @compileError("deprecated, use addLibraryPath");
-pub const addFrameworkDir = @compileError("deprecated, use addFrameworkPath");
-
-pub fn addSystemIncludePath(self: *CompileStep, path: []const u8) void {
-    const b = self.step.owner;
-    self.include_dirs.append(IncludeDir{ .raw_path_system = b.dupe(path) }) catch @panic("OOM");
-}
-
-pub fn addIncludePath(self: *CompileStep, path: []const u8) void {
-    const b = self.step.owner;
-    self.include_dirs.append(IncludeDir{ .raw_path = b.dupe(path) }) catch @panic("OOM");
-}
-
-pub fn addConfigHeader(self: *CompileStep, config_header: *ConfigHeaderStep) void {
-    self.step.dependOn(&config_header.step);
-    self.include_dirs.append(.{ .config_header_step = config_header }) catch @panic("OOM");
-}
-
-pub fn addLibraryPath(self: *CompileStep, path: []const u8) void {
-    const b = self.step.owner;
-    self.lib_paths.append(.{ .path = b.dupe(path) }) catch @panic("OOM");
-}
-
-pub fn addLibraryPathDirectorySource(self: *CompileStep, directory_source: FileSource) void {
-    self.lib_paths.append(directory_source) catch @panic("OOM");
-    directory_source.addStepDependencies(&self.step);
-}
-
-pub fn addRPath(self: *CompileStep, path: []const u8) void {
-    const b = self.step.owner;
-    self.rpaths.append(.{ .path = b.dupe(path) }) catch @panic("OOM");
-}
-
-pub fn addRPathDirectorySource(self: *CompileStep, directory_source: FileSource) void {
-    self.rpaths.append(directory_source) catch @panic("OOM");
-    directory_source.addStepDependencies(&self.step);
-}
-
-pub fn addFrameworkPath(self: *CompileStep, dir_path: []const u8) void {
-    const b = self.step.owner;
-    self.framework_dirs.append(.{ .path = b.dupe(dir_path) }) catch @panic("OOM");
-}
-
-pub fn addFrameworkPathDirectorySource(self: *CompileStep, directory_source: FileSource) void {
-    self.framework_dirs.append(directory_source) catch @panic("OOM");
-    directory_source.addStepDependencies(&self.step);
-}
-
-/// Adds a module to be used with `@import` and exposing it in the current
-/// package's module table using `name`.
-pub fn addModule(cs: *CompileStep, name: []const u8, module: *Module) void {
-    const b = cs.step.owner;
-    cs.modules.put(b.dupe(name), module) catch @panic("OOM");
-
-    var done = std.AutoHashMap(*Module, void).init(b.allocator);
-    defer done.deinit();
-    cs.addRecursiveBuildDeps(module, &done) catch @panic("OOM");
-}
-
-/// Adds a module to be used with `@import` without exposing it in the current
-/// package's module table.
-pub fn addAnonymousModule(cs: *CompileStep, name: []const u8, options: std.Build.CreateModuleOptions) void {
-    const b = cs.step.owner;
-    const module = b.createModule(options);
-    return addModule(cs, name, module);
-}
-
-pub fn addOptions(cs: *CompileStep, module_name: []const u8, options: *OptionsStep) void {
-    addModule(cs, module_name, options.createModule());
-}
-
-fn addRecursiveBuildDeps(cs: *CompileStep, module: *Module, done: *std.AutoHashMap(*Module, void)) !void {
-    if (done.contains(module)) return;
-    try done.put(module, {});
-    module.source_file.addStepDependencies(&cs.step);
-
-    for (module.include_dirs.items) |include_dir| {
-        cs.include_dirs.append(include_dir) catch @panic("OOM");
-    }
-
-    for (module.lib_paths.items) |lib_path| {
-        cs.addLibraryPath(lib_path);
-    }
-
-    for (module.framework_dirs.items) |framework_dir| {
-        cs.addFrameworkPath(framework_dir);
-    }
-
-    for (module.rpaths.items) |rpath| {
-        cs.addRPath(rpath);
-    }
-
-    for (module.config_headers.items) |config_header| {
-        cs.addConfigHeader(config_header);
-    }
-
-    for (module.libs.items) |lib| {
-        cs.linkLibrary(lib);
-    }
-
-    for (module.frameworks.keys(), module.frameworks.values()) |framework, link_options| {
-        cs.frameworks.put(cs.step.owner.dupe(framework), link_options) catch @panic("OOM");
-    }
-
-    for (module.system_libs.items) |system_lib| {
-        cs.link_objects.append(.{
-            .system_lib = system_lib,
-        }) catch @panic("OOM");
-    }
-
-    for (module.installed_headers.items) |installed_header| {
-        switch (installed_header) {
-            .header => |header| cs.installHeader(header.source_path, header.dest_rel_path),
-            .header_dir_step => |header_dir_step| cs.installHeadersDirectoryOptions(header_dir_step),
-            .config_header => |config_header| cs.installConfigHeader(config_header.step, config_header.options),
-            .lib_step => |lib_step| cs.installLibraryHeaders(lib_step),
-        }
-    }
-
-    for (module.dependencies.values()) |dep| {
-        try cs.addRecursiveBuildDeps(dep, done);
-    }
-}
-
 /// If Vcpkg was found on the system, it will be added to include and lib
 /// paths for the specified target.
-pub fn addVcpkgPaths(self: *CompileStep, linkage: CompileStep.Linkage) !void {
+pub fn addVcpkgPaths(self: *CompileStep, linkage: Linkage) !void {
     const b = self.step.owner;
     // Ideally in the Unattempted case we would call the function recursively
     // after findVcpkgRoot and have only one switch statement, but the compiler
@@ -1116,10 +595,10 @@ pub fn addVcpkgPaths(self: *CompileStep, linkage: CompileStep.Linkage) !void {
 
             const include_path = b.pathJoin(&.{ root, "installed", triplet, "include" });
             errdefer allocator.free(include_path);
-            try self.include_dirs.append(IncludeDir{ .raw_path = include_path });
+            try self.main_module.include_dirs.append(Module.IncludeDir{ .raw_path = include_path });
 
             const lib_path = b.pathJoin(&.{ root, "installed", triplet, "lib" });
-            try self.lib_paths.append(.{ .path = lib_path });
+            try self.main_module.lib_paths.append(.{ .path = lib_path });
 
             self.vcpkg_bin_path = b.pathJoin(&.{ root, "installed", triplet, "bin" });
         },
@@ -1134,16 +613,6 @@ pub fn setExecCmd(self: *CompileStep, args: []const ?[]const u8) void {
         duped_args[i] = if (arg) |a| b.dupe(a) else null;
     }
     self.exec_cmd_args = duped_args;
-}
-
-fn linkLibraryOrObject(self: *CompileStep, other: *CompileStep) void {
-    self.step.dependOn(&other.step);
-    self.link_objects.append(.{ .other_step = other }) catch @panic("OOM");
-    self.include_dirs.append(.{ .other_step = other }) catch @panic("OOM");
-
-    for (other.installed_headers.items) |install_step| {
-        self.step.dependOn(install_step);
-    }
 }
 
 fn appendModuleArgs(
@@ -1161,21 +630,15 @@ fn appendModuleArgs(
         name: []const u8,
         mod: *Module,
     }).init(b.allocator);
-    {
-        var it = cs.modules.iterator();
-        while (it.next()) |kv| {
-            // While we're traversing the root dependencies, let's make sure that no module names
-            // have colons in them, since the CLI forbids it. We handle this for transitive
-            // dependencies further down.
-            if (std.mem.indexOfScalar(u8, kv.key_ptr.*, ':') != null) {
-                @panic("Module names cannot contain colons");
-            }
-            try to_name.append(.{
-                .name = kv.key_ptr.*,
-                .mod = kv.value_ptr.*,
-            });
-        }
+    // Make sure that the main module name does not have colons in it, since the CLI forbids it.
+    // We handle this for transitive dependencies further down.
+    if (std.mem.indexOfScalar(u8, cs.name, ':') != null) {
+        @panic("Module names cannot contain colons");
     }
+    try to_name.append(.{
+        .name = cs.name,
+        .mod = cs.main_module,
+    });
 
     while (to_name.popOrNull()) |dep| {
         if (mod_names.contains(dep.mod)) continue;
@@ -1225,12 +688,9 @@ fn appendModuleArgs(
         }
     }
 
-    // Lastly, output the root dependencies
-    const deps_str = try constructDepString(b.allocator, mod_names, cs.modules);
-    if (deps_str.len > 0) {
-        try zig_args.append("--deps");
-        try zig_args.append(deps_str);
-    }
+    // Lastly, output the main module dependency
+    try zig_args.append("--deps");
+    try zig_args.append(cs.name);
 }
 
 fn constructDepString(
@@ -1999,24 +1459,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             self.name_only_filename.?,
         );
     }
-}
-
-fn isLibCLibrary(name: []const u8) bool {
-    const libc_libraries = [_][]const u8{ "c", "m", "dl", "rt", "pthread" };
-    for (libc_libraries) |libc_lib_name| {
-        if (mem.eql(u8, name, libc_lib_name))
-            return true;
-    }
-    return false;
-}
-
-fn isLibCppLibrary(name: []const u8) bool {
-    const libcpp_libraries = [_][]const u8{ "c++", "stdc++" };
-    for (libcpp_libraries) |libcpp_lib_name| {
-        if (mem.eql(u8, name, libcpp_lib_name))
-            return true;
-    }
-    return false;
 }
 
 /// Returned slice must be freed by the caller.
