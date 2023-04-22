@@ -3643,18 +3643,29 @@ zig_msvc_atomics(u64, uint64_t, __int64, 64)
 zig_msvc_atomics(i64,  int64_t, __int64, 64)
 #endif
 
-#define zig_msvc_flt_atomics(Type, ReprType, suffix) \
+#define zig_msvc_flt_atomics(Type, SigType, suffix) \
     static inline bool zig_msvc_cmpxchg_##Type(zig_##Type volatile* obj, zig_##Type* expected, zig_##Type desired) { \
-        ReprType exchange; \
-        ReprType comparand; \
-        ReprType initial; \
+        SigType exchange; \
+        SigType comparand; \
+        SigType initial; \
         bool success; \
         memcpy(&comparand, expected, sizeof(comparand)); \
         memcpy(&exchange, &desired, sizeof(exchange)); \
-        initial = _InterlockedCompareExchange##suffix((ReprType volatile*)obj, exchange, comparand); \
+        initial = _InterlockedCompareExchange##suffix((SigType volatile*)obj, exchange, comparand); \
         success = initial == comparand; \
         if (!success) memcpy(expected, &initial, sizeof(*expected)); \
         return success; \
+    } \
+    static inline void zig_msvc_atomic_store_##Type(zig_##Type volatile* obj, zig_##Type arg) { \
+        SigType value; \
+        memcpy(&value, &arg, sizeof(value)); \
+        (void)_InterlockedExchange##suffix((SigType volatile*)obj, value); \
+    } \
+    static inline zig_##Type zig_msvc_atomic_load_##Type(zig_##Type volatile* obj) { \
+        zig_##Type result; \
+        SigType initial = _InterlockedExchangeAdd##suffix((SigType volatile*)obj, (SigType)0); \
+        memcpy(&result, &initial, sizeof(result)); \
+        return result; \
     }
 zig_msvc_flt_atomics(f32,    long,   )
 #if _M_X64
