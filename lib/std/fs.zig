@@ -2210,7 +2210,7 @@ pub const Dir = struct {
             var need_to_retry: bool = false;
             parent_dir.deleteDir(name) catch |err| switch (err) {
                 error.FileNotFound => {},
-                error.DirNotEmpty => need_to_retry = false,
+                error.DirNotEmpty => need_to_retry = true,
                 else => |e| return e,
             };
 
