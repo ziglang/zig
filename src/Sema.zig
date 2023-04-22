@@ -21972,7 +21972,7 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
     _ = try block.addInst(.{
-        .tag = .memset,
+        .tag = if (block.wantSafety()) .memset_safe else .memset,
         .data = .{ .bin_op = .{
             .lhs = dest_ptr,
             .rhs = elem,

@@ -638,7 +638,14 @@ pub const Inst = struct {
         /// The element type may be any type, and the slice may have any alignment.
         /// Result type is always void.
         /// Uses the `bin_op` field. LHS is the dest slice. RHS is the element value.
+        /// The element value may be undefined, in which case the destination
+        /// memory region has undefined bytes after this function executes. In
+        /// such case ignoring this instruction is legal lowering.
         memset,
+        /// Same as `memset`, except if the element value is undefined, the memory region
+        /// should be filled with 0xaa bytes, and any other safety metadata such as Valgrind
+        /// integrations should be notified of this memory region being undefined.
+        memset_safe,
         /// Given dest pointer and source pointer, copy elements from source to dest.
         /// Dest pointer is either a slice or a pointer to array.
         /// The dest element type may be any type.
@@ -1236,6 +1243,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .atomic_store_release,
         .atomic_store_seq_cst,
         .memset,
+        .memset_safe,
         .memcpy,
         .set_union_tag,
         .prefetch,
@@ -1415,6 +1423,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index) bool {
         .errunion_payload_ptr_set,
         .set_union_tag,
         .memset,
+        .memset_safe,
         .memcpy,
         .cmpxchg_weak,
         .cmpxchg_strong,

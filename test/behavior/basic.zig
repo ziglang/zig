@@ -353,6 +353,50 @@ fn f2(x: bool) []const u8 {
     return (if (x) &fA else &fB)();
 }
 
+test "@memset on array pointers" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+
+    try testMemsetArray();
+    // TODO this doesn't pass yet
+    // try comptime testMemsetArray();
+}
+
+fn testMemsetArray() !void {
+    {
+        // memset array to non-undefined, ABI size == 1
+        var foo: [20]u8 = undefined;
+        @memset(&foo, 'A');
+        try expect(foo[0] == 'A');
+        try expect(foo[11] == 'A');
+        try expect(foo[19] == 'A');
+
+        // memset array to undefined, ABI size == 1
+        @setRuntimeSafety(true);
+        @memset(&foo, undefined);
+        try expect(foo[0] == 0xaa);
+        try expect(foo[11] == 0xaa);
+        try expect(foo[19] == 0xaa);
+    }
+
+    {
+        // memset array to non-undefined, ABI size > 1
+        var foo: [20]u32 = undefined;
+        @memset(&foo, 1234);
+        try expect(foo[0] == 1234);
+        try expect(foo[11] == 1234);
+        try expect(foo[19] == 1234);
+
+        // memset array to undefined, ABI size > 1
+        @setRuntimeSafety(true);
+        @memset(&foo, undefined);
+        try expect(foo[0] == 0xaaaaaaaa);
+        try expect(foo[11] == 0xaaaaaaaa);
+        try expect(foo[19] == 0xaaaaaaaa);
+    }
+}
+
 test "memcpy and memset intrinsics" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;

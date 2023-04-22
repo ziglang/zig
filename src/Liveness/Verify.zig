@@ -255,6 +255,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .min,
             .max,
             .memset,
+            .memset_safe,
             .memcpy,
             => {
                 const bin_op = data[inst].bin_op;

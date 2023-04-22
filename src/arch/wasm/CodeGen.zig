@@ -1883,7 +1883,8 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         .load => func.airLoad(inst),
         .loop => func.airLoop(inst),
-        .memset => func.airMemset(inst),
+        // TODO: elide memset when writing undef without safety
+        .memset, .memset_safe => func.airMemset(inst),
         .not => func.airNot(inst),
         .optional_payload => func.airOptionalPayload(inst),
         .optional_payload_ptr => func.airOptionalPayloadPtr(inst),

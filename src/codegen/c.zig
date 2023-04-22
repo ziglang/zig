@@ -2925,7 +2925,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .cmpxchg_strong   => try airCmpxchg(f, inst, "strong"),
             .atomic_rmw       => try airAtomicRmw(f, inst),
             .atomic_load      => try airAtomicLoad(f, inst),
-            .memset           => try airMemset(f, inst),
+            .memset           => try airMemset(f, inst, false),
+            .memset_safe      => try airMemset(f, inst, true),
             .memcpy           => try airMemcpy(f, inst),
             .set_union_tag    => try airSetUnionTag(f, inst),
             .get_union_tag    => try airGetUnionTag(f, inst),
@@ -6189,7 +6190,7 @@ fn writeSliceOrPtr(f: *Function, writer: anytype, ptr: CValue, ptr_ty: Type) !vo
     }
 }
 
-fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
     const dest_ty = f.air.typeOf(bin_op.lhs);
     const dest_slice = try f.resolveInst(bin_op.lhs);
@@ -6201,6 +6202,11 @@ fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
 
     if (val_is_undef) {
+        if (!safety) {
+            try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
+            return .none;
+        }
+
         try writer.writeAll("memset(");
         switch (dest_ty.ptrSize()) {
             .Slice => {
@@ -6242,8 +6248,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
             },
             .One => {
                 const array_ty = dest_ty.childType();
-                const len = array_ty.arrayLen() * elem_abi_size;
-                try writer.print("{d}", .{len});
+                try writer.print("{d}", .{array_ty.arrayLen()});
             },
             .Many, .C => unreachable,
         }

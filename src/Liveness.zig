@@ -305,6 +305,7 @@ pub fn categorizeOperand(
         .atomic_store_seq_cst,
         .set_union_tag,
         .memset,
+        .memset_safe,
         .memcpy,
         => {
             const o = air_datas[inst].bin_op;
@@ -980,6 +981,7 @@ fn analyzeInst(
         .min,
         .max,
         .memset,
+        .memset_safe,
         .memcpy,
         => {
             const o = inst_datas[inst].bin_op;

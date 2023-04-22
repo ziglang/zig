@@ -4672,7 +4672,8 @@ pub const FuncGen = struct {
                 .fence          => try self.airFence(inst),
                 .atomic_rmw     => try self.airAtomicRmw(inst),
                 .atomic_load    => try self.airAtomicLoad(inst),
-                .memset         => try self.airMemset(inst),
+                .memset         => try self.airMemset(inst, false),
+                .memset_safe    => try self.airMemset(inst, true),
                 .memcpy         => try self.airMemcpy(inst),
                 .set_union_tag  => try self.airSetUnionTag(inst),
                 .get_union_tag  => try self.airGetUnionTag(inst),
@@ -8405,29 +8406,95 @@ pub const FuncGen = struct {
         return null;
     }
 
-    fn airMemset(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !?*llvm.Value {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const dest_slice = try self.resolveInst(bin_op.lhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
-        const value = try self.resolveInst(bin_op.rhs);
         const elem_ty = self.air.typeOf(bin_op.rhs);
         const target = self.dg.module.getTarget();
         const val_is_undef = if (self.air.value(bin_op.rhs)) |val| val.isUndefDeep() else false;
-        const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
-        const dest_ptr = self.sliceOrArrayPtr(dest_slice, ptr_ty);
-        const u8_llvm_ty = self.context.intType(8);
-        const fill_byte = if (val_is_undef) u8_llvm_ty.constInt(0xaa, .False) else b: {
-            if (elem_ty.abiSize(target) != 1) {
-                return self.dg.todo("implement @memset for non-byte-sized element type", .{});
-            }
-            break :b self.builder.buildBitCast(value, u8_llvm_ty, "");
-        };
         const dest_ptr_align = ptr_ty.ptrAlignment(target);
-        _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+        const u8_llvm_ty = self.context.intType(8);
+        const dest_ptr = self.sliceOrArrayPtr(dest_slice, ptr_ty);
 
-        if (val_is_undef and self.dg.module.comp.bin_file.options.valgrind) {
-            self.valgrindMarkUndef(dest_ptr, len);
+        if (val_is_undef) {
+            // Even if safety is disabled, we still emit a memset to undefined since it conveys
+            // extra information to LLVM. However, safety makes the difference between using
+            // 0xaa or actual undefined for the fill byte.
+            const fill_byte = if (safety)
+                u8_llvm_ty.constInt(0xaa, .False)
+            else
+                u8_llvm_ty.getUndef();
+            const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
+            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+
+            if (safety and self.dg.module.comp.bin_file.options.valgrind) {
+                self.valgrindMarkUndef(dest_ptr, len);
+            }
+            return null;
         }
+
+        const value = try self.resolveInst(bin_op.rhs);
+        const elem_abi_size = elem_ty.abiSize(target);
+
+        if (elem_abi_size == 1) {
+            // In this case we can take advantage of LLVM's intrinsic.
+            const fill_byte = self.builder.buildBitCast(value, u8_llvm_ty, "");
+            const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
+            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+            return null;
+        }
+
+        // non-byte-sized element. lower with a loop. something like this:
+
+        // entry:
+        //   ...
+        //   %end_ptr = getelementptr %ptr, %len
+        //   br loop
+        // loop:
+        //   %it_ptr = phi body %next_ptr, entry %ptr
+        //   %end = cmp eq %it_ptr, %end_ptr
+        //   cond_br %end body, end
+        // body:
+        //   store %it_ptr, %value
+        //   %next_ptr = getelementptr %it_ptr, 1
+        //   br loop
+        // end:
+        //   ...
+        const entry_block = self.builder.getInsertBlock();
+        const loop_block = self.context.appendBasicBlock(self.llvm_func, "InlineMemsetLoop");
+        const body_block = self.context.appendBasicBlock(self.llvm_func, "InlineMemsetBody");
+        const end_block = self.context.appendBasicBlock(self.llvm_func, "InlineMemsetEnd");
+
+        const llvm_usize_ty = self.context.intType(target.cpu.arch.ptrBitWidth());
+        const len = switch (ptr_ty.ptrSize()) {
+            .Slice => self.builder.buildExtractValue(dest_slice, 1, ""),
+            .One => llvm_usize_ty.constInt(ptr_ty.childType().arrayLen(), .False),
+            .Many, .C => unreachable,
+        };
+        const elem_llvm_ty = try self.dg.lowerType(elem_ty);
+        const len_gep = [_]*llvm.Value{len};
+        const end_ptr = self.builder.buildInBoundsGEP(elem_llvm_ty, dest_ptr, &len_gep, len_gep.len, "");
+        _ = self.builder.buildBr(loop_block);
+
+        self.builder.positionBuilderAtEnd(loop_block);
+        const it_ptr = self.builder.buildPhi(self.context.pointerType(0), "");
+        const end = self.builder.buildICmp(.NE, it_ptr, end_ptr, "");
+        _ = self.builder.buildCondBr(end, body_block, end_block);
+
+        self.builder.positionBuilderAtEnd(body_block);
+        const store_inst = self.builder.buildStore(value, it_ptr);
+        store_inst.setAlignment(@min(elem_ty.abiAlignment(target), dest_ptr_align));
+        const one_gep = [_]*llvm.Value{llvm_usize_ty.constInt(1, .False)};
+        const next_ptr = self.builder.buildInBoundsGEP(elem_llvm_ty, it_ptr, &one_gep, one_gep.len, "");
+        _ = self.builder.buildBr(loop_block);
+
+        self.builder.positionBuilderAtEnd(end_block);
+
+        const incoming_values: [2]*llvm.Value = .{ next_ptr, dest_ptr };
+        const incoming_blocks: [2]*llvm.BasicBlock = .{ body_block, entry_block };
+        it_ptr.addIncoming(&incoming_values, &incoming_blocks, 2);
+
         return null;
     }
 
