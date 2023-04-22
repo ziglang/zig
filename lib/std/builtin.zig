@@ -819,7 +819,7 @@ pub const TestFn = struct {
     name: []const u8,
     func: *const fn () anyerror!void,
     async_frame_size: ?usize,
-}
+};
 
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
