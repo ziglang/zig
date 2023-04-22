@@ -1242,7 +1242,7 @@ pub const Value = union(enum) {
         defer std.debug.getStderrMutex().unlock();
 
         const stderr = std.io.getStdErr().writer();
-        std.json.stringify(self, std.json.StringifyOptions{ .whitespace = null }, stderr) catch return;
+        stringify(self, StringifyOptions{ .whitespace = null }, stderr) catch return;
     }
 };
 
@@ -2757,19 +2757,19 @@ test "encodesTo" {
 
 test "deserializing string with escape sequence into sentinel slice" {
     const json = "\"\\n\"";
-    var token_stream = std.json.TokenStream.init(json);
+    var token_stream = TokenStream.init(json);
     const options = ParseOptions{ .allocator = std.testing.allocator };
 
     // Pre-fix, this line would panic:
-    const result = try std.json.parse([:0]const u8, &token_stream, options);
-    defer std.json.parseFree([:0]const u8, result, options);
+    const result = try parse([:0]const u8, &token_stream, options);
+    defer parseFree([:0]const u8, result, options);
 
     // Double-check that we're getting the right result
     try testing.expect(mem.eql(u8, result, "\n"));
 }
 
 test "stringify struct with custom stringify that returns a custom error" {
-    var ret = std.json.stringify(struct {
+    var ret = stringify(struct {
         field: Field = .{},
 
         pub const Field = struct {

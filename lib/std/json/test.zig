@@ -4,24 +4,24 @@
 // Read also http://seriot.ch/parsing_json.php for a good overview.
 
 const std = @import("../std.zig");
-const json = std.json;
+const json = @import("../json.zig");
 const testing = std.testing;
-const TokenStream = std.json.TokenStream;
-const parse = std.json.parse;
-const ParseOptions = std.json.ParseOptions;
-const parseFree = std.json.parseFree;
-const Parser = std.json.Parser;
+const TokenStream = json.TokenStream;
+const parse = json.parse;
+const ParseOptions = json.ParseOptions;
+const parseFree = json.parseFree;
+const Parser = json.Parser;
 const mem = std.mem;
-const writeStream = std.json.writeStream;
-const Value = std.json.Value;
-const StringifyOptions = std.json.StringifyOptions;
-const stringify = std.json.stringify;
-const stringifyAlloc = std.json.stringifyAlloc;
-const StreamingParser = std.json.StreamingParser;
-const Token = std.json.Token;
-const validate = std.json.validate;
-const Array = std.json.Array;
-const ObjectMap = std.json.ObjectMap;
+const writeStream = json.writeStream;
+const Value = json.Value;
+const StringifyOptions = json.StringifyOptions;
+const stringify = json.stringify;
+const stringifyAlloc = json.stringifyAlloc;
+const StreamingParser = json.StreamingParser;
+const Token = json.Token;
+const validate = json.validate;
+const Array = json.Array;
+const ObjectMap = json.ObjectMap;
 const assert = std.debug.assert;
 
 fn testNonStreaming(s: []const u8) !void {
@@ -2677,7 +2677,7 @@ test "parse tree should not contain dangling pointers" {
     // Allocation should succeed
     var i: usize = 0;
     while (i < 100) : (i += 1) {
-        try tree.root.Array.append(std.json.Value{ .Integer = 100 });
+        try tree.root.Array.append(json.Value{ .Integer = 100 });
     }
     try testing.expectEqual(tree.root.Array.items.len, 100);
 }
