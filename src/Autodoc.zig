@@ -112,7 +112,7 @@ pub fn generateZirData(self: *Autodoc) !void {
             .ComptimeExpr = .{ .name = "ComptimeExpr" },
         });
 
-        // this skipts Ref.none but it's ok becuse we replaced it with ComptimeExpr
+        // this skips Ref.none but it's ok becuse we replaced it with ComptimeExpr
         var i: u32 = 1;
         while (i <= @enumToInt(Ref.anyerror_void_error_union_type)) : (i += 1) {
             var tmpbuf = std.ArrayList(u8).init(self.arena);
@@ -196,8 +196,10 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .anyerror_type => .{
                         .ErrorSet = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
-                    .calling_convention_inline, .calling_convention_c, .calling_convention_type => .{
-                        .EnumLiteral = .{ .name = try tmpbuf.toOwnedSlice() },
+                    // should be an Enum but if we don't analyze std we don't get the ast node
+                    // since it's std.builtin.CallingConvention
+                    .calling_convention_type => .{
+                        .Type = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
                 },
             );
@@ -4009,17 +4011,27 @@ fn analyzeFancyFunction(
     }
 
     var cc_index: ?usize = null;
-    if (extra.data.bits.has_cc_ref) {
+    if (extra.data.bits.has_cc_ref and !extra.data.bits.has_cc_body) {
         const cc_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        const cc_expr = try self.walkRef(file, scope, parent_src, cc_ref, false);
+
         cc_index = self.exprs.items.len;
-        _ = try self.walkRef(file, scope, parent_src, cc_ref, false);
+        try self.exprs.append(self.arena, cc_expr.expr);
+
         extra_index += 1;
     } else if (extra.data.bits.has_cc_body) {
         const cc_body_len = file.zir.extra[extra_index];
         extra_index += 1;
-        const cc_body = file.zir.extra[extra_index .. extra_index + cc_body_len];
-        _ = cc_body;
-        // TODO: analyze the block (or bail with a comptimeExpr)
+        const cc_body = file.zir.extra[extra_index..][0..cc_body_len];
+
+        // We assume the body ends with a break_inline
+        const break_index = cc_body[cc_body.len - 1];
+        const break_operand = data[break_index].@"break".operand;
+        const cc_expr = try self.walkRef(file, scope, parent_src, break_operand, false);
+
+        cc_index = self.exprs.items.len;
+        try self.exprs.append(self.arena, cc_expr.expr);
+
         extra_index += cc_body_len;
     } else {
         // auto calling convention
@@ -4564,26 +4576,22 @@ fn walkRef(
                     .expr = .{ .int = .{ .value = 1 } },
                 };
             },
-            // TODO: dunno what to do with those
             .calling_convention_type => {
                 return DocData.WalkResult{
-                    .typeRef = .{ .type = @enumToInt(Ref.calling_convention_type) },
-                    // .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
-                    .expr = .{ .int = .{ .value = 1 } },
+                    .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                    .expr = .{ .type = @enumToInt(Ref.calling_convention_type) },
                 };
             },
             .calling_convention_c => {
                 return DocData.WalkResult{
-                    .typeRef = .{ .type = @enumToInt(Ref.calling_convention_c) },
-                    // .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
-                    .expr = .{ .int = .{ .value = 1 } },
+                    .typeRef = .{ .type = @enumToInt(Ref.calling_convention_type) },
+                    .expr = .{ .enumLiteral = "C" },
                 };
             },
             .calling_convention_inline => {
                 return DocData.WalkResult{
-                    .typeRef = .{ .type = @enumToInt(Ref.calling_convention_inline) },
-                    // .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
-                    .expr = .{ .int = .{ .value = 1 } },
+                    .typeRef = .{ .type = @enumToInt(Ref.calling_convention_type) },
+                    .expr = .{ .enumLiteral = "Inline" },
                 };
             },
             // .generic_poison => {
