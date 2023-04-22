@@ -483,6 +483,8 @@ pub const Decl = struct {
         /// and attempting semantic analysis again may succeed.
         sema_failure_retryable,
         /// There will be a corresponding ErrorMsg in Module.failed_decls.
+        liveness_failure,
+        /// There will be a corresponding ErrorMsg in Module.failed_decls.
         codegen_failure,
         /// There will be a corresponding ErrorMsg in Module.failed_decls.
         /// This indicates the failure was something like running out of disk space,
@@ -4129,6 +4131,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
         .file_failure,
         .sema_failure,
         .sema_failure_retryable,
+        .liveness_failure,
         .codegen_failure,
         .dependency_failure,
         .codegen_failure_retryable,
@@ -4222,6 +4225,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
                 .dependency_failure,
                 .sema_failure,
                 .sema_failure_retryable,
+                .liveness_failure,
                 .codegen_failure,
                 .codegen_failure_retryable,
                 .complete,
@@ -4247,6 +4251,7 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
 
         .file_failure,
         .sema_failure,
+        .liveness_failure,
         .codegen_failure,
         .dependency_failure,
         .sema_failure_retryable,
@@ -4306,6 +4311,33 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
                 std.debug.print("# End Function AIR: {s}\n\n", .{fqn});
             }
 
+            if (std.debug.runtime_safety) {
+                var verify = Liveness.Verify{
+                    .gpa = gpa,
+                    .air = air,
+                    .liveness = liveness,
+                };
+                defer verify.deinit();
+
+                verify.verify() catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    else => {
+                        try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
+                        mod.failed_decls.putAssumeCapacityNoClobber(
+                            decl_index,
+                            try Module.ErrorMsg.create(
+                                gpa,
+                                decl.srcLoc(),
+                                "invalid liveness: {s}",
+                                .{@errorName(err)},
+                            ),
+                        );
+                        decl.analysis = .liveness_failure;
+                        return error.AnalysisFail;
+                    },
+                };
+            }
+
             if (no_bin_file and !dump_llvm_ir) return;
 
             comp.bin_file.updateFunc(mod, func, air, liveness) catch |err| switch (err) {
@@ -4349,6 +4381,7 @@ pub fn updateEmbedFile(mod: *Module, embed_file: *EmbedFile) SemaError!void {
             .dependency_failure,
             .sema_failure,
             .sema_failure_retryable,
+            .liveness_failure,
             .codegen_failure,
             .codegen_failure_retryable,
             .complete,

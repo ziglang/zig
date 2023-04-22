@@ -473,6 +473,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     const air_tags = self.air.instructions.items(.tag);
 
     for (body) |inst| {
+        // TODO: remove now-redundant isUnused calls from AIR handler functions
+        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst)) {
+            continue;
+        }
+
         const old_air_bookkeeping = self.air_bookkeeping;
         try self.ensureProcessDeathCapacity(Liveness.bpi);
 
@@ -1729,6 +1734,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const func = func_payload.data;
                 const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
                 const atom = elf_file.getAtom(atom_index);
+                _ = try atom.getOrCreateOffsetTableEntry(elf_file);
                 const got_addr = @intCast(u32, atom.getOffsetTableAddress(elf_file));
                 try self.genSetReg(Type.initTag(.usize), .ra, .{ .memory = got_addr });
                 _ = try self.addInst(.{

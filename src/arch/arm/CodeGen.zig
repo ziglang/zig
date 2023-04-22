@@ -639,6 +639,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     const air_tags = self.air.instructions.items(.tag);
 
     for (body) |inst| {
+        // TODO: remove now-redundant isUnused calls from AIR handler functions
+        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst)) {
+            continue;
+        }
+
         const old_air_bookkeeping = self.air_bookkeeping;
         try self.ensureProcessDeathCapacity(Liveness.bpi);
 
@@ -4265,6 +4270,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                 const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
                 const atom = elf_file.getAtom(atom_index);
+                _ = try atom.getOrCreateOffsetTableEntry(elf_file);
                 const got_addr = @intCast(u32, atom.getOffsetTableAddress(elf_file));
                 try self.genSetReg(Type.initTag(.usize), .lr, .{ .memory = got_addr });
             } else if (self.bin_file.cast(link.File.MachO)) |_| {
@@ -4923,16 +4929,10 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const loop = self.air.extraData(Air.Block, ty_pl.payload);
     const body = self.air.extra[loop.end..][0..loop.data.body_len];
-    const liveness_loop = self.liveness.getLoop(inst);
     const start_index = @intCast(Mir.Inst.Index, self.mir_instructions.len);
 
     try self.genBody(body);
     try self.jump(start_index);
-
-    try self.ensureProcessDeathCapacity(liveness_loop.deaths.len);
-    for (liveness_loop.deaths) |operand| {
-        self.processDeath(operand);
-    }
 
     return self.finishAirBookkeeping();
 }

@@ -1507,6 +1507,11 @@ pub const DeclGen = struct {
     }
 
     fn genInst(self: *DeclGen, inst: Air.Inst.Index) !void {
+        // TODO: remove now-redundant isUnused calls from AIR handler functions
+        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst)) {
+            return;
+        }
+
         const air_tags = self.air.instructions.items(.tag);
         const maybe_result_id: ?IdRef = switch (air_tags[inst]) {
             // zig fmt: off

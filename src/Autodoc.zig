@@ -112,7 +112,7 @@ pub fn generateZirData(self: *Autodoc) !void {
             .ComptimeExpr = .{ .name = "ComptimeExpr" },
         });
 
-        // this skipts Ref.none but it's ok becuse we replaced it with ComptimeExpr
+        // this skips Ref.none but it's ok becuse we replaced it with ComptimeExpr
         var i: u32 = 1;
         while (i <= @enumToInt(Ref.anyerror_void_error_union_type)) : (i += 1) {
             var tmpbuf = std.ArrayList(u8).init(self.arena);
@@ -196,8 +196,10 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .anyerror_type => .{
                         .ErrorSet = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
-                    .calling_convention_inline, .calling_convention_c, .calling_convention_type => .{
-                        .EnumLiteral = .{ .name = try tmpbuf.toOwnedSlice() },
+                    // should be an Enum but if we don't analyze std we don't get the ast node
+                    // since it's std.builtin.CallingConvention
+                    .calling_convention_type => .{
+                        .Type = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
                 },
             );
@@ -255,7 +257,7 @@ pub fn generateZirData(self: *Autodoc) !void {
 
     var data = DocData{
         .params = .{},
-        .packages = self.packages.values(),
+        .packages = self.packages,
         .files = self.files,
         .calls = self.calls.items,
         .types = self.types.items,
@@ -313,9 +315,26 @@ pub fn generateZirData(self: *Autodoc) !void {
         var files_iterator = self.files.iterator();
 
         while (files_iterator.next()) |entry| {
-            const new_html_path = try std.mem.concat(self.arena, u8, &.{ entry.key_ptr.*.sub_file_path, ".html" });
+            const sub_file_path = entry.key_ptr.*.sub_file_path;
+            const file_package = entry.key_ptr.*.pkg;
+            const package_name = (self.packages.get(file_package) orelse continue).name;
 
-            const html_file = try createFromPath(html_dir, new_html_path);
+            const file_path = std.fs.path.dirname(sub_file_path) orelse "";
+            const file_name = if (file_path.len > 0) sub_file_path[file_path.len + 1 ..] else sub_file_path;
+
+            const html_file_name = try std.mem.concat(self.arena, u8, &.{ file_name, ".html" });
+            defer self.arena.free(html_file_name);
+
+            const dir_name = try std.fs.path.join(self.arena, &.{ package_name, file_path });
+            defer self.arena.free(dir_name);
+
+            var dir = try html_dir.makeOpenPath(dir_name, .{});
+            defer dir.close();
+
+            const html_file = dir.createFile(html_file_name, .{}) catch |err| switch (err) {
+                error.PathAlreadyExists => try dir.openFile(html_file_name, .{}),
+                else => return err,
+            };
             defer html_file.close();
             var buffer = std.io.bufferedWriter(html_file.writer());
 
@@ -331,26 +350,6 @@ pub fn generateZirData(self: *Autodoc) !void {
     defer docs_dir.close();
     try docs_dir.copyFile("main.js", output_dir, "main.js", .{});
     try docs_dir.copyFile("index.html", output_dir, "index.html", .{});
-}
-
-fn createFromPath(base_dir: std.fs.Dir, path: []const u8) !std.fs.File {
-    var path_tokens = std.mem.tokenize(u8, path, std.fs.path.sep_str);
-    var dir = base_dir;
-    while (path_tokens.next()) |toc| {
-        if (path_tokens.peek() != null) {
-            dir.makeDir(toc) catch |e| switch (e) {
-                error.PathAlreadyExists => {},
-                else => |err| return err,
-            };
-            dir = try dir.openDir(toc, .{});
-        } else {
-            return dir.createFile(toc, .{}) catch |e| switch (e) {
-                error.PathAlreadyExists => try dir.openFile(toc, .{}),
-                else => |err| return err,
-            };
-        }
-    }
-    return error.EmptyPath;
 }
 
 /// Represents a chain of scopes, used to resolve decl references to the
@@ -417,7 +416,7 @@ const DocData = struct {
             .{ .target = "arst" },
         },
     },
-    packages: []const DocPackage,
+    packages: std.AutoArrayHashMapUnmanaged(*Package, DocPackage),
     errors: []struct {} = &.{},
 
     // non-hardcoded stuff
@@ -449,8 +448,12 @@ const DocData = struct {
             const f_name = @tagName(f);
             try jsw.objectField(f_name);
             switch (f) {
-                .files => try writeFileTableToJson(self.files, &jsw),
+                .files => try writeFileTableToJson(self.files, self.packages, &jsw),
                 .guide_sections => try writeGuidesToJson(self.guide_sections, &jsw),
+                .packages => {
+                    try std.json.stringify(self.packages.values(), opts, w);
+                    jsw.state_index -= 1;
+                },
                 else => {
                     try std.json.stringify(@field(self, f_name), opts, w);
                     jsw.state_index -= 1;
@@ -950,7 +953,7 @@ fn walkInstruction(
                     .table = .{},
                 };
 
-                // TODO: Add this package as a dependency to the current pakcage
+                // TODO: Add this package as a dependency to the current package
                 // TODO: this seems something that could be done in bulk
                 //       at the beginning or the end, or something.
                 const root_src_dir = other_package.root_src_directory;
@@ -4009,17 +4012,27 @@ fn analyzeFancyFunction(
     }
 
     var cc_index: ?usize = null;
-    if (extra.data.bits.has_cc_ref) {
+    if (extra.data.bits.has_cc_ref and !extra.data.bits.has_cc_body) {
         const cc_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        const cc_expr = try self.walkRef(file, scope, parent_src, cc_ref, false);
+
         cc_index = self.exprs.items.len;
-        _ = try self.walkRef(file, scope, parent_src, cc_ref, false);
+        try self.exprs.append(self.arena, cc_expr.expr);
+
         extra_index += 1;
     } else if (extra.data.bits.has_cc_body) {
         const cc_body_len = file.zir.extra[extra_index];
         extra_index += 1;
-        const cc_body = file.zir.extra[extra_index .. extra_index + cc_body_len];
-        _ = cc_body;
-        // TODO: analyze the block (or bail with a comptimeExpr)
+        const cc_body = file.zir.extra[extra_index..][0..cc_body_len];
+
+        // We assume the body ends with a break_inline
+        const break_index = cc_body[cc_body.len - 1];
+        const break_operand = data[break_index].@"break".operand;
+        const cc_expr = try self.walkRef(file, scope, parent_src, break_operand, false);
+
+        cc_index = self.exprs.items.len;
+        try self.exprs.append(self.arena, cc_expr.expr);
+
         extra_index += cc_body_len;
     } else {
         // auto calling convention
@@ -4564,26 +4577,22 @@ fn walkRef(
                     .expr = .{ .int = .{ .value = 1 } },
                 };
             },
-            // TODO: dunno what to do with those
             .calling_convention_type => {
                 return DocData.WalkResult{
-                    .typeRef = .{ .type = @enumToInt(Ref.calling_convention_type) },
-                    // .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
-                    .expr = .{ .int = .{ .value = 1 } },
+                    .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                    .expr = .{ .type = @enumToInt(Ref.calling_convention_type) },
                 };
             },
             .calling_convention_c => {
                 return DocData.WalkResult{
-                    .typeRef = .{ .type = @enumToInt(Ref.calling_convention_c) },
-                    // .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
-                    .expr = .{ .int = .{ .value = 1 } },
+                    .typeRef = .{ .type = @enumToInt(Ref.calling_convention_type) },
+                    .expr = .{ .enumLiteral = "C" },
                 };
             },
             .calling_convention_inline => {
                 return DocData.WalkResult{
-                    .typeRef = .{ .type = @enumToInt(Ref.calling_convention_inline) },
-                    // .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
-                    .expr = .{ .int = .{ .value = 1 } },
+                    .typeRef = .{ .type = @enumToInt(Ref.calling_convention_type) },
+                    .expr = .{ .enumLiteral = "Inline" },
                 };
             },
             // .generic_poison => {
@@ -4627,12 +4636,21 @@ fn cteTodo(self: *Autodoc, msg: []const u8) error{OutOfMemory}!DocData.WalkResul
     return DocData.WalkResult{ .expr = .{ .comptimeExpr = cte_slot_index } };
 }
 
-fn writeFileTableToJson(map: std.AutoArrayHashMapUnmanaged(*File, usize), jsw: anytype) !void {
+fn writeFileTableToJson(
+    map: std.AutoArrayHashMapUnmanaged(*File, usize),
+    pkgs: std.AutoArrayHashMapUnmanaged(*Package, DocData.DocPackage),
+    jsw: anytype,
+) !void {
     try jsw.beginArray();
     var it = map.iterator();
     while (it.next()) |entry| {
         try jsw.arrayElem();
+        try jsw.beginArray();
+        try jsw.arrayElem();
         try jsw.emitString(entry.key_ptr.*.sub_file_path);
+        try jsw.arrayElem();
+        try jsw.emitNumber(pkgs.getIndex(entry.key_ptr.*.pkg) orelse 0);
+        try jsw.endArray();
     }
     try jsw.endArray();
 }
