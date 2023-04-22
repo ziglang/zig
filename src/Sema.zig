@@ -30369,7 +30369,9 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
         }
 
         if (struct_obj.layout == .Auto and sema.mod.backendSupportsFeature(.field_reordering)) {
-            const optimized_order = blk: {
+            const optimized_order = if (struct_obj.owner_decl == sema.owner_decl_index)
+                try sema.perm_arena.alloc(u32, struct_obj.fields.count())
+            else blk: {
                 const decl = sema.mod.declPtr(struct_obj.owner_decl);
                 var decl_arena = decl.value_arena.?.promote(sema.mod.gpa);
                 defer decl.value_arena.?.* = decl_arena.state;

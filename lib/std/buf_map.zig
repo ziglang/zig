@@ -4,7 +4,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const testing = std.testing;
 
-/// BufMap copies keys and values before they go into the map, and
+/// BufMap copies keys and values before they go into the map and
 /// frees them when they get removed.
 pub const BufMap = struct {
     hash_map: BufMapHashMap,

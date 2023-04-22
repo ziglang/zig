@@ -182,7 +182,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: Endian) type {
 
 /// Creates a bit-packed array of `Int`. Non-byte-multiple integers
 /// will take up less memory in PackedIntArray than in a normal array.
-/// Elements are packed using native endianess and without storing any
+/// Elements are packed using native endianness and without storing any
 /// meta data. PackedArray(i3, 8) will occupy exactly 3 bytes
 /// of memory.
 pub fn PackedIntArray(comptime Int: type, comptime int_count: usize) type {
@@ -261,7 +261,7 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: Endian, comptim
         }
 
         /// Create a PackedIntSliceEndian of the array using `NewInt` as the integer type
-        /// and `new_endian` as the new endianess. `NewInt`'s bit width must fit evenly
+        /// and `new_endian` as the new endianness. `NewInt`'s bit width must fit evenly
         /// within the array's `Int`'s total bits.
         pub fn sliceCastEndian(self: *Self, comptime NewInt: type, comptime new_endian: Endian) PackedIntSliceEndian(NewInt, new_endian) {
             return Io.sliceCast(&self.bytes, NewInt, new_endian, 0, int_count);
@@ -336,7 +336,7 @@ pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: Endian) type {
         }
 
         /// Create a PackedIntSliceEndian of the slice using `NewInt` as the integer type
-        /// and `new_endian` as the new endianess. `NewInt`'s bit width must fit evenly
+        /// and `new_endian` as the new endianness. `NewInt`'s bit width must fit evenly
         /// within the slice's `Int`'s total bits.
         pub fn sliceCastEndian(self: Self, comptime NewInt: type, comptime new_endian: Endian) PackedIntSliceEndian(NewInt, new_endian) {
             return Io.sliceCast(self.bytes, NewInt, new_endian, self.bit_offset, self.len);
