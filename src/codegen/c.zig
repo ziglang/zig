@@ -5774,6 +5774,7 @@ fn airPtrToInt(f: *Function, inst: Air.Inst.Index) !CValue {
     const un_op = f.air.instructions.items(.data)[inst].un_op;
 
     const operand = try f.resolveInst(un_op);
+    const operand_ty = f.air.typeOf(un_op);
     try reap(f, inst, &.{un_op});
     const inst_ty = f.air.typeOfIndex(inst);
     const writer = f.object.writer();
@@ -5783,7 +5784,11 @@ fn airPtrToInt(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(" = (");
     try f.renderType(writer, inst_ty);
     try writer.writeByte(')');
-    try f.writeCValue(writer, operand, .Other);
+    if (operand_ty.isSlice()) {
+        try f.writeCValueMember(writer, operand, .{ .identifier = "len" });
+    } else {
+        try f.writeCValue(writer, operand, .Other);
+    }
     try writer.writeAll(";\n");
     return local;
 }
@@ -6176,6 +6181,14 @@ fn airAtomicStore(f: *Function, inst: Air.Inst.Index, order: [*:0]const u8) !CVa
     return .none;
 }
 
+fn writeSliceOrPtr(f: *Function, writer: anytype, ptr: CValue, ptr_ty: Type) !void {
+    if (ptr_ty.isSlice()) {
+        try f.writeCValueMember(writer, ptr, .{ .identifier = "ptr" });
+    } else {
+        try f.writeCValue(writer, ptr, .FunctionArgument);
+    }
+}
+
 fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
     const dest_ty = f.air.typeOf(bin_op.lhs);
@@ -6239,11 +6252,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
         try writer.writeAll(" += ");
         try f.object.dg.renderValue(writer, Type.usize, Value.one, .Other);
         try writer.writeAll(") (");
-        switch (dest_ty.ptrSize()) {
-            .Slice => try f.writeCValueMember(writer, dest_slice, .{ .identifier = "ptr" }),
-            .One => try f.writeCValue(writer, dest_slice, .FunctionArgument),
-            .Many, .C => unreachable,
-        }
+        try writeSliceOrPtr(f, writer, dest_slice, dest_ty);
         try writer.writeAll(")[");
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll("] = ");
@@ -6282,22 +6291,41 @@ fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
-    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
-    const extra = f.air.extraData(Air.Bin, pl_op.payload).data;
-    const dest_ptr = try f.resolveInst(pl_op.operand);
-    const src_ptr = try f.resolveInst(extra.lhs);
-    const len = try f.resolveInst(extra.rhs);
-    try reap(f, inst, &.{ pl_op.operand, extra.lhs, extra.rhs });
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const dest_ptr = try f.resolveInst(bin_op.lhs);
+    const src_ptr = try f.resolveInst(bin_op.rhs);
+    const dest_ty = f.air.typeOf(bin_op.lhs);
+    const src_ty = f.air.typeOf(bin_op.rhs);
+    const target = f.object.dg.module.getTarget();
     const writer = f.object.writer();
 
     try writer.writeAll("memcpy(");
-    try f.writeCValue(writer, dest_ptr, .FunctionArgument);
+    try writeSliceOrPtr(f, writer, dest_ptr, dest_ty);
     try writer.writeAll(", ");
-    try f.writeCValue(writer, src_ptr, .FunctionArgument);
+    try writeSliceOrPtr(f, writer, src_ptr, src_ty);
     try writer.writeAll(", ");
-    try f.writeCValue(writer, len, .FunctionArgument);
-    try writer.writeAll(");\n");
+    switch (dest_ty.ptrSize()) {
+        .Slice => {
+            const elem_ty = dest_ty.childType();
+            const elem_abi_size = elem_ty.abiSize(target);
+            try f.writeCValueMember(writer, dest_ptr, .{ .identifier = "len" });
+            if (elem_abi_size > 1) {
+                try writer.print(" * {d});\n", .{elem_abi_size});
+            } else {
+                try writer.writeAll(");\n");
+            }
+        },
+        .One => {
+            const array_ty = dest_ty.childType();
+            const elem_ty = array_ty.childType();
+            const elem_abi_size = elem_ty.abiSize(target);
+            const len = array_ty.arrayLen() * elem_abi_size;
+            try writer.print("{d});\n", .{len});
+        },
+        .Many, .C => unreachable,
+    }
 
+    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
     return .none;
 }
 
