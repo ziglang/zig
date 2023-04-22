@@ -4148,9 +4148,7 @@ fn airSliceLen(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
-    const len = try func.load(operand, Type.usize, func.ptrSize());
-    const result = try len.toLocal(func, Type.usize);
-    func.finishAir(inst, result, &.{ty_op.operand});
+    func.finishAir(inst, try func.sliceLen(operand), &.{ty_op.operand});
 }
 
 fn airSliceElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -4208,9 +4206,17 @@ fn airSliceElemPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airSlicePtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
     const operand = try func.resolveInst(ty_op.operand);
+    func.finishAir(inst, try func.slicePtr(operand), &.{ty_op.operand});
+}
+
+fn slicePtr(func: *CodeGen, operand: WValue) InnerError!WValue {
     const ptr = try func.load(operand, Type.usize, 0);
-    const result = try ptr.toLocal(func, Type.usize);
-    func.finishAir(inst, result, &.{ty_op.operand});
+    return ptr.toLocal(func, Type.usize);
+}
+
+fn sliceLen(func: *CodeGen, operand: WValue) InnerError!WValue {
+    const len = try func.load(operand, Type.usize, func.ptrSize());
+    return len.toLocal(func, Type.usize);
 }
 
 fn airTrunc(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -4274,8 +4280,10 @@ fn airArrayToSlice(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airPtrToInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const un_op = func.air.instructions.items(.data)[inst].un_op;
     const operand = try func.resolveInst(un_op);
-
-    const result = switch (operand) {
+    const ptr_ty = func.air.typeOf(un_op);
+    const result = if (ptr_ty.isSlice())
+        try func.slicePtr(operand)
+    else switch (operand) {
         // for stack offset, return a pointer to this offset.
         .stack_offset => try func.buildPointerOffset(operand, 0, .new),
         else => func.reuseOperand(un_op, operand),
@@ -4376,15 +4384,19 @@ fn airPtrBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
 }
 
 fn airMemset(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pl_op = func.air.instructions.items(.data)[inst].pl_op;
-    const bin_op = func.air.extraData(Air.Bin, pl_op.payload).data;
+    const bin_op = func.air.instructions.items(.data)[inst].bin_op;
 
-    const ptr = try func.resolveInst(pl_op.operand);
-    const value = try func.resolveInst(bin_op.lhs);
-    const len = try func.resolveInst(bin_op.rhs);
+    const ptr = try func.resolveInst(bin_op.lhs);
+    const ptr_ty = func.air.typeOf(bin_op.lhs);
+    const value = try func.resolveInst(bin_op.rhs);
+    const len = switch (ptr_ty.ptrSize()) {
+        .Slice => try func.sliceLen(ptr),
+        .One => @as(WValue, .{ .imm64 = ptr_ty.childType().arrayLen() }),
+        .C, .Many => unreachable,
+    };
     try func.memset(ptr, len, value);
 
-    func.finishAir(inst, .none, &.{ pl_op.operand, bin_op.lhs, bin_op.rhs });
+    func.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
 }
 
 /// Sets a region of memory at `ptr` to the value of `value`
@@ -5155,15 +5167,30 @@ fn airFieldParentPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     func.finishAir(inst, result, &.{extra.field_ptr});
 }
 
-fn airMemcpy(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const pl_op = func.air.instructions.items(.data)[inst].pl_op;
-    const bin_op = func.air.extraData(Air.Bin, pl_op.payload).data;
-    const dst = try func.resolveInst(pl_op.operand);
-    const src = try func.resolveInst(bin_op.lhs);
-    const len = try func.resolveInst(bin_op.rhs);
-    try func.memcpy(dst, src, len);
+fn sliceOrArrayPtr(func: *CodeGen, ptr: WValue, ptr_ty: Type) InnerError!WValue {
+    if (ptr_ty.isSlice()) {
+        return func.slicePtr(ptr);
+    } else {
+        return ptr;
+    }
+}
 
-    func.finishAir(inst, .none, &.{ pl_op.operand, bin_op.lhs, bin_op.rhs });
+fn airMemcpy(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const bin_op = func.air.instructions.items(.data)[inst].bin_op;
+    const dst = try func.resolveInst(bin_op.lhs);
+    const dst_ty = func.air.typeOf(bin_op.lhs);
+    const src = try func.resolveInst(bin_op.rhs);
+    const src_ty = func.air.typeOf(bin_op.rhs);
+    const len = switch (dst_ty.ptrSize()) {
+        .Slice => try func.sliceLen(dst),
+        .One => @as(WValue, .{ .imm64 = dst_ty.childType().arrayLen() }),
+        .C, .Many => unreachable,
+    };
+    const dst_ptr = try func.sliceOrArrayPtr(dst, dst_ty);
+    const src_ptr = try func.sliceOrArrayPtr(src, src_ty);
+    try func.memcpy(dst_ptr, src_ptr, len);
+
+    func.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
 }
 
 fn airRetAddr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
