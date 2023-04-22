@@ -7,7 +7,7 @@ pub const Stack = @import("atomic/stack.zig").Stack;
 pub const Queue = @import("atomic/queue.zig").Queue;
 pub const Atomic = @import("atomic/Atomic.zig").Atomic;
 
-test "std.atomic" {
+test {
     _ = @import("atomic/stack.zig");
     _ = @import("atomic/queue.zig");
     _ = @import("atomic/Atomic.zig");
