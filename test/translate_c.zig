@@ -3956,4 +3956,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    .name = "foo",
         \\});
     });
+
+    cases.add("string array initializer",
+        \\static const char foo[] = {"bar"};
+    , &[_][]const u8{
+        \\pub const foo: [3:0]u8 = "bar";
+    });
 }

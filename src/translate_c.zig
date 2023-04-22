@@ -2697,6 +2697,13 @@ fn transInitListExprArray(
         return Tag.empty_array.create(c.arena, child_type);
     }
 
+    if (expr.isStringLiteralInit()) {
+        assert(init_count == 1);
+        const init_expr = expr.getInit(0);
+        const string_literal = init_expr.castToStringLiteral().?;
+        return try transStringLiteral(c, scope, string_literal, .used);
+    }
+
     const init_node = if (init_count != 0) blk: {
         const init_list = try c.arena.alloc(Node, init_count);
 
@@ -2714,6 +2721,7 @@ fn transInitListExprArray(
         break :blk init_node;
     } else null;
 
+    assert(expr.hasArrayFiller());
     const filler_val_expr = expr.getArrayFiller();
     const filler_node = try Tag.array_filler.create(c.arena, .{
         .type = child_type,
@@ -4176,6 +4184,17 @@ fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
     try c.global_scope.nodes.append(decl_node);
 }
 
+fn transQualTypeInitializedStringLiteral(c: *Context, elem_ty: Node, string_lit: *const clang.StringLiteral) TypeError!Node {
+    const string_lit_size = string_lit.getLength();
+    const array_size = @intCast(usize, string_lit_size);
+
+    // incomplete array initialized with empty string, will be translated as [1]T{0}
+    // see https://github.com/ziglang/zig/issues/8256
+    if (array_size == 0) return Tag.array_type.create(c.arena, .{ .len = 1, .elem_type = elem_ty });
+
+    return Tag.null_sentinel_array_type.create(c.arena, .{ .len = array_size, .elem_type = elem_ty });
+}
+
 /// Translate a qualtype for a variable with an initializer. This only matters
 /// for incomplete arrays, since the initializer determines the size of the array.
 fn transQualTypeInitialized(
@@ -4193,18 +4212,18 @@ fn transQualTypeInitialized(
         switch (decl_init.getStmtClass()) {
             .StringLiteralClass => {
                 const string_lit = @ptrCast(*const clang.StringLiteral, decl_init);
-                const string_lit_size = string_lit.getLength();
-                const array_size = @intCast(usize, string_lit_size);
-
-                // incomplete array initialized with empty string, will be translated as [1]T{0}
-                // see https://github.com/ziglang/zig/issues/8256
-                if (array_size == 0) return Tag.array_type.create(c.arena, .{ .len = 1, .elem_type = elem_ty });
-
-                return Tag.null_sentinel_array_type.create(c.arena, .{ .len = array_size, .elem_type = elem_ty });
+                return transQualTypeInitializedStringLiteral(c, elem_ty, string_lit);
             },
             .InitListExprClass => {
                 const init_expr = @ptrCast(*const clang.InitListExpr, decl_init);
                 const size = init_expr.getNumInits();
+
+                if (init_expr.isStringLiteralInit()) {
+                    assert(size == 1);
+                    const string_lit = init_expr.getInit(0).castToStringLiteral().?;
+                    return transQualTypeInitializedStringLiteral(c, elem_ty, string_lit);
+                }
+
                 return Tag.array_type.create(c.arena, .{ .len = size, .elem_type = elem_ty });
             },
             else => {},
