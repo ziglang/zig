@@ -238,6 +238,7 @@ pub const DeclGen = struct {
                     else => unreachable,
                 };
                 const spv_decl_index = try self.resolveDecl(fn_decl_index);
+                try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
                 return self.spv.declPtr(spv_decl_index).result_id;
             }
 
@@ -459,7 +460,7 @@ pub const DeclGen = struct {
         /// If full, its flushed.
         partial_word: std.BoundedArray(u8, @sizeOf(Word)) = .{},
         /// The declaration dependencies of the constant we are lowering.
-        decl_deps: std.ArrayList(SpvModule.Decl.Index),
+        decl_deps: std.AutoArrayHashMap(SpvModule.Decl.Index, void),
 
         /// Utility function to get the section that instructions should be lowered to.
         fn section(self: *@This()) *SpvSection {
@@ -582,14 +583,15 @@ pub const DeclGen = struct {
                     // just generate an empty pointer. Function pointers are represented by usize for now,
                     // though.
                     try self.addInt(Type.usize, Value.initTag(.zero));
+                    // TODO: Add dependency
                     return;
                 },
                 .extern_fn => unreachable, // TODO
                 else => {
                     const result_id = dg.spv.allocId();
-                    log.debug("addDeclRef {s} = {}", .{ decl.name, result_id.id });
+                    log.debug("addDeclRef: id = {}, index = {}, name = {s}", .{ result_id.id, @enumToInt(spv_decl_index), decl.name });
 
-                    try self.decl_deps.append(spv_decl_index);
+                    try self.decl_deps.put(spv_decl_index, {});
 
                     const decl_id = dg.spv.declPtr(spv_decl_index).result_id;
                     // TODO: Do we need a storage class cast here?
@@ -861,7 +863,8 @@ pub const DeclGen = struct {
 
         assert(storage_class != .Generic and storage_class != .Function);
 
-        log.debug("lowerIndirectConstant: ty = {}, val = {}", .{ ty.fmt(self.module), val.fmtDebug() });
+        const var_id = self.spv.allocId();
+        log.debug("lowerIndirectConstant: id = {}, index = {}, ty = {}, val = {}", .{ var_id.id, @enumToInt(spv_decl_index), ty.fmt(self.module), val.fmtDebug() });
 
         const section = &self.spv.globals.section;
 
@@ -897,7 +900,7 @@ pub const DeclGen = struct {
             .u32_ty_id = self.typeId(u32_ty_ref),
             .members = std.ArrayList(SpvType.Payload.Struct.Member).init(self.gpa),
             .initializers = std.ArrayList(IdRef).init(self.gpa),
-            .decl_deps = std.ArrayList(SpvModule.Decl.Index).init(self.gpa),
+            .decl_deps = std.AutoArrayHashMap(SpvModule.Decl.Index, void).init(self.gpa),
         };
 
         defer icl.members.deinit();
@@ -917,7 +920,6 @@ pub const DeclGen = struct {
             .constituents = icl.initializers.items,
         });
 
-        const var_id = self.spv.allocId();
         self.spv.globalPtr(spv_decl_index).?.result_id = var_id;
         try section.emit(self.spv.gpa, .OpVariable, .{
             .id_result_type = self.typeId(ptr_constant_struct_ty_ref),
@@ -951,7 +953,7 @@ pub const DeclGen = struct {
             });
         }
 
-        try self.spv.declareDeclDeps(spv_decl_index, icl.decl_deps.items);
+        try self.spv.declareDeclDeps(spv_decl_index, icl.decl_deps.keys());
         self.spv.endGlobal(spv_decl_index, begin_inst);
     }
 
@@ -1007,7 +1009,8 @@ pub const DeclGen = struct {
                     false,
                     alignment,
                 );
-                try self.func.decl_deps.append(self.spv.gpa, spv_decl_index);
+                log.debug("indirect constant: index = {}", .{@enumToInt(spv_decl_index)});
+                try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
 
                 try self.func.body.emit(self.spv.gpa, .OpLoad, .{
                     .id_result_type = result_ty_id,
@@ -1471,7 +1474,7 @@ pub const DeclGen = struct {
         const spv_decl_index = try self.resolveDecl(self.decl_index);
 
         const decl_id = self.spv.declPtr(spv_decl_index).result_id;
-        log.debug("genDecl {s} = {}", .{ decl.name, decl_id });
+        log.debug("genDecl: id = {}, index = {}, name = {s}", .{ decl_id.id, @enumToInt(spv_decl_index), decl.name });
 
         if (decl.val.castTag(.function)) |_| {
             assert(decl.ty.zigTypeTag() == .Fn);
