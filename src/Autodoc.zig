@@ -4076,7 +4076,7 @@ fn analyzeFancyFunction(
         else => null,
     };
 
-    // if we're analyzing a funcion signature (ie without body), we
+    // if we're analyzing a function signature (ie without body), we
     // actually don't have an ast_node reserved for us, but since
     // we don't have a name, we don't need it.
     const src = if (fn_info.body.len == 0) 0 else self_ast_node_index;
@@ -4229,7 +4229,7 @@ fn analyzeFunction(
         } else break :blk ret_type_ref;
     };
 
-    // if we're analyzing a funcion signature (ie without body), we
+    // if we're analyzing a function signature (ie without body), we
     // actually don't have an ast_node reserved for us, but since
     // we don't have a name, we don't need it.
     const src = if (fn_info.body.len == 0) 0 else self_ast_node_index;

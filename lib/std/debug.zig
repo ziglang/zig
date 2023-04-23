@@ -651,6 +651,8 @@ pub fn writeCurrentStackTraceWindows(
     }
 }
 
+/// Provides simple functionality for manipulating the terminal in some way,
+/// for debugging purposes, such as coloring text, etc.
 pub const TTY = struct {
     pub const Color = enum {
         Red,

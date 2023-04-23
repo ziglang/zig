@@ -1,4 +1,4 @@
-//! Implements URI parsing roughly adhering to <https://tools.ietf.org/html/rfc3986>.
+//! Uniform Resource Identifier (URI) parsing roughly adhering to <https://tools.ietf.org/html/rfc3986>.
 //! Does not do perfect grammar and character class checking, but should be robust against URIs in the wild.
 
 const Uri = @This();
