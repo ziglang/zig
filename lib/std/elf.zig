@@ -221,75 +221,138 @@ pub const DT_IA_64_NUM = 1;
 
 pub const DT_NIOS2_GP = 0x70000002;
 
+/// Program header table entry unused
 pub const PT_NULL = 0;
+/// Loadable program segment
 pub const PT_LOAD = 1;
+/// Dynamic linking information
 pub const PT_DYNAMIC = 2;
+/// Program interpreter
 pub const PT_INTERP = 3;
+/// Auxiliary information
 pub const PT_NOTE = 4;
+/// Reserved
 pub const PT_SHLIB = 5;
+/// Entry for header table itself
 pub const PT_PHDR = 6;
+/// Thread-local storage segment
 pub const PT_TLS = 7;
+/// Number of defined types
 pub const PT_NUM = 8;
+/// Start of OS-specific
 pub const PT_LOOS = 0x60000000;
+/// GCC .eh_frame_hdr segment
 pub const PT_GNU_EH_FRAME = 0x6474e550;
+/// Indicates stack executability
 pub const PT_GNU_STACK = 0x6474e551;
+/// Read-only after relocation
 pub const PT_GNU_RELRO = 0x6474e552;
 pub const PT_LOSUNW = 0x6ffffffa;
+/// Sun specific segment
 pub const PT_SUNWBSS = 0x6ffffffa;
+/// Stack segment
 pub const PT_SUNWSTACK = 0x6ffffffb;
 pub const PT_HISUNW = 0x6fffffff;
+/// End of OS-specific
 pub const PT_HIOS = 0x6fffffff;
+/// Start of processor-specific
 pub const PT_LOPROC = 0x70000000;
+/// End of processor-specific
 pub const PT_HIPROC = 0x7fffffff;
 
+/// Section header table entry unused
 pub const SHT_NULL = 0;
+/// Program data
 pub const SHT_PROGBITS = 1;
+/// Symbol table
 pub const SHT_SYMTAB = 2;
+/// String table
 pub const SHT_STRTAB = 3;
+/// Relocation entries with addends
 pub const SHT_RELA = 4;
+/// Symbol hash table
 pub const SHT_HASH = 5;
+/// Dynamic linking information
 pub const SHT_DYNAMIC = 6;
+/// Notes
 pub const SHT_NOTE = 7;
+/// Program space with no data (bss)
 pub const SHT_NOBITS = 8;
+/// Relocation entries, no addends
 pub const SHT_REL = 9;
+/// Reserved
 pub const SHT_SHLIB = 10;
+/// Dynamic linker symbol table
 pub const SHT_DYNSYM = 11;
+/// Array of constructors
 pub const SHT_INIT_ARRAY = 14;
+/// Array of destructors
 pub const SHT_FINI_ARRAY = 15;
+/// Array of pre-constructors
 pub const SHT_PREINIT_ARRAY = 16;
+/// Section group
 pub const SHT_GROUP = 17;
+/// Extended section indices
 pub const SHT_SYMTAB_SHNDX = 18;
+/// Start of OS-specific
 pub const SHT_LOOS = 0x60000000;
+/// End of OS-specific
 pub const SHT_HIOS = 0x6fffffff;
+/// Start of processor-specific
 pub const SHT_LOPROC = 0x70000000;
+/// End of processor-specific
 pub const SHT_HIPROC = 0x7fffffff;
+/// Start of application-specific
 pub const SHT_LOUSER = 0x80000000;
+/// End of application-specific
 pub const SHT_HIUSER = 0xffffffff;
 
+/// Local symbol
 pub const STB_LOCAL = 0;
+/// Global symbol
 pub const STB_GLOBAL = 1;
+/// Weak symbol
 pub const STB_WEAK = 2;
+/// Number of defined types
 pub const STB_NUM = 3;
+/// Start of OS-specific
 pub const STB_LOOS = 10;
+/// Unique symbol
 pub const STB_GNU_UNIQUE = 10;
+/// End of OS-specific
 pub const STB_HIOS = 12;
+/// Start of processor-specific
 pub const STB_LOPROC = 13;
+/// End of processor-specific
 pub const STB_HIPROC = 15;
 
 pub const STB_MIPS_SPLIT_COMMON = 13;
 
+/// Symbol type is unspecified
 pub const STT_NOTYPE = 0;
+/// Symbol is a data object
 pub const STT_OBJECT = 1;
+/// Symbol is a code object
 pub const STT_FUNC = 2;
+/// Symbol associated with a section
 pub const STT_SECTION = 3;
+/// Symbol's name is file name
 pub const STT_FILE = 4;
+/// Symbol is a common data object
 pub const STT_COMMON = 5;
+/// Symbol is thread-local data object
 pub const STT_TLS = 6;
+/// Number of defined types
 pub const STT_NUM = 7;
+/// Start of OS-specific
 pub const STT_LOOS = 10;
+/// Symbol is indirect code object
 pub const STT_GNU_IFUNC = 10;
+/// End of OS-specific
 pub const STT_HIOS = 12;
+/// Start of processor-specific
 pub const STT_LOPROC = 13;
+/// End of processor-specific
 pub const STT_HIPROC = 15;
 
 pub const STT_SPARC_REGISTER = 13;
@@ -656,6 +719,13 @@ pub const Elf32_Sym = extern struct {
     st_info: u8,
     st_other: u8,
     st_shndx: Elf32_Section,
+
+    pub inline fn st_type(self: @This()) u4 {
+        return @truncate(u4, self.st_info);
+    }
+    pub inline fn st_bind(self: @This()) u4 {
+        return @truncate(u4, self.st_info >> 4);
+    }
 };
 pub const Elf64_Sym = extern struct {
     st_name: Elf64_Word,
@@ -664,6 +734,13 @@ pub const Elf64_Sym = extern struct {
     st_shndx: Elf64_Section,
     st_value: Elf64_Addr,
     st_size: Elf64_Xword,
+
+    pub inline fn st_type(self: @This()) u4 {
+        return @truncate(u4, self.st_info);
+    }
+    pub inline fn st_bind(self: @This()) u4 {
+        return @truncate(u4, self.st_info >> 4);
+    }
 };
 pub const Elf32_Syminfo = extern struct {
     si_boundto: Elf32_Half,
@@ -681,7 +758,7 @@ pub const Elf32_Rel = extern struct {
         return @truncate(u24, self.r_info >> 8);
     }
     pub inline fn r_type(self: @This()) u8 {
-        return @truncate(u8, self.r_info & 0xff);
+        return @truncate(u8, self.r_info);
     }
 };
 pub const Elf64_Rel = extern struct {
@@ -692,7 +769,7 @@ pub const Elf64_Rel = extern struct {
         return @truncate(u32, self.r_info >> 32);
     }
     pub inline fn r_type(self: @This()) u32 {
-        return @truncate(u32, self.r_info & 0xffffffff);
+        return @truncate(u32, self.r_info);
     }
 };
 pub const Elf32_Rela = extern struct {
@@ -704,7 +781,7 @@ pub const Elf32_Rela = extern struct {
         return @truncate(u24, self.r_info >> 8);
     }
     pub inline fn r_type(self: @This()) u8 {
-        return @truncate(u8, self.r_info & 0xff);
+        return @truncate(u8, self.r_info);
     }
 };
 pub const Elf64_Rela = extern struct {
@@ -716,7 +793,7 @@ pub const Elf64_Rela = extern struct {
         return @truncate(u32, self.r_info >> 32);
     }
     pub inline fn r_type(self: @This()) u32 {
-        return @truncate(u32, self.r_info & 0xffffffff);
+        return @truncate(u32, self.r_info);
     }
 };
 pub const Elf32_Dyn = extern struct {
@@ -1630,14 +1707,20 @@ pub const PF_MASKOS = 0x0ff00000;
 /// Bits for processor-specific semantics.
 pub const PF_MASKPROC = 0xf0000000;
 
-// Special section indexes used in Elf{32,64}_Sym.
+/// Undefined section
 pub const SHN_UNDEF = 0;
+/// Start of reserved indices
 pub const SHN_LORESERVE = 0xff00;
+/// Start of processor-specific
 pub const SHN_LOPROC = 0xff00;
+/// End of processor-specific
 pub const SHN_HIPROC = 0xff1f;
 pub const SHN_LIVEPATCH = 0xff20;
+/// Associated symbol is absolute
 pub const SHN_ABS = 0xfff1;
+/// Associated symbol is common
 pub const SHN_COMMON = 0xfff2;
+/// End of reserved indices
 pub const SHN_HIRESERVE = 0xffff;
 
 /// AMD x86-64 relocations.
