@@ -615,3 +615,15 @@ test "pointer to container level packed struct field" {
     @ptrCast(*S, &S.arr[0]).other_bits.enable_3 = true;
     try expect(S.arr[0] == 0x10000000);
 }
+
+test "store undefined to packed result location" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    var x: u4 = 0;
+    var s = packed struct { x: u4, y: u4 }{ .x = x, .y = if (x > 0) x else undefined };
+    try expectEqual(x, s.x);
+}

@@ -1141,7 +1141,7 @@ test "setName, getName" {
     thread.join();
 }
 
-test "std.Thread" {
+test {
     // Doesn't use testing.refAllDecls() since that would pull in the compileError spinLoopHint.
     _ = Futex;
     _ = ResetEvent;

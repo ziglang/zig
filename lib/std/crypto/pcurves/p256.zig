@@ -473,6 +473,6 @@ pub const AffineCoordinates = struct {
     }
 };
 
-test "p256" {
+test {
     _ = @import("tests/p256.zig");
 }

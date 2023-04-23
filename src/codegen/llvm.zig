@@ -10135,14 +10135,14 @@ fn toLlvmAtomicRmwBinOp(
 ) llvm.AtomicRMWBinOp {
     return switch (op) {
         .Xchg => .Xchg,
-        .Add => if (is_float) llvm.AtomicRMWBinOp.FAdd else return .Add,
-        .Sub => if (is_float) llvm.AtomicRMWBinOp.FSub else return .Sub,
+        .Add => if (is_float) .FAdd else return .Add,
+        .Sub => if (is_float) .FSub else return .Sub,
         .And => .And,
         .Nand => .Nand,
         .Or => .Or,
         .Xor => .Xor,
-        .Max => if (is_signed) llvm.AtomicRMWBinOp.Max else return .UMax,
-        .Min => if (is_signed) llvm.AtomicRMWBinOp.Min else return .UMin,
+        .Max => if (is_float) .FMax else if (is_signed) .Max else return .UMax,
+        .Min => if (is_float) .FMin else if (is_signed) .Min else return .UMin,
     };
 }
 
