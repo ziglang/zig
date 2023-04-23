@@ -3,6 +3,7 @@ const JsonScanner = @import("./scanner.zig").JsonScanner;
 const allocatingJsonReader = @import("./scanner.zig").allocatingJsonReader;
 const AllocatingJsonReader = @import("./scanner.zig").AllocatingJsonReader;
 const AllocatedToken = @import("./scanner.zig").AllocatedToken;
+const JsonError = @import("./scanner.zig").JsonError;
 
 const example_document_str =
     \\{
@@ -84,6 +85,82 @@ test "numbers" {
     }
 }
 
+const string_test_cases = .{
+    // The left is JSON without the "quotes".
+    // The right is the expected unescaped content.
+    .{"", ""},
+    .{"\\\\", "\\"},
+    .{"a\\\\b", "a\\b"},
+    .{"a\\\"b", "a\"b"},
+    .{"\\n", "\n"},
+    .{"\\u000a", "\n"},
+    .{"𝄞", "\u{1D11E}"},
+    .{"\\uD834\\uDD1E", "\u{1D11E}"},
+    .{"\\uff20", "＠"},
+};
+
+test "strings" {
+    inline for (string_test_cases) |tuple| {
+        var stream = std.io.fixedBufferStream("\"" ++ tuple[0] ++ "\"");
+        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena.deinit();
+        var json_reader = allocatingJsonReader(std.testing.allocator, arena.allocator(), stream.reader());
+        defer json_reader.deinit();
+
+        const token = try json_reader.next();
+        const value = token.string; // assert this is a string
+        try std.testing.expectEqualStrings(tuple[1], value);
+
+        try std.testing.expectEqual(AllocatedToken.end_of_document, try json_reader.next());
+    }
+}
+
+const nesting_test_cases = .{
+    .{null, "[]"},
+    .{null, "{}"},
+    .{error.SyntaxError, "[}"},
+    .{error.SyntaxError, "{]"},
+    .{null, "[" ** 1000 ++ "]" ** 1000},
+    .{null, "{\"\":" ** 1000 ++ "0" ++ "}" ** 1000},
+    .{error.SyntaxError, "[" ** 1000 ++ "]" ** 999 ++ "}"},
+    .{error.SyntaxError, "{\"\":" ** 1000 ++ "0" ++ "}" ** 999 ++ "]"},
+    .{error.SyntaxError, "[" ** 1000 ++ "]" ** 1001},
+    .{error.SyntaxError, "{\"\":" ** 1000 ++ "0" ++ "}" ** 1001},
+    .{error.UnexpectedEndOfDocument, "[" ** 1000 ++ "]" ** 999},
+    .{error.UnexpectedEndOfDocument, "{\"\":" ** 1000 ++ "0" ++ "}" ** 999},
+};
+
+test "nesting" {
+    inline for (nesting_test_cases) |tuple| {
+        const maybe_error = tuple[0];
+        const document_str = tuple[1];
+
+        expectMaybeError(document_str, maybe_error) catch |err| {
+            std.debug.print("in json document: {s}\n", .{document_str});
+            return err;
+        };
+    }
+}
+
+fn expectMaybeError(document_str: []const u8, maybe_error: ?JsonError) !void {
+    var scanner = JsonScanner.init(std.testing.allocator);
+    defer scanner.deinit();
+
+    scanner.feedInput(document_str);
+    scanner.endInput();
+
+    while (true) {
+        const token = scanner.next() catch |err| {
+            if (maybe_error) |expected_err| {
+                if (err == expected_err) return;
+            }
+            return err;
+        };
+        if (token == .end_of_document) break;
+    }
+    if (maybe_error != null) return error.ExpectedError;
+}
+
 fn expectEqualTokens(expected_token: AllocatedToken, actual_token: AllocatedToken) !void {
     try std.testing.expectEqual(std.meta.activeTag(expected_token), std.meta.activeTag(actual_token));
     switch (expected_token) {
@@ -137,5 +214,8 @@ test "BufferUnderrun" {
     try testTinyBufferSize(example_document_str);
     for (number_test_items) |number_str| {
         try testTinyBufferSize(number_str);
+    }
+    inline for (string_test_cases) |tuple| {
+        try testTinyBufferSize("\"" ++ tuple[0] ++ "\"");
     }
 }

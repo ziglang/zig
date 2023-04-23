@@ -711,6 +711,7 @@ pub const JsonScanner = struct {
                     }
                     self.cursor += 1;
                     self.state = .string_backslash_u_1;
+                    continue :state_loop;
                 },
                 .string_backslash_u_1 => {
                     try self.expectMoreContent();
@@ -729,6 +730,7 @@ pub const JsonScanner = struct {
                     }
                     self.cursor += 1;
                     self.state = .string_backslash_u_2;
+                    continue :state_loop;
                 },
                 .string_backslash_u_2 => {
                     try self.expectMoreContent();
@@ -747,6 +749,7 @@ pub const JsonScanner = struct {
                     }
                     self.cursor += 1;
                     self.state = .string_backslash_u_3;
+                    continue :state_loop;
                 },
                 .string_backslash_u_3 => {
                     try self.expectMoreContent();
@@ -805,7 +808,7 @@ pub const JsonScanner = struct {
                 .string_surrogate_half_backslash_u => {
                     try self.expectMoreContent();
                     switch (self.input[self.cursor]) {
-                        'B', 'b' => {
+                        'D', 'd' => {
                             self.cursor += 1;
                             self.state = .string_surrogate_half_backslash_u_1;
                             continue :state_loop;
