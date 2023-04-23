@@ -2,12 +2,12 @@ pub export fn entry() void {
     var buf: [5]u8 = .{ 1, 2, 3, 4, 5 };
     var slice: []u8 = &buf;
     const a: u32 = 1234;
-    @memcpy(slice, @ptrCast([*]const u8, &a), 4);
+    @memcpy(slice, @ptrCast([*]const u8, &a));
 }
 pub export fn entry1() void {
     var buf: [5]u8 = .{ 1, 2, 3, 4, 5 };
     var ptr: *u8 = &buf[0];
-    @memcpy(ptr, 0, 4);
+    @memcpy(ptr, 0);
 }
 
 // error

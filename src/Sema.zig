@@ -21959,16 +21959,43 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const dest_ptr_ty = sema.typeOf(dest_ptr);
     try checkSliceOrArrayType(sema, block, dest_src, dest_ptr_ty);
 
-    const elem_ty = dest_ptr_ty.elemType2();
-    const elem = try sema.coerce(block, elem_ty, uncoerced_elem, value_src);
+    const dest_elem_ty = dest_ptr_ty.elemType2();
+    const target = sema.mod.getTarget();
 
     const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |ptr_val| rs: {
         if (!ptr_val.isComptimeMutablePtr()) break :rs dest_src;
-        if (try sema.resolveMaybeUndefVal(elem)) |elem_val| {
-            _ = elem_val;
-            return sema.fail(block, src, "TODO: @memset at comptime", .{});
+        if (try sema.resolveMaybeUndefVal(uncoerced_elem)) |_| {
+            const len_air_ref = try sema.fieldVal(block, src, dest_ptr, "len", dest_src);
+            const len_val = (try sema.resolveDefinedValue(block, dest_src, len_air_ref)) orelse
+                break :rs dest_src;
+            const len_u64 = (try len_val.getUnsignedIntAdvanced(target, sema)).?;
+            const len = try sema.usizeCast(block, dest_src, len_u64);
+            for (0..len) |i| {
+                const elem_index = try sema.addIntUnsigned(Type.usize, i);
+                const elem_ptr = try sema.elemPtr(
+                    block,
+                    src,
+                    dest_ptr,
+                    elem_index,
+                    src,
+                    true, // init
+                    false, // oob_safety
+                );
+                try sema.storePtr2(
+                    block,
+                    src,
+                    elem_ptr,
+                    dest_src,
+                    uncoerced_elem,
+                    value_src,
+                    .store,
+                );
+            }
+            return;
         } else break :rs value_src;
     } else dest_src;
+
+    const elem = try sema.coerce(block, dest_elem_ty, uncoerced_elem, value_src);
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
     _ = try block.addInst(.{
