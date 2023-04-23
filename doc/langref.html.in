@@ -4667,6 +4667,29 @@ test "for basics" {
         sum2 += @intCast(i32, i);
     }
     try expect(sum2 == 10);
+
+    // To iterate over consecutive integers, use the range syntax.
+    // Unbounded range is always a compile error.
+    var sum3 : usize = 0;
+    for (0..5) |i| {
+        sum3 += i;
+    }
+    try expect(sum3 == 10);
+}
+
+test "multi object for" {
+    const items = [_]usize{ 1, 2, 3 };
+    const items2 = [_]usize{ 4, 5, 6 };
+    var count: usize = 0;
+
+    // Iterate over multiple objects.
+    // All lengths must be equal at the start of the loop, otherwise detectable
+    // illegal behavior occurs.
+    for (items, items2) |i, j| {
+        count += i + j;
+    }
+
+    try expect(count == 21);
 }
 
 test "for reference" {
@@ -4710,8 +4733,8 @@ const expect = std.testing.expect;
 
 test "nested break" {
     var count: usize = 0;
-    outer: for ([_]i32{ 1, 2, 3, 4, 5 }) |_| {
-        for ([_]i32{ 1, 2, 3, 4, 5 }) |_| {
+    outer: for (1..6) |_| {
+        for (1..6) |_| {
             count += 1;
             break :outer;
         }
@@ -4721,8 +4744,8 @@ test "nested break" {
 
 test "nested continue" {
     var count: usize = 0;
-    outer: for ([_]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }) |_| {
-        for ([_]i32{ 1, 2, 3, 4, 5 }) |_| {
+    outer: for (1..9) |_| {
+        for (1..6) |_| {
             count += 1;
             continue :outer;
         }
