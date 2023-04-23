@@ -6626,7 +6626,7 @@ pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
         .safety_check_formatted => mod.comp.bin_file.options.use_llvm,
         .error_return_trace => mod.comp.bin_file.options.use_llvm,
         .is_named_enum_value => mod.comp.bin_file.options.use_llvm,
-        .error_set_has_value => mod.comp.bin_file.options.use_llvm,
+        .error_set_has_value => mod.comp.bin_file.options.use_llvm or mod.comp.bin_file.options.target.isWasm(),
         .field_reordering => mod.comp.bin_file.options.use_llvm,
     };
 }
