@@ -46,4 +46,5 @@ test {
     _ = xz;
     _ = zlib;
     _ = zstd;
+    _ = @import("compress/tar.zig");
 }

@@ -600,7 +600,7 @@ fn unpackTarball(
     var decompress = try compression.decompress(gpa, br.reader());
     defer decompress.deinit();
 
-    try std.tar.pipeToFileSystem(out_dir, decompress.reader(), .{
+    try std.tar.pipeToFileSystem(gpa, out_dir, decompress.reader(), .{
         .strip_components = 1,
         // TODO: we would like to set this to executable_bit_only, but two
         // things need to happen before that:
