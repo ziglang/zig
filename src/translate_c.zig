@@ -19,12 +19,6 @@ const TypeError = Error || error{UnsupportedType};
 const TransError = TypeError || error{UnsupportedTranslation};
 
 const SymbolTable = std.StringArrayHashMap(Node);
-const Mangle = struct {
-    alias: []const u8,
-    name: []const u8,
-    enabled: bool,
-};
-const MangleList = std.ArrayList(Mangle);
 const AliasList = std.ArrayList(struct {
     alias: []const u8,
     name: []const u8,
@@ -70,7 +64,7 @@ const Scope = struct {
     const Block = struct {
         base: Scope,
         statements: std.ArrayList(Node),
-        variables: MangleList,
+        variables: AliasList,
         mangle_count: u32 = 0,
         label: ?[]const u8 = null,
 
@@ -96,7 +90,7 @@ const Scope = struct {
                     .parent = parent,
                 },
                 .statements = std.ArrayList(Node).init(c.gpa),
-                .variables = MangleList.init(c.gpa),
+                .variables = AliasList.init(c.gpa),
                 .variable_discards = std.StringArrayHashMap(*ast.Payload.Discard).init(c.gpa),
             };
             if (labeled) {
@@ -134,8 +128,17 @@ const Scope = struct {
 
         /// Given the desired name, return a name that does not shadow anything from outer scopes.
         /// Inserts the returned name into the scope.
-        /// The name will not be visible to callers of getAlias until it is enabled.
-        fn reserveMangledName(scope: *Block, c: *Context, name: []const u8) !*Mangle {
+        /// The name will not be visible to callers of getAlias.
+        fn reserveMangledName(scope: *Block, c: *Context, name: []const u8) ![]const u8 {
+            return scope.createMangledName(c, name, true);
+        }
+
+        /// Same as reserveMangledName, but enables the alias immediately.
+        fn makeMangledName(scope: *Block, c: *Context, name: []const u8) ![]const u8 {
+            return scope.createMangledName(c, name, false);
+        }
+
+        fn createMangledName(scope: *Block, c: *Context, name: []const u8, reservation: bool) ![]const u8 {
             const name_copy = try c.arena.dupe(u8, name);
             var proposed_name = name_copy;
             while (scope.contains(proposed_name)) {
@@ -143,21 +146,18 @@ const Scope = struct {
                 proposed_name = try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ name, scope.mangle_count });
             }
             const new_mangle = try scope.variables.addOne();
-            new_mangle.* = .{ .name = name_copy, .alias = proposed_name, .enabled = false };
-            return new_mangle;
-        }
-
-        /// Same as reserveMangledName, but enables the alias immediately.
-        fn makeMangledName(scope: *Block, c: *Context, name: []const u8) ![]const u8 {
-            const mangle = try reserveMangledName(scope, c, name);
-            mangle.enabled = true;
-            return mangle.alias;
+            if (reservation) {
+                new_mangle.* = .{ .name = name_copy, .alias = name_copy };
+            } else {
+                new_mangle.* = .{ .name = name_copy, .alias = proposed_name };
+            }
+            return proposed_name;
         }
 
         fn getAlias(scope: *Block, name: []const u8) []const u8 {
             for (scope.variables.items) |p| {
                 if (mem.eql(u8, p.name, name))
-                    return if (p.enabled) p.alias else p.name;
+                    return p.alias;
             }
             return scope.base.parent.?.getAlias(name);
         }
@@ -3825,10 +3825,10 @@ fn transCreatePreCrement(
     const ref = try block_scope.reserveMangledName(c, "ref");
     const expr = try transExpr(c, &block_scope.base, op_expr, .used);
     const addr_of = try Tag.address_of.create(c.arena, expr);
-    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = ref.alias, .init = addr_of });
+    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = ref, .init = addr_of });
     try block_scope.statements.append(ref_decl);
 
-    const lhs_node = try Tag.identifier.create(c.arena, ref.alias);
+    const lhs_node = try Tag.identifier.create(c.arena, ref);
     const ref_node = try Tag.deref.create(c.arena, lhs_node);
     const node = try transCreateNodeInfixOp(c, op, ref_node, Tag.one_literal.init(), .used);
     try block_scope.statements.append(node);
@@ -3873,13 +3873,13 @@ fn transCreatePostCrement(
 
     const expr = try transExpr(c, &block_scope.base, op_expr, .used);
     const addr_of = try Tag.address_of.create(c.arena, expr);
-    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = ref.alias, .init = addr_of });
+    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = ref, .init = addr_of });
     try block_scope.statements.append(ref_decl);
 
-    const lhs_node = try Tag.identifier.create(c.arena, ref.alias);
+    const lhs_node = try Tag.identifier.create(c.arena, ref);
     const ref_node = try Tag.deref.create(c.arena, lhs_node);
 
-    const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp.alias, .init = ref_node });
+    const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = ref_node });
     try block_scope.statements.append(tmp_decl);
 
     const node = try transCreateNodeInfixOp(c, op, ref_node, Tag.one_literal.init(), .used);
@@ -3887,7 +3887,7 @@ fn transCreatePostCrement(
 
     const break_node = try Tag.break_val.create(c.arena, .{
         .label = block_scope.label,
-        .val = try Tag.identifier.create(c.arena, tmp.alias),
+        .val = try Tag.identifier.create(c.arena, tmp),
     });
     try block_scope.statements.append(break_node);
     return block_scope.complete(c);
@@ -3987,10 +3987,10 @@ fn transCreateCompoundAssign(
 
     const expr = try transExpr(c, &block_scope.base, lhs, .used);
     const addr_of = try Tag.address_of.create(c.arena, expr);
-    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = ref.alias, .init = addr_of });
+    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = ref, .init = addr_of });
     try block_scope.statements.append(ref_decl);
 
-    const lhs_node = try Tag.identifier.create(c.arena, ref.alias);
+    const lhs_node = try Tag.identifier.create(c.arena, ref);
     const ref_node = try Tag.deref.create(c.arena, lhs_node);
 
     var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
@@ -4115,7 +4115,7 @@ fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang
 
     const cond_temp = try block_scope.reserveMangledName(c, "cond_temp");
     const init_node = try transExpr(c, &block_scope.base, cond_expr, .used);
-    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = cond_temp.alias, .init = init_node });
+    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = cond_temp, .init = init_node });
     try block_scope.statements.append(ref_decl);
 
     var cond_scope = Scope.Condition{
@@ -4126,7 +4126,7 @@ fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang
     };
     defer cond_scope.deinit();
 
-    const cond_ident = try Tag.identifier.create(c.arena, cond_temp.alias);
+    const cond_ident = try Tag.identifier.create(c.arena, cond_temp);
     const ty = getExprQualType(c, cond_expr).getTypePtr();
     const cond_node = try finishBoolExpr(c, &cond_scope.base, cond_expr.getBeginLoc(), ty, cond_ident, .used);
     var then_body = cond_ident;
@@ -4573,11 +4573,11 @@ fn transCreateNodeAssign(
         rhs_node = try Tag.bool_to_int.create(c.arena, rhs_node);
     }
 
-    const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp.alias, .init = rhs_node });
+    const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = rhs_node });
     try block_scope.statements.append(tmp_decl);
 
     const lhs_node = try transExpr(c, &block_scope.base, lhs, .used);
-    const tmp_ident = try Tag.identifier.create(c.arena, tmp.alias);
+    const tmp_ident = try Tag.identifier.create(c.arena, tmp);
     const assign = try transCreateNodeInfixOp(c, .assign, lhs_node, tmp_ident, .used);
     try block_scope.statements.append(assign);
 
