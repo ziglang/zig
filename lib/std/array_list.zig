@@ -31,7 +31,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
     return struct {
         const Self = @This();
         /// Contents of the list. Pointers to elements in this slice are
-        /// **invalid after resizing operations** on the ArrayList, unless the
+        /// **invalid after resizing operations** on the ArrayList unless the
         /// operation explicitly either: (1) states otherwise or (2) lists the
         /// invalidated pointers.
         ///
@@ -527,7 +527,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
     return struct {
         const Self = @This();
         /// Contents of the list. Pointers to elements in this slice are
-        /// **invalid after resizing operations** on the ArrayList, unless the
+        /// **invalid after resizing operations** on the ArrayList unless the
         /// operation explicitly either: (1) states otherwise or (2) lists the
         /// invalidated pointers.
         ///

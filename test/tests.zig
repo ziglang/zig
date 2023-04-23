@@ -94,14 +94,15 @@ const test_targets = blk: {
             .use_llvm = false,
             .use_lld = false,
         },
-        .{
-            .target = .{
-                .cpu_arch = .aarch64,
-                .os_tag = .linux,
-            },
-            .use_llvm = false,
-            .use_lld = false,
-        },
+        // Doesn't support new liveness
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .aarch64,
+        //        .os_tag = .linux,
+        //    },
+        //    .use_llvm = false,
+        //    .use_lld = false,
+        //},
         .{
             .target = .{
                 .cpu_arch = .wasm32,
@@ -128,15 +129,16 @@ const test_targets = blk: {
         //    .use_llvm = false,
         //    .use_lld = false,
         //},
-        .{
-            .target = .{
-                .cpu_arch = .aarch64,
-                .os_tag = .macos,
-                .abi = .none,
-            },
-            .use_llvm = false,
-            .use_lld = false,
-        },
+        // Doesn't support new liveness
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .aarch64,
+        //        .os_tag = .macos,
+        //        .abi = .none,
+        //    },
+        //    .use_llvm = false,
+        //    .use_lld = false,
+        //},
         .{
             .target = .{
                 .cpu_arch = .x86_64,
@@ -960,13 +962,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
             continue;
 
-        // TODO get std lib tests passing for the C backend
-        if (test_target.target.ofmt == std.Target.ObjectFormat.c and
-            mem.eql(u8, options.name, "std"))
-        {
-            continue;
-        }
-
         const want_this_mode = for (options.optimize_modes) |m| {
             if (m == test_target.optimize_mode) break true;
         } else false;
@@ -1031,6 +1026,8 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                     "-std=c99",
                     "-pedantic",
                     "-Werror",
+                    // TODO stop violating these pedantic errors. spotted everywhere
+                    "-Wno-builtin-requires-header",
                     // TODO stop violating these pedantic errors. spotted on linux
                     "-Wno-address-of-packed-member",
                     "-Wno-gnu-folding-constant",
@@ -1042,10 +1039,21 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                 },
             });
             compile_c.addIncludePath("lib"); // for zig.h
-            if (test_target.link_libc == false and test_target.target.getOsTag() == .windows) {
-                compile_c.subsystem = .Console;
-                compile_c.linkSystemLibrary("kernel32");
-                compile_c.linkSystemLibrary("ntdll");
+            if (test_target.target.getOsTag() == .windows) {
+                if (test_target.link_libc == false) {
+                    compile_c.subsystem = .Console;
+                    compile_c.linkSystemLibrary("kernel32");
+                    compile_c.linkSystemLibrary("ntdll");
+                }
+                if (mem.eql(u8, options.name, "std")) {
+                    if (test_target.link_libc == false) {
+                        compile_c.linkSystemLibrary("shell32");
+                        compile_c.linkSystemLibrary("advapi32");
+                    }
+                    compile_c.linkSystemLibrary("crypt32");
+                    compile_c.linkSystemLibrary("ws2_32");
+                    compile_c.linkSystemLibrary("ole32");
+                }
             }
 
             const run = b.addRunArtifact(compile_c);

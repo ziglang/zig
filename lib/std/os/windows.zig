@@ -870,6 +870,7 @@ pub const DeleteFileError = error{
     Unexpected,
     NotDir,
     IsDir,
+    DirNotEmpty,
 };
 
 pub const DeleteFileOptions = struct {
@@ -879,9 +880,9 @@ pub const DeleteFileOptions = struct {
 
 pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFileError!void {
     const create_options_flags: ULONG = if (options.remove_dir)
-        FILE_DELETE_ON_CLOSE | FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT
+        FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT
     else
-        FILE_DELETE_ON_CLOSE | FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT; // would we ever want to delete the target instead?
+        FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT; // would we ever want to delete the target instead?
 
     const path_len_bytes = @intCast(u16, sub_path_w.len * 2);
     var nt_name = UNICODE_STRING{
@@ -924,7 +925,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         0,
     );
     switch (rc) {
-        .SUCCESS => return CloseHandle(tmp_handle),
+        .SUCCESS => {},
         .OBJECT_NAME_INVALID => unreachable,
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
@@ -932,7 +933,28 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         .FILE_IS_A_DIRECTORY => return error.IsDir,
         .NOT_A_DIRECTORY => return error.NotDir,
         .SHARING_VIOLATION => return error.FileBusy,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .DELETE_PENDING => return,
+        else => return unexpectedStatus(rc),
+    }
+    var file_dispo = FILE_DISPOSITION_INFORMATION{
+        .DeleteFile = TRUE,
+    };
+    rc = ntdll.NtSetInformationFile(
+        tmp_handle,
+        &io,
+        &file_dispo,
+        @sizeOf(FILE_DISPOSITION_INFORMATION),
+        .FileDispositionInformation,
+    );
+    CloseHandle(tmp_handle);
+    switch (rc) {
+        .SUCCESS => return,
+        .DIRECTORY_NOT_EMPTY => return error.DirNotEmpty,
+        .INVALID_PARAMETER => unreachable,
         .CANNOT_DELETE => return error.AccessDenied,
+        .MEDIA_WRITE_PROTECTED => return error.AccessDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
         else => return unexpectedStatus(rc),
     }
 }
@@ -2468,6 +2490,10 @@ pub const FILE_INFORMATION_CLASS = enum(c_int) {
     FileStorageReserveIdInformation,
     FileCaseSensitiveInformationForceAccessCheck,
     FileMaximumInformation,
+};
+
+pub const FILE_DISPOSITION_INFORMATION = extern struct {
+    DeleteFile: BOOLEAN,
 };
 
 pub const FILE_FS_DEVICE_INFORMATION = extern struct {

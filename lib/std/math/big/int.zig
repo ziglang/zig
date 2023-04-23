@@ -489,6 +489,7 @@ pub const Mutable = struct {
             if (msl < req_limbs) {
                 r.limbs[msl] = 1;
                 r.len = req_limbs;
+                mem.set(Limb, r.limbs[msl + 1 .. req_limbs], 0);
             } else {
                 carry_truncated = true;
             }

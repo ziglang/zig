@@ -215,3 +215,29 @@ test "copy VaList" {
     try std.testing.expectEqual(@as(c_int, 3), S.add(1, @as(c_int, 1)));
     try std.testing.expectEqual(@as(c_int, 9), S.add(2, @as(c_int, 1), @as(c_int, 2)));
 }
+
+test "unused VaList arg" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos) {
+        // https://github.com/ziglang/zig/issues/14096
+        return error.SkipZigTest;
+    }
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn thirdArg(dummy: c_int, ...) callconv(.C) c_int {
+            _ = dummy;
+
+            var ap = @cVaStart();
+            defer @cVaEnd(&ap);
+
+            _ = @cVaArg(&ap, c_int);
+            return @cVaArg(&ap, c_int);
+        }
+    };
+    const x = S.thirdArg(0, @as(c_int, 1), @as(c_int, 2));
+    try std.testing.expectEqual(@as(c_int, 2), x);
+}

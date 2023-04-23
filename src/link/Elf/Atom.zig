@@ -14,9 +14,6 @@ const Elf = @import("../Elf.zig");
 /// offset table entry.
 local_sym_index: u32,
 
-/// This field is undefined for symbols with size = 0.
-offset_table_index: u32,
-
 /// Points to the previous and next neighbors, based on the `text_offset`.
 /// This can be used to find, for example, the capacity of this `TextBlock`.
 prev_index: ?Index,
@@ -48,13 +45,24 @@ pub fn getName(self: Atom, elf_file: *const Elf) []const u8 {
     return elf_file.getSymbolName(self.getSymbolIndex().?);
 }
 
+/// If entry already exists, returns index to it.
+/// Otherwise, creates a new entry in the Global Offset Table for this Atom.
+pub fn getOrCreateOffsetTableEntry(self: Atom, elf_file: *Elf) !u32 {
+    const sym_index = self.getSymbolIndex().?;
+    if (elf_file.got_table.lookup.get(sym_index)) |index| return index;
+    const index = try elf_file.got_table.allocateEntry(elf_file.base.allocator, sym_index);
+    elf_file.got_table_count_dirty = true;
+    return index;
+}
+
 pub fn getOffsetTableAddress(self: Atom, elf_file: *Elf) u64 {
-    assert(self.getSymbolIndex() != null);
+    const sym_index = self.getSymbolIndex().?;
+    const got_entry_index = elf_file.got_table.lookup.get(sym_index).?;
     const target = elf_file.base.options.target;
     const ptr_bits = target.cpu.arch.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
     const got = elf_file.program_headers.items[elf_file.phdr_got_index.?];
-    return got.p_vaddr + self.offset_table_index * ptr_bytes;
+    return got.p_vaddr + got_entry_index * ptr_bytes;
 }
 
 /// Returns how much room there is to grow in virtual address space.

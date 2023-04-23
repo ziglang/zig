@@ -1060,7 +1060,7 @@ pub fn getDeclVAddr(
         .offset = reloc_info.offset,
         .addend = reloc_info.addend,
     });
-    return undefined;
+    return 0;
 }
 
 pub fn getDeclBlock(self: *const Plan9, index: DeclBlock.Index) DeclBlock {

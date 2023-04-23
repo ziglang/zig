@@ -33,6 +33,8 @@ fn assert(ok: bool) void {
     if (!ok) unreachable;
 }
 
+// TODO: enable this for native backend
+
 // run
+// backend=llvm
 // target=aarch64-linux,aarch64-macos
-//
