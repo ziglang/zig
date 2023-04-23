@@ -797,18 +797,18 @@ pub const Request = struct {
 
     /// Write `bytes` to the server. The `transfer_encoding` request header determines how data will be sent.
     pub fn write(req: *Request, bytes: []const u8) WriteError!usize {
-        switch (req.headers.transfer_encoding) {
+        switch (req.transfer_encoding) {
             .chunked => {
-                try req.connection.data.conn.writer().print("{x}\r\n", .{bytes.len});
-                try req.connection.data.conn.writeAll(bytes);
-                try req.connection.data.conn.writeAll("\r\n");
+                try req.connection.data.buffered.writer().print("{x}\r\n", .{bytes.len});
+                try req.connection.data.buffered.writeAll(bytes);
+                try req.connection.data.buffered.writeAll("\r\n");
 
                 return bytes.len;
             },
             .content_length => |*len| {
                 if (len.* < bytes.len) return error.MessageTooLong;
 
-                const amt = try req.connection.data.conn.write(bytes);
+                const amt = try req.connection.data.buffered.write(bytes);
                 len.* -= amt;
                 return amt;
             },
@@ -828,7 +828,7 @@ pub const Request = struct {
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     pub fn finish(req: *Request) FinishError!void {
         switch (req.transfer_encoding) {
-            .chunked => try req.connection.data.conn.writeAll("0\r\n\r\n"),
+            .chunked => try req.connection.data.buffered.writeAll("0\r\n\r\n"),
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
             .none => {},
         }
