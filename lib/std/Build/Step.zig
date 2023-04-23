@@ -89,6 +89,7 @@ pub const Id = enum {
     config_header,
     objcopy,
     options,
+    module,
     custom,
 
     pub fn Type(comptime id: Id) type {
@@ -108,6 +109,7 @@ pub const Id = enum {
             .config_header => Build.ConfigHeaderStep,
             .objcopy => Build.ObjCopyStep,
             .options => Build.OptionsStep,
+            .module => Build.Module,
             .custom => @compileError("no type available for custom step"),
         };
     }

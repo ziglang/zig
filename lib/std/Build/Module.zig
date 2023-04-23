@@ -1,6 +1,7 @@
 const Module = @This();
 
 builder: *Build,
+step: Step,
 /// This could either be a generated file, in which case the module
 /// contains exactly one file, or it could be a path to the root source
 /// file of directory of files which constitute the module.
@@ -30,6 +31,11 @@ pub fn create(owner: *Build, options: CreateModuleOptions) *Module {
     const arena = owner.allocator;
     mod.* = .{
         .builder = owner,
+        .step = Step.init(.{
+            .id = .module,
+            .name = "module", // TODO: Better name
+            .owner = owner,
+        }),
         .source_file = options.source_file,
         .dependencies = moduleDependenciesToArrayHashMap(arena, options.dependencies),
         .link_objects = ArrayList(LinkObject).init(arena),
@@ -48,6 +54,10 @@ pub fn create(owner: *Build, options: CreateModuleOptions) *Module {
     };
     if (options.c_source_files) |c_files| {
         mod.addCSourceFiles(c_files.files, c_files.flags);
+    }
+
+    for (options.dependencies) |dep| {
+        mod.step.dependOn(&dep.module.step);
     }
 
     return mod;
@@ -179,8 +189,7 @@ pub fn addCSourceFileSource(m: *Module, source: CSourceFile) void {
     const c_source_file = b.allocator.create(CSourceFile) catch @panic("OOM");
     c_source_file.* = source.dupe(b);
     m.link_objects.append(.{ .c_source_file = c_source_file }) catch @panic("OOM");
-    // source.source.addStepDependencies(&self.step);
-    // TODO: Add step dependencies to consumers of the module
+    source.source.addStepDependencies(&m.step);
 }
 
 const InstalledHeader = union(enum) {
@@ -309,10 +318,9 @@ fn linkLibraryOrObject(m: *Module, other: *CompileStep) void {
     m.link_objects.append(.{ .other_step = other }) catch @panic("OOM");
     m.include_dirs.append(.{ .other_step = other }) catch @panic("OOM");
 
-    // TODO: Need to depend on installed_headers steps
-    // for (other.main_module.installed_headers.items) |install_step| {
-    //     self.step.dependOn(install_step);
-    // }
+    for (other.main_module.installed_headers.items) |install_step| {
+        m.step.dependOn(install_step);
+    }
 }
 
 pub fn addAssemblyFile(m: *Module, path: []const u8) void {
@@ -326,8 +334,7 @@ pub fn addAssemblyFileSource(m: *Module, source: FileSource) void {
     const b = m.builder;
     const source_duped = source.dupe(b);
     m.link_objects.append(.{ .assembly_file = source_duped }) catch @panic("OOM");
-    // source_duped.addStepDependencies(&self.step);
-    // TODO
+    source_duped.addStepDependencies(&m.step);
 }
 
 pub fn addObjectFile(m: *Module, source_file: []const u8) void {
@@ -337,8 +344,7 @@ pub fn addObjectFile(m: *Module, source_file: []const u8) void {
 pub fn addObjectFileSource(m: *Module, source: FileSource) void {
     const b = m.builder;
     m.link_objects.append(.{ .static_path = source.dupe(b) }) catch @panic("OOM");
-    // source.addStepDependencies(&self.step);
-    // TODO
+    source.addStepDependencies(&m.step);
 }
 
 pub fn addObject(m: *Module, obj: *CompileStep) void {
@@ -459,8 +465,7 @@ pub fn addIncludePath(m: *Module, path: []const u8) void {
 }
 
 pub fn addConfigHeader(m: *Module, config_header: *ConfigHeaderStep) void {
-    // m.step.dependOn(&config_header.step);
-    // TODO
+    m.step.dependOn(&config_header.step);
     m.include_dirs.append(.{ .config_header_step = config_header }) catch @panic("OOM");
 }
 
@@ -471,8 +476,7 @@ pub fn addLibraryPath(m: *Module, path: []const u8) void {
 
 pub fn addLibraryPathDirectorySource(m: *Module, directory_source: FileSource) void {
     m.lib_paths.append(directory_source) catch @panic("OOM");
-    // directory_source.addStepDependencies(&self.step);
-    // TODO
+    directory_source.addStepDependencies(&m.step);
 }
 
 pub fn addRPath(m: *Module, path: []const u8) void {
@@ -482,8 +486,7 @@ pub fn addRPath(m: *Module, path: []const u8) void {
 
 pub fn addRPathDirectorySource(m: *Module, directory_source: FileSource) void {
     m.rpaths.append(directory_source) catch @panic("OOM");
-    // directory_source.addStepDependencies(&m.step);
-    // TODO
+    directory_source.addStepDependencies(&m.step);
 }
 
 pub fn addFrameworkPath(m: *Module, dir_path: []const u8) void {
@@ -493,8 +496,7 @@ pub fn addFrameworkPath(m: *Module, dir_path: []const u8) void {
 
 pub fn addFrameworkPathDirectorySource(m: *Module, directory_source: FileSource) void {
     m.framework_dirs.append(directory_source) catch @panic("OOM");
-    // directory_source.addStepDependencies(&self.step);
-    // TODO
+    directory_source.addStepDependencies(&m.step);
 }
 
 pub fn forceUndefinedSymbol(m: *Module, symbol_name: []const u8) void {
@@ -505,8 +507,7 @@ pub fn forceUndefinedSymbol(m: *Module, symbol_name: []const u8) void {
 pub fn setLinkerScriptPath(m: *Module, source: FileSource) void {
     const b = m.builder;
     m.linker_script = source.dupe(b);
-    // source.addStepDependencies(&self.step);
-    // TODO
+    source.addStepDependencies(&m.step);
 }
 
 const std = @import("std");
