@@ -2,6 +2,7 @@ const std = @import("std");
 const JsonScanner = @import("./scanner.zig").JsonScanner;
 const allocatingJsonReader = @import("./scanner.zig").allocatingJsonReader;
 const AllocatingJsonReader = @import("./scanner.zig").AllocatingJsonReader;
+const AllocatedToken = @import("./scanner.zig").AllocatedToken;
 
 const example_document_str =
     \\{
@@ -77,11 +78,64 @@ test "numbers" {
         scanner.endInput();
         const token = try scanner.next();
         const token_len = token.number; // assert this is a number
-        var buf: [0x1000]u8 = undefined;
-        const token_value = buf[0..token_len];
-        scanner.readValue(token_value);
-        try std.testing.expectEqualStrings(token_value, number_str);
+        try std.testing.expectEqualStrings(number_str, scanner.peekValue(token_len));
 
         try std.testing.expectEqual(JsonScanner.Token.end_of_document, try scanner.next());
+    }
+}
+
+fn expectEqualTokens(expected_token: AllocatedToken, actual_token: AllocatedToken) !void {
+    try std.testing.expectEqual(std.meta.activeTag(expected_token), std.meta.activeTag(actual_token));
+    switch (expected_token) {
+        .number => |expected_value| {
+            try std.testing.expectEqualStrings(expected_value, actual_token.number);
+        },
+        .string => |expected_value| {
+            try std.testing.expectEqualStrings(expected_value, actual_token.string);
+        },
+        else => {},
+    }
+}
+
+fn testTinyBufferSize(document_str: []const u8) !void {
+    var tiny_stream = std.io.fixedBufferStream(document_str);
+    var normal_stream = std.io.fixedBufferStream(document_str);
+
+    var tiny_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer tiny_arena.deinit();
+    var normal_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer normal_arena.deinit();
+
+    var tiny_json_reader = AllocatingJsonReader(1, @TypeOf(tiny_stream.reader())){
+        .scanner = JsonScanner.init(std.testing.allocator),
+        .reader = tiny_stream.reader(),
+        .value_allocator = tiny_arena.allocator(),
+    };
+    defer tiny_json_reader.deinit();
+    var normal_json_reader = AllocatingJsonReader(0x1000, @TypeOf(normal_stream.reader())){
+        .scanner = JsonScanner.init(std.testing.allocator),
+        .reader = normal_stream.reader(),
+        .value_allocator = normal_arena.allocator(),
+    };
+    defer normal_json_reader.deinit();
+
+    expectEqualStreamOfTokens(&normal_json_reader, &tiny_json_reader) catch |err| {
+        std.debug.print("in json document: {s}\n", .{document_str});
+        return err;
+    };
+}
+fn expectEqualStreamOfTokens(control_json_reader: anytype, test_json_reader: anytype) !void {
+    while (true) {
+        const control_token = try control_json_reader.next();
+        const test_token = try test_json_reader.next();
+        try expectEqualTokens(control_token, test_token);
+        if (control_token == .end_of_document) break;
+    }
+}
+
+test "BufferUnderrun" {
+    try testTinyBufferSize(example_document_str);
+    for (number_test_items) |number_str| {
+        try testTinyBufferSize(number_str);
     }
 }

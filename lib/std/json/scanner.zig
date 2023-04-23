@@ -1,12 +1,12 @@
-//! JSON tokenizer conforming to https://datatracker.ietf.org/doc/html/rfc8259
-//! excluding UTF-8 validation.
+//! JSON tokenizer conforming to RFC 8259 excluding UTF-8 validation.
+//! https://datatracker.ietf.org/doc/html/rfc8259
 //! Supports streaming input with a low memory footprint.
 //! The memory requirement is O(d) where d is the nesting depth of [] or {} containers in the input.
-//! Specifically d/8 bytes are allocated for this purpose,
+//! Specifically d/8 bytes are required for this purpose,
 //! with some extra buffer according to the implementation of ArrayList.
 //!
 //! The low-level JsonScanner API supports arbitrarily long string and number values
-//! in the input and can emit partially parsed values in order to support this.
+//! in the input and can emit partially parsed value tokens in order to support this.
 //! A more convenient higher-level AllocatingJsonReader API is provided as well.
 //!
 //! Notes on standards compliance:
@@ -16,21 +16,31 @@
 //!   This implementation does not do UTF-8 validation for simplicity (performance?) reasons,
 //!   but this can be changed in a future version.
 //! * RFC 8259 contradicts itself regarding whether lowercase is allowed in \u hex digits,
-//!   but it seems like every implementation agrees it should be allowed.
-//!   (RFC 5234 defines HEXDIG to only allow uppercase,
-//!    but RFC 8259 says in pros that lowercase is also allowed.)
-//!   This implementation also allows it.
-//! * When RFC 8259 refers to a "character", I assume they really mean a "code point".
-//!   (Unicode does not define what a "character" is.)
+//!   but this is probably a bug in the spec, and it's clear that lowercase is meant to be allowed.
+//!   (RFC 5234 defines HEXDIG to only allow uppercase.)
+//! * When RFC 8259 refers to a "character", I assume they really mean a "unicode scalar value".
+//!   See http://www.unicode.org/glossary/#unicode_scalar_value .
 //! * RFC 8259 doesn't explicitly disallow unpaired surrogate halves in \u escape sequences,
-//!   but vaguely implies that \u escapes are for encoding Unicode code points,
+//!   but vaguely implies that \u escapes are for encoding Unicode "characters" (i.e. unicode scalar values?),
 //!   which would mean that unpaired surrogate halves are forbidden.
+//!   By contrast ECMA-404 (a competing(/compatible?) JSON standard, which JavaScript's JSON.parse() conforms to)
+//!   excplicitly allows unpaired surrogate halves.
 //!   This implementation forbids unpaired surrogate halves in \u sequences.
+//!   If a high surrogate half appears in a \u sequence,
+//!   then a low surrogate half must immediately follow in \u notiation.
 
-const std = @import("std"); // TODO: change to ../std.zig
+const std = @import("std");
 
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+
+/// The parsing errors are divided into two categories:
+///  * SyntaxError is for clearly malformed JSON documents,
+///    such as giving an input document that isn't JSON at all.
+///  * UnexpectedEndOfDocument is for signaling that everything's been
+///    valid so far, but maybe the input got truncated for some reason.
+/// Note that a completely empty (or whitespace-only) input will give UnexpectedEndOfDocument.
+pub const JsonError = error{ SyntaxError, UnexpectedEndOfDocument };
 
 /// AllocatingJsonReader is the higher-level, more convenient API in this package.
 /// (See JsonScanner for the low-level API.)
@@ -57,6 +67,32 @@ pub fn allocatingJsonReader(long_term_allocator: Allocator, value_allocator: All
 }
 pub const default_buffer_size = 0x1000;
 pub const default_value_size_limit = 4 * 1024 * 1024;
+/// The tokens emitted follow this grammar:
+///  <document> = <value> .end_of_document
+///  <value> =
+///    | <object>
+///    | <array>
+///    | .number
+///    | .string
+///    | .true
+///    | .false
+///    | .null
+///  <object> = .object_begin ( <string> <value> )* .object_end
+///  <array> = .array_begin ( <value> )* .array_end
+///
+/// For tokens with []const u8 payloads, those are allocations made with value_allocator that you own.
+pub const AllocatedToken = union(enum) {
+    object_begin,
+    object_end,
+    array_begin,
+    array_end,
+    number: []const u8,
+    string: []const u8,
+    true,
+    false,
+    null,
+    end_of_document,
+};
 pub fn AllocatingJsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
     return struct {
         scanner: JsonScanner,
@@ -72,39 +108,12 @@ pub fn AllocatingJsonReader(comptime buffer_size: usize, comptime ReaderType: ty
             self.* = undefined;
         }
 
-        /// The tokens emitted follow this grammar:
-        ///  <document> = <value> .end_of_document
-        ///  <value> =
-        ///    | <object>
-        ///    | <array>
-        ///    | .number
-        ///    | .string
-        ///    | .true
-        ///    | .false
-        ///    | .null
-        ///  <object> = .object_begin ( <string> <value> )* .object_end
-        ///  <array> = .array_begin ( <value> )* .array_end
-        ///
-        /// For tokens with []const u8 payloads, those are allocations made with value_allocator that you own.
-        pub const Token = union(enum) {
-            object_begin,
-            object_end,
-            array_begin,
-            array_end,
-            number: []const u8,
-            string: []const u8,
-            true,
-            false,
-            null,
-            end_of_document,
-        };
-
         /// Reads data from reader as needed.
         /// Scans the next token from the document and returns it
         /// allocating memory as necessary to hold any number or string value.
         /// Uses value_allocator for these allocations.
         /// reader errors are unrecoverable.
-        pub fn next(self: *@This()) !Token {
+        pub fn next(self: *@This()) (ReaderType.Error || JsonError || Allocator.Error || error{ValueTooLong})!AllocatedToken {
             var value_list = std.ArrayList(u8).init(self.value_allocator);
             errdefer {
                 value_list.deinit();
@@ -120,7 +129,7 @@ pub fn AllocatingJsonReader(comptime buffer_size: usize, comptime ReaderType: ty
                         }
                         continue;
                     },
-                    else => return err,
+                    else => |other_err| return other_err,
                 };
 
                 switch (low_level_token) {
@@ -134,16 +143,16 @@ pub fn AllocatingJsonReader(comptime buffer_size: usize, comptime ReaderType: ty
                     .end_of_document => return .end_of_document,
 
                     .number => |len| {
-                        try self.scanner.readValueIntoArrayList(&value_list, len, self.value_size_limit);
-                        return Token{ .number = try value_list.toOwnedSlice() };
+                        try self.appendSlice(&value_list, self.scanner.peekValue(len));
+                        return AllocatedToken{ .number = try value_list.toOwnedSlice() };
                     },
                     .string => |len| {
-                        try self.scanner.readValueIntoArrayList(&value_list, len, self.value_size_limit);
-                        return Token{ .string = try value_list.toOwnedSlice() };
+                        try self.appendSlice(&value_list, self.scanner.peekValue(len));
+                        return AllocatedToken{ .string = try value_list.toOwnedSlice() };
                     },
 
                     .partial_number, .partial_string => |len| {
-                        try self.scanner.readValueIntoArrayList(&value_list, len, self.value_size_limit);
+                        try self.appendSlice(&value_list, self.scanner.peekValue(len));
                     },
                     .partial_string_escaped_1 => |buf| {
                         try self.appendSlice(&value_list, buf[0..]);
@@ -217,21 +226,13 @@ pub const JsonScanner = struct {
     }
 
     /// Call this immediately after getting a Token from next() with a u32 payload.
-    /// The length of the given buffer must be exactly the u32 length from the Token.
-    pub fn readValue(self: *const @This(), out_buffer: []u8) void {
+    /// value_len must be the u32 payload you just got.
+    /// The returned slice is contained within the input given to feedInput(),
+    /// and so is only valid as long as that memory is valid.
+    pub fn peekValue(self: *const @This(), value_len: u32) []const u8 {
         const end = self.cursor - self.value_end_offset_back;
-        const start = end - out_buffer.len;
-        std.mem.copy(u8, out_buffer, self.input[start..end]);
-    }
-
-    /// Convenience wrapper around readValue() for appending the value into an ArrayList(u8).
-    /// size_limit is the limit on the total size of the array list and is checked before resizing.
-    pub fn readValueIntoArrayList(self: *const @This(), out_array_list: *std.ArrayList(u8), value_len: u32, size_limit: usize) (error{ValueTooLong} || Allocator.Error)!void {
-        const offset = out_array_list.items.len;
-        const new_size = offset + value_len;
-        if (new_size > size_limit) return error.ValueTooLong;
-        try out_array_list.resize(new_size);
-        self.readValue(out_array_list.items[offset..]);
+        const start = end - value_len;
+        return self.input[start..end];
     }
 
     /// The tokens emitted follow this grammar:
@@ -260,7 +261,7 @@ pub const JsonScanner = struct {
     /// (See also AllocatingJsonReader.)
     ///
     /// For tokens with a u32 payload, the payload represents the length of the value in bytes.
-    /// Call readValue(buffer[0..len]) to receive a copy of the value bytes.
+    /// Call peekValue() to get a temporary slice of the bytes.
     /// For number values, this is the representation of the number exactly as it appears in the JSON input.
     /// For strings, this is the content of the string after resolving escape sequences.
     /// For tokens with [n]u8 payloads, the payload represents string content after resolving escape sequences.
@@ -291,7 +292,7 @@ pub const JsonScanner = struct {
         end_of_document,
     };
 
-    pub fn next(self: *@This()) !Token {
+    pub fn next(self: *@This()) (Allocator.Error || JsonError || error{BufferUnderrun})!Token {
         state_loop: while (true) {
             switch (self.state) {
                 .value => {
@@ -639,7 +640,9 @@ pub const JsonScanner = struct {
                         }
                     }
                     if (self.end_of_input) return error.UnexpectedEndOfDocument;
-                    return Token{ .partial_string = self.takeValueLen() };
+                    const value_len = self.takeValueLen();
+                    if (value_len > 0) return Token{ .partial_string = value_len };
+                    return error.BufferUnderrun;
                 },
                 .string_backslash => {
                     try self.expectMoreContent();
