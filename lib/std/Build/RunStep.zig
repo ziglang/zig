@@ -579,10 +579,10 @@ fn runCommand(
                 else => break :interpret,
             }
 
-            const need_cross_glibc = exe.target.isGnuLibC() and exe.is_linking_libc;
+            const need_cross_glibc = exe.target.isGnuLibC() and exe.main_module.is_linking_libc;
             switch (b.host.getExternalExecutor(exe.target_info, .{
                 .qemu_fixes_dl = need_cross_glibc and b.glibc_runtimes_dir != null,
-                .link_libc = exe.is_linking_libc,
+                .link_libc = exe.main_module.is_linking_libc,
             })) {
                 .native, .rosetta => {
                     if (allow_skip) return error.MakeSkipped;
@@ -1177,7 +1177,7 @@ fn evalGeneric(self: *RunStep, child: *std.process.Child) !StdIoResult {
 
 fn addPathForDynLibs(self: *RunStep, artifact: *CompileStep) void {
     const b = self.step.owner;
-    for (artifact.link_objects.items) |link_object| {
+    for (artifact.main_module.link_objects.items) |link_object| {
         switch (link_object) {
             .other_step => |other| {
                 if (other.target.isWindows() and other.isDynamicLibrary()) {

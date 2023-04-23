@@ -88,7 +88,6 @@ wasi_exec_model: ?std.builtin.WasiExecModel = null,
 /// Symbols to be exported when compiling to wasm
 export_symbol_names: []const []const u8 = &.{},
 
-root_src: ?FileSource,
 out_h_filename: []const u8,
 out_lib_filename: []const u8,
 out_pdb_filename: []const u8,
@@ -682,7 +681,9 @@ fn appendModuleArgs(
             const name = kv.value_ptr.*;
 
             const deps_str = try constructDepString(b.allocator, mod_names, mod.dependencies);
-            const src = mod.builder.pathFromRoot(mod.source_file.getPath(mod.builder));
+            // TODO: source_file may not always exits, for example if a module consists only of C source files.
+            // How do we represent this case in the CLI
+            const src = mod.builder.pathFromRoot(mod.source_file.?.getPath(mod.builder));
             try zig_args.append("--mod");
             try zig_args.append(try std.fmt.allocPrint(b.allocator, "{s}:{s}:{s}", .{ name, deps_str, src }));
         }
@@ -720,7 +721,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
     const self = @fieldParentPtr(CompileStep, "step", step);
 
-    if (self.root_src == null and self.link_objects.items.len == 0) {
+    if (self.main_module.source_file == null and self.main_module.link_objects.items.len == 0) {
         return step.fail("the linker needs one or more objects to link", .{});
     }
 
@@ -754,7 +755,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     {
-        var it = self.force_undefined_symbols.keyIterator();
+        var it = self.main_module.force_undefined_symbols.keyIterator();
         while (it.next()) |symbol_name| {
             try zig_args.append("--force_undefined");
             try zig_args.append(symbol_name.*);
@@ -766,7 +767,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(try std.fmt.allocPrint(b.allocator, "{}", .{stack_size}));
     }
 
-    if (self.root_src) |root_src| try zig_args.append(root_src.getPath(b));
+    if (self.main_module.source_file) |root_src| try zig_args.append(root_src.getPath(b));
 
     // We will add link objects from transitive dependencies, but we want to keep
     // all link objects in the same order provided.
@@ -775,13 +776,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         .link_objects = ArrayList(LinkObject).init(b.allocator),
         .seen_system_libs = StringHashMap(void).init(b.allocator),
         .seen_steps = std.AutoHashMap(*const Step, void).init(b.allocator),
-        .is_linking_libcpp = self.is_linking_libcpp,
-        .is_linking_libc = self.is_linking_libc,
-        .frameworks = &self.frameworks,
+        .is_linking_libcpp = self.main_module.is_linking_libcpp,
+        .is_linking_libc = self.main_module.is_linking_libc,
+        .frameworks = &self.main_module.frameworks,
     };
 
     try transitive_deps.seen_steps.put(&self.step, {});
-    try transitive_deps.add(self.link_objects.items);
+    try transitive_deps.add(self.main_module.link_objects.items);
 
     var prev_has_extra_flags = false;
 
@@ -1144,7 +1145,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 
-    if (self.linker_script) |linker_script| {
+    if (self.main_module.linker_script) |linker_script| {
         try zig_args.append("--script");
         try zig_args.append(linker_script.getPath(b));
     }
@@ -1169,7 +1170,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try self.appendModuleArgs(&zig_args);
 
-    for (self.include_dirs.items) |include_dir| {
+    for (self.main_module.include_dirs.items) |include_dir| {
         switch (include_dir) {
             .raw_path => |include_path| {
                 try zig_args.append("-I");
@@ -1204,7 +1205,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     try zig_args.append("-isystem");
                     try zig_args.append(fs.path.dirname(h_path).?);
                 }
-                if (other.installed_headers.items.len > 0) {
+                if (other.main_module.installed_headers.items.len > 0) {
                     try zig_args.append("-I");
                     try zig_args.append(b.pathJoin(&.{
                         other.step.owner.install_prefix, "include",
@@ -1219,19 +1220,19 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 
-    for (self.c_macros.items) |c_macro| {
+    for (self.main_module.c_macros.items) |c_macro| {
         try zig_args.append("-D");
         try zig_args.append(c_macro);
     }
 
-    try zig_args.ensureUnusedCapacity(2 * self.lib_paths.items.len);
-    for (self.lib_paths.items) |lib_path| {
+    try zig_args.ensureUnusedCapacity(2 * self.main_module.lib_paths.items.len);
+    for (self.main_module.lib_paths.items) |lib_path| {
         zig_args.appendAssumeCapacity("-L");
         zig_args.appendAssumeCapacity(lib_path.getPath2(b, step));
     }
 
-    try zig_args.ensureUnusedCapacity(2 * self.rpaths.items.len);
-    for (self.rpaths.items) |rpath| {
+    try zig_args.ensureUnusedCapacity(2 * self.main_module.rpaths.items.len);
+    for (self.main_module.rpaths.items) |rpath| {
         zig_args.appendAssumeCapacity("-rpath");
 
         if (self.target_info.target.isDarwin()) switch (rpath) {
@@ -1252,7 +1253,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         zig_args.appendAssumeCapacity(rpath.getPath2(b, step));
     }
 
-    for (self.framework_dirs.items) |directory_source| {
+    for (self.main_module.framework_dirs.items) |directory_source| {
         if (b.sysroot != null) {
             try zig_args.append("-iframeworkwithsysroot");
         } else {
@@ -1264,7 +1265,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     {
-        var it = self.frameworks.iterator();
+        var it = self.main_module.frameworks.iterator();
         while (it.next()) |entry| {
             const name = entry.key_ptr.*;
             const info = entry.value_ptr.*;
@@ -1576,19 +1577,19 @@ const TransitiveDeps = struct {
 
     fn addInner(td: *TransitiveDeps, other: *CompileStep, dyn: bool) !void {
         // Inherit dependency on libc and libc++
-        td.is_linking_libcpp = td.is_linking_libcpp or other.is_linking_libcpp;
-        td.is_linking_libc = td.is_linking_libc or other.is_linking_libc;
+        td.is_linking_libcpp = td.is_linking_libcpp or other.main_module.is_linking_libcpp;
+        td.is_linking_libc = td.is_linking_libc or other.main_module.is_linking_libc;
 
         // Inherit dependencies on darwin frameworks
         if (!dyn) {
-            var it = other.frameworks.iterator();
+            var it = other.main_module.frameworks.iterator();
             while (it.next()) |framework| {
                 try td.frameworks.put(framework.key_ptr.*, framework.value_ptr.*);
             }
         }
 
         // Inherit dependencies on system libraries and static libraries.
-        for (other.link_objects.items) |other_link_object| {
+        for (other.main_module.link_objects.items) |other_link_object| {
             switch (other_link_object) {
                 .system_lib => |system_lib| {
                     if ((try td.seen_system_libs.fetchPut(system_lib.name, {})) != null)

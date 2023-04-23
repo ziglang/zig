@@ -5,7 +5,7 @@ builder: *Build,
 /// contains exactly one file, or it could be a path to the root source
 /// file of directory of files which constitute the module.
 source_file: ?FileSource,
-dependencies: std.StringArrayHashMap(*Module),
+dependencies: StringArrayHashMap(*Module),
 link_objects: ArrayList(LinkObject),
 installed_headers: ArrayList(*Step),
 frameworks: StringHashMap(FrameworkLinkInfo),
@@ -23,7 +23,7 @@ linker_script: ?FileSource = null,
 /// List of symbols forced as undefined in the symbol table
 /// thus forcing their resolution by the linker.
 /// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
-force_undefined_symbols: std.StringHashMap(void),
+force_undefined_symbols: StringHashMap(void),
 
 pub fn create(owner: *Build, options: CreateModuleOptions) *Module {
     const mod = owner.allocator.create(Module) catch @panic("OOM");
@@ -36,9 +36,10 @@ pub fn create(owner: *Build, options: CreateModuleOptions) *Module {
         .installed_headers = ArrayList(*Step).init(arena),
         .frameworks = StringHashMap(FrameworkLinkInfo).init(arena),
         .include_dirs = ArrayList(IncludeDir).init(arena),
-        .lib_path = ArrayList(FileSource).init(arena),
+        .lib_paths = ArrayList(FileSource).init(arena),
         .rpaths = ArrayList(FileSource).init(arena),
         .framework_dirs = ArrayList(FileSource).init(arena),
+        .force_undefined_symbols = StringHashMap(void).init(arena),
         .c_macros = ArrayList([]const u8).init(arena),
         .c_std = std.Build.CStd.C99,
         .is_linking_libc = false,
@@ -73,12 +74,12 @@ pub const LinkObject = union(enum) {
     c_source_files: *CSourceFiles,
 };
 
-pub fn linkLibC(self: *CompileStep) void {
-    self.is_linking_libc = true;
+pub fn linkLibC(m: *Module) void {
+    m.is_linking_libc = true;
 }
 
-pub fn linkLibCpp(self: *CompileStep) void {
-    self.is_linking_libcpp = true;
+pub fn linkLibCpp(m: *Module) void {
+    m.is_linking_libcpp = true;
 }
 
 /// This one has no integration with anything, it just puts -lname on the command line.
@@ -160,7 +161,7 @@ pub fn addCSourceFiles(m: *Module, files: []const []const u8, flags: []const []c
     const flags_copy = b.dupeStrings(flags);
 
     c_source_files.* = .{
-        .files = .{ .path = files_copy },
+        .files = files_copy,
         .flags = flags_copy,
     };
     m.link_objects.append(.{ .c_source_files = c_source_files }) catch @panic("OOM");
@@ -271,16 +272,16 @@ pub fn installLibraryHeaders(m: *Module, l: *CompileStep) void {
 
 /// If the value is omitted, it is set to 1.
 /// `name` and `value` need not live longer than the function call.
-pub fn defineCMacro(self: *CompileStep, name: []const u8, value: ?[]const u8) void {
-    const b = self.step.owner;
+pub fn defineCMacro(m: *Module, name: []const u8, value: ?[]const u8) void {
+    const b = m.builder;
     const macro = std.Build.constructCMacro(b.allocator, name, value);
-    self.c_macros.append(macro) catch @panic("OOM");
+    m.c_macros.append(macro) catch @panic("OOM");
 }
 
 /// name_and_value looks like [name]=[value]. If the value is omitted, it is set to 1.
-pub fn defineCMacroRaw(self: *CompileStep, name_and_value: []const u8) void {
-    const b = self.step.owner;
-    self.c_macros.append(b.dupe(name_and_value)) catch @panic("OOM");
+pub fn defineCMacroRaw(m: *Module, name_and_value: []const u8) void {
+    const b = m.builder;
+    m.c_macros.append(b.dupe(name_and_value)) catch @panic("OOM");
 }
 
 pub const SystemLib = struct {
@@ -524,6 +525,7 @@ const CreateModuleOptions = Build.CreateModuleOptions;
 
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
+const StringArrayHashMap = std.StringArrayHashMap;
 const Allocator = std.mem.Allocator;
 
 const assert = std.debug.assert;

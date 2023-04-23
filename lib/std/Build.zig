@@ -449,7 +449,7 @@ pub fn addOptions(self: *Build) *OptionsStep {
 
 pub const ExecutableOptions = struct {
     name: []const u8,
-    root_source_file: ?FileSource = null,
+    main_module_options: CreateModuleOptions,
     version: ?std.builtin.Version = null,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
@@ -462,9 +462,10 @@ pub const ExecutableOptions = struct {
 };
 
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *CompileStep {
+    const main_module = b.createModule(options.main_module_options);
     return CompileStep.create(b, .{
         .name = options.name,
-        .root_source_file = options.root_source_file,
+        .main_module = main_module,
         .version = options.version,
         .target = options.target,
         .optimize = options.optimize,
@@ -507,7 +508,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *CompileStep {
 
 pub const SharedLibraryOptions = struct {
     name: []const u8,
-    root_source_file: ?FileSource = null,
+    main_module_options: CreateModuleOptions,
     version: ?std.builtin.Version = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
@@ -519,9 +520,10 @@ pub const SharedLibraryOptions = struct {
 };
 
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *CompileStep {
+    const main_module = b.createModule(options.main_module_options);
     return CompileStep.create(b, .{
         .name = options.name,
-        .root_source_file = options.root_source_file,
+        .main_module = main_module,
         .kind = .lib,
         .linkage = .dynamic,
         .version = options.version,
@@ -537,7 +539,7 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *CompileStep {
 
 pub const StaticLibraryOptions = struct {
     name: []const u8,
-    root_source_file: ?FileSource = null,
+    main_module_options: CreateModuleOptions,
     target: CrossTarget,
     optimize: std.builtin.Mode,
     version: ?std.builtin.Version = null,
@@ -549,9 +551,10 @@ pub const StaticLibraryOptions = struct {
 };
 
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *CompileStep {
+    const main_module = b.createModule(options.main_module_options);
     return CompileStep.create(b, .{
         .name = options.name,
-        .root_source_file = options.root_source_file,
+        .main_module = main_module,
         .kind = .lib,
         .linkage = .static,
         .version = options.version,
