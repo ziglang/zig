@@ -387,8 +387,7 @@ test "memcpy and memset intrinsics" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testMemcpyMemset();
-    // TODO add comptime test coverage
-    //comptime try testMemcpyMemset();
+    try comptime testMemcpyMemset();
 }
 
 fn testMemcpyMemset() !void {

@@ -21828,6 +21828,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const src_ptr = try sema.resolveInst(extra.rhs);
     const dest_len = try indexablePtrLenOrNone(sema, block, dest_src, dest_ptr);
     const src_len = try indexablePtrLenOrNone(sema, block, src_src, src_ptr);
+    const target = sema.mod.getTarget();
 
     if (dest_len == .none and src_len == .none) {
         const msg = msg: {
@@ -21879,9 +21880,41 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
 
     const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |dest_ptr_val| rs: {
         if (!dest_ptr_val.isComptimeMutablePtr()) break :rs dest_src;
-        if (try sema.resolveDefinedValue(block, src_src, src_ptr)) |src_ptr_val| {
-            _ = src_ptr_val;
-            return sema.fail(block, src, "TODO: @memcpy at comptime", .{});
+        if (try sema.resolveDefinedValue(block, src_src, src_ptr)) |_| {
+            const len_u64 = (try len_val.?.getUnsignedIntAdvanced(target, sema)).?;
+            const len = try sema.usizeCast(block, dest_src, len_u64);
+            for (0..len) |i| {
+                const elem_index = try sema.addIntUnsigned(Type.usize, i);
+                const dest_elem_ptr = try sema.elemPtr(
+                    block,
+                    src,
+                    dest_ptr,
+                    elem_index,
+                    src,
+                    true, // init
+                    false, // oob_safety
+                );
+                const src_elem_ptr = try sema.elemPtr(
+                    block,
+                    src,
+                    src_ptr,
+                    elem_index,
+                    src,
+                    false, // init
+                    false, // oob_safety
+                );
+                const uncoerced_elem = try sema.analyzeLoad(block, src, src_elem_ptr, src_src);
+                try sema.storePtr2(
+                    block,
+                    src,
+                    dest_elem_ptr,
+                    dest_src,
+                    uncoerced_elem,
+                    src_src,
+                    .store,
+                );
+            }
+            return;
         } else break :rs src_src;
     } else dest_src;
 
@@ -21902,7 +21935,6 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
 
     const dest_elem_ty = dest_ty.elemType2();
     const src_elem_ty = src_ty.elemType2();
-    const target = sema.mod.getTarget();
     if (.ok != try sema.coerceInMemoryAllowed(block, dest_elem_ty, src_elem_ty, true, target, dest_src, src_src)) {
         return sema.fail(block, src, "TODO: lower @memcpy to a for loop because the element types have different ABI sizes", .{});
     }
