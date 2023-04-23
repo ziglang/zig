@@ -279,7 +279,7 @@ pub fn fetchAndAddDependencies(
         const sub_prefix = try std.fmt.allocPrint(arena, "{s}{s}.", .{ name_prefix, name });
         const fqn = sub_prefix[0 .. sub_prefix.len - 1];
 
-        const sub_pkg = try fetchAndUnpack(
+        const sub = try fetchAndUnpack(
             thread_pool,
             http_client,
             global_cache_directory,
@@ -290,28 +290,30 @@ pub fn fetchAndAddDependencies(
             all_modules,
         );
 
-        try sub_pkg.fetchAndAddDependencies(
-            deps_pkg,
-            arena,
-            thread_pool,
-            http_client,
-            sub_pkg.root_src_directory,
-            global_cache_directory,
-            local_cache_directory,
-            dependencies_source,
-            build_roots_source,
-            sub_prefix,
-            error_bundle,
-            all_modules,
-        );
+        if (!sub.found_existing) {
+            try sub.mod.fetchAndAddDependencies(
+                deps_pkg,
+                arena,
+                thread_pool,
+                http_client,
+                sub.mod.root_src_directory,
+                global_cache_directory,
+                local_cache_directory,
+                dependencies_source,
+                build_roots_source,
+                sub_prefix,
+                error_bundle,
+                all_modules,
+            );
+        }
 
-        try pkg.add(gpa, name, sub_pkg);
+        try pkg.add(gpa, name, sub.mod);
         if (deps_pkg.table.get(dep.hash.?)) |other_sub| {
             // This should be the same package (and hence module) since it's the same hash
             // TODO: dedup multiple versions of the same package
-            assert(other_sub == sub_pkg);
+            assert(other_sub == sub.mod);
         } else {
-            try deps_pkg.add(gpa, dep.hash.?, sub_pkg);
+            try deps_pkg.add(gpa, dep.hash.?, sub.mod);
         }
 
         try dependencies_source.writer().print("    pub const {s} = @import(\"{}\");\n", .{
@@ -413,7 +415,7 @@ fn fetchAndUnpack(
     build_roots_source: *std.ArrayList(u8),
     fqn: []const u8,
     all_modules: *AllModules,
-) !*Package {
+) !struct { mod: *Package, found_existing: bool } {
     const gpa = http_client.allocator;
     const s = fs.path.sep_str;
 
@@ -441,7 +443,10 @@ fn fetchAndUnpack(
         const gop = try all_modules.getOrPut(gpa, hex_digest.*);
         if (gop.found_existing) {
             gpa.free(build_root);
-            return gop.value_ptr.*;
+            return .{
+                .mod = gop.value_ptr.*,
+                .found_existing = true,
+            };
         }
 
         const ptr = try gpa.create(Package);
@@ -460,7 +465,10 @@ fn fetchAndUnpack(
         };
 
         gop.value_ptr.* = ptr;
-        return ptr;
+        return .{
+            .mod = ptr,
+            .found_existing = false,
+        };
     }
 
     const uri = try std.Uri.parse(dep.url);
@@ -575,7 +583,11 @@ fn fetchAndUnpack(
         std.zig.fmtId(fqn), std.zig.fmtEscapes(build_root),
     });
 
-    return createWithDir(gpa, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
+    const mod = try createWithDir(gpa, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
+    return .{
+        .mod = mod,
+        .found_existing = false,
+    };
 }
 
 fn unpackTarball(
