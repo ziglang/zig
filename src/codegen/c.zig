@@ -6233,6 +6233,15 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     }
 
     if (elem_abi_size > 1 or dest_ty.isVolatilePtr()) {
+        // For the assignment in this loop, the array pointer needs to get
+        // casted to a regular pointer, otherwise an error like this occurs:
+        // error: array type 'uint32_t[20]' (aka 'unsigned int[20]') is not assignable
+        var elem_ptr_ty_pl: Type.Payload.ElemType = .{
+            .base = .{ .tag = .c_mut_pointer },
+            .data = elem_ty,
+        };
+        const elem_ptr_ty = Type.initPayload(&elem_ptr_ty_pl.base);
+
         const index = try f.allocLocal(inst, Type.usize);
 
         try writer.writeAll("for (");
@@ -6256,7 +6265,9 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" += ");
         try f.object.dg.renderValue(writer, Type.usize, Value.one, .Other);
-        try writer.writeAll(") (");
+        try writer.writeAll(") ((");
+        try f.renderType(writer, elem_ptr_ty);
+        try writer.writeByte(')');
         try writeSliceOrPtr(f, writer, dest_slice, dest_ty);
         try writer.writeAll(")[");
         try f.writeCValue(writer, index, .Other);
