@@ -2114,7 +2114,7 @@ pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid:
 /// and you get an unexpected error.
 pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        // 614 is the length of the longest windows error desciption
+        // 614 is the length of the longest windows error description
         var buf_wstr: [614]WCHAR = undefined;
         var buf_utf8: [614]u8 = undefined;
         const len = kernel32.FormatMessageW(

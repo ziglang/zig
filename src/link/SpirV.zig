@@ -190,7 +190,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
     const module = self.base.options.module.?;
     for (module.error_name_list.items) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
-        // them somehow. Easiest here is to use some established scheme, one which also preseves the
+        // them somehow. Easiest here is to use some established scheme, one which also preserves the
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
         // We're using : as separator, which is a reserved character.
 

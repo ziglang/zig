@@ -137,7 +137,7 @@ pub const Edwards25519 = struct {
         };
     }
 
-    /// Substract two Edwards25519 points.
+    /// Subtract two Edwards25519 points.
     pub fn sub(p: Edwards25519, q: Edwards25519) Edwards25519 {
         return p.add(q.neg());
     }
@@ -529,7 +529,7 @@ test "edwards25519 packing/unpacking" {
     }
 }
 
-test "edwards25519 point addition/substraction" {
+test "edwards25519 point addition/subtraction" {
     var s1: [32]u8 = undefined;
     var s2: [32]u8 = undefined;
     crypto.random.bytes(&s1);

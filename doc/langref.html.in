@@ -6557,7 +6557,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 const Tuple = struct{ u8, u8 };
-test "coercion from homogenous tuple to array" {
+test "coercion from homogeneous tuple to array" {
 	const tuple: Tuple = .{5, 6};
 	const array: [2]u8 = tuple;
 	_ = array;
@@ -11171,7 +11171,7 @@ all your base are belong to us{#end_shell_samp#}
       {#code_begin|lib|math#}
       {#target_wasm#}
       {#link_mode_dynamic#}
-      {#additonal_option|-rdynamic#}
+      {#additional_option|-rdynamic#}
 extern fn print(i32) void;
 
 export fn add(a: i32, b: i32) void {

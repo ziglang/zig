@@ -1211,7 +1211,7 @@ test "initialize struct with empty literal" {
     try expect(s.x == 1234);
 }
 
-test "loading a struct pointer perfoms a copy" {
+test "loading a struct pointer performs a copy" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {

@@ -25,7 +25,7 @@ inline fn addoXi4_generic(comptime ST: type, a: ST, b: ST, overflow: *c_int) ST 
     // and the sign of a+b+carry is the same as a (or equivalently b).
     // Slower routine: res = ~(a ^ b) & ((sum ^ a)
     // Faster routine: res = (sum ^ a) & (sum ^ b)
-    // Overflow occured, iff (res < 0)
+    // Overflow occurred, iff (res < 0)
     if (((sum ^ a) & (sum ^ b)) < 0)
         overflow.* = 1;
     return sum;

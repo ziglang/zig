@@ -1332,7 +1332,7 @@ static int ar_main(int argc, char **argv) {
 
   cl::ExpandResponseFiles(Saver, getRspQuoting(ArrayRef(argv, argc)), Argv);
 
-  // Get BitMode from enviorment variable "OBJECT_MODE" for AIX OS, if
+  // Get BitMode from environment variable "OBJECT_MODE" for AIX OS, if
   // specified.
   if (object::Archive::getDefaultKindForHost() == object::Archive::K_AIXBIG) {
     BitMode = getBitMode(getenv("OBJECT_MODE"));

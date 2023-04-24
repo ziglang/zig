@@ -530,7 +530,7 @@ pub const DeclGen = struct {
                 .unsigned => val.toUnsignedInt(target),
             };
 
-            // TODO: Swap endianess if the compiler is big endian.
+            // TODO: Swap endianness if the compiler is big endian.
             const len = ty.abiSize(target);
             try self.addBytes(std.mem.asBytes(&int_bits)[0..@intCast(usize, len)]);
         }
@@ -1037,7 +1037,7 @@ pub const DeclGen = struct {
     ///    padding: [padding_size]u8,
     ///  }
     /// If the active payload is unknown, it will default back to the most aligned field. This is
-    /// to make sure that the overal struct has the correct alignment in spir-v.
+    /// to make sure that the overall struct has the correct alignment in spir-v.
     /// If any of the fields' size is 0, it will be omitted.
     /// NOTE: When the active field is set to something other than the most aligned field, the
     ///   resulting struct will be *underaligned*.
@@ -1254,7 +1254,7 @@ pub const DeclGen = struct {
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     // Just use a bool.
                     // Note: Always generate the bool with indirect format, to save on some sanity
-                    // Perform the converison to a direct bool when the field is extracted.
+                    // Perform the conversion to a direct bool when the field is extracted.
                     return try self.resolveType(Type.bool, .indirect);
                 }
 

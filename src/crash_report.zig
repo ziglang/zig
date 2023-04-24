@@ -397,7 +397,7 @@ const PanicSwitch = struct {
     /// panics within panics.  If the panic handler triggers a panic, it will
     /// attempt to log an additional stack trace for the secondary panic.  If
     /// that panics, it will fall back to just logging the panic message.  If
-    /// it can't even do that witout panicing, it will recover without logging
+    /// it can't even do that without panicking, it will recover without logging
     /// anything about the internal panic.  Depending on the state, "recover"
     /// here may just mean "call abort".
     pub fn dispatch(

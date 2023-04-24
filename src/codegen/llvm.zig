@@ -4428,7 +4428,7 @@ pub const FuncGen = struct {
     /// Stack of locations where a call was inlined.
     dbg_inlined: std.ArrayListUnmanaged(DbgState) = .{},
 
-    /// Stack of `DILexicalBlock`s. dbg_block instructions cannot happend accross
+    /// Stack of `DILexicalBlock`s. dbg_block instructions cannot happen across
     /// dbg_inline instructions so no special handling there is required.
     dbg_block_stack: std.ArrayListUnmanaged(*llvm.DIScope) = .{},
 
@@ -9342,7 +9342,7 @@ pub const FuncGen = struct {
         comptime assert(@enumToInt(std.builtin.PrefetchOptions.Cache.instruction) == 0);
         comptime assert(@enumToInt(std.builtin.PrefetchOptions.Cache.data) == 1);
 
-        // LLVM fails during codegen of instruction cache prefetchs for these architectures.
+        // LLVM fails during codegen of instruction cache prefetches for these architectures.
         // This is an LLVM bug as the prefetch intrinsic should be a noop if not supported
         // by the target.
         // To work around this, don't emit llvm.prefetch in this case.
@@ -10230,7 +10230,7 @@ fn llvmAllocaAddressSpace(target: std.Target) c_uint {
     return switch (target.cpu.arch) {
         // On amdgcn, locals should be generated into the private address space.
         // To make Zig not impossible to use, these are then converted to addresses in the
-        // generic address space and treates as regular pointers. This is the way that HIP also does it.
+        // generic address space and treats as regular pointers. This is the way that HIP also does it.
         .amdgcn => llvm.address_space.amdgpu.private,
         else => llvm.address_space.default,
     };

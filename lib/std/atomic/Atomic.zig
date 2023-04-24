@@ -31,7 +31,7 @@ pub fn Atomic(comptime T: type) type {
         ///         // Release ensures code before unref() happens-before the count is decremented as dropFn could be called by then.
         ///         if (self.count.fetchSub(1, .Release)) {
         ///             // Acquire ensures count decrement and code before previous unrefs()s happens-before we call dropFn below.
-        ///             // NOTE: another alterative is to use .AcqRel on the fetchSub count decrement but it's extra barrier in possibly hot path.
+        ///             // NOTE: another alternative is to use .AcqRel on the fetchSub count decrement but it's extra barrier in possibly hot path.
         ///             self.count.fence(.Acquire);
         ///             (self.dropFn)(self);
         ///         }

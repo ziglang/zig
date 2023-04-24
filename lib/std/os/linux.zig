@@ -3912,7 +3912,7 @@ pub const io_uring_cqe = extern struct {
 /// If set, the upper 16 bits are the buffer ID
 pub const IORING_CQE_F_BUFFER = 1 << 0;
 /// If set, parent SQE will generate more CQE entries.
-/// Avaiable since Linux 5.13.
+/// Available since Linux 5.13.
 pub const IORING_CQE_F_MORE = 1 << 1;
 /// If set, more data to read after socket recv
 pub const IORING_CQE_F_SOCK_NONEMPTY = 1 << 2;
@@ -4234,7 +4234,7 @@ pub const tcp_fastopen_client_fail = enum {
 pub const TCPI_OPT_TIMESTAMPS = 1;
 pub const TCPI_OPT_SACK = 2;
 pub const TCPI_OPT_WSCALE = 4;
-/// ECN was negociated at TCP session init
+/// ECN was negotiated at TCP session init
 pub const TCPI_OPT_ECN = 8;
 /// we received at least one packet with ECT
 pub const TCPI_OPT_ECN_SEEN = 16;
@@ -4592,7 +4592,7 @@ else
         /// values of this resource limit.
         NICE,
 
-        /// Maximum realtime priority allowed for non-priviledged
+        /// Maximum realtime priority allowed for non-privileged
         /// processes.
         RTPRIO,
 

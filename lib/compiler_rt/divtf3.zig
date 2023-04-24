@@ -141,7 +141,7 @@ inline fn div(a: f128, b: f128) f128 {
     var reciprocal: u128 = undefined;
 
     // NOTE: This operation is equivalent to __multi3, which is not implemented
-    //       in some architechure
+    //       in some architectures
     var r64q63: u128 = undefined;
     var r64q127: u128 = undefined;
     var r64cH: u128 = undefined;

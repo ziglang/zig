@@ -21,7 +21,7 @@ comptime {
 // supported in clang's compiler-rt implementation today in case anyone tries to link an object file
 // produced with an old clang version. This requires dynamically loading frameworks, parsing a
 // system plist file, and generally adds a fair amount of complexity to the implementation and so
-// our implementation differs by simply removing that backwards compatability support. We only use
+// our implementation differs by simply removing that backwards compatibility support. We only use
 // the newer codepath, which merely calls out to the Darwin _availability_version_check API which is
 // available on macOS 10.15+, iOS 13+, tvOS 13+ and watchOS 6+.
 

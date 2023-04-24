@@ -10611,7 +10611,7 @@ fn identAsString(astgen: *AstGen, ident_token: Ast.TokenIndex) !u32 {
 }
 
 /// Adds a doc comment block to `string_bytes` by walking backwards from `end_token`.
-/// `end_token` must point at the first token after the last doc coment line.
+/// `end_token` must point at the first token after the last doc comment line.
 /// Returns 0 if no doc comment is present.
 fn docCommentAsString(astgen: *AstGen, end_token: Ast.TokenIndex) !u32 {
     if (end_token == 0) return @as(u32, 0);
@@ -10828,7 +10828,7 @@ const Scope = struct {
         inst: Zir.Inst.Ref,
         /// Source location of the corresponding variable declaration.
         token_src: Ast.TokenIndex,
-        /// Track the first identifer where it is referenced.
+        /// Track the first identifier where it is referenced.
         /// 0 means never referenced.
         used: Ast.TokenIndex = 0,
         /// Track the identifier where it is discarded, like this `_ = foo;`.
@@ -10851,7 +10851,7 @@ const Scope = struct {
         ptr: Zir.Inst.Ref,
         /// Source location of the corresponding variable declaration.
         token_src: Ast.TokenIndex,
-        /// Track the first identifer where it is referenced.
+        /// Track the first identifier where it is referenced.
         /// 0 means never referenced.
         used: Ast.TokenIndex = 0,
         /// Track the identifier where it is discarded, like this `_ = foo;`.
@@ -11123,7 +11123,7 @@ const GenZir = struct {
         // and then rvalue() on that to pass the value to the result location.
         switch (parent_ri.rl) {
             .coerced_ty => |ty_inst| {
-                // Type coercion needs to happend before breaks.
+                // Type coercion needs to happen before breaks.
                 gz.rl_ty_inst = ty_inst;
                 gz.break_result_info = .{ .rl = .{ .ty = ty_inst } };
             },

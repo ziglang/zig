@@ -114,7 +114,7 @@ pub fn validationWrap(allocator: anytype) ValidationAllocator(@TypeOf(allocator)
 
 /// An allocator helper function.  Adjusts an allocation length satisfy `len_align`.
 /// `full_len` should be the full capacity of the allocation which may be greater
-/// than the `len` that was requsted.  This function should only be used by allocators
+/// than the `len` that was requested.  This function should only be used by allocators
 /// that are unaffected by `len_align`.
 pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
     assert(alloc_len > 0);
@@ -428,7 +428,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                 .Struct => |init_info| {
                     if (init_info.is_tuple) {
                         if (init_info.fields.len > struct_info.fields.len) {
-                            @compileError("Tuple initializer has more elments than there are fields in `" ++ @typeName(T) ++ "`");
+                            @compileError("Tuple initializer has more elements than there are fields in `" ++ @typeName(T) ++ "`");
                         }
                     } else {
                         inline for (init_info.fields) |field| {
@@ -669,7 +669,7 @@ test "Span" {
 
 /// Takes a sentinel-terminated pointer and returns a slice, iterating over the
 /// memory to find the sentinel and determine the length.
-/// Ponter attributes such as const are preserved.
+/// Pointer attributes such as const are preserved.
 /// `[*c]` pointers are assumed to be non-null and 0-terminated.
 pub fn span(ptr: anytype) Span(@TypeOf(ptr)) {
     if (@typeInfo(@TypeOf(ptr)) == .Optional) {
@@ -1836,7 +1836,7 @@ test "writeIntBig and writeIntLittle" {
 }
 
 /// Swap the byte order of all the members of the fields of a struct
-/// (Changing their endianess)
+/// (Changing their endianness)
 pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
     if (@typeInfo(S) != .Struct) @compileError("byteSwapAllFields expects a struct as the first argument");
     inline for (std.meta.fields(S)) |f| {
@@ -3169,7 +3169,7 @@ test "replace" {
     try testing.expectEqualStrings(expected, output[0..expected.len]);
 }
 
-/// Replace all occurences of `needle` with `replacement`.
+/// Replace all occurrences of `needle` with `replacement`.
 pub fn replaceScalar(comptime T: type, slice: []T, needle: T, replacement: T) void {
     for (slice, 0..) |e, i| {
         if (e == needle) {

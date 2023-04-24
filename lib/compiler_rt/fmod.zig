@@ -239,7 +239,7 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     aPtr_u64[high_index] = highA;
     aPtr_u64[low_index] = lowA;
 
-    // Combine the exponent with the sign, normalize if happend to be denormalized
+    // Combine the exponent with the sign, normalize if happened to be denormalized
     if (expA <= 0) {
         aPtr_u16[exp_and_sign_index] = @truncate(u16, @bitCast(u32, (expA +% 120))) | signA;
         amod *= 0x1p-120;

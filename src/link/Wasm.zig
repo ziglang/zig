@@ -288,7 +288,7 @@ pub const InitFuncLoc = struct {
 pub const StringTable = struct {
     /// Table that maps string offsets, which is used to de-duplicate strings.
     /// Rather than having the offset map to the data, the `StringContext` holds all bytes of the string.
-    /// The strings are stored as a contigious array where each string is zero-terminated.
+    /// The strings are stored as a contiguous array where each string is zero-terminated.
     string_table: std.HashMapUnmanaged(
         u32,
         void,
@@ -1189,7 +1189,7 @@ fn validateFeatures(
 /// Creates synthetic linker-symbols, but only if they are being referenced from
 /// any object file. For instance, the `__heap_base` symbol will only be created,
 /// if one or multiple undefined references exist. When none exist, the symbol will
-/// not be created, ensuring we don't unneccesarily emit unreferenced symbols.
+/// not be created, ensuring we don't unnecessarily emit unreferenced symbols.
 fn resolveLazySymbols(wasm: *Wasm) !void {
     if (wasm.undefs.fetchSwapRemove("__heap_base")) |kv| {
         const loc = try wasm.createSyntheticSymbol("__heap_base", .data);
@@ -2800,7 +2800,7 @@ fn setupMemory(wasm: *Wasm) !void {
             return error.MissAlignment;
         }
         if (memory_ptr > max_memory) {
-            log.err("Maxmimum memory too small, must be at least {d} bytes", .{memory_ptr});
+            log.err("Maximmum memory too small, must be at least {d} bytes", .{memory_ptr});
             return error.MemoryTooSmall;
         }
         if (max_memory > max_memory_allowed) {
@@ -2986,7 +2986,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
     var addend: u32 = 0;
     const mod = wasm.base.options.module.?;
     for (mod.error_name_list.items) |error_name| {
-        const len = @intCast(u32, error_name.len + 1); // names are 0-termianted
+        const len = @intCast(u32, error_name.len + 1); // names are 0-terminated
 
         const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
         const offset = @intCast(u32, atom.code.items.len);

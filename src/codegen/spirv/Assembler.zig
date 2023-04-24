@@ -96,7 +96,7 @@ const Operand = union(enum) {
 /// A structure representing an error message that the assembler may return, when
 /// the assembly source is not syntactically or semantically correct.
 const ErrorMsg = struct {
-    /// The offset in bytes from the start of `src` that this error occured.
+    /// The offset in bytes from the start of `src` that this error occurred.
     byte_offset: u32,
     /// An explanatory error message.
     /// Memory is owned by `self.gpa`. TODO: Maybe allocate this with an arena
@@ -147,7 +147,7 @@ const AsmValueMap = std.StringArrayHashMapUnmanaged(AsmValue);
 /// An allocator used for common allocations.
 gpa: Allocator,
 
-/// A list of errors that occured during processing the assembly.
+/// A list of errors that occurred during processing the assembly.
 errors: std.ArrayListUnmanaged(ErrorMsg) = .{},
 
 /// The source code that is being assembled.

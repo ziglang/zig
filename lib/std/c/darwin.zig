@@ -178,13 +178,13 @@ pub extern "c" fn __getdirentries64(fd: c_int, buf_ptr: [*]u8, buf_len: usize, b
 
 const private = struct {
     extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
-    /// On x86_64 Darwin, fstat has to be manully linked with $INODE64 suffix to
+    /// On x86_64 Darwin, fstat has to be manually linked with $INODE64 suffix to
     /// force 64bit version.
     /// Note that this is fixed on aarch64 and no longer necessary.
     extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *Stat) c_int;
 
     extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *Stat, flags: u32) c_int;
-    /// On x86_64 Darwin, fstatat has to be manully linked with $INODE64 suffix to
+    /// On x86_64 Darwin, fstatat has to be manually linked with $INODE64 suffix to
     /// force 64bit version.
     /// Note that this is fixed on aarch64 and no longer necessary.
     extern "c" fn @"fstatat$INODE64"(dirfd: fd_t, path_name: [*:0]const u8, buf: *Stat, flags: u32) c_int;
@@ -2644,7 +2644,7 @@ pub const F = struct {
     /// add signature from same file (used by dyld for shared libs)
     pub const ADDFILESIGS = 61;
     /// used in conjunction with F.NOCACHE to indicate that DIRECT, synchonous writes
-    /// should not be used (i.e. its ok to temporaily create cached pages)
+    /// should not be used (i.e. its ok to temporarily create cached pages)
     pub const NODIRECT = 62;
     ///Get the protection class of a file from the EA, returns int
     pub const GETPROTECTIONCLASS = 63;

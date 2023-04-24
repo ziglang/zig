@@ -11,7 +11,7 @@ Goals:
 3. add zig-specific language runtime features, see #7265
    * example: arbitrary bit width integer arithmetic
    * lower to call those functions for e.g. multiplying two i12345 numbers together
-   * proper naming + documention for standardizing (allow languages to follow our exmaple)
+   * proper naming + documentation for standardizing (allow languages to follow our example)
 
 Current status (tracking libgcc documentation):
 - Integer library routines => almost implemented

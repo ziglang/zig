@@ -4911,7 +4911,7 @@ fn qualTypeWasDemotedToOpaque(c: *Context, qt: clang.QualType) bool {
             const canonical = @ptrToInt(record_decl.getCanonicalDecl());
             if (c.opaque_demotes.contains(canonical)) return true;
 
-            // check all childern for opaque types.
+            // check all children for opaque types.
             var it = record_decl.field_begin();
             const end_it = record_decl.field_end();
             while (it.neq(end_it)) : (it = it.next()) {

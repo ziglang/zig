@@ -10,7 +10,7 @@ test "@hasField" {
     };
     try expect(@hasField(struc, "a") == true);
     try expect(@hasField(struc, "b") == true);
-    try expect(@hasField(struc, "non-existant") == false);
+    try expect(@hasField(struc, "non-existent") == false);
     try expect(@hasField(struc, "nope") == false);
 
     const unin = union {
@@ -21,7 +21,7 @@ test "@hasField" {
     };
     try expect(@hasField(unin, "a") == true);
     try expect(@hasField(unin, "b") == true);
-    try expect(@hasField(unin, "non-existant") == false);
+    try expect(@hasField(unin, "non-existent") == false);
     try expect(@hasField(unin, "nope") == false);
 
     const enm = enum {
@@ -32,7 +32,7 @@ test "@hasField" {
     };
     try expect(@hasField(enm, "a") == true);
     try expect(@hasField(enm, "b") == true);
-    try expect(@hasField(enm, "non-existant") == false);
+    try expect(@hasField(enm, "non-existent") == false);
     try expect(@hasField(enm, "nope") == false);
 
     const anon = @TypeOf(.{ .a = 1 });

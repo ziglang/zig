@@ -668,7 +668,7 @@ test "runtime initialized sentinel-terminated array literal" {
     try std.testing.expect(g[3] == 0x99);
 }
 
-test "array of array agregate init" {
+test "array of array aggregate init" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO

@@ -120,7 +120,7 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
     // The last iteration needs to happen with extra precision.
 
     // NOTE: This operation is equivalent to __multi3, which is not implemented
-    //       in some architechures
+    //       in some architectures
     var reciprocal: u128 = undefined;
     var correction: u128 = undefined;
     var dummy: u128 = undefined;

@@ -22,7 +22,7 @@ pub const Condition = enum(u4) {
     vs,
     /// no overflow
     vc,
-    /// unsigned higer
+    /// unsigned higher
     hi,
     /// unsigned lower or same
     ls,

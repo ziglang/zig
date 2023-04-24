@@ -622,7 +622,7 @@ fn contextLessThan(context: []const u32, a: usize, b: usize) Order {
 
 const CPQlt = PriorityQueue(usize, []const u32, contextLessThan);
 
-test "std.PriorityQueue: add and remove min heap with contextful comparator" {
+test "std.PriorityQueue: add and remove min heap with contextual comparator" {
     const context = [_]u32{ 5, 3, 4, 2, 2, 8, 0 };
 
     var queue = CPQlt.init(testing.allocator, context[0..]);

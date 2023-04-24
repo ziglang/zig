@@ -219,7 +219,7 @@ pub fn getDebugName(object: *const Object, relocatable_data: RelocatableData) []
 }
 
 /// Checks if the object file is an MVP version.
-/// When that's the case, we check if there's an import table definiton with its name
+/// When that's the case, we check if there's an import table definition with its name
 /// set to '__indirect_function_table". When that's also the case,
 /// we initialize a new table symbol that corresponds to that import and return that symbol.
 ///
@@ -308,7 +308,7 @@ pub const ParseError = error{
     Overflow,
     /// Found table definitions but no corresponding table symbols
     MissingTableSymbols,
-    /// Did not expect a table definiton, but did find one
+    /// Did not expect a table definition, but did find one
     UnexpectedTable,
     /// Object file contains a feature that is unknown to the linker
     UnknownFeature,
@@ -988,7 +988,7 @@ pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_b
 }
 
 /// Verifies if a given value is in between a minimum -and maximum value.
-/// The maxmimum value is calculated using the length, both start and end are inclusive.
+/// The maximum value is calculated using the length, both start and end are inclusive.
 inline fn isInbetween(min: u32, length: u32, value: u32) bool {
     return value >= min and value <= min + length;
 }

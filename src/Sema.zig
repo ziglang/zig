@@ -121,7 +121,7 @@ pub const default_reference_trace_len = 2;
 /// Stores the mapping from `Zir.Inst.Index -> Air.Inst.Ref`, which is used by sema to resolve
 /// instructions during analysis.
 /// Instead of a hash table approach, InstMap is simply a slice that is indexed into using the
-/// zir instruction index and a start offset. An index is not pressent in the map if the value
+/// zir instruction index and a start offset. An index is not present in the map if the value
 /// at the index is `Air.Inst.Ref.none`.
 /// `ensureSpaceForInstructions` can be called to force InstMap to have a mapped range that
 /// includes all instructions in a slice. After calling this function, `putAssumeCapacity*` can
@@ -14141,7 +14141,7 @@ fn zirOverflowArithmetic(
                 }
             },
             .sub_with_overflow => {
-                // If the rhs is zero, then the result is lhs and no overflow occured.
+                // If the rhs is zero, then the result is lhs and no overflow occurred.
                 // Otherwise, if either result is undefined, both results are undefined.
                 if (maybe_rhs_val) |rhs_val| {
                     if (rhs_val.isUndef()) {
@@ -14159,8 +14159,8 @@ fn zirOverflowArithmetic(
                 }
             },
             .mul_with_overflow => {
-                // If either of the arguments is zero, the result is zero and no overflow occured.
-                // If either of the arguments is one, the result is the other and no overflow occured.
+                // If either of the arguments is zero, the result is zero and no overflow occurred.
+                // If either of the arguments is one, the result is the other and no overflow occurred.
                 // Otherwise, if either of the arguments is undefined, both results are undefined.
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef()) {
@@ -17362,7 +17362,7 @@ fn analyzeRet(
 }
 
 fn floatOpAllowed(tag: Zir.Inst.Tag) bool {
-    // extend this swich as additional operators are implemented
+    // extend this switch as additional operators are implemented
     return switch (tag) {
         .add, .sub, .mul, .div, .div_exact, .div_trunc, .div_floor, .mod, .rem, .mod_rem => true,
         else => false,
@@ -24837,7 +24837,7 @@ fn coerce(
     };
 }
 
-const CoersionError = CompileError || error{
+const CoercionError = CompileError || error{
     /// When coerce is called recursively, this error should be returned instead of using `fail`
     /// to ensure correct types in compile errors.
     NotCoercible,
@@ -24878,7 +24878,7 @@ fn coerceExtra(
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
     opts: CoerceOpts,
-) CoersionError!Air.Inst.Ref {
+) CoercionError!Air.Inst.Ref {
     switch (dest_ty_unresolved.tag()) {
         .var_args_param => return sema.coerceVarArgParam(block, inst, inst_src),
         .generic_poison => return inst,
@@ -26606,7 +26606,7 @@ fn storePtr2(
     }
 }
 
-/// Traverse an arbitrary number of bitcasted pointers and return the underyling vector
+/// Traverse an arbitrary number of bitcasted pointers and return the underlying vector
 /// pointer. Only if the final element type matches the vector element type, and the
 /// lengths match.
 fn obtainBitCastedVectorPtr(sema: *Sema, ptr: Air.Inst.Ref) ?Air.Inst.Ref {

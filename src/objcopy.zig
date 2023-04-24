@@ -721,10 +721,10 @@ fn stripElf(
 }
 
 // note: this is "a minimal effort implementation"
-//  It doesn't support all possibile elf files: some sections type may need fixups, the program header may need fix up, ...
-//  It was written for a specific use case (strip debug info to a sperate file, for linux 64-bits executables built with `zig` or `zig c++` )
+//  It doesn't support all possible elf files: some sections type may need fixups, the program header may need fix up, ...
+//  It was written for a specific use case (strip debug info to a separate file, for linux 64-bits executables built with `zig` or `zig c++` )
 // It moves and reoders the sections as little as possible to avoid having to do fixups.
-// TODO: support non-native endianess
+// TODO: support non-native endianness
 
 fn ElfFile(comptime is_64: bool) type {
     const Elf_Ehdr = if (is_64) elf.Elf64_Ehdr else elf.Elf32_Ehdr;
@@ -767,7 +767,7 @@ fn ElfFile(comptime is_64: bool) type {
             // program header: list of segments
             const program_segments = blk: {
                 if (@sizeOf(Elf_Phdr) != header.phentsize)
-                    fatal("zig objcopy: unsuported ELF file, unexpected phentsize ({d})", .{header.phentsize});
+                    fatal("zig objcopy: unsupported ELF file, unexpected phentsize ({d})", .{header.phentsize});
 
                 const program_header = try allocator.alloc(Elf_Phdr, header.phnum);
                 const bytes_read = try in_file.preadAll(std.mem.sliceAsBytes(program_header), header.phoff);
@@ -779,7 +779,7 @@ fn ElfFile(comptime is_64: bool) type {
             // section header
             const sections = blk: {
                 if (@sizeOf(Elf_Shdr) != header.shentsize)
-                    fatal("zig objcopy: unsuported ELF file, unexpected shentsize ({d})", .{header.shentsize});
+                    fatal("zig objcopy: unsupported ELF file, unexpected shentsize ({d})", .{header.shentsize});
 
                 const section_header = try allocator.alloc(Section, header.shnum);
 
@@ -836,8 +836,8 @@ fn ElfFile(comptime is_64: bool) type {
                         if (std.mem.eql(u8, section.name, ".gnu_debuglink")) break :cat .none;
                         break :cat category_from_program;
                     },
-                    elf.SHT_LOPROC...elf.SHT_HIPROC => .common, // don't strip unkonwn sections
-                    elf.SHT_LOUSER...elf.SHT_HIUSER => .common, // don't strip unkonwn sections
+                    elf.SHT_LOPROC...elf.SHT_HIPROC => .common, // don't strip unknown sections
+                    elf.SHT_LOUSER...elf.SHT_HIUSER => .common, // don't strip unknown sections
                     else => category_from_program,
                 };
             }
@@ -914,7 +914,7 @@ fn ElfFile(comptime is_64: bool) type {
             const Update = struct {
                 action: ElfFileHelper.Action,
 
-                // remap the indexs after omitting the filtered sections
+                // remap the index after omitting the filtered sections
                 remap_idx: u16,
 
                 // optionally overrides the payload from the source file
@@ -976,7 +976,7 @@ fn ElfFile(comptime is_64: bool) type {
             eof_offset = @sizeOf(Elf_Ehdr);
 
             // program header as-is.
-            // nb: for only-debug files, removing it appears to work, but is invalid by ELF specifcation.
+            // nb: for only-debug files, removing it appears to work, but is invalid by ELF specification.
             {
                 std.debug.assert(updated_elf_header.e_phoff == @sizeOf(Elf_Ehdr));
                 const data = std.mem.sliceAsBytes(self.program_segments);
@@ -995,7 +995,7 @@ fn ElfFile(comptime is_64: bool) type {
                     var offset: u64 = eof_offset;
                     for (self.sections[1..]) |section| {
                         if (section.section.sh_offset < offset) {
-                            fatal("zig objcopy: unsuported ELF file", .{});
+                            fatal("zig objcopy: unsupported ELF file", .{});
                         }
                         offset = section.section.sh_offset;
                     }
@@ -1027,7 +1027,7 @@ fn ElfFile(comptime is_64: bool) type {
                     dest.sh_offset = std.mem.alignForwardGeneric(Elf_OffSize, eof_offset, addralign);
                     if (src.sh_offset != dest.sh_offset and section.segment != null and update.action != .empty and dest.sh_type != elf.SHT_NOTE) {
                         if (src.sh_offset > dest.sh_offset) {
-                            dest.sh_offset = src.sh_offset; // add padding to avoid modifing the program segments
+                            dest.sh_offset = src.sh_offset; // add padding to avoid modifying the program segments
                         } else {
                             fatal("zig objcopy: cannot adjust program segments", .{});
                         }

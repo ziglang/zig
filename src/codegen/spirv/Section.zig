@@ -263,7 +263,7 @@ fn operandSize(comptime Operand: type, operand: Operand) usize {
 
         // TODO: Where this type is used (OpSpecConstantOp) is currently not correct in the spec
         // json, so it most likely needs to be altered into something that can actually
-        // describe the entire insturction in which it is used.
+        // describe the entire instruction in which it is used.
         spec.LiteralSpecConstantOpInteger => 1,
 
         spec.PairLiteralIntegerIdRef,

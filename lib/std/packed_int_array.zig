@@ -298,7 +298,7 @@ pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: Endian) type {
         }
 
         /// Initialize a packed slice using the memory at `bytes`, with `int_count`
-        /// elements. `bytes` must be large enough to accomodate the requested
+        /// elements. `bytes` must be large enough to accommodate the requested
         /// count.
         pub fn init(bytes: []u8, int_count: usize) Self {
             debug.assert(bytes.len >= bytesRequired(int_count));

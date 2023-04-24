@@ -686,7 +686,7 @@ mir_extra: std.ArrayListUnmanaged(u32) = .{},
 /// When a function is executing, we store the the current stack pointer's value within this local.
 /// This value is then used to restore the stack pointer to the original value at the return of the function.
 initial_stack_value: WValue = .none,
-/// The current stack pointer substracted with the stack size. From this value, we will calculate
+/// The current stack pointer subtracted with the stack size. From this value, we will calculate
 /// all offsets of the stack values.
 bottom_stack_value: WValue = .none,
 /// Arguments of this function declaration
@@ -705,7 +705,7 @@ stack_size: u32 = 0,
 /// However, local variables or the usage of `@setAlignStack` can overwrite this default.
 stack_alignment: u32 = 16,
 
-// For each individual Wasm valtype we store a seperate free list which
+// For each individual Wasm valtype we store a separate free list which
 // allows us to re-use locals that are no longer used. e.g. a temporary local.
 /// A list of indexes which represents a local of valtype `i32`.
 /// It is illegal to store a non-i32 valtype in this list.
@@ -1239,9 +1239,9 @@ fn genFunc(func: *CodeGen) InnerError!void {
         // get the total stack size
         const aligned_stack = std.mem.alignForwardGeneric(u32, func.stack_size, func.stack_alignment);
         try prologue.append(.{ .tag = .i32_const, .data = .{ .imm32 = @intCast(i32, aligned_stack) } });
-        // substract it from the current stack pointer
+        // subtract it from the current stack pointer
         try prologue.append(.{ .tag = .i32_sub, .data = .{ .tag = {} } });
-        // Get negative stack aligment
+        // Get negative stack alignment
         try prologue.append(.{ .tag = .i32_const, .data = .{ .imm32 = @intCast(i32, func.stack_alignment) * -1 } });
         // Bitwise-and the value to get the new stack pointer to ensure the pointers are aligned with the abi alignment
         try prologue.append(.{ .tag = .i32_and, .data = .{ .tag = {} } });
@@ -3655,7 +3655,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // When highest and lowest are null, we have no cases and can use a jump table
     const lowest = lowest_maybe orelse 0;
     const highest = highest_maybe orelse 0;
-    // When the highest and lowest values are seperated by '50',
+    // When the highest and lowest values are separated by '50',
     // we define it as sparse and use an if/else-chain, rather than a jump table.
     // When the target is an integer size larger than u32, we have no way to use the value
     // as an index, therefore we also use an if/else-chain for those cases.
@@ -3681,7 +3681,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             try func.addImm32(lowest * -1);
             try func.addTag(.i32_add);
         } else if (lowest > 0) {
-            // make the index start from 0 by substracting the lowest value
+            // make the index start from 0 by subtracting the lowest value
             try func.addImm32(lowest);
             try func.addTag(.i32_sub);
         }

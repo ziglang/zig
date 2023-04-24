@@ -936,7 +936,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .call => {
             const payload = node.castTag(.call).?.data;
-            // Cosmetic: avoids an unnecesary address_of on most function calls.
+            // Cosmetic: avoids an unnecessary address_of on most function calls.
             const lhs = if (payload.lhs.tag() == .fn_identifier)
                 try c.addNode(.{
                     .tag = .identifier,

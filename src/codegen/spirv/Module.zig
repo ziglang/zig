@@ -416,7 +416,7 @@ pub fn typeId(self: Module, ty_ref: Type.Ref) IdResultType {
 
 /// Unconditionally emit a spir-v type into the appropriate section.
 /// Note: If this function is called with a type that is already generated, it may yield an invalid module
-/// as non-pointer non-aggregrate types must me unique!
+/// as non-pointer non-aggregate types must me unique!
 /// Note: This function does not attempt to perform any validation on the type.
 /// The type is emitted in a shallow fashion; any child types should already
 /// be emitted at this point.

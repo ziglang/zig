@@ -159,7 +159,7 @@ pub fn interlace(vecs: anytype) @Vector(vectorLength(@TypeOf(vecs[0])) * vecs.le
 }
 
 /// The contents of `interlaced` is evenly split between vec_count vectors that are returned as an array. They "take turns",
-/// recieving one element from `interlaced` at a time.
+/// receiving one element from `interlaced` at a time.
 pub fn deinterlace(
     comptime vec_count: usize,
     interlaced: anytype,

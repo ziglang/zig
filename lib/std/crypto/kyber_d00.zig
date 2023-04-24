@@ -80,7 +80,7 @@
 //! m = Compress(Decompress(c_2, d_v) - s^T Decompress(c_1, d_u), 1).
 //!
 //! It it not straight-forward to see that this formula is correct.  In
-//! fact, there is negligable but non-zero probability that a ciphertext
+//! fact, there is negligible but non-zero probability that a ciphertext
 //! does not decrypt correctly given by the DFP column in Table 4.  This
 //! failure probability can be computed by a careful automated analysis
 //! of the probabilities involved, see kyber_failure.py of [SecEst].
@@ -337,7 +337,7 @@ fn Kyber(comptime p: Params) type {
 
             /// Create a new key pair.
             /// If seed is null, a random seed will be generated.
-            /// If a seed is provided, the key pair will be determinsitic.
+            /// If a seed is provided, the key pair will be deterministic.
             pub fn create(seed_: ?[seed_length]u8) !KeyPair {
                 const seed = seed_ orelse sk: {
                     var random_seed: [seed_length]u8 = undefined;
@@ -640,7 +640,7 @@ fn montReduce(x: i32) i16 {
     // we have int32(int64(a)*int64(b)) = int32(a*b) and so the result is ok.
     const m = @truncate(i16, @truncate(i32, x *% qInv));
 
-    // Note that x - m q is divisable by R; indeed modulo R we have
+    // Note that x - m q is divisible by R; indeed modulo R we have
     //
     //  x - m q ≡ x - x q' q ≡ x - x q⁻¹ q ≡ x - x = 0.
     //
@@ -1199,7 +1199,7 @@ const Poly = struct {
                 t |= @as(T, buf[batch_bytes * i + j]) << (8 * j);
             }
 
-            // Accumelate `a's and `b's together by masking them out, shifting
+            // Accumulate `a's and `b's together by masking them out, shifting
             // and adding. For η=3, we have  d = a₁ + a₂ + a₃ + 8(b₁ + b₂ + b₃) + …
             var d: T = 0;
             inline for (0..eta) |j| {

@@ -96,7 +96,7 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
         },
         .plan9 => |dbg_out| {
             if (delta_pc <= 0) return; // only do this when the pc changes
-            // we have already checked the target in the linker to make sure it is compatable
+            // we have already checked the target in the linker to make sure it is compatible
             const quant = @import("../../link/Plan9/aout.zig").getPCQuant(self.target.cpu.arch) catch unreachable;
 
             // increasing the line number

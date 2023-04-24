@@ -543,7 +543,7 @@ pub fn generateSymbol(
                 for (field_vals, 0..) |field_val, index| {
                     const field_ty = fields[index].ty;
                     // pointer may point to a decl which must be marked used
-                    // but can also result in a relocation. Therefore we handle those seperately.
+                    // but can also result in a relocation. Therefore we handle those separately.
                     if (field_ty.zigTypeTag() == .Pointer) {
                         const field_size = math.cast(usize, field_ty.abiSize(target)) orelse return error.Overflow;
                         var tmp_list = try std.ArrayList(u8).initCapacity(code.allocator, field_size);

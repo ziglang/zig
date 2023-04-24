@@ -60,7 +60,7 @@ globals_lookup: []i64 = undefined,
 /// Can be undefined as set together with in_symtab.
 relocs_lookup: []Entry = undefined,
 
-/// All relocations sorted and flatened, sorted by address descending
+/// All relocations sorted and flattened, sorted by address descending
 /// per section.
 relocations: std.ArrayListUnmanaged(macho.relocation_info) = .{},
 /// Beginning index to the relocations array for each input section

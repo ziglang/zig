@@ -105,13 +105,13 @@ fn joinSepMaybeZ(allocator: Allocator, separator: u8, comptime sepPredicate: fn 
     return buf;
 }
 
-/// Naively combines a series of paths with the native path seperator.
+/// Naively combines a series of paths with the native path separator.
 /// Allocates memory for the result, which must be freed by the caller.
 pub fn join(allocator: Allocator, paths: []const []const u8) ![]u8 {
     return joinSepMaybeZ(allocator, sep, isSep, paths, false);
 }
 
-/// Naively combines a series of paths with the native path seperator and null terminator.
+/// Naively combines a series of paths with the native path separator and null terminator.
 /// Allocates memory for the result, which must be freed by the caller.
 pub fn joinZ(allocator: Allocator, paths: []const []const u8) ![:0]u8 {
     const out = try joinSepMaybeZ(allocator, sep, isSep, paths, true);

@@ -10,7 +10,7 @@ pub fn addCases(ctx: *Cases) !void {
             \\    return a + b;
             \\}
             \\
-            \\pub export fn add_and_substract(a: i32, out: *i32) callconv(.Kernel) void {
+            \\pub export fn add_and_subtract(a: i32, out: *i32) callconv(.Kernel) void {
             \\    const x = add(a, 7);
             \\    var y = add(2, 0);
             \\    y -= x;

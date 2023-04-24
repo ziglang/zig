@@ -224,7 +224,7 @@ pub const Inst = struct {
         /// Uses the `ty_pl` field with payload `Block`.  A block runs its body which always ends
         /// with a `noreturn` instruction, so the only way to proceed to the code after the `block`
         /// is to encounter a `br` that targets this `block`.  If the `block` type is `noreturn`,
-        /// then there do not exist any `br` instructions targetting this `block`.
+        /// then there do not exist any `br` instructions targeting this `block`.
         block,
         /// A labeled block of code that loops forever. At the end of the body it is implied
         /// to repeat; no explicit "repeat" instruction terminates loop bodies.
@@ -310,7 +310,7 @@ pub const Inst = struct {
         /// Base 10 logarithm of a floating point number.
         /// Uses the `un_op` field.
         log10,
-        /// Aboslute value of a floating point number.
+        /// Absolute value of a floating point number.
         /// Uses the `un_op` field.
         fabs,
         /// Floor: rounds a floating pointer number down to the nearest integer.
