@@ -4392,7 +4392,7 @@ fn airMemset(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const value = try func.resolveInst(bin_op.rhs);
     const len = switch (ptr_ty.ptrSize()) {
         .Slice => try func.sliceLen(ptr),
-        .One => @as(WValue, .{ .imm64 = ptr_ty.childType().arrayLen() }),
+        .One => @as(WValue, .{ .imm32 = @intCast(u32, ptr_ty.childType().arrayLen()) }),
         .C, .Many => unreachable,
     };
     try func.memset(ptr, len, value);
