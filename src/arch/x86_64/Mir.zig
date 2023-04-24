@@ -23,6 +23,7 @@ const Register = bits.Register;
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 extra: []const u32,
+frame_locs: std.MultiArrayList(FrameLoc).Slice,
 
 pub const Inst = struct {
     tag: Tag,
@@ -241,13 +242,13 @@ pub const Inst = struct {
         /// Start of epilogue
         dbg_epilogue_begin,
         /// Update debug line
-        /// Uses `payload` payload with data of type `DbgLineColumn`.
+        /// Uses `line_column` payload containing the line and column.
         dbg_line,
         /// Push registers
-        /// Uses `payload` payload with data of type `SaveRegisterList`.
+        /// Uses `payload` payload containing `RegisterList.asInt` directly.
         push_regs,
         /// Pop registers
-        /// Uses `payload` payload with data of type `SaveRegisterList`.
+        /// Uses `payload` payload containing `RegisterList.asInt` directly.
         pop_regs,
 
         /// Tombstone
@@ -500,6 +501,11 @@ pub const Inst = struct {
             /// Index into the linker's symbol table.
             sym_index: u32,
         },
+        /// Debug line and column position
+        line_column: struct {
+            line: u32,
+            column: u32,
+        },
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
         payload: u32,
     };
@@ -522,12 +528,11 @@ pub const LeaRegisterReloc = struct {
     sym_index: u32,
 };
 
-/// Used in conjunction with `SaveRegisterList` payload to transfer a list of used registers
-/// in a compact manner.
+/// Used in conjunction with payload to transfer a list of used registers in a compact manner.
 pub const RegisterList = struct {
     bitset: BitSet = BitSet.initEmpty(),
 
-    const BitSet = IntegerBitSet(@ctz(@as(u32, 0)));
+    const BitSet = IntegerBitSet(32);
     const Self = @This();
 
     fn getIndexForReg(registers: []const Register, reg: Register) BitSet.MaskInt {
@@ -547,6 +552,10 @@ pub const RegisterList = struct {
         return self.bitset.isSet(index);
     }
 
+    pub fn iterator(self: Self, comptime options: std.bit_set.IteratorOptions) BitSet.Iterator(options) {
+        return self.bitset.iterator(options);
+    }
+
     pub fn asInt(self: Self) u32 {
         return self.bitset.mask;
     }
@@ -560,14 +569,6 @@ pub const RegisterList = struct {
     pub fn count(self: Self) u32 {
         return @intCast(u32, self.bitset.count());
     }
-};
-
-pub const SaveRegisterList = struct {
-    /// Base register
-    base_reg: u32,
-    /// Use `RegisterList` to populate.
-    register_list: u32,
-    stack_end: u32,
 };
 
 pub const Imm64 = struct {
@@ -593,41 +594,51 @@ pub const Imm64 = struct {
 pub const MemorySib = struct {
     /// Size of the pointer.
     ptr_size: u32,
-    /// Base register. -1 means null, or no base register.
-    base: i32,
-    /// Scale for index register. -1 means null, or no scale.
-    /// This has to be in sync with `index` field.
-    scale: i32,
-    /// Index register. -1 means null, or no index register.
-    /// This has to be in sync with `scale` field.
-    index: i32,
+    /// Base register tag of type Memory.Base.Tag
+    base_tag: u32,
+    /// Base register of type Register or FrameIndex
+    base: u32,
+    /// Scale starting at bit 0 and index register starting at bit 4.
+    scale_index: u32,
     /// Displacement value.
     disp: i32,
 
     pub fn encode(mem: Memory) MemorySib {
         const sib = mem.sib;
+        assert(sib.scale_index.scale == 0 or std.math.isPowerOfTwo(sib.scale_index.scale));
         return .{
             .ptr_size = @enumToInt(sib.ptr_size),
-            .base = if (sib.base) |r| @enumToInt(r) else -1,
-            .scale = if (sib.scale_index) |si| si.scale else -1,
-            .index = if (sib.scale_index) |si| @enumToInt(si.index) else -1,
+            .base_tag = @enumToInt(@as(Memory.Base.Tag, sib.base)),
+            .base = switch (sib.base) {
+                .none => undefined,
+                .reg => |r| @enumToInt(r),
+                .frame => |fi| @enumToInt(fi),
+            },
+            .scale_index = @as(u32, sib.scale_index.scale) << 0 |
+                @as(u32, if (sib.scale_index.scale > 0)
+                @enumToInt(sib.scale_index.index)
+            else
+                undefined) << 4,
             .disp = sib.disp,
         };
     }
 
     pub fn decode(msib: MemorySib) Memory {
-        const base: ?Register = if (msib.base == -1) null else @intToEnum(Register, msib.base);
-        const scale_index: ?Memory.ScaleIndex = if (msib.index == -1) null else .{
-            .scale = @intCast(u4, msib.scale),
-            .index = @intToEnum(Register, msib.index),
-        };
-        const mem: Memory = .{ .sib = .{
+        const scale = @truncate(u4, msib.scale_index);
+        assert(scale == 0 or std.math.isPowerOfTwo(scale));
+        return .{ .sib = .{
             .ptr_size = @intToEnum(Memory.PtrSize, msib.ptr_size),
-            .base = base,
-            .scale_index = scale_index,
+            .base = switch (@intToEnum(Memory.Base.Tag, msib.base_tag)) {
+                .none => .none,
+                .reg => .{ .reg = @intToEnum(Register, msib.base) },
+                .frame => .{ .frame = @intToEnum(bits.FrameIndex, msib.base) },
+            },
+            .scale_index = .{
+                .scale = scale,
+                .index = if (scale > 0) @intToEnum(Register, msib.scale_index >> 4) else undefined,
+            },
             .disp = msib.disp,
         } };
-        return mem;
     }
 };
 
@@ -676,14 +687,10 @@ pub const MemoryMoffs = struct {
     }
 };
 
-pub const DbgLineColumn = struct {
-    line: u32,
-    column: u32,
-};
-
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);
     gpa.free(mir.extra);
+    mir.frame_locs.deinit(gpa);
     mir.* = undefined;
 }
 
@@ -702,5 +709,24 @@ pub fn extraData(mir: Mir, comptime T: type, index: u32) struct { data: T, end: 
     return .{
         .data = result,
         .end = i,
+    };
+}
+
+pub const FrameLoc = struct {
+    base: Register,
+    disp: i32,
+};
+
+pub fn resolveFrameLoc(mir: Mir, mem: Memory) Memory {
+    return switch (mem) {
+        .sib => |sib| switch (sib.base) {
+            .none, .reg => mem,
+            .frame => |index| if (mir.frame_locs.len > 0) Memory.sib(sib.ptr_size, .{
+                .base = .{ .reg = mir.frame_locs.items(.base)[@enumToInt(index)] },
+                .disp = mir.frame_locs.items(.disp)[@enumToInt(index)] + sib.disp,
+                .scale_index = mem.scaleIndex(),
+            }) else mem,
+        },
+        .rip, .moffs => mem,
     };
 }

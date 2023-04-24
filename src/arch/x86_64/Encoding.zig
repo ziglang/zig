@@ -47,17 +47,8 @@ pub fn findByMnemonic(
         },
         else => {},
     } else false;
-    const rex_extended = for (ops) |op| switch (op) {
-        .reg => |r| if (r.isExtended()) break true,
-        .mem => |m| {
-            if (m.base()) |base| {
-                if (base.isExtended()) break true;
-            }
-            if (m.scaleIndex()) |si| {
-                if (si.index.isExtended()) break true;
-            }
-        },
-        else => {},
+    const rex_extended = for (ops) |op| {
+        if (op.isBaseExtended() or op.isIndexExtended()) break true;
     } else false;
 
     if ((rex_required or rex_extended) and rex_invalid) return error.CannotEncode;
@@ -544,7 +535,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
     std.mem.copy(Operand, &inst.ops, ops);
 
     var cwriter = std.io.countingWriter(std.io.null_writer);
-    inst.encode(cwriter.writer()) catch unreachable; // Not allowed to fail here unless OOM.
+    inst.encode(cwriter.writer(), .{ .allow_frame_loc = true }) catch unreachable; // Not allowed to fail here unless OOM.
     return @intCast(usize, cwriter.bytes_written);
 }
 
