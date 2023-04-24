@@ -8684,11 +8684,11 @@ test "integer cast panic" {
       <pre>{#syntax#}@memcpy(noalias dest, noalias source) void{#endsyntax#}</pre>
       <p>This function copies bytes from one region of memory to another.</p>
       <p>{#syntax#}dest{#endsyntax#} must be a mutable slice, a mutable pointer to an array, or
-        a mutable many-item {#link|pointer|Pointer#}. It may have any
+        a mutable many-item {#link|pointer|Pointers#}. It may have any
         alignment, and it may have any element type.</p>
       <p>Likewise, {#syntax#}source{#endsyntax#} must be a mutable slice, a
         mutable pointer to an array, or a mutable many-item
-        {#link|pointer|Pointer#}. It may have any alignment, and it may have any
+        {#link|pointer|Pointers#}. It may have any alignment, and it may have any
         element type.</p>
       <p>The {#syntax#}source{#endsyntax#} element type must support {#link|Type Coercion#}
         into the {#syntax#}dest{#endsyntax#} element type. The element types may have
