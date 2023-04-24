@@ -1,6 +1,5 @@
 const Module = @This();
 
-builder: *Build,
 step: Step,
 /// This could either be a generated file, in which case the module
 /// contains exactly one file, or it could be a path to the root source
@@ -30,7 +29,6 @@ pub fn create(owner: *Build, options: CreateModuleOptions) *Module {
     const arena = owner.allocator;
     const mod = owner.allocator.create(Module) catch @panic("OOM");
     mod.* = .{
-        .builder = owner,
         .step = Step.init(.{
             .id = .module,
             .name = "module", // TODO: Better name
@@ -68,6 +66,49 @@ pub fn create(owner: *Build, options: CreateModuleOptions) *Module {
     return mod;
 }
 
+pub fn appendArgs(
+    m: *Module,
+    name: []const u8,
+    args: *ArrayList([]const u8),
+) error{ OutOfMemory, MakeFailed }!void {
+    try args.append("--mod");
+    try args.append(name);
+
+    var num_source_files: usize = 0;
+
+    if (m.source_file) |rs| {
+        try args.append(rs.getPath2(m.step.owner, &m.step));
+        num_source_files += 1;
+    }
+
+    for (m.link_objects.items) |obj| {
+        switch (obj) {
+            .c_source_file => |c| {
+                try args.append(c.source.getPath2(m.step.owner, &m.step));
+                num_source_files +|= 1;
+            },
+            .c_source_files => |c_files| {
+                for (c_files.files) |file_path| {
+                    try args.append(file_path);
+                    num_source_files +|= 1;
+                }
+            },
+            // TODO: Should ASM files be included here?
+            .assembly_file => |asm_file| {
+                try args.append(asm_file.getPath2(m.step.owner, &m.step));
+                num_source_files +|= 1;
+            },
+            else => {},
+        }
+    }
+
+    if (num_source_files == 0) {
+        return m.step.fail("Module '{s}' must have at least one source file", .{name});
+    }
+
+    // TODO: Module specific args
+}
+
 fn moduleDependenciesToArrayHashMap(arena: Allocator, deps: []const ModuleDependency) std.StringArrayHashMap(*Module) {
     var result = std.StringArrayHashMap(*Module).init(arena);
     for (deps) |dep| {
@@ -77,7 +118,7 @@ fn moduleDependenciesToArrayHashMap(arena: Allocator, deps: []const ModuleDepend
 }
 
 pub fn addOptions(m: *Module, name: []const u8, options: *OptionsStep) void {
-    m.dependencies.put(m.builder.dupe(name), options.addModule(name)) catch @panic("OOM");
+    m.dependencies.put(m.step.owner.dupe(name), options.addModule(name)) catch @panic("OOM");
     m.step.dependOn(&options.step);
 }
 
@@ -101,7 +142,7 @@ pub fn linkLibCpp(m: *Module) void {
 /// This one has no integration with anything, it just puts -lname on the command line.
 /// Prefer to use `linkSystemLibrary` instead.
 pub fn linkSystemLibraryName(m: *Module, name: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.link_objects.append(.{
         .system_lib = .{
             .name = b.dupe(name),
@@ -115,7 +156,7 @@ pub fn linkSystemLibraryName(m: *Module, name: []const u8) void {
 /// This one has no integration with anything, it just puts -needed-lname on the command line.
 /// Prefer to use `linkSystemLibraryNeeded` instead.
 pub fn linkSystemLibraryNeededName(m: *Module, name: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.link_objects.append(.{
         .system_lib = .{
             .name = b.dupe(name),
@@ -129,7 +170,7 @@ pub fn linkSystemLibraryNeededName(m: *Module, name: []const u8) void {
 /// Darwin-only. This one has no integration with anything, it just puts -weak-lname on the
 /// command line. Prefer to use `linkSystemLibraryWeak` instead.
 pub fn linkSystemLibraryWeakName(m: *Module, name: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.link_objects.append(.{
         .system_lib = .{
             .name = b.dupe(name),
@@ -143,7 +184,7 @@ pub fn linkSystemLibraryWeakName(m: *Module, name: []const u8) void {
 /// This links against a system library, exclusively using pkg-config to find the library.
 /// Prefer to use `linkSystemLibrary` instead.
 pub fn linkSystemLibraryPkgConfigOnly(m: *Module, lib_name: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.link_objects.append(.{
         .system_lib = .{
             .name = b.dupe(lib_name),
@@ -157,7 +198,7 @@ pub fn linkSystemLibraryPkgConfigOnly(m: *Module, lib_name: []const u8) void {
 /// This links against a system library, exclusively using pkg-config to find the library.
 /// Prefer to use `linkSystemLibraryNeeded` instead.
 pub fn linkSystemLibraryNeededPkgConfigOnly(m: *Module, lib_name: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.link_objects.append(.{
         .system_lib = .{
             .name = b.dupe(lib_name),
@@ -170,7 +211,7 @@ pub fn linkSystemLibraryNeededPkgConfigOnly(m: *Module, lib_name: []const u8) vo
 
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
 pub fn addCSourceFiles(m: *Module, files: []const []const u8, flags: []const []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     const c_source_files = b.allocator.create(CSourceFiles) catch @panic("OOM");
 
     const files_copy = b.dupeStrings(files);
@@ -191,7 +232,7 @@ pub fn addCSourceFile(m: *Module, file: []const u8, flags: []const []const u8) v
 }
 
 pub fn addCSourceFileSource(m: *Module, source: CSourceFile) void {
-    const b = m.builder;
+    const b = m.step.owner;
     const c_source_file = b.allocator.create(CSourceFile) catch @panic("OOM");
     c_source_file.* = source.dupe(b);
     m.link_objects.append(.{ .c_source_file = c_source_file }) catch @panic("OOM");
@@ -212,7 +253,7 @@ const InstalledHeader = union(enum) {
 };
 
 pub fn installHeader(m: *Module, src_path: []const u8, dest_rel_path: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     const install_file = b.addInstallHeaderFile(src_path, dest_rel_path);
     b.getInstallStep().dependOn(&install_file.step);
     m.installed_headers.append(&install_file.step) catch @panic("OOM");
@@ -229,7 +270,7 @@ pub fn installConfigHeader(
     options: InstallConfigHeaderOptions,
 ) void {
     const dest_rel_path = options.dest_rel_path orelse config_header.include_path;
-    const b = m.builder;
+    const b = m.step.owner;
     const install_file = b.addInstallFileWithDir(
         .{ .generated = &config_header.output_file },
         options.install_dir,
@@ -256,7 +297,7 @@ pub fn installHeadersDirectoryOptions(
     m: *Module,
     options: std.Build.InstallDirStep.Options,
 ) void {
-    const b = m.builder;
+    const b = m.step.owner;
     const install_dir = b.addInstallDirectory(options);
     b.getInstallStep().dependOn(&install_dir.step);
     m.installed_headers.append(&install_dir.step) catch @panic("OOM");
@@ -264,7 +305,7 @@ pub fn installHeadersDirectoryOptions(
 
 pub fn installLibraryHeaders(m: *Module, l: *CompileStep) void {
     assert(l.kind == .lib);
-    const b = m.builder;
+    const b = m.step.owner;
     const install_step = b.getInstallStep();
     // Copy each element from installed_headers, modifying the builder
     // to be the new parent's builder.
@@ -288,14 +329,14 @@ pub fn installLibraryHeaders(m: *Module, l: *CompileStep) void {
 /// If the value is omitted, it is set to 1.
 /// `name` and `value` need not live longer than the function call.
 pub fn defineCMacro(m: *Module, name: []const u8, value: ?[]const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     const macro = std.Build.constructCMacro(b.allocator, name, value);
     m.c_macros.append(macro) catch @panic("OOM");
 }
 
 /// name_and_value looks like [name]=[value]. If the value is omitted, it is set to 1.
 pub fn defineCMacroRaw(m: *Module, name_and_value: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.c_macros.append(b.dupe(name_and_value)) catch @panic("OOM");
 }
 
@@ -330,14 +371,14 @@ fn linkLibraryOrObject(m: *Module, other: *CompileStep) void {
 }
 
 pub fn addAssemblyFile(m: *Module, path: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.link_objects.append(.{
         .assembly_file = .{ .path = b.dupe(path) },
     }) catch @panic("OOM");
 }
 
 pub fn addAssemblyFileSource(m: *Module, source: FileSource) void {
-    const b = m.builder;
+    const b = m.step.owner;
     const source_duped = source.dupe(b);
     m.link_objects.append(.{ .assembly_file = source_duped }) catch @panic("OOM");
     source_duped.addStepDependencies(&m.step);
@@ -348,7 +389,7 @@ pub fn addObjectFile(m: *Module, source_file: []const u8) void {
 }
 
 pub fn addObjectFileSource(m: *Module, source: FileSource) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.link_objects.append(.{ .static_path = source.dupe(b) }) catch @panic("OOM");
     source.addStepDependencies(&m.step);
 }
@@ -374,7 +415,7 @@ fn linkSystemLibraryInner(m: *Module, name: []const u8, opts: struct {
     needed: bool = false,
     weak: bool = false,
 }) void {
-    const b = m.builder;
+    const b = m.step.owner;
     if (isLibCLibrary(name)) {
         m.linkLibC();
         return;
@@ -435,19 +476,19 @@ pub const FrameworkLinkInfo = struct {
 };
 
 pub fn linkFramework(m: *Module, framework_name: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.frameworks.put(b.dupe(framework_name), .{}) catch @panic("OOM");
 }
 
 pub fn linkFrameworkNeeded(m: *Module, framework_name: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.frameworks.put(b.dupe(framework_name), .{
         .needed = true,
     }) catch @panic("OOM");
 }
 
 pub fn linkFrameworkWeak(m: *Module, framework_name: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.frameworks.put(b.dupe(framework_name), .{
         .weak = true,
     }) catch @panic("OOM");
@@ -461,12 +502,12 @@ pub const IncludeDir = union(enum) {
 };
 
 pub fn addSystemIncludePath(m: *Module, path: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.include_dirs.append(IncludeDir{ .raw_path_system = b.dupe(path) }) catch @panic("OOM");
 }
 
 pub fn addIncludePath(m: *Module, path: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.include_dirs.append(IncludeDir{ .raw_path = b.dupe(path) }) catch @panic("OOM");
 }
 
@@ -476,7 +517,7 @@ pub fn addConfigHeader(m: *Module, config_header: *ConfigHeaderStep) void {
 }
 
 pub fn addLibraryPath(m: *Module, path: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.lib_paths.append(.{ .path = b.dupe(path) }) catch @panic("OOM");
 }
 
@@ -486,7 +527,7 @@ pub fn addLibraryPathDirectorySource(m: *Module, directory_source: FileSource) v
 }
 
 pub fn addRPath(m: *Module, path: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.rpaths.append(.{ .path = b.dupe(path) }) catch @panic("OOM");
 }
 
@@ -496,7 +537,7 @@ pub fn addRPathDirectorySource(m: *Module, directory_source: FileSource) void {
 }
 
 pub fn addFrameworkPath(m: *Module, dir_path: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.framework_dirs.append(.{ .path = b.dupe(dir_path) }) catch @panic("OOM");
 }
 
@@ -506,12 +547,12 @@ pub fn addFrameworkPathDirectorySource(m: *Module, directory_source: FileSource)
 }
 
 pub fn forceUndefinedSymbol(m: *Module, symbol_name: []const u8) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.force_undefined_symbols.put(b.dupe(symbol_name), {}) catch @panic("OOM");
 }
 
 pub fn setLinkerScriptPath(m: *Module, source: FileSource) void {
-    const b = m.builder;
+    const b = m.step.owner;
     m.linker_script = source.dupe(b);
     source.addStepDependencies(&m.step);
 }

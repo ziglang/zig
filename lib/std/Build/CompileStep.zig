@@ -614,11 +614,11 @@ pub fn setExecCmd(self: *CompileStep, args: []const ?[]const u8) void {
     self.exec_cmd_args = duped_args;
 }
 
-fn appendModuleArgs(
-    cs: *CompileStep,
+pub fn appendModuleArgs(
+    self: *CompileStep,
     zig_args: *ArrayList([]const u8),
-) error{OutOfMemory}!void {
-    const b = cs.step.owner;
+) error{ OutOfMemory, MakeFailed }!void {
+    const b = self.step.owner;
     // First, traverse the whole dependency graph and give every module a unique name, ideally one
     // named after what it's called somewhere in the graph. It will help here to have both a mapping
     // from module to name and a set of all the currently-used names.
@@ -631,12 +631,12 @@ fn appendModuleArgs(
     }).init(b.allocator);
     // Make sure that the main module name does not have colons in it, since the CLI forbids it.
     // We handle this for transitive dependencies further down.
-    if (std.mem.indexOfScalar(u8, cs.name, ':') != null) {
+    if (std.mem.indexOfScalar(u8, self.name, ':') != null) {
         @panic("Module names cannot contain colons");
     }
     try to_name.append(.{
-        .name = cs.name,
-        .mod = cs.main_module,
+        .name = self.name,
+        .mod = self.main_module,
     });
 
     while (to_name.popOrNull()) |dep| {
@@ -670,6 +670,9 @@ fn appendModuleArgs(
         }
     }
 
+    try zig_args.append("--main-mod");
+    try zig_args.append(self.name);
+
     // Since the module names given to the CLI are based off of the exposed names, we already know
     // that none of the CLI names have colons in them, so there's no need to check that explicitly.
 
@@ -680,25 +683,21 @@ fn appendModuleArgs(
             const mod = kv.key_ptr.*;
             const name = kv.value_ptr.*;
 
+            try mod.appendArgs(name, zig_args);
+
             const deps_str = try constructDepString(b.allocator, mod_names, mod.dependencies);
-            // TODO: source_file may not always exits, for example if a module consists only of C source files.
-            // How do we represent this case in the CLI
-            const src = mod.builder.pathFromRoot(mod.source_file.?.getPath(mod.builder));
-            try zig_args.append("--mod");
-            try zig_args.append(try std.fmt.allocPrint(b.allocator, "{s}:{s}:{s}", .{ name, deps_str, src }));
+            if (deps_str.len > 0) {
+                try zig_args.append(try std.fmt.allocPrint(b.allocator, "--deps {s}", .{deps_str}));
+            }
         }
     }
-
-    // Lastly, output the main module dependency
-    try zig_args.append("--deps");
-    try zig_args.append(cs.name);
 }
 
 fn constructDepString(
     allocator: std.mem.Allocator,
     mod_names: std.AutoHashMap(*Module, []const u8),
     deps: std.StringArrayHashMap(*Module),
-) ![]const u8 {
+) error{OutOfMemory}![]const u8 {
     var deps_str = std.ArrayList(u8).init(allocator);
     var it = deps.iterator();
     while (it.next()) |kv| {
@@ -720,10 +719,6 @@ fn constructDepString(
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
     const self = @fieldParentPtr(CompileStep, "step", step);
-
-    if (self.main_module.source_file == null and self.main_module.link_objects.items.len == 0) {
-        return step.fail("the linker needs one or more objects to link", .{});
-    }
 
     var zig_args = ArrayList([]const u8).init(b.allocator);
     defer zig_args.deinit();
@@ -766,8 +761,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append("--stack");
         try zig_args.append(try std.fmt.allocPrint(b.allocator, "{}", .{stack_size}));
     }
-
-    if (self.main_module.source_file) |root_src| try zig_args.append(root_src.getPath(b));
 
     // We will add link objects from transitive dependencies, but we want to keep
     // all link objects in the same order provided.
@@ -1025,9 +1018,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try zig_args.append("--global-cache-dir");
     try zig_args.append(b.global_cache_root.path orelse ".");
-
-    try zig_args.append("--name");
-    try zig_args.append(self.name);
 
     if (self.linkage) |some| switch (some) {
         .dynamic => try zig_args.append("-dynamic"),
