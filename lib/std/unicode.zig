@@ -40,9 +40,9 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
 }
 
 /// Deprecated, use `utf8ToUtf16StringLiteral` instead
-pub fn utf8ToUtf16StringLiteral(
+pub fn utf8ToUtf16LeStringLiteral(
     comptime utf8: []const u8,
-) *const [calcUtf16Len(.Little, utf8) catch unreachable:0]u16 {
+) *const [calcUtf16Len(utf8) catch unreachable:0]u16 {
     return comptime utf8ToUtf16StringLiteral(.Little, utf8);
 }
 
@@ -708,7 +708,8 @@ test "utf16ToUtf8" {
         defer std.testing.allocator.free(utf8_le);
         try testing.expect(mem.eql(u8, utf8_le, "Aa"));
 
-        std.mem.swap(u16, &utf16[0], &utf16[1]);
+        mem.writeIntSliceBig(u16, utf16_as_bytes[0..2], 'A');
+        mem.writeIntSliceBig(u16, utf16_as_bytes[2..], 'a');
         const utf8_be = try utf16ToUtf8Alloc(.Big, std.testing.allocator, &utf16);
         defer std.testing.allocator.free(utf8_be);
         try testing.expect(mem.eql(u8, utf8_be, "Aa"));
@@ -721,7 +722,8 @@ test "utf16ToUtf8" {
         defer std.testing.allocator.free(utf8_le);
         try testing.expect(mem.eql(u8, utf8_le, "\xc2\x80" ++ "\xef\xbf\xbf"));
 
-        std.mem.swap(u16, &utf16[0], &utf16[1]);
+        mem.writeIntSliceBig(u16, utf16_as_bytes[0..2], 0x80);
+        mem.writeIntSliceBig(u16, utf16_as_bytes[2..], 0xffff);
         const utf8_be = try utf16ToUtf8Alloc(.Big, std.testing.allocator, &utf16);
         defer std.testing.allocator.free(utf8_be);
         try testing.expect(mem.eql(u8, utf8_be, "\xc2\x80" ++ "\xef\xbf\xbf"));
@@ -735,7 +737,8 @@ test "utf16ToUtf8" {
         defer std.testing.allocator.free(utf8_le);
         try testing.expect(mem.eql(u8, utf8_le, "\xed\x9f\xbf" ++ "\xee\x80\x80"));
 
-        std.mem.swap(u16, &utf16[0], &utf16[1]);
+        mem.writeIntSliceBig(u16, utf16_as_bytes[0..2], 0xd7ff);
+        mem.writeIntSliceBig(u16, utf16_as_bytes[2..], 0xe000);
         const utf8_be = try utf16ToUtf8Alloc(.Big, std.testing.allocator, &utf16);
         defer std.testing.allocator.free(utf8_be);
         try testing.expect(mem.eql(u8, utf8_be, "\xed\x9f\xbf" ++ "\xee\x80\x80"));
@@ -749,7 +752,8 @@ test "utf16ToUtf8" {
         defer std.testing.allocator.free(utf8_le);
         try testing.expect(mem.eql(u8, utf8_le, "\xf0\x90\x80\x80"));
 
-        std.mem.swap(u16, &utf16[0], &utf16[1]);
+        mem.writeIntSliceBig(u16, utf16_as_bytes[0..2], 0xd800);
+        mem.writeIntSliceBig(u16, utf16_as_bytes[2..], 0xdc00);
         const utf8_be = try utf16ToUtf8Alloc(.Big, std.testing.allocator, &utf16);
         defer std.testing.allocator.free(utf8_be);
         try testing.expect(mem.eql(u8, utf8_be, "\xf0\x90\x80\x80"));
@@ -763,7 +767,8 @@ test "utf16ToUtf8" {
         defer std.testing.allocator.free(utf8_le);
         try testing.expect(mem.eql(u8, utf8_le, "\xf4\x8f\xbf\xbf"));
 
-        std.mem.swap(u16, &utf16[0], &utf16[1]);
+        mem.writeIntSliceBig(u16, utf16_as_bytes[0..2], 0xdbff);
+        mem.writeIntSliceBig(u16, utf16_as_bytes[2..], 0xdfff);
         const utf8_be = try utf16ToUtf8Alloc(.Big, std.testing.allocator, &utf16);
         defer std.testing.allocator.free(utf8_be);
         try testing.expect(mem.eql(u8, utf8_be, "\xf4\x8f\xbf\xbf"));
@@ -776,7 +781,8 @@ test "utf16ToUtf8" {
         defer std.testing.allocator.free(utf8_le);
         try testing.expect(mem.eql(u8, utf8_le, "\xf4\x8f\xb0\x80"));
 
-        std.mem.swap(u16, &utf16[0], &utf16[1]);
+        mem.writeIntSliceBig(u16, utf16_as_bytes[0..2], 0xdbff);
+        mem.writeIntSliceBig(u16, utf16_as_bytes[2..], 0xdc00);
         const utf8_be = try utf16ToUtf8Alloc(.Big, std.testing.allocator, &utf16);
         defer std.testing.allocator.free(utf8_be);
         try testing.expect(mem.eql(u8, utf8_be, "\xf4\x8f\xb0\x80"));
@@ -788,7 +794,8 @@ test "utf16ToUtf8" {
         const result_le = utf16ToUtf8Alloc(.Little, std.testing.allocator, &utf16);
         try std.testing.expectError(error.UnexpectedSecondSurrogateHalf, result_le);
 
-        std.mem.swap(u16, &utf16[0], &utf16[1]);
+        mem.writeIntSliceBig(u16, utf16_as_bytes[0..2], 0xdcdc);
+        mem.writeIntSliceBig(u16, utf16_as_bytes[2..], 0xdcdc);
         const result_be = utf16ToUtf8Alloc(.Little, std.testing.allocator, &utf16);
         try std.testing.expectError(error.UnexpectedSecondSurrogateHalf, result_be);
     }
@@ -812,9 +819,9 @@ pub fn utf8ToUtf16WithNull(
         } else {
             const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
             const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
-            try result.appendSlice(switch (endianness) {
-                .Little => 2[u16]{ mem.nativeToLittle(u16, high), mem.nativeToLittle(u16, low) },
-                .Big => 2[u16]{ mem.nativeToBig(u16, high), mem.nativeToBig(u16, low) },
+            try result.appendSlice(&switch (endianness) {
+                .Little => [2]u16{ mem.nativeToLittle(u16, high), mem.nativeToLittle(u16, low) },
+                .Big => [2]u16{ mem.nativeToBig(u16, high), mem.nativeToBig(u16, low) },
             });
         }
     }
@@ -871,7 +878,7 @@ test "utf8ToUtf16" {
 
         const length_be = try utf8ToUtf16(.Big, utf16[0..], "𐐷");
         try testing.expectEqual(@as(usize, 2), length_be);
-        try testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(utf16[0..]));
+        try testing.expectEqualSlices(u8, "\xd8\x01\xdc\x37", mem.sliceAsBytes(utf16[0..]));
     }
     {
         const length_le = try utf8ToUtf16(.Little, utf16[0..], "\u{10FFFF}");
@@ -880,7 +887,7 @@ test "utf8ToUtf16" {
 
         const length_be = try utf8ToUtf16(.Big, utf16[0..], "\u{10FFFF}");
         try testing.expectEqual(@as(usize, 2), length_be);
-        try testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(utf16[0..]));
+        try testing.expectEqualSlices(u8, "\xdb\xff\xdf\xff", mem.sliceAsBytes(utf16[0..]));
     }
     {
         const result_le = utf8ToUtf16(.Little, utf16[0..], "\xf4\x90\x80\x80");
@@ -927,9 +934,9 @@ test "utf8ToUtf16WithNull" {
 pub fn utf8ToUtf16StringLiteral(
     comptime endianness: std.builtin.Endian,
     comptime utf8: []const u8,
-) *const [calcUtf16Len(endianness, utf8) catch unreachable:0]u16 {
+) *const [calcUtf16Len(utf8) catch unreachable:0]u16 {
     return comptime blk: {
-        const len: usize = calcUtf16Len(endianness, utf8) catch |err| @compileError(err);
+        const len: usize = calcUtf16Len(utf8) catch |err| @compileError(err);
         var utf16: [len:0]u16 = [_:0]u16{0} ** len;
         const utf16_len = utf8ToUtf16(endianness, &utf16, utf8[0..]) catch |err| @compileError(err);
         assert(len == utf16_len);
@@ -960,21 +967,11 @@ pub fn calcUtf16Len(
     return dest_len;
 }
 
-fn testCalcUtf16Len(comptime endianness: std.builtin.Endian) !void {
-    try testing.expectEqual(@as(usize, 1), try calcUtf16Len(endianness, "a"));
-    try testing.expectEqual(@as(usize, 10), try calcUtf16Len(endianness, "abcdefghij"));
-    try testing.expectEqual(@as(usize, 10), try calcUtf16Len(endianness, "äåéëþüúíóö"));
-    try testing.expectEqual(@as(usize, 5), try calcUtf16Len(endianness, "こんにちは"));
-}
-
-test "calculate UTF16-Le string length of given utf8 string in u16" {
-    try testCalcUtf16Len(.Little);
-    comptime try testCalcUtf16Len(.Little);
-}
-
-test "calculate UTF16-Be string length of given utf8 string in u16" {
-    try testCalcUtf16Len(.Big);
-    comptime try testCalcUtf16Len(.Big);
+test "calculate utf-16 string length of given utf8 string in u16" {
+    try testing.expectEqual(@as(usize, 1), try calcUtf16Len("a"));
+    try testing.expectEqual(@as(usize, 10), try calcUtf16Len("abcdefghij"));
+    try testing.expectEqual(@as(usize, 10), try calcUtf16Len("äåéëþüúíóö"));
+    try testing.expectEqual(@as(usize, 5), try calcUtf16Len("こんにちは"));
 }
 
 fn formatUtf16Le(
@@ -1046,7 +1043,7 @@ fn testFmtUtf16(comptime endianness: std.builtin.Endian) !void {
     try expectFmt("", "{}", .{fmtUtf16(endianness, utf8ToUtf16StringLiteral(endianness, ""))});
     try expectFmt("foo", "{}", .{fmtUtf16(endianness, utf8ToUtf16StringLiteral(endianness, "foo"))});
     try expectFmt("𐐷", "{}", .{fmtUtf16(endianness, utf8ToUtf16StringLiteral(endianness, "𐐷"))});
-    try expectFmt("퟿", "{}"{fmtUtf16(endianness, &[_]u16{std.mem.readIntNative(u16, "\xff\xd7")})});
+    try expectFmt("퟿", "{}", .{fmtUtf16(endianness, &[_]u16{std.mem.readIntNative(u16, "\xff\xd7")})});
     try expectFmt("�", "{}", .{fmtUtf16(endianness, &[_]u16{std.mem.readIntNative(u16, "\x00\xd8")})});
     try expectFmt("�", "{}", .{fmtUtf16(endianness, &[_]u16{std.mem.readIntNative(u16, "\xff\xdb")})});
     try expectFmt("�", "{}", .{fmtUtf16(endianness, &[_]u16{std.mem.readIntNative(u16, "\x00\xdc")})});
@@ -1061,57 +1058,75 @@ test "utf8ToUtf16StringLiteral" {
 
 fn testUtf8ToUtf16StringLiteral(comptime endianness: std.builtin.Endian) !void {
     {
-        const bytes = [_:0]u16{
+        var bytes = [_:0]u16{
             mem.nativeToLittle(u16, 0x41),
         };
-        if (endianness == .Big) std.mem.swap(u8, &bytes[0], &bytes[1]);
+        if (endianness == .Big) {
+            bytes[0] = @byteSwap(bytes[0]);
+            bytes[1] = @byteSwap(bytes[1]);
+        }
         const utf16 = utf8ToUtf16StringLiteral(endianness, "A");
         try testing.expectEqualSlices(u16, &bytes, utf16);
         try testing.expect(utf16[1] == 0);
     }
     {
-        const bytes = [_:0]u16{
+        var bytes = [_:0]u16{
             mem.nativeToLittle(u16, 0xD801),
             mem.nativeToLittle(u16, 0xDC37),
         };
-        if (endianness == .Big) std.mem.swap(u8, &bytes[0], &bytes[1]);
+        if (endianness == .Big) {
+            bytes[0] = @byteSwap(bytes[0]);
+            bytes[1] = @byteSwap(bytes[1]);
+        }
         const utf16 = utf8ToUtf16StringLiteral(endianness, "𐐷");
         try testing.expectEqualSlices(u16, &bytes, utf16);
         try testing.expect(utf16[2] == 0);
     }
     {
-        const bytes = [_:0]u16{
+        var bytes = [_:0]u16{
             mem.nativeToLittle(u16, 0x02FF),
         };
-        if (endianness == .Big) std.mem.swap(u8, &bytes[0], &bytes[1]);
+        if (endianness == .Big) {
+            bytes[0] = @byteSwap(bytes[0]);
+            bytes[1] = @byteSwap(bytes[1]);
+        }
         const utf16 = utf8ToUtf16StringLiteral(endianness, "\u{02FF}");
         try testing.expectEqualSlices(u16, &bytes, utf16);
         try testing.expect(utf16[1] == 0);
     }
     {
-        const bytes = [_:0]u16{
+        var bytes = [_:0]u16{
             mem.nativeToLittle(u16, 0x7FF),
         };
-        if (endianness == .Big) std.mem.swap(u8, &bytes[0], &bytes[1]);
+        if (endianness == .Big) {
+            bytes[0] = @byteSwap(bytes[0]);
+            bytes[1] = @byteSwap(bytes[1]);
+        }
         const utf16 = utf8ToUtf16StringLiteral(endianness, "\u{7FF}");
         try testing.expectEqualSlices(u16, &bytes, utf16);
         try testing.expect(utf16[1] == 0);
     }
     {
-        const bytes = [_:0]u16{
+        var bytes = [_:0]u16{
             mem.nativeToLittle(u16, 0x801),
         };
-        if (endianness == .Big) std.mem.swap(u8, &bytes[0], &bytes[1]);
+        if (endianness == .Big) {
+            bytes[0] = @byteSwap(bytes[0]);
+            bytes[1] = @byteSwap(bytes[1]);
+        }
         const utf16 = utf8ToUtf16StringLiteral(endianness, "\u{801}");
         try testing.expectEqualSlices(u16, &bytes, utf16);
         try testing.expect(utf16[1] == 0);
     }
     {
-        const bytes = [_:0]u16{
+        var bytes = [_:0]u16{
             mem.nativeToLittle(u16, 0xDBFF),
             mem.nativeToLittle(u16, 0xDFFF),
         };
-        if (endianness == .Big) std.mem.swap(u8, &bytes[0], &bytes[1]);
+        if (endianness == .Big) {
+            bytes[0] = @byteSwap(bytes[0]);
+            bytes[1] = @byteSwap(bytes[1]);
+        }
         const utf16 = utf8ToUtf16StringLiteral(endianness, "\u{10FFFF}");
         try testing.expectEqualSlices(u16, &bytes, utf16);
         try testing.expect(utf16[2] == 0);
