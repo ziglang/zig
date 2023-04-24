@@ -1017,6 +1017,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                 .name = qualified_name,
                 .link_libc = test_target.link_libc,
                 .target = altered_target,
+                .max_rss = if (mem.eql(u8, options.name, "std")) 9126805504 else 0,
             });
             compile_c.overrideZigLibDir("lib");
             compile_c.addCSourceFileSource(.{
