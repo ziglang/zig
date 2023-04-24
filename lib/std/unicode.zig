@@ -1043,12 +1043,26 @@ fn testFmtUtf16(comptime endianness: std.builtin.Endian) !void {
     try expectFmt("", "{}", .{fmtUtf16(endianness, utf8ToUtf16StringLiteral(endianness, ""))});
     try expectFmt("foo", "{}", .{fmtUtf16(endianness, utf8ToUtf16StringLiteral(endianness, "foo"))});
     try expectFmt("𐐷", "{}", .{fmtUtf16(endianness, utf8ToUtf16StringLiteral(endianness, "𐐷"))});
-    try expectFmt("퟿", "{}", .{fmtUtf16(endianness, &[_]u16{std.mem.readIntNative(u16, "\xff\xd7")})});
-    try expectFmt("�", "{}", .{fmtUtf16(endianness, &[_]u16{std.mem.readIntNative(u16, "\x00\xd8")})});
-    try expectFmt("�", "{}", .{fmtUtf16(endianness, &[_]u16{std.mem.readIntNative(u16, "\xff\xdb")})});
-    try expectFmt("�", "{}", .{fmtUtf16(endianness, &[_]u16{std.mem.readIntNative(u16, "\x00\xdc")})});
-    try expectFmt("�", "{}", .{fmtUtf16(endianness, &[_]u16{std.mem.readIntNative(u16, "\xff\xdf")})});
-    try expectFmt("", "{}", .{fmtUtf16(endianness, &[_]u16{std.mem.readIntNative(u16, "\x00\xe0")})});
+
+    const swap = switch (endianness) {
+        .Little => struct {
+            pub fn c(in: u16) u16 {
+                return in;
+            }
+        }.c,
+        .Big => struct {
+            pub fn c(in: u16) u16 {
+                return @byteSwap(in);
+            }
+        }.c,
+    };
+
+    try expectFmt("퟿", "{}", .{fmtUtf16(endianness, &[_]u16{swap(std.mem.readIntNative(u16, "\xff\xd7"))})});
+    try expectFmt("�", "{}", .{fmtUtf16(endianness, &[_]u16{swap(std.mem.readIntNative(u16, "\x00\xd8"))})});
+    try expectFmt("�", "{}", .{fmtUtf16(endianness, &[_]u16{swap(std.mem.readIntNative(u16, "\xff\xdb"))})});
+    try expectFmt("�", "{}", .{fmtUtf16(endianness, &[_]u16{swap(std.mem.readIntNative(u16, "\x00\xdc"))})});
+    try expectFmt("�", "{}", .{fmtUtf16(endianness, &[_]u16{swap(std.mem.readIntNative(u16, "\xff\xdf"))})});
+    try expectFmt("", "{}", .{fmtUtf16(endianness, &[_]u16{swap(std.mem.readIntNative(u16, "\x00\xe0"))})});
 }
 
 test "utf8ToUtf16StringLiteral" {
