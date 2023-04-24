@@ -839,12 +839,9 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .slice_open => {
             const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
 
-            maybeAdvanceSourceCursorToMainToken(gz, node);
-            const line = gz.astgen.source_line - gz.decl_line;
-            const column = gz.astgen.source_column;
-
+            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
             const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[node].rhs);
-            try emitDbgStmt(gz, line, column);
+            try emitDbgStmt(gz, cursor);
             const result = try gz.addPlNode(.slice_start, node, Zir.Inst.SliceStart{
                 .lhs = lhs,
                 .start = start,
@@ -854,14 +851,11 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .slice => {
             const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
 
-            maybeAdvanceSourceCursorToMainToken(gz, node);
-            const line = gz.astgen.source_line - gz.decl_line;
-            const column = gz.astgen.source_column;
-
+            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
             const extra = tree.extraData(node_datas[node].rhs, Ast.Node.Slice);
             const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.start);
             const end = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end);
-            try emitDbgStmt(gz, line, column);
+            try emitDbgStmt(gz, cursor);
             const result = try gz.addPlNode(.slice_end, node, Zir.Inst.SliceEnd{
                 .lhs = lhs,
                 .start = start,
@@ -872,15 +866,12 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .slice_sentinel => {
             const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
 
-            maybeAdvanceSourceCursorToMainToken(gz, node);
-            const line = gz.astgen.source_line - gz.decl_line;
-            const column = gz.astgen.source_column;
-
+            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
             const extra = tree.extraData(node_datas[node].rhs, Ast.Node.SliceSentinel);
             const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.start);
             const end = if (extra.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end) else .none;
             const sentinel = try expr(gz, scope, .{ .rl = .none }, extra.sentinel);
-            try emitDbgStmt(gz, line, column);
+            try emitDbgStmt(gz, cursor);
             const result = try gz.addPlNode(.slice_sentinel, node, Zir.Inst.SliceSentinel{
                 .lhs = lhs,
                 .start = start,
@@ -914,20 +905,16 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             .ref => {
                 const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
 
-                maybeAdvanceSourceCursorToMainToken(gz, node);
-                const line = gz.astgen.source_line - gz.decl_line;
-                const column = gz.astgen.source_column;
-                try emitDbgStmt(gz, line, column);
+                const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+                try emitDbgStmt(gz, cursor);
 
                 return gz.addUnNode(.optional_payload_safe_ptr, lhs, node);
             },
             else => {
                 const lhs = try expr(gz, scope, .{ .rl = .none }, node_datas[node].lhs);
 
-                maybeAdvanceSourceCursorToMainToken(gz, node);
-                const line = gz.astgen.source_line - gz.decl_line;
-                const column = gz.astgen.source_column;
-                try emitDbgStmt(gz, line, column);
+                const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+                try emitDbgStmt(gz, cursor);
 
                 return rvalue(gz, ri, try gz.addUnNode(.optional_payload_safe, lhs, node), node);
             },
@@ -3330,23 +3317,17 @@ fn assignOp(
 
     const lhs_ptr = try lvalExpr(gz, scope, node_datas[infix_node].lhs);
 
-    var line: u32 = undefined;
-    var column: u32 = undefined;
-    switch (op_inst_tag) {
-        .add, .sub, .mul, .div, .mod_rem => {
-            maybeAdvanceSourceCursorToMainToken(gz, infix_node);
-            line = gz.astgen.source_line - gz.decl_line;
-            column = gz.astgen.source_column;
-        },
-        else => {},
-    }
+    const cursor = switch (op_inst_tag) {
+        .add, .sub, .mul, .div, .mod_rem => maybeAdvanceSourceCursorToMainToken(gz, infix_node),
+        else => undefined,
+    };
     const lhs = try gz.addUnNode(.load, lhs_ptr, infix_node);
     const lhs_type = try gz.addUnNode(.typeof, lhs, infix_node);
     const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = lhs_type } }, node_datas[infix_node].rhs);
 
     switch (op_inst_tag) {
         .add, .sub, .mul, .div, .mod_rem => {
-            try emitDbgStmt(gz, line, column);
+            try emitDbgStmt(gz, cursor);
         },
         else => {},
     }
@@ -5360,8 +5341,7 @@ fn tryExpr(
     if (!parent_gz.is_comptime) {
         try emitDbgNode(parent_gz, node);
     }
-    const try_line = astgen.source_line - parent_gz.decl_line;
-    const try_column = astgen.source_column;
+    const try_lc = LineColumn{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
 
     const operand_ri: ResultInfo = switch (ri.rl) {
         .ref => .{ .rl = .ref, .ctx = .error_handling_expr },
@@ -5382,7 +5362,7 @@ fn tryExpr(
     };
     const err_code = try else_scope.addUnNode(err_tag, operand, node);
     try genDefers(&else_scope, &fn_block.base, scope, .{ .both = err_code });
-    try emitDbgStmt(&else_scope, try_line, try_column);
+    try emitDbgStmt(&else_scope, try_lc);
     _ = try else_scope.addUnNode(.ret_node, err_code, node);
 
     try else_scope.setTryBody(try_inst, operand);
@@ -5607,10 +5587,8 @@ fn addFieldAccess(
     const str_index = try astgen.identAsString(field_ident);
     const lhs = try expr(gz, scope, lhs_ri, object_node);
 
-    maybeAdvanceSourceCursorToMainToken(gz, node);
-    const line = gz.astgen.source_line - gz.decl_line;
-    const column = gz.astgen.source_column;
-    try emitDbgStmt(gz, line, column);
+    const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+    try emitDbgStmt(gz, cursor);
 
     return gz.addPlNode(tag, node, Zir.Inst.Field{
         .lhs = lhs,
@@ -5630,24 +5608,20 @@ fn arrayAccess(
         .ref => {
             const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
 
-            maybeAdvanceSourceCursorToMainToken(gz, node);
-            const line = gz.astgen.source_line - gz.decl_line;
-            const column = gz.astgen.source_column;
+            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
 
             const rhs = try expr(gz, scope, .{ .rl = .{ .ty = .usize_type } }, node_datas[node].rhs);
-            try emitDbgStmt(gz, line, column);
+            try emitDbgStmt(gz, cursor);
 
             return gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
         },
         else => {
             const lhs = try expr(gz, scope, .{ .rl = .none }, node_datas[node].lhs);
 
-            maybeAdvanceSourceCursorToMainToken(gz, node);
-            const line = gz.astgen.source_line - gz.decl_line;
-            const column = gz.astgen.source_column;
+            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
 
             const rhs = try expr(gz, scope, .{ .rl = .{ .ty = .usize_type } }, node_datas[node].rhs);
-            try emitDbgStmt(gz, line, column);
+            try emitDbgStmt(gz, cursor);
 
             return rvalue(gz, ri, try gz.addPlNode(.elem_val_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), node);
         },
@@ -5674,21 +5648,15 @@ fn simpleBinOp(
     }
 
     const lhs = try reachableExpr(gz, scope, .{ .rl = .none }, node_datas[node].lhs, node);
-    var line: u32 = undefined;
-    var column: u32 = undefined;
-    switch (op_inst_tag) {
-        .add, .sub, .mul, .div, .mod_rem => {
-            maybeAdvanceSourceCursorToMainToken(gz, node);
-            line = gz.astgen.source_line - gz.decl_line;
-            column = gz.astgen.source_column;
-        },
-        else => {},
-    }
+    const cursor = switch (op_inst_tag) {
+        .add, .sub, .mul, .div, .mod_rem => maybeAdvanceSourceCursorToMainToken(gz, node),
+        else => undefined,
+    };
     const rhs = try reachableExpr(gz, scope, .{ .rl = .none }, node_datas[node].rhs, node);
 
     switch (op_inst_tag) {
         .add, .sub, .mul, .div, .mod_rem => {
-            try emitDbgStmt(gz, line, column);
+            try emitDbgStmt(gz, cursor);
         },
         else => {},
     }
@@ -6787,14 +6755,15 @@ fn switchExpr(
     }
 
     const operand_ri: ResultInfo = .{ .rl = if (any_payload_is_ref) .ref else .none };
+
     astgen.advanceSourceCursorToNode(operand_node);
-    const operand_line = astgen.source_line - parent_gz.decl_line;
-    const operand_column = astgen.source_column;
+    const operand_lc = LineColumn{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
+
     const raw_operand = try expr(parent_gz, scope, operand_ri, operand_node);
     const cond_tag: Zir.Inst.Tag = if (any_payload_is_ref) .switch_cond_ref else .switch_cond;
     const cond = try parent_gz.addUnNode(cond_tag, raw_operand, operand_node);
     // Sema expects a dbg_stmt immediately after switch_cond(_ref)
-    try emitDbgStmt(parent_gz, operand_line, operand_column);
+    try emitDbgStmt(parent_gz, operand_lc);
     // We need the type of the operand to use as the result location for all the prong items.
     const cond_ty_inst = try parent_gz.addUnNode(.typeof, cond, operand_node);
     const item_ri: ResultInfo = .{ .rl = .{ .ty = cond_ty_inst } };
@@ -7154,8 +7123,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
     if (!gz.is_comptime) {
         try emitDbgNode(gz, node);
     }
-    const ret_line = astgen.source_line - gz.decl_line;
-    const ret_column = astgen.source_column;
+    const ret_lc = LineColumn{ astgen.source_line - gz.decl_line, astgen.source_column };
 
     const defer_outer = &astgen.fn_block.?.base;
 
@@ -7179,13 +7147,13 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         const defer_counts = countDefers(defer_outer, scope);
         if (!defer_counts.need_err_code) {
             try genDefers(gz, defer_outer, scope, .both_sans_err);
-            try emitDbgStmt(gz, ret_line, ret_column);
+            try emitDbgStmt(gz, ret_lc);
             _ = try gz.addStrTok(.ret_err_value, err_name_str_index, ident_token);
             return Zir.Inst.Ref.unreachable_value;
         }
         const err_code = try gz.addStrTok(.ret_err_value_code, err_name_str_index, ident_token);
         try genDefers(gz, defer_outer, scope, .{ .both = err_code });
-        try emitDbgStmt(gz, ret_line, ret_column);
+        try emitDbgStmt(gz, ret_lc);
         _ = try gz.addUnNode(.ret_node, err_code, node);
         return Zir.Inst.Ref.unreachable_value;
     }
@@ -7210,7 +7178,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             // As our last action before the return, "pop" the error trace if needed
             _ = try gz.addRestoreErrRetIndex(.ret, .always);
 
-            try emitDbgStmt(gz, ret_line, ret_column);
+            try emitDbgStmt(gz, ret_lc);
             try gz.addRet(ri, operand, node);
             return Zir.Inst.Ref.unreachable_value;
         },
@@ -7218,7 +7186,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             // Value is always an error. Emit both error defers and regular defers.
             const err_code = if (ri.rl == .ptr) try gz.addUnNode(.load, ri.rl.ptr.inst, node) else operand;
             try genDefers(gz, defer_outer, scope, .{ .both = err_code });
-            try emitDbgStmt(gz, ret_line, ret_column);
+            try emitDbgStmt(gz, ret_lc);
             try gz.addRet(ri, operand, node);
             return Zir.Inst.Ref.unreachable_value;
         },
@@ -7227,7 +7195,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             if (!defer_counts.have_err) {
                 // Only regular defers; no branch needed.
                 try genDefers(gz, defer_outer, scope, .normal_only);
-                try emitDbgStmt(gz, ret_line, ret_column);
+                try emitDbgStmt(gz, ret_lc);
 
                 // As our last action before the return, "pop" the error trace if needed
                 const result = if (ri.rl == .ptr) try gz.addUnNode(.load, ri.rl.ptr.inst, node) else operand;
@@ -7250,7 +7218,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             // As our last action before the return, "pop" the error trace if needed
             _ = try then_scope.addRestoreErrRetIndex(.ret, .always);
 
-            try emitDbgStmt(&then_scope, ret_line, ret_column);
+            try emitDbgStmt(&then_scope, ret_lc);
             try then_scope.addRet(ri, operand, node);
 
             var else_scope = gz.makeSubBlock(scope);
@@ -7260,7 +7228,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
                 .both = try else_scope.addUnNode(.err_union_code, result, node),
             };
             try genDefers(&else_scope, defer_outer, scope, which_ones);
-            try emitDbgStmt(&else_scope, ret_line, ret_column);
+            try emitDbgStmt(&else_scope, ret_lc);
             try else_scope.addRet(ri, operand, node);
 
             try setCondBrPayload(condbr, is_non_err, &then_scope, 0, &else_scope, 0);
@@ -8650,11 +8618,14 @@ fn typeCast(
     rhs_node: Ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
-    try emitDbgNode(gz, node);
+    const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+    const result_type = try typeExpr(gz, scope, lhs_node);
+    const operand = try expr(gz, scope, .{ .rl = .none }, rhs_node);
 
+    try emitDbgStmt(gz, cursor);
     const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{
-        .lhs = try typeExpr(gz, scope, lhs_node),
-        .rhs = try expr(gz, scope, .{ .rl = .none }, rhs_node),
+        .lhs = result_type,
+        .rhs = operand,
     });
     return rvalue(gz, ri, result, node);
 }
@@ -8681,14 +8652,15 @@ fn simpleUnOp(
     operand_node: Ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
-    switch (tag) {
-        .tag_name, .error_name, .ptr_to_int => try emitDbgNode(gz, node),
-        else => {},
-    }
+    const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
     const operand = if (tag == .compile_error)
         try comptimeExpr(gz, scope, operand_ri, operand_node)
     else
         try expr(gz, scope, operand_ri, operand_node);
+    switch (tag) {
+        .tag_name, .error_name, .ptr_to_int => try emitDbgStmt(gz, cursor),
+        else => {},
+    }
     const result = try gz.addUnNode(tag, operand, node);
     return rvalue(gz, ri, result, node);
 }
@@ -8760,12 +8732,12 @@ fn divBuiltin(
     rhs_node: Ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
-    try emitDbgNode(gz, node);
+    const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+    const lhs = try expr(gz, scope, .{ .rl = .none }, lhs_node);
+    const rhs = try expr(gz, scope, .{ .rl = .none }, rhs_node);
 
-    const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{
-        .lhs = try expr(gz, scope, .{ .rl = .none }, lhs_node),
-        .rhs = try expr(gz, scope, .{ .rl = .none }, rhs_node),
-    });
+    try emitDbgStmt(gz, cursor);
+    const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
     return rvalue(gz, ri, result, node);
 }
 
@@ -8814,23 +8786,21 @@ fn shiftOp(
     rhs_node: Ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
-    var line = gz.astgen.source_line - gz.decl_line;
-    var column = gz.astgen.source_column;
     const lhs = try expr(gz, scope, .{ .rl = .none }, lhs_node);
 
-    switch (gz.astgen.tree.nodes.items(.tag)[node]) {
-        .shl, .shr => {
-            maybeAdvanceSourceCursorToMainToken(gz, node);
-            line = gz.astgen.source_line - gz.decl_line;
-            column = gz.astgen.source_column;
-        },
-        else => {},
-    }
+    const cursor = switch (gz.astgen.tree.nodes.items(.tag)[node]) {
+        .shl, .shr => maybeAdvanceSourceCursorToMainToken(gz, node),
+        else => undefined,
+    };
 
     const log2_int_type = try gz.addUnNode(.typeof_log2_int_type, lhs, lhs_node);
     const rhs = try expr(gz, scope, .{ .rl = .{ .ty = log2_int_type }, .ctx = .shift_op }, rhs_node);
 
-    try emitDbgStmt(gz, line, column);
+    switch (gz.astgen.tree.nodes.items(.tag)[node]) {
+        .shl, .shr => try emitDbgStmt(gz, cursor),
+        else => undefined,
+    }
+
     const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{
         .lhs = lhs,
         .rhs = rhs,
@@ -12594,16 +12564,20 @@ fn detectLocalShadowing(
     };
 }
 
+const LineColumn = struct { u32, u32 };
+
 /// Advances the source cursor to the main token of `node` if not in comptime scope.
 /// Usually paired with `emitDbgStmt`.
-fn maybeAdvanceSourceCursorToMainToken(gz: *GenZir, node: Ast.Node.Index) void {
-    if (gz.is_comptime) return;
+fn maybeAdvanceSourceCursorToMainToken(gz: *GenZir, node: Ast.Node.Index) LineColumn {
+    if (gz.is_comptime) return .{ gz.astgen.source_line - gz.decl_line, gz.astgen.source_column };
 
     const tree = gz.astgen.tree;
     const token_starts = tree.tokens.items(.start);
     const main_tokens = tree.nodes.items(.main_token);
     const node_start = token_starts[main_tokens[node]];
     gz.astgen.advanceSourceCursor(node_start);
+
+    return .{ gz.astgen.source_line - gz.decl_line, gz.astgen.source_column };
 }
 
 /// Advances the source cursor to the beginning of `node`.
@@ -12807,13 +12781,13 @@ fn countBodyLenAfterFixups(astgen: *AstGen, body: []const Zir.Inst.Index) u32 {
     return @intCast(u32, count);
 }
 
-fn emitDbgStmt(gz: *GenZir, line: u32, column: u32) !void {
+fn emitDbgStmt(gz: *GenZir, lc: LineColumn) !void {
     if (gz.is_comptime) return;
 
     _ = try gz.add(.{ .tag = .dbg_stmt, .data = .{
         .dbg_stmt = .{
-            .line = line,
-            .column = column,
+            .line = lc[0],
+            .column = lc[1],
         },
     } });
 }
