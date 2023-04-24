@@ -8175,7 +8175,15 @@ fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     };
     defer if (src_val_lock) |lock| self.register_manager.unlockReg(lock);
 
-    if (elem_ty.abiSize(self.target.*) == 1) {
+    const elem_abi_size = @intCast(u31, elem_ty.abiSize(self.target.*));
+
+    if (elem_abi_size == 1) {
+        const ptr = switch (dst_ptr_ty.ptrSize()) {
+            // TODO: this only handles slices stored in the stack
+            .Slice => @as(MCValue, .{ .stack_offset = dst_ptr.stack_offset - 0 }),
+            .One => dst_ptr,
+            .C, .Many => unreachable,
+        };
         const len = switch (dst_ptr_ty.ptrSize()) {
             // TODO: this only handles slices stored in the stack
             .Slice => @as(MCValue, .{ .stack_offset = dst_ptr.stack_offset - 8 }),
@@ -8188,8 +8196,7 @@ fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
         };
         defer if (len_lock) |lock| self.register_manager.unlockReg(lock);
 
-        // TODO: dst_ptr could be a slice rather than raw pointer
-        try self.genInlineMemset(dst_ptr, src_val, len, .{});
+        try self.genInlineMemset(ptr, src_val, len, .{});
         return self.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
     }
 
@@ -8198,12 +8205,47 @@ fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     // here to elide it.
     switch (dst_ptr_ty.ptrSize()) {
         .Slice => {
+            var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+            const slice_ptr_ty = dst_ptr_ty.slicePtrFieldType(&buf);
+
             // TODO: this only handles slices stored in the stack
             const ptr = @as(MCValue, .{ .stack_offset = dst_ptr.stack_offset - 0 });
             const len = @as(MCValue, .{ .stack_offset = dst_ptr.stack_offset - 8 });
-            _ = ptr;
-            _ = len;
-            return self.fail("TODO implement airMemset for x86_64 with ABI size > 1 using a slice", .{});
+
+            // Used to store the number of elements for comparison.
+            // After comparison, updated to store number of bytes needed to copy.
+            const len_reg = try self.register_manager.allocReg(null, gp);
+            const len_mcv: MCValue = .{ .register = len_reg };
+            const len_lock = self.register_manager.lockRegAssumeUnused(len_reg);
+            defer self.register_manager.unlockReg(len_lock);
+
+            try self.asmRegisterMemory(.mov, len_reg, Memory.sib(.qword, .{
+                .base = .rbp,
+                .disp = -len.stack_offset,
+            }));
+
+            const skip_reloc = try self.asmJccReloc(undefined, .z);
+            try self.store(ptr, src_val, slice_ptr_ty, elem_ty);
+
+            const second_elem_ptr_reg = try self.register_manager.allocReg(null, gp);
+            const second_elem_ptr_mcv: MCValue = .{ .register = second_elem_ptr_reg };
+            const second_elem_ptr_lock = self.register_manager.lockRegAssumeUnused(second_elem_ptr_reg);
+            defer self.register_manager.unlockReg(second_elem_ptr_lock);
+
+            try self.asmRegisterMemory(
+                .lea,
+                second_elem_ptr_reg,
+                Memory.sib(.qword, .{
+                    .base = try self.copyToTmpRegister(Type.usize, ptr),
+                    .disp = elem_abi_size,
+                }),
+            );
+
+            try self.genBinOpMir(.sub, Type.usize, len_mcv, .{ .immediate = 1 });
+            try self.asmRegisterRegisterImmediate(.imul, len_reg, len_reg, Immediate.u(elem_abi_size));
+            try self.genInlineMemcpy(second_elem_ptr_mcv, ptr, len_mcv, .{});
+
+            try self.performReloc(skip_reloc);
         },
         .One => {
             const len = dst_ptr_ty.childType().arrayLen();
@@ -8214,8 +8256,6 @@ fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
             const second_elem_ptr_mcv: MCValue = .{ .register = second_elem_ptr_reg };
             const second_elem_ptr_lock = self.register_manager.lockRegAssumeUnused(second_elem_ptr_reg);
             defer self.register_manager.unlockReg(second_elem_ptr_lock);
-
-            const elem_abi_size = @intCast(u31, elem_ty.abiSize(self.target.*));
 
             try self.asmRegisterMemory(
                 .lea,

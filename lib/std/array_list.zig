@@ -121,13 +121,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
             const new_memory = try allocator.alignedAlloc(T, alignment, self.items.len);
             mem.copy(T, new_memory, self.items);
-
-            // TODO: write like this instead:
-            //@memset(self.items, undefined);
-            // first we need to implement memset with element ABI size > 1 in
-            // the x86_64 selfhosted backend.
-            @memset(@ptrCast([*]u8, self.items.ptr)[0..self.items.len * @sizeOf(T)], undefined);
-
+            @memset(self.items, undefined);
             self.clearAndFree();
             return new_memory;
         }
@@ -603,13 +597,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
             const new_memory = try allocator.alignedAlloc(T, alignment, self.items.len);
             mem.copy(T, new_memory, self.items);
-
-            // TODO: write like this instead:
-            //@memset(self.items, undefined);
-            // first we need to implement memset with element ABI size > 1 in
-            // the x86_64 selfhosted backend.
-            @memset(@ptrCast([*]u8, self.items.ptr)[0..self.items.len * @sizeOf(T)], undefined);
-
+            @memset(self.items, undefined);
             self.clearAndFree(allocator);
             return new_memory;
         }

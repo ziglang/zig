@@ -394,11 +394,6 @@ test "@memset on slices" {
         // TODO: implement memset on slices
         return error.SkipZigTest;
     }
-    if (builtin.zig_backend == .stage2_x86_64) {
-        // TODO: implement memset when element ABI size > 1
-        // TODO: implement memset on slices
-        return error.SkipZigTest;
-    }
 
     try testMemsetSlice();
     try comptime testMemsetSlice();
