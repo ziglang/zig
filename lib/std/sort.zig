@@ -109,7 +109,7 @@ test "binarySearch" {
 
 /// Returns the index pointing to the first element in the range [first,last)
 /// which does not compare less than val.
-/// The function optimizes the number of comparisons performed by using a binary search O(log n)
+/// The function optimizes the number of comparisons performed by using a binary search O(log n).
 /// An example lessThan function:
 /// fn lower_u32(_: void, key: u32, lhs: u32) bool { return lhs < key; }
 pub fn lowerBound(
@@ -201,7 +201,7 @@ test "lowerBound" {
 
 /// Returns the index pointing to the first element in the range [first,last)
 /// which compares greater than val.
-/// The function optimizes the number of comparisons performed by using a binary search O(log n)
+/// The function optimizes the number of comparisons performed by using a binary search O(log n).
 /// An example greaterThan function:
 /// fn upper_u32(_: void, key: u32, rhs: u32) bool { return key >= rhs; }
 pub fn upperBound(
@@ -292,7 +292,7 @@ test "upperBound" {
 }
 
 /// Returns a range containing all elements equivalent to value in the range [first,last)
-/// The function optimizes the number of comparisons performed by using a binary search O(2 * log n)
+/// The function optimizes the number of comparisons performed by using a binary search O(2 * log n).
 /// Example lessThan & greaterThan functions:
 /// fn lower_u32(_: void, key: u32, lhs: u32) bool { return lhs < key; }
 /// fn upper_u32(_: void, key: u32, rhs: u32) bool { return key >= rhs; }
