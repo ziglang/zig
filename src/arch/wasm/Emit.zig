@@ -595,6 +595,12 @@ fn emitAtomic(emit: *Emit, inst: Mir.Inst.Index) !void {
             const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index + 1).data;
             try encodeMemArg(mem_arg, writer);
         },
+        .atomic_fence => {
+            // TODO: When multi-memory proposal is accepted and implemented in the compiler,
+            // change this to (user-)specified index, rather than hardcode it to memory index 0.
+            const memory_index: u32 = 0;
+            try leb128.writeULEB128(writer, memory_index);
+        },
         else => |tag| return emit.fail("TODO: Implement atomic instruction: {s}", .{@tagName(tag)}),
     }
 }

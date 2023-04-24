@@ -948,6 +948,12 @@ fn addAtomicMemArg(func: *CodeGen, tag: wasm.AtomicsOpcode, mem_arg: Mir.MemArg)
     try func.addInst(.{ .tag = .atomics_prefix, .data = .{ .payload = extra_index } });
 }
 
+/// Helper function to emit atomic mir opcodes.
+fn addAtomicTag(func: *CodeGen, tag: wasm.AtomicsOpcode) error{OutOfMemory}!void {
+    const extra_index = try func.addExtra(@as(struct { val: u32 }, .{ .val = wasm.atomicsOpcode(tag) }));
+    try func.addInst(.{ .tag = .atomics_prefix, .data = .{ .payload = extra_index } });
+}
+
 /// Appends entries to `mir_extra` based on the type of `extra`.
 /// Returns the index into `mir_extra`
 fn addExtra(func: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
@@ -1964,7 +1970,6 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .is_err_ptr,
         .is_non_err_ptr,
 
-        .fence,
         .atomic_store_unordered,
         .atomic_store_monotonic,
         .atomic_store_release,
@@ -1985,6 +1990,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .atomic_rmw => func.airAtomicRmw(inst),
         .cmpxchg_weak => func.airCmpxchg(inst),
         .cmpxchg_strong => func.airCmpxchg(inst),
+        .fence => func.airFence(inst),
 
         .add_optimized,
         .addwrap_optimized,
@@ -6862,4 +6868,15 @@ fn airAtomicRmw(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         return func.finishAir(inst, result, &.{ pl_op.operand, extra.operand });
     }
+}
+
+fn airFence(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    // Only when the atomic feature is enabled, and we're not building
+    // for a single-threaded build, can we emit the `fence` instruction.
+    // In all other cases, we emit no instructions for a fence.
+    if (func.useAtomicFeature() and !func.bin_file.base.options.single_threaded) {
+        try func.addAtomicTag(.atomic_fence);
+    }
+
+    return func.finishAir(inst, .none, &.{});
 }
