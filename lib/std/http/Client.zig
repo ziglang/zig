@@ -696,15 +696,8 @@ pub const Request = struct {
                 const location = req.response.headers.getFirstValue("location") orelse
                     return error.HttpRedirectMissingLocation;
                 const new_url = Uri.parse(location) catch try Uri.parseWithoutScheme(location);
-
-                var new_arena = std.heap.ArenaAllocator.init(req.client.allocator);
-                const resolved_url = try req.uri.resolve(new_url, false, new_arena.allocator());
-                errdefer new_arena.deinit();
-
-                req.arena.deinit();
-                req.arena = new_arena;
-
-                const new_req = try req.client.request(req.method, resolved_url, req.headers, .{
+                const resolved_url = try req.uri.resolve(new_url, false, req.client.allocator);
+                var new_req = try req.client.request(req.method, resolved_url, req.headers, .{
                     .version = req.version,
                     .max_redirects = req.redirects_left - 1,
                     .header_strategy = if (req.response.parser.header_bytes_owned) .{
@@ -713,11 +706,11 @@ pub const Request = struct {
                         .static = req.response.parser.header_bytes.items.ptr[0..req.response.parser.max_header_bytes],
                     },
                 });
+
+                try new_req.start();
+
                 req.deinit();
                 req.* = new_req;
-
-                // req is newly created, so resend it to server.
-                try req.start();
             } else {
                 req.response.skip = false;
                 if (!req.response.parser.done) {
