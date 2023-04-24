@@ -980,7 +980,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .root_source_file = .{ .path = options.root_src },
             .optimize = test_target.optimize_mode,
             .target = test_target.target,
-            .max_rss = max_rss,
+            .max_rss = if (max_rss > 0) .{ .hard = max_rss } else null,
             .filter = options.test_filter,
             .link_libc = test_target.link_libc,
             .single_threaded = test_target.single_threaded,
@@ -1017,7 +1017,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                 .name = qualified_name,
                 .link_libc = test_target.link_libc,
                 .target = altered_target,
-                .max_rss = if (mem.eql(u8, options.name, "std")) 9126805504 else 0,
+                .max_rss = if (mem.eql(u8, options.name, "std")) .{ .soft = 9126805504 } else null,
             });
             compile_c.overrideZigLibDir("lib");
             compile_c.addCSourceFileSource(.{

@@ -9,7 +9,7 @@ dependencies: std.ArrayList(*Step),
 dependants: std.ArrayListUnmanaged(*Step),
 state: State,
 /// Set this field to declare an upper bound on the amount of bytes of memory it will
-/// take to run the step. Zero means no limit.
+/// take to run the step. Null means no limit.
 ///
 /// The idea to annotate steps that might use a high amount of RAM with an
 /// upper bound. For example, perhaps a particular set of unit tests require 4
@@ -27,7 +27,7 @@ state: State,
 /// max_rss value that does not exceed the `max_total_rss` value of the build
 /// runner. This value is configurable on the command line, and defaults to the
 /// total system memory available.
-max_rss: usize,
+max_rss: ?MaxRSS = null,
 
 result_error_msgs: std.ArrayListUnmanaged([]const u8),
 result_error_bundle: std.zig.ErrorBundle,
@@ -113,13 +113,27 @@ pub const Id = enum {
     }
 };
 
+pub const MaxRSS = union(enum) {
+    /// If this many bytes aren't available, the step will fail.
+    hard: usize,
+    /// The step will ask for this amount, but it can be reduced to Run's max_rss.
+    soft: usize,
+
+    pub fn effective(self: MaxRSS, run_max_rss: usize) usize {
+        return switch (self) {
+            .hard => |rss| rss,
+            .soft => |max_rss| @min(run_max_rss, max_rss),
+        };
+    }
+};
+
 pub const Options = struct {
     id: Id,
     name: []const u8,
     owner: *Build,
     makeFn: MakeFn = makeNoOp,
     first_ret_addr: ?usize = null,
-    max_rss: usize = 0,
+    max_rss: ?MaxRSS = null,
 };
 
 pub fn init(options: Options) Step {
@@ -171,12 +185,15 @@ pub fn make(s: *Step, prog_node: *std.Progress.Node) error{ MakeFailed, MakeSkip
         return error.MakeFailed;
     }
 
-    if (s.max_rss != 0 and s.result_peak_rss > s.max_rss) {
-        const msg = std.fmt.allocPrint(arena, "memory usage peaked at {d} bytes, exceeding the declared upper bound of {d}", .{
-            s.result_peak_rss, s.max_rss,
-        }) catch @panic("OOM");
-        s.result_error_msgs.append(arena, msg) catch @panic("OOM");
-        return error.MakeFailed;
+    if (s.max_rss) |max_rss| {
+        const effective_max_rss = max_rss.effective(std.math.maxInt(usize));
+        if (s.result_peak_rss > effective_max_rss) {
+            const msg = std.fmt.allocPrint(arena, "memory usage peaked at {d} bytes, exceeding the declared upper bound of {d}", .{
+                s.result_peak_rss, effective_max_rss,
+            }) catch @panic("OOM");
+            s.result_error_msgs.append(arena, msg) catch @panic("OOM");
+            return error.MakeFailed;
+        }
     }
 }
 

@@ -376,13 +376,15 @@ fn runStepNames(
         // Check that we have enough memory to complete the build.
         var any_problems = false;
         for (step_stack.keys()) |s| {
-            if (s.max_rss == 0) continue;
-            if (s.max_rss > run.max_rss) {
-                std.debug.print("{s}{s}: this step declares an upper bound of {d} bytes of memory, exceeding the available {d} bytes of memory\n", .{
-                    s.owner.dep_prefix, s.name, s.max_rss, run.max_rss,
-                });
-                any_problems = true;
-            }
+            if (s.max_rss) |max_rss| {
+                const effective_max_rss = max_rss.effective(run.max_rss);
+                if (effective_max_rss > run.max_rss) {
+                    std.debug.print("{s}{s}: this step declares an upper bound of {d} bytes of memory, exceeding the available {d} bytes of memory\n", .{
+                        s.owner.dep_prefix, s.name, effective_max_rss, run.max_rss,
+                    });
+                    any_problems = true;
+                }
+            } else continue;
         }
         if (any_problems) {
             if (run.max_rss_is_default) {
@@ -775,7 +777,7 @@ fn workerMakeOneStep(
         }
     }
 
-    if (s.max_rss != 0) {
+    if (s.max_rss) |max_rss| {
         run.max_rss_mutex.lock();
         defer run.max_rss_mutex.unlock();
 
@@ -785,7 +787,7 @@ fn workerMakeOneStep(
             return;
         }
 
-        const new_claimed_rss = run.claimed_rss + s.max_rss;
+        const new_claimed_rss = run.claimed_rss + max_rss.effective(run.max_rss);
         if (new_claimed_rss > run.max_rss) {
             // Running this step right now could possibly exceed the allotted RSS.
             // Add this step to the queue of memory-blocked steps.
@@ -854,12 +856,12 @@ fn workerMakeOneStep(
 
     // If this is a step that claims resources, we must now queue up other
     // steps that are waiting for resources.
-    if (s.max_rss != 0) {
+    if (s.max_rss) |max_rss| {
         run.max_rss_mutex.lock();
         defer run.max_rss_mutex.unlock();
 
         // Give the memory back to the scheduler.
-        run.claimed_rss -= s.max_rss;
+        run.claimed_rss -= max_rss.effective(run.max_rss);
         // Avoid kicking off too many tasks that we already know will not have
         // enough resources.
         var remaining = run.max_rss - run.claimed_rss;
@@ -867,9 +869,9 @@ fn workerMakeOneStep(
         var j: usize = 0;
         while (j < run.memory_blocked_steps.items.len) : (j += 1) {
             const dep = run.memory_blocked_steps.items[j];
-            assert(dep.max_rss != 0);
-            if (dep.max_rss <= remaining) {
-                remaining -= dep.max_rss;
+            const dep_effective_max_rss = dep.max_rss.?.effective(run.max_rss);
+            if (dep_effective_max_rss <= remaining) {
+                remaining -= dep_effective_max_rss;
 
                 wg.start();
                 thread_pool.spawn(workerMakeOneStep, .{

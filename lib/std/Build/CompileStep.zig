@@ -285,7 +285,7 @@ pub const Options = struct {
     kind: Kind,
     linkage: ?Linkage = null,
     version: ?std.builtin.Version = null,
-    max_rss: usize = 0,
+    max_rss: ?Step.MaxRSS = null,
     filter: ?[]const u8 = null,
     test_runner: ?[]const u8 = null,
     link_libc: ?bool = null,
