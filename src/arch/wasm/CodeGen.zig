@@ -1970,10 +1970,6 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .is_err_ptr,
         .is_non_err_ptr,
 
-        .atomic_store_unordered,
-        .atomic_store_monotonic,
-        .atomic_store_release,
-        .atomic_store_seq_cst,
         .err_return_trace,
         .set_err_return_trace,
         .save_err_return_trace_index,
@@ -1987,6 +1983,12 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         => |tag| return func.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
 
         .atomic_load => func.airAtomicLoad(inst),
+        .atomic_store_unordered,
+        .atomic_store_monotonic,
+        .atomic_store_release,
+        .atomic_store_seq_cst,
+        // in WebAssembly, all atomic instructions are sequentially ordered.
+        => func.airAtomicStore(inst),
         .atomic_rmw => func.airAtomicRmw(inst),
         .cmpxchg_weak => func.airCmpxchg(inst),
         .cmpxchg_strong => func.airCmpxchg(inst),
@@ -6634,7 +6636,13 @@ fn airCmpxchg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try func.emitWValue(ptr_operand);
         try func.emitWValue(expected_val);
         try func.emitWValue(new_val);
-        try func.addAtomicMemArg(.i32_atomic_rmw_cmpxchg, .{
+        try func.addAtomicMemArg(switch (ty.abiSize(func.target)) {
+            1 => .i32_atomic_rmw8_cmpxchg_u,
+            2 => .i32_atomic_rmw16_cmpxchg_u,
+            4 => .i32_atomic_rmw_cmpxchg,
+            8 => .i32_atomic_rmw_cmpxchg,
+            else => |size| return func.fail("TODO: implement `@cmpxchg` for types with abi size '{d}'", .{size}),
+        }, .{
             .offset = ptr_operand.offset(),
             .alignment = ty.abiAlignment(func.target),
         });
@@ -6879,4 +6887,33 @@ fn airFence(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     }
 
     return func.finishAir(inst, .none, &.{});
+}
+
+fn airAtomicStore(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const bin_op = func.air.instructions.items(.data)[inst].bin_op;
+
+    const ptr = try func.resolveInst(bin_op.lhs);
+    const operand = try func.resolveInst(bin_op.rhs);
+    const ptr_ty = func.air.typeOf(bin_op.lhs);
+    const ty = ptr_ty.childType();
+
+    if (func.useAtomicFeature()) {
+        const tag: wasm.AtomicsOpcode = switch (ty.abiSize(func.target)) {
+            1 => .i32_atomic_store8,
+            2 => .i32_atomic_store16,
+            4 => .i32_atomic_store,
+            8 => .i64_atomic_store,
+            else => |size| return func.fail("TODO: @atomicLoad for types with abi size {d}", .{size}),
+        };
+        try func.emitWValue(ptr);
+        try func.lowerToStack(operand);
+        try func.addAtomicMemArg(tag, .{
+            .offset = ptr.offset(),
+            .alignment = ty.abiAlignment(func.target),
+        });
+    } else {
+        try func.store(ptr, operand, ty, 0);
+    }
+
+    return func.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
 }
