@@ -25093,6 +25093,13 @@ fn coerceExtra(
                     } };
                     break :pointer;
                 }
+                if (inst_ty.isSlice()) {
+                    in_memory_result = .{ .slice_to_anyopaque = .{
+                        .actual = inst_ty,
+                        .wanted = dest_ty,
+                    } };
+                    break :pointer;
+                }
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
 
@@ -25603,6 +25610,7 @@ const InMemoryCoercionResult = union(enum) {
     ptr_bit_range: BitRange,
     ptr_alignment: IntPair,
     double_ptr_to_anyopaque: Pair,
+    slice_to_anyopaque: Pair,
 
     const Pair = struct {
         actual: Type,
@@ -25899,6 +25907,13 @@ const InMemoryCoercionResult = union(enum) {
                 try sema.errNote(block, src, msg, "cannot implicitly cast double pointer '{}' to anyopaque pointer '{}'", .{
                     pair.actual.fmt(sema.mod), pair.wanted.fmt(sema.mod),
                 });
+                break;
+            },
+            .slice_to_anyopaque => |pair| {
+                try sema.errNote(block, src, msg, "cannot implicitly cast slice '{}' to anyopaque pointer '{}'", .{
+                    pair.actual.fmt(sema.mod), pair.wanted.fmt(sema.mod),
+                });
+                try sema.errNote(block, src, msg, "consider using '.ptr'", .{});
                 break;
             },
         };
