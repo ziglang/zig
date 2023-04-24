@@ -641,6 +641,8 @@ pub const Inst = struct {
         /// The element value may be undefined, in which case the destination
         /// memory region has undefined bytes after this function executes. In
         /// such case ignoring this instruction is legal lowering.
+        /// If the length is compile-time known (due to the destination being a
+        /// pointer-to-array), then it is guaranteed to be greater than zero.
         memset,
         /// Same as `memset`, except if the element value is undefined, the memory region
         /// should be filled with 0xaa bytes, and any other safety metadata such as Valgrind
@@ -654,6 +656,9 @@ pub const Inst = struct {
         /// The two memory regions must not overlap.
         /// Result type is always void.
         /// Uses the `bin_op` field. LHS is the dest slice. RHS is the source pointer.
+        /// If the length is compile-time known (due to the destination or
+        /// source being a pointer-to-array), then it is guaranteed to be
+        /// greater than zero.
         memcpy,
 
         /// Uses the `ty_pl` field with payload `Cmpxchg`.

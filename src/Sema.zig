@@ -21918,8 +21918,6 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         } else break :rs src_src;
     } else dest_src;
 
-    try sema.requireRuntimeBlock(block, src, runtime_src);
-
     const dest_ty = sema.typeOf(dest_ptr);
     const src_ty = sema.typeOf(src_ptr);
 
@@ -21946,9 +21944,15 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     var new_src_ptr = src_ptr;
     if (len_val) |val| {
         const len = val.toUnsignedInt(target);
+        if (len == 0) {
+            // This AIR instruction guarantees length > 0 if it is comptime-known.
+            return;
+        }
         new_dest_ptr = try upgradeToArrayPtr(sema, block, dest_ptr, len);
         new_src_ptr = try upgradeToArrayPtr(sema, block, src_ptr, len);
     }
+
+    try sema.requireRuntimeBlock(block, src, runtime_src);
 
     // Aliasing safety check.
     if (block.wantSafety()) {
@@ -21995,13 +21999,18 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const target = sema.mod.getTarget();
 
     const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |ptr_val| rs: {
+        const len_air_ref = try sema.fieldVal(block, src, dest_ptr, "len", dest_src);
+        const len_val = (try sema.resolveDefinedValue(block, dest_src, len_air_ref)) orelse
+            break :rs dest_src;
+        const len_u64 = (try len_val.getUnsignedIntAdvanced(target, sema)).?;
+        const len = try sema.usizeCast(block, dest_src, len_u64);
+        if (len == 0) {
+            // This AIR instruction guarantees length > 0 if it is comptime-known.
+            return;
+        }
+
         if (!ptr_val.isComptimeMutablePtr()) break :rs dest_src;
         if (try sema.resolveMaybeUndefVal(uncoerced_elem)) |_| {
-            const len_air_ref = try sema.fieldVal(block, src, dest_ptr, "len", dest_src);
-            const len_val = (try sema.resolveDefinedValue(block, dest_src, len_air_ref)) orelse
-                break :rs dest_src;
-            const len_u64 = (try len_val.getUnsignedIntAdvanced(target, sema)).?;
-            const len = try sema.usizeCast(block, dest_src, len_u64);
             for (0..len) |i| {
                 const elem_index = try sema.addIntUnsigned(Type.usize, i);
                 const elem_ptr = try sema.elemPtr(

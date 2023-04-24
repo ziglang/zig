@@ -8175,23 +8175,62 @@ fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     };
     defer if (src_val_lock) |lock| self.register_manager.unlockReg(lock);
 
-    if (elem_ty.abiSize(self.target.*) != 1) {
-        return self.fail("TODO implement airMemset when element ABI size > 1", .{});
+    if (elem_ty.abiSize(self.target.*) == 1) {
+        const len = switch (dst_ptr_ty.ptrSize()) {
+            // TODO: this only handles slices stored in the stack
+            .Slice => @as(MCValue, .{ .stack_offset = dst_ptr.stack_offset - 8 }),
+            .One => @as(MCValue, .{ .immediate = dst_ptr_ty.childType().arrayLen() }),
+            .C, .Many => unreachable,
+        };
+        const len_lock: ?RegisterLock = switch (len) {
+            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (len_lock) |lock| self.register_manager.unlockReg(lock);
+
+        // TODO: dst_ptr could be a slice rather than raw pointer
+        try self.genInlineMemset(dst_ptr, src_val, len, .{});
+        return self.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
     }
 
-    const len = switch (dst_ptr_ty.ptrSize()) {
-        .Slice => @as(MCValue, .{ .stack_offset = dst_ptr.stack_offset - 8 }),
-        .One => @as(MCValue, .{ .immediate = dst_ptr_ty.childType().arrayLen() }),
-        .C, .Many => unreachable,
-    };
-    const len_lock: ?RegisterLock = switch (len) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-        else => null,
-    };
-    defer if (len_lock) |lock| self.register_manager.unlockReg(lock);
+    // Store the first element, and then rely on memcpy copying forwards.
+    // Length zero requires a runtime check - so we handle arrays specially
+    // here to elide it.
+    switch (dst_ptr_ty.ptrSize()) {
+        .Slice => {
+            // TODO: this only handles slices stored in the stack
+            const ptr = @as(MCValue, .{ .stack_offset = dst_ptr.stack_offset - 0 });
+            const len = @as(MCValue, .{ .stack_offset = dst_ptr.stack_offset - 8 });
+            _ = ptr;
+            _ = len;
+            return self.fail("TODO implement airMemset for x86_64 with ABI size > 1 using a slice", .{});
+        },
+        .One => {
+            const len = dst_ptr_ty.childType().arrayLen();
+            assert(len != 0); // prevented by Sema
+            try self.store(dst_ptr, src_val, dst_ptr_ty, elem_ty);
 
-    // TODO: dst_ptr could be a slice rather than raw pointer
-    try self.genInlineMemset(dst_ptr, src_val, len, .{});
+            const second_elem_ptr_reg = try self.register_manager.allocReg(null, gp);
+            const second_elem_ptr_mcv: MCValue = .{ .register = second_elem_ptr_reg };
+            const second_elem_ptr_lock = self.register_manager.lockRegAssumeUnused(second_elem_ptr_reg);
+            defer self.register_manager.unlockReg(second_elem_ptr_lock);
+
+            const elem_abi_size = @intCast(u31, elem_ty.abiSize(self.target.*));
+
+            try self.asmRegisterMemory(
+                .lea,
+                second_elem_ptr_reg,
+                Memory.sib(.qword, .{
+                    .base = try self.copyToTmpRegister(Type.usize, dst_ptr),
+                    .disp = elem_abi_size,
+                }),
+            );
+
+            const bytes_to_copy: MCValue = .{ .immediate = elem_abi_size * (len - 1) };
+            try self.genInlineMemcpy(second_elem_ptr_mcv, dst_ptr, bytes_to_copy, .{});
+        },
+        .C, .Many => unreachable,
+    }
 
     return self.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
 }

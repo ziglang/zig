@@ -361,10 +361,6 @@ test "@memset on array pointers" {
         // TODO: implement memset when element ABI size > 1
         return error.SkipZigTest;
     }
-    if (builtin.zig_backend == .stage2_x86_64) {
-        // TODO: implement memset when element ABI size > 1
-        return error.SkipZigTest;
-    }
 
     try testMemsetArray();
     try comptime testMemsetArray();
