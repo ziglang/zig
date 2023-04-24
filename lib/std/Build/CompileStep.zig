@@ -371,7 +371,7 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         }
     }
 
-    if (options.main_module.source_file) |rs| rs.addStepDependencies(&self.step);
+    self.step.dependOn(&self.main_module.step);
 
     return self;
 }

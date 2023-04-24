@@ -27,8 +27,8 @@ linker_script: ?FileSource = null,
 force_undefined_symbols: StringHashMap(void),
 
 pub fn create(owner: *Build, options: CreateModuleOptions) *Module {
-    const mod = owner.allocator.create(Module) catch @panic("OOM");
     const arena = owner.allocator;
+    const mod = owner.allocator.create(Module) catch @panic("OOM");
     mod.* = .{
         .builder = owner,
         .step = Step.init(.{
@@ -52,6 +52,11 @@ pub fn create(owner: *Build, options: CreateModuleOptions) *Module {
         .is_linking_libcpp = false,
         .linker_script = null,
     };
+
+    if (options.source_file) |rs| {
+        rs.addStepDependencies(&mod.step);
+    }
+
     if (options.c_source_files) |c_files| {
         mod.addCSourceFiles(c_files.files, c_files.flags);
     }
@@ -73,6 +78,7 @@ fn moduleDependenciesToArrayHashMap(arena: Allocator, deps: []const ModuleDepend
 
 pub fn addOptions(m: *Module, name: []const u8, options: *OptionsStep) void {
     m.dependencies.put(m.builder.dupe(name), options.addModule(name)) catch @panic("OOM");
+    m.step.dependOn(&options.step);
 }
 
 pub const LinkObject = union(enum) {
