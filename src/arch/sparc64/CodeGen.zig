@@ -667,8 +667,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .slice_ptr       => try self.airSlicePtr(inst),
             .slice_len       => try self.airSliceLen(inst),
 
-            .ptr_slice_len_ptr => @panic("TODO try self.airPtrSliceLenPtr(inst)"),
-            .ptr_slice_ptr_ptr => @panic("TODO try self.airPtrSlicePtrPtr(inst)"),
+            .ptr_slice_len_ptr => try self.airPtrSliceLenPtr(inst),
+            .ptr_slice_ptr_ptr => try self.airPtrSlicePtrPtr(inst),
 
             .array_elem_val      => try self.airArrayElemVal(inst),
             .slice_elem_val      => try self.airSliceElemVal(inst),
@@ -2236,6 +2236,38 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement ptr_elem_ptr for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
+}
+
+fn airPtrSliceLenPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bytes = @divExact(ptr_bits, 8);
+        const mcv = try self.resolveInst(ty_op.operand);
+        switch (mcv) {
+            .dead, .unreach, .none => unreachable,
+            .ptr_stack_offset => |off| {
+                break :result MCValue{ .ptr_stack_offset = off - ptr_bytes };
+            },
+            else => return self.fail("TODO implement ptr_slice_len_ptr for {}", .{mcv}),
+        }
+    };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(ty_op.operand);
+        switch (mcv) {
+            .dead, .unreach, .none => unreachable,
+            .ptr_stack_offset => |off| {
+                break :result MCValue{ .ptr_stack_offset = off };
+            },
+            else => return self.fail("TODO implement ptr_slice_len_ptr for {}", .{mcv}),
+        }
+    };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airPtrToInt(self: *Self, inst: Air.Inst.Index) !void {
