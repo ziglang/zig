@@ -1166,6 +1166,7 @@ fn analyzeBodyInner(
                     .work_item_id          => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .work_group_size       => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .work_group_id         => try sema.zirWorkItem(          block, extended, extended.opcode),
+                    .in_comptime           => try sema.zirInComptime(        block),
                     // zig fmt: on
 
                     .fence => {
@@ -22464,6 +22465,18 @@ fn zirWorkItem(
             .payload = dimension,
         } },
     });
+}
+
+fn zirInComptime(
+    sema: *Sema,
+    block: *Block,
+) CompileError!Air.Inst.Ref {
+    _ = sema;
+    if (block.is_comptime) {
+        return Air.Inst.Ref.bool_true;
+    } else {
+        return Air.Inst.Ref.bool_false;
+    }
 }
 
 fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src: ?LazySrcLoc) !void {
