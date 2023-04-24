@@ -3,6 +3,54 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 
+/// Deprecated, use `Utf16Iterator(.Little)` instead
+pub const Utf16LeIterator = Utf16Iterator(.Little);
+
+/// Deprecated, use `CalcUtf16LenError` instead
+pub const CalcUtf16LeLenError = CalcUtf16LenError;
+
+/// Deprecated, use `calcUtf16Len` instead
+pub fn calcUtf16LeLen(utf8: []const u8) CalcUtf16LeLenError!usize {
+    return calcUtf16Len(utf8);
+}
+
+/// Deprecated, use `fmtUtf16` instead
+pub fn fmtUtf16le(utf16le: []const u16) std.fmt.Formatter(formatUtf16Le) {
+    return fmtUtf16(.Little, utf16le);
+}
+
+/// Deprecated, use `utf16ToUtf8` instead
+pub fn utf16leToUtf8(utf8: []u8, utf16le: []const u16) !usize {
+    return utf16ToUtf8(.Little, utf8, utf16le);
+}
+
+/// Deprecated, use `utf16ToUtf8Alloc` instead
+pub fn utf16leToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) ![]u8 {
+    return utf16ToUtf8Alloc(.Little, allocator, utf16le);
+}
+
+/// Deprecated, use `utf16ToUtf8AllocZ` instead
+pub fn utf16leToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) ![:0]u8 {
+    return utf16ToUtf8AllocZ(.Little, allocator, utf16le);
+}
+
+/// Deprecated, use `utf8ToUtf16` instead
+pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
+    return utf8ToUtf16(.Little, utf16le, utf8);
+}
+
+/// Deprecated, use `utf8ToUtf16StringLiteral` instead
+pub fn utf8ToUtf16StringLiteral(
+    comptime utf8: []const u8,
+) *const [calcUtf16Len(.Little, utf8) catch unreachable:0]u16 {
+    return comptime utf8ToUtf16StringLiteral(.Little, utf8);
+}
+
+/// Deprecated, use `utf8ToUtf16WithNull` instead
+pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![:0]u16 {
+    return utf8ToUtf16WithNull(.Little, allocator, utf8);
+}
+
 /// Use this to replace an unknown, unrecognized, or unrepresentable character.
 ///
 /// See also: https://en.wikipedia.org/wiki/Specials_(Unicode_block)#Replacement_character
