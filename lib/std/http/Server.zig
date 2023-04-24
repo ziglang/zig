@@ -465,7 +465,7 @@ pub const Response = struct {
         try res.request.parse(res.request.parser.header_bytes.items);
 
         const res_connection = res.headers.getFirstValue("connection");
-        const res_keepalive = res_connection != null and !std.ascii.eqlIgnoreCase("close", res_connection.?);
+        const res_keepalive = res_connection == null or !std.ascii.eqlIgnoreCase("close", res_connection.?);
 
         const req_connection = res.request.headers.getFirstValue("connection");
         const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
