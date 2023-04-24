@@ -62,7 +62,7 @@ test "client requests server" {
     try client_req.writeAll("Hello, ");
     try client_req.writeAll("World!\n");
     try client_req.finish();
-    try client_req.do(); // this waits for a response
+    try client_req.wait(); // this waits for a response
 
     const body = try client_req.reader().readAllAlloc(allocator, 8192 * 1024);
     defer allocator.free(body);
