@@ -715,6 +715,9 @@ pub const Request = struct {
                 });
                 req.deinit();
                 req.* = new_req;
+
+                // req is newly created, so resend it to server.
+                try req.start();
             } else {
                 req.response.skip = false;
                 if (!req.response.parser.done) {
