@@ -89,7 +89,7 @@ pub fn findByOpcode(opc: []const u8, prefixes: struct {
         if (!std.mem.eql(u8, opc, enc.opcode())) continue;
         if (prefixes.rex.w) {
             switch (data.mode) {
-                .short, .fpu, .sse, .sse2, .sse2_long, .sse4_1, .none => continue,
+                .short, .fpu, .sse, .sse2, .sse4_1, .none => continue,
                 .long, .sse2_long, .rex => {},
             }
         } else if (prefixes.rex.present and !prefixes.rex.isSet()) {
