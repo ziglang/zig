@@ -11930,7 +11930,7 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     embed_file.owner_decl = try anon_decl.finish(
         try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), embed_file.bytes.len),
         try Value.Tag.bytes.create(anon_decl.arena(), bytes_including_null),
-        0, // default alignment
+        @sizeOf(usize), // target's pointer size as alignment
     );
 
     return sema.analyzeDeclRef(embed_file.owner_decl);
