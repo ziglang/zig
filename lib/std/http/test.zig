@@ -4,6 +4,8 @@ const expect = std.testing.expect;
 test "client requests server" {
     const builtin = @import("builtin");
 
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     // This test requires spawning threads.
     if (builtin.single_threaded) {
         return error.SkipZigTest;
