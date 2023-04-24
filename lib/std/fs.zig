@@ -1236,6 +1236,7 @@ pub const Dir = struct {
             .capable_io_mode = std.io.default_mode,
             .intended_io_mode = flags.intended_io_mode,
         };
+        errdefer file.close();
         var io: w.IO_STATUS_BLOCK = undefined;
         const range_off: w.LARGE_INTEGER = 0;
         const range_len: w.LARGE_INTEGER = 1;
