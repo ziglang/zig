@@ -16390,7 +16390,7 @@ fn typeInfoNamespaceDecls(
             continue;
         }
         if (decl.kind != .named) continue;
-        if (!decl.is_pub and decl.getFileScope() != block.getFileScope()) continue;
+        if (!decl.is_pub) continue;
         const name_val = v: {
             var anon_decl = try block.startAnonDecl();
             defer anon_decl.deinit();
