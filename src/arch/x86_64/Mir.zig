@@ -99,6 +99,10 @@ pub const Inst = struct {
         mov,
         /// Move data after swapping bytes
         movbe,
+        /// Move doubleword
+        movd,
+        /// Move quadword
+        movq,
         /// Move with sign extension
         movsx,
         /// Move with zero extension

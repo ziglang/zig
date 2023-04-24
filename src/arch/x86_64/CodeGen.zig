@@ -2596,14 +2596,7 @@ fn genIntMulDivOpMir(
         return self.fail("TODO implement genIntMulDivOpMir for ABI size larger than 8", .{});
     }
 
-    lhs: {
-        switch (lhs) {
-            .register => |reg| if (reg.to64() == .rax) break :lhs,
-            else => {},
-        }
-        try self.genSetReg(.rax, ty, lhs);
-    }
-
+    try self.genSetReg(.rax, ty, lhs);
     switch (tag) {
         else => unreachable,
         .mul, .imul => {},
@@ -2616,7 +2609,7 @@ fn genIntMulDivOpMir(
         else => .{ .register = try self.copyToTmpRegister(ty, rhs) },
     };
     switch (mat_rhs) {
-        .register => |reg| try self.asmRegister(tag, reg),
+        .register => |reg| try self.asmRegister(tag, registerAlias(reg, abi_size)),
         .indirect, .load_frame => try self.asmMemory(
             tag,
             Memory.sib(Memory.PtrSize.fromSize(abi_size), switch (mat_rhs) {
@@ -5086,11 +5079,11 @@ fn genBinOp(
         try self.genCopy(lhs_ty, dst_mcv, lhs);
         break :dst dst_mcv;
     };
-    const dst_mcv_lock: ?RegisterLock = switch (dst_mcv) {
+    const dst_lock: ?RegisterLock = switch (dst_mcv) {
         .register => |reg| self.register_manager.lockReg(reg),
         else => null,
     };
-    defer if (dst_mcv_lock) |lock| self.register_manager.unlockReg(lock);
+    defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
     const src_mcv = if (flipped) lhs else rhs;
     switch (tag) {
@@ -6951,11 +6944,15 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             .qword
         else
             null;
-        const mnem = std.meta.stringToEnum(Mir.Inst.Tag, mnem_str) orelse
-            (if (mnem_size) |_|
-            std.meta.stringToEnum(Mir.Inst.Tag, mnem_str[0 .. mnem_str.len - 1])
-        else
-            null) orelse return self.fail("Invalid mnemonic: '{s}'", .{mnem_str});
+        const mnem = mnem: {
+            if (mnem_size) |_| {
+                if (std.meta.stringToEnum(Mir.Inst.Tag, mnem_str[0 .. mnem_str.len - 1])) |mnem| {
+                    break :mnem mnem;
+                }
+            }
+            break :mnem std.meta.stringToEnum(Mir.Inst.Tag, mnem_str) orelse
+                return self.fail("Invalid mnemonic: '{s}'", .{mnem_str});
+        };
 
         var op_it = mem.tokenize(u8, mnem_it.rest(), ",");
         var ops = [1]encoder.Instruction.Operand{.none} ** 4;
@@ -7204,10 +7201,19 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                 );
             }
         },
-        .register => |reg| if (dst_reg.id() != reg.id()) try self.asmRegisterRegister(
-            try self.movMirTag(ty),
+        .register => |src_reg| if (dst_reg.id() != src_reg.id()) try self.asmRegisterRegister(
+            if ((dst_reg.class() == .floating_point) == (src_reg.class() == .floating_point))
+                try self.movMirTag(ty)
+            else switch (abi_size) {
+                4 => .movd,
+                8 => .movq,
+                else => return self.fail(
+                    "unsupported register copy from {s} to {s}",
+                    .{ @tagName(src_reg), @tagName(dst_reg) },
+                ),
+            },
             registerAlias(dst_reg, abi_size),
-            registerAlias(reg, abi_size),
+            registerAlias(src_reg, abi_size),
         ),
         .register_offset, .indirect, .load_frame, .lea_frame => try self.asmRegisterMemory(
             switch (src_mcv) {
@@ -7503,9 +7509,14 @@ fn airPtrToInt(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const dst_ty = self.air.typeOfIndex(inst);
+    const src_ty = self.air.typeOf(ty_op.operand);
+
     const result = result: {
+        const dst_rc = try self.regClassForType(dst_ty);
+        const src_rc = try self.regClassForType(src_ty);
         const operand = try self.resolveInst(ty_op.operand);
-        if (self.reuseOperand(inst, ty_op.operand, 0, operand)) break :result operand;
+        if (dst_rc.eql(src_rc) and self.reuseOperand(inst, ty_op.operand, 0, operand)) break :result operand;
 
         const operand_lock = switch (operand) {
             .register => |reg| self.register_manager.lockReg(reg),
@@ -7518,7 +7529,6 @@ fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
         try self.genCopy(self.air.typeOfIndex(inst), dest, operand);
         break :result dest;
     };
-    log.debug("airBitCast(%{d}): {}", .{ inst, result });
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 

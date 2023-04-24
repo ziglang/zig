@@ -60,6 +60,8 @@ pub fn lowerMir(lower: *Lower, inst: Mir.Inst) Error![]const Instruction {
         .mfence,
         .mov,
         .movbe,
+        .movd,
+        .movq,
         .movzx,
         .mul,
         .neg,
