@@ -6261,10 +6261,8 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
             },
             .Many, .C => unreachable,
         }
-        try writer.writeAll("; ");
+        try writer.writeAll("; ++");
         try f.writeCValue(writer, index, .Other);
-        try writer.writeAll(" += ");
-        try f.object.dg.renderValue(writer, Type.usize, Value.one, .Other);
         try writer.writeAll(") ((");
         try f.renderType(writer, elem_ptr_ty);
         try writer.writeByte(')');
