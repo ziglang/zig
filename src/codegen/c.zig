@@ -3825,8 +3825,8 @@ fn airCmpOp(
     data: anytype,
     operator: std.math.CompareOperator,
 ) !CValue {
-    const operand_ty = f.air.typeOf(data.lhs);
-    const scalar_ty = operand_ty.scalarType();
+    const lhs_ty = f.air.typeOf(data.lhs);
+    const scalar_ty = lhs_ty.scalarType();
 
     const target = f.object.dg.module.getTarget();
     const scalar_bits = scalar_ty.bitSize(target);
@@ -3847,17 +3847,21 @@ fn airCmpOp(
     const rhs = try f.resolveInst(data.rhs);
     try reap(f, inst, &.{ data.lhs, data.rhs });
 
+    const rhs_ty = f.air.typeOf(data.rhs);
+    const need_cast = lhs_ty.isSinglePointer() != rhs_ty.isSinglePointer();
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
-    const v = try Vectorize.start(f, inst, writer, operand_ty);
+    const v = try Vectorize.start(f, inst, writer, lhs_ty);
     try f.writeCValue(writer, local, .Other);
     try v.elem(f, writer);
     try writer.writeAll(" = ");
+    if (need_cast) try writer.writeAll("(void*)");
     try f.writeCValue(writer, lhs, .Other);
     try v.elem(f, writer);
     try writer.writeByte(' ');
     try writer.writeAll(compareOperatorC(operator));
     try writer.writeByte(' ');
+    if (need_cast) try writer.writeAll("(void*)");
     try f.writeCValue(writer, rhs, .Other);
     try v.elem(f, writer);
     try writer.writeAll(";\n");
