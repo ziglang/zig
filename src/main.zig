@@ -1681,7 +1681,7 @@ fn buildOutputType(
                                 if (mem.indexOfScalar(u8, linker_arg, '=')) |equals_pos| {
                                     const key = linker_arg[0..equals_pos];
                                     const value = linker_arg[equals_pos + 1 ..];
-                                    if (mem.eql(u8, key, "build-id")) {
+                                    if (mem.eql(u8, key, "--build-id")) {
                                         build_id = true;
                                         warn("ignoring build-id style argument: '{s}'", .{value});
                                         continue;
