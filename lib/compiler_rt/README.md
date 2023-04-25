@@ -72,9 +72,11 @@ Integer and Float Operations
 |   |                    |      |      |      | **Integer Comparison**         |
 | ✓ | __cmpsi2           | i32  | i32  | i32  | `(a<b) -> 0, (a==b) -> 1, (a>b) -> 2` |
 | ✓ | __cmpdi2           | i64  | i64  | i32  | ..                             |
+| ✗ | __aeabi_lcmp       | i64  | i64  | i32  | .. ARM                         |
 | ✓ | __cmpti2           | i128 | i128 | i32  | ..                             |
 | ✓ | __ucmpsi2          | u32  | u32  | i32  | `(a<b) -> 0, (a==b) -> 1, (a>b) -> 2` |
 | ✓ | __ucmpdi2          | u64  | u64  | i32  | ..                             |
+| ✗ | __aeabi_ulcmp      | u64  | u64  | i32  | .. ARM                         |
 | ✓ | __ucmpti2          | u128 | u128 | i32  | ..                             |
 |   |                    |      |      |      | **Integer Arithmetic**         |
 | ✓ | __ashlsi3          | i32  | i32  | i32  | `a << b` [^unused_rl78]        |
@@ -94,6 +96,7 @@ Integer and Float Operations
 | ✓ | __negti2           | i128 | i128 | i128 | ..                             |
 | ✓ | __mulsi3           | i32  | i32  | i32  | `a * b`                        |
 | ✓ | __muldi3           | i64  | i64  | i64  | ..                             |
+| ✓ | __aeabi_lmul       | i64  | i64  | i64  | .. ARM                         |
 | ✓ | __multi3           | i128 | i128 | i128 | ..                             |
 | ✓ | __divsi3           | i32  | i32  | i32  | `a / b`                        |
 | ✓ | __divdi3           | i64  | i64  | i64  | ..                             |
@@ -110,10 +113,14 @@ Integer and Float Operations
 | ✓ | __umoddi3          | u64  | u64  | u64  | ..                             |
 | ✓ | __umodti3          | u128 | u128 | u128 | ..                             |
 | ✓ | __udivmodsi4       | u32  | u32  | u32  | `a / b, rem.* = a % b`         |
+| ✓ | __aeabi_uidivmod   | u32  | u32  | u32  | .. ARM                         |
 | ✓ | __udivmoddi4       | u64  | u64  | u64  | ..                             |
+| ✓ | __aeabi_uldivmod   | u64  | u64  | u64  | .. ARM                         |
 | ✓ | __udivmodti4       | u128 | u128 | u128 | ..                             |
 | ✓ | __divmodsi4        | i32  | i32  | i32  | `a / b, rem.* = a % b`         |
+| ✓ | __aeabi_idivmod    | i32  | i32  | i32  | .. ARM                         |
 | ✓ | __divmoddi4        | i64  | i64  | i64  | ..                             |
+| ✓ | __aeabi_ldivmod    | i64  | i64  | i64  | .. ARM                         |
 | ✓ | __divmodti4        | i128 | i128 | i128 | .. [^libgcc_compat]            |
 |   |                    |      |      |      | **Integer Arithmetic with Trapping Overflow**|
 | ✓ | __absvsi2          | i32  | i32  | i32  | abs(a)                         |
@@ -142,11 +149,16 @@ Integer and Float Operations
 | ✓ | __mulodi4          | i64  | i64  | i64  | ..                             |
 | ✓ | __muloti4          | i128 | i128 | i128 | ..                             |
 |   |                    |      |      |      | **Float Conversion**           |
+| ✓ | __extendhfdf2      | f16  | ∅    | f32  | ..                             |
 | ✓ | __extendsfdf2      | f32  | ∅    | f64  | ..                             |
+| ✓ | __aeabi_f2d        | f32  | ∅    | f64  | ..                             |
 | ✓ | __extendsftf2      | f32  | ∅    | f128 | ..                             |
 | ✓ | __extendsfxf2      | f32  | ∅    | f80  | ..                             |
 | ✓ | __extenddftf2      | f64  | ∅    | f128 | ..                             |
 | ✓ | __extenddfxf2      | f64  | ∅    | f80  | ..                             |
+| ✗ | __aeabi_h2f        | f16  | ∅    | f32  | .. ARM                         |
+| ✗ | __aeabi_h2f_alt    | f16  | ∅    | f32  | .. ARM alternate [^VFPv3alt]   |
+| ✓ | __gnu_h2f_ieee     | f16  | ∅    | f32  | .. GNU naming convention       |
 | ✓ | __truncsfhf2       | f32  | ∅    | f16  | rounding towards zero          |
 | ✓ | __truncdfhf2       | f64  | ∅    | f16  | ..                             |
 | ✓ | __truncdfsf2       | f64  | ∅    | f32  | ..                             |
@@ -157,9 +169,11 @@ Integer and Float Operations
 | ✓ | __truncxfhf2       | f80  | ∅    | f16  | ..                             |
 | ✓ | __truncxfsf2       | f80  | ∅    | f32  | ..                             |
 | ✓ | __truncxfdf2       | f80  | ∅    | f64  | ..                             |
-| ✓ | __aeabi_f2h        | f32  | ∅    | f16  | .. ARM                         |
-| ✓ | __gnu_f2h_ieee     | f32  | ∅    | f16  | ..GNU naming convention        |
+| ✗ | __aeabi_f2h        | f32  | ∅    | f16  | .. ARM                         |
+| ✗ | __aeabi_f2h_alt    | f32  | ∅    | f16  | .. ARM alternate [^VFPv3alt]   |
+| ✓ | __gnu_f2h_ieee     | f32  | ∅    | f16  | .. GNU naming convention       |
 | ✓ | __aeabi_d2h        | f64  | ∅    | f16  | .. ARM                         |
+| ✗ | __aeabi_d2h_alt    | f64  | ∅    | f16  | .. ARM alternate [^VFPv3alt]   |
 | ✓ | __aeabi_d2f        | f64  | ∅    | f32  | .. ARM                         |
 | ✓ | __trunckfsf2       | f128 | ∅    | f32  | .. PPC                         |
 | ✓ | _Qp_qtos           |*f128 | ∅    | f32  | .. SPARC                       |
@@ -167,12 +181,16 @@ Integer and Float Operations
 | ✓ | _Qp_qtod           |*f128 | ∅    | f64  | .. SPARC                       |
 | ✓ | __fixhfsi          | f16  | ∅    | i32  | float to int, rounding towards zero |
 | ✓ | __fixsfsi          | f32  | ∅    | i32  | ..                             |
+| ✓ | __aeabi_f2iz       | f32  | ∅    | i32  | .. ARM                         |
 | ✓ | __fixdfsi          | f64  | ∅    | i32  | ..                             |
+| ✓ | __aeabi_d2iz       | f64  | ∅    | i32  | .. ARM                         |
 | ✓ | __fixtfsi          | f128 | ∅    | i32  | ..                             |
 | ✓ | __fixxfsi          | f80  | ∅    | i32  | ..                             |
 | ✓ | __fixhfdi          | f16  | ∅    | i64  | ..                             |
 | ✓ | __fixsfdi          | f32  | ∅    | i64  | ..                             |
+| ✓ | __aeabi_f2lz       | f32  | ∅    | i64  | .. ARM                         |
 | ✓ | __fixdfdi          | f64  | ∅    | i64  | ..                             |
+| ✓ | __aeabi_d2lz       | f64  | ∅    | i64  | .. ARM                         |
 | ✓ | __fixtfdi          | f128 | ∅    | i64  | ..                             |
 | ✓ | __fixxfdi          | f80  | ∅    | i64  | ..                             |
 | ✓ | __fixhfti          | f16  | ∅    | i128 | ..                             |
@@ -182,12 +200,16 @@ Integer and Float Operations
 | ✓ | __fixxfti          | f80  | ∅    | i128 | ..                             |
 | ✓ | __fixunshfsi       | f16  | ∅    | u32  | float to uint, rounding towards zero. negative values become 0. |
 | ✓ | __fixunssfsi       | f32  | ∅    | u32  | ..                             |
+| ✓ | __aeabi_f2uiz      | f32  | ∅    | u32  | .. ARM                         |
 | ✓ | __fixunsdfsi       | f64  | ∅    | u32  | ..                             |
+| ✓ | __aeabi_d2uiz      | f64  | ∅    | u32  | .. ARM                         |
 | ✓ | __fixunstfsi       | f128 | ∅    | u32  | ..                             |
 | ✓ | __fixunsxfsi       | f80  | ∅    | u32  | ..                             |
 | ✓ | __fixunshfdi       | f16  | ∅    | u64  | ..                             |
 | ✓ | __fixunssfdi       | f32  | ∅    | u64  | ..                             |
+| ✓ | __aeabi_f2ulz      | f32  | ∅    | u64  | .. ARM                         |
 | ✓ | __fixunsdfdi       | f64  | ∅    | u64  | ..                             |
+| ✓ | __aeabi_d2ulz      | f64  | ∅    | u64  | .. ARM                         |
 | ✓ | __fixunstfdi       | f128 | ∅    | u64  | ..                             |
 | ✓ | __fixunsxfdi       | f80  | ∅    | u64  | ..                             |
 | ✓ | __fixunshfti       | f16  | ∅    | u128 | ..                             |
@@ -197,11 +219,15 @@ Integer and Float Operations
 | ✓ | __fixunsxfti       | f80  | ∅    | u128 | ..                             |
 | ✓ | __floatsihf        | i32  | ∅    | f16  | int to float                   |
 | ✓ | __floatsisf        | i32  | ∅    | f32  | ..                             |
+| ✓ | __aeabi_i2f        | i32  | ∅    | f32  | .. ARM                         |
 | ✓ | __floatsidf        | i32  | ∅    | f64  | ..                             |
+| ✓ | __aeabi_i2d        | i32  | ∅    | f64  | .. ARM                         |
 | ✓ | __floatsitf        | i32  | ∅    | f128 | ..                             |
 | ✓ | __floatsixf        | i32  | ∅    | f80  | ..                             |
 | ✓ | __floatdisf        | i64  | ∅    | f32  | ..                             |
+| ✓ | __aeabi_l2f        | i64  | ∅    | f32  | .. ARM                         |
 | ✓ | __floatdidf        | i64  | ∅    | f64  | ..                             |
+| ✓ | __aeabi_l2d        | i64  | ∅    | f64  | .. ARM                         |
 | ✓ | __floatditf        | i64  | ∅    | f128 | ..                             |
 | ✓ | __floatdixf        | i64  | ∅    | f80  | ..                             |
 | ✓ | __floattihf        | i128 | ∅    | f16  | ..                             |
@@ -211,12 +237,16 @@ Integer and Float Operations
 | ✓ | __floattixf        | i128 | ∅    | f80  | ..                             |
 | ✓ | __floatunsihf      | u32  | ∅    | f16  | uint to float                  |
 | ✓ | __floatunsisf      | u32  | ∅    | f32  | ..                             |
+| ✓ | __aeabi_ui2f       | u32  | ∅    | f32  | .. ARM                         |
 | ✓ | __floatunsidf      | u32  | ∅    | f64  | ..                             |
+| ✓ | __aeabi_ui2d       | u32  | ∅    | f64  | .. ARM                         |
 | ✓ | __floatunsitf      | u32  | ∅    | f128 | ..                             |
 | ✓ | __floatunsixf      | u32  | ∅    | f80  | ..                             |
 | ✓ | __floatundihf      | u64  | ∅    | f16  | ..                             |
 | ✓ | __floatundisf      | u64  | ∅    | f32  | ..                             |
+| ✓ | __aeabi_ul2f       | u64  | ∅    | f32  | .. ARM                         |
 | ✓ | __floatundidf      | u64  | ∅    | f64  | ..                             |
+| ✓ | __aeabi_ul2d       | u64  | ∅    | f64  | .. ARM                         |
 | ✓ | __floatunditf      | u64  | ∅    | f128 | ..                             |
 | ✓ | __floatundixf      | u64  | ∅    | f80  | ..                             |
 | ✓ | __floatuntihf      | u128 | ∅    | f16  | ..                             |
@@ -353,6 +383,7 @@ Integer and Float Operations
 [^noptr_faster]: Operations without pointer and without C struct semantics lead to better optimizations.
 [^perf_addition]: Has better performance than standard method due to 2s complement semantics.
 Not provided by LLVM and libgcc.
+[^VFPv3alt]: Converts IEEE-format to VFPv3 alternative-format.
 
 Decimal float library routines
 
@@ -712,8 +743,57 @@ TODO brief description
 | |              |       |       |       |     |       |**BigInt Arithmetic which Return on Overflow**[^noptr_faster]|
 
 Further content (conditionally) exported with C abi:
+
+ARM-only routines
+
+| Done | Name      | a   | b   | Out  | Comment               |
+| ---- | --------  | --- | --- | -----| ----------------------|
+| |                |     |     |      | **Float Comparison**  |
+|✗|__aeabi_cfcmpeq | f32 | f32 | void | `a == b` result in PSR ZC flags[^PSRZC] |
+|✗|__aeabi_cfcmple | f32 | f32 | void | `a <= b` result ..    |
+|✗|__aeabi_cfrcmple| f32 | f32 | void | `b <= a` ..           |
+|✗|__aeabi_cdcmpeq | f64 | f64 | void | `a == b` ..           |
+|✗|__aeabi_cdcmple | f64 | f64 | void | `a <= b` ..           |
+|✗|__aeabi_cdrcmple| f64 | f64 | void | `b <= a` ..           |
+| |                |     |     |      | **Float Arithmetic**  |
+|✗|__aeabi_frsub   | f64 | f64 | f64  | `b - a`               |
+|✗|__aeabi_drsub   | f64 | f64 | f64  | ..                    |
+| |                |     |     |      | **Special**           |
+|✓|__aeabi_read_tp |  ∅  |  ∅  | *u8  | ret tls pointer       |
+|✗|__aeabi_idiv0   | i32 |  ∅  | i32  | div by 0 modifier     |
+|✗|__aeabi_ldiv0   | i64 |  ∅  | i64  | div by 0 modifier     |
+| |                |     |     |      | **Unaligned memory access** |
+|✗|__aeabi_uread4  |[*]u8|  ∅  | i32  | ret value read        |
+|✗|__aeabi_uwrite4 | i32 |[*]u8| i32  | ret value written     |
+|✗|__aeabi_uread8  |[*]u8|  ∅  | i64  | ..                    |
+|✗|__aeabi_uwrite8 | i64 |[*]u8| i64  | ..                    |
+
+
+| Done | Name      | a   | b   | c  | Comment                 |
+| ---- | --------  | --- | --- | -----| ----------------------|
+| |                |     |     |      | **Memory copy, move and set** |
+|✓|__aeabi_memcpy8 |[*]u8|[*]u8| usize| *dest, *src, size     |
+|✓|__aeabi_memcpy4 |[*]u8|[*]u8| usize| ..                    |
+|✓|__aeabi_memcpy  |[*]u8|[*]u8| usize| ..                    |
+|✓|__aeabi_memmove8|[*]u8|[*]u8| usize| *dest, *src, size     |
+|✓|__aeabi_memmove4|[*]u8|[*]u8| usize| ..                    |
+|✓|__aeabi_memmove |[*]u8|[*]u8| usize| ..                    |
+|✓|__aeabi_memset8 |[*]u8|usize| i32  | *dest, size, char     |
+|✓|__aeabi_memset4 |[*]u8|usize| i32  | ..                    |
+|✓|__aeabi_memset  |[*]u8|usize| i32  | ..                    |
+|✓|__aeabi_memclr8 |[*]u8| u32 | usize| *dest, size           |
+|✓|__aeabi_memclr4 |[*]u8| u32 | usize| ..                    |
+|✓|__aeabi_memclr  |[*]u8| u32 | usize| ..                    |
+|✓|__aeabi_uwrite8 | i64 |[*]u8| i64  | ..                    |
+
+- __aeabi_read_tp
+
+[^PSRZC]: return result in the CPSR Z and C flag. C is clear only if the
+operands are ordered and the first operand is less than the second.
+Z is set only when the operands are ordered and equal.
+Preserves all core registers except ip, lr, and the CPSR.
+
 - aarch64 outline atomics
-- arm routines (memory routines + memclr [setting to 0], divmod routines and stubs for unwind_cpp)
 - atomics
 - bcmp
 - clear cache
