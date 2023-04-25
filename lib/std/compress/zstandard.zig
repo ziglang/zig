@@ -10,7 +10,7 @@ pub const decompress = @import("zstandard/decompress.zig");
 
 pub const DecompressStreamOptions = struct {
     verify_checksum: bool = true,
-    window_size_max: usize = 1 << 23, // 8MiB default maximum window size,
+    window_size_max: usize = 1 << 23, // 8MiB default maximum window size
 };
 
 pub fn DecompressStream(

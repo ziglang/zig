@@ -21,7 +21,7 @@ pub export fn entry3() void {
 // backend=stage2
 // target=native
 //
-// :4:33: error: integer and float literals passed variadic function must be casted to a fixed-size number type
+// :4:33: error: integer and float literals passed to variadic function must be casted to a fixed-size number type
 // :9:24: error: arrays must be passed by reference to variadic function
 // :13:24: error: cannot pass 'u48' to variadic function
 // :13:24: note: only integers with power of two bits are extern compatible

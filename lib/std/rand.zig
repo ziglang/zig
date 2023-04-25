@@ -389,6 +389,8 @@ pub const Random = struct {
 
     /// Randomly selects an index into `proportions`, where the likelihood of each
     /// index is weighted by that proportion.
+    /// It is more likely for the index of the last proportion to be returned
+    /// than the index of the first proportion in the slice, and vice versa.
     ///
     /// This is useful for selecting an item from a slice where weights are not equal.
     /// `T` must be a numeric type capable of holding the sum of `proportions`.

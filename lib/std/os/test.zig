@@ -1101,6 +1101,8 @@ test "isatty" {
     defer tmp.cleanup();
 
     var file = try tmp.dir.createFile("foo", .{});
+    defer file.close();
+
     try expectEqual(os.isatty(file.handle), false);
 }
 

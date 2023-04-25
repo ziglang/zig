@@ -782,7 +782,8 @@ fn testOverflow() !void {
 }
 
 /// Returns the absolute value of x, where x is a value of a signed integer type.
-/// See also: `absCast`
+/// Does not convert and returns a value of a signed integer type.
+/// Use `absCast` if you want to convert the result and get an unsigned type.
 pub fn absInt(x: anytype) !@TypeOf(x) {
     const T = @TypeOf(x);
     return switch (@typeInfo(T)) {
@@ -1015,8 +1016,8 @@ pub inline fn fabs(value: anytype) @TypeOf(value) {
 }
 
 /// Returns the absolute value of the integer parameter.
-/// Result is an unsigned integer.
-/// See also: `absInt`
+/// Converts result type to unsigned if needed and returns a value of an unsigned integer type.
+/// Use `absInt` if you want to keep your integer type signed.
 pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
     .ComptimeInt => comptime_int,
     .Int => |int_info| std.meta.Int(.unsigned, int_info.bits),

@@ -4722,11 +4722,8 @@ pub fn sysctl(
     newp: ?*anyopaque,
     newlen: usize,
 ) SysCtlError!void {
-    if (builtin.os.tag == .wasi) {
-        @panic("unsupported"); // TODO should be compile error, not panic
-    }
-    if (builtin.os.tag == .haiku) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+    if (builtin.os.tag == .wasi or builtin.os.tag == .haiku) {
+        @compileError("unsupported OS");
     }
 
     const name_len = math.cast(c_uint, name.len) orelse return error.NameTooLong;
@@ -4747,11 +4744,8 @@ pub fn sysctlbynameZ(
     newp: ?*anyopaque,
     newlen: usize,
 ) SysCtlError!void {
-    if (builtin.os.tag == .wasi) {
-        @panic("unsupported"); // TODO should be compile error, not panic
-    }
-    if (builtin.os.tag == .haiku) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+    if (builtin.os.tag == .wasi or builtin.os.tag == .haiku) {
+        @compileError("unsupported OS");
     }
 
     switch (errno(system.sysctlbyname(name, oldp, oldlenp, newp, newlen))) {

@@ -2382,6 +2382,12 @@ bool ZigClangExpr_EvaluateAsConstantExpr(const ZigClangExpr *self, ZigClangExprE
     return true;
 }
 
+const ZigClangStringLiteral *ZigClangExpr_castToStringLiteral(const struct ZigClangExpr *self) {
+    auto casted_self = reinterpret_cast<const clang::Expr *>(self);
+    auto cast = clang::dyn_cast<const clang::StringLiteral>(casted_self);
+    return reinterpret_cast<const ZigClangStringLiteral *>(cast);
+}
+
 const ZigClangExpr *ZigClangInitListExpr_getInit(const ZigClangInitListExpr *self, unsigned i) {
     auto casted = reinterpret_cast<const clang::InitListExpr *>(self);
     const clang::Expr *result = casted->getInit(i);
@@ -2392,6 +2398,16 @@ const ZigClangExpr *ZigClangInitListExpr_getArrayFiller(const ZigClangInitListEx
     auto casted = reinterpret_cast<const clang::InitListExpr *>(self);
     const clang::Expr *result = casted->getArrayFiller();
     return reinterpret_cast<const ZigClangExpr *>(result);
+}
+
+bool ZigClangInitListExpr_hasArrayFiller(const ZigClangInitListExpr *self) {
+    auto casted = reinterpret_cast<const clang::InitListExpr *>(self);
+    return casted->hasArrayFiller();
+}
+
+bool ZigClangInitListExpr_isStringLiteralInit(const ZigClangInitListExpr *self) {
+    auto casted = reinterpret_cast<const clang::InitListExpr *>(self);
+    return casted->isStringLiteralInit();
 }
 
 const ZigClangFieldDecl *ZigClangInitListExpr_getInitializedFieldInUnion(const ZigClangInitListExpr *self) {

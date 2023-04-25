@@ -1214,10 +1214,9 @@ fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []cons
     try testing.expectEqualStrings(expected_output, result);
 }
 
-/// Returns the extension of the file name (if any).
-/// This function will search for the file extension (separated by a `.`) and will return the text after the `.`.
-/// Files that end with `.`, or that start with `.` and have no other `.` in their name,
-/// are considered to have no extension.
+/// Searches for a file extension separated by a `.` and returns the string after that `.`.
+/// Files that end or start with `.` and have no other `.` in their name
+/// are considered to have no extension, in which case this returns "".
 /// Examples:
 /// - `"main.zig"`      ⇒ `".zig"`
 /// - `"src/main.zig"`  ⇒ `".zig"`

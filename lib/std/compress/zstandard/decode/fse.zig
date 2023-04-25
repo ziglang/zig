@@ -21,7 +21,7 @@ pub fn decodeFseTable(
     var accumulated_probability: u16 = 0;
 
     while (accumulated_probability < total_probability) {
-        // WARNING: The RFC in poorly worded, and would suggest std.math.log2_int_ceil is correct here,
+        // WARNING: The RFC is poorly worded, and would suggest std.math.log2_int_ceil is correct here,
         //          but power of two (remaining probabilities + 1) need max bits set to 1 more.
         const max_bits = std.math.log2_int(u16, total_probability - accumulated_probability + 1) + 1;
         const small = try bit_reader.readBitsNoEof(u16, max_bits - 1);

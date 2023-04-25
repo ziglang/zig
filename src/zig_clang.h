@@ -1220,9 +1220,12 @@ ZIG_EXTERN_C bool ZigClangExpr_EvaluateAsFloat(const struct ZigClangExpr *self,
         ZigClangAPFloat **result, const struct ZigClangASTContext *ctx);
 ZIG_EXTERN_C bool ZigClangExpr_EvaluateAsConstantExpr(const struct ZigClangExpr *,
         struct ZigClangExprEvalResult *, ZigClangExpr_ConstantExprKind, const struct ZigClangASTContext *);
+ZIG_EXTERN_C const struct ZigClangStringLiteral *ZigClangExpr_castToStringLiteral(const struct ZigClangExpr *self);
 
 ZIG_EXTERN_C const ZigClangExpr *ZigClangInitListExpr_getInit(const ZigClangInitListExpr *, unsigned);
 ZIG_EXTERN_C const ZigClangExpr *ZigClangInitListExpr_getArrayFiller(const ZigClangInitListExpr *);
+ZIG_EXTERN_C bool ZigClangInitListExpr_hasArrayFiller(const ZigClangInitListExpr *);
+ZIG_EXTERN_C bool ZigClangInitListExpr_isStringLiteralInit(const ZigClangInitListExpr *);
 ZIG_EXTERN_C unsigned ZigClangInitListExpr_getNumInits(const ZigClangInitListExpr *);
 ZIG_EXTERN_C const ZigClangFieldDecl *ZigClangInitListExpr_getInitializedFieldInUnion(const ZigClangInitListExpr *self);
 

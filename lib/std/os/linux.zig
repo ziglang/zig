@@ -3464,7 +3464,10 @@ pub const CAP = struct {
     pub const WAKE_ALARM = 35;
     pub const BLOCK_SUSPEND = 36;
     pub const AUDIT_READ = 37;
-    pub const LAST_CAP = AUDIT_READ;
+    pub const PERFMON = 38;
+    pub const BPF = 39;
+    pub const CHECKPOINT_RESTORE = 40;
+    pub const LAST_CAP = CHECKPOINT_RESTORE;
 
     pub fn valid(x: u8) bool {
         return x >= 0 and x <= LAST_CAP;
