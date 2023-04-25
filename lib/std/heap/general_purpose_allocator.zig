@@ -1412,4 +1412,3 @@ test "bug 9995 fix, large allocs count requested size not backing size" {
     buf = try allocator.realloc(buf, 2);
     try std.testing.expect(gpa.total_requested_bytes == 2);
 }
-

@@ -755,9 +755,9 @@ pub fn CreateSymbolicLink(
     };
 
     std.mem.copy(u8, buffer[0..], std.mem.asBytes(&symlink_data));
-    @memcpy(buffer[@sizeOf(SYMLINK_DATA)..][0..target_path.len * 2], @ptrCast([*]const u8, target_path));
+    @memcpy(buffer[@sizeOf(SYMLINK_DATA)..][0 .. target_path.len * 2], @ptrCast([*]const u8, target_path));
     const paths_start = @sizeOf(SYMLINK_DATA) + target_path.len * 2;
-    @memcpy(buffer[paths_start..][0..target_path.len * 2], @ptrCast([*]const u8, target_path));
+    @memcpy(buffer[paths_start..][0 .. target_path.len * 2], @ptrCast([*]const u8, target_path));
     _ = try DeviceIoControl(symlink_handle, FSCTL_SET_REPARSE_POINT, buffer[0..buf_len], null);
 }
 
@@ -1179,7 +1179,7 @@ pub fn GetFinalPathNameByHandle(
             var input_struct = @ptrCast(*MOUNTMGR_MOUNT_POINT, &input_buf[0]);
             input_struct.DeviceNameOffset = @sizeOf(MOUNTMGR_MOUNT_POINT);
             input_struct.DeviceNameLength = @intCast(USHORT, volume_name_u16.len * 2);
-            @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..][0..volume_name_u16.len * 2], @ptrCast([*]const u8, volume_name_u16.ptr));
+            @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..][0 .. volume_name_u16.len * 2], @ptrCast([*]const u8, volume_name_u16.ptr));
 
             DeviceIoControl(mgmt_handle, IOCTL_MOUNTMGR_QUERY_POINTS, &input_buf, &output_buf) catch |err| switch (err) {
                 error.AccessDenied => unreachable,

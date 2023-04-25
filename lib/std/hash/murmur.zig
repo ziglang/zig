@@ -100,7 +100,7 @@ pub const Murmur2_64 = struct {
     pub fn hashWithSeed(str: []const u8, seed: u64) u64 {
         const m: u64 = 0xc6a4a7935bd1e995;
         var h1: u64 = seed ^ (@as(u64, str.len) *% m);
-        for (@ptrCast([*]align(1) const u64, str.ptr)[0..str.len / 8]) |v| {
+        for (@ptrCast([*]align(1) const u64, str.ptr)[0 .. str.len / 8]) |v| {
             var k1: u64 = v;
             if (native_endian == .Big)
                 k1 = @byteSwap(k1);
@@ -291,7 +291,7 @@ fn SMHasherTest(comptime hash_fn: anytype, comptime hashbits: u32) u32 {
         var h = hash_fn(key[0..i], 256 - i);
         if (native_endian == .Big)
             h = @byteSwap(h);
-        @memcpy(hashes[i * hashbytes..][0..hashbytes], @ptrCast([*]u8, &h));
+        @memcpy(hashes[i * hashbytes ..][0..hashbytes], @ptrCast([*]u8, &h));
     }
 
     return @truncate(u32, hash_fn(&hashes, 0));
