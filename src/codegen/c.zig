@@ -279,8 +279,6 @@ pub const Function = struct {
     /// by type alignment.
     /// The value is whether the alloc needs to be emitted in the header.
     allocs: std.AutoArrayHashMapUnmanaged(LocalIndex, bool) = .{},
-    /// Needed for memory used by the keys of free_locals_map entries.
-    arena: std.heap.ArenaAllocator,
 
     fn resolveInst(f: *Function, ref: Air.Inst.Ref) !CValue {
         if (Air.refToIndex(ref)) |inst| {
@@ -481,7 +479,6 @@ pub const Function = struct {
         f.object.code.deinit();
         f.object.dg.ctypes.deinit(gpa);
         f.object.dg.fwd_decl.deinit();
-        f.arena.deinit();
     }
 };
 
@@ -3396,7 +3393,7 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
         var deref = is_ptr;
         const is_array = lowersToArray(ret_ty, target);
         const ret_val = if (is_array) ret_val: {
-            const array_local = try f.allocLocal(inst, try lowered_ret_ty.copy(f.arena.allocator()));
+            const array_local = try f.allocLocal(inst, lowered_ret_ty);
             try writer.writeAll("memcpy(");
             try f.writeCValueMember(writer, array_local, .{ .identifier = "array" });
             try writer.writeAll(", ");
@@ -4113,7 +4110,7 @@ fn airCall(
             var lowered_arg_buf: LowerFnRetTyBuffer = undefined;
             const lowered_arg_ty = lowerFnRetTy(arg_ty, &lowered_arg_buf, target);
 
-            const array_local = try f.allocLocal(inst, try lowered_arg_ty.copy(f.arena.allocator()));
+            const array_local = try f.allocLocal(inst, lowered_arg_ty);
             try writer.writeAll("memcpy(");
             try f.writeCValueMember(writer, array_local, .{ .identifier = "array" });
             try writer.writeAll(", ");
@@ -4156,7 +4153,7 @@ fn airCall(
             try writer.writeByte(')');
             break :result .none;
         } else {
-            const local = try f.allocLocal(inst, try lowered_ret_ty.copy(f.arena.allocator()));
+            const local = try f.allocLocal(inst, lowered_ret_ty);
             try f.writeCValue(writer, local, .Other);
             try writer.writeAll(" = ");
             break :result local;
@@ -5363,7 +5360,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                 };
                 const field_int_ty = Type.initPayload(&field_int_pl.base);
 
-                const temp_local = try f.allocLocal(inst, try field_int_ty.copy(f.arena.allocator()));
+                const temp_local = try f.allocLocal(inst, field_int_ty);
                 try f.writeCValue(writer, temp_local, .Other);
                 try writer.writeAll(" = zig_wrap_");
                 try f.object.dg.renderTypeForBuiltinFnName(writer, field_int_ty);
