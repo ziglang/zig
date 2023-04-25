@@ -116,7 +116,7 @@ each_lib_rpath: ?bool = null,
 /// As an example, the bloaty project refuses to work unless its inputs have
 /// build ids, in order to prevent accidental mismatches.
 /// The default is to not include this section because it slows down linking.
-build_id: ?bool = null,
+build_id: ?BuildId = null,
 
 /// Create a .eh_frame_hdr section and a PT_GNU_EH_FRAME segment in the ELF
 /// file.
@@ -286,6 +286,68 @@ pub const Options = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+};
+
+pub const BuildId = union(enum) {
+    none,
+    fast,
+    uuid,
+    sha1,
+    md5,
+    hexstring: []const u8,
+
+    pub fn hash(self: BuildId, hasher: anytype) void {
+        switch (self) {
+            .none, .fast, .uuid, .sha1, .md5 => {
+                hasher.update(@tagName(self));
+            },
+            .hexstring => |str| {
+                hasher.update("0x");
+                hasher.update(str);
+            },
+        }
+    }
+
+    // parses the incoming BuildId. If returns a hexstring, it is allocated
+    // by the provided allocator.
+    pub fn parse(allocator: std.mem.Allocator, text: []const u8) error{
+        InvalidHexInt,
+        InvalidBuildId,
+        OutOfMemory,
+    }!BuildId {
+        if (mem.eql(u8, text, "none")) {
+            return .none;
+        } else if (mem.eql(u8, text, "fast")) {
+            return .fast;
+        } else if (mem.eql(u8, text, "uuid")) {
+            return .uuid;
+        } else if (mem.eql(u8, text, "sha1") or mem.eql(u8, text, "tree")) {
+            return .sha1;
+        } else if (mem.eql(u8, text, "md5")) {
+            return .md5;
+        } else if (mem.startsWith(u8, text, "0x")) {
+            var clean_hex_string = try allocator.alloc(u8, text.len);
+            errdefer allocator.free(clean_hex_string);
+
+            var i: usize = 0;
+            for (text["0x".len..]) |c| {
+                if (std.ascii.isHex(c)) {
+                    clean_hex_string[i] = c;
+                    i += 1;
+                } else if (c == '-' or c == ':') {
+                    continue;
+                } else {
+                    return error.InvalidHexInt;
+                }
+            }
+            if (i < text.len)
+                _ = allocator.resize(clean_hex_string, i);
+
+            return BuildId{ .hexstring = clean_hex_string[0..i] };
+        }
+
+        return error.InvalidBuildId;
+    }
 };
 
 pub const Kind = enum {
@@ -1810,7 +1872,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try addFlag(&zig_args, "valgrind", self.valgrind_support);
     try addFlag(&zig_args, "each-lib-rpath", self.each_lib_rpath);
-    try addFlag(&zig_args, "build-id", self.build_id);
+    if (self.build_id) |build_id| {
+        const fmt_str = "--build-id={s}{s}";
+        try zig_args.append(switch (build_id) {
+            .hexstring => |str| try std.fmt.allocPrint(b.allocator, fmt_str, .{ "0x", str }),
+            .none, .fast, .uuid, .sha1, .md5 => try std.fmt.allocPrint(b.allocator, fmt_str, .{ "", @tagName(build_id) }),
+        });
+    }
 
     if (self.zig_lib_dir) |dir| {
         try zig_args.append("--zig-lib-dir");
@@ -2174,4 +2242,51 @@ fn checkCompileErrors(self: *Compile) !void {
         \\{s}
         \\=========================================
     , .{ expected_generated.items, actual_stderr });
+}
+
+const testing = std.testing;
+
+test "BuildId.parse" {
+    const tests = &[_]struct {
+        []const u8,
+        ?BuildId,
+        ?anyerror,
+    }{
+        .{ "0x", BuildId{ .hexstring = "" }, null },
+        .{ "0x12-34:", BuildId{ .hexstring = "1234" }, null },
+        .{ "0x123456", BuildId{ .hexstring = "123456" }, null },
+        .{ "md5", .md5, null },
+        .{ "none", .none, null },
+        .{ "fast", .fast, null },
+        .{ "uuid", .uuid, null },
+        .{ "sha1", .sha1, null },
+        .{ "tree", .sha1, null },
+        .{ "0xfoobbb", null, error.InvalidHexInt },
+        .{ "yaddaxxx", null, error.InvalidBuildId },
+    };
+
+    for (tests) |tt| {
+        const input = tt[0];
+        const expected = tt[1];
+        const expected_err = tt[2];
+
+        _ = (if (expected_err) |err| {
+            try testing.expectError(err, BuildId.parse(testing.allocator, input));
+        } else blk: {
+            const actual = BuildId.parse(testing.allocator, input) catch |e| break :blk e;
+            switch (expected.?) {
+                .hexstring => |expected_str| {
+                    try testing.expectEqualStrings(expected_str, actual.hexstring);
+                    testing.allocator.free(actual.hexstring);
+                },
+                else => try testing.expectEqual(expected.?, actual),
+            }
+        }) catch |e| {
+            std.log.err(
+                "BuildId.parse failed on {s}: expected {} got {!}",
+                .{ input, expected.?, e },
+            );
+            return e;
+        };
+    }
 }
