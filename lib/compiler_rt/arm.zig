@@ -1,4 +1,5 @@
-// ARM specific builtins
+//! Implementation of ARM specific builtins for Run-time ABI
+//! This file includes all ARM-only functions.
 const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
@@ -38,6 +39,9 @@ comptime {
             if (builtin.os.tag == .linux) {
                 @export(__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = common.linkage, .visibility = common.visibility });
             }
+
+            // floating-point helper functions (double-precision reverse subtraction, y – x), see subdf3.zig
+            @export(__aeabi_drsub, .{ .name = "__aeabi_drsub", .linkage = common.linkage, .visibility = common.visibility });
         }
     }
 }
@@ -185,4 +189,9 @@ pub fn __aeabi_ldivmod() callconv(.Naked) void {
         \\ pop {r4, pc}
         ::: "memory");
     unreachable;
+}
+
+pub fn __aeabi_drsub(a: f64, b: f64) callconv(.AAPCS) f64 {
+    const neg_a = @bitCast(f64, @bitCast(u64, a) ^ (@as(u64, 1) << 63));
+    return b + neg_a;
 }
