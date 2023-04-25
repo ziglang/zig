@@ -390,6 +390,13 @@ fn addFromDirInner(
         // Cross-product to get all possible test combinations
         for (backends) |backend| {
             for (targets) |target| {
+                if (backend == .stage2 and
+                    target.getCpuArch() != .wasm32 and target.getCpuArch() != .x86_64)
+                {
+                    // Other backends don't support new liveness format
+                    continue;
+                }
+
                 const next = ctx.cases.items.len;
                 try ctx.cases.append(.{
                     .name = std.fs.path.stem(filename),
