@@ -138,12 +138,14 @@ pub const Inst = struct {
         /// The offset is in element type units, not bytes.
         /// Wrapping is undefined behavior.
         /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
+        /// The pointer may be a slice.
         /// Uses the `ty_pl` field. Payload is `Bin`.
         ptr_add,
         /// Subtract an offset from a pointer, returning a new pointer.
         /// The offset is in element type units, not bytes.
         /// Wrapping is undefined behavior.
         /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
+        /// The pointer may be a slice.
         /// Uses the `ty_pl` field. Payload is `Bin`.
         ptr_sub,
         /// Given two operands which can be floats, integers, or vectors, returns the

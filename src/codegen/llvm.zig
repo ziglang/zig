@@ -7293,39 +7293,53 @@ pub const FuncGen = struct {
     fn airPtrAdd(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-        const base_ptr = try self.resolveInst(bin_op.lhs);
+        const ptr = try self.resolveInst(bin_op.lhs);
         const offset = try self.resolveInst(bin_op.rhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         const llvm_elem_ty = try self.dg.lowerPtrElemTy(ptr_ty.childType());
-        if (ptr_ty.ptrSize() == .One) {
-            // It's a pointer to an array, so according to LLVM we need an extra GEP index.
-            const indices: [2]*llvm.Value = .{
-                self.context.intType(32).constNull(), offset,
-            };
-            return self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
-        } else {
-            const indices: [1]*llvm.Value = .{offset};
-            return self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
+        switch (ptr_ty.ptrSize()) {
+            .One => {
+                // It's a pointer to an array, so according to LLVM we need an extra GEP index.
+                const indices: [2]*llvm.Value = .{ self.context.intType(32).constNull(), offset };
+                return self.builder.buildInBoundsGEP(llvm_elem_ty, ptr, &indices, indices.len, "");
+            },
+            .C, .Many => {
+                const indices: [1]*llvm.Value = .{offset};
+                return self.builder.buildInBoundsGEP(llvm_elem_ty, ptr, &indices, indices.len, "");
+            },
+            .Slice => {
+                const base = self.builder.buildExtractValue(ptr, 0, "");
+                const indices: [1]*llvm.Value = .{offset};
+                return self.builder.buildInBoundsGEP(llvm_elem_ty, base, &indices, indices.len, "");
+            },
         }
     }
 
     fn airPtrSub(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-        const base_ptr = try self.resolveInst(bin_op.lhs);
+        const ptr = try self.resolveInst(bin_op.lhs);
         const offset = try self.resolveInst(bin_op.rhs);
         const negative_offset = self.builder.buildNeg(offset, "");
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         const llvm_elem_ty = try self.dg.lowerPtrElemTy(ptr_ty.childType());
-        if (ptr_ty.ptrSize() == .One) {
-            // It's a pointer to an array, so according to LLVM we need an extra GEP index.
-            const indices: [2]*llvm.Value = .{
-                self.context.intType(32).constNull(), negative_offset,
-            };
-            return self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
-        } else {
-            const indices: [1]*llvm.Value = .{negative_offset};
-            return self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
+        switch (ptr_ty.ptrSize()) {
+            .One => {
+                // It's a pointer to an array, so according to LLVM we need an extra GEP index.
+                const indices: [2]*llvm.Value = .{
+                    self.context.intType(32).constNull(), negative_offset,
+                };
+                return self.builder.buildInBoundsGEP(llvm_elem_ty, ptr, &indices, indices.len, "");
+            },
+            .C, .Many => {
+                const indices: [1]*llvm.Value = .{negative_offset};
+                return self.builder.buildInBoundsGEP(llvm_elem_ty, ptr, &indices, indices.len, "");
+            },
+            .Slice => {
+                const base = self.builder.buildExtractValue(ptr, 0, "");
+                const indices: [1]*llvm.Value = .{negative_offset};
+                return self.builder.buildInBoundsGEP(llvm_elem_ty, base, &indices, indices.len, "");
+            },
         }
     }
 

@@ -5548,7 +5548,7 @@ pub fn toPosixPath(file_path: []const u8) ![MAX_PATH_BYTES - 1:0]u8 {
     var path_with_null: [MAX_PATH_BYTES - 1:0]u8 = undefined;
     // >= rather than > to make room for the null byte
     if (file_path.len >= MAX_PATH_BYTES) return error.NameTooLong;
-    mem.copy(u8, &path_with_null, file_path);
+    @memcpy(path_with_null[0..file_path.len], file_path);
     path_with_null[file_path.len] = 0;
     return path_with_null;
 }

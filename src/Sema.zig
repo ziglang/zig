@@ -21950,12 +21950,19 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         new_src_ptr = try upgradeToArrayPtr(sema, block, src_ptr, len);
     }
 
+    if (dest_len != .none) {
+        // Change the src from slice to a many pointer, to avoid multiple ptr
+        // slice extractions in AIR instructions.
+        const new_src_ptr_ty = sema.typeOf(new_src_ptr);
+        if (new_src_ptr_ty.isSlice()) {
+            new_src_ptr = try sema.analyzeSlicePtr(block, src_src, new_src_ptr, new_src_ptr_ty);
+        }
+    }
+
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     // Aliasing safety check.
     if (block.wantSafety()) {
-        const dest_int = try block.addUnOp(.ptrtoint, new_dest_ptr);
-        const src_int = try block.addUnOp(.ptrtoint, new_src_ptr);
         const len = if (len_val) |v|
             try sema.addConstant(Type.usize, v)
         else if (dest_len != .none)
@@ -21963,12 +21970,20 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         else
             src_len;
 
+        // Extract raw pointer from dest slice. The AIR instructions could support them, but
+        // it would cause redundant machine code instructions.
+        const new_dest_ptr_ty = sema.typeOf(new_dest_ptr);
+        const raw_dest_ptr = if (new_dest_ptr_ty.isSlice())
+            try sema.analyzeSlicePtr(block, dest_src, new_dest_ptr, new_dest_ptr_ty)
+        else
+            new_dest_ptr;
+
         // ok1: dest >= src + len
         // ok2: src >= dest + len
-        const src_plus_len = try block.addBinOp(.add, src_int, len);
-        const dest_plus_len = try block.addBinOp(.add, dest_int, len);
-        const ok1 = try block.addBinOp(.cmp_gte, dest_int, src_plus_len);
-        const ok2 = try block.addBinOp(.cmp_gte, src_int, dest_plus_len);
+        const src_plus_len = try sema.analyzePtrArithmetic(block, src, new_src_ptr, len, .ptr_add, src_src, src);
+        const dest_plus_len = try sema.analyzePtrArithmetic(block, src, raw_dest_ptr, len, .ptr_add, dest_src, src);
+        const ok1 = try block.addBinOp(.cmp_gte, raw_dest_ptr, src_plus_len);
+        const ok2 = try block.addBinOp(.cmp_gte, new_src_ptr, dest_plus_len);
         const ok = try block.addBinOp(.bit_or, ok1, ok2);
         try sema.addSafetyCheck(block, ok, .memcpy_alias);
     }
