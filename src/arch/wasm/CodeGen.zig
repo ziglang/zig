@@ -6631,11 +6631,13 @@ fn airCmpxchg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const expected_val = try func.resolveInst(extra.expected_value);
     const new_val = try func.resolveInst(extra.new_value);
 
+    const cmp_result = try func.allocLocal(Type.bool);
+
     const ptr_val = if (func.useAtomicFeature()) val: {
         const val_local = try func.allocLocal(ty);
         try func.emitWValue(ptr_operand);
-        try func.emitWValue(expected_val);
-        try func.emitWValue(new_val);
+        try func.lowerToStack(expected_val);
+        try func.lowerToStack(new_val);
         try func.addAtomicMemArg(switch (ty.abiSize(func.target)) {
             1 => .i32_atomic_rmw8_cmpxchg_u,
             2 => .i32_atomic_rmw16_cmpxchg_u,
@@ -6648,32 +6650,43 @@ fn airCmpxchg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         });
         try func.addLabel(.local_tee, val_local.local.value);
         _ = try func.cmp(.stack, expected_val, ty, .eq);
+        try func.addLabel(.local_set, cmp_result.local.value);
         break :val val_local;
     } else val: {
+        if (ty.abiSize(func.target) > 8) {
+            return func.fail("TODO: Implement `@cmpxchg` for types larger than abi size of 8 bytes", .{});
+        }
         const ptr_val = try WValue.toLocal(try func.load(ptr_operand, ty, 0), func, ty);
 
         try func.lowerToStack(ptr_operand);
-        try func.emitWValue(new_val);
+        try func.lowerToStack(new_val);
         try func.emitWValue(ptr_val);
-        const cmp_tmp = try func.cmp(ptr_val, expected_val, ty, .eq);
-        const cmp_result = try cmp_tmp.toLocal(func, Type.bool);
-        try func.emitWValue(cmp_result);
+        _ = try func.cmp(ptr_val, expected_val, ty, .eq);
+        try func.addLabel(.local_tee, cmp_result.local.value);
         try func.addTag(.select);
         try func.store(.stack, .stack, ty, 0);
-        try func.emitWValue(cmp_result);
 
         break :val ptr_val;
     };
 
-    try func.addImm32(-1);
-    try func.addTag(.i32_xor);
-    try func.addImm32(1);
-    try func.addTag(.i32_and);
-    const and_result = try WValue.toLocal(.stack, func, Type.bool);
-
-    const result_ptr = try func.allocStack(result_ty);
-    try func.store(result_ptr, and_result, Type.bool, @intCast(u32, ty.abiSize(func.target)));
-    try func.store(result_ptr, ptr_val, ty, 0);
+    const result_ptr = if (isByRef(result_ty, func.target)) val: {
+        try func.emitWValue(cmp_result);
+        try func.addImm32(-1);
+        try func.addTag(.i32_xor);
+        try func.addImm32(1);
+        try func.addTag(.i32_and);
+        const and_result = try WValue.toLocal(.stack, func, Type.bool);
+        const result_ptr = try func.allocStack(result_ty);
+        try func.store(result_ptr, and_result, Type.bool, @intCast(u32, ty.abiSize(func.target)));
+        try func.store(result_ptr, ptr_val, ty, 0);
+        break :val result_ptr;
+    } else val: {
+        try func.addImm32(0);
+        try func.emitWValue(ptr_val);
+        try func.emitWValue(cmp_result);
+        try func.addTag(.select);
+        break :val try WValue.toLocal(.stack, func, result_ty);
+    };
 
     return func.finishAir(inst, result_ptr, &.{ extra.ptr, extra.new_value, extra.expected_value });
 }
