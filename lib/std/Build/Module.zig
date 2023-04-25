@@ -25,13 +25,16 @@ linker_script: ?FileSource = null,
 /// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
 force_undefined_symbols: StringHashMap(void),
 
-pub fn create(owner: *Build, options: CreateModuleOptions) *Module {
+pub fn create(owner: *Build, name: ?[]const u8, options: CreateModuleOptions) *Module {
     const arena = owner.allocator;
     const mod = owner.allocator.create(Module) catch @panic("OOM");
     mod.* = .{
         .step = Step.init(.{
             .id = .module,
-            .name = "module", // TODO: Better name
+            .name = if (name) |n|
+                std.fmt.allocPrint(arena, "module {s}", .{n}) catch @panic("OOM")
+            else
+                "module",
             .owner = owner,
         }),
         .source_file = options.source_file,
@@ -84,19 +87,19 @@ pub fn appendArgs(
 
     for (m.link_objects.items) |obj| {
         switch (obj) {
-            .c_source_file => |c| {
-                try zig_args.append(c.source.getPath2(m.step.owner, &m.step));
+            .c_source_file => |_| {
+                // try zig_args.append(c.source.getPath2(m.step.owner, &m.step));
                 num_source_files +|= 1;
             },
             .c_source_files => |c_files| {
-                for (c_files.files) |file_path| {
-                    try zig_args.append(file_path);
+                for (c_files.files) |_| {
+                    // try zig_args.append(file_path);
                     num_source_files +|= 1;
                 }
             },
             // TODO: Should ASM files be included here?
-            .assembly_file => |asm_file| {
-                try zig_args.append(asm_file.getPath2(m.step.owner, &m.step));
+            .assembly_file => |_| {
+                // try zig_args.append(asm_file.getPath2(m.step.owner, &m.step));
                 num_source_files +|= 1;
             },
             else => {},
@@ -115,6 +118,7 @@ pub fn appendArgs(
     const b = m.step.owner;
     var transitive_deps: TransitiveDeps = .{
         .link_objects = ArrayList(LinkObject).init(b.allocator),
+        .include_dirs = ArrayList(IncludeDir).init(b.allocator),
         .seen_system_libs = StringHashMap(void).init(b.allocator),
         .seen_steps = std.AutoHashMap(*const Step, void).init(b.allocator),
         .is_linking_libcpp = m.is_linking_libcpp,
@@ -124,13 +128,6 @@ pub fn appendArgs(
 
     try transitive_deps.seen_steps.put(&m.step, {});
     try transitive_deps.add(m);
-
-    {
-        var it = m.dependencies.iterator();
-        while (it.next()) |kv| {
-            try transitive_deps.add(kv.value_ptr.*);
-        }
-    }
 
     var prev_has_extra_flags = false;
 
@@ -253,6 +250,56 @@ pub fn appendArgs(
 
     if (transitive_deps.is_linking_libc) {
         try zig_args.append("-lc");
+    }
+
+    for (transitive_deps.include_dirs.items) |include_dir| {
+        switch (include_dir) {
+            .raw_path => |include_path| {
+                try zig_args.append("-I");
+                try zig_args.append(b.pathFromRoot(include_path));
+            },
+            .raw_path_system => |include_path| {
+                if (b.sysroot != null) {
+                    try zig_args.append("-iwithsysroot");
+                } else {
+                    try zig_args.append("-isystem");
+                }
+
+                const resolved_include_path = b.pathFromRoot(include_path);
+
+                const common_include_path = if (builtin.os.tag == .windows and b.sysroot != null and fs.path.isAbsolute(resolved_include_path)) blk: {
+                    // We need to check for disk designator and strip it out from dir path so
+                    // that zig/clang can concat resolved_include_path with sysroot.
+                    const disk_designator = fs.path.diskDesignatorWindows(resolved_include_path);
+
+                    if (mem.indexOf(u8, resolved_include_path, disk_designator)) |where| {
+                        break :blk resolved_include_path[where + disk_designator.len ..];
+                    }
+
+                    break :blk resolved_include_path;
+                } else resolved_include_path;
+
+                try zig_args.append(common_include_path);
+            },
+            .other_step => |other| {
+                if (other.emit_h) {
+                    const h_path = other.getOutputHSource().getPath(b);
+                    try zig_args.append("-isystem");
+                    try zig_args.append(fs.path.dirname(h_path).?);
+                }
+                if (other.main_module.installed_headers.items.len > 0) {
+                    try zig_args.append("-I");
+                    try zig_args.append(b.pathJoin(&.{
+                        other.step.owner.install_prefix, "include",
+                    }));
+                }
+            },
+            .config_header_step => |config_header| {
+                const full_file_path = config_header.output_file.path.?;
+                const header_dir_path = full_file_path[0 .. full_file_path.len - config_header.include_path.len];
+                try zig_args.appendSlice(&.{ "-I", header_dir_path });
+            },
+        }
     }
 }
 
@@ -706,6 +753,7 @@ pub fn setLinkerScriptPath(m: *Module, source: FileSource) void {
 
 const TransitiveDeps = struct {
     link_objects: ArrayList(LinkObject),
+    include_dirs: ArrayList(IncludeDir),
     seen_system_libs: StringHashMap(void),
     seen_steps: std.AutoHashMap(*const Step, void),
     is_linking_libcpp: bool,
@@ -721,8 +769,19 @@ const TransitiveDeps = struct {
         for (module.link_objects.items) |link_object| {
             try td.link_objects.append(link_object);
             switch (link_object) {
-                .other_step => |other| try addInner(td, other.main_module, other.isDynamicLibrary()),
+                .other_step => |other| try td.addInner(other.main_module, other.isDynamicLibrary()),
                 else => {},
+            }
+        }
+
+        for (module.include_dirs.items) |include_dir| {
+            try td.include_dirs.append(include_dir);
+        }
+
+        {
+            var it = module.dependencies.iterator();
+            while (it.next()) |kv| {
+                try td.add(kv.value_ptr.*);
             }
         }
     }
@@ -731,6 +790,13 @@ const TransitiveDeps = struct {
         // Inherit dependency on libc and libc++
         td.is_linking_libcpp = td.is_linking_libcpp or other.is_linking_libcpp;
         td.is_linking_libc = td.is_linking_libc or other.is_linking_libc;
+
+        {
+            var it = other.dependencies.iterator();
+            while (it.next()) |kv| {
+                try td.addInner(kv.value_ptr.*, dyn);
+            }
+        }
 
         // Inherit dependencies on darwin frameworks
         if (!dyn) {
@@ -791,6 +857,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const fs = std.fs;
 const panic = std.debug.panic;
+const builtin = @import("builtin");
 
 pub const addSystemIncludeDir = @compileError("deprecated; use addSystemIncludePath");
 pub const addIncludeDir = @compileError("deprecated; use addIncludePath");

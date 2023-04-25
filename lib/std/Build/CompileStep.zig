@@ -1022,56 +1022,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try self.appendModuleArgs(&zig_args);
 
-    for (self.main_module.include_dirs.items) |include_dir| {
-        switch (include_dir) {
-            .raw_path => |include_path| {
-                try zig_args.append("-I");
-                try zig_args.append(b.pathFromRoot(include_path));
-            },
-            .raw_path_system => |include_path| {
-                if (b.sysroot != null) {
-                    try zig_args.append("-iwithsysroot");
-                } else {
-                    try zig_args.append("-isystem");
-                }
-
-                const resolved_include_path = b.pathFromRoot(include_path);
-
-                const common_include_path = if (builtin.os.tag == .windows and b.sysroot != null and fs.path.isAbsolute(resolved_include_path)) blk: {
-                    // We need to check for disk designator and strip it out from dir path so
-                    // that zig/clang can concat resolved_include_path with sysroot.
-                    const disk_designator = fs.path.diskDesignatorWindows(resolved_include_path);
-
-                    if (mem.indexOf(u8, resolved_include_path, disk_designator)) |where| {
-                        break :blk resolved_include_path[where + disk_designator.len ..];
-                    }
-
-                    break :blk resolved_include_path;
-                } else resolved_include_path;
-
-                try zig_args.append(common_include_path);
-            },
-            .other_step => |other| {
-                if (other.emit_h) {
-                    const h_path = other.getOutputHSource().getPath(b);
-                    try zig_args.append("-isystem");
-                    try zig_args.append(fs.path.dirname(h_path).?);
-                }
-                if (other.main_module.installed_headers.items.len > 0) {
-                    try zig_args.append("-I");
-                    try zig_args.append(b.pathJoin(&.{
-                        other.step.owner.install_prefix, "include",
-                    }));
-                }
-            },
-            .config_header_step => |config_header| {
-                const full_file_path = config_header.output_file.path.?;
-                const header_dir_path = full_file_path[0 .. full_file_path.len - config_header.include_path.len];
-                try zig_args.appendSlice(&.{ "-I", header_dir_path });
-            },
-        }
-    }
-
     for (self.main_module.c_macros.items) |c_macro| {
         try zig_args.append("-D");
         try zig_args.append(c_macro);

@@ -462,7 +462,7 @@ pub const ExecutableOptions = struct {
 };
 
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *CompileStep {
-    const main_module = b.createModule(options.main_module_options);
+    const main_module = Module.create(b, options.name, options.main_module_options);
     return CompileStep.create(b, .{
         .name = options.name,
         .main_module = main_module,
@@ -520,7 +520,7 @@ pub const SharedLibraryOptions = struct {
 };
 
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *CompileStep {
-    const main_module = b.createModule(options.main_module_options);
+    const main_module = Module.create(b, options.name, options.main_module_options);
     return CompileStep.create(b, .{
         .name = options.name,
         .main_module = main_module,
@@ -625,7 +625,7 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *CompileStep {
 /// it available to other packages which depend on this one.
 /// `createModule` can be used instead to create a private module.
 pub fn addModule(b: *Build, name: []const u8, options: CreateModuleOptions) *Module {
-    const module = b.createModule(options);
+    const module = Module.create(b, name, options);
     b.modules.put(b.dupe(name), module) catch @panic("OOM");
     return module;
 }
@@ -662,7 +662,7 @@ pub const CreateModuleOptions = struct {
 /// but not exposed to other packages depending on this one.
 /// `addModule` can be used instead to create a public module.
 pub fn createModule(b: *Build, options: CreateModuleOptions) *Module {
-    return Module.create(b, options);
+    return Module.create(b, null, options);
 }
 
 /// Initializes a RunStep with argv, which must at least have the path to the
