@@ -108,7 +108,7 @@ pub const BufferedConnection = struct {
         const nread = try bconn.conn.read(bconn.buf[0..]);
         if (nread == 0) return error.EndOfStream;
         bconn.start = 0;
-        bconn.end = @truncate(u16, nread);
+        bconn.end = @intCast(u16, nread);
     }
 
     pub fn peek(bconn: *BufferedConnection) []const u8 {
@@ -126,7 +126,7 @@ pub const BufferedConnection = struct {
             const left = buffer.len - out_index;
 
             if (available > 0) {
-                const can_read = @truncate(u16, @min(available, left));
+                const can_read = @intCast(u16, @min(available, left));
 
                 @memcpy(buffer[out_index..][0..can_read], bconn.buf[bconn.start..][0..can_read]);
                 out_index += can_read;
@@ -199,8 +199,6 @@ pub const Compression = union(enum) {
 /// A HTTP request originating from a client.
 pub const Request = struct {
     pub const ParseError = Allocator.Error || error{
-        ShortHttpStatusLine,
-        BadHttpVersion,
         UnknownHttpMethod,
         HttpHeadersInvalid,
         HttpHeaderContinuationsUnsupported,
@@ -215,7 +213,7 @@ pub const Request = struct {
 
         const first_line = it.next() orelse return error.HttpHeadersInvalid;
         if (first_line.len < 10)
-            return error.ShortHttpStatusLine;
+            return error.HttpHeadersInvalid;
 
         const method_end = mem.indexOfScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
         const method_str = first_line[0..method_end];
@@ -229,7 +227,7 @@ pub const Request = struct {
         const version: http.Version = switch (int64(version_str[0..8])) {
             int64("HTTP/1.0") => .@"HTTP/1.0",
             int64("HTTP/1.1") => .@"HTTP/1.1",
-            else => return error.BadHttpVersion,
+            else => return error.HttpHeadersInvalid,
         };
 
         const target = first_line[method_end + 1 .. version_start];
@@ -312,7 +310,7 @@ pub const Request = struct {
     transfer_encoding: ?http.TransferEncoding = null,
     transfer_compression: ?http.ContentEncoding = null,
 
-    headers: http.Headers = undefined,
+    headers: http.Headers,
     parser: proto.HeadersParser,
     compression: Compression = .none,
 };
@@ -336,14 +334,52 @@ pub const Response = struct {
     headers: http.Headers,
     request: Request,
 
+    state: State = .first,
+
+    const State = enum {
+        first,
+        start,
+        waited,
+        responded,
+        finished,
+    };
+
     pub fn deinit(res: *Response) void {
-        res.server.allocator.destroy(res);
+        res.connection.close();
+
+        res.headers.deinit();
+        res.request.headers.deinit();
+
+        if (res.request.parser.header_bytes_owned) {
+            res.request.parser.header_bytes.deinit(res.server.allocator);
+        }
     }
 
     /// Reset this response to its initial state. This must be called before handling a second request on the same connection.
-    pub fn reset(res: *Response) void {
-        res.request.headers.deinit();
-        res.headers.deinit();
+    pub fn reset(res: *Response) bool {
+        if (res.state == .first) {
+            res.state = .start;
+            return true;
+        }
+
+        if (!res.request.parser.done) {
+            // If the response wasn't fully read, then we need to close the connection.
+            res.connection.conn.closing = true;
+            return false;
+        }
+
+        // A connection is only keep-alive if the Connection header is present and it's value is not "close".
+        // The server and client must both agree
+        const res_connection = res.headers.getFirstValue("connection");
+        const res_keepalive = res_connection != null and !std.ascii.eqlIgnoreCase("close", res_connection.?);
+
+        const req_connection = res.request.headers.getFirstValue("connection");
+        const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
+        if (res_keepalive and req_keepalive) {
+            res.connection.conn.closing = false;
+        } else {
+            res.connection.conn.closing = true;
+        }
 
         switch (res.request.compression) {
             .none => {},
@@ -352,26 +388,38 @@ pub const Response = struct {
             .zstd => |*zstd| zstd.deinit(),
         }
 
-        if (!res.request.parser.done) {
-            // If the response wasn't fully read, then we need to close the connection.
-            res.connection.conn.closing = true;
-        }
+        res.state = .start;
+        res.version = .@"HTTP/1.1";
+        res.status = .ok;
+        res.reason = null;
 
-        if (res.connection.conn.closing) {
-            res.connection.close();
+        res.transfer_encoding = .none;
 
-            if (res.request.parser.header_bytes_owned) {
-                res.request.parser.header_bytes.deinit(res.server.allocator);
-            }
-        } else {
-            res.request.parser.reset();
-        }
+        res.headers.clearRetainingCapacity();
+
+        res.request.headers.clearRetainingCapacity();
+        res.request.parser.reset();
+
+        res.request = Request{
+            .version = undefined,
+            .method = undefined,
+            .target = undefined,
+            .headers = res.request.headers,
+            .parser = res.request.parser,
+        };
+
+        return !res.connection.conn.closing;
     }
 
     pub const DoError = BufferedConnection.WriteError || error{ UnsupportedTransferEncoding, InvalidContentLength };
 
     /// Send the response headers.
     pub fn do(res: *Response) !void {
+        switch (res.state) {
+            .waited => res.state = .responded,
+            .first, .start, .responded, .finished => unreachable,
+        }
+
         var buffered = std.io.bufferedWriter(res.connection.writer());
         const w = buffered.writer();
 
@@ -452,6 +500,11 @@ pub const Response = struct {
 
     /// Wait for the client to send a complete request head.
     pub fn wait(res: *Response) WaitError!void {
+        switch (res.state) {
+            .first, .start => res.state = .waited,
+            .waited, .responded, .finished => unreachable,
+        }
+
         while (true) {
             try res.connection.fill();
 
@@ -463,17 +516,6 @@ pub const Response = struct {
 
         res.request.headers = .{ .allocator = res.server.allocator, .owned = true };
         try res.request.parse(res.request.parser.header_bytes.items);
-
-        const res_connection = res.headers.getFirstValue("connection");
-        const res_keepalive = res_connection != null and !std.ascii.eqlIgnoreCase("close", res_connection.?);
-
-        const req_connection = res.request.headers.getFirstValue("connection");
-        const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
-        if (res_keepalive and req_keepalive) {
-            res.connection.conn.closing = false;
-        } else {
-            res.connection.conn.closing = true;
-        }
 
         if (res.request.transfer_encoding) |te| {
             switch (te) {
@@ -515,6 +557,11 @@ pub const Response = struct {
     }
 
     pub fn read(res: *Response, buffer: []u8) ReadError!usize {
+        switch (res.state) {
+            .waited, .responded, .finished => {},
+            .first, .start => unreachable,
+        }
+
         const out_index = switch (res.request.compression) {
             .deflate => |*deflate| deflate.read(buffer) catch return error.DecompressionFailure,
             .gzip => |*gzip| gzip.read(buffer) catch return error.DecompressionFailure,
@@ -564,6 +611,11 @@ pub const Response = struct {
 
     /// Write `bytes` to the server. The `transfer_encoding` request header determines how data will be sent.
     pub fn write(res: *Response, bytes: []const u8) WriteError!usize {
+        switch (res.state) {
+            .responded => {},
+            .first, .waited, .start, .finished => unreachable,
+        }
+
         switch (res.transfer_encoding) {
             .chunked => {
                 try res.connection.writer().print("{x}\r\n", .{bytes.len});
@@ -583,7 +635,7 @@ pub const Response = struct {
         }
     }
 
-    pub fn writeAll(req: *Request, bytes: []const u8) WriteError!void {
+    pub fn writeAll(req: *Response, bytes: []const u8) WriteError!void {
         var index: usize = 0;
         while (index < bytes.len) {
             index += try write(req, bytes[index..]);
@@ -594,6 +646,11 @@ pub const Response = struct {
 
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     pub fn finish(res: *Response) FinishError!void {
+        switch (res.state) {
+            .responded => res.state = .finished,
+            .first, .waited, .start, .finished => unreachable,
+        }
+
         switch (res.transfer_encoding) {
             .chunked => try res.connection.writeAll("0\r\n\r\n"),
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
@@ -636,11 +693,10 @@ pub const HeaderStrategy = union(enum) {
 };
 
 /// Accept a new connection and allocate a Response for it.
-pub fn accept(server: *Server, options: HeaderStrategy) AcceptError!*Response {
+pub fn accept(server: *Server, options: HeaderStrategy) AcceptError!Response {
     const in = try server.socket.accept();
 
-    const res = try server.allocator.create(Response);
-    res.* = .{
+    return Response{
         .server = server,
         .address = in.address,
         .connection = .{ .conn = .{
@@ -652,14 +708,13 @@ pub fn accept(server: *Server, options: HeaderStrategy) AcceptError!*Response {
             .version = undefined,
             .method = undefined,
             .target = undefined,
+            .headers = .{ .allocator = server.allocator, .owned = false },
             .parser = switch (options) {
                 .dynamic => |max| proto.HeadersParser.initDynamic(max),
                 .static => |buf| proto.HeadersParser.initStatic(buf),
             },
         },
     };
-
-    return res;
 }
 
 test "HTTP server handles a chunked transfer coding request" {

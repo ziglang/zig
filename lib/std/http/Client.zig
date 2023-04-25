@@ -264,7 +264,7 @@ pub const BufferedConnection = struct {
         const nread = try bconn.conn.read(bconn.buf[0..]);
         if (nread == 0) return error.EndOfStream;
         bconn.start = 0;
-        bconn.end = @truncate(u16, nread);
+        bconn.end = @intCast(u16, nread);
     }
 
     pub fn peek(bconn: *BufferedConnection) []const u8 {
@@ -282,7 +282,7 @@ pub const BufferedConnection = struct {
             const left = buffer.len - out_index;
 
             if (available > 0) {
-                const can_read = @truncate(u16, @min(available, left));
+                const can_read = @intCast(u16, @min(available, left));
 
                 @memcpy(buffer[out_index..][0..can_read], bconn.buf[bconn.start..][0..can_read]);
                 out_index += can_read;
@@ -355,8 +355,6 @@ pub const Compression = union(enum) {
 /// A HTTP response originating from a server.
 pub const Response = struct {
     pub const ParseError = Allocator.Error || error{
-        ShortHttpStatusLine,
-        BadHttpVersion,
         HttpHeadersInvalid,
         HttpHeaderContinuationsUnsupported,
         HttpTransferEncodingUnsupported,
@@ -370,12 +368,12 @@ pub const Response = struct {
 
         const first_line = it.next() orelse return error.HttpHeadersInvalid;
         if (first_line.len < 12)
-            return error.ShortHttpStatusLine;
+            return error.HttpHeadersInvalid;
 
         const version: http.Version = switch (int64(first_line[0..8])) {
             int64("HTTP/1.0") => .@"HTTP/1.0",
             int64("HTTP/1.1") => .@"HTTP/1.1",
-            else => return error.BadHttpVersion,
+            else => return error.HttpHeadersInvalid,
         };
         if (first_line[8] != ' ') return error.HttpHeadersInvalid;
         const status = @intToEnum(http.Status, parseInt3(first_line[9..12].*));
@@ -695,7 +693,6 @@ pub const Request = struct {
 
             if (req.method == .CONNECT and req.response.status == .ok) {
                 req.connection.data.closing = false;
-                req.connection.data.proxied = true;
                 req.response.parser.done = true;
             }
 
@@ -722,6 +719,11 @@ pub const Request = struct {
 
                 if (cl == 0) req.response.parser.done = true;
             } else {
+                req.response.parser.done = true;
+            }
+
+            // HEAD requests have no body
+            if (req.method == .HEAD) {
                 req.response.parser.done = true;
             }
 
