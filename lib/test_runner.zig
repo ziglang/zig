@@ -146,6 +146,7 @@ fn mainTerminal() void {
 
     var leaks: usize = 0;
     for (test_fn_list, 0..) |test_fn, i| {
+        std.testing.test_fns_i = i;
         std.testing.allocator_instance = .{};
         defer {
             if (std.testing.allocator_instance.deinit() == .leak) {

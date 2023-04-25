@@ -916,6 +916,26 @@ test "expectEqualDeep composite type" {
     }
 }
 
+// TODO: test blocks can observe their own index fn argument.
+// Do not leaks implementation details from the test runner into libstd.
+// `test_fns_i` is index into builtin.test_functions set by test runner.
+const TestFn_iT = if (!builtin.is_test) u32 else void;
+threadlocal var test_fns_i: TestFn_iT = if (!builtin.is_test) 0 else void;
+
+/// Send expected panic message to server from test runner, spawns itself as a
+/// child process with the test number, tells the server pid and process group
+/// of child and waits for the child process. The child process executes exactly
+/// one test block up to panic or returns with error code 1.
+/// If another expected panic message has been received by the server for the
+/// same test block, then the test is marked as error.InvalidPanicMsg and the
+/// child of the test runner thread is terminated via pid and process group,
+///
+/// In case no server is desired, the to be run test block is provided as cli
+/// argument.
+pub fn expectPanic(msg: []const u8) !void {
+    _ = msg;
+}
+
 fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
     const line_begin_index = if (std.mem.lastIndexOfScalar(u8, source[0..indicator_index], '\n')) |line_begin|
         line_begin + 1

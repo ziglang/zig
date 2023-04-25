@@ -42,7 +42,7 @@ pub const Message = struct {
     ///   - 0 means not async
     /// * expected_panic_msg: [tests_len]u32,
     ///   - null-terminated string_bytes index
-    ///   - 0 means does not expect pani
+    ///   - 0 means does not expect panic
     /// * string_bytes: [string_bytes_len]u8,
     pub const TestMetadata = extern struct {
         string_bytes_len: u32,
