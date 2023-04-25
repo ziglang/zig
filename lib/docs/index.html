@@ -24,6 +24,7 @@
         --search-bg-color: #f3f3f3;
         --search-bg-color-focus: #ffffff;
         --search-sh-color: rgba(0, 0, 0, 0.18);
+        --search-other-results-color: rgb(100, 100, 100);
         --help-sh-color: rgba(0, 0, 0, 0.75);
         --help-bg-color: #aaa;
       }
@@ -248,7 +249,38 @@
         top: 5px;
         left: 5px;
       }
-
+      
+      .other-results {
+        line-height: 1em;
+        position: relative;
+        outline: 0;
+        border: 0;
+        color: var(--search-other-results-color);
+        text-align: center;
+        height: 1.5em;
+        opacity: .5;
+      }
+      .other-results:before {
+        content: '';
+        background: var(--search-other-results-color);
+        position: absolute;
+        left: 0;
+        top: 50%;
+        width: 100%;
+        height: 1px;
+      }
+        
+      .other-results:after {
+        content: "other results";
+        position: relative;
+        display: inline-block;
+        padding: 0 .5em;
+        line-height: 1.5em;
+        color: var(--search-other-results-color);
+        background-color: var(--bg-color);
+      }
+      
+      
       .docs a {
         color: var(--link-color);
       }
@@ -506,6 +538,7 @@
           --search-bg-color: #3c3c3c;
           --search-bg-color-focus: #000;
           --search-sh-color: rgba(255, 255, 255, 0.28);
+          --search-other-results-color: rgba(255, 255, 255, 0.28);
           --help-sh-color: rgba(142, 142, 142, 0.5);
           --help-bg-color: #333;
         }
