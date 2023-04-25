@@ -60,6 +60,7 @@ stage3-debug/bin/zig build -Dtarget=arm-linux-musleabihf
 # TODO: add -fqemu back to this line
 
 stage3-debug/bin/zig build test docs \
+  --maxrss 24696061952 \
   -fwasmtime \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
