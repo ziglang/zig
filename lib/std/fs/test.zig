@@ -304,7 +304,7 @@ test "Dir.Iterator but dir is deleted during iteration" {
     // This is a contrived reproduction, but this could happen outside of the program, in another thread, etc.
     // If we get an error while trying to delete, we can skip this test (this will happen on platforms
     // like Windows which will give FileBusy if the directory is currently open for iteration).
-    tmp.dir.deleteTree("subdir") catch return error.SkipZigTest;
+    tmp.dir.deleteTree("subdir", .{}) catch return error.SkipZigTest;
 
     // Now, when we try to iterate, the next call should return null immediately.
     const entry = try iterator.next();
@@ -696,7 +696,7 @@ test "makePath, put some files in it, deleteTree" {
     try tmp.dir.makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
     try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
     try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
-    try tmp.dir.deleteTree("os_test_tmp");
+    try tmp.dir.deleteTree("os_test_tmp", .{});
     if (tmp.dir.openDir("os_test_tmp", .{})) |dir| {
         _ = dir;
         @panic("expected error");
@@ -712,7 +712,7 @@ test "makePath, put some files in it, deleteTreeMinStackSize" {
     try tmp.dir.makePath("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c");
     try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "c" ++ fs.path.sep_str ++ "file.txt", "nonsense");
     try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "b" ++ fs.path.sep_str ++ "file2.txt", "blah");
-    try tmp.dir.deleteTreeMinStackSize("os_test_tmp");
+    try tmp.dir.deleteTreeMinStackSize("os_test_tmp", .{});
     if (tmp.dir.openDir("os_test_tmp", .{})) |dir| {
         _ = dir;
         @panic("expected error");
@@ -721,12 +721,48 @@ test "makePath, put some files in it, deleteTreeMinStackSize" {
     }
 }
 
+test "deleteTree max retries" {
+    // While TooManyRetries is relevant for non-Windows platforms, it is trickier to
+    // reproduce the necessary conditions, as getting DirNotEmpty when deleting a directory
+    // that `deleteTree` thinks is now empty would likely mean something like a file/dir being
+    // created while the directory is being iterated and its children deleted.
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Make a subdirectory with a file in it and keep the file handle open.
+    var leaked_handle = blk: {
+        var dir = try tmp.dir.makeOpenPath("dir", .{});
+        defer dir.close();
+
+        var file = try dir.createFile("neverclose", .{});
+        break :blk file;
+    };
+
+    {
+        // We always want to close the file handle even on test failure, but we want it to be
+        // open for these expectError calls.
+        defer leaked_handle.close();
+
+        // Since the file handle was never closed, it will enter into a `DELETE_PENDING`
+        // state which will cause deleteTree to continually delete the file and directory,
+        // getting 'success' from the file delete but then DirNotEmpty from the directory
+        // delete.
+        try std.testing.expectError(error.TooManyRetries, tmp.dir.deleteTree("dir", .{}));
+        try std.testing.expectError(error.TooManyRetries, tmp.dir.deleteTreeMinStackSize("dir", .{}));
+    }
+
+    // Now that the leaked handle has been closed, deleteTree should succeed.
+    try tmp.dir.deleteTree("dir", .{});
+}
+
 test "makePath in a directory that no longer exists" {
     if (builtin.os.tag == .windows) return error.SkipZigTest; // Windows returns FileBusy if attempting to remove an open dir
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
-    try tmp.parent_dir.deleteTree(&tmp.sub_path);
+    try tmp.parent_dir.deleteTree(&tmp.sub_path, .{});
 
     try testing.expectError(error.FileNotFound, tmp.dir.makePath("sub-path"));
 }
@@ -751,7 +787,7 @@ fn testFilenameLimits(iterable_dir: IterableDir, maxed_filename: []const u8) !vo
     }
 
     // ensure that we can delete the tree
-    try iterable_dir.dir.deleteTree(maxed_filename);
+    try iterable_dir.dir.deleteTree(maxed_filename, .{});
 }
 
 test "max file name component lengths" {
@@ -874,7 +910,7 @@ test "access file" {
 
     try tmp.dir.writeFile("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", "");
     try tmp.dir.access("os_test_tmp" ++ fs.path.sep_str ++ "file.txt", .{});
-    try tmp.dir.deleteTree("os_test_tmp");
+    try tmp.dir.deleteTree("os_test_tmp", .{});
 }
 
 test "sendfile" {
@@ -882,7 +918,7 @@ test "sendfile" {
     defer tmp.cleanup();
 
     try tmp.dir.makePath("os_test_tmp");
-    defer tmp.dir.deleteTree("os_test_tmp") catch {};
+    defer tmp.dir.deleteTree("os_test_tmp", .{}) catch {};
 
     var dir = try tmp.dir.openDir("os_test_tmp", .{});
     defer dir.close();
@@ -947,7 +983,7 @@ test "copyRangeAll" {
     defer tmp.cleanup();
 
     try tmp.dir.makePath("os_test_tmp");
-    defer tmp.dir.deleteTree("os_test_tmp") catch {};
+    defer tmp.dir.deleteTree("os_test_tmp", .{}) catch {};
 
     var dir = try tmp.dir.openDir("os_test_tmp", .{});
     defer dir.close();

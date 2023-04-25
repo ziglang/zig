@@ -99,7 +99,7 @@ pub fn main() !void {
     var toc = try genToc(allocator, &tokenizer);
 
     try fs.cwd().makePath(tmp_dir_name);
-    defer fs.cwd().deleteTree(tmp_dir_name) catch {};
+    defer fs.cwd().deleteTree(tmp_dir_name, .{}) catch {};
 
     try genHtml(allocator, &tokenizer, &toc, buffered_writer.writer(), zig_exe, opt_zig_lib_dir, do_code_tests);
     try buffered_writer.flush();

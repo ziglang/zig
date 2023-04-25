@@ -643,7 +643,7 @@ test "write a file, watch it, write it again, delete it" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     try std.fs.cwd().makePath(test_tmp_dir);
-    defer std.fs.cwd().deleteTree(test_tmp_dir) catch {};
+    defer std.fs.cwd().deleteTree(test_tmp_dir, .{}) catch {};
 
     return testWriteWatchWriteDelete(std.testing.allocator);
 }

@@ -776,7 +776,7 @@ fn makeUninstall(uninstall_step: *Step, prog_node: *std.Progress.Node) anyerror!
         if (self.verbose) {
             log.info("rm {s}", .{full_path});
         }
-        fs.cwd().deleteTree(full_path) catch {};
+        fs.cwd().deleteTree(full_path, .{}) catch {};
     }
 
     // TODO remove empty directories

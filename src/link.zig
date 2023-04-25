@@ -937,7 +937,7 @@ pub const File = struct {
                 // Work around windows `renameW` can't fail with `PathAlreadyExists`
                 // See https://github.com/ziglang/zig/issues/8362
                 if (cache_directory.handle.access(o_sub_path, .{})) |_| {
-                    try cache_directory.handle.deleteTree(o_sub_path);
+                    try cache_directory.handle.deleteTree(o_sub_path, .{});
                     continue;
                 } else |err| switch (err) {
                     error.FileNotFound => {},
@@ -961,7 +961,7 @@ pub const File = struct {
                     o_sub_path,
                 ) catch |err| switch (err) {
                     error.PathAlreadyExists => {
-                        try cache_directory.handle.deleteTree(o_sub_path);
+                        try cache_directory.handle.deleteTree(o_sub_path, .{});
                         continue;
                     },
                     else => |e| return e,

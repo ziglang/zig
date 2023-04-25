@@ -28,7 +28,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
     const self = @fieldParentPtr(RemoveDirStep, "step", step);
 
-    b.build_root.handle.deleteTree(self.dir_path) catch |err| {
+    b.build_root.handle.deleteTree(self.dir_path, .{}) catch |err| {
         if (b.build_root.path) |base| {
             return step.fail("unable to recursively delete path '{s}/{s}': {s}", .{
                 base, self.dir_path, @errorName(err),

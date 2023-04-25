@@ -2089,6 +2089,10 @@ pub const Dir = struct {
         FileBusy,
         DeviceBusy,
 
+        /// The number of retries to delete thought-to-be-empty directories
+        /// exceeded `max_retries`.
+        TooManyRetries,
+
         /// One of the path components was not a directory.
         /// This error is unreachable if `sub_path` does not contain a path separator.
         NotDir,
@@ -2101,17 +2105,33 @@ pub const Dir = struct {
         BadPathName,
     } || os.UnexpectedError;
 
+    pub const DeleteTreeOptions = struct {
+        /// After successfully deleting all of a directories children, it is possible for
+        /// the directory to not actually be empty (either from a new child being added while
+        /// iterating or a child being in a `DELETE_PENDING` state on Windows). In this scenario,
+        /// the directory will be iterated again and then will be attempted to be deleted again.
+        /// This provides a limit to the total number of such retries.
+        /// In `deleteTree`, the retry limit is per-directory.
+        /// In `deleteTreeMinStackSize`, the retry limit is function-wide.
+        max_retries: usize = 4,
+
+        /// When initially trying to delete `sub_path`, it will first try and delete it as
+        /// the provided kind.
+        kind_hint: File.Kind = .File,
+    };
+
     /// Whether `full_path` describes a symlink, file, or directory, this function
     /// removes it. If it cannot be removed because it is a non-empty directory,
     /// this function recursively removes its entries and then tries again.
     /// This operation is not atomic on most file systems.
-    pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
-        var initial_iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, .File)) orelse return;
+    pub fn deleteTree(self: Dir, sub_path: []const u8, options: DeleteTreeOptions) DeleteTreeError!void {
+        var initial_iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, options.kind_hint)) orelse return;
 
         const StackItem = struct {
             name: []const u8,
             parent_dir: Dir,
             iter: IterableDir.Iterator,
+            retries_remaining: usize,
         };
 
         var stack = std.BoundedArray(StackItem, 16){};
@@ -2125,6 +2145,7 @@ pub const Dir = struct {
             .name = sub_path,
             .parent_dir = self,
             .iter = initial_iterable_dir.iterateAssumeFirstIteration(),
+            .retries_remaining = options.max_retries,
         });
 
         process_stack: while (stack.len != 0) {
@@ -2162,10 +2183,14 @@ pub const Dir = struct {
                                 .name = entry.name,
                                 .parent_dir = top.iter.dir,
                                 .iter = iterable_dir.iterateAssumeFirstIteration(),
+                                .retries_remaining = options.max_retries,
                             });
                             continue :process_stack;
                         } else |_| {
-                            try top.iter.dir.deleteTreeMinStackSizeWithKindHint(entry.name, entry.kind);
+                            try top.iter.dir.deleteTreeMinStackSize(entry.name, .{
+                                .max_retries = options.max_retries,
+                                .kind_hint = entry.kind,
+                            });
                             break :handle_entry;
                         }
                     } else {
@@ -2207,6 +2232,7 @@ pub const Dir = struct {
             // pop the value from the stack.
             const parent_dir = top.parent_dir;
             const name = top.name;
+            const retries_remaining = top.retries_remaining;
             _ = stack.pop();
 
             var need_to_retry: bool = false;
@@ -2217,6 +2243,7 @@ pub const Dir = struct {
             };
 
             if (need_to_retry) {
+                if (retries_remaining == 0) return error.TooManyRetries;
                 // Since we closed the handle that the previous iterator used, we
                 // need to re-open the dir and re-create the iterator.
                 var iterable_dir = iterable_dir: {
@@ -2282,6 +2309,7 @@ pub const Dir = struct {
                     .name = name,
                     .parent_dir = parent_dir,
                     .iter = iterable_dir.iterateAssumeFirstIteration(),
+                    .retries_remaining = retries_remaining - 1,
                 });
                 continue :process_stack;
             }
@@ -2290,13 +2318,10 @@ pub const Dir = struct {
 
     /// Like `deleteTree`, but only keeps one `Iterator` active at a time to minimize the function's stack size.
     /// This is slower than `deleteTree` but uses less stack space.
-    pub fn deleteTreeMinStackSize(self: Dir, sub_path: []const u8) DeleteTreeError!void {
-        return self.deleteTreeMinStackSizeWithKindHint(sub_path, .File);
-    }
-
-    fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint: File.Kind) DeleteTreeError!void {
+    pub fn deleteTreeMinStackSize(self: Dir, sub_path: []const u8, options: DeleteTreeOptions) DeleteTreeError!void {
+        var retries_remaining = options.max_retries;
         start_over: while (true) {
-            var iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, kind_hint)) orelse return;
+            var iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, options.kind_hint)) orelse return;
             var cleanup_dir_parent: ?IterableDir = null;
             defer if (cleanup_dir_parent) |*d| d.close();
 
@@ -2386,14 +2411,22 @@ pub const Dir = struct {
                 if (cleanup_dir_parent) |d| {
                     d.dir.deleteDir(dir_name) catch |err| switch (err) {
                         // These two things can happen due to file system race conditions.
-                        error.FileNotFound, error.DirNotEmpty => continue :start_over,
+                        error.FileNotFound, error.DirNotEmpty => {
+                            if (retries_remaining == 0) return error.TooManyRetries;
+                            retries_remaining -= 1;
+                            continue :start_over;
+                        },
                         else => |e| return e,
                     };
                     continue :start_over;
                 } else {
                     self.deleteDir(sub_path) catch |err| switch (err) {
                         error.FileNotFound => return,
-                        error.DirNotEmpty => continue :start_over,
+                        error.DirNotEmpty => {
+                            if (retries_remaining == 0) return error.TooManyRetries;
+                            retries_remaining -= 1;
+                            continue :start_over;
+                        },
                         else => |e| return e,
                     };
                     return;
@@ -2834,7 +2867,7 @@ pub fn deleteTreeAbsolute(absolute_path: []const u8) !void {
     var dir = try cwd().openDir(dirname, .{});
     defer dir.close();
 
-    return dir.deleteTree(path.basename(absolute_path));
+    return dir.deleteTree(path.basename(absolute_path), .{});
 }
 
 /// Same as `Dir.readLink`, except it asserts the path is absolute.

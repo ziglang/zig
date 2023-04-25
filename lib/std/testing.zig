@@ -519,7 +519,7 @@ pub const TmpDir = struct {
 
     pub fn cleanup(self: *TmpDir) void {
         self.dir.close();
-        self.parent_dir.deleteTree(&self.sub_path) catch {};
+        self.parent_dir.deleteTree(&self.sub_path, .{}) catch {};
         self.parent_dir.close();
         self.* = undefined;
     }
@@ -535,7 +535,7 @@ pub const TmpIterableDir = struct {
 
     pub fn cleanup(self: *TmpIterableDir) void {
         self.iterable_dir.close();
-        self.parent_dir.deleteTree(&self.sub_path) catch {};
+        self.parent_dir.deleteTree(&self.sub_path, .{}) catch {};
         self.parent_dir.close();
         self.* = undefined;
     }

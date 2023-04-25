@@ -719,7 +719,7 @@ fn renameTmpIntoCache(
             },
             error.PathAlreadyExists, error.AccessDenied => {
                 // Package has been already downloaded and may already be in use on the system.
-                cache_dir.deleteTree(tmp_dir_sub_path) catch |del_err| {
+                cache_dir.deleteTree(tmp_dir_sub_path, .{}) catch |del_err| {
                     std.log.warn("unable to delete temp directory: {s}", .{@errorName(del_err)});
                 };
             },

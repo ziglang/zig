@@ -1198,7 +1198,7 @@ fn processOneTarget(job: Job) anyerror!void {
 
     if (all_features.items.len == 0) {
         // We represent this with an empty file.
-        try target_dir.deleteTree(zig_code_basename);
+        try target_dir.deleteTree(zig_code_basename, .{});
         return;
     }
 
