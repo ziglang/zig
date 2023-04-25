@@ -418,7 +418,7 @@ pub fn producesPdbFile(self: *CompileStep) bool {
 
 /// Run pkg-config for the given library name and parse the output, returning the arguments
 /// that should be passed to zig to link the given library.
-fn runPkgConfig(self: *CompileStep, lib_name: []const u8) ![]const []const u8 {
+pub fn runPkgConfig(self: *CompileStep, lib_name: []const u8) ![]const []const u8 {
     const b = self.step.owner;
     const pkg_name = match: {
         // First we have to map the library name to pkg config name. Unfortunately,
@@ -617,7 +617,7 @@ pub fn setExecCmd(self: *CompileStep, args: []const ?[]const u8) void {
 pub fn appendModuleArgs(
     self: *CompileStep,
     zig_args: *ArrayList([]const u8),
-) error{ OutOfMemory, MakeFailed }!void {
+) !void {
     const b = self.step.owner;
     // First, traverse the whole dependency graph and give every module a unique name, ideally one
     // named after what it's called somewhere in the graph. It will help here to have both a mapping
@@ -683,7 +683,7 @@ pub fn appendModuleArgs(
             const mod = kv.key_ptr.*;
             const name = kv.value_ptr.*;
 
-            try mod.appendArgs(name, zig_args);
+            try mod.appendArgs(self, name, zig_args);
 
             const deps_str = try constructDepString(b.allocator, mod_names, mod.dependencies);
             if (deps_str.len > 0) {
@@ -760,144 +760,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (self.stack_size) |stack_size| {
         try zig_args.append("--stack");
         try zig_args.append(try std.fmt.allocPrint(b.allocator, "{}", .{stack_size}));
-    }
-
-    // We will add link objects from transitive dependencies, but we want to keep
-    // all link objects in the same order provided.
-    // This array is used to keep self.link_objects immutable.
-    var transitive_deps: TransitiveDeps = .{
-        .link_objects = ArrayList(LinkObject).init(b.allocator),
-        .seen_system_libs = StringHashMap(void).init(b.allocator),
-        .seen_steps = std.AutoHashMap(*const Step, void).init(b.allocator),
-        .is_linking_libcpp = self.main_module.is_linking_libcpp,
-        .is_linking_libc = self.main_module.is_linking_libc,
-        .frameworks = &self.main_module.frameworks,
-    };
-
-    try transitive_deps.seen_steps.put(&self.step, {});
-    try transitive_deps.add(self.main_module.link_objects.items);
-
-    var prev_has_extra_flags = false;
-
-    for (transitive_deps.link_objects.items) |link_object| {
-        switch (link_object) {
-            .static_path => |static_path| try zig_args.append(static_path.getPath(b)),
-
-            .other_step => |other| switch (other.kind) {
-                .exe => @panic("Cannot link with an executable build artifact"),
-                .@"test" => @panic("Cannot link with a test"),
-                .obj => {
-                    try zig_args.append(other.getOutputSource().getPath(b));
-                },
-                .lib => l: {
-                    if (self.isStaticLibrary() and other.isStaticLibrary()) {
-                        // Avoid putting a static library inside a static library.
-                        break :l;
-                    }
-
-                    const full_path_lib = other.getOutputLibSource().getPath(b);
-                    try zig_args.append(full_path_lib);
-
-                    if (other.linkage == Linkage.dynamic and !self.target.isWindows()) {
-                        if (fs.path.dirname(full_path_lib)) |dirname| {
-                            try zig_args.append("-rpath");
-                            try zig_args.append(dirname);
-                        }
-                    }
-                },
-            },
-
-            .system_lib => |system_lib| {
-                const prefix: []const u8 = prefix: {
-                    if (system_lib.needed) break :prefix "-needed-l";
-                    if (system_lib.weak) break :prefix "-weak-l";
-                    break :prefix "-l";
-                };
-                switch (system_lib.use_pkg_config) {
-                    .no => try zig_args.append(b.fmt("{s}{s}", .{ prefix, system_lib.name })),
-                    .yes, .force => {
-                        if (self.runPkgConfig(system_lib.name)) |args| {
-                            try zig_args.appendSlice(args);
-                        } else |err| switch (err) {
-                            error.PkgConfigInvalidOutput,
-                            error.PkgConfigCrashed,
-                            error.PkgConfigFailed,
-                            error.PkgConfigNotInstalled,
-                            error.PackageNotFound,
-                            => switch (system_lib.use_pkg_config) {
-                                .yes => {
-                                    // pkg-config failed, so fall back to linking the library
-                                    // by name directly.
-                                    try zig_args.append(b.fmt("{s}{s}", .{
-                                        prefix,
-                                        system_lib.name,
-                                    }));
-                                },
-                                .force => {
-                                    panic("pkg-config failed for library {s}", .{system_lib.name});
-                                },
-                                .no => unreachable,
-                            },
-
-                            else => |e| return e,
-                        }
-                    },
-                }
-            },
-
-            .assembly_file => |asm_file| {
-                if (prev_has_extra_flags) {
-                    try zig_args.append("-extra-cflags");
-                    try zig_args.append("--");
-                    prev_has_extra_flags = false;
-                }
-                try zig_args.append(asm_file.getPath(b));
-            },
-
-            .c_source_file => |c_source_file| {
-                if (c_source_file.args.len == 0) {
-                    if (prev_has_extra_flags) {
-                        try zig_args.append("-cflags");
-                        try zig_args.append("--");
-                        prev_has_extra_flags = false;
-                    }
-                } else {
-                    try zig_args.append("-cflags");
-                    for (c_source_file.args) |arg| {
-                        try zig_args.append(arg);
-                    }
-                    try zig_args.append("--");
-                }
-                try zig_args.append(c_source_file.source.getPath(b));
-            },
-
-            .c_source_files => |c_source_files| {
-                if (c_source_files.flags.len == 0) {
-                    if (prev_has_extra_flags) {
-                        try zig_args.append("-cflags");
-                        try zig_args.append("--");
-                        prev_has_extra_flags = false;
-                    }
-                } else {
-                    try zig_args.append("-cflags");
-                    for (c_source_files.flags) |flag| {
-                        try zig_args.append(flag);
-                    }
-                    try zig_args.append("--");
-                }
-                for (c_source_files.files) |file| {
-                    try zig_args.append(b.pathFromRoot(file));
-                }
-            },
-        }
-    }
-
-    if (transitive_deps.is_linking_libcpp) {
-        try zig_args.append("-lc++");
-    }
-
-    if (transitive_deps.is_linking_libc) {
-        try zig_args.append("-lc");
     }
 
     if (self.image_base) |image_base| {
@@ -1544,66 +1406,6 @@ fn addFlag(args: *ArrayList([]const u8), comptime name: []const u8, opt: ?bool) 
         args.appendAssumeCapacity("-fno-" ++ name);
     }
 }
-
-const TransitiveDeps = struct {
-    link_objects: ArrayList(LinkObject),
-    seen_system_libs: StringHashMap(void),
-    seen_steps: std.AutoHashMap(*const Step, void),
-    is_linking_libcpp: bool,
-    is_linking_libc: bool,
-    frameworks: *StringHashMap(FrameworkLinkInfo),
-
-    fn add(td: *TransitiveDeps, link_objects: []const LinkObject) !void {
-        try td.link_objects.ensureUnusedCapacity(link_objects.len);
-
-        for (link_objects) |link_object| {
-            try td.link_objects.append(link_object);
-            switch (link_object) {
-                .other_step => |other| try addInner(td, other, other.isDynamicLibrary()),
-                else => {},
-            }
-        }
-    }
-
-    fn addInner(td: *TransitiveDeps, other: *CompileStep, dyn: bool) !void {
-        // Inherit dependency on libc and libc++
-        td.is_linking_libcpp = td.is_linking_libcpp or other.main_module.is_linking_libcpp;
-        td.is_linking_libc = td.is_linking_libc or other.main_module.is_linking_libc;
-
-        // Inherit dependencies on darwin frameworks
-        if (!dyn) {
-            var it = other.main_module.frameworks.iterator();
-            while (it.next()) |framework| {
-                try td.frameworks.put(framework.key_ptr.*, framework.value_ptr.*);
-            }
-        }
-
-        // Inherit dependencies on system libraries and static libraries.
-        for (other.main_module.link_objects.items) |other_link_object| {
-            switch (other_link_object) {
-                .system_lib => |system_lib| {
-                    if ((try td.seen_system_libs.fetchPut(system_lib.name, {})) != null)
-                        continue;
-
-                    if (dyn)
-                        continue;
-
-                    try td.link_objects.append(other_link_object);
-                },
-                .other_step => |inner_other| {
-                    if ((try td.seen_steps.fetchPut(&inner_other.step, {})) != null)
-                        continue;
-
-                    if (!dyn)
-                        try td.link_objects.append(other_link_object);
-
-                    try addInner(td, inner_other, dyn or inner_other.isDynamicLibrary());
-                },
-                else => continue,
-            }
-        }
-    }
-};
 
 fn checkCompileErrors(self: *CompileStep) !void {
     // Clear this field so that it does not get printed by the build runner.

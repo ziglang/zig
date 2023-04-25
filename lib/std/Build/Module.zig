@@ -68,34 +68,35 @@ pub fn create(owner: *Build, options: CreateModuleOptions) *Module {
 
 pub fn appendArgs(
     m: *Module,
+    compile_step: *CompileStep,
     name: []const u8,
-    args: *ArrayList([]const u8),
-) error{ OutOfMemory, MakeFailed }!void {
-    try args.append("--mod");
-    try args.append(name);
+    zig_args: *ArrayList([]const u8),
+) !void {
+    try zig_args.append("--mod");
+    try zig_args.append(name);
 
     var num_source_files: usize = 0;
 
     if (m.source_file) |rs| {
-        try args.append(rs.getPath2(m.step.owner, &m.step));
+        try zig_args.append(rs.getPath2(m.step.owner, &m.step));
         num_source_files += 1;
     }
 
     for (m.link_objects.items) |obj| {
         switch (obj) {
             .c_source_file => |c| {
-                try args.append(c.source.getPath2(m.step.owner, &m.step));
+                try zig_args.append(c.source.getPath2(m.step.owner, &m.step));
                 num_source_files +|= 1;
             },
             .c_source_files => |c_files| {
                 for (c_files.files) |file_path| {
-                    try args.append(file_path);
+                    try zig_args.append(file_path);
                     num_source_files +|= 1;
                 }
             },
             // TODO: Should ASM files be included here?
             .assembly_file => |asm_file| {
-                try args.append(asm_file.getPath2(m.step.owner, &m.step));
+                try zig_args.append(asm_file.getPath2(m.step.owner, &m.step));
                 num_source_files +|= 1;
             },
             else => {},
@@ -106,7 +107,153 @@ pub fn appendArgs(
         return m.step.fail("Module '{s}' must have at least one source file", .{name});
     }
 
-    // TODO: Module specific args
+    try zig_args.append("--args");
+
+    // We will add link objects from transitive dependencies, but we want to keep
+    // all link objects in the same order provided.
+    // This array is used to keep m.link_objects immutable.
+    const b = m.step.owner;
+    var transitive_deps: TransitiveDeps = .{
+        .link_objects = ArrayList(LinkObject).init(b.allocator),
+        .seen_system_libs = StringHashMap(void).init(b.allocator),
+        .seen_steps = std.AutoHashMap(*const Step, void).init(b.allocator),
+        .is_linking_libcpp = m.is_linking_libcpp,
+        .is_linking_libc = m.is_linking_libc,
+        .frameworks = &m.frameworks,
+    };
+
+    try transitive_deps.seen_steps.put(&m.step, {});
+    try transitive_deps.add(m);
+
+    {
+        var it = m.dependencies.iterator();
+        while (it.next()) |kv| {
+            try transitive_deps.add(kv.value_ptr.*);
+        }
+    }
+
+    var prev_has_extra_flags = false;
+
+    for (transitive_deps.link_objects.items) |link_object| {
+        switch (link_object) {
+            .static_path => |static_path| try zig_args.append(static_path.getPath(b)),
+
+            .other_step => |other| switch (other.kind) {
+                .exe => @panic("Cannot link with an executable build artifact"),
+                .@"test" => @panic("Cannot link with a test"),
+                .obj => {
+                    try zig_args.append(other.getOutputSource().getPath(b));
+                },
+                .lib => l: {
+                    if (compile_step.isStaticLibrary() and other.isStaticLibrary()) {
+                        // Avoid putting a static library inside a static library.
+                        break :l;
+                    }
+
+                    const full_path_lib = other.getOutputLibSource().getPath(b);
+                    try zig_args.append(full_path_lib);
+
+                    if (other.linkage == Linkage.dynamic and !compile_step.target.isWindows()) {
+                        if (fs.path.dirname(full_path_lib)) |dirname| {
+                            try zig_args.append("-rpath");
+                            try zig_args.append(dirname);
+                        }
+                    }
+                },
+            },
+
+            .system_lib => |system_lib| {
+                const prefix: []const u8 = prefix: {
+                    if (system_lib.needed) break :prefix "-needed-l";
+                    if (system_lib.weak) break :prefix "-weak-l";
+                    break :prefix "-l";
+                };
+                switch (system_lib.use_pkg_config) {
+                    .no => try zig_args.append(b.fmt("{s}{s}", .{ prefix, system_lib.name })),
+                    .yes, .force => {
+                        if (compile_step.runPkgConfig(system_lib.name)) |args| {
+                            try zig_args.appendSlice(args);
+                        } else |err| switch (err) {
+                            error.PkgConfigInvalidOutput,
+                            error.PkgConfigCrashed,
+                            error.PkgConfigFailed,
+                            error.PkgConfigNotInstalled,
+                            error.PackageNotFound,
+                            => switch (system_lib.use_pkg_config) {
+                                .yes => {
+                                    // pkg-config failed, so fall back to linking the library
+                                    // by name directly.
+                                    try zig_args.append(b.fmt("{s}{s}", .{
+                                        prefix,
+                                        system_lib.name,
+                                    }));
+                                },
+                                .force => {
+                                    panic("pkg-config failed for library {s}", .{system_lib.name});
+                                },
+                                .no => unreachable,
+                            },
+
+                            else => |e| return e,
+                        }
+                    },
+                }
+            },
+
+            .assembly_file => |asm_file| {
+                if (prev_has_extra_flags) {
+                    try zig_args.append("-extra-cflags");
+                    try zig_args.append("--");
+                    prev_has_extra_flags = false;
+                }
+                try zig_args.append(asm_file.getPath(b));
+            },
+
+            .c_source_file => |c_source_file| {
+                if (c_source_file.args.len == 0) {
+                    if (prev_has_extra_flags) {
+                        try zig_args.append("-cflags");
+                        try zig_args.append("--");
+                        prev_has_extra_flags = false;
+                    }
+                } else {
+                    try zig_args.append("-cflags");
+                    for (c_source_file.args) |arg| {
+                        try zig_args.append(arg);
+                    }
+                    try zig_args.append("--");
+                }
+                try zig_args.append(c_source_file.source.getPath(b));
+            },
+
+            .c_source_files => |c_source_files| {
+                if (c_source_files.flags.len == 0) {
+                    if (prev_has_extra_flags) {
+                        try zig_args.append("-cflags");
+                        try zig_args.append("--");
+                        prev_has_extra_flags = false;
+                    }
+                } else {
+                    try zig_args.append("-cflags");
+                    for (c_source_files.flags) |flag| {
+                        try zig_args.append(flag);
+                    }
+                    try zig_args.append("--");
+                }
+                for (c_source_files.files) |file| {
+                    try zig_args.append(b.pathFromRoot(file));
+                }
+            },
+        }
+    }
+
+    if (transitive_deps.is_linking_libcpp) {
+        try zig_args.append("-lc++");
+    }
+
+    if (transitive_deps.is_linking_libc) {
+        try zig_args.append("-lc");
+    }
 }
 
 fn moduleDependenciesToArrayHashMap(arena: Allocator, deps: []const ModuleDependency) std.StringArrayHashMap(*Module) {
@@ -557,6 +704,69 @@ pub fn setLinkerScriptPath(m: *Module, source: FileSource) void {
     source.addStepDependencies(&m.step);
 }
 
+const TransitiveDeps = struct {
+    link_objects: ArrayList(LinkObject),
+    seen_system_libs: StringHashMap(void),
+    seen_steps: std.AutoHashMap(*const Step, void),
+    is_linking_libcpp: bool,
+    is_linking_libc: bool,
+    frameworks: *StringHashMap(FrameworkLinkInfo),
+
+    fn add(td: *TransitiveDeps, module: *Module) !void {
+        td.is_linking_libcpp = td.is_linking_libcpp or module.is_linking_libcpp;
+        td.is_linking_libc = td.is_linking_libc or module.is_linking_libc;
+
+        try td.link_objects.ensureUnusedCapacity(module.link_objects.items.len);
+
+        for (module.link_objects.items) |link_object| {
+            try td.link_objects.append(link_object);
+            switch (link_object) {
+                .other_step => |other| try addInner(td, other.main_module, other.isDynamicLibrary()),
+                else => {},
+            }
+        }
+    }
+
+    fn addInner(td: *TransitiveDeps, other: *Module, dyn: bool) !void {
+        // Inherit dependency on libc and libc++
+        td.is_linking_libcpp = td.is_linking_libcpp or other.is_linking_libcpp;
+        td.is_linking_libc = td.is_linking_libc or other.is_linking_libc;
+
+        // Inherit dependencies on darwin frameworks
+        if (!dyn) {
+            var it = other.frameworks.iterator();
+            while (it.next()) |framework| {
+                try td.frameworks.put(framework.key_ptr.*, framework.value_ptr.*);
+            }
+        }
+
+        // Inherit dependencies on system libraries and static libraries.
+        for (other.link_objects.items) |other_link_object| {
+            switch (other_link_object) {
+                .system_lib => |system_lib| {
+                    if ((try td.seen_system_libs.fetchPut(system_lib.name, {})) != null)
+                        continue;
+
+                    if (dyn)
+                        continue;
+
+                    try td.link_objects.append(other_link_object);
+                },
+                .other_step => |inner_other| {
+                    if ((try td.seen_steps.fetchPut(&inner_other.step, {})) != null)
+                        continue;
+
+                    if (!dyn)
+                        try td.link_objects.append(other_link_object);
+
+                    try addInner(td, inner_other.main_module, dyn or inner_other.isDynamicLibrary());
+                },
+                else => continue,
+            }
+        }
+    }
+};
+
 const std = @import("std");
 const Build = std.Build;
 const Step = Build.Step;
@@ -570,6 +780,7 @@ const CSourceFile = Build.CSourceFile;
 const CSourceFiles = Build.CSourceFiles;
 const ModuleDependency = Build.ModuleDependency;
 const CreateModuleOptions = Build.CreateModuleOptions;
+const Linkage = CompileStep.Linkage;
 
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
@@ -579,6 +790,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const mem = std.mem;
 const fs = std.fs;
+const panic = std.debug.panic;
 
 pub const addSystemIncludeDir = @compileError("deprecated; use addSystemIncludePath");
 pub const addIncludeDir = @compileError("deprecated; use addIncludePath");
