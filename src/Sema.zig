@@ -20424,22 +20424,6 @@ fn checkPtrType(
     return sema.fail(block, ty_src, "expected pointer type, found '{}'", .{ty.fmt(sema.mod)});
 }
 
-fn checkSliceOrArrayType(
-    sema: *Sema,
-    block: *Block,
-    ty_src: LazySrcLoc,
-    ty: Type,
-) CompileError!void {
-    if (ty.zigTypeTag() == .Pointer) {
-        switch (ty.ptrSize()) {
-            .Slice => return,
-            .One => if (ty.childType().zigTypeTag() == .Array) return,
-            else => {},
-        }
-    }
-    return sema.fail(block, ty_src, "expected slice or array pointer; found '{}'", .{ty.fmt(sema.mod)});
-}
-
 fn checkVectorElemType(
     sema: *Sema,
     block: *Block,
@@ -21993,7 +21977,7 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const dest_ptr = try sema.resolveInst(extra.lhs);
     const uncoerced_elem = try sema.resolveInst(extra.rhs);
     const dest_ptr_ty = sema.typeOf(dest_ptr);
-    try checkSliceOrArrayType(sema, block, dest_src, dest_ptr_ty);
+    try checkIndexable(sema, block, dest_src, dest_ptr_ty);
 
     const dest_elem_ty = dest_ptr_ty.elemType2();
     const target = sema.mod.getTarget();

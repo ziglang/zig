@@ -171,10 +171,10 @@ pub inline fn __builtin_memcpy(
     noalias src: ?*const anyopaque,
     len: usize,
 ) ?*anyopaque {
-    const dst_cast = @ptrCast([*c]u8, dst);
-    const src_cast = @ptrCast([*c]const u8, src);
-
-    @memcpy(dst_cast[0..len], src_cast);
+    if (len > 0) @memcpy(
+        @ptrCast([*]u8, dst.?)[0..len],
+        @ptrCast([*]const u8, src.?),
+    );
     return dst;
 }
 
