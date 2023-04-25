@@ -4291,9 +4291,13 @@ fn airBlock(f: *Function, inst: Air.Inst.Index) !CValue {
     }
 
     try f.object.indent_writer.insertNewline();
-    // label might be unused, add a dummy goto
-    // label must be followed by an expression, add an empty one.
-    try writer.print("goto zig_block_{d};\nzig_block_{d}: (void)0;\n", .{ block_id, block_id });
+
+    // noreturn blocks have no `br` instructions reaching them, so we don't want a label
+    if (!f.air.typeOfIndex(inst).isNoReturn()) {
+        // label must be followed by an expression, include an empty one.
+        try writer.print("zig_block_{d}:;\n", .{block_id});
+    }
+
     return result;
 }
 
@@ -4345,7 +4349,7 @@ fn lowerTry(
             else
                 try f.writeCValueMember(writer, err_union, .{ .identifier = "error" });
         }
-        try writer.writeByte(')');
+        try writer.writeAll(") ");
 
         try genBodyResolveState(f, inst, liveness_condbr.else_deaths, body, false);
         try f.object.indent_writer.insertNewline();
@@ -4417,7 +4421,11 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const local = try f.allocLocal(inst, dest_ty);
 
+    // If the assignment looks like 'x = x', we don't need it
+    const can_elide = operand == .local and operand.local == local.new_local;
+
     if (operand_ty.isAbiInt() and dest_ty.isAbiInt()) {
+        if (can_elide) return local;
         const src_info = dest_ty.intInfo(target);
         const dest_info = operand_ty.intInfo(target);
         if (src_info.signedness == dest_info.signedness and
@@ -4432,6 +4440,7 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
     }
 
     if (dest_ty.isPtrAtRuntime() and operand_ty.isPtrAtRuntime()) {
+        if (can_elide) return local;
         try f.writeCValue(writer, local, .Other);
         try writer.writeAll(" = (");
         try f.renderType(writer, dest_ty);
@@ -5463,6 +5472,12 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     const error_ty = error_union_ty.errorUnionSet();
     const payload_ty = error_union_ty.errorUnionPayload();
     const local = try f.allocLocal(inst, inst_ty);
+
+    if (!payload_ty.hasRuntimeBits() and operand == .local and operand.local == local.new_local) {
+        // The store will be 'x = x'; elide it.
+        return local;
+    }
+
     const writer = f.object.writer();
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(" = ");
@@ -5560,6 +5575,12 @@ fn airWrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
+
+    if (repr_is_err and err == .local and err.local == local.new_local) {
+        // The store will be 'x = x'; elide it.
+        return local;
+    }
+
     if (!repr_is_err) {
         const a = try Assignment.start(f, writer, payload_ty);
         try f.writeCValueMember(writer, local, .{ .identifier = "payload" });
