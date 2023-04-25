@@ -1883,8 +1883,8 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         .load => func.airLoad(inst),
         .loop => func.airLoop(inst),
-        // TODO: elide memset when writing undef without safety
-        .memset, .memset_safe => func.airMemset(inst),
+        .memset => func.airMemset(inst, false),
+        .memset_safe => func.airMemset(inst, true),
         .not => func.airNot(inst),
         .optional_payload => func.airOptionalPayload(inst),
         .optional_payload_ptr => func.airOptionalPayloadPtr(inst),
@@ -1914,7 +1914,8 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .slice_ptr => func.airSlicePtr(inst),
         .ptr_slice_len_ptr => func.airPtrSliceFieldPtr(inst, func.ptrSize()),
         .ptr_slice_ptr_ptr => func.airPtrSliceFieldPtr(inst, 0),
-        .store => func.airStore(inst),
+        .store => func.airStore(inst, false),
+        .store_safe => func.airStore(inst, true),
 
         .set_union_tag => func.airSetUnionTag(inst),
         .struct_field_ptr => func.airStructFieldPtr(inst),
@@ -2222,7 +2223,12 @@ fn airAlloc(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     func.finishAir(inst, value, &.{});
 }
 
-fn airStore(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airStore(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void {
+    if (safety) {
+        // TODO if the value is undef, write 0xaa bytes to dest
+    } else {
+        // TODO if the value is undef, don't lower this instruction
+    }
     const bin_op = func.air.instructions.items(.data)[inst].bin_op;
 
     const lhs = try func.resolveInst(bin_op.lhs);
@@ -4384,7 +4390,12 @@ fn airPtrBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     func.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
-fn airMemset(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airMemset(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void {
+    if (safety) {
+        // TODO if the value is undef, write 0xaa bytes to dest
+    } else {
+        // TODO if the value is undef, don't lower this instruction
+    }
     const bin_op = func.air.instructions.items(.data)[inst].bin_op;
 
     const ptr = try func.resolveInst(bin_op.lhs);

@@ -2914,7 +2914,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .load             => try airLoad(f, inst),
             .ret              => try airRet(f, inst, false),
             .ret_load         => try airRet(f, inst, true),
-            .store            => try airStore(f, inst),
+            .store            => try airStore(f, inst, false),
+            .store_safe       => try airStore(f, inst, true),
             .loop             => try airLoop(f, inst),
             .cond_br          => try airCondBr(f, inst),
             .br               => try airBr(f, inst),
@@ -3565,19 +3566,7 @@ fn airBoolToInt(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn storeUndefined(f: *Function, lhs_child_ty: Type, dest_ptr: CValue) !CValue {
-    if (f.wantSafety()) {
-        const writer = f.object.writer();
-        try writer.writeAll("memset(");
-        try f.writeCValue(writer, dest_ptr, .FunctionArgument);
-        try writer.print(", {x}, sizeof(", .{try f.fmtIntLiteral(Type.u8, Value.undef)});
-        try f.renderType(writer, lhs_child_ty);
-        try writer.writeAll("));\n");
-    }
-    return .none;
-}
-
-fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     // *a = b;
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
 
@@ -3588,18 +3577,19 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
     const ptr_val = try f.resolveInst(bin_op.lhs);
     const src_ty = f.air.typeOf(bin_op.rhs);
 
-    // TODO Sema should emit a different instruction when the store should
-    // possibly do the safety 0xaa bytes for undefined.
-    const src_val_is_undefined =
-        if (f.air.value(bin_op.rhs)) |v| v.isUndefDeep() else false;
-    if (src_val_is_undefined) {
-        if (ptr_info.host_size == 0) {
-            try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
-            return try storeUndefined(f, ptr_info.pointee_type, ptr_val);
-        } else if (!f.wantSafety()) {
-            try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
-            return .none;
+    const val_is_undef = if (f.air.value(bin_op.rhs)) |v| v.isUndefDeep() else false;
+
+    if (val_is_undef) {
+        try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
+        if (safety and ptr_info.host_size == 0) {
+            const writer = f.object.writer();
+            try writer.writeAll("memset(");
+            try f.writeCValue(writer, ptr_val, .FunctionArgument);
+            try writer.writeAll(", 0xaa, sizeof(");
+            try f.renderType(writer, ptr_info.pointee_type);
+            try writer.writeAll("));\n");
         }
+        return .none;
     }
 
     const target = f.object.dg.module.getTarget();

@@ -1035,7 +1035,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ptrtoint        => try self.airPtrToInt(inst),
             .ret             => try self.airRet(inst),
             .ret_load        => try self.airRetLoad(inst),
-            .store           => try self.airStore(inst),
+            .store           => try self.airStore(inst, false),
+            .store_safe      => try self.airStore(inst, true),
             .struct_field_ptr=> try self.airStructFieldPtr(inst),
             .struct_field_val=> try self.airStructFieldVal(inst),
             .array_to_slice  => try self.airArrayToSlice(inst),
@@ -3936,7 +3937,12 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
     }
 }
 
-fn airStore(self: *Self, inst: Air.Inst.Index) !void {
+fn airStore(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
+    if (safety) {
+        // TODO if the value is undef, write 0xaa bytes to dest
+    } else {
+        // TODO if the value is undef, don't lower this instruction
+    }
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const ptr = try self.resolveInst(bin_op.lhs);
     const ptr_ty = self.air.typeOf(bin_op.lhs);

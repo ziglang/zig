@@ -2500,7 +2500,7 @@ fn coerceResultPtr(
 
         // The last one is always `store`.
         const trash_inst = trash_block.instructions.items[trash_block.instructions.items.len - 1];
-        if (air_tags[trash_inst] != .store) {
+        if (air_tags[trash_inst] != .store and air_tags[trash_inst] != .store_safe) {
             // no store instruction is generated for zero sized types
             assert((try sema.typeHasOnePossibleValue(pointee_ty)) != null);
         } else {
@@ -3524,7 +3524,7 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
             const candidate = block.instructions.items[search_index];
             switch (air_tags[candidate]) {
                 .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
-                .store => break candidate,
+                .store, .store_safe => break candidate,
                 else => break :ct,
             }
         };
@@ -3750,7 +3750,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                     const candidate = block.instructions.items[search_index];
                     switch (air_tags[candidate]) {
                         .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
-                        .store => break candidate,
+                        .store, .store_safe => break candidate,
                         else => break :ct,
                     }
                 };
@@ -3860,7 +3860,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                         assert(replacement_block.instructions.items.len > 0);
                         break :result sub_ptr;
                     },
-                    .store => result: {
+                    .store, .store_safe => result: {
                         const bin_op = sema.air_instructions.items(.data)[placeholder_inst].bin_op;
                         try sema.storePtr2(&replacement_block, src, bin_op.lhs, src, bin_op.rhs, src, .bitcast);
                         break :result .void_value;
@@ -4242,7 +4242,10 @@ fn validateUnionInit(
     while (block_index > 0) : (block_index -= 1) {
         const store_inst = block.instructions.items[block_index];
         if (store_inst == field_ptr_air_inst) break;
-        if (air_tags[store_inst] != .store) continue;
+        switch (air_tags[store_inst]) {
+            .store, .store_safe => {},
+            else => continue,
+        }
         const bin_op = air_datas[store_inst].bin_op;
         var lhs = bin_op.lhs;
         if (Air.refToIndex(lhs)) |lhs_index| {
@@ -4454,7 +4457,10 @@ fn validateStructInit(
                     struct_is_comptime = false;
                     continue :field;
                 }
-                if (air_tags[store_inst] != .store) continue;
+                switch (air_tags[store_inst]) {
+                    .store, .store_safe => {},
+                    else => continue,
+                }
                 const bin_op = air_datas[store_inst].bin_op;
                 var lhs = bin_op.lhs;
                 {
@@ -4682,7 +4688,10 @@ fn zirValidateArrayInit(
                 array_is_comptime = false;
                 continue :outer;
             }
-            if (air_tags[store_inst] != .store) continue;
+            switch (air_tags[store_inst]) {
+                .store, .store_safe => {},
+                else => continue,
+            }
             const bin_op = air_datas[store_inst].bin_op;
             var lhs = bin_op.lhs;
             {
@@ -5025,7 +5034,12 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
 
     const ptr_src: LazySrcLoc = .{ .node_offset_store_ptr = inst_data.src_node };
     const operand_src: LazySrcLoc = .{ .node_offset_store_operand = inst_data.src_node };
-    const air_tag: Air.Inst.Tag = if (is_ret) .ret_ptr else .store;
+    const air_tag: Air.Inst.Tag = if (is_ret)
+        .ret_ptr
+    else if (block.wantSafety())
+        .store_safe
+    else
+        .store;
     return sema.storePtr2(block, src, ptr, ptr_src, operand, operand_src, air_tag);
 }
 
@@ -26704,7 +26718,8 @@ fn storePtr(
     ptr: Air.Inst.Ref,
     uncasted_operand: Air.Inst.Ref,
 ) CompileError!void {
-    return sema.storePtr2(block, src, ptr, src, uncasted_operand, src, .store);
+    const air_tag: Air.Inst.Tag = if (block.wantSafety()) .store_safe else .store;
+    return sema.storePtr2(block, src, ptr, src, uncasted_operand, src, air_tag);
 }
 
 fn storePtr2(

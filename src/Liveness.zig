@@ -299,6 +299,7 @@ pub fn categorizeOperand(
         },
 
         .store,
+        .store_safe,
         .atomic_store_unordered,
         .atomic_store_monotonic,
         .atomic_store_release,
@@ -965,6 +966,7 @@ fn analyzeInst(
         .bool_and,
         .bool_or,
         .store,
+        .store_safe,
         .array_elem_val,
         .slice_elem_val,
         .ptr_elem_val,

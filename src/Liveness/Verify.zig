@@ -239,6 +239,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .bool_and,
             .bool_or,
             .store,
+            .store_safe,
             .array_elem_val,
             .slice_elem_val,
             .ptr_elem_val,

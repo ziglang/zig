@@ -485,7 +485,16 @@ pub const Inst = struct {
         /// Write a value to a pointer. LHS is pointer, RHS is value.
         /// Result type is always void.
         /// Uses the `bin_op` field.
+        /// The value to store may be undefined, in which case the destination
+        /// memory region has undefined bytes after this instruction is
+        /// evaluated. In such case ignoring this instruction is legal
+        /// lowering.
         store,
+        /// Same as `store`, except if the value to store is undefined, the
+        /// memory region should be filled with 0xaa bytes, and any other
+        /// safety metadata such as Valgrind integrations should be notified of
+        /// this memory region being undefined.
+        store_safe,
         /// Indicates the program counter will never get to this instruction.
         /// Result type is always noreturn; no instructions in a block follow this one.
         unreach,
@@ -639,8 +648,9 @@ pub const Inst = struct {
         /// Result type is always void.
         /// Uses the `bin_op` field. LHS is the dest slice. RHS is the element value.
         /// The element value may be undefined, in which case the destination
-        /// memory region has undefined bytes after this function executes. In
-        /// such case ignoring this instruction is legal lowering.
+        /// memory region has undefined bytes after this instruction is
+        /// evaluated. In such case ignoring this instruction is legal
+        /// lowering.
         /// If the length is compile-time known (due to the destination being a
         /// pointer-to-array), then it is guaranteed to be greater than zero.
         memset,
@@ -1242,6 +1252,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .dbg_var_ptr,
         .dbg_var_val,
         .store,
+        .store_safe,
         .fence,
         .atomic_store_unordered,
         .atomic_store_monotonic,
@@ -1423,6 +1434,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index) bool {
         .ret,
         .ret_load,
         .store,
+        .store_safe,
         .unreach,
         .optional_payload_ptr_set,
         .errunion_payload_ptr_set,

@@ -4649,7 +4649,8 @@ pub const FuncGen = struct {
                 .not            => try self.airNot(inst),
                 .ret            => try self.airRet(inst),
                 .ret_load       => try self.airRetLoad(inst),
-                .store          => try self.airStore(inst),
+                .store          => try self.airStore(inst, false),
+                .store_safe     => try self.airStore(inst, true),
                 .assembly       => try self.airAssembly(inst),
                 .slice_ptr      => try self.airSliceField(inst, 0),
                 .slice_len      => try self.airSliceField(inst, 1),
@@ -8115,48 +8116,36 @@ pub const FuncGen = struct {
         return buildAllocaInner(self.context, self.builder, self.llvm_func, self.di_scope != null, llvm_ty, alignment, self.dg.module.getTarget());
     }
 
-    fn airStore(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airStore(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !?*llvm.Value {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const dest_ptr = try self.resolveInst(bin_op.lhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         const operand_ty = ptr_ty.childType();
 
-        // TODO Sema should emit a different instruction when the store should
-        // possibly do the safety 0xaa bytes for undefined.
         const val_is_undef = if (self.air.value(bin_op.rhs)) |val| val.isUndefDeep() else false;
         if (val_is_undef) {
-            {
-                // TODO let's handle this in AIR rather than by having each backend
-                // check the optimization mode of the compilation because the plan is
-                // to support setting the optimization mode at finer grained scopes
-                // which happens in Sema. Codegen should not be aware of this logic.
-                // I think this comment is basically the same as the other TODO comment just
-                // above but I'm leaving them both here to make it look super messy and
-                // thereby bait contributors (or let's be honest, probably myself) into
-                // fixing this instead of letting it rot.
-                const safety = switch (self.dg.module.comp.bin_file.options.optimize_mode) {
-                    .ReleaseSmall, .ReleaseFast => false,
-                    .Debug, .ReleaseSafe => true,
-                };
-                if (!safety) {
-                    return null;
-                }
-            }
+            // Even if safety is disabled, we still emit a memset to undefined since it conveys
+            // extra information to LLVM. However, safety makes the difference between using
+            // 0xaa or actual undefined for the fill byte.
+            const u8_llvm_ty = self.context.intType(8);
+            const fill_byte = if (safety)
+                u8_llvm_ty.constInt(0xaa, .False)
+            else
+                u8_llvm_ty.getUndef();
             const target = self.dg.module.getTarget();
             const operand_size = operand_ty.abiSize(target);
-            const u8_llvm_ty = self.context.intType(8);
-            const fill_char = u8_llvm_ty.constInt(0xaa, .False);
-            const dest_ptr_align = ptr_ty.ptrAlignment(target);
             const usize_llvm_ty = try self.dg.lowerType(Type.usize);
             const len = usize_llvm_ty.constInt(operand_size, .False);
-            _ = self.builder.buildMemSet(dest_ptr, fill_char, len, dest_ptr_align, ptr_ty.isVolatilePtr());
-            if (self.dg.module.comp.bin_file.options.valgrind) {
+            const dest_ptr_align = ptr_ty.ptrAlignment(target);
+            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+            if (safety and self.dg.module.comp.bin_file.options.valgrind) {
                 self.valgrindMarkUndef(dest_ptr, len);
             }
-        } else {
-            const src_operand = try self.resolveInst(bin_op.rhs);
-            try self.store(dest_ptr, ptr_ty, src_operand, .NotAtomic);
+            return null;
         }
+
+        const src_operand = try self.resolveInst(bin_op.rhs);
+        try self.store(dest_ptr, ptr_ty, src_operand, .NotAtomic);
         return null;
     }
 
