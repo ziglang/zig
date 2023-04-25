@@ -5371,8 +5371,10 @@ pub fn dl_iterate_phdr(
 ) Error!void {
     const Context = @TypeOf(context);
 
-    if (builtin.object_format != .elf)
-        @compileError("dl_iterate_phdr is not available for this target");
+    switch (builtin.object_format) {
+        .elf, .c => {},
+        else => @compileError("dl_iterate_phdr is not available for this target"),
+    }
 
     if (builtin.link_libc) {
         switch (system.dl_iterate_phdr(struct {

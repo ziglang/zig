@@ -1360,13 +1360,7 @@ pub const DebugInfo = struct {
     }
 
     pub fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
-        if (builtin.zig_backend == .stage2_c) {
-            return @as(error{
-                InvalidDebugInfo,
-                MissingDebugInfo,
-                UnsupportedBackend,
-            }, error.UnsupportedBackend);
-        } else if (comptime builtin.target.isDarwin()) {
+        if (comptime builtin.target.isDarwin()) {
             return self.lookupModuleDyld(address);
         } else if (native_os == .windows) {
             return self.lookupModuleWin32(address);
@@ -1380,9 +1374,7 @@ pub const DebugInfo = struct {
     }
 
     pub fn getModuleNameForAddress(self: *DebugInfo, address: usize) ?[]const u8 {
-        if (builtin.zig_backend == .stage2_c) {
-            return null;
-        } else if (comptime builtin.target.isDarwin()) {
+        if (comptime builtin.target.isDarwin()) {
             return null;
         } else if (native_os == .windows) {
             return self.lookupModuleNameWin32(address);
@@ -2191,8 +2183,6 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
 }
 
 test "manage resources correctly" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // error.UnsupportedBackend
-
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     if (builtin.os.tag == .windows and builtin.cpu.arch == .x86_64) {
