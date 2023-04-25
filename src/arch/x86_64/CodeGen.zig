@@ -2601,7 +2601,13 @@ fn genIntMulDivOpMir(
         else => unreachable,
         .mul, .imul => {},
         .div => try self.asmRegisterRegister(.xor, .edx, .edx),
-        .idiv => try self.asmOpOnly(.cqo),
+        .idiv => switch (self.regBitSize(ty)) {
+            8 => try self.asmOpOnly(.cbw),
+            16 => try self.asmOpOnly(.cwd),
+            32 => try self.asmOpOnly(.cdq),
+            64 => try self.asmOpOnly(.cqo),
+            else => unreachable,
+        },
     }
 
     const mat_rhs: MCValue = switch (rhs) {
@@ -2631,7 +2637,8 @@ fn genIntMulDivOpMir(
 /// Always returns a register.
 /// Clobbers .rax and .rdx registers.
 fn genInlineIntDivFloor(self: *Self, ty: Type, lhs: MCValue, rhs: MCValue) !MCValue {
-    const signedness = ty.intInfo(self.target.*).signedness;
+    const abi_size = @intCast(u32, ty.abiSize(self.target.*));
+    const int_info = ty.intInfo(self.target.*);
     const dividend: Register = switch (lhs) {
         .register => |reg| reg,
         else => try self.copyToTmpRegister(ty, lhs),
@@ -2646,16 +2653,32 @@ fn genInlineIntDivFloor(self: *Self, ty: Type, lhs: MCValue, rhs: MCValue) !MCVa
     const divisor_lock = self.register_manager.lockReg(divisor);
     defer if (divisor_lock) |lock| self.register_manager.unlockReg(lock);
 
-    try self.genIntMulDivOpMir(switch (signedness) {
+    try self.genIntMulDivOpMir(switch (int_info.signedness) {
         .signed => .idiv,
         .unsigned => .div,
-    }, Type.isize, .{ .register = dividend }, .{ .register = divisor });
+    }, ty, .{ .register = dividend }, .{ .register = divisor });
 
-    try self.asmRegisterRegister(.xor, divisor.to64(), dividend.to64());
-    try self.asmRegisterImmediate(.sar, divisor.to64(), Immediate.u(63));
-    try self.asmRegisterRegister(.@"test", .rdx, .rdx);
-    try self.asmCmovccRegisterRegister(divisor.to64(), .rdx, .e);
-    try self.genBinOpMir(.add, Type.isize, .{ .register = divisor }, .{ .register = .rax });
+    try self.asmRegisterRegister(
+        .xor,
+        registerAlias(divisor, abi_size),
+        registerAlias(dividend, abi_size),
+    );
+    try self.asmRegisterImmediate(
+        .sar,
+        registerAlias(divisor, abi_size),
+        Immediate.u(int_info.bits - 1),
+    );
+    try self.asmRegisterRegister(
+        .@"test",
+        registerAlias(.rdx, abi_size),
+        registerAlias(.rdx, abi_size),
+    );
+    try self.asmCmovccRegisterRegister(
+        registerAlias(divisor, abi_size),
+        registerAlias(.rdx, abi_size),
+        .z,
+    );
+    try self.genBinOpMir(.add, ty, .{ .register = divisor }, .{ .register = .rax });
     return MCValue{ .register = divisor };
 }
 
@@ -4928,8 +4951,24 @@ fn genMulDivBinOp(
 
             switch (signedness) {
                 .signed => {
+                    const lhs_lock = switch (lhs) {
+                        .register => |reg| self.register_manager.lockReg(reg),
+                        else => null,
+                    };
+                    defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
+                    const rhs_lock = switch (rhs) {
+                        .register => |reg| self.register_manager.lockReg(reg),
+                        else => null,
+                    };
+                    defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+                    // hack around hazard between rhs and div_floor by copying rhs to another register
+                    const rhs_copy = try self.copyToTmpRegister(ty, rhs);
+                    const rhs_copy_lock = self.register_manager.lockRegAssumeUnused(rhs_copy);
+                    defer self.register_manager.unlockReg(rhs_copy_lock);
+
                     const div_floor = try self.genInlineIntDivFloor(ty, lhs, rhs);
-                    try self.genIntMulComplexOpMir(ty, div_floor, rhs);
+                    try self.genIntMulComplexOpMir(ty, div_floor, .{ .register = rhs_copy });
                     const div_floor_lock = self.register_manager.lockReg(div_floor.register);
                     defer if (div_floor_lock) |lock| self.register_manager.unlockReg(lock);
 
