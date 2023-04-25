@@ -759,7 +759,7 @@ pub const IterableDir = struct {
                     if (mem.eql(u16, name_utf16le, &[_]u16{'.'}) or mem.eql(u16, name_utf16le, &[_]u16{ '.', '.' }))
                         continue;
                     // Trust that Windows gives us valid UTF-16LE
-                    const name_utf8_len = std.unicode.utf16leToUtf8(self.name_data[0..], name_utf16le) catch unreachable;
+                    const name_utf8_len = std.unicode.utf16ToUtf8(.Little, self.name_data[0..], name_utf16le) catch unreachable;
                     const name_utf8 = self.name_data[0..name_utf8_len];
                     const kind = blk: {
                         const attrs = dir_info.FileAttributes;
@@ -3046,7 +3046,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         .windows => {
             const utf16le_slice = selfExePathW();
             // Trust that Windows gives us valid UTF-16LE.
-            const end_index = std.unicode.utf16leToUtf8(out_buffer, utf16le_slice) catch unreachable;
+            const end_index = std.unicode.utf16ToUtf8(.Little, out_buffer, utf16le_slice) catch unreachable;
             return out_buffer[0..end_index];
         },
         .wasi => @compileError("std.fs.selfExePath not supported for WASI. Use std.fs.selfExePathAlloc instead."),

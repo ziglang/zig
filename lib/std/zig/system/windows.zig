@@ -70,14 +70,14 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
     const table_size = 1 + fields_info.len;
     var table: [table_size + 1]std.os.windows.RTL_QUERY_REGISTRY_TABLE = undefined;
 
-    const topkey = std.unicode.utf8ToUtf16LeStringLiteral("\\Registry\\Machine\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor");
+    const topkey = std.unicode.utf8ToUtf16StringLiteral(.Little, "\\Registry\\Machine\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor");
 
     const max_cpu_buf = 4;
     var next_cpu_buf: [max_cpu_buf]u8 = undefined;
     const next_cpu = try std.fmt.bufPrint(&next_cpu_buf, "{d}", .{core});
 
     var subkey: [max_cpu_buf + 1]u16 = undefined;
-    const subkey_len = try std.unicode.utf8ToUtf16Le(&subkey, next_cpu);
+    const subkey_len = try std.unicode.utf8ToUtf16(.Little, &subkey, next_cpu);
     subkey[subkey_len] = 0;
 
     table[0] = .{

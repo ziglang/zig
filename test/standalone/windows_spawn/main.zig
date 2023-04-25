@@ -1,6 +1,11 @@
 const std = @import("std");
 const windows = std.os.windows;
-const utf16Literal = std.unicode.utf8ToUtf16LeStringLiteral;
+
+fn utf16Literal(
+    comptime utf8: []const u8,
+) *const [std.unicode.calcUtf16Len(utf8) catch unreachable:0]u16 {
+    return comptime std.unicode.utf8ToUtf16StringLiteral(.Little, utf8);
+}
 
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -17,7 +22,7 @@ pub fn main() anyerror!void {
 
     const tmp_absolute_path = try tmp.dir.realpathAlloc(allocator, ".");
     defer allocator.free(tmp_absolute_path);
-    const tmp_absolute_path_w = try std.unicode.utf8ToUtf16LeWithNull(allocator, tmp_absolute_path);
+    const tmp_absolute_path_w = try std.unicode.utf8ToUtf16WithNull(.Little, allocator, tmp_absolute_path);
     defer allocator.free(tmp_absolute_path_w);
     const cwd_absolute_path = try std.fs.cwd().realpathAlloc(allocator, ".");
     defer allocator.free(cwd_absolute_path);

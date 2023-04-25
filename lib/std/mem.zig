@@ -1919,10 +1919,10 @@ test "tokenize" {
 
     var it16 = tokenize(
         u16,
-        std.unicode.utf8ToUtf16LeStringLiteral("hello"),
-        std.unicode.utf8ToUtf16LeStringLiteral(" "),
+        std.unicode.utf8ToUtf16StringLiteral(.Little, "hello"),
+        std.unicode.utf8ToUtf16StringLiteral(.Little, " "),
     );
-    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("hello")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "hello")));
     try testing.expect(it16.next() == null);
 }
 
@@ -1939,14 +1939,14 @@ test "tokenize (multibyte)" {
 
     var it16 = tokenize(
         u16,
-        std.unicode.utf8ToUtf16LeStringLiteral("a|b,c/d e"),
-        std.unicode.utf8ToUtf16LeStringLiteral(" /,|"),
+        std.unicode.utf8ToUtf16StringLiteral(.Little, "a|b,c/d e"),
+        std.unicode.utf8ToUtf16StringLiteral(.Little, " /,|"),
     );
-    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("a")));
-    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b")));
-    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c")));
-    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d")));
-    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("e")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "a")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "b")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "c")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "d")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "e")));
     try testing.expect(it16.next() == null);
 }
 
@@ -2016,10 +2016,10 @@ test "split" {
 
     var it16 = split(
         u16,
-        std.unicode.utf8ToUtf16LeStringLiteral("hello"),
-        std.unicode.utf8ToUtf16LeStringLiteral(" "),
+        std.unicode.utf8ToUtf16StringLiteral(.Little, "hello"),
+        std.unicode.utf8ToUtf16StringLiteral(.Little, " "),
     );
-    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("hello"));
+    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16StringLiteral(.Little, "hello"));
     try testing.expect(it16.next() == null);
 }
 
@@ -2035,14 +2035,14 @@ test "split (multibyte)" {
 
     var it16 = split(
         u16,
-        std.unicode.utf8ToUtf16LeStringLiteral("a, b ,, c, d, e"),
-        std.unicode.utf8ToUtf16LeStringLiteral(", "),
+        std.unicode.utf8ToUtf16StringLiteral(.Little, "a, b ,, c, d, e"),
+        std.unicode.utf8ToUtf16StringLiteral(.Little, ", "),
     );
-    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("a"));
-    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b ,"));
-    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c"));
-    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d"));
-    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("e"));
+    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16StringLiteral(.Little, "a"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "b ,"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "c"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "d"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "e"));
     try testing.expect(it16.next() == null);
 }
 
@@ -2112,10 +2112,10 @@ test "splitBackwards" {
 
     var it16 = splitBackwards(
         u16,
-        std.unicode.utf8ToUtf16LeStringLiteral("hello"),
-        std.unicode.utf8ToUtf16LeStringLiteral(" "),
+        std.unicode.utf8ToUtf16StringLiteral(.Little, "hello"),
+        std.unicode.utf8ToUtf16StringLiteral(.Little, " "),
     );
-    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("hello"));
+    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16StringLiteral(.Little, "hello"));
     try testing.expect(it16.next() == null);
 }
 
@@ -2141,14 +2141,14 @@ test "splitBackwards (multibyte)" {
 
     var it16 = splitBackwards(
         u16,
-        std.unicode.utf8ToUtf16LeStringLiteral("a, b ,, c, d, e"),
-        std.unicode.utf8ToUtf16LeStringLiteral(", "),
+        std.unicode.utf8ToUtf16StringLiteral(.Little, "a, b ,, c, d, e"),
+        std.unicode.utf8ToUtf16StringLiteral(.Little, ", "),
     );
-    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("e"));
-    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d"));
-    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c"));
-    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b ,"));
-    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("a"));
+    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16StringLiteral(.Little, "e"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "d"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "c"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "b ,"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "a"));
     try testing.expect(it16.next() == null);
 }
 
@@ -2206,12 +2206,12 @@ test "window" {
         try testing.expectEqual(it.next(), null);
 
         // multibyte
-        var it16 = window(u16, std.unicode.utf8ToUtf16LeStringLiteral("abcdefg"), 3, 1);
-        try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("abc"));
-        try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("bcd"));
-        try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("cde"));
-        try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("def"));
-        try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("efg"));
+        var it16 = window(u16, std.unicode.utf8ToUtf16StringLiteral(.Little, "abcdefg"), 3, 1);
+        try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "abc"));
+        try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "bcd"));
+        try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "cde"));
+        try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "def"));
+        try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16StringLiteral(.Little, "efg"));
         try testing.expectEqual(it16.next(), null);
     }
 
