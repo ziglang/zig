@@ -14,13 +14,13 @@
         --bg-color: #ffffff;
         --link-color: #2A6286;
         --sidebar-sh-color: rgba(0, 0, 0, 0.09);
-        --sidebar-pkg-bg-color: #f1f1f1;
-        --sidebar-pkglnk-tx-color: #141414;
-        --sidebar-pkglnk-tx-color-hover: #fff;
-        --sidebar-pkglnk-tx-color-active: #000;
-        --sidebar-pkglnk-bg-color: transparent;
-        --sidebar-pkglnk-bg-color-hover: #555;
-        --sidebar-pkglnk-bg-color-active: #FFBB4D;
+        --sidebar-mod-bg-color: #f1f1f1;
+        --sidebar-modlnk-tx-color: #141414;
+        --sidebar-modlnk-tx-color-hover: #fff;
+        --sidebar-modlnk-tx-color-active: #000;
+        --sidebar-modlnk-bg-color: transparent;
+        --sidebar-modlnk-bg-color-hover: #555;
+        --sidebar-modlnk-bg-color-active: #FFBB4D;
         --search-bg-color: #f3f3f3;
         --search-bg-color-focus: #ffffff;
         --search-sh-color: rgba(0, 0, 0, 0.18);
@@ -130,8 +130,8 @@
       .sidebar .guides-api-switch a {
         display: block;
         padding: 0.5rem 1rem;      
-        color: var(--sidebar-pkglnk-tx-color);
-        background-color: var(--sidebar-pkglnk-bg-color);
+        color: var(--sidebar-modlnk-tx-color);
+        background-color: var(--sidebar-modlnk-bg-color);
         border: 1px solid var(--tx-color);
       }
 
@@ -150,13 +150,13 @@
       }
 
       #ApiSwitch:hover:not(.active), #guideSwitch:hover:not(.active) {
-        color: var(--sidebar-pkglnk-tx-color-hover);
-        background-color: var(--sidebar-pkglnk-bg-color-hover);
+        color: var(--sidebar-modlnk-tx-color-hover);
+        background-color: var(--sidebar-modlnk-bg-color-hover);
       }
 
       .sidebar .guides-api-switch .active {
-        color: var(--sidebar-pkglnk-tx-color-active);
-        background-color: var(--sidebar-pkglnk-bg-color-active);
+        color: var(--sidebar-modlnk-tx-color-active);
+        background-color: var(--sidebar-modlnk-bg-color-active);
       }
 
       .sidebar h2 {
@@ -169,29 +169,29 @@
         border-bottom: 0.125rem dotted var(--tx-color);
       }
 
-      .sidebar .packages {
+      .sidebar .modules {
         list-style-type: none;
         margin: 0;
         padding: 0;
-        background-color: var(--sidebar-pkg-bg-color);
+        background-color: var(--sidebar-mod-bg-color);
       }
 
-      .sidebar .packages > li > a {
+      .sidebar .modules > li > a {
         display: block;
         padding: 0.5rem 1rem;
-        color: var(--sidebar-pkglnk-tx-color);
-        background-color: var(--sidebar-pkglnk-bg-color);
+        color: var(--sidebar-modlnk-tx-color);
+        background-color: var(--sidebar-modlnk-bg-color);
         text-decoration: none;
       }
 
-      .sidebar .packages > li > a:hover {
-        color: var(--sidebar-pkglnk-tx-color-hover);
-        background-color: var(--sidebar-pkglnk-bg-color-hover);
+      .sidebar .modules > li > a:hover {
+        color: var(--sidebar-modlnk-tx-color-hover);
+        background-color: var(--sidebar-modlnk-bg-color-hover);
       }
 
-      .sidebar .packages > li > a.active {
-        color: var(--sidebar-pkglnk-tx-color-active);
-        background-color: var(--sidebar-pkglnk-bg-color-active);
+      .sidebar .modules > li > a.active {
+        color: var(--sidebar-modlnk-tx-color-active);
+        background-color: var(--sidebar-modlnk-bg-color-active);
       }
 
       .sidebar p.str {
@@ -495,13 +495,13 @@
           --bg-color: #111;
           --link-color: #88f;
           --sidebar-sh-color: rgba(128, 128, 128, 0.09);
-          --sidebar-pkg-bg-color: #333;
-          --sidebar-pkglnk-tx-color: #fff;
-          --sidebar-pkglnk-tx-color-hover: #fff;
-          --sidebar-pkglnk-tx-color-active: #000;
-          --sidebar-pkglnk-bg-color: transparent;
-          --sidebar-pkglnk-bg-color-hover: #555;
-          --sidebar-pkglnk-bg-color-active: #FFBB4D;
+          --sidebar-mod-bg-color: #333;
+          --sidebar-modlnk-tx-color: #fff;
+          --sidebar-modlnk-tx-color-hover: #fff;
+          --sidebar-modlnk-tx-color-active: #000;
+          --sidebar-modlnk-bg-color: transparent;
+          --sidebar-modlnk-bg-color-hover: #555;
+          --sidebar-modlnk-bg-color-active: #FFBB4D;
           --search-bg-color: #3c3c3c;
           --search-bg-color-focus: #000;
           --search-sh-color: rgba(255, 255, 255, 0.28);
@@ -590,7 +590,7 @@
           padding-right: 1.4rem;
           background: transparent;
         }
-        .packages {
+        .modules {
           display: flex;
           flex-wrap: wrap;
         }
@@ -703,15 +703,15 @@
             <div id="guidesList"></div>
           </div>
           <div id="apiMenu" class="hidden">
-            <div id="sectMainPkg" class="hidden">
-              <h2><span>Main Package</span></h2>
-              <ul class="packages">
-                <li><a id="mainPkg" class="" href=""></a></li>
+            <div id="sectMainMod" class="hidden">
+              <h2><span>Main Module</span></h2>
+              <ul class="modules">
+                <li><a id="mainMod" class="" href=""></a></li>
               </ul>
             </div>
-            <div id="sectPkgs" class="hidden">
+            <div id="sectMods" class="hidden">
               <h2><span>Dependencies</span></h2>
-              <ul id="listPkgs" class="packages"></ul>
+              <ul id="listMods" class="modules"></ul>
             </div>
             <div id="sectInfo" class="hidden">
               <h2><span>Zig Version</span></h2>
