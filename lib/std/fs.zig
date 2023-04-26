@@ -2111,9 +2111,12 @@ pub const Dir = struct {
         /// iterating or a child being in a `DELETE_PENDING` state on Windows). In this scenario,
         /// the directory will be iterated again and then will be attempted to be deleted again.
         /// This provides a limit to the total number of such retries.
-        /// In `deleteTree`, the retry limit is per-directory.
-        /// In `deleteTreeMinStackSize`, the retry limit is function-wide.
-        max_retries: usize = 4,
+        /// The retry limit is per-directory.
+        ///
+        /// Note: A sufficiently adversarial process could still cause an effectively
+        /// infinite loop by doing something like continually creating deeply nested directory
+        /// structures within the to-be-deleted tree as it is being deleted.
+        max_retries: usize = 3,
 
         /// When initially trying to delete `sub_path`, it will first try and delete it as
         /// the provided kind.
@@ -2418,6 +2421,9 @@ pub const Dir = struct {
                         },
                         else => |e| return e,
                     };
+                    // Reset retries after successfully deleting a directory so that the
+                    // retries are effectively per-directory.
+                    retries_remaining = options.max_retries;
                     continue :start_over;
                 } else {
                     self.deleteDir(sub_path) catch |err| switch (err) {
