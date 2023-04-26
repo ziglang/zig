@@ -306,18 +306,22 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
         /// Invalidates pointers if additional memory is needed.
-        pub fn appendNTimes(self: *Self, value: T, n: usize) Allocator.Error!void {
+        /// The function is inline so that a comptime-known `value` parameter will
+        /// have a more optimal memset codegen in case it has a repeated byte pattern.
+        pub inline fn appendNTimes(self: *Self, value: T, n: usize) Allocator.Error!void {
             const old_len = self.items.len;
             try self.resize(self.items.len + n);
-            mem.set(T, self.items[old_len..self.items.len], value);
+            @memset(self.items[old_len..self.items.len], value);
         }
 
         /// Append a value to the list `n` times.
         /// Asserts the capacity is enough. **Does not** invalidate pointers.
-        pub fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
+        /// The function is inline so that a comptime-known `value` parameter will
+        /// have a more optimal memset codegen in case it has a repeated byte pattern.
+        pub inline fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
             const new_len = self.items.len + n;
             assert(new_len <= self.capacity);
-            mem.set(T, self.items.ptr[self.items.len..new_len], value);
+            @memset(self.items.ptr[self.items.len..new_len], value);
             self.items.len = new_len;
         }
 
@@ -766,19 +770,23 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
         /// Invalidates pointers if additional memory is needed.
-        pub fn appendNTimes(self: *Self, allocator: Allocator, value: T, n: usize) Allocator.Error!void {
+        /// The function is inline so that a comptime-known `value` parameter will
+        /// have a more optimal memset codegen in case it has a repeated byte pattern.
+        pub inline fn appendNTimes(self: *Self, allocator: Allocator, value: T, n: usize) Allocator.Error!void {
             const old_len = self.items.len;
             try self.resize(allocator, self.items.len + n);
-            mem.set(T, self.items[old_len..self.items.len], value);
+            @memset(self.items[old_len..self.items.len], value);
         }
 
         /// Append a value to the list `n` times.
         /// **Does not** invalidate pointers.
         /// Asserts the capacity is enough.
-        pub fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
+        /// The function is inline so that a comptime-known `value` parameter will
+        /// have a more optimal memset codegen in case it has a repeated byte pattern.
+        pub inline fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
             const new_len = self.items.len + n;
             assert(new_len <= self.capacity);
-            mem.set(T, self.items.ptr[self.items.len..new_len], value);
+            @memset(self.items.ptr[self.items.len..new_len], value);
             self.items.len = new_len;
         }
 
