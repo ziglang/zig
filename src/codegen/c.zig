@@ -220,8 +220,8 @@ fn isReservedIdent(ident: []const u8) bool {
             'A'...'Z', '_' => return true,
             else => return false,
         }
-    } else if (std.mem.startsWith(u8, ident, "DUMMYSTRUCTNAME") or
-        std.mem.startsWith(u8, ident, "DUMMYUNIONNAME"))
+    } else if (mem.startsWith(u8, ident, "DUMMYSTRUCTNAME") or
+        mem.startsWith(u8, ident, "DUMMYUNIONNAME"))
     { // windows.h
         return true;
     } else return reserved_idents.has(ident);
@@ -279,8 +279,6 @@ pub const Function = struct {
     /// by type alignment.
     /// The value is whether the alloc needs to be emitted in the header.
     allocs: std.AutoArrayHashMapUnmanaged(LocalIndex, bool) = .{},
-    /// Needed for memory used by the keys of free_locals_map entries.
-    arena: std.heap.ArenaAllocator,
 
     fn resolveInst(f: *Function, ref: Air.Inst.Ref) !CValue {
         if (Air.refToIndex(ref)) |inst| {
@@ -481,7 +479,6 @@ pub const Function = struct {
         f.object.code.deinit();
         f.object.dg.ctypes.deinit(gpa);
         f.object.dg.fwd_decl.deinit();
-        f.arena.deinit();
     }
 };
 
@@ -501,7 +498,7 @@ pub const Object = struct {
 
 /// This data is available both when outputting .c code and when outputting an .h file.
 pub const DeclGen = struct {
-    gpa: std.mem.Allocator,
+    gpa: mem.Allocator,
     module: *Module,
     decl: ?*Decl,
     decl_index: Decl.OptionalIndex,
@@ -538,6 +535,9 @@ pub const DeclGen = struct {
             if (decl.val.castTag(tag)) |func|
                 if (func.data.owner_decl != decl_index)
                     return dg.renderDeclValue(writer, ty, val, func.data.owner_decl, location);
+
+        if (decl.val.castTag(.variable)) |var_payload|
+            try dg.renderFwdDecl(decl_index, var_payload.data);
 
         if (ty.isSlice()) {
             if (location == .StaticInitializer) {
@@ -1819,8 +1819,23 @@ pub const DeclGen = struct {
         try dg.writeCValue(writer, member);
     }
 
-    const IdentHasher = std.crypto.auth.siphash.SipHash128(1, 3);
-    const ident_hasher_init: IdentHasher = IdentHasher.init(&[_]u8{0} ** IdentHasher.key_length);
+    fn renderFwdDecl(dg: *DeclGen, decl_index: Decl.Index, variable: *Module.Var) !void {
+        const decl = dg.module.declPtr(decl_index);
+        const fwd_decl_writer = dg.fwd_decl.writer();
+        const is_global = dg.declIsGlobal(.{ .ty = decl.ty, .val = decl.val }) or variable.is_extern;
+        try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
+        if (variable.is_threadlocal) try fwd_decl_writer.writeAll("zig_threadlocal ");
+        if (variable.is_weak_linkage) try fwd_decl_writer.writeAll("zig_weak_linkage ");
+        try dg.renderTypeAndName(
+            fwd_decl_writer,
+            decl.ty,
+            .{ .decl = decl_index },
+            CQualifiers.init(.{ .@"const" = !variable.is_mutable }),
+            decl.@"align",
+            .complete,
+        );
+        try fwd_decl_writer.writeAll(";\n");
+    }
 
     fn renderDeclName(dg: *DeclGen, writer: anytype, decl_index: Decl.Index, export_index: u32) !void {
         const decl = dg.module.declPtr(decl_index);
@@ -1829,7 +1844,7 @@ pub const DeclGen = struct {
         if (dg.module.decl_exports.get(decl_index)) |exports| {
             try writer.writeAll(exports.items[export_index].options.name);
         } else if (decl.isExtern()) {
-            try writer.writeAll(mem.sliceTo(decl.name, 0));
+            try writer.writeAll(mem.span(decl.name));
         } else {
             // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
             // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
@@ -2396,9 +2411,9 @@ pub fn genErrDecls(o: *Object) !void {
     const name_buf = try o.dg.gpa.alloc(u8, name_prefix.len + max_name_len);
     defer o.dg.gpa.free(name_buf);
 
-    std.mem.copy(u8, name_buf, name_prefix);
+    mem.copy(u8, name_buf, name_prefix);
     for (o.dg.module.error_name_list.items) |name| {
-        std.mem.copy(u8, name_buf[name_prefix.len..], name);
+        mem.copy(u8, name_buf[name_prefix.len..], name);
         const identifier = name_buf[0 .. name_prefix.len + name.len];
 
         var name_ty_pl = Type.Payload.Len{ .base = .{ .tag = .array_u8_sentinel_0 }, .data = name.len };
@@ -2644,21 +2659,16 @@ pub fn genDecl(o: *Object) !void {
         try genExports(o);
     } else if (tv.val.castTag(.variable)) |var_payload| {
         const variable: *Module.Var = var_payload.data;
-
-        const is_global = o.dg.declIsGlobal(tv) or variable.is_extern;
-        const fwd_decl_writer = o.dg.fwd_decl.writer();
-
-        try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
-        if (variable.is_threadlocal) try fwd_decl_writer.writeAll("zig_threadlocal ");
-        try o.dg.renderTypeAndName(fwd_decl_writer, decl.ty, decl_c_value, .{}, decl.@"align", .complete);
-        try fwd_decl_writer.writeAll(";\n");
+        try o.dg.renderFwdDecl(decl_c_value.decl, variable);
         try genExports(o);
 
         if (variable.is_extern) return;
 
+        const is_global = o.dg.declIsGlobal(tv) or variable.is_extern;
         const w = o.writer();
         if (!is_global) try w.writeAll("static ");
         if (variable.is_threadlocal) try w.writeAll("zig_threadlocal ");
+        if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
         if (decl.@"linksection") |section| try w.print("zig_linksection(\"{s}\", ", .{section});
         try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, .{}, decl.@"align", .complete);
         if (decl.@"linksection" != null) try w.writeAll(", read, write)");
@@ -3396,7 +3406,7 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
         var deref = is_ptr;
         const is_array = lowersToArray(ret_ty, target);
         const ret_val = if (is_array) ret_val: {
-            const array_local = try f.allocLocal(inst, try lowered_ret_ty.copy(f.arena.allocator()));
+            const array_local = try f.allocLocal(inst, lowered_ret_ty);
             try writer.writeAll("memcpy(");
             try f.writeCValueMember(writer, array_local, .{ .identifier = "array" });
             try writer.writeAll(", ");
@@ -4113,7 +4123,7 @@ fn airCall(
             var lowered_arg_buf: LowerFnRetTyBuffer = undefined;
             const lowered_arg_ty = lowerFnRetTy(arg_ty, &lowered_arg_buf, target);
 
-            const array_local = try f.allocLocal(inst, try lowered_arg_ty.copy(f.arena.allocator()));
+            const array_local = try f.allocLocal(inst, lowered_arg_ty);
             try writer.writeAll("memcpy(");
             try f.writeCValueMember(writer, array_local, .{ .identifier = "array" });
             try writer.writeAll(", ");
@@ -4156,7 +4166,7 @@ fn airCall(
             try writer.writeByte(')');
             break :result .none;
         } else {
-            const local = try f.allocLocal(inst, try lowered_ret_ty.copy(f.arena.allocator()));
+            const local = try f.allocLocal(inst, lowered_ret_ty);
             try f.writeCValue(writer, local, .Other);
             try writer.writeAll(" = ");
             break :result local;
@@ -4732,9 +4742,9 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         const locals_begin = @intCast(LocalIndex, f.locals.items.len);
         const constraints_extra_begin = extra_i;
         for (outputs) |output| {
-            const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(extra_bytes, 0);
-            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+            const extra_bytes = mem.sliceAsBytes(f.air.extra[extra_i..]);
+            const constraint = mem.sliceTo(extra_bytes, 0);
+            const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
@@ -4764,14 +4774,14 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             }
         }
         for (inputs) |input| {
-            const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(extra_bytes, 0);
-            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+            const extra_bytes = mem.sliceAsBytes(f.air.extra[extra_i..]);
+            const constraint = mem.sliceTo(extra_bytes, 0);
+            const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-            if (constraint.len < 1 or std.mem.indexOfScalar(u8, "=+&%", constraint[0]) != null or
+            if (constraint.len < 1 or mem.indexOfScalar(u8, "=+&%", constraint[0]) != null or
                 (constraint[0] == '{' and constraint[constraint.len - 1] != '}'))
             {
                 return f.fail("CBE: constraint not supported: '{s}'", .{constraint});
@@ -4797,7 +4807,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             }
         }
         for (0..clobbers_len) |_| {
-            const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
+            const clobber = mem.sliceTo(mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += clobber.len / 4 + 1;
@@ -4862,16 +4872,16 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         var locals_index = locals_begin;
         try writer.writeByte(':');
         for (outputs, 0..) |output, index| {
-            const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(extra_bytes, 0);
-            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+            const extra_bytes = mem.sliceAsBytes(f.air.extra[extra_i..]);
+            const constraint = mem.sliceTo(extra_bytes, 0);
+            const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
             if (index > 0) try writer.writeByte(',');
             try writer.writeByte(' ');
-            if (!std.mem.eql(u8, name, "_")) try writer.print("[{s}]", .{name});
+            if (!mem.eql(u8, name, "_")) try writer.print("[{s}]", .{name});
             const is_reg = constraint[1] == '{';
             try writer.print("{s}(", .{fmtStringLiteral(if (is_reg) "=r" else constraint, null)});
             if (is_reg) {
@@ -4886,16 +4896,16 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         }
         try writer.writeByte(':');
         for (inputs, 0..) |input, index| {
-            const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(extra_bytes, 0);
-            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+            const extra_bytes = mem.sliceAsBytes(f.air.extra[extra_i..]);
+            const constraint = mem.sliceTo(extra_bytes, 0);
+            const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
             if (index > 0) try writer.writeByte(',');
             try writer.writeByte(' ');
-            if (!std.mem.eql(u8, name, "_")) try writer.print("[{s}]", .{name});
+            if (!mem.eql(u8, name, "_")) try writer.print("[{s}]", .{name});
 
             const is_reg = constraint[0] == '{';
             const input_val = try f.resolveInst(input);
@@ -4909,7 +4919,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         }
         try writer.writeByte(':');
         for (0..clobbers_len) |clobber_i| {
-            const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
+            const clobber = mem.sliceTo(mem.sliceAsBytes(f.air.extra[extra_i..]), 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += clobber.len / 4 + 1;
@@ -4924,9 +4934,9 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
         extra_i = constraints_extra_begin;
         locals_index = locals_begin;
         for (outputs) |output| {
-            const extra_bytes = std.mem.sliceAsBytes(f.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(extra_bytes, 0);
-            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+            const extra_bytes = mem.sliceAsBytes(f.air.extra[extra_i..]);
+            const constraint = mem.sliceTo(extra_bytes, 0);
+            const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
@@ -5363,7 +5373,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                 };
                 const field_int_ty = Type.initPayload(&field_int_pl.base);
 
-                const temp_local = try f.allocLocal(inst, try field_int_ty.copy(f.arena.allocator()));
+                const temp_local = try f.allocLocal(inst, field_int_ty);
                 try f.writeCValue(writer, temp_local, .Other);
                 try writer.writeAll(" = zig_wrap_");
                 try f.object.dg.renderTypeForBuiltinFnName(writer, field_int_ty);
@@ -7277,7 +7287,7 @@ fn formatIntLiteral(
     var int_buf: Value.BigIntSpace = undefined;
     const int = if (data.val.isUndefDeep()) blk: {
         undef_limbs = try allocator.alloc(BigIntLimb, BigInt.calcTwosCompLimbCount(data.int_info.bits));
-        std.mem.set(BigIntLimb, undef_limbs, undefPattern(BigIntLimb));
+        mem.set(BigIntLimb, undef_limbs, undefPattern(BigIntLimb));
 
         var undef_int = BigInt.Mutable{
             .limbs = undef_limbs,
@@ -7372,7 +7382,7 @@ fn formatIntLiteral(
     } else {
         try data.cty.renderLiteralPrefix(writer, data.kind);
         wrap.convertToTwosComplement(int, data.int_info.signedness, c_bits);
-        std.mem.set(BigIntLimb, wrap.limbs[wrap.len..], 0);
+        mem.set(BigIntLimb, wrap.limbs[wrap.len..], 0);
         wrap.len = wrap.limbs.len;
         const limbs_per_c_limb = @divExact(wrap.len, c_limb_info.count);
 
