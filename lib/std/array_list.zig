@@ -121,7 +121,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
             const new_memory = try allocator.alignedAlloc(T, alignment, self.items.len);
             mem.copy(T, new_memory, self.items);
-            @memset(@ptrCast([*]u8, self.items.ptr), undefined, self.items.len * @sizeOf(T));
+            @memset(self.items, undefined);
             self.clearAndFree();
             return new_memory;
         }
@@ -281,11 +281,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             const new_len = old_len + items.len;
             assert(new_len <= self.capacity);
             self.items.len = new_len;
-            @memcpy(
-                @ptrCast([*]align(@alignOf(T)) u8, self.items.ptr + old_len),
-                @ptrCast([*]const u8, items.ptr),
-                items.len * @sizeOf(T),
-            );
+            @memcpy(self.items[old_len..][0..items.len], items);
         }
 
         pub const Writer = if (T != u8)
@@ -601,7 +597,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
             const new_memory = try allocator.alignedAlloc(T, alignment, self.items.len);
             mem.copy(T, new_memory, self.items);
-            @memset(@ptrCast([*]u8, self.items.ptr), undefined, self.items.len * @sizeOf(T));
+            @memset(self.items, undefined);
             self.clearAndFree(allocator);
             return new_memory;
         }
@@ -740,11 +736,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             const new_len = old_len + items.len;
             assert(new_len <= self.capacity);
             self.items.len = new_len;
-            @memcpy(
-                @ptrCast([*]align(@alignOf(T)) u8, self.items.ptr + old_len),
-                @ptrCast([*]const u8, items.ptr),
-                items.len * @sizeOf(T),
-            );
+            @memcpy(self.items[old_len..][0..items.len], items);
         }
 
         pub const WriterContext = struct {

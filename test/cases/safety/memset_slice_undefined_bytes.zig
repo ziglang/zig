@@ -2,25 +2,18 @@ const std = @import("std");
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = stack_trace;
-    if (std.mem.eql(u8, message, "invalid enum value")) {
+    if (std.mem.eql(u8, message, "integer overflow")) {
         std.process.exit(0);
     }
     std.process.exit(1);
 }
-
-const E = enum(u32) {
-    X = 1,
-    Y = 2,
-};
-
 pub fn main() !void {
-    var e: E = undefined;
-    @memset(@ptrCast([*]u8, &e)[0..@sizeOf(E)], 0x55);
-    var n = @tagName(e);
-    _ = n;
-    return error.TestFailed;
+    var buffer = [6]u8{ 1, 2, 3, 4, 5, 6 };
+    var len = buffer.len;
+    @memset(buffer[0..len], undefined);
+    var x: u8 = buffer[1];
+    x += buffer[2];
 }
-
 // run
 // backend=llvm
 // target=native

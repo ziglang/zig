@@ -1184,7 +1184,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
             .mask = undefined,
             .restorer = @ptrCast(k_sigaction_funcs.restorer, restorer_fn),
         };
-        @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &new.mask), mask_size);
+        @memcpy(@ptrCast([*]u8, &ksa.mask)[0..mask_size], @ptrCast([*]const u8, &new.mask));
     }
 
     const ksa_arg = if (act != null) @ptrToInt(&ksa) else 0;
@@ -1200,7 +1200,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     if (oact) |old| {
         old.handler.handler = oldksa.handler;
         old.flags = @truncate(c_uint, oldksa.flags);
-        @memcpy(@ptrCast([*]u8, &old.mask), @ptrCast([*]const u8, &oldksa.mask), mask_size);
+        @memcpy(@ptrCast([*]u8, &old.mask)[0..mask_size], @ptrCast([*]const u8, &oldksa.mask));
     }
 
     return 0;
@@ -1515,7 +1515,7 @@ pub fn sched_yield() usize {
 pub fn sched_getaffinity(pid: pid_t, size: usize, set: *cpu_set_t) usize {
     const rc = syscall3(.sched_getaffinity, @bitCast(usize, @as(isize, pid)), size, @ptrToInt(set));
     if (@bitCast(isize, rc) < 0) return rc;
-    if (rc < size) @memset(@ptrCast([*]u8, set) + rc, 0, size - rc);
+    if (rc < size) @memset(@ptrCast([*]u8, set)[rc..size], 0);
     return 0;
 }
 

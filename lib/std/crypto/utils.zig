@@ -135,11 +135,11 @@ pub fn timingSafeSub(comptime T: type, a: []const T, b: []const T, result: []T, 
 /// Sets a slice to zeroes.
 /// Prevents the store from being optimized out.
 pub fn secureZero(comptime T: type, s: []T) void {
-    // NOTE: We do not use a volatile slice cast here since LLVM cannot
-    // see that it can be replaced by a memset.
+    // TODO: implement `@memset` for non-byte-sized element type in the llvm backend
+    //@memset(@as([]volatile T, s), 0);
     const ptr = @ptrCast([*]volatile u8, s.ptr);
     const length = s.len * @sizeOf(T);
-    @memset(ptr, 0, length);
+    @memset(ptr[0..length], 0);
 }
 
 test "crypto.utils.timingSafeEql" {

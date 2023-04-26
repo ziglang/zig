@@ -2756,7 +2756,7 @@ test "big int conversion read twos complement with padding" {
 
     var buffer1 = try testing.allocator.alloc(u8, 16);
     defer testing.allocator.free(buffer1);
-    @memset(buffer1.ptr, 0xaa, buffer1.len);
+    @memset(buffer1, 0xaa);
 
     // writeTwosComplement:
     // (1) should not write beyond buffer[0..abi_size]
@@ -2773,7 +2773,7 @@ test "big int conversion read twos complement with padding" {
     a.toConst().writeTwosComplement(buffer1[0..16], .Big);
     try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0x0, 0x0, 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd }));
 
-    @memset(buffer1.ptr, 0xaa, buffer1.len);
+    @memset(buffer1, 0xaa);
     try a.set(-0x01_02030405_06070809_0a0b0c0d);
     bit_count = 12 * 8 + 2;
 
@@ -2794,7 +2794,7 @@ test "big int write twos complement +/- zero" {
 
     var buffer1 = try testing.allocator.alloc(u8, 16);
     defer testing.allocator.free(buffer1);
-    @memset(buffer1.ptr, 0xaa, buffer1.len);
+    @memset(buffer1, 0xaa);
 
     // Test zero
 
@@ -2807,7 +2807,7 @@ test "big int write twos complement +/- zero" {
     m.toConst().writeTwosComplement(buffer1[0..16], .Big);
     try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
 
-    @memset(buffer1.ptr, 0xaa, buffer1.len);
+    @memset(buffer1, 0xaa);
     m.positive = false;
 
     // Test negative zero

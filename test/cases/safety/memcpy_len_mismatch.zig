@@ -2,25 +2,16 @@ const std = @import("std");
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = stack_trace;
-    if (std.mem.eql(u8, message, "invalid enum value")) {
+    if (std.mem.eql(u8, message, "@memcpy arguments have non-equal lengths")) {
         std.process.exit(0);
     }
     std.process.exit(1);
 }
-
-const E = enum(u32) {
-    X = 1,
-    Y = 2,
-};
-
 pub fn main() !void {
-    var e: E = undefined;
-    @memset(@ptrCast([*]u8, &e)[0..@sizeOf(E)], 0x55);
-    var n = @tagName(e);
-    _ = n;
-    return error.TestFailed;
+    var buffer = [2]u8{ 1, 2 } ** 5;
+    var len: usize = 5;
+    @memcpy(buffer[0..len], buffer[len .. len + 4]);
 }
-
 // run
 // backend=llvm
 // target=native

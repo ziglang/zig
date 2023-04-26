@@ -15,7 +15,7 @@ const U = union(enum(u32)) {
 
 pub fn main() !void {
     var u: U = undefined;
-    @memset(@ptrCast([*]u8, &u), 0x55, @sizeOf(U));
+    @memset(@ptrCast([*]u8, &u)[0..@sizeOf(U)], 0x55);
     var t: @typeInfo(U).Union.tag_type.? = u;
     var n = @tagName(t);
     _ = n;

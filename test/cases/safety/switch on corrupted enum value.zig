@@ -15,7 +15,7 @@ const E = enum(u32) {
 
 pub fn main() !void {
     var e: E = undefined;
-    @memset(@ptrCast([*]u8, &e), 0x55, @sizeOf(E));
+    @memset(@ptrCast([*]u8, &e)[0..@sizeOf(E)], 0x55);
     switch (e) {
         .X, .Y => @breakpoint(),
     }

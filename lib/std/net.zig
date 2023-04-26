@@ -1020,7 +1020,7 @@ fn linuxLookupName(
     for (addrs.items, 0..) |*addr, i| {
         var key: i32 = 0;
         var sa6: os.sockaddr.in6 = undefined;
-        @memset(@ptrCast([*]u8, &sa6), 0, @sizeOf(os.sockaddr.in6));
+        @memset(@ptrCast([*]u8, &sa6)[0..@sizeOf(os.sockaddr.in6)], 0);
         var da6 = os.sockaddr.in6{
             .family = os.AF.INET6,
             .scope_id = addr.addr.in6.sa.scope_id,
@@ -1029,7 +1029,7 @@ fn linuxLookupName(
             .addr = [1]u8{0} ** 16,
         };
         var sa4: os.sockaddr.in = undefined;
-        @memset(@ptrCast([*]u8, &sa4), 0, @sizeOf(os.sockaddr.in));
+        @memset(@ptrCast([*]u8, &sa4)[0..@sizeOf(os.sockaddr.in)], 0);
         var da4 = os.sockaddr.in{
             .family = os.AF.INET,
             .port = 65535,
@@ -1577,7 +1577,7 @@ fn resMSendRc(
 
     // Get local address and open/bind a socket
     var sa: Address = undefined;
-    @memset(@ptrCast([*]u8, &sa), 0, @sizeOf(Address));
+    @memset(@ptrCast([*]u8, &sa)[0..@sizeOf(Address)], 0);
     sa.any.family = family;
     try os.bind(fd, &sa.any, sl);
 

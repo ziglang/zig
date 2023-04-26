@@ -2924,7 +2924,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .load             => try airLoad(f, inst),
             .ret              => try airRet(f, inst, false),
             .ret_load         => try airRet(f, inst, true),
-            .store            => try airStore(f, inst),
+            .store            => try airStore(f, inst, false),
+            .store_safe       => try airStore(f, inst, true),
             .loop             => try airLoop(f, inst),
             .cond_br          => try airCondBr(f, inst),
             .br               => try airBr(f, inst),
@@ -2935,7 +2936,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .cmpxchg_strong   => try airCmpxchg(f, inst, "strong"),
             .atomic_rmw       => try airAtomicRmw(f, inst),
             .atomic_load      => try airAtomicLoad(f, inst),
-            .memset           => try airMemset(f, inst),
+            .memset           => try airMemset(f, inst, false),
+            .memset_safe      => try airMemset(f, inst, true),
             .memcpy           => try airMemcpy(f, inst),
             .set_union_tag    => try airSetUnionTag(f, inst),
             .get_union_tag    => try airGetUnionTag(f, inst),
@@ -3574,19 +3576,7 @@ fn airBoolToInt(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn storeUndefined(f: *Function, lhs_child_ty: Type, dest_ptr: CValue) !CValue {
-    if (f.wantSafety()) {
-        const writer = f.object.writer();
-        try writer.writeAll("memset(");
-        try f.writeCValue(writer, dest_ptr, .FunctionArgument);
-        try writer.print(", {x}, sizeof(", .{try f.fmtIntLiteral(Type.u8, Value.undef)});
-        try f.renderType(writer, lhs_child_ty);
-        try writer.writeAll("));\n");
-    }
-    return .none;
-}
-
-fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     // *a = b;
     const bin_op = f.air.instructions.items(.data)[inst].bin_op;
 
@@ -3597,18 +3587,19 @@ fn airStore(f: *Function, inst: Air.Inst.Index) !CValue {
     const ptr_val = try f.resolveInst(bin_op.lhs);
     const src_ty = f.air.typeOf(bin_op.rhs);
 
-    // TODO Sema should emit a different instruction when the store should
-    // possibly do the safety 0xaa bytes for undefined.
-    const src_val_is_undefined =
-        if (f.air.value(bin_op.rhs)) |v| v.isUndefDeep() else false;
-    if (src_val_is_undefined) {
-        if (ptr_info.host_size == 0) {
-            try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
-            return try storeUndefined(f, ptr_info.pointee_type, ptr_val);
-        } else if (!f.wantSafety()) {
-            try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
-            return .none;
+    const val_is_undef = if (f.air.value(bin_op.rhs)) |v| v.isUndefDeep() else false;
+
+    if (val_is_undef) {
+        try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
+        if (safety and ptr_info.host_size == 0) {
+            const writer = f.object.writer();
+            try writer.writeAll("memset(");
+            try f.writeCValue(writer, ptr_val, .FunctionArgument);
+            try writer.writeAll(", 0xaa, sizeof(");
+            try f.renderType(writer, ptr_info.pointee_type);
+            try writer.writeAll("));\n");
         }
+        return .none;
     }
 
     const target = f.object.dg.module.getTarget();
@@ -3844,8 +3835,8 @@ fn airCmpOp(
     data: anytype,
     operator: std.math.CompareOperator,
 ) !CValue {
-    const operand_ty = f.air.typeOf(data.lhs);
-    const scalar_ty = operand_ty.scalarType();
+    const lhs_ty = f.air.typeOf(data.lhs);
+    const scalar_ty = lhs_ty.scalarType();
 
     const target = f.object.dg.module.getTarget();
     const scalar_bits = scalar_ty.bitSize(target);
@@ -3866,17 +3857,21 @@ fn airCmpOp(
     const rhs = try f.resolveInst(data.rhs);
     try reap(f, inst, &.{ data.lhs, data.rhs });
 
+    const rhs_ty = f.air.typeOf(data.rhs);
+    const need_cast = lhs_ty.isSinglePointer() != rhs_ty.isSinglePointer();
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
-    const v = try Vectorize.start(f, inst, writer, operand_ty);
+    const v = try Vectorize.start(f, inst, writer, lhs_ty);
     try f.writeCValue(writer, local, .Other);
     try v.elem(f, writer);
     try writer.writeAll(" = ");
+    if (need_cast) try writer.writeAll("(void*)");
     try f.writeCValue(writer, lhs, .Other);
     try v.elem(f, writer);
     try writer.writeByte(' ');
     try writer.writeAll(compareOperatorC(operator));
     try writer.writeByte(' ');
+    if (need_cast) try writer.writeAll("(void*)");
     try f.writeCValue(writer, rhs, .Other);
     try v.elem(f, writer);
     try writer.writeAll(";\n");
@@ -5784,6 +5779,7 @@ fn airPtrToInt(f: *Function, inst: Air.Inst.Index) !CValue {
     const un_op = f.air.instructions.items(.data)[inst].un_op;
 
     const operand = try f.resolveInst(un_op);
+    const operand_ty = f.air.typeOf(un_op);
     try reap(f, inst, &.{un_op});
     const inst_ty = f.air.typeOfIndex(inst);
     const writer = f.object.writer();
@@ -5793,7 +5789,11 @@ fn airPtrToInt(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(" = (");
     try f.renderType(writer, inst_ty);
     try writer.writeByte(')');
-    try f.writeCValue(writer, operand, .Other);
+    if (operand_ty.isSlice()) {
+        try f.writeCValueMember(writer, operand, .{ .identifier = "len" });
+    } else {
+        try f.writeCValue(writer, operand, .Other);
+    }
     try writer.writeAll(";\n");
     return local;
 }
@@ -6186,19 +6186,66 @@ fn airAtomicStore(f: *Function, inst: Air.Inst.Index, order: [*:0]const u8) !CVa
     return .none;
 }
 
-fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
-    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
-    const extra = f.air.extraData(Air.Bin, pl_op.payload).data;
-    const dest_ty = f.air.typeOf(pl_op.operand);
-    const dest_ptr = try f.resolveInst(pl_op.operand);
-    const value = try f.resolveInst(extra.lhs);
-    const len = try f.resolveInst(extra.rhs);
+fn writeSliceOrPtr(f: *Function, writer: anytype, ptr: CValue, ptr_ty: Type) !void {
+    if (ptr_ty.isSlice()) {
+        try f.writeCValueMember(writer, ptr, .{ .identifier = "ptr" });
+    } else {
+        try f.writeCValue(writer, ptr, .FunctionArgument);
+    }
+}
 
+fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const dest_ty = f.air.typeOf(bin_op.lhs);
+    const dest_slice = try f.resolveInst(bin_op.lhs);
+    const value = try f.resolveInst(bin_op.rhs);
+    const elem_ty = f.air.typeOf(bin_op.rhs);
+    const target = f.object.dg.module.getTarget();
+    const elem_abi_size = elem_ty.abiSize(target);
+    const val_is_undef = if (f.air.value(bin_op.rhs)) |val| val.isUndefDeep() else false;
     const writer = f.object.writer();
-    if (dest_ty.isVolatilePtr()) {
-        var u8_ptr_pl = dest_ty.ptrInfo();
-        u8_ptr_pl.data.pointee_type = Type.u8;
-        const u8_ptr_ty = Type.initPayload(&u8_ptr_pl.base);
+
+    if (val_is_undef) {
+        if (!safety) {
+            try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
+            return .none;
+        }
+
+        try writer.writeAll("memset(");
+        switch (dest_ty.ptrSize()) {
+            .Slice => {
+                try f.writeCValueMember(writer, dest_slice, .{ .identifier = "ptr" });
+                try writer.writeAll(", 0xaa, ");
+                try f.writeCValueMember(writer, dest_slice, .{ .identifier = "len" });
+                if (elem_abi_size > 1) {
+                    try writer.print(" * {d});\n", .{elem_abi_size});
+                } else {
+                    try writer.writeAll(");\n");
+                }
+            },
+            .One => {
+                const array_ty = dest_ty.childType();
+                const len = array_ty.arrayLen() * elem_abi_size;
+
+                try f.writeCValue(writer, dest_slice, .FunctionArgument);
+                try writer.print(", 0xaa, {d});\n", .{len});
+            },
+            .Many, .C => unreachable,
+        }
+        try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
+        return .none;
+    }
+
+    if (elem_abi_size > 1 or dest_ty.isVolatilePtr()) {
+        // For the assignment in this loop, the array pointer needs to get
+        // casted to a regular pointer, otherwise an error like this occurs:
+        // error: array type 'uint32_t[20]' (aka 'unsigned int[20]') is not assignable
+        var elem_ptr_ty_pl: Type.Payload.ElemType = .{
+            .base = .{ .tag = .c_mut_pointer },
+            .data = elem_ty,
+        };
+        const elem_ptr_ty = Type.initPayload(&elem_ptr_ty_pl.base);
+
         const index = try f.allocLocal(inst, Type.usize);
 
         try writer.writeAll("for (");
@@ -6208,56 +6255,95 @@ fn airMemset(f: *Function, inst: Air.Inst.Index) !CValue {
         try writer.writeAll("; ");
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" != ");
-        try f.writeCValue(writer, len, .Other);
-        try writer.writeAll("; ");
+        switch (dest_ty.ptrSize()) {
+            .Slice => {
+                try f.writeCValueMember(writer, dest_slice, .{ .identifier = "len" });
+            },
+            .One => {
+                const array_ty = dest_ty.childType();
+                try writer.print("{d}", .{array_ty.arrayLen()});
+            },
+            .Many, .C => unreachable,
+        }
+        try writer.writeAll("; ++");
         try f.writeCValue(writer, index, .Other);
-        try writer.writeAll(" += ");
-        try f.object.dg.renderValue(writer, Type.usize, Value.one, .Other);
         try writer.writeAll(") ((");
-        try f.renderType(writer, u8_ptr_ty);
+        try f.renderType(writer, elem_ptr_ty);
         try writer.writeByte(')');
-        try f.writeCValue(writer, dest_ptr, .FunctionArgument);
+        try writeSliceOrPtr(f, writer, dest_slice, dest_ty);
         try writer.writeAll(")[");
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll("] = ");
         try f.writeCValue(writer, value, .FunctionArgument);
         try writer.writeAll(";\n");
 
-        try reap(f, inst, &.{ pl_op.operand, extra.lhs, extra.rhs });
+        try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
         try freeLocal(f, inst, index.new_local, 0);
 
         return .none;
     }
 
-    try reap(f, inst, &.{ pl_op.operand, extra.lhs, extra.rhs });
     try writer.writeAll("memset(");
-    try f.writeCValue(writer, dest_ptr, .FunctionArgument);
-    try writer.writeAll(", ");
-    try f.writeCValue(writer, value, .FunctionArgument);
-    try writer.writeAll(", ");
-    try f.writeCValue(writer, len, .FunctionArgument);
-    try writer.writeAll(");\n");
+    switch (dest_ty.ptrSize()) {
+        .Slice => {
+            try f.writeCValueMember(writer, dest_slice, .{ .identifier = "ptr" });
+            try writer.writeAll(", ");
+            try f.writeCValue(writer, value, .FunctionArgument);
+            try writer.writeAll(", ");
+            try f.writeCValueMember(writer, dest_slice, .{ .identifier = "len" });
+            try writer.writeAll(");\n");
+        },
+        .One => {
+            const array_ty = dest_ty.childType();
+            const len = array_ty.arrayLen() * elem_abi_size;
 
+            try f.writeCValue(writer, dest_slice, .FunctionArgument);
+            try writer.writeAll(", ");
+            try f.writeCValue(writer, value, .FunctionArgument);
+            try writer.print(", {d});\n", .{len});
+        },
+        .Many, .C => unreachable,
+    }
+    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
     return .none;
 }
 
 fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
-    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
-    const extra = f.air.extraData(Air.Bin, pl_op.payload).data;
-    const dest_ptr = try f.resolveInst(pl_op.operand);
-    const src_ptr = try f.resolveInst(extra.lhs);
-    const len = try f.resolveInst(extra.rhs);
-    try reap(f, inst, &.{ pl_op.operand, extra.lhs, extra.rhs });
+    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const dest_ptr = try f.resolveInst(bin_op.lhs);
+    const src_ptr = try f.resolveInst(bin_op.rhs);
+    const dest_ty = f.air.typeOf(bin_op.lhs);
+    const src_ty = f.air.typeOf(bin_op.rhs);
+    const target = f.object.dg.module.getTarget();
     const writer = f.object.writer();
 
     try writer.writeAll("memcpy(");
-    try f.writeCValue(writer, dest_ptr, .FunctionArgument);
+    try writeSliceOrPtr(f, writer, dest_ptr, dest_ty);
     try writer.writeAll(", ");
-    try f.writeCValue(writer, src_ptr, .FunctionArgument);
+    try writeSliceOrPtr(f, writer, src_ptr, src_ty);
     try writer.writeAll(", ");
-    try f.writeCValue(writer, len, .FunctionArgument);
-    try writer.writeAll(");\n");
+    switch (dest_ty.ptrSize()) {
+        .Slice => {
+            const elem_ty = dest_ty.childType();
+            const elem_abi_size = elem_ty.abiSize(target);
+            try f.writeCValueMember(writer, dest_ptr, .{ .identifier = "len" });
+            if (elem_abi_size > 1) {
+                try writer.print(" * {d});\n", .{elem_abi_size});
+            } else {
+                try writer.writeAll(");\n");
+            }
+        },
+        .One => {
+            const array_ty = dest_ty.childType();
+            const elem_ty = array_ty.childType();
+            const elem_abi_size = elem_ty.abiSize(target);
+            const len = array_ty.arrayLen() * elem_abi_size;
+            try writer.print("{d});\n", .{len});
+        },
+        .Many, .C => unreachable,
+    }
 
+    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
     return .none;
 }
 

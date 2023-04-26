@@ -748,7 +748,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ptrtoint        => try self.airPtrToInt(inst),
             .ret             => try self.airRet(inst),
             .ret_load        => try self.airRetLoad(inst),
-            .store           => try self.airStore(inst),
+            .store           => try self.airStore(inst, false),
+            .store_safe      => try self.airStore(inst, true),
             .struct_field_ptr=> try self.airStructFieldPtr(inst),
             .struct_field_val=> try self.airStructFieldVal(inst),
             .array_to_slice  => try self.airArrayToSlice(inst),
@@ -759,7 +760,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .atomic_rmw      => try self.airAtomicRmw(inst),
             .atomic_load     => try self.airAtomicLoad(inst),
             .memcpy          => try self.airMemcpy(inst),
-            .memset          => try self.airMemset(inst),
+            .memset          => try self.airMemset(inst, false),
+            .memset_safe     => try self.airMemset(inst, true),
             .set_union_tag   => try self.airSetUnionTag(inst),
             .get_union_tag   => try self.airGetUnionTag(inst),
             .clz             => try self.airClz(inst),
@@ -2835,7 +2837,12 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
     }
 }
 
-fn airStore(self: *Self, inst: Air.Inst.Index) !void {
+fn airStore(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
+    if (safety) {
+        // TODO if the value is undef, write 0xaa bytes to dest
+    } else {
+        // TODO if the value is undef, don't lower this instruction
+    }
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const ptr = try self.resolveInst(bin_op.lhs);
     const value = try self.resolveInst(bin_op.rhs);
@@ -5921,7 +5928,12 @@ fn airAtomicStore(self: *Self, inst: Air.Inst.Index, order: std.builtin.AtomicOr
     return self.fail("TODO implement airAtomicStore for {}", .{self.target.cpu.arch});
 }
 
-fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
+fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
+    if (safety) {
+        // TODO if the value is undef, write 0xaa bytes to dest
+    } else {
+        // TODO if the value is undef, don't lower this instruction
+    }
     _ = inst;
     return self.fail("TODO implement airMemset for {}", .{self.target.cpu.arch});
 }

@@ -1893,7 +1893,7 @@ const IndexHeader = struct {
         const index_size = hash_map.capacityIndexSize(new_bit_index);
         const nbytes = @sizeOf(IndexHeader) + index_size * len;
         const bytes = try allocator.alignedAlloc(u8, @alignOf(IndexHeader), nbytes);
-        @memset(bytes.ptr + @sizeOf(IndexHeader), 0xff, bytes.len - @sizeOf(IndexHeader));
+        @memset(bytes[@sizeOf(IndexHeader)..], 0xff);
         const result = @ptrCast(*IndexHeader, bytes.ptr);
         result.* = .{
             .bit_index = new_bit_index,
@@ -1914,7 +1914,7 @@ const IndexHeader = struct {
         const index_size = hash_map.capacityIndexSize(header.bit_index);
         const ptr = @ptrCast([*]align(@alignOf(IndexHeader)) u8, header);
         const nbytes = @sizeOf(IndexHeader) + header.length() * index_size;
-        @memset(ptr + @sizeOf(IndexHeader), 0xff, nbytes - @sizeOf(IndexHeader));
+        @memset(ptr[@sizeOf(IndexHeader)..nbytes], 0xff);
     }
 
     // Verify that the header has sufficient alignment to produce aligned arrays.

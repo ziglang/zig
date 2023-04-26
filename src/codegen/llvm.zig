@@ -4649,7 +4649,8 @@ pub const FuncGen = struct {
                 .not            => try self.airNot(inst),
                 .ret            => try self.airRet(inst),
                 .ret_load       => try self.airRetLoad(inst),
-                .store          => try self.airStore(inst),
+                .store          => try self.airStore(inst, false),
+                .store_safe     => try self.airStore(inst, true),
                 .assembly       => try self.airAssembly(inst),
                 .slice_ptr      => try self.airSliceField(inst, 0),
                 .slice_len      => try self.airSliceField(inst, 1),
@@ -4672,7 +4673,8 @@ pub const FuncGen = struct {
                 .fence          => try self.airFence(inst),
                 .atomic_rmw     => try self.airAtomicRmw(inst),
                 .atomic_load    => try self.airAtomicLoad(inst),
-                .memset         => try self.airMemset(inst),
+                .memset         => try self.airMemset(inst, false),
+                .memset_safe    => try self.airMemset(inst, true),
                 .memcpy         => try self.airMemcpy(inst),
                 .set_union_tag  => try self.airSetUnionTag(inst),
                 .get_union_tag  => try self.airGetUnionTag(inst),
@@ -5774,6 +5776,36 @@ pub const FuncGen = struct {
         if (libc_ret_ty != ret_ty) result = self.builder.buildBitCast(result, ret_ty, "");
         if (ret_ty != dest_llvm_ty) result = self.builder.buildTrunc(result, dest_llvm_ty, "");
         return result;
+    }
+
+    fn sliceOrArrayPtr(fg: *FuncGen, ptr: *llvm.Value, ty: Type) *llvm.Value {
+        if (ty.isSlice()) {
+            return fg.builder.buildExtractValue(ptr, 0, "");
+        } else {
+            return ptr;
+        }
+    }
+
+    fn sliceOrArrayLenInBytes(fg: *FuncGen, ptr: *llvm.Value, ty: Type) *llvm.Value {
+        const target = fg.dg.module.getTarget();
+        const llvm_usize_ty = fg.context.intType(target.cpu.arch.ptrBitWidth());
+        switch (ty.ptrSize()) {
+            .Slice => {
+                const len = fg.builder.buildExtractValue(ptr, 1, "");
+                const elem_ty = ty.childType();
+                const abi_size = elem_ty.abiSize(target);
+                if (abi_size == 1) return len;
+                const abi_size_llvm_val = llvm_usize_ty.constInt(abi_size, .False);
+                return fg.builder.buildMul(len, abi_size_llvm_val, "");
+            },
+            .One => {
+                const array_ty = ty.childType();
+                const elem_ty = array_ty.childType();
+                const abi_size = elem_ty.abiSize(target);
+                return llvm_usize_ty.constInt(array_ty.arrayLen() * abi_size, .False);
+            },
+            .Many, .C => unreachable,
+        }
     }
 
     fn airSliceField(self: *FuncGen, inst: Air.Inst.Index, index: c_uint) !?*llvm.Value {
@@ -7261,39 +7293,53 @@ pub const FuncGen = struct {
     fn airPtrAdd(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-        const base_ptr = try self.resolveInst(bin_op.lhs);
+        const ptr = try self.resolveInst(bin_op.lhs);
         const offset = try self.resolveInst(bin_op.rhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         const llvm_elem_ty = try self.dg.lowerPtrElemTy(ptr_ty.childType());
-        if (ptr_ty.ptrSize() == .One) {
-            // It's a pointer to an array, so according to LLVM we need an extra GEP index.
-            const indices: [2]*llvm.Value = .{
-                self.context.intType(32).constNull(), offset,
-            };
-            return self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
-        } else {
-            const indices: [1]*llvm.Value = .{offset};
-            return self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
+        switch (ptr_ty.ptrSize()) {
+            .One => {
+                // It's a pointer to an array, so according to LLVM we need an extra GEP index.
+                const indices: [2]*llvm.Value = .{ self.context.intType(32).constNull(), offset };
+                return self.builder.buildInBoundsGEP(llvm_elem_ty, ptr, &indices, indices.len, "");
+            },
+            .C, .Many => {
+                const indices: [1]*llvm.Value = .{offset};
+                return self.builder.buildInBoundsGEP(llvm_elem_ty, ptr, &indices, indices.len, "");
+            },
+            .Slice => {
+                const base = self.builder.buildExtractValue(ptr, 0, "");
+                const indices: [1]*llvm.Value = .{offset};
+                return self.builder.buildInBoundsGEP(llvm_elem_ty, base, &indices, indices.len, "");
+            },
         }
     }
 
     fn airPtrSub(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-        const base_ptr = try self.resolveInst(bin_op.lhs);
+        const ptr = try self.resolveInst(bin_op.lhs);
         const offset = try self.resolveInst(bin_op.rhs);
         const negative_offset = self.builder.buildNeg(offset, "");
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         const llvm_elem_ty = try self.dg.lowerPtrElemTy(ptr_ty.childType());
-        if (ptr_ty.ptrSize() == .One) {
-            // It's a pointer to an array, so according to LLVM we need an extra GEP index.
-            const indices: [2]*llvm.Value = .{
-                self.context.intType(32).constNull(), negative_offset,
-            };
-            return self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
-        } else {
-            const indices: [1]*llvm.Value = .{negative_offset};
-            return self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
+        switch (ptr_ty.ptrSize()) {
+            .One => {
+                // It's a pointer to an array, so according to LLVM we need an extra GEP index.
+                const indices: [2]*llvm.Value = .{
+                    self.context.intType(32).constNull(), negative_offset,
+                };
+                return self.builder.buildInBoundsGEP(llvm_elem_ty, ptr, &indices, indices.len, "");
+            },
+            .C, .Many => {
+                const indices: [1]*llvm.Value = .{negative_offset};
+                return self.builder.buildInBoundsGEP(llvm_elem_ty, ptr, &indices, indices.len, "");
+            },
+            .Slice => {
+                const base = self.builder.buildExtractValue(ptr, 0, "");
+                const indices: [1]*llvm.Value = .{negative_offset};
+                return self.builder.buildInBoundsGEP(llvm_elem_ty, base, &indices, indices.len, "");
+            },
         }
     }
 
@@ -7887,8 +7933,10 @@ pub const FuncGen = struct {
     fn airPtrToInt(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const operand = try self.resolveInst(un_op);
+        const ptr_ty = self.air.typeOf(un_op);
+        const operand_ptr = self.sliceOrArrayPtr(operand, ptr_ty);
         const dest_llvm_ty = try self.dg.lowerType(self.air.typeOfIndex(inst));
-        return self.builder.buildPtrToInt(operand, dest_llvm_ty, "");
+        return self.builder.buildPtrToInt(operand_ptr, dest_llvm_ty, "");
     }
 
     fn airBitCast(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
@@ -8082,48 +8130,36 @@ pub const FuncGen = struct {
         return buildAllocaInner(self.context, self.builder, self.llvm_func, self.di_scope != null, llvm_ty, alignment, self.dg.module.getTarget());
     }
 
-    fn airStore(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airStore(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !?*llvm.Value {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const dest_ptr = try self.resolveInst(bin_op.lhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         const operand_ty = ptr_ty.childType();
 
-        // TODO Sema should emit a different instruction when the store should
-        // possibly do the safety 0xaa bytes for undefined.
         const val_is_undef = if (self.air.value(bin_op.rhs)) |val| val.isUndefDeep() else false;
         if (val_is_undef) {
-            {
-                // TODO let's handle this in AIR rather than by having each backend
-                // check the optimization mode of the compilation because the plan is
-                // to support setting the optimization mode at finer grained scopes
-                // which happens in Sema. Codegen should not be aware of this logic.
-                // I think this comment is basically the same as the other TODO comment just
-                // above but I'm leaving them both here to make it look super messy and
-                // thereby bait contributors (or let's be honest, probably myself) into
-                // fixing this instead of letting it rot.
-                const safety = switch (self.dg.module.comp.bin_file.options.optimize_mode) {
-                    .ReleaseSmall, .ReleaseFast => false,
-                    .Debug, .ReleaseSafe => true,
-                };
-                if (!safety) {
-                    return null;
-                }
-            }
+            // Even if safety is disabled, we still emit a memset to undefined since it conveys
+            // extra information to LLVM. However, safety makes the difference between using
+            // 0xaa or actual undefined for the fill byte.
+            const u8_llvm_ty = self.context.intType(8);
+            const fill_byte = if (safety)
+                u8_llvm_ty.constInt(0xaa, .False)
+            else
+                u8_llvm_ty.getUndef();
             const target = self.dg.module.getTarget();
             const operand_size = operand_ty.abiSize(target);
-            const u8_llvm_ty = self.context.intType(8);
-            const fill_char = u8_llvm_ty.constInt(0xaa, .False);
-            const dest_ptr_align = ptr_ty.ptrAlignment(target);
             const usize_llvm_ty = try self.dg.lowerType(Type.usize);
             const len = usize_llvm_ty.constInt(operand_size, .False);
-            _ = self.builder.buildMemSet(dest_ptr, fill_char, len, dest_ptr_align, ptr_ty.isVolatilePtr());
-            if (self.dg.module.comp.bin_file.options.valgrind) {
+            const dest_ptr_align = ptr_ty.ptrAlignment(target);
+            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+            if (safety and self.dg.module.comp.bin_file.options.valgrind) {
                 self.valgrindMarkUndef(dest_ptr, len);
             }
-        } else {
-            const src_operand = try self.resolveInst(bin_op.rhs);
-            try self.store(dest_ptr, ptr_ty, src_operand, .NotAtomic);
+            return null;
         }
+
+        const src_operand = try self.resolveInst(bin_op.rhs);
+        try self.store(dest_ptr, ptr_ty, src_operand, .NotAtomic);
         return null;
     }
 
@@ -8373,34 +8409,107 @@ pub const FuncGen = struct {
         return null;
     }
 
-    fn airMemset(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
-        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
-        const dest_ptr = try self.resolveInst(pl_op.operand);
-        const ptr_ty = self.air.typeOf(pl_op.operand);
-        const value = try self.resolveInst(extra.lhs);
-        const val_is_undef = if (self.air.value(extra.lhs)) |val| val.isUndefDeep() else false;
-        const len = try self.resolveInst(extra.rhs);
-        const u8_llvm_ty = self.context.intType(8);
-        const fill_char = if (val_is_undef) u8_llvm_ty.constInt(0xaa, .False) else value;
+    fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !?*llvm.Value {
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const dest_slice = try self.resolveInst(bin_op.lhs);
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const elem_ty = self.air.typeOf(bin_op.rhs);
         const target = self.dg.module.getTarget();
+        const val_is_undef = if (self.air.value(bin_op.rhs)) |val| val.isUndefDeep() else false;
         const dest_ptr_align = ptr_ty.ptrAlignment(target);
-        _ = self.builder.buildMemSet(dest_ptr, fill_char, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+        const u8_llvm_ty = self.context.intType(8);
+        const dest_ptr = self.sliceOrArrayPtr(dest_slice, ptr_ty);
 
-        if (val_is_undef and self.dg.module.comp.bin_file.options.valgrind) {
-            self.valgrindMarkUndef(dest_ptr, len);
+        if (val_is_undef) {
+            // Even if safety is disabled, we still emit a memset to undefined since it conveys
+            // extra information to LLVM. However, safety makes the difference between using
+            // 0xaa or actual undefined for the fill byte.
+            const fill_byte = if (safety)
+                u8_llvm_ty.constInt(0xaa, .False)
+            else
+                u8_llvm_ty.getUndef();
+            const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
+            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+
+            if (safety and self.dg.module.comp.bin_file.options.valgrind) {
+                self.valgrindMarkUndef(dest_ptr, len);
+            }
+            return null;
         }
+
+        const value = try self.resolveInst(bin_op.rhs);
+        const elem_abi_size = elem_ty.abiSize(target);
+
+        if (elem_abi_size == 1) {
+            // In this case we can take advantage of LLVM's intrinsic.
+            const fill_byte = self.builder.buildBitCast(value, u8_llvm_ty, "");
+            const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
+            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+            return null;
+        }
+
+        // non-byte-sized element. lower with a loop. something like this:
+
+        // entry:
+        //   ...
+        //   %end_ptr = getelementptr %ptr, %len
+        //   br loop
+        // loop:
+        //   %it_ptr = phi body %next_ptr, entry %ptr
+        //   %end = cmp eq %it_ptr, %end_ptr
+        //   cond_br %end body, end
+        // body:
+        //   store %it_ptr, %value
+        //   %next_ptr = getelementptr %it_ptr, 1
+        //   br loop
+        // end:
+        //   ...
+        const entry_block = self.builder.getInsertBlock();
+        const loop_block = self.context.appendBasicBlock(self.llvm_func, "InlineMemsetLoop");
+        const body_block = self.context.appendBasicBlock(self.llvm_func, "InlineMemsetBody");
+        const end_block = self.context.appendBasicBlock(self.llvm_func, "InlineMemsetEnd");
+
+        const llvm_usize_ty = self.context.intType(target.cpu.arch.ptrBitWidth());
+        const len = switch (ptr_ty.ptrSize()) {
+            .Slice => self.builder.buildExtractValue(dest_slice, 1, ""),
+            .One => llvm_usize_ty.constInt(ptr_ty.childType().arrayLen(), .False),
+            .Many, .C => unreachable,
+        };
+        const elem_llvm_ty = try self.dg.lowerType(elem_ty);
+        const len_gep = [_]*llvm.Value{len};
+        const end_ptr = self.builder.buildInBoundsGEP(elem_llvm_ty, dest_ptr, &len_gep, len_gep.len, "");
+        _ = self.builder.buildBr(loop_block);
+
+        self.builder.positionBuilderAtEnd(loop_block);
+        const it_ptr = self.builder.buildPhi(self.context.pointerType(0), "");
+        const end = self.builder.buildICmp(.NE, it_ptr, end_ptr, "");
+        _ = self.builder.buildCondBr(end, body_block, end_block);
+
+        self.builder.positionBuilderAtEnd(body_block);
+        const store_inst = self.builder.buildStore(value, it_ptr);
+        store_inst.setAlignment(@min(elem_ty.abiAlignment(target), dest_ptr_align));
+        const one_gep = [_]*llvm.Value{llvm_usize_ty.constInt(1, .False)};
+        const next_ptr = self.builder.buildInBoundsGEP(elem_llvm_ty, it_ptr, &one_gep, one_gep.len, "");
+        _ = self.builder.buildBr(loop_block);
+
+        self.builder.positionBuilderAtEnd(end_block);
+
+        const incoming_values: [2]*llvm.Value = .{ next_ptr, dest_ptr };
+        const incoming_blocks: [2]*llvm.BasicBlock = .{ body_block, entry_block };
+        it_ptr.addIncoming(&incoming_values, &incoming_blocks, 2);
+
         return null;
     }
 
     fn airMemcpy(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
-        const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-        const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
-        const dest_ptr = try self.resolveInst(pl_op.operand);
-        const dest_ptr_ty = self.air.typeOf(pl_op.operand);
-        const src_ptr = try self.resolveInst(extra.lhs);
-        const src_ptr_ty = self.air.typeOf(extra.lhs);
-        const len = try self.resolveInst(extra.rhs);
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const dest_slice = try self.resolveInst(bin_op.lhs);
+        const dest_ptr_ty = self.air.typeOf(bin_op.lhs);
+        const src_slice = try self.resolveInst(bin_op.rhs);
+        const src_ptr_ty = self.air.typeOf(bin_op.rhs);
+        const src_ptr = self.sliceOrArrayPtr(src_slice, src_ptr_ty);
+        const len = self.sliceOrArrayLenInBytes(dest_slice, dest_ptr_ty);
+        const dest_ptr = self.sliceOrArrayPtr(dest_slice, dest_ptr_ty);
         const is_volatile = src_ptr_ty.isVolatilePtr() or dest_ptr_ty.isVolatilePtr();
         const target = self.dg.module.getTarget();
         _ = self.builder.buildMemCpy(

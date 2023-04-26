@@ -3670,7 +3670,7 @@ pub const MachTask = extern struct {
                 else => |err| return unexpectedKernError(err),
             }
 
-            @memcpy(out_buf[0..].ptr, @intToPtr([*]const u8, vm_memory), curr_bytes_read);
+            @memcpy(out_buf[0..curr_bytes_read], @intToPtr([*]const u8, vm_memory));
             _ = vm_deallocate(mach_task_self(), vm_memory, curr_bytes_read);
 
             out_buf = out_buf[curr_bytes_read..];

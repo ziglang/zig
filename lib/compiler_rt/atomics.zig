@@ -121,22 +121,22 @@ fn __atomic_load(size: u32, src: [*]u8, dest: [*]u8, model: i32) callconv(.C) vo
     _ = model;
     var sl = spinlocks.get(@ptrToInt(src));
     defer sl.release();
-    @memcpy(dest, src, size);
+    @memcpy(dest[0..size], src);
 }
 
 fn __atomic_store(size: u32, dest: [*]u8, src: [*]u8, model: i32) callconv(.C) void {
     _ = model;
     var sl = spinlocks.get(@ptrToInt(dest));
     defer sl.release();
-    @memcpy(dest, src, size);
+    @memcpy(dest[0..size], src);
 }
 
 fn __atomic_exchange(size: u32, ptr: [*]u8, val: [*]u8, old: [*]u8, model: i32) callconv(.C) void {
     _ = model;
     var sl = spinlocks.get(@ptrToInt(ptr));
     defer sl.release();
-    @memcpy(old, ptr, size);
-    @memcpy(ptr, val, size);
+    @memcpy(old[0..size], ptr);
+    @memcpy(ptr[0..size], val);
 }
 
 fn __atomic_compare_exchange(
@@ -155,10 +155,10 @@ fn __atomic_compare_exchange(
         if (expected[i] != b) break;
     } else {
         // The two objects, ptr and expected, are equal
-        @memcpy(ptr, desired, size);
+        @memcpy(ptr[0..size], desired);
         return 1;
     }
-    @memcpy(expected, ptr, size);
+    @memcpy(expected[0..size], ptr);
     return 0;
 }
 
