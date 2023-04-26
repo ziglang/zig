@@ -36,7 +36,7 @@ pub const XxHash64 = struct {
 
     pub fn update(self: *XxHash64, input: []const u8) void {
         if (input.len < 32 - self.buf_len) {
-            mem.copy(u8, self.buf[self.buf_len..], input);
+            @memcpy(self.buf[self.buf_len..][0..input.len], input);
             self.buf_len += input.len;
             return;
         }
@@ -45,7 +45,7 @@ pub const XxHash64 = struct {
 
         if (self.buf_len > 0) {
             i = 32 - self.buf_len;
-            mem.copy(u8, self.buf[self.buf_len..], input[0..i]);
+            @memcpy(self.buf[self.buf_len..][0..i], input[0..i]);
             self.processStripe(&self.buf);
             self.buf_len = 0;
         }
@@ -55,7 +55,7 @@ pub const XxHash64 = struct {
         }
 
         const remaining_bytes = input[i..];
-        mem.copy(u8, &self.buf, remaining_bytes);
+        @memcpy(self.buf[0..remaining_bytes.len], remaining_bytes);
         self.buf_len = remaining_bytes.len;
     }
 
@@ -165,7 +165,7 @@ pub const XxHash32 = struct {
 
     pub fn update(self: *XxHash32, input: []const u8) void {
         if (input.len < 16 - self.buf_len) {
-            mem.copy(u8, self.buf[self.buf_len..], input);
+            @memcpy(self.buf[self.buf_len..][0..input.len], input);
             self.buf_len += input.len;
             return;
         }
@@ -174,7 +174,7 @@ pub const XxHash32 = struct {
 
         if (self.buf_len > 0) {
             i = 16 - self.buf_len;
-            mem.copy(u8, self.buf[self.buf_len..], input[0..i]);
+            @memcpy(self.buf[self.buf_len..][0..i], input[0..i]);
             self.processStripe(&self.buf);
             self.buf_len = 0;
         }
@@ -184,7 +184,7 @@ pub const XxHash32 = struct {
         }
 
         const remaining_bytes = input[i..];
-        mem.copy(u8, &self.buf, remaining_bytes);
+        @memcpy(self.buf[0..remaining_bytes.len], remaining_bytes);
         self.buf_len = remaining_bytes.len;
     }
 

@@ -566,11 +566,11 @@ test "best speed match 2/2" {
     for (cases) |c| {
         var previous = try testing.allocator.alloc(u8, c.previous);
         defer testing.allocator.free(previous);
-        mem.set(u8, previous, 0);
+        @memset(previous, 0);
 
         var current = try testing.allocator.alloc(u8, c.current);
         defer testing.allocator.free(current);
-        mem.set(u8, current, 0);
+        @memset(current, 0);
 
         var e = DeflateFast{
             .prev = previous,

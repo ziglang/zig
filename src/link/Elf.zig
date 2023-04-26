@@ -1997,7 +1997,7 @@ fn writeElfHeader(self: *Elf) !void {
     // OS ABI, often set to 0 regardless of target platform
     // ABI Version, possibly used by glibc but not by static executables
     // padding
-    mem.set(u8, hdr_buf[index..][0..9], 0);
+    @memset(hdr_buf[index..][0..9], 0);
     index += 9;
 
     assert(index == 16);

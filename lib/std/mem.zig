@@ -192,12 +192,14 @@ test "Allocator.resize" {
     }
 }
 
+/// Deprecated: use `copyForwards`
+pub const copy = copyForwards;
+
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
-pub fn copy(comptime T: type, dest: []T, source: []const T) void {
-    for (dest[0..source.len], source) |*d, s|
-        d.* = s;
+pub fn copyForwards(comptime T: type, dest: []T, source: []const T) void {
+    for (dest[0..source.len], source) |*d, s| d.* = s;
 }
 
 /// Copy all of source into dest at position 0.
@@ -3124,7 +3126,7 @@ pub fn replace(comptime T: type, input: []const T, needle: []const T, replacemen
     var replacements: usize = 0;
     while (slide < input.len) {
         if (mem.startsWith(T, input[slide..], needle)) {
-            mem.copy(T, output[i .. i + replacement.len], replacement);
+            @memcpy(output[i..][0..replacement.len], replacement);
             i += replacement.len;
             slide += needle.len;
             replacements += 1;

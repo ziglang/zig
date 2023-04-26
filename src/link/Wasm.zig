@@ -1976,7 +1976,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
             // We do not have to do this when exporting the memory (the default) because the runtime
             // will do it for us, and we do not emit the bss segment at all.
             if ((wasm.base.options.output_mode == .Obj or wasm.base.options.import_memory) and kind.data == .uninitialized) {
-                std.mem.set(u8, atom.code.items, 0);
+                @memset(atom.code.items, 0);
             }
 
             const should_merge = wasm.base.options.output_mode != .Obj;

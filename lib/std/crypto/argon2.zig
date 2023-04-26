@@ -494,7 +494,7 @@ pub fn kdf(
     if (params.t < 1 or params.p < 1) return KdfError.WeakParameters;
 
     var h0 = initHash(password, salt, params, derived_key.len, mode);
-    const memory = math.max(
+    const memory = @max(
         params.m / (sync_points * params.p) * (sync_points * params.p),
         2 * sync_points * params.p,
     );
@@ -877,7 +877,7 @@ test "kdf" {
             .hash = "1640b932f4b60e272f5d2207b9a9c626ffa1bd88d2349016",
         },
     };
-    inline for (test_vectors) |v| {
+    for (test_vectors) |v| {
         var want: [24]u8 = undefined;
         _ = try std.fmt.hexToBytes(&want, v.hash);
 

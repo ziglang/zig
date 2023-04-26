@@ -374,7 +374,7 @@ fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: any
             self.columns_written += self.output_buffer.len - end.*;
             end.* = self.output_buffer.len;
             const suffix = "... ";
-            std.mem.copy(u8, self.output_buffer[self.output_buffer.len - suffix.len ..], suffix);
+            @memcpy(self.output_buffer[self.output_buffer.len - suffix.len ..], suffix);
         },
     }
 }

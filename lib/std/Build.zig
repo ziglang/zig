@@ -1693,10 +1693,10 @@ pub fn constructCMacro(allocator: Allocator, name: []const u8, value: ?[]const u
         u8,
         name.len + if (value) |value_slice| value_slice.len + 1 else 0,
     ) catch |err| if (err == error.OutOfMemory) @panic("Out of memory") else unreachable;
-    mem.copy(u8, macro, name);
+    @memcpy(macro[0..name.len], name);
     if (value) |value_slice| {
         macro[name.len] = '=';
-        mem.copy(u8, macro[name.len + 1 ..], value_slice);
+        @memcpy(macro[name.len + 1 ..][0..value_slice.len], value_slice);
     }
     return macro;
 }

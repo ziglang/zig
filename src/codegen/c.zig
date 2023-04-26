@@ -2411,9 +2411,9 @@ pub fn genErrDecls(o: *Object) !void {
     const name_buf = try o.dg.gpa.alloc(u8, name_prefix.len + max_name_len);
     defer o.dg.gpa.free(name_buf);
 
-    mem.copy(u8, name_buf, name_prefix);
+    @memcpy(name_buf[0..name_prefix.len], name_prefix);
     for (o.dg.module.error_name_list.items) |name| {
-        mem.copy(u8, name_buf[name_prefix.len..], name);
+        @memcpy(name_buf[name_prefix.len..][0..name.len], name);
         const identifier = name_buf[0 .. name_prefix.len + name.len];
 
         var name_ty_pl = Type.Payload.Len{ .base = .{ .tag = .array_u8_sentinel_0 }, .data = name.len };
@@ -4877,7 +4877,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 const literal = mem.sliceTo(asm_source[src_i..], '%');
                 src_i += literal.len;
 
-                mem.copy(u8, fixed_asm_source[dst_i..], literal);
+                @memcpy(fixed_asm_source[dst_i..][0..literal.len], literal);
                 dst_i += literal.len;
 
                 if (src_i >= asm_source.len) break;
@@ -4902,9 +4902,9 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                     const name = desc[0..colon];
                     const modifier = desc[colon + 1 ..];
 
-                    mem.copy(u8, fixed_asm_source[dst_i..], modifier);
+                    @memcpy(fixed_asm_source[dst_i..][0..modifier.len], modifier);
                     dst_i += modifier.len;
-                    mem.copy(u8, fixed_asm_source[dst_i..], name);
+                    @memcpy(fixed_asm_source[dst_i..][0..name.len], name);
                     dst_i += name.len;
 
                     src_i += desc.len;
@@ -7455,7 +7455,7 @@ fn formatIntLiteral(
     var int_buf: Value.BigIntSpace = undefined;
     const int = if (data.val.isUndefDeep()) blk: {
         undef_limbs = try allocator.alloc(BigIntLimb, BigInt.calcTwosCompLimbCount(data.int_info.bits));
-        mem.set(BigIntLimb, undef_limbs, undefPattern(BigIntLimb));
+        @memset(undef_limbs, undefPattern(BigIntLimb));
 
         var undef_int = BigInt.Mutable{
             .limbs = undef_limbs,
@@ -7550,7 +7550,7 @@ fn formatIntLiteral(
     } else {
         try data.cty.renderLiteralPrefix(writer, data.kind);
         wrap.convertToTwosComplement(int, data.int_info.signedness, c_bits);
-        mem.set(BigIntLimb, wrap.limbs[wrap.len..], 0);
+        @memset(wrap.limbs[wrap.len..], 0);
         wrap.len = wrap.limbs.len;
         const limbs_per_c_limb = @divExact(wrap.len, c_limb_info.count);
 

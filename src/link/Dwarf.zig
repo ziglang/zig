@@ -1189,7 +1189,7 @@ pub fn commitDeclState(
                         if (needed_size > segment_size) {
                             log.debug("  allocating {d} bytes for 'debug line' information", .{needed_size - segment_size});
                             try debug_line.resize(self.allocator, needed_size);
-                            mem.set(u8, debug_line.items[segment_size..], 0);
+                            @memset(debug_line.items[segment_size..], 0);
                         }
                         debug_line.items.len = needed_size;
                     }
@@ -1458,7 +1458,7 @@ fn writeDeclDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []cons
                 if (needed_size > segment_size) {
                     log.debug("  allocating {d} bytes for 'debug info' information", .{needed_size - segment_size});
                     try debug_info.resize(self.allocator, needed_size);
-                    mem.set(u8, debug_info.items[segment_size..], 0);
+                    @memset(debug_info.items[segment_size..], 0);
                 }
                 debug_info.items.len = needed_size;
             }
@@ -2076,9 +2076,9 @@ fn writeDbgInfoNopsToArrayList(
         buffer.items.len,
         offset + content.len + next_padding_size + 1,
     ));
-    mem.set(u8, buffer.items[offset - prev_padding_size .. offset], @enumToInt(AbbrevKind.pad1));
+    @memset(buffer.items[offset - prev_padding_size .. offset], @enumToInt(AbbrevKind.pad1));
     mem.copy(u8, buffer.items[offset..], content);
-    mem.set(u8, buffer.items[offset + content.len ..][0..next_padding_size], @enumToInt(AbbrevKind.pad1));
+    @memset(buffer.items[offset + content.len ..][0..next_padding_size], @enumToInt(AbbrevKind.pad1));
 
     if (trailing_zero) {
         buffer.items[offset + content.len + next_padding_size] = 0;

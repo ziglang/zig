@@ -1088,7 +1088,7 @@ fn ElfFile(comptime is_64: bool) type {
                         const crc_offset = std.mem.alignForward(link.name.len + 1, 4);
                         const buf = try allocator.alignedAlloc(u8, 4, crc_offset + 4);
                         std.mem.copy(u8, buf[0..link.name.len], link.name);
-                        std.mem.set(u8, buf[link.name.len..crc_offset], 0);
+                        @memset(buf[link.name.len..crc_offset], 0);
                         std.mem.copy(u8, buf[crc_offset..], std.mem.asBytes(&link.crc32));
                         break :payload buf;
                     };

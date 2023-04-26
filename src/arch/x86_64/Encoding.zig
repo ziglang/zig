@@ -546,7 +546,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
         .encoding = encoding,
         .ops = [1]Operand{.none} ** 4,
     };
-    std.mem.copy(Operand, &inst.ops, ops);
+    @memcpy(inst.ops[0..ops.len], ops);
 
     var cwriter = std.io.countingWriter(std.io.null_writer);
     inst.encode(cwriter.writer(), .{ .allow_frame_loc = true }) catch unreachable; // Not allowed to fail here unless OOM.

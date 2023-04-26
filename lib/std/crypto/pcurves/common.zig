@@ -228,8 +228,8 @@ pub fn Field(comptime params: FieldParams) type {
             }
             if (iterations % 2 != 0) {
                 fiat.divstep(&out1, &out2, &out3, &out4, &out5, d, f, g, v, r);
-                mem.copy(Word, &v, &out4);
-                mem.copy(Word, &f, &out2);
+                v = out4;
+                f = out2;
             }
             var v_opp: Limbs = undefined;
             fiat.opp(&v_opp, v);

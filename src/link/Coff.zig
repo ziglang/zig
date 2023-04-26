@@ -2367,12 +2367,12 @@ pub fn getAtomIndexForSymbol(self: *const Coff, sym_loc: SymbolWithLoc) ?Atom.In
 fn setSectionName(self: *Coff, header: *coff.SectionHeader, name: []const u8) !void {
     if (name.len <= 8) {
         mem.copy(u8, &header.name, name);
-        mem.set(u8, header.name[name.len..], 0);
+        @memset(header.name[name.len..], 0);
         return;
     }
     const offset = try self.strtab.insert(self.base.allocator, name);
     const name_offset = fmt.bufPrint(&header.name, "/{d}", .{offset}) catch unreachable;
-    mem.set(u8, header.name[name_offset.len..], 0);
+    @memset(header.name[name_offset.len..], 0);
 }
 
 fn getSectionName(self: *const Coff, header: *const coff.SectionHeader) []const u8 {
@@ -2386,16 +2386,16 @@ fn getSectionName(self: *const Coff, header: *const coff.SectionHeader) []const 
 fn setSymbolName(self: *Coff, symbol: *coff.Symbol, name: []const u8) !void {
     if (name.len <= 8) {
         mem.copy(u8, &symbol.name, name);
-        mem.set(u8, symbol.name[name.len..], 0);
+        @memset(symbol.name[name.len..], 0);
         return;
     }
     const offset = try self.strtab.insert(self.base.allocator, name);
-    mem.set(u8, symbol.name[0..4], 0);
+    @memset(symbol.name[0..4], 0);
     mem.writeIntLittle(u32, symbol.name[4..8], offset);
 }
 
 fn logSymAttributes(sym: *const coff.Symbol, buf: *[4]u8) []const u8 {
-    mem.set(u8, buf[0..4], '_');
+    @memset(buf[0..4], '_');
     switch (sym.section_number) {
         .UNDEFINED => {
             buf[3] = 'u';

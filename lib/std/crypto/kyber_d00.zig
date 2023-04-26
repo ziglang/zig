@@ -1479,7 +1479,7 @@ test "MulHat" {
         const p2 = a.ntt().mulHat(b.ntt()).barrettReduce().invNTT().normalize();
         var p: Poly = undefined;
 
-        mem.set(i16, &p.cs, 0);
+        @memset(&p.cs, 0);
 
         for (0..N) |i| {
             for (0..N) |j| {

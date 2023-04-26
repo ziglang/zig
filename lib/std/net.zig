@@ -106,7 +106,7 @@ pub const Address = extern union {
         // Add 1 to ensure a terminating 0 is present in the path array for maximum portability.
         if (path.len + 1 > sock_addr.path.len) return error.NameTooLong;
 
-        mem.set(u8, &sock_addr.path, 0);
+        @memset(&sock_addr.path, 0);
         mem.copy(u8, &sock_addr.path, path);
 
         return Address{ .un = sock_addr };
@@ -346,7 +346,7 @@ pub const Ip6Address = extern struct {
                 if (!saw_any_digits) {
                     if (abbrv) return error.InvalidCharacter; // ':::'
                     if (i != 0) abbrv = true;
-                    mem.set(u8, ip_slice[index..], 0);
+                    @memset(ip_slice[index..], 0);
                     ip_slice = tail[0..];
                     index = 0;
                     continue;
@@ -465,7 +465,7 @@ pub const Ip6Address = extern struct {
                 if (!saw_any_digits) {
                     if (abbrv) return error.InvalidCharacter; // ':::'
                     if (i != 0) abbrv = true;
-                    mem.set(u8, ip_slice[index..], 0);
+                    @memset(ip_slice[index..], 0);
                     ip_slice = tail[0..];
                     index = 0;
                     continue;

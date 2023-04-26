@@ -877,17 +877,17 @@ pub fn abiAndDynamicLinkerFromFile(
         const cpu_arch = @tagName(result.target.cpu.arch);
         const os_tag = @tagName(result.target.os.tag);
         const abi = @tagName(result.target.abi);
-        mem.copy(u8, path_buf[index..], prefix);
+        @memcpy(path_buf[index..][0..prefix.len], prefix);
         index += prefix.len;
-        mem.copy(u8, path_buf[index..], cpu_arch);
+        @memcpy(path_buf[index..][0..cpu_arch.len], cpu_arch);
         index += cpu_arch.len;
         path_buf[index] = '-';
         index += 1;
-        mem.copy(u8, path_buf[index..], os_tag);
+        @memcpy(path_buf[index..][0..os_tag.len], os_tag);
         index += os_tag.len;
         path_buf[index] = '-';
         index += 1;
-        mem.copy(u8, path_buf[index..], abi);
+        @memcpy(path_buf[index..][0..abi.len], abi);
         index += abi.len;
         const rpath = path_buf[0..index];
         if (glibcVerFromRPath(rpath)) |ver| {

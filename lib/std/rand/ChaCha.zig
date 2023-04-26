@@ -40,7 +40,8 @@ pub fn addEntropy(self: *Self, bytes: []const u8) void {
     }
     if (i < bytes.len) {
         var k = [_]u8{0} ** Cipher.key_length;
-        mem.copy(u8, k[0..], bytes[i..]);
+        const src = bytes[i..];
+        @memcpy(k[0..src.len], src);
         Cipher.xor(
             self.state[0..Cipher.key_length],
             self.state[0..Cipher.key_length],
@@ -72,8 +73,8 @@ pub fn fill(self: *Self, buf_: []u8) void {
     if (avail > 0) {
         // Bytes from the current block
         const n = @min(avail, buf.len);
-        mem.copy(u8, buf[0..n], bytes[self.offset..][0..n]);
-        mem.set(u8, bytes[self.offset..][0..n], 0);
+        @memcpy(buf[0..n], bytes[self.offset..][0..n]);
+        @memset(bytes[self.offset..][0..n], 0);
         buf = buf[n..];
         self.offset += n;
     }
@@ -83,15 +84,15 @@ pub fn fill(self: *Self, buf_: []u8) void {
 
     // Full blocks
     while (buf.len >= bytes.len) {
-        mem.copy(u8, buf[0..bytes.len], bytes);
+        @memcpy(buf[0..bytes.len], bytes);
         buf = buf[bytes.len..];
         self.refill();
     }
 
     // Remaining bytes
     if (buf.len > 0) {
-        mem.copy(u8, buf, bytes[0..buf.len]);
-        mem.set(u8, bytes[0..buf.len], 0);
+        @memcpy(buf, bytes[0..buf.len]);
+        @memset(bytes[0..buf.len], 0);
         self.offset = buf.len;
     }
 }

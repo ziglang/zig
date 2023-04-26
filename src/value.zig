@@ -875,7 +875,7 @@ pub const Value = extern union {
             .repeated => {
                 const byte = @intCast(u8, val.castTag(.repeated).?.data.toUnsignedInt(target));
                 const result = try allocator.alloc(u8, @intCast(usize, ty.arrayLen()));
-                std.mem.set(u8, result, byte);
+                @memset(result, byte);
                 return result;
             },
             .decl_ref => {
@@ -1287,7 +1287,7 @@ pub const Value = extern union {
         const endian = target.cpu.arch.endian();
         if (val.isUndef()) {
             const size = @intCast(usize, ty.abiSize(target));
-            std.mem.set(u8, buffer[0..size], 0xaa);
+            @memset(buffer[0..size], 0xaa);
             return;
         }
         switch (ty.zigTypeTag()) {
