@@ -20,11 +20,6 @@ is_linking_libc: bool,
 is_linking_libcpp: bool,
 linker_script: ?FileSource = null,
 
-/// List of symbols forced as undefined in the symbol table
-/// thus forcing their resolution by the linker.
-/// Corresponds to `-u <symbol>` for ELF/MachO and `/include:<symbol>` for COFF/PE.
-force_undefined_symbols: StringHashMap(void),
-
 pub fn create(owner: *Build, name: ?[]const u8, options: CreateModuleOptions) *Module {
     const arena = owner.allocator;
     const mod = owner.allocator.create(Module) catch @panic("OOM");
@@ -46,7 +41,6 @@ pub fn create(owner: *Build, name: ?[]const u8, options: CreateModuleOptions) *M
         .lib_paths = ArrayList(FileSource).init(arena),
         .rpaths = ArrayList(FileSource).init(arena),
         .framework_dirs = ArrayList(FileSource).init(arena),
-        .force_undefined_symbols = StringHashMap(void).init(arena),
         .c_macros = ArrayList([]const u8).init(arena),
         .c_std = std.Build.CStd.C99,
         .is_linking_libc = false,
@@ -738,11 +732,6 @@ pub fn addFrameworkPath(m: *Module, dir_path: []const u8) void {
 pub fn addFrameworkPathDirectorySource(m: *Module, directory_source: FileSource) void {
     m.framework_dirs.append(directory_source) catch @panic("OOM");
     directory_source.addStepDependencies(&m.step);
-}
-
-pub fn forceUndefinedSymbol(m: *Module, symbol_name: []const u8) void {
-    const b = m.step.owner;
-    m.force_undefined_symbols.put(b.dupe(symbol_name), {}) catch @panic("OOM");
 }
 
 pub fn setLinkerScriptPath(m: *Module, source: FileSource) void {
