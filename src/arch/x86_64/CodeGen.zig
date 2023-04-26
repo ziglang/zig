@@ -7339,7 +7339,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
             const atom_index = try self.getSymbolIndexForDecl(self.mod_fn.owner_decl);
             if (self.bin_file.cast(link.File.MachO)) |_| {
                 _ = try self.addInst(.{
-                    .tag = .mov_linker,
+                    .tag = .lea_linker,
                     .ops = .tlv_reloc,
                     .data = .{ .payload = try self.addExtra(Mir.LeaRegisterReloc{
                         .reg = @enumToInt(Register.rdi),
@@ -8609,7 +8609,7 @@ fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
             .memory => |addr| .{ .memory = addr },
             .load_direct => |sym_index| .{ .load_direct = sym_index },
             .load_got => |sym_index| .{ .lea_got = sym_index },
-            .load_tlv => |sym_index| .{ .load_tlv = sym_index },
+            .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
         },
         .fail => |msg| {
             self.err_msg = msg;
