@@ -26,6 +26,7 @@ pub fn create(owner: *Build, name: ?[]const u8, options: CreateModuleOptions) *M
     mod.* = .{
         .step = Step.init(.{
             .id = .module,
+            .makeFn = make,
             .name = if (name) |n|
                 std.fmt.allocPrint(arena, "module {s}", .{n}) catch @panic("OOM")
             else
@@ -63,56 +64,97 @@ pub fn create(owner: *Build, name: ?[]const u8, options: CreateModuleOptions) *M
     return mod;
 }
 
-pub fn appendArgs(
-    m: *Module,
-    compile_step: *CompileStep,
-    name: []const u8,
-    zig_args: *ArrayList([]const u8),
-) !void {
-    try zig_args.append("--mod");
-    try zig_args.append(name);
-
-    var num_source_files: usize = 0;
-
-    if (m.source_file) |rs| {
-        try zig_args.append(rs.getPath2(m.step.owner, &m.step));
-        num_source_files += 1;
-    }
+pub fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+    // Make is a no-op, we only check that the module has at least one source file.
+    const m = @fieldParentPtr(Module, "step", step);
+    if (m.source_file != null) return;
 
     for (m.link_objects.items) |obj| {
         switch (obj) {
-            .c_source_file => |_| {
-                // try zig_args.append(c.source.getPath2(m.step.owner, &m.step));
-                num_source_files +|= 1;
+            .c_source_file => return,
+            .c_source_files => |files| {
+                if (files.files.len > 0) return;
             },
-            .c_source_files => |c_files| {
-                for (c_files.files) |_| {
-                    // try zig_args.append(file_path);
-                    num_source_files +|= 1;
-                }
-            },
-            // TODO: Should ASM files be included here?
-            .assembly_file => |_| {
-                // try zig_args.append(asm_file.getPath2(m.step.owner, &m.step));
-                num_source_files +|= 1;
-            },
+            .assembly_file => return,
             else => {},
         }
     }
 
-    if (num_source_files == 0) {
-        return m.step.fail("Module '{s}' must have at least one source file", .{name});
+    return m.step.fail("{s} must have at least one source file", .{prog_node.name});
+}
+
+pub fn constructArgsString(
+    m: *Module,
+    compile_step: *CompileStep,
+) ![]const []const u8 {
+    const b = m.step.owner;
+    var zig_args = ArrayList([]const u8).init(b.allocator);
+
+    for (m.c_macros.items) |c_macro| {
+        try zig_args.append("-D");
+        try zig_args.append(c_macro);
     }
 
-    try zig_args.append("--args");
+    try zig_args.ensureUnusedCapacity(2 * m.lib_paths.items.len);
+    for (m.lib_paths.items) |lib_path| {
+        zig_args.appendAssumeCapacity("-L");
+        zig_args.appendAssumeCapacity(lib_path.getPath2(b, &m.step));
+    }
+
+    try zig_args.ensureUnusedCapacity(2 * m.rpaths.items.len);
+    for (m.rpaths.items) |rpath| {
+        zig_args.appendAssumeCapacity("-rpath");
+
+        if (compile_step.target_info.target.isDarwin()) switch (rpath) {
+            .path => |path| {
+                // On Darwin, we should not try to expand special runtime paths such as
+                // * @executable_path
+                // * @loader_path
+                if (mem.startsWith(u8, path, "@executable_path") or
+                    mem.startsWith(u8, path, "@loader_path"))
+                {
+                    zig_args.appendAssumeCapacity(path);
+                    continue;
+                }
+            },
+            .generated => {},
+        };
+
+        zig_args.appendAssumeCapacity(rpath.getPath2(b, &m.step));
+    }
+
+    for (m.framework_dirs.items) |directory_source| {
+        if (b.sysroot != null) {
+            try zig_args.append("-iframeworkwithsysroot");
+        } else {
+            try zig_args.append("-iframework");
+        }
+        try zig_args.append(directory_source.getPath2(b, &m.step));
+        try zig_args.append("-F");
+        try zig_args.append(directory_source.getPath2(b, &m.step));
+    }
+
+    {
+        var it = m.frameworks.iterator();
+        while (it.next()) |entry| {
+            const name = entry.key_ptr.*;
+            const info = entry.value_ptr.*;
+            if (info.needed) {
+                try zig_args.append("-needed_framework");
+            } else if (info.weak) {
+                try zig_args.append("-weak_framework");
+            } else {
+                try zig_args.append("-framework");
+            }
+            try zig_args.append(name);
+        }
+    }
 
     // We will add link objects from transitive dependencies, but we want to keep
     // all link objects in the same order provided.
     // This array is used to keep m.link_objects immutable.
-    const b = m.step.owner;
     var transitive_deps: TransitiveDeps = .{
         .link_objects = ArrayList(LinkObject).init(b.allocator),
-        .include_dirs = ArrayList(IncludeDir).init(b.allocator),
         .seen_system_libs = StringHashMap(void).init(b.allocator),
         .seen_steps = std.AutoHashMap(*const Step, void).init(b.allocator),
         .is_linking_libcpp = m.is_linking_libcpp,
@@ -246,7 +288,7 @@ pub fn appendArgs(
         try zig_args.append("-lc");
     }
 
-    for (transitive_deps.include_dirs.items) |include_dir| {
+    for (m.include_dirs.items) |include_dir| {
         switch (include_dir) {
             .raw_path => |include_path| {
                 try zig_args.append("-I");
@@ -295,6 +337,8 @@ pub fn appendArgs(
             },
         }
     }
+
+    return zig_args.toOwnedSlice();
 }
 
 fn moduleDependenciesToArrayHashMap(arena: Allocator, deps: []const ModuleDependency) std.StringArrayHashMap(*Module) {
@@ -742,7 +786,6 @@ pub fn setLinkerScriptPath(m: *Module, source: FileSource) void {
 
 const TransitiveDeps = struct {
     link_objects: ArrayList(LinkObject),
-    include_dirs: ArrayList(IncludeDir),
     seen_system_libs: StringHashMap(void),
     seen_steps: std.AutoHashMap(*const Step, void),
     is_linking_libcpp: bool,
@@ -762,30 +805,12 @@ const TransitiveDeps = struct {
                 else => {},
             }
         }
-
-        for (module.include_dirs.items) |include_dir| {
-            try td.include_dirs.append(include_dir);
-        }
-
-        {
-            var it = module.dependencies.iterator();
-            while (it.next()) |kv| {
-                try td.add(kv.value_ptr.*);
-            }
-        }
     }
 
     fn addInner(td: *TransitiveDeps, other: *Module, dyn: bool) !void {
         // Inherit dependency on libc and libc++
         td.is_linking_libcpp = td.is_linking_libcpp or other.is_linking_libcpp;
         td.is_linking_libc = td.is_linking_libc or other.is_linking_libc;
-
-        {
-            var it = other.dependencies.iterator();
-            while (it.next()) |kv| {
-                try td.addInner(kv.value_ptr.*, dyn);
-            }
-        }
 
         // Inherit dependencies on darwin frameworks
         if (!dyn) {

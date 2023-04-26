@@ -694,11 +694,23 @@ pub fn appendModuleArgs(
             const mod = kv.key_ptr.*;
             const name = kv.value_ptr.*;
 
-            try mod.appendArgs(self, name, zig_args);
+            try zig_args.append("--mod");
+            try zig_args.append(name);
+
+            if (mod.source_file) |rs| {
+                try zig_args.append(rs.getPath2(b, &self.step));
+            }
+
+            const args_str = try mod.constructArgsString(self);
+            if (args_str.len > 0) {
+                try zig_args.append("--args");
+                try zig_args.appendSlice(args_str);
+            }
 
             const deps_str = try constructDepString(b.allocator, mod_names, mod.dependencies);
             if (deps_str.len > 0) {
-                try zig_args.append(try std.fmt.allocPrint(b.allocator, "--deps {s}", .{deps_str}));
+                try zig_args.append("--deps");
+                try zig_args.append(deps_str);
             }
         }
     }
@@ -761,7 +773,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     {
-        var it = self.main_module.force_undefined_symbols.keyIterator();
+        var it = self.force_undefined_symbols.keyIterator();
         while (it.next()) |symbol_name| {
             try zig_args.append("--force_undefined");
             try zig_args.append(symbol_name.*);
@@ -1032,66 +1044,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     try self.appendModuleArgs(&zig_args);
-
-    for (self.main_module.c_macros.items) |c_macro| {
-        try zig_args.append("-D");
-        try zig_args.append(c_macro);
-    }
-
-    try zig_args.ensureUnusedCapacity(2 * self.main_module.lib_paths.items.len);
-    for (self.main_module.lib_paths.items) |lib_path| {
-        zig_args.appendAssumeCapacity("-L");
-        zig_args.appendAssumeCapacity(lib_path.getPath2(b, step));
-    }
-
-    try zig_args.ensureUnusedCapacity(2 * self.main_module.rpaths.items.len);
-    for (self.main_module.rpaths.items) |rpath| {
-        zig_args.appendAssumeCapacity("-rpath");
-
-        if (self.target_info.target.isDarwin()) switch (rpath) {
-            .path => |path| {
-                // On Darwin, we should not try to expand special runtime paths such as
-                // * @executable_path
-                // * @loader_path
-                if (mem.startsWith(u8, path, "@executable_path") or
-                    mem.startsWith(u8, path, "@loader_path"))
-                {
-                    zig_args.appendAssumeCapacity(path);
-                    continue;
-                }
-            },
-            .generated => {},
-        };
-
-        zig_args.appendAssumeCapacity(rpath.getPath2(b, step));
-    }
-
-    for (self.main_module.framework_dirs.items) |directory_source| {
-        if (b.sysroot != null) {
-            try zig_args.append("-iframeworkwithsysroot");
-        } else {
-            try zig_args.append("-iframework");
-        }
-        try zig_args.append(directory_source.getPath2(b, step));
-        try zig_args.append("-F");
-        try zig_args.append(directory_source.getPath2(b, step));
-    }
-
-    {
-        var it = self.main_module.frameworks.iterator();
-        while (it.next()) |entry| {
-            const name = entry.key_ptr.*;
-            const info = entry.value_ptr.*;
-            if (info.needed) {
-                try zig_args.append("-needed_framework");
-            } else if (info.weak) {
-                try zig_args.append("-weak_framework");
-            } else {
-                try zig_args.append("-framework");
-            }
-            try zig_args.append(name);
-        }
-    }
 
     if (b.sysroot) |sysroot| {
         try zig_args.appendSlice(&[_][]const u8{ "--sysroot", sysroot });
