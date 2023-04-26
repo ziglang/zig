@@ -8429,6 +8429,7 @@ pub const FuncGen = struct {
         const dest_ptr_align = ptr_ty.ptrAlignment(target);
         const u8_llvm_ty = self.context.intType(8);
         const dest_ptr = self.sliceOrArrayPtr(dest_slice, ptr_ty);
+        const is_volatile = ptr_ty.isVolatilePtr();
 
         if (val_is_undef) {
             // Even if safety is disabled, we still emit a memset to undefined since it conveys
@@ -8439,7 +8440,7 @@ pub const FuncGen = struct {
             else
                 u8_llvm_ty.getUndef();
             const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
-            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, is_volatile);
 
             if (safety and self.dg.module.comp.bin_file.options.valgrind) {
                 self.valgrindMarkUndef(dest_ptr, len);
@@ -8454,7 +8455,7 @@ pub const FuncGen = struct {
             // In this case we can take advantage of LLVM's intrinsic.
             const fill_byte = try self.bitCast(value, elem_ty, Type.u8);
             const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
-            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, is_volatile);
             return null;
         }
 
@@ -8496,8 +8497,22 @@ pub const FuncGen = struct {
         _ = self.builder.buildCondBr(end, body_block, end_block);
 
         self.builder.positionBuilderAtEnd(body_block);
-        const store_inst = self.builder.buildStore(value, it_ptr);
-        store_inst.setAlignment(@min(elem_ty.abiAlignment(target), dest_ptr_align));
+        const elem_abi_alignment = elem_ty.abiAlignment(target);
+        const it_ptr_alignment = @min(elem_abi_alignment, dest_ptr_align);
+        if (isByRef(elem_ty)) {
+            _ = self.builder.buildMemCpy(
+                it_ptr,
+                it_ptr_alignment,
+                value,
+                elem_abi_alignment,
+                llvm_usize_ty.constInt(elem_abi_size, .False),
+                is_volatile,
+            );
+        } else {
+            const store_inst = self.builder.buildStore(value, it_ptr);
+            store_inst.setAlignment(it_ptr_alignment);
+            store_inst.setVolatile(llvm.Bool.fromBool(is_volatile));
+        }
         const one_gep = [_]*llvm.Value{llvm_usize_ty.constInt(1, .False)};
         const next_ptr = self.builder.buildInBoundsGEP(elem_llvm_ty, it_ptr, &one_gep, one_gep.len, "");
         _ = self.builder.buildBr(loop_block);
