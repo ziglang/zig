@@ -71,12 +71,6 @@ const Sha256Params = Sha2Params32{
 
 const v4u32 = @Vector(4, u32);
 
-// TODO: Remove once https://github.com/ziglang/zig/issues/868 is resolved.
-fn isComptime() bool {
-    var a: u8 = 0;
-    return @typeInfo(@TypeOf(.{a})).Struct.fields[0].is_comptime;
-}
-
 /// SHA-224
 pub const Sha224 = Sha2x32(Sha224Params);
 
@@ -203,7 +197,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                 s[i] = mem.readIntBig(u32, mem.asBytes(elem));
             }
 
-            if (!isComptime()) {
+            if (!@inComptime()) {
                 switch (builtin.cpu.arch) {
                     .aarch64 => if (builtin.zig_backend != .stage2_c and comptime std.Target.aarch64.featureSetHas(builtin.cpu.features, .sha2)) {
                         var x: v4u32 = d.s[0..4].*;

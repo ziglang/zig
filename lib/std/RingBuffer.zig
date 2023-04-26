@@ -1,7 +1,7 @@
 //! This ring buffer stores read and write indices while being able to utilise
 //! the full backing slice by incrementing the indices modulo twice the slice's
 //! length and reducing indices modulo the slice's length on slice access. This
-//! means that whether the ring buffer if full or empty can be distinguished by
+//! means that whether the ring buffer is full or empty can be distinguished by
 //! looking at the difference between the read and write indices without adding
 //! an extra boolean flag or having to reserve a slot in the buffer.
 //!

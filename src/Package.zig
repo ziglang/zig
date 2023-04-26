@@ -761,8 +761,7 @@ fn fetchUnpackImport(
         defer req.deinit();
 
         try req.start();
-
-        try req.do();
+        try req.wait();
 
         if (mem.endsWith(u8, uri.path, ".tar.gz")) {
             // I observed the gzip stream to read 1 byte at a time, so I am using a

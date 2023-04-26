@@ -818,7 +818,8 @@ pub const ArgIterator = struct {
     }
 };
 
-/// Use argsWithAllocator() for cross-platform code
+/// Holds the command-line arguments, with the program name as the first entry.
+/// Use argsWithAllocator() for cross-platform code.
 pub fn args() ArgIterator {
     return ArgIterator.init();
 }
@@ -1162,12 +1163,17 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
         .linux => {
             return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
         },
-        .freebsd => {
+        .freebsd, .netbsd, .openbsd, .dragonfly, .macos => {
             var physmem: c_ulong = undefined;
             var len: usize = @sizeOf(c_ulong);
-            os.sysctlbynameZ("hw.physmem", &physmem, &len, null, 0) catch |err| switch (err) {
+            const name = switch (builtin.os.tag) {
+                .macos => "hw.memsize",
+                .netbsd => "hw.physmem64",
+                else => "hw.physmem",
+            };
+            os.sysctlbynameZ(name, &physmem, &len, null, 0) catch |err| switch (err) {
                 error.NameTooLong, error.UnknownName => unreachable,
-                else => |e| return e,
+                else => return error.UnknownTotalSystemMemory,
             };
             return @intCast(usize, physmem);
         },

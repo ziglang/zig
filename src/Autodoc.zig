@@ -4,23 +4,23 @@ const build_options = @import("build_options");
 const Ast = std.zig.Ast;
 const Autodoc = @This();
 const Compilation = @import("Compilation.zig");
-const Module = @import("Module.zig");
-const File = Module.File;
-const Package = @import("Package.zig");
+const CompilationModule = @import("Module.zig");
+const File = CompilationModule.File;
+const Module = @import("Package.zig");
 const Tokenizer = std.zig.Tokenizer;
 const Zir = @import("Zir.zig");
 const Ref = Zir.Inst.Ref;
 const log = std.log.scoped(.autodoc);
-const Docgen = @import("autodoc/render_source.zig");
+const renderer = @import("autodoc/render_source.zig");
 
-module: *Module,
+comp_module: *CompilationModule,
 doc_location: Compilation.EmitLoc,
 arena: std.mem.Allocator,
 
 // The goal of autodoc is to fill up these arrays
 // that will then be serialized as JSON and consumed
 // by the JS frontend.
-packages: std.AutoArrayHashMapUnmanaged(*Package, DocData.DocPackage) = .{},
+modules: std.AutoArrayHashMapUnmanaged(*Module, DocData.DocModule) = .{},
 files: std.AutoArrayHashMapUnmanaged(*File, usize) = .{},
 calls: std.ArrayListUnmanaged(DocData.Call) = .{},
 types: std.ArrayListUnmanaged(DocData.Type) = .{},
@@ -74,10 +74,10 @@ const Section = struct {
 };
 
 var arena_allocator: std.heap.ArenaAllocator = undefined;
-pub fn init(m: *Module, doc_location: Compilation.EmitLoc) Autodoc {
+pub fn init(m: *CompilationModule, doc_location: Compilation.EmitLoc) Autodoc {
     arena_allocator = std.heap.ArenaAllocator.init(m.gpa);
     return .{
-        .module = m,
+        .comp_module = m,
         .doc_location = doc_location,
         .arena = arena_allocator.allocator(),
     };
@@ -97,15 +97,15 @@ pub fn generateZirData(self: *Autodoc) !void {
 
     log.debug("Ref map size: {}", .{Ref.typed_value_map.len});
 
-    const root_src_dir = self.module.main_pkg.root_src_directory;
-    const root_src_path = self.module.main_pkg.root_src_path;
+    const root_src_dir = self.comp_module.main_pkg.root_src_directory;
+    const root_src_path = self.comp_module.main_pkg.root_src_path;
     const joined_src_path = try root_src_dir.join(self.arena, &.{root_src_path});
     defer self.arena.free(joined_src_path);
 
     const abs_root_src_path = try std.fs.path.resolve(self.arena, &.{ ".", joined_src_path });
     defer self.arena.free(abs_root_src_path);
 
-    const file = self.module.import_table.get(abs_root_src_path).?; // file is expected to be present in the import table
+    const file = self.comp_module.import_table.get(abs_root_src_path).?; // file is expected to be present in the import table
     // Append all the types in Zir.Inst.Ref.
     {
         try self.types.append(self.arena, .{
@@ -207,20 +207,20 @@ pub fn generateZirData(self: *Autodoc) !void {
     }
 
     const rootName = blk: {
-        const rootName = std.fs.path.basename(self.module.main_pkg.root_src_path);
+        const rootName = std.fs.path.basename(self.comp_module.main_pkg.root_src_path);
         break :blk rootName[0 .. rootName.len - 4];
     };
 
     const main_type_index = self.types.items.len;
     {
-        try self.packages.put(self.arena, self.module.main_pkg, .{
+        try self.modules.put(self.arena, self.comp_module.main_pkg, .{
             .name = rootName,
             .main = main_type_index,
             .table = .{},
         });
-        try self.packages.entries.items(.value)[0].table.put(
+        try self.modules.entries.items(.value)[0].table.put(
             self.arena,
-            self.module.main_pkg,
+            self.comp_module.main_pkg,
             .{
                 .name = rootName,
                 .value = 0,
@@ -257,7 +257,7 @@ pub fn generateZirData(self: *Autodoc) !void {
 
     var data = DocData{
         .params = .{},
-        .packages = self.packages,
+        .modules = self.modules,
         .files = self.files,
         .calls = self.calls.items,
         .types = self.types.items,
@@ -269,7 +269,7 @@ pub fn generateZirData(self: *Autodoc) !void {
     };
 
     const base_dir = self.doc_location.directory orelse
-        self.module.zig_cache_artifact_directory;
+        self.comp_module.zig_cache_artifact_directory;
 
     base_dir.handle.makeDir(self.doc_location.basename) catch |e| switch (e) {
         error.PathAlreadyExists => {},
@@ -279,7 +279,7 @@ pub fn generateZirData(self: *Autodoc) !void {
     const output_dir = if (self.doc_location.directory) |d|
         try d.handle.openDir(self.doc_location.basename, .{})
     else
-        try self.module.zig_cache_artifact_directory.handle.openDir(self.doc_location.basename, .{});
+        try self.comp_module.zig_cache_artifact_directory.handle.openDir(self.doc_location.basename, .{});
 
     {
         const data_js_f = try output_dir.createFile("data.js", .{});
@@ -316,8 +316,8 @@ pub fn generateZirData(self: *Autodoc) !void {
 
         while (files_iterator.next()) |entry| {
             const sub_file_path = entry.key_ptr.*.sub_file_path;
-            const file_package = entry.key_ptr.*.pkg;
-            const package_name = (self.packages.get(file_package) orelse continue).name;
+            const file_module = entry.key_ptr.*.pkg;
+            const module_name = (self.modules.get(file_module) orelse continue).name;
 
             const file_path = std.fs.path.dirname(sub_file_path) orelse "";
             const file_name = if (file_path.len > 0) sub_file_path[file_path.len + 1 ..] else sub_file_path;
@@ -325,7 +325,7 @@ pub fn generateZirData(self: *Autodoc) !void {
             const html_file_name = try std.mem.concat(self.arena, u8, &.{ file_name, ".html" });
             defer self.arena.free(html_file_name);
 
-            const dir_name = try std.fs.path.join(self.arena, &.{ package_name, file_path });
+            const dir_name = try std.fs.path.join(self.arena, &.{ module_name, file_path });
             defer self.arena.free(dir_name);
 
             var dir = try html_dir.makeOpenPath(dir_name, .{});
@@ -340,13 +340,13 @@ pub fn generateZirData(self: *Autodoc) !void {
 
             const out = buffer.writer();
 
-            try Docgen.genHtml(self.module.gpa, entry.key_ptr.*, out);
+            try renderer.genHtml(self.comp_module.gpa, entry.key_ptr.*, out);
             try buffer.flush();
         }
     }
 
     // copy main.js, index.html
-    var docs_dir = try self.module.comp.zig_lib_directory.handle.openDir("docs", .{});
+    var docs_dir = try self.comp_module.comp.zig_lib_directory.handle.openDir("docs", .{});
     defer docs_dir.close();
     try docs_dir.copyFile("main.js", output_dir, "main.js", .{});
     try docs_dir.copyFile("index.html", output_dir, "index.html", .{});
@@ -407,7 +407,7 @@ const Scope = struct {
 /// The output of our analysis process.
 const DocData = struct {
     typeKinds: []const []const u8 = std.meta.fieldNames(DocTypeKinds),
-    rootPkg: u32 = 0,
+    rootMod: u32 = 0,
     params: struct {
         zigId: []const u8 = "arst",
         zigVersion: []const u8 = build_options.version,
@@ -416,7 +416,7 @@ const DocData = struct {
             .{ .target = "arst" },
         },
     },
-    packages: std.AutoArrayHashMapUnmanaged(*Package, DocPackage),
+    modules: std.AutoArrayHashMapUnmanaged(*Module, DocModule),
     errors: []struct {} = &.{},
 
     // non-hardcoded stuff
@@ -448,10 +448,10 @@ const DocData = struct {
             const f_name = @tagName(f);
             try jsw.objectField(f_name);
             switch (f) {
-                .files => try writeFileTableToJson(self.files, self.packages, &jsw),
+                .files => try writeFileTableToJson(self.files, self.modules, &jsw),
                 .guide_sections => try writeGuidesToJson(self.guide_sections, &jsw),
-                .packages => {
-                    try std.json.stringify(self.packages.values(), opts, w);
+                .modules => {
+                    try std.json.stringify(self.modules.values(), opts, w);
                     jsw.state_index -= 1;
                 },
                 else => {
@@ -477,18 +477,18 @@ const DocData = struct {
     const ComptimeExpr = struct {
         code: []const u8,
     };
-    const DocPackage = struct {
+    const DocModule = struct {
         name: []const u8 = "(root)",
         file: usize = 0, // index into `files`
         main: usize = 0, // index into `types`
-        table: std.AutoHashMapUnmanaged(*Package, TableEntry),
+        table: std.AutoHashMapUnmanaged(*Module, TableEntry),
         pub const TableEntry = struct {
             name: []const u8,
             value: usize,
         };
 
         pub fn jsonStringify(
-            self: DocPackage,
+            self: DocModule,
             opts: std.json.StringifyOptions,
             w: anytype,
         ) !void {
@@ -496,11 +496,11 @@ const DocData = struct {
             if (opts.whitespace) |ws| jsw.whitespace = ws;
 
             try jsw.beginObject();
-            inline for (comptime std.meta.tags(std.meta.FieldEnum(DocPackage))) |f| {
+            inline for (comptime std.meta.tags(std.meta.FieldEnum(DocModule))) |f| {
                 const f_name = @tagName(f);
                 try jsw.objectField(f_name);
                 switch (f) {
-                    .table => try writePackageTableToJson(self.table, &jsw),
+                    .table => try writeModuleTableToJson(self.table, &jsw),
                     else => {
                         try std.json.stringify(@field(self, f_name), opts, w);
                         jsw.state_index -= 1;
@@ -917,23 +917,23 @@ fn walkInstruction(
 
             // importFile cannot error out since all files
             // are already loaded at this point
-            if (file.pkg.table.get(path)) |other_package| {
-                const result = try self.packages.getOrPut(self.arena, other_package);
+            if (file.pkg.table.get(path)) |other_module| {
+                const result = try self.modules.getOrPut(self.arena, other_module);
 
-                // Immediately add this package to the import table of our
-                // current package, regardless of wether it's new or not.
-                if (self.packages.getPtr(file.pkg)) |current_package| {
+                // Immediately add this module to the import table of our
+                // current module, regardless of wether it's new or not.
+                if (self.modules.getPtr(file.pkg)) |current_module| {
                     // TODO: apparently, in the stdlib a file gets analized before
-                    //       its package gets added. I guess we're importing a file
-                    //       that belongs to another package through its file path?
-                    //       (ie not through its package name).
+                    //       its module gets added. I guess we're importing a file
+                    //       that belongs to another module through its file path?
+                    //       (ie not through its module name).
                     //       We're bailing for now, but maybe we shouldn't?
-                    _ = try current_package.table.getOrPutValue(
+                    _ = try current_module.table.getOrPutValue(
                         self.arena,
-                        other_package,
+                        other_module,
                         .{
                             .name = path,
-                            .value = self.packages.getIndex(other_package).?,
+                            .value = self.modules.getIndex(other_module).?,
                         },
                     );
                 }
@@ -945,7 +945,7 @@ fn walkInstruction(
                     };
                 }
 
-                // create a new package entry
+                // create a new module entry
                 const main_type_index = self.types.items.len;
                 result.value_ptr.* = .{
                     .name = path,
@@ -953,18 +953,18 @@ fn walkInstruction(
                     .table = .{},
                 };
 
-                // TODO: Add this package as a dependency to the current package
+                // TODO: Add this module as a dependency to the current module
                 // TODO: this seems something that could be done in bulk
                 //       at the beginning or the end, or something.
-                const root_src_dir = other_package.root_src_directory;
-                const root_src_path = other_package.root_src_path;
+                const root_src_dir = other_module.root_src_directory;
+                const root_src_path = other_module.root_src_path;
                 const joined_src_path = try root_src_dir.join(self.arena, &.{root_src_path});
                 defer self.arena.free(joined_src_path);
 
                 const abs_root_src_path = try std.fs.path.resolve(self.arena, &.{ ".", joined_src_path });
                 defer self.arena.free(abs_root_src_path);
 
-                const new_file = self.module.import_table.get(abs_root_src_path).?;
+                const new_file = self.comp_module.import_table.get(abs_root_src_path).?;
 
                 var root_scope = Scope{
                     .parent = null,
@@ -985,7 +985,7 @@ fn walkInstruction(
                 );
             }
 
-            const new_file = self.module.importFile(file, path) catch unreachable;
+            const new_file = self.comp_module.importFile(file, path) catch unreachable;
             const result = try self.files.getOrPut(self.arena, new_file.file);
             if (result.found_existing) {
                 return DocData.WalkResult{
@@ -3189,7 +3189,7 @@ fn analyzeDecl(
 
             // const pl_node = data[Zir.refToIndex(func_index).?].pl_node;
             // const fn_src = try self.srcLocInfo(file, pl_node.src_node, decl_src);
-            // const tree = try file.getTree(self.module.gpa);
+            // const tree = try file.getTree(self.comp_module.gpa);
             // const test_source_code = tree.getNodeSource(fn_src.src_node);
 
             // const ast_node_index = self.ast_nodes.items.len;
@@ -4076,7 +4076,7 @@ fn analyzeFancyFunction(
         else => null,
     };
 
-    // if we're analyzing a funcion signature (ie without body), we
+    // if we're analyzing a function signature (ie without body), we
     // actually don't have an ast_node reserved for us, but since
     // we don't have a name, we don't need it.
     const src = if (fn_info.body.len == 0) 0 else self_ast_node_index;
@@ -4229,7 +4229,7 @@ fn analyzeFunction(
         } else break :blk ret_type_ref;
     };
 
-    // if we're analyzing a funcion signature (ie without body), we
+    // if we're analyzing a function signature (ie without body), we
     // actually don't have an ast_node reserved for us, but since
     // we don't have a name, we don't need it.
     const src = if (fn_info.body.len == 0) 0 else self_ast_node_index;
@@ -4638,7 +4638,7 @@ fn cteTodo(self: *Autodoc, msg: []const u8) error{OutOfMemory}!DocData.WalkResul
 
 fn writeFileTableToJson(
     map: std.AutoArrayHashMapUnmanaged(*File, usize),
-    pkgs: std.AutoArrayHashMapUnmanaged(*Package, DocData.DocPackage),
+    mods: std.AutoArrayHashMapUnmanaged(*Module, DocData.DocModule),
     jsw: anytype,
 ) !void {
     try jsw.beginArray();
@@ -4649,7 +4649,7 @@ fn writeFileTableToJson(
         try jsw.arrayElem();
         try jsw.emitString(entry.key_ptr.*.sub_file_path);
         try jsw.arrayElem();
-        try jsw.emitNumber(pkgs.getIndex(entry.key_ptr.*.pkg) orelse 0);
+        try jsw.emitNumber(mods.getIndex(entry.key_ptr.*.pkg) orelse 0);
         try jsw.endArray();
     }
     try jsw.endArray();
@@ -4690,8 +4690,8 @@ fn writeGuidesToJson(sections: std.ArrayListUnmanaged(Section), jsw: anytype) !v
     try jsw.endArray();
 }
 
-fn writePackageTableToJson(
-    map: std.AutoHashMapUnmanaged(*Package, DocData.DocPackage.TableEntry),
+fn writeModuleTableToJson(
+    map: std.AutoHashMapUnmanaged(*Module, DocData.DocModule.TableEntry),
     jsw: anytype,
 ) !void {
     try jsw.beginObject();
@@ -4710,7 +4710,7 @@ fn srcLocInfo(
     parent_src: SrcLocInfo,
 ) !SrcLocInfo {
     const sn = @intCast(u32, @intCast(i32, parent_src.src_node) + src_node);
-    const tree = try file.getTree(self.module.gpa);
+    const tree = try file.getTree(self.comp_module.gpa);
     const node_idx = @bitCast(Ast.Node.Index, sn);
     const tokens = tree.nodes.items(.main_token);
 
@@ -4731,7 +4731,7 @@ fn declIsVar(
     parent_src: SrcLocInfo,
 ) !bool {
     const sn = @intCast(u32, @intCast(i32, parent_src.src_node) + src_node);
-    const tree = try file.getTree(self.module.gpa);
+    const tree = try file.getTree(self.comp_module.gpa);
     const node_idx = @bitCast(Ast.Node.Index, sn);
     const tokens = tree.nodes.items(.main_token);
     const tags = tree.tokens.items(.tag);
@@ -4743,7 +4743,7 @@ fn declIsVar(
 }
 
 fn getTLDocComment(self: *Autodoc, file: *File) ![]const u8 {
-    const source = (try file.getSource(self.module.gpa)).bytes;
+    const source = (try file.getSource(self.comp_module.gpa)).bytes;
     var tokenizer = Tokenizer.init(source);
     var tok = tokenizer.next();
     var comment = std.ArrayList(u8).init(self.arena);
@@ -4782,9 +4782,9 @@ fn findGuidePaths(self: *Autodoc, file: *File, str: []const u8) !void {
 fn addGuide(self: *Autodoc, file: *File, guide_path: []const u8, section: *Section) !void {
     if (guide_path.len == 0) return error.MissingAutodocGuideName;
 
-    const cur_pkg_dir_path = file.pkg.root_src_directory.path orelse ".";
+    const cur_mod_dir_path = file.pkg.root_src_directory.path orelse ".";
     const resolved_path = try std.fs.path.resolve(self.arena, &[_][]const u8{
-        cur_pkg_dir_path, file.sub_file_path, "..", guide_path,
+        cur_mod_dir_path, file.sub_file_path, "..", guide_path,
     });
 
     var guide_file = try file.pkg.root_src_directory.handle.openFile(resolved_path, .{});

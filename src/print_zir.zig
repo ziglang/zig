@@ -466,6 +466,7 @@ const Writer = struct {
             .frame_address,
             .breakpoint,
             .c_va_start,
+            .in_comptime,
             => try self.writeExtNode(stream, extended),
 
             .builtin_src => {

@@ -556,8 +556,12 @@ pub const HeadersParser = struct {
                     switch (r.state) {
                         .invalid => return error.HttpChunkInvalid,
                         .chunk_data => if (r.next_chunk_length == 0) {
-                            // The trailer section is formatted identically to the header section.
-                            r.state = .seen_rn;
+                            if (std.mem.eql(u8, bconn.peek(), "\r\n")) {
+                                r.state = .finished;
+                            } else {
+                                // The trailer section is formatted identically to the header section.
+                                r.state = .seen_rn;
+                            }
                             r.done = true;
 
                             return out_index;

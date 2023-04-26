@@ -6439,19 +6439,25 @@ pub fn populateTestFunctions(
         errdefer new_decl_arena.deinit();
         const arena = new_decl_arena.allocator();
 
-        // This copy accesses the old Decl Type/Value so it must be done before `clearValues`.
-        const new_ty = try Type.Tag.const_slice.create(arena, try tmp_test_fn_ty.copy(arena));
-        const new_val = try Value.Tag.slice.create(arena, .{
-            .ptr = try Value.Tag.decl_ref.create(arena, array_decl_index),
-            .len = try Value.Tag.int_u64.create(arena, mod.test_functions.count()),
-        });
+        {
+            // This copy accesses the old Decl Type/Value so it must be done before `clearValues`.
+            const new_ty = try Type.Tag.const_slice.create(arena, try tmp_test_fn_ty.copy(arena));
+            const new_var = try gpa.create(Var);
+            errdefer gpa.destroy(new_var);
+            new_var.* = decl.val.castTag(.variable).?.data.*;
+            new_var.init = try Value.Tag.slice.create(arena, .{
+                .ptr = try Value.Tag.decl_ref.create(arena, array_decl_index),
+                .len = try Value.Tag.int_u64.create(arena, mod.test_functions.count()),
+            });
+            const new_val = try Value.Tag.variable.create(arena, new_var);
 
-        // Since we are replacing the Decl's value we must perform cleanup on the
-        // previous value.
-        decl.clearValues(mod);
-        decl.ty = new_ty;
-        decl.val = new_val;
-        decl.has_tv = true;
+            // Since we are replacing the Decl's value we must perform cleanup on the
+            // previous value.
+            decl.clearValues(mod);
+            decl.ty = new_ty;
+            decl.val = new_val;
+            decl.has_tv = true;
+        }
 
         try decl.finalizeNewArena(&new_decl_arena);
     }
@@ -6626,7 +6632,7 @@ pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
         .safety_check_formatted => mod.comp.bin_file.options.use_llvm,
         .error_return_trace => mod.comp.bin_file.options.use_llvm,
         .is_named_enum_value => mod.comp.bin_file.options.use_llvm,
-        .error_set_has_value => mod.comp.bin_file.options.use_llvm,
+        .error_set_has_value => mod.comp.bin_file.options.use_llvm or mod.comp.bin_file.options.target.isWasm(),
         .field_reordering => mod.comp.bin_file.options.use_llvm,
     };
 }
