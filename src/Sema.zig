@@ -5852,6 +5852,19 @@ fn zirDbgStmt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!voi
     if (block.is_comptime or sema.mod.comp.bin_file.options.strip) return;
 
     const inst_data = sema.code.instructions.items(.data)[inst].dbg_stmt;
+
+    if (block.instructions.items.len != 0) {
+        const idx = block.instructions.items[block.instructions.items.len - 1];
+        if (sema.air_instructions.items(.tag)[idx] == .dbg_stmt) {
+            // The previous dbg_stmt didn't correspond to any actual code, so replace it.
+            sema.air_instructions.items(.data)[idx].dbg_stmt = .{
+                .line = inst_data.line,
+                .column = inst_data.column,
+            };
+            return;
+        }
+    }
+
     _ = try block.addInst(.{
         .tag = .dbg_stmt,
         .data = .{ .dbg_stmt = .{
