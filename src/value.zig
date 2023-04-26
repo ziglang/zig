@@ -3002,6 +3002,15 @@ pub const Value = extern union {
                 const data = val.castTag(.elem_ptr).?.data;
                 return data.array_ptr.elemValueAdvanced(mod, index + data.index, arena, buffer);
             },
+            .field_ptr => {
+                const data = val.castTag(.field_ptr).?.data;
+                if (data.container_ptr.pointerDecl()) |decl_index| {
+                    const container_decl = mod.declPtr(decl_index);
+                    const field_type = data.container_ty.structFieldType(data.field_index);
+                    const field_val = container_decl.val.fieldValue(field_type, data.field_index);
+                    return field_val.elemValueAdvanced(mod, index, arena, buffer);
+                } else unreachable;
+            },
 
             // The child type of arrays which have only one possible value need
             // to have only one possible value itself.
