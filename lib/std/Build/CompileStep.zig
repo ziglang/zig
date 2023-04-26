@@ -36,6 +36,7 @@ name: []const u8,
 target: CrossTarget,
 target_info: NativeTargetInfo,
 optimize: std.builtin.Mode,
+linker_script: ?FileSource = null,
 version_script: ?[]const u8 = null,
 out_filename: []const u8,
 linkage: ?Linkage = null,
@@ -77,6 +78,7 @@ initial_memory: ?u64 = null,
 max_memory: ?u64 = null,
 shared_memory: bool = false,
 global_base: ?u64 = null,
+c_std: std.Build.CStd,
 zig_lib_dir: ?[]const u8,
 main_pkg_path: ?[]const u8,
 exec_cmd_args: ?[]const ?[]const u8,
@@ -322,6 +324,7 @@ pub fn create(owner: *std.Build, options: Options) *CompileStep {
         .out_pdb_filename = owner.fmt("{s}.pdb", .{name}),
         .major_only_filename = null,
         .name_only_filename = null,
+        .c_std = std.Build.CStd.C99,
         .zig_lib_dir = null,
         .main_pkg_path = null,
         .exec_cmd_args = null,
@@ -405,6 +408,12 @@ pub const install = @compileError("deprecated; use std.Build.installArtifact");
 
 pub fn checkObject(self: *CompileStep) *CheckObjectStep {
     return CheckObjectStep.create(self.step.owner, self.getOutputSource(), self.target_info.target.ofmt);
+}
+
+pub fn setLinkerScriptPath(self: *CompileStep, source: FileSource) void {
+    const b = self.step.owner;
+    self.linker_script = source.dupe(b);
+    source.addStepDependencies(&self.step);
 }
 
 pub fn forceUndefinedSymbol(self: *CompileStep, symbol_name: []const u8) void {
@@ -1020,7 +1029,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 
-    if (self.main_module.linker_script) |linker_script| {
+    if (self.linker_script) |linker_script| {
         try zig_args.append("--script");
         try zig_args.append(linker_script.getPath(b));
     }

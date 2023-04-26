@@ -14,11 +14,9 @@ lib_paths: ArrayList(FileSource),
 rpaths: ArrayList(FileSource),
 framework_dirs: ArrayList(FileSource),
 c_macros: ArrayList([]const u8),
-c_std: std.Build.CStd,
 
 is_linking_libc: bool,
 is_linking_libcpp: bool,
-linker_script: ?FileSource = null,
 
 pub fn create(owner: *Build, name: ?[]const u8, options: CreateModuleOptions) *Module {
     const arena = owner.allocator;
@@ -43,10 +41,8 @@ pub fn create(owner: *Build, name: ?[]const u8, options: CreateModuleOptions) *M
         .rpaths = ArrayList(FileSource).init(arena),
         .framework_dirs = ArrayList(FileSource).init(arena),
         .c_macros = ArrayList([]const u8).init(arena),
-        .c_std = std.Build.CStd.C99,
         .is_linking_libc = false,
         .is_linking_libcpp = false,
-        .linker_script = null,
     };
 
     if (options.source_file) |rs| {
@@ -779,12 +775,6 @@ pub fn addFrameworkPath(m: *Module, dir_path: []const u8) void {
 pub fn addFrameworkPathDirectorySource(m: *Module, directory_source: FileSource) void {
     m.framework_dirs.append(directory_source) catch @panic("OOM");
     directory_source.addStepDependencies(&m.step);
-}
-
-pub fn setLinkerScriptPath(m: *Module, source: FileSource) void {
-    const b = m.step.owner;
-    m.linker_script = source.dupe(b);
-    source.addStepDependencies(&m.step);
 }
 
 const TransitiveDeps = struct {
