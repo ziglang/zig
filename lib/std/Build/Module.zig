@@ -83,6 +83,9 @@ pub fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     return m.step.fail("{s} must have at least one source file", .{prog_node.name});
 }
 
+/// Constructs a string containing all module-specific build arguments needed to
+/// build for the provided `CompileStep`. The list of arguments does *not* contain
+/// arguments needed for dependency modules.
 pub fn constructArgsString(
     m: *Module,
     compile_step: *CompileStep,
