@@ -4180,8 +4180,11 @@ fn maybeSuppressResult(c: *Context, used: ResultUsed, result: Node) TransError!N
 }
 
 fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
-    try c.global_scope.sym_table.put(name, decl_node);
-    try c.global_scope.nodes.append(decl_node);
+    const gop = try c.global_scope.sym_table.getOrPut(name);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = decl_node;
+        try c.global_scope.nodes.append(decl_node);
+    }
 }
 
 fn transQualTypeInitializedStringLiteral(c: *Context, elem_ty: Node, string_lit: *const clang.StringLiteral) TypeError!Node {
