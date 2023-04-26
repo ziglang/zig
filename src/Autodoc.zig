@@ -234,12 +234,13 @@ pub fn generateZirData(self: *Autodoc) !void {
     };
 
     const tldoc_comment = try self.getTLDocComment(file);
+    const cleaned_tldoc_comment = try self.findGuidePaths(file, tldoc_comment);
+    defer self.arena.free(cleaned_tldoc_comment);
     try self.ast_nodes.append(self.arena, .{
         .name = "(root)",
-        .docs = tldoc_comment,
+        .docs = cleaned_tldoc_comment,
     });
     try self.files.put(self.arena, file, main_type_index);
-    try self.findGuidePaths(file, tldoc_comment);
 
     _ = try self.walkInstruction(file, &root_scope, .{}, Zir.main_struct_inst, false);
 
@@ -349,6 +350,7 @@ pub fn generateZirData(self: *Autodoc) !void {
     var docs_dir = try self.comp_module.comp.zig_lib_directory.handle.openDir("docs", .{});
     defer docs_dir.close();
     try docs_dir.copyFile("main.js", output_dir, "main.js", .{});
+    try docs_dir.copyFile("commonmark.js", output_dir, "commonmark.js", .{});
     try docs_dir.copyFile("index.html", output_dir, "index.html", .{});
 }
 
@@ -4754,14 +4756,20 @@ fn getTLDocComment(self: *Autodoc, file: *File) ![]const u8 {
     return comment.items;
 }
 
-fn findGuidePaths(self: *Autodoc, file: *File, str: []const u8) !void {
+/// Returns the doc comment cleared of autodoc directives.
+fn findGuidePaths(self: *Autodoc, file: *File, str: []const u8) ![]const u8 {
     const guide_prefix = "zig-autodoc-guide:";
     const section_prefix = "zig-autodoc-section:";
 
     try self.guide_sections.append(self.arena, .{}); // add a default section
     var current_section = &self.guide_sections.items[self.guide_sections.items.len - 1];
 
-    var it = std.mem.tokenize(u8, str, "\n");
+    var clean_docs: std.ArrayListUnmanaged(u8) = .{};
+    errdefer clean_docs.deinit(self.arena);
+
+    // TODO: this algo is kinda inefficient
+
+    var it = std.mem.split(u8, str, "\n");
     while (it.next()) |line| {
         const trimmed_line = std.mem.trim(u8, line, " ");
         if (std.mem.startsWith(u8, trimmed_line, guide_prefix)) {
@@ -4775,8 +4783,13 @@ fn findGuidePaths(self: *Autodoc, file: *File, str: []const u8) !void {
                 .name = trimmed_section_name,
             });
             current_section = &self.guide_sections.items[self.guide_sections.items.len - 1];
+        } else {
+            try clean_docs.appendSlice(self.arena, line);
+            try clean_docs.append(self.arena, '\n');
         }
     }
+
+    return clean_docs.toOwnedSlice(self.arena);
 }
 
 fn addGuide(self: *Autodoc, file: *File, guide_path: []const u8, section: *Section) !void {
