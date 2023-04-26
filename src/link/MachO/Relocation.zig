@@ -37,14 +37,33 @@ pub const Type = enum {
     tlv_initializer,
 };
 
-/// Returns true if and only if the reloc is dirty AND the target address is available.
+/// Returns true if and only if the reloc can be resolved.
 pub fn isResolvable(self: Relocation, macho_file: *MachO) bool {
-    const addr = self.getTargetBaseAddress(macho_file) orelse return false;
-    if (addr == 0) return false;
-    return self.dirty;
+    _ = self.getTargetBaseAddress(macho_file) orelse return false;
+    return true;
+}
+
+pub fn isGotIndirection(self: Relocation) bool {
+    return switch (self.type) {
+        .got, .got_page, .got_pageoff => true,
+        else => false,
+    };
+}
+
+pub fn isStubTrampoline(self: Relocation, macho_file: *MachO) bool {
+    return switch (self.type) {
+        .branch => macho_file.getSymbol(self.target).undf(),
+        else => false,
+    };
 }
 
 pub fn getTargetBaseAddress(self: Relocation, macho_file: *MachO) ?u64 {
+    if (self.isStubTrampoline(macho_file)) {
+        const index = macho_file.stub_table.lookup.get(self.target) orelse return null;
+        const header = macho_file.sections.items(.header)[macho_file.stubs_section_index.?];
+        return header.addr +
+            index * @import("stubs.zig").calcStubEntrySize(macho_file.base.options.target.cpu.arch);
+    }
     switch (self.type) {
         .got, .got_page, .got_pageoff => {
             const got_index = macho_file.got_table.lookup.get(self.target) orelse return null;
@@ -56,17 +75,11 @@ pub fn getTargetBaseAddress(self: Relocation, macho_file: *MachO) ?u64 {
             const atom = macho_file.getAtom(atom_index);
             return atom.getSymbol(macho_file).n_value;
         },
-        .branch => {
-            if (macho_file.stub_table.lookup.get(self.target)) |index| {
-                const header = macho_file.sections.items(.header)[macho_file.stubs_section_index.?];
-                return header.addr +
-                    index * @import("stubs.zig").calcStubEntrySize(macho_file.base.options.target.cpu.arch);
-            }
-            const atom_index = macho_file.getAtomIndexForSymbol(self.target) orelse return null;
-            const atom = macho_file.getAtom(atom_index);
-            return atom.getSymbol(macho_file).n_value;
+        else => {
+            const target_atom_index = macho_file.getAtomIndexForSymbol(self.target) orelse return null;
+            const target_atom = macho_file.getAtom(target_atom_index);
+            return target_atom.getSymbol(macho_file).n_value;
         },
-        else => return macho_file.getSymbol(self.target).n_value,
     }
 }
 
