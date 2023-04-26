@@ -26953,9 +26953,11 @@ fn storePtrVal(
             defer sema.gpa.free(buffer);
             reinterpret.val_ptr.*.writeToMemory(mut_kit.ty, sema.mod, buffer) catch |err| switch (err) {
                 error.ReinterpretDeclRef => unreachable,
+                error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
             };
             operand_val.writeToMemory(operand_ty, sema.mod, buffer[reinterpret.byte_offset..]) catch |err| switch (err) {
                 error.ReinterpretDeclRef => unreachable,
+                error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
             };
 
             const arena = mut_kit.beginArena(sema.mod);
@@ -27905,6 +27907,7 @@ fn bitCastVal(
     defer sema.gpa.free(buffer);
     val.writeToMemory(old_ty, sema.mod, buffer) catch |err| switch (err) {
         error.ReinterpretDeclRef => return null,
+        error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
     };
     return try Value.readFromMemory(new_ty, sema.mod, buffer[buffer_offset..], sema.arena);
 }

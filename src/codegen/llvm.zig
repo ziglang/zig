@@ -8424,28 +8424,45 @@ pub const FuncGen = struct {
         const dest_slice = try self.resolveInst(bin_op.lhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         const elem_ty = self.air.typeOf(bin_op.rhs);
-        const target = self.dg.module.getTarget();
-        const val_is_undef = if (self.air.value(bin_op.rhs)) |val| val.isUndefDeep() else false;
+        const module = self.dg.module;
+        const target = module.getTarget();
         const dest_ptr_align = ptr_ty.ptrAlignment(target);
         const u8_llvm_ty = self.context.intType(8);
         const dest_ptr = self.sliceOrArrayPtr(dest_slice, ptr_ty);
         const is_volatile = ptr_ty.isVolatilePtr();
 
-        if (val_is_undef) {
-            // Even if safety is disabled, we still emit a memset to undefined since it conveys
-            // extra information to LLVM. However, safety makes the difference between using
-            // 0xaa or actual undefined for the fill byte.
-            const fill_byte = if (safety)
-                u8_llvm_ty.constInt(0xaa, .False)
-            else
-                u8_llvm_ty.getUndef();
-            const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
-            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, is_volatile);
+        if (self.air.value(bin_op.rhs)) |elem_val| {
+            if (elem_val.isUndefDeep()) {
+                // Even if safety is disabled, we still emit a memset to undefined since it conveys
+                // extra information to LLVM. However, safety makes the difference between using
+                // 0xaa or actual undefined for the fill byte.
+                const fill_byte = if (safety)
+                    u8_llvm_ty.constInt(0xaa, .False)
+                else
+                    u8_llvm_ty.getUndef();
+                const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
+                _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, is_volatile);
 
-            if (safety and self.dg.module.comp.bin_file.options.valgrind) {
-                self.valgrindMarkUndef(dest_ptr, len);
+                if (safety and module.comp.bin_file.options.valgrind) {
+                    self.valgrindMarkUndef(dest_ptr, len);
+                }
+                return null;
             }
-            return null;
+
+            // Test if the element value is compile-time known to be a
+            // repeating byte pattern, for example, `@as(u64, 0)` has a
+            // repeating byte pattern of 0 bytes. In such case, the memset
+            // intrinsic can be used.
+            var value_buffer: Value.Payload.U64 = undefined;
+            if (try elem_val.hasRepeatedByteRepr(elem_ty, module, &value_buffer)) |byte_val| {
+                const fill_byte = try self.resolveValue(.{
+                    .ty = Type.u8,
+                    .val = byte_val,
+                });
+                const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
+                _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, is_volatile);
+                return null;
+            }
         }
 
         const value = try self.resolveInst(bin_op.rhs);
