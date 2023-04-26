@@ -7939,11 +7939,15 @@ pub const FuncGen = struct {
         return self.builder.buildPtrToInt(operand_ptr, dest_llvm_ty, "");
     }
 
-    fn airBitCast(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airBitCast(self: *FuncGen, inst: Air.Inst.Index) !*llvm.Value {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_ty = self.air.typeOf(ty_op.operand);
         const inst_ty = self.air.typeOfIndex(inst);
         const operand = try self.resolveInst(ty_op.operand);
+        return self.bitCast(operand, operand_ty, inst_ty);
+    }
+
+    fn bitCast(self: *FuncGen, operand: *llvm.Value, operand_ty: Type, inst_ty: Type) !*llvm.Value {
         const operand_is_ref = isByRef(operand_ty);
         const result_is_ref = isByRef(inst_ty);
         const llvm_dest_ty = try self.dg.lowerType(inst_ty);
@@ -7952,6 +7956,12 @@ pub const FuncGen = struct {
         if (operand_is_ref and result_is_ref) {
             // They are both pointers, so just return the same opaque pointer :)
             return operand;
+        }
+
+        if (llvm_dest_ty.getTypeKind() == .Integer and
+            operand.typeOf().getTypeKind() == .Integer)
+        {
+            return self.builder.buildZExtOrBitCast(operand, llvm_dest_ty, "");
         }
 
         if (operand_ty.zigTypeTag() == .Int and inst_ty.isPtrAtRuntime()) {
@@ -8442,7 +8452,7 @@ pub const FuncGen = struct {
 
         if (elem_abi_size == 1) {
             // In this case we can take advantage of LLVM's intrinsic.
-            const fill_byte = self.builder.buildBitCast(value, u8_llvm_ty, "");
+            const fill_byte = try self.bitCast(value, elem_ty, Type.u8);
             const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
             _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr());
             return null;
