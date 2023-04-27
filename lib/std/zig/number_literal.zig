@@ -118,7 +118,7 @@ pub fn parseNumberLiteral(bytes: []const u8) Result {
             '.' => {
                 float = true;
                 if (base != 10 and base != 16) return .{ .failure = .{ .invalid_float_base = 2 } };
-                if (period) return .{ .failure = .{ .duplicate_exponent = i } };
+                if (period) return .{ .failure = .duplicate_period };
                 period = true;
                 if (underscore) return .{ .failure = .{ .special_after_underscore = i } };
                 special = c;
