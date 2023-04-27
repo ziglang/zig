@@ -1281,6 +1281,7 @@ pub const Value = extern union {
     pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) error{
         ReinterpretDeclRef,
         IllDefinedMemoryLayout,
+        Unimplemented,
     }!void {
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
@@ -1370,19 +1371,19 @@ pub const Value = extern union {
             },
             .Union => switch (ty.containerLayout()) {
                 .Auto => return error.IllDefinedMemoryLayout,
-                .Extern => @panic("TODO implement writeToMemory for extern unions"),
+                .Extern => return error.Unimplemented,
                 .Packed => {
                     const byte_count = (@intCast(usize, ty.bitSize(target)) + 7) / 8;
                     return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
                 },
             },
             .Pointer => {
-                assert(!ty.isSlice()); // No well defined layout.
+                if (ty.isSlice()) return error.IllDefinedMemoryLayout;
                 if (val.isDeclRef()) return error.ReinterpretDeclRef;
                 return val.writeToMemory(Type.usize, mod, buffer);
             },
             .Optional => {
-                assert(ty.isPtrLikeOptional());
+                if (!ty.isPtrLikeOptional()) return error.IllDefinedMemoryLayout;
                 var buf: Type.Payload.ElemType = undefined;
                 const child = ty.optionalChild(&buf);
                 const opt_val = val.optionalValue();
@@ -1392,7 +1393,7 @@ pub const Value = extern union {
                     return writeToMemory(Value.zero, Type.usize, mod, buffer);
                 }
             },
-            else => @panic("TODO implement writeToMemory for more types"),
+            else => return error.Unimplemented,
         }
     }
 
@@ -5401,6 +5402,7 @@ pub const Value = extern union {
             // code late in compilation. So, this error handling is too aggressive and
             // causes some false negatives, causing less-than-ideal code generation.
             error.IllDefinedMemoryLayout => return null,
+            error.Unimplemented => return null,
         };
         const first_byte = byte_buffer[0];
         for (byte_buffer[1..]) |byte| {
