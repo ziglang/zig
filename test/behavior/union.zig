@@ -14,6 +14,8 @@ test "basic unions with floats" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and
+        comptime !std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sse, .sse2, .sse4_1 })) return error.SkipZigTest; // TODO
 
     var foo = FooWithFloats{ .int = 1 };
     try expect(foo.int == 1);
@@ -29,6 +31,8 @@ test "init union with runtime value - floats" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and
+        comptime !std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sse, .sse2, .sse4_1 })) return error.SkipZigTest; // TODO
 
     var foo: FooWithFloats = undefined;
 
@@ -216,6 +220,8 @@ test "union with specified enum tag" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and
+        comptime !std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sse, .sse2, .sse4_1 })) return error.SkipZigTest; // TODO
 
     try doTest();
     comptime try doTest();
@@ -225,6 +231,8 @@ test "packed union generates correctly aligned type" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and
+        comptime !std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sse, .sse2, .sse4_1 })) return error.SkipZigTest; // TODO
 
     const U = packed union {
         f1: *const fn () error{TestUnexpectedResult}!void,
@@ -903,6 +911,8 @@ test "anonymous union literal syntax" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and
+        comptime !std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sse, .sse2, .sse4_1 })) return error.SkipZigTest; // TODO
 
     const S = struct {
         const Number = union {
@@ -1055,6 +1065,8 @@ test "containers with single-field enums" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and
+        comptime !std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sse, .sse2, .sse4_1 })) return error.SkipZigTest; // TODO
 
     const S = struct {
         const A = union(enum) { f1 };
@@ -1515,6 +1527,8 @@ test "reinterpreting enum value inside packed union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and
+        comptime !std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sse, .sse2, .sse4_1 })) return error.SkipZigTest; // TODO
 
     const U = packed union {
         tag: enum { a, b },
