@@ -521,8 +521,88 @@ fn emitSimd(emit: *Emit, inst: Mir.Inst.Index) !void {
 }
 
 fn emitAtomic(emit: *Emit, inst: Mir.Inst.Index) !void {
-    _ = inst;
-    return emit.fail("TODO: Implement atomics instructions", .{});
+    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
+    const opcode = emit.mir.extra[extra_index];
+    const writer = emit.code.writer();
+    try emit.code.append(std.wasm.opcode(.atomics_prefix));
+    try leb128.writeULEB128(writer, opcode);
+    switch (@intToEnum(std.wasm.AtomicsOpcode, opcode)) {
+        .i32_atomic_load,
+        .i64_atomic_load,
+        .i32_atomic_load8_u,
+        .i32_atomic_load16_u,
+        .i64_atomic_load8_u,
+        .i64_atomic_load16_u,
+        .i64_atomic_load32_u,
+        .i32_atomic_store,
+        .i64_atomic_store,
+        .i32_atomic_store8,
+        .i32_atomic_store16,
+        .i64_atomic_store8,
+        .i64_atomic_store16,
+        .i64_atomic_store32,
+        .i32_atomic_rmw_add,
+        .i64_atomic_rmw_add,
+        .i32_atomic_rmw8_add_u,
+        .i32_atomic_rmw16_add_u,
+        .i64_atomic_rmw8_add_u,
+        .i64_atomic_rmw16_add_u,
+        .i64_atomic_rmw32_add_u,
+        .i32_atomic_rmw_sub,
+        .i64_atomic_rmw_sub,
+        .i32_atomic_rmw8_sub_u,
+        .i32_atomic_rmw16_sub_u,
+        .i64_atomic_rmw8_sub_u,
+        .i64_atomic_rmw16_sub_u,
+        .i64_atomic_rmw32_sub_u,
+        .i32_atomic_rmw_and,
+        .i64_atomic_rmw_and,
+        .i32_atomic_rmw8_and_u,
+        .i32_atomic_rmw16_and_u,
+        .i64_atomic_rmw8_and_u,
+        .i64_atomic_rmw16_and_u,
+        .i64_atomic_rmw32_and_u,
+        .i32_atomic_rmw_or,
+        .i64_atomic_rmw_or,
+        .i32_atomic_rmw8_or_u,
+        .i32_atomic_rmw16_or_u,
+        .i64_atomic_rmw8_or_u,
+        .i64_atomic_rmw16_or_u,
+        .i64_atomic_rmw32_or_u,
+        .i32_atomic_rmw_xor,
+        .i64_atomic_rmw_xor,
+        .i32_atomic_rmw8_xor_u,
+        .i32_atomic_rmw16_xor_u,
+        .i64_atomic_rmw8_xor_u,
+        .i64_atomic_rmw16_xor_u,
+        .i64_atomic_rmw32_xor_u,
+        .i32_atomic_rmw_xchg,
+        .i64_atomic_rmw_xchg,
+        .i32_atomic_rmw8_xchg_u,
+        .i32_atomic_rmw16_xchg_u,
+        .i64_atomic_rmw8_xchg_u,
+        .i64_atomic_rmw16_xchg_u,
+        .i64_atomic_rmw32_xchg_u,
+
+        .i32_atomic_rmw_cmpxchg,
+        .i64_atomic_rmw_cmpxchg,
+        .i32_atomic_rmw8_cmpxchg_u,
+        .i32_atomic_rmw16_cmpxchg_u,
+        .i64_atomic_rmw8_cmpxchg_u,
+        .i64_atomic_rmw16_cmpxchg_u,
+        .i64_atomic_rmw32_cmpxchg_u,
+        => {
+            const mem_arg = emit.mir.extraData(Mir.MemArg, extra_index + 1).data;
+            try encodeMemArg(mem_arg, writer);
+        },
+        .atomic_fence => {
+            // TODO: When multi-memory proposal is accepted and implemented in the compiler,
+            // change this to (user-)specified index, rather than hardcode it to memory index 0.
+            const memory_index: u32 = 0;
+            try leb128.writeULEB128(writer, memory_index);
+        },
+        else => |tag| return emit.fail("TODO: Implement atomic instruction: {s}", .{@tagName(tag)}),
+    }
 }
 
 fn emitMemFill(emit: *Emit) !void {
