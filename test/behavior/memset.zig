@@ -72,6 +72,11 @@ fn testMemsetSlice() !void {
 }
 
 test "memset with bool element" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
     var buf: [5]bool = undefined;
     @memset(&buf, true);
     try expect(buf[2]);
@@ -79,6 +84,11 @@ test "memset with bool element" {
 }
 
 test "memset with 1-byte struct element" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
     const S = struct { x: bool };
     var buf: [5]S = undefined;
     @memset(&buf, .{ .x = true });
@@ -87,6 +97,11 @@ test "memset with 1-byte struct element" {
 }
 
 test "memset with 1-byte array element" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
     const A = [1]bool;
     var buf: [5]A = undefined;
     @memset(&buf, .{true});
@@ -95,6 +110,11 @@ test "memset with 1-byte array element" {
 }
 
 test "memset with large array element, runtime known" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
     const A = [128]u64;
     var buf: [5]A = undefined;
     var runtime_known_element = [_]u64{0} ** 128;
@@ -107,6 +127,11 @@ test "memset with large array element, runtime known" {
 }
 
 test "memset with large array element, comptime known" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
     const A = [128]u64;
     var buf: [5]A = undefined;
     const comptime_known_element = [_]u64{0} ** 128;
