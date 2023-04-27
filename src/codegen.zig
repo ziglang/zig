@@ -552,7 +552,7 @@ pub fn generateSymbol(
                             .ty = field_ty,
                             .val = field_val,
                         }, &tmp_list, debug_output, reloc_info)) {
-                            .ok => mem.copy(u8, code.items[current_pos..], tmp_list.items),
+                            .ok => @memcpy(code.items[current_pos..][0..tmp_list.items.len], tmp_list.items),
                             .fail => |em| return Result{ .fail = em },
                         }
                     } else {

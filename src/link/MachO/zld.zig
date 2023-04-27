@@ -2352,8 +2352,11 @@ pub const Zld = struct {
 
         const buffer = try self.gpa.alloc(u8, math.cast(usize, needed_size_aligned) orelse return error.Overflow);
         defer self.gpa.free(buffer);
-        @memset(buffer, 0);
-        mem.copy(u8, buffer, mem.sliceAsBytes(out_dice.items));
+        {
+            const src = mem.sliceAsBytes(out_dice.items);
+            @memcpy(buffer[0..src.len], src);
+            @memset(buffer[src.len..], 0);
+        }
 
         log.debug("writing data-in-code from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
 
@@ -2484,8 +2487,8 @@ pub const Zld = struct {
 
         const buffer = try self.gpa.alloc(u8, math.cast(usize, needed_size_aligned) orelse return error.Overflow);
         defer self.gpa.free(buffer);
-        @memset(buffer, 0);
-        mem.copy(u8, buffer, self.strtab.buffer.items);
+        @memcpy(buffer[0..self.strtab.buffer.items.len], self.strtab.buffer.items);
+        @memset(buffer[self.strtab.buffer.items.len..], 0);
 
         try self.file.pwriteAll(buffer, offset);
 
@@ -2805,8 +2808,7 @@ pub const Zld = struct {
 
     pub fn makeStaticString(bytes: []const u8) [16]u8 {
         var buf = [_]u8{0} ** 16;
-        assert(bytes.len <= buf.len);
-        mem.copy(u8, &buf, bytes);
+        @memcpy(buf[0..bytes.len], bytes);
         return buf;
     }
 
