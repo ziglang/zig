@@ -1242,7 +1242,7 @@ fn genFunc(func: *CodeGen) InnerError!void {
 
     // check if we have to initialize and allocate anything into the stack frame.
     // If so, create enough stack space and insert the instructions at the front of the list.
-    if (func.stack_size > 0) {
+    if (func.initial_stack_value != .none) {
         var prologue = std.ArrayList(Mir.Inst).init(func.gpa);
         defer prologue.deinit();
 
@@ -1963,11 +1963,11 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .tag_name => func.airTagName(inst),
 
         .error_set_has_value => func.airErrorSetHasValue(inst),
+        .frame_addr => func.airFrameAddress(inst),
 
         .mul_sat,
         .mod,
         .assembly,
-        .frame_addr,
         .bit_reverse,
         .is_err_ptr,
         .is_non_err_ptr,
@@ -6968,4 +6968,13 @@ fn airAtomicStore(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     }
 
     return func.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
+}
+
+fn airFrameAddress(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    if (func.initial_stack_value == .none) {
+        try func.initializeStack();
+    }
+    try func.emitWValue(func.bottom_stack_value);
+    const result = try WValue.toLocal(.stack, func, Type.usize);
+    return func.finishAir(inst, result, &.{});
 }
