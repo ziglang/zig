@@ -54,6 +54,21 @@ pub const Instruction = struct {
             };
         }
 
+        pub fn isBaseExtended(op: Operand) bool {
+            return switch (op) {
+                .none, .imm => false,
+                .reg => |reg| reg.isExtended(),
+                .mem => |mem| mem.base().isExtended(),
+            };
+        }
+
+        pub fn isIndexExtended(op: Operand) bool {
+            return switch (op) {
+                .none, .reg, .imm => false,
+                .mem => |mem| if (mem.scaleIndex()) |si| si.index.isExtended() else false,
+            };
+        }
+
         fn format(
             op: Operand,
             comptime unused_format_string: []const u8,
@@ -98,17 +113,24 @@ pub const Instruction = struct {
                         try writer.print("{s} ptr ", .{@tagName(sib.ptr_size)});
 
                         if (mem.isSegmentRegister()) {
-                            return writer.print("{s}:0x{x}", .{ @tagName(sib.base.?), sib.disp });
+                            return writer.print("{s}:0x{x}", .{ @tagName(sib.base.reg), sib.disp });
                         }
 
                         try writer.writeByte('[');
 
                         var any = false;
-                        if (sib.base) |base| {
-                            try writer.print("{s}", .{@tagName(base)});
-                            any = true;
+                        switch (sib.base) {
+                            .none => {},
+                            .reg => |reg| {
+                                try writer.print("{s}", .{@tagName(reg)});
+                                any = true;
+                            },
+                            .frame => |frame| {
+                                try writer.print("{}", .{frame});
+                                any = true;
+                            },
                         }
-                        if (sib.scale_index) |si| {
+                        if (mem.scaleIndex()) |si| {
                             if (any) try writer.writeAll(" + ");
                             try writer.print("{s} * {d}", .{ @tagName(si.index), si.scale });
                             any = true;
@@ -182,8 +204,8 @@ pub const Instruction = struct {
         }
     }
 
-    pub fn encode(inst: Instruction, writer: anytype) !void {
-        const encoder = Encoder(@TypeOf(writer)){ .writer = writer };
+    pub fn encode(inst: Instruction, writer: anytype, comptime opts: Options) !void {
+        const encoder = Encoder(@TypeOf(writer), opts){ .writer = writer };
         const enc = inst.encoding;
         const data = enc.data;
 
@@ -269,22 +291,24 @@ pub const Instruction = struct {
 
         const segment_override: ?Register = switch (op_en) {
             .i, .zi, .o, .oi, .d, .np => null,
-            .fd => inst.ops[1].mem.base().?,
-            .td => inst.ops[0].mem.base().?,
-            .rm, .rmi => if (inst.ops[1].isSegmentRegister()) blk: {
-                break :blk switch (inst.ops[1]) {
-                    .reg => |r| r,
-                    .mem => |m| m.base().?,
+            .fd => inst.ops[1].mem.base().reg,
+            .td => inst.ops[0].mem.base().reg,
+            .rm, .rmi => if (inst.ops[1].isSegmentRegister())
+                switch (inst.ops[1]) {
+                    .reg => |reg| reg,
+                    .mem => |mem| mem.base().reg,
                     else => unreachable,
-                };
-            } else null,
-            .m, .mi, .m1, .mc, .mr, .mri, .mrc => if (inst.ops[0].isSegmentRegister()) blk: {
-                break :blk switch (inst.ops[0]) {
-                    .reg => |r| r,
-                    .mem => |m| m.base().?,
+                }
+            else
+                null,
+            .m, .mi, .m1, .mc, .mr, .mri, .mrc => if (inst.ops[0].isSegmentRegister())
+                switch (inst.ops[0]) {
+                    .reg => |reg| reg,
+                    .mem => |mem| mem.base().reg,
                     else => unreachable,
-                };
-            } else null,
+                }
+            else
+                null,
         };
         if (segment_override) |seg| {
             legacy.setSegmentOverride(seg);
@@ -298,7 +322,10 @@ pub const Instruction = struct {
 
         var rex = Rex{};
         rex.present = inst.encoding.data.mode == .rex;
-        rex.w = inst.encoding.data.mode == .long;
+        switch (inst.encoding.data.mode) {
+            .long, .sse2_long => rex.w = true,
+            else => {},
+        }
 
         switch (op_en) {
             .np, .i, .zi, .fd, .td, .d => {},
@@ -307,27 +334,17 @@ pub const Instruction = struct {
                 const r_op = switch (op_en) {
                     .rm, .rmi => inst.ops[0],
                     .mr, .mri, .mrc => inst.ops[1],
-                    else => null,
+                    else => .none,
                 };
-                if (r_op) |op| {
-                    rex.r = op.reg.isExtended();
-                }
+                rex.r = r_op.isBaseExtended();
 
                 const b_x_op = switch (op_en) {
                     .rm, .rmi => inst.ops[1],
                     .m, .mi, .m1, .mc, .mr, .mri, .mrc => inst.ops[0],
                     else => unreachable,
                 };
-                switch (b_x_op) {
-                    .reg => |r| {
-                        rex.b = r.isExtended();
-                    },
-                    .mem => |mem| {
-                        rex.b = if (mem.base()) |base| base.isExtended() else false;
-                        rex.x = if (mem.scaleIndex()) |si| si.index.isExtended() else false;
-                    },
-                    else => unreachable,
-                }
+                rex.b = b_x_op.isBaseExtended();
+                rex.x = b_x_op.isIndexExtended();
             },
         }
 
@@ -348,72 +365,75 @@ pub const Instruction = struct {
 
         switch (mem) {
             .moffs => unreachable,
-            .sib => |sib| {
-                if (sib.base) |base| {
-                    if (base.class() == .segment) {
-                        // TODO audit this wrt SIB
-                        try encoder.modRm_SIBDisp0(operand_enc);
-                        if (sib.scale_index) |si| {
-                            const scale = math.log2_int(u4, si.scale);
-                            try encoder.sib_scaleIndexDisp32(scale, si.index.lowEnc());
-                        } else {
-                            try encoder.sib_disp32();
-                        }
-                        try encoder.disp32(sib.disp);
-                    } else {
-                        assert(base.class() == .general_purpose);
-                        const dst = base.lowEnc();
-                        const src = operand_enc;
-                        if (dst == 4 or sib.scale_index != null) {
-                            if (sib.disp == 0 and dst != 5) {
-                                try encoder.modRm_SIBDisp0(src);
-                                if (sib.scale_index) |si| {
-                                    const scale = math.log2_int(u4, si.scale);
-                                    try encoder.sib_scaleIndexBase(scale, si.index.lowEnc(), dst);
-                                } else {
-                                    try encoder.sib_base(dst);
-                                }
-                            } else if (math.cast(i8, sib.disp)) |_| {
-                                try encoder.modRm_SIBDisp8(src);
-                                if (sib.scale_index) |si| {
-                                    const scale = math.log2_int(u4, si.scale);
-                                    try encoder.sib_scaleIndexBaseDisp8(scale, si.index.lowEnc(), dst);
-                                } else {
-                                    try encoder.sib_baseDisp8(dst);
-                                }
-                                try encoder.disp8(@truncate(i8, sib.disp));
-                            } else {
-                                try encoder.modRm_SIBDisp32(src);
-                                if (sib.scale_index) |si| {
-                                    const scale = math.log2_int(u4, si.scale);
-                                    try encoder.sib_scaleIndexBaseDisp32(scale, si.index.lowEnc(), dst);
-                                } else {
-                                    try encoder.sib_baseDisp32(dst);
-                                }
-                                try encoder.disp32(sib.disp);
-                            }
-                        } else {
-                            if (sib.disp == 0 and dst != 5) {
-                                try encoder.modRm_indirectDisp0(src, dst);
-                            } else if (math.cast(i8, sib.disp)) |_| {
-                                try encoder.modRm_indirectDisp8(src, dst);
-                                try encoder.disp8(@truncate(i8, sib.disp));
-                            } else {
-                                try encoder.modRm_indirectDisp32(src, dst);
-                                try encoder.disp32(sib.disp);
-                            }
-                        }
-                    }
-                } else {
+            .sib => |sib| switch (sib.base) {
+                .none => {
                     try encoder.modRm_SIBDisp0(operand_enc);
-                    if (sib.scale_index) |si| {
+                    if (mem.scaleIndex()) |si| {
                         const scale = math.log2_int(u4, si.scale);
                         try encoder.sib_scaleIndexDisp32(scale, si.index.lowEnc());
                     } else {
                         try encoder.sib_disp32();
                     }
                     try encoder.disp32(sib.disp);
-                }
+                },
+                .reg => |base| if (base.class() == .segment) {
+                    // TODO audit this wrt SIB
+                    try encoder.modRm_SIBDisp0(operand_enc);
+                    if (mem.scaleIndex()) |si| {
+                        const scale = math.log2_int(u4, si.scale);
+                        try encoder.sib_scaleIndexDisp32(scale, si.index.lowEnc());
+                    } else {
+                        try encoder.sib_disp32();
+                    }
+                    try encoder.disp32(sib.disp);
+                } else {
+                    assert(base.class() == .general_purpose);
+                    const dst = base.lowEnc();
+                    const src = operand_enc;
+                    if (dst == 4 or mem.scaleIndex() != null) {
+                        if (sib.disp == 0 and dst != 5) {
+                            try encoder.modRm_SIBDisp0(src);
+                            if (mem.scaleIndex()) |si| {
+                                const scale = math.log2_int(u4, si.scale);
+                                try encoder.sib_scaleIndexBase(scale, si.index.lowEnc(), dst);
+                            } else {
+                                try encoder.sib_base(dst);
+                            }
+                        } else if (math.cast(i8, sib.disp)) |_| {
+                            try encoder.modRm_SIBDisp8(src);
+                            if (mem.scaleIndex()) |si| {
+                                const scale = math.log2_int(u4, si.scale);
+                                try encoder.sib_scaleIndexBaseDisp8(scale, si.index.lowEnc(), dst);
+                            } else {
+                                try encoder.sib_baseDisp8(dst);
+                            }
+                            try encoder.disp8(@truncate(i8, sib.disp));
+                        } else {
+                            try encoder.modRm_SIBDisp32(src);
+                            if (mem.scaleIndex()) |si| {
+                                const scale = math.log2_int(u4, si.scale);
+                                try encoder.sib_scaleIndexBaseDisp32(scale, si.index.lowEnc(), dst);
+                            } else {
+                                try encoder.sib_baseDisp32(dst);
+                            }
+                            try encoder.disp32(sib.disp);
+                        }
+                    } else {
+                        if (sib.disp == 0 and dst != 5) {
+                            try encoder.modRm_indirectDisp0(src, dst);
+                        } else if (math.cast(i8, sib.disp)) |_| {
+                            try encoder.modRm_indirectDisp8(src, dst);
+                            try encoder.disp8(@truncate(i8, sib.disp));
+                        } else {
+                            try encoder.modRm_indirectDisp32(src, dst);
+                            try encoder.disp32(sib.disp);
+                        }
+                    }
+                },
+                .frame => if (@TypeOf(encoder).options.allow_frame_loc) {
+                    try encoder.modRm_indirectDisp32(operand_enc, undefined);
+                    try encoder.disp32(undefined);
+                } else return error.CannotEncode,
             },
             .rip => |rip| {
                 try encoder.modRm_RIPDisp32(operand_enc);
@@ -482,11 +502,14 @@ pub const LegacyPrefixes = packed struct {
     }
 };
 
-fn Encoder(comptime T: type) type {
+pub const Options = struct { allow_frame_loc: bool = false };
+
+fn Encoder(comptime T: type, comptime opts: Options) type {
     return struct {
         writer: T,
 
         const Self = @This();
+        pub const options = opts;
 
         // --------
         // Prefixes

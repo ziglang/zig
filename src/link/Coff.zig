@@ -492,7 +492,7 @@ fn growSection(self: *Coff, sect_id: u32, needed_size: u32) !void {
 
     const sect_vm_capacity = self.allocatedVirtualSize(header.virtual_address);
     if (needed_size > sect_vm_capacity) {
-        self.markRelocsDirtyByAddress(header.virtual_address + needed_size);
+        self.markRelocsDirtyByAddress(header.virtual_address + header.virtual_size);
         try self.growSectionVirtualMemory(sect_id, needed_size);
     }
 
@@ -759,7 +759,9 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
     if (self.relocs.getPtr(atom_index)) |rels| {
         try relocs.ensureTotalCapacityPrecise(rels.items.len);
         for (rels.items) |*reloc| {
-            if (reloc.isResolvable(self)) relocs.appendAssumeCapacity(reloc);
+            if (reloc.isResolvable(self) and reloc.dirty) {
+                relocs.appendAssumeCapacity(reloc);
+            }
         }
     }
 
@@ -904,18 +906,28 @@ fn markRelocsDirtyByTarget(self: *Coff, target: SymbolWithLoc) void {
 }
 
 fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
+    const got_moved = blk: {
+        const sect_id = self.got_section_index orelse break :blk false;
+        break :blk self.sections.items(.header)[sect_id].virtual_address > addr;
+    };
+
+    // TODO: dirty relocations targeting import table if that got moved in memory
+
     for (self.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
-            const target_vaddr = reloc.getTargetAddress(self) orelse continue;
-            if (target_vaddr < addr) continue;
-            reloc.dirty = true;
+            if (reloc.isGotIndirection()) {
+                reloc.dirty = reloc.dirty or got_moved;
+            } else {
+                const target_vaddr = reloc.getTargetAddress(self) orelse continue;
+                if (target_vaddr > addr) reloc.dirty = true;
+            }
         }
     }
 
     // TODO: dirty only really affected GOT cells
     for (self.got_table.entries.items) |entry| {
         const target_addr = self.getSymbol(entry).value;
-        if (target_addr >= addr) {
+        if (target_addr > addr) {
             self.got_table_contents_dirty = true;
             break;
         }
@@ -1624,7 +1636,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
     for (self.relocs.keys(), self.relocs.values()) |atom_index, relocs| {
         const needs_update = for (relocs.items) |reloc| {
-            if (reloc.isResolvable(self)) break true;
+            if (reloc.dirty) break true;
         } else false;
 
         if (!needs_update) continue;

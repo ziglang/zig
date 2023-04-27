@@ -47,17 +47,8 @@ pub fn findByMnemonic(
         },
         else => {},
     } else false;
-    const rex_extended = for (ops) |op| switch (op) {
-        .reg => |r| if (r.isExtended()) break true,
-        .mem => |m| {
-            if (m.base()) |base| {
-                if (base.isExtended()) break true;
-            }
-            if (m.scaleIndex()) |si| {
-                if (si.index.isExtended()) break true;
-            }
-        },
-        else => {},
+    const rex_extended = for (ops) |op| {
+        if (op.isBaseExtended() or op.isIndexExtended()) break true;
     } else false;
 
     if ((rex_required or rex_extended) and rex_invalid) return error.CannotEncode;
@@ -67,11 +58,11 @@ pub fn findByMnemonic(
     next: for (mnemonic_to_encodings_map[@enumToInt(mnemonic)]) |data| {
         switch (data.mode) {
             .rex => if (!rex_required) continue,
-            .long => {},
+            .long, .sse2_long => {},
             else => if (rex_required) continue,
         }
         for (input_ops, data.ops) |input_op, data_op|
-            if (!input_op.isSubset(data_op, data.mode)) continue :next;
+            if (!input_op.isSubset(data_op)) continue :next;
 
         const enc = Encoding{ .mnemonic = mnemonic, .data = data };
         if (shortest_enc) |previous_shortest_enc| {
@@ -99,7 +90,7 @@ pub fn findByOpcode(opc: []const u8, prefixes: struct {
         if (prefixes.rex.w) {
             switch (data.mode) {
                 .short, .fpu, .sse, .sse2, .sse4_1, .none => continue,
-                .long, .rex => {},
+                .long, .sse2_long, .rex => {},
             }
         } else if (prefixes.rex.present and !prefixes.rex.isSet()) {
             switch (data.mode) {
@@ -147,7 +138,7 @@ pub fn modRmExt(encoding: Encoding) u3 {
 pub fn operandBitSize(encoding: Encoding) u64 {
     switch (encoding.data.mode) {
         .short => return 16,
-        .long => return 64,
+        .long, .sse2_long => return 64,
         else => {},
     }
     const bit_size: u64 = switch (encoding.data.op_en) {
@@ -172,7 +163,7 @@ pub fn format(
     _ = options;
     _ = fmt;
     switch (encoding.data.mode) {
-        .long => try writer.writeAll("REX.W + "),
+        .long, .sse2_long => try writer.writeAll("REX.W + "),
         else => {},
     }
 
@@ -273,6 +264,8 @@ pub const Mnemonic = enum {
     @"test", tzcnt,
     ud2,
     xadd, xchg, xor,
+    // MMX
+    movd,
     // SSE
     addss,
     cmpss,
@@ -287,7 +280,7 @@ pub const Mnemonic = enum {
     //cmpsd,
     divsd,
     maxsd, minsd,
-    movq, //movsd,
+    movq, //movd, movsd,
     mulsd,
     subsd,
     ucomisd,
@@ -470,6 +463,17 @@ pub const Op = enum {
         };
     }
 
+    pub fn class(op: Op) bits.Register.Class {
+        return switch (op) {
+            else => unreachable,
+            .al, .ax, .eax, .rax, .cl => .general_purpose,
+            .r8, .r16, .r32, .r64 => .general_purpose,
+            .rm8, .rm16, .rm32, .rm64 => .general_purpose,
+            .sreg => .segment,
+            .xmm, .xmm_m32, .xmm_m64 => .floating_point,
+        };
+    }
+
     pub fn isFloatingPointRegister(op: Op) bool {
         return switch (op) {
             .xmm, .xmm_m32, .xmm_m64 => true,
@@ -478,7 +482,7 @@ pub const Op = enum {
     }
 
     /// Given an operand `op` checks if `target` is a subset for the purposes of the encoding.
-    pub fn isSubset(op: Op, target: Op, mode: Mode) bool {
+    pub fn isSubset(op: Op, target: Op) bool {
         switch (op) {
             .m, .o16, .o32, .o64 => unreachable,
             .moffs, .sreg => return op == target,
@@ -488,13 +492,13 @@ pub const Op = enum {
             },
             else => {
                 if (op.isRegister() and target.isRegister()) {
-                    switch (mode) {
-                        .sse, .sse2, .sse4_1 => return op.isFloatingPointRegister() and target.isFloatingPointRegister(),
-                        else => switch (target) {
-                            .cl, .al, .ax, .eax, .rax => return op == target,
-                            else => return op.bitSize() == target.bitSize(),
+                    return switch (target) {
+                        .cl, .al, .ax, .eax, .rax => op == target,
+                        else => op.class() == target.class() and switch (target.class()) {
+                            .floating_point => true,
+                            else => op.bitSize() == target.bitSize(),
                         },
-                    }
+                    };
                 }
                 if (op.isMemory() and target.isMemory()) {
                     switch (target) {
@@ -532,6 +536,7 @@ pub const Mode = enum {
     long,
     sse,
     sse2,
+    sse2_long,
     sse4_1,
 };
 
@@ -544,7 +549,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
     std.mem.copy(Operand, &inst.ops, ops);
 
     var cwriter = std.io.countingWriter(std.io.null_writer);
-    inst.encode(cwriter.writer()) catch unreachable; // Not allowed to fail here unless OOM.
+    inst.encode(cwriter.writer(), .{ .allow_frame_loc = true }) catch unreachable; // Not allowed to fail here unless OOM.
     return @intCast(usize, cwriter.bytes_written);
 }
 
