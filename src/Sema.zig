@@ -2858,7 +2858,7 @@ fn zirEnumDecl(
 
     var decl_arena: std.heap.ArenaAllocator = undefined;
     const decl_arena_allocator = new_decl.value_arena.?.acquire(gpa, &decl_arena);
-    defer new_decl.value_arena.?.release();
+    defer new_decl.value_arena.?.release(&decl_arena);
 
     extra_index = try mod.scanNamespace(&enum_obj.namespace, extra_index, decls_len, new_decl);
 
@@ -27004,7 +27004,7 @@ const ComptimePtrMutationKit = struct {
 
     fn finishArena(self: *ComptimePtrMutationKit, mod: *Module) void {
         const decl = mod.declPtr(self.decl_ref_mut.decl_index);
-        decl.value_arena.?.release();
+        decl.value_arena.?.release(&self.decl_arena);
         self.decl_arena = undefined;
     }
 };
@@ -30655,7 +30655,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
                 const decl = sema.mod.declPtr(struct_obj.owner_decl);
                 var decl_arena: std.heap.ArenaAllocator = undefined;
                 const decl_arena_allocator = decl.value_arena.?.acquire(sema.mod.gpa, &decl_arena);
-                defer decl.value_arena.?.release();
+                defer decl.value_arena.?.release(&decl_arena);
                 break :blk try decl_arena_allocator.alloc(u32, struct_obj.fields.count());
             };
 
@@ -30701,7 +30701,7 @@ fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!voi
     const decl = mod.declPtr(decl_index);
     var decl_arena: std.heap.ArenaAllocator = undefined;
     const decl_arena_allocator = decl.value_arena.?.acquire(gpa, &decl_arena);
-    defer decl.value_arena.?.release();
+    defer decl.value_arena.?.release(&decl_arena);
 
     const zir = struct_obj.namespace.file_scope.zir;
     const extended = zir.instructions.items(.data)[struct_obj.zir_index].extended;
@@ -31395,7 +31395,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
     const decl = mod.declPtr(decl_index);
     var decl_arena: std.heap.ArenaAllocator = undefined;
     const decl_arena_allocator = decl.value_arena.?.acquire(gpa, &decl_arena);
-    defer decl.value_arena.?.release();
+    defer decl.value_arena.?.release(&decl_arena);
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
@@ -31735,7 +31735,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     const decl = mod.declPtr(decl_index);
     var decl_arena: std.heap.ArenaAllocator = undefined;
     const decl_arena_allocator = decl.value_arena.?.acquire(gpa, &decl_arena);
-    defer decl.value_arena.?.release();
+    defer decl.value_arena.?.release(&decl_arena);
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();

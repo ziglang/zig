@@ -415,23 +415,15 @@ const ValueArena = struct {
     state: std.heap.ArenaAllocator.State,
     state_acquired: ?*std.heap.ArenaAllocator.State = null,
 
-    /// If non-zero, then an ArenaAllocator has been promoted from `state`,
-    /// and `state_acquired` points to its state field.
-    ref_count: usize = 0,
+    /// If this ValueArena replaced an existing one during re-analysis, this is the previous instance
+    prev: ?*ValueArena = null,
 
     /// Returns an allocator backed by either promoting `state`, or by the existing ArenaAllocator
     /// that has already promoted `state`. `out_arena_allocator` provides storage for the initial promotion,
-    /// and must live until the matching call to release()
+    /// and must live until the matching call to release().
     pub fn acquire(self: *ValueArena, child_allocator: Allocator, out_arena_allocator: *std.heap.ArenaAllocator) Allocator {
-        defer self.ref_count += 1;
-
         if (self.state_acquired) |state_acquired| {
-            const arena_allocator = @fieldParentPtr(
-                std.heap.ArenaAllocator,
-                "state",
-                state_acquired,
-            );
-            return arena_allocator.allocator();
+            return @fieldParentPtr(std.heap.ArenaAllocator, "state", state_acquired).allocator();
         }
 
         out_arena_allocator.* = self.state.promote(child_allocator);
@@ -439,11 +431,22 @@ const ValueArena = struct {
         return out_arena_allocator.allocator();
     }
 
-    pub fn release(self: *ValueArena) void {
-        self.ref_count -= 1;
-        if (self.ref_count == 0) {
+    /// Releases the allocator acquired by `acquire. `arena_allocator` must match the one passed to `acquire`.
+    pub fn release(self: *ValueArena, arena_allocator: *std.heap.ArenaAllocator) void {
+        if (@fieldParentPtr(std.heap.ArenaAllocator, "state", self.state_acquired.?) == arena_allocator) {
             self.state = self.state_acquired.?.*;
             self.state_acquired = null;
+        }
+    }
+
+    pub fn deinit(self: ValueArena, child_allocator: Allocator) void {
+        assert(self.state_acquired == null);
+
+        const prev = self.prev;
+        self.state.promote(child_allocator).deinit();
+
+        if (prev) |p| {
+            p.deinit(child_allocator);
         }
     }
 };
@@ -652,8 +655,7 @@ pub const Decl = struct {
                     }).?.* = .none;
                 }
             }
-            assert(value_arena.ref_count == 0);
-            value_arena.state.promote(gpa).deinit();
+            value_arena.deinit(gpa);
             decl.value_arena = null;
             decl.has_tv = false;
             decl.owns_tv = false;
@@ -4575,7 +4577,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     // We need the memory for the Type to go into the arena for the Decl
     var decl_arena = std.heap.ArenaAllocator.init(gpa);
     const decl_arena_allocator = decl_arena.allocator();
-
     const decl_value_arena = blk: {
         errdefer decl_arena.deinit();
         const s = try decl_arena_allocator.create(ValueArena);
@@ -4583,6 +4584,11 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         break :blk s;
     };
     defer {
+        if (decl.value_arena) |value_arena| {
+            assert(value_arena.state_acquired == null);
+            decl_value_arena.prev = value_arena;
+        }
+
         decl_value_arena.state = decl_arena.state;
         decl.value_arena = decl_value_arena;
     }
@@ -5534,7 +5540,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     // Use the Decl's arena for captured values.
     var decl_arena: std.heap.ArenaAllocator = undefined;
     const decl_arena_allocator = decl.value_arena.?.acquire(gpa, &decl_arena);
-    defer decl.value_arena.?.release();
+    defer decl.value_arena.?.release(&decl_arena);
 
     var sema: Sema = .{
         .mod = mod,
