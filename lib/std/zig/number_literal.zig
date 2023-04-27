@@ -44,8 +44,6 @@ pub const Error = union(enum) {
     duplicate_period,
     /// Float literal has multiple exponents.
     duplicate_exponent: usize,
-    /// Decimal float has hexadecimal exponent.
-    invalid_hex_exponent: usize,
     /// Exponent comes directly after '_' digit separator.
     exponent_after_underscore: usize,
     /// Special character (+-.) comes directly after exponent.
@@ -103,7 +101,6 @@ pub fn parseNumberLiteral(bytes: []const u8) Result {
             },
             'e', 'E' => if (base == 10) {
                 float = true;
-                if (base != 10 and base != 16) return .{ .failure = .{ .invalid_float_base = 2 } };
                 if (exponent) return .{ .failure = .{ .duplicate_exponent = i } };
                 if (underscore) return .{ .failure = .{ .exponent_after_underscore = i } };
                 special = c;
@@ -112,10 +109,8 @@ pub fn parseNumberLiteral(bytes: []const u8) Result {
             },
             'p', 'P' => if (base == 16) {
                 float = true;
-                if (base != 10 and base != 16) return .{ .failure = .{ .invalid_float_base = 2 } };
                 if (exponent) return .{ .failure = .{ .duplicate_exponent = i } };
                 if (underscore) return .{ .failure = .{ .exponent_after_underscore = i } };
-                if (base != 16) return .{ .failure = .{ .invalid_hex_exponent = i } };
                 special = c;
                 exponent = true;
                 continue;
