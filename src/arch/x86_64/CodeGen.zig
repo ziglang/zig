@@ -7,6 +7,8 @@ const leb128 = std.leb;
 const link = @import("../../link.zig");
 const log = std.log.scoped(.codegen);
 const tracking_log = std.log.scoped(.tracking);
+const verbose_tracking_log = std.log.scoped(.verbose_tracking);
+const wip_mir_log = std.log.scoped(.wip_mir);
 const math = std.math;
 const mem = std.mem;
 const trace = @import("../../tracy.zig").trace;
@@ -47,9 +49,6 @@ const gp = abi.RegisterClass.gp;
 const sse = abi.RegisterClass.sse;
 
 const InnerError = CodeGenError || error{OutOfRegisters};
-
-const debug_wip_mir = false;
-const debug_tracking = false;
 
 gpa: Allocator,
 air: Air,
@@ -575,12 +574,6 @@ pub fn generate(
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.ty;
 
-    if (debug_wip_mir) {
-        const stderr = std.io.getStdErr().writer();
-        fn_owner_decl.renderFullyQualifiedName(mod, stderr) catch {};
-        stderr.writeAll(":\n") catch {};
-    }
-
     const gpa = bin_file.allocator;
     var function = Self{
         .gpa = gpa,
@@ -613,6 +606,8 @@ pub fn generate(
         function.mir_extra.deinit(gpa);
         if (builtin.mode == .Debug) function.mir_to_air_map.deinit(gpa);
     }
+
+    wip_mir_log.debug("{}:", .{function.fmtDecl(module_fn.owner_decl)});
 
     try function.frame_allocs.resize(gpa, FrameIndex.named_count);
     function.frame_allocs.set(
@@ -715,48 +710,104 @@ pub fn generate(
     }
 }
 
-fn dumpWipMir(self: *Self, inst: Mir.Inst) !void {
-    if (!debug_wip_mir) return;
-    const stderr = std.io.getStdErr().writer();
+const FormatDeclData = struct {
+    mod: *Module,
+    decl_index: Module.Decl.Index,
+};
+fn formatDecl(
+    data: FormatDeclData,
+    comptime _: []const u8,
+    _: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    try data.mod.declPtr(data.decl_index).renderFullyQualifiedName(data.mod, writer);
+}
+fn fmtDecl(self: *Self, decl_index: Module.Decl.Index) std.fmt.Formatter(formatDecl) {
+    return .{ .data = .{
+        .mod = self.bin_file.options.module.?,
+        .decl_index = decl_index,
+    } };
+}
 
+const FormatAirData = struct {
+    self: *Self,
+    inst: Air.Inst.Index,
+};
+fn formatAir(
+    data: FormatAirData,
+    comptime _: []const u8,
+    _: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    @import("../../print_air.zig").dumpInst(
+        data.inst,
+        data.self.bin_file.options.module.?,
+        data.self.air,
+        data.self.liveness,
+    );
+}
+fn fmtAir(self: *Self, inst: Air.Inst.Index) std.fmt.Formatter(formatAir) {
+    return .{ .data = .{ .self = self, .inst = inst } };
+}
+
+const FormatWipMirData = struct {
+    self: *Self,
+    inst: Mir.Inst.Index,
+};
+fn formatWipMir(
+    data: FormatWipMirData,
+    comptime _: []const u8,
+    _: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
     var lower = Lower{
-        .allocator = self.gpa,
+        .allocator = data.self.gpa,
         .mir = .{
-            .instructions = self.mir_instructions.slice(),
-            .extra = self.mir_extra.items,
+            .instructions = data.self.mir_instructions.slice(),
+            .extra = data.self.mir_extra.items,
             .frame_locs = (std.MultiArrayList(Mir.FrameLoc){}).slice(),
         },
-        .target = self.target,
-        .src_loc = self.src_loc,
+        .target = data.self.target,
+        .src_loc = data.self.src_loc,
     };
-    for (lower.lowerMir(inst) catch |err| switch (err) {
+    for (lower.lowerMir(data.self.mir_instructions.get(data.inst)) catch |err| switch (err) {
         error.LowerFail => {
             defer {
-                lower.err_msg.?.deinit(self.gpa);
+                lower.err_msg.?.deinit(data.self.gpa);
                 lower.err_msg = null;
             }
-            try stderr.print("{s}\n", .{lower.err_msg.?.msg});
+            try writer.writeAll(lower.err_msg.?.msg);
             return;
         },
-        error.InvalidInstruction, error.CannotEncode => |e| {
-            try stderr.writeAll(switch (e) {
-                error.InvalidInstruction => "CodeGen failed to find a viable instruction.\n",
-                error.CannotEncode => "CodeGen failed to encode the instruction.\n",
+        error.OutOfMemory, error.InvalidInstruction, error.CannotEncode => |e| {
+            try writer.writeAll(switch (e) {
+                error.OutOfMemory => "Out of memory",
+                error.InvalidInstruction => "CodeGen failed to find a viable instruction.",
+                error.CannotEncode => "CodeGen failed to encode the instruction.",
             });
             return;
         },
         else => |e| return e,
-    }) |lower_inst| {
-        try stderr.print("  | {}\n", .{lower_inst});
-    }
+    }) |lower_inst| try writer.print("  | {}", .{lower_inst});
+}
+fn fmtWipMir(self: *Self, inst: Mir.Inst.Index) std.fmt.Formatter(formatWipMir) {
+    return .{ .data = .{ .self = self, .inst = inst } };
 }
 
-fn dumpTracking(self: *Self) !void {
-    if (!debug_tracking) return;
-    const stderr = std.io.getStdErr().writer();
-
-    var it = self.inst_tracking.iterator();
-    while (it.next()) |entry| try stderr.print("%{d} = {}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+const FormatTrackingData = struct {
+    self: *Self,
+};
+fn formatTracking(
+    data: FormatTrackingData,
+    comptime _: []const u8,
+    _: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    var it = data.self.inst_tracking.iterator();
+    while (it.next()) |entry| try writer.print("\n%{d} = {}", .{ entry.key_ptr.*, entry.value_ptr.* });
+}
+fn fmtTracking(self: *Self) std.fmt.Formatter(formatTracking) {
+    return .{ .data = .{ .self = self } };
 }
 
 fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
@@ -764,7 +815,14 @@ fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
     try self.mir_instructions.ensureUnusedCapacity(gpa, 1);
     const result_index = @intCast(Mir.Inst.Index, self.mir_instructions.len);
     self.mir_instructions.appendAssumeCapacity(inst);
-    self.dumpWipMir(inst) catch {};
+    switch (inst.tag) {
+        else => wip_mir_log.debug("{}", .{self.fmtWipMir(result_index)}),
+        .dbg_line,
+        .dbg_prologue_end,
+        .dbg_epilogue_begin,
+        .dead,
+        => {},
+    }
     return result_index;
 }
 
@@ -1186,13 +1244,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
         }
 
         if (self.liveness.isUnused(inst) and !self.air.mustLower(inst)) continue;
-        if (debug_wip_mir) @import("../../print_air.zig").dumpInst(
-            inst,
-            self.bin_file.options.module.?,
-            self.air,
-            self.liveness,
-        );
-        self.dumpTracking() catch {};
+        wip_mir_log.debug("{}", .{self.fmtAir(inst)});
+        verbose_tracking_log.debug("{}", .{self.fmtTracking()});
 
         const old_air_bookkeeping = self.air_bookkeeping;
         try self.inst_tracking.ensureUnusedCapacity(self.gpa, 1);
@@ -1453,7 +1506,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             }
         }
     }
-    self.dumpTracking() catch {};
+    verbose_tracking_log.debug("{}", .{self.fmtTracking()});
 }
 
 fn getValue(self: *Self, value: MCValue, inst: ?Air.Inst.Index) void {
