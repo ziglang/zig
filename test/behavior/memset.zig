@@ -142,24 +142,3 @@ test "memset with large array element, comptime known" {
     for (buf[3]) |elem| try expect(elem == 0);
     for (buf[4]) |elem| try expect(elem == 0);
 }
-
-test "memcpy and memset intrinsics" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    try testMemcpyMemset();
-    try comptime testMemcpyMemset();
-}
-
-fn testMemcpyMemset() !void {
-    var foo: [20]u8 = undefined;
-    var bar: [20]u8 = undefined;
-
-    @memset(&foo, 'A');
-    @memcpy(&bar, &foo);
-
-    try expect(bar[0] == 'A');
-    try expect(bar[11] == 'A');
-    try expect(bar[19] == 'A');
-}
