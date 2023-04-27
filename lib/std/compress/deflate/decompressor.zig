@@ -9,7 +9,6 @@ const ArrayList = std.ArrayList;
 const bu = @import("bits_utils.zig");
 const ddec = @import("dict_decoder.zig");
 const deflate_const = @import("deflate_const.zig");
-const mu = @import("mem_utils.zig");
 
 const max_match_offset = deflate_const.max_match_offset;
 const end_block_marker = deflate_const.end_block_marker;
@@ -451,7 +450,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
         pub fn read(self: *Self, output: []u8) Error!usize {
             while (true) {
                 if (self.to_read.len > 0) {
-                    var n = mu.copy(output, self.to_read);
+                    const n = std.compress.deflate.copy(output, self.to_read);
                     self.to_read = self.to_read[n..];
                     if (self.to_read.len == 0 and
                         self.err != null)

@@ -123,13 +123,13 @@ test "best speed max match offset" {
                 var src = try testing.allocator.alloc(u8, src_len);
                 defer testing.allocator.free(src);
 
-                mem.copy(u8, src, abc);
+                @memcpy(src[0..abc.len], abc);
                 if (!do_match_before) {
-                    var src_offset: usize = @intCast(usize, offset - @as(i32, xyz.len));
-                    mem.copy(u8, src[src_offset..], xyz);
+                    const src_offset: usize = @intCast(usize, offset - @as(i32, xyz.len));
+                    @memcpy(src[src_offset..][0..xyz.len], xyz);
                 }
-                var src_offset: usize = @intCast(usize, offset);
-                mem.copy(u8, src[src_offset..], abc);
+                const src_offset: usize = @intCast(usize, offset);
+                @memcpy(src[src_offset..][0..abc.len], abc);
 
                 var compressed = ArrayList(u8).init(testing.allocator);
                 defer compressed.deinit();

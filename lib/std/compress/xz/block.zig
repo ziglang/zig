@@ -59,9 +59,9 @@ pub fn Decoder(comptime ReaderType: type) type {
             while (true) {
                 if (self.to_read.items.len > 0) {
                     const input = self.to_read.items;
-                    const n = std.math.min(input.len, output.len);
-                    std.mem.copy(u8, output[0..n], input[0..n]);
-                    std.mem.copy(u8, input, input[n..]);
+                    const n = @min(input.len, output.len);
+                    @memcpy(output[0..n], input[0..n]);
+                    std.mem.copyForwards(u8, input, input[n..]);
                     self.to_read.shrinkRetainingCapacity(input.len - n);
                     if (self.to_read.items.len == 0 and self.err != null) {
                         if (self.err.? == DecodeError.EndOfStreamWithNoError) {

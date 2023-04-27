@@ -1856,7 +1856,7 @@ test "write_fixed/read_fixed" {
     var raw_buffers: [2][11]u8 = undefined;
     // First buffer will be written to the file.
     @memset(&raw_buffers[0], 'z');
-    std.mem.copy(u8, &raw_buffers[0], "foobar");
+    raw_buffers[0][0.."foobar".len].* = "foobar".*;
 
     var buffers = [2]os.iovec{
         .{ .iov_base = &raw_buffers[0], .iov_len = raw_buffers[0].len },

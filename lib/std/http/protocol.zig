@@ -654,7 +654,7 @@ const MockBufferedConnection = struct {
             if (available > 0) {
                 const can_read = @truncate(u16, @min(available, left));
 
-                std.mem.copy(u8, buffer[out_index..], bconn.buf[bconn.start..][0..can_read]);
+                @memcpy(buffer[out_index..][0..can_read], bconn.buf[bconn.start..][0..can_read]);
                 out_index += can_read;
                 bconn.start += can_read;
 
