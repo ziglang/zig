@@ -251,6 +251,29 @@ test "listen on an in use port" {
     try server2.listen(server1.listen_address);
 }
 
+test "StreamServer poll - timeout" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    if (builtin.os.tag == .windows) {
+        _ = try std.os.windows.WSAStartup(2, 2);
+    }
+    defer {
+        if (builtin.os.tag == .windows) {
+            std.os.windows.WSACleanup() catch unreachable;
+        }
+    }
+    // Try only the IPv4 variant as some CI builders have no IPv6 localhost
+    // configured.
+    const localhost = try net.Address.parseIp("127.0.0.1", 0);
+
+    var server = net.StreamServer.init(.{});
+    defer server.deinit();
+
+    try server.listen(localhost);
+    const result = try server.poll(5);
+    try testing.expectEqual(false, result);
+}
+
 fn testClientToHost(allocator: mem.Allocator, name: []const u8, port: u16) anyerror!void {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
