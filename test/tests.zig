@@ -1052,6 +1052,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                 .link_libc = test_target.link_libc,
                 .target = altered_target,
                 .zig_lib_dir = .{ .path = "lib" },
+                .max_rss = if (mem.eql(u8, options.name, "std")) 11199083316 else 0,
             });
             compile_c.addCSourceFile(.{
                 .file = these_tests.getEmittedBin(),

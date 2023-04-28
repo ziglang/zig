@@ -57,6 +57,7 @@ Write-Output "Main test suite..."
 & "stage3-debug\bin\zig.exe" build test docs `
   --zig-lib-dir "$ZIG_LIB_DIR" `
   --search-prefix "$PREFIX_PATH" `
+  --skip-oom-steps `
   -Dstatic-llvm `
   -Dskip-non-native `
   -Denable-symlinks-windows
