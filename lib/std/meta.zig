@@ -965,7 +965,7 @@ test "intToEnum with error return" {
         A,
         B,
     };
-    const E3 = enum(u8) {
+    const E3 = enum(i8) {
         A,
         _
     };
@@ -975,9 +975,11 @@ test "intToEnum with error return" {
     try testing.expect(intToEnum(E1, zero) catch unreachable == E1.A);
     try testing.expect(intToEnum(E2, one) catch unreachable == E2.B);
     try testing.expect(intToEnum(E3, zero) catch unreachable == E3.A);
-    try testing.expect(intToEnum(E3, 255) catch unreachable == @intToEnum(E3, 255));
+    try testing.expect(intToEnum(E3, 127) catch unreachable == @intToEnum(E3, 127));
+    try testing.expect(intToEnum(E3, -128) catch unreachable == @intToEnum(E3, -128));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E1, one));
-    try testing.expectError(error.InvalidEnumTag, intToEnum(E3, 256));
+    try testing.expectError(error.InvalidEnumTag, intToEnum(E3, 128));
+    try testing.expectError(error.InvalidEnumTag, intToEnum(E3, -129));
 }
 
 pub const IntToEnumError = error{InvalidEnumTag};
@@ -986,10 +988,10 @@ pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTa
     const enum_info = @typeInfo(EnumTag).Enum;
 
     if (!enum_info.is_exhaustive) {
-        if (tag_int > std.math.maxInt(enum_info.tag_type)) {
-            return error.InvalidEnumTag;
+        if (std.math.cast(enum_info.tag_type, tag_int)) |tag| {
+            return @intToEnum(EnumTag, tag);
         }
-        return @intToEnum(EnumTag, tag_int);
+        return error.InvalidEnumTag;
     }
 
     inline for (enum_info.fields) |f| {
