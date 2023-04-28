@@ -575,7 +575,7 @@ const mnemonic_to_encodings_map = init: {
             .modrm_ext = entry[4],
             .mode = entry[5],
         };
-        // TODO: use `@memcpy` for these. When I did that, I got an false positive
+        // TODO: use `@memcpy` for these. When I did that, I got a false positive
         // compile error for this copy happening at compile time.
         std.mem.copyForwards(Op, &data.ops, entry[2]);
         std.mem.copyForwards(u8, &data.opc, entry[3]);

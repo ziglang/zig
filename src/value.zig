@@ -2789,6 +2789,7 @@ pub const Value = extern union {
             .field_ptr => isComptimeMutablePtr(val.castTag(.field_ptr).?.data.container_ptr),
             .eu_payload_ptr => isComptimeMutablePtr(val.castTag(.eu_payload_ptr).?.data.container_ptr),
             .opt_payload_ptr => isComptimeMutablePtr(val.castTag(.opt_payload_ptr).?.data.container_ptr),
+            .slice => isComptimeMutablePtr(val.castTag(.slice).?.data.ptr),
 
             else => false,
         };
