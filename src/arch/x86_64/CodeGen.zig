@@ -6595,35 +6595,26 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
         if (Air.refToIndex(pl_op.operand)) |op_inst| self.processDeath(op_inst);
     }
 
-    const outer_state = try self.saveState();
-    {
-        self.scope_generation += 1;
-        const inner_state = try self.saveState();
+    self.scope_generation += 1;
+    const state = try self.saveState();
 
-        for (liveness_cond_br.then_deaths) |operand| self.processDeath(operand);
-        try self.genBody(then_body);
-        try self.restoreState(inner_state, &.{}, .{
-            .emit_instructions = false,
-            .update_tracking = true,
-            .resurrect = true,
-            .close_scope = true,
-        });
-
-        try self.performReloc(reloc);
-
-        for (liveness_cond_br.else_deaths) |operand| self.processDeath(operand);
-        try self.genBody(else_body);
-        try self.restoreState(inner_state, &.{}, .{
-            .emit_instructions = false,
-            .update_tracking = true,
-            .resurrect = true,
-            .close_scope = true,
-        });
-    }
-    try self.restoreState(outer_state, &.{}, .{
+    for (liveness_cond_br.then_deaths) |operand| self.processDeath(operand);
+    try self.genBody(then_body);
+    try self.restoreState(state, &.{}, .{
         .emit_instructions = false,
-        .update_tracking = false,
-        .resurrect = false,
+        .update_tracking = true,
+        .resurrect = true,
+        .close_scope = true,
+    });
+
+    try self.performReloc(reloc);
+
+    for (liveness_cond_br.else_deaths) |operand| self.processDeath(operand);
+    try self.genBody(else_body);
+    try self.restoreState(state, &.{}, .{
+        .emit_instructions = false,
+        .update_tracking = true,
+        .resurrect = true,
         .close_scope = true,
     });
 
@@ -6996,64 +6987,55 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
         if (Air.refToIndex(pl_op.operand)) |op_inst| self.processDeath(op_inst);
     }
 
-    const outer_state = try self.saveState();
-    {
-        self.scope_generation += 1;
-        const inner_state = try self.saveState();
+    self.scope_generation += 1;
+    const state = try self.saveState();
 
-        while (case_i < switch_br.data.cases_len) : (case_i += 1) {
-            const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-            const items = @ptrCast(
-                []const Air.Inst.Ref,
-                self.air.extra[case.end..][0..case.data.items_len],
-            );
-            const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
-            extra_index = case.end + items.len + case_body.len;
+    while (case_i < switch_br.data.cases_len) : (case_i += 1) {
+        const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
+        const items = @ptrCast(
+            []const Air.Inst.Ref,
+            self.air.extra[case.end..][0..case.data.items_len],
+        );
+        const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
+        extra_index = case.end + items.len + case_body.len;
 
-            var relocs = try self.gpa.alloc(u32, items.len);
-            defer self.gpa.free(relocs);
+        var relocs = try self.gpa.alloc(u32, items.len);
+        defer self.gpa.free(relocs);
 
-            for (items, relocs) |item, *reloc| {
-                try self.spillEflagsIfOccupied();
-                const item_mcv = try self.resolveInst(item);
-                try self.genBinOpMir(.cmp, condition_ty, condition, item_mcv);
-                reloc.* = try self.asmJccReloc(undefined, .ne);
-            }
-
-            for (liveness.deaths[case_i]) |operand| self.processDeath(operand);
-
-            try self.genBody(case_body);
-            try self.restoreState(inner_state, &.{}, .{
-                .emit_instructions = false,
-                .update_tracking = true,
-                .resurrect = true,
-                .close_scope = true,
-            });
-
-            for (relocs) |reloc| try self.performReloc(reloc);
+        for (items, relocs) |item, *reloc| {
+            try self.spillEflagsIfOccupied();
+            const item_mcv = try self.resolveInst(item);
+            try self.genBinOpMir(.cmp, condition_ty, condition, item_mcv);
+            reloc.* = try self.asmJccReloc(undefined, .ne);
         }
 
-        if (switch_br.data.else_body_len > 0) {
-            const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
+        for (liveness.deaths[case_i]) |operand| self.processDeath(operand);
 
-            const else_deaths = liveness.deaths.len - 1;
-            for (liveness.deaths[else_deaths]) |operand| self.processDeath(operand);
+        try self.genBody(case_body);
+        try self.restoreState(state, &.{}, .{
+            .emit_instructions = false,
+            .update_tracking = true,
+            .resurrect = true,
+            .close_scope = true,
+        });
 
-            try self.genBody(else_body);
-            try self.restoreState(inner_state, &.{}, .{
-                .emit_instructions = false,
-                .update_tracking = true,
-                .resurrect = true,
-                .close_scope = true,
-            });
-        }
+        for (relocs) |reloc| try self.performReloc(reloc);
     }
-    try self.restoreState(outer_state, &.{}, .{
-        .emit_instructions = false,
-        .update_tracking = false,
-        .resurrect = false,
-        .close_scope = true,
-    });
+
+    if (switch_br.data.else_body_len > 0) {
+        const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
+
+        const else_deaths = liveness.deaths.len - 1;
+        for (liveness.deaths[else_deaths]) |operand| self.processDeath(operand);
+
+        try self.genBody(else_body);
+        try self.restoreState(state, &.{}, .{
+            .emit_instructions = false,
+            .update_tracking = true,
+            .resurrect = true,
+            .close_scope = true,
+        });
+    }
 
     // We already took care of pl_op.operand earlier, so we're going to pass .none here
     return self.finishAir(inst, .unreach, .{ .none, .none, .none });
