@@ -25323,7 +25323,7 @@ fn coerceExtra(
 
             // cast from *T and [*]T to *anyopaque
             // but don't do it if the source type is a double pointer
-            if (dest_info.pointee_type.tag() == .anyopaque and inst_ty.zigTypeTag() == .Pointer) {
+            if (dest_info.pointee_type.tag() == .anyopaque and inst_ty.zigTypeTag() == .Pointer) to_anyopaque: {
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :pointer;
                 const elem_ty = inst_ty.elemType2();
                 if (elem_ty.zigTypeTag() == .Pointer or elem_ty.isPtrLikeOptional()) {
@@ -25333,6 +25333,7 @@ fn coerceExtra(
                     } };
                     break :pointer;
                 }
+                if (dest_ty.isSlice()) break :to_anyopaque;
                 if (inst_ty.isSlice()) {
                     in_memory_result = .{ .slice_to_anyopaque = .{
                         .actual = inst_ty,
