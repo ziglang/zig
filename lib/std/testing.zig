@@ -917,10 +917,10 @@ test "expectEqualDeep composite type" {
 }
 
 // TODO: test blocks can observe their own index fn argument.
-// Do not leaks implementation details from the test runner into libstd.
+// Do not leak implementation details from the test runner into libstd.
 // `test_fns_i` is index into builtin.test_functions set by test runner.
-const TestFn_iT = if (!builtin.is_test) u32 else void;
-threadlocal var test_fns_i: TestFn_iT = if (!builtin.is_test) 0 else void;
+const TestFn_iT = if (builtin.is_test) usize else void;
+pub threadlocal var test_fns_i: TestFn_iT = if (builtin.is_test) 0 else {};
 
 /// Send expected panic message to server from test runner, spawns itself as a
 /// child process with the test number, tells the server pid and process group
