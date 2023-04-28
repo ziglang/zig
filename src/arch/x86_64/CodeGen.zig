@@ -219,9 +219,9 @@ pub const MCValue = union(enum) {
             .dead,
             .undef,
             .immediate,
+            .eflags,
             .register,
             .register_offset,
-            .eflags,
             .register_overflow,
             .lea_direct,
             .lea_got,
@@ -294,6 +294,41 @@ pub const MCValue = union(enum) {
             .lea_frame => |frame_addr| .{
                 .lea_frame = .{ .index = frame_addr.index, .off = frame_addr.off + off },
             },
+        };
+    }
+
+    fn mem(mcv: MCValue, ptr_size: Memory.PtrSize) Memory {
+        return switch (mcv) {
+            .none,
+            .unreach,
+            .dead,
+            .undef,
+            .immediate,
+            .eflags,
+            .register,
+            .register_offset,
+            .register_overflow,
+            .load_direct,
+            .lea_direct,
+            .load_got,
+            .lea_got,
+            .load_tlv,
+            .lea_tlv,
+            .lea_frame,
+            .reserved_frame,
+            => unreachable,
+            .memory => |addr| if (math.cast(i32, @bitCast(i64, addr))) |small_addr|
+                Memory.sib(ptr_size, .{ .base = .{ .reg = .ds }, .disp = small_addr })
+            else
+                Memory.moffs(.ds, addr),
+            .indirect => |reg_off| Memory.sib(ptr_size, .{
+                .base = .{ .reg = reg_off.reg },
+                .disp = reg_off.off,
+            }),
+            .load_frame => |frame_addr| Memory.sib(ptr_size, .{
+                .base = .{ .frame = frame_addr.index },
+                .disp = frame_addr.off,
+            }),
         };
     }
 
@@ -7936,70 +7971,50 @@ fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
     const extra = self.air.extraData(Air.Cmpxchg, ty_pl.payload).data;
 
     const ptr_ty = self.air.typeOf(extra.ptr);
-    const ptr_mcv = try self.resolveInst(extra.ptr);
     const val_ty = self.air.typeOf(extra.expected_value);
     const val_abi_size = @intCast(u32, val_ty.abiSize(self.target.*));
 
     try self.spillRegisters(&.{ .rax, .rdx, .rbx, .rcx });
     const regs_lock = self.register_manager.lockRegsAssumeUnused(4, .{ .rax, .rdx, .rbx, .rcx });
-    for (regs_lock) |lock| self.register_manager.unlockReg(lock);
+    defer for (regs_lock) |lock| self.register_manager.unlockReg(lock);
 
     const exp_mcv = try self.resolveInst(extra.expected_value);
-    if (val_abi_size > 8) switch (exp_mcv) {
-        .load_frame => |frame_addr| {
-            try self.genSetReg(.rax, Type.usize, .{ .load_frame = .{
-                .index = frame_addr.index,
-                .off = frame_addr.off + 0,
-            } });
-            try self.genSetReg(.rdx, Type.usize, .{ .load_frame = .{
-                .index = frame_addr.index,
-                .off = frame_addr.off + 8,
-            } });
-        },
-        else => return self.fail("TODO implement cmpxchg for {s}", .{@tagName(exp_mcv)}),
+    if (val_abi_size > 8) {
+        try self.genSetReg(.rax, Type.usize, exp_mcv);
+        try self.genSetReg(.rdx, Type.usize, exp_mcv.address().offset(8).deref());
     } else try self.genSetReg(.rax, val_ty, exp_mcv);
-    const rax_lock = self.register_manager.lockRegAssumeUnused(.rax);
-    defer self.register_manager.unlockReg(rax_lock);
 
     const new_mcv = try self.resolveInst(extra.new_value);
-    const new_reg: Register = if (val_abi_size > 8) switch (new_mcv) {
-        .load_frame => |frame_addr| new: {
-            try self.genSetReg(.rbx, Type.usize, .{ .load_frame = .{
-                .index = frame_addr.index,
-                .off = frame_addr.off + 0,
-            } });
-            try self.genSetReg(.rcx, Type.usize, .{ .load_frame = .{
-                .index = frame_addr.index,
-                .off = frame_addr.off + 8,
-            } });
-            break :new undefined;
-        },
-        else => return self.fail("TODO implement cmpxchg for {s}", .{@tagName(exp_mcv)}),
+    const new_reg = if (val_abi_size > 8) new: {
+        try self.genSetReg(.rbx, Type.usize, new_mcv);
+        try self.genSetReg(.rcx, Type.usize, new_mcv.address().offset(8).deref());
+        break :new null;
     } else try self.copyToTmpRegister(val_ty, new_mcv);
-    const new_lock = self.register_manager.lockRegAssumeUnused(new_reg);
-    defer self.register_manager.unlockReg(new_lock);
+    const new_lock = if (new_reg) |reg| self.register_manager.lockRegAssumeUnused(reg) else null;
+    defer if (new_lock) |lock| self.register_manager.unlockReg(lock);
 
+    const ptr_mcv = try self.resolveInst(extra.ptr);
     const ptr_size = Memory.PtrSize.fromSize(val_abi_size);
     const ptr_mem = switch (ptr_mcv) {
-        .register => |reg| Memory.sib(ptr_size, .{ .base = .{ .reg = reg } }),
-        .lea_frame => |frame_addr| Memory.sib(ptr_size, .{
-            .base = .{ .frame = frame_addr.index },
-            .disp = frame_addr.off,
+        .immediate, .register, .register_offset, .lea_frame => ptr_mcv.deref().mem(ptr_size),
+        else => Memory.sib(ptr_size, .{
+            .base = .{ .reg = try self.copyToTmpRegister(ptr_ty, ptr_mcv) },
         }),
-        else => Memory.sib(ptr_size, .{ .base = .{
-            .reg = try self.copyToTmpRegister(ptr_ty, ptr_mcv),
-        } }),
     };
-    const mem_lock = switch (ptr_mem.base()) {
+    switch (ptr_mem) {
+        .sib, .rip => {},
+        .moffs => return self.fail("TODO airCmpxchg with {s}", .{@tagName(ptr_mcv)}),
+    }
+    const ptr_lock = switch (ptr_mem.base()) {
         .none, .frame => null,
         .reg => |reg| self.register_manager.lockReg(reg),
     };
-    defer if (mem_lock) |lock| self.register_manager.unlockReg(lock);
+    defer if (ptr_lock) |lock| self.register_manager.unlockReg(lock);
 
     try self.spillEflagsIfOccupied();
     if (val_abi_size <= 8) {
         _ = try self.addInst(.{ .tag = .cmpxchg, .ops = .lock_mr_sib, .data = .{ .rx = .{
-            .r = registerAlias(new_reg, val_abi_size),
+            .r = registerAlias(new_reg.?, val_abi_size),
             .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
         } } });
     } else {
@@ -8017,24 +8032,9 @@ fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
         }
 
         const dst_mcv = try self.allocRegOrMem(inst, false);
-        try self.genSetMem(
-            .{ .frame = dst_mcv.load_frame.index },
-            dst_mcv.load_frame.off + 16,
-            Type.bool,
-            .{ .eflags = .ne },
-        );
-        try self.genSetMem(
-            .{ .frame = dst_mcv.load_frame.index },
-            dst_mcv.load_frame.off + 8,
-            Type.usize,
-            .{ .register = .rdx },
-        );
-        try self.genSetMem(
-            .{ .frame = dst_mcv.load_frame.index },
-            dst_mcv.load_frame.off + 0,
-            Type.usize,
-            .{ .register = .rax },
-        );
+        try self.genCopy(Type.usize, dst_mcv, .{ .register = .rax });
+        try self.genCopy(Type.usize, dst_mcv.address().offset(8).deref(), .{ .register = .rdx });
+        try self.genCopy(Type.bool, dst_mcv.address().offset(16).deref(), .{ .eflags = .ne });
         break :result dst_mcv;
     };
     return self.finishAir(inst, result, .{ extra.ptr, extra.expected_value, extra.new_value });
@@ -8065,15 +8065,15 @@ fn atomicOp(
     const val_abi_size = @intCast(u32, val_ty.abiSize(self.target.*));
     const ptr_size = Memory.PtrSize.fromSize(val_abi_size);
     const ptr_mem = switch (ptr_mcv) {
-        .register => |reg| Memory.sib(ptr_size, .{ .base = .{ .reg = reg } }),
-        .lea_frame => |frame_addr| Memory.sib(ptr_size, .{
-            .base = .{ .frame = frame_addr.index },
-            .disp = frame_addr.off,
+        .immediate, .register, .register_offset, .lea_frame => ptr_mcv.deref().mem(ptr_size),
+        else => Memory.sib(ptr_size, .{
+            .base = .{ .reg = try self.copyToTmpRegister(ptr_ty, ptr_mcv) },
         }),
-        else => Memory.sib(ptr_size, .{ .base = .{
-            .reg = try self.copyToTmpRegister(ptr_ty, ptr_mcv),
-        } }),
     };
+    switch (ptr_mem) {
+        .sib, .rip => {},
+        .moffs => return self.fail("TODO airCmpxchg with {s}", .{@tagName(ptr_mcv)}),
+    }
     const mem_lock = switch (ptr_mem.base()) {
         .none, .frame => null,
         .reg => |reg| self.register_manager.lockReg(reg),
