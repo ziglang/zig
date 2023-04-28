@@ -439,7 +439,14 @@ pub const Response = struct {
         }
 
         if (!res.headers.contains("connection")) {
-            try w.writeAll("Connection: keep-alive\r\n");
+            const req_connection = res.request.headers.getFirstValue("connection");
+            const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
+
+            if (req_keepalive) {
+                try w.writeAll("Connection: keep-alive\r\n");
+            } else {
+                try w.writeAll("Connection: close\r\n");
+            }
         }
 
         const has_transfer_encoding = res.headers.contains("transfer-encoding");
