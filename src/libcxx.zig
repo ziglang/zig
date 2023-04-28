@@ -174,6 +174,11 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
 
         if (target.abi.isMusl()) {
             try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
+        } else if (comp.bin_file.options.link_libc and target.isGnuLibC()) {
+            const target_version = target.os.version_range.linux.glibc;
+            if (target_version.major == 2 and target_version.minor < 16) {
+                try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
+            }
         }
 
         if (target.os.tag == .wasi) {
