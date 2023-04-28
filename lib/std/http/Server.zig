@@ -355,17 +355,19 @@ pub const Response = struct {
         }
     }
 
+    pub const ResetState = enum { reset, closing };
+
     /// Reset this response to its initial state. This must be called before handling a second request on the same connection.
-    pub fn reset(res: *Response) bool {
+    pub fn reset(res: *Response) ResetState {
         if (res.state == .first) {
             res.state = .start;
-            return true;
+            return .reset;
         }
 
         if (!res.request.parser.done) {
             // If the response wasn't fully read, then we need to close the connection.
             res.connection.conn.closing = true;
-            return false;
+            return .closing;
         }
 
         // A connection is only keep-alive if the Connection header is present and it's value is not "close".
@@ -408,7 +410,11 @@ pub const Response = struct {
             .parser = res.request.parser,
         };
 
-        return !res.connection.conn.closing;
+        if (res.connection.conn.closing) {
+            return .closing;
+        } else {
+            return .reset;
+        }
     }
 
     pub const DoError = BufferedConnection.WriteError || error{ UnsupportedTransferEncoding, InvalidContentLength };
@@ -699,7 +705,7 @@ pub const HeaderStrategy = union(enum) {
     static: []u8,
 };
 
-/// Accept a new connection and allocate a Response for it.
+/// Accept a new connection.
 pub fn accept(server: *Server, options: HeaderStrategy) AcceptError!Response {
     const in = try server.socket.accept();
 

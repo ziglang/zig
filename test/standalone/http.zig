@@ -122,7 +122,7 @@ fn runServer(srv: *Server) !void {
         var res = try srv.accept(.{ .dynamic = max_header_size });
         defer res.deinit();
 
-        while (res.reset()) {
+        while (res.reset() != .closing) {
             res.wait() catch |err| switch (err) {
                 error.HttpHeadersInvalid => continue :outer,
                 error.EndOfStream => continue,
