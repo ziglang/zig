@@ -234,25 +234,33 @@ pub fn log(
 /// work-in-progress backends can handle it.
 pub fn mainSimple() anyerror!void {
     const enable_print = false;
+    const print_all = false;
 
     var passed: u64 = 0;
     var skipped: u64 = 0;
     var failed: u64 = 0;
     const stderr = if (enable_print) std.io.getStdErr() else {};
     for (builtin.test_functions) |test_fn| {
+        if (enable_print and print_all) {
+            stderr.writeAll(test_fn.name) catch {};
+            stderr.writeAll("... ") catch {};
+        }
         test_fn.func() catch |err| {
-            if (enable_print) stderr.writeAll(test_fn.name) catch {};
+            if (enable_print and !print_all) {
+                stderr.writeAll(test_fn.name) catch {};
+                stderr.writeAll("... ") catch {};
+            }
             if (err != error.SkipZigTest) {
-                if (enable_print) stderr.writeAll("... FAIL\n") catch {};
+                if (enable_print) stderr.writeAll("FAIL\n") catch {};
                 failed += 1;
                 if (!enable_print) return err;
                 continue;
             }
-            if (enable_print) stderr.writeAll("... SKIP\n") catch {};
+            if (enable_print) stderr.writeAll("SKIP\n") catch {};
             skipped += 1;
             continue;
         };
-        //if (enable_print) stderr.writeAll("... PASS\n") catch {};
+        if (enable_print and print_all) stderr.writeAll("PASS\n") catch {};
         passed += 1;
     }
     if (enable_print) {
