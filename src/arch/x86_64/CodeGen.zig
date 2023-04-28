@@ -1673,14 +1673,15 @@ fn allocFrameIndex(self: *Self, alloc: FrameAlloc) !FrameIndex {
     const frame_allocs_slice = self.frame_allocs.slice();
     const frame_size = frame_allocs_slice.items(.abi_size);
     const frame_align = frame_allocs_slice.items(.abi_align);
+
+    const stack_frame_align = &frame_align[@enumToInt(FrameIndex.stack_frame)];
+    stack_frame_align.* = @max(stack_frame_align.*, alloc.abi_align);
+
     for (self.free_frame_indices.keys(), 0..) |frame_index, free_i| {
         const abi_size = frame_size[@enumToInt(frame_index)];
         if (abi_size != alloc.abi_size) continue;
         const abi_align = &frame_align[@enumToInt(frame_index)];
         abi_align.* = @max(abi_align.*, alloc.abi_align);
-
-        const stack_frame_align = &frame_align[@enumToInt(FrameIndex.stack_frame)];
-        stack_frame_align.* = @max(stack_frame_align.*, alloc.abi_align);
 
         _ = self.free_frame_indices.swapRemoveAt(free_i);
         return frame_index;
