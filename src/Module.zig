@@ -411,6 +411,46 @@ pub const WipCaptureScope = struct {
     }
 };
 
+const ValueArena = struct {
+    state: std.heap.ArenaAllocator.State,
+    state_acquired: ?*std.heap.ArenaAllocator.State = null,
+
+    /// If this ValueArena replaced an existing one during re-analysis, this is the previous instance
+    prev: ?*ValueArena = null,
+
+    /// Returns an allocator backed by either promoting `state`, or by the existing ArenaAllocator
+    /// that has already promoted `state`. `out_arena_allocator` provides storage for the initial promotion,
+    /// and must live until the matching call to release().
+    pub fn acquire(self: *ValueArena, child_allocator: Allocator, out_arena_allocator: *std.heap.ArenaAllocator) Allocator {
+        if (self.state_acquired) |state_acquired| {
+            return @fieldParentPtr(std.heap.ArenaAllocator, "state", state_acquired).allocator();
+        }
+
+        out_arena_allocator.* = self.state.promote(child_allocator);
+        self.state_acquired = &out_arena_allocator.state;
+        return out_arena_allocator.allocator();
+    }
+
+    /// Releases the allocator acquired by `acquire. `arena_allocator` must match the one passed to `acquire`.
+    pub fn release(self: *ValueArena, arena_allocator: *std.heap.ArenaAllocator) void {
+        if (@fieldParentPtr(std.heap.ArenaAllocator, "state", self.state_acquired.?) == arena_allocator) {
+            self.state = self.state_acquired.?.*;
+            self.state_acquired = null;
+        }
+    }
+
+    pub fn deinit(self: ValueArena, child_allocator: Allocator) void {
+        assert(self.state_acquired == null);
+
+        const prev = self.prev;
+        self.state.promote(child_allocator).deinit();
+
+        if (prev) |p| {
+            p.deinit(child_allocator);
+        }
+    }
+};
+
 pub const Decl = struct {
     /// Allocated with Module's allocator; outlives the ZIR code.
     name: [*:0]const u8,
@@ -429,7 +469,7 @@ pub const Decl = struct {
     @"addrspace": std.builtin.AddressSpace,
     /// The memory for ty, val, align, linksection, and captures.
     /// If this is `null` then there is no memory management needed.
-    value_arena: ?*std.heap.ArenaAllocator.State = null,
+    value_arena: ?*ValueArena = null,
     /// The direct parent namespace of the Decl.
     /// Reference to externally owned memory.
     /// In the case of the Decl corresponding to a file, this is
@@ -607,7 +647,7 @@ pub const Decl = struct {
             variable.deinit(gpa);
             gpa.destroy(variable);
         }
-        if (decl.value_arena) |arena_state| {
+        if (decl.value_arena) |value_arena| {
             if (decl.owns_tv) {
                 if (decl.val.castTag(.str_lit)) |str_lit| {
                     mod.string_literal_table.getPtrContext(str_lit.data, .{
@@ -615,7 +655,7 @@ pub const Decl = struct {
                     }).?.* = .none;
                 }
             }
-            arena_state.promote(gpa).deinit();
+            value_arena.deinit(gpa);
             decl.value_arena = null;
             decl.has_tv = false;
             decl.owns_tv = false;
@@ -624,9 +664,9 @@ pub const Decl = struct {
 
     pub fn finalizeNewArena(decl: *Decl, arena: *std.heap.ArenaAllocator) !void {
         assert(decl.value_arena == null);
-        const arena_state = try arena.allocator().create(std.heap.ArenaAllocator.State);
-        arena_state.* = arena.state;
-        decl.value_arena = arena_state;
+        const value_arena = try arena.allocator().create(ValueArena);
+        value_arena.* = .{ .state = arena.state };
+        decl.value_arena = value_arena;
     }
 
     /// This name is relative to the containing namespace of the decl.
@@ -4537,15 +4577,20 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     // We need the memory for the Type to go into the arena for the Decl
     var decl_arena = std.heap.ArenaAllocator.init(gpa);
     const decl_arena_allocator = decl_arena.allocator();
-
-    const decl_arena_state = blk: {
+    const decl_value_arena = blk: {
         errdefer decl_arena.deinit();
-        const s = try decl_arena_allocator.create(std.heap.ArenaAllocator.State);
+        const s = try decl_arena_allocator.create(ValueArena);
+        s.* = .{ .state = undefined };
         break :blk s;
     };
     defer {
-        decl_arena_state.* = decl_arena.state;
-        decl.value_arena = decl_arena_state;
+        if (decl.value_arena) |value_arena| {
+            assert(value_arena.state_acquired == null);
+            decl_value_arena.prev = value_arena;
+        }
+
+        decl_value_arena.state = decl_arena.state;
+        decl.value_arena = decl_value_arena;
     }
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
@@ -5493,9 +5538,9 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     const decl = mod.declPtr(decl_index);
 
     // Use the Decl's arena for captured values.
-    var decl_arena = decl.value_arena.?.promote(gpa);
-    defer decl.value_arena.?.* = decl_arena.state;
-    const decl_arena_allocator = decl_arena.allocator();
+    var decl_arena: std.heap.ArenaAllocator = undefined;
+    const decl_arena_allocator = decl.value_arena.?.acquire(gpa, &decl_arena);
+    defer decl.value_arena.?.release(&decl_arena);
 
     var sema: Sema = .{
         .mod = mod,
