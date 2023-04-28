@@ -91,12 +91,10 @@ pub fn generateFunction(
 
 fn writeFloat(comptime F: type, f: F, target: Target, endian: std.builtin.Endian, code: []u8) void {
     _ = target;
-    const Int = @Type(.{ .Int = .{
-        .signedness = .unsigned,
-        .bits = @typeInfo(F).Float.bits,
-    } });
+    const bits = @typeInfo(F).Float.bits;
+    const Int = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = bits } });
     const int = @bitCast(Int, f);
-    mem.writeInt(Int, code[0..@sizeOf(Int)], int, endian);
+    mem.writeInt(Int, code[0..@divExact(bits, 8)], int, endian);
 }
 
 pub fn generateLazySymbol(
@@ -187,18 +185,14 @@ pub fn generateSymbol(
             };
         },
         .Float => {
-            const float_bits = typed_value.ty.floatBits(target);
-            switch (float_bits) {
+            switch (typed_value.ty.floatBits(target)) {
                 16 => writeFloat(f16, typed_value.val.toFloat(f16), target, endian, try code.addManyAsArray(2)),
                 32 => writeFloat(f32, typed_value.val.toFloat(f32), target, endian, try code.addManyAsArray(4)),
                 64 => writeFloat(f64, typed_value.val.toFloat(f64), target, endian, try code.addManyAsArray(8)),
-                80 => return Result{
-                    .fail = try ErrorMsg.create(
-                        bin_file.allocator,
-                        src_loc,
-                        "TODO handle f80 in generateSymbol",
-                        .{},
-                    ),
+                80 => {
+                    writeFloat(f80, typed_value.val.toFloat(f80), target, endian, try code.addManyAsArray(10));
+                    const abi_size = math.cast(usize, typed_value.ty.abiSize(target)) orelse return error.Overflow;
+                    try code.appendNTimes(0, abi_size - 10);
                 },
                 128 => writeFloat(f128, typed_value.val.toFloat(f128), target, endian, try code.addManyAsArray(16)),
                 else => unreachable,
