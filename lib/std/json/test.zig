@@ -2188,50 +2188,6 @@ test "parseFree descends into tagged union" {
     try testing.expectEqual(@as(usize, 1), fail_alloc.deallocations);
 }
 
-test "parse with comptime field" {
-    {
-        const T = struct {
-            comptime a: i32 = 0,
-            b: bool,
-        };
-        var ts = TokenStream.init(
-            \\{
-            \\  "a": 0,
-            \\  "b": true
-            \\}
-        );
-        try testing.expectEqual(T{ .a = 0, .b = true }, try parse(T, &ts, ParseOptions{}));
-    }
-
-    { // string comptime values currently require an allocator
-        const T = union(enum) {
-            foo: struct {
-                comptime kind: []const u8 = "boolean",
-                b: bool,
-            },
-            bar: struct {
-                comptime kind: []const u8 = "float",
-                b: f64,
-            },
-        };
-
-        const options = ParseOptions{
-            .allocator = std.testing.allocator,
-        };
-
-        var ts = TokenStream.init(
-            \\{
-            \\  "kind": "float",
-            \\  "b": 1.0
-            \\}
-        );
-        const r = try parse(T, &ts, options);
-
-        // check that parseFree doesn't try to free comptime fields
-        parseFree(T, r, options);
-    }
-}
-
 test "parse into struct with no fields" {
     const T = struct {};
     var ts = TokenStream.init("{}");
@@ -2407,15 +2363,6 @@ test "parse into struct with duplicate field" {
     try testing.expectEqual(T2{ .a = 1.0 }, try parse(T2, &ts, options_first));
     ts = TokenStream.init(str);
     try testing.expectEqual(T2{ .a = 0.25 }, try parse(T2, &ts, options_last));
-
-    const T3 = struct { comptime a: f64 = 1.0 };
-    // .UseFirst should succeed because second "a" value is unconditionally ignored (even though != 1.0)
-    const t3 = T3{ .a = 1.0 };
-    ts = TokenStream.init(str);
-    try testing.expectEqual(t3, try parse(T3, &ts, options_first));
-    // .UseLast should fail because second "a" value is 0.25 which is not equal to default value of 1.0
-    ts = TokenStream.init(str);
-    try testing.expectError(error.UnexpectedValue, parse(T3, &ts, options_last));
 }
 
 test "parse into struct ignoring unknown fields" {

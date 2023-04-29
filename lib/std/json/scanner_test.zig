@@ -88,15 +88,15 @@ test "numbers" {
 const string_test_cases = .{
     // The left is JSON without the "quotes".
     // The right is the expected unescaped content.
-    .{"", ""},
-    .{"\\\\", "\\"},
-    .{"a\\\\b", "a\\b"},
-    .{"a\\\"b", "a\"b"},
-    .{"\\n", "\n"},
-    .{"\\u000a", "\n"},
-    .{"𝄞", "\u{1D11E}"},
-    .{"\\uD834\\uDD1E", "\u{1D11E}"},
-    .{"\\uff20", "＠"},
+    .{ "", "" },
+    .{ "\\\\", "\\" },
+    .{ "a\\\\b", "a\\b" },
+    .{ "a\\\"b", "a\"b" },
+    .{ "\\n", "\n" },
+    .{ "\\u000a", "\n" },
+    .{ "𝄞", "\u{1D11E}" },
+    .{ "\\uD834\\uDD1E", "\u{1D11E}" },
+    .{ "\\uff20", "＠" },
 };
 
 test "strings" {
@@ -116,18 +116,18 @@ test "strings" {
 }
 
 const nesting_test_cases = .{
-    .{null, "[]"},
-    .{null, "{}"},
-    .{error.SyntaxError, "[}"},
-    .{error.SyntaxError, "{]"},
-    .{null, "[" ** 1000 ++ "]" ** 1000},
-    .{null, "{\"\":" ** 1000 ++ "0" ++ "}" ** 1000},
-    .{error.SyntaxError, "[" ** 1000 ++ "]" ** 999 ++ "}"},
-    .{error.SyntaxError, "{\"\":" ** 1000 ++ "0" ++ "}" ** 999 ++ "]"},
-    .{error.SyntaxError, "[" ** 1000 ++ "]" ** 1001},
-    .{error.SyntaxError, "{\"\":" ** 1000 ++ "0" ++ "}" ** 1001},
-    .{error.UnexpectedEndOfDocument, "[" ** 1000 ++ "]" ** 999},
-    .{error.UnexpectedEndOfDocument, "{\"\":" ** 1000 ++ "0" ++ "}" ** 999},
+    .{ null, "[]" },
+    .{ null, "{}" },
+    .{ error.SyntaxError, "[}" },
+    .{ error.SyntaxError, "{]" },
+    .{ null, "[" ** 1000 ++ "]" ** 1000 },
+    .{ null, "{\"\":" ** 1000 ++ "0" ++ "}" ** 1000 },
+    .{ error.SyntaxError, "[" ** 1000 ++ "]" ** 999 ++ "}" },
+    .{ error.SyntaxError, "{\"\":" ** 1000 ++ "0" ++ "}" ** 999 ++ "]" },
+    .{ error.SyntaxError, "[" ** 1000 ++ "]" ** 1001 },
+    .{ error.SyntaxError, "{\"\":" ** 1000 ++ "0" ++ "}" ** 1001 },
+    .{ error.UnexpectedEndOfDocument, "[" ** 1000 ++ "]" ** 999 },
+    .{ error.UnexpectedEndOfDocument, "{\"\":" ** 1000 ++ "0" ++ "}" ** 999 },
 };
 
 test "nesting" {

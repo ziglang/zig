@@ -1546,7 +1546,7 @@ fn parseInternal(
             var fields_seen = [_]bool{false} ** structInfo.fields.len;
             errdefer {
                 inline for (structInfo.fields, 0..) |field, i| {
-                    if (fields_seen[i] and !field.is_comptime) {
+                    if (fields_seen[i]) {
                         parseFree(field.type, @field(r, field.name), options);
                     }
                 }
@@ -1561,6 +1561,7 @@ fn parseInternal(
                         child_options.allow_trailing_data = true;
                         var found = false;
                         inline for (structInfo.fields, 0..) |field, i| {
+                            if (field.is_comptime) @compileError("comptime fields are not supported: " ++ @typeName(T) ++ "." ++ field.name);
                             if (switch (stringToken.escapes) {
                                 .None => mem.eql(u8, field.name, key_source_slice),
                                 .Some => (field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)),
@@ -1575,20 +1576,12 @@ fn parseInternal(
                                         },
                                         .Error => return error.DuplicateJSONField,
                                         .UseLast => {
-                                            if (!field.is_comptime) {
-                                                parseFree(field.type, @field(r, field.name), child_options);
-                                            }
+                                            parseFree(field.type, @field(r, field.name), child_options);
                                             fields_seen[i] = false;
                                         },
                                     }
                                 }
-                                if (field.is_comptime) {
-                                    if (!try parsesTo(field.type, @ptrCast(*align(1) const field.type, field.default_value.?).*, tokens, child_options)) {
-                                        return error.UnexpectedValue;
-                                    }
-                                } else {
-                                    @field(r, field.name) = try parse(field.type, tokens, child_options);
-                                }
+                                @field(r, field.name) = try parse(field.type, tokens, child_options);
                                 fields_seen[i] = true;
                                 found = true;
                                 break;
@@ -1609,10 +1602,8 @@ fn parseInternal(
             inline for (structInfo.fields, 0..) |field, i| {
                 if (!fields_seen[i]) {
                     if (field.default_value) |default_ptr| {
-                        if (!field.is_comptime) {
-                            const default = @ptrCast(*align(1) const field.type, default_ptr).*;
-                            @field(r, field.name) = default;
-                        }
+                        const default = @ptrCast(*align(1) const field.type, default_ptr).*;
+                        @field(r, field.name) = default;
                     } else {
                         return error.MissingField;
                     }
@@ -1763,7 +1754,6 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
         },
         .Struct => |structInfo| {
             inline for (structInfo.fields) |field| {
-                if (!field.is_comptime) {
                     var should_free = true;
                     if (field.default_value) |default| {
                         switch (@typeInfo(field.type)) {
@@ -1795,7 +1785,6 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
                     if (should_free) {
                         parseFree(field.type, @field(value, field.name), options);
                     }
-                }
             }
         },
         .Array => |arrayInfo| {
@@ -2434,6 +2423,7 @@ pub fn stringifyAlloc(allocator: std.mem.Allocator, value: anytype, options: Str
 
 test {
     _ = @import("json/test.zig");
+    _ = @import("json/scanner.zig");
     _ = @import("json/write_stream.zig");
 }
 
