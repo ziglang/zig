@@ -6565,7 +6565,10 @@ fn analyzeCall(
     };
 
     if (modifier == .never_inline and func_ty_info.cc == .Inline) {
-        return sema.fail(block, call_src, "no-inline call of inline function", .{});
+        return sema.fail(block, call_src, "'never_inline' call of inline function", .{});
+    }
+    if (modifier == .always_inline and func_ty_info.is_noinline) {
+        return sema.fail(block, call_src, "'always_inline' call of noinline function", .{});
     }
 
     const gpa = sema.gpa;
@@ -8784,7 +8787,8 @@ fn funcCommon(
         if (!is_generic and block.params.items.len == 0 and !var_args and !inferred_error_set and
             alignment.? == 0 and
             address_space.? == target_util.defaultAddressSpace(target, .function) and
-            section == .default)
+            section == .default and
+            !is_noinline)
         {
             if (bare_return_type.zigTypeTag() == .NoReturn and cc.? == .Unspecified) {
                 break :fn_ty Type.initTag(.fn_noreturn_no_args);
@@ -9002,6 +9006,7 @@ fn funcCommon(
             .addrspace_is_generic = address_space == null,
             .is_var_args = var_args,
             .is_generic = is_generic,
+            .is_noinline = is_noinline,
             .noalias_bits = noalias_bits,
         });
     };
@@ -19217,6 +19222,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                 .cc = cc,
                 .is_var_args = is_var_args,
                 .is_generic = false,
+                .is_noinline = false,
                 .align_is_generic = false,
                 .cc_is_generic = false,
                 .section_is_generic = false,
