@@ -1654,10 +1654,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-pie");
         }
 
-        if (self.base.options.link_mode == .Dynamic and target.os.tag == .netbsd) {
+        if (is_dyn_lib and target.os.tag == .netbsd) {
             // Add options to produce shared objects with only 2 PT_LOAD segments.
             // NetBSD expects 2 PT_LOAD segments in a shared object, otherwise
-            // ld.elf_so fails to load, emitting a general "not found" error.
+            // ld.elf_so fails loading dynamic libraries with "not found" error.
             // See https://github.com/ziglang/zig/issues/9109 .
             try argv.append("--no-rosegment");
             try argv.append("-znorelro");
