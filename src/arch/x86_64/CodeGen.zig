@@ -2434,12 +2434,7 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
                 const frame_index =
                     try self.allocFrameIndex(FrameAlloc.initType(tuple_ty, self.target.*));
-                try self.genSetFrameTruncatedOverflowCompare(
-                    tuple_ty,
-                    frame_index,
-                    partial_mcv.register,
-                    cc,
-                );
+                try self.genSetFrameTruncatedOverflowCompare(tuple_ty, frame_index, partial_mcv, cc);
                 break :result .{ .load_frame = .{ .index = frame_index } };
             },
             else => unreachable,
@@ -2511,12 +2506,7 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
                 const frame_index =
                     try self.allocFrameIndex(FrameAlloc.initType(tuple_ty, self.target.*));
-                try self.genSetFrameTruncatedOverflowCompare(
-                    tuple_ty,
-                    frame_index,
-                    partial_mcv.register,
-                    cc,
-                );
+                try self.genSetFrameTruncatedOverflowCompare(tuple_ty, frame_index, partial_mcv, cc);
                 break :result .{ .load_frame = .{ .index = frame_index } };
             },
             else => unreachable,
@@ -2529,173 +2519,164 @@ fn genSetFrameTruncatedOverflowCompare(
     self: *Self,
     tuple_ty: Type,
     frame_index: FrameIndex,
-    reg: Register,
+    src_mcv: MCValue,
     cc: Condition,
 ) !void {
-    const reg_lock = self.register_manager.lockReg(reg);
-    defer if (reg_lock) |lock| self.register_manager.unlockReg(lock);
+    const src_lock = switch (src_mcv) {
+        .register => |reg| self.register_manager.lockReg(reg),
+        else => null,
+    };
+    defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
     const ty = tuple_ty.structFieldType(0);
     const int_info = ty.intInfo(self.target.*);
-    const extended_ty = switch (int_info.signedness) {
-        .signed => Type.isize,
-        .unsigned => ty,
+
+    var hi_limb_pl = Type.Payload.Bits{
+        .base = .{ .tag = switch (int_info.signedness) {
+            .signed => .int_signed,
+            .unsigned => .int_unsigned,
+        } },
+        .data = (int_info.bits - 1) % 64 + 1,
     };
+    const hi_limb_ty = Type.initPayload(&hi_limb_pl.base);
+
+    var rest_pl = Type.Payload.Bits{
+        .base = .{ .tag = .int_unsigned },
+        .data = int_info.bits - hi_limb_pl.data,
+    };
+    const rest_ty = Type.initPayload(&rest_pl.base);
 
     const temp_regs = try self.register_manager.allocRegs(3, .{ null, null, null }, gp);
-    const temp_regs_locks = self.register_manager.lockRegsAssumeUnused(3, temp_regs);
-    defer for (temp_regs_locks) |rreg| {
-        self.register_manager.unlockReg(rreg);
-    };
+    const temp_locks = self.register_manager.lockRegsAssumeUnused(3, temp_regs);
+    defer for (temp_locks) |lock| self.register_manager.unlockReg(lock);
 
     const overflow_reg = temp_regs[0];
     try self.asmSetccRegister(overflow_reg.to8(), cc);
 
     const scratch_reg = temp_regs[1];
-    try self.genSetReg(scratch_reg, extended_ty, .{ .register = reg });
-    try self.truncateRegister(ty, scratch_reg);
-    try self.genBinOpMir(
-        .cmp,
-        extended_ty,
-        .{ .register = reg },
-        .{ .register = scratch_reg },
-    );
+    const hi_limb_off = if (int_info.bits <= 64) 0 else (int_info.bits - 1) / 64 * 8;
+    const hi_limb_mcv = if (hi_limb_off > 0)
+        src_mcv.address().offset(int_info.bits / 64 * 8).deref()
+    else
+        src_mcv;
+    try self.genSetReg(scratch_reg, hi_limb_ty, hi_limb_mcv);
+    try self.truncateRegister(hi_limb_ty, scratch_reg);
+    try self.genBinOpMir(.cmp, hi_limb_ty, .{ .register = scratch_reg }, hi_limb_mcv);
 
     const eq_reg = temp_regs[2];
     try self.asmSetccRegister(eq_reg.to8(), .ne);
-    try self.genBinOpMir(
-        .@"or",
-        Type.u8,
-        .{ .register = overflow_reg },
-        .{ .register = eq_reg },
-    );
+    try self.genBinOpMir(.@"or", Type.u8, .{ .register = overflow_reg }, .{ .register = eq_reg });
 
+    const payload_off = @intCast(i32, tuple_ty.structFieldOffset(0, self.target.*));
+    if (hi_limb_off > 0) try self.genSetMem(.{ .frame = frame_index }, payload_off, rest_ty, src_mcv);
+    try self.genSetMem(
+        .{ .frame = frame_index },
+        payload_off + hi_limb_off,
+        hi_limb_ty,
+        .{ .register = scratch_reg },
+    );
     try self.genSetMem(
         .{ .frame = frame_index },
         @intCast(i32, tuple_ty.structFieldOffset(1, self.target.*)),
         tuple_ty.structFieldType(1),
         .{ .register = overflow_reg.to8() },
     );
-    try self.genSetMem(
-        .{ .frame = frame_index },
-        @intCast(i32, tuple_ty.structFieldOffset(0, self.target.*)),
-        ty,
-        .{ .register = scratch_reg },
-    );
 }
 
 fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const result: MCValue = result: {
-        const dst_ty = self.air.typeOf(bin_op.lhs);
-        switch (dst_ty.zigTypeTag()) {
-            .Vector => return self.fail("TODO implement mul_with_overflow for Vector type", .{}),
-            .Int => {
-                try self.spillEflagsIfOccupied();
+    const dst_ty = self.air.typeOf(bin_op.lhs);
+    const result: MCValue = switch (dst_ty.zigTypeTag()) {
+        .Vector => return self.fail("TODO implement mul_with_overflow for Vector type", .{}),
+        .Int => result: {
+            try self.spillEflagsIfOccupied();
+            try self.spillRegisters(&.{ .rax, .rdx });
 
-                const dst_info = dst_ty.intInfo(self.target.*);
-                const cc: Condition = switch (dst_info.signedness) {
-                    .unsigned => .c,
-                    .signed => .o,
+            const dst_info = dst_ty.intInfo(self.target.*);
+            const cc: Condition = switch (dst_info.signedness) {
+                .unsigned => .c,
+                .signed => .o,
+            };
+
+            const lhs_active_bits = self.activeIntBits(bin_op.lhs);
+            const rhs_active_bits = self.activeIntBits(bin_op.rhs);
+            var src_pl = Type.Payload.Bits{ .base = .{ .tag = switch (dst_info.signedness) {
+                .signed => .int_signed,
+                .unsigned => .int_unsigned,
+            } }, .data = math.max3(lhs_active_bits, rhs_active_bits, dst_info.bits / 2) };
+            const src_ty = Type.initPayload(&src_pl.base);
+
+            const lhs = try self.resolveInst(bin_op.lhs);
+            const rhs = try self.resolveInst(bin_op.rhs);
+
+            const tuple_ty = self.air.typeOfIndex(inst);
+            const extra_bits = if (dst_info.bits <= 64)
+                self.regExtraBits(dst_ty)
+            else
+                dst_info.bits % 64;
+            const partial_mcv = if (dst_info.signedness == .signed and extra_bits > 0) dst: {
+                const rhs_lock: ?RegisterLock = switch (rhs) {
+                    .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+                    else => null,
                 };
+                defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-                const tuple_ty = self.air.typeOfIndex(inst);
-                if (dst_info.bits >= 8 and math.isPowerOfTwo(dst_info.bits)) {
-                    var src_pl = Type.Payload.Bits{ .base = .{ .tag = switch (dst_info.signedness) {
-                        .signed => .int_signed,
-                        .unsigned => .int_unsigned,
-                    } }, .data = math.max3(
-                        self.activeIntBits(bin_op.lhs),
-                        self.activeIntBits(bin_op.rhs),
-                        dst_info.bits / 2,
-                    ) };
-                    const src_ty = Type.initPayload(&src_pl.base);
+                const dst_reg: Register = blk: {
+                    if (lhs.isRegister()) break :blk lhs.register;
+                    break :blk try self.copyToTmpRegister(dst_ty, lhs);
+                };
+                const dst_mcv = MCValue{ .register = dst_reg };
+                const dst_reg_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
+                defer self.register_manager.unlockReg(dst_reg_lock);
 
-                    try self.spillRegisters(&.{ .rax, .rdx });
-                    const lhs = try self.resolveInst(bin_op.lhs);
-                    const rhs = try self.resolveInst(bin_op.rhs);
+                const rhs_mcv: MCValue = blk: {
+                    if (rhs.isRegister() or rhs.isMemory()) break :blk rhs;
+                    break :blk MCValue{ .register = try self.copyToTmpRegister(dst_ty, rhs) };
+                };
+                const rhs_mcv_lock: ?RegisterLock = switch (rhs_mcv) {
+                    .register => |reg| self.register_manager.lockReg(reg),
+                    else => null,
+                };
+                defer if (rhs_mcv_lock) |lock| self.register_manager.unlockReg(lock);
 
-                    const partial_mcv = try self.genMulDivBinOp(.mul, null, dst_ty, src_ty, lhs, rhs);
-                    switch (partial_mcv) {
-                        .register => |reg| {
-                            self.eflags_inst = inst;
-                            break :result .{ .register_overflow = .{ .reg = reg, .eflags = cc } };
-                        },
-                        else => {},
-                    }
+                try self.genIntMulComplexOpMir(Type.isize, dst_mcv, rhs_mcv);
+                break :dst dst_mcv;
+            } else try self.genMulDivBinOp(.mul, null, dst_ty, src_ty, lhs, rhs);
 
-                    // For now, this is the only supported multiply that doesn't fit in a register.
-                    assert(dst_info.bits == 128 and src_pl.data == 64);
+            switch (partial_mcv) {
+                .register => |reg| if (extra_bits == 0) {
+                    self.eflags_inst = inst;
+                    break :result .{ .register_overflow = .{ .reg = reg, .eflags = cc } };
+                } else {
                     const frame_index =
                         try self.allocFrameIndex(FrameAlloc.initType(tuple_ty, self.target.*));
-                    try self.genSetMem(
-                        .{ .frame = frame_index },
-                        @intCast(i32, tuple_ty.structFieldOffset(1, self.target.*)),
-                        tuple_ty.structFieldType(1),
-                        .{ .immediate = 0 }, // overflow is impossible for 64-bit*64-bit -> 128-bit
-                    );
-                    try self.genSetMem(
-                        .{ .frame = frame_index },
-                        @intCast(i32, tuple_ty.structFieldOffset(0, self.target.*)),
-                        tuple_ty.structFieldType(0),
-                        partial_mcv,
-                    );
+                    try self.genSetFrameTruncatedOverflowCompare(tuple_ty, frame_index, partial_mcv, cc);
                     break :result .{ .load_frame = .{ .index = frame_index } };
-                }
+                },
+                // For now, this is the only supported multiply that doesn't fit in a register.
+                else => assert(dst_info.bits <= 128 and src_pl.data == 64),
+            }
 
-                const dst_reg: Register = dst_reg: {
-                    switch (dst_info.signedness) {
-                        .signed => {
-                            const lhs = try self.resolveInst(bin_op.lhs);
-                            const rhs = try self.resolveInst(bin_op.rhs);
-
-                            const rhs_lock: ?RegisterLock = switch (rhs) {
-                                .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-                                else => null,
-                            };
-                            defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
-
-                            const dst_reg: Register = blk: {
-                                if (lhs.isRegister()) break :blk lhs.register;
-                                break :blk try self.copyToTmpRegister(dst_ty, lhs);
-                            };
-                            const dst_reg_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
-                            defer self.register_manager.unlockReg(dst_reg_lock);
-
-                            const rhs_mcv: MCValue = blk: {
-                                if (rhs.isRegister() or rhs.isMemory()) break :blk rhs;
-                                break :blk MCValue{ .register = try self.copyToTmpRegister(dst_ty, rhs) };
-                            };
-                            const rhs_mcv_lock: ?RegisterLock = switch (rhs_mcv) {
-                                .register => |reg| self.register_manager.lockReg(reg),
-                                else => null,
-                            };
-                            defer if (rhs_mcv_lock) |lock| self.register_manager.unlockReg(lock);
-
-                            try self.genIntMulComplexOpMir(Type.isize, .{ .register = dst_reg }, rhs_mcv);
-
-                            break :dst_reg dst_reg;
-                        },
-                        .unsigned => {
-                            try self.spillRegisters(&.{ .rax, .rdx });
-
-                            const lhs = try self.resolveInst(bin_op.lhs);
-                            const rhs = try self.resolveInst(bin_op.rhs);
-
-                            const dst_mcv = try self.genMulDivBinOp(.mul, null, dst_ty, dst_ty, lhs, rhs);
-                            break :dst_reg dst_mcv.register;
-                        },
-                    }
-                };
-
-                const frame_index =
-                    try self.allocFrameIndex(FrameAlloc.initType(tuple_ty, self.target.*));
-                try self.genSetFrameTruncatedOverflowCompare(tuple_ty, frame_index, dst_reg, cc);
-                break :result .{ .load_frame = .{ .index = frame_index } };
-            },
-            else => unreachable,
-        }
+            const frame_index =
+                try self.allocFrameIndex(FrameAlloc.initType(tuple_ty, self.target.*));
+            if (dst_info.bits >= lhs_active_bits + rhs_active_bits) {
+                try self.genSetMem(
+                    .{ .frame = frame_index },
+                    @intCast(i32, tuple_ty.structFieldOffset(0, self.target.*)),
+                    tuple_ty.structFieldType(0),
+                    partial_mcv,
+                );
+                try self.genSetMem(
+                    .{ .frame = frame_index },
+                    @intCast(i32, tuple_ty.structFieldOffset(1, self.target.*)),
+                    tuple_ty.structFieldType(1),
+                    .{ .immediate = 0 }, // overflow is impossible for 64-bit*64-bit -> 128-bit
+                );
+            } else try self.genSetFrameTruncatedOverflowCompare(tuple_ty, frame_index, partial_mcv, cc);
+            break :result .{ .load_frame = .{ .index = frame_index } };
+        },
+        else => unreachable,
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
