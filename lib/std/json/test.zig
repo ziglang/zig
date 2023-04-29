@@ -2108,6 +2108,7 @@ test "parse into that allocates a slice" {
 
 test "parse into tagged union" {
     const T = union(enum) {
+        nothing,
         int: i32,
         float: f64,
         string: []const u8,
@@ -2116,10 +2117,13 @@ test "parse into tagged union" {
     try testing.expectEqual(T{ .float = 1.5 }, try parse(T, &ts, ParseOptions{}));
     ts = TokenStream.init("{\"int\":1}");
     try testing.expectEqual(T{ .int = 1 }, try parse(T, &ts, ParseOptions{}));
+    ts = TokenStream.init("{\"nothing\":{}}");
+    try testing.expectEqual(T{ .nothing = {} }, try parse(T, &ts, ParseOptions{}));
 }
 
 test "parse into tagged union errors" {
     const T = union(enum) {
+        nothing,
         int: i32,
         float: f64,
         string: []const u8,
@@ -2141,6 +2145,12 @@ test "parse into tagged union errors" {
 
     ts = TokenStream.init("{\"string\":\"foo\"}");
     try testing.expectError(error.AllocatorRequired, parse(T, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("{\"nothing\":null}");
+    try testing.expectError(error.UnexpectedToken, parse(T, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("{\"nothing\":{\"no\":0}}");
+    try testing.expectError(error.UnexpectedToken, parse(T, &ts, ParseOptions{}));
 }
 
 test "parseFree descends into tagged union" {

@@ -1462,7 +1462,14 @@ fn parseInternal(
                                 .None => mem.eql(u8, u_field.name, key_source_slice),
                                 .Some => (u_field.name.len == stringToken.decodedLength() and encodesTo(u_field.name, key_source_slice)),
                             }) {
-                                r = @unionInit(T, u_field.name, try parse(u_field.type, tokens, child_options));
+                                if (u_field.type == void) {
+                                    // void isn't really a json type, but we can support void payload union tags with {} as a value.
+                                    if (.ObjectBegin != (try tokens.next()) orelse return error.UnexpectedEndOfJson) return error.UnexpectedToken;
+                                    if (.ObjectEnd != (try tokens.next()) orelse return error.UnexpectedEndOfJson) return error.UnexpectedToken;
+                                    r = @unionInit(T, u_field.name, {});
+                                } else {
+                                    r = @unionInit(T, u_field.name, try parse(u_field.type, tokens, child_options));
+                                }
                                 seen_any_value = true;
                                 break;
                             }
@@ -2277,7 +2284,11 @@ pub fn stringify(
                                 try out_stream.writeByte(' ');
                             }
                         }
-                        try stringify(@field(value, u_field.name), child_options, out_stream);
+                        if (u_field.type == void) {
+                            try out_stream.writeAll("{}");
+                        } else {
+                            try stringify(@field(value, u_field.name), child_options, out_stream);
+                        }
                         break;
                     }
                 } else {
@@ -2539,10 +2550,14 @@ test "stringify many-item sentinel-terminated string" {
 }
 
 test "stringify tagged unions" {
-    try teststringify("{\"foo\":42}", union(enum) {
+    const T = union(enum) {
+        nothing,
         foo: u32,
         bar: bool,
-    }{ .foo = 42 }, StringifyOptions{});
+    };
+    try teststringify("{\"nothing\":{}}", T{ .nothing = {}}, StringifyOptions{});
+    try teststringify("{\"foo\":42}", T{ .foo = 42 }, StringifyOptions{});
+    try teststringify("{\"bar\":true}", T{ .bar = true }, StringifyOptions{});
 }
 
 test "stringify struct" {
