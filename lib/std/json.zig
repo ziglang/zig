@@ -1245,65 +1245,6 @@ pub const Value = union(enum) {
     }
 };
 
-/// parse tokens from a stream, returning `false` if they do not decode to `value`
-fn parsesTo(comptime T: type, value: T, tokens: *TokenStream, options: ParseOptions) !bool {
-    // TODO: should be able to write this function to not require an allocator
-    const tmp = try parse(T, tokens, options);
-    defer parseFree(T, tmp, options);
-
-    return parsedEqual(tmp, value);
-}
-
-/// Returns if a value returned by `parse` is deep-equal to another value
-fn parsedEqual(a: anytype, b: @TypeOf(a)) bool {
-    switch (@typeInfo(@TypeOf(a))) {
-        .Optional => {
-            if (a == null and b == null) return true;
-            if (a == null or b == null) return false;
-            return parsedEqual(a.?, b.?);
-        },
-        .Union => |info| {
-            if (info.tag_type) |UnionTag| {
-                const tag_a = std.meta.activeTag(a);
-                const tag_b = std.meta.activeTag(b);
-                if (tag_a != tag_b) return false;
-
-                inline for (info.fields) |field_info| {
-                    if (@field(UnionTag, field_info.name) == tag_a) {
-                        return parsedEqual(@field(a, field_info.name), @field(b, field_info.name));
-                    }
-                }
-                return false;
-            } else {
-                unreachable;
-            }
-        },
-        .Array => {
-            for (a, 0..) |e, i|
-                if (!parsedEqual(e, b[i])) return false;
-            return true;
-        },
-        .Struct => |info| {
-            inline for (info.fields) |field_info| {
-                if (!parsedEqual(@field(a, field_info.name), @field(b, field_info.name))) return false;
-            }
-            return true;
-        },
-        .Pointer => |ptrInfo| switch (ptrInfo.size) {
-            .One => return parsedEqual(a.*, b.*),
-            .Slice => {
-                if (a.len != b.len) return false;
-                for (a, 0..) |e, i|
-                    if (!parsedEqual(e, b[i])) return false;
-                return true;
-            },
-            .Many, .C => unreachable,
-        },
-        else => return a == b,
-    }
-    unreachable;
-}
-
 pub const ParseOptions = struct {
     allocator: ?Allocator = null,
 
@@ -2446,13 +2387,6 @@ test "stringify null optional fields" {
         MyStruct{},
         StringifyOptions{ .emit_null_optional_fields = false },
     );
-
-    var ts = TokenStream.init(
-        \\{"required":"something","another_required":"something else"}
-    );
-    try std.testing.expect(try parsesTo(MyStruct, MyStruct{}, &ts, .{
-        .allocator = std.testing.allocator,
-    }));
 }
 
 test "skipValue" {
