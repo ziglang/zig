@@ -2520,7 +2520,7 @@ fn genSetFrameTruncatedOverflowCompare(
     tuple_ty: Type,
     frame_index: FrameIndex,
     src_mcv: MCValue,
-    cc: Condition,
+    overflow_cc: ?Condition,
 ) !void {
     const src_lock = switch (src_mcv) {
         .register => |reg| self.register_manager.lockReg(reg),
@@ -2551,7 +2551,7 @@ fn genSetFrameTruncatedOverflowCompare(
     defer for (temp_locks) |lock| self.register_manager.unlockReg(lock);
 
     const overflow_reg = temp_regs[0];
-    try self.asmSetccRegister(overflow_reg.to8(), cc);
+    if (overflow_cc) |cc| try self.asmSetccRegister(overflow_reg.to8(), cc);
 
     const scratch_reg = temp_regs[1];
     const hi_limb_off = if (int_info.bits <= 64) 0 else (int_info.bits - 1) / 64 * 8;
@@ -2564,8 +2564,10 @@ fn genSetFrameTruncatedOverflowCompare(
     try self.genBinOpMir(.cmp, hi_limb_ty, .{ .register = scratch_reg }, hi_limb_mcv);
 
     const eq_reg = temp_regs[2];
-    try self.asmSetccRegister(eq_reg.to8(), .ne);
-    try self.genBinOpMir(.@"or", Type.u8, .{ .register = overflow_reg }, .{ .register = eq_reg });
+    if (overflow_cc) |_| {
+        try self.asmSetccRegister(eq_reg.to8(), .ne);
+        try self.genBinOpMir(.@"or", Type.u8, .{ .register = overflow_reg }, .{ .register = eq_reg });
+    }
 
     const payload_off = @intCast(i32, tuple_ty.structFieldOffset(0, self.target.*));
     if (hi_limb_off > 0) try self.genSetMem(.{ .frame = frame_index }, payload_off, rest_ty, src_mcv);
@@ -2579,7 +2581,7 @@ fn genSetFrameTruncatedOverflowCompare(
         .{ .frame = frame_index },
         @intCast(i32, tuple_ty.structFieldOffset(1, self.target.*)),
         tuple_ty.structFieldType(1),
-        .{ .register = overflow_reg.to8() },
+        if (overflow_cc) |_| .{ .register = overflow_reg.to8() } else .{ .eflags = .ne },
     );
 }
 
@@ -2654,27 +2656,36 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     try self.genSetFrameTruncatedOverflowCompare(tuple_ty, frame_index, partial_mcv, cc);
                     break :result .{ .load_frame = .{ .index = frame_index } };
                 },
-                // For now, this is the only supported multiply that doesn't fit in a register.
-                else => assert(dst_info.bits <= 128 and src_pl.data == 64),
-            }
+                else => {
+                    // For now, this is the only supported multiply that doesn't fit in a register,
+                    // so cc being set is impossible.
 
-            const frame_index =
-                try self.allocFrameIndex(FrameAlloc.initType(tuple_ty, self.target.*));
-            if (dst_info.bits >= lhs_active_bits + rhs_active_bits) {
-                try self.genSetMem(
-                    .{ .frame = frame_index },
-                    @intCast(i32, tuple_ty.structFieldOffset(0, self.target.*)),
-                    tuple_ty.structFieldType(0),
-                    partial_mcv,
-                );
-                try self.genSetMem(
-                    .{ .frame = frame_index },
-                    @intCast(i32, tuple_ty.structFieldOffset(1, self.target.*)),
-                    tuple_ty.structFieldType(1),
-                    .{ .immediate = 0 }, // overflow is impossible for 64-bit*64-bit -> 128-bit
-                );
-            } else try self.genSetFrameTruncatedOverflowCompare(tuple_ty, frame_index, partial_mcv, cc);
-            break :result .{ .load_frame = .{ .index = frame_index } };
+                    assert(dst_info.bits <= 128 and src_pl.data == 64);
+
+                    const frame_index =
+                        try self.allocFrameIndex(FrameAlloc.initType(tuple_ty, self.target.*));
+                    if (dst_info.bits >= lhs_active_bits + rhs_active_bits) {
+                        try self.genSetMem(
+                            .{ .frame = frame_index },
+                            @intCast(i32, tuple_ty.structFieldOffset(0, self.target.*)),
+                            tuple_ty.structFieldType(0),
+                            partial_mcv,
+                        );
+                        try self.genSetMem(
+                            .{ .frame = frame_index },
+                            @intCast(i32, tuple_ty.structFieldOffset(1, self.target.*)),
+                            tuple_ty.structFieldType(1),
+                            .{ .immediate = 0 },
+                        );
+                    } else try self.genSetFrameTruncatedOverflowCompare(
+                        tuple_ty,
+                        frame_index,
+                        partial_mcv,
+                        null,
+                    );
+                    break :result .{ .load_frame = .{ .index = frame_index } };
+                },
+            }
         },
         else => unreachable,
     };
