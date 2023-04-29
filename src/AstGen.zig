@@ -3604,7 +3604,7 @@ const WipMembers = struct {
 
     fn appendToDeclSlice(self: *Self, data: []const u32) void {
         assert(self.decls_end + data.len <= self.field_bits_start);
-        mem.copy(u32, self.payload.items[self.decls_end..], data);
+        @memcpy(self.payload.items[self.decls_end..][0..data.len], data);
         self.decls_end += @intCast(u32, data.len);
     }
 

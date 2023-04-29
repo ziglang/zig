@@ -1146,7 +1146,7 @@ fn walkInstruction(
             const limb_bytes = file.zir.string_bytes[str.start..][0..byte_count];
 
             var limbs = try self.arena.alloc(std.math.big.Limb, str.len);
-            std.mem.copy(u8, std.mem.sliceAsBytes(limbs), limb_bytes);
+            @memcpy(std.mem.sliceAsBytes(limbs)[0..limb_bytes.len], limb_bytes);
 
             const big_int = std.math.big.int.Const{
                 .limbs = limbs,

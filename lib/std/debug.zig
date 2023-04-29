@@ -309,8 +309,8 @@ pub fn panicExtra(
     // error being part of the @panic stack trace (but that error should
     // only happen rarely)
     const msg = std.fmt.bufPrint(buf[0..size], format, args) catch |err| switch (err) {
-        std.fmt.BufPrintError.NoSpaceLeft => blk: {
-            std.mem.copy(u8, buf[size..], trunc_msg);
+        error.NoSpaceLeft => blk: {
+            @memcpy(buf[size..], trunc_msg);
             break :blk &buf;
         },
     };

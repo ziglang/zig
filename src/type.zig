@@ -4767,7 +4767,7 @@ pub const Type = extern union {
             .fn_ccc_void_no_args => return,
             .function => {
                 const payload = self.castTag(.function).?.data;
-                std.mem.copy(Type, types, payload.param_types);
+                @memcpy(types[0..payload.param_types.len], payload.param_types);
             },
 
             else => unreachable,

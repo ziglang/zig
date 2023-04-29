@@ -7117,7 +7117,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             buf_index += 1;
         }
         if (buf_index + inputs.len > buf.len) break :simple;
-        std.mem.copy(Air.Inst.Ref, buf[buf_index..], inputs);
+        @memcpy(buf[buf_index..][0..inputs.len], inputs);
         return self.finishAir(inst, result, buf);
     }
     var bt = self.liveness.iterateBigTomb(inst);
@@ -8505,7 +8505,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
 
     if (elements.len <= Liveness.bpi - 1) {
         var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
-        std.mem.copy(Air.Inst.Ref, &buf, elements);
+        @memcpy(buf[0..elements.len], elements);
         return self.finishAir(inst, result, buf);
     }
     var bt = self.liveness.iterateBigTomb(inst);

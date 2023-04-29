@@ -448,7 +448,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
         fn collectStackTrace(first_trace_addr: usize, addresses: *[stack_n]usize) void {
             if (stack_n == 0) return;
-            mem.set(usize, addresses, 0);
+            @memset(addresses, 0);
             var stack_trace = StackTrace{
                 .instruction_addresses = addresses,
                 .index = 0,
@@ -1113,7 +1113,7 @@ test "shrink" {
     var slice = try allocator.alloc(u8, 20);
     defer allocator.free(slice);
 
-    mem.set(u8, slice, 0x11);
+    @memset(slice, 0x11);
 
     try std.testing.expect(allocator.resize(slice, 17));
     slice = slice[0..17];

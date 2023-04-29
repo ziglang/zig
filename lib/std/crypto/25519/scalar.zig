@@ -83,8 +83,8 @@ pub fn add(a: CompressedScalar, b: CompressedScalar) CompressedScalar {
 pub fn neg(s: CompressedScalar) CompressedScalar {
     const fs: [64]u8 = field_order_s ++ [_]u8{0} ** 32;
     var sx: [64]u8 = undefined;
-    mem.copy(u8, sx[0..32], s[0..]);
-    mem.set(u8, sx[32..], 0);
+    sx[0..32].* = s;
+    @memset(sx[32..], 0);
     var carry: u32 = 0;
     var i: usize = 0;
     while (i < 64) : (i += 1) {
@@ -593,7 +593,7 @@ const ScalarDouble = struct {
             limbs[i] = mem.readIntLittle(u64, bytes[i * 7 ..][0..8]) & 0xffffffffffffff;
         }
         limbs[i] = @as(u64, mem.readIntLittle(u32, bytes[i * 7 ..][0..4]));
-        mem.set(u64, limbs[5..], 0);
+        @memset(limbs[5..], 0);
         return ScalarDouble{ .limbs = limbs };
     }
 

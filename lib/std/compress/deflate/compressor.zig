@@ -10,7 +10,6 @@ const Allocator = std.mem.Allocator;
 const deflate_const = @import("deflate_const.zig");
 const fast = @import("deflate_fast.zig");
 const hm_bw = @import("huffman_bit_writer.zig");
-const mu = @import("mem_utils.zig");
 const token = @import("token.zig");
 
 pub const Compression = enum(i5) {
@@ -296,7 +295,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
         fn fillDeflate(self: *Self, b: []const u8) u32 {
             if (self.index >= 2 * window_size - (min_match_length + max_match_length)) {
                 // shift the window by window_size
-                mem.copy(u8, self.window, self.window[window_size .. 2 * window_size]);
+                mem.copyForwards(u8, self.window, self.window[window_size .. 2 * window_size]);
                 self.index -= window_size;
                 self.window_end -= window_size;
                 if (self.block_start >= window_size) {
@@ -328,7 +327,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
                     }
                 }
             }
-            var n = mu.copy(self.window[self.window_end..], b);
+            const n = std.compress.deflate.copy(self.window[self.window_end..], b);
             self.window_end += n;
             return @intCast(u32, n);
         }
@@ -369,7 +368,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
                 b = b[b.len - window_size ..];
             }
             // Add all to window.
-            mem.copy(u8, self.window, b);
+            @memcpy(self.window[0..b.len], b);
             var n = b.len;
 
             // Calculate 256 hashes at the time (more L1 cache hits)
@@ -543,7 +542,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
             self.hash_offset = 1;
             self.tokens = try self.allocator.alloc(token.Token, max_flate_block_tokens);
             self.tokens_count = 0;
-            mem.set(token.Token, self.tokens, 0);
+            @memset(self.tokens, 0);
             self.length = min_match_length - 1;
             self.offset = 0;
             self.byte_available = false;
@@ -706,7 +705,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
         }
 
         fn fillStore(self: *Self, b: []const u8) u32 {
-            var n = mu.copy(self.window[self.window_end..], b);
+            const n = std.compress.deflate.copy(self.window[self.window_end..], b);
             self.window_end += n;
             return @intCast(u32, n);
         }
@@ -841,9 +840,9 @@ pub fn Compressor(comptime WriterType: anytype) type {
             s.hash_head = try allocator.alloc(u32, hash_size);
             s.hash_prev = try allocator.alloc(u32, window_size);
             s.hash_match = try allocator.alloc(u32, max_match_length - 1);
-            mem.set(u32, s.hash_head, 0);
-            mem.set(u32, s.hash_prev, 0);
-            mem.set(u32, s.hash_match, 0);
+            @memset(s.hash_head, 0);
+            @memset(s.hash_prev, 0);
+            @memset(s.hash_match, 0);
 
             switch (options.level) {
                 .no_compression => {
@@ -936,8 +935,8 @@ pub fn Compressor(comptime WriterType: anytype) type {
                 .best_compression,
                 => {
                     self.chain_head = 0;
-                    mem.set(u32, self.hash_head, 0);
-                    mem.set(u32, self.hash_prev, 0);
+                    @memset(self.hash_head, 0);
+                    @memset(self.hash_prev, 0);
                     self.hash_offset = 1;
                     self.index = 0;
                     self.window_end = 0;
@@ -1091,8 +1090,8 @@ test "bulkHash4" {
         // double the test data
         var out = try testing.allocator.alloc(u8, x.out.len * 2);
         defer testing.allocator.free(out);
-        mem.copy(u8, out[0..x.out.len], x.out);
-        mem.copy(u8, out[x.out.len..], x.out);
+        @memcpy(out[0..x.out.len], x.out);
+        @memcpy(out[x.out.len..], x.out);
 
         var j: usize = 4;
         while (j < out.len) : (j += 1) {

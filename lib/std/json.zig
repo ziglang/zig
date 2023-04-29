@@ -1667,7 +1667,7 @@ fn parseInternal(
                     const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
                     if (r.len != stringToken.decodedLength()) return error.LengthMismatch;
                     switch (stringToken.escapes) {
-                        .None => mem.copy(u8, &r, source_slice),
+                        .None => @memcpy(r[0..source_slice.len], source_slice),
                         .Some => try unescapeValidString(&r, source_slice),
                     }
                     return r;
@@ -1733,7 +1733,7 @@ fn parseInternal(
                                 try allocator.alloc(u8, len);
                             errdefer allocator.free(output);
                             switch (stringToken.escapes) {
-                                .None => mem.copy(u8, output, source_slice),
+                                .None => @memcpy(output[0..source_slice.len], source_slice),
                                 .Some => try unescapeValidString(output, source_slice),
                             }
 

@@ -84,8 +84,8 @@ pub fn errol3(value: f64, buffer: []u8) FloatDecimal {
     const i = tableLowerBound(bits);
     if (i < enum3.len and enum3[i] == bits) {
         const data = enum3_data[i];
-        const digits = buffer[1 .. data.str.len + 1];
-        mem.copy(u8, digits, data.str);
+        const digits = buffer[1..][0..data.str.len];
+        @memcpy(digits, data.str);
         return FloatDecimal{
             .digits = digits,
             .exp = data.exp,

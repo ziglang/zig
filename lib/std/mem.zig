@@ -192,12 +192,15 @@ test "Allocator.resize" {
     }
 }
 
+/// Deprecated: use `@memcpy` if the arguments do not overlap, or
+/// `copyForwards` if they do.
+pub const copy = copyForwards;
+
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
-pub fn copy(comptime T: type, dest: []T, source: []const T) void {
-    for (dest[0..source.len], source) |*d, s|
-        d.* = s;
+pub fn copyForwards(comptime T: type, dest: []T, source: []const T) void {
+    for (dest[0..source.len], source) |*d, s| d.* = s;
 }
 
 /// Copy all of source into dest at position 0.
@@ -216,11 +219,7 @@ pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
     }
 }
 
-/// Sets all elements of `dest` to `value`.
-pub fn set(comptime T: type, dest: []T, value: T) void {
-    for (dest) |*d|
-        d.* = value;
-}
+pub const set = @compileError("deprecated; use @memset instead");
 
 /// Generally, Zig users are encouraged to explicitly initialize all fields of a struct explicitly rather than using this function.
 /// However, it is recognized that there are sometimes use cases for initializing all fields to a "zero" value. For example, when
@@ -249,7 +248,7 @@ pub fn zeroes(comptime T: type) T {
             if (@sizeOf(T) == 0) return undefined;
             if (struct_info.layout == .Extern) {
                 var item: T = undefined;
-                set(u8, asBytes(&item), 0);
+                @memset(asBytes(&item), 0);
                 return item;
             } else {
                 var structure: T = undefined;
@@ -1667,9 +1666,9 @@ pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(@typeInfo(T).Int.bits, 8));
 
     if (@typeInfo(T).Int.bits == 0) {
-        return set(u8, buffer, 0);
+        return @memset(buffer, 0);
     } else if (@typeInfo(T).Int.bits == 8) {
-        set(u8, buffer, 0);
+        @memset(buffer, 0);
         buffer[0] = @bitCast(u8, value);
         return;
     }
@@ -1691,9 +1690,9 @@ pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(@typeInfo(T).Int.bits, 8));
 
     if (@typeInfo(T).Int.bits == 0) {
-        return set(u8, buffer, 0);
+        return @memset(buffer, 0);
     } else if (@typeInfo(T).Int.bits == 8) {
-        set(u8, buffer, 0);
+        @memset(buffer, 0);
         buffer[buffer.len - 1] = @bitCast(u8, value);
         return;
     }
@@ -2706,7 +2705,7 @@ fn testReadIntImpl() !void {
     }
 }
 
-test "writeIntSlice" {
+test writeIntSlice {
     try testWriteIntImpl();
     comptime try testWriteIntImpl();
 }
@@ -3124,7 +3123,7 @@ pub fn replace(comptime T: type, input: []const T, needle: []const T, replacemen
     var replacements: usize = 0;
     while (slide < input.len) {
         if (mem.startsWith(T, input[slide..], needle)) {
-            mem.copy(T, output[i .. i + replacement.len], replacement);
+            @memcpy(output[i..][0..replacement.len], replacement);
             i += replacement.len;
             slide += needle.len;
             replacements += 1;

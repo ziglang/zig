@@ -31,7 +31,7 @@ fn AesGcm(comptime Aes: anytype) type {
 
             var t: [16]u8 = undefined;
             var j: [16]u8 = undefined;
-            mem.copy(u8, j[0..nonce_length], npub[0..]);
+            j[0..nonce_length].* = npub;
             mem.writeIntBig(u32, j[nonce_length..][0..4], 1);
             aes.encrypt(&t, &j);
 
@@ -64,7 +64,7 @@ fn AesGcm(comptime Aes: anytype) type {
 
             var t: [16]u8 = undefined;
             var j: [16]u8 = undefined;
-            mem.copy(u8, j[0..nonce_length], npub[0..]);
+            j[0..nonce_length].* = npub;
             mem.writeIntBig(u32, j[nonce_length..][0..4], 1);
             aes.encrypt(&t, &j);
 

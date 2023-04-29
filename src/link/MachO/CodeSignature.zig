@@ -100,7 +100,7 @@ const CodeDirectory = struct {
     fn addSpecialHash(self: *CodeDirectory, index: u32, hash: [hash_size]u8) void {
         assert(index > 0);
         self.inner.nSpecialSlots = std.math.max(self.inner.nSpecialSlots, index);
-        mem.copy(u8, &self.special_slots[index - 1], &hash);
+        self.special_slots[index - 1] = hash;
     }
 
     fn slotType(self: CodeDirectory) u32 {

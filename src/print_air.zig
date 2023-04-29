@@ -846,7 +846,7 @@ const Writer = struct {
         else blk: {
             const slice = w.gpa.alloc([]const Air.Inst.Index, switch_br.data.cases_len + 1) catch
                 @panic("out of memory");
-            std.mem.set([]const Air.Inst.Index, slice, &.{});
+            @memset(slice, &.{});
             break :blk Liveness.SwitchBrTable{ .deaths = slice };
         };
         defer w.gpa.free(liveness.deaths);
