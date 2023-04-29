@@ -1136,7 +1136,11 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
     return atom.getSymbolIndex().?;
 }
 
-pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDecl(
+    self: *Coff,
+    module: *Module,
+    decl_index: Module.Decl.Index,
+) link.File.UpdateDeclError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -1145,6 +1149,8 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
     }
     const tracy = trace(@src());
     defer tracy.end();
+
+    try self.updateLazySymbol(decl_index);
 
     const decl = module.declPtr(decl_index);
 
@@ -1188,7 +1194,8 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
     return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
 }
 
-fn updateLazySymbol(self: *Coff, decl: Module.Decl.OptionalIndex, metadata: LazySymbolMetadata) !void {
+fn updateLazySymbol(self: *Coff, decl: ?Module.Decl.Index) !void {
+    const metadata = self.lazy_syms.get(Module.Decl.OptionalIndex.init(decl)) orelse return;
     const mod = self.base.options.module.?;
     if (metadata.text_atom) |atom| try self.updateLazySymbolAtom(
         link.File.LazySymbol.initDecl(.code, decl, mod),
@@ -1402,7 +1409,7 @@ pub fn updateDeclExports(
     module: *Module,
     decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
-) !void {
+) link.File.UpdateDeclExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -1599,12 +1606,10 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
     // Most lazy symbols can be updated when the corresponding decl is,
     // so we only have to worry about the one without an associated decl.
-    if (self.lazy_syms.get(.none)) |metadata| {
-        self.updateLazySymbol(.none, metadata) catch |err| switch (err) {
-            error.CodegenFail => return error.FlushFailure,
-            else => |e| return e,
-        };
-    }
+    self.updateLazySymbol(null) catch |err| switch (err) {
+        error.CodegenFail => return error.FlushFailure,
+        else => |e| return e,
+    };
 
     const gpa = self.base.allocator;
 

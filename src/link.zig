@@ -1120,8 +1120,8 @@ pub const File = struct {
         kind: Kind,
         ty: Type,
 
-        pub fn initDecl(kind: Kind, decl: Module.Decl.OptionalIndex, mod: *Module) LazySymbol {
-            return .{ .kind = kind, .ty = if (decl.unwrap()) |decl_index|
+        pub fn initDecl(kind: Kind, decl: ?Module.Decl.Index, mod: *Module) LazySymbol {
+            return .{ .kind = kind, .ty = if (decl) |decl_index|
                 mod.declPtr(decl_index).val.castTag(.ty).?.data
             else
                 Type.anyerror };
