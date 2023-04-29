@@ -8,4 +8,5 @@ export fn a() void {
 // backend=stage2
 // target=native
 //
-// :4:6: error: element access of non-indexable type 'tmp.a.S'
+// :4:6: error: type 'tmp.a.S' does not support indexing
+// :4:6: note: operand must be an array, slice, tuple, or vector

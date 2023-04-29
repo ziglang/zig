@@ -31,8 +31,8 @@ export fn d() void {
 // :2:5: error: non-matching for loop lengths
 // :2:11: note: length 10 here
 // :2:19: note: length 11 here
-// :9:14: error: type 'bool' does not support indexing
-// :9:14: note: for loop operand must be an array, slice, tuple, or vector
+// :9:14: error: type 'bool' is not indexable and not a range
+// :9:14: note: for loop operand must be a range, array, slice, tuple, or vector
 // :15:16: error: pointer capture of non pointer type '[10]u8'
 // :15:10: note: consider using '&' here
 // :22:5: error: unbounded for loop
