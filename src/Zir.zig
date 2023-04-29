@@ -2571,7 +2571,7 @@ pub const Inst = struct {
         ptr_type: struct {
             flags: packed struct {
                 is_allowzero: bool,
-                is_mutable: bool,
+                is_const: bool,
                 is_volatile: bool,
                 has_sentinel: bool,
                 has_align: bool,

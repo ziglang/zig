@@ -3563,7 +3563,7 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
         ));
     }
 
-    ptr_info.mutable = false;
+    ptr_info.@"const" = true;
     const const_ptr_ty = try Type.ptr(sema.arena, sema.mod, ptr_info);
 
     // Detect if a comptime value simply needs to have its type changed.
@@ -3695,7 +3695,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             const final_elem_ty = try decl.ty.copy(sema.arena);
             const final_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
                 .pointee_type = final_elem_ty,
-                .mutable = true,
+                .@"const" = false,
                 .@"align" = iac.data.alignment,
                 .@"addrspace" = target_util.defaultAddressSpace(target, .local),
             });
@@ -3719,7 +3719,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
             const final_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
                 .pointee_type = final_elem_ty,
-                .mutable = true,
+                .@"const" = false,
                 .@"align" = inferred_alloc.data.alignment,
                 .@"addrspace" = target_util.defaultAddressSpace(target, .local),
             });
@@ -3836,7 +3836,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
             const mut_final_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
                 .pointee_type = final_elem_ty,
-                .mutable = true,
+                .@"const" = false,
                 .@"align" = inferred_alloc.data.alignment,
                 .@"addrspace" = target_util.defaultAddressSpace(target, .local),
             });
@@ -8235,7 +8235,7 @@ fn analyzeOptionalPayloadPtr(
     const child_type = try opt_type.optionalChildAlloc(sema.arena);
     const child_pointer = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = child_type,
-        .mutable = !optional_ptr_ty.isConstPtr(),
+        .@"const" = optional_ptr_ty.isConstPtr(),
         .@"addrspace" = optional_ptr_ty.ptrAddressSpace(),
     });
 
@@ -8309,7 +8309,7 @@ fn zirOptionalPayload(
                 .pointee_type = try ptr_info.pointee_type.copy(sema.arena),
                 .@"align" = ptr_info.@"align",
                 .@"addrspace" = ptr_info.@"addrspace",
-                .mutable = ptr_info.mutable,
+                .@"const" = ptr_info.@"const",
                 .@"allowzero" = ptr_info.@"allowzero",
                 .@"volatile" = ptr_info.@"volatile",
                 .size = .One,
@@ -8425,7 +8425,7 @@ fn analyzeErrUnionPayloadPtr(
     const payload_ty = err_union_ty.errorUnionPayload();
     const operand_pointer_ty = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = payload_ty,
-        .mutable = !operand_ty.isConstPtr(),
+        .@"const" = operand_ty.isConstPtr(),
         .@"addrspace" = operand_ty.ptrAddressSpace(),
     });
 
@@ -9994,7 +9994,7 @@ fn zirSwitchCapture(
                 if (is_ref) {
                     const ptr_field_ty = try Type.ptr(sema.arena, sema.mod, .{
                         .pointee_type = field_ty,
-                        .mutable = operand_ptr_ty.ptrIsMutable(),
+                        .@"const" = operand_ptr_ty.isConstPtr(),
                         .@"volatile" = operand_ptr_ty.isVolatilePtr(),
                         .@"addrspace" = operand_ptr_ty.ptrAddressSpace(),
                     });
@@ -10013,7 +10013,7 @@ fn zirSwitchCapture(
             if (is_ref) {
                 const ptr_field_ty = try Type.ptr(sema.arena, sema.mod, .{
                     .pointee_type = field_ty,
-                    .mutable = operand_ptr_ty.ptrIsMutable(),
+                    .@"const" = operand_ptr_ty.isConstPtr(),
                     .@"volatile" = operand_ptr_ty.isVolatilePtr(),
                     .@"addrspace" = operand_ptr_ty.ptrAddressSpace(),
                 });
@@ -10098,7 +10098,7 @@ fn zirSwitchCapture(
                 const field_ty_ptr = try Type.ptr(sema.arena, sema.mod, .{
                     .pointee_type = first_field.ty,
                     .@"addrspace" = .generic,
-                    .mutable = operand_ptr_ty.ptrIsMutable(),
+                    .@"const" = operand_ptr_ty.isConstPtr(),
                 });
 
                 if (try sema.resolveDefinedValue(block, operand_src, operand_ptr)) |op_ptr_val| {
@@ -14878,7 +14878,7 @@ fn analyzePtrArithmetic(
             .sentinel = ptr_info.sentinel,
             .@"align" = new_align,
             .@"addrspace" = ptr_info.@"addrspace",
-            .mutable = ptr_info.mutable,
+            .@"const" = ptr_info.@"const",
             .@"allowzero" = ptr_info.@"allowzero",
             .@"volatile" = ptr_info.@"volatile",
             .size = ptr_info.size,
@@ -15886,7 +15886,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 // size: Size,
                 try Value.Tag.enum_field_index.create(sema.arena, @enumToInt(info.size)),
                 // is_const: bool,
-                Value.makeBool(!info.mutable),
+                Value.makeBool(info.@"const"),
                 // is_volatile: bool,
                 Value.makeBool(info.@"volatile"),
                 // alignment: comptime_int,
@@ -17059,7 +17059,7 @@ fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErr
     const res_ty = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = err_union_ty.errorUnionPayload(),
         .@"addrspace" = ptr_info.@"addrspace",
-        .mutable = ptr_info.mutable,
+        .@"const" = ptr_info.@"const",
         .@"allowzero" = ptr_info.@"allowzero",
         .@"volatile" = ptr_info.@"volatile",
     });
@@ -17551,7 +17551,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         .@"addrspace" = address_space,
         .bit_offset = bit_offset,
         .host_size = host_size,
-        .mutable = inst_data.flags.is_mutable,
+        .@"const" = inst_data.flags.is_const,
         .@"allowzero" = inst_data.flags.is_allowzero,
         .@"volatile" = inst_data.flags.is_volatile,
         .size = inst_data.size,
@@ -17997,7 +17997,7 @@ fn zirStructInitAnon(
             extra_index = item.end;
 
             const field_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
-                .mutable = true,
+                .@"const" = false,
                 .@"addrspace" = target_util.defaultAddressSpace(target, .local),
                 .pointee_type = field_ty,
             });
@@ -18101,7 +18101,7 @@ fn zirArrayInit(
         if (array_ty.isTuple()) {
             for (resolved_args, 0..) |arg, i| {
                 const elem_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
-                    .mutable = true,
+                    .@"const" = false,
                     .@"addrspace" = target_util.defaultAddressSpace(target, .local),
                     .pointee_type = array_ty.structFieldType(i),
                 });
@@ -18115,7 +18115,7 @@ fn zirArrayInit(
         }
 
         const elem_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
-            .mutable = true,
+            .@"const" = false,
             .@"addrspace" = target_util.defaultAddressSpace(target, .local),
             .pointee_type = array_ty.elemType2(),
         });
@@ -18194,7 +18194,7 @@ fn zirArrayInitAnon(
         for (operands, 0..) |operand, i_usize| {
             const i = @intCast(u32, i_usize);
             const field_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
-                .mutable = true,
+                .@"const" = false,
                 .@"addrspace" = target_util.defaultAddressSpace(target, .local),
                 .pointee_type = types[i],
             });
@@ -18654,7 +18654,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
 
             const ty = try Type.ptr(sema.arena, mod, .{
                 .size = ptr_size,
-                .mutable = !is_const_val.toBool(),
+                .@"const" = is_const_val.toBool(),
                 .@"volatile" = is_volatile_val.toBool(),
                 .@"align" = abi_align,
                 .@"addrspace" = address_space_val.toEnum(std.builtin.AddressSpace),
@@ -19499,7 +19499,7 @@ fn resolveVaListRef(sema: *Sema, block: *Block, src: LazySrcLoc, zir_ref: Zir.In
     const va_list_ty = try sema.getBuiltinType("VaList");
     const va_list_ptr = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = va_list_ty,
-        .mutable = true,
+        .@"const" = false,
         .@"addrspace" = .generic,
     });
 
@@ -19815,7 +19815,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     const operand_info = operand_ty.ptrInfo().data;
     const dest_info = dest_ty.ptrInfo().data;
-    if (!operand_info.mutable and dest_info.mutable) {
+    if (operand_info.@"const" and !dest_info.@"const") {
         const msg = msg: {
             const msg = try sema.errMsg(block, src, "cast discards const qualifier", .{});
             errdefer msg.destroy(sema.gpa);
@@ -19944,7 +19944,7 @@ fn zirConstCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
     try sema.checkPtrOperand(block, operand_src, operand_ty);
 
     var ptr_info = operand_ty.ptrInfo().data;
-    ptr_info.mutable = true;
+    ptr_info.@"const" = false;
     const dest_ty = try Type.ptr(sema.arena, sema.mod, ptr_info);
 
     if (try sema.resolveMaybeUndefVal(operand)) |operand_val| {
@@ -20538,7 +20538,7 @@ fn checkAtomicPtrOperand(
         .pointee_type = elem_ty,
         .@"align" = alignment,
         .@"addrspace" = .generic,
-        .mutable = !ptr_const,
+        .@"const" = ptr_const,
     };
 
     const ptr_ty = sema.typeOf(ptr);
@@ -21676,7 +21676,7 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
 
     var ptr_ty_data: Type.Payload.Pointer.Data = .{
         .pointee_type = parent_ty.structFieldType(field_index),
-        .mutable = field_ptr_ty_info.mutable,
+        .@"const" = field_ptr_ty_info.@"const",
         .@"addrspace" = field_ptr_ty_info.@"addrspace",
     };
 
@@ -21986,7 +21986,7 @@ fn upgradeToArrayPtr(sema: *Sema, block: *Block, ptr: Air.Inst.Ref, len: u64) !A
         .sentinel = null,
         .@"align" = info.@"align",
         .@"addrspace" = info.@"addrspace",
-        .mutable = info.mutable,
+        .@"const" = info.@"const",
         .@"allowzero" = info.@"allowzero",
         .@"volatile" = info.@"volatile",
         .size = .One,
@@ -22112,7 +22112,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
 
     const dest_elem_ty = dest_ty.elemType2();
     const src_elem_ty = src_ty.elemType2();
-    if (.ok != try sema.coerceInMemoryAllowed(block, dest_elem_ty, src_elem_ty, true, target, dest_src, src_src)) {
+    if (.ok != try sema.coerceInMemoryAllowed(block, dest_elem_ty, src_elem_ty, false, target, dest_src, src_src)) {
         return sema.fail(block, src, "TODO: lower @memcpy to a for loop because the element types have different ABI sizes", .{});
     }
 
@@ -23710,7 +23710,7 @@ fn fieldVal(
                     .host_size = ptr_info.host_size,
                     .vector_index = ptr_info.vector_index,
                     .@"allowzero" = ptr_info.@"allowzero",
-                    .mutable = ptr_info.mutable,
+                    .@"const" = ptr_info.@"const",
                     .@"volatile" = ptr_info.@"volatile",
                     .size = .Many,
                 });
@@ -23915,7 +23915,7 @@ fn fieldPtr(
 
                 const result_ty = try Type.ptr(sema.arena, sema.mod, .{
                     .pointee_type = slice_ptr_ty,
-                    .mutable = attr_ptr_ty.ptrIsMutable(),
+                    .@"const" = attr_ptr_ty.isConstPtr(),
                     .@"volatile" = attr_ptr_ty.isVolatilePtr(),
                     .@"addrspace" = attr_ptr_ty.ptrAddressSpace(),
                 });
@@ -23936,7 +23936,7 @@ fn fieldPtr(
             } else if (mem.eql(u8, field_name, "len")) {
                 const result_ty = try Type.ptr(sema.arena, sema.mod, .{
                     .pointee_type = Type.usize,
-                    .mutable = attr_ptr_ty.ptrIsMutable(),
+                    .@"const" = attr_ptr_ty.isConstPtr(),
                     .@"volatile" = attr_ptr_ty.isVolatilePtr(),
                     .@"addrspace" = attr_ptr_ty.ptrAddressSpace(),
                 });
@@ -24248,7 +24248,7 @@ fn finishFieldCallBind(
     const arena = sema.arena;
     const ptr_field_ty = try Type.ptr(arena, sema.mod, .{
         .pointee_type = field_ty,
-        .mutable = ptr_ty.ptrIsMutable(),
+        .@"const" = ptr_ty.isConstPtr(),
         .@"addrspace" = ptr_ty.ptrAddressSpace(),
     });
 
@@ -24382,7 +24382,7 @@ fn structFieldPtrByIndex(
 
     var ptr_ty_data: Type.Payload.Pointer.Data = .{
         .pointee_type = field.ty,
-        .mutable = struct_ptr_ty_info.mutable,
+        .@"const" = struct_ptr_ty_info.@"const",
         .@"volatile" = struct_ptr_ty_info.@"volatile",
         .@"addrspace" = struct_ptr_ty_info.@"addrspace",
     };
@@ -24602,7 +24602,7 @@ fn unionFieldPtr(
     const field = union_obj.fields.values()[field_index];
     const ptr_field_ty = try Type.ptr(arena, sema.mod, .{
         .pointee_type = field.ty,
-        .mutable = union_ptr_ty.ptrIsMutable(),
+        .@"const" = union_ptr_ty.isConstPtr(),
         .@"volatile" = union_ptr_ty.isVolatilePtr(),
         .@"addrspace" = union_ptr_ty.ptrAddressSpace(),
     });
@@ -24948,7 +24948,7 @@ fn tupleFieldPtr(
     const field_ty = tuple_ty.structFieldType(field_index);
     const ptr_field_ty = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = field_ty,
-        .mutable = tuple_ptr_ty.ptrIsMutable(),
+        .@"const" = tuple_ptr_ty.isConstPtr(),
         .@"volatile" = tuple_ptr_ty.isVolatilePtr(),
         .@"addrspace" = tuple_ptr_ty.ptrAddressSpace(),
     });
@@ -25330,7 +25330,7 @@ fn coerceExtra(
     const arena = sema.arena;
     const maybe_inst_val = try sema.resolveMaybeUndefVal(inst);
 
-    var in_memory_result = try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty, false, target, dest_ty_src, inst_src);
+    var in_memory_result = try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty, true, target, dest_ty_src, inst_src);
     if (in_memory_result == .ok) {
         if (maybe_inst_val) |val| {
             // Keep the comptime Value representation; take the new type.
@@ -25380,7 +25380,7 @@ fn coerceExtra(
                 error.NotCoercible => {
                     if (in_memory_result == .no_match) {
                         // Try to give more useful notes
-                        in_memory_result = try sema.coerceInMemoryAllowed(block, child_type, inst_ty, false, target, dest_ty_src, inst_src);
+                        in_memory_result = try sema.coerceInMemoryAllowed(block, child_type, inst_ty, true, target, dest_ty_src, inst_src);
                     }
                     break :optional;
                 },
@@ -25409,8 +25409,8 @@ fn coerceExtra(
                 if (array_ty.zigTypeTag() != .Array) break :single_item;
                 const array_elem_ty = array_ty.childType();
                 if (array_ty.arrayLen() != 1) break :single_item;
-                const dest_is_mut = dest_info.mutable;
-                switch (try sema.coerceInMemoryAllowed(block, array_elem_ty, ptr_elem_ty, dest_is_mut, target, dest_ty_src, inst_src)) {
+                const dest_is_const = dest_info.@"const";
+                switch (try sema.coerceInMemoryAllowed(block, array_elem_ty, ptr_elem_ty, dest_is_const, target, dest_ty_src, inst_src)) {
                     .ok => {},
                     else => break :single_item,
                 }
@@ -25424,10 +25424,10 @@ fn coerceExtra(
                 const array_ty = inst_ty.childType();
                 if (array_ty.zigTypeTag() != .Array) break :src_array_ptr;
                 const array_elem_type = array_ty.childType();
-                const dest_is_mut = dest_info.mutable;
+                const dest_is_const = dest_info.@"const";
 
                 const dst_elem_type = dest_info.pointee_type;
-                const elem_res = try sema.coerceInMemoryAllowed(block, dst_elem_type, array_elem_type, dest_is_mut, target, dest_ty_src, inst_src);
+                const elem_res = try sema.coerceInMemoryAllowed(block, dst_elem_type, array_elem_type, dest_is_const, target, dest_ty_src, inst_src);
                 switch (elem_res) {
                     .ok => {},
                     else => {
@@ -25483,9 +25483,9 @@ fn coerceExtra(
                 // In this case we must add a safety check because the C pointer
                 // could be null.
                 const src_elem_ty = inst_ty.childType();
-                const dest_is_mut = dest_info.mutable;
+                const dest_is_const = dest_info.@"const";
                 const dst_elem_type = dest_info.pointee_type;
-                switch (try sema.coerceInMemoryAllowed(block, dst_elem_type, src_elem_ty, dest_is_mut, target, dest_ty_src, inst_src)) {
+                switch (try sema.coerceInMemoryAllowed(block, dst_elem_type, src_elem_ty, dest_is_const, target, dest_ty_src, inst_src)) {
                     .ok => {},
                     else => break :src_c_ptr,
                 }
@@ -25536,7 +25536,7 @@ fn coerceExtra(
                         const addr = sema.coerceExtra(block, ptr_size_ty, inst, inst_src, .{ .report_err = false }) catch |err| switch (err) {
                             error.NotCoercible => {
                                 // Try to give more useful notes
-                                in_memory_result = try sema.coerceInMemoryAllowed(block, ptr_size_ty, inst_ty, false, target, dest_ty_src, inst_src);
+                                in_memory_result = try sema.coerceInMemoryAllowed(block, ptr_size_ty, inst_ty, true, target, dest_ty_src, inst_src);
                                 break :pointer;
                             },
                             else => |e| return e,
@@ -25550,7 +25550,7 @@ fn coerceExtra(
                             block,
                             dest_info.pointee_type,
                             inst_info.pointee_type,
-                            dest_info.mutable,
+                            dest_info.@"const",
                             target,
                             dest_ty_src,
                             inst_src,
@@ -25634,7 +25634,7 @@ fn coerceExtra(
                     }
 
                     // pointer to tuple to slice
-                    if (dest_info.mutable) {
+                    if (!dest_info.@"const") {
                         const err_msg = err_msg: {
                             const err_msg = try sema.errMsg(block, inst_src, "cannot cast pointer to tuple to '{}'", .{dest_ty.fmt(sema.mod)});
                             errdefer err_msg.deinit(sema.gpa);
@@ -25654,7 +25654,7 @@ fn coerceExtra(
                         block,
                         dest_info.pointee_type,
                         inst_info.pointee_type,
-                        dest_info.mutable,
+                        dest_info.@"const",
                         target,
                         dest_ty_src,
                         inst_src,
@@ -25950,7 +25950,7 @@ fn coerceExtra(
 
         // E!T to T
         if (inst_ty.zigTypeTag() == .ErrorUnion and
-            (try sema.coerceInMemoryAllowed(block, inst_ty.errorUnionPayload(), dest_ty, false, target, dest_ty_src, inst_src)) == .ok)
+            (try sema.coerceInMemoryAllowed(block, inst_ty.errorUnionPayload(), dest_ty, true, target, dest_ty_src, inst_src)) == .ok)
         {
             try sema.errNote(block, inst_src, msg, "cannot convert error union to payload type", .{});
             try sema.errNote(block, inst_src, msg, "consider using 'try', 'catch', or 'if'", .{});
@@ -25959,7 +25959,7 @@ fn coerceExtra(
         // ?T to T
         var buf: Type.Payload.ElemType = undefined;
         if (inst_ty.zigTypeTag() == .Optional and
-            (try sema.coerceInMemoryAllowed(block, inst_ty.optionalChild(&buf), dest_ty, false, target, dest_ty_src, inst_src)) == .ok)
+            (try sema.coerceInMemoryAllowed(block, inst_ty.optionalChild(&buf), dest_ty, true, target, dest_ty_src, inst_src)) == .ok)
         {
             try sema.errNote(block, inst_src, msg, "cannot convert optional to payload type", .{});
             try sema.errNote(block, inst_src, msg, "consider using '.?', 'orelse', or 'if'", .{});
@@ -26345,7 +26345,7 @@ fn pointerSizeString(size: std.builtin.Type.Pointer.Size) []const u8 {
 /// may be used for the coercion.
 /// * `const` attribute can be gained
 /// * `volatile` attribute can be gained
-/// * `allowzero` attribute can be gained (whether from explicit attribute, C pointer, or optional pointer) but only if !dest_is_mut
+/// * `allowzero` attribute can be gained (whether from explicit attribute, C pointer, or optional pointer) but only if dest_is_const
 /// * alignment can be decreased
 /// * bit offset attributes must match exactly
 /// * `*`/`[*]` must match exactly, but `[*c]` matches either one
@@ -26355,7 +26355,7 @@ fn coerceInMemoryAllowed(
     block: *Block,
     dest_ty: Type,
     src_ty: Type,
-    dest_is_mut: bool,
+    dest_is_const: bool,
     target: std.Target,
     dest_src: LazySrcLoc,
     src_src: LazySrcLoc,
@@ -26404,13 +26404,13 @@ fn coerceInMemoryAllowed(
     const maybe_src_ptr_ty = try sema.typePtrOrOptionalPtrTy(src_ty, &src_buf);
     if (maybe_dest_ptr_ty) |dest_ptr_ty| {
         if (maybe_src_ptr_ty) |src_ptr_ty| {
-            return try sema.coerceInMemoryAllowedPtrs(block, dest_ty, src_ty, dest_ptr_ty, src_ptr_ty, dest_is_mut, target, dest_src, src_src);
+            return try sema.coerceInMemoryAllowedPtrs(block, dest_ty, src_ty, dest_ptr_ty, src_ptr_ty, dest_is_const, target, dest_src, src_src);
         }
     }
 
     // Slices
     if (dest_ty.isSlice() and src_ty.isSlice()) {
-        return try sema.coerceInMemoryAllowedPtrs(block, dest_ty, src_ty, dest_ty, src_ty, dest_is_mut, target, dest_src, src_src);
+        return try sema.coerceInMemoryAllowedPtrs(block, dest_ty, src_ty, dest_ty, src_ty, dest_is_const, target, dest_src, src_src);
     }
 
     const dest_tag = dest_ty.zigTypeTag();
@@ -26425,7 +26425,7 @@ fn coerceInMemoryAllowed(
     if (dest_tag == .ErrorUnion and src_tag == .ErrorUnion) {
         const dest_payload = dest_ty.errorUnionPayload();
         const src_payload = src_ty.errorUnionPayload();
-        const child = try sema.coerceInMemoryAllowed(block, dest_payload, src_payload, dest_is_mut, target, dest_src, src_src);
+        const child = try sema.coerceInMemoryAllowed(block, dest_payload, src_payload, dest_is_const, target, dest_src, src_src);
         if (child != .ok) {
             return InMemoryCoercionResult{ .error_union_payload = .{
                 .child = try child.dupe(sema.arena),
@@ -26433,7 +26433,7 @@ fn coerceInMemoryAllowed(
                 .wanted = dest_payload,
             } };
         }
-        return try sema.coerceInMemoryAllowed(block, dest_ty.errorUnionSet(), src_ty.errorUnionSet(), dest_is_mut, target, dest_src, src_src);
+        return try sema.coerceInMemoryAllowed(block, dest_ty.errorUnionSet(), src_ty.errorUnionSet(), dest_is_const, target, dest_src, src_src);
     }
 
     // Error Sets
@@ -26452,7 +26452,7 @@ fn coerceInMemoryAllowed(
             } };
         }
 
-        const child = try sema.coerceInMemoryAllowed(block, dest_info.elem_type, src_info.elem_type, dest_is_mut, target, dest_src, src_src);
+        const child = try sema.coerceInMemoryAllowed(block, dest_info.elem_type, src_info.elem_type, dest_is_const, target, dest_src, src_src);
         if (child != .ok) {
             return InMemoryCoercionResult{ .array_elem = .{
                 .child = try child.dupe(sema.arena),
@@ -26486,7 +26486,7 @@ fn coerceInMemoryAllowed(
 
         const dest_elem_ty = dest_ty.scalarType();
         const src_elem_ty = src_ty.scalarType();
-        const child = try sema.coerceInMemoryAllowed(block, dest_elem_ty, src_elem_ty, dest_is_mut, target, dest_src, src_src);
+        const child = try sema.coerceInMemoryAllowed(block, dest_elem_ty, src_elem_ty, dest_is_const, target, dest_src, src_src);
         if (child != .ok) {
             return InMemoryCoercionResult{ .vector_elem = .{
                 .child = try child.dupe(sema.arena),
@@ -26509,7 +26509,7 @@ fn coerceInMemoryAllowed(
         const dest_child_type = dest_ty.optionalChild(&dest_buf);
         const src_child_type = src_ty.optionalChild(&src_buf);
 
-        const child = try sema.coerceInMemoryAllowed(block, dest_child_type, src_child_type, dest_is_mut, target, dest_src, src_src);
+        const child = try sema.coerceInMemoryAllowed(block, dest_child_type, src_child_type, dest_is_const, target, dest_src, src_src);
         if (child != .ok) {
             return InMemoryCoercionResult{ .optional_child = .{
                 .child = try child.dupe(sema.arena),
@@ -26700,7 +26700,7 @@ fn coerceInMemoryAllowedFns(
     }
 
     if (!src_info.return_type.isNoReturn()) {
-        const rt = try sema.coerceInMemoryAllowed(block, dest_info.return_type, src_info.return_type, false, target, dest_src, src_src);
+        const rt = try sema.coerceInMemoryAllowed(block, dest_info.return_type, src_info.return_type, true, target, dest_src, src_src);
         if (rt != .ok) {
             return InMemoryCoercionResult{ .fn_return_type = .{
                 .child = try rt.dupe(sema.arena),
@@ -26735,7 +26735,7 @@ fn coerceInMemoryAllowedFns(
         }
 
         // Note: Cast direction is reversed here.
-        const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, false, target, dest_src, src_src);
+        const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, true, target, dest_src, src_src);
         if (param != .ok) {
             return InMemoryCoercionResult{ .fn_param = .{
                 .child = try param.dupe(sema.arena),
@@ -26756,7 +26756,7 @@ fn coerceInMemoryAllowedPtrs(
     src_ty: Type,
     dest_ptr_ty: Type,
     src_ptr_ty: Type,
-    dest_is_mut: bool,
+    dest_is_const: bool,
     target: std.Target,
     dest_src: LazySrcLoc,
     src_src: LazySrcLoc,
@@ -26774,13 +26774,13 @@ fn coerceInMemoryAllowedPtrs(
     }
 
     const ok_cv_qualifiers =
-        (src_info.mutable or !dest_info.mutable) and
+        (!src_info.@"const" or dest_info.@"const") and
         (!src_info.@"volatile" or dest_info.@"volatile");
 
     if (!ok_cv_qualifiers) {
         return InMemoryCoercionResult{ .ptr_qualifiers = .{
-            .actual_const = !src_info.mutable,
-            .wanted_const = !dest_info.mutable,
+            .actual_const = src_info.@"const",
+            .wanted_const = dest_info.@"const",
             .actual_volatile = src_info.@"volatile",
             .wanted_volatile = dest_info.@"volatile",
         } };
@@ -26793,7 +26793,7 @@ fn coerceInMemoryAllowedPtrs(
         } };
     }
 
-    const child = try sema.coerceInMemoryAllowed(block, dest_info.pointee_type, src_info.pointee_type, dest_info.mutable, target, dest_src, src_src);
+    const child = try sema.coerceInMemoryAllowed(block, dest_info.pointee_type, src_info.pointee_type, dest_info.@"const", target, dest_src, src_src);
     if (child != .ok) {
         return InMemoryCoercionResult{ .ptr_child = .{
             .child = try child.dupe(sema.arena),
@@ -26806,7 +26806,7 @@ fn coerceInMemoryAllowedPtrs(
     const src_allow_zero = src_ty.ptrAllowsZero();
 
     const ok_allows_zero = (dest_allow_zero and
-        (src_allow_zero or !dest_is_mut)) or
+        (src_allow_zero or dest_is_const)) or
         (!dest_allow_zero and !src_allow_zero);
     if (!ok_allows_zero) {
         return InMemoryCoercionResult{ .ptr_allowzero = .{
@@ -27711,7 +27711,7 @@ fn beginComptimePtrMutationInner(
     decl_ref_mut: Value.Payload.DeclRefMut.Data,
 ) CompileError!ComptimePtrMutationKit {
     const target = sema.mod.getTarget();
-    const coerce_ok = (try sema.coerceInMemoryAllowed(block, ptr_elem_ty, decl_ty, true, target, src, src)) == .ok;
+    const coerce_ok = (try sema.coerceInMemoryAllowed(block, ptr_elem_ty, decl_ty, false, target, src, src)) == .ok;
     if (coerce_ok) {
         return ComptimePtrMutationKit{
             .decl_ref_mut = decl_ref_mut,
@@ -27723,7 +27723,7 @@ fn beginComptimePtrMutationInner(
     // Handle the case that the decl is an array and we're actually trying to point to an element.
     if (decl_ty.isArrayOrVector()) {
         const decl_elem_ty = decl_ty.childType();
-        if ((try sema.coerceInMemoryAllowed(block, ptr_elem_ty, decl_elem_ty, true, target, src, src)) == .ok) {
+        if ((try sema.coerceInMemoryAllowed(block, ptr_elem_ty, decl_elem_ty, false, target, src, src)) == .ok) {
             return ComptimePtrMutationKit{
                 .decl_ref_mut = decl_ref_mut,
                 .pointee = .{ .direct = decl_val },
@@ -27843,8 +27843,8 @@ fn beginComptimePtrLoad(
             // than the true type of the underlying decl, we cannot deref directly
             const ty_matches = if (deref.pointee != null and deref.pointee.?.ty.isArrayOrVector()) x: {
                 const deref_elem_ty = deref.pointee.?.ty.childType();
-                break :x (try sema.coerceInMemoryAllowed(block, deref_elem_ty, elem_ty, false, target, src, src)) == .ok or
-                    (try sema.coerceInMemoryAllowed(block, elem_ty, deref_elem_ty, false, target, src, src)) == .ok;
+                break :x (try sema.coerceInMemoryAllowed(block, deref_elem_ty, elem_ty, true, target, src, src)) == .ok or
+                    (try sema.coerceInMemoryAllowed(block, elem_ty, deref_elem_ty, true, target, src, src)) == .ok;
             } else false;
             if (!ty_matches) {
                 deref.pointee = null;
@@ -27917,8 +27917,8 @@ fn beginComptimePtrLoad(
                 break :blk deref;
             };
             const coerce_in_mem_ok =
-                (try sema.coerceInMemoryAllowed(block, field_ptr.container_ty, tv.ty, false, target, src, src)) == .ok or
-                (try sema.coerceInMemoryAllowed(block, tv.ty, field_ptr.container_ty, false, target, src, src)) == .ok;
+                (try sema.coerceInMemoryAllowed(block, field_ptr.container_ty, tv.ty, true, target, src, src)) == .ok or
+                (try sema.coerceInMemoryAllowed(block, tv.ty, field_ptr.container_ty, true, target, src, src)) == .ok;
             if (!coerce_in_mem_ok) {
                 deref.pointee = null;
                 break :blk deref;
@@ -27976,8 +27976,8 @@ fn beginComptimePtrLoad(
 
             if (deref.pointee) |*tv| {
                 const coerce_in_mem_ok =
-                    (try sema.coerceInMemoryAllowed(block, payload_ptr.container_ty, tv.ty, false, target, src, src)) == .ok or
-                    (try sema.coerceInMemoryAllowed(block, tv.ty, payload_ptr.container_ty, false, target, src, src)) == .ok;
+                    (try sema.coerceInMemoryAllowed(block, payload_ptr.container_ty, tv.ty, true, target, src, src)) == .ok or
+                    (try sema.coerceInMemoryAllowed(block, tv.ty, payload_ptr.container_ty, true, target, src, src)) == .ok;
                 if (coerce_in_mem_ok) {
                     const payload_val = switch (ptr_val.tag()) {
                         .eu_payload_ptr => if (tv.val.castTag(.eu_payload)) |some| some.data else {
@@ -28115,13 +28115,13 @@ fn checkPtrAttributes(sema: *Sema, dest_ty: Type, inst_ty: Type, in_memory_resul
         (inst_info.pointee_type.isTuple() and inst_info.pointee_type.structFieldCount() == 0);
 
     const ok_cv_qualifiers =
-        ((inst_info.mutable or !dest_info.mutable) or len0) and
+        ((!inst_info.@"const" or dest_info.@"const") or len0) and
         (!inst_info.@"volatile" or dest_info.@"volatile");
 
     if (!ok_cv_qualifiers) {
         in_memory_result.* = .{ .ptr_qualifiers = .{
-            .actual_const = !inst_info.mutable,
-            .wanted_const = !dest_info.mutable,
+            .actual_const = inst_info.@"const",
+            .wanted_const = dest_info.@"const",
             .actual_volatile = inst_info.@"volatile",
             .wanted_volatile = dest_info.@"volatile",
         } };
@@ -28431,7 +28431,7 @@ fn coerceArrayLike(
 
     const dest_elem_ty = dest_ty.childType();
     const inst_elem_ty = inst_ty.childType();
-    const in_memory_result = try sema.coerceInMemoryAllowed(block, dest_elem_ty, inst_elem_ty, false, target, dest_ty_src, inst_src);
+    const in_memory_result = try sema.coerceInMemoryAllowed(block, dest_elem_ty, inst_elem_ty, true, target, dest_ty_src, inst_src);
     if (in_memory_result == .ok) {
         if (try sema.resolveMaybeUndefVal(inst)) |inst_val| {
             // These types share the same comptime value representation.
@@ -28874,7 +28874,7 @@ fn analyzeDeclRef(sema: *Sema, decl_index: Decl.Index) CompileError!Air.Inst.Ref
         const variable = payload.data;
         const ty = try Type.ptr(sema.arena, sema.mod, .{
             .pointee_type = decl_tv.ty,
-            .mutable = variable.is_mutable,
+            .@"const" = !variable.is_mutable,
             .@"addrspace" = decl.@"addrspace",
             .@"align" = decl.@"align",
         });
@@ -28883,7 +28883,7 @@ fn analyzeDeclRef(sema: *Sema, decl_index: Decl.Index) CompileError!Air.Inst.Ref
     return sema.addConstant(
         try Type.ptr(sema.arena, sema.mod, .{
             .pointee_type = decl_tv.ty,
-            .mutable = false,
+            .@"const" = true,
             .@"addrspace" = decl.@"addrspace",
             .@"align" = decl.@"align",
         }),
@@ -28920,7 +28920,7 @@ fn analyzeRef(
     const address_space = target_util.defaultAddressSpace(sema.mod.getTarget(), .local);
     const ptr_type = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = operand_ty,
-        .mutable = false,
+        .@"const" = true,
         .@"addrspace" = address_space,
     });
     const mut_ptr_type = try Type.ptr(sema.arena, sema.mod, .{
@@ -29447,7 +29447,7 @@ fn analyzeSlice(
             .sentinel = null,
             .@"align" = new_ptr_ty_info.@"align",
             .@"addrspace" = new_ptr_ty_info.@"addrspace",
-            .mutable = new_ptr_ty_info.mutable,
+            .@"const" = new_ptr_ty_info.@"const",
             .@"allowzero" = new_allowzero,
             .@"volatile" = new_ptr_ty_info.@"volatile",
             .size = .One,
@@ -29501,7 +29501,7 @@ fn analyzeSlice(
         .sentinel = sentinel,
         .@"align" = new_ptr_ty_info.@"align",
         .@"addrspace" = new_ptr_ty_info.@"addrspace",
-        .mutable = new_ptr_ty_info.mutable,
+        .@"const" = new_ptr_ty_info.@"const",
         .@"allowzero" = new_allowzero,
         .@"volatile" = new_ptr_ty_info.@"volatile",
         .size = .Slice,
@@ -30118,10 +30118,10 @@ fn resolvePeerTypes(
 
         // If the candidate can coerce into our chosen type, we're done.
         // If the chosen type can coerce into the candidate, use that.
-        if ((try sema.coerceInMemoryAllowed(block, chosen_ty, candidate_ty, false, target, src, src)) == .ok) {
+        if ((try sema.coerceInMemoryAllowed(block, chosen_ty, candidate_ty, true, target, src, src)) == .ok) {
             continue;
         }
-        if ((try sema.coerceInMemoryAllowed(block, candidate_ty, chosen_ty, false, target, src, src)) == .ok) {
+        if ((try sema.coerceInMemoryAllowed(block, candidate_ty, chosen_ty, true, target, src, src)) == .ok) {
             chosen = candidate;
             chosen_i = candidate_i + 1;
             continue;
@@ -30277,8 +30277,8 @@ fn resolvePeerTypes(
                     const chosen_payload_ty = chosen_ty.errorUnionPayload();
                     const candidate_payload_ty = candidate_ty.errorUnionPayload();
 
-                    const coerce_chosen = (try sema.coerceInMemoryAllowed(block, chosen_payload_ty, candidate_payload_ty, false, target, src, src)) == .ok;
-                    const coerce_candidate = (try sema.coerceInMemoryAllowed(block, candidate_payload_ty, chosen_payload_ty, false, target, src, src)) == .ok;
+                    const coerce_chosen = (try sema.coerceInMemoryAllowed(block, chosen_payload_ty, candidate_payload_ty, true, target, src, src)) == .ok;
+                    const coerce_candidate = (try sema.coerceInMemoryAllowed(block, candidate_payload_ty, chosen_payload_ty, true, target, src, src)) == .ok;
 
                     if (coerce_chosen or coerce_candidate) {
                         // If we can coerce to the candidate, we switch to that
@@ -30326,7 +30326,7 @@ fn resolvePeerTypes(
                     .Pointer => {
                         const chosen_info = chosen_ty.ptrInfo().data;
 
-                        seen_const = seen_const or !chosen_info.mutable or !cand_info.mutable;
+                        seen_const = seen_const or chosen_info.@"const" or cand_info.@"const";
 
                         // *[N]T to [*]T
                         // *[N]T to []T
@@ -30360,13 +30360,13 @@ fn resolvePeerTypes(
                             const chosen_elem_ty = chosen_info.pointee_type.childType();
                             const cand_elem_ty = cand_info.pointee_type.childType();
 
-                            const chosen_ok = .ok == try sema.coerceInMemoryAllowed(block, chosen_elem_ty, cand_elem_ty, chosen_info.mutable, target, src, src);
+                            const chosen_ok = .ok == try sema.coerceInMemoryAllowed(block, chosen_elem_ty, cand_elem_ty, chosen_info.@"const", target, src, src);
                             if (chosen_ok) {
                                 convert_to_slice = true;
                                 continue;
                             }
 
-                            const cand_ok = .ok == try sema.coerceInMemoryAllowed(block, cand_elem_ty, chosen_elem_ty, cand_info.mutable, target, src, src);
+                            const cand_ok = .ok == try sema.coerceInMemoryAllowed(block, cand_elem_ty, chosen_elem_ty, cand_info.@"const", target, src, src);
                             if (cand_ok) {
                                 convert_to_slice = true;
                                 chosen = candidate;
@@ -30386,8 +30386,8 @@ fn resolvePeerTypes(
                         // the one we will keep. If they're both OK then we keep the
                         // C pointer since it matches both single and many pointers.
                         if (cand_info.size == .C or chosen_info.size == .C) {
-                            const cand_ok = .ok == try sema.coerceInMemoryAllowed(block, cand_info.pointee_type, chosen_info.pointee_type, cand_info.mutable, target, src, src);
-                            const chosen_ok = .ok == try sema.coerceInMemoryAllowed(block, chosen_info.pointee_type, cand_info.pointee_type, chosen_info.mutable, target, src, src);
+                            const cand_ok = .ok == try sema.coerceInMemoryAllowed(block, cand_info.pointee_type, chosen_info.pointee_type, cand_info.@"const", target, src, src);
+                            const chosen_ok = .ok == try sema.coerceInMemoryAllowed(block, chosen_info.pointee_type, cand_info.pointee_type, chosen_info.@"const", target, src, src);
 
                             if (cand_ok) {
                                 if (chosen_ok) {
@@ -30429,7 +30429,7 @@ fn resolvePeerTypes(
                         if (chosen_ptr_ty.zigTypeTag() == .Pointer) {
                             const chosen_info = chosen_ptr_ty.ptrInfo().data;
 
-                            seen_const = seen_const or !chosen_info.mutable or !cand_info.mutable;
+                            seen_const = seen_const or chosen_info.@"const" or cand_info.@"const";
 
                             // *[N]T to ?![*]T
                             // *[N]T to ?![]T
@@ -30446,7 +30446,7 @@ fn resolvePeerTypes(
                         if (chosen_ptr_ty.zigTypeTag() == .Pointer) {
                             const chosen_info = chosen_ptr_ty.ptrInfo().data;
 
-                            seen_const = seen_const or !chosen_info.mutable or !cand_info.mutable;
+                            seen_const = seen_const or chosen_info.@"const" or cand_info.@"const";
 
                             // *[N]T to E![*]T
                             // *[N]T to E![]T
@@ -30459,7 +30459,7 @@ fn resolvePeerTypes(
                         }
                     },
                     .Fn => {
-                        if (!cand_info.mutable and cand_info.pointee_type.zigTypeTag() == .Fn and .ok == try sema.coerceInMemoryAllowedFns(block, chosen_ty, cand_info.pointee_type, target, src, src)) {
+                        if (cand_info.@"const" and cand_info.pointee_type.zigTypeTag() == .Fn and .ok == try sema.coerceInMemoryAllowedFns(block, chosen_ty, cand_info.pointee_type, target, src, src)) {
                             chosen = candidate;
                             chosen_i = candidate_i + 1;
                             continue;
@@ -30471,7 +30471,7 @@ fn resolvePeerTypes(
             .Optional => {
                 var opt_child_buf: Type.Payload.ElemType = undefined;
                 const opt_child_ty = candidate_ty.optionalChild(&opt_child_buf);
-                if ((try sema.coerceInMemoryAllowed(block, chosen_ty, opt_child_ty, false, target, src, src)) == .ok) {
+                if ((try sema.coerceInMemoryAllowed(block, chosen_ty, opt_child_ty, true, target, src, src)) == .ok) {
                     seen_const = seen_const or opt_child_ty.isConstPtr();
                     any_are_null = true;
                     continue;
@@ -30543,10 +30543,10 @@ fn resolvePeerTypes(
             .Optional => {
                 var opt_child_buf: Type.Payload.ElemType = undefined;
                 const opt_child_ty = chosen_ty.optionalChild(&opt_child_buf);
-                if ((try sema.coerceInMemoryAllowed(block, opt_child_ty, candidate_ty, false, target, src, src)) == .ok) {
+                if ((try sema.coerceInMemoryAllowed(block, opt_child_ty, candidate_ty, true, target, src, src)) == .ok) {
                     continue;
                 }
-                if ((try sema.coerceInMemoryAllowed(block, candidate_ty, opt_child_ty, false, target, src, src)) == .ok) {
+                if ((try sema.coerceInMemoryAllowed(block, candidate_ty, opt_child_ty, true, target, src, src)) == .ok) {
                     any_are_null = true;
                     chosen = candidate;
                     chosen_i = candidate_i + 1;
@@ -30555,7 +30555,7 @@ fn resolvePeerTypes(
             },
             .ErrorUnion => {
                 const payload_ty = chosen_ty.errorUnionPayload();
-                if ((try sema.coerceInMemoryAllowed(block, payload_ty, candidate_ty, false, target, src, src)) == .ok) {
+                if ((try sema.coerceInMemoryAllowed(block, payload_ty, candidate_ty, true, target, src, src)) == .ok) {
                     continue;
                 }
             },
@@ -30620,7 +30620,7 @@ fn resolvePeerTypes(
         var info = chosen_ty.ptrInfo();
         info.data.sentinel = chosen_child_ty.sentinel();
         info.data.size = .Slice;
-        info.data.mutable = !(seen_const or chosen_child_ty.isConstPtr());
+        info.data.@"const" = seen_const or chosen_child_ty.isConstPtr();
         info.data.pointee_type = chosen_child_ty.elemType2();
 
         const new_ptr_ty = try Type.ptr(sema.arena, sema.mod, info.data);
@@ -30638,7 +30638,7 @@ fn resolvePeerTypes(
             .ErrorUnion => {
                 const ptr_ty = chosen_ty.errorUnionPayload();
                 var info = ptr_ty.ptrInfo();
-                info.data.mutable = false;
+                info.data.@"const" = true;
                 const new_ptr_ty = try Type.ptr(sema.arena, sema.mod, info.data);
                 const opt_ptr_ty = if (any_are_null)
                     try Type.optional(sema.arena, new_ptr_ty)
@@ -30649,7 +30649,7 @@ fn resolvePeerTypes(
             },
             .Pointer => {
                 var info = chosen_ty.ptrInfo();
-                info.data.mutable = false;
+                info.data.@"const" = true;
                 const new_ptr_ty = try Type.ptr(sema.arena, sema.mod, info.data);
                 const opt_ptr_ty = if (any_are_null)
                     try Type.optional(sema.arena, new_ptr_ty)
@@ -32973,8 +32973,8 @@ fn pointerDerefExtra(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value
 
     if (deref.pointee) |tv| {
         const coerce_in_mem_ok =
-            (try sema.coerceInMemoryAllowed(block, load_ty, tv.ty, false, target, src, src)) == .ok or
-            (try sema.coerceInMemoryAllowed(block, tv.ty, load_ty, false, target, src, src)) == .ok;
+            (try sema.coerceInMemoryAllowed(block, load_ty, tv.ty, true, target, src, src)) == .ok or
+            (try sema.coerceInMemoryAllowed(block, tv.ty, load_ty, true, target, src, src)) == .ok;
         if (coerce_in_mem_ok) {
             // We have a Value that lines up in virtual memory exactly with what we want to load,
             // and it is in-memory coercible to load_ty. It may be returned without modifications.
@@ -34138,7 +34138,7 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
     };
     return try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = elem_ty,
-        .mutable = ptr_info.mutable,
+        .@"const" = ptr_info.@"const",
         .@"addrspace" = ptr_info.@"addrspace",
         .@"allowzero" = allow_zero,
         .@"volatile" = ptr_info.@"volatile",

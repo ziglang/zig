@@ -1452,13 +1452,13 @@ pub const CType = extern union {
 
                         .One, .Many, .C => {
                             const t: Tag = switch (info.@"volatile") {
-                                false => switch (info.mutable) {
-                                    true => .pointer,
-                                    false => .pointer_const,
+                                false => switch (info.@"const") {
+                                    false => .pointer,
+                                    true => .pointer_const,
                                 },
-                                true => switch (info.mutable) {
-                                    true => .pointer_volatile,
-                                    false => .pointer_const_volatile,
+                                true => switch (info.@"const") {
+                                    false => .pointer_volatile,
+                                    true => .pointer_const_volatile,
                                 },
                             };
 

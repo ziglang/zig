@@ -295,32 +295,6 @@ pub const Type = extern union {
         return elem_ty;
     }
 
-    pub fn ptrIsMutable(ty: Type) bool {
-        return switch (ty.tag()) {
-            .single_const_pointer_to_comptime_int,
-            .const_slice_u8,
-            .const_slice_u8_sentinel_0,
-            .single_const_pointer,
-            .many_const_pointer,
-            .manyptr_const_u8,
-            .manyptr_const_u8_sentinel_0,
-            .c_const_pointer,
-            .const_slice,
-            => false,
-
-            .single_mut_pointer,
-            .many_mut_pointer,
-            .manyptr_u8,
-            .c_mut_pointer,
-            .mut_slice,
-            => true,
-
-            .pointer => ty.castTag(.pointer).?.data.mutable,
-
-            else => unreachable,
-        };
-    }
-
     pub const ArrayInfo = struct { elem_type: Type, sentinel: ?Value = null, len: u64 };
     pub fn arrayInfo(self: Type) ArrayInfo {
         return .{
@@ -340,7 +314,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
-                .mutable = false,
+                .@"const" = true,
                 .@"volatile" = false,
                 .size = .One,
             } },
@@ -352,7 +326,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
-                .mutable = false,
+                .@"const" = true,
                 .@"volatile" = false,
                 .size = .Slice,
             } },
@@ -364,7 +338,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
-                .mutable = false,
+                .@"const" = true,
                 .@"volatile" = false,
                 .size = .Slice,
             } },
@@ -376,7 +350,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
-                .mutable = false,
+                .@"const" = true,
                 .@"volatile" = false,
                 .size = .One,
             } },
@@ -388,7 +362,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
-                .mutable = true,
+                .@"const" = false,
                 .@"volatile" = false,
                 .size = .One,
             } },
@@ -400,7 +374,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
-                .mutable = false,
+                .@"const" = true,
                 .@"volatile" = false,
                 .size = .Many,
             } },
@@ -412,7 +386,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
-                .mutable = false,
+                .@"const" = true,
                 .@"volatile" = false,
                 .size = .Many,
             } },
@@ -424,7 +398,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
-                .mutable = false,
+                .@"const" = true,
                 .@"volatile" = false,
                 .size = .Many,
             } },
@@ -436,7 +410,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
-                .mutable = true,
+                .@"const" = false,
                 .@"volatile" = false,
                 .size = .Many,
             } },
@@ -448,7 +422,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
-                .mutable = true,
+                .@"const" = false,
                 .@"volatile" = false,
                 .size = .Many,
             } },
@@ -460,7 +434,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = true,
-                .mutable = false,
+                .@"const" = true,
                 .@"volatile" = false,
                 .size = .C,
             } },
@@ -472,7 +446,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = true,
-                .mutable = true,
+                .@"const" = false,
                 .@"volatile" = false,
                 .size = .C,
             } },
@@ -484,7 +458,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
-                .mutable = false,
+                .@"const" = true,
                 .@"volatile" = false,
                 .size = .Slice,
             } },
@@ -496,7 +470,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
-                .mutable = true,
+                .@"const" = false,
                 .@"volatile" = false,
                 .size = .Slice,
             } },
@@ -511,7 +485,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
-                .mutable = true,
+                .@"const" = false,
                 .@"volatile" = false,
                 .size = .One,
             } },
@@ -523,7 +497,7 @@ pub const Type = extern union {
                 .bit_offset = 0,
                 .host_size = 0,
                 .@"allowzero" = false,
-                .mutable = false,
+                .@"const" = true,
                 .@"volatile" = false,
                 .size = .One,
             } },
@@ -758,7 +732,7 @@ pub const Type = extern union {
                     return false;
                 if (info_a.@"allowzero" != info_b.@"allowzero")
                     return false;
-                if (info_a.mutable != info_b.mutable)
+                if (info_a.@"const" != info_b.@"const")
                     return false;
                 if (info_a.@"volatile" != info_b.@"volatile")
                     return false;
@@ -1138,7 +1112,7 @@ pub const Type = extern union {
                 std.hash.autoHash(hasher, info.host_size);
                 std.hash.autoHash(hasher, info.vector_index);
                 std.hash.autoHash(hasher, info.@"allowzero");
-                std.hash.autoHash(hasher, info.mutable);
+                std.hash.autoHash(hasher, info.@"const");
                 std.hash.autoHash(hasher, info.@"volatile");
                 std.hash.autoHash(hasher, info.size);
             },
@@ -1482,7 +1456,7 @@ pub const Type = extern union {
                     .host_size = payload.host_size,
                     .vector_index = payload.vector_index,
                     .@"allowzero" = payload.@"allowzero",
-                    .mutable = payload.mutable,
+                    .@"const" = payload.@"const",
                     .@"volatile" = payload.@"volatile",
                     .size = payload.size,
                 });
@@ -1886,7 +1860,7 @@ pub const Type = extern union {
                     if (payload.@"addrspace" != .generic) {
                         try writer.print("addrspace(.{s}) ", .{@tagName(payload.@"addrspace")});
                     }
-                    if (!payload.mutable) try writer.writeAll("const ");
+                    if (payload.@"const") try writer.writeAll("const ");
                     if (payload.@"volatile") try writer.writeAll("volatile ");
                     if (payload.@"allowzero" and payload.size != .C) try writer.writeAll("allowzero ");
 
@@ -2230,7 +2204,7 @@ pub const Type = extern union {
                 if (info.@"addrspace" != .generic) {
                     try writer.print("addrspace(.{s}) ", .{@tagName(info.@"addrspace")});
                 }
-                if (!info.mutable) try writer.writeAll("const ");
+                if (info.@"const") try writer.writeAll("const ");
                 if (info.@"volatile") try writer.writeAll("volatile ");
                 if (info.@"allowzero" and info.size != .C) try writer.writeAll("allowzero ");
 
@@ -3958,14 +3932,14 @@ pub const Type = extern union {
                                 .host_size = payload.host_size,
                                 .vector_index = payload.vector_index,
                                 .@"allowzero" = payload.@"allowzero",
-                                .mutable = payload.mutable,
+                                .@"const" = payload.@"const",
                                 .@"volatile" = payload.@"volatile",
                                 .size = .Many,
                             },
                         },
                     };
                     return Type.initPayload(&buffer.pointer.base);
-                } else if (payload.mutable) {
+                } else if (!payload.@"const") {
                     buffer.* = .{
                         .elem_type = .{
                             .base = .{ .tag = .many_mut_pointer },
@@ -3988,22 +3962,29 @@ pub const Type = extern union {
         }
     }
 
-    pub fn isConstPtr(self: Type) bool {
-        return switch (self.tag()) {
-            .single_const_pointer,
-            .many_const_pointer,
-            .c_const_pointer,
+    pub fn isConstPtr(ty: Type) bool {
+        return switch (ty.tag()) {
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .const_slice_u8_sentinel_0,
-            .const_slice,
+            .single_const_pointer,
+            .many_const_pointer,
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
+            .c_const_pointer,
+            .const_slice,
             => true,
 
-            .pointer => !self.castTag(.pointer).?.data.mutable,
+            .single_mut_pointer,
+            .many_mut_pointer,
+            .manyptr_u8,
+            .c_mut_pointer,
+            .mut_slice,
+            => false,
 
-            else => false,
+            .pointer => ty.castTag(.pointer).?.data.@"const",
+
+            else => unreachable,
         };
     }
 
@@ -6438,7 +6419,7 @@ pub const Type = extern union {
                 host_size: u16 = 0,
                 vector_index: VectorIndex = .none,
                 @"allowzero": bool = false,
-                mutable: bool = true, // TODO rename this to const, not mutable
+                @"const": bool = false,
                 @"volatile": bool = false,
                 size: std.builtin.Type.Pointer.Size = .One,
 
@@ -6601,7 +6582,7 @@ pub const Type = extern union {
             !d.@"allowzero" and !d.@"volatile")
         {
             if (d.sentinel) |sent| {
-                if (!d.mutable and d.pointee_type.eql(Type.u8, mod)) {
+                if (d.@"const" and d.pointee_type.eql(Type.u8, mod)) {
                     switch (d.size) {
                         .Slice => {
                             if (sent.compareAllWithZero(.eq, mod)) {
@@ -6616,7 +6597,7 @@ pub const Type = extern union {
                         else => {},
                     }
                 }
-            } else if (!d.mutable and d.pointee_type.eql(Type.u8, mod)) {
+            } else if (d.@"const" and d.pointee_type.eql(Type.u8, mod)) {
                 switch (d.size) {
                     .Slice => return Type.initTag(.const_slice_u8),
                     .Many => return Type.initTag(.manyptr_const_u8),
@@ -6628,10 +6609,10 @@ pub const Type = extern union {
                 type_payload.* = .{
                     .base = .{
                         .tag = switch (d.size) {
-                            .One => if (d.mutable) T.single_mut_pointer else T.single_const_pointer,
-                            .Many => if (d.mutable) T.many_mut_pointer else T.many_const_pointer,
-                            .C => if (d.mutable) T.c_mut_pointer else T.c_const_pointer,
-                            .Slice => if (d.mutable) T.mut_slice else T.const_slice,
+                            .One => if (d.@"const") T.single_const_pointer else T.single_mut_pointer,
+                            .Many => if (d.@"const") T.many_const_pointer else T.many_mut_pointer,
+                            .C => if (d.@"const") T.c_const_pointer else T.c_mut_pointer,
+                            .Slice => if (d.@"const") T.const_slice else T.mut_slice,
                         },
                     },
                     .data = d.pointee_type,

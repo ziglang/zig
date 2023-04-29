@@ -633,7 +633,7 @@ const Writer = struct {
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const inst_data = self.code.instructions.items(.data)[inst].ptr_type;
         const str_allowzero = if (inst_data.flags.is_allowzero) "allowzero, " else "";
-        const str_const = if (!inst_data.flags.is_mutable) "const, " else "";
+        const str_const = if (inst_data.flags.is_const) "const, " else "";
         const str_volatile = if (inst_data.flags.is_volatile) "volatile, " else "";
         const extra = self.code.extraData(Zir.Inst.PtrType, inst_data.payload_index);
         try self.writeInstRef(stream, extra.data.elem_type);

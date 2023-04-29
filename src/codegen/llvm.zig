@@ -1081,7 +1081,7 @@ pub const Object = struct {
                     if (param_ty.zigTypeTag() != .Optional) {
                         dg.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
                     }
-                    if (!ptr_info.mutable) {
+                    if (ptr_info.@"const") {
                         dg.addArgAttr(llvm_func, llvm_arg_i, "readonly");
                     }
                     if (ptr_info.@"align" != 0) {
@@ -1601,7 +1601,7 @@ pub const Object = struct {
                     ptr_info.host_size != 0 or
                     ptr_info.vector_index != .none or
                     ptr_info.@"allowzero" or
-                    !ptr_info.mutable or
+                    ptr_info.@"const" or
                     ptr_info.@"volatile" or
                     ptr_info.size == .Many or ptr_info.size == .C or
                     !ptr_info.pointee_type.hasRuntimeBitsIgnoreComptime())
@@ -1615,7 +1615,7 @@ pub const Object = struct {
                             .bit_offset = 0,
                             .host_size = 0,
                             .@"allowzero" = false,
-                            .mutable = true,
+                            .@"const" = false,
                             .@"volatile" = false,
                             .size = switch (ptr_info.size) {
                                 .Many, .C, .One => .One,
@@ -4377,7 +4377,7 @@ pub const DeclGen = struct {
             if (!param_ty.isPtrLikeOptional() and !ptr_info.@"allowzero") {
                 dg.addArgAttr(llvm_fn, llvm_arg_i, "nonnull");
             }
-            if (!ptr_info.mutable) {
+            if (ptr_info.@"const") {
                 dg.addArgAttr(llvm_fn, llvm_arg_i, "readonly");
             }
             if (ptr_info.@"align" != 0) {
@@ -5016,7 +5016,7 @@ pub const FuncGen = struct {
                     if (param_ty.zigTypeTag() != .Optional) {
                         self.dg.addArgAttr(call, llvm_arg_i, "nonnull");
                     }
-                    if (!ptr_info.mutable) {
+                    if (ptr_info.@"const") {
                         self.dg.addArgAttr(call, llvm_arg_i, "readonly");
                     }
                     if (ptr_info.@"align" != 0) {

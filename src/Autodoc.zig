@@ -585,7 +585,7 @@ const DocData = struct {
             host_size: ?Expr = null,
             is_ref: bool = false,
             is_allowzero: bool = false,
-            is_mutable: bool = false,
+            is_const: bool = false,
             is_volatile: bool = false,
             has_sentinel: bool = false,
             has_align: bool = false,
@@ -1090,7 +1090,7 @@ fn walkInstruction(
                             .value = 0,
                             .negated = false,
                         } },
-                        .is_mutable = false,
+                        .is_const = true,
                     },
                 });
                 break :blk .{ .type = ptrTypeId };
@@ -1634,7 +1634,7 @@ fn walkInstruction(
                     .address_space = address_space,
                     .has_sentinel = ptr.flags.has_sentinel,
                     .sentinel = sentinel,
-                    .is_mutable = ptr.flags.is_mutable,
+                    .is_const = ptr.flags.is_const,
                     .is_volatile = ptr.flags.is_volatile,
                     .has_bit_range = ptr.flags.has_bit_range,
                     .bit_start = bit_start,

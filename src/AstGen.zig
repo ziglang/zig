@@ -3473,7 +3473,7 @@ fn ptrType(
         .ptr_type = .{
             .flags = .{
                 .is_allowzero = ptr_info.allowzero_token != null,
-                .is_mutable = ptr_info.const_token == null,
+                .is_const = ptr_info.const_token != null,
                 .is_volatile = ptr_info.volatile_token != null,
                 .has_sentinel = sentinel_ref != .none,
                 .has_align = align_ref != .none,
