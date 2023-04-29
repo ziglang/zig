@@ -6416,7 +6416,6 @@ fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
         const atom_index = try elf_file.getOrCreateAtomForLazySymbol(
             .{ .kind = .const_data, .ty = Type.anyerror },
-            4, // dword alignment
         );
         const atom = elf_file.getAtom(atom_index);
         _ = try atom.getOrCreateOffsetTableEntry(elf_file);
@@ -6429,14 +6428,12 @@ fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
         const atom_index = try coff_file.getOrCreateAtomForLazySymbol(
             .{ .kind = .const_data, .ty = Type.anyerror },
-            4, // dword alignment
         );
         const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
         try self.genSetReg(addr_reg, Type.usize, .{ .lea_got = sym_index });
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
         const atom_index = try macho_file.getOrCreateAtomForLazySymbol(
             .{ .kind = .const_data, .ty = Type.anyerror },
-            4, // dword alignment
         );
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
         try self.genSetReg(addr_reg, Type.usize, .{ .lea_got = sym_index });
@@ -8504,7 +8501,6 @@ fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
         const atom_index = try elf_file.getOrCreateAtomForLazySymbol(
             .{ .kind = .const_data, .ty = Type.anyerror },
-            4, // dword alignment
         );
         const atom = elf_file.getAtom(atom_index);
         _ = try atom.getOrCreateOffsetTableEntry(elf_file);
@@ -8517,14 +8513,12 @@ fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
         const atom_index = try coff_file.getOrCreateAtomForLazySymbol(
             .{ .kind = .const_data, .ty = Type.anyerror },
-            4, // dword alignment
         );
         const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
         try self.genSetReg(addr_reg, Type.usize, .{ .lea_got = sym_index });
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
         const atom_index = try macho_file.getOrCreateAtomForLazySymbol(
             .{ .kind = .const_data, .ty = Type.anyerror },
-            4, // dword alignment
         );
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
         try self.genSetReg(addr_reg, Type.usize, .{ .lea_got = sym_index });

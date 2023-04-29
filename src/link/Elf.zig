@@ -67,7 +67,6 @@ const Section = struct {
 const LazySymbolMetadata = struct {
     text_atom: ?Atom.Index = null,
     rodata_atom: ?Atom.Index = null,
-    alignment: u32,
 };
 
 const DeclMetadata = struct {
@@ -2377,10 +2376,10 @@ pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn getOrCreateAtomForLazySymbol(self: *Elf, sym: File.LazySymbol, alignment: u32) !Atom.Index {
+pub fn getOrCreateAtomForLazySymbol(self: *Elf, sym: File.LazySymbol) !Atom.Index {
     const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl());
     errdefer _ = self.lazy_syms.pop();
-    if (!gop.found_existing) gop.value_ptr.* = .{ .alignment = alignment };
+    if (!gop.found_existing) gop.value_ptr.* = .{};
     const atom = switch (sym.kind) {
         .code => &gop.value_ptr.text_atom,
         .const_data => &gop.value_ptr.rodata_atom,
@@ -2663,13 +2662,11 @@ fn updateLazySymbol(self: *Elf, decl: Module.Decl.OptionalIndex, metadata: LazyS
         File.LazySymbol.initDecl(.code, decl, mod),
         atom,
         self.text_section_index.?,
-        metadata.alignment,
     );
     if (metadata.rodata_atom) |atom| try self.updateLazySymbolAtom(
         File.LazySymbol.initDecl(.const_data, decl, mod),
         atom,
         self.rodata_section_index.?,
-        metadata.alignment,
     );
 }
 
@@ -2678,7 +2675,6 @@ fn updateLazySymbolAtom(
     sym: File.LazySymbol,
     atom_index: Atom.Index,
     shdr_index: u16,
-    required_alignment: u32,
 ) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
@@ -2710,7 +2706,7 @@ fn updateLazySymbolAtom(
     const res = try codegen.generateLazySymbol(&self.base, src, sym, &code_buffer, .none, .{
         .parent_atom_index = local_sym_index,
     });
-    const code = switch (res) {
+    const code = switch (res.res) {
         .ok => code_buffer.items,
         .fail => |em| {
             log.err("{s}", .{em.msg});
@@ -2728,7 +2724,7 @@ fn updateLazySymbolAtom(
         .st_value = 0,
         .st_size = 0,
     };
-    const vaddr = try self.allocateAtom(atom_index, code.len, required_alignment);
+    const vaddr = try self.allocateAtom(atom_index, code.len, res.alignment);
     errdefer self.freeAtom(atom_index);
     log.debug("allocated text block for {s} at 0x{x}", .{ name, vaddr });
 

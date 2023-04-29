@@ -238,7 +238,6 @@ const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex,
 const LazySymbolMetadata = struct {
     text_atom: ?Atom.Index = null,
     data_const_atom: ?Atom.Index = null,
-    alignment: u32,
 };
 
 const TlvSymbolTable = std.AutoArrayHashMapUnmanaged(SymbolWithLoc, Atom.Index);
@@ -2043,13 +2042,11 @@ fn updateLazySymbol(self: *MachO, decl: Module.Decl.OptionalIndex, metadata: Laz
         File.LazySymbol.initDecl(.code, decl, mod),
         atom,
         self.text_section_index.?,
-        metadata.alignment,
     );
     if (metadata.data_const_atom) |atom| try self.updateLazySymbolAtom(
         File.LazySymbol.initDecl(.const_data, decl, mod),
         atom,
         self.data_const_section_index.?,
-        metadata.alignment,
     );
 }
 
@@ -2058,7 +2055,6 @@ fn updateLazySymbolAtom(
     sym: File.LazySymbol,
     atom_index: Atom.Index,
     section_index: u8,
-    required_alignment: u32,
 ) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
@@ -2090,7 +2086,7 @@ fn updateLazySymbolAtom(
     const res = try codegen.generateLazySymbol(&self.base, src, sym, &code_buffer, .none, .{
         .parent_atom_index = local_sym_index,
     });
-    const code = switch (res) {
+    const code = switch (res.res) {
         .ok => code_buffer.items,
         .fail => |em| {
             log.err("{s}", .{em.msg});
@@ -2104,11 +2100,11 @@ fn updateLazySymbolAtom(
     symbol.n_sect = section_index + 1;
     symbol.n_desc = 0;
 
-    const vaddr = try self.allocateAtom(atom_index, code.len, required_alignment);
+    const vaddr = try self.allocateAtom(atom_index, code.len, res.alignment);
     errdefer self.freeAtom(atom_index);
 
     log.debug("allocated atom for {s} at 0x{x}", .{ name, vaddr });
-    log.debug("  (required alignment 0x{x}", .{required_alignment});
+    log.debug("  (required alignment 0x{x}", .{res.alignment});
 
     atom.size = code.len;
     symbol.n_value = vaddr;
@@ -2117,10 +2113,10 @@ fn updateLazySymbolAtom(
     try self.writeAtom(atom_index, code);
 }
 
-pub fn getOrCreateAtomForLazySymbol(self: *MachO, sym: File.LazySymbol, alignment: u32) !Atom.Index {
+pub fn getOrCreateAtomForLazySymbol(self: *MachO, sym: File.LazySymbol) !Atom.Index {
     const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl());
     errdefer _ = self.lazy_syms.pop();
-    if (!gop.found_existing) gop.value_ptr.* = .{ .alignment = alignment };
+    if (!gop.found_existing) gop.value_ptr.* = .{};
     const atom = switch (sym.kind) {
         .code => &gop.value_ptr.text_atom,
         .const_data => &gop.value_ptr.data_const_atom,

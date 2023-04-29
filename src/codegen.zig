@@ -104,7 +104,7 @@ pub fn generateLazySymbol(
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
-) CodeGenError!Result {
+) CodeGenError!struct { res: Result, alignment: u32 } {
     _ = debug_output;
     _ = reloc_info;
 
@@ -133,13 +133,13 @@ pub fn generateLazySymbol(
             code.appendAssumeCapacity(0);
         }
         mem.writeInt(u32, code.items[offset..][0..4], @intCast(u32, code.items.len), endian);
-        return Result.ok;
-    } else return .{ .fail = try ErrorMsg.create(
+        return .{ .res = Result.ok, .alignment = 4 };
+    } else return .{ .res = .{ .fail = try ErrorMsg.create(
         bin_file.allocator,
         src_loc,
         "TODO implement generateLazySymbol for {s} {}",
         .{ @tagName(lazy_sym.kind), lazy_sym.ty.fmt(mod) },
-    ) };
+    ) }, .alignment = undefined };
 }
 
 pub fn generateSymbol(
