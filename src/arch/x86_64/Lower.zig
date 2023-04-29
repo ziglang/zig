@@ -95,6 +95,7 @@ pub fn lowerMir(lower: *Lower, inst: Mir.Inst) Error![]const Instruction {
 
         .addss,
         .cmpss,
+        .cvtsi2ss,
         .divss,
         .maxss,
         .minss,
@@ -103,8 +104,12 @@ pub fn lowerMir(lower: *Lower, inst: Mir.Inst) Error![]const Instruction {
         .roundss,
         .subss,
         .ucomiss,
+        .xorps,
         .addsd,
         .cmpsd,
+        .cvtsd2ss,
+        .cvtsi2sd,
+        .cvtss2sd,
         .divsd,
         .maxsd,
         .minsd,
@@ -113,6 +118,7 @@ pub fn lowerMir(lower: *Lower, inst: Mir.Inst) Error![]const Instruction {
         .roundsd,
         .subsd,
         .ucomisd,
+        .xorpd,
         => try lower.mirGeneric(inst),
 
         .cmps,

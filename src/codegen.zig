@@ -291,6 +291,20 @@ pub fn generateSymbol(
             },
         },
         .Pointer => switch (typed_value.val.tag()) {
+            .null_value => {
+                switch (target.cpu.arch.ptrBitWidth()) {
+                    32 => {
+                        mem.writeInt(u32, try code.addManyAsArray(4), 0, endian);
+                        if (typed_value.ty.isSlice()) try code.appendNTimes(0xaa, 4);
+                    },
+                    64 => {
+                        mem.writeInt(u64, try code.addManyAsArray(8), 0, endian);
+                        if (typed_value.ty.isSlice()) try code.appendNTimes(0xaa, 8);
+                    },
+                    else => unreachable,
+                }
+                return Result.ok;
+            },
             .zero, .one, .int_u64, .int_big_positive => {
                 switch (target.cpu.arch.ptrBitWidth()) {
                     32 => {
@@ -397,30 +411,15 @@ pub fn generateSymbol(
                     },
                 }
             },
-            .elem_ptr => {
-                const elem_ptr = typed_value.val.castTag(.elem_ptr).?.data;
-                const elem_size = typed_value.ty.childType().abiSize(target);
-                const addend = @intCast(u32, elem_ptr.index * elem_size);
-                const array_ptr = elem_ptr.array_ptr;
-
-                switch (array_ptr.tag()) {
-                    .decl_ref => {
-                        const decl_index = array_ptr.castTag(.decl_ref).?.data;
-                        return lowerDeclRef(bin_file, src_loc, typed_value, decl_index, code, debug_output, .{
-                            .parent_atom_index = reloc_info.parent_atom_index,
-                            .addend = (reloc_info.addend orelse 0) + addend,
-                        });
-                    },
-                    else => return Result{
-                        .fail = try ErrorMsg.create(
-                            bin_file.allocator,
-                            src_loc,
-                            "TODO implement generateSymbol for pointer type value: '{s}'",
-                            .{@tagName(typed_value.val.tag())},
-                        ),
-                    },
-                }
-            },
+            .elem_ptr => return lowerParentPtr(
+                bin_file,
+                src_loc,
+                typed_value,
+                typed_value.val,
+                code,
+                debug_output,
+                reloc_info,
+            ),
             else => return Result{
                 .fail = try ErrorMsg.create(
                     bin_file.allocator,
@@ -838,9 +837,62 @@ pub fn generateSymbol(
     }
 }
 
+fn lowerParentPtr(
+    bin_file: *link.File,
+    src_loc: Module.SrcLoc,
+    typed_value: TypedValue,
+    parent_ptr: Value,
+    code: *std.ArrayList(u8),
+    debug_output: DebugInfoOutput,
+    reloc_info: RelocInfo,
+) CodeGenError!Result {
+    const target = bin_file.options.target;
+
+    switch (parent_ptr.tag()) {
+        .elem_ptr => {
+            const elem_ptr = parent_ptr.castTag(.elem_ptr).?.data;
+            return lowerParentPtr(
+                bin_file,
+                src_loc,
+                typed_value,
+                elem_ptr.array_ptr,
+                code,
+                debug_output,
+                reloc_info.offset(@intCast(u32, elem_ptr.index * elem_ptr.elem_ty.abiSize(target))),
+            );
+        },
+        .decl_ref => {
+            const decl_index = parent_ptr.castTag(.decl_ref).?.data;
+            return lowerDeclRef(
+                bin_file,
+                src_loc,
+                typed_value,
+                decl_index,
+                code,
+                debug_output,
+                reloc_info,
+            );
+        },
+        else => |t| {
+            return Result{
+                .fail = try ErrorMsg.create(
+                    bin_file.allocator,
+                    src_loc,
+                    "TODO implement lowerParentPtr for type '{s}'",
+                    .{@tagName(t)},
+                ),
+            };
+        },
+    }
+}
+
 const RelocInfo = struct {
     parent_atom_index: u32,
     addend: ?u32 = null,
+
+    fn offset(ri: RelocInfo, addend: u32) RelocInfo {
+        return .{ .parent_atom_index = ri.parent_atom_index, .addend = (ri.addend orelse 0) + addend };
+    }
 };
 
 fn lowerDeclRef(
@@ -1095,6 +1147,9 @@ pub fn genTypedValue(
             .Slice => {},
             else => {
                 switch (typed_value.val.tag()) {
+                    .null_value => {
+                        return GenResult.mcv(.{ .immediate = 0 });
+                    },
                     .int_u64 => {
                         return GenResult.mcv(.{ .immediate = typed_value.val.toUnsignedInt(target) });
                     },
