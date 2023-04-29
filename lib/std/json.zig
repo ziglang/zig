@@ -1301,7 +1301,12 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
             std.meta.IntToEnumError || std.meta.IntToEnumError,
         .Union => |unionInfo| {
             if (unionInfo.tag_type) |_| {
-                var errors = error{NoUnionMembersMatched};
+                var errors = error{
+                    ConflictingUnionFields,
+                    UnknownField,
+                    UnexpectedToken,
+                    MissingField,
+                } || TokenStream.Error;
                 for (unionInfo.fields) |u_field| {
                     errors = errors || ParseInternalErrorImpl(u_field.type, inferred_types ++ [_]type{T});
                 }
@@ -1427,28 +1432,50 @@ fn parseInternal(
             }
         },
         .Union => |unionInfo| {
-            if (unionInfo.tag_type) |_| {
-                // try each of the union fields until we find one that matches
-                inline for (unionInfo.fields) |u_field| {
-                    // take a copy of tokens so we can withhold mutations until success
-                    var tokens_copy = tokens.*;
-                    if (parseInternal(u_field.type, token, &tokens_copy, options)) |value| {
-                        tokens.* = tokens_copy;
-                        return @unionInit(T, u_field.name, value);
-                    } else |err| {
-                        // Bubble up error.OutOfMemory
-                        // Parsing some types won't have OutOfMemory in their
-                        // error-sets, for the condition to be valid, merge it in.
-                        if (@as(@TypeOf(err) || error{OutOfMemory}, err) == error.OutOfMemory) return err;
-                        // Bubble up AllocatorRequired, as it indicates missing option
-                        if (@as(@TypeOf(err) || error{AllocatorRequired}, err) == error.AllocatorRequired) return err;
-                        // otherwise continue through the `inline for`
+            const UnionTagType = unionInfo.tag_type orelse @compileError("Unable to parse into untagged union '" ++ @typeName(T) ++ "'");
+            switch (token) {
+                .ObjectBegin => {},
+                else => return error.UnexpectedToken,
+            }
+
+            var r: T = undefined;
+            var seen_any_value = false;
+            errdefer {
+                if (seen_any_value) {
+                    inline for (unionInfo.fields) |u_field| {
+                        if (r == @field(UnionTagType, u_field.name)) {
+                            parseFree(u_field.type, @field(r, u_field.name), options);
+                        }
                     }
                 }
-                return error.NoUnionMembersMatched;
-            } else {
-                @compileError("Unable to parse into untagged union '" ++ @typeName(T) ++ "'");
             }
+            while (true) {
+                switch ((try tokens.next()) orelse return error.UnexpectedEndOfJson) {
+                    .ObjectEnd => break,
+                    .String => |stringToken| {
+                        if (seen_any_value) return error.ConflictingUnionFields;
+                        const key_source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
+                        var child_options = options;
+                        child_options.allow_trailing_data = true;
+                        inline for (unionInfo.fields) |u_field| {
+                            if (switch (stringToken.escapes) {
+                                .None => mem.eql(u8, u_field.name, key_source_slice),
+                                .Some => (u_field.name.len == stringToken.decodedLength() and encodesTo(u_field.name, key_source_slice)),
+                            }) {
+                                r = @unionInit(T, u_field.name, try parse(u_field.type, tokens, child_options));
+                                seen_any_value = true;
+                                break;
+                            }
+                        } else {
+                            // Didn't match anything.
+                            return error.UnknownField;
+                        }
+                    },
+                    else => return error.UnexpectedToken,
+                }
+            }
+            if (!seen_any_value) return error.MissingField;
+            return r;
         },
         .Struct => |structInfo| {
             if (structInfo.is_tuple) {
@@ -2233,11 +2260,34 @@ pub fn stringify(
 
             const info = @typeInfo(T).Union;
             if (info.tag_type) |UnionTagType| {
+                try out_stream.writeByte('{');
+                var child_options = options;
+                if (child_options.whitespace) |*whitespace| {
+                    whitespace.indent_level += 1;
+                }
                 inline for (info.fields) |u_field| {
                     if (value == @field(UnionTagType, u_field.name)) {
-                        return try stringify(@field(value, u_field.name), options, out_stream);
+                        if (child_options.whitespace) |child_whitespace| {
+                            try child_whitespace.outputIndent(out_stream);
+                        }
+                        try encodeJsonString(u_field.name, options, out_stream);
+                        try out_stream.writeByte(':');
+                        if (child_options.whitespace) |child_whitespace| {
+                            if (child_whitespace.separator) {
+                                try out_stream.writeByte(' ');
+                            }
+                        }
+                        try stringify(@field(value, u_field.name), child_options, out_stream);
+                        break;
                     }
+                } else {
+                    unreachable; // No active tag?
                 }
+                if (options.whitespace) |whitespace| {
+                    try whitespace.outputIndent(out_stream);
+                }
+                try out_stream.writeByte('}');
+                return;
             } else {
                 @compileError("Unable to stringify untagged union '" ++ @typeName(T) ++ "'");
             }
@@ -2489,10 +2539,10 @@ test "stringify many-item sentinel-terminated string" {
 }
 
 test "stringify tagged unions" {
-    try teststringify("42", union(enum) {
-        Foo: u32,
-        Bar: bool,
-    }{ .Foo = 42 }, StringifyOptions{});
+    try teststringify("{\"foo\":42}", union(enum) {
+        foo: u32,
+        bar: bool,
+    }{ .foo = 42 }, StringifyOptions{});
 }
 
 test "stringify struct" {

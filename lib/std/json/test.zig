@@ -2107,67 +2107,40 @@ test "parse into that allocates a slice" {
 }
 
 test "parse into tagged union" {
-    {
-        const T = union(enum) {
-            int: i32,
-            float: f64,
-            string: []const u8,
-        };
-        var ts = TokenStream.init("1.5");
-        try testing.expectEqual(T{ .float = 1.5 }, try parse(T, &ts, ParseOptions{}));
-    }
-
-    { // failing allocations should be bubbled up instantly without trying next member
-        var fail_alloc = testing.FailingAllocator.init(testing.allocator, 0);
-        const options = ParseOptions{ .allocator = fail_alloc.allocator() };
-        const T = union(enum) {
-            // both fields here match the input
-            string: []const u8,
-            array: [3]u8,
-        };
-        var ts = TokenStream.init("[1,2,3]");
-        try testing.expectError(error.OutOfMemory, parse(T, &ts, options));
-    }
-
-    {
-        // if multiple matches possible, takes first option
-        const T = union(enum) {
-            x: u8,
-            y: u8,
-        };
-        var ts = TokenStream.init("42");
-        try testing.expectEqual(T{ .x = 42 }, try parse(T, &ts, ParseOptions{}));
-    }
-
-    { // needs to back out when first union member doesn't match
-        const T = union(enum) {
-            A: struct { x: u32 },
-            B: struct { y: u32 },
-        };
-        var ts = TokenStream.init("{\"y\":42}");
-        try testing.expectEqual(T{ .B = .{ .y = 42 } }, try parse(T, &ts, ParseOptions{}));
-    }
+    const T = union(enum) {
+        int: i32,
+        float: f64,
+        string: []const u8,
+    };
+    var ts = TokenStream.init("{\"float\":1.5}");
+    try testing.expectEqual(T{ .float = 1.5 }, try parse(T, &ts, ParseOptions{}));
+    ts = TokenStream.init("{\"int\":1}");
+    try testing.expectEqual(T{ .int = 1 }, try parse(T, &ts, ParseOptions{}));
 }
 
-test "parse union bubbles up AllocatorRequired" {
-    { // string member first in union (and not matching)
-        const T = union(enum) {
-            string: []const u8,
-            int: i32,
-        };
-        var ts = TokenStream.init("42");
-        try testing.expectError(error.AllocatorRequired, parse(T, &ts, ParseOptions{}));
-    }
+test "parse into tagged union errors" {
+    const T = union(enum) {
+        int: i32,
+        float: f64,
+        string: []const u8,
+    };
+    var ts = TokenStream.init("42");
+    try testing.expectError(error.UnexpectedToken, parse(T, &ts, ParseOptions{}));
 
-    { // string member not first in union (and matching)
-        const T = union(enum) {
-            int: i32,
-            float: f64,
-            string: []const u8,
-        };
-        var ts = TokenStream.init("\"foo\"");
-        try testing.expectError(error.AllocatorRequired, parse(T, &ts, ParseOptions{}));
-    }
+    ts = TokenStream.init("{}");
+    try testing.expectError(error.MissingField, parse(T, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("{\"bogus\":1}");
+    try testing.expectError(error.UnknownField, parse(T, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("{\"int\":1, \"int\":1}");
+    try testing.expectError(error.ConflictingUnionFields, parse(T, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("{\"int\":1, \"float\":1.0}");
+    try testing.expectError(error.ConflictingUnionFields, parse(T, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("{\"string\":\"foo\"}");
+    try testing.expectError(error.AllocatorRequired, parse(T, &ts, ParseOptions{}));
 }
 
 test "parseFree descends into tagged union" {
@@ -2179,7 +2152,7 @@ test "parseFree descends into tagged union" {
         string: []const u8,
     };
     // use a string with unicode escape so we know result can't be a reference to global constant
-    var ts = TokenStream.init("\"with\\u0105unicode\"");
+    var ts = TokenStream.init("{\"string\":\"with\\u0105unicode\"}");
     const r = try parse(T, &ts, options);
     try testing.expectEqual(std.meta.Tag(T).string, @as(std.meta.Tag(T), r));
     try testing.expectEqualSlices(u8, "withąunicode", r.string);
@@ -2282,7 +2255,9 @@ test "parse into struct with misc fields" {
         \\      "foo": "rocks"
         \\    }
         \\  ],
-        \\  "a_union": 100000
+        \\  "a_union": {
+        \\    "float": 100000
+        \\  }
         \\}
     );
     const r = try parse(T, &ts, options);
@@ -2438,7 +2413,7 @@ test "parse into tuple" {
         \\    "bar": "zero"
         \\  },
         \\  [4, "två", 42],
-        \\  12.34
+        \\  {"float": 12.34}
         \\]
     );
     const r = try parse(T, &ts, options);
@@ -2467,7 +2442,7 @@ test "parse into recursive union definition" {
     };
     const ops = ParseOptions{ .allocator = testing.allocator };
 
-    var ts = TokenStream.init("{\"values\":[58]}");
+    var ts = TokenStream.init("{\"values\":{\"array\":[{\"integer\":58}]}}");
     const r = try parse(T, &ts, ops);
     defer parseFree(T, r, ops);
 
@@ -2490,7 +2465,7 @@ test "parse into double recursive union definition" {
     };
     const ops = ParseOptions{ .allocator = testing.allocator };
 
-    var ts = TokenStream.init("{\"values\":[[58]]}");
+    var ts = TokenStream.init("{\"values\":{\"array\":[{\"array\":[{\"integer\":58}]}]}}");
     const r = try parse(T, &ts, ops);
     defer parseFree(T, r, ops);
 
