@@ -25,8 +25,8 @@ pub export fn non_matching_lengths() void {
 // target=native
 //
 // :5:5: error: unknown @memcpy length
-// :5:18: note: destination type [*]u8 provides no length
-// :5:24: note: source type [*]align(4) const u8 provides no length
+// :5:18: note: destination type '[*]u8' provides no length
+// :5:24: note: source type '[*]align(4) const u8' provides no length
 // :10:13: error: type 'u8' does not support indexing
 // :10:13: note: for loop operand must be an array, slice, tuple, or vector
 // :15:13: error: type '*u8' does not support indexing

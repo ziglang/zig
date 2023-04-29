@@ -19910,7 +19910,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             return sema.failWithUseOfUndef(block, operand_src);
         }
         if (!dest_ty.ptrAllowsZero() and operand_val.isNull()) {
-            return sema.fail(block, operand_src, "null pointer casted to type {}", .{dest_ty.fmt(sema.mod)});
+            return sema.fail(block, operand_src, "null pointer casted to type '{}'", .{dest_ty.fmt(sema.mod)});
         }
         if (dest_ty.zigTypeTag() == .Optional and sema.typeOf(ptr).zigTypeTag() != .Optional) {
             return sema.addConstant(dest_ty, try Value.Tag.opt_payload.create(sema.arena, operand_val));
@@ -22013,10 +22013,10 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         const msg = msg: {
             const msg = try sema.errMsg(block, src, "unknown @memcpy length", .{});
             errdefer msg.destroy(sema.gpa);
-            try sema.errNote(block, dest_src, msg, "destination type {} provides no length", .{
+            try sema.errNote(block, dest_src, msg, "destination type '{}' provides no length", .{
                 sema.typeOf(dest_ptr).fmt(sema.mod),
             });
-            try sema.errNote(block, src_src, msg, "source type {} provides no length", .{
+            try sema.errNote(block, src_src, msg, "source type '{}' provides no length", .{
                 sema.typeOf(src_ptr).fmt(sema.mod),
             });
             break :msg msg;
