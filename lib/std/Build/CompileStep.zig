@@ -707,19 +707,21 @@ pub fn appendModuleArgs(
             try zig_args.append(name);
 
             if (mod.source_file) |rs| {
+                try zig_args.append("--root-source");
                 try zig_args.append(rs.getPath2(b, &self.step));
-            }
-
-            const args_str = try mod.constructArgsString(self);
-            if (args_str.len > 0) {
-                try zig_args.append("--args");
-                try zig_args.appendSlice(args_str);
             }
 
             const deps_str = try constructDepString(b.allocator, mod_names, mod.dependencies);
             if (deps_str.len > 0) {
                 try zig_args.append("--deps");
                 try zig_args.append(deps_str);
+            }
+
+            const args_str = try mod.constructArgsString(self);
+            if (args_str.len > 0) {
+                try zig_args.append("--args");
+                try zig_args.appendSlice(args_str);
+                try zig_args.append("--args-end");
             }
         }
     }
