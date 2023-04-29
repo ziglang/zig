@@ -165,6 +165,7 @@ pub const Type = extern union {
     pub fn baseZigTypeTag(self: Type) std.builtin.TypeId {
         return switch (self.zigTypeTag()) {
             .ErrorUnion => self.errorUnionPayload().baseZigTypeTag(),
+            .Pointer => self.ptrInfo().data.pointee_type.baseZigTypeTag(),
             .Optional => {
                 var buf: Payload.ElemType = undefined;
                 return self.optionalChild(&buf).baseZigTypeTag();
