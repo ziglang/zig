@@ -22755,7 +22755,7 @@ fn resolveExternOptions(
         const payload = library_name_val.castTag(.opt_payload).?.data;
         const library_name = try payload.toAllocatedBytes(Type.initTag(.const_slice_u8), sema.arena, mod);
         if (library_name.len == 0) {
-            return sema.fail(block, library_src, "library name name cannot be empty", .{});
+            return sema.fail(block, library_src, "library name cannot be empty", .{});
         }
         break :blk try sema.handleExternLibName(block, library_src, library_name);
     } else null;
