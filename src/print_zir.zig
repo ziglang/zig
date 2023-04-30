@@ -765,6 +765,10 @@ const Writer = struct {
         try self.writeInstRef(stream, extra.start);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.len);
+        if (extra.sentinel != .none) {
+            try stream.writeAll(", ");
+            try self.writeInstRef(stream, extra.sentinel);
+        }
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }

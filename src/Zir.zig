@@ -570,7 +570,7 @@ pub const Inst = struct {
         /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceSentinel`.
         slice_sentinel,
-        /// Slice operation `array_ptr[start..][0..len]`. No sentinel.
+        /// Slice operation `array_ptr[start..][0..len]`. Optional sentinel.
         /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceLength`.
         slice_length,
@@ -2991,6 +2991,7 @@ pub const Inst = struct {
         lhs: Ref,
         start: Ref,
         len: Ref,
+        sentinel: Ref,
         start_src_node_offset: i32,
     };
 

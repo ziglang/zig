@@ -1315,6 +1315,16 @@ fn walkInstruction(
                 extra.data.len,
                 false,
             );
+            var sentinel_opt: ?DocData.WalkResult = if (extra.data.sentinel != .none)
+                try self.walkRef(
+                    file,
+                    parent_scope,
+                    parent_src,
+                    extra.data.sentinel,
+                    false,
+                )
+            else
+                null;
 
             const lhs_index = self.exprs.items.len;
             try self.exprs.append(self.arena, lhs.expr);
@@ -1322,7 +1332,12 @@ fn walkInstruction(
             try self.exprs.append(self.arena, start.expr);
             const len_index = self.exprs.items.len;
             try self.exprs.append(self.arena, len.expr);
-            self.exprs.items[slice_index] = .{ .slice = .{ .lhs = lhs_index, .start = start_index, .end = len_index } };
+            const sentinel_index = if (sentinel_opt) |sentinel| sentinel_index: {
+                const index = self.exprs.items.len;
+                try self.exprs.append(self.arena, sentinel.expr);
+                break :sentinel_index index;
+            } else null;
+            self.exprs.items[slice_index] = .{ .slice = .{ .lhs = lhs_index, .start = start_index, .end = len_index, .sentinel = sentinel_index } };
 
             return DocData.WalkResult{
                 .typeRef = self.decls.items[lhs.expr.declRef.Analyzed].value.typeRef,

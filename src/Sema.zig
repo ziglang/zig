@@ -9972,11 +9972,16 @@ fn zirSliceLength(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const array_ptr = try sema.resolveInst(extra.lhs);
     const start = try sema.resolveInst(extra.start);
     const len = try sema.resolveInst(extra.len);
+    const sentinel = try sema.resolveInst(extra.sentinel);
     const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
     const start_src: LazySrcLoc = .{ .node_offset_slice_start = extra.start_src_node_offset };
     const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
+    const sentinel_src: LazySrcLoc = if (sentinel == .none)
+        .unneeded
+    else
+        .{ .node_offset_slice_sentinel = inst_data.src_node };
 
-    return sema.analyzeSlice(block, src, array_ptr, start, len, .none, .unneeded, ptr_src, start_src, end_src, true);
+    return sema.analyzeSlice(block, src, array_ptr, start, len, sentinel, sentinel_src, ptr_src, start_src, end_src, true);
 }
 
 fn zirSwitchCapture(
@@ -29283,17 +29288,15 @@ fn analyzeSlice(
     // we might learn of the length because it is a comptime-known slice value.
     var end_is_len = uncasted_end_opt == .none;
     const end = e: {
-        if (by_length and !end_is_len) {
-            if (!block.wantSafety()) break :e undefined;
-            const len = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
-            const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
-            const end = try sema.coerce(block, Type.usize, uncasted_end, end_src);
-            break :e end;
-        } else if (array_ty.zigTypeTag() == .Array) {
+        if (array_ty.zigTypeTag() == .Array) {
             const len_val = try Value.Tag.int_u64.create(sema.arena, array_ty.arrayLen());
 
             if (!end_is_len) {
-                const end = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
+                const end = if (by_length) end: {
+                    const len = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
+                    const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
+                    break :end try sema.coerce(block, Type.usize, uncasted_end, end_src);
+                } else try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
                 if (try sema.resolveMaybeUndefVal(end)) |end_val| {
                     const len_s_val = try Value.Tag.int_u64.create(
                         sema.arena,
@@ -29330,7 +29333,11 @@ fn analyzeSlice(
             break :e try sema.addConstant(Type.usize, len_val);
         } else if (slice_ty.isSlice()) {
             if (!end_is_len) {
-                const end = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
+                const end = if (by_length) end: {
+                    const len = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
+                    const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
+                    break :end try sema.coerce(block, Type.usize, uncasted_end, end_src);
+                } else try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
                 if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
                     if (try sema.resolveMaybeUndefVal(ptr_or_slice)) |slice_val| {
                         if (slice_val.isUndef()) {
@@ -29399,66 +29406,64 @@ fn analyzeSlice(
     const slice_sentinel = if (sentinel_opt != .none) sentinel else null;
 
     // requirement: start <= end
-    if (!by_length) {
-        if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
-            if (try sema.resolveDefinedValue(block, start_src, start)) |start_val| {
-                if (!(try sema.compareAll(start_val, .lte, end_val, Type.usize))) {
-                    return sema.fail(
+    if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
+        if (try sema.resolveDefinedValue(block, start_src, start)) |start_val| {
+            if (!by_length and !(try sema.compareAll(start_val, .lte, end_val, Type.usize))) {
+                return sema.fail(
+                    block,
+                    start_src,
+                    "start index {} is larger than end index {}",
+                    .{
+                        start_val.fmtValue(Type.usize, mod),
+                        end_val.fmtValue(Type.usize, mod),
+                    },
+                );
+            }
+            if (try sema.resolveMaybeUndefVal(new_ptr)) |ptr_val| sentinel_check: {
+                const expected_sentinel = sentinel orelse break :sentinel_check;
+                const start_int = start_val.getUnsignedInt(sema.mod.getTarget()).?;
+                const end_int = end_val.getUnsignedInt(sema.mod.getTarget()).?;
+                const sentinel_index = try sema.usizeCast(block, end_src, end_int - start_int);
+
+                const elem_ptr = try ptr_val.elemPtr(sema.typeOf(new_ptr), sema.arena, sentinel_index, sema.mod);
+                const res = try sema.pointerDerefExtra(block, src, elem_ptr, elem_ty, false);
+                const actual_sentinel = switch (res) {
+                    .runtime_load => break :sentinel_check,
+                    .val => |v| v,
+                    .needed_well_defined => |ty| return sema.fail(
                         block,
-                        start_src,
-                        "start index {} is larger than end index {}",
-                        .{
-                            start_val.fmtValue(Type.usize, mod),
-                            end_val.fmtValue(Type.usize, mod),
-                        },
-                    );
-                }
-                if (try sema.resolveMaybeUndefVal(new_ptr)) |ptr_val| sentinel_check: {
-                    const expected_sentinel = sentinel orelse break :sentinel_check;
-                    const start_int = start_val.getUnsignedInt(sema.mod.getTarget()).?;
-                    const end_int = end_val.getUnsignedInt(sema.mod.getTarget()).?;
-                    const sentinel_index = try sema.usizeCast(block, end_src, end_int - start_int);
+                        src,
+                        "comptime dereference requires '{}' to have a well-defined layout, but it does not.",
+                        .{ty.fmt(sema.mod)},
+                    ),
+                    .out_of_bounds => |ty| return sema.fail(
+                        block,
+                        end_src,
+                        "slice end index {d} exceeds bounds of containing decl of type '{}'",
+                        .{ end_int, ty.fmt(sema.mod) },
+                    ),
+                };
 
-                    const elem_ptr = try ptr_val.elemPtr(sema.typeOf(new_ptr), sema.arena, sentinel_index, sema.mod);
-                    const res = try sema.pointerDerefExtra(block, src, elem_ptr, elem_ty, false);
-                    const actual_sentinel = switch (res) {
-                        .runtime_load => break :sentinel_check,
-                        .val => |v| v,
-                        .needed_well_defined => |ty| return sema.fail(
-                            block,
-                            src,
-                            "comptime dereference requires '{}' to have a well-defined layout, but it does not.",
-                            .{ty.fmt(sema.mod)},
-                        ),
-                        .out_of_bounds => |ty| return sema.fail(
-                            block,
-                            end_src,
-                            "slice end index {d} exceeds bounds of containing decl of type '{}'",
-                            .{ end_int, ty.fmt(sema.mod) },
-                        ),
+                if (!actual_sentinel.eql(expected_sentinel, elem_ty, sema.mod)) {
+                    const msg = msg: {
+                        const msg = try sema.errMsg(block, src, "value in memory does not match slice sentinel", .{});
+                        errdefer msg.destroy(sema.gpa);
+                        try sema.errNote(block, src, msg, "expected '{}', found '{}'", .{
+                            expected_sentinel.fmtValue(elem_ty, sema.mod),
+                            actual_sentinel.fmtValue(elem_ty, sema.mod),
+                        });
+
+                        break :msg msg;
                     };
-
-                    if (!actual_sentinel.eql(expected_sentinel, elem_ty, sema.mod)) {
-                        const msg = msg: {
-                            const msg = try sema.errMsg(block, src, "value in memory does not match slice sentinel", .{});
-                            errdefer msg.destroy(sema.gpa);
-                            try sema.errNote(block, src, msg, "expected '{}', found '{}'", .{
-                                expected_sentinel.fmtValue(elem_ty, sema.mod),
-                                actual_sentinel.fmtValue(elem_ty, sema.mod),
-                            });
-
-                            break :msg msg;
-                        };
-                        return sema.failWithOwnedErrorMsg(msg);
-                    }
+                    return sema.failWithOwnedErrorMsg(msg);
                 }
             }
         }
+    }
 
-        if (block.wantSafety() and !block.is_comptime) {
-            // requirement: start <= end
-            try sema.panicStartLargerThanEnd(block, start, end);
-        }
+    if (!by_length and block.wantSafety() and !block.is_comptime) {
+        // requirement: start <= end
+        try sema.panicStartLargerThanEnd(block, start, end);
     }
     const new_len = if (by_length)
         try sema.coerce(block, Type.usize, uncasted_end_opt, end_src)
