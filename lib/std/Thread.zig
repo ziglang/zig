@@ -469,8 +469,8 @@ const UnsupportedImpl = struct {
         return unsupported(self);
     }
 
-    fn unsupported(unusued: anytype) noreturn {
-        _ = unusued;
+    fn unsupported(unused: anytype) noreturn {
+        _ = unused;
         @compileError("Unsupported operating system " ++ @tagName(target.os.tag));
     }
 };

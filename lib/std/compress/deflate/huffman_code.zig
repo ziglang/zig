@@ -421,7 +421,7 @@ test "generate a Huffman code from an array of frequencies" {
     try testing.expectEqual(@as(u16, 0x3f), enc.codes[16].code);
 }
 
-test "generate a Huffman code for the fixed litteral table specific to Deflate" {
+test "generate a Huffman code for the fixed literal table specific to Deflate" {
     var enc = try generateFixedLiteralEncoding(testing.allocator);
     defer enc.deinit();
 }

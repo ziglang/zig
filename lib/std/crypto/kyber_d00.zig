@@ -80,7 +80,7 @@
 //! m = Compress(Decompress(c_2, d_v) - s^T Decompress(c_1, d_u), 1).
 //!
 //! It it not straight-forward to see that this formula is correct.  In
-//! fact, there is negligable but non-zero probability that a ciphertext
+//! fact, there is negligible but non-zero probability that a ciphertext
 //! does not decrypt correctly given by the DFP column in Table 4.  This
 //! failure probability can be computed by a careful automated analysis
 //! of the probabilities involved, see kyber_failure.py of [SecEst].
@@ -640,7 +640,7 @@ fn montReduce(x: i32) i16 {
     // we have int32(int64(a)*int64(b)) = int32(a*b) and so the result is ok.
     const m = @truncate(i16, @truncate(i32, x *% qInv));
 
-    // Note that x - m q is divisable by R; indeed modulo R we have
+    // Note that x - m q is divisible by R; indeed modulo R we have
     //
     //  x - m q ≡ x - x q' q ≡ x - x q⁻¹ q ≡ x - x = 0.
     //

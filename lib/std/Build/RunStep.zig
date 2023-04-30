@@ -90,7 +90,7 @@ pub const StdIo = union(enum) {
     /// certain conditions, and the step will succeed or fail based on these
     /// conditions.
     /// Note that an explicit check for exit code 0 needs to be added to this
-    /// list if such a check is desireable.
+    /// list if such a check is desirable.
     check: std.ArrayList(Check),
     /// This RunStep is running a zig unit test binary and will communicate
     /// extra metadata over the IPC protocol.

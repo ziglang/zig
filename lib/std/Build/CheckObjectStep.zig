@@ -68,7 +68,7 @@ const SearchPhrase = struct {
     }
 };
 
-/// There two types of actions currently suported:
+/// There two types of actions currently supported:
 /// * `.match` - is the main building block of standard matchers with optional eat-all token `{*}`
 /// and extractors by name such as `{n_value}`. Please note this action is very simplistic in nature
 /// i.e., it won't really handle edge cases/nontrivial examples. But given that we do want to use

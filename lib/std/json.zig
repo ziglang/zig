@@ -1603,7 +1603,7 @@ fn parseInternal(
                                 if (fields_seen[i]) {
                                     switch (options.duplicate_field_behavior) {
                                         .UseFirst => {
-                                            // unconditonally ignore value. for comptime fields, this skips check against default_value
+                                            // unconditionally ignore value. for comptime fields, this skips check against default_value
                                             parseFree(field.type, try parse(field.type, tokens, child_options), child_options);
                                             found = true;
                                             break;

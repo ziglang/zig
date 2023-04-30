@@ -749,7 +749,7 @@ pub const PrefetchOptions = struct {
     /// 3 means high temporal locality. That is, the data should be kept in
     /// the cache as it is likely to be accessed again soon.
     locality: u2 = 3,
-    /// The cache that the prefetch should be preformed on.
+    /// The cache that the prefetch should be performed on.
     cache: Cache = .data,
 
     pub const Rw = enum(u1) {

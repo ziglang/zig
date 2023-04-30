@@ -36,7 +36,7 @@ pub const Lock = struct {
 
         // self.head transitions from multiple stages depending on the value:
         // UNLOCKED -> LOCKED:
-        //   acquire Lock ownership when theres no waiters
+        //   acquire Lock ownership when there are no waiters
         // LOCKED -> <Waiter head ptr>:
         //   Lock is already owned, enqueue first Waiter
         // <head ptr> -> <head ptr>:
@@ -87,7 +87,7 @@ pub const Lock = struct {
 
                 // self.head goes through the reverse transition from acquire():
                 // <head ptr> -> <new head ptr>:
-                //   pop a waiter from the queue to give Lock ownership when theres still others pending
+                //   pop a waiter from the queue to give Lock ownership when there are still others pending
                 // <head ptr> -> LOCKED:
                 //   pop the laster waiter from the queue, while also giving it lock ownership when awaken
                 // LOCKED -> UNLOCKED:
