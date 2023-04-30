@@ -29284,6 +29284,7 @@ fn analyzeSlice(
     var end_is_len = uncasted_end_opt == .none;
     const end = e: {
         if (by_length and !end_is_len) {
+            if (!block.wantSafety()) break :e undefined;
             const len = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
             const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
             const end = try sema.coerce(block, Type.usize, uncasted_end, end_src);
