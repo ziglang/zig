@@ -1021,10 +1021,8 @@ fn evalZigTest(
                 if (tr_hdr.flags.fail or tr_hdr.flags.leak) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
                     const err = body[@sizeOf(TrHdr)..][0..tr_hdr.err_len];
-
                     const msg = std.mem.trim(u8, stderr.readableSlice(0), "\n");
-                    // const label = if (tr_hdr.flags.fail) "failed" else "leaked";
-                    // failed, leaked, leaked and failed
+
                     const label = if (tr_hdr.flags.fail and tr_hdr.flags.leak)
                         "leaked and failed"
                     else if (tr_hdr.flags.fail) "failed" else "leaked";

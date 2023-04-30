@@ -185,9 +185,10 @@ pub fn serveEmitBinPath(
 pub fn serveTestResults(
     s: *Server,
     error_name: []const u8,
-    msg: OutMessage.TestResults,
+    results: OutMessage.TestResults,
 ) !void {
-    const msg_le = bswap(msg);
+    assert(results.err_len == error_name.len);
+    const msg_le = bswap(results);
     const bytes_len = @sizeOf(OutMessage.TestResults) + error_name.len;
 
     try s.serveMessage(.{
