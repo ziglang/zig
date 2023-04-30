@@ -701,6 +701,186 @@ const ArgsIterator = struct {
         return it.args[it.i];
     }
 };
+const ModuleArgs = struct {
+    mod: *Package,
+    deps_str: []const u8, // still in CLI arg format
+};
+
+fn parseModuleArgs(
+    gpa: Allocator,
+    arena: Allocator,
+    args_iter: *ArgsIterator,
+    modules: *std.StringArrayHashMap(ModuleArgs),
+) !void {
+    var root_src_orig: ?[]const u8 = null;
+    var deps_str: []const u8 = "";
+
+    var clang_argv = std.ArrayList([]const u8).init(gpa);
+    defer clang_argv.deinit();
+
+    var cssan = ClangSearchSanitizer.init(gpa, &clang_argv);
+    defer cssan.map.deinit();
+
+    var system_libs = std.StringArrayHashMap(Compilation.SystemLib).init(gpa);
+    defer system_libs.deinit();
+
+    var extra_cflags = std.ArrayList([]const u8).init(gpa);
+    defer extra_cflags.deinit();
+
+    var lib_dirs = std.ArrayList([]const u8).init(gpa);
+    defer lib_dirs.deinit();
+
+    var rpath_list = std.ArrayList([]const u8).init(gpa);
+    defer rpath_list.deinit();
+
+    var c_source_files = std.ArrayList(Compilation.CSourceFile).init(gpa);
+    defer c_source_files.deinit();
+
+    var link_objects = std.ArrayList(Compilation.LinkObject).init(gpa);
+    defer link_objects.deinit();
+
+    var framework_dirs = std.ArrayList([]const u8).init(gpa);
+    defer framework_dirs.deinit();
+
+    var frameworks: std.StringArrayHashMapUnmanaged(Compilation.SystemLib) = .{};
+
+    const mod_name = args_iter.nextOrFatal();
+
+    var file_ext: ?Compilation.FileExt = null;
+    while (args_iter.next()) |mod_arg| {
+        if (std.mem.eql(u8, mod_arg, "--root-source")) {
+            root_src_orig = args_iter.nextOrFatal();
+        } else if (std.mem.eql(u8, mod_arg, "--args")) {
+            while (args_iter.next()) |arg| {
+                if (mem.startsWith(u8, arg, "-")) {
+                    if (mem.eql(u8, arg, "-cflags")) {
+                        extra_cflags.shrinkRetainingCapacity(0);
+                        while (true) {
+                            const next_arg = args_iter.next() orelse {
+                                fatal("expected -- after -cflags", .{});
+                            };
+                            if (mem.eql(u8, next_arg, "--")) break;
+                            try extra_cflags.append(next_arg);
+                        }
+                    } else if (mem.eql(u8, arg, "-rpath")) {
+                        try rpath_list.append(args_iter.nextOrFatal());
+                    } else if (mem.eql(u8, arg, "--library-directory") or mem.eql(u8, arg, "-L")) {
+                        try lib_dirs.append(args_iter.nextOrFatal());
+                    } else if (mem.eql(u8, arg, "-F")) {
+                        try framework_dirs.append(args_iter.nextOrFatal());
+                    } else if (mem.eql(u8, arg, "-framework")) {
+                        try frameworks.put(gpa, args_iter.nextOrFatal(), .{});
+                    } else if (mem.eql(u8, arg, "-weak_framework")) {
+                        try frameworks.put(gpa, args_iter.nextOrFatal(), .{ .weak = true });
+                    } else if (mem.eql(u8, arg, "-needed_framework")) {
+                        try frameworks.put(gpa, args_iter.nextOrFatal(), .{ .needed = true });
+                    } else if (mem.eql(u8, arg, "--library") or mem.eql(u8, arg, "-l")) {
+                        // We don't know whether this library is part of libc or libc++ until
+                        // we resolve the target, so we simply append to the list for now.
+                        try system_libs.put(args_iter.nextOrFatal(), .{});
+                    } else if (mem.eql(u8, arg, "--needed-library") or
+                        mem.eql(u8, arg, "-needed-l") or
+                        mem.eql(u8, arg, "-needed_library"))
+                    {
+                        const next_arg = args_iter.nextOrFatal();
+                        try system_libs.put(next_arg, .{ .needed = true });
+                    } else if (mem.eql(u8, arg, "-weak_library") or mem.eql(u8, arg, "-weak-l")) {
+                        try system_libs.put(args_iter.nextOrFatal(), .{ .weak = true });
+                    } else if (mem.eql(u8, arg, "-D")) {
+                        try clang_argv.append(arg);
+                        try clang_argv.append(args_iter.nextOrFatal());
+                    } else if (mem.eql(u8, arg, "-I")) {
+                        try cssan.addIncludePath(.I, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.eql(u8, arg, "-isystem") or mem.eql(u8, arg, "-iwithsysroot")) {
+                        try cssan.addIncludePath(.isystem, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.eql(u8, arg, "-idirafter")) {
+                        try cssan.addIncludePath(.idirafter, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.eql(u8, arg, "-iframework") or mem.eql(u8, arg, "-iframeworkwithsysroot")) {
+                        try cssan.addIncludePath(.iframework, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.startsWith(u8, arg, "-L")) {
+                        try lib_dirs.append(arg[2..]);
+                    } else if (mem.startsWith(u8, arg, "-F")) {
+                        try framework_dirs.append(arg[2..]);
+                    } else if (mem.startsWith(u8, arg, "-l")) {
+                        // We don't know whether this library is part of libc or libc++ until
+                        // we resolve the target, so we simply append to the list for now.
+                        try system_libs.put(arg["-l".len..], .{});
+                    } else if (mem.startsWith(u8, arg, "-needed-l")) {
+                        try system_libs.put(arg["-needed-l".len..], .{ .needed = true });
+                    } else if (mem.startsWith(u8, arg, "-weak-l")) {
+                        try system_libs.put(arg["-weak-l".len..], .{ .weak = true });
+                    } else if (mem.startsWith(u8, arg, "-D")) {
+                        try clang_argv.append(arg);
+                    } else if (mem.startsWith(u8, arg, "-I")) {
+                        try cssan.addIncludePath(.I, arg, arg[2..], true);
+                    } else if (mem.eql(u8, arg, "-x")) {
+                        const lang = args_iter.nextOrFatal();
+                        if (mem.eql(u8, lang, "none")) {
+                            file_ext = null;
+                        } else if (Compilation.LangToExt.get(lang)) |got_ext| {
+                            file_ext = got_ext;
+                        } else {
+                            fatal("language not recognized: '{s}'", .{lang});
+                        }
+                    } else if (mem.eql(u8, arg, "--args-end")) {
+                        break;
+                    } else {
+                        fatal("unrecognized parameter: '{s}'", .{arg});
+                    }
+                } else switch (file_ext orelse
+                    Compilation.classifyFileExt(arg)) {
+                    .object, .static_library, .shared_library => try link_objects.append(.{ .path = arg }),
+                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .ll, .bc, .m, .mm, .cu => {
+                        try c_source_files.append(.{
+                            .src_path = arg,
+                            .extra_flags = try arena.dupe([]const u8, extra_cflags.items),
+                            // duped when parsing the args.
+                            .ext = file_ext,
+                        });
+                    },
+                    .zig => {
+                        fatal("zig root source file should be specified as --root-source {s}", .{arg});
+                    },
+                    .def, .unknown => {
+                        fatal("unrecognized file extension of parameter '{s}'", .{arg});
+                    },
+                }
+            }
+        } else if (std.mem.eql(u8, mod_arg, "--deps")) {
+            deps_str = args_iter.nextOrFatal();
+        }
+    }
+
+    const root_src = if (root_src_orig) |rs|
+        try introspect.resolvePath(arena, rs)
+    else
+        // TODO: Is this the right path to choose here?
+        try introspect.resolvePath(arena, ".");
+
+    for ([_][]const u8{ "std", "root", "builtin" }) |name| {
+        if (mem.eql(u8, mod_name, name)) {
+            fatal("unable to add module '{s}' -> '{s}': conflicts with builtin module", .{ mod_name, root_src });
+        }
+    }
+
+    var mod_it = modules.iterator();
+    while (mod_it.next()) |kv| {
+        if (std.mem.eql(u8, mod_name, kv.key_ptr.*)) {
+            fatal("unable to add module '{s}' -> '{s}': already exists as '{s}'", .{ mod_name, root_src, kv.value_ptr.mod.root_src_path });
+        }
+    }
+
+    try modules.ensureUnusedCapacity(1);
+    modules.putAssumeCapacity(mod_name, .{
+        .mod = try Package.create(
+            gpa,
+            fs.path.dirname(root_src),
+            fs.path.basename(root_src),
+            // TODO: Add parsed module arguments
+        ),
+        .deps_str = deps_str,
+    });
+}
 
 fn buildOutputType(
     gpa: Allocator,
@@ -710,6 +890,7 @@ fn buildOutputType(
 ) !void {
     var color: Color = .auto;
     var optimize_mode: std.builtin.Mode = .Debug;
+    var main_module: ?[]const u8 = null;
     var provided_name: ?[]const u8 = null;
     var link_mode: ?std.builtin.LinkMode = null;
     var dll_export_fns: ?bool = null;
@@ -904,10 +1085,7 @@ fn buildOutputType(
     // Contains every module specified via --mod. The dependencies are added
     // after argument parsing is completed. We use a StringArrayHashMap to make
     // error output consistent.
-    var modules = std.StringArrayHashMap(struct {
-        mod: *Package,
-        deps_str: []const u8, // still in CLI arg format
-    }).init(gpa);
+    var modules = std.StringArrayHashMap(ModuleArgs).init(gpa);
     defer {
         var it = modules.iterator();
         while (it.next()) |kv| kv.value_ptr.mod.destroy(gpa);
@@ -949,7 +1127,6 @@ fn buildOutputType(
             var cssan = ClangSearchSanitizer.init(gpa, &clang_argv);
             defer cssan.map.deinit();
 
-            var file_ext: ?Compilation.FileExt = null;
             args_loop: while (args_iter.next()) |arg| {
                 if (mem.startsWith(u8, arg, "@")) {
                     // This is a "compiler response file". We must parse the file and treat its
@@ -972,54 +1149,9 @@ fn buildOutputType(
                             fatal("unexpected end-of-parameter mark: --", .{});
                         }
                     } else if (mem.eql(u8, arg, "--mod")) {
-                        const info = args_iter.nextOrFatal();
-                        var info_it = mem.split(u8, info, ":");
-                        const mod_name = info_it.next() orelse fatal("expected non-empty argument after {s}", .{arg});
-                        const deps_str = info_it.next() orelse fatal("expected 'name:deps:path' after {s}", .{arg});
-                        const root_src_orig = info_it.rest();
-                        if (root_src_orig.len == 0) fatal("expected 'name:deps:path' after {s}", .{arg});
-                        if (mod_name.len == 0) fatal("empty name for module at '{s}'", .{root_src_orig});
-
-                        const root_src = try introspect.resolvePath(arena, root_src_orig);
-
-                        for ([_][]const u8{ "std", "root", "builtin" }) |name| {
-                            if (mem.eql(u8, mod_name, name)) {
-                                fatal("unable to add module '{s}' -> '{s}': conflicts with builtin module", .{ mod_name, root_src });
-                            }
-                        }
-
-                        var mod_it = modules.iterator();
-                        while (mod_it.next()) |kv| {
-                            if (std.mem.eql(u8, mod_name, kv.key_ptr.*)) {
-                                fatal("unable to add module '{s}' -> '{s}': already exists as '{s}'", .{ mod_name, root_src, kv.value_ptr.mod.root_src_path });
-                            }
-                        }
-
-                        try modules.ensureUnusedCapacity(1);
-                        modules.put(mod_name, .{
-                            .mod = try Package.create(
-                                gpa,
-                                fs.path.dirname(root_src),
-                                fs.path.basename(root_src),
-                            ),
-                            .deps_str = deps_str,
-                        }) catch unreachable;
-                    } else if (mem.eql(u8, arg, "--deps")) {
-                        if (root_deps_str != null) {
-                            fatal("only one --deps argument is allowed", .{});
-                        }
-                        root_deps_str = args_iter.nextOrFatal();
+                        try parseModuleArgs(gpa, arena, &args_iter, &modules);
                     } else if (mem.eql(u8, arg, "--main-pkg-path")) {
                         main_pkg_path = args_iter.nextOrFatal();
-                    } else if (mem.eql(u8, arg, "-cflags")) {
-                        extra_cflags.shrinkRetainingCapacity(0);
-                        while (true) {
-                            const next_arg = args_iter.next() orelse {
-                                fatal("expected -- after -cflags", .{});
-                            };
-                            if (mem.eql(u8, next_arg, "--")) break;
-                            try extra_cflags.append(next_arg);
-                        }
                     } else if (mem.eql(u8, arg, "--color")) {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected [auto|on|off] after --color", .{});
@@ -1045,22 +1177,11 @@ fn buildOutputType(
                         image_base_override = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
                             fatal("unable to parse image base override '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
-                    } else if (mem.eql(u8, arg, "--name")) {
-                        provided_name = args_iter.nextOrFatal();
-                        if (!mem.eql(u8, provided_name.?, fs.path.basename(provided_name.?)))
-                            fatal("invalid package name '{s}': cannot contain folder separators", .{provided_name.?});
-                    } else if (mem.eql(u8, arg, "-rpath")) {
-                        try rpath_list.append(args_iter.nextOrFatal());
-                    } else if (mem.eql(u8, arg, "--library-directory") or mem.eql(u8, arg, "-L")) {
-                        try lib_dirs.append(args_iter.nextOrFatal());
-                    } else if (mem.eql(u8, arg, "-F")) {
-                        try framework_dirs.append(args_iter.nextOrFatal());
-                    } else if (mem.eql(u8, arg, "-framework")) {
-                        try frameworks.put(gpa, args_iter.nextOrFatal(), .{});
-                    } else if (mem.eql(u8, arg, "-weak_framework")) {
-                        try frameworks.put(gpa, args_iter.nextOrFatal(), .{ .weak = true });
-                    } else if (mem.eql(u8, arg, "-needed_framework")) {
-                        try frameworks.put(gpa, args_iter.nextOrFatal(), .{ .needed = true });
+                    } else if (mem.eql(u8, arg, "--main-mod")) {
+                        main_module = args_iter.nextOrFatal();
+                        provided_name = main_module;
+                        if (!mem.eql(u8, main_module.?, fs.path.basename(main_module.?)))
+                            fatal("invalid module name '{s}': cannot contain folder separators", .{main_module.?});
                     } else if (mem.eql(u8, arg, "-install_name")) {
                         install_name = args_iter.nextOrFatal();
                     } else if (mem.startsWith(u8, arg, "--compress-debug-sections=")) {
@@ -1094,29 +1215,6 @@ fn buildOutputType(
                         linker_script = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--version-script")) {
                         version_script = args_iter.nextOrFatal();
-                    } else if (mem.eql(u8, arg, "--library") or mem.eql(u8, arg, "-l")) {
-                        // We don't know whether this library is part of libc or libc++ until
-                        // we resolve the target, so we simply append to the list for now.
-                        try system_libs.put(args_iter.nextOrFatal(), .{});
-                    } else if (mem.eql(u8, arg, "--needed-library") or
-                        mem.eql(u8, arg, "-needed-l") or
-                        mem.eql(u8, arg, "-needed_library"))
-                    {
-                        const next_arg = args_iter.nextOrFatal();
-                        try system_libs.put(next_arg, .{ .needed = true });
-                    } else if (mem.eql(u8, arg, "-weak_library") or mem.eql(u8, arg, "-weak-l")) {
-                        try system_libs.put(args_iter.nextOrFatal(), .{ .weak = true });
-                    } else if (mem.eql(u8, arg, "-D")) {
-                        try clang_argv.append(arg);
-                        try clang_argv.append(args_iter.nextOrFatal());
-                    } else if (mem.eql(u8, arg, "-I")) {
-                        try cssan.addIncludePath(.I, arg, args_iter.nextOrFatal(), false);
-                    } else if (mem.eql(u8, arg, "-isystem") or mem.eql(u8, arg, "-iwithsysroot")) {
-                        try cssan.addIncludePath(.isystem, arg, args_iter.nextOrFatal(), false);
-                    } else if (mem.eql(u8, arg, "-idirafter")) {
-                        try cssan.addIncludePath(.idirafter, arg, args_iter.nextOrFatal(), false);
-                    } else if (mem.eql(u8, arg, "-iframework") or mem.eql(u8, arg, "-iframeworkwithsysroot")) {
-                        try cssan.addIncludePath(.iframework, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "--version")) {
                         const next_arg = args_iter.nextOrFatal();
                         version = std.builtin.Version.parse(next_arg) catch |err| {
@@ -1467,31 +1565,6 @@ fn buildOutputType(
                         verbose_llvm_cpu_features = true;
                     } else if (mem.startsWith(u8, arg, "-T")) {
                         linker_script = arg[2..];
-                    } else if (mem.startsWith(u8, arg, "-L")) {
-                        try lib_dirs.append(arg[2..]);
-                    } else if (mem.startsWith(u8, arg, "-F")) {
-                        try framework_dirs.append(arg[2..]);
-                    } else if (mem.startsWith(u8, arg, "-l")) {
-                        // We don't know whether this library is part of libc or libc++ until
-                        // we resolve the target, so we simply append to the list for now.
-                        try system_libs.put(arg["-l".len..], .{});
-                    } else if (mem.startsWith(u8, arg, "-needed-l")) {
-                        try system_libs.put(arg["-needed-l".len..], .{ .needed = true });
-                    } else if (mem.startsWith(u8, arg, "-weak-l")) {
-                        try system_libs.put(arg["-weak-l".len..], .{ .weak = true });
-                    } else if (mem.startsWith(u8, arg, "-D")) {
-                        try clang_argv.append(arg);
-                    } else if (mem.startsWith(u8, arg, "-I")) {
-                        try cssan.addIncludePath(.I, arg, arg[2..], true);
-                    } else if (mem.eql(u8, arg, "-x")) {
-                        const lang = args_iter.nextOrFatal();
-                        if (mem.eql(u8, lang, "none")) {
-                            file_ext = null;
-                        } else if (Compilation.LangToExt.get(lang)) |got_ext| {
-                            file_ext = got_ext;
-                        } else {
-                            fatal("language not recognized: '{s}'", .{lang});
-                        }
                     } else if (mem.startsWith(u8, arg, "-mexec-model=")) {
                         wasi_exec_model = std.meta.stringToEnum(std.builtin.WasiExecModel, arg["-mexec-model=".len..]) orelse {
                             fatal("expected [command|reactor] for -mexec-mode=[value], found '{s}'", .{arg["-mexec-model=".len..]});
@@ -1499,25 +1572,6 @@ fn buildOutputType(
                     } else {
                         fatal("unrecognized parameter: '{s}'", .{arg});
                     }
-                } else switch (file_ext orelse
-                    Compilation.classifyFileExt(arg)) {
-                    .object, .static_library, .shared_library => try link_objects.append(.{ .path = arg }),
-                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .ll, .bc, .m, .mm, .cu => {
-                        try c_source_files.append(.{
-                            .src_path = arg,
-                            .extra_flags = try arena.dupe([]const u8, extra_cflags.items),
-                            // duped when parsing the args.
-                            .ext = file_ext,
-                        });
-                    },
-                    .zig => {
-                        if (root_src_file) |other| {
-                            fatal("found another zig file '{s}' after root source file '{s}'", .{ arg, other });
-                        } else root_src_file = arg;
-                    },
-                    .def, .unknown => {
-                        fatal("unrecognized file extension of parameter '{s}'", .{arg});
-                    },
                 }
             }
             if (optimize_mode_string) |s| {
