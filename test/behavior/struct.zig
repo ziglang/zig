@@ -1590,3 +1590,37 @@ test "instantiate struct with comptime field" {
         comptime std.debug.assert(things.foo == 1);
     }
 }
+
+test "coerce between anonymous struct types" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    var rt: u32 = 3;
+    const x = .{ .len = rt };
+    const y = .{ .len = 5 };
+    const z = @as(@TypeOf(x), y);
+    try comptime expectEqual(5, z.len);
+}
+
+test "reify struct with elem pointer as field default" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const x: [3]u8 = .{ 10, 20, 30 };
+    const S = @Type(.{ .Struct = .{
+        .layout = .Auto,
+        .fields = &.{.{
+            .name = "foo",
+            .type = u8,
+            .default_value = &x[1],
+            .is_comptime = false,
+            .alignment = 0,
+        }},
+        .decls = &.{},
+        .is_tuple = false,
+    } });
+    var s: S = .{};
+    try expectEqual(@as(u8, 20), s.foo);
+}

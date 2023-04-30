@@ -22,5 +22,5 @@ const T = struct {
 // :2:5: error: enum field missing name
 // :5:5: error: union field missing name
 // :8:5: error: tuple field has a name
-// :15:5: error: tuple declarations cannot contain declarations
+// :15:5: error: tuple declarations cannot contain declarations, comptime blocks, or tests
 // :12:5: note: tuple field here

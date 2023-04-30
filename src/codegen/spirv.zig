@@ -640,28 +640,22 @@ pub const DeclGen = struct {
                     else => |tag| return dg.todo("pointer value of type {s}", .{@tagName(tag)}),
                 },
                 .Struct => {
-                    if (ty.isSimpleTupleOrAnonStruct()) {
-                        unreachable; // TODO
-                    } else {
-                        const struct_ty = ty.castTag(.@"struct").?.data;
+                    if (ty.containerLayout() == .Packed) {
+                        return dg.todo("packed struct constants", .{});
+                    }
 
-                        if (struct_ty.layout == .Packed) {
-                            return dg.todo("packed struct constants", .{});
-                        }
+                    const struct_begin = self.size;
+                    const field_vals = val.castTag(.aggregate).?.data;
+                    for (ty.structFields().values(), 0..) |field, i| {
+                        if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
+                        try self.lower(field.ty, field_vals[i]);
 
-                        const struct_begin = self.size;
-                        const field_vals = val.castTag(.aggregate).?.data;
-                        for (struct_ty.fields.values(), 0..) |field, i| {
-                            if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
-                            try self.lower(field.ty, field_vals[i]);
-
-                            // Add padding if required.
-                            // TODO: Add to type generation as well?
-                            const unpadded_field_end = self.size - struct_begin;
-                            const padded_field_end = ty.structFieldOffset(i + 1, target);
-                            const padding = padded_field_end - unpadded_field_end;
-                            try self.addUndef(padding);
-                        }
+                        // Add padding if required.
+                        // TODO: Add to type generation as well?
+                        const unpadded_field_end = self.size - struct_begin;
+                        const padded_field_end = ty.structFieldOffset(i + 1, target);
+                        const padding = padded_field_end - unpadded_field_end;
+                        try self.addUndef(padding);
                     }
                 },
                 .Optional => {
@@ -1201,22 +1195,11 @@ pub const DeclGen = struct {
                 return try self.spv.resolveType(SpvType.initPayload(&payload.base));
             },
             .Struct => {
-                if (ty.isSimpleTupleOrAnonStruct()) {
-                    const tuple = ty.tupleFields();
-                    const members = try self.spv.arena.alloc(SpvType.Payload.Struct.Member, tuple.types.len);
-                    var member_index: u32 = 0;
-                    for (tuple.types, 0..) |field_ty, i| {
-                        const field_val = tuple.values[i];
-                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
-                        members[member_index] = .{
-                            .ty = try self.resolveType(field_ty, .indirect),
-                        };
-                        member_index += 1;
-                    }
+                if (ty.tag() != .@"struct") {
+                    assert(!ty.hasRuntimeBitsIgnoreComptime());
+                    assert(ty.containerLayout() == .Auto);
                     const payload = try self.spv.arena.create(SpvType.Payload.Struct);
-                    payload.* = .{
-                        .members = members[0..member_index],
-                    };
+                    payload.* = .{ .members = &.{} };
                     return try self.spv.resolveType(SpvType.initPayload(&payload.base));
                 }
 
@@ -1784,7 +1767,7 @@ pub const DeclGen = struct {
 
         // The overflow needs to be converted into whatever is used to represent it in Zig.
         const casted_overflow = blk: {
-            const ov_ty = result_ty.tupleFields().types[1];
+            const ov_ty = result_ty.structFields().values()[1].ty;
             const ov_ty_id = try self.resolveTypeId(ov_ty);
             const result_id = self.spv.allocId();
             try self.func.body.emit(self.spv.gpa, .OpUConvert, .{

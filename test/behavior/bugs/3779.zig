@@ -27,7 +27,9 @@ test "@errorName() returns a string literal" {
     try std.testing.expect(std.mem.eql(u8, "TestErrorCode", ptr_error_name[0..error_name.len]));
 }
 
-const TestType = struct {};
+const TestType = struct {
+    const _ = {};
+};
 const type_name = @typeName(TestType);
 const ptr_type_name: [*:0]const u8 = type_name;
 

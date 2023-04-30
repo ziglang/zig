@@ -1545,7 +1545,7 @@ fn parseInternal(
             }
         },
         .Struct => |structInfo| {
-            if (structInfo.is_tuple) {
+            if (structInfo.is_tuple and structInfo.fields.len > 0) {
                 switch (token) {
                     .ArrayBegin => {},
                     else => return error.UnexpectedToken,

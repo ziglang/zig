@@ -103,6 +103,8 @@ pub const Value = extern union {
         bool_false,
         generic_poison,
 
+        /// The value of a struct with no fields. Note that the struct type may still have comptime
+        /// fields; these can be fetched from the type.
         empty_struct_value,
         empty_array, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
@@ -1489,7 +1491,7 @@ pub const Value = extern union {
                 .Packed => {
                     const field_index = ty.unionTagFieldIndex(val.unionTag(), mod);
                     const field_type = ty.unionFields().values()[field_index.?].ty;
-                    const field_val = val.fieldValue(field_type, field_index.?);
+                    const field_val = val.fieldValue(ty, field_index.?);
 
                     return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
                 },
@@ -2344,17 +2346,6 @@ pub const Value = extern union {
                 const b_field_vals = b.castTag(.aggregate).?.data;
                 assert(a_field_vals.len == b_field_vals.len);
 
-                if (ty.isSimpleTupleOrAnonStruct()) {
-                    const types = ty.tupleFields().types;
-                    assert(types.len == a_field_vals.len);
-                    for (types, 0..) |field_ty, i| {
-                        if (!(try eqlAdvanced(a_field_vals[i], field_ty, b_field_vals[i], field_ty, mod, opt_sema))) {
-                            return false;
-                        }
-                    }
-                    return true;
-                }
-
                 if (ty.zigTypeTag() == .Struct) {
                     const fields = ty.structFields().values();
                     assert(fields.len == a_field_vals.len);
@@ -2482,12 +2473,11 @@ pub const Value = extern union {
                 if (ty.onePossibleValue() != null) {
                     return true;
                 }
-                if (a_ty.castTag(.anon_struct)) |payload| {
-                    const tuple = payload.data;
-                    if (tuple.values.len != 1) {
+                if (a_ty.isAnonStruct()) {
+                    if (a_ty.structFieldCount() != 1) {
                         return false;
                     }
-                    const field_name = tuple.names[0];
+                    const field_name = a_ty.structFieldName(0);
                     const union_obj = ty.cast(Type.Payload.Union).?.data;
                     const field_index = union_obj.fields.getIndex(field_name) orelse return false;
                     const tag_and_val = b.castTag(.@"union").?.data;
@@ -2498,7 +2488,8 @@ pub const Value = extern union {
                     const field_tag = Value.initPayload(&field_tag_buf.base);
                     const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, mod);
                     if (!tag_matches) return false;
-                    return eqlAdvanced(tag_and_val.val, union_obj.tag_ty, tuple.values[0], tuple.types[0], mod, opt_sema);
+                    const field_ty = a_ty.structFieldType(0);
+                    return eqlAdvanced(tag_and_val.val, union_obj.tag_ty, a.fieldValue(a_ty, 0), field_ty, mod, opt_sema);
                 }
                 return false;
             },
@@ -3128,6 +3119,7 @@ pub const Value = extern union {
         };
     }
 
+    /// `ty` is the container type.
     pub fn fieldValue(val: Value, ty: Type, index: usize) Value {
         switch (val.tag()) {
             .aggregate => {
@@ -3140,13 +3132,12 @@ pub const Value = extern union {
                 return payload.val;
             },
 
-            .the_only_possible_value => return ty.onePossibleValue().?,
+            .the_only_possible_value => {
+                const field_ty = ty.structFieldType(index);
+                return field_ty.onePossibleValue().?;
+            },
 
             .empty_struct_value => {
-                if (ty.isSimpleTupleOrAnonStruct()) {
-                    const tuple = ty.tupleFields();
-                    return tuple.values[index];
-                }
                 if (ty.structFieldValueComptime(index)) |some| {
                     return some;
                 }

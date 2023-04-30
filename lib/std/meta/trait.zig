@@ -380,11 +380,15 @@ pub fn isTuple(comptime T: type) bool {
 
 test "isTuple" {
     const t1 = struct {};
-    const t2 = .{ .a = 0 };
-    const t3 = .{ 1, 2, 3 };
-    try testing.expect(!isTuple(t1));
-    try testing.expect(!isTuple(@TypeOf(t2)));
-    try testing.expect(isTuple(@TypeOf(t3)));
+    const t2 = struct {
+        const _ = {};
+    };
+    const t3 = .{ .a = 0 };
+    const t4 = .{ 1, 2, 3 };
+    try testing.expect(isTuple(t1));
+    try testing.expect(!isTuple(t2));
+    try testing.expect(!isTuple(@TypeOf(t3)));
+    try testing.expect(isTuple(@TypeOf(t4)));
 }
 
 /// Returns true if the passed type will coerce to []const u8.

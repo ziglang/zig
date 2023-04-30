@@ -133,6 +133,9 @@ error_name_list: ArrayListUnmanaged([]const u8),
 /// previous analysis.
 generation: u32 = 0,
 
+/// A hashmap for deduplicating tuple types, since tuples are structural rather than nominal.
+tuple_dedup: TupleDedup = .{},
+
 stage1_flags: packed struct {
     have_winmain: bool = false,
     have_wwinmain: bool = false,
@@ -974,13 +977,14 @@ pub const PropertyBoolean = enum { no, yes, unknown, wip };
 
 /// Represents the data that a struct declaration provides.
 pub const Struct = struct {
-    /// Set of field names in declaration order.
+    /// Set of field names in declaration order. For tuples this order is guaranteed to correspond
+    /// to the field names.
     fields: Fields,
     /// Represents the declarations inside this struct.
     namespace: Namespace,
     /// The Decl that corresponds to the struct itself.
     owner_decl: Decl.Index,
-    /// Index of the struct_decl ZIR instruction.
+    /// Index of the struct_decl ZIR instruction. `undefined` for tuples.
     zir_index: Zir.Inst.Index,
     /// Indexes into `fields` sorted to be most memory efficient.
     optimized_order: ?[*]u32 = null,
@@ -1008,7 +1012,11 @@ pub const Struct = struct {
     known_non_opv: bool,
     requires_comptime: PropertyBoolean = .unknown,
     have_field_inits: bool = false,
+    /// Whether this is a tuple type. Note that equivalent tuple struct types are deduplicated
+    /// before creation using a `TupleDedup`.
     is_tuple: bool,
+    /// Whether this struct type was created from an anonymous struct literal.
+    is_anon: bool,
     assumed_runtime_bits: bool = false,
 
     pub const Fields = std.StringArrayHashMapUnmanaged(Field);
@@ -1073,7 +1081,12 @@ pub const Struct = struct {
         return mod.declPtr(s.owner_decl).getFullyQualifiedName(mod);
     }
 
-    pub fn srcLoc(s: Struct, mod: *Module) SrcLoc {
+    /// Guaranteed to return `null` only for tuples.
+    pub fn srcLoc(s: Struct, mod: *Module) ?SrcLoc {
+        if (s.is_tuple) {
+            // Anonymous decl; no source location
+            return null;
+        }
         const owner_decl = mod.declPtr(s.owner_decl);
         return .{
             .file_scope = owner_decl.getFileScope(),
@@ -1082,7 +1095,8 @@ pub const Struct = struct {
         };
     }
 
-    pub fn fieldSrcLoc(s: Struct, mod: *Module, query: FieldSrcQuery) SrcLoc {
+    /// Guaranteed to return `null` only for tuples.
+    pub fn fieldSrcLoc(s: Struct, mod: *Module, query: FieldSrcQuery) ?SrcLoc {
         @setCold(true);
         const owner_decl = mod.declPtr(s.owner_decl);
         const file = owner_decl.getFileScope();
@@ -1099,7 +1113,7 @@ pub const Struct = struct {
         if (tree.fullContainerDecl(&buf, node)) |container_decl| {
             return queryFieldSrc(tree.*, query, file, container_decl);
         } else {
-            // This struct was generated using @Type
+            // This struct is a tuple or was generated using @Type
             return s.srcLoc(mod);
         }
     }
@@ -3500,6 +3514,10 @@ pub fn deinit(mod: *Module) void {
 
     mod.string_literal_table.deinit(gpa);
     mod.string_literal_bytes.deinit(gpa);
+
+    mod.tuple_dedup.map.deinit(gpa);
+    mod.tuple_dedup.rev_map.deinit(gpa);
+    mod.tuple_dedup.arena.promote(gpa).deinit();
 }
 
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
@@ -3525,6 +3543,7 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
         decl.clearName(gpa);
         decl.* = undefined;
     }
+    mod.tuple_dedup.declDestroyed(decl_index);
     mod.decls_free_list.append(gpa, decl_index) catch {
         // In order to keep `destroyDecl` a non-fallible function, we ignore memory
         // allocation failures here, instead leaking the Decl until garbage collection.
@@ -3987,10 +4006,13 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
         if (!decl.owns_tv) continue;
 
         if (decl.getStruct()) |struct_obj| {
-            struct_obj.zir_index = inst_map.get(struct_obj.zir_index) orelse {
-                try file.deleted_decls.append(gpa, decl_index);
-                continue;
-            };
+            // Tuples don't have a valid zir_index
+            if (!struct_obj.is_tuple) {
+                struct_obj.zir_index = inst_map.get(struct_obj.zir_index) orelse {
+                    try file.deleted_decls.append(gpa, decl_index);
+                    continue;
+                };
+            }
         }
 
         if (decl.getUnion()) |union_obj| {
@@ -4461,7 +4483,8 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         .layout = .Auto,
         .status = .none,
         .known_non_opv = undefined,
-        .is_tuple = undefined, // set below
+        .is_tuple = false, // We ignore what AstGen chose; files are never tuples
+        .is_anon = false,
         .namespace = .{
             .parent = null,
             .ty = struct_ty,
@@ -4493,9 +4516,6 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         assert(file.zir_loaded);
         const main_struct_inst = Zir.main_struct_inst;
         struct_obj.zir_index = main_struct_inst;
-        const extended = file.zir.instructions.items(.data)[main_struct_inst].extended;
-        const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
-        struct_obj.is_tuple = small.is_tuple;
 
         var sema_arena = std.heap.ArenaAllocator.init(gpa);
         defer sema_arena.deinit();
@@ -6336,8 +6356,13 @@ pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
             log.debug("deleted from source: {*} ({s})", .{ decl, decl.name });
 
             // Remove from the namespace it resides in, preserving declaration order.
-            assert(decl.zir_decl_index != 0);
-            _ = decl.src_namespace.decls.orderedRemoveAdapted(@as([]const u8, mem.sliceTo(decl.name, 0)), DeclAdapter{ .mod = mod });
+            if (std.debug.runtime_safety) assert(!mod.declIsRoot(decl_index));
+            if (decl.zir_decl_index == 0) {
+                // Not root and index 0, so anonymous decl
+                assert(decl.src_namespace.anon_decls.swapRemove(decl_index));
+            } else {
+                assert(decl.src_namespace.decls.orderedRemoveAdapted(@as([]const u8, mem.sliceTo(decl.name, 0)), DeclAdapter{ .mod = mod }));
+            }
 
             try mod.clearDecl(decl_index, &outdated_decls);
             mod.destroyDecl(decl_index);
@@ -6682,3 +6707,135 @@ pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
         .field_reordering => mod.comp.bin_file.options.use_llvm,
     };
 }
+
+pub const TupleDedup = struct {
+    /// Maps from tuple descriptions to the index of the decl housing this tuple. See `rev_map` for
+    /// why this is an ArrayHashMap and for why we set `store_hash` to `true`.
+    map: std.ArrayHashMapUnmanaged(Key, Decl.Index, Context, true) = .{},
+
+    /// Values are indices into `map`. We store this rather than the actual key because upon decl
+    /// deletion, it's possible that other decls we depended on have been deleted, meaning key
+    /// comparisons fail. By storing the raw index, and setting `store_hash` on `map`, we avoid
+    /// having to perform any actual key comparisons, meaning it's okay for the key to be
+    /// invalidated on a call to `declDestroyed`.
+    rev_map: std.AutoHashMapUnmanaged(Decl.Index, usize) = .{},
+
+    /// This arena holds memory referred to by the keys in the HashMap.
+    arena: std.heap.ArenaAllocator.State = .{},
+
+    /// This contains every field of `Module.Struct` which makes a tuple type distinct. For
+    /// instance, `fields` is included since tuples with distinct fields are distinct types, but
+    /// `optimized_order` is not since it is not part of the type itself.
+    pub const Key = struct {
+        fields: []Field,
+        layout: std.builtin.Type.ContainerLayout,
+        /// If the layout is not packed, this is `null`. It should also be `null` if the backing
+        /// type is implicit (implicit and explicit backing types are considered distinct).
+        backing_int_ty: ?Type = null,
+        is_anon: bool,
+
+        pub const Field = struct {
+            ty: Type,
+            /// Zero means to use the ABI alignment of the type.
+            abi_align: u32,
+            /// If the field is not comptime, this is `.unreachable_value`.
+            comptime_value: Value = Value.initTag(.unreachable_value),
+        };
+    };
+
+    const Context = struct {
+        mod: *Module,
+
+        pub fn eql(ctx: @This(), a: Key, b: Key, _: usize) bool {
+            if (a.fields.len != b.fields.len) return false;
+            if (a.layout != b.layout) return false;
+            if (a.is_anon != b.is_anon) return false;
+            if (a.backing_int_ty != null) {
+                if (b.backing_int_ty == null) return false;
+                if (!a.backing_int_ty.?.eql(b.backing_int_ty.?, ctx.mod)) return false;
+            } else if (b.backing_int_ty != null) return false;
+
+            for (a.fields, b.fields) |field_a, field_b| {
+                if (!field_a.ty.eql(field_b.ty, ctx.mod)) return false;
+                if (field_a.abi_align != field_b.abi_align) return false;
+                const a_comptime = field_a.comptime_value.tag() != .unreachable_value;
+                const b_comptime = field_b.comptime_value.tag() != .unreachable_value;
+                if (a_comptime != b_comptime) return false;
+                if (a_comptime and !field_a.comptime_value.eql(field_b.comptime_value, field_a.ty, ctx.mod)) return false;
+            }
+
+            return true;
+        }
+
+        pub fn hash(ctx: @This(), k: Key) u32 {
+            var hasher = std.hash.Wyhash.init(0);
+            std.hash.autoHash(&hasher, k.fields.len);
+            for (k.fields) |field| {
+                field.ty.hashWithHasher(&hasher, ctx.mod);
+                std.hash.autoHash(&hasher, field.abi_align);
+                if (field.comptime_value.tag() != .unreachable_value) {
+                    field.comptime_value.hash(field.ty, &hasher, ctx.mod);
+                }
+            }
+            std.hash.autoHash(&hasher, k.layout);
+            if (k.backing_int_ty) |backing_int_ty| backing_int_ty.hashWithHasher(&hasher, ctx.mod);
+            std.hash.autoHash(&hasher, k.is_anon);
+            return @truncate(u32, hasher.final());
+        }
+    };
+
+    /// Given a tuple key, get the decl containing the corresponding tuple type.
+    pub fn getEntry(dedup: *TupleDedup, key: Key) ?Decl.Index {
+        assert(key.layout == .Packed or key.backing_int_ty == null);
+        const mod = @fieldParentPtr(Module, "tuple_dedup", dedup);
+        return dedup.map.getContext(key, .{ .mod = mod });
+    }
+
+    /// Given a tuple key and a new decl index, add a corresponding entry to the tuple map. Asserts
+    /// that the key does not currently exist in the map.
+    pub fn putEntry(dedup: *TupleDedup, key: Key, decl_index: Decl.Index) !void {
+        const mod = @fieldParentPtr(Module, "tuple_dedup", dedup);
+
+        var arena_state = dedup.arena.promote(mod.gpa);
+        defer dedup.arena = arena_state.state;
+        const arena = arena_state.allocator();
+
+        // Update the key to point to persistent memory
+        var new_key: Key = .{
+            .fields = try arena.alloc(Key.Field, key.fields.len),
+            .layout = key.layout,
+            .backing_int_ty = if (key.backing_int_ty) |ty| try ty.copy(arena) else null,
+            .is_anon = key.is_anon,
+        };
+        for (new_key.fields, key.fields) |*perm_field, temp_field| {
+            perm_field.* = .{
+                .ty = try temp_field.ty.copy(arena),
+                .abi_align = temp_field.abi_align,
+                .comptime_value = try temp_field.comptime_value.copy(arena),
+            };
+        }
+
+        try dedup.map.ensureUnusedCapacityContext(mod.gpa, 1, .{ .mod = mod });
+        try dedup.rev_map.ensureUnusedCapacity(mod.gpa, 1);
+
+        dedup.map.putAssumeCapacityNoClobberContext(new_key, decl_index, .{ .mod = mod });
+        dedup.rev_map.putAssumeCapacityNoClobber(decl_index, dedup.map.count() - 1);
+    }
+
+    /// After a decl is destroyed, call this to remove any corresponding tuple deduplication entry.
+    /// TODO: this being called a lot is symptomatic of the problem described in `Sema.getTupleType`.
+    /// It should really only be called if the tuple references a decl which is removed, but will
+    /// currently also be called if the arbitrary parent decl is destroyed.
+    fn declDestroyed(dedup: *TupleDedup, decl_index: Decl.Index) void {
+        const idx = (dedup.rev_map.fetchRemove(decl_index) orelse return).value;
+
+        dedup.map.swapRemoveAt(idx);
+
+        // Update the index of whatever was swapped in
+        if (dedup.map.count() > idx) {
+            const replacement_decl = dedup.map.values()[idx];
+            assert(dedup.rev_map.contains(replacement_decl));
+            dedup.rev_map.putAssumeCapacity(replacement_decl, idx);
+        }
+    }
+};

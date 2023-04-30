@@ -334,26 +334,11 @@ pub const DeclState = struct {
                 try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
 
                 switch (ty.tag()) {
-                    .tuple, .anon_struct => {
+                    .empty_struct, .empty_tuple_literal => {
                         // DW.AT.name, DW.FORM.string
                         try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(module)});
-
-                        const fields = ty.tupleFields();
-                        for (fields.types, 0..) |field, field_index| {
-                            // DW.AT.member
-                            try dbg_info_buffer.append(@enumToInt(AbbrevKind.struct_member));
-                            // DW.AT.name, DW.FORM.string
-                            try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
-                            // DW.AT.type, DW.FORM.ref4
-                            var index = dbg_info_buffer.items.len;
-                            try dbg_info_buffer.resize(index + 4);
-                            try self.addTypeRelocGlobal(atom_index, field, @intCast(u32, index));
-                            // DW.AT.data_member_location, DW.FORM.sdata
-                            const field_off = ty.structFieldOffset(field_index, target);
-                            try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
-                        }
                     },
-                    else => {
+                    .@"struct" => {
                         // DW.AT.name, DW.FORM.string
                         const struct_name = try ty.nameAllocArena(arena, module);
                         try dbg_info_buffer.ensureUnusedCapacity(struct_name.len + 1);
@@ -385,6 +370,7 @@ pub const DeclState = struct {
                             try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
                         }
                     },
+                    else => unreachable,
                 }
 
                 // DW.AT.structure_type delimit children

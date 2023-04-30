@@ -332,14 +332,16 @@ test "Type.Struct" {
     try testing.expectEqual(@as(bool, true), infoE.is_tuple);
 
     // empty struct
-    const F = @Type(@typeInfo(struct {}));
+    const F = struct {
+        const x = {}; // Having a decl stops this being a tuple
+    };
     const infoF = @typeInfo(F).Struct;
     try testing.expectEqual(Type.ContainerLayout.Auto, infoF.layout);
     try testing.expect(infoF.fields.len == 0);
     try testing.expectEqual(@as(bool, false), infoF.is_tuple);
 
     // empty tuple
-    const G = @Type(@typeInfo(@TypeOf(.{})));
+    const G = @Type(@typeInfo(struct {}));
     const infoG = @typeInfo(G).Struct;
     try testing.expectEqual(Type.ContainerLayout.Auto, infoG.layout);
     try testing.expect(infoG.fields.len == 0);

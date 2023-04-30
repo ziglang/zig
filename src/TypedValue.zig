@@ -155,7 +155,7 @@ pub fn print(
                 while (i < max_len) : (i += 1) {
                     if (i != 0) try writer.writeAll(", ");
                     switch (ty.tag()) {
-                        .anon_struct, .@"struct" => try writer.print(".{s} = ", .{ty.structFieldName(i)}),
+                        .@"struct" => try writer.print(".{s} = ", .{ty.structFieldName(i)}),
                         else => {},
                     }
                     try print(.{
@@ -316,16 +316,11 @@ pub fn print(
             }
 
             if (field_ptr.container_ty.zigTypeTag() == .Struct) {
-                switch (field_ptr.container_ty.tag()) {
-                    .tuple => return writer.print(".@\"{d}\"", .{field_ptr.field_index}),
-                    else => {
-                        const field_name = field_ptr.container_ty.structFieldName(field_ptr.field_index);
-                        return writer.print(".{s}", .{field_name});
-                    },
-                }
+                const field_name = field_ptr.container_ty.structFieldName(field_ptr.field_index);
+                return writer.print(".{}", .{std.zig.fmtId(field_name)});
             } else if (field_ptr.container_ty.zigTypeTag() == .Union) {
                 const field_name = field_ptr.container_ty.unionFields().keys()[field_ptr.field_index];
-                return writer.print(".{s}", .{field_name});
+                return writer.print(".{}", .{std.zig.fmtId(field_name)});
             } else if (field_ptr.container_ty.isSlice()) {
                 switch (field_ptr.field_index) {
                     Value.Payload.Slice.ptr_index => return writer.writeAll(".ptr"),

@@ -371,7 +371,9 @@ test "extern function used as generic parameter" {
         extern fn usedAsGenericParameterFoo() void;
         extern fn usedAsGenericParameterBar() void;
         inline fn usedAsGenericParameterBaz(comptime _: anytype) type {
-            return struct {};
+            return struct {
+                const x = {};
+            };
         }
     };
     try expect(S.usedAsGenericParameterBaz(S.usedAsGenericParameterFoo) !=

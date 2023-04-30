@@ -415,3 +415,133 @@ test "sentinel slice in tuple" {
 
     _ = S;
 }
+
+test "concat comptime-known tuples" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const T = struct { u32 };
+    const x = T{10} ++ T{20};
+    try comptime expectEqual(2, x.len);
+    try comptime expectEqual(10, x[0]);
+    try comptime expectEqual(20, x[1]);
+}
+
+test "tuple type equality" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const A0 = struct { u32 };
+    const A1 = struct { u32, u64 };
+    const E0 = extern struct { u32 };
+    const E1 = extern struct { u32, u64 };
+    const P0 = packed struct { u32 };
+    const P1 = packed struct { u32, u64 };
+    try expect(A0 == struct { u32 });
+    try expect(A1 == struct { u32, u64 });
+    try expect(E0 == extern struct { u32 });
+    try expect(E1 == extern struct { u32, u64 });
+    try expect(P0 == packed struct { u32 });
+    try expect(P1 == packed struct { u32, u64 });
+    try expect(P0 != packed struct(u32) { u32 });
+    try expect(P1 != packed struct(u96) { u32, u64 });
+    try expect(A0 != E0);
+    try expect(A0 != P0);
+    try expect(A1 != E1);
+    try expect(A1 != P1);
+    const A2 = struct { u32 align(2) };
+    const A3 = struct { u32 align(4) };
+    const E2 = extern struct { u32 align(2) };
+    const E3 = extern struct { u32 align(4) };
+    try expect(A2 == struct { u32 align(2) });
+    try expect(A3 == struct { u32 align(4) });
+    try expect(E2 == extern struct { u32 align(2) });
+    try expect(E3 == extern struct { u32 align(4) });
+    try expect(A2 != A3);
+    try expect(A0 != A3);
+    try expect(E2 != E3);
+    try expect(E0 != E3);
+}
+
+test "tuple concat preserves layout" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const a: struct { u32 } = .{5};
+    const e: extern struct { u32 } = .{5};
+    const p: packed struct { u32 } = .{5};
+    try expect(@TypeOf(a ++ a) == struct { u32, u32 });
+    try expect(@TypeOf(e ++ e) == extern struct { u32, u32 });
+    try expect(@TypeOf(p ++ p) == packed struct { u32, u32 });
+}
+
+test "empty struct with no decls is a tuple" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    try expect(struct {} == struct {});
+    try expect(@typeInfo(struct {}).Struct.is_tuple);
+    const a: struct {} = .{};
+    try expectEqual(@as(usize, 0), (a ++ a).len);
+    try expectEqual(@as(usize, 0), (a ** 2).len);
+}
+
+test "empty struct with decls is not a tuple" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S0 = struct {
+        const x = 0;
+    };
+    const S1 = struct {
+        const x = 0;
+    };
+    try expect(S0 != S1);
+    try expect(!@typeInfo(S0).Struct.is_tuple);
+    try expect(!@typeInfo(S1).Struct.is_tuple);
+}
+
+test "tuple has len field" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const T = struct { u32, u64 };
+    try expect(@hasField(T, "len"));
+    try expectEqual(@as(usize, 2), @as(T, undefined).len);
+}
+
+test "tuple comptime fields" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const T = struct {
+        u32,
+        u8,
+        comptime u64 = 3,
+    };
+
+    const x: T = .{ 1, 2 };
+    const y: T = .{ 1, 2, 3 };
+    try expectEqual(x, y);
+}
+
+test "tuple with union field" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const U = union {
+        field: u32,
+    };
+
+    const items: struct { U } = .{.{ .field = 0 }};
+
+    try expectEqual(@as(u32, 0), items[0].field);
+}

@@ -19,7 +19,9 @@ test "anon fn param" {
     // https://github.com/ziglang/zig/issues/9339
     try expectEqualStringsIgnoreDigits(
         "behavior.typename.TypeFromFn(behavior.typename.test.anon fn param__struct_0)",
-        @typeName(TypeFromFn(struct {})),
+        @typeName(TypeFromFn(struct {
+            const _ = {};
+        })),
     );
     try expectEqualStringsIgnoreDigits(
         "behavior.typename.TypeFromFn(behavior.typename.test.anon fn param__union_0)",
@@ -32,7 +34,9 @@ test "anon fn param" {
 
     try expectEqualStringsIgnoreDigits(
         "behavior.typename.TypeFromFnB(behavior.typename.test.anon fn param__struct_0,behavior.typename.test.anon fn param__union_0,behavior.typename.test.anon fn param__enum_0)",
-        @typeName(TypeFromFnB(struct {}, union { unused: u8 }, enum { unused })),
+        @typeName(TypeFromFnB(struct {
+            const _ = {};
+        }, union { unused: u8 }, enum { unused })),
     );
 }
 
@@ -42,7 +46,9 @@ test "anon field init" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const Foo = .{
-        .T1 = struct {},
+        .T1 = struct {
+            const _ = {};
+        },
         .T2 = union { unused: u8 },
         .T3 = enum { unused },
     };
@@ -119,7 +125,9 @@ test "top level decl" {
     );
 }
 
-const A_Struct = struct {};
+const A_Struct = struct {
+    const _ = {};
+};
 const A_Union = union {
     unused: u8,
 };
@@ -164,20 +172,26 @@ test "fn param" {
 
 fn TypeFromFn(comptime T: type) type {
     _ = T;
-    return struct {};
+    return struct {
+        const _ = {};
+    };
 }
 
 fn TypeFromFn2(comptime T1: type, comptime T2: type) type {
     _ = T1;
     _ = T2;
-    return struct {};
+    return struct {
+        const _ = {};
+    };
 }
 
 fn TypeFromFnB(comptime T1: type, comptime T2: type, comptime T3: type) type {
     _ = T1;
     _ = T2;
     _ = T3;
-    return struct {};
+    return struct {
+        const _ = {};
+    };
 }
 
 /// Replaces integers in `actual` with '0' before doing the test.

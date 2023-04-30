@@ -129,13 +129,11 @@ pub const Type = extern union {
             .anyframe_T, .@"anyframe" => return .AnyFrame,
 
             .empty_struct,
-            .empty_struct_literal,
+            .empty_tuple_literal,
             .@"struct",
             .prefetch_options,
             .export_options,
             .extern_options,
-            .tuple,
-            .anon_struct,
             => return .Struct,
 
             .enum_full,
@@ -817,79 +815,13 @@ pub const Type = extern union {
                 const b_namespace = (b.castTag(.empty_struct) orelse return false).data;
                 return a_namespace == b_namespace;
             },
+            .empty_tuple_literal => {
+                return b.tag() == .empty_tuple_literal;
+            },
             .@"struct" => {
                 const a_struct_obj = a.castTag(.@"struct").?.data;
                 const b_struct_obj = (b.castTag(.@"struct") orelse return false).data;
                 return a_struct_obj == b_struct_obj;
-            },
-            .tuple, .empty_struct_literal => {
-                if (!b.isSimpleTuple()) return false;
-
-                const a_tuple = a.tupleFields();
-                const b_tuple = b.tupleFields();
-
-                if (a_tuple.types.len != b_tuple.types.len) return false;
-
-                for (a_tuple.types, 0..) |a_ty, i| {
-                    const b_ty = b_tuple.types[i];
-                    if (!eql(a_ty, b_ty, mod)) return false;
-                }
-
-                for (a_tuple.values, 0..) |a_val, i| {
-                    const ty = a_tuple.types[i];
-                    const b_val = b_tuple.values[i];
-                    if (a_val.tag() == .unreachable_value) {
-                        if (b_val.tag() == .unreachable_value) {
-                            continue;
-                        } else {
-                            return false;
-                        }
-                    } else {
-                        if (b_val.tag() == .unreachable_value) {
-                            return false;
-                        } else {
-                            if (!Value.eql(a_val, b_val, ty, mod)) return false;
-                        }
-                    }
-                }
-
-                return true;
-            },
-            .anon_struct => {
-                const a_struct_obj = a.castTag(.anon_struct).?.data;
-                const b_struct_obj = (b.castTag(.anon_struct) orelse return false).data;
-
-                if (a_struct_obj.types.len != b_struct_obj.types.len) return false;
-
-                for (a_struct_obj.names, 0..) |a_name, i| {
-                    const b_name = b_struct_obj.names[i];
-                    if (!std.mem.eql(u8, a_name, b_name)) return false;
-                }
-
-                for (a_struct_obj.types, 0..) |a_ty, i| {
-                    const b_ty = b_struct_obj.types[i];
-                    if (!eql(a_ty, b_ty, mod)) return false;
-                }
-
-                for (a_struct_obj.values, 0..) |a_val, i| {
-                    const ty = a_struct_obj.types[i];
-                    const b_val = b_struct_obj.values[i];
-                    if (a_val.tag() == .unreachable_value) {
-                        if (b_val.tag() == .unreachable_value) {
-                            continue;
-                        } else {
-                            return false;
-                        }
-                    } else {
-                        if (b_val.tag() == .unreachable_value) {
-                            return false;
-                        } else {
-                            if (!Value.eql(a_val, b_val, ty, mod)) return false;
-                        }
-                    }
-                }
-
-                return true;
             },
 
             // we can't compare these based on tags because it wouldn't detect if,
@@ -1173,36 +1105,14 @@ pub const Type = extern union {
                 const namespace: *const Module.Namespace = ty.castTag(.empty_struct).?.data;
                 std.hash.autoHash(hasher, namespace);
             },
+
+            .empty_tuple_literal => {
+                std.hash.autoHash(hasher, std.builtin.TypeId.Struct);
+            },
+
             .@"struct" => {
                 const struct_obj: *const Module.Struct = ty.castTag(.@"struct").?.data;
                 std.hash.autoHash(hasher, struct_obj);
-            },
-            .tuple, .empty_struct_literal => {
-                std.hash.autoHash(hasher, std.builtin.TypeId.Struct);
-
-                const tuple = ty.tupleFields();
-                std.hash.autoHash(hasher, tuple.types.len);
-
-                for (tuple.types, 0..) |field_ty, i| {
-                    hashWithHasher(field_ty, hasher, mod);
-                    const field_val = tuple.values[i];
-                    if (field_val.tag() == .unreachable_value) continue;
-                    field_val.hash(field_ty, hasher, mod);
-                }
-            },
-            .anon_struct => {
-                const struct_obj = ty.castTag(.anon_struct).?.data;
-                std.hash.autoHash(hasher, std.builtin.TypeId.Struct);
-                std.hash.autoHash(hasher, struct_obj.types.len);
-
-                for (struct_obj.types, 0..) |field_ty, i| {
-                    const field_name = struct_obj.names[i];
-                    const field_val = struct_obj.values[i];
-                    hasher.update(field_name);
-                    hashWithHasher(field_ty, hasher, mod);
-                    if (field_val.tag() == .unreachable_value) continue;
-                    field_val.hash(field_ty, hasher, mod);
-                }
             },
 
             // we can't hash these based on tags because they wouldn't match the expanded version.
@@ -1336,7 +1246,7 @@ pub const Type = extern union {
             .inferred_alloc_const,
             .inferred_alloc_mut,
             .var_args_param,
-            .empty_struct_literal,
+            .empty_tuple_literal,
             .manyptr_u8,
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
@@ -1406,41 +1316,6 @@ pub const Type = extern union {
                     .len = payload.len,
                     .sentinel = try payload.sentinel.copy(allocator),
                     .elem_type = try payload.elem_type.copy(allocator),
-                });
-            },
-            .tuple => {
-                const payload = self.castTag(.tuple).?.data;
-                const types = try allocator.alloc(Type, payload.types.len);
-                const values = try allocator.alloc(Value, payload.values.len);
-                for (payload.types, 0..) |ty, i| {
-                    types[i] = try ty.copy(allocator);
-                }
-                for (payload.values, 0..) |val, i| {
-                    values[i] = try val.copy(allocator);
-                }
-                return Tag.tuple.create(allocator, .{
-                    .types = types,
-                    .values = values,
-                });
-            },
-            .anon_struct => {
-                const payload = self.castTag(.anon_struct).?.data;
-                const names = try allocator.alloc([]const u8, payload.names.len);
-                const types = try allocator.alloc(Type, payload.types.len);
-                const values = try allocator.alloc(Value, payload.values.len);
-                for (payload.names, 0..) |name, i| {
-                    names[i] = try allocator.dupe(u8, name);
-                }
-                for (payload.types, 0..) |ty, i| {
-                    types[i] = try ty.copy(allocator);
-                }
-                for (payload.values, 0..) |val, i| {
-                    values[i] = try val.copy(allocator);
-                }
-                return Tag.anon_struct.create(allocator, .{
-                    .names = names,
-                    .types = types,
-                    .values = values,
                 });
             },
             .function => {
@@ -1566,15 +1441,19 @@ pub const Type = extern union {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        _ = options;
         comptime assert(unused_format_string.len == 0);
-        if (true) {
-            // This is disabled to work around a bug where this function
-            // recursively causes more generic function instantiations
-            // resulting in an infinite loop in the compiler.
-            try writer.writeAll("[TODO fix internal compiler bug regarding dump]");
-            return;
-        }
+        return dumpInner(start_type, options, writer);
+    }
+
+    // This is split up to work around a bug where this function
+    // recursively causes more generic function instantiations
+    // resulting in an infinite loop in the compiler.
+    fn dumpInner(
+        start_type: Type,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = options;
         var ty = start_type;
         while (true) {
             const t = ty.tag();
@@ -1624,8 +1503,8 @@ pub const Type = extern union {
                 .enum_literal => return writer.writeAll("@Type(.EnumLiteral)"),
                 .null => return writer.writeAll("@Type(.Null)"),
                 .undefined => return writer.writeAll("@Type(.Undefined)"),
-
-                .empty_struct, .empty_struct_literal => return writer.writeAll("struct {}"),
+                .empty_struct => return writer.writeAll("struct {}"),
+                .empty_tuple_literal => return writer.writeAll("@TypeOf(.{})"),
 
                 .@"struct" => {
                     const struct_obj = ty.castTag(.@"struct").?.data;
@@ -1691,7 +1570,7 @@ pub const Type = extern union {
                     try writer.writeAll("fn(");
                     for (payload.param_types, 0..) |param_type, i| {
                         if (i != 0) try writer.writeAll(", ");
-                        try param_type.dump("", .{}, writer);
+                        try param_type.dumpInner(.{}, writer);
                     }
                     if (payload.is_var_args) {
                         if (payload.param_types.len != 0) {
@@ -1729,7 +1608,7 @@ pub const Type = extern union {
                 .vector => {
                     const payload = ty.castTag(.vector).?.data;
                     try writer.print("@Vector({d}, ", .{payload.len});
-                    try payload.elem_type.dump("", .{}, writer);
+                    try payload.elem_type.dumpInner(.{}, writer);
                     return writer.writeAll(")");
                 },
                 .array => {
@@ -1746,42 +1625,6 @@ pub const Type = extern union {
                     });
                     ty = payload.elem_type;
                     continue;
-                },
-                .tuple => {
-                    const tuple = ty.castTag(.tuple).?.data;
-                    try writer.writeAll("tuple{");
-                    for (tuple.types, 0..) |field_ty, i| {
-                        if (i != 0) try writer.writeAll(", ");
-                        const val = tuple.values[i];
-                        if (val.tag() != .unreachable_value) {
-                            try writer.writeAll("comptime ");
-                        }
-                        try field_ty.dump("", .{}, writer);
-                        if (val.tag() != .unreachable_value) {
-                            try writer.print(" = {}", .{val.fmtDebug()});
-                        }
-                    }
-                    try writer.writeAll("}");
-                    return;
-                },
-                .anon_struct => {
-                    const anon_struct = ty.castTag(.anon_struct).?.data;
-                    try writer.writeAll("struct{");
-                    for (anon_struct.types, 0..) |field_ty, i| {
-                        if (i != 0) try writer.writeAll(", ");
-                        const val = anon_struct.values[i];
-                        if (val.tag() != .unreachable_value) {
-                            try writer.writeAll("comptime ");
-                        }
-                        try writer.writeAll(anon_struct.names[i]);
-                        try writer.writeAll(": ");
-                        try field_ty.dump("", .{}, writer);
-                        if (val.tag() != .unreachable_value) {
-                            try writer.print(" = {}", .{val.fmtDebug()});
-                        }
-                    }
-                    try writer.writeAll("}");
-                    return;
                 },
                 .single_const_pointer => {
                     const pointee_type = ty.castTag(.single_const_pointer).?.data;
@@ -1895,7 +1738,7 @@ pub const Type = extern union {
                 },
                 .error_union => {
                     const payload = ty.castTag(.error_union).?.data;
-                    try payload.error_set.dump("", .{}, writer);
+                    try payload.error_set.dumpInner(.{}, writer);
                     try writer.writeAll("!");
                     ty = payload.payload;
                     continue;
@@ -2013,7 +1856,7 @@ pub const Type = extern union {
             .enum_literal => try writer.writeAll("@TypeOf(.enum_literal)"),
             .null => try writer.writeAll("@TypeOf(null)"),
             .undefined => try writer.writeAll("@TypeOf(undefined)"),
-            .empty_struct_literal => try writer.writeAll("@TypeOf(.{})"),
+            .empty_tuple_literal => try writer.writeAll("@TypeOf(.{})"),
 
             .empty_struct => {
                 const namespace = ty.castTag(.empty_struct).?.data;
@@ -2022,8 +1865,32 @@ pub const Type = extern union {
 
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
-                const decl = mod.declPtr(struct_obj.owner_decl);
-                try decl.renderFullyQualifiedName(mod, writer);
+                if (struct_obj.is_tuple or struct_obj.is_anon) {
+                    switch (struct_obj.layout) {
+                        .Auto => {},
+                        .Extern => try writer.writeAll("extern "),
+                        .Packed => try writer.writeAll("packed "),
+                    }
+                    if (struct_obj.fields.count() == 0) {
+                        return writer.writeAll("struct {}");
+                    }
+                    try writer.writeAll("struct { ");
+                    for (struct_obj.fields.keys(), struct_obj.fields.values(), 0..) |field_name, field, i| {
+                        if (i != 0) try writer.writeAll(", ");
+                        if (field.is_comptime) try writer.writeAll("comptime ");
+                        if (!struct_obj.is_tuple) {
+                            try writer.print("{}: ", .{std.zig.fmtId(field_name)});
+                        }
+                        try writer.print("{}", .{field.ty.fmt(mod)});
+                        if (field.default_val.tag() != .unreachable_value) {
+                            try writer.print(" = {}", .{field.default_val.fmtValue(field.ty, mod)});
+                        }
+                    }
+                    try writer.writeAll(" }");
+                } else {
+                    const decl = mod.declPtr(struct_obj.owner_decl);
+                    try decl.renderFullyQualifiedName(mod, writer);
+                }
             },
             .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
@@ -2147,44 +2014,6 @@ pub const Type = extern union {
                     payload.sentinel.fmtValue(payload.elem_type, mod),
                 });
                 try print(payload.elem_type, writer, mod);
-            },
-            .tuple => {
-                const tuple = ty.castTag(.tuple).?.data;
-
-                try writer.writeAll("tuple{");
-                for (tuple.types, 0..) |field_ty, i| {
-                    if (i != 0) try writer.writeAll(", ");
-                    const val = tuple.values[i];
-                    if (val.tag() != .unreachable_value) {
-                        try writer.writeAll("comptime ");
-                    }
-                    try print(field_ty, writer, mod);
-                    if (val.tag() != .unreachable_value) {
-                        try writer.print(" = {}", .{val.fmtValue(field_ty, mod)});
-                    }
-                }
-                try writer.writeAll("}");
-            },
-            .anon_struct => {
-                const anon_struct = ty.castTag(.anon_struct).?.data;
-
-                try writer.writeAll("struct{");
-                for (anon_struct.types, 0..) |field_ty, i| {
-                    if (i != 0) try writer.writeAll(", ");
-                    const val = anon_struct.values[i];
-                    if (val.tag() != .unreachable_value) {
-                        try writer.writeAll("comptime ");
-                    }
-                    try writer.writeAll(anon_struct.names[i]);
-                    try writer.writeAll(": ");
-
-                    try print(field_ty, writer, mod);
-
-                    if (val.tag() != .unreachable_value) {
-                        try writer.print(" = {}", .{val.fmtValue(field_ty, mod)});
-                    }
-                }
-                try writer.writeAll("}");
             },
 
             .pointer,
@@ -2473,7 +2302,7 @@ pub const Type = extern union {
             .undefined,
             .enum_literal,
             .empty_struct,
-            .empty_struct_literal,
+            .empty_tuple_literal,
             .bound_fn,
             // These are function *bodies*, not pointers.
             // Special exceptions have to be made when emitting functions due to
@@ -2583,16 +2412,6 @@ pub const Type = extern union {
 
             .int_signed, .int_unsigned => return ty.cast(Payload.Bits).?.data != 0,
 
-            .tuple, .anon_struct => {
-                const tuple = ty.tupleFields();
-                for (tuple.types, 0..) |field_ty, i| {
-                    const val = tuple.values[i];
-                    if (val.tag() != .unreachable_value) continue; // comptime field
-                    if (try field_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, strat)) return true;
-                }
-                return false;
-            },
-
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .var_args_param => unreachable,
@@ -2698,9 +2517,7 @@ pub const Type = extern union {
             .error_union,
             .anyerror_void_error_union,
             .anyframe_T,
-            .tuple,
-            .anon_struct,
-            .empty_struct_literal,
+            .empty_tuple_literal,
             .empty_struct,
             => false,
 
@@ -3141,26 +2958,6 @@ pub const Type = extern union {
                 return AbiAlignmentAdvanced{ .scalar = big_align };
             },
 
-            .tuple, .anon_struct => {
-                const tuple = ty.tupleFields();
-                var big_align: u32 = 0;
-                for (tuple.types, 0..) |field_ty, i| {
-                    const val = tuple.values[i];
-                    if (val.tag() != .unreachable_value) continue; // comptime field
-                    if (!(field_ty.hasRuntimeBits())) continue;
-
-                    switch (try field_ty.abiAlignmentAdvanced(target, strat)) {
-                        .scalar => |field_align| big_align = @max(big_align, field_align),
-                        .val => switch (strat) {
-                            .eager => unreachable, // field type alignment not resolved
-                            .sema => unreachable, // passed to abiAlignmentAdvanced above
-                            .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
-                        },
-                    }
-                }
-                return AbiAlignmentAdvanced{ .scalar = big_align };
-            },
-
             .enum_full, .enum_nonexhaustive, .enum_simple, .enum_numbered => {
                 var buffer: Payload.Bits = undefined;
                 const int_tag_ty = ty.intTagType(&buffer);
@@ -3176,8 +2973,8 @@ pub const Type = extern union {
             },
 
             .empty_struct,
+            .empty_tuple_literal,
             .void,
-            .empty_struct_literal,
             .type,
             .comptime_int,
             .comptime_float,
@@ -3311,12 +3108,12 @@ pub const Type = extern union {
             .undefined,
             .enum_literal,
             .single_const_pointer_to_comptime_int,
-            .empty_struct_literal,
             .empty_struct,
+            .empty_tuple_literal,
             .void,
             => return AbiSizeAdvanced{ .scalar = 0 },
 
-            .@"struct", .tuple, .anon_struct => switch (ty.containerLayout()) {
+            .@"struct" => switch (ty.containerLayout()) {
                 .Packed => {
                     const struct_obj = ty.castTag(.@"struct").?.data;
                     switch (strat) {
@@ -3635,7 +3432,7 @@ pub const Type = extern union {
             .enum_literal => unreachable,
             .single_const_pointer_to_comptime_int => unreachable,
             .empty_struct => unreachable,
-            .empty_struct_literal => unreachable,
+            .empty_tuple_literal => unreachable,
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .@"opaque" => unreachable,
@@ -3661,18 +3458,6 @@ pub const Type = extern union {
                 if (opt_sema) |sema| _ = try sema.resolveTypeLayout(ty);
                 assert(struct_obj.haveLayout());
                 return try struct_obj.backing_int_ty.bitSizeAdvanced(target, opt_sema);
-            },
-
-            .tuple, .anon_struct => {
-                if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
-                if (ty.containerLayout() != .Packed) {
-                    return (try ty.abiSizeAdvanced(target, strat)).scalar * 8;
-                }
-                var total: u64 = 0;
-                for (ty.tupleFields().types) |field_ty| {
-                    total += try bitSizeAdvanced(field_ty, target, opt_sema);
-                }
-                return total;
             },
 
             .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
@@ -4405,11 +4190,11 @@ pub const Type = extern union {
 
     pub fn containerLayout(ty: Type) std.builtin.Type.ContainerLayout {
         return switch (ty.tag()) {
-            .tuple, .empty_struct_literal, .anon_struct => .Auto,
             .@"struct" => ty.castTag(.@"struct").?.data.layout,
             .@"union" => ty.castTag(.@"union").?.data.layout,
             .union_safety_tagged => ty.castTag(.union_safety_tagged).?.data.layout,
             .union_tagged => ty.castTag(.union_tagged).?.data.layout,
+            .empty_struct, .empty_tuple_literal => .Auto,
             else => unreachable,
         };
     }
@@ -4510,10 +4295,8 @@ pub const Type = extern union {
             .array_sentinel => ty.castTag(.array_sentinel).?.data.len,
             .array_u8 => ty.castTag(.array_u8).?.data,
             .array_u8_sentinel_0 => ty.castTag(.array_u8_sentinel_0).?.data,
-            .tuple => ty.castTag(.tuple).?.data.types.len,
-            .anon_struct => ty.castTag(.anon_struct).?.data.types.len,
             .@"struct" => ty.castTag(.@"struct").?.data.fields.count(),
-            .empty_struct, .empty_struct_literal => 0,
+            .empty_struct, .empty_tuple_literal => 0,
 
             else => unreachable,
         };
@@ -4526,8 +4309,6 @@ pub const Type = extern union {
     pub fn vectorLen(ty: Type) u32 {
         return switch (ty.tag()) {
             .vector => @intCast(u32, ty.castTag(.vector).?.data.len),
-            .tuple => @intCast(u32, ty.castTag(.tuple).?.data.types.len),
-            .anon_struct => @intCast(u32, ty.castTag(.anon_struct).?.data.types.len),
             else => unreachable,
         };
     }
@@ -4550,8 +4331,7 @@ pub const Type = extern union {
             .const_slice_u8,
             .const_slice,
             .mut_slice,
-            .tuple,
-            .empty_struct_literal,
+            .empty_tuple_literal,
             .@"struct",
             => return null,
 
@@ -5080,17 +4860,6 @@ pub const Type = extern union {
                 return Value.initTag(.empty_struct_value);
             },
 
-            .tuple, .anon_struct => {
-                const tuple = ty.tupleFields();
-                for (tuple.values, 0..) |val, i| {
-                    const is_comptime = val.tag() != .unreachable_value;
-                    if (is_comptime) continue;
-                    if (tuple.types[i].onePossibleValue() != null) continue;
-                    return null;
-                }
-                return Value.initTag(.empty_struct_value);
-            },
-
             .enum_numbered => {
                 const enum_numbered = ty.castTag(.enum_numbered).?.data;
                 // An explicit tag type is always provided for enum_numbered.
@@ -5142,7 +4911,7 @@ pub const Type = extern union {
                 return Value.initTag(.empty_struct_value);
             },
 
-            .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
+            .empty_struct, .empty_tuple_literal => return Value.initTag(.empty_struct_value),
             .void => return Value.initTag(.void_value),
             .noreturn => return Value.initTag(.unreachable_value),
             .null => return Value.initTag(.null_value),
@@ -5228,7 +4997,7 @@ pub const Type = extern union {
             .const_slice_u8,
             .const_slice_u8_sentinel_0,
             .anyerror_void_error_union,
-            .empty_struct_literal,
+            .empty_tuple_literal,
             .empty_struct,
             .error_set,
             .error_set_single,
@@ -5291,15 +5060,6 @@ pub const Type = extern union {
             => {
                 var buf: Type.Payload.ElemType = undefined;
                 return ty.optionalChild(&buf).comptimeOnly();
-            },
-
-            .tuple, .anon_struct => {
-                const tuple = ty.tupleFields();
-                for (tuple.types, 0..) |field_ty, i| {
-                    const have_comptime_val = tuple.values[i].tag() != .unreachable_value;
-                    if (!have_comptime_val and field_ty.comptimeOnly()) return true;
-                }
-                return false;
             },
 
             .@"struct" => {
@@ -5639,9 +5399,11 @@ pub const Type = extern union {
         }
     }
 
+    /// For tuples, fields are guaranteed to be ordered correctly; i.e. the field named .@"0" is
+    /// first, then .@"1", then .@"2", etc.
     pub fn structFields(ty: Type) Module.Struct.Fields {
         switch (ty.tag()) {
-            .empty_struct, .empty_struct_literal => return .{},
+            .empty_struct, .empty_tuple_literal => return .{},
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 assert(struct_obj.haveFieldTypes());
@@ -5658,7 +5420,6 @@ pub const Type = extern union {
                 assert(struct_obj.haveFieldTypes());
                 return struct_obj.fields.keys()[field_index];
             },
-            .anon_struct => return ty.castTag(.anon_struct).?.data.names[field_index],
             else => unreachable,
         }
     }
@@ -5670,9 +5431,7 @@ pub const Type = extern union {
                 assert(struct_obj.haveFieldTypes());
                 return struct_obj.fields.count();
             },
-            .empty_struct, .empty_struct_literal => return 0,
-            .tuple => return ty.castTag(.tuple).?.data.types.len,
-            .anon_struct => return ty.castTag(.anon_struct).?.data.types.len,
+            .empty_struct, .empty_tuple_literal => return 0,
             else => unreachable,
         }
     }
@@ -5688,8 +5447,6 @@ pub const Type = extern union {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 return union_obj.fields.values()[index].ty;
             },
-            .tuple => return ty.castTag(.tuple).?.data.types[index],
-            .anon_struct => return ty.castTag(.anon_struct).?.data.types[index],
             else => unreachable,
         }
     }
@@ -5705,8 +5462,6 @@ pub const Type = extern union {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 return union_obj.fields.values()[index].normalAlignment(target);
             },
-            .tuple => return ty.castTag(.tuple).?.data.types[index].abiAlignment(target),
-            .anon_struct => return ty.castTag(.anon_struct).?.data.types[index].abiAlignment(target),
             else => unreachable,
         }
     }
@@ -5716,14 +5471,6 @@ pub const Type = extern union {
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 return struct_obj.fields.values()[index].default_val;
-            },
-            .tuple => {
-                const tuple = ty.castTag(.tuple).?.data;
-                return tuple.values[index];
-            },
-            .anon_struct => {
-                const struct_obj = ty.castTag(.anon_struct).?.data;
-                return struct_obj.values[index];
             },
             else => unreachable,
         }
@@ -5740,24 +5487,6 @@ pub const Type = extern union {
                     return field.ty.onePossibleValue();
                 }
             },
-            .tuple => {
-                const tuple = ty.castTag(.tuple).?.data;
-                const val = tuple.values[index];
-                if (val.tag() == .unreachable_value) {
-                    return tuple.types[index].onePossibleValue();
-                } else {
-                    return val;
-                }
-            },
-            .anon_struct => {
-                const anon_struct = ty.castTag(.anon_struct).?.data;
-                const val = anon_struct.values[index];
-                if (val.tag() == .unreachable_value) {
-                    return anon_struct.types[index].onePossibleValue();
-                } else {
-                    return val;
-                }
-            },
             else => unreachable,
         }
     }
@@ -5769,16 +5498,6 @@ pub const Type = extern union {
                 if (struct_obj.layout == .Packed) return false;
                 const field = struct_obj.fields.values()[index];
                 return field.is_comptime;
-            },
-            .tuple => {
-                const tuple = ty.castTag(.tuple).?.data;
-                const val = tuple.values[index];
-                return val.tag() != .unreachable_value;
-            },
-            .anon_struct => {
-                const anon_struct = ty.castTag(.anon_struct).?.data;
-                const val = anon_struct.values[index];
-                return val.tag() != .unreachable_value;
             },
             else => unreachable,
         }
@@ -5865,30 +5584,6 @@ pub const Type = extern union {
                 }
 
                 return std.mem.alignForwardGeneric(u64, it.offset, @max(it.big_align, 1));
-            },
-
-            .tuple, .anon_struct => {
-                const tuple = ty.tupleFields();
-
-                var offset: u64 = 0;
-                var big_align: u32 = 0;
-
-                for (tuple.types, 0..) |field_ty, i| {
-                    const field_val = tuple.values[i];
-                    if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) {
-                        // comptime field
-                        if (i == index) return offset;
-                        continue;
-                    }
-
-                    const field_align = field_ty.abiAlignment(target);
-                    big_align = @max(big_align, field_align);
-                    offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-                    if (i == index) return offset;
-                    offset += field_ty.abiSize(target);
-                }
-                offset = std.mem.alignForwardGeneric(u64, offset, @max(big_align, 1));
-                return offset;
             },
 
             .@"union" => return 0,
@@ -6081,8 +5776,9 @@ pub const Type = extern union {
         /// This is a special type for variadic parameters of a function call.
         /// Casts to it will validate that the type can be passed to a c calling convention function.
         var_args_param,
-        /// Same as `empty_struct` except it has an empty namespace.
-        empty_struct_literal,
+        /// The type of `.{}`: an anonymous tuple with default (automatic) layout and zero fields.
+        /// Has no declarations.
+        empty_tuple_literal,
         /// This is a special value that tracks a set of types that have been stored
         /// to an inferred allocation. It does not support most of the normal type queries.
         /// However it does respond to `isConstPtr`, `ptrSize`, `zigTypeTag`, etc.
@@ -6097,10 +5793,6 @@ pub const Type = extern union {
         array,
         array_sentinel,
         vector,
-        /// Possible Value tags for this: @"struct"
-        tuple,
-        /// Possible Value tags for this: @"struct"
-        anon_struct,
         pointer,
         single_const_pointer,
         single_mut_pointer,
@@ -6123,6 +5815,9 @@ pub const Type = extern union {
         /// The type is the inferred error set of a specific function.
         error_set_inferred,
         error_set_merged,
+        /// A non-anonymous, non-tuple, struct type with default (autonmatic) layout and zero
+        /// fields. These may have declarations; their main use case is "namespace structs", and in
+        /// particular the root structs of files.
         empty_struct,
         @"opaque",
         @"struct",
@@ -6192,7 +5887,7 @@ pub const Type = extern union {
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
                 .var_args_param,
-                .empty_struct_literal,
+                .empty_tuple_literal,
                 .manyptr_u8,
                 .manyptr_const_u8,
                 .manyptr_const_u8_sentinel_0,
@@ -6250,8 +5945,6 @@ pub const Type = extern union {
                 .enum_simple => Payload.EnumSimple,
                 .enum_numbered => Payload.EnumNumbered,
                 .empty_struct => Payload.ContainerScope,
-                .tuple => Payload.Tuple,
-                .anon_struct => Payload.AnonStruct,
             };
         }
 
@@ -6276,51 +5969,17 @@ pub const Type = extern union {
 
     pub fn isTuple(ty: Type) bool {
         return switch (ty.tag()) {
-            .tuple, .empty_struct_literal => true,
             .@"struct" => ty.castTag(.@"struct").?.data.is_tuple,
+            .empty_tuple_literal => true,
             else => false,
         };
     }
 
     pub fn isAnonStruct(ty: Type) bool {
         return switch (ty.tag()) {
-            .anon_struct, .empty_struct_literal => true,
+            .@"struct" => ty.castTag(.@"struct").?.data.is_anon,
+            .empty_tuple_literal => true,
             else => false,
-        };
-    }
-
-    pub fn isTupleOrAnonStruct(ty: Type) bool {
-        return switch (ty.tag()) {
-            .tuple, .empty_struct_literal, .anon_struct => true,
-            .@"struct" => ty.castTag(.@"struct").?.data.is_tuple,
-            else => false,
-        };
-    }
-
-    pub fn isSimpleTuple(ty: Type) bool {
-        return switch (ty.tag()) {
-            .tuple, .empty_struct_literal => true,
-            else => false,
-        };
-    }
-
-    pub fn isSimpleTupleOrAnonStruct(ty: Type) bool {
-        return switch (ty.tag()) {
-            .tuple, .empty_struct_literal, .anon_struct => true,
-            else => false,
-        };
-    }
-
-    // Only allowed for simple tuple types
-    pub fn tupleFields(ty: Type) Payload.Tuple.Data {
-        return switch (ty.tag()) {
-            .tuple => ty.castTag(.tuple).?.data,
-            .anon_struct => .{
-                .types = ty.castTag(.anon_struct).?.data.types,
-                .values = ty.castTag(.anon_struct).?.data.values,
-            },
-            .empty_struct_literal => .{ .types = &.{}, .values = &.{} },
-            else => unreachable,
         };
     }
 
@@ -6491,29 +6150,6 @@ pub const Type = extern union {
         pub const Struct = struct {
             base: Payload = .{ .tag = .@"struct" },
             data: *Module.Struct,
-        };
-
-        pub const Tuple = struct {
-            base: Payload = .{ .tag = .tuple },
-            data: Data,
-
-            pub const Data = struct {
-                types: []Type,
-                /// unreachable_value elements are used to indicate runtime-known.
-                values: []Value,
-            };
-        };
-
-        pub const AnonStruct = struct {
-            base: Payload = .{ .tag = .anon_struct },
-            data: Data,
-
-            pub const Data = struct {
-                names: []const []const u8,
-                types: []Type,
-                /// unreachable_value elements are used to indicate runtime-known.
-                values: []Value,
-            };
         };
 
         pub const Union = struct {

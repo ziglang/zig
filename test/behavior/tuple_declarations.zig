@@ -34,8 +34,6 @@ test "tuple declaration type info" {
         const T = packed struct(u32) { u1, u30, u1 };
         const info = @typeInfo(T).Struct;
 
-        try expect(std.mem.endsWith(u8, @typeName(T), "test.tuple declaration type info.T"));
-
         try expect(info.layout == .Packed);
         try expect(info.backing_integer == u32);
         try expect(info.fields.len == 3);

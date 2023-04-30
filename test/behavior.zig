@@ -151,7 +151,7 @@ test {
     _ = @import("behavior/const_slice_child.zig");
     _ = @import("behavior/decltest.zig");
     _ = @import("behavior/defer.zig");
-    _ = @import("behavior/empty_tuple_fields.zig");
+    _ = @import("behavior/empty_struct_fields.zig");
     _ = @import("behavior/empty_union.zig");
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/error.zig");

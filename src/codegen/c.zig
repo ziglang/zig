@@ -34,8 +34,6 @@ pub const CValue = union(enum) {
     arg: usize,
     /// The array field of a parameter
     arg_array: usize,
-    /// Index into a tuple's fields
-    field: usize,
     /// By-value
     decl: Decl.Index,
     decl_ref: Decl.Index,
@@ -331,6 +329,34 @@ pub const Function = struct {
         const result = try f.allocAlignedLocal(ty, .{}, 0);
         log.debug("%{d}: allocating t{d}", .{ inst, result.new_local });
         return result;
+    }
+
+    /// C arrays need to be enclosed in wrapper structs when given as function return values. This
+    /// function will allocate a local of this wrapper type, to be used to store the return value.
+    /// Free with `freeLocal`.
+    fn allocLocalParamType(f: *Function, inst: Air.Inst.Index, ty: Type) !CValue {
+        const gpa = f.object.dg.gpa;
+        const target = f.object.dg.module.getTarget();
+
+        const cty_idx = try f.typeToIndex(ty, .parameter);
+        const alignas = CType.AlignAs.init(0, ty.abiAlignment(target));
+
+        if (f.free_locals_map.getPtr(.{
+            .cty_idx = cty_idx,
+            .alignas = alignas,
+        })) |locals_list| {
+            if (locals_list.popOrNull()) |local_entry| {
+                log.debug("%{d}: allocating t{d}", .{ inst, local_entry.key });
+                return .{ .new_local = local_entry.key };
+            }
+        }
+
+        try f.locals.append(gpa, .{
+            .cty_idx = cty_idx,
+            .alignas = alignas,
+        });
+        log.debug("%{d}: allocating t{d}", .{ inst, f.locals.items.len - 1 });
+        return .{ .new_local = @intCast(LocalIndex, f.locals.items.len - 1) };
     }
 
     /// Only allocates the local; does not print anything. Will attempt to re-use locals, so should
@@ -1755,7 +1781,6 @@ pub const DeclGen = struct {
             .constant => unreachable,
             .arg => |i| return w.print("a{d}", .{i}),
             .arg_array => |i| return dg.writeCValueMember(w, .{ .arg = i }, .{ .identifier = "array" }),
-            .field => |i| return w.print("f{d}", .{i}),
             .decl => |decl| return dg.renderDeclName(w, decl, 0),
             .decl_ref => |decl| {
                 try w.writeByte('&');
@@ -1782,7 +1807,6 @@ pub const DeclGen = struct {
                 try dg.writeCValueMember(w, .{ .arg = i }, .{ .identifier = "array" });
                 return w.writeByte(')');
             },
-            .field => |i| return w.print("f{d}", .{i}),
             .decl => |decl| {
                 try w.writeAll("(*");
                 try dg.renderDeclName(w, decl, 0);
@@ -1806,7 +1830,7 @@ pub const DeclGen = struct {
 
     fn writeCValueDerefMember(dg: *DeclGen, writer: anytype, c_value: CValue, member: CValue) !void {
         switch (c_value) {
-            .none, .constant, .field, .undef => unreachable,
+            .none, .constant, .undef => unreachable,
             .new_local, .local, .arg, .arg_array, .decl, .identifier, .payload_identifier => {
                 try dg.writeCValue(writer, c_value);
                 try writer.writeAll("->");
@@ -3396,19 +3420,17 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
     const op_inst = Air.refToIndex(un_op);
     const op_ty = f.air.typeOf(un_op);
     const ret_ty = if (is_ptr) op_ty.childType() else op_ty;
-    var lowered_ret_buf: LowerFnRetTyBuffer = undefined;
-    const lowered_ret_ty = lowerFnRetTy(ret_ty, &lowered_ret_buf, target);
 
     if (op_inst != null and f.air.instructions.items(.tag)[op_inst.?] == .call_always_tail) {
         try reap(f, inst, &.{un_op});
         _ = try airCall(f, op_inst.?, .always_tail);
-    } else if (lowered_ret_ty.hasRuntimeBitsIgnoreComptime()) {
+    } else if (ret_ty.hasRuntimeBitsIgnoreComptime()) {
         const operand = try f.resolveInst(un_op);
         try reap(f, inst, &.{un_op});
         var deref = is_ptr;
         const is_array = lowersToArray(ret_ty, target);
         const ret_val = if (is_array) ret_val: {
-            const array_local = try f.allocLocal(inst, lowered_ret_ty);
+            const array_local = try f.allocLocalParamType(inst, ret_ty);
             try writer.writeAll("memcpy(");
             try f.writeCValueMember(writer, array_local, .{ .identifier = "array" });
             try writer.writeAll(", ");
@@ -3742,14 +3764,14 @@ fn airOverflow(f: *Function, inst: Air.Inst.Index, operation: []const u8, info: 
     const w = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
     const v = try Vectorize.start(f, inst, w, operand_ty);
-    try f.writeCValueMember(w, local, .{ .field = 1 });
+    try f.writeCValueMember(w, local, .{ .identifier = "1" });
     try v.elem(f, w);
     try w.writeAll(" = zig_");
     try w.writeAll(operation);
     try w.writeAll("o_");
     try f.object.dg.renderTypeForBuiltinFnName(w, scalar_ty);
     try w.writeAll("(&");
-    try f.writeCValueMember(w, local, .{ .field = 0 });
+    try f.writeCValueMember(w, local, .{ .identifier = "0" });
     try v.elem(f, w);
     try w.writeAll(", ");
     try f.writeCValue(w, lhs, .FunctionArgument);
@@ -4115,16 +4137,13 @@ fn airCall(
         }
         resolved_arg.* = try f.resolveInst(arg);
         if (arg_cty != try f.typeToIndex(arg_ty, .complete)) {
-            var lowered_arg_buf: LowerFnRetTyBuffer = undefined;
-            const lowered_arg_ty = lowerFnRetTy(arg_ty, &lowered_arg_buf, target);
-
-            const array_local = try f.allocLocal(inst, lowered_arg_ty);
+            const array_local = try f.allocLocalParamType(inst, arg_ty);
             try writer.writeAll("memcpy(");
             try f.writeCValueMember(writer, array_local, .{ .identifier = "array" });
             try writer.writeAll(", ");
             try f.writeCValue(writer, resolved_arg.*, .FunctionArgument);
             try writer.writeAll(", sizeof(");
-            try f.renderType(writer, lowered_arg_ty);
+            try f.renderType(writer, arg_ty);
             try writer.writeAll("));\n");
             resolved_arg.* = array_local;
         }
@@ -4146,14 +4165,12 @@ fn airCall(
     };
 
     const ret_ty = fn_ty.fnReturnType();
-    var lowered_ret_buf: LowerFnRetTyBuffer = undefined;
-    const lowered_ret_ty = lowerFnRetTy(ret_ty, &lowered_ret_buf, target);
 
     const result_local = result: {
         if (modifier == .always_tail) {
             try writer.writeAll("zig_always_tail return ");
             break :result .none;
-        } else if (!lowered_ret_ty.hasRuntimeBitsIgnoreComptime()) {
+        } else if (!ret_ty.hasRuntimeBitsIgnoreComptime()) {
             break :result .none;
         } else if (f.liveness.isUnused(inst)) {
             try writer.writeByte('(');
@@ -4161,7 +4178,7 @@ fn airCall(
             try writer.writeByte(')');
             break :result .none;
         } else {
-            const local = try f.allocLocal(inst, lowered_ret_ty);
+            const local = try f.allocLocalParamType(inst, ret_ty);
             try f.writeCValue(writer, local, .Other);
             try writer.writeAll(" = ");
             break :result local;
@@ -5193,10 +5210,7 @@ fn fieldLocation(
                 const field_ty = container_ty.structFieldType(next_field_index);
                 if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
-                break .{ .field = if (container_ty.isSimpleTuple())
-                    .{ .field = next_field_index }
-                else
-                    .{ .identifier = container_ty.structFieldName(next_field_index) } };
+                break .{ .field = .{ .identifier = container_ty.structFieldName(next_field_index) } };
             } else if (container_ty.hasRuntimeBitsIgnoreComptime()) .end else .begin,
             .Packed => if (field_ptr_ty.ptrInfo().data.host_size == 0)
                 .{ .byte_offset = container_ty.packedStructFieldByteOffset(field_index, target) }
@@ -5389,11 +5403,8 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
     _ = try f.typeToIndex(struct_ty, .complete);
 
     const field_name: CValue = switch (struct_ty.tag()) {
-        .tuple, .anon_struct, .@"struct" => switch (struct_ty.containerLayout()) {
-            .Auto, .Extern => if (struct_ty.isSimpleTuple())
-                .{ .field = extra.field_index }
-            else
-                .{ .identifier = struct_ty.structFieldName(extra.field_index) },
+        .@"struct" => switch (struct_ty.containerLayout()) {
+            .Auto, .Extern => .{ .identifier = struct_ty.structFieldName(extra.field_index) },
             .Packed => {
                 const struct_obj = struct_ty.castTag(.@"struct").?.data;
                 const int_info = struct_ty.intInfo(target);
@@ -6809,10 +6820,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                 const a = try Assignment.start(f, writer, field_ty);
-                try f.writeCValueMember(writer, local, if (inst_ty.isSimpleTuple())
-                    .{ .field = field_i }
-                else
-                    .{ .identifier = inst_ty.structFieldName(field_i) });
+                try f.writeCValueMember(writer, local, .{ .identifier = inst_ty.structFieldName(field_i) });
                 try a.assign(f, writer);
                 try f.writeCValue(writer, element, .Other);
                 try a.end(f, writer);
@@ -7727,30 +7735,6 @@ const Vectorize = struct {
         }
     }
 };
-
-const LowerFnRetTyBuffer = struct {
-    names: [1][]const u8,
-    types: [1]Type,
-    values: [1]Value,
-    payload: Type.Payload.AnonStruct,
-};
-fn lowerFnRetTy(ret_ty: Type, buffer: *LowerFnRetTyBuffer, target: std.Target) Type {
-    if (ret_ty.zigTypeTag() == .NoReturn) return Type.initTag(.noreturn);
-
-    if (lowersToArray(ret_ty, target)) {
-        buffer.names = [1][]const u8{"array"};
-        buffer.types = [1]Type{ret_ty};
-        buffer.values = [1]Value{Value.initTag(.unreachable_value)};
-        buffer.payload = .{ .data = .{
-            .names = &buffer.names,
-            .types = &buffer.types,
-            .values = &buffer.values,
-        } };
-        return Type.initPayload(&buffer.payload.base);
-    }
-
-    return if (ret_ty.hasRuntimeBitsIgnoreComptime()) ret_ty else Type.void;
-}
 
 fn lowersToArray(ty: Type, target: std.Target) bool {
     return switch (ty.zigTypeTag()) {

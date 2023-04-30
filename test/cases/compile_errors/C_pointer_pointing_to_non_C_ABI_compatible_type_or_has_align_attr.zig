@@ -9,6 +9,5 @@ export fn a() void {
 // backend=stage2
 // target=native
 //
-// :3:19: error: C pointers cannot point to non-C-ABI-compatible type 'tmp.Foo'
+// :3:19: error: C pointers cannot point to non-C-ABI-compatible type 'struct {}'
 // :3:19: note: only extern structs and ABI sized packed structs are extern compatible
-// :1:13: note: struct declared here

@@ -1,1 +1,1 @@
-struct {}
+foo: struct {}

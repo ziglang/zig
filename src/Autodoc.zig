@@ -4634,7 +4634,7 @@ fn walkRef(
                     .expr = .{ .bool = false },
                 };
             },
-            .empty_struct => {
+            .empty_tuple => {
                 return DocData.WalkResult{ .expr = .{ .@"struct" = &.{} } };
             },
             .zero_usize => {

@@ -2131,7 +2131,7 @@ pub const Inst = struct {
         /// `false`
         bool_false,
         /// `.{}` (untyped)
-        empty_struct,
+        empty_tuple,
         /// `0` (usize)
         zero_usize,
         /// `1` (usize)
@@ -2438,8 +2438,8 @@ pub const Inst = struct {
                 .ty = Type.initTag(.bool),
                 .val = Value.initTag(.bool_false),
             },
-            .empty_struct = .{
-                .ty = Type.initTag(.empty_struct_literal),
+            .empty_tuple = .{
+                .ty = Type.initTag(.empty_tuple_literal),
                 .val = Value.initTag(.empty_struct_value),
             },
             .calling_convention_c = .{

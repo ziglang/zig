@@ -2013,66 +2013,6 @@ pub const Object = struct {
                     break :blk fwd_decl;
                 };
 
-                if (ty.isSimpleTupleOrAnonStruct()) {
-                    const tuple = ty.tupleFields();
-
-                    var di_fields: std.ArrayListUnmanaged(*llvm.DIType) = .{};
-                    defer di_fields.deinit(gpa);
-
-                    try di_fields.ensureUnusedCapacity(gpa, tuple.types.len);
-
-                    comptime assert(struct_layout_version == 2);
-                    var offset: u64 = 0;
-
-                    for (tuple.types, 0..) |field_ty, i| {
-                        const field_val = tuple.values[i];
-                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
-
-                        const field_size = field_ty.abiSize(target);
-                        const field_align = field_ty.abiAlignment(target);
-                        const field_offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-                        offset = field_offset + field_size;
-
-                        const field_name = if (ty.castTag(.anon_struct)) |payload|
-                            try gpa.dupeZ(u8, payload.data.names[i])
-                        else
-                            try std.fmt.allocPrintZ(gpa, "{d}", .{i});
-                        defer gpa.free(field_name);
-
-                        try di_fields.append(gpa, dib.createMemberType(
-                            fwd_decl.toScope(),
-                            field_name,
-                            null, // file
-                            0, // line
-                            field_size * 8, // size in bits
-                            field_align * 8, // align in bits
-                            field_offset * 8, // offset in bits
-                            0, // flags
-                            try o.lowerDebugType(field_ty, .full),
-                        ));
-                    }
-
-                    const full_di_ty = dib.createStructType(
-                        compile_unit_scope,
-                        name.ptr,
-                        null, // file
-                        0, // line
-                        ty.abiSize(target) * 8, // size in bits
-                        ty.abiAlignment(target) * 8, // align in bits
-                        0, // flags
-                        null, // derived from
-                        di_fields.items.ptr,
-                        @intCast(c_int, di_fields.items.len),
-                        0, // run time lang
-                        null, // vtable holder
-                        "", // unique id
-                    );
-                    dib.replaceTemporary(fwd_decl, full_di_ty);
-                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(full_di_ty), .{ .mod = o.module });
-                    return full_di_ty;
-                }
-
                 if (ty.castTag(.@"struct")) |payload| {
                     const struct_obj = payload.data;
                     if (!struct_obj.haveFieldTypes()) {
@@ -2102,6 +2042,8 @@ pub const Object = struct {
                     try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(struct_di_ty), .{ .mod = o.module });
                     return struct_di_ty;
                 }
+
+                // The struct has runtime bits, and therefore has fields, so uses the .@"struct" tag.
 
                 const fields = ty.structFields();
                 const layout = ty.containerLayout();
@@ -2948,55 +2890,12 @@ pub const DeclGen = struct {
                 // reference, we need to copy it here.
                 gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
-                if (t.isSimpleTupleOrAnonStruct()) {
-                    const tuple = t.tupleFields();
+                // Zero-bit structs may not use Type tag .@"struct". Only use this path for those
+                // other tags, since it doesn't name the struct and doesn't handle packed structs
+                if (t.tag() != .@"struct") {
+                    assert(!t.hasRuntimeBitsIgnoreComptime());
                     const llvm_struct_ty = dg.context.structCreateNamed("");
-                    gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
-
-                    var llvm_field_types: std.ArrayListUnmanaged(*llvm.Type) = .{};
-                    defer llvm_field_types.deinit(gpa);
-
-                    try llvm_field_types.ensureUnusedCapacity(gpa, tuple.types.len);
-
-                    comptime assert(struct_layout_version == 2);
-                    var offset: u64 = 0;
-                    var big_align: u32 = 0;
-
-                    for (tuple.types, 0..) |field_ty, i| {
-                        const field_val = tuple.values[i];
-                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
-
-                        const field_align = field_ty.abiAlignment(target);
-                        big_align = @max(big_align, field_align);
-                        const prev_offset = offset;
-                        offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-
-                        const padding_len = offset - prev_offset;
-                        if (padding_len > 0) {
-                            const llvm_array_ty = dg.context.intType(8).arrayType(@intCast(c_uint, padding_len));
-                            try llvm_field_types.append(gpa, llvm_array_ty);
-                        }
-                        const field_llvm_ty = try dg.lowerType(field_ty);
-                        try llvm_field_types.append(gpa, field_llvm_ty);
-
-                        offset += field_ty.abiSize(target);
-                    }
-                    {
-                        const prev_offset = offset;
-                        offset = std.mem.alignForwardGeneric(u64, offset, big_align);
-                        const padding_len = offset - prev_offset;
-                        if (padding_len > 0) {
-                            const llvm_array_ty = dg.context.intType(8).arrayType(@intCast(c_uint, padding_len));
-                            try llvm_field_types.append(gpa, llvm_array_ty);
-                        }
-                    }
-
-                    llvm_struct_ty.structSetBody(
-                        llvm_field_types.items.ptr,
-                        @intCast(c_uint, llvm_field_types.items.len),
-                        .False,
-                    );
-
+                    gop.value_ptr.* = llvm_struct_ty;
                     return llvm_struct_ty;
                 }
 
@@ -3647,68 +3546,11 @@ pub const DeclGen = struct {
                 const field_vals = tv.val.castTag(.aggregate).?.data;
                 const gpa = dg.gpa;
 
-                if (tv.ty.isSimpleTupleOrAnonStruct()) {
-                    const tuple = tv.ty.tupleFields();
-                    var llvm_fields: std.ArrayListUnmanaged(*llvm.Value) = .{};
-                    defer llvm_fields.deinit(gpa);
-
-                    try llvm_fields.ensureUnusedCapacity(gpa, tuple.types.len);
-
-                    comptime assert(struct_layout_version == 2);
-                    var offset: u64 = 0;
-                    var big_align: u32 = 0;
-                    var need_unnamed = false;
-
-                    for (tuple.types, 0..) |field_ty, i| {
-                        if (tuple.values[i].tag() != .unreachable_value) continue;
-                        if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
-
-                        const field_align = field_ty.abiAlignment(target);
-                        big_align = @max(big_align, field_align);
-                        const prev_offset = offset;
-                        offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-
-                        const padding_len = offset - prev_offset;
-                        if (padding_len > 0) {
-                            const llvm_array_ty = dg.context.intType(8).arrayType(@intCast(c_uint, padding_len));
-                            // TODO make this and all other padding elsewhere in debug
-                            // builds be 0xaa not undef.
-                            llvm_fields.appendAssumeCapacity(llvm_array_ty.getUndef());
-                        }
-
-                        const field_llvm_val = try dg.lowerValue(.{
-                            .ty = field_ty,
-                            .val = field_vals[i],
-                        });
-
-                        need_unnamed = need_unnamed or dg.isUnnamedType(field_ty, field_llvm_val);
-
-                        llvm_fields.appendAssumeCapacity(field_llvm_val);
-
-                        offset += field_ty.abiSize(target);
-                    }
-                    {
-                        const prev_offset = offset;
-                        offset = std.mem.alignForwardGeneric(u64, offset, big_align);
-                        const padding_len = offset - prev_offset;
-                        if (padding_len > 0) {
-                            const llvm_array_ty = dg.context.intType(8).arrayType(@intCast(c_uint, padding_len));
-                            llvm_fields.appendAssumeCapacity(llvm_array_ty.getUndef());
-                        }
-                    }
-
-                    if (need_unnamed) {
-                        return dg.context.constStruct(
-                            llvm_fields.items.ptr,
-                            @intCast(c_uint, llvm_fields.items.len),
-                            .False,
-                        );
-                    } else {
-                        return llvm_struct_ty.constNamedStruct(
-                            llvm_fields.items.ptr,
-                            @intCast(c_uint, llvm_fields.items.len),
-                        );
-                    }
+                // Zero-bit structs may not use Type tag .@"struct". Only use this path for those
+                // other tags, since it doesn't handle packed structs
+                if (tv.ty.tag() != .@"struct") {
+                    assert(!tv.ty.hasRuntimeBitsIgnoreComptime());
+                    return llvm_struct_ty.constNamedStruct(undefined, 0);
                 }
 
                 const struct_obj = tv.ty.castTag(.@"struct").?.data;
@@ -10423,38 +10265,9 @@ fn llvmFieldIndex(
     var offset: u64 = 0;
     var big_align: u32 = 0;
 
-    if (ty.isSimpleTupleOrAnonStruct()) {
-        const tuple = ty.tupleFields();
-        var llvm_field_index: c_uint = 0;
-        for (tuple.types, 0..) |field_ty, i| {
-            if (tuple.values[i].tag() != .unreachable_value or !field_ty.hasRuntimeBits()) continue;
+    // Zero-bit structs may not use Type tag .@"struct"
+    if (!ty.hasRuntimeBitsIgnoreComptime()) return null;
 
-            const field_align = field_ty.abiAlignment(target);
-            big_align = @max(big_align, field_align);
-            const prev_offset = offset;
-            offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-
-            const padding_len = offset - prev_offset;
-            if (padding_len > 0) {
-                llvm_field_index += 1;
-            }
-
-            if (field_index <= i) {
-                ptr_pl_buf.* = .{
-                    .data = .{
-                        .pointee_type = field_ty,
-                        .@"align" = field_align,
-                        .@"addrspace" = .generic,
-                    },
-                };
-                return llvm_field_index;
-            }
-
-            llvm_field_index += 1;
-            offset += field_ty.abiSize(target);
-        }
-        return null;
-    }
     const layout = ty.containerLayout();
     assert(layout != .Packed);
 
@@ -11034,18 +10847,6 @@ fn isByRef(ty: Type) bool {
         .Struct => {
             // Packed structs are represented to LLVM as integers.
             if (ty.containerLayout() == .Packed) return false;
-            if (ty.isSimpleTupleOrAnonStruct()) {
-                const tuple = ty.tupleFields();
-                var count: usize = 0;
-                for (tuple.values, 0..) |field_val, i| {
-                    if (field_val.tag() != .unreachable_value or !tuple.types[i].hasRuntimeBits()) continue;
-
-                    count += 1;
-                    if (count > max_fields_byval) return true;
-                    if (isByRef(tuple.types[i])) return true;
-                }
-                return false;
-            }
             var count: usize = 0;
             const fields = ty.structFields();
             for (fields.values()) |field| {

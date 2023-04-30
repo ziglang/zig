@@ -1572,7 +1572,7 @@ fn structInitExpr(
 
     if (struct_init.ast.type_expr == 0) {
         if (struct_init.ast.fields.len == 0) {
-            return rvalue(gz, ri, .empty_struct, node);
+            return rvalue(gz, ri, .empty_tuple, node);
         }
     } else array: {
         const node_tags = tree.nodes.items(.tag);
@@ -4485,7 +4485,7 @@ fn structDeclInner(
             .backing_int_body_len = 0,
             .known_non_opv = false,
             .known_comptime_only = false,
-            .is_tuple = false,
+            .is_tuple = true, // `struct {}` is a tuple
         });
         return indexToRef(decl_inst);
     }
@@ -4494,20 +4494,34 @@ fn structDeclInner(
     const gpa = astgen.gpa;
     const tree = astgen.tree;
 
-    var namespace: Scope.Namespace = .{
-        .parent = scope,
-        .node = node,
-        .inst = decl_inst,
-        .declaring_gz = gz,
+    const is_tuple = tuple: {
+        if (container_decl.ast.members.len == 0) break :tuple true; // `packed struct {}` is a tuple
+        for (container_decl.ast.members) |member_node| {
+            const container_field = tree.fullContainerField(member_node) orelse continue;
+            if (container_field.ast.tuple_like) break :tuple true;
+        }
+        break :tuple false;
     };
-    defer namespace.deinit(gpa);
+
+    var namespace: Scope.Namespace = ns: {
+        // Tuples don't introduce a new namespace
+        if (is_tuple) break :ns undefined;
+        break :ns .{
+            .parent = scope,
+            .node = node,
+            .inst = decl_inst,
+            .declaring_gz = gz,
+        };
+    };
+    defer if (!is_tuple) namespace.deinit(gpa);
+    const inner_scope = if (is_tuple) scope else &namespace.base;
 
     // The struct_decl instruction introduces a scope in which the decls of the struct
     // are in scope, so that field types, alignments, and default value expressions
     // can refer to decls within the struct itself.
     astgen.advanceSourceCursorToNode(node);
     var block_scope: GenZir = .{
-        .parent = &namespace.base,
+        .parent = inner_scope,
         .decl_node_index = node,
         .decl_line = gz.decl_line,
         .astgen = astgen,
@@ -4526,7 +4540,7 @@ fn structDeclInner(
             if (layout != .Packed) {
                 return astgen.failNode(backing_int_node, "non-packed struct does not support backing integer type", .{});
             } else {
-                const backing_int_ref = try typeExpr(&block_scope, &namespace.base, backing_int_node);
+                const backing_int_ref = try typeExpr(&block_scope, inner_scope, backing_int_node);
                 if (!block_scope.isEmpty()) {
                     if (!block_scope.endsWithNoReturn()) {
                         _ = try block_scope.addBreak(.break_inline, decl_inst, backing_int_ref);
@@ -4546,7 +4560,7 @@ fn structDeclInner(
         }
     };
 
-    const decl_count = try astgen.scanDecls(&namespace, container_decl.ast.members);
+    const decl_count = if (is_tuple) 0 else try astgen.scanDecls(&namespace, container_decl.ast.members);
     const field_count = @intCast(u32, container_decl.ast.members.len - decl_count);
 
     const bits_per_field = 4;
@@ -4567,21 +4581,13 @@ fn structDeclInner(
     // No defer needed here because it is handled by `wip_members.deinit()` above.
     const bodies_start = astgen.scratch.items.len;
 
-    var is_tuple = false;
     const node_tags = tree.nodes.items(.tag);
-    for (container_decl.ast.members) |member_node| {
-        const container_field = tree.fullContainerField(member_node) orelse continue;
-        is_tuple = container_field.ast.tuple_like;
-        if (is_tuple) break;
-    }
     if (is_tuple) for (container_decl.ast.members) |member_node| {
         switch (node_tags[member_node]) {
             .container_field_init,
             .container_field_align,
             .container_field,
-            .@"comptime",
-            .test_decl,
-            => continue,
+            => {},
             else => {
                 const tuple_member = for (container_decl.ast.members) |maybe_tuple| switch (node_tags[maybe_tuple]) {
                     .container_field_init,
@@ -4592,7 +4598,7 @@ fn structDeclInner(
                 } else unreachable;
                 return astgen.failNodeNotes(
                     member_node,
-                    "tuple declarations cannot contain declarations",
+                    "tuple declarations cannot contain declarations, comptime blocks, or tests",
                     .{},
                     &[_]u32{
                         try astgen.errNoteNode(tuple_member, "tuple field here", .{}),
@@ -4605,7 +4611,7 @@ fn structDeclInner(
     var known_non_opv = false;
     var known_comptime_only = false;
     for (container_decl.ast.members) |member_node| {
-        var member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
+        var member = switch (try containerMember(&block_scope, inner_scope, &wip_members, member_node)) {
             .decl => continue,
             .field => |field| field,
         };
@@ -4627,7 +4633,7 @@ fn structDeclInner(
             return astgen.failTok(member.ast.main_token, "struct field missing type", .{});
         }
 
-        const field_type = try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
+        const field_type = try typeExpr(&block_scope, inner_scope, member.ast.type_expr);
         const have_type_body = !block_scope.isEmpty();
         const have_align = member.ast.align_expr != 0;
         const have_value = member.ast.value_expr != 0;
@@ -4637,6 +4643,10 @@ fn structDeclInner(
             return astgen.failTok(member.comptime_token.?, "packed struct fields cannot be marked comptime", .{});
         } else if (is_comptime and layout == .Extern) {
             return astgen.failTok(member.comptime_token.?, "extern struct fields cannot be marked comptime", .{});
+        }
+
+        if (is_tuple and !is_comptime and have_value) {
+            return astgen.failTok(member.ast.main_token, "non-comptime tuple fields cannot have default values", .{});
         }
 
         if (!is_comptime) {
@@ -4665,7 +4675,7 @@ fn structDeclInner(
             if (layout == .Packed) {
                 try astgen.appendErrorNode(member.ast.align_expr, "unable to override alignment of packed struct fields", .{});
             }
-            const align_ref = try expr(&block_scope, &namespace.base, coerced_align_ri, member.ast.align_expr);
+            const align_ref = try expr(&block_scope, inner_scope, coerced_align_ri, member.ast.align_expr);
             if (!block_scope.endsWithNoReturn()) {
                 _ = try block_scope.addBreak(.break_inline, decl_inst, align_ref);
             }
@@ -4680,7 +4690,7 @@ fn structDeclInner(
         if (have_value) {
             const ri: ResultInfo = .{ .rl = if (field_type == .none) .none else .{ .coerced_ty = field_type } };
 
-            const default_inst = try expr(&block_scope, &namespace.base, ri, member.ast.value_expr);
+            const default_inst = try expr(&block_scope, inner_scope, ri, member.ast.value_expr);
             if (!block_scope.endsWithNoReturn()) {
                 _ = try block_scope.addBreak(.break_inline, decl_inst, default_inst);
             }
@@ -4719,7 +4729,7 @@ fn structDeclInner(
     astgen.extra.appendSliceAssumeCapacity(bodies_slice);
 
     block_scope.unstack();
-    try gz.addNamespaceCaptures(&namespace);
+    if (!is_tuple) try gz.addNamespaceCaptures(&namespace);
     return indexToRef(decl_inst);
 }
 

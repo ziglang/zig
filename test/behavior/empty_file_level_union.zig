@@ -1,1 +1,1 @@
-union {}
+foo: union {}
