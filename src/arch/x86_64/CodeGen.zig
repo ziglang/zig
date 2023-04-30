@@ -4298,7 +4298,7 @@ fn packedLoad(self: *Self, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) Inn
 
     const val_ty = ptr_info.pointee_type;
     const val_abi_size = @intCast(u32, val_ty.abiSize(self.target.*));
-    const limb_abi_size = @min(val_abi_size, 8);
+    const limb_abi_size: u32 = @min(val_abi_size, 8);
     const limb_abi_bits = limb_abi_size * 8;
     const val_byte_off = @intCast(i32, ptr_info.bit_offset / limb_abi_bits * limb_abi_size);
     const val_bit_off = ptr_info.bit_offset % limb_abi_bits;
@@ -4434,7 +4434,7 @@ fn packedStore(self: *Self, ptr_ty: Type, ptr_mcv: MCValue, src_mcv: MCValue) In
     const ptr_info = ptr_ty.ptrInfo().data;
     const src_ty = ptr_ty.childType();
 
-    const limb_abi_size = @min(ptr_info.host_size, 8);
+    const limb_abi_size: u16 = @min(ptr_info.host_size, 8);
     const limb_abi_bits = limb_abi_size * 8;
 
     const src_bit_size = src_ty.bitSize(self.target.*);
@@ -4652,7 +4652,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 }
 
                 const field_abi_size = @intCast(u32, field_ty.abiSize(self.target.*));
-                const limb_abi_size = @min(field_abi_size, 8);
+                const limb_abi_size: u32 = @min(field_abi_size, 8);
                 const limb_abi_bits = limb_abi_size * 8;
                 const field_byte_off = @intCast(i32, field_off / limb_abi_bits * limb_abi_size);
                 const field_bit_off = field_off % limb_abi_bits;
@@ -5875,7 +5875,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
         },
         .memory, .indirect, .load_got, .load_direct, .load_tlv, .load_frame => {
             const OpInfo = ?struct { addr_reg: Register, addr_lock: RegisterLock };
-            const limb_abi_size = @min(abi_size, 8);
+            const limb_abi_size: u32 = @min(abi_size, 8);
 
             const dst_info: OpInfo = switch (dst_mcv) {
                 else => unreachable,

@@ -7907,6 +7907,48 @@ fn typeOf(
     return rvalue(gz, ri, typeof_inst, node);
 }
 
+fn minMax(
+    gz: *GenZir,
+    scope: *Scope,
+    ri: ResultInfo,
+    node: Ast.Node.Index,
+    args: []const Ast.Node.Index,
+    comptime op: enum { min, max },
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    if (args.len < 2) {
+        return astgen.failNode(node, "expected at least 2 arguments, found 0", .{});
+    }
+    if (args.len == 2) {
+        const tag: Zir.Inst.Tag = switch (op) {
+            .min => .min,
+            .max => .max,
+        };
+        const a = try expr(gz, scope, .{ .rl = .none }, args[0]);
+        const b = try expr(gz, scope, .{ .rl = .none }, args[1]);
+        const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{
+            .lhs = a,
+            .rhs = b,
+        });
+        return rvalue(gz, ri, result, node);
+    }
+    const payload_index = try addExtra(astgen, Zir.Inst.NodeMultiOp{
+        .src_node = gz.nodeIndexToRelative(node),
+    });
+    var extra_index = try reserveExtra(gz.astgen, args.len);
+    for (args) |arg| {
+        const arg_ref = try expr(gz, scope, .{ .rl = .none }, arg);
+        astgen.extra.items[extra_index] = @enumToInt(arg_ref);
+        extra_index += 1;
+    }
+    const tag: Zir.Inst.Extended = switch (op) {
+        .min => .min_multi,
+        .max => .max_multi,
+    };
+    const result = try gz.addExtendedMultiOpPayloadIndex(tag, payload_index, args.len);
+    return rvalue(gz, ri, result, node);
+}
+
 fn builtinCall(
     gz: *GenZir,
     scope: *Scope,
@@ -7997,6 +8039,8 @@ fn builtinCall(
         .TypeOf     => return typeOf(   gz, scope, ri, node, params),
         .union_init => return unionInit(gz, scope, ri, node, params),
         .c_import   => return cImport(  gz, scope,     node, params[0]),
+        .min        => return minMax(   gz, scope, ri, node, params, .min),
+        .max        => return minMax(   gz, scope, ri, node, params, .max),
         // zig fmt: on
 
         .@"export" => {
@@ -8354,25 +8398,6 @@ fn builtinCall(
             const result = try gz.addPlNode(.reduce, node, Zir.Inst.Bin{
                 .lhs = op,
                 .rhs = scalar,
-            });
-            return rvalue(gz, ri, result, node);
-        },
-
-        .max => {
-            const a = try expr(gz, scope, .{ .rl = .none }, params[0]);
-            const b = try expr(gz, scope, .{ .rl = .none }, params[1]);
-            const result = try gz.addPlNode(.max, node, Zir.Inst.Bin{
-                .lhs = a,
-                .rhs = b,
-            });
-            return rvalue(gz, ri, result, node);
-        },
-        .min => {
-            const a = try expr(gz, scope, .{ .rl = .none }, params[0]);
-            const b = try expr(gz, scope, .{ .rl = .none }, params[1]);
-            const result = try gz.addPlNode(.min, node, Zir.Inst.Bin{
-                .lhs = a,
-                .rhs = b,
             });
             return rvalue(gz, ri, result, node);
         },

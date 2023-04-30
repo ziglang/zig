@@ -482,6 +482,8 @@ const Writer = struct {
 
             .compile_log => try self.writeNodeMultiOp(stream, extended),
             .typeof_peer => try self.writeTypeofPeer(stream, extended),
+            .min_multi => try self.writeNodeMultiOp(stream, extended),
+            .max_multi => try self.writeNodeMultiOp(stream, extended),
 
             .select => try self.writeSelect(stream, extended),
 
