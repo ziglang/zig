@@ -24,7 +24,9 @@ const ObjCopyStep = std.Build.ObjCopyStep;
 const CheckObjectStep = std.Build.CheckObjectStep;
 const RunStep = std.Build.RunStep;
 const OptionsStep = std.Build.OptionsStep;
+const InstallConfigHeaderOptions = Module.InstallConfigHeaderOptions;
 const ConfigHeaderStep = std.Build.ConfigHeaderStep;
+const CSourceFile = std.Build.CSourceFile;
 const LinkObject = Module.LinkObject;
 const FrameworkLinkInfo = Module.FrameworkLinkInfo;
 const CompileStep = @This();
@@ -417,7 +419,7 @@ pub fn setLinkerScriptPath(self: *CompileStep, source: FileSource) void {
 }
 
 pub fn forceUndefinedSymbol(self: *CompileStep, symbol_name: []const u8) void {
-    const b = self.owner;
+    const b = self.step.owner;
     self.force_undefined_symbols.put(b.dupe(symbol_name), {}) catch @panic("OOM");
 }
 
@@ -632,6 +634,192 @@ pub fn setExecCmd(self: *CompileStep, args: []const ?[]const u8) void {
         duped_args[i] = if (arg) |a| b.dupe(a) else null;
     }
     self.exec_cmd_args = duped_args;
+}
+
+pub fn addOptions(self: *CompileStep, name: []const u8, options: *OptionsStep) void {
+    self.main_module.addOptions(name, options);
+}
+
+pub fn linkLibC(self: *CompileStep) void {
+    self.main_module.linkLibC();
+}
+
+pub fn linkLibCpp(self: *CompileStep) void {
+    self.main_module.linkLibCpp();
+}
+
+/// This one has no integration with anything, it just puts -lname on the command line.
+/// Prefer to use `linkSystemLibrary` instead.
+pub fn linkSystemLibraryName(self: *CompileStep, name: []const u8) void {
+    self.main_module.linkSystemLibraryName(name);
+}
+
+/// This one has no integration with anything, it just puts -needed-lname on the command line.
+/// Prefer to use `linkSystemLibraryNeeded` instead.
+pub fn linkSystemLibraryNeededName(self: *CompileStep, name: []const u8) void {
+    self.main_module.linkSystemLibraryNeededName(name);
+}
+
+/// Darwin-only. This one has no integration with anything, it just puts -weak-lname on the
+/// command line. Prefer to use `linkSystemLibraryWeak` instead.
+pub fn linkSystemLibraryWeakName(self: *CompileStep, name: []const u8) void {
+    self.main_module.linkSystemLibraryWeakName(name);
+}
+
+/// This links against a system library, exclusively using pkg-config to find the library.
+/// Prefer to use `linkSystemLibrary` instead.
+pub fn linkSystemLibraryPkgConfigOnly(self: *CompileStep, lib_name: []const u8) void {
+    self.main_module.linkSystemLibraryPkgConfigOnly(lib_name);
+}
+
+/// This links against a system library, exclusively using pkg-config to find the library.
+/// Prefer to use `linkSystemLibraryNeeded` instead.
+pub fn linkSystemLibraryNeededPkgConfigOnly(self: *CompileStep, lib_name: []const u8) void {
+    self.main_module.linkSystemLibraryNeededPkgConfigOnly(lib_name);
+}
+
+/// Handy when you have many C/C++ source files and want them all to have the same flags.
+pub fn addCSourceFiles(self: *CompileStep, files: []const []const u8, flags: []const []const u8) void {
+    self.main_module.addCSourceFiles(files, flags);
+}
+
+pub fn addCSourceFile(self: *CompileStep, file: []const u8, flags: []const []const u8) void {
+    self.main_module.addCSourceFile(file, flags);
+}
+
+pub fn addCSourceFileSource(self: *CompileStep, source: CSourceFile) void {
+    self.main_module.addCSourceFileSource(source);
+}
+
+pub fn installHeader(self: *CompileStep, src_path: []const u8, dest_rel_path: []const u8) void {
+    self.main_module.installHeader(src_path, dest_rel_path);
+}
+
+pub fn installConfigHeader(
+    self: *CompileStep,
+    config_header: *ConfigHeaderStep,
+    options: InstallConfigHeaderOptions,
+) void {
+    self.main_module.installConfigHeader(config_header, options);
+}
+
+pub fn installHeadersDirectory(
+    self: *CompileStep,
+    src_dir_path: []const u8,
+    dest_rel_path: []const u8,
+) void {
+    self.main_module.installHeadersDirectory(src_dir_path, dest_rel_path);
+}
+
+pub fn installHeadersDirectoryOptions(
+    self: *CompileStep,
+    options: std.Build.InstallDirStep.Options,
+) void {
+    self.main_module.installHeadersDirectoryOptions(options);
+}
+
+pub fn installLibraryHeaders(self: *CompileStep, l: *CompileStep) void {
+    self.main_module.installLibraryHeaders(l);
+}
+
+/// If the value is omitted, it is set to 1.
+/// `name` and `value` need not live longer than the function call.
+pub fn defineCMacro(self: *CompileStep, name: []const u8, value: ?[]const u8) void {
+    self.main_module.defineCMacro(name, value);
+}
+
+/// name_and_value looks like [name]=[value]. If the value is omitted, it is set to 1.
+pub fn defineCMacroRaw(self: *CompileStep, name_and_value: []const u8) void {
+    self.main_module.defineCMacroRaw(name_and_value);
+}
+
+pub fn linkLibrary(self: *CompileStep, lib: *CompileStep) void {
+    self.main_module.linkLibrary(lib);
+}
+
+pub fn addAssemblyFile(self: *CompileStep, path: []const u8) void {
+    self.main_module.addAssemblyFile(path);
+}
+
+pub fn addAssemblyFileSource(self: *CompileStep, source: FileSource) void {
+    self.main_module.addAssemblyFileSource(source);
+}
+
+pub fn addObjectFile(self: *CompileStep, source_file: []const u8) void {
+    self.main_module.addObjectFile(source_file);
+}
+
+pub fn addObjectFileSource(self: *CompileStep, source: FileSource) void {
+    self.main_module.addObjectFileSource(source);
+}
+
+pub fn addObject(self: *CompileStep, obj: *CompileStep) void {
+    self.main_module.addObject(obj);
+}
+
+pub fn linkSystemLibrary(self: *CompileStep, name: []const u8) void {
+    self.main_module.linkSystemLibrary(name);
+}
+
+pub fn linkSystemLibraryNeeded(self: *CompileStep, name: []const u8) void {
+    self.main_module.linkSystemLibraryNeeded(name);
+}
+
+pub fn linkSystemLibraryWeak(self: *CompileStep, name: []const u8) void {
+    self.main_module.linkSystemLibraryWeak(name);
+}
+
+/// Returns whether the module depends on a particular system library.
+pub fn dependsOnSystemLibrary(self: CompileStep, name: []const u8) bool {
+    self.main_module.dependsOnSystemLibrary(name);
+}
+
+pub fn linkFramework(self: *CompileStep, framework_name: []const u8) void {
+    self.main_module.linkFramework(framework_name);
+}
+
+pub fn linkFrameworkNeeded(self: *CompileStep, framework_name: []const u8) void {
+    self.main_module.linkFrameworkNeeded(framework_name);
+}
+
+pub fn linkFrameworkWeak(self: *CompileStep, framework_name: []const u8) void {
+    self.main_module.linkFrameworkWeak(framework_name);
+}
+
+pub fn addSystemIncludePath(self: *CompileStep, path: []const u8) void {
+    self.main_module.addSystemIncludePath(path);
+}
+
+pub fn addIncludePath(self: *CompileStep, path: []const u8) void {
+    self.main_module.addIncludePath(path);
+}
+
+pub fn addConfigHeader(self: *CompileStep, config_header: *ConfigHeaderStep) void {
+    self.main_module.addConfigHeader(config_header);
+}
+
+pub fn addLibraryPath(self: *CompileStep, path: []const u8) void {
+    self.main_module.addLibraryPath(path);
+}
+
+pub fn addLibraryPathDirectorySource(self: *CompileStep, directory_source: FileSource) void {
+    self.main_module.addLibraryPathDirectorySource(directory_source);
+}
+
+pub fn addRPath(self: *CompileStep, path: []const u8) void {
+    self.main_module.addRPath(path);
+}
+
+pub fn addRPathDirectorySource(self: *CompileStep, directory_source: FileSource) void {
+    self.main_module.addRPathDirectorySource(directory_source);
+}
+
+pub fn addFrameworkPath(self: *CompileStep, dir_path: []const u8) void {
+    self.main_module.addFrameworkPath(dir_path);
+}
+
+pub fn addFrameworkPathDirectorySource(self: *CompileStep, directory_source: FileSource) void {
+    self.main_module.addFrameworkPathDirectorySource(directory_source);
 }
 
 pub fn appendModuleArgs(

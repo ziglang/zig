@@ -1,5 +1,5 @@
 test "enum" {
-    const E = enum(u8) {A, B, _};
+    const E = enum(u8) { A, B, _ };
     _ = @tagName(@intToEnum(E, 5));
 }
 

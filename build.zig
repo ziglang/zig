@@ -35,9 +35,13 @@ pub fn build(b: *std.Build) !void {
     const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse deprecated_skip_install_lib_files;
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
 
+    const docgen_module = b.createModule(.{
+        .source_file = .{ .path = "doc/docgen.zig" },
+    });
+
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
-        .root_source_file = .{ .path = "doc/docgen.zig" },
+        .main_module = docgen_module,
         .target = .{},
         .optimize = .Debug,
     });
@@ -64,9 +68,12 @@ pub fn build(b: *std.Build) !void {
     legacy_write_to_cache.addCopyFileToSource(langref_file, "zig-cache/langref.html");
     docs_step.dependOn(&legacy_write_to_cache.step);
 
+    const check_case_mod = b.createModule(.{
+        .source_file = .{ .path = "test/src/Cases.zig" },
+    });
     const check_case_exe = b.addExecutable(.{
         .name = "check-case",
-        .root_source_file = .{ .path = "test/src/Cases.zig" },
+        .main_module = check_case_mod,
         .optimize = optimize,
     });
     check_case_exe.main_pkg_path = ".";
@@ -537,9 +544,12 @@ fn addCompilerStep(
     optimize: std.builtin.OptimizeMode,
     target: std.zig.CrossTarget,
 ) *std.Build.CompileStep {
+    const exe_mod = b.createModule(.{
+        .source_file = .{ .path = "src/main.zig" },
+    });
     const exe = b.addExecutable(.{
         .name = "zig",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .main_module = exe_mod,
         .target = target,
         .optimize = optimize,
     });

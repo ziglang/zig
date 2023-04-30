@@ -15,7 +15,9 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const obj = b.addObject(.{
         .name = "main",
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "main.zig" },
+        }),
         .optimize = optimize,
         .target = .{},
     });

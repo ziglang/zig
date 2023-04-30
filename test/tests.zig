@@ -540,9 +540,12 @@ pub fn addStackTraceTests(
     test_filter: ?[]const u8,
     optimize_modes: []const OptimizeMode,
 ) *Step {
+    const check_mod = b.createModule(.{
+        .source_file = .{ .path = "test/src/check-stack-trace.zig" },
+    });
     const check_exe = b.addExecutable(.{
         .name = "check-stack-trace",
-        .root_source_file = .{ .path = "test/src/check-stack-trace.zig" },
+        .main_module = check_mod,
         .target = .{},
         .optimize = .Debug,
     });
@@ -579,10 +582,14 @@ pub fn addStandaloneTests(
                 if (os_tag != builtin.os.tag) continue;
             }
 
+            const mod = b.createModule(.{
+                .source_file = .{ .path = case.src_path },
+            });
+
             if (case.is_exe) {
                 const exe = b.addExecutable(.{
                     .name = std.fs.path.stem(case.src_path),
-                    .root_source_file = .{ .path = case.src_path },
+                    .main_module = mod,
                     .optimize = optimize,
                     .target = case.target,
                 });
@@ -594,7 +601,7 @@ pub fn addStandaloneTests(
             if (case.is_test) {
                 const exe = b.addTest(.{
                     .name = std.fs.path.stem(case.src_path),
-                    .root_source_file = .{ .path = case.src_path },
+                    .main_module = mod,
                     .optimize = optimize,
                     .target = case.target,
                 });
@@ -983,8 +990,11 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         else
             options.max_rss;
 
+        const these_tests_mod = b.createModule(.{
+            .source_file = .{ .path = options.root_src },
+        });
         const these_tests = b.addTest(.{
-            .root_source_file = .{ .path = options.root_src },
+            .main_module = these_tests_mod,
             .optimize = test_target.optimize_mode,
             .target = test_target.target,
             .max_rss = max_rss,
@@ -1020,13 +1030,8 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             var altered_target = test_target.target;
             altered_target.ofmt = null;
 
-            const compile_c = b.addExecutable(.{
-                .name = qualified_name,
-                .link_libc = test_target.link_libc,
-                .target = altered_target,
-            });
-            compile_c.overrideZigLibDir("lib");
-            compile_c.addCSourceFileSource(.{
+            const compile_c_mod = b.createModule(.{});
+            compile_c_mod.addCSourceFileSource(.{
                 .source = these_tests.getOutputSource(),
                 .args = &.{
                     // TODO output -std=c89 compatible C code
@@ -1043,6 +1048,14 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                     "-Wno-absolute-value",
                 },
             });
+
+            const compile_c = b.addExecutable(.{
+                .name = qualified_name,
+                .main_module = compile_c_mod,
+                .link_libc = test_target.link_libc,
+                .target = altered_target,
+            });
+            compile_c.overrideZigLibDir("lib");
             compile_c.addIncludePath("lib"); // for zig.h
             if (test_target.link_libc == false and test_target.target.getOsTag() == .windows) {
                 compile_c.subsystem = .Console;
@@ -1085,8 +1098,11 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
 
             const triple_prefix = c_abi_target.zigTriple(b.allocator) catch @panic("OOM");
 
+            const test_mod = b.createModule(.{
+                .source_file = .{ .path = "test/c_abi/main.zig" },
+            });
             const test_step = b.addTest(.{
-                .root_source_file = .{ .path = "test/c_abi/main.zig" },
+                .main_module = test_mod,
                 .optimize = optimize_mode,
                 .target = c_abi_target,
                 .name = b.fmt("test-c-abi-{s}-{s}", .{

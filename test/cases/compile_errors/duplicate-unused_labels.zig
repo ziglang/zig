@@ -1,20 +1,26 @@
 comptime {
-    blk: { blk: while (false) {} }
+    blk: {
+        blk: while (false) {}
+    }
 }
 comptime {
-    blk: while (false) { blk: for (@as([0]void, undefined)) |_| {} }
+    blk: while (false) {
+        blk: for (@as([0]void, undefined)) |_| {}
+    }
 }
 comptime {
-    blk: for (@as([0]void, undefined)) |_| { blk: {} }
+    blk: for (@as([0]void, undefined)) |_| {
+        blk: {}
+    }
 }
 comptime {
     blk: {}
 }
 comptime {
-    blk: while(false) {}
+    blk: while (false) {}
 }
 comptime {
-    blk: for(@as([0]void, undefined)) |_| {}
+    blk: for (@as([0]void, undefined)) |_| {}
 }
 
 // error

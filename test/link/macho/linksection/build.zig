@@ -17,7 +17,9 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const obj = b.addObject(.{
         .name = "test",
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "main.zig" },
+        }),
         .optimize = optimize,
         .target = target,
     });

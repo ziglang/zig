@@ -11,24 +11,39 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
+    const lib_a_module = b.createModule(.{
+        .c_source_files = .{
+            .files = &.{"a.c"},
+            .flags = &.{},
+        },
+    });
     const lib_a = b.addStaticLibrary(.{
         .name = "a",
+        .main_module = lib_a_module,
         .optimize = optimize,
         .target = .{},
     });
-    lib_a.addCSourceFile("a.c", &[_][]const u8{});
     lib_a.addIncludePath(".");
 
+    const lib_b_module = b.createModule(.{
+        .c_source_files = .{
+            .files = &.{"b.c"},
+            .flags = &.{},
+        },
+    });
     const lib_b = b.addStaticLibrary(.{
         .name = "b",
+        .main_module = lib_b_module,
         .optimize = optimize,
         .target = .{},
     });
-    lib_b.addCSourceFile("b.c", &[_][]const u8{});
     lib_b.addIncludePath(".");
 
+    const test_mod = b.createModule(.{
+        .source_file = .{ .path = "main.zig" },
+    });
     const test_exe = b.addTest(.{
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = test_mod,
         .optimize = optimize,
     });
     test_exe.linkLibrary(lib_a);

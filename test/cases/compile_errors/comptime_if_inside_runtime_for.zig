@@ -1,9 +1,9 @@
 export fn entry() void {
-	var x: u32 = 0;
-	for(0..1, 1..2) |_, _| {
-		var y = x + if(x == 0) 1 else 0;
-		_ = y;
-	}
+    var x: u32 = 0;
+    for (0..1, 1..2) |_, _| {
+        var y = x + if (x == 0) 1 else 0;
+        _ = y;
+    }
 }
 
 // error

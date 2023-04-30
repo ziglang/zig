@@ -15,8 +15,10 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
+    const lib_mod = b.createModule(.{});
     const lib = b.addSharedLibrary(.{
         .name = "a",
+        .main_module = lib_mod,
         .version = .{ .major = 1, .minor = 0 },
         .optimize = optimize,
         .target = target,
@@ -24,8 +26,11 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     lib.addCSourceFile("a.c", &.{});
     lib.linkLibC();
 
+    const test_mod = b.createModule(.{
+        .source_file = .{ .path = "main.zig" },
+    });
     const test_exe = b.addTest(.{
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = test_mod,
         .optimize = optimize,
         .target = target,
     });

@@ -4,7 +4,7 @@ const Foo = union {
 };
 export fn f() void {
     var x: u8 = 0;
-    const foo = Foo { .Bar = x };
+    const foo = Foo{ .Bar = x };
     _ = foo;
 }
 

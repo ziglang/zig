@@ -13,16 +13,24 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
+    const lib_mod = b.createModule(.{
+        .c_source_files = .{
+            .files = &.{"main.c"},
+            .flags = &.{},
+        },
+    });
     const lib = b.addStaticLibrary(.{
         .name = "main",
+        .main_module = lib_mod,
         .optimize = optimize,
         .target = .{ .os_tag = .macos },
     });
-    lib.addCSourceFile("main.c", &.{});
     lib.linkLibC();
 
+    const exe_mod = b.createModule(.{});
     const exe = b.addExecutable(.{
         .name = "main",
+        .main_module = exe_mod,
         .optimize = optimize,
         .target = .{ .os_tag = .macos },
     });

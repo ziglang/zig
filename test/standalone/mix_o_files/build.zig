@@ -7,15 +7,19 @@ pub fn build(b: *std.Build) void {
     const optimize: std.builtin.OptimizeMode = .Debug;
     const target: std.zig.CrossTarget = .{};
 
+    const obj_mod = b.createModule(.{
+        .source_file = .{ .path = "base64.zig" },
+    });
     const obj = b.addObject(.{
         .name = "base64",
-        .root_source_file = .{ .path = "base64.zig" },
+        .main_module = obj_mod,
         .optimize = optimize,
         .target = target,
     });
 
     const exe = b.addExecutable(.{
         .name = "test",
+        .main_module = b.createModule(.{}),
         .optimize = optimize,
         .target = target,
     });

@@ -1,6 +1,7 @@
 export fn b() void {
-    for (0..10) |i, j| {
-        _ = i; _ = j;
+    for (0..10, 0..) |i, j| {
+        _ = i;
+        _ = j;
     }
 }
 

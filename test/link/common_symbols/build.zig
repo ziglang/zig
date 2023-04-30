@@ -11,15 +11,22 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
+    const lib_a_mod = b.createModule(.{ .c_source_files = .{
+        .files = &.{ "c.c", "a.c", "b.c" },
+        .flags = &.{"-fcommon"},
+    } });
     const lib_a = b.addStaticLibrary(.{
         .name = "a",
+        .main_module = lib_a_mod,
         .optimize = optimize,
         .target = .{},
     });
-    lib_a.addCSourceFiles(&.{ "c.c", "a.c", "b.c" }, &.{"-fcommon"});
 
+    const test_mod = b.createModule(.{
+        .source_file = .{ .path = "main.zig" },
+    });
     const test_exe = b.addTest(.{
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = test_mod,
         .optimize = optimize,
     });
     test_exe.linkLibrary(lib_a);

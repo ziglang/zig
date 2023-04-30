@@ -4,9 +4,12 @@ pub const requires_stage2 = true;
 
 pub fn build(b: *std.Build) void {
     // Library with explicitly set cpu features
+    const mod = b.createModule(.{
+        .source_file = .{ .path = "main.zig" },
+    });
     const lib = b.addSharedLibrary(.{
         .name = "lib",
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = mod,
         .optimize = .Debug,
         .target = .{
             .cpu_arch = .wasm32,

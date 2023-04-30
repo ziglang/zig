@@ -5,7 +5,9 @@ fn foo(x: u1) void {
         else => {},
     }
 }
-export fn entry() usize { return @sizeOf(@TypeOf(&foo)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(&foo));
+}
 
 // error
 // backend=stage2

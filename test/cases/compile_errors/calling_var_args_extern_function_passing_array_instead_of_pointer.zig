@@ -1,5 +1,7 @@
 export fn entry() void {
-    foo("hello".*,);
+    foo(
+        "hello".*,
+    );
 }
 pub extern fn foo(format: *const u8, ...) void;
 

@@ -18,7 +18,9 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "main.zig" },
+        }),
         .optimize = optimize,
     });
     exe.addCSourceFile("test.c", &[_][]const u8{"-std=c11"});

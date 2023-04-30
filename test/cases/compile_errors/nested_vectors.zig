@@ -10,4 +10,3 @@ export fn entry() void {
 // target=native
 //
 // :3:16: error: expected integer, float, bool, or pointer for the vector element type; found '@Vector(4, u8)'
-

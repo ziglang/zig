@@ -74,9 +74,12 @@ fn addExpect(
 
     const src_basename = "source.zig";
     const write_src = b.addWriteFile(src_basename, source);
+    const mod = b.createModule(.{
+        .source_file = write_src.getFileSource(src_basename).?,
+    });
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = write_src.getFileSource(src_basename).?,
+        .main_module = mod,
         .optimize = optimize_mode,
         .target = .{},
     });

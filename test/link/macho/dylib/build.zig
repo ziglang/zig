@@ -15,13 +15,19 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
+    const dylib_mod = b.createModule(.{
+        .c_source_files = .{
+            .files = &.{"a.c"},
+            .flags = &.{},
+        },
+    });
     const dylib = b.addSharedLibrary(.{
         .name = "a",
         .version = .{ .major = 1, .minor = 0 },
+        .main_module = dylib_mod,
         .optimize = optimize,
         .target = target,
     });
-    dylib.addCSourceFile("a.c", &.{});
     dylib.linkLibC();
 
     const check_dylib = dylib.checkObject();
@@ -33,12 +39,18 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     test_step.dependOn(&check_dylib.step);
 
+    const exe_mod = b.createModule(.{
+        .c_source_files = .{
+            .files = &.{"main.c"},
+            .flags = &.{},
+        },
+    });
     const exe = b.addExecutable(.{
         .name = "main",
+        .main_module = exe_mod,
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile("main.c", &.{});
     exe.linkSystemLibrary("a");
     exe.addLibraryPathDirectorySource(dylib.getOutputDirectorySource());
     exe.addRPathDirectorySource(dylib.getOutputDirectorySource());

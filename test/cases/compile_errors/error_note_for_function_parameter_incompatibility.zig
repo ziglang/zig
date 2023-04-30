@@ -1,5 +1,9 @@
-fn do_the_thing(func: *const fn (arg: i32) void) void { _ = func; }
-fn bar(arg: bool) void { _ = arg; }
+fn do_the_thing(func: *const fn (arg: i32) void) void {
+    _ = func;
+}
+fn bar(arg: bool) void {
+    _ = arg;
+}
 export fn entry() void {
     do_the_thing(bar);
 }

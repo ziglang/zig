@@ -19,16 +19,22 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const sdk = std.zig.system.darwin.getDarwinSDK(b.allocator, target_info.target) orelse
         @panic("macOS SDK is required to run the test");
 
+    const exe_mod = b.createModule(.{
+        .c_source_files = .{
+            .files = &.{"test.cpp"},
+            .flags = &.{
+                "-nostdlib++",
+                "-nostdinc++",
+            },
+        },
+    });
     const exe = b.addExecutable(.{
         .name = "test",
+        .main_module = exe_mod,
         .optimize = optimize,
     });
     exe.addSystemIncludePath(std.fs.path.join(b.allocator, &.{ sdk.path, "/usr/include" }) catch unreachable);
     exe.addIncludePath(std.fs.path.join(b.allocator, &.{ sdk.path, "/usr/include/c++/v1" }) catch unreachable);
-    exe.addCSourceFile("test.cpp", &.{
-        "-nostdlib++",
-        "-nostdinc++",
-    });
     exe.addObjectFile(std.fs.path.join(b.allocator, &.{ sdk.path, "/usr/lib/libc++.tbd" }) catch unreachable);
 
     const run_cmd = b.addRunArtifact(exe);

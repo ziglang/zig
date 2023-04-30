@@ -2,7 +2,10 @@ const Foo = struct {
     a: i32,
     b: i32,
 };
-const foo = Foo { .a = 1, .b = 2, };
+const foo = Foo{
+    .a = 1,
+    .b = 2,
+};
 
 comptime {
     const field_ptr = @intToPtr(*i32, 0x1234);

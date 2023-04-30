@@ -6,9 +6,12 @@ pub fn build(b: *std.Build) void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
     const target: std.zig.CrossTarget = .{};
+    const lib_mod = b.createModule(.{
+        .source_file = .{ .path = "mathtest.zig" },
+    });
     const lib = b.addSharedLibrary(.{
         .name = "mathtest",
-        .root_source_file = .{ .path = "mathtest.zig" },
+        .main_module = lib_mod,
         .version = .{ .major = 1, .minor = 0 },
         .target = target,
         .optimize = optimize,
@@ -16,6 +19,7 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "test",
+        .main_module = b.createModule(.{}),
         .target = target,
         .optimize = optimize,
     });

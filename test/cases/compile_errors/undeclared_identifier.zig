@@ -1,7 +1,6 @@
 export fn a() void {
-    return
-    b +
-    c;
+    return b +
+        c;
 }
 
 // error

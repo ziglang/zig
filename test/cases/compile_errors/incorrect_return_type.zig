@@ -1,18 +1,18 @@
- pub export fn entry() void{
-     _ = foo();
- }
- const A = struct {
-     a: u32,
- };
- fn foo() A {
-     return bar();
- }
- const B = struct {
-     a: u32,
- };
- fn bar() B {
-     unreachable;
- }
+pub export fn entry() void {
+    _ = foo();
+}
+const A = struct {
+    a: u32,
+};
+fn foo() A {
+    return bar();
+}
+const B = struct {
+    a: u32,
+};
+fn bar() B {
+    unreachable;
+}
 
 // error
 // backend=stage2

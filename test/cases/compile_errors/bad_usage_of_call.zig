@@ -19,7 +19,7 @@ pub export fn entry() void {
     @call(.always_inline, call_me, .{});
 }
 fn foo() void {}
-fn bar() callconv(.Inline) void {}
+inline fn bar() void {}
 fn baz1() void {}
 fn baz2() void {}
 
@@ -33,4 +33,3 @@ fn baz2() void {}
 // :11:5: error: no-inline call of inline function
 // :15:26: error: modifier 'compile_time' requires a comptime-known function
 // :19:27: error: modifier 'always_inline' requires a comptime-known function
-

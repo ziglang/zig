@@ -16,6 +16,7 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const exe = b.addExecutable(.{
         .name = "test",
+        .main_module = b.createModule(.{}),
         .optimize = optimize,
     });
     exe.addCSourceFile("main.c", &[0][]const u8{});

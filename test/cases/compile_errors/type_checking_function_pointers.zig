@@ -1,7 +1,9 @@
 fn a(b: *const fn (*const u8) void) void {
     _ = b;
 }
-fn c(d: u8) void {_ = d;}
+fn c(d: u8) void {
+    _ = d;
+}
 export fn entry() void {
     a(c);
 }

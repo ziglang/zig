@@ -9,20 +9,26 @@ pub fn build(b: *std.Build) void {
 
     const obj1 = b.addStaticLibrary(.{
         .name = "obj1",
-        .root_source_file = .{ .path = "obj1.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "obj1.zig" },
+        }),
         .optimize = optimize,
         .target = target,
     });
 
     const obj2 = b.addStaticLibrary(.{
         .name = "obj2",
-        .root_source_file = .{ .path = "obj2.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "obj2.zig" },
+        }),
         .optimize = optimize,
         .target = target,
     });
 
     const main = b.addTest(.{
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "main.zig" },
+        }),
         .optimize = optimize,
     });
     main.linkLibrary(obj1);

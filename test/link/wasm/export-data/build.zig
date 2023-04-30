@@ -9,9 +9,12 @@ pub fn build(b: *std.Build) void {
         return;
     }
 
+    const mod = b.createModule(.{
+        .source_file = .{ .path = "lib.zig" },
+    });
     const lib = b.addSharedLibrary(.{
         .name = "lib",
-        .root_source_file = .{ .path = "lib.zig" },
+        .main_module = mod,
         .optimize = .ReleaseSafe, // to make the output deterministic in address positions
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
     });

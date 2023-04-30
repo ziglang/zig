@@ -13,12 +13,18 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
+    const mod = b.createModule(.{
+        .c_source_files = .{
+            .files = &.{"main.c"},
+            .flags = &.{},
+        },
+    });
     const exe = b.addExecutable(.{
         .name = "main",
+        .main_module = mod,
         .optimize = optimize,
         .target = .{ .os_tag = .macos },
     });
-    exe.addCSourceFile("main.c", &.{});
     exe.linkLibC();
     exe.entry_symbol_name = "_non_main";
 

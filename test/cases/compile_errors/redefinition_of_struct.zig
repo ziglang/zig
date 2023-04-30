@@ -1,5 +1,9 @@
-const A = struct { x : i32, };
-const A = struct { y : i32, };
+const A = struct {
+    x: i32,
+};
+const A = struct {
+    y: i32,
+};
 
 // error
 // backend=stage2

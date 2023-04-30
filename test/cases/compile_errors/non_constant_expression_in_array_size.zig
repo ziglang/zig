@@ -2,9 +2,13 @@ const Foo = struct {
     y: [get()]u8,
 };
 var global_var: usize = 1;
-fn get() usize { return global_var; }
+fn get() usize {
+    return global_var;
+}
 
-export fn entry() usize { return @offsetOf(Foo, "y"); }
+export fn entry() usize {
+    return @offsetOf(Foo, "y");
+}
 
 // error
 // backend=stage2

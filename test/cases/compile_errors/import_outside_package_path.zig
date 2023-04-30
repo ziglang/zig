@@ -1,4 +1,4 @@
-comptime{
+comptime {
     _ = @import("../a.zig");
 }
 

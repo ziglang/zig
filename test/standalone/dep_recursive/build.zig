@@ -13,10 +13,14 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = .{ .path = "test.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "test.zig" },
+            .dependencies = &.{
+                .{ .name = "foo", .module = foo },
+            },
+        }),
         .optimize = optimize,
     });
-    exe.addModule("foo", foo);
 
     const run = b.addRunArtifact(exe);
     test_step.dependOn(&run.step);

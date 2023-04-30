@@ -15,13 +15,18 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
+    const mod = b.createModule(.{
+        .c_source_files = .{
+            .files = &.{ "main.c", "empty.c" },
+            .flags = &.{},
+        },
+    });
     const exe = b.addExecutable(.{
         .name = "test",
+        .main_module = mod,
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile("main.c", &[0][]const u8{});
-    exe.addCSourceFile("empty.c", &[0][]const u8{});
     exe.linkLibC();
 
     const run_cmd = b.addRunArtifact(exe);

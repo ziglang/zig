@@ -1,4 +1,6 @@
-test "example" { return 1; }
+test "example" {
+    return 1;
+}
 
 // error
 // backend=stage2

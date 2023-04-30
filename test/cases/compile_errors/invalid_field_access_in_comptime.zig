@@ -1,4 +1,7 @@
-comptime { var x = doesnt_exist.whatever; _ = x; }
+comptime {
+    var x = doesnt_exist.whatever;
+    _ = x;
+}
 
 // error
 // backend=stage2

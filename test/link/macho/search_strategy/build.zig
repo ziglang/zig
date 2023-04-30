@@ -49,6 +49,7 @@ fn createScenario(
 ) *std.Build.CompileStep {
     const static = b.addStaticLibrary(.{
         .name = name,
+        .main_module = b.createModule(.{}),
         .optimize = optimize,
         .target = target,
     });
@@ -60,6 +61,7 @@ fn createScenario(
 
     const dylib = b.addSharedLibrary(.{
         .name = name,
+        .main_module = b.createModule(.{}),
         .version = .{ .major = 1, .minor = 0 },
         .optimize = optimize,
         .target = target,
@@ -72,6 +74,7 @@ fn createScenario(
 
     const exe = b.addExecutable(.{
         .name = name,
+        .main_module = b.createModule(.{}),
         .optimize = optimize,
         .target = target,
     });

@@ -12,13 +12,16 @@ pub fn build(b: *std.Build) void {
     const optimize: std.builtin.OptimizeMode = .Debug;
     const obj = b.addObject(.{
         .name = "issue_5825",
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "main.zig" },
+        }),
         .optimize = optimize,
         .target = target,
     });
 
     const exe = b.addExecutable(.{
         .name = "issue_5825",
+        .main_module = b.createModule(.{}),
         .optimize = optimize,
         .target = target,
     });

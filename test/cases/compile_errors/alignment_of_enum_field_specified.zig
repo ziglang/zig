@@ -1,7 +1,4 @@
-const Number = enum {
-    a,
-    b align(i32),
-};
+const Number = enum { a, b align(i32) };
 export fn entry1() void {
     var x: Number = undefined;
     _ = x;

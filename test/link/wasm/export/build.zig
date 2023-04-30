@@ -13,18 +13,24 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
+    const no_export_mod = b.createModule(.{
+        .source_file = .{ .path = "main.zig" },
+    });
     const no_export = b.addSharedLibrary(.{
         .name = "no-export",
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = no_export_mod,
         .optimize = optimize,
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
     });
     no_export.use_llvm = false;
     no_export.use_lld = false;
 
+    const dynamic_export_mod = b.createModule(.{
+        .source_file = .{ .path = "main.zig" },
+    });
     const dynamic_export = b.addSharedLibrary(.{
         .name = "dynamic",
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = dynamic_export_mod,
         .optimize = optimize,
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
     });
@@ -32,9 +38,12 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     dynamic_export.use_llvm = false;
     dynamic_export.use_lld = false;
 
+    const force_export_mod = b.createModule(.{
+        .source_file = .{ .path = "main.zig" },
+    });
     const force_export = b.addSharedLibrary(.{
         .name = "force",
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = force_export_mod,
         .optimize = optimize,
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
     });

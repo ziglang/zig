@@ -1,8 +1,8 @@
 export fn a() void {
     comptime {
-      var x = @as(i32, 1);
-      x <<|= @as(i32, -2);
-  }
+        var x = @as(i32, 1);
+        x <<|= @as(i32, -2);
+    }
 }
 
 // error

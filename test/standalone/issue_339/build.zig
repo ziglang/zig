@@ -9,7 +9,9 @@ pub fn build(b: *std.Build) void {
 
     const obj = b.addObject(.{
         .name = "test",
-        .root_source_file = .{ .path = "test.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "test.zig" },
+        }),
         .target = target,
         .optimize = optimize,
     });

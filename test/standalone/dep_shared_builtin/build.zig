@@ -6,13 +6,18 @@ pub fn build(b: *std.Build) void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
 
+    const foo = b.createModule(.{
+        .source_file = .{ .path = "foo.zig" },
+    });
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = .{ .path = "test.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "test.zig" },
+            .dependencies = &.{
+                .{ .name = "foo", .module = foo },
+            },
+        }),
         .optimize = optimize,
-    });
-    exe.addAnonymousModule("foo", .{
-        .source_file = .{ .path = "foo.zig" },
     });
 
     const run = b.addRunArtifact(exe);

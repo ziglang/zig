@@ -1,5 +1,7 @@
 export fn foo() void {
-    defer {1;}
+    defer {
+        1;
+    }
 }
 
 // error

@@ -1,11 +1,11 @@
 const Foo = struct { i: i32 };
 const Bar = struct { j: i32 };
 
-pub fn helper(_: Foo, _: Bar) void { }
+pub fn helper(_: Foo, _: Bar) void {}
 
 comptime {
-    helper(Bar { .j = 10 }, Bar { .j = 10 });
-    helper(Bar { .i = 10 }, Bar { .j = 10 });
+    helper(Bar{ .j = 10 }, Bar{ .j = 10 });
+    helper(Bar{ .i = 10 }, Bar{ .j = 10 });
 }
 
 // error

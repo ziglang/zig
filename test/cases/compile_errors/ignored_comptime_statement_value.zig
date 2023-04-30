@@ -1,5 +1,7 @@
 export fn foo() void {
-    comptime {1;}
+    comptime {
+        1;
+    }
 }
 
 // error

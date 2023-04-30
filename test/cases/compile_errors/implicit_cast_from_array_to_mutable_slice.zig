@@ -1,5 +1,7 @@
 var global_array: [10]i32 = undefined;
-fn foo(param: []i32) void {_ = param;}
+fn foo(param: []i32) void {
+    _ = param;
+}
 export fn entry() void {
     foo(global_array);
 }

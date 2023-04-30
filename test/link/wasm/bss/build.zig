@@ -14,9 +14,12 @@ pub fn build(b: *std.Build) void {
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.OptimizeMode, is_safe: bool) void {
     {
+        const lib_mod = b.createModule(.{
+            .source_file = .{ .path = "lib.zig" },
+        });
         const lib = b.addSharedLibrary(.{
             .name = "lib",
-            .root_source_file = .{ .path = "lib.zig" },
+            .main_module = lib_mod,
             .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
             .optimize = optimize_mode,
         });
@@ -57,9 +60,12 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
 
     // verify zero'd declaration is stored in bss for all optimization modes.
     {
+        const lib_mod = b.createModule(.{
+            .source_file = .{ .path = "lib2.zig" },
+        });
         const lib = b.addSharedLibrary(.{
             .name = "lib",
-            .root_source_file = .{ .path = "lib2.zig" },
+            .main_module = lib_mod,
             .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
             .optimize = optimize_mode,
         });

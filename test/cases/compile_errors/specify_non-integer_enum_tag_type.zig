@@ -1,4 +1,4 @@
-const Small = enum (f32) {
+const Small = enum(f32) {
     One,
     Two,
     Three,

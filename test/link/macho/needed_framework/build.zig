@@ -16,11 +16,17 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     // -dead_strip_dylibs
     // -needed_framework Cocoa
+    const exe_mod = b.createModule(.{
+        .c_source_files = .{
+            .files = &.{"main.c"},
+            .flags = &.{},
+        },
+    });
     const exe = b.addExecutable(.{
         .name = "test",
+        .main_module = exe_mod,
         .optimize = optimize,
     });
-    exe.addCSourceFile("main.c", &[0][]const u8{});
     exe.linkLibC();
     exe.linkFrameworkNeeded("Cocoa");
     exe.dead_strip_dylibs = true;

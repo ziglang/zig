@@ -10,12 +10,18 @@ pub fn build(b: *std.Build) void {
     const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     {
+        const mod = b.createModule(.{
+            .c_source_files = .{
+                .files = &.{"main.c"},
+                .flags = &.{},
+            },
+        });
         const exe = b.addExecutable(.{
             .name = "pagezero",
+            .main_module = mod,
             .optimize = optimize,
             .target = target,
         });
-        exe.addCSourceFile("main.c", &.{});
         exe.linkLibC();
         exe.pagezero_size = 0x4000;
 
@@ -32,12 +38,18 @@ pub fn build(b: *std.Build) void {
     }
 
     {
+        const mod = b.createModule(.{
+            .c_source_files = .{
+                .files = &.{"main.c"},
+                .flags = &.{},
+            },
+        });
         const exe = b.addExecutable(.{
             .name = "no_pagezero",
+            .main_module = mod,
             .optimize = optimize,
             .target = target,
         });
-        exe.addCSourceFile("main.c", &.{});
         exe.linkLibC();
         exe.pagezero_size = 0;
 

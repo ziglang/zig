@@ -13,9 +13,12 @@ pub fn build(b: *std.Build) !void {
         },
     };
 
+    const mod = b.createModule(.{
+        .source_file = .{ .path = "./main.zig" },
+    });
     const kernel = b.addExecutable(.{
         .name = "kernel",
-        .root_source_file = .{ .path = "./main.zig" },
+        .main_module = mod,
         .optimize = optimize,
         .target = target,
     });

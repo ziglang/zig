@@ -1,5 +1,5 @@
-const Set1 = error{A, B};
-const Set2 = error{A, C};
+const Set1 = error{ A, B };
+const Set2 = error{ A, C };
 export fn entry() void {
     foo(Set1.B);
 }

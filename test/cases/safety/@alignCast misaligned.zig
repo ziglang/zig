@@ -9,7 +9,7 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 }
 
 pub fn main() !void {
-    var array align(4) = [_]u32{0x11111111, 0x11111111};
+    var array align(4) = [_]u32{ 0x11111111, 0x11111111 };
     const bytes = std.mem.sliceAsBytes(array[0..]);
     if (foo(bytes) != 0x11111111) return error.Wrong;
     return error.TestFailed;

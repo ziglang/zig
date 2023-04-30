@@ -13,9 +13,12 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
+    const import_mod = b.createModule(.{
+        .source_file = .{ .path = "lib.zig" },
+    });
     const import_table = b.addSharedLibrary(.{
         .name = "import_table",
-        .root_source_file = .{ .path = "lib.zig" },
+        .main_module = import_mod,
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
         .optimize = optimize,
     });
@@ -23,9 +26,12 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     import_table.use_lld = false;
     import_table.import_table = true;
 
+    const export_mod = b.createModule(.{
+        .source_file = .{ .path = "lib.zig" },
+    });
     const export_table = b.addSharedLibrary(.{
         .name = "export_table",
-        .root_source_file = .{ .path = "lib.zig" },
+        .main_module = export_mod,
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
         .optimize = optimize,
     });
@@ -33,9 +39,12 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     export_table.use_lld = false;
     export_table.export_table = true;
 
+    const regular_mod = b.createModule(.{
+        .source_file = .{ .path = "lib.zig" },
+    });
     const regular_table = b.addSharedLibrary(.{
         .name = "regular_table",
-        .root_source_file = .{ .path = "lib.zig" },
+        .main_module = regular_mod,
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
         .optimize = optimize,
     });

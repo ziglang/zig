@@ -6,8 +6,11 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test the program");
     b.default_step = test_step;
 
+    const mod = b.createModule(.{
+        .source_file = .{ .path = "test.zig" },
+    });
     const test_exe = b.addTest(.{
-        .root_source_file = .{ .path = "test.zig" },
+        .main_module = mod,
     });
     test_exe.test_runner = "test_runner.zig";
 

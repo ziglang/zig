@@ -1,7 +1,11 @@
 const x = 3;
 const y = &x;
-fn foo() *const i32 { return y; }
-export fn entry() usize { return @sizeOf(@TypeOf(&foo)); }
+fn foo() *const i32 {
+    return y;
+}
+export fn entry() usize {
+    return @sizeOf(@TypeOf(&foo));
+}
 
 // error
 // backend=stage2

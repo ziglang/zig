@@ -16,6 +16,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const exe_c = b.addExecutable(.{
         .name = "test_c",
+        .main_module = b.createModule(.{}),
         .optimize = optimize,
         .target = target,
     });
@@ -24,6 +25,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const exe_cpp = b.addExecutable(.{
         .name = "test_cpp",
+        .main_module = b.createModule(.{}),
         .optimize = optimize,
         .target = target,
     });

@@ -8,6 +8,7 @@ pub fn build(b: *std.Build) void {
 
     const foo = b.addStaticLibrary(.{
         .name = "foo",
+        .main_module = b.createModule(.{}),
         .optimize = optimize,
         .target = .{},
     });
@@ -15,7 +16,9 @@ pub fn build(b: *std.Build) void {
     foo.addIncludePath(".");
 
     const test_exe = b.addTest(.{
-        .root_source_file = .{ .path = "foo.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "foo.zig" },
+        }),
         .optimize = optimize,
     });
     test_exe.linkLibrary(foo);

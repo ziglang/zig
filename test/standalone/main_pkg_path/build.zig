@@ -5,7 +5,9 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const test_exe = b.addTest(.{
-        .root_source_file = .{ .path = "a/test.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "a/test.zig" },
+        }),
     });
     test_exe.setMainPkgPath(".");
 

@@ -1,5 +1,7 @@
 const Foo = enum { A, B, C };
-export fn entry(foo: Foo) void { _ = foo; }
+export fn entry(foo: Foo) void {
+    _ = foo;
+}
 
 // error
 // backend=stage2

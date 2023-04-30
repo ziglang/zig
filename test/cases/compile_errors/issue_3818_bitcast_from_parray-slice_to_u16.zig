@@ -1,10 +1,10 @@
 export fn foo1() void {
-    var bytes = [_]u8{1, 2};
+    var bytes = [_]u8{ 1, 2 };
     const word: u16 = @bitCast(u16, bytes[0..]);
     _ = word;
 }
 export fn foo2() void {
-    var bytes: []const u8 = &[_]u8{1, 2};
+    var bytes: []const u8 = &[_]u8{ 1, 2 };
     const word: u16 = @bitCast(u16, bytes);
     _ = word;
 }

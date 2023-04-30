@@ -12,7 +12,9 @@ pub fn build(b: *std.Build) void {
 
     const lib = b.addSharedLibrary(.{
         .name = "add",
-        .root_source_file = .{ .path = "add.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "add.zig" },
+        }),
         .version = .{ .major = 1, .minor = 0 },
         .optimize = optimize,
         .target = target,
@@ -20,7 +22,9 @@ pub fn build(b: *std.Build) void {
 
     const main = b.addExecutable(.{
         .name = "main",
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "main.zig" },
+        }),
         .optimize = optimize,
         .target = target,
     });

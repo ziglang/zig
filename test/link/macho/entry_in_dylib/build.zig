@@ -13,21 +13,33 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
+    const lib_mod = b.createModule(.{
+        .c_source_files = .{
+            .files = &.{"bootstrap.c"},
+            .flags = &.{},
+        },
+    });
     const lib = b.addSharedLibrary(.{
         .name = "bootstrap",
+        .main_module = lib_mod,
         .optimize = optimize,
         .target = .{ .os_tag = .macos },
     });
-    lib.addCSourceFile("bootstrap.c", &.{});
     lib.linkLibC();
     lib.linker_allow_shlib_undefined = true;
 
+    const exe_mod = b.createModule(.{
+        .c_source_files = .{
+            .files = &.{"main.c"},
+            .flags = &.{},
+        },
+    });
     const exe = b.addExecutable(.{
         .name = "main",
+        .main_module = exe_mod,
         .optimize = optimize,
         .target = .{ .os_tag = .macos },
     });
-    exe.addCSourceFile("main.c", &.{});
     exe.linkLibrary(lib);
     exe.linkLibC();
     exe.entry_symbol_name = "_bootstrap";

@@ -2,7 +2,10 @@ const Foo = struct {
     a: i32,
     b: i32,
 };
-const foo = Foo { .a = 1, .b = 2, };
+const foo = Foo{
+    .a = 1,
+    .b = 2,
+};
 
 comptime {
     const another_foo_ptr = @fieldParentPtr(Foo, "b", &foo.a);

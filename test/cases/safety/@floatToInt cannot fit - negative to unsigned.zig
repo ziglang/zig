@@ -14,7 +14,7 @@ pub fn main() !void {
 fn bar(a: f32) u8 {
     return @floatToInt(u8, a);
 }
-fn baz(_: u8) void { }
+fn baz(_: u8) void {}
 // run
 // backend=llvm
 // target=native

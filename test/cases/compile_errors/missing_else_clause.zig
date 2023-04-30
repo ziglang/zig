@@ -1,9 +1,13 @@
 fn f(b: bool) void {
-    const x : i32 = if (b) h: { break :h 1; };
+    const x: i32 = if (b) h: {
+        break :h 1;
+    };
     _ = x;
 }
 fn g(b: bool) void {
-    const y = if (b) h: { break :h @as(i32, 1); };
+    const y = if (b) h: {
+        break :h @as(i32, 1);
+    };
     _ = y;
 }
 fn h() void {

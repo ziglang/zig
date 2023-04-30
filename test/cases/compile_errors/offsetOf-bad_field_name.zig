@@ -2,7 +2,10 @@ const Foo = struct {
     derp: i32,
 };
 export fn foo() usize {
-    return @offsetOf(Foo, "a",);
+    return @offsetOf(
+        Foo,
+        "a",
+    );
 }
 
 // error

@@ -480,7 +480,7 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *CompileStep {
 
 pub const ObjectOptions = struct {
     name: []const u8,
-    root_source_file: ?FileSource = null,
+    main_module: *Module,
     target: CrossTarget,
     optimize: std.builtin.Mode,
     max_rss: usize = 0,
@@ -493,7 +493,7 @@ pub const ObjectOptions = struct {
 pub fn addObject(b: *Build, options: ObjectOptions) *CompileStep {
     return CompileStep.create(b, .{
         .name = options.name,
-        .root_source_file = options.root_source_file,
+        .main_module = options.main_module,
         .target = options.target,
         .optimize = options.optimize,
         .kind = .obj,
@@ -567,7 +567,7 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *CompileStep {
 
 pub const TestOptions = struct {
     name: []const u8 = "test",
-    root_source_file: FileSource,
+    main_module: *Module,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
     version: ?std.builtin.Version = null,
@@ -584,7 +584,7 @@ pub fn addTest(b: *Build, options: TestOptions) *CompileStep {
     return CompileStep.create(b, .{
         .name = options.name,
         .kind = .@"test",
-        .root_source_file = options.root_source_file,
+        .main_module = options.main_module,
         .target = options.target,
         .optimize = options.optimize,
         .max_rss = options.max_rss,

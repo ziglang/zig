@@ -96,6 +96,7 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
 
             const exe = b.addExecutable(.{
                 .name = "test",
+                .main_module = b.createModule(.{}),
                 .target = .{},
                 .optimize = .Debug,
             });
@@ -120,7 +121,9 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
                 const basename = case.sources.items[0].filename;
                 const exe = b.addExecutable(.{
                     .name = "test",
-                    .root_source_file = write_src.getFileSource(basename).?,
+                    .main_module = b.createModule(.{
+                        .source_file = write_src.getFileSource(basename).?,
+                    }),
                     .optimize = optimize,
                     .target = .{},
                 });
@@ -147,7 +150,9 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
             const basename = case.sources.items[0].filename;
             const exe = b.addExecutable(.{
                 .name = "test",
-                .root_source_file = write_src.getFileSource(basename).?,
+                .main_module = b.createModule(.{
+                    .source_file = write_src.getFileSource(basename).?,
+                }),
                 .target = .{},
                 .optimize = .Debug,
             });

@@ -1,6 +1,7 @@
-fn f(a : i32, a : i32) void {
+fn f(a: i32, a: i32) void {}
+export fn entry() void {
+    f(1, 2);
 }
-export fn entry() void { f(1, 2); }
 
 // error
 // backend=stage2

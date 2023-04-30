@@ -4,7 +4,7 @@ const Payload = union {
     C: bool,
 };
 export fn entry() void {
-    const a = Payload { .A = 1234 };
+    const a = Payload{ .A = 1234 };
     foo(&a);
 }
 fn foo(a: *const Payload) void {

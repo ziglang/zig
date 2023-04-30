@@ -1,5 +1,7 @@
 export fn entry() void {
-    _ = @Type(@typeInfo(struct { const foo = 1; }));
+    _ = @Type(@typeInfo(struct {
+        const foo = 1;
+    }));
 }
 
 // error

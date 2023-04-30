@@ -1,5 +1,5 @@
 comptime {
-    const z: ?fn()!void = null;
+    const z: ?fn () !void = null;
 }
 
 // error

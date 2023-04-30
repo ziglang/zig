@@ -1,10 +1,17 @@
 export fn foo() void {
-    comptime bar(12, "hi",);
+    comptime bar(
+        12,
+        "hi",
+    );
 }
 fn bar(a: i32, b: []const u8) void {
-    @compileLog("begin",);
+    @compileLog(
+        "begin",
+    );
     @compileLog("a", a, "b", b);
-    @compileLog("end",);
+    @compileLog(
+        "end",
+    );
 }
 export fn baz() void {
     const S = struct { a: u32 };

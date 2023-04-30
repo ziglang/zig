@@ -1,5 +1,5 @@
-const Set1 = error {A, B};
-const Set2 = error {A, C};
+const Set1 = error{ A, B };
+const Set2 = error{ A, C };
 comptime {
     var x = Set1.B;
     var y = @errSetCast(Set2, x);

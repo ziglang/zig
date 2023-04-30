@@ -4,8 +4,14 @@ pub const requires_stage2 = true;
 
 pub fn build(b: *std.Build) void {
     // Wasm Object file which we will use to infer the features from
+    const c_obj_mod = b.createModule(.{ .c_source_files = .{
+        .files = &.{"foo.c"},
+        .flags = &.{},
+    } });
+
     const c_obj = b.addObject(.{
         .name = "c_obj",
+        .main_module = c_obj_mod,
         .optimize = .Debug,
         .target = .{
             .cpu_arch = .wasm32,
@@ -13,13 +19,15 @@ pub fn build(b: *std.Build) void {
             .os_tag = .freestanding,
         },
     });
-    c_obj.addCSourceFile("foo.c", &.{});
 
     // Wasm library that doesn't have any features specified. This will
     // infer its featureset from other linked object files.
+    const mod = b.createModule(.{
+        .source_file = .{ .path = "main.zig" },
+    });
     const lib = b.addSharedLibrary(.{
         .name = "lib",
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = mod,
         .optimize = .Debug,
         .target = .{
             .cpu_arch = .wasm32,

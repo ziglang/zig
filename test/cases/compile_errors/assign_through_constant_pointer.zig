@@ -1,6 +1,6 @@
 export fn f() void {
-  var cstr = "Hat";
-  cstr[0] = 'W';
+    var cstr = "Hat";
+    cstr[0] = 'W';
 }
 
 // error

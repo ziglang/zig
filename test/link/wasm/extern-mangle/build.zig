@@ -11,9 +11,12 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
+    const lib_mod = b.createModule(.{
+        .source_file = .{ .path = "lib.zig" },
+    });
     const lib = b.addSharedLibrary(.{
         .name = "lib",
-        .root_source_file = .{ .path = "lib.zig" },
+        .main_module = lib_mod,
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
         .optimize = optimize,
     });

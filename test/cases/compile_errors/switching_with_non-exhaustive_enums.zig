@@ -22,7 +22,7 @@ pub export fn entry2() void {
     }
 }
 pub export fn entry3() void {
-    var u = U{.a = 2};
+    var u = U{ .a = 2 };
     switch (u) { // error: `_` prong not allowed when switching on tagged union
         .a => {},
         .b => {},

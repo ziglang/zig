@@ -11,7 +11,9 @@ fn foo(comptime T: type, x: T) u8 {
         else => 3,
     };
 }
-export fn entry() usize { return @sizeOf(@TypeOf(foo(u32, 0))); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(foo(u32, 0)));
+}
 
 // error
 // backend=stage2

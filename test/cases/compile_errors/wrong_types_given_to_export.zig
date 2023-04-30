@@ -1,6 +1,6 @@
-fn entry() callconv(.C) void { }
+fn entry() callconv(.C) void {}
 comptime {
-    @export(entry, .{.name = "entry", .linkage = @as(u32, 1234) });
+    @export(entry, .{ .name = "entry", .linkage = @as(u32, 1234) });
 }
 
 // error

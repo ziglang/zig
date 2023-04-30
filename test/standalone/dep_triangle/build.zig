@@ -10,16 +10,22 @@ pub fn build(b: *std.Build) void {
         .source_file = .{ .path = "shared.zig" },
     });
 
-    const exe = b.addExecutable(.{
-        .name = "test",
-        .root_source_file = .{ .path = "test.zig" },
-        .optimize = optimize,
-    });
-    exe.addAnonymousModule("foo", .{
+    const foo_mod = b.createModule(.{
         .source_file = .{ .path = "foo.zig" },
         .dependencies = &.{.{ .name = "shared", .module = shared }},
     });
-    exe.addModule("shared", shared);
+
+    const exe = b.addExecutable(.{
+        .name = "test",
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "test.zig" },
+            .dependencies = &.{
+                .{ .name = "foo", .module = foo_mod },
+                .{ .name = "shared", .module = shared },
+            },
+        }),
+        .optimize = optimize,
+    });
 
     const run = b.addRunArtifact(exe);
     test_step.dependOn(&run.step);

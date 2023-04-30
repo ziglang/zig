@@ -14,14 +14,19 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
+    const mod = b.createModule(.{
+        .c_source_files = .{
+            .files = &.{ "Foo.mm", "test.mm" },
+            .flags = &.{},
+        },
+    });
     const exe = b.addExecutable(.{
         .name = "test",
+        .main_module = mod,
         .optimize = optimize,
     });
     b.default_step.dependOn(&exe.step);
     exe.addIncludePath(".");
-    exe.addCSourceFile("Foo.mm", &[0][]const u8{});
-    exe.addCSourceFile("test.mm", &[0][]const u8{});
     exe.linkLibCpp();
     // TODO when we figure out how to ship framework stubs for cross-compilation,
     // populate paths to the sysroot here.

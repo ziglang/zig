@@ -1,5 +1,7 @@
-const x : u8 = 300;
-export fn entry() usize { return @sizeOf(@TypeOf(x)); }
+const x: u8 = 300;
+export fn entry() usize {
+    return @sizeOf(@TypeOf(x));
+}
 
 // error
 // backend=stage2

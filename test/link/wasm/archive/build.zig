@@ -15,9 +15,12 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     // The code in question will pull-in compiler-rt,
     // and therefore link with its archive file.
+    const lib_mod = b.createModule(.{
+        .source_file = .{ .path = "main.zig" },
+    });
     const lib = b.addSharedLibrary(.{
         .name = "main",
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = lib_mod,
         .optimize = optimize,
         .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
     });

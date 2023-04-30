@@ -9,19 +9,25 @@ pub fn build(b: *std.Build) void {
     const shared = b.createModule(.{
         .source_file = .{ .path = "shared.zig" },
     });
-
-    const exe = b.addExecutable(.{
-        .name = "test",
-        .root_source_file = .{ .path = "test.zig" },
-        .optimize = optimize,
-    });
-    exe.addAnonymousModule("foo", .{
+    const foo = b.createModule(.{
         .source_file = .{ .path = "foo.zig" },
         .dependencies = &.{.{ .name = "shared", .module = shared }},
     });
-    exe.addAnonymousModule("bar", .{
+    const bar = b.createModule(.{
         .source_file = .{ .path = "bar.zig" },
         .dependencies = &.{.{ .name = "shared", .module = shared }},
+    });
+
+    const exe = b.addExecutable(.{
+        .name = "test",
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "test.zig" },
+            .dependencies = &.{
+                .{ .name = "foo", .module = foo },
+                .{ .name = "bar", .module = bar },
+            },
+        }),
+        .optimize = optimize,
     });
 
     const run = b.addRunArtifact(exe);

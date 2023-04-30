@@ -43,12 +43,18 @@ fn createScenario(
     target: std.zig.CrossTarget,
     name: []const u8,
 ) *std.Build.CompileStep {
+    const mod = b.createModule(.{
+        .c_source_files = .{
+            .files = &.{"main.c"},
+            .flags = &.{},
+        },
+    });
     const exe = b.addExecutable(.{
         .name = name,
+        .main_module = mod,
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile("main.c", &[0][]const u8{});
     exe.linkLibC();
     return exe;
 }

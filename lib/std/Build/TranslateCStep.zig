@@ -57,8 +57,11 @@ pub const AddExecutableOptions = struct {
 
 /// Creates a step to build an executable from the translated source.
 pub fn addExecutable(self: *TranslateCStep, options: AddExecutableOptions) *CompileStep {
+    const output_module = self.step.owner.createModule(.{
+        .source_file = .{ .generated = &self.output_file },
+    });
     return self.step.owner.addExecutable(.{
-        .root_source_file = .{ .generated = &self.output_file },
+        .main_module = output_module,
         .name = options.name orelse "translated_c",
         .version = options.version,
         .target = options.target orelse self.target,

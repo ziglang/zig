@@ -49,6 +49,7 @@ fn createScenario(
 ) *std.Build.CompileStep {
     const exe = b.addExecutable(.{
         .name = name,
+        .main_module = b.createModule(.{}),
         .optimize = optimize,
     });
     exe.addCSourceFile("main.c", &[0][]const u8{});

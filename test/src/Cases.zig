@@ -484,28 +484,44 @@ pub fn lowerToBuildSteps(
         for (update.files.items) |file| {
             writefiles.add(file.path, file.src);
         }
+
+        var deps = std.ArrayList(std.Build.ModuleDependency).init(b.allocator);
+        deps.ensureUnusedCapacity(case.deps.items.len) catch @panic("OOM");
+        for (case.deps.items) |dep| {
+            deps.appendAssumeCapacity(.{
+                .name = dep.name,
+                .module = b.createModule(.{
+                    .source_file = writefiles.getFileSource(dep.path).?,
+                }),
+            });
+        }
+
         const root_source_file = writefiles.getFileSource(update.files.items[0].path).?;
+        const main_mod = b.createModule(.{
+            .source_file = root_source_file,
+            .dependencies = deps.items,
+        });
 
         const artifact = if (case.is_test) b.addTest(.{
-            .root_source_file = root_source_file,
+            .main_module = main_mod,
             .name = case.name,
             .target = case.target,
             .optimize = case.optimize_mode,
         }) else switch (case.output_mode) {
             .Obj => b.addObject(.{
-                .root_source_file = root_source_file,
+                .main_module = main_mod,
                 .name = case.name,
                 .target = case.target,
                 .optimize = case.optimize_mode,
             }),
             .Lib => b.addStaticLibrary(.{
-                .root_source_file = root_source_file,
+                .main_module = main_mod,
                 .name = case.name,
                 .target = case.target,
                 .optimize = case.optimize_mode,
             }),
             .Exe => b.addExecutable(.{
-                .root_source_file = root_source_file,
+                .main_module = main_mod,
                 .name = case.name,
                 .target = case.target,
                 .optimize = case.optimize_mode,
@@ -523,12 +539,6 @@ pub fn lowerToBuildSteps(
             .llvm => {
                 artifact.use_llvm = true;
             },
-        }
-
-        for (case.deps.items) |dep| {
-            artifact.addAnonymousModule(dep.name, .{
-                .source_file = writefiles.getFileSource(dep.path).?,
-            });
         }
 
         switch (update.case) {

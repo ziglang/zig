@@ -1,13 +1,15 @@
 export fn a() void {
     for (0..10, 10..21) |i, j| {
-        _ = i; _ = j;
+        _ = i;
+        _ = j;
     }
 }
 export fn b() void {
     const s1 = "hello";
     const s2 = true;
     for (s1, s2) |i, j| {
-        _ = i; _ = j;
+        _ = i;
+        _ = j;
     }
 }
 export fn c() void {
@@ -20,7 +22,9 @@ export fn d() void {
     const x: [*]const u8 = "hello";
     const y: [*]const u8 = "world";
     for (x, 0.., y) |x1, x2, x3| {
-        _ = x1; _ = x2; _ = x3;
+        _ = x1;
+        _ = x2;
+        _ = x3;
     }
 }
 

@@ -9,12 +9,16 @@ export fn entry2() void {
     _ = someFuncPtr;
 }
 
-fn foo(p: FooType) void {_ = p;}
+fn foo(p: FooType) void {
+    _ = p;
+}
 export fn entry3() void {
     _ = foo;
 }
 
-fn bar(p: @TypeOf(null)) void {_ = p;}
+fn bar(p: @TypeOf(null)) void {
+    _ = p;
+}
 export fn entry4() void {
     _ = bar;
 }

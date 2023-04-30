@@ -5,9 +5,9 @@ export fn entry() void {
 }
 fn foo(x: i32) !void {
     switch (x) {
-        0 ... 10 => return error.Foo,
-        11 ... 20 => return error.Bar,
-        21 ... 30 => return error.Baz,
+        0...10 => return error.Foo,
+        11...20 => return error.Bar,
+        21...30 => return error.Baz,
         else => {},
     }
 }

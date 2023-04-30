@@ -1,5 +1,7 @@
 export fn f1() void {
-    if (true) |x| { _ = x; }
+    if (true) |x| {
+        _ = x;
+    }
 }
 export fn f2() void {
     if (@as(usize, 5)) |_| {}

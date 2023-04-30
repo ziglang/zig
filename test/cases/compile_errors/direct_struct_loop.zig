@@ -1,5 +1,9 @@
-const A = struct { a : A, };
-export fn entry() usize { return @sizeOf(A); }
+const A = struct {
+    a: A,
+};
+export fn entry() usize {
+    return @sizeOf(A);
+}
 
 // error
 // backend=stage2

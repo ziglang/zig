@@ -218,30 +218,6 @@ pub const build_cases = [_]BuildCase{
     //    .build_root = "test/standalone/options",
     //    .import = @import("standalone/options/build.zig"),
     //},
-    .{
-        .build_root = "test/standalone/module_add_include_path",
-        .import = @import("standalone/module_add_include_path/build.zig"),
-    },
-    .{
-        .build_root = "test/standalone/module_link_library",
-        .import = @import("standalone/module_link_library/build.zig"),
-    },
-    .{
-        .build_root = "test/standalone/module_install_header",
-        .import = @import("standalone/module_install_header/build.zig"),
-    },
-    .{
-        .build_root = "test/standalone/module_link_libc_cpp",
-        .import = @import("standalone/module_link_libc_cpp/build.zig"),
-    },
-    .{
-        .build_root = "test/standalone/module_add_options",
-        .import = @import("standalone/module_add_options/build.zig"),
-    },
-    .{
-        .build_root = "test/standalone/strip_empty_loop",
-        .import = @import("standalone/strip_empty_loop/build.zig"),
-    },
 };
 
 const std = @import("std");

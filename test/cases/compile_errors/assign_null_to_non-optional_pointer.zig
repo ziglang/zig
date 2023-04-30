@@ -1,6 +1,8 @@
 const a: *u8 = null;
 
-export fn entry() usize { return @sizeOf(@TypeOf(a)); }
+export fn entry() usize {
+    return @sizeOf(@TypeOf(a));
+}
 
 // error
 // backend=stage2

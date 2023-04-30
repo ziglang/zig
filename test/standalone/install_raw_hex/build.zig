@@ -17,7 +17,9 @@ pub fn build(b: *std.Build) void {
 
     const elf = b.addExecutable(.{
         .name = "zig-nrf52-blink.elf",
-        .root_source_file = .{ .path = "main.zig" },
+        .main_module = b.createModule(.{
+            .source_file = .{ .path = "main.zig" },
+        }),
         .target = target,
         .optimize = optimize,
     });
