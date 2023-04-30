@@ -2557,6 +2557,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .slice_start,
             .slice_end,
             .slice_sentinel,
+            .slice_length,
             .import,
             .switch_block,
             .switch_cond,

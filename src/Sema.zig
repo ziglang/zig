@@ -985,6 +985,7 @@ fn analyzeBodyInner(
             .slice_end                    => try sema.zirSliceEnd(block, inst),
             .slice_sentinel               => try sema.zirSliceSentinel(block, inst),
             .slice_start                  => try sema.zirSliceStart(block, inst),
+            .slice_length                 => try sema.zirSliceLength(block, inst),
             .str                          => try sema.zirStr(block, inst),
             .switch_block                 => try sema.zirSwitchBlock(block, inst),
             .switch_cond                  => try sema.zirSwitchCond(block, inst, false),
@@ -9959,6 +9960,15 @@ fn zirSliceSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
 
     return sema.analyzeSlice(block, src, array_ptr, start, end, sentinel, sentinel_src, ptr_src, start_src, end_src);
+}
+
+fn zirSliceLength(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    return sema.fail(block, src, "TODO: implement .slice_length", .{});
 }
 
 fn zirSwitchCapture(

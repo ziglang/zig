@@ -1287,6 +1287,7 @@ fn walkInstruction(
                 .expr = .{ .sliceIndex = slice_index },
             };
         },
+        .slice_length => @panic("TODO: implement walkInstruction for .slice_length"),
 
         // @check array_cat and array_mul
         .add,
