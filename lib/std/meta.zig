@@ -965,10 +965,7 @@ test "intToEnum with error return" {
         A,
         B,
     };
-    const E3 = enum(i8) {
-        A,
-        _
-    };
+    const E3 = enum(i8) { A, _ };
 
     var zero: u8 = 0;
     var one: u16 = 1;
