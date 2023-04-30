@@ -1202,6 +1202,25 @@ fn appendSlice(list: *std.ArrayList(u8), buf: []const u8, max_value_len: usize) 
     try list.appendSlice(buf);
 }
 
+/// Scan the input and check for malformed JSON.
+/// On SyntaxError or UnexpectedEndOfInput, returns false.
+/// Returns any errors from the allocator as errors, which can be caused by extreme nesting depth in the input.
+pub fn validate(allocator: Allocator, s: []const u8) Allocator.Error!bool {
+    var scanner = JsonScanner.initCompleteInput(allocator, s);
+    defer scanner.deinit();
+
+    while (true) {
+        const token = scanner.next() catch |err| switch (err) {
+            error.SyntaxError, error.UnexpectedEndOfInput => return false,
+            error.OutOfMemory => return error.OutOfMemory,
+            error.BufferUnderrun => unreachable,
+        };
+        if (token == .end_of_document) break;
+    }
+
+    return true;
+}
+
 test {
     _ = @import("./scanner_test.zig");
 }

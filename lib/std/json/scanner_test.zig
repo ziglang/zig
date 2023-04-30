@@ -4,6 +4,7 @@ const jsonReader = @import("./scanner.zig").jsonReader;
 const JsonReader = @import("./scanner.zig").JsonReader;
 const Token = @import("./scanner.zig").Token;
 const JsonError = @import("./scanner.zig").JsonError;
+const validate = @import("./scanner.zig").validate;
 
 const example_document_str =
     \\{
@@ -21,6 +22,64 @@ const example_document_str =
     \\    }
     \\}
 ;
+
+fn expectNext(p: *JsonScanner, expected_token: Token) !void {
+    return expectEqualTokens(expected_token, try p.next());
+}
+
+test "json.token" {
+    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, example_document_str);
+    defer scanner.deinit();
+
+    try expectNext(&scanner, .object_begin);
+    try expectNext(&scanner, Token{ .string = "Image" });
+    try expectNext(&scanner, .object_begin);
+    try expectNext(&scanner, Token{ .string = "Width" });
+    try expectNext(&scanner, Token{ .number = "800" });
+    try expectNext(&scanner, Token{ .string = "Height" });
+    try expectNext(&scanner, Token{ .number = "600" });
+    try expectNext(&scanner, Token{ .string = "Title" });
+    try expectNext(&scanner, Token{ .string = "View from 15th Floor" });
+    try expectNext(&scanner, Token{ .string = "Thumbnail" });
+    try expectNext(&scanner, .object_begin);
+    try expectNext(&scanner, Token{ .string = "Url" });
+    try expectNext(&scanner, Token{ .string = "http://www.example.com/image/481989943" });
+    try expectNext(&scanner, Token{ .string = "Height" });
+    try expectNext(&scanner, Token{ .number = "125" });
+    try expectNext(&scanner, Token{ .string = "Width" });
+    try expectNext(&scanner, Token{ .number = "100" });
+    try expectNext(&scanner, .object_end);
+    try expectNext(&scanner, Token{ .string = "Animated" });
+    try expectNext(&scanner, .false);
+    try expectNext(&scanner, Token{ .string = "IDs" });
+    try expectNext(&scanner, .array_begin);
+    try expectNext(&scanner, Token{ .number = "116" });
+    try expectNext(&scanner, Token{ .number = "943" });
+    try expectNext(&scanner, Token{ .number = "234" });
+    try expectNext(&scanner, Token{ .number = "38793" });
+    try expectNext(&scanner, .array_end);
+    try expectNext(&scanner, .object_end);
+    try expectNext(&scanner, .object_end);
+    try expectNext(&scanner, .end_of_document);
+}
+
+test "json.token mismatched close" {
+    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, "[102, 111, 111 }");
+    defer scanner.deinit();
+    try expectNext(&scanner, .array_begin);
+    try expectNext(&scanner, Token{ .number = "102" });
+    try expectNext(&scanner, Token{ .number = "111" });
+    try expectNext(&scanner, Token{ .number = "111" });
+    try std.testing.expectError(error.SyntaxError, scanner.next());
+}
+
+test "json.token premature object close" {
+    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, "{ \"key\": }");
+    defer scanner.deinit();
+    try expectNext(&scanner, .object_begin);
+    try expectNext(&scanner, Token{ .string = "key" });
+    try std.testing.expectError(error.SyntaxError, scanner.next());
+}
 
 test "JsonScanner basic" {
     var scanner = JsonScanner.initCompleteInput(std.testing.allocator, example_document_str);
@@ -118,8 +177,8 @@ const nesting_test_cases = .{
     .{ error.SyntaxError, "{\"\":" ** 1000 ++ "0" ++ "}" ** 999 ++ "]" },
     .{ error.SyntaxError, "[" ** 1000 ++ "]" ** 1001 },
     .{ error.SyntaxError, "{\"\":" ** 1000 ++ "0" ++ "}" ** 1001 },
-    .{ error.UnexpectedEndOfDocument, "[" ** 1000 ++ "]" ** 999 },
-    .{ error.UnexpectedEndOfDocument, "{\"\":" ** 1000 ++ "0" ++ "}" ** 999 },
+    .{ error.UnexpectedEndOfInput, "[" ** 1000 ++ "]" ** 999 },
+    .{ error.UnexpectedEndOfInput, "{\"\":" ** 1000 ++ "0" ++ "}" ** 999 },
 };
 
 test "nesting" {
@@ -199,85 +258,11 @@ test "BufferUnderrun" {
     }
 }
 
-fn checkNext(p: *TokenStream, id: std.meta.Tag(Token)) !void {
-    const token = (p.next() catch unreachable).?;
-    try testing.expect(std.meta.activeTag(token) == id);
-}
-
-test "json.token" {
-    const s =
-        \\{
-        \\  "Image": {
-        \\      "Width":  800,
-        \\      "Height": 600,
-        \\      "Title":  "View from 15th Floor",
-        \\      "Thumbnail": {
-        \\          "Url":    "http://www.example.com/image/481989943",
-        \\          "Height": 125,
-        \\          "Width":  100
-        \\      },
-        \\      "Animated" : false,
-        \\      "IDs": [116, 943, 234, 38793]
-        \\    }
-        \\}
-    ;
-
-    var p = TokenStream.init(s);
-
-    try checkNext(&p, .ObjectBegin);
-    try checkNext(&p, .String); // Image
-    try checkNext(&p, .ObjectBegin);
-    try checkNext(&p, .String); // Width
-    try checkNext(&p, .Number);
-    try checkNext(&p, .String); // Height
-    try checkNext(&p, .Number);
-    try checkNext(&p, .String); // Title
-    try checkNext(&p, .String);
-    try checkNext(&p, .String); // Thumbnail
-    try checkNext(&p, .ObjectBegin);
-    try checkNext(&p, .String); // Url
-    try checkNext(&p, .String);
-    try checkNext(&p, .String); // Height
-    try checkNext(&p, .Number);
-    try checkNext(&p, .String); // Width
-    try checkNext(&p, .Number);
-    try checkNext(&p, .ObjectEnd);
-    try checkNext(&p, .String); // Animated
-    try checkNext(&p, .False);
-    try checkNext(&p, .String); // IDs
-    try checkNext(&p, .ArrayBegin);
-    try checkNext(&p, .Number);
-    try checkNext(&p, .Number);
-    try checkNext(&p, .Number);
-    try checkNext(&p, .Number);
-    try checkNext(&p, .ArrayEnd);
-    try checkNext(&p, .ObjectEnd);
-    try checkNext(&p, .ObjectEnd);
-
-    try testing.expect((try p.next()) == null);
-}
-
-test "json.token mismatched close" {
-    var p = TokenStream.init("[102, 111, 111 }");
-    try checkNext(&p, .ArrayBegin);
-    try checkNext(&p, .Number);
-    try checkNext(&p, .Number);
-    try checkNext(&p, .Number);
-    try testing.expectError(error.UnexpectedClosingBrace, p.next());
-}
-
-test "json.token premature object close" {
-    var p = TokenStream.init("{ \"key\": }");
-    try checkNext(&p, .ObjectBegin);
-    try checkNext(&p, .String);
-    try testing.expectError(error.InvalidValueBegin, p.next());
-}
-
 test "json.validate" {
-    try testing.expectEqual(true, validate("{}"));
-    try testing.expectEqual(true, validate("[]"));
-    try testing.expectEqual(true, validate("[{[[[[{}]]]]}]"));
-    try testing.expectEqual(false, validate("{]"));
-    try testing.expectEqual(false, validate("[}"));
-    try testing.expectEqual(false, validate("{{{{[]}}}]"));
+    try std.testing.expectEqual(true, try validate(std.testing.allocator, "{}"));
+    try std.testing.expectEqual(true, try validate(std.testing.allocator, "[]"));
+    try std.testing.expectEqual(false, try validate(std.testing.allocator, "[{[[[[{}]]]]}]"));
+    try std.testing.expectEqual(false, try validate(std.testing.allocator, "{]"));
+    try std.testing.expectEqual(false, try validate(std.testing.allocator, "[}"));
+    try std.testing.expectEqual(false, try validate(std.testing.allocator, "{{{{[]}}}]"));
 }
