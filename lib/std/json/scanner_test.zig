@@ -198,3 +198,86 @@ test "BufferUnderrun" {
         try testTinyBufferSize("\"" ++ tuple[0] ++ "\"");
     }
 }
+
+fn checkNext(p: *TokenStream, id: std.meta.Tag(Token)) !void {
+    const token = (p.next() catch unreachable).?;
+    try testing.expect(std.meta.activeTag(token) == id);
+}
+
+test "json.token" {
+    const s =
+        \\{
+        \\  "Image": {
+        \\      "Width":  800,
+        \\      "Height": 600,
+        \\      "Title":  "View from 15th Floor",
+        \\      "Thumbnail": {
+        \\          "Url":    "http://www.example.com/image/481989943",
+        \\          "Height": 125,
+        \\          "Width":  100
+        \\      },
+        \\      "Animated" : false,
+        \\      "IDs": [116, 943, 234, 38793]
+        \\    }
+        \\}
+    ;
+
+    var p = TokenStream.init(s);
+
+    try checkNext(&p, .ObjectBegin);
+    try checkNext(&p, .String); // Image
+    try checkNext(&p, .ObjectBegin);
+    try checkNext(&p, .String); // Width
+    try checkNext(&p, .Number);
+    try checkNext(&p, .String); // Height
+    try checkNext(&p, .Number);
+    try checkNext(&p, .String); // Title
+    try checkNext(&p, .String);
+    try checkNext(&p, .String); // Thumbnail
+    try checkNext(&p, .ObjectBegin);
+    try checkNext(&p, .String); // Url
+    try checkNext(&p, .String);
+    try checkNext(&p, .String); // Height
+    try checkNext(&p, .Number);
+    try checkNext(&p, .String); // Width
+    try checkNext(&p, .Number);
+    try checkNext(&p, .ObjectEnd);
+    try checkNext(&p, .String); // Animated
+    try checkNext(&p, .False);
+    try checkNext(&p, .String); // IDs
+    try checkNext(&p, .ArrayBegin);
+    try checkNext(&p, .Number);
+    try checkNext(&p, .Number);
+    try checkNext(&p, .Number);
+    try checkNext(&p, .Number);
+    try checkNext(&p, .ArrayEnd);
+    try checkNext(&p, .ObjectEnd);
+    try checkNext(&p, .ObjectEnd);
+
+    try testing.expect((try p.next()) == null);
+}
+
+test "json.token mismatched close" {
+    var p = TokenStream.init("[102, 111, 111 }");
+    try checkNext(&p, .ArrayBegin);
+    try checkNext(&p, .Number);
+    try checkNext(&p, .Number);
+    try checkNext(&p, .Number);
+    try testing.expectError(error.UnexpectedClosingBrace, p.next());
+}
+
+test "json.token premature object close" {
+    var p = TokenStream.init("{ \"key\": }");
+    try checkNext(&p, .ObjectBegin);
+    try checkNext(&p, .String);
+    try testing.expectError(error.InvalidValueBegin, p.next());
+}
+
+test "json.validate" {
+    try testing.expectEqual(true, validate("{}"));
+    try testing.expectEqual(true, validate("[]"));
+    try testing.expectEqual(true, validate("[{[[[[{}]]]]}]"));
+    try testing.expectEqual(false, validate("{]"));
+    try testing.expectEqual(false, validate("[}"));
+    try testing.expectEqual(false, validate("{{{{[]}}}]"));
+}

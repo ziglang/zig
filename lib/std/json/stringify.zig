@@ -1,3 +1,6 @@
+const std = @import("std");
+const mem = std.mem;
+const assert = std.debug.assert;
 
 pub const StringifyOptions = struct {
     pub const Whitespace = struct {
@@ -327,13 +330,6 @@ pub fn stringifyAlloc(allocator: std.mem.Allocator, value: anytype, options: Str
     return list.toOwnedSlice();
 }
 
-test {
-    _ = @import("json/test.zig");
-    _ = @import("json/scanner.zig");
-    _ = @import("json/write_stream.zig");
-    _ = @import("json/dynamic.zig");
-}
-
 const testing = std.testing;
 
 test "stringify null optional fields" {
@@ -409,7 +405,7 @@ test "stringify tagged unions" {
         foo: u32,
         bar: bool,
     };
-    try teststringify("{\"nothing\":{}}", T{ .nothing = {}}, StringifyOptions{});
+    try teststringify("{\"nothing\":{}}", T{ .nothing = {} }, StringifyOptions{});
     try teststringify("{\"foo\":42}", T{ .foo = 42 }, StringifyOptions{});
     try teststringify("{\"bar\":true}", T{ .bar = true }, StringifyOptions{});
 }
@@ -596,4 +592,15 @@ test "stringify struct with custom stringify that returns a custom error" {
     }{}, StringifyOptions{}, std.io.null_writer);
 
     try std.testing.expectError(error.CustomError, ret);
+}
+
+test "stringify alloc" {
+    const allocator = std.testing.allocator;
+    const expected =
+        \\{"foo":"bar","answer":42,"my_friend":"sammy"}
+    ;
+    const actual = try stringifyAlloc(allocator, .{ .foo = "bar", .answer = 42, .my_friend = "sammy" }, .{});
+    defer allocator.free(actual);
+
+    try std.testing.expectEqualStrings(expected, actual);
 }

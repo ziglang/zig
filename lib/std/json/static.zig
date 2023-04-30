@@ -1,3 +1,5 @@
+const std = @import("std");
+const mem = std.mem;
 
 pub const ParseOptions = struct {
     allocator: ?Allocator = null,
@@ -483,37 +485,37 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
         },
         .Struct => |structInfo| {
             inline for (structInfo.fields) |field| {
-                    var should_free = true;
-                    if (field.default_value) |default| {
-                        switch (@typeInfo(field.type)) {
-                            // We must not attempt to free pointers to struct default values
-                            .Pointer => |fieldPtrInfo| {
-                                const field_value = @field(value, field.name);
-                                const field_ptr = switch (fieldPtrInfo.size) {
-                                    .One => field_value,
-                                    .Slice => field_value.ptr,
-                                    else => unreachable, // Other pointer types are not parseable
-                                };
-                                const field_addr = @ptrToInt(field_ptr);
+                var should_free = true;
+                if (field.default_value) |default| {
+                    switch (@typeInfo(field.type)) {
+                        // We must not attempt to free pointers to struct default values
+                        .Pointer => |fieldPtrInfo| {
+                            const field_value = @field(value, field.name);
+                            const field_ptr = switch (fieldPtrInfo.size) {
+                                .One => field_value,
+                                .Slice => field_value.ptr,
+                                else => unreachable, // Other pointer types are not parseable
+                            };
+                            const field_addr = @ptrToInt(field_ptr);
 
-                                const casted_default = @ptrCast(*const field.type, @alignCast(@alignOf(field.type), default)).*;
-                                const default_ptr = switch (fieldPtrInfo.size) {
-                                    .One => casted_default,
-                                    .Slice => casted_default.ptr,
-                                    else => unreachable, // Other pointer types are not parseable
-                                };
-                                const default_addr = @ptrToInt(default_ptr);
+                            const casted_default = @ptrCast(*const field.type, @alignCast(@alignOf(field.type), default)).*;
+                            const default_ptr = switch (fieldPtrInfo.size) {
+                                .One => casted_default,
+                                .Slice => casted_default.ptr,
+                                else => unreachable, // Other pointer types are not parseable
+                            };
+                            const default_addr = @ptrToInt(default_ptr);
 
-                                if (field_addr == default_addr) {
-                                    should_free = false;
-                                }
-                            },
-                            else => {},
-                        }
+                            if (field_addr == default_addr) {
+                                should_free = false;
+                            }
+                        },
+                        else => {},
                     }
-                    if (should_free) {
-                        parseFree(field.type, @field(value, field.name), options);
-                    }
+                }
+                if (should_free) {
+                    parseFree(field.type, @field(value, field.name), options);
+                }
             }
         },
         .Array => |arrayInfo| {
@@ -607,7 +609,6 @@ pub fn unescapeValidString(output: []u8, input: []const u8) UnescapeValidStringE
     assert(outIndex == output.len);
 }
 
-
 test "skipValue" {
     var ts = TokenStream.init("false");
     try skipValue(&ts);
@@ -674,3 +675,462 @@ test "deserializing string with escape sequence into sentinel slice" {
     try testing.expect(mem.eql(u8, result, "\n"));
 }
 
+test "parse" {
+    var ts = TokenStream.init("false");
+    try testing.expectEqual(false, try parse(bool, &ts, ParseOptions{}));
+    ts = TokenStream.init("true");
+    try testing.expectEqual(true, try parse(bool, &ts, ParseOptions{}));
+    ts = TokenStream.init("1");
+    try testing.expectEqual(@as(u1, 1), try parse(u1, &ts, ParseOptions{}));
+    ts = TokenStream.init("50");
+    try testing.expectError(error.Overflow, parse(u1, &ts, ParseOptions{}));
+    ts = TokenStream.init("42");
+    try testing.expectEqual(@as(u64, 42), try parse(u64, &ts, ParseOptions{}));
+    ts = TokenStream.init("42.0");
+    try testing.expectEqual(@as(f64, 42), try parse(f64, &ts, ParseOptions{}));
+    ts = TokenStream.init("null");
+    try testing.expectEqual(@as(?bool, null), try parse(?bool, &ts, ParseOptions{}));
+    ts = TokenStream.init("true");
+    try testing.expectEqual(@as(?bool, true), try parse(?bool, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("\"foo\"");
+    try testing.expectEqual(@as([3]u8, "foo".*), try parse([3]u8, &ts, ParseOptions{}));
+    ts = TokenStream.init("[102, 111, 111]");
+    try testing.expectEqual(@as([3]u8, "foo".*), try parse([3]u8, &ts, ParseOptions{}));
+    ts = TokenStream.init("[]");
+    try testing.expectEqual(@as([0]u8, undefined), try parse([0]u8, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("\"12345678901234567890\"");
+    try testing.expectEqual(@as(u64, 12345678901234567890), try parse(u64, &ts, ParseOptions{}));
+    ts = TokenStream.init("\"123.456\"");
+    try testing.expectEqual(@as(f64, 123.456), try parse(f64, &ts, ParseOptions{}));
+}
+
+test "parse into enum" {
+    const T = enum(u32) {
+        Foo = 42,
+        Bar,
+        @"with\\escape",
+    };
+    var ts = TokenStream.init("\"Foo\"");
+    try testing.expectEqual(@as(T, .Foo), try parse(T, &ts, ParseOptions{}));
+    ts = TokenStream.init("42");
+    try testing.expectEqual(@as(T, .Foo), try parse(T, &ts, ParseOptions{}));
+    ts = TokenStream.init("\"with\\\\escape\"");
+    try testing.expectEqual(@as(T, .@"with\\escape"), try parse(T, &ts, ParseOptions{}));
+    ts = TokenStream.init("5");
+    try testing.expectError(error.InvalidEnumTag, parse(T, &ts, ParseOptions{}));
+    ts = TokenStream.init("\"Qux\"");
+    try testing.expectError(error.InvalidEnumTag, parse(T, &ts, ParseOptions{}));
+}
+
+test "parse with trailing data" {
+    var ts = TokenStream.init("falsed");
+    try testing.expectEqual(false, try parse(bool, &ts, ParseOptions{ .allow_trailing_data = true }));
+    ts = TokenStream.init("falsed");
+    try testing.expectError(error.InvalidTopLevelTrailing, parse(bool, &ts, ParseOptions{ .allow_trailing_data = false }));
+    // trailing whitespace is okay
+    ts = TokenStream.init("false \n");
+    try testing.expectEqual(false, try parse(bool, &ts, ParseOptions{ .allow_trailing_data = false }));
+}
+
+test "parse into that allocates a slice" {
+    var ts = TokenStream.init("\"foo\"");
+    try testing.expectError(error.AllocatorRequired, parse([]u8, &ts, ParseOptions{}));
+
+    const options = ParseOptions{ .allocator = testing.allocator };
+    {
+        ts = TokenStream.init("\"foo\"");
+        const r = try parse([]u8, &ts, options);
+        defer parseFree([]u8, r, options);
+        try testing.expectEqualSlices(u8, "foo", r);
+    }
+    {
+        ts = TokenStream.init("[102, 111, 111]");
+        const r = try parse([]u8, &ts, options);
+        defer parseFree([]u8, r, options);
+        try testing.expectEqualSlices(u8, "foo", r);
+    }
+    {
+        ts = TokenStream.init("\"with\\\\escape\"");
+        const r = try parse([]u8, &ts, options);
+        defer parseFree([]u8, r, options);
+        try testing.expectEqualSlices(u8, "with\\escape", r);
+    }
+}
+
+test "parse into tagged union" {
+    const T = union(enum) {
+        nothing,
+        int: i32,
+        float: f64,
+        string: []const u8,
+    };
+    var ts = TokenStream.init("{\"float\":1.5}");
+    try testing.expectEqual(T{ .float = 1.5 }, try parse(T, &ts, ParseOptions{}));
+    ts = TokenStream.init("{\"int\":1}");
+    try testing.expectEqual(T{ .int = 1 }, try parse(T, &ts, ParseOptions{}));
+    ts = TokenStream.init("{\"nothing\":{}}");
+    try testing.expectEqual(T{ .nothing = {} }, try parse(T, &ts, ParseOptions{}));
+}
+
+test "parse into tagged union errors" {
+    const T = union(enum) {
+        nothing,
+        int: i32,
+        float: f64,
+        string: []const u8,
+    };
+    var ts = TokenStream.init("42");
+    try testing.expectError(error.UnexpectedToken, parse(T, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("{}");
+    try testing.expectError(error.MissingField, parse(T, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("{\"bogus\":1}");
+    try testing.expectError(error.UnknownField, parse(T, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("{\"int\":1, \"int\":1}");
+    try testing.expectError(error.ConflictingUnionFields, parse(T, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("{\"int\":1, \"float\":1.0}");
+    try testing.expectError(error.ConflictingUnionFields, parse(T, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("{\"string\":\"foo\"}");
+    try testing.expectError(error.AllocatorRequired, parse(T, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("{\"nothing\":null}");
+    try testing.expectError(error.UnexpectedToken, parse(T, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("{\"nothing\":{\"no\":0}}");
+    try testing.expectError(error.UnexpectedToken, parse(T, &ts, ParseOptions{}));
+}
+
+test "parseFree descends into tagged union" {
+    var fail_alloc = testing.FailingAllocator.init(testing.allocator, 1);
+    const options = ParseOptions{ .allocator = fail_alloc.allocator() };
+    const T = union(enum) {
+        int: i32,
+        float: f64,
+        string: []const u8,
+    };
+    // use a string with unicode escape so we know result can't be a reference to global constant
+    var ts = TokenStream.init("{\"string\":\"with\\u0105unicode\"}");
+    const r = try parse(T, &ts, options);
+    try testing.expectEqual(std.meta.Tag(T).string, @as(std.meta.Tag(T), r));
+    try testing.expectEqualSlices(u8, "withąunicode", r.string);
+    try testing.expectEqual(@as(usize, 0), fail_alloc.deallocations);
+    parseFree(T, r, options);
+    try testing.expectEqual(@as(usize, 1), fail_alloc.deallocations);
+}
+
+test "parse into struct with no fields" {
+    const T = struct {};
+    var ts = TokenStream.init("{}");
+    try testing.expectEqual(T{}, try parse(T, &ts, ParseOptions{}));
+}
+
+const test_const_value: usize = 123;
+
+test "parse into struct with default const pointer field" {
+    const T = struct { a: *const usize = &test_const_value };
+    var ts = TokenStream.init("{}");
+    try testing.expectEqual(T{}, try parse(T, &ts, .{}));
+}
+
+const test_default_usize: usize = 123;
+const test_default_usize_ptr: *align(1) const usize = &test_default_usize;
+const test_default_str: []const u8 = "test str";
+const test_default_str_slice: [2][]const u8 = [_][]const u8{
+    "test1",
+    "test2",
+};
+
+test "freeing parsed structs with pointers to default values" {
+    const T = struct {
+        int: *const usize = &test_default_usize,
+        int_ptr: *allowzero align(1) const usize = test_default_usize_ptr,
+        str: []const u8 = test_default_str,
+        str_slice: []const []const u8 = &test_default_str_slice,
+    };
+
+    var ts = json.TokenStream.init("{}");
+    const options = .{ .allocator = std.heap.page_allocator };
+    const parsed = try json.parse(T, &ts, options);
+
+    try testing.expectEqual(T{}, parsed);
+
+    json.parseFree(T, parsed, options);
+}
+
+test "parse into struct where destination and source lengths mismatch" {
+    const T = struct { a: [2]u8 };
+    var ts = TokenStream.init("{\"a\": \"bbb\"}");
+    try testing.expectError(error.LengthMismatch, parse(T, &ts, ParseOptions{}));
+}
+
+test "parse into struct with misc fields" {
+    @setEvalBranchQuota(10000);
+    const options = ParseOptions{ .allocator = testing.allocator };
+    const T = struct {
+        int: i64,
+        float: f64,
+        @"with\\escape": bool,
+        @"withąunicode😂": bool,
+        language: []const u8,
+        optional: ?bool,
+        default_field: i32 = 42,
+        static_array: [3]f64,
+        dynamic_array: []f64,
+
+        complex: struct {
+            nested: []const u8,
+        },
+
+        veryComplex: []struct {
+            foo: []const u8,
+        },
+
+        a_union: Union,
+        const Union = union(enum) {
+            x: u8,
+            float: f64,
+            string: []const u8,
+        };
+    };
+    var ts = TokenStream.init(
+        \\{
+        \\  "int": 420,
+        \\  "float": 3.14,
+        \\  "with\\escape": true,
+        \\  "with\u0105unicode\ud83d\ude02": false,
+        \\  "language": "zig",
+        \\  "optional": null,
+        \\  "static_array": [66.6, 420.420, 69.69],
+        \\  "dynamic_array": [66.6, 420.420, 69.69],
+        \\  "complex": {
+        \\    "nested": "zig"
+        \\  },
+        \\  "veryComplex": [
+        \\    {
+        \\      "foo": "zig"
+        \\    }, {
+        \\      "foo": "rocks"
+        \\    }
+        \\  ],
+        \\  "a_union": {
+        \\    "float": 100000
+        \\  }
+        \\}
+    );
+    const r = try parse(T, &ts, options);
+    defer parseFree(T, r, options);
+    try testing.expectEqual(@as(i64, 420), r.int);
+    try testing.expectEqual(@as(f64, 3.14), r.float);
+    try testing.expectEqual(true, r.@"with\\escape");
+    try testing.expectEqual(false, r.@"withąunicode😂");
+    try testing.expectEqualSlices(u8, "zig", r.language);
+    try testing.expectEqual(@as(?bool, null), r.optional);
+    try testing.expectEqual(@as(i32, 42), r.default_field);
+    try testing.expectEqual(@as(f64, 66.6), r.static_array[0]);
+    try testing.expectEqual(@as(f64, 420.420), r.static_array[1]);
+    try testing.expectEqual(@as(f64, 69.69), r.static_array[2]);
+    try testing.expectEqual(@as(usize, 3), r.dynamic_array.len);
+    try testing.expectEqual(@as(f64, 66.6), r.dynamic_array[0]);
+    try testing.expectEqual(@as(f64, 420.420), r.dynamic_array[1]);
+    try testing.expectEqual(@as(f64, 69.69), r.dynamic_array[2]);
+    try testing.expectEqualSlices(u8, r.complex.nested, "zig");
+    try testing.expectEqualSlices(u8, "zig", r.veryComplex[0].foo);
+    try testing.expectEqualSlices(u8, "rocks", r.veryComplex[1].foo);
+    try testing.expectEqual(T.Union{ .float = 100000 }, r.a_union);
+}
+
+test "parse into struct with strings and arrays with sentinels" {
+    @setEvalBranchQuota(10000);
+    const options = ParseOptions{ .allocator = testing.allocator };
+    const T = struct {
+        language: [:0]const u8,
+        language_without_sentinel: []const u8,
+        data: [:99]const i32,
+        simple_data: []const i32,
+    };
+    var ts = TokenStream.init(
+        \\{
+        \\  "language": "zig",
+        \\  "language_without_sentinel": "zig again!",
+        \\  "data": [1, 2, 3],
+        \\  "simple_data": [4, 5, 6]
+        \\}
+    );
+    const r = try parse(T, &ts, options);
+    defer parseFree(T, r, options);
+
+    try testing.expectEqualSentinel(u8, 0, "zig", r.language);
+
+    const data = [_:99]i32{ 1, 2, 3 };
+    try testing.expectEqualSentinel(i32, 99, data[0..data.len], r.data);
+
+    // Make sure that arrays who aren't supposed to have a sentinel still parse without one.
+    try testing.expectEqual(@as(?i32, null), std.meta.sentinel(@TypeOf(r.simple_data)));
+    try testing.expectEqual(@as(?u8, null), std.meta.sentinel(@TypeOf(r.language_without_sentinel)));
+}
+
+test "parse into struct with duplicate field" {
+    // allow allocator to detect double frees by keeping bucket in use
+    const ballast = try testing.allocator.alloc(u64, 1);
+    defer testing.allocator.free(ballast);
+
+    const options_first = ParseOptions{ .allocator = testing.allocator, .duplicate_field_behavior = .UseFirst };
+
+    const options_last = ParseOptions{
+        .allocator = testing.allocator,
+        .duplicate_field_behavior = .UseLast,
+    };
+
+    const str = "{ \"a\": 1, \"a\": 0.25 }";
+
+    const T1 = struct { a: *u64 };
+    // both .UseFirst and .UseLast should fail because second "a" value isn't a u64
+    var ts = TokenStream.init(str);
+    try testing.expectError(error.InvalidNumber, parse(T1, &ts, options_first));
+    ts = TokenStream.init(str);
+    try testing.expectError(error.InvalidNumber, parse(T1, &ts, options_last));
+
+    const T2 = struct { a: f64 };
+    ts = TokenStream.init(str);
+    try testing.expectEqual(T2{ .a = 1.0 }, try parse(T2, &ts, options_first));
+    ts = TokenStream.init(str);
+    try testing.expectEqual(T2{ .a = 0.25 }, try parse(T2, &ts, options_last));
+}
+
+test "parse into struct ignoring unknown fields" {
+    const T = struct {
+        int: i64,
+        language: []const u8,
+    };
+
+    const ops = ParseOptions{
+        .allocator = testing.allocator,
+        .ignore_unknown_fields = true,
+    };
+
+    var ts = TokenStream.init(
+        \\{
+        \\  "int": 420,
+        \\  "float": 3.14,
+        \\  "with\\escape": true,
+        \\  "with\u0105unicode\ud83d\ude02": false,
+        \\  "optional": null,
+        \\  "static_array": [66.6, 420.420, 69.69],
+        \\  "dynamic_array": [66.6, 420.420, 69.69],
+        \\  "complex": {
+        \\    "nested": "zig"
+        \\  },
+        \\  "veryComplex": [
+        \\    {
+        \\      "foo": "zig"
+        \\    }, {
+        \\      "foo": "rocks"
+        \\    }
+        \\  ],
+        \\  "a_union": 100000,
+        \\  "language": "zig"
+        \\}
+    );
+    const r = try parse(T, &ts, ops);
+    defer parseFree(T, r, ops);
+
+    try testing.expectEqual(@as(i64, 420), r.int);
+    try testing.expectEqualSlices(u8, "zig", r.language);
+}
+
+test "parse into tuple" {
+    const options = ParseOptions{ .allocator = testing.allocator };
+    const Union = union(enum) {
+        char: u8,
+        float: f64,
+        string: []const u8,
+    };
+    const T = std.meta.Tuple(&.{
+        i64,
+        f64,
+        bool,
+        []const u8,
+        ?bool,
+        struct {
+            foo: i32,
+            bar: []const u8,
+        },
+        std.meta.Tuple(&.{ u8, []const u8, u8 }),
+        Union,
+    });
+    var ts = TokenStream.init(
+        \\[
+        \\  420,
+        \\  3.14,
+        \\  true,
+        \\  "zig",
+        \\  null,
+        \\  {
+        \\    "foo": 1,
+        \\    "bar": "zero"
+        \\  },
+        \\  [4, "två", 42],
+        \\  {"float": 12.34}
+        \\]
+    );
+    const r = try parse(T, &ts, options);
+    defer parseFree(T, r, options);
+    try testing.expectEqual(@as(i64, 420), r[0]);
+    try testing.expectEqual(@as(f64, 3.14), r[1]);
+    try testing.expectEqual(true, r[2]);
+    try testing.expectEqualSlices(u8, "zig", r[3]);
+    try testing.expectEqual(@as(?bool, null), r[4]);
+    try testing.expectEqual(@as(i32, 1), r[5].foo);
+    try testing.expectEqualSlices(u8, "zero", r[5].bar);
+    try testing.expectEqual(@as(u8, 4), r[6][0]);
+    try testing.expectEqualSlices(u8, "två", r[6][1]);
+    try testing.expectEqual(@as(u8, 42), r[6][2]);
+    try testing.expectEqual(Union{ .float = 12.34 }, r[7]);
+}
+
+const ParseIntoRecursiveUnionDefinitionValue = union(enum) {
+    integer: i64,
+    array: []const ParseIntoRecursiveUnionDefinitionValue,
+};
+
+test "parse into recursive union definition" {
+    const T = struct {
+        values: ParseIntoRecursiveUnionDefinitionValue,
+    };
+    const ops = ParseOptions{ .allocator = testing.allocator };
+
+    var ts = TokenStream.init("{\"values\":{\"array\":[{\"integer\":58}]}}");
+    const r = try parse(T, &ts, ops);
+    defer parseFree(T, r, ops);
+
+    try testing.expectEqual(@as(i64, 58), r.values.array[0].integer);
+}
+
+const ParseIntoDoubleRecursiveUnionValueFirst = union(enum) {
+    integer: i64,
+    array: []const ParseIntoDoubleRecursiveUnionValueSecond,
+};
+
+const ParseIntoDoubleRecursiveUnionValueSecond = union(enum) {
+    boolean: bool,
+    array: []const ParseIntoDoubleRecursiveUnionValueFirst,
+};
+
+test "parse into double recursive union definition" {
+    const T = struct {
+        values: ParseIntoDoubleRecursiveUnionValueFirst,
+    };
+    const ops = ParseOptions{ .allocator = testing.allocator };
+
+    var ts = TokenStream.init("{\"values\":{\"array\":[{\"array\":[{\"integer\":58}]}]}}");
+    const r = try parse(T, &ts, ops);
+    defer parseFree(T, r, ops);
+
+    try testing.expectEqual(@as(i64, 58), r.values.array[0].array[0].integer);
+}

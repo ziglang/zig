@@ -1,13 +1,5 @@
-
 const std = @import("std");
-const debug = std.debug;
-const assert = debug.assert;
-const mem = std.mem;
-const maxInt = std.math.maxInt;
 const Allocator = std.mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayList = std.ArrayList;
-const StringArrayHashMap = std.StringArrayHashMap;
 
 pub const WriteStream = @import("json/write_stream.zig").WriteStream;
 pub const writeStream = @import("json/write_stream.zig").writeStream;
@@ -30,3 +22,11 @@ pub fn validate(allocator: Allocator, s: []const u8) bool {
     return true;
 }
 
+test {
+    _ = @import("json/test.zig");
+    _ = @import("json/scanner.zig");
+    _ = @import("json/write_stream.zig");
+    _ = @import("json/dynamic.zig");
+    _ = @import("json/static.zig");
+    _ = @import("json/stringify.zig");
+}
