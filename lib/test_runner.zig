@@ -99,13 +99,13 @@ fn mainServer() !void {
                 var fail = false;
                 var skip = false;
                 var leak = false;
-                var err: ?anyerror = null;
+                var err_name: []const u8 = "";
 
                 test_fn.func() catch |e| switch (e) {
                     error.SkipZigTest => skip = true,
                     else => {
                         fail = true;
-                        err = e;
+                        err_name = @errorName(e);
                         if (@errorReturnTrace()) |trace| {
                             std.debug.dumpStackTrace(trace.*);
                         }
@@ -113,8 +113,6 @@ fn mainServer() !void {
                 };
 
                 leak = std.testing.allocator_instance.deinit() == .leak;
-                const err_name = if (err) |e| @errorName(e) else "";
-
                 try server.serveTestResults(
                     err_name,
                     .{

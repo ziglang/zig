@@ -188,14 +188,14 @@ pub fn serveTestResults(
     results: OutMessage.TestResults,
 ) !void {
     assert(results.err_len == error_name.len);
-    const msg_le = bswap(results);
+    const result_le = bswap(results);
     const bytes_len = @sizeOf(OutMessage.TestResults) + error_name.len;
 
     try s.serveMessage(.{
         .tag = .test_results,
         .bytes_len = @intCast(u32, bytes_len),
     }, &.{
-        std.mem.asBytes(&msg_le),
+        std.mem.asBytes(&result_le),
         error_name,
     });
 }
