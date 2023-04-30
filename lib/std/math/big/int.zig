@@ -408,7 +408,7 @@ pub const Mutable = struct {
     }
 
     /// Base implementation for addition. Adds `max(a.limbs.len, b.limbs.len)` elements from a and b,
-    /// and returns whether any overflow occured.
+    /// and returns whether any overflow occurred.
     /// r, a and b may be aliases.
     ///
     /// Asserts r has enough elements to hold the result. The upper bound is `max(a.limbs.len, b.limbs.len)`.
@@ -467,7 +467,7 @@ pub const Mutable = struct {
         const req_limbs = calcTwosCompLimbCount(bit_count);
 
         // Slice of the upper bits if they exist, these will be ignored and allows us to use addCarry to determine
-        // if an overflow occured.
+        // if an overflow occurred.
         const x = Const{
             .positive = a.positive,
             .limbs = a.limbs[0..math.min(req_limbs, a.limbs.len)],
@@ -512,7 +512,7 @@ pub const Mutable = struct {
         const req_limbs = calcTwosCompLimbCount(bit_count);
 
         // Slice of the upper bits if they exist, these will be ignored and allows us to use addCarry to determine
-        // if an overflow occured.
+        // if an overflow occurred.
         const x = Const{
             .positive = a.positive,
             .limbs = a.limbs[0..math.min(req_limbs, a.limbs.len)],
@@ -544,7 +544,7 @@ pub const Mutable = struct {
     }
 
     /// Base implementation for subtraction. Subtracts `max(a.limbs.len, b.limbs.len)` elements from a and b,
-    /// and returns whether any overflow occured.
+    /// and returns whether any overflow occurred.
     /// r, a and b may be aliases.
     ///
     /// Asserts r has enough elements to hold the result. The upper bound is `max(a.limbs.len, b.limbs.len)`.
@@ -605,7 +605,7 @@ pub const Mutable = struct {
         r.add(a, b.negate());
     }
 
-    /// r = a - b with 2s-complement wrapping semantics. Returns whether any overflow occured.
+    /// r = a - b with 2s-complement wrapping semantics. Returns whether any overflow occurred.
     ///
     /// r, a and b may be aliases
     /// Asserts the result fits in `r`. An upper bound on the number of limbs needed by
@@ -1141,7 +1141,7 @@ pub const Mutable = struct {
             return;
         }
 
-        // Generate a mask with the bits to check in the most signficant limb. We'll need to check
+        // Generate a mask with the bits to check in the most significant limb. We'll need to check
         // all bits with equal or more significance than checkbit.
         // const msb = @truncate(Log2Limb, checkbit);
         // const checkmask = (@as(Limb, 1) << msb) -% 1;
@@ -2037,7 +2037,7 @@ pub const Const = struct {
                 add_res = ov[0];
                 carry = ov[1];
                 sum += @popCount(add_res);
-                remaining_bits -= limb_bits; // Asserted not to undeflow by fitsInTwosComp
+                remaining_bits -= limb_bits; // Asserted not to underflow by fitsInTwosComp
             }
 
             // The most significant limb may have fewer than @bitSizeOf(Limb) meaningful bits,
@@ -2813,7 +2813,7 @@ pub const Managed = struct {
         r.setMetadata(m.positive, m.len);
     }
 
-    /// r = a + b with 2s-complement wrapping semantics. Returns whether any overflow occured.
+    /// r = a + b with 2s-complement wrapping semantics. Returns whether any overflow occurred.
     ///
     /// r, a and b may be aliases.
     ///
@@ -2856,7 +2856,7 @@ pub const Managed = struct {
         r.setMetadata(m.positive, m.len);
     }
 
-    /// r = a - b with 2s-complement wrapping semantics. Returns whether any overflow occured.
+    /// r = a - b with 2s-complement wrapping semantics. Returns whether any overflow occurred.
     ///
     /// r, a and b may be aliases.
     ///
@@ -4010,7 +4010,7 @@ fn llsquareBasecase(r: []Limb, x: []const Limb) void {
     assert(r.len >= 2 * x_norm.len + 1);
 
     // Compute the square of a N-limb bigint with only (N^2 + N)/2
-    // multiplications by exploting the symmetry of the coefficients around the
+    // multiplications by exploiting the symmetry of the coefficients around the
     // diagonal:
     //
     //           a   b   c *

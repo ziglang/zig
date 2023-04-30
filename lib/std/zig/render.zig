@@ -681,7 +681,7 @@ fn renderExpression(gpa: Allocator, ais: *Ais, tree: Ast, node: Ast.Node.Index, 
 
             try renderToken(ais, tree, switch_token, .space); // switch keyword
             try renderToken(ais, tree, switch_token + 1, .none); // lparen
-            try renderExpression(gpa, ais, tree, condition, .none); // condtion expression
+            try renderExpression(gpa, ais, tree, condition, .none); // condition expression
             try renderToken(ais, tree, rparen, .space); // rparen
 
             ais.pushIndentNextLine();

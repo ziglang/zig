@@ -1822,7 +1822,7 @@ pub const file_obj = extern struct {
     name: [*:0]u8,
 };
 
-// struct ifreq is marked obsolete, with struct lifreq prefered for interface requests.
+// struct ifreq is marked obsolete, with struct lifreq preferred for interface requests.
 // Here we alias lifreq to ifreq to avoid chainging existing code in os and x.os.IPv6.
 pub const SIOCGLIFINDEX = IOWR('i', 133, lifreq);
 pub const SIOCGIFINDEX = SIOCGLIFINDEX;
