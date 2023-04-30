@@ -37,10 +37,10 @@ const assert = std.debug.assert;
 /// The parsing errors are divided into two categories:
 ///  * SyntaxError is for clearly malformed JSON documents,
 ///    such as giving an input document that isn't JSON at all.
-///  * UnexpectedEndOfDocument is for signaling that everything's been
+///  * UnexpectedEndOfInput is for signaling that everything's been
 ///    valid so far, but the input appears to be truncated for some reason.
-/// Note that a completely empty (or whitespace-only) input will give UnexpectedEndOfDocument.
-pub const JsonError = error{ SyntaxError, UnexpectedEndOfDocument };
+/// Note that a completely empty (or whitespace-only) input will give UnexpectedEndOfInput.
+pub const JsonError = error{ SyntaxError, UnexpectedEndOfInput };
 
 /// Calls JsonReader() with default_buffer_size.
 pub fn jsonReader(allocator: Allocator, reader: anytype) JsonReader(default_buffer_size, @TypeOf(reader)) {
@@ -384,7 +384,7 @@ pub const JsonScanner = struct {
                                 // We did it!
                                 return .end_of_document;
                             }
-                            return error.UnexpectedEndOfDocument;
+                            return error.UnexpectedEndOfInput;
                         }
                         return error.BufferUnderrun;
                     }
@@ -648,7 +648,7 @@ pub const JsonScanner = struct {
                             else => continue,
                         }
                     }
-                    if (self.is_end_of_input) return error.UnexpectedEndOfDocument;
+                    if (self.is_end_of_input) return error.UnexpectedEndOfInput;
                     const slice = self.takeValueSlice();
                     if (slice.len > 0) return Token{ .partial_string = slice };
                     return error.BufferUnderrun;
@@ -1050,7 +1050,7 @@ pub const JsonScanner = struct {
 
     fn expectMoreContent(self: *const @This()) !void {
         if (self.cursor < self.input.len) return;
-        if (self.is_end_of_input) return error.UnexpectedEndOfDocument;
+        if (self.is_end_of_input) return error.UnexpectedEndOfInput;
         return error.BufferUnderrun;
     }
 
@@ -1074,7 +1074,7 @@ pub const JsonScanner = struct {
     fn endOfBufferInNumber(self: *@This(), allow_end: bool) !Token {
         const slice = self.takeValueSlice();
         if (self.is_end_of_input) {
-            if (!allow_end) return error.UnexpectedEndOfDocument;
+            if (!allow_end) return error.UnexpectedEndOfInput;
             self.state = .post_value;
             return Token{ .number = slice };
         }
