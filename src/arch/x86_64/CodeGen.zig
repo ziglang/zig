@@ -6413,10 +6413,10 @@ fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
     const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
     defer self.register_manager.unlockReg(addr_lock);
 
+    const mod = self.bin_file.options.module.?;
+    const lazy_sym = link.File.LazySymbol.initDecl(.const_data, null, mod);
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const atom_index = try elf_file.getOrCreateAtomForLazySymbol(
-            .{ .kind = .const_data, .ty = Type.anyerror },
-        );
+        const atom_index = try elf_file.getOrCreateAtomForLazySymbol(lazy_sym);
         const atom = elf_file.getAtom(atom_index);
         _ = try atom.getOrCreateOffsetTableEntry(elf_file);
         const got_addr = atom.getOffsetTableAddress(elf_file);
@@ -6426,15 +6426,11 @@ fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
             Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = @intCast(i32, got_addr) }),
         );
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-        const atom_index = try coff_file.getOrCreateAtomForLazySymbol(
-            .{ .kind = .const_data, .ty = Type.anyerror },
-        );
+        const atom_index = try coff_file.getOrCreateAtomForLazySymbol(lazy_sym);
         const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
         try self.genSetReg(addr_reg, Type.usize, .{ .lea_got = sym_index });
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-        const atom_index = try macho_file.getOrCreateAtomForLazySymbol(
-            .{ .kind = .const_data, .ty = Type.anyerror },
-        );
+        const atom_index = try macho_file.getOrCreateAtomForLazySymbol(lazy_sym);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
         try self.genSetReg(addr_reg, Type.usize, .{ .lea_got = sym_index });
     } else {
@@ -8498,10 +8494,10 @@ fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
     const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
     defer self.register_manager.unlockReg(addr_lock);
 
+    const mod = self.bin_file.options.module.?;
+    const lazy_sym = link.File.LazySymbol.initDecl(.const_data, null, mod);
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const atom_index = try elf_file.getOrCreateAtomForLazySymbol(
-            .{ .kind = .const_data, .ty = Type.anyerror },
-        );
+        const atom_index = try elf_file.getOrCreateAtomForLazySymbol(lazy_sym);
         const atom = elf_file.getAtom(atom_index);
         _ = try atom.getOrCreateOffsetTableEntry(elf_file);
         const got_addr = atom.getOffsetTableAddress(elf_file);
@@ -8511,15 +8507,11 @@ fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
             Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = @intCast(i32, got_addr) }),
         );
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-        const atom_index = try coff_file.getOrCreateAtomForLazySymbol(
-            .{ .kind = .const_data, .ty = Type.anyerror },
-        );
+        const atom_index = try coff_file.getOrCreateAtomForLazySymbol(lazy_sym);
         const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
         try self.genSetReg(addr_reg, Type.usize, .{ .lea_got = sym_index });
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-        const atom_index = try macho_file.getOrCreateAtomForLazySymbol(
-            .{ .kind = .const_data, .ty = Type.anyerror },
-        );
+        const atom_index = try macho_file.getOrCreateAtomForLazySymbol(lazy_sym);
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
         try self.genSetReg(addr_reg, Type.usize, .{ .lea_got = sym_index });
     } else {
