@@ -1,8 +1,8 @@
 const std = @import("std");
 const JsonScanner = @import("./scanner.zig").JsonScanner;
-const allocatingJsonReader = @import("./scanner.zig").allocatingJsonReader;
-const AllocatingJsonReader = @import("./scanner.zig").AllocatingJsonReader;
-const AllocatedToken = @import("./scanner.zig").AllocatedToken;
+const jsonReader = @import("./scanner.zig").jsonReader;
+const JsonReader = @import("./scanner.zig").JsonReader;
+const Token = @import("./scanner.zig").Token;
 const JsonError = @import("./scanner.zig").JsonError;
 
 const example_document_str =
@@ -23,11 +23,8 @@ const example_document_str =
 ;
 
 test "JsonScanner basic" {
-    var scanner = JsonScanner.init(std.testing.allocator);
+    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, example_document_str);
     defer scanner.deinit();
-
-    scanner.feedInput(example_document_str);
-    scanner.endInput();
 
     while (true) {
         const token = try scanner.next();
@@ -35,13 +32,10 @@ test "JsonScanner basic" {
     }
 }
 
-test "AllocatingJsonReader basic" {
+test "JsonReader basic" {
     var stream = std.io.fixedBufferStream(example_document_str);
 
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    var json_reader = allocatingJsonReader(std.testing.allocator, arena.allocator(), stream.reader());
+    var json_reader = jsonReader(std.testing.allocator, stream.reader());
     defer json_reader.deinit();
 
     while (true) {
@@ -72,16 +66,14 @@ const number_test_items = blk: {
 
 test "numbers" {
     for (number_test_items) |number_str| {
-        var scanner = JsonScanner.init(std.testing.allocator);
+        var scanner = JsonScanner.initCompleteInput(std.testing.allocator, number_str);
         defer scanner.deinit();
 
-        scanner.feedInput(number_str);
-        scanner.endInput();
         const token = try scanner.next();
-        const token_len = token.number; // assert this is a number
-        try std.testing.expectEqualStrings(number_str, scanner.peekValue(token_len));
+        const value = token.number; // assert this is a number
+        try std.testing.expectEqualStrings(number_str, value);
 
-        try std.testing.expectEqual(JsonScanner.Token.end_of_document, try scanner.next());
+        try std.testing.expectEqual(Token.end_of_document, try scanner.next());
     }
 }
 
@@ -104,14 +96,14 @@ test "strings" {
         var stream = std.io.fixedBufferStream("\"" ++ tuple[0] ++ "\"");
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();
-        var json_reader = allocatingJsonReader(std.testing.allocator, arena.allocator(), stream.reader());
+        var json_reader = jsonReader(std.testing.allocator, stream.reader());
         defer json_reader.deinit();
 
-        const token = try json_reader.next();
-        const value = token.string; // assert this is a string
+        const token = try json_reader.nextAlwaysAlloc(arena.allocator(), 0x1000);
+        const value = token.allocated_string; // assert this is a string
         try std.testing.expectEqualStrings(tuple[1], value);
 
-        try std.testing.expectEqual(AllocatedToken.end_of_document, try json_reader.next());
+        try std.testing.expectEqual(Token.end_of_document, try json_reader.next());
     }
 }
 
@@ -143,11 +135,8 @@ test "nesting" {
 }
 
 fn expectMaybeError(document_str: []const u8, maybe_error: ?JsonError) !void {
-    var scanner = JsonScanner.init(std.testing.allocator);
+    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, document_str);
     defer scanner.deinit();
-
-    scanner.feedInput(document_str);
-    scanner.endInput();
 
     while (true) {
         const token = scanner.next() catch |err| {
@@ -161,7 +150,7 @@ fn expectMaybeError(document_str: []const u8, maybe_error: ?JsonError) !void {
     if (maybe_error != null) return error.ExpectedError;
 }
 
-fn expectEqualTokens(expected_token: AllocatedToken, actual_token: AllocatedToken) !void {
+fn expectEqualTokens(expected_token: Token, actual_token: Token) !void {
     try std.testing.expectEqual(std.meta.activeTag(expected_token), std.meta.activeTag(actual_token));
     switch (expected_token) {
         .number => |expected_value| {
@@ -178,22 +167,9 @@ fn testTinyBufferSize(document_str: []const u8) !void {
     var tiny_stream = std.io.fixedBufferStream(document_str);
     var normal_stream = std.io.fixedBufferStream(document_str);
 
-    var tiny_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer tiny_arena.deinit();
-    var normal_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer normal_arena.deinit();
-
-    var tiny_json_reader = AllocatingJsonReader(1, @TypeOf(tiny_stream.reader())){
-        .scanner = JsonScanner.init(std.testing.allocator),
-        .reader = tiny_stream.reader(),
-        .value_allocator = tiny_arena.allocator(),
-    };
+    var tiny_json_reader = JsonReader(1, @TypeOf(tiny_stream.reader())).init(std.testing.allocator, tiny_stream.reader());
     defer tiny_json_reader.deinit();
-    var normal_json_reader = AllocatingJsonReader(0x1000, @TypeOf(normal_stream.reader())){
-        .scanner = JsonScanner.init(std.testing.allocator),
-        .reader = normal_stream.reader(),
-        .value_allocator = normal_arena.allocator(),
-    };
+    var normal_json_reader = JsonReader(0x1000, @TypeOf(normal_stream.reader())).init(std.testing.allocator, normal_stream.reader());
     defer normal_json_reader.deinit();
 
     expectEqualStreamOfTokens(&normal_json_reader, &tiny_json_reader) catch |err| {
@@ -202,11 +178,14 @@ fn testTinyBufferSize(document_str: []const u8) !void {
     };
 }
 fn expectEqualStreamOfTokens(control_json_reader: anytype, test_json_reader: anytype) !void {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
     while (true) {
-        const control_token = try control_json_reader.next();
-        const test_token = try test_json_reader.next();
+        const control_token = try control_json_reader.nextAlwaysAlloc(arena.allocator(), 0x1000);
+        const test_token = try test_json_reader.nextAlwaysAlloc(arena.allocator(), 0x1000);
         try expectEqualTokens(control_token, test_token);
         if (control_token == .end_of_document) break;
+        _ = arena.reset(.retain_capacity);
     }
 }
 
